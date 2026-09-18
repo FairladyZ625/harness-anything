@@ -303,10 +303,10 @@ export function makeSquadCoordinator(input: {
               return agent === null ? null : parseAgentDeclarationV1(agent.value);
             },
           });
-          if (outcome.status === "ok") return null;
+          if (outcome.kind === "ok") return null;
           return {
             agentId,
-            hint: outcome.status === "invalid" ? outcome.error.message : `Install agent/${agentId}`,
+            hint: outcome.kind === "invalid" ? outcome.error.message : `Install agent/${agentId}`,
           };
         })
         .filter((entry): entry is { readonly agentId: string; readonly hint: string } => entry !== null);

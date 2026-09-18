@@ -399,14 +399,14 @@ function scheduleAgentOptions(context: SchedulesGuiReadContext): readonly Schedu
         agentId,
         read: () => parseAgentDeclarationV1(row.value),
       });
-      if (uninterpretable.status === "invalid") hint = uninterpretable.error.message;
+      if (uninterpretable.kind === "invalid") hint = uninterpretable.error.message;
       return { agentId, state: "invalid", error: { code: "invalid_entity_projection", hint } };
     }
     const outcome = storedAgentDeclarationOutcome({
       agentId,
       read: () => parseAgentDeclarationV1(row.value),
     });
-    if (outcome.status === "ok") {
+    if (outcome.kind === "ok") {
       const agent = outcome.value;
       return { agentId: agent.id, name: agent.name, runtimes: agent.runtimes };
     }
@@ -415,7 +415,7 @@ function scheduleAgentOptions(context: SchedulesGuiReadContext): readonly Schedu
       state: "invalid",
       error: {
         code: "invalid_entity_contract",
-        hint: outcome.status === "invalid" ? outcome.error.message : `${agentId} is not an installed agent.`,
+        hint: outcome.kind === "invalid" ? outcome.error.message : `${agentId} is not an installed agent.`,
       },
     };
   });

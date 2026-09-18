@@ -69,14 +69,14 @@ function listAgents(cell: RepoCellRuntimeContext): object {
       agentId: id,
       read: () => parseAgentDeclarationV1(value),
     });
-    if (outcome.status !== "ok")
+    if (outcome.kind !== "ok")
       return {
         id,
         layer: "user" as const,
         state: "invalid" as const,
         error: {
           code: "invalid_entity_contract" as const,
-          hint: outcome.status === "invalid" ? outcome.error.message : `${id} is not an installed agent.`,
+          hint: outcome.kind === "invalid" ? outcome.error.message : `${id} is not an installed agent.`,
         },
       };
     const { instructions: _instructions, ...row } = outcome.value;
@@ -222,10 +222,10 @@ function unavailableMember(
     agentId,
     read: () => parseAgentDeclarationV1(agent.value),
   });
-  if (outcome.status === "ok") return null;
+  if (outcome.kind === "ok") return null;
   return {
     agentId,
-    hint: outcome.status === "invalid" ? outcome.error.message : `Install agent/${agentId}`,
+    hint: outcome.kind === "invalid" ? outcome.error.message : `Install agent/${agentId}`,
   };
 }
 

@@ -280,14 +280,14 @@ function agentEntityCatalogRow(row: AgentEntityProjectionRow): AgentEntityGuiRow
     agentId: row.id,
     read: () => parseAgentDeclarationV1(row.value),
   });
-  if (outcome.status !== "ok")
+  if (outcome.kind !== "ok")
     return {
       id: row.id,
       layer: "user",
       state: "invalid",
       error: {
         code: "invalid_entity_contract",
-        hint: outcome.status === "invalid" ? outcome.error.message : `${row.id} is not an installed agent.`,
+        hint: outcome.kind === "invalid" ? outcome.error.message : `${row.id} is not an installed agent.`,
       },
     };
   const agent = outcome.value;
@@ -320,7 +320,7 @@ function degradedAgentCatalogRow(row: AgentEntityProjectionRow): AgentEntityGuiD
     agentId: row.id,
     read: () => parseAgentDeclarationV1(row.value),
   });
-  if (outcome.status === "invalid") hint = outcome.error.message;
+  if (outcome.kind === "invalid") hint = outcome.error.message;
   return { id: row.id, layer: "user", state: "invalid", error: { code: "invalid_entity_projection", hint } };
 }
 

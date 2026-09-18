@@ -47,9 +47,9 @@ export function isAgentDeclarationInvalid(error: unknown): boolean {
 export type AgentDeclarationInvalid = Error & { readonly code: typeof agentDeclarationInvalidCode };
 
 export type StoredAgentDeclarationOutcome<T> =
-  | { readonly status: "ok"; readonly value: T }
-  | { readonly status: "missing" }
-  | { readonly status: "invalid"; readonly error: AgentDeclarationInvalid };
+  | { readonly kind: "ok"; readonly value: T }
+  | { readonly kind: "missing" }
+  | { readonly kind: "invalid"; readonly error: AgentDeclarationInvalid };
 
 function asAgentDeclarationInvalid(agentId: string, error: unknown): AgentDeclarationInvalid | null {
   if (isAgentDeclarationInvalid(error)) return error as AgentDeclarationInvalid;
@@ -77,9 +77,9 @@ export function storedAgentDeclarationOutcome<T>(input: {
     const invalid = asAgentDeclarationInvalid(input.agentId, error);
     if (invalid === null) throw error;
     consumeKnownError(error);
-    return { status: "invalid", error: invalid };
+    return { kind: "invalid", error: invalid };
   }
-  return value === null || value === undefined ? { status: "missing" } : { status: "ok", value };
+  return value === null || value === undefined ? { kind: "missing" } : { kind: "ok", value };
 }
 
 export function readAgentDeclarationResolution(input: {

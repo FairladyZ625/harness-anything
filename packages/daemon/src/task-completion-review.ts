@@ -90,9 +90,9 @@ export async function dispatchCompletionReview(
             entityStore: createEntityStore(cell.store),
           }),
       });
-      if (outcome.status === "invalid")
+      if (outcome.kind === "invalid")
         return stopped(`ha agent install --source harness/agents/${reviewerId}.json`, outcome.error.message);
-      if (outcome.status === "missing")
+      if (outcome.kind === "missing")
         return stopped(
           "ha agent install --source <closeout-reviewer-declaration>",
           `Reviewer ${reviewerId} is not bundled or installed. Install a repository override, or select an available ` +
