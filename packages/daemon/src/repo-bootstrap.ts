@@ -8,7 +8,9 @@ import {
   applyPeopleRosterAction,
   configureLedgerMaintenance,
   DEFAULT_TASK_WIP_LIMIT,
+  HARNESS_LEDGER_WRITER_ENV,
   INITIAL_SETTINGS_V1,
+  installLedgerCommitGuard,
   readSettingsFacet,
   resolveHarnessLayout,
   type SettingsV1,
@@ -234,7 +236,9 @@ export function bootstrapRepo(
     ledgerRoot = layout.authoredRoot;
   mkdirSync(ledgerRoot, { recursive: true });
   git(ledgerRoot, ["init", "--quiet"]);
-  const maintenance = configureLedgerMaintenance(ledgerRoot);
+  const maintenance = configureLedgerMaintenance(ledgerRoot),
+    guard = installLedgerCommitGuard(ledgerRoot),
+    maintenanceDegraded = [maintenance.degraded, guard.degraded].filter((note) => note !== null).join(" ") || null;
   checkoutAuthoredBranch(ledgerRoot, boundBranch);
   const before = optionalGit(ledgerRoot, ["rev-parse", "--verify", "HEAD"]);
   const repositoryDocuments = input.repositoryPlan.documents,
@@ -274,21 +278,30 @@ export function bootstrapRepo(
   let commit: string | null = null;
   if (authoredDocuments.length) {
     git(ledgerRoot, ["add", "-A", "--", ...authoredDocuments.map(({ ledgerPath }) => ledgerPath)]);
-    git(ledgerRoot, [
-      "-c",
-      "user.name=Harness Bootstrap",
-      "-c",
-      "user.email=harness-bootstrap@local.invalid",
-      "commit",
-      "--quiet",
-      "--only",
-      "-m",
-      "Initialize harness workspace",
-      "-m",
-      `${repositoryPlanTrailer}${JSON.stringify(trackedPaths)}`,
-      "--",
-      ...authoredDocuments.map(({ ledgerPath }) => ledgerPath),
-    ]);
+    // The ledger commit guard (installed by installLedgerCommitGuard above)
+    // refuses every commit without the daemon's writer env marker.
+    runProcessText(
+      "git",
+      [
+        "-C",
+        ledgerRoot,
+        "-c",
+        "user.name=Harness Bootstrap",
+        "-c",
+        "user.email=harness-bootstrap@local.invalid",
+        "commit",
+        "--quiet",
+        "--only",
+        "-m",
+        "Initialize harness workspace",
+        "-m",
+        `${repositoryPlanTrailer}${JSON.stringify(trackedPaths)}`,
+        "--",
+        ...authoredDocuments.map(({ ledgerPath }) => ledgerPath),
+      ],
+      undefined,
+      { ...process.env, [HARNESS_LEDGER_WRITER_ENV]: "1" },
+    );
     commit = git(ledgerRoot, ["rev-parse", "HEAD"]).trim();
   }
   const visibleCommit = commit ?? before,
@@ -302,7 +315,7 @@ export function bootstrapRepo(
     }),
     plan = receiptPlan(input.repositoryPlan),
     next = verified
-      ? initNext(rootDir, input.repoId, orphaned.length > 0, maintenance.degraded)
+      ? initNext(rootDir, input.repoId, orphaned.length > 0, maintenanceDegraded)
       : `Inspect published commit ${commit ?? "unknown"} before retrying init.`;
   return {
     authoredBranch: boundBranch,
@@ -331,19 +344,22 @@ export function bootstrapRepo(
 function configureLedgerOnly(input: RepoBootstrapInput, authoredBranch?: string): RepoBootstrapReceipt {
   const ledgerRoot = resolveHarnessLayout(input.rootDir).authoredRoot,
     boundBranch = authoredBranch ?? resolveBootstrapAuthoredBranch(input.rootDir),
-    maintenance = configureLedgerMaintenance(ledgerRoot);
+    maintenance = configureLedgerMaintenance(ledgerRoot),
+    guard = installLedgerCommitGuard(ledgerRoot),
+    applied = [...maintenance.applied, ...guard.applied],
+    degraded = [maintenance.degraded, guard.degraded].filter((note) => note !== null).join(" ") || null;
   return {
     authoredBranch: boundBranch,
-    outcome: maintenance.applied.length ? "applied" : "noop",
-    summary: maintenance.applied.length
-      ? `configured ledger maintenance: ${maintenance.applied.join(", ")}`
+    outcome: applied.length ? "applied" : "noop",
+    summary: applied.length
+      ? `configured ledger maintenance: ${applied.join(", ")}`
       : "ledger maintenance already current",
     created: [],
     updated: [],
     preserved: [],
     drifted: [],
     commit: null,
-    next: `ha --root ${JSON.stringify(input.rootDir)} daemon status${maintenance.degraded ? ` # ${maintenance.degraded}` : ""}`,
+    next: `ha --root ${JSON.stringify(input.rootDir)} daemon status${degraded ? ` # ${degraded}` : ""}`,
     plan: {},
     publication: { ok: true, commit: null, changedPaths: [] },
   };

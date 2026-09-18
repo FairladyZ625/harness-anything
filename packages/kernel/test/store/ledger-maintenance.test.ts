@@ -1,10 +1,10 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { configureLedgerMaintenance } from "../../src/index.ts";
+import { configureLedgerMaintenance, installLedgerCommitGuard } from "../../src/index.ts";
 import { withTempStore } from "./helpers.ts";
 
 function git(repoRoot: string, ...args: readonly string[]): string {
@@ -143,12 +143,161 @@ test("ledger maintenance keeps blobs byte-identical under a global core.autocrlf
         target = path.join(repoRoot, "crlf.md");
       writeFileSync(target, body, "utf8");
       git(repoRoot, "add", "crlf.md");
-      git(repoRoot, "-c", "user.name=Ledger", "-c", "user.email=ledger@example.com", "commit", "--quiet", "-m", "crlf");
+      // The installed commit guard refuses commits without the daemon's writer env marker.
+      installLedgerCommitGuard(repoRoot);
+      execFileSync(
+        "git",
+        [
+          "-C",
+          repoRoot,
+          "-c",
+          "user.name=Ledger",
+          "-c",
+          "user.email=ledger@example.com",
+          "commit",
+          "--quiet",
+          "-m",
+          "crlf",
+        ],
+        { encoding: "utf8", env: { ...process.env, HARNESS_LEDGER_WRITER: "1" } },
+      );
       const blob = execFileSync("git", ["-C", repoRoot, "show", "HEAD:crlf.md"], { encoding: "buffer" });
       assert.deepEqual(new Uint8Array(blob), new Uint8Array(Buffer.from(body)));
     } finally {
       if (previous === undefined) delete process.env.GIT_CONFIG_GLOBAL;
       else process.env.GIT_CONFIG_GLOBAL = previous;
     }
+  });
+});
+
+test("ledger commit guard refuses a manual commit and points at ha doc sync --submit", () => {
+  withTempStore((rootDir) => {
+    const repoRoot = ledger(rootDir);
+    installLedgerCommitGuard(repoRoot);
+    writeFileSync(path.join(repoRoot, "note.md"), "manual\n", "utf8");
+    git(repoRoot, "add", "note.md");
+
+    const attempt = spawnSync(
+      "git",
+      ["-C", repoRoot, "-c", "user.name=Manual", "-c", "user.email=manual@example.com", "commit", "-m", "manual"],
+      { encoding: "utf8" },
+    );
+    assert.equal(attempt.status, 1);
+    assert.match(attempt.stderr, /Refusing a manual commit in the Harness ledger repository/u);
+    assert.match(attempt.stderr, /ha doc sync --submit --task <task-id>/u);
+    assert.throws(() => git(repoRoot, "rev-parse", "--verify", "--quiet", "HEAD"));
+  });
+});
+
+test("ledger commit guard lets a daemon-marked commit through", () => {
+  withTempStore((rootDir) => {
+    const repoRoot = ledger(rootDir);
+    installLedgerCommitGuard(repoRoot);
+    writeFileSync(path.join(repoRoot, "note.md"), "daemon\n", "utf8");
+    git(repoRoot, "add", "note.md");
+
+    execFileSync(
+      "git",
+      [
+        "-C",
+        repoRoot,
+        "-c",
+        "user.name=Daemon",
+        "-c",
+        "user.email=daemon@example.com",
+        "commit",
+        "--quiet",
+        "-m",
+        "daemon",
+      ],
+      { encoding: "utf8", env: { ...process.env, HARNESS_LEDGER_WRITER: "1" } },
+    );
+    assert.equal(git(repoRoot, "log", "-1", "--format=%s"), "daemon");
+  });
+});
+
+test("ledger commit guard preserves a foreign hook as pre-commit.local and reinstall is idempotent", () => {
+  withTempStore((rootDir) => {
+    const repoRoot = ledger(rootDir),
+      hooksDir = path.join(repoRoot, ".git", "hooks"),
+      foreignPath = path.join(rootDir, "foreign-ran"),
+      foreignBody = `#!/bin/sh\necho foreign > "${foreignPath}"\n`;
+    writeFileSync(path.join(hooksDir, "pre-commit"), foreignBody, { mode: 0o755 });
+
+    const first = installLedgerCommitGuard(repoRoot);
+    assert.ok(first.applied.includes("hooks/pre-commit=harness-ledger-commit-guard/v1"));
+    assert.equal(readFileSync(path.join(hooksDir, "pre-commit.local"), "utf8"), foreignBody);
+
+    const second = installLedgerCommitGuard(repoRoot);
+    assert.ok(!second.applied.includes("hooks/pre-commit=harness-ledger-commit-guard/v1"));
+
+    // The chained foreign hook still runs for the daemon's marked commit.
+    writeFileSync(path.join(repoRoot, "note.md"), "daemon\n", "utf8");
+    git(repoRoot, "add", "note.md");
+    execFileSync(
+      "git",
+      [
+        "-C",
+        repoRoot,
+        "-c",
+        "user.name=Daemon",
+        "-c",
+        "user.email=daemon@example.com",
+        "commit",
+        "--quiet",
+        "-m",
+        "daemon",
+      ],
+      { encoding: "utf8", env: { ...process.env, HARNESS_LEDGER_WRITER: "1" } },
+    );
+    assert.equal(readFileSync(foreignPath, "utf8").trim(), "foreign");
+
+    // And it still refuses a manual commit.
+    writeFileSync(path.join(repoRoot, "more.md"), "manual\n", "utf8");
+    git(repoRoot, "add", "more.md");
+    const attempt = spawnSync(
+      "git",
+      ["-C", repoRoot, "-c", "user.name=Manual", "-c", "user.email=manual@example.com", "commit", "-m", "manual"],
+      { encoding: "utf8" },
+    );
+    assert.equal(attempt.status, 1);
+    assert.match(attempt.stderr, /ha doc sync --submit/u);
+  });
+});
+
+test("ledger commit guard stays out of a ledger that shares the project's repository", () => {
+  withTempStore((rootDir) => {
+    // A ledger root that is a plain directory of the enclosing repository: every commit
+    // there is a project commit, and refusing one is the harm the guard exists to prevent.
+    const ledgerRoot = path.join(rootDir, "harness");
+    mkdirSync(ledgerRoot, { recursive: true });
+    git(rootDir, "init", "--quiet");
+
+    const receipt = installLedgerCommitGuard(ledgerRoot);
+
+    assert.deepEqual(receipt.applied, []);
+    assert.match(receipt.degraded ?? "", /not a standalone Git repository/u);
+    assert.equal(existsSync(path.join(rootDir, ".git", "hooks", "pre-commit")), false);
+    writeFileSync(path.join(ledgerRoot, "note.md"), "project content\n", "utf8");
+    git(rootDir, "add", "harness/note.md");
+    // Fixture commits carry their own identity: an ambient global identity exists on developer
+    // machines and not in the isolated test target.
+    execFileSync(
+      "git",
+      [
+        "-C",
+        rootDir,
+        "-c",
+        "user.name=Project",
+        "-c",
+        "user.email=project@example.com",
+        "commit",
+        "--quiet",
+        "-m",
+        "project commit through the shared ledger directory",
+      ],
+      { encoding: "utf8" },
+    );
+    assert.equal(git(rootDir, "log", "-1", "--format=%s"), "project commit through the shared ledger directory");
   });
 });

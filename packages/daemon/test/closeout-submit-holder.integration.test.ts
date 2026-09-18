@@ -1,10 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { isTaskEvent, makeTaskEventReader } from "../../kernel/src/index.ts";
+import { HARNESS_LEDGER_WRITER_ENV, isTaskEvent, makeTaskEventReader } from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
@@ -107,7 +108,12 @@ test("closeout submit preserves holder authority and resumes one cut after a dis
     assert.equal(packet.artifacts?.[0]?.revision, artifactReceipt.revision);
     const originalCut = packet.commitSha;
     git(rootDir, "commit", "--allow-empty", "-qm", "test: move public head after delivery");
-    git(ledger, "commit", "--allow-empty", "-qm", "test: move ledger head after delivery");
+    // Moving the ledger head after delivery is the out-of-band state this test
+    // resumes from; the fixture plays that writer via the daemon's marker.
+    execFileSync("git", ["-C", ledger, "commit", "--allow-empty", "-qm", "test: move ledger head after delivery"], {
+      encoding: "utf8",
+      env: { ...process.env, [HARNESS_LEDGER_WRITER_ENV]: "1" },
+    });
     assert.notEqual(git(ledger, "rev-parse", "HEAD"), originalCut);
     const repeated = await submit();
     assert.equal(repeated.outcome, "applied", JSON.stringify(repeated));

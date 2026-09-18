@@ -4,7 +4,11 @@ import {
   type DaemonRegistryRegisterInput,
 } from "../daemon/registry.ts";
 import { resolveLedgerGitLayout } from "../store/ledger-git-layout.ts";
-import { makeLocalVersionControlSystem } from "../store/local-version-control-system.ts";
+import {
+  configureLedgerMaintenance,
+  installLedgerCommitGuard,
+  makeLocalVersionControlSystem,
+} from "../store/local-version-control-system.ts";
 export {
   canonicalDocumentClaims,
   canonicalDocumentRetirements,
@@ -69,6 +73,8 @@ export type {
 } from "../projection/rebuildable-task-projection.ts";
 export {
   configureLedgerMaintenance,
+  HARNESS_LEDGER_WRITER_ENV,
+  installLedgerCommitGuard,
   localGitObjectRefStore,
   localGitWorktreeSettlement,
   makeLocalVersionControlSystem,
@@ -78,8 +84,14 @@ export function registerDaemonRepo(input: DaemonRegistryRegisterInput) {
   if (!input.canonicalRoot || input.mode === "remote-proxy") return writeDaemonRegistryRepo(input);
   const canonicalRoot = canonicalDaemonRegistryRoot(input.canonicalRoot),
     ledger = resolveLedgerGitLayout(canonicalRoot),
-    vcs = makeLocalVersionControlSystem(),
-    branch = vcs.originHeadBranch(ledger.rootDir) ?? vcs.currentBranch(ledger.rootDir);
+    vcs = makeLocalVersionControlSystem();
+  // Attaching an existing ledger still owes it the machine configuration —
+  // including the commit guard that refuses manual `git commit`. The guard is
+  // offered the authored root, not the enclosing repository's top level, so it
+  // stays out of a ledger that shares the project's repository.
+  configureLedgerMaintenance(ledger.rootDir);
+  installLedgerCommitGuard(ledger.authoredRoot);
+  const branch = vcs.originHeadBranch(ledger.rootDir) ?? vcs.currentBranch(ledger.rootDir);
   if (!branch) throw new Error(`canonicalRoot must have an attached default Git branch: ${ledger.rootDir}`);
   return writeDaemonRegistryRepo({ ...input, canonicalRoot, authoredBranch: branch });
 }

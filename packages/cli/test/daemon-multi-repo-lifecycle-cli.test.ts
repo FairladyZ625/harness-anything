@@ -29,6 +29,7 @@ import {
   builtCli,
   cli,
   git,
+  gitLedgerWriter,
   median,
   register,
   run,
@@ -953,7 +954,9 @@ test("a changed overlay path leaves the prior authored document and reports it a
     stop(fixture.alpha, fixture.userRoot);
     writeFileSync(overlayPath, overlay("harness/context/new-project.md"));
     git(ledgerRoot, "add", "governance/repository-scaffold.json");
-    git(ledgerRoot, "commit", "--quiet", "-m", "change project document path");
+    // Constructing the out-of-band overlay change means committing inside the
+    // ledger repository itself; the fixture plays that writer via the marker.
+    gitLedgerWriter(ledgerRoot, "commit", "--quiet", "-m", "change project document path");
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     const changed = run(fixture.alpha, fixture.userRoot, [
       "init",

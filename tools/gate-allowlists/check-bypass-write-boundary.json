@@ -648,7 +648,26 @@
         "reason": "Ledger backup drill rolls its own restore-drill shadow copies beyond the configured retention under the ledger's restore-drills parent."
       }
     ],
-    "exemptHumanOrBootstrap": [],
+    "exemptHumanOrBootstrap": [
+      {
+        "value": "bypass-write-136",
+        "api": "renameSync",
+        "ref": "task_432d80554372b23108826e04d1",
+        "reason": "Ledger commit guard install preserves a foreign pre-commit hook as pre-commit.local before taking the slot."
+      },
+      {
+        "value": "bypass-write-137",
+        "api": "mkdirSync",
+        "ref": "task_432d80554372b23108826e04d1",
+        "reason": "Ledger commit guard install creates the repository hooks directory when Git has not materialized it."
+      },
+      {
+        "value": "bypass-write-138",
+        "api": "writeFileSync",
+        "ref": "task_432d80554372b23108826e04d1",
+        "reason": "Ledger commit guard install writes the pre-commit hook itself; hook installation is Git configuration, not coordinator-owned ledger content."
+      }
+    ],
     "legacyArchive": [],
     "freshGateRegistry": []
   }

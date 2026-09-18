@@ -44,6 +44,25 @@ export function makeLocalVersionControlSystem(): VersionControlSystem {
 }
 
 const geometricMaintenanceFloor = Object.freeze([2, 52, 0]);
+/** Env marker the daemon injects into its own `git commit` so the ledger commit guard lets it through. */
+export const HARNESS_LEDGER_WRITER_ENV = "HARNESS_LEDGER_WRITER";
+const ledgerCommitGuardMarker = "# harness-ledger-commit-guard/v1",
+  ledgerCommitGuardHook = `#!/bin/sh
+${ledgerCommitGuardMarker}
+# Installed by Harness ledger maintenance. The daemon's ledger writes go
+# through git fast-import/update-ref and never reach this hook; the one commit
+# it runs itself carries the writer env marker. Any other commit here moves the
+# publication pointer and breaks the next ledger write with
+# publication_indeterminate.
+if [ "\${HARNESS_LEDGER_WRITER:-}" != "1" ]; then
+  echo "Refusing a manual commit in the Harness ledger repository." >&2
+  echo "Ledger writes go through the daemon: run 'ha doc sync --submit --task <task-id>' instead of git commit." >&2
+  exit 1
+fi
+chained="$(dirname "$0")/pre-commit.local"
+if [ -x "$chained" ]; then exec "$chained"; fi
+exit 0
+`;
 export interface LedgerMaintenanceReceipt {
   readonly gitVersion: string | null;
   readonly strategy: "geometric" | null;
@@ -53,7 +72,8 @@ export interface LedgerMaintenanceReceipt {
 /** Pins ledger maintenance and incremental-index policy out of the user-global config. */
 export function configureLedgerMaintenance(repoRoot: string): LedgerMaintenanceReceipt {
   const version = readGitVersion(repoRoot),
-    applied: string[] = [];
+    applied: string[] = [],
+    degraded: string[] = [];
   const pin = (key: string, value: string): void => {
     if (readGitConfig(repoRoot, key) === value) return;
     runGit(repoRoot, "config", key, value);
@@ -73,14 +93,56 @@ export function configureLedgerMaintenance(repoRoot: string): LedgerMaintenanceR
   pin("core.untrackedCache", "true");
   const geometric = version !== null && atLeastGitVersion(version.parts, geometricMaintenanceFloor);
   if (geometric) pin("maintenance.strategy", "geometric");
+  if (!geometric)
+    degraded.push(
+      `git ${version?.text ?? "(version unreadable)"} predates the 2.52.0 geometric maintenance strategy; this ledger keeps Git's default repack cadence.`,
+    );
   return {
     gitVersion: version?.text ?? null,
     strategy: geometric ? "geometric" : null,
     applied,
-    degraded: geometric
-      ? null
-      : `git ${version?.text ?? "(version unreadable)"} predates the 2.52.0 geometric maintenance strategy; this ledger keeps Git's default repack cadence.`,
+    degraded: degraded.length ? degraded.join(" ") : null,
   };
+}
+export interface LedgerCommitGuardReceipt {
+  readonly applied: readonly string[];
+  readonly degraded: string | null;
+}
+/**
+ * Installs the pre-commit guard that refuses a manual commit in the ledger repository, once; a
+ * foreign hook is preserved as pre-commit.local and chained. Only a standalone ledger repository
+ * (the shape bootstrap creates) is guarded: where the ledger root is a plain directory of the
+ * project's own repository, every commit there is a project commit and none may be refused.
+ */
+export function installLedgerCommitGuard(repoRoot: string): LedgerCommitGuardReceipt {
+  const gitDir = readGitText(repoRoot, ["rev-parse", "--git-dir"]);
+  if (gitDir === null) return { applied: [], degraded: "ledger commit guard not installed: not a Git work tree." };
+  const topLevel = readGitText(repoRoot, ["rev-parse", "--show-toplevel"]);
+  if (topLevel !== null && normalizeLocalPath(topLevel) !== normalizeLocalPath(repoRoot))
+    return {
+      applied: [],
+      degraded: "ledger commit guard not installed: the ledger root is not a standalone Git repository.",
+    };
+  const hooksDir = path.join(path.resolve(repoRoot, gitDir), "hooks"),
+    hookPath = path.join(hooksDir, "pre-commit"),
+    chainedPath = path.join(hooksDir, "pre-commit.local"),
+    existing = existsSync(hookPath) ? readFileSync(hookPath, "utf8") : null;
+  if (existing === ledgerCommitGuardHook) return { applied: [], degraded: null };
+  if (existing !== null && !existing.includes(ledgerCommitGuardMarker)) {
+    if (existsSync(chainedPath))
+      return {
+        applied: [],
+        degraded:
+          "ledger commit guard not installed: both hooks/pre-commit and hooks/pre-commit.local are occupied by foreign hooks.",
+      };
+    /* @gate-identity check-bypass-write-boundary/bypass-write-136 */
+    renameSync(hookPath, chainedPath);
+  }
+  /* @gate-identity check-bypass-write-boundary/bypass-write-137 */
+  mkdirSync(hooksDir, { recursive: true });
+  /* @gate-identity check-bypass-write-boundary/bypass-write-138 */
+  writeFileSync(hookPath, ledgerCommitGuardHook, { mode: 0o755 });
+  return { applied: ["hooks/pre-commit=harness-ledger-commit-guard/v1"], degraded: null };
 }
 function readGitVersion(repoRoot: string): { readonly text: string; readonly parts: readonly number[] } | null {
   const raw = readGitText(repoRoot, ["version"]);
