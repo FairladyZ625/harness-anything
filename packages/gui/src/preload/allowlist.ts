@@ -307,7 +307,10 @@ function validScheduleDefinitionMutation(value: unknown, nullableOptionals: bool
     "repoId",
     "scheduleId",
     "name",
+    "mode",
     "everyMs",
+    "cronExpression",
+    "timezone",
     "agentId",
     "runtimeInstanceId",
     "mission",
@@ -318,12 +321,26 @@ function validScheduleDefinitionMutation(value: unknown, nullableOptionals: bool
     "idempotencyKey",
   ];
   if (!isPreloadPayloadRecord(value) || !closed(value, fields)) return false;
+  // Trigger is exactly one of interval (`everyMs`) or cron (`cronExpression`+`timezone`):
+  // the daemon/kernel contract rejects both-in-one, and a cron payload without a
+  // timezone would be stringified by the kernel — so both are refused here.
+  const cron = value.cronExpression;
+  const triggerOk =
+    value.everyMs === undefined
+      ? typeof cron === "string" &&
+        cron.trim().length > 0 &&
+        typeof value.timezone === "string" &&
+        value.timezone.trim().length > 0
+      : Number.isSafeInteger(value.everyMs) &&
+        Number(value.everyMs) >= 60_000 &&
+        cron === undefined &&
+        value.timezone === undefined;
   if (
+    !triggerOk ||
     !["repoId", "scheduleId", "name", "agentId", "runtimeInstanceId", "mission", "idempotencyKey"].every(
       (field) => typeof value[field] === "string" && String(value[field]).trim().length > 0,
     ) ||
-    !Number.isSafeInteger(value.everyMs) ||
-    Number(value.everyMs) < 60_000
+    (value.mode !== "detect" && value.mode !== "remediate")
   )
     return false;
   return (

@@ -15,14 +15,13 @@ import {
 } from "../../../../daemon/src/protocol/schedules-gui-contract.ts";
 import type { ScheduleDefinitionInput, ScheduleModeWord } from "../schedules-client.ts";
 import { t, type MessageKey } from "../i18n/index.tsx";
-import { Badge, Btn, Chip, Hint, Modal, PlannedBox, TextInput, Toggle, WarnBar } from "./runtime/parts.tsx";
+import { Badge, Btn, Chip, Hint, Modal, PlannedBox, TextInput, Toggle } from "./runtime/parts.tsx";
 
 // M5 guided form: one segment asks one thing (identity → trigger → executor →
-// purpose → outcome routing → mission). Two write paths are still pending the
-// backend schedule task (cron/calendar trigger variant, mode/routing fields), so
-// those segments render as selectable scaffolding with the boundary stated in
-// the UI — cron blocks the save, mode/routing ride along unpersisted — instead of
-// silently dropping the user's choice or fabricating a save.
+// purpose → outcome routing → mission). The daemon persists identity, interval/cron
+// trigger, executor, mode and mission; outcome routing and the squad executor are
+// still backend-pending, so those two segments keep their boundary stated in the UI
+// instead of silently dropping the user's choice or fabricating a save.
 /** 时长控件的单位表来自 protocol 的唯一词表(`daemon-protocol-vocabulary.ts`),表单不再自带
  * 一份:少一个单位就等于把不能被它整除的 everyMs 在打开表单时四舍五入掉,保存即静默改写。 */
 const UNIT_LABEL_KEY: Readonly<Record<ScheduleDurationUnit, MessageKey>> = {
@@ -60,6 +59,22 @@ export function buildCronExpression(
   return `${minute} ${hour} * * ${days}`;
 }
 
+/** `buildCronExpression` 的逆,只认它自己产出的两种形状;其余表达式(如 CLI 建的
+ * 每 5 分钟步进式)返回 null,表单据此原样保留存储值而不是把它静默改写成日历形状。 */
+export function parseCronCalendar(
+  expression: string,
+): { readonly frequency: CronFrequency; readonly time: string; readonly weekdays: readonly number[] } | null {
+  const match = /^(\d{1,2}) (\d{1,2}) \* \* (\*|\d(?:,\d)*)$/u.exec(expression.trim());
+  if (match === null) return null;
+  const minute = Number(match[1]),
+    hour = Number(match[2]);
+  if (minute > 59 || hour > 23) return null;
+  const time = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  if (match[3] === "*") return { frequency: "daily", time, weekdays: [] };
+  const weekdays = match[3].split(",").map(Number);
+  return weekdays.every((day) => day >= 0 && day <= 6) ? { frequency: "weekly", time, weekdays } : null;
+}
+
 export interface ScheduleRoutingState {
   readonly recordFact: boolean;
   readonly draftDecisionPacket: boolean;
@@ -90,25 +105,29 @@ export function ScheduleForm({
         !isAvailableScheduleGuiAgentOption(option),
     ),
     initialAgentTarget = initial?.target.kind === "agent" ? initial.target : undefined,
-    duration = splitScheduleDuration(initial?.trigger.everyMs ?? 30 * scheduleDurationUnitMs("m")),
+    initialTrigger = initial?.trigger ?? null,
+    initialCron = initialTrigger?.kind === "cron" ? parseCronCalendar(initialTrigger.expression) : null,
+    duration = splitScheduleDuration(initialTrigger?.everyMs ?? 30 * scheduleDurationUnitMs("m")),
     [scheduleId, setScheduleId] = useState(initial?.scheduleId ?? ""),
     [name, setName] = useState(initial?.name ?? ""),
-    [triggerKind, setTriggerKind] = useState<TriggerKind>("interval"),
+    [triggerKind, setTriggerKind] = useState<TriggerKind>(initialTrigger?.kind === "cron" ? "cron" : "interval"),
     [amount, setAmount] = useState(String(duration.amount)),
     [unit, setUnit] = useState<ScheduleDurationUnit>(duration.unit),
-    [cronFrequency, setCronFrequency] = useState<CronFrequency>("daily"),
-    [cronTime, setCronTime] = useState("02:30"),
-    [cronWeekdays, setCronWeekdays] = useState<ReadonlySet<number>>(() => new Set([1])),
-    [cronTimezone, setCronTimezone] = useState("UTC"),
+    [cronFrequency, setCronFrequency] = useState<CronFrequency>(initialCron?.frequency ?? "daily"),
+    [cronTime, setCronTime] = useState(initialCron?.time ?? "02:30"),
+    [cronWeekdays, setCronWeekdays] = useState<ReadonlySet<number>>(() => new Set(initialCron?.weekdays ?? [1])),
+    [cronTimezone, setCronTimezone] = useState(initialTrigger?.kind === "cron" ? initialTrigger.timezone : "UTC"),
+    // 日历表达不了的已存表达式原样随行,直到用户改动任一日历控件,构建器才接管表达式。
+    [cronOverride, setCronOverride] = useState(
+      initialTrigger?.kind === "cron" && initialCron === null ? initialTrigger.expression : null,
+    ),
     [agentId, setAgentId] = useState(initialAgentTarget?.agentId ?? availableAgents[0]?.agentId ?? ""),
     [runtimeInstanceId, setRuntimeInstanceId] = useState(initialAgentTarget?.runtimeInstanceId ?? ""),
     [model, setModel] = useState(initialAgentTarget?.model ?? ""),
     [reasoningEffort, setReasoningEffort] = useState(initialAgentTarget?.reasoningEffort ?? ""),
     [fast, setFast] = useState(initialAgentTarget?.fast ?? false),
     [mission, setMission] = useState(initial?.mission ?? ""),
-    // Purpose + routing are semantic scaffolding (design §4); the write path for
-    // `mode`/`routing` fields is pending the backend task, stated in the UI below.
-    [mode, setMode] = useState<ScheduleModeWord>("detect"),
+    [mode, setMode] = useState<ScheduleModeWord>(initial?.mode ?? "detect"),
     [routing, setRouting] = useState<ScheduleRoutingState>({
       recordFact: true,
       draftDecisionPacket: true,
@@ -125,34 +144,48 @@ export function ScheduleForm({
       compatibleInstances[0] ??
       null,
     selectedInstanceId = instance?.instanceId ?? "",
-    selectedModel = instance?.models.includes(model) ? model : "",
-    selectedEffort = instance?.efforts.includes(reasoningEffort) ? reasoningEffort : "",
+    // 已存值不在实例清单里时仍列为可选项(带标注),而不是静默回落成实例默认再写 null。
+    modelChoices =
+      instance === null || model === "" || instance.models.includes(model)
+        ? (instance?.models ?? [])
+        : [...(instance?.models ?? []), model],
+    effortChoices =
+      instance === null || reasoningEffort === "" || instance.efforts.includes(reasoningEffort)
+        ? (instance?.efforts ?? [])
+        : [...(instance?.efforts ?? []), reasoningEffort],
+    selectedModel = modelChoices.includes(model) ? model : "",
+    selectedEffort = effortChoices.includes(reasoningEffort) ? reasoningEffort : "",
     selectedFast = instance?.kindId === "codex" && fast,
-    cronExpression = useMemo(
+    builtCron = useMemo(
       () => buildCronExpression(cronFrequency, cronTime, cronWeekdays),
       [cronFrequency, cronTime, cronWeekdays],
     ),
+    cronExpression = cronOverride ?? builtCron,
     // 词表既是校验也是换算:能被 parse 读回的就是合法间隔,下限也由词表持有,表单不再自带门槛。
     intervalMs = parseScheduleDuration(`${amount}${unit}`),
     duplicate = initial === null && scheduleIds.includes(scheduleId),
-    intervalReady = intervalMs !== null,
+    triggerReady =
+      triggerKind === "interval" ? intervalMs !== null : cronExpression !== null && cronTimezone.trim() !== "",
     ready =
       /^[a-z0-9][a-z0-9-]{0,63}$/u.test(scheduleId) &&
       !duplicate &&
       name.trim().length > 0 &&
-      // The cron/calendar trigger write path is pending the backend task, so a
-      // cron selection blocks the save with the reason shown in the segment.
-      triggerKind === "interval" &&
-      intervalReady &&
+      triggerReady &&
       agent !== null &&
       instance !== null &&
       mission.trim().length > 0;
   const submit = () => {
-    if (!ready || instance === null || intervalMs === null) return;
+    if (!ready || instance === null) return;
+    const trigger =
+      triggerKind === "interval"
+        ? intervalMs !== null && { everyMs: intervalMs }
+        : cronExpression !== null && cronTimezone.trim() !== "" && { cronExpression, timezone: cronTimezone.trim() };
+    if (!trigger) return;
     const base: ScheduleDefinitionInput = {
       scheduleId,
       name: name.trim(),
-      everyMs: intervalMs,
+      mode,
+      ...trigger,
       agentId,
       runtimeInstanceId: instance.instanceId,
       mission: mission.trim(),
@@ -165,7 +198,8 @@ export function ScheduleForm({
         : {
             model: selectedModel || null,
             reasoningEffort: selectedEffort || null,
-            fast: selectedFast,
+            // fast 只随 codex 实例发送;省略时 kernel 保留已存值,不静默改写。
+            ...(instance.kindId === "codex" ? { fast: selectedFast } : {}),
           }),
     };
     onSubmit(base);
@@ -197,7 +231,7 @@ export function ScheduleForm({
             <TriggerKindButton kind="interval" active={triggerKind === "interval"} onSelect={setTriggerKind} />
             <TriggerKindButton kind="cron" active={triggerKind === "cron"} onSelect={setTriggerKind} />
           </span>
-          <Chip tone="mono" tip={t("schedules.form.trigger.cronPending")}>
+          <Chip tone="mono">
             {triggerKind === "interval" ? t("schedules.form.trigger.interval") : t("schedules.form.trigger.cron")}
           </Chip>
         </div>
@@ -237,7 +271,10 @@ export function ScheduleForm({
                   data-testid="schedule-form-cron-frequency"
                   className="control"
                   value={cronFrequency}
-                  onChange={(event) => setCronFrequency(event.target.value as CronFrequency)}
+                  onChange={(event) => {
+                    setCronFrequency(event.target.value as CronFrequency);
+                    setCronOverride(null);
+                  }}
                 >
                   <option value="daily">{t("schedules.form.cron.daily")}</option>
                   <option value="weekly">{t("schedules.form.cron.weekly")}</option>
@@ -249,7 +286,10 @@ export function ScheduleForm({
                   testId="schedule-form-cron-time"
                   mono
                   value={cronTime}
-                  onChange={setCronTime}
+                  onChange={(value) => {
+                    setCronTime(value);
+                    setCronOverride(null);
+                  }}
                 />
               </FormField>
               <FormField label={t("schedules.form.cron.timezone")}>
@@ -270,14 +310,15 @@ export function ScheduleForm({
                     type="button"
                     data-testid={`schedule-form-cron-weekday-${day}`}
                     aria-pressed={cronWeekdays.has(day)}
-                    onClick={() =>
+                    onClick={() => {
                       setCronWeekdays((current) => {
                         const next = new Set(current);
                         if (next.has(day)) next.delete(day);
                         else next.add(day);
                         return next;
-                      })
-                    }
+                      });
+                      setCronOverride(null);
+                    }}
                     className={`rounded border px-2 py-0.5 ui-micro ${
                       cronWeekdays.has(day)
                         ? "border-accent bg-accent text-accent-fg"
@@ -294,7 +335,6 @@ export function ScheduleForm({
               {cronExpression === null ? t("schedules.form.cron.invalid") : cronExpression}
               {cronExpression !== null && cronTimezone.trim() !== "" ? ` · TZ=${cronTimezone.trim()}` : ""}
             </p>
-            <WarnBar>{t("schedules.form.trigger.cronPending")}</WarnBar>
           </div>
         )}
       </FormSection>
@@ -374,9 +414,12 @@ export function ScheduleForm({
               onChange={(event) => setModel(event.target.value)}
             >
               <option value="">{t("schedules.form.instanceDefault")}</option>
-              {(instance?.models ?? []).map((option) => (
+              {modelChoices.map((option) => (
                 <option key={option} value={option}>
                   {option}
+                  {option === model && !instance?.models.includes(option)
+                    ? ` · ${t("schedules.form.notInInstanceList")}`
+                    : ""}
                 </option>
               ))}
             </select>
@@ -389,9 +432,12 @@ export function ScheduleForm({
               onChange={(event) => setReasoningEffort(event.target.value)}
             >
               <option value="">{t("schedules.form.instanceDefault")}</option>
-              {(instance?.efforts ?? []).map((option) => (
+              {effortChoices.map((option) => (
                 <option key={option} value={option}>
                   {option}
+                  {option === reasoningEffort && !instance?.efforts.includes(option)
+                    ? ` · ${t("schedules.form.notInInstanceList")}`
+                    : ""}
                 </option>
               ))}
             </select>
@@ -443,7 +489,6 @@ export function ScheduleForm({
             {t("schedules.form.purpose.remediateBoundary")}
           </ModeCard>
         </div>
-        <PlannedBox>{t("schedules.form.purpose.pending")}</PlannedBox>
       </FormSection>
 
       <FormSection testId="schedule-form-sec-routing" title={t("schedules.form.sec.routing")}>

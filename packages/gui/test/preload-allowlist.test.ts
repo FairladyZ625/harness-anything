@@ -296,14 +296,47 @@ test("schedule read and action payloads stay closed at the preload boundary", ()
     repoId: "repo-a",
     scheduleId: "heartbeat-probe",
     name: "Heartbeat probe",
+    mode: "detect",
     everyMs: 300_000,
     agentId: "probe-agent",
     runtimeInstanceId: "codex-schedule",
     mission: "Run the probe.",
     idempotencyKey: "retry-1",
   };
+  const { everyMs: _everyMs, ...cronDefinition } = definition;
   assert.equal(assertPreloadPayload("createSchedule", definition), true);
   assert.equal(assertPreloadPayload("updateSchedule", { ...definition, model: null }), true);
+  // Cron payloads carry cronExpression + a non-empty timezone instead of everyMs.
+  assert.equal(
+    assertPreloadPayload("createSchedule", { ...cronDefinition, cronExpression: "30 2 * * *", timezone: "UTC" }),
+    true,
+  );
+  assert.equal(
+    assertPreloadPayload("updateSchedule", {
+      ...cronDefinition,
+      cronExpression: "30 2 * * 1,3",
+      timezone: "Asia/Shanghai",
+      model: null,
+    }),
+    true,
+  );
+  // The trigger stays exactly-one: interval+cron together, or cron without a timezone, is refused.
+  assert.throws(
+    () => assertPreloadPayload("createSchedule", { ...definition, cronExpression: "30 2 * * *", timezone: "UTC" }),
+    /invalid/u,
+  );
+  assert.throws(
+    () => assertPreloadPayload("createSchedule", { ...cronDefinition, cronExpression: "30 2 * * *" }),
+    /invalid/u,
+  );
+  assert.throws(
+    () => assertPreloadPayload("createSchedule", { ...cronDefinition, cronExpression: "30 2 * * *", timezone: " " }),
+    /invalid/u,
+  );
+  // mode is required on both mutations and limited to the daemon vocabulary.
+  const { mode: _mode, ...withoutMode } = definition;
+  assert.throws(() => assertPreloadPayload("createSchedule", withoutMode), /invalid/u);
+  assert.throws(() => assertPreloadPayload("updateSchedule", { ...definition, mode: "observe" }), /invalid/u);
   assert.equal(
     assertPreloadPayload("deleteSchedule", {
       repoId: "repo-a",
