@@ -592,11 +592,9 @@ async function awaitTaskDispatches(
       dispatchIds = rows.map((row) => row.dispatchId),
       settled = rows.filter((row) => taskDispatchRowSettled(row, dispatchIds)),
       // The batch projection reporting "pending" is still catching up; keep waiting for it.
-      done = !["ready"].includes(read.status)
-        ? false
-        : mode === "all"
-          ? taskDispatchRowsSettled(rows)
-          : settled.length > 0 || rows.length === 0;
+      projectionReady = read.status === "ready",
+      done =
+        projectionReady && (mode === "all" ? taskDispatchRowsSettled(rows) : settled.length > 0 || rows.length === 0);
     if (done) {
       const winner = settled[0];
       return {
