@@ -414,7 +414,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         inheritedFallback ??
         initialFallbackAttempt(
           agent,
-          explicitRuntimeInstanceId ?? agent?.instance,
+          explicitRuntimeInstanceId,
           model,
           providerSessionId,
           idempotencyKey,

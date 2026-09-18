@@ -382,7 +382,6 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       name: "Declared Model",
       instructions: "Include the identity marker exactly: AGENT_INSTRUCTIONS_WITNESS.",
       runtimes: [{ type: "codex", model: "agent-declared" }],
-      instance: "codex-agent-model",
       role: "worker",
       prompts: ["PROMPT_FRAGMENT_FIRST", "PROMPT_FRAGMENT_SECOND"],
       preset: "standard-task",

@@ -22,18 +22,24 @@ export function initialFallbackAttempt(
   sessions: readonly RuntimeSessionSelection[] = [],
 ): RuntimeFallbackAttempt | undefined {
   if (providerSessionId) return undefined;
-  // The candidate list is computed even when an instance is pinned: it is where a declaration
-  // whose model or kind no enabled instance can serve fails with agent_model_unavailable, before
-  // the pin would otherwise bypass that check entirely.
-  const candidatesForAnchor = resolveRuntimeInstanceCandidates({
-      requested: undefined,
-      agent,
-      model: requestedModel,
-      instances,
-      sessions,
-    }),
+  const pin = requestedInstance ?? agent?.instance;
+  // The candidate list is computed only when no instance was explicitly requested: it is both the
+  // anchor source and the availability check a declared pin would otherwise bypass — a declaration
+  // whose model or kind no enabled instance can serve fails with agent_model_unavailable here. An
+  // explicit request skips it: the operator's pick is validated against the anchor below and by
+  // prepareLaunch, and may name an instance the machine store does not list.
+  const candidatesForAnchor =
+      requestedInstance === undefined
+        ? resolveRuntimeInstanceCandidates({
+            requested: undefined,
+            agent,
+            model: requestedModel,
+            instances,
+            sessions,
+          })
+        : undefined,
     declared = agent?.fallback,
-    anchorId = requestedInstance ?? candidatesForAnchor[0],
+    anchorId = pin ?? candidatesForAnchor?.[0],
     anchor = instances.find((instance) => instance.instanceId === anchorId);
   // Each candidate kind resolves its own model: --model override > the runtimes row for
   // that kind > the instance default, so a cross-kind fallback still launches a valid model.
@@ -45,7 +51,7 @@ export function initialFallbackAttempt(
   const model = anchor === undefined ? undefined : candidateModel(anchor);
   if (!anchor || !model) return undefined;
   if (
-    requestedInstance &&
+    pin &&
     (!anchor.enabled ||
       !anchor.models.includes(model) ||
       (anchor.authReadiness.status !== "ready" && anchor.authReadiness.code !== "runtime_auth_not_checked") ||
@@ -60,7 +66,7 @@ export function initialFallbackAttempt(
       instances,
       sessions,
     }),
-    requestedIndex = requestedInstance ? derivedInstances.indexOf(requestedInstance) : 0,
+    requestedIndex = pin ? derivedInstances.indexOf(pin) : 0,
     candidates = derivedInstances.slice(requestedIndex).map((instanceId) => ({
       instance: instanceId,
       model: candidateModel(instances.find((row) => row.instanceId === instanceId)!),
