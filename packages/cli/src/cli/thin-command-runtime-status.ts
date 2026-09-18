@@ -9,34 +9,48 @@ export function parseRuntimeStatus(
   rootDir: SafePath,
   repoId: string | undefined,
   json: boolean,
-  runtimeSessionId: string | undefined,
+  runtimeSessionIds: readonly string[],
   flags: ParsedFlags,
 ): ThinParseResult {
   const wait = flags.booleans.has("--wait"),
-    noStream = flags.booleans.has("--no-stream");
-  if (runtimeSessionId && flags.one.has("--task"))
-    return rejected("invalid_field", "Use either <runtime-session-id> or --task <task-id>, not both.", json);
-  if (!runtimeSessionId && !flags.one.has("--task") && wait)
+    all = flags.booleans.has("--all"),
+    noStream = flags.booleans.has("--no-stream"),
+    taskIds = flags.many.get("--task") ?? [];
+  if (all && !wait) return rejected("invalid_field", "Use --all only with --wait.", json);
+  if (runtimeSessionIds.length > 0 && taskIds.length > 0)
+    return rejected("invalid_field", "Use either <runtime-session-id> targets or --task <task-id>, not both.", json);
+  if (runtimeSessionIds.length > 1 && !wait)
+    return rejected("invalid_field", "Multiple runtime session ids require --wait.", json);
+  if (taskIds.length > 1 && !wait) return rejected("invalid_field", "Multiple --task values require --wait.", json);
+  if (wait && runtimeSessionIds.length === 0 && taskIds.length === 0)
     return rejected("invalid_field", "Use --wait with a runtime session id or --task <task-id>.", json);
+  // Every --wait — one target or many — rides the daemon-side await; the CLI never polls for a
+  // terminal verdict itself. The daemon answers with the settled/in-flight/unavailable split and
+  // the authoritative outcome.
+  if (wait)
+    return accepted(
+      rootDir,
+      repoId,
+      json,
+      {
+        kind: "runtime-sessions-await",
+        ...(runtimeSessionIds.length > 0 ? { runtimeSessionIds } : {}),
+        ...(taskIds.length > 0 ? { taskIds } : {}),
+        ...(all ? { mode: "all" } : {}),
+        ...(noStream ? { noStream: true } : {}),
+      },
+      "repo.agentRuntime.sessions.await",
+    );
+  const runtimeSessionId = runtimeSessionIds[0],
+    taskId = taskIds[0];
   return accepted(
     rootDir,
     repoId,
     json,
     {
       kind: route.id,
-      ...(runtimeSessionId
-        ? {
-            runtimeSessionId,
-            ...(wait ? { wait: true } : {}),
-            ...(noStream ? { noStream: true } : {}),
-          }
-        : flags.one.get("--task")
-          ? {
-              taskId: flags.one.get("--task"),
-              ...(wait ? { wait: true } : {}),
-              ...(noStream ? { noStream: true } : {}),
-            }
-          : {}),
+      ...(runtimeSessionId ? { runtimeSessionId } : taskId ? { taskId } : {}),
+      ...(noStream ? { noStream: true } : {}),
     },
     runtimeSessionId ? "repo.agentRuntime.sessions.read" : route.method,
   );

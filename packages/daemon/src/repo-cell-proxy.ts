@@ -57,7 +57,14 @@ export async function openRepoCellProxy(
   // Orchestration waiters (runtime batch, agent create) park on these per-session sets; every
   // runtime signal or outcome notification re-checks the domain settle predicate.
   const outcomeWaiters = new Map<string, Set<() => void>>(),
+    signalWaiters = new Set<() => void>(),
+    pokeSignalWaiters = (): void => {
+      const waiters = [...signalWaiters];
+      signalWaiters.clear();
+      for (const waiter of waiters) waiter();
+    },
     pokeOutcomeWaiters = (runtimeSessionId: string | undefined): void => {
+      pokeSignalWaiters();
       if (typeof runtimeSessionId !== "string") return;
       const waiters = [...(outcomeWaiters.get(runtimeSessionId) ?? [])];
       outcomeWaiters.delete(runtimeSessionId);
@@ -370,6 +377,21 @@ export async function openRepoCellProxy(
           outcomeWaiters.set(runtimeSessionId, waiters);
         });
       }
+    },
+    awaitRuntimeSignal: async () => {
+      await new Promise<void>((resolve) => {
+        const waiter = () => {
+          signalWaiters.delete(waiter);
+          clearTimeout(timer);
+          resolve();
+        };
+        const timer = setTimeout(() => {
+          signalWaiters.delete(waiter);
+          resolve();
+        }, runtimeSettlementGraceMs);
+        timer.unref?.();
+        signalWaiters.add(waiter);
+      });
     },
     runtime,
     status: supervisor.status,

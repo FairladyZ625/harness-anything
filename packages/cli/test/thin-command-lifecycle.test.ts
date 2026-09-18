@@ -899,12 +899,17 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       },
     );
   if (wait.ok)
-    assert.deepEqual(wait.command.action, {
-      kind: "runtime-status",
-      runtimeSessionId: "runtime-1",
-      wait: true,
-      noStream: true,
-    });
+    assert.deepEqual(
+      { method: wait.command.method, action: wait.command.action },
+      {
+        method: "repo.agentRuntime.sessions.await",
+        action: {
+          kind: "runtime-sessions-await",
+          runtimeSessionIds: ["runtime-1"],
+          noStream: true,
+        },
+      },
+    );
   if (cancel.ok)
     assert.deepEqual(cancel.command.action, {
       kind: "runtime-cancel",
@@ -976,12 +981,45 @@ test("runtime work commands parse into closed daemon facade actions", () => {
   const taskWait = parseThinCommand(["runtime", "status", "--task", "task-1", "--wait", "--no-stream"]);
   assert.equal(taskWait.ok, true);
   if (taskWait.ok)
-    assert.deepEqual(taskWait.command.action, {
-      kind: "runtime-status",
-      taskId: "task-1",
-      wait: true,
-      noStream: true,
+    assert.deepEqual(
+      { method: taskWait.command.method, action: taskWait.command.action },
+      {
+        method: "repo.agentRuntime.sessions.await",
+        action: {
+          kind: "runtime-sessions-await",
+          taskIds: ["task-1"],
+          noStream: true,
+        },
+      },
+    );
+  const multiWait = parseThinCommand(["runtime", "status", "runtime-1", "runtime-2", "--wait", "--all"]);
+  assert.equal(multiWait.ok, true, JSON.stringify(multiWait));
+  if (multiWait.ok)
+    assert.deepEqual(
+      { method: multiWait.command.method, action: multiWait.command.action },
+      {
+        method: "repo.agentRuntime.sessions.await",
+        action: {
+          kind: "runtime-sessions-await",
+          runtimeSessionIds: ["runtime-1", "runtime-2"],
+          mode: "all",
+        },
+      },
+    );
+  const multiTaskWait = parseThinCommand(["runtime", "status", "--task", "task-1", "--task", "task-2", "--wait"]);
+  assert.equal(multiTaskWait.ok, true, JSON.stringify(multiTaskWait));
+  if (multiTaskWait.ok)
+    assert.deepEqual(multiTaskWait.command.action, {
+      kind: "runtime-sessions-await",
+      taskIds: ["task-1", "task-2"],
     });
+  for (const argv of [
+    ["runtime", "status", "runtime-1", "runtime-2"],
+    ["runtime", "status", "--task", "task-1", "--task", "task-2"],
+    ["runtime", "status", "runtime-1", "--all"],
+    ["runtime", "status", "runtime-1", "--wait", "--task", "task-1"],
+  ])
+    assert.equal(parseThinCommand(argv).ok, false, argv.join(" "));
   assert.deepEqual(parseThinCommand(["runtime", "status", "--wait"]), {
     ok: false,
     code: "invalid_field",

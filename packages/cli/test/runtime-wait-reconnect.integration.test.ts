@@ -12,11 +12,12 @@ import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-ta
 const cli = path.resolve("packages/cli/src/index.ts"),
   runtimeSessionId = "runtime-wait-reconnect";
 
-test("runtime status --wait reads once after an attached stream reports exit", async () => {
+test("runtime status --wait renders the daemon verdict while the attached stream shows activity", async () => {
   const fixture = await openFixtureDaemon("stream-terminal");
   let statusReads = 0,
-    terminal = false,
+    awaitRequests = 0,
     attachSocket: net.Socket | undefined;
+  const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       reply(socket, request.id, { ok: true });
@@ -33,19 +34,23 @@ test("runtime status --wait reads once after an attached stream reports exit", a
       });
       return;
     }
+    if (request.method === "repo.agentRuntime.sessions.await") {
+      awaitRequests += 1;
+      pendingAwait.push({ socket, id: request.id });
+      return;
+    }
     assert.equal(request.method, "repo.agentRuntime.sessions.read");
     statusReads += 1;
-    reply(socket, request.id, runtimeStatus(terminal));
+    reply(socket, request.id, runtimeStatus(false));
   };
   const invocation = runWait(fixture, ["runtime", "status", runtimeSessionId, "--wait"], false);
   try {
-    for (const deadline = Date.now() + 2_000; (!attachSocket || statusReads < 1) && Date.now() < deadline; )
+    for (const deadline = Date.now() + 4_000; (!attachSocket || pendingAwait.length === 0) && Date.now() < deadline; )
       await delay(20);
     assert.ok(attachSocket, "the runtime stream must attach");
-    assert.equal(statusReads, 1);
+    assert.equal(pendingAwait.length, 1, "the daemon-side await must be parked");
     await delay(1_200);
-    assert.equal(statusReads, 1, "an attached stream must not perform periodic status reads");
-    terminal = true;
+    assert.equal(statusReads, 1, "a parked await must not perform periodic status reads");
     attachSocket.write(
       `${JSON.stringify({
         jsonrpc: "2.0",
@@ -60,31 +65,27 @@ test("runtime status --wait reads once after an attached stream reports exit", a
         },
       })}\n`,
     );
+    for (const pending of pendingAwait) reply(pending.socket, pending.id, awaitReceipt());
     const result = await invocation.result(2_000);
     assert.equal(result.code, 0, result.stderr);
     assert.equal(result.stdout.trim(), "settled after reconnect");
-    assert.equal(statusReads, 2, "the exit signal must trigger exactly one final authoritative read");
+    assert.equal(awaitRequests, 1);
   } finally {
     invocation.stop();
     await fixture.close();
   }
 });
 
-test("runtime status --wait reads once when an attached stream requires a snapshot", async () => {
+test("runtime status --wait keeps one daemon await across an attached stream gap", async () => {
   const fixture = await openFixtureDaemon("stream-gap");
   let statusReads = 0,
-    terminal = false,
-    terminalStatusServed!: () => void;
-  const terminalStatus = new Promise<void>((resolve) => {
-    terminalStatusServed = resolve;
-  });
+    awaitRequests = 0;
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       reply(socket, request.id, { ok: true });
       return;
     }
     if (request.method === "repo.agentRuntime.attach") {
-      terminal = true;
       reply(socket, request.id, {
         ok: true,
         status: "gap",
@@ -103,29 +104,34 @@ test("runtime status --wait reads once when an attached stream requires a snapsh
       });
       return;
     }
+    if (request.method === "repo.agentRuntime.sessions.await") {
+      awaitRequests += 1;
+      reply(socket, request.id, awaitReceipt());
+      return;
+    }
     assert.equal(request.method, "repo.agentRuntime.sessions.read");
     statusReads += 1;
-    reply(socket, request.id, runtimeStatus(terminal));
-    if (terminal) terminalStatusServed();
+    reply(socket, request.id, runtimeStatus(false));
   };
   const invocation = runWait(fixture, ["runtime", "status", runtimeSessionId, "--wait"], false);
   try {
-    await terminalStatus;
-    const result = await invocation.result(2_000);
+    const result = await invocation.result(4_000);
     assert.equal(result.code, 0, result.stderr);
     assert.equal(result.stdout.trim(), "settled after reconnect");
-    assert.equal(statusReads, 2, "a stream gap must trigger exactly one authoritative snapshot read");
+    assert.equal(statusReads, 1, "a stream gap must not trigger extra status reads");
+    assert.equal(awaitRequests, 1);
   } finally {
     invocation.stop();
     await fixture.close();
   }
 });
 
-test("runtime status --wait reads once after an attached stream exhausts reconnects", async () => {
+test("runtime status --wait keeps the daemon wait when the attached stream is lost", async () => {
   const fixture = await openFixtureDaemon("stream-lost");
   let statusReads = 0,
-    attachAttempts = 0,
-    terminal = false;
+    awaitRequests = 0,
+    attachAttempts = 0;
+  const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       reply(socket, request.id, { ok: true });
@@ -133,138 +139,71 @@ test("runtime status --wait reads once after an attached stream exhausts reconne
     }
     if (request.method === "repo.agentRuntime.attach") {
       attachAttempts += 1;
-      if (attachAttempts === 1) {
-        reply(socket, request.id, {
-          ok: true,
-          status: "attached",
-          runtimeSessionId,
-          cursor: "stream:0",
-          events: [],
-        });
-        terminal = true;
-        setTimeout(() => socket.destroy(), 20);
-      } else socket.destroy();
+      reply(socket, request.id, {
+        ok: true,
+        status: "attached",
+        runtimeSessionId,
+        cursor: "stream:0",
+        events: [],
+      });
+      setTimeout(() => socket.destroy(), 20);
+      return;
+    }
+    if (request.method === "repo.agentRuntime.sessions.await") {
+      awaitRequests += 1;
+      pendingAwait.push({ socket, id: request.id });
       return;
     }
     assert.equal(request.method, "repo.agentRuntime.sessions.read");
     statusReads += 1;
-    reply(socket, request.id, runtimeStatus(terminal));
+    reply(socket, request.id, runtimeStatus(false));
   };
   const invocation = runWait(fixture, ["runtime", "status", runtimeSessionId, "--wait"], false);
   try {
-    const result = await invocation.result(12_000);
+    for (const deadline = Date.now() + 8_000; attachAttempts < 2 && Date.now() < deadline; ) await delay(50);
+    assert.ok(attachAttempts >= 2, `expected stream reconnect attempts, observed ${attachAttempts}`);
+    assert.equal(pendingAwait.length, 1, "the daemon-side await must stay parked through stream loss");
+    for (const pending of pendingAwait) reply(pending.socket, pending.id, awaitReceipt());
+    const result = await invocation.result(2_000);
     assert.equal(result.code, 0, result.stderr);
     assert.equal(result.stdout.trim(), "settled after reconnect");
-    assert.equal(attachAttempts, 6, "the attached stream must spend its bounded reconnect budget");
-    assert.equal(statusReads, 2, "stream loss must trigger exactly one final authoritative read");
+    assert.equal(statusReads, 1);
+    assert.equal(awaitRequests, 1, "stream loss must not reissue the daemon await");
   } finally {
     invocation.stop();
     await fixture.close();
   }
 });
 
-test("runtime status --wait fallback backs off to two seconds and resets on cursor progress", async () => {
-  const fixture = await openFixtureDaemon("fallback-backoff"),
-    readTimes: number[] = [];
-  let statusReads = 0;
-  fixture.onRequest = (socket, request) => {
-    if (request.method === "protocol.hello") {
-      reply(socket, request.id, { ok: true });
-      return;
-    }
-    assert.equal(request.method, "repo.agentRuntime.sessions.read");
-    statusReads += 1;
-    readTimes.push(Date.now());
-    reply(
-      socket,
-      request.id,
-      runtimeStatus(statusReads === 6, statusReads === 6, false, false, statusReads >= 5 ? "stream:1" : "stream:0"),
-    );
-  };
-  const invocation = runWait(fixture);
-  try {
-    const result = await invocation.result(9_000),
-      intervals = readTimes.slice(1).map((at, index) => at - readTimes[index]!);
-    assert.equal(result.code, 0, result.stderr);
-    assert.equal(result.receipt.outcome, "succeeded");
-    assert.equal(statusReads, 6);
-    assert.ok(intervals[0]! >= 400, `first fallback interval was ${intervals[0]}ms`);
-    assert.ok(intervals[1]! >= 900, `second fallback interval was ${intervals[1]}ms`);
-    assert.ok(intervals[2]! >= 1_900, `third fallback interval was ${intervals[2]}ms`);
-    assert.ok(intervals[3]! >= 1_900, `capped fallback interval was ${intervals[3]}ms`);
-    assert.ok(intervals[4]! >= 400 && intervals[4]! < 1_800, `cursor reset interval was ${intervals[4]}ms`);
-  } finally {
-    invocation.stop();
-    await fixture.close();
-  }
-});
-
-test("runtime status --wait reconnects after a protocol.hello deadline and returns the terminal dispatch", async () => {
-  const fixture = await openFixtureDaemon("slow-hello");
-  let allowHello = false,
-    terminal = false,
-    helloRequests = 0,
-    statusReads = 0;
-  fixture.onRequest = (socket, request) => {
-    if (request.method === "protocol.hello") {
-      helloRequests += 1;
-      if (allowHello) reply(socket, request.id, { ok: true });
-      return;
-    }
-    assert.equal(request.method, "repo.agentRuntime.sessions.read");
-    statusReads += 1;
-    reply(socket, request.id, runtimeStatus(terminal));
-    if (statusReads === 1) {
-      terminal = true;
-      socket.end();
-    }
-  };
-  const invocation = runWait(fixture);
-  try {
-    await delay(30_100);
-    assert.equal(invocation.closed, false, "--wait exited at the per-connection hello deadline");
-    allowHello = true;
-    const result = await invocation.result(10_000);
-    assert.equal(result.code, 0, result.stderr);
-    assert.equal(result.receipt.outcome, "succeeded");
-    assert.equal((result.receipt.result as Record<string, unknown>).text, "settled after reconnect");
-    assert.ok(helloRequests >= 3, `expected fresh hellos after timeout and stream loss, observed ${helloRequests}`);
-    assert.ok(
-      statusReads >= 2,
-      `expected the re-subscribed reader to observe running then terminal, observed ${statusReads}`,
-    );
-  } finally {
-    invocation.stop();
-    await fixture.close();
-  }
-});
-
-test("runtime status --wait reconnects after the daemon disappears and returns the adopted terminal dispatch", async () => {
+test("runtime status --wait reconnects the await after the daemon restarts", async () => {
   const fixture = await openFixtureDaemon("daemon-restart");
   let statusReads = 0,
-    restarted = false;
+    awaitRequests = 0;
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       reply(socket, request.id, { ok: true });
       return;
     }
-    assert.equal(request.method, "repo.agentRuntime.sessions.read");
-    statusReads += 1;
-    if (!restarted) {
-      reply(socket, request.id, runtimeStatus(false));
-      restarted = true;
-      void fixture.restart();
+    if (request.method === "repo.agentRuntime.sessions.await") {
+      awaitRequests += 1;
+      if (awaitRequests === 1) {
+        void fixture.restart();
+        return;
+      }
+      reply(socket, request.id, awaitReceipt());
       return;
     }
-    reply(socket, request.id, runtimeStatus(true));
+    assert.equal(request.method, "repo.agentRuntime.sessions.read");
+    statusReads += 1;
+    reply(socket, request.id, runtimeStatus(false));
   };
   const invocation = runWait(fixture);
   try {
     const result = await invocation.result(12_000);
     assert.equal(result.code, 0, result.stderr);
     assert.equal(result.receipt.outcome, "succeeded");
-    assert.equal((result.receipt.result as Record<string, unknown>).text, "settled after reconnect");
-    assert.equal(statusReads, 2, "the new daemon must provide the terminal status after adoption");
+    assert.equal(awaitRequests, 2, "the idempotent await must be reissued on the new daemon");
+    assert.equal(statusReads, 1, "the probe read happens once");
   } finally {
     invocation.stop();
     await fixture.close();
@@ -279,20 +218,21 @@ test("runtime status --wait returns daemon_gone with the last-known dispatch aft
       reply(socket, request.id, { ok: true });
       return;
     }
-    assert.equal(request.method, "repo.agentRuntime.sessions.read");
-    statusReads += 1;
-    if (statusReads === 1) {
-      reply(socket, request.id, runtimeStatus(false));
+    if (request.method === "repo.agentRuntime.sessions.await") {
+      fixture.die();
       return;
     }
-    fixture.die();
+    assert.equal(request.method, "repo.agentRuntime.sessions.read");
+    statusReads += 1;
+    reply(socket, request.id, runtimeStatus(false));
   };
   const invocation = runWait(fixture);
   try {
-    const result = await invocation.result(10_000);
+    const result = await invocation.result(20_000);
     assert.equal(result.code, 1, result.stderr);
     assert.equal(result.receipt.code, "daemon_gone");
     assert.equal((result.receipt.error as Record<string, unknown>).code, "daemon_gone");
+    assert.equal(statusReads, 1, "the probe read happens once before the await");
     assert.deepEqual(result.receipt.lastKnownDispatch, {
       taskId: "task-runtime-wait",
       dispatchId: null,
@@ -310,58 +250,37 @@ test("runtime status --wait returns daemon_gone with the last-known dispatch aft
   }
 });
 
-test("runtime status --wait bounds an exited session whose outcome never becomes visible", async () => {
-  const fixture = await openFixtureDaemon("settlement-failed");
-  let statusReads = 0;
-  fixture.onRequest = (socket, request) => {
-    if (request.method === "protocol.hello") {
-      reply(socket, request.id, { ok: true });
-      return;
-    }
-    assert.equal(request.method, "repo.agentRuntime.sessions.read");
-    statusReads += 1;
-    reply(socket, request.id, runtimeStatus(false, true, false, false, "stream:0", statusReads >= 5));
-  };
-  const invocation = runWait(fixture);
-  try {
-    const result = await invocation.result(8_000);
-    assert.equal(result.code, 1, result.stderr);
-    assert.equal(result.receipt.code, "runtime_settlement_failed");
-    assert.equal(result.receipt.outcome, "unknown");
-    assert.match(String(result.receipt.reason), /runtime_settlement_failed/u);
-    assert.equal(statusReads, 5);
-  } finally {
-    invocation.stop();
-    await fixture.close();
-  }
-});
-
-test("runtime status --wait surfaces a canonical settlement failure diagnostic", async () => {
+test("runtime status --wait surfaces the daemon's settlement failure verdict", async () => {
   const fixture = await openFixtureDaemon("settlement-outcome");
-  let statusReads = 0,
-    terminalStatusServed!: () => void;
-  const terminalStatus = new Promise<void>((resolve) => {
-    terminalStatusServed = resolve;
-  });
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       reply(socket, request.id, { ok: true });
       return;
     }
+    if (request.method === "repo.agentRuntime.sessions.await") {
+      reply(
+        socket,
+        request.id,
+        awaitReceipt({
+          outcome: "unknown",
+          exitCode: 1,
+          code: "runtime_settlement_failed",
+          reason: "injected failure: runtime_lease_release_failed",
+          resultText: "injected failure: runtime_lease_release_failed",
+        }),
+      );
+      return;
+    }
     assert.equal(request.method, "repo.agentRuntime.sessions.read");
-    statusReads += 1;
-    reply(socket, request.id, runtimeStatus(false, true, true));
-    terminalStatusServed();
+    reply(socket, request.id, runtimeStatus(false));
   };
   const invocation = runWait(fixture);
   try {
-    await terminalStatus;
-    const result = await invocation.result(2_000);
+    const result = await invocation.result(4_000);
     assert.equal(result.code, 1, result.stderr);
     assert.equal(result.receipt.code, "runtime_settlement_failed");
     assert.equal(result.receipt.outcome, "unknown");
     assert.match(String(result.receipt.reason), /runtime_lease_release_failed/u);
-    assert.equal(statusReads, 1);
   } finally {
     invocation.stop();
     await fixture.close();
@@ -370,23 +289,31 @@ test("runtime status --wait surfaces a canonical settlement failure diagnostic",
 
 test("runtime status --wait does not infer settlement failure from an unknown outcome's text", async () => {
   const fixture = await openFixtureDaemon("unknown-outcome");
-  let terminalStatusServed!: () => void;
-  const terminalStatus = new Promise<void>((resolve) => {
-    terminalStatusServed = resolve;
-  });
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       reply(socket, request.id, { ok: true });
       return;
     }
+    if (request.method === "repo.agentRuntime.sessions.await") {
+      reply(
+        socket,
+        request.id,
+        awaitReceipt({
+          outcome: "unknown",
+          exitCode: 1,
+          code: "provider_exit",
+          reason: "Runtime terminal settlement failed (provider-authored diagnostic)",
+          resultText: "Runtime terminal settlement failed (provider-authored diagnostic)",
+        }),
+      );
+      return;
+    }
     assert.equal(request.method, "repo.agentRuntime.sessions.read");
-    reply(socket, request.id, runtimeStatus(false, true, false, true));
-    terminalStatusServed();
+    reply(socket, request.id, runtimeStatus(false));
   };
   const invocation = runWait(fixture);
   try {
-    await terminalStatus;
-    const result = await invocation.result(2_000);
+    const result = await invocation.result(4_000);
     assert.equal(result.code, 1, result.stderr);
     assert.equal(result.receipt.code, "provider_exit");
     assert.equal(result.receipt.outcome, "unknown");
@@ -396,74 +323,122 @@ test("runtime status --wait does not infer settlement failure from an unknown ou
   }
 });
 
-test("task dispatch wait classifies an ENOENT reconnect as daemon_gone and retains the last-known rows", async () => {
-  const fixture = await openFixtureDaemon("task-daemon-gone"),
-    taskId = "task-runtime-wait",
-    dispatch = { dispatchId: "dispatch-runtime-wait", status: "running", fallbackState: null };
-  fixture.onRequest = (socket, request) => {
-    if (request.method === "protocol.hello") {
-      reply(socket, request.id, { ok: true });
-      return;
-    }
-    assert.equal(request.method, "repo.task.dispatches");
-    reply(socket, request.id, {
-      ok: true,
-      status: "ready",
-      dispatches: [dispatch],
-      outcome: "unknown",
-      exitCode: 0,
-    });
-    socket.end();
-    socket.once("close", fixture.die);
-  };
-  const invocation = runWait(fixture, ["runtime", "status", "--task", taskId, "--wait", "--no-stream"]);
-  try {
-    const result = await invocation.result(10_000);
-    assert.equal(result.code, 1, result.stderr);
-    assert.equal(result.receipt.code, "daemon_gone");
-    assert.equal(result.receipt.taskId, taskId);
-    assert.deepEqual(result.receipt.lastKnownDispatches, [dispatch]);
-    assert.match(String((result.receipt.error as Record<string, unknown>).cause), /ENOENT/u);
-  } finally {
-    invocation.stop();
-    await fixture.close();
-  }
-});
-
-test("task dispatch wait reuses one hello connection across polling ticks", async () => {
-  const fixture = await openFixtureDaemon("task-persistent-reader"),
-    taskId = "task-runtime-wait";
+test("multi-target runtime status --wait issues one daemon await and renders the settled split", async () => {
+  const fixture = await openFixtureDaemon("multi-target");
   let helloRequests = 0,
-    statusReads = 0;
+    awaitRequests = 0;
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       helloRequests += 1;
       reply(socket, request.id, { ok: true });
       return;
     }
-    assert.equal(request.method, "repo.task.dispatches");
-    statusReads += 1;
-    const settledRow = statusReads === 3;
+    assert.equal(request.method, "repo.agentRuntime.sessions.await");
+    awaitRequests += 1;
+    assert.deepEqual(request.params.payload.runtimeSessionIds, [runtimeSessionId, "runtime-wait-other"]);
+    reply(
+      socket,
+      request.id,
+      awaitReceipt({
+        inFlight: ["runtime-wait-other"],
+        summary: `runtime-status: ${runtimeSessionId} settled succeeded; 1 still in flight`,
+      }),
+    );
+  };
+  const invocation = runWait(fixture, [
+    "runtime",
+    "status",
+    runtimeSessionId,
+    "runtime-wait-other",
+    "--wait",
+    "--no-stream",
+  ]);
+  try {
+    const result = await invocation.result(4_000);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.receipt.outcome, "succeeded");
+    assert.equal(result.receipt.mode, "any");
+    assert.deepEqual(
+      (result.receipt.sessions as Array<Record<string, unknown>>).map((row) => row.runtimeSessionId),
+      [runtimeSessionId],
+    );
+    assert.deepEqual(
+      (result.receipt.inFlight as Array<Record<string, unknown>>).map((row) => row.runtimeSessionId),
+      ["runtime-wait-other"],
+    );
+    assert.equal(awaitRequests, 1, "one daemon await covers every target");
+    assert.equal(helloRequests, 1, "the wait rides one connection");
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
+test("task dispatch wait rides one sessions.await request", async () => {
+  const fixture = await openFixtureDaemon("task-await"),
+    taskId = "task-runtime-wait";
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    assert.equal(request.method, "repo.agentRuntime.sessions.await");
+    assert.deepEqual(request.params.payload.taskIds, [taskId]);
     reply(socket, request.id, {
+      schema: "command-receipt/v2",
       ok: true,
       status: "ready",
+      command: "runtime-status",
+      mode: "all",
+      taskIds: [taskId],
       dispatches: [
         {
           dispatchId: "dispatch-runtime-wait",
-          status: settledRow ? "succeeded" : "running",
+          status: "succeeded",
+          outcome: "succeeded",
+          exitCode: 0,
           fallbackState: null,
+          nextDispatchId: null,
         },
       ],
-      outcome: settledRow ? "succeeded" : "unknown",
+      outcome: "succeeded",
       exitCode: 0,
+      summary: `runtime-status task ${taskId}: 1 dispatch succeeded`,
     });
   };
   const invocation = runWait(fixture, ["runtime", "status", "--task", taskId, "--wait", "--no-stream"]);
   try {
-    const result = await invocation.result(2_000);
+    const result = await invocation.result(4_000);
     assert.equal(result.code, 0, result.stderr);
-    assert.equal(statusReads, 3);
-    assert.equal(helloRequests, 1, "all polling ticks must share the initial JSON-RPC connection");
+    assert.equal(result.receipt.outcome, "succeeded");
+    assert.equal(result.receipt.exitCode, 0);
+    assert.deepEqual(
+      (result.receipt.dispatches as Array<Record<string, unknown>>).map((row) => row.dispatchId),
+      ["dispatch-runtime-wait"],
+    );
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
+test("task dispatch wait classifies an unreachable daemon as daemon_gone", async () => {
+  const fixture = await openFixtureDaemon("task-daemon-gone"),
+    taskId = "task-runtime-wait";
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    assert.equal(request.method, "repo.agentRuntime.sessions.await");
+    fixture.die();
+  };
+  const invocation = runWait(fixture, ["runtime", "status", "--task", taskId, "--wait", "--no-stream"]);
+  try {
+    const result = await invocation.result(20_000);
+    assert.equal(result.code, 1, result.stderr);
+    assert.equal(result.receipt.code, "daemon_gone");
+    assert.deepEqual(result.receipt.taskIds, [taskId]);
   } finally {
     invocation.stop();
     await fixture.close();
@@ -483,6 +458,7 @@ interface FixtureDaemon {
 interface RpcRequest {
   readonly id: number;
   readonly method: string;
+  readonly params: { readonly payload: Record<string, unknown> };
 }
 
 async function openFixtureDaemon(daemonId: string): Promise<FixtureDaemon> {
@@ -650,38 +626,47 @@ function reply(socket: net.Socket, id: number, result: Record<string, unknown>):
   socket.write(`${JSON.stringify({ jsonrpc: "2.0", id, result })}\n`);
 }
 
-function runtimeStatus(
-  terminal: boolean,
-  exited = terminal,
-  settlementFailed = false,
-  unknownOutcome = false,
-  streamCursor = "stream:0",
-  settled = terminal || settlementFailed || unknownOutcome,
+function awaitReceipt(
+  overrides: {
+    readonly outcome?: string;
+    readonly exitCode?: number;
+    readonly code?: string;
+    readonly reason?: string;
+    readonly resultText?: string;
+    readonly inFlight?: readonly string[];
+    readonly summary?: string;
+  } = {},
 ): Record<string, unknown> {
-  const outcome = terminal ? "succeeded" : settlementFailed || unknownOutcome ? "unknown" : null,
-    resultText = settlementFailed
-      ? "injected failure: runtime_lease_release_failed"
-      : unknownOutcome
-        ? "Runtime terminal settlement failed (provider-authored diagnostic)"
-        : terminal
-          ? "settled after reconnect"
-          : null,
-    settlement = !settled
-      ? null
-      : {
-          outcome: outcome ?? "unknown",
-          exitCode: outcome === "succeeded" ? 0 : 1,
-          code:
-            outcome === "succeeded"
-              ? null
-              : settlementFailed || outcome === null
-                ? "runtime_settlement_failed"
-                : "provider_exit",
-          reason:
-            outcome === "succeeded"
-              ? null
-              : resultText || "runtime_settlement_failed: the runtime exited but no terminal outcome became visible.",
-        };
+  const outcome = overrides.outcome ?? "succeeded",
+    code = overrides.code ?? null,
+    reason = overrides.reason ?? null,
+    resultText = overrides.resultText ?? "settled after reconnect";
+  return {
+    schema: "command-receipt/v2",
+    ok: true,
+    command: "runtime-status",
+    mode: "any",
+    outcome,
+    ...(reason ? { code, reason } : {}),
+    sessions: [
+      {
+        runtimeSessionId,
+        outcome,
+        exitCode: overrides.exitCode ?? 0,
+        code,
+        reason,
+        resultText,
+      },
+    ],
+    inFlight: (overrides.inFlight ?? []).map((id) => ({ runtimeSessionId: id, liveness: "live" })),
+    unavailable: [],
+    summary: overrides.summary ?? resultText,
+    exitCode: overrides.exitCode ?? 0,
+  };
+}
+
+function runtimeStatus(terminal: boolean): Record<string, unknown> {
+  const settlement = terminal ? { outcome: "succeeded", exitCode: 0, code: null, reason: null } : null;
   return {
     ok: true,
     status: "ready",
@@ -694,9 +679,9 @@ function runtimeStatus(
       kindId: "codex",
       definitionSnapshotRef: "fixture-definition",
       definitionSnapshot: {},
-      liveness: exited ? "exited" : "live",
+      liveness: terminal ? "exited" : "live",
       attachCapability: "supported",
-      streamCursor,
+      streamCursor: "stream:0",
       associations: [
         {
           taskId: "task-runtime-wait",
@@ -707,24 +692,14 @@ function runtimeStatus(
       ],
       activity: {
         lastObservedAt: "2026-08-27T00:00:00.000Z",
-        outcome: terminal ? "succeeded" : settlementFailed || unknownOutcome ? "unknown" : null,
-        exitCode: exited ? 0 : null,
-        resultRef: terminal || settlementFailed || unknownOutcome ? "result:fixture" : null,
-        ...(settlementFailed ? { reasonCode: "runtime_lease_release_failed" } : {}),
+        outcome: terminal ? "succeeded" : null,
+        exitCode: terminal ? 0 : null,
+        resultRef: terminal ? "result:fixture" : null,
       },
     },
-    result: settlementFailed
-      ? {
-          ref: "result:fixture",
-          text: "injected failure: runtime_lease_release_failed",
-        }
-      : unknownOutcome
-        ? { ref: "result:fixture", text: "Runtime terminal settlement failed (provider-authored diagnostic)" }
-        : terminal
-          ? { ref: "result:fixture", text: "settled after reconnect" }
-          : null,
-    watermark: terminal || settlementFailed || unknownOutcome ? 2 : 1,
-    sourceRevision: terminal || settlementFailed || unknownOutcome ? 2 : 1,
+    result: terminal ? { ref: "result:fixture", text: "settled after reconnect" } : null,
+    watermark: terminal ? 2 : 1,
+    sourceRevision: terminal ? 2 : 1,
   };
 }
 

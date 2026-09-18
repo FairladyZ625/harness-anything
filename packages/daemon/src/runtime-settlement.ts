@@ -33,8 +33,25 @@ export function createRuntimeOutcomeWaiters(input: {
 }): {
   readonly notify: () => void;
   readonly awaitOutcome: (runtimeSessionId: string) => Promise<void>;
+  readonly awaitSignal: () => Promise<void>;
 } {
-  const waiters = new Set<() => void>();
+  const waiters = new Set<() => void>(),
+    // One parked wake: resolves on the next runtime signal/outcome notification, or on the grace
+    // backstop so a missed signal cannot park a waiter forever.
+    park = () =>
+      new Promise<void>((resolve) => {
+        const waiter = () => {
+          waiters.delete(waiter);
+          clearTimeout(timer);
+          resolve();
+        };
+        const timer = setTimeout(() => {
+          waiters.delete(waiter);
+          resolve();
+        }, runtimeSettlementGraceMs);
+        timer.unref?.();
+        waiters.add(waiter);
+      });
   return {
     notify: () => {
       const pending = [...waiters];
@@ -43,21 +60,10 @@ export function createRuntimeOutcomeWaiters(input: {
     },
     awaitOutcome: async (runtimeSessionId) => {
       while (!runtimeOutcomeSettled(input.readSession(runtimeSessionId), input.now())) {
-        await new Promise<void>((resolve) => {
-          const waiter = () => {
-            waiters.delete(waiter);
-            clearTimeout(timer);
-            resolve();
-          };
-          const timer = setTimeout(() => {
-            waiters.delete(waiter);
-            resolve();
-          }, runtimeSettlementGraceMs);
-          timer.unref?.();
-          waiters.add(waiter);
-        });
+        await park();
       }
     },
+    awaitSignal: park,
   };
 }
 

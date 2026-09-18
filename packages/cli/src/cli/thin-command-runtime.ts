@@ -11,15 +11,26 @@ export function parseRuntime(
   json: boolean,
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
-  const kind = route.id,
-    optional = kind === "runtime-status",
-    id = args[2]?.startsWith("--") ? undefined : args[2],
+  const kind = route.id;
+  if (kind === "runtime-status") {
+    // runtime-status is the one runtime surface with an optional positional — and the only one that
+    // accepts several: --wait turns consecutive session ids into one multi-target await request.
+    const runtimeSessionIds: string[] = [];
+    let index = 2;
+    while (index < args.length && !args[index]!.startsWith("--")) {
+      runtimeSessionIds.push(args[index]!);
+      index += 1;
+    }
+    const f = readFlags(kind, args.slice(index), inputs);
+    if (!f.ok) return rejected(f.code, f.nextAction, json);
+    return parseRuntimeStatus(route, rootDir, repoId, json, runtimeSessionIds, f);
+  }
+  const id = args[2]?.startsWith("--") ? undefined : args[2],
     f = readFlags(kind, args.slice(id ? 3 : 2), inputs);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
-  if (!optional && !nonEmpty(id))
+  if (!nonEmpty(id))
     return rejected("missing_field", `Run ha runtime ${kind.slice(8)} <${runtimeTarget(kind)}>.`, json);
   if (kind === "runtime-batch") return accepted(rootDir, repoId, json, { kind, batchFile: id }, route.method);
-  if (kind === "runtime-status") return parseRuntimeStatus(route, rootDir, repoId, json, id, f);
   if (kind === "runtime-cancel") return accepted(rootDir, repoId, json, { kind, runtimeSessionId: id }, route.method);
   const prompt = promptInput(f.one),
     taskId = f.one.get("--task"),

@@ -155,6 +155,8 @@ export interface RepoCellApiContext {
   readonly runtimeSpawner: ReturnType<typeof makeRuntimeSpawner>;
   /** Resolves when the session's projected outcome is settled per the domain settle predicate. */
   readonly awaitRuntimeOutcome: (runtimeSessionId: string) => Promise<void>;
+  /** Resolves on the next runtime signal/outcome notification or the settlement grace backstop. */
+  readonly awaitRuntimeSignal: () => Promise<void>;
   readonly settings: RepoCellSettingsState;
   readonly appendAuxiliaryRuntimeIngress: RepoCellOperationalContext["appendAuxiliaryRuntimeIngress"];
   bootstrapReceipt: RepoBootstrapReceipt | undefined;
@@ -1009,6 +1011,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     spawnRuntime,
     cancelRuntime,
     awaitRuntimeOutcome: context.awaitRuntimeOutcome,
+    awaitRuntimeSignal: context.awaitRuntimeSignal,
     runtimeIngress,
     catalog: context.catalog,
     terminal: context.terminal,

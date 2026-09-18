@@ -208,6 +208,23 @@ export function taskDispatchesOutcome(
   return { outcome, exitCode: unsettled || outcome === "succeeded" ? 0 : 1 };
 }
 
+/** Terminal verdict for one dispatch row as the await surface sees it: a still-scheduled or
+ * still-dispatched fallback attempt keeps waiting on its successor row, and a just-exited
+ * process is terminal only once its outcome event has been projected (status+outcome unknown). */
+export function taskDispatchRowSettled(row: TaskDispatchRow, dispatchIds: readonly string[]): boolean {
+  if (row.fallbackState === "scheduled") return false;
+  if (row.fallbackState === "dispatched" && (row.nextDispatchId === null || !dispatchIds.includes(row.nextDispatchId)))
+    return false;
+  if (["succeeded", "failed", "cancelled", "lost"].includes(row.status)) return true;
+  return row.status === "unknown" && row.outcome === "unknown";
+}
+
+/** A dispatch list is settled when every row reached its own terminal verdict. */
+export function taskDispatchRowsSettled(rows: readonly TaskDispatchRow[]): boolean {
+  const dispatchIds = rows.map((row) => row.dispatchId);
+  return rows.every((row) => taskDispatchRowSettled(row, dispatchIds));
+}
+
 /** Single-dispatch point read: resolves (taskId, dispatchId) to its session straight from the
  * stream header instead of building the whole task dispatch list. Unattributed dispatches
  * (header.taskId null) never resolve — the task list only ever returned attributed rows. */
