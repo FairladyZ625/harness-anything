@@ -70,6 +70,7 @@ export function DecisionsView({
   onFocusGraph,
   onNavigateEntity,
   coverageRows = [],
+  onExit,
 }: {
   decisions: DecisionRow[];
   tasks: readonly TaskRow[];
@@ -89,6 +90,8 @@ export function DecisionsView({
   onFocusGraph?: (ref: string) => void;
   onNavigateEntity?: (ref: string) => void;
   coverageRows?: ReadonlyArray<RelationCoverageRow>;
+  /** 从总池决策域进入专注模式时提供;渲染「返回总池」出口。独立挂载(测试)时缺省。 */
+  onExit?: () => void;
 }) {
   const [skipped, setSkipped] = useState<Set<string>>(new Set()),
     [cursor, setCursor] = useState(0),
@@ -146,8 +149,18 @@ export function DecisionsView({
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
+        {onExit && (
+          <button
+            onClick={onExit}
+            title={t("views.decisionsView.exitPool")}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 ui-micro text-text-muted transition-colors duration-100 hover:bg-surface-raised hover:text-text"
+          >
+            <CaretLeft />
+            {t("views.decisionsView.exitPool")}
+          </button>
+        )}
         <ChatCircleDots weight="bold" className="text-accent" />
-        <span className="ui-body font-semibold text-text">决策批准</span>
+        <span className="ui-body font-semibold text-text">{t("views.decisionsView.title")}</span>
         <span className="rounded bg-surface-raised px-1.5 font-mono ui-micro tabular-nums text-text-muted">
           {queue.length ? `${idx + 1} / ${queue.length}` : "0 / 0"}
         </span>

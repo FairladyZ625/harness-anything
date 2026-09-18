@@ -116,7 +116,7 @@ describe("entity doc detail", () => {
     expect(text).toContain("declare-claim");
     // 嵌套载荷分组与 GUI 入口说明都在详情里。
     expect(text).toContain("payload(proposal)");
-    expect(text).toContain("决策批准 / 决策池");
+    expect(text).toContain("待办签发总池的决策待裁域(专注裁决从域内进入)");
   });
 
   it("navigates to the entity's live view from the detail header", async () => {

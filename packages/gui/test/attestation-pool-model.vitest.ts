@@ -244,7 +244,7 @@ describe("attestation pool lane derivation", () => {
     expect(taskConsentPending(poolTask({ taskId: "task-n" }))).toBeNull();
   });
 
-  it("aggregates lanes across tasks and exposes the closed tab vocabulary", () => {
+  it("aggregates lanes across tasks and exposes the two-level tab vocabulary", () => {
     const lanes = deriveAttestationLanes([
       poolTask({
         taskId: "task-a",
@@ -265,7 +265,9 @@ describe("attestation pool lane derivation", () => {
     expect(lanes.gates.map(({ taskId }) => taskId)).toEqual(["task-a"]);
     expect(lanes.breakGlass.map(({ taskId }) => taskId)).toEqual(["task-b"]);
     expect(lanes.consents.map(({ taskId }) => taskId)).toEqual(["task-a"]);
-    expect([...ATTESTATION_POOL_TABS]).toEqual(["all", "decisions", "gates", "consents", "breakGlass"]);
+    // 两级词表:第一级域(decisions/taskCloseout),第二级只在任务收口域内;跨域平铺的 "all" 已删。
+    expect([...ATTESTATION_POOL_TABS]).toEqual(["decisions", "taskCloseout", "gates", "consents", "breakGlass"]);
+    expect(lanes.gates.length + lanes.consents.length + lanes.breakGlass.length).toBe(3);
   });
 });
 

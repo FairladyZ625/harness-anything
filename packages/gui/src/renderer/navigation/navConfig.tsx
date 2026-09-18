@@ -2,7 +2,6 @@ import {
   Kanban,
   SquaresFour,
   Graph,
-  Scales,
   Stack,
   PlugsConnected,
   GearSix,
@@ -26,11 +25,14 @@ import type { ViewId } from "./viewHistory.ts";
 // W6 IA 拆分:「运行时」组不再是单个聚合入口,而是会话 / Agent(含 Squad)/ Provider
 // 三个独立工作区——每类实体一页,Squad 作为 Agent 页内的面(P2 独立生命周期判据),
 // 跨页互跳走可寻址路由(entityRoutes),不再挤在同一 rail 里。
+// 待办签发 IA:「决策批准」独立导航项撤销——它与总池同源同判据同动作,只是陈列
+// 不同;决策队列在总池「决策待裁」域内以专注裁决模式存在(J/K 键盘流保留)。
+// 分组随之更名「治理」:组内同时住着 decision 裁决与 task 收口签发两类人工治理
+// 动作,再叫「决策」会重现"决策/签发是不是同一个东西"的歧义。
 const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
   home: "shell.nav.home",
   overview: "shell.nav.overview",
   board: "shell.nav.board",
-  decisions: "shell.nav.decisions",
   decisionPool: "shell.nav.decisionPool",
   freshness: "shell.nav.freshness",
   decisionDetail: "shell.nav.decisionDetail",
@@ -71,10 +73,9 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     ],
   },
   {
-    id: "decisions",
-    labelKey: "shell.nav.decisionGroup",
+    id: "governance",
+    labelKey: "shell.nav.governanceGroup",
     items: [
-      { id: "decisions", icon: <Scales weight="duotone" /> },
       { id: "decisionPool", icon: <GitBranch weight="duotone" /> },
       { id: "freshness", icon: <HourglassMedium weight="duotone" /> },
     ],

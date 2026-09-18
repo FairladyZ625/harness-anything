@@ -8,8 +8,17 @@ import type { TaskRow } from "./types.ts";
  * legacy cut 不猜适配器,不进任何 lane。
  */
 
-export const ATTESTATION_POOL_TABS = ["all", "decisions", "gates", "consents", "breakGlass"] as const;
+/**
+ * 总池两级信息架构的地址词表:第一级是域(decisions=决策待裁,taskCloseout=任务收口),
+ * 第二级只在任务收口域内(taskCloseout=三 lane 全览,gates/consents/breakGlass=聚焦
+ * 单 lane)。跨域平铺的旧 "all" tab 随域分组撤销;四个 lane id 保持不变,旧的深链
+ * 存储值仍可读,仅 "all" 落到存储校验的兜底初始栈。
+ */
+export const ATTESTATION_POOL_TABS = ["decisions", "taskCloseout", "gates", "consents", "breakGlass"] as const;
 export type AttestationPoolTabId = (typeof ATTESTATION_POOL_TABS)[number];
+
+/** 任务收口域内的第二级 tab(含全览);决策域的浏览/过滤由决策区自带,不占这个词表。 */
+export const TASK_CLOSEOUT_TABS = ["taskCloseout", "gates", "consents", "breakGlass"] as const;
 
 /** gate 签发动作:approve=打勾签注(纯人工门或双控缺签);override=特批放行(豁免已记录失败或未取得自动见证)。 */
 export type GateAttestMode = "approve" | "override";

@@ -17,11 +17,12 @@ import type { LaneGroupBy } from "../views/SwimlaneBoard.tsx";
 // W6 IA 拆分:`agents`(Agent 运行时聚合页)撤销,「运行时」组改为三个一级入口:
 // sessions(会话)/ agentSquad(Agent · 含 Squad)/ providers(Provider)。
 // PLT-TerminalWorkspace W0:terminal 升格为一等页面(原底部 dock 撤销)。
+// 待办签发 IA:`decisions`(决策批准)作为独立导航项撤销——同源同判据同动作的
+// 决策队列只在总池决策域内以专注裁决模式存在。
 export type ViewId =
   | "home"
   | "overview"
   | "board"
-  | "decisions"
   | "decisionPool"
   | "freshness"
   | "decisionDetail"
@@ -56,7 +57,7 @@ export interface AppLocation {
   focusedEntityRef: string | null;
   taskFilters: TaskFilters;
   drill: DrillState | null;
-  /** 待办签发总池的当前 Tab(可寻址、刷新不丢);缺省 "all"。 */
+  /** 待办签发总池的当前 Tab(可寻址、刷新不丢);缺省 "decisions"(决策待裁域)。 */
   poolTab?: AttestationPoolTabId;
 }
 
@@ -101,7 +102,7 @@ export function locationsEqual(a: AppLocation, b: AppLocation): boolean {
     a.focusedEntityRef === b.focusedEntityRef &&
     JSON.stringify(a.taskFilters) === JSON.stringify(b.taskFilters) &&
     JSON.stringify(a.drill) === JSON.stringify(b.drill) &&
-    (a.poolTab ?? "all") === (b.poolTab ?? "all")
+    (a.poolTab ?? "decisions") === (b.poolTab ?? "decisions")
   );
 }
 
