@@ -167,9 +167,11 @@ const resultValidators = {
 
 export function validateDaemonTaskWip(value: unknown): readonly string[] {
   if (!isJsonObject(value)) return [validationError("task-wip", "result", value, "must be an object")];
+  // Forward-compat: a newer daemon may attach self-describing fields the client ignores, so the
+  // contract is required-field presence plus types, never an exact key count.
   const fields = ["ok", "limit", "limitLabel", "counted", "roots", "threshold"];
-  if (Object.keys(value).length !== fields.length || fields.some((field) => !Object.hasOwn(value, field)))
-    return [validationError("task-wip", "result", value, "must have the exact task WIP fields")];
+  if (fields.some((field) => !Object.hasOwn(value, field)))
+    return [validationError("task-wip", "result", value, "must have the declared task WIP fields")];
   const positive = (item: unknown) => Number.isSafeInteger(item) && Number(item) > 0,
     nonNegative = (item: unknown) => Number.isSafeInteger(item) && Number(item) >= 0,
     counted =
@@ -177,7 +179,6 @@ export function validateDaemonTaskWip(value: unknown): readonly string[] {
       value.counted.every(
         (row) =>
           isJsonObject(row) &&
-          Object.keys(row).length === 3 &&
           typeof row.taskId === "string" &&
           row.taskId.length > 0 &&
           typeof row.title === "string" &&
@@ -188,7 +189,6 @@ export function validateDaemonTaskWip(value: unknown): readonly string[] {
       value.roots.every(
         (row) =>
           isJsonObject(row) &&
-          Object.keys(row).length === taskWipRootRowFields.length &&
           taskWipRootRowFields.every((field) => Object.hasOwn(row, field)) &&
           typeof row.taskId === "string" &&
           row.taskId.length > 0 &&

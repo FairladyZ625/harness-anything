@@ -704,10 +704,23 @@ test("the served WIP snapshot passes the same protocol validator the GUI client 
       ],
     );
     assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.wip", withRoots), withRoots);
-    // Contrast 3 — undeclared field: a root row carrying anything beyond the declared fields is
-    // refused. The old length-only check accepted exactly this row (five keys, four checked).
-    const drifted = { ...withRoots, roots: [{ ...withRoots.roots[0]!, undeclared: true }] };
-    assert.throws(() => parseDaemonGuiReadResult("repo.tasks.wip", drifted), /must be a valid task WIP snapshot/u);
+    // Contrast 3 — forward-compat: self-describing extension fields pass at every level. A newer
+    // daemon's extras are ignored by the client instead of bouncing as invalid_result.
+    const extended = {
+      ...withRoots,
+      schema: "task-wip/v2",
+      counted: withRoots.counted.map((row) => ({ ...row, annotation: "newer-daemon" })),
+      roots: withRoots.roots.map((row) => ({ ...row, diagnostic: { deferred: 1 } })),
+    };
+    assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.wip", extended), extended);
+    // Contrast 4 — fail closed: a missing required field is still refused, extra keys or not.
+    const { threshold: _threshold, ...missingField } = extended;
+    assert.throws(() => parseDaemonGuiReadResult("repo.tasks.wip", missingField), /task WIP fields/u);
+    const missingRowField = {
+      ...withRoots,
+      roots: [{ taskId: "task_DERIVED", reason: "derived", directChildCount: 3 }],
+    };
+    assert.throws(() => parseDaemonGuiReadResult("repo.tasks.wip", missingRowField), /task WIP snapshot/u);
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
