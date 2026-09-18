@@ -2,7 +2,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { deriveRelationId, relationTypes } from "../../src/index.ts";
-import { relationConsumability, relationIsCurrent, relationStrengthForType } from "../../src/domain/entity-relation.ts";
+import {
+  relationConsumability,
+  relationFreshnessAnchorForType,
+  relationIsCurrent,
+  relationStrengthForType,
+} from "../../src/domain/entity-relation.ts";
 import { relationFreshnessAtCut } from "../../src/domain/entity-freshness.ts";
 import {
   compileRelationCreatedEvent,
@@ -21,11 +26,12 @@ test("relation type is the sole strength authority", () => {
 
 test("relation freshness compares a pinned witness with the target at one cut", () => {
   const target = { entityRef: "task/task_target", freshness: "current" as const, currentVersion: 8 };
-  assert.equal(relationFreshnessAtCut({ target, targetObservedVersion: 8 }), "current");
-  assert.equal(relationFreshnessAtCut({ target, targetObservedVersion: 7 }), "suspect");
-  assert.equal(relationFreshnessAtCut({ target, targetObservedVersion: null }), "suspect");
+  assert.equal(relationFreshnessAtCut({ anchor: "target", target, targetObservedVersion: 8 }), "current");
+  assert.equal(relationFreshnessAtCut({ anchor: "target", target, targetObservedVersion: 7 }), "suspect");
+  assert.equal(relationFreshnessAtCut({ anchor: "target", target, targetObservedVersion: null }), "suspect");
   assert.equal(
     relationFreshnessAtCut({
+      anchor: "target",
       target: { ...target, freshness: "unknown", currentVersion: null },
       targetObservedVersion: 8,
     }),
@@ -33,10 +39,70 @@ test("relation freshness compares a pinned witness with the target at one cut", 
   );
   assert.equal(
     relationFreshnessAtCut({
+      anchor: "target",
       target: { ...target, freshness: "orphaned", currentVersion: null },
       targetObservedVersion: 8,
     }),
     "orphaned",
+  );
+});
+
+test("only derives anchors its freshness on the source; every other type keeps the target", () => {
+  assert.deepEqual(
+    relationTypes.map((type) => [type, relationFreshnessAnchorForType(type)]),
+    relationTypes.map((type) => [type, type === "derives" ? "source" : "target"]),
+  );
+});
+
+test("a derives edge stays current while its source decision remains in effect", () => {
+  // dec_D6970DC1303EF90E8B4855FC80/CH1: the target task may advance its version
+  // arbitrarily; the edge only goes stale when the source decision leaves in_effect.
+  const target = { entityRef: "task/task_target", freshness: "current" as const, currentVersion: 42 },
+    source = {
+      entityRef: "decision/dec_source/CH1",
+      freshness: "current" as const,
+      currentVersion: 9,
+      state: "in_effect",
+    };
+  assert.equal(relationFreshnessAtCut({ anchor: "source", target, targetObservedVersion: 8, source }), "current");
+  for (const state of ["superseded", "outcome_retired", "rejected", "deferred", "proposed"])
+    assert.equal(
+      relationFreshnessAtCut({
+        anchor: "source",
+        target,
+        targetObservedVersion: 8,
+        source: { ...source, state },
+      }),
+      "suspect",
+      `source state ${state}`,
+    );
+  assert.equal(
+    relationFreshnessAtCut({
+      anchor: "source",
+      target,
+      targetObservedVersion: 8,
+      source: { ...source, freshness: "unknown", currentVersion: null, state: undefined },
+    }),
+    "suspect",
+  );
+  assert.equal(
+    relationFreshnessAtCut({
+      anchor: "source",
+      target,
+      targetObservedVersion: 8,
+      source: { ...source, freshness: "orphaned", currentVersion: null, state: undefined },
+    }),
+    "orphaned",
+  );
+  // A source kind with no lifecycle state at the cut counts on presence alone.
+  assert.equal(
+    relationFreshnessAtCut({
+      anchor: "source",
+      target,
+      targetObservedVersion: 8,
+      source: { ...source, state: undefined },
+    }),
+    "current",
   );
 });
 
