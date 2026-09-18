@@ -280,7 +280,18 @@ async function scaleFixture(t: TestContext) {
             { kind: "task-create", taskId: draft.taskId, title: draft.taskId },
             auth,
           );
-        assert.equal(receipt.outcome, "applied");
+        assert.equal(
+          receipt.outcome,
+          "applied",
+          `task-create rejected: ${JSON.stringify({
+            receipt,
+            draftIndex: draft.index,
+            repoId: draft.repo.repoId,
+            taskId: draft.taskId,
+            nodeId: draft.assignment.nodeId,
+            assignmentId: draft.assignment.assignmentId,
+          })}`,
+        );
         return { ...draft, packagePath: String((receipt as Record<string, unknown>).packagePath) };
       }),
     );
@@ -303,7 +314,18 @@ async function scaleFixture(t: TestContext) {
             { kind: "task-start", taskId, executionId: assignment.executionId },
             auth,
           );
-        assert.equal(started.outcome, "applied", JSON.stringify(started));
+        assert.equal(
+          started.outcome,
+          "applied",
+          `task-start rejected: ${JSON.stringify({
+            receipt: started,
+            draftIndex: index,
+            repoId: repo.repoId,
+            taskId,
+            nodeId: assignment.nodeId,
+            assignmentId: assignment.assignmentId,
+          })}`,
+        );
         return {
           assignment,
           opId: started.opId,
