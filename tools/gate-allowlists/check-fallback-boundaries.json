@@ -201,6 +201,7 @@
       "packages/gui/src/renderer/components/overview/OverviewStatsBar.tsx#writeExpanded",
       "packages/gui/src/renderer/components/runtime/SessionsPanel.tsx#SessionsPanel",
       "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#dispatch",
+      "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#preview",
       "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#run",
       "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#selfTest",
       "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#spawn",
