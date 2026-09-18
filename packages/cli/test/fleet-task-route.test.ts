@@ -1,13 +1,14 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { fleetDocRoute, fleetRuntimeRoute, fleetTaskRoute } from "../src/daemon/client.ts";
+import { fleetDocRoute, fleetRuntimeRoute, fleetTaskRoute } from "../src/daemon/fleet-command-route.ts";
 
 test("fleet task routing requires both edge config and remote-edge registry mode", async (t) => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-task-route-")),
+  // Registry roots are compared after realpath; a symlinked tmpdir (macOS /var) must not fail the match.
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-fleet-task-route-"))),
     userRoot = path.join(root, "user");
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(userRoot);
