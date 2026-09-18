@@ -211,6 +211,39 @@ test("completion requires a declared reviewer model instead of selecting the amb
 });
 
 test(
+  "a pre-runtimes stored reviewer stops the review gate with the reinstall command, and reinstalling recovers",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false, legacyReviewer: true });
+    try {
+      // The window: this cell opened over a ledger already holding an old-shape (runtime_type +
+      // top-level model) reviewer declaration; submit still records the cut.
+      const submitted = await f.submit();
+      assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+      assert.equal(f.launches.length, 0, "a schema-invalid stored reviewer must not launch");
+      const stopped = (await f.complete()) as Record<string, unknown>;
+      assert.equal(stopped.code, "review_missing", JSON.stringify(stopped));
+      const guidance = JSON.stringify(stopped.next);
+      assert.match(guidance, /ha agent install --source harness\/agents\/closeout-reviewer\.json/u);
+      assert.match(guidance, /runtime_type|agent-declaration\/v1/u, JSON.stringify(stopped));
+      assert.equal(f.launches.length, 0);
+      // Reinstalling the same identity with the current shape is not locked out by the stored
+      // legacy row, and the review gate dispatches the recovered reviewer.
+      await f.install();
+      const dispatched = (await f.complete()) as Record<string, unknown>;
+      assert.equal(typeof dispatched.dispatchId, "string", JSON.stringify(dispatched));
+      assert.equal(f.launches.length, 1, "the reinstalled reviewer dispatches");
+      const reviewed = await f.review(String(dispatched.runtimeSessionId), "review-recovered");
+      assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+      const completed = await f.complete(true);
+      assert.equal(completed.outcome, "applied", JSON.stringify(completed));
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
   "an amended submitted cut rejects the old canonical reviewer and dispatches a fresh reviewer",
   { timeout: 20_000 },
   async () => {

@@ -10,7 +10,7 @@ import {
   type WriteReceiptDraft,
 } from "../../kernel/src/index.ts";
 import { readSubmissionArtifact } from "./submission-artifacts.ts";
-import { readAgentDeclarationResolution } from "./agent-entities.ts";
+import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./agent-entities.ts";
 import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
@@ -110,14 +110,22 @@ export async function dispatchTaskReview(
       "--execution-id selects exactly one reviewed execution; a batch dispatch reviews each task's submitted cut.",
     );
   const reviewerId =
-      typeof action.agentId === "string" && action.agentId.length > 0
-        ? action.agentId
-        : (cell.settings.readRepository().defaultReviewer ?? "closeout-reviewer"),
+    typeof action.agentId === "string" && action.agentId.length > 0
+      ? action.agentId
+      : (cell.settings.readRepository().defaultReviewer ?? "closeout-reviewer");
+  let resolved;
+  try {
     resolved = readAgentDeclarationResolution({
       rootDir: cell.rootDir,
       agentId: reviewerId,
       entityStore: createEntityStore(cell.store),
     });
+  } catch (error) {
+    // A reviewer whose stored declaration fails the current schema (the rewrite window) rejects
+    // the batch with the reinstall command; the raw contract message never surfaces.
+    if (!isAgentDeclarationInvalid(error)) throw error;
+    throw cell.cellCodedError("review_dispatch_failed", error instanceof Error ? error.message : String(error));
+  }
   if (!resolved)
     throw cell.cellCodedError(
       "review_dispatch_failed",

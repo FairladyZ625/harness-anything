@@ -1,6 +1,7 @@
 import {
   completionGateIds,
   completionGuidance,
+  consumeKnownError,
   createEntityStore,
   reviewReturnBudgetSpent,
   submissionDigest,
@@ -9,7 +10,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { isRuntimeEvent, runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
 import { readDispatchStream } from "./dispatch-stream.ts";
-import { readAgentDeclarationResolution } from "./agent-entities.ts";
+import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./agent-entities.ts";
 import { agentDeclaresExplicitModels, agentRuntimeTargetSummary } from "./agent-runtime-contract.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import { reviewDispatchIds, reviewDispatchPrompt } from "./task-review-dispatch.ts";
@@ -79,11 +80,23 @@ export async function dispatchCompletionReview(
         execution.submission!.completionContract?.reviewer?.agentId ??
         cell.settings.readRepository().defaultReviewer ??
         "closeout-reviewer";
-      const resolved = readAgentDeclarationResolution({
-        rootDir: cell.rootDir,
-        agentId: reviewerId,
-        entityStore: createEntityStore(cell.store),
-      });
+      let resolved: ReturnType<typeof readAgentDeclarationResolution> = null,
+        invalidReviewer: string | null = null;
+      try {
+        resolved = readAgentDeclarationResolution({
+          rootDir: cell.rootDir,
+          agentId: reviewerId,
+          entityStore: createEntityStore(cell.store),
+        });
+      } catch (error) {
+        // A reviewer whose stored declaration fails the current schema (the rewrite window) stops
+        // the review gate with the reinstall command; the raw contract message never surfaces.
+        if (!isAgentDeclarationInvalid(error)) throw error;
+        consumeKnownError(error);
+        invalidReviewer = error instanceof Error ? error.message : `${error}`;
+      }
+      if (invalidReviewer !== null)
+        return stopped(`ha agent install --source harness/agents/${reviewerId}.json`, invalidReviewer);
       if (!resolved)
         return stopped(
           "ha agent install --source <closeout-reviewer-declaration>",

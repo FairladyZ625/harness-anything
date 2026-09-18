@@ -6,7 +6,15 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { makeTaskEventReader, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
+import {
+  makeTaskEventReader,
+  openSqliteEventStore,
+  ownedContentForDeclarationEvent,
+  requireEntityStoreKindContract,
+  sha256Text,
+  type AgentDefinitionSnapshot,
+  type EntityUpsertEventV1,
+} from "../../kernel/src/index.ts";
 import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
@@ -81,6 +89,12 @@ export async function fixture(
     readonly autoSubmit?: boolean;
     readonly closeoutProfile?: "standard" | "strict";
     readonly create?: Readonly<Record<string, unknown>>;
+    /** Migration-window fixture: install the default reviewer in the pre-runtimes declaration
+     * shape (`runtime_type` string plus top-level `model`) before the cell opens, appended as a
+     * raw canonical command exactly the way the old daemon wrote it (current write paths refuse
+     * that shape by design). The cell must open over it and the review gate must stop with the
+     * reinstall command instead of leaking the schema error. */
+    readonly legacyReviewer?: boolean;
   } = {},
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-completion-review-")),
@@ -188,6 +202,7 @@ export async function fixture(
       "settings:\n  defaultVertical: software/coding\n  defaultPreset: standard-task\n  defaultProfile: baseline\n" +
       `  closeout:\n    profile: ${options.closeoutProfile ?? "strict"}\n`,
   );
+  if (options.legacyReviewer) appendLegacyReviewerDeclaration(repoId, canonicalRoot(root));
   let cell = await open();
   const run = (action: Parameters<typeof cell.run>[0]) => cell.run(action, owner);
   const created = await run({
@@ -479,4 +494,58 @@ export async function fixture(
       rmSync(root, { recursive: true, force: true });
     },
   };
+}
+
+/** The pre-runtimes reviewer declaration (`runtime_type` + top-level `model`), appended to the
+ * ledger as one raw entity_upserted command under the same writer holder the fixture fence
+ * acquires ("direct-store"), so the cell's later writes keep the same single-writer lineage. */
+function appendLegacyReviewerDeclaration(repoId: string, rootDir: string): void {
+  const contract = requireEntityStoreKindContract("agent"),
+    value = {
+      schema: "agent-declaration/v1",
+      id: "closeout-reviewer",
+      name: "Independent reviewer",
+      instructions: "Inspect submitted bytes and record your independent verdict.",
+      runtime_type: "codex",
+      model: "review-model",
+    },
+    body = `${JSON.stringify(value, null, 2)}\n`,
+    claim = {
+      path: "agents/closeout-reviewer.json",
+      sha256: sha256Text(body),
+      size: Buffer.byteLength(body),
+      mediaType: contract.entityStore.document.mediaType,
+      policyId: contract.entityStore.document.policyId,
+    },
+    // No ownedContent field: ownedContentForDeclarationEvent recovers the accepted pre-manifest
+    // shape (exactly one declaration document) from the claim, same as the kernel window fixture.
+    seed: EntityUpsertEventV1 = {
+      schema: "entity-event/v1",
+      eventId: "event-legacy-closeout-reviewer",
+      workspaceRevision: 1,
+      opId: "op-legacy-closeout-reviewer",
+      actor: { principal: { personId: "person_synthetic" }, executor: null },
+      source: "local",
+      occurredAt: "2026-09-18T00:00:00.000Z",
+      type: "entity_upserted",
+      payload: { entityKind: "agent", entityId: "closeout-reviewer", declarationDocumentClaim: claim },
+    },
+    event = { ...seed, payload: { ...seed.payload, ownedContent: ownedContentForDeclarationEvent(seed) } },
+    fence = { repoId, holder: "direct-store", epoch: 1 } as const,
+    writer = openSqliteEventStore({ repoId, rootInput: rootDir });
+  try {
+    writer.claimWriter(fence);
+    writer.appendCommand({
+      fence,
+      intent: {
+        opId: seed.opId,
+        intentDigest: `sha256:${"a".repeat(64)}`,
+        summary: seed.type,
+      },
+      events: [event],
+      blobs: [{ sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType, body }],
+    });
+  } finally {
+    writer.close();
+  }
 }

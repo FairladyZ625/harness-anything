@@ -16,6 +16,7 @@ import test from "node:test";
 import { getEntityKindContract, makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
 import {
   prepareAgentEntityInstall,
+  readAgentDeclaration,
   readAgentEntityGuiProjection,
   resolveSquadDispatch,
 } from "../src/agent-entities.ts";
@@ -34,7 +35,7 @@ import {
 import { resolveRuntimeInstanceCandidates } from "../src/runtime-spawn-mission.ts";
 import type { RuntimeAgent } from "../src/runtime-spawn-types.ts";
 import { validateAgentDeclarationV1, validateSquadDeclarationV1 } from "../../kernel/src/index.ts";
-import { agent, install, run, squad, writeEntity } from "./agent-entities.fixtures.ts";
+import { agent, appendLegacyAgentDeclaration, install, run, squad, writeEntity } from "./agent-entities.fixtures.ts";
 
 test("Agent and Squad entities prepare, list, inspect, and replace declarations in the authored store", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-entities-")),
@@ -692,6 +693,22 @@ test("GUI Agent and Squad catalogs isolate invalid and missing projection rows",
       currentVersion: 4,
       value: { ...agent, id: "broken-agent", runtimes: [{ type: "NOT VALID" }] },
     },
+    // The migration-window row: replay recorded this stored declaration uninterpretable.
+    legacyAgent = {
+      ...current,
+      id: "legacy-worker",
+      workspaceRevision: 4,
+      freshness: "unknown",
+      currentVersion: null,
+      value: {
+        schema: "agent-declaration/v1",
+        id: "legacy-worker",
+        name: agent.name,
+        instructions: agent.instructions,
+        runtime_type: "zcode",
+        model: "GLM-5.3",
+      },
+    },
     currentSquad = {
       kind: "squad",
       id: "core-squad",
@@ -710,16 +727,20 @@ test("GUI Agent and Squad catalogs isolate invalid and missing projection rows",
     },
     projection = {
       listEntities: (kind: string) =>
-        kind === "agent" ? [current, invalidAgent] : kind === "squad" ? [currentSquad, missingMemberSquad] : [],
+        kind === "agent"
+          ? [current, invalidAgent, legacyAgent]
+          : kind === "squad"
+            ? [currentSquad, missingMemberSquad]
+            : [],
       getEntity: (kind: string, id: string) => {
-        const rows = kind === "agent" ? [current, invalidAgent] : [currentSquad, missingMemberSquad];
+        const rows = kind === "agent" ? [current, invalidAgent, legacyAgent] : [currentSquad, missingMemberSquad];
         return rows.find((row) => row.id === id) ?? null;
       },
     } as never;
 
   const agents = readAgentEntityGuiProjection({ kind: "agent-list", projection }),
     squads = readAgentEntityGuiProjection({ kind: "squad-list", projection });
-  assert.equal(agents.agents.length, 2);
+  assert.equal(agents.agents.length, 3);
   assert.deepEqual(agents.agents[0], {
     id: "terra",
     name: "Terra",
@@ -735,9 +756,35 @@ test("GUI Agent and Squad catalogs isolate invalid and missing projection rows",
     state: "invalid",
     error: {
       code: "invalid_entity_contract",
-      hint: 'agent declaration field "runtimes"[0] field "type" must be a non-empty lowercase runtime identifier such as claude, codex, or opencode.',
+      hint:
+        "Agent broken-agent is installed, but its stored declaration no longer satisfies agent-declaration/v1 " +
+        '(agent declaration field "runtimes"[0] field "type" must be a non-empty lowercase runtime identifier such ' +
+        "as claude, codex, or opencode.). Rewrite harness/agents/broken-agent.json with the current declaration " +
+        "shape, then run ha agent install --source harness/agents/broken-agent.json.",
     },
   });
+  assert.deepEqual(agents.agents[2], {
+    id: "legacy-worker",
+    layer: "user",
+    state: "invalid",
+    error: {
+      code: "invalid_entity_projection",
+      hint:
+        "Agent legacy-worker is installed, but its stored declaration no longer satisfies agent-declaration/v1 " +
+        '(agent declaration is missing required field "runtimes".; agent declaration field "runtime_type" is ' +
+        'unknown; remove it.; agent declaration field "model" is unknown; remove it.). Rewrite ' +
+        "harness/agents/legacy-worker.json with the current declaration shape, then run ha agent install " +
+        "--source harness/agents/legacy-worker.json.",
+    },
+  });
+  assert.throws(
+    () => readAgentEntityGuiProjection({ kind: "agent-inspect", entityId: "legacy-worker", projection }),
+    (error: unknown) => {
+      assert.equal((error as { code?: string }).code, "agent_declaration_invalid");
+      assert.match(String((error as Error).message), /ha agent install --source harness\/agents\/legacy-worker\.json/u);
+      return true;
+    },
+  );
   assert.equal(squads.squads.length, 2);
   assert.deepEqual(squads.squads[1], {
     id: "orphan-squad",
@@ -954,4 +1001,48 @@ test("runtimes rows gate each runtime kind, select per-kind models, and an empty
     () => resolveRuntimeInstanceCandidates({ agent: declaration, model: "missing-model", instances, sessions: [] }),
     (error: unknown) => (error as { code?: string }).code === "agent_model_unavailable",
   );
+});
+
+test("an old-shape stored declaration rejects dispatch with the reinstall command and reinstalls cleanly", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-entities-window-"));
+  try {
+    appendLegacyAgentDeclaration(rootDir);
+    // Q4 shape: dispatch-facing resolution fails as one agent with an actionable command, never a
+    // raw EntitySchemaContractError and never a silent "any runtime".
+    assert.throws(
+      () => readAgentDeclaration({ rootDir, agentId: "legacy-worker" }),
+      (error: unknown) => {
+        assert.equal((error as { code?: string }).code, "agent_declaration_invalid");
+        assert.match(String((error as Error).message), /runtime_type/u);
+        assert.match(
+          String((error as Error).message),
+          /ha agent install --source harness\/agents\/legacy-worker\.json/u,
+        );
+        return true;
+      },
+    );
+    // Q3 shape: installing the current shape over the legacy row is not locked out.
+    const report = (await install({
+      rootDir,
+      kind: "agent-install",
+      declaration: {
+        ...agent,
+        id: "legacy-worker",
+        name: "Legacy Worker",
+        runtimes: [
+          { type: "zcode", model: "GLM-5.3" },
+          { type: "claude", model: "GLM-5.3[1m]" },
+        ],
+      },
+    })) as { readonly mode: string; readonly changed: boolean };
+    assert.equal(report.mode, "apply");
+    assert.equal(report.changed, true);
+    const resolved = readAgentDeclaration({ rootDir, agentId: "legacy-worker" });
+    assert.deepEqual(resolved.runtimes, [
+      { type: "zcode", model: "GLM-5.3" },
+      { type: "claude", model: "GLM-5.3[1m]" },
+    ]);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });

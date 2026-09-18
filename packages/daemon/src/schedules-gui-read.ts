@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import {
+  consumeKnownError,
   nextScheduleOccurrence,
   validateScheduleV1,
   type CanonicalEventV1,
@@ -7,6 +8,7 @@ import {
   type ScheduleV1,
 } from "../../kernel/src/index.ts";
 import type { AgentRuntimeInstanceDto } from "./agent-runtime-contract.ts";
+import { agentDeclarationInvalidError } from "./agent-entities.ts";
 import { parseAgentDeclarationV1 } from "../../kernel/src/index.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { parseFleetRoster, type FleetRoster } from "./fleet-center-admission.ts";
@@ -390,21 +392,29 @@ function scheduleAgentOptions(context: SchedulesGuiReadContext): readonly Schedu
         state: "missing",
         error: { code: "agent_not_found", hint: `${agentId} is not an installed agent.` },
       };
-    if (row.freshness === "unknown")
-      return {
-        agentId,
-        state: "invalid",
-        error: { code: "invalid_entity_projection", hint: `Agent projection ${agentId} is not current.` },
-      };
+    if (row.freshness === "unknown") {
+      // Replay recorded this declaration uninterpretable (a stored pre-runtimes shape during the
+      // rewrite window): degrade the option with the reinstall command, not the raw parse text.
+      let hint = `Agent projection ${agentId} is not current.`;
+      try {
+        parseAgentDeclarationV1(row.value);
+      } catch (error) {
+        if ((error as { readonly code?: unknown })?.code !== "invalid_entity_contract") throw error;
+        consumeKnownError(error);
+        hint = agentDeclarationInvalidError(agentId, error).message;
+      }
+      return { agentId, state: "invalid", error: { code: "invalid_entity_projection", hint } };
+    }
     try {
       const agent = parseAgentDeclarationV1(row.value);
       return { agentId: agent.id, name: agent.name, runtimes: agent.runtimes };
     } catch (error) {
       if ((error as { readonly code?: unknown })?.code !== "invalid_entity_contract") throw error;
+      consumeKnownError(error);
       return {
         agentId,
         state: "invalid",
-        error: { code: "invalid_entity_contract", hint: error instanceof Error ? error.message : String(error) },
+        error: { code: "invalid_entity_contract", hint: agentDeclarationInvalidError(agentId, error).message },
       };
     }
   });

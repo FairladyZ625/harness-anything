@@ -1,11 +1,12 @@
 import {
+  consumeKnownError,
   createEntityStore,
   parseAgentDeclarationV1,
   parseSquadDeclarationV1,
   type SquadDeclarationV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
-import { validateAgentEntityAction } from "./agent-entities.ts";
+import { agentDeclarationInvalidError, validateAgentEntityAction } from "./agent-entities.ts";
 import type { RepoCellRuntimeContext } from "./repo-cell-action-context.ts";
 import { cellCriterionError } from "./repo-cell-errors.ts";
 import type { EntityActionCatalogRunner } from "./entity-action-catalog-executor.ts";
@@ -53,8 +54,15 @@ export function makeAgentActionRuntime(cell: RepoCellRuntimeContext): EntityActi
 }
 
 function listAgents(cell: RepoCellRuntimeContext): object {
-  const agents = cell.projection.listEntities("agent").map(({ value, id }) => {
+  const agents = cell.projection.listEntities("agent").map(({ value, id, freshness }) => {
     try {
+      if (freshness === "orphaned")
+        return {
+          id,
+          layer: "user" as const,
+          state: "missing" as const,
+          error: { code: "agent_not_found" as const, hint: `${id} is not an installed agent.` },
+        };
       const declaration = parseAgentDeclarationV1(value),
         { instructions: _instructions, ...row } = declaration;
       return {
@@ -64,13 +72,14 @@ function listAgents(cell: RepoCellRuntimeContext): object {
       };
     } catch (error) {
       if ((error as { readonly code?: unknown })?.code !== "invalid_entity_contract") throw error;
+      consumeKnownError(error);
       return {
         id,
         layer: "user" as const,
         state: "invalid" as const,
         error: {
           code: "invalid_entity_contract" as const,
-          hint: error instanceof Error ? error.message : String(error),
+          hint: agentDeclarationInvalidError(id, error).message,
         },
       };
     }
@@ -88,7 +97,20 @@ function inspectAgent(cell: RepoCellRuntimeContext, agentId: string): object {
       "agent/entity-present",
       ["Run ha agent list and choose an existing Agent id."],
     );
-  return { schema: "agent-inspection/v1", agent: parseAgentDeclarationV1(row.value) };
+  try {
+    return { schema: "agent-inspection/v1", agent: parseAgentDeclarationV1(row.value) };
+  } catch (error) {
+    // An installed declaration whose stored shape the current schema rejects is a reinstall need
+    // for that agent; the inspect read answers with the command, not the raw contract message.
+    if ((error as { readonly code?: unknown }).code !== "invalid_entity_contract") throw error;
+    throw cellCriterionError(
+      "agent_declaration_invalid",
+      agentDeclarationInvalidError(agentId, error).message,
+      "inspect",
+      "agent/declaration-schema",
+      [`Rewrite harness/agents/${agentId}.json, then run ha agent install --source harness/agents/${agentId}.json.`],
+    );
+  }
 }
 
 type SquadListRow =
@@ -143,19 +165,16 @@ function inspectSquad(cell: RepoCellRuntimeContext, squadId: string): object {
       ["Run ha squad list and choose an existing Squad id."],
     );
   const squad = parseSquadDeclarationV1(row.value),
-    missing = [...new Set([squad.leader, ...squad.workers])].filter((agentId) => {
-      const agent = cell.projection.getEntity("agent", agentId);
-      if (!agent) return true;
-      parseAgentDeclarationV1(agent.value);
-      return false;
-    });
+    missing = [...new Set([squad.leader, ...squad.workers])]
+      .map((agentId) => unavailableMember(cell, agentId))
+      .filter((entry): entry is { readonly agentId: string; readonly hint: string } => entry !== null);
   if (missing.length)
     throw cellCriterionError(
       "squad_agent_not_found",
-      `Squad ${squad.id} references unavailable agents: ${missing.join(", ")}.`,
+      `Squad ${squad.id} references unavailable agents: ${missing.map(({ agentId }) => agentId).join(", ")}.`,
       "inspect",
       "squad/member-declarations",
-      missing.map((agentId) => `Install agent/${agentId}, then retry ha squad inspect ${squad.id}.`),
+      missing.map(({ hint }) => `${hint}, then retry ha squad inspect ${squad.id}.`),
     );
   return { schema: "squad-inspection/v1", squad };
 }
@@ -185,6 +204,31 @@ function coordinatorReceipt(
     effects,
     updatedProjection: null,
   } as unknown as WriteReceipt;
+}
+
+/**
+ * One squad member is unavailable either because it is absent or because its stored declaration
+ * fails the current schema (the declaration-rewrite window); each case names its own recovery.
+ */
+function unavailableMember(
+  cell: RepoCellRuntimeContext,
+  agentId: string,
+): { readonly agentId: string; readonly hint: string } | null {
+  const agent = cell.projection.getEntity("agent", agentId);
+  if (agent === null) return { agentId, hint: `Install agent/${agentId}` };
+  try {
+    parseAgentDeclarationV1(agent.value);
+    return null;
+  } catch (error) {
+    if ((error as { readonly code?: unknown }).code !== "invalid_entity_contract") throw error;
+    consumeKnownError(error);
+    return {
+      agentId,
+      hint:
+        `Rewrite harness/agents/${agentId}.json to the current declaration shape and run ` +
+        `ha agent install --source harness/agents/${agentId}.json`,
+    };
+  }
 }
 
 function squadRequiredText(value: unknown, field: string): string {

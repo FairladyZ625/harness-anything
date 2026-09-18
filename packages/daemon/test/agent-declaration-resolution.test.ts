@@ -68,3 +68,33 @@ test("unknown and invalid Agent ids resolve as absent", () => {
     null,
   );
 });
+
+test("an installed declaration the current schema rejects resolves as an actionable reinstall error", () => {
+  const invalidStore = {
+    upsert: () => {
+      throw new Error("unused");
+    },
+    // The entity store throws exactly this for a stored declaration the schema rejects.
+    get: () => {
+      throw Object.assign(
+        new Error(
+          'agent declaration is missing required field "runtimes".; agent declaration field "runtime_type" is unknown; remove it.',
+        ),
+        { code: "invalid_entity_contract" },
+      );
+    },
+    list: () => [],
+  } as unknown as EntityStore;
+  assert.throws(
+    () => readAgentDeclaration({ rootDir: "/unused", agentId: "legacy-worker", entityStore: invalidStore }),
+    (error: unknown) => {
+      assert.equal((error as { code?: string }).code, "agent_declaration_invalid");
+      assert.match(String((error as Error).message), /ha agent install --source harness\/agents\/legacy-worker\.json/u);
+      return true;
+    },
+  );
+  assert.throws(
+    () => readAgentDeclarationResolution({ rootDir: "/unused", agentId: "legacy-worker", entityStore: invalidStore }),
+    (error: unknown) => (error as { code?: string }).code === "agent_declaration_invalid",
+  );
+});

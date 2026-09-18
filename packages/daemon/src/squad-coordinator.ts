@@ -291,19 +291,34 @@ export function makeSquadCoordinator(input: {
         [`Run ha squad install --source <squad-package>, then retry ha squad run ${squadId}.`],
       );
     const squad = parseSquadDeclarationV1(stored.value),
-      missing = [...new Set([squad.leader, ...squad.workers])].filter((agentId) => {
-        const agent = entityStore.get("agent", agentId);
-        if (!agent) return true;
-        parseAgentDeclarationV1(agent.value);
-        return false;
-      });
+      missing = [...new Set([squad.leader, ...squad.workers])]
+        .map((agentId) => {
+          // The store read itself throws invalid_entity_contract for a stored declaration the
+          // current schema rejects, so both failure shapes funnel through one catch.
+          try {
+            const agent = entityStore.get("agent", agentId);
+            if (agent === null) return { agentId, hint: `Install agent/${agentId}` };
+            parseAgentDeclarationV1(agent.value);
+            return null;
+          } catch (error) {
+            if ((error as { readonly code?: unknown }).code !== "invalid_entity_contract") throw error;
+            consumeKnownError(error);
+            return {
+              agentId,
+              hint:
+                `Rewrite harness/agents/${agentId}.json to the current declaration shape and run ` +
+                `ha agent install --source harness/agents/${agentId}.json`,
+            };
+          }
+        })
+        .filter((entry): entry is { readonly agentId: string; readonly hint: string } => entry !== null);
     if (missing.length)
       throw cellCriterionError(
         "squad_agent_not_found",
-        `Squad ${squad.id} references unavailable agents: ${missing.join(", ")}.`,
+        `Squad ${squad.id} references unavailable agents: ${missing.map(({ agentId }) => agentId).join(", ")}.`,
         "run",
         "squad/member-declarations",
-        missing.map((agentId) => `Install agent/${agentId}, then retry ha squad run ${squad.id}.`),
+        missing.map(({ hint }) => `${hint}, then retry ha squad run ${squad.id}.`),
       );
     return squad;
   }

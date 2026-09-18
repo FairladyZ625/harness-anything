@@ -8,14 +8,20 @@ import {
   type EntityStore,
   type TaskProjection,
 } from "../../kernel/src/index.ts";
-import { readAgentDeclaration } from "./agent-declaration-resolution.ts";
+import { agentDeclarationInvalidError, readAgentDeclaration } from "./agent-declaration-resolution.ts";
 import {
   agentRuntimeTargetForKind,
   agentRuntimeTargetSummary,
   agentRuntimeKindMatches,
 } from "./agent-runtime-contract.ts";
 
-export { readAgentDeclaration, readAgentDeclarationResolution } from "./agent-declaration-resolution.ts";
+export {
+  agentDeclarationInvalidCode,
+  agentDeclarationInvalidError,
+  isAgentDeclarationInvalid,
+  readAgentDeclaration,
+  readAgentDeclarationResolution,
+} from "./agent-declaration-resolution.ts";
 import {
   entitySlug,
   parseAgentDeclarationV1,
@@ -173,7 +179,15 @@ export function readAgentEntityGuiProjection<
   }
   const entityId = requiredEntityText(input.entityId, "entityId");
   if (input.kind === "agent-inspect") {
-    const agent = parseAgentDeclarationV1(readyEntityValue(input.projection, "agent", entityId));
+    let agent: AgentDeclarationV1;
+    try {
+      agent = parseAgentDeclarationV1(readyEntityValue(input.projection, "agent", entityId));
+    } catch (error) {
+      // An installed declaration whose stored shape the current schema rejects is a reinstall
+      // need for that agent, phrased as one; the raw contract message never reaches the read.
+      if ((error as { readonly code?: unknown }).code !== "invalid_entity_contract") throw error;
+      throw agentDeclarationInvalidError(entityId, error);
+    }
     return {
       schema: "agent-entity-detail/v1",
       ok: true,
@@ -256,8 +270,7 @@ function invalidEntityCatalogRow(row: AgentEntityProjectionRow, error: unknown):
 }
 
 function agentEntityCatalogRow(row: AgentEntityProjectionRow): AgentEntityGuiRow {
-  const degraded = projectionEntityState(row);
-  if (degraded) return degraded;
+  if (row.freshness !== "current") return degradedAgentCatalogRow(row);
   try {
     const agent = parseAgentDeclarationV1(row.value);
     return {
@@ -270,8 +283,39 @@ function agentEntityCatalogRow(row: AgentEntityProjectionRow): AgentEntityGuiRow
       layer: "user",
     };
   } catch (error) {
-    return invalidEntityCatalogRow(row, error);
+    if ((error as { readonly code?: unknown })?.code !== "invalid_entity_contract") throw error;
+    consumeKnownError(error);
+    return {
+      id: row.id,
+      layer: "user",
+      state: "invalid",
+      error: { code: "invalid_entity_contract", hint: agentDeclarationInvalidError(row.id, error).message },
+    };
   }
+}
+
+/**
+ * Below-current freshness for an agent row: an orphaned install is missing; an `unknown` row is a
+ * declaration replay recorded as uninterpretable (a stored pre-runtimes shape during the rewrite
+ * window), so the row says exactly that, with the reinstall command, instead of failing the list.
+ */
+function degradedAgentCatalogRow(row: AgentEntityProjectionRow): AgentEntityGuiDegradedRow {
+  if (row.freshness === "orphaned")
+    return {
+      id: row.id,
+      layer: "user",
+      state: "missing",
+      error: { code: "agent_not_found", hint: `${row.id} is not an installed agent.` },
+    };
+  let hint = `Agent projection ${row.id} is not current.`;
+  try {
+    parseAgentDeclarationV1(row.value);
+  } catch (error) {
+    if ((error as { readonly code?: unknown })?.code !== "invalid_entity_contract") throw error;
+    consumeKnownError(error);
+    hint = agentDeclarationInvalidError(row.id, error).message;
+  }
+  return { id: row.id, layer: "user", state: "invalid", error: { code: "invalid_entity_projection", hint } };
 }
 
 function squadEntityCatalogRow(
