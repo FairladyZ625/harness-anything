@@ -359,8 +359,8 @@ function pickAcpMode(requested: string, available: readonly string[]): string | 
   return null;
 }
 
-// Dispatch-stream scrubbing drops any key containing "token", so usage travels
-// under neutral names; observeRuntimeMetrics maps them back onto the counters.
+// ACP session updates report consumption as used/context size; observeRuntimeMetrics maps
+// those neutral names onto the counters alongside token-named usage fields.
 function acpUsage(update: Record<string, unknown>): Record<string, unknown> {
   const usage: Record<string, unknown> = {};
   if (typeof update.used === "number") usage.used = update.used;

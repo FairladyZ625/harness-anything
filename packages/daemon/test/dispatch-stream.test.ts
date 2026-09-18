@@ -14,6 +14,7 @@ import {
   readDispatchStream,
   readDispatchStreamIncrement,
   readDispatchStreamSummary,
+  scrubProviderValue,
 } from "../src/dispatch-stream.ts";
 import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
 import { cancelRuntime } from "../src/runtime-spawn-control.ts";
@@ -592,6 +593,75 @@ test("delegation provenance fields survive a header roundtrip and stay optional 
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("dispatch scrubbing keeps token usage telemetry and drops credential-shaped keys", () => {
+  const telemetry = {
+    input_tokens: 120,
+    cached_input_tokens: 30,
+    cache_read_input_tokens: 5,
+    cache_creation_input_tokens: 2,
+    output_tokens: 45,
+    inputTokens: 7,
+    outputTokens: 8,
+    totalTokens: 15,
+  };
+  const scrubbed = scrubProviderValue({
+    apiToken: "opaque",
+    accessToken: "opaque",
+    access_token: "opaque",
+    sessionToken: "opaque",
+    AUTH_TOKEN: "opaque",
+    refreshToken: "opaque",
+    operator_token: "opaque",
+    // Token-named keys the qualifier list would never enumerate: the value type is the line.
+    id_token: "opaque",
+    github_token: "opaque",
+    botToken: "opaque",
+    token: "opaque",
+    usageWithStringToken: { input_tokens: 3, next_page_token: "opaque" },
+    authorization: "Bearer abc123",
+    apiKey: "opaque",
+    password: "opaque",
+    secret: "opaque",
+    cookie: "opaque",
+    executablePath: "/usr/local/bin/agent",
+    usage: telemetry,
+    tokenUsage: { input: 7 },
+    token_count: { total_tokens: 15 },
+    bearerText: "header Bearer sk-abcdefgh1234",
+  }) as Record<string, unknown>;
+  // Usage telemetry survives at every nesting level: the durable replay path re-feeds
+  // persisted provider events after daemon restart, so dropping these keys would erase
+  // adopted sessions' usage at settlement.
+  assert.deepEqual(scrubbed.usage, telemetry);
+  assert.deepEqual(scrubbed.tokenUsage, { input: 7 });
+  assert.deepEqual(scrubbed.token_count, { total_tokens: 15 });
+  assert.equal(scrubbed.bearerText, "header Bearer [REDACTED]");
+  // Inside one object the numeric counter survives and the string under a token-named key does not.
+  assert.deepEqual(scrubbed.usageWithStringToken, { input_tokens: 3 });
+  // Credential-shaped keys are still dropped, and bearer material inside kept string
+  // values is still redacted.
+  for (const key of [
+    "apiToken",
+    "accessToken",
+    "access_token",
+    "sessionToken",
+    "AUTH_TOKEN",
+    "refreshToken",
+    "operator_token",
+    "id_token",
+    "github_token",
+    "botToken",
+    "token",
+    "authorization",
+    "apiKey",
+    "password",
+    "secret",
+    "cookie",
+    "executablePath",
+  ])
+    assert.equal(key in scrubbed, false, `${key} must stay scrubbed`);
 });
 
 test("runtime metrics persist in the dispatch stream and read back without changing legacy streams", () => {

@@ -10,8 +10,14 @@ import {
   consumeDurableOutput,
   consumeProviderChunk,
   consumeProviderLine,
+  restoreDurableOutputRecords,
 } from "../src/runtime-spawn-provider-stream.ts";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
+import {
+  appendRuntimeWorkerRecord,
+  openDispatchStream,
+  readDispatchStream,
+  reopenDispatchStream,
+} from "../src/dispatch-stream.ts";
 import { shellSegments, validateMissionCommands } from "../src/runtime-spawn-mission.ts";
 import {
   parseAcpFrame,
@@ -600,6 +606,82 @@ test("Claude usage without token integers stays unreported", async () => {
 
   assert.equal(runtime.toolCallCount, 1);
   assert.equal(runtime.usageReported, false);
+});
+
+test("an adopted session settles usage recovered from the persisted provider stream", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-adoption-usage-"));
+  try {
+    const dispatchId = "dispatch_0123456789abcdef55555555";
+    const writer = openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId: "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
+      instanceId: "instance-1",
+      startedAt: "2026-09-11T00:00:00.000Z",
+    });
+    // Live phase: raw frames reach the active runtime and persist through the production
+    // writer, so what lands on disk is the scrubbed event, not the raw frame.
+    const live = active("codex", {} as never, { dispatchId, stream: writer });
+    await consumeProviderLine(
+      context(),
+      live,
+      JSON.stringify({
+        type: "turn.completed",
+        usage: { input_tokens: 120, cached_input_tokens: 30, output_tokens: 45 },
+      }),
+    );
+    assert.equal(live.inputTokens, 120, "live collection keeps observing raw frames");
+    const persisted = readDispatchStream(rootDir, dispatchId);
+    assert.ok(persisted, "live provider events persist to the dispatch stream");
+
+    // Daemon restart: a fresh runtime adopts the stream. Adoption observes only persisted
+    // records (restoreDurableOutputRecords plus the adopted process's stream tail), so the
+    // settled usage must come from the events as they were scrubbed onto disk.
+    const adopted = active("codex", {} as never, {
+      dispatchId,
+      stream: reopenDispatchStream(rootDir, persisted.header),
+    });
+    const replay = {
+      ...context(),
+      input: { ...context().input, rootDir },
+      consumeLine: (target: never, line: string, persistedLine: boolean) =>
+        consumeProviderLine(replay, target, line, persistedLine),
+    } as never;
+    const replayed = await restoreDurableOutputRecords(replay, adopted, persisted.records);
+    assert.equal(replayed, 1);
+    adopted.durableOutputCount = replayed;
+
+    // The adopted worker keeps running detached; its output reaches the daemon only through
+    // the dispatch stream, exactly like runtime-worker-host persists it.
+    appendRuntimeWorkerRecord(rootDir, dispatchId, {
+      kind: "provider_event",
+      event: { type: "turn.completed", usage: { input_tokens: 60, output_tokens: 15 } },
+    });
+    await consumeDurableOutput(replay, adopted);
+
+    // Settlement writes the runtime_metrics record the token usage read model consumes.
+    adopted.stream.appendRuntimeMetrics?.(
+      {
+        inputTokens: adopted.inputTokens,
+        cacheReadTokens: adopted.cacheReadTokens,
+        outputTokens: adopted.outputTokens,
+        totalTokens: adopted.inputTokens + adopted.outputTokens,
+        toolCallCount: adopted.toolCallCount,
+        compacted: adopted.compacted,
+        raw: adopted.rawUsage,
+        usageUnavailable: !adopted.usageReported,
+      },
+      "2026-09-11T00:02:00.000Z",
+    );
+    const settled = readDispatchStream(rootDir, dispatchId)?.runtimeMetrics;
+    assert.equal(settled?.inputTokens, 180);
+    assert.equal(settled?.cacheReadTokens, 30);
+    assert.equal(settled?.outputTokens, 60);
+    assert.equal(settled?.usageUnavailable, false);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });
 
 test("durable drains wait for the first record while the worker runs, then consume it once", async () => {
