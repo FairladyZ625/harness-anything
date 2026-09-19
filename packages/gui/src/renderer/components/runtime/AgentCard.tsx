@@ -151,12 +151,24 @@ export function AgentCard({
             : "",
       });
     },
-    modelsForKind = (kindId: string) =>
-      [
+    modelsForKind = (kindId: string) => {
+      // A resolved instance pin narrows that kind's model options to the pinned instance's own
+      // catalog: the union of every enabled instance of the kind lets a sibling instance's model
+      // ride the declaration, which the daemon rejects as agent_instance_incompatible. An
+      // unpinned kind — or a pin of a different kind — keeps the kind's full union.
+      const pinned = draft.instance
+        ? instances.find(
+            (entry) => entry.enabled && entry.instanceId === draft.instance && entry.kindId === kindId,
+          )
+        : undefined;
+      return [
         ...new Set(
-          instances.filter((entry) => entry.enabled && entry.kindId === kindId).flatMap((entry) => entry.models),
+          (pinned ? [pinned] : instances.filter((entry) => entry.enabled && entry.kindId === kindId)).flatMap(
+            (entry) => entry.models,
+          ),
         ),
-      ].sort(),
+      ].sort();
+    },
     filteredSkills = availableSkills.filter(
       (skill) =>
         !draft.skills.some((selected) => selected.id === skill.id) &&
