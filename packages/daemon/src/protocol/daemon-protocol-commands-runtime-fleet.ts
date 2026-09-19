@@ -425,7 +425,7 @@ export const scheduleProtocolCommands = Object.freeze([
   }),
   defineCenterForwardReadCommand({
     id: "schedule-reckon",
-    phase: "Schedule-S6",
+    phase: "Schedule-S5",
     path: ["schedule", "reckon"],
     summary: "Read general ledger friction signals for a recent time window.",
     method: "repo.task.read",
