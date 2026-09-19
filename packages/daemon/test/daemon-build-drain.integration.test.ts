@@ -687,6 +687,236 @@ test("a superseded exit hands the slot over while a --wait client's parked await
   }
 });
 
+test("a parked --wait survives a drain that outlasts its settle re-read and still returns the settled verdict", async () => {
+  // The drain closes RepoCells before the transport, so a parked await whose settle re-read wakes
+  // inside that window reads a closed cell. Answering that repo_unavailable ended real sentinels
+  // with an error while the runtime stayed live; the wake must stay silent and let the transport
+  // teardown deliver the reconnect signal (incident: 2026-09-19 build-drift handoff).
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-drain-outlasts-await-")),
+    rootDir = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    runtimeRoot = path.join(parent, "runtime"),
+    runtimeFile = builtRuntime(runtimeRoot, "build-a"),
+    buildIdPath = path.join(runtimeRoot, "packages/cli/dist/build-id.txt"),
+    repoId = "drain-outlasts-await",
+    release = path.join(parent, "release"),
+    providerPidFile = path.join(parent, "provider.pid"),
+    endpoint = localUserDaemonEndpoint(userRoot, repoId),
+    executablePath = writeProviderExecutable(
+      path.join(parent, "outlast-provider.mjs"),
+      `import fs from "node:fs";\nfs.readFileSync(0, "utf8");\nfs.writeFileSync(${JSON.stringify(providerPidFile)}, String(process.pid));\nconsole.log(JSON.stringify({ type: "thread.started", thread_id: "provider-outlast-session" }));\nconst timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(release)})) return; clearInterval(timer); console.log(JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "result.txt", kind: "add" }], status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "survived a drain that outlasted the settle re-read" } })); console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })); }, 10);\n`,
+    ),
+    installation = {
+      installationId: "installation-drain-outlasts-await",
+      kindId: "codex" as const,
+      executablePath,
+      version: "1.0.0",
+      observedAt: "2026-09-19T00:00:00.000Z",
+    },
+    definition: AgentDefinitionSnapshot = {
+      schema: "agent-definition-snapshot/v1",
+      configVersion: 1,
+      instanceId: "codex-drain-outlasts-await",
+      installationId: installation.installationId,
+      kindId: "codex",
+      providerId: "openai",
+      model: "codex-model",
+      reasoningEffort: null,
+      baseUrl: null,
+      authMode: "subscription",
+    },
+    instance = {
+      schemaVersion: 2 as const,
+      instanceId: definition.instanceId,
+      name: "Codex Drain Outlasts Await",
+      kindId: "codex" as const,
+      installationId: installation.installationId,
+      providerId: "openai",
+      models: ["codex-model"],
+      defaultModel: "codex-model",
+      enabled: true,
+      permissionMode: "workspace-write" as const,
+      codex: {},
+      authMode: "subscription" as const,
+      authState: "configured" as const,
+      authReadiness: { status: "ready" as const, code: null, hint: null },
+      isolationState: "enforced" as const,
+    },
+    prepareRuntimeLaunch = async (_instanceId: string, request: { readonly cwd: string; readonly prompt: string }) => ({
+      definition,
+      installation,
+      executablePath,
+      args: ["exec", "--json", "--model", "codex-model", "-"],
+      env: process.env,
+      cwd: request.cwd,
+      prompt: request.prompt,
+    });
+  let daemon: RunningDaemon | undefined,
+    replacement: RunningDaemon | undefined,
+    successorStart: Promise<void> | undefined,
+    spawnReceipt: Awaited<ReturnType<Awaited<ReturnType<typeof openBootstrappedRepoCell>>["spawnRuntime"]>> | undefined,
+    waitClient:
+      | {
+          readonly closed: boolean;
+          readonly result: (timeoutMs: number) => Promise<WaitClientResult>;
+          readonly stop: () => void;
+        }
+      | undefined;
+  // The incident's window is built here: the real cell close sets its closed flag at once (reads
+  // through the cell fail from that moment) while host.close() is held open, so the transport the
+  // wait client rides has not closed yet — exactly the ordering stop() guarantees.
+  const drainGate = deferred<void>(),
+    cellCloseStarted = deferred<void>(),
+    cells: Awaited<ReturnType<typeof openBootstrappedRepoCell>>[] = [],
+    sessionReads: string[] = [],
+    openCell = async (input: Parameters<typeof openBootstrappedRepoCell>[0]) => {
+      const cell = await openBootstrappedRepoCell({
+        ...input,
+        runtimeInstances: () => [instance],
+        prepareRuntimeLaunch,
+      });
+      cells.push(cell);
+      const observed = Object.create(cell);
+      Object.defineProperty(observed, "read", {
+        value: (
+          method: string,
+          payload?: Readonly<Record<string, unknown>>,
+          binding?: Parameters<Awaited<ReturnType<typeof openBootstrappedRepoCell>>["read"]>[2],
+        ) => {
+          if (method === "repo.agentRuntime.sessions.read")
+            sessionReads.push(String(payload?.runtimeSessionId ?? "unknown"));
+          return cell.read(method as never, payload, binding);
+        },
+        enumerable: true,
+      });
+      let closing = false;
+      Object.defineProperty(observed, "close", {
+        value: async () => {
+          if (closing) return;
+          closing = true;
+          const closingPromise = cell.close();
+          cellCloseStarted.resolve();
+          await drainGate.promise;
+          await closingPromise;
+        },
+        enumerable: true,
+      });
+      return observed;
+    },
+    repoAttached = async () => {
+      try {
+        const status = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2_000, 2_000);
+        return (status.repos as { readonly state: string }[])[0]?.state === "attached";
+      } catch (error) {
+        consumeKnownError(error);
+        return false;
+      }
+    };
+  rosterRepo(rootDir, repoId);
+  registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  try {
+    daemon = runningDaemon(
+      await startDaemon({
+        daemonId: repoId,
+        userRoot,
+        endpoint,
+        runtimeFile,
+        openCell,
+        onSupersededExit: () => {
+          successorStart = (async () => {
+            replacement = runningDaemon(
+              await startDaemon({ daemonId: repoId, userRoot, endpoint, runtimeFile, openCell }),
+            );
+          })();
+        },
+      }),
+    );
+    await waitUntil(repoAttached, 10_000);
+    spawnReceipt = await cells[0]!.spawnRuntime(
+      {
+        runtimeInstanceId: instance.instanceId,
+        cwd: { scope: "repo-root" },
+        prompt: "Stay alive while the drain outlasts the parked wait's settle re-read",
+        taskId: null,
+        idempotencyKey: "drain-outlasts-await",
+      },
+      { actor: { principal: { personId: "person-drain-outlasts-await" }, executor: null }, source: "local" },
+    );
+    assert.equal(spawnReceipt.outcome, "applied", JSON.stringify(spawnReceipt));
+    const runtimeSessionId = String(spawnReceipt.runtimeSessionId),
+      providerPid = await eventuallyValue(() => {
+        try {
+          const value = Number(readFileSync(providerPidFile, "utf8"));
+          return Number.isInteger(value) && value > 0 ? value : null;
+        } catch (error) {
+          consumeKnownError(error);
+          return null;
+        }
+      });
+    assert.doesNotThrow(() => process.kill(providerPid, 0), "the runtime worker must be live while the wait parks");
+    waitClient = spawnWaitClient({ rootDir, userRoot, repoId, runtimeSessionId });
+    await waitUntil(() => sessionReads.filter((id) => id === runtimeSessionId).length >= 2, 10_000);
+    writeFileSync(buildIdPath, "build-b\n", "utf8");
+    const served = await requestDaemonJsonRpcAt(
+      daemon.endpoint,
+      "repo.task.create",
+      { repo: { repoId }, payload: { taskId: "task-drain-outlasts", title: "Served by old build" } },
+      2_000,
+      5_000,
+      undefined,
+      true,
+    );
+    assert.equal(served.outcome, "applied", JSON.stringify(served));
+    await waitUntil(
+      () =>
+        cellCloseStarted.promise.then(
+          () => true,
+          () => false,
+        ),
+      5_000,
+    );
+    // The parked await wakes on its settle grace timer and re-reads through the already-closed
+    // cell while the transport is still up. That wake is the incident: it must not end the wait.
+    const readsAtClose = sessionReads.length;
+    await waitUntil(() => sessionReads.length > readsAtClose, 12_000);
+    assert.equal(
+      waitClient.closed,
+      false,
+      "the wait client must stay parked through the drain window instead of exiting on repo_unavailable",
+    );
+    drainGate.resolve();
+    await waitUntil(
+      () =>
+        readDaemonLifecycleRecords(userRoot, repoId).some(
+          (record) => record.event === "process_exit" && record.outcome === "build_superseded",
+        ),
+      5_000,
+    );
+    await waitUntil(() => successorStart !== undefined, 5_000);
+    await successorStart;
+    await waitUntil(repoAttached, 10_000);
+    // By now any repo_unavailable answer from the drain-window wake has long since landed, so the
+    // sentinel still being parked here is the deterministic half of the incident's assertion; the
+    // settled verdict below is the other half.
+    assert.equal(waitClient.closed, false, "the wait client must still be parked on the successor after the handoff");
+    writeFileSync(release, "release");
+    const verdict = await waitClient.result(30_000);
+    assert.equal(verdict.code, 0, `${verdict.stderr}\n${JSON.stringify(verdict.receipt)}`);
+    assert.equal(verdict.receipt.outcome, "succeeded", JSON.stringify(verdict.receipt));
+    assert.equal(verdict.receipt.exitCode, 0);
+    assert.equal(verdict.receipt.runtimeSessionId, runtimeSessionId);
+  } finally {
+    drainGate.resolve();
+    waitClient?.stop();
+    await daemon?.stop();
+    await successorStart?.catch((error: unknown) => consumeKnownError(error));
+    await replacement?.stop();
+    for (const cell of cells) await cell.close().catch((error: unknown) => consumeKnownError(error));
+    rmSync(release, { force: true });
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("autostart readiness is independent of a simulated 32 second canonical repository attachment", async () => {
   const simulatedCanonicalAttachMs = 32_000,
     parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-autostart-attach-")),
@@ -842,7 +1072,11 @@ function spawnWaitClient(input: {
   readonly userRoot: string;
   readonly repoId: string;
   readonly runtimeSessionId: string;
-}): { readonly result: (timeoutMs: number) => Promise<WaitClientResult>; readonly stop: () => void } {
+}): {
+  readonly closed: boolean;
+  readonly result: (timeoutMs: number) => Promise<WaitClientResult>;
+  readonly stop: () => void;
+} {
   const cli = path.resolve("packages/cli/src/index.ts"),
     {
       HARNESS_ACTOR: _actor,
@@ -864,11 +1098,13 @@ function spawnWaitClient(input: {
       },
     );
   let stdout = "",
-    stderr = "";
+    stderr = "",
+    exited = false;
   child.stdout!.on("data", (chunk) => (stdout += String(chunk)));
   child.stderr!.on("data", (chunk) => (stderr += String(chunk)));
   const completion = new Promise<WaitClientResult>((resolve) => {
     child.once("close", (code) => {
+      exited = true;
       resolve({
         code,
         receipt: stdout.trim() ? (JSON.parse(stdout) as Record<string, unknown>) : {},
@@ -877,6 +1113,9 @@ function spawnWaitClient(input: {
     });
   });
   return {
+    get closed() {
+      return exited;
+    },
     result: async (timeoutMs) => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {

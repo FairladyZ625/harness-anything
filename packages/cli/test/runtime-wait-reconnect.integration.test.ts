@@ -326,6 +326,51 @@ test("runtime status --wait reports an operator stop honestly instead of burning
   }
 });
 
+test("runtime status --wait exits non-zero when the parked await answers an error receipt", async () => {
+  // The client-visible shape of the 2026-09-19 handoff incident: a parked await answered with the
+  // receipt protocolFailure() builds for a closed RepoCell. Whatever ends a wait in an error must
+  // not look like success to the orchestrator reading the sentinel's exit code.
+  const fixture = await openFixtureDaemon("await-error-receipt");
+  const pendingAwait: { socket: net.Socket; id: number }[] = [];
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    if (request.method === "repo.agentRuntime.sessions.await") {
+      pendingAwait.push({ socket, id: request.id });
+      return;
+    }
+    assert.equal(request.method, "repo.agentRuntime.sessions.read");
+    reply(socket, request.id, runtimeStatus(false));
+  };
+  const invocation = runWait(fixture, ["runtime", "status", runtimeSessionId, "--wait", "--no-stream"], false);
+  try {
+    for (const deadline = Date.now() + 4_000; pendingAwait.length === 0 && Date.now() < deadline; ) await delay(20);
+    assert.equal(pendingAwait.length, 1, "the daemon-side await must be parked");
+    for (const pending of pendingAwait)
+      reply(pending.socket, pending.id, {
+        schema: "command-receipt/v2",
+        ok: false,
+        command: "repo.agentRuntime.sessions.await",
+        outcome: "op_rejected",
+        opId: "N/A",
+        origin: "daemon",
+        code: "repo_unavailable",
+        evidence: "rejection:repo_unavailable",
+        rejectionExplanation: "RepoCell is closed.",
+        error: { code: "repo_unavailable" },
+      });
+    const result = await invocation.result(4_000);
+    assert.notEqual(result.code, 0, "an errored wait must not report success through its exit code");
+    assert.equal(result.code, 1);
+    assert.match(result.stderr, /error code=repo_unavailable hint=RepoCell is closed\./u);
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
 test("runtime status --wait surfaces the daemon's settlement failure verdict", async () => {
   const fixture = await openFixtureDaemon("settlement-outcome");
   fixture.onRequest = (socket, request) => {
