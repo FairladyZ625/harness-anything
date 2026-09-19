@@ -5,9 +5,14 @@ import {
   isSameExecution,
   isSamePerson,
   parseEntityRef,
+  parsePeopleRosterDocument,
+  PEOPLE_ROSTER_PATH,
   taskIsDescendantOf,
+  verifyDelegatedExecutionToken,
   type AuthorizationContext,
   type AuthorizationDecision,
+  type DelegatedExecutionToken,
+  type DelegatedExecutionTokenReasonCode,
   type EntityActionUnmetCriterionV1,
   type WriteReceipt,
   type WriteReceiptDraft,
@@ -17,6 +22,7 @@ import {
   type TaskProjection,
 } from "../../kernel/src/index.ts";
 import { authorizeAction } from "./authorization.ts";
+import { declaredRoleBindingsFromRoster } from "./identity/declared-role-binding-projection.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 const repositoryTarget: EntityRef = "settings/repository";
@@ -45,6 +51,9 @@ export function authorizeRepoCellAction(input: {
           }
         : {}),
       ...(input.binding.roleBindings === undefined ? {} : { roleBindings: input.binding.roleBindings }),
+      ...(input.binding.delegatedExecutionToken === undefined
+        ? {}
+        : { delegatedExecutionToken: input.binding.delegatedExecutionToken }),
       roleBindingTargets: [repositoryTarget],
       ...(assignment
         ? {
@@ -335,7 +344,7 @@ export function authorizeDurableRepoCellAction(
 export function bindVerifiedExecutorClaim(input: {
   readonly action: RepoTaskAction;
   readonly binding: RepoCellBinding;
-  readonly projection: Pick<TaskProjection, "read" | "readRuntimeSession" | "currentLease">;
+  readonly projection: Pick<TaskProjection, "read" | "readRuntimeSession" | "currentLease" | "readDocument">;
   readonly now: string;
 }): { readonly action: RepoTaskAction; readonly binding: RepoCellBinding } {
   if (!Object.hasOwn(input.action, "executor")) return { action: input.action, binding: input.binding };
@@ -428,12 +437,19 @@ export function bindVerifiedExecutorClaim(input: {
           })
         : undefined,
     taskBinding = exactBinding ?? descendantBinding;
-  if (!taskBinding)
+  if (!taskBinding) {
+    // A DelegatedExecutionToken replaces exactly this one requirement — that the session itself is bound
+    // to the target Task. Every other check still runs: the rewritten actor answers to the issuer's Policy
+    // authority here, and the target Task's own lease rules apply downstream as if the issuer acted alone.
+    const delegation = resolveDelegatedExecution(input, runtimeSessionId, action.kind);
+    if (delegation.binding !== null) return { action, binding: delegation.binding };
     throw invalidExecutorBindingFor(
       input,
       raw,
       "The claimed RuntimeSession does not execute the target Task/Execution.",
+      delegation.expectation ?? undefined,
     );
+  }
   const lease = input.projection.currentLease(taskBinding.taskId, input.now),
     runtimeActor = {
       principal: input.binding.actor.principal,
@@ -446,6 +462,93 @@ export function bindVerifiedExecutorClaim(input: {
       "The claimed RuntimeSession has no matching canonical execution lease.",
     );
   return { action, binding: { ...input.binding, actor: runtimeActor } };
+}
+
+interface DelegatedExecutionResolution {
+  readonly binding: RepoCellBinding | null;
+  readonly expectation: string | null;
+}
+
+interface DelegationFailure {
+  readonly token: DelegatedExecutionToken;
+  readonly reasonCode: DelegatedExecutionTokenReasonCode;
+}
+
+/**
+ * Resolves one session-scoped DelegatedExecutionToken from the writer-cut People document. A valid token
+ * rewrites the binding to the issuer-projected actor; otherwise the returned expectation states which
+ * delegation condition failed so the rejected session knows whom to ask for what. A workspace without a
+ * readable People document has no delegation route at all, so its expectation stays null and the legacy
+ * executor-binding diagnostics keep their original wording.
+ */
+function resolveDelegatedExecution(
+  input: Parameters<typeof bindVerifiedExecutorClaim>[0],
+  runtimeSessionId: string,
+  actionKind: string,
+): DelegatedExecutionResolution {
+  const body = input.projection.readDocument(PEOPLE_ROSTER_PATH).document?.body ?? null;
+  if (body === null) return { binding: null, expectation: null };
+  const roster = parsePeopleRosterDocument(body),
+    candidates = roster.delegatedExecutionTokens.filter(
+      (candidate) => candidate.delegate.runtimeSessionId === runtimeSessionId,
+    );
+  if (candidates.length === 0)
+    return { binding: null, expectation: delegationAbsenceExpectation(runtimeSessionId, actionKind) };
+  let failure: DelegationFailure | null = null;
+  for (const token of candidates) {
+    const actor = {
+        principal: { personId: token.issuer.personId },
+        executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
+      },
+      verification = verifyDelegatedExecutionToken(token, actor, actionKind, input.now);
+    if (verification.ok)
+      return {
+        binding: {
+          ...input.binding,
+          actor,
+          delegatedExecutionToken: token,
+          roleBindings: declaredRoleBindingsFromRoster(roster, actor, input.now),
+        },
+        expectation: null,
+      };
+    failure ??= { token, reasonCode: verification.reasonCode };
+  }
+  return { binding: null, expectation: delegationFailureExpectation(failure!, runtimeSessionId, actionKind) };
+}
+
+function delegationAbsenceExpectation(runtimeSessionId: string, actionKind: string): string {
+  return (
+    `No DelegatedExecutionToken is issued to RuntimeSession ${runtimeSessionId}; ask the issuing principal to ` +
+    `run ha people delegate --runtime-session-id ${runtimeSessionId} --action ${actionKind} ` +
+    `--expires-at <timestamp>, then retry from that session.`
+  );
+}
+
+function delegationFailureExpectation(
+  failure: DelegationFailure,
+  runtimeSessionId: string,
+  actionKind: string,
+): string {
+  const token = failure.token,
+    named = `DelegatedExecutionToken ${token.tokenId} for RuntimeSession ${runtimeSessionId}`,
+    reissue =
+      `ask the issuer to run ha people delegate --runtime-session-id ${runtimeSessionId} --action ${actionKind} ` +
+      `--expires-at <timestamp>, then retry`;
+  switch (failure.reasonCode) {
+    case "delegated_token_expired":
+      return `${named} expired at ${token.expiresAt}; ${reissue}.`;
+    case "delegated_token_revoked":
+      return `${named} was revoked at ${token.revokedAt}; ${reissue}.`;
+    case "delegated_token_action_forbidden":
+      return (
+        `DelegatedExecutionToken ${token.tokenId} does not allow ${actionKind}; ask issuer ` +
+        `${token.issuer.personId} to include the Action in the delegated set, then retry.`
+      );
+    case "delegated_token_not_yet_valid":
+      return `${named} is not valid before ${token.issuedAt}; retry after that time.`;
+    default:
+      return `${named} failed verification (${failure.reasonCode}); ${reissue}.`;
+  }
 }
 
 function actionTarget(action: RepoTaskAction): EntityRef {
@@ -470,6 +573,7 @@ function invalidExecutorBindingFor(
   input: Parameters<typeof bindVerifiedExecutorClaim>[0],
   raw: unknown,
   message: string,
+  delegationExpectation?: string,
 ): Error & { readonly code: "executor_binding_invalid" } {
   const taskId = typeof input.action.taskId === "string" ? input.action.taskId : null,
     requestedExecutionId = typeof input.action.executionId === "string" ? input.action.executionId : null,
@@ -518,13 +622,15 @@ function invalidExecutorBindingFor(
       : reviewerRedispatch
         ? `Expected a reviewer RuntimeSession bound to execution ${executionId ?? "<execution-id>"}; run ` +
           `ha task dispatch-review ${taskId} --agent <reviewer-agent-id>, then retry ${retry}`
-        : missingRequestedBinding
-          ? `Expected the claimed RuntimeSession to have canonical Task/Execution binding ` +
-            `${taskId}/${executionId ?? "<execution-id>"}; retry ${retry} from that bound session`
-          : expected
-            ? `Expected ${expected} from the held execution lease; run from that executor, then retry ${retry}`
-            : "Expected a task-bound executor with a matching held execution lease; run ha task start " +
-              `${taskId ?? "<task-id>"}, then retry ${retry}`,
+        : delegationExpectation
+          ? delegationExpectation
+          : missingRequestedBinding
+            ? `Expected the claimed RuntimeSession to have canonical Task/Execution binding ` +
+              `${taskId}/${executionId ?? "<execution-id>"}; retry ${retry} from that bound session`
+            : expected
+              ? `Expected ${expected} from the held execution lease; run from that executor, then retry ${retry}`
+              : "Expected a task-bound executor with a matching held execution lease; run ha task start " +
+                `${taskId ?? "<task-id>"}, then retry ${retry}`,
     diagnostic: ReceiptDiagnostic = {
       kind: "validation",
       entity: [taskId ? `task ${taskId}` : "repository", executionId ? `execution ${executionId}` : ""]
