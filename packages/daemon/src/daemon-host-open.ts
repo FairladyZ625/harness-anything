@@ -159,7 +159,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     fleetEdgeRuntimes = new Map<string, ReturnType<typeof openFleetEdgeRuntime>>();
   let daemonWriterEpoch: PersistentWriterEpoch | null = null;
   const daemonWriterLeases = new Map<string, WriterEpochLease>(),
-    writerEpochLease = (repoId: string) => {
+    writerEpochLease = (repoId: string, rootDir?: string) => {
       daemonWriterEpoch ??= openPersistentWriterEpoch({
         stateRoot: path.join(input.userRoot, "fleet"),
         holderId: `local-daemon:${input.daemonId}:${process.pid}`,
@@ -168,13 +168,14 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       const existing = daemonWriterLeases.get(repoId);
       if (existing) return existing;
       const repo = readDaemonRegistry({ userRoot: input.userRoot }).repos.find((entry) => entry.repoId === repoId);
-      // The lease database allocates epochs above the accepting ledger's enforced fence floor.
-      const lease = daemonWriterEpoch.acquire(repoId, readLedgerWriterEpoch(repoId, repo?.canonicalRoot));
+      // The lease database allocates epochs above the accepting ledger's enforced fence floor. Init
+      // takes its lease before the registry row exists, so the caller passes the root it will write.
+      const lease = daemonWriterEpoch.acquire(repoId, readLedgerWriterEpoch(repoId, repo?.canonicalRoot ?? rootDir));
       daemonWriterLeases.set(repoId, lease);
       return lease;
     },
-    writerEpochFence = (repoId: string) => {
-      const lease = writerEpochLease(repoId);
+    writerEpochFence = (repoId: string, rootDir?: string) => {
+      const lease = writerEpochLease(repoId, rootDir);
       return {
         schema: "harness-writer-epoch-fence/v1" as const,
         stateRoot: path.join(input.userRoot, "fleet"),

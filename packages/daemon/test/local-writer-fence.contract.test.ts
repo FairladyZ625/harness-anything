@@ -44,7 +44,7 @@ test("every production local binding is covered by a request or cell-default wri
   );
   assert.match(
     source("daemon-host-repository-api.ts"),
-    /defaultWriterEpochFence: context\.writerEpochFence\(prepared\.repoId\)/u,
+    /defaultWriterEpochFence: context\.writerEpochFence\(prepared\.repoId, prepared\.rootDir\)/u,
   );
   assert.match(source("writer-supervisor.ts"), /defaultWriterEpochFence: input\.defaultWriterEpochFence/u);
 
