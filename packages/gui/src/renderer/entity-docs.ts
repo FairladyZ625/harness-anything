@@ -140,7 +140,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
         words: ["standing", "superseded_fact"],
       },
     ],
-    actions: ["record", "reclassify", "type-register", "search", "type-list", "show"],
+    actions: ["record", "reclassify", "type-register", "archive", "unarchive", "type-list", "show"],
   },
   person: {
     schemaId: "person/v1",
