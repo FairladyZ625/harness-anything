@@ -698,7 +698,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     assert.equal(submitted.ok, true, JSON.stringify(submitted));
     assert.equal(submitted.outcome, "applied");
     const afterSubmit = parseDaemonGuiReadResult("repo.tasks.list", await bridge.invoke("getTasks", scope));
-    assert.equal(afterSubmit.rows[0]?.snapshot.task?.status, "in_review");
+    assert.equal(afterSubmit.rows[0]?.snapshot.task?.status, "submitted");
     assert.equal(afterSubmit.rows[0]?.snapshot.lease, null);
     const evidence = afterSubmit.rows[0]?.executionEvidence.find((item) => item.executionId === executionId);
     assert.equal(evidence?.origin, "native");

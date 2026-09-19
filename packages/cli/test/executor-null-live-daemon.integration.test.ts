@@ -117,6 +117,11 @@ test("a live installed-bin daemon refuses to declare an executor for a reviewed 
       "applied",
     );
     assert.equal(
+      run(root, userRoot, daemonId, ["task", "adjudicate", taskId, "--forward", "--note", "Forward executor-null cut."])
+        .outcome,
+      "applied",
+    );
+    assert.equal(
       run(root, userRoot, daemonId, ["task", "code-doc", "reconcile", taskId, "--path", "README.md"], "agent:worker")
         .outcome,
       "applied",

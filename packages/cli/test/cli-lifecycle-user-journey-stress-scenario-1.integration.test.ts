@@ -136,6 +136,11 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
         "## Same Mechanism Elsewhere\n\nRecovery lifecycle.\n",
     );
     await expectApplied(fixture, ["task", "submit", taskId, "--execution-id", firstExecutionId], workerEnvironment);
+    await expectApplied(
+      fixture,
+      ["task", "adjudicate", taskId, "--forward", "--note", "Forward first stress cut."],
+      workerEnvironment,
+    );
     const requested = await expectApplied(
       fixture,
       [
@@ -156,6 +161,20 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
       reviewerEnvironment,
     );
     assert.equal(requested.outcome, "applied");
+    await expectApplied(
+      fixture,
+      [
+        "task",
+        "adjudicate",
+        taskId,
+        "--return",
+        "--review-id",
+        "review-cli-changes-requested",
+        "--note",
+        "Return the first stress cut for rework.",
+      ],
+      workerEnvironment,
+    );
     const afterRequest = await expectApplied(fixture, ["task", "show", taskId], workerEnvironment),
       afterRequestEvidence = JSON.parse(String(afterRequest.evidence)) as {
         readonly task?: { readonly status?: string; readonly iteration?: number };
@@ -170,6 +189,11 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
         "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nRecovery lifecycle.\n",
     );
     await expectApplied(fixture, ["task", "submit", taskId, "--execution-id", secondExecutionId], workerEnvironment);
+    await expectApplied(
+      fixture,
+      ["task", "adjudicate", taskId, "--forward", "--note", "Forward second stress cut."],
+      workerEnvironment,
+    );
     await expectApplied(
       fixture,
       [

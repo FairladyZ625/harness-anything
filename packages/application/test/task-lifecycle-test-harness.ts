@@ -234,6 +234,30 @@ export function lifecycleHarness() {
         { actorBinding: owner, leaseVersion: null, sessionDisposition: "complete" },
       );
     },
+    adjudicate: async (
+      executionId: string,
+      decision: "forward" | "return",
+      reviewId?: string,
+      opId = `op-adjudicate-${revision() + 1}`,
+    ) => {
+      const next = revision() + 1;
+      return service.execute(
+        command(
+          owner,
+          next,
+          {
+            type: "AdjudicateSubmission",
+            taskId: "task-1",
+            executionId,
+            decision,
+            reason: `${decision} the current cut`,
+            ...(reviewId === undefined ? {} : { reviewId }),
+          },
+          opId,
+        ),
+        { actorBinding: owner, capability: "task-adjudicate@v1", capabilityRef: `cap-${opId}` },
+      );
+    },
     review: async (
       executionId: string,
       kind: "anti_entropy" | "acceptance",

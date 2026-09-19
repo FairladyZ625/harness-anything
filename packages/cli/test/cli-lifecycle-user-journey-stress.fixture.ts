@@ -142,6 +142,11 @@ async function runChain(
   await expectApplied(fixture, ["task", "submit", taskId], workerEnvironment);
   await expectApplied(
     fixture,
+    ["task", "adjudicate", taskId, "--forward", "--note", "Forward CLI stress cut."],
+    workerEnvironment,
+  );
+  await expectApplied(
+    fixture,
     [
       "task",
       "review-execution",
@@ -159,7 +164,12 @@ async function runChain(
     ],
     reviewerEnvironment,
   );
-  await expectApplied(fixture, ["task", "complete", taskId, "--consent"], workerEnvironment);
+  await expectApplied(
+    fixture,
+    ["task", "review-consent", taskId, "--execution-id", executionId, "--review-id", `review-${taskId}`],
+    workerEnvironment,
+  );
+  await expectApplied(fixture, ["task", "complete", taskId], workerEnvironment);
   const final = await expectApplied(fixture, ["task", "show", taskId], workerEnvironment),
     finalEvidence = JSON.parse(String(final.evidence)) as { readonly task?: { readonly status?: string } };
   assert.equal(finalEvidence.task?.status, "done");

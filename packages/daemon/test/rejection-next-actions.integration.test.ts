@@ -72,6 +72,15 @@ test("submit lease refusals name the state-specific command that advances the ex
     assert.equal(alreadySubmitted.opId, submitted.opId, "the original holder resumes the same cut");
     const otherHolder = await cell.run({ kind: "task-submit", taskId, executionId }, binding("other-holder"));
     assert.equal(otherHolder.code, "lease_required", JSON.stringify(otherHolder));
+    assert.equal(
+      (
+        await cell.run(
+          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward submit-exit cut." },
+          holder,
+        )
+      ).outcome,
+      "applied",
+    );
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Independent review.", evidenceChecked: ["integration"] }),

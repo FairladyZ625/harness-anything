@@ -124,6 +124,8 @@ test("execution and review are dependency-free EntityKindContracts with lifecycl
           "execution_started",
           "lease_renewed",
           "execution_submitted",
+          "submission_forwarded",
+          "submission_returned",
           "execution_executor_declared",
           "execution_annotated",
           "review_recorded",

@@ -125,6 +125,21 @@ test("agenda derives all four groups, pins first, and rejects a missing task pin
       ).outcome,
       "applied",
     );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-adjudicate",
+            taskId: "task_review",
+            executionId: "exe_review",
+            forward: true,
+            reason: "Forward agenda review cut.",
+          },
+          binding,
+        )
+      ).outcome,
+      "applied",
+    );
     const proposed = await cell.run(decisionProposal(), binding);
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
 
@@ -276,6 +291,21 @@ test("agenda surfaces a changes_requested task in the rework group and nowhere e
       (await cell.run({ kind: "task-submit", taskId: "task_rework", executionId: "exe_rework" }, binding)).outcome,
       "applied",
     );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-adjudicate",
+            taskId: "task_rework",
+            executionId: "exe_rework",
+            forward: true,
+            reason: "Forward agenda rework cut.",
+          },
+          binding,
+        )
+      ).outcome,
+      "applied",
+    );
     const reviewerBinding = withRoleBinding(
       {
         actor: {
@@ -305,6 +335,27 @@ test("agenda surfaces a changes_requested task in the rework group and nowhere e
       ).outcome,
       "applied",
     );
+    const returned = await cell.run(
+      {
+        kind: "task-adjudicate",
+        taskId: "task_rework",
+        executionId: "exe_rework",
+        return: true,
+        reviewId: "review-rework",
+        reason: "Return agenda cut for rework.",
+      },
+      binding,
+    );
+    assert.equal(returned.outcome, "applied");
+    await waitForFixturePublication(cell, returned.opId, binding);
+    const returnedSnapshot = JSON.parse(
+      String((await cell.run({ kind: "task-show", taskId: "task_rework" }, binding)).evidence),
+    ) as {
+      readonly task: { readonly status: string };
+      readonly executions: readonly { readonly state: string }[];
+    };
+    assert.equal(returnedSnapshot.task.status, "active");
+    assert.equal(returnedSnapshot.executions.at(-1)?.state, "changes_requested");
 
     const agenda = await cell.read("repo.agenda.read", { limit: 50 });
     // The returned task sits in exactly one group — the one this change adds.
@@ -372,6 +423,21 @@ test("agenda excludes archived rework tasks without consuming a page", async () 
         (await cell.run({ kind: "task-submit", taskId, executionId: `exe_${taskId}` }, binding)).outcome,
         "applied",
       );
+      assert.equal(
+        (
+          await cell.run(
+            {
+              kind: "task-adjudicate",
+              taskId,
+              executionId: `exe_${taskId}`,
+              forward: true,
+              reason: "Forward archived agenda cut.",
+            },
+            binding,
+          )
+        ).outcome,
+        "applied",
+      );
       writeFileSync(
         path.join(rootDir, "review.json"),
         JSON.stringify({ verdict: "changes_requested", reason: "Needs another pass.", evidenceChecked: ["agenda"] }),
@@ -391,6 +457,19 @@ test("agenda excludes archived rework tasks without consuming a page", async () 
         ).outcome,
         "applied",
       );
+      const returned = await cell.run(
+        {
+          kind: "task-adjudicate",
+          taskId,
+          executionId: `exe_${taskId}`,
+          return: true,
+          reviewId: `review_${taskId}`,
+          reason: "Return archived agenda cut for rework.",
+        },
+        binding,
+      );
+      assert.equal(returned.outcome, "applied");
+      await waitForFixturePublication(cell, returned.opId, binding);
     };
 
     await createChangesRequestedTask("task_000_archived_rework");

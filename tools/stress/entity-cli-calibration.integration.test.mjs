@@ -153,6 +153,9 @@ function taskChain(f, reader, index) {
       "## Same Mechanism Elsewhere\n\nTask report ownership.\n",
   );
   f.invoke("task.submit", ["task", "submit", taskId], { actor });
+  f.invoke("task.adjudicate", ["task", "adjudicate", taskId, "--forward", "--note", "Forward calibration cut."], {
+    actor,
+  });
   const reviewed = f.invoke(
     "task.review",
     ["task", "review-execution", taskId, "--review-id", `review-${f.seed}-${index}`, "--json-input", "@-"],
@@ -162,7 +165,10 @@ function taskChain(f, reader, index) {
     },
   );
   f.check("task.review.independent", () => assert.equal(reviewed.outcome, "applied"));
-  f.invoke("task.complete", ["task", "complete", taskId, "--consent"], { actor });
+  f.invoke("task.review-consent", ["task", "review-consent", taskId, "--review-id", `review-${f.seed}-${index}`], {
+    actor,
+  });
+  f.invoke("task.complete", ["task", "complete", taskId], { actor });
   const shown = f.invoke("task.show", ["task", "show", taskId]);
   f.check("task.done", () => assert.equal(evidence(shown).task.status, "done"));
 }

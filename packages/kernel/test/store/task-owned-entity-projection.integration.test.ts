@@ -13,8 +13,8 @@ test("task-owned reviews with the same local id remain visible in both task snap
       projection = makeTaskProjection({ rootDir, eventStore: memoryEventStore(events) });
     projection.catchUp();
 
-    assert.equal(projection.readTaskOperation(events[3]!.opId)?.event.type, "review_recorded");
-    assert.equal(projection.readTaskOperation(events[7]!.opId)?.event.type, "review_recorded");
+    assert.equal(projection.readTaskOperation(events[4]!.opId)?.event.type, "review_recorded");
+    assert.equal(projection.readTaskOperation(events[9]!.opId)?.event.type, "review_recorded");
     assert.deepEqual(
       projection.read("task-first").snapshot.reviews.map(({ reviewId }) => reviewId),
       ["review-shared"],

@@ -787,7 +787,7 @@ test("Task/v2 snapshot migration preserves lifecycle and relation final state", 
     legacyRelation = {
       ...fixture.events.at(-1),
       eventId: "event-legacy-task-relation",
-      workspaceRevision: 7,
+      workspaceRevision: 8,
       opId: "op_legacy_task_relation",
       type: "task_relation_added",
       payload: {
@@ -799,7 +799,7 @@ test("Task/v2 snapshot migration preserves lifecycle and relation final state", 
     redundantSnapshot = {
       ...legacyRelation,
       eventId: "event-legacy-task-snapshot",
-      workspaceRevision: 8,
+      workspaceRevision: 9,
       opId: "op_legacy_task_snapshot",
       type: "task_amended",
       payload: {
@@ -811,28 +811,28 @@ test("Task/v2 snapshot migration preserves lifecycle and relation final state", 
     legacyEvents = [...fixture.events, legacyRelation, redundantSnapshot],
     plan = planLegacyGenerationConversion({ rootDir: root, store: arrayStore(legacyEvents, () => null) });
   try {
-    const convertedRelation = plan.events[6]!,
-      convertedSnapshot = plan.events[7]!;
+    const convertedRelation = plan.events[7]!,
+      convertedSnapshot = plan.events[8]!;
     assert.equal(convertedRelation.schema, "relation-event/v1");
     assert.equal(convertedRelation.type, "relation_created");
     assert.equal(convertedRelation.eventId, legacyRelation.eventId);
     assert.equal(convertedRelation.opId, legacyRelation.opId);
     assert.equal(convertedRelation.workspaceRevision, legacyRelation.workspaceRevision);
-    assert.equal(convertedRelation.payload.relation.targetObservedVersion, 6);
+    assert.equal(convertedRelation.payload.relation.targetObservedVersion, 7);
     assert.equal(Object.hasOwn(convertedRelation.payload.relation, "strength"), false);
     assert.equal(Object.hasOwn(convertedSnapshot.payload.task, "relations"), false);
     assert.ok(plan.events.every((event) => validateCurrentCanonicalEvent(event).length === 0));
     assert.deepEqual(migrationFamily(plan, "task-v2-snapshots"), {
       name: "task-v2-snapshots",
       count: 2,
-      firstRevision: 7,
-      lastRevision: 8,
+      firstRevision: 8,
+      lastRevision: 9,
     });
     assert.deepEqual(migrationFamily(plan, "relation-events"), {
       name: "relation-events",
       count: 1,
-      firstRevision: 7,
-      lastRevision: 7,
+      firstRevision: 8,
+      lastRevision: 8,
     });
 
     const legacyProjection = makeTaskProjection({
@@ -902,8 +902,8 @@ test("review submission migration pins only reviews missing the field", () => {
     assert.deepEqual(migrationFamily(plan, "review-submission-pins"), {
       name: "review-submission-pins",
       count: 2,
-      firstRevision: 4,
-      lastRevision: 5,
+      firstRevision: 5,
+      lastRevision: 6,
     });
 
     const amendedPin = `sha256:${"c".repeat(64)}`,
