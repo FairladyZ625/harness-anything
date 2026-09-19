@@ -220,7 +220,13 @@ export const runtimeKinds = [
       ],
       permissionArgs: {
         bypass: ["--permission-mode", "bypassPermissions"],
-        "workspace-write": ["--permission-mode", "acceptEdits"],
+        // acceptEdits auto-approves file edits only, so a headless session cannot
+        // run any Bash without a pre-allowed rule. Allow exactly the `ha` prefix:
+        // every `ha` write rides the daemon's authorization and single-writer
+        // queue, so this opens the ledger CLI without opening arbitrary shell.
+        // Claude Code requires each subcommand of a compound command to match a
+        // rule independently, so `ha x && other` stays unapproved.
+        "workspace-write": ["--permission-mode", "acceptEdits", "--allowedTools", "Bash(ha *)"],
         "read-only": ["--permission-mode", "plan"],
       },
       apiKeyArgs: ["--bare"],

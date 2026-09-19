@@ -104,6 +104,12 @@ test("permission defaults open and tightens through the instance record or a sin
         cwd: "/workspace/repo",
         prompt: "Dispatch",
         permissionMode: "read-only",
+      }),
+      claudeWorkspaceWrite = await store.prepareLaunch("claude-open", {
+        cwd: "/workspace/repo",
+        prompt: "Scheduled remediate",
+        permissionMode: "workspace-write",
+        writableRoots: ["/workspace/repo/tmp"],
       });
     assert.deepEqual(dispatched.args, ["exec", "--json", "--sandbox", "read-only", "--model", "gpt-5.6-sol", "-"]);
     assert.deepEqual(claudeDispatched.args, [
@@ -115,6 +121,26 @@ test("permission defaults open and tightens through the instance record or a sin
       "stream-json",
       "--permission-mode",
       "plan",
+      "--model",
+      "claude-fable-5",
+      "--bare",
+    ]);
+    // Scheduled remediate launches must be able to run `ha` (daemon-mediated
+    // ledger writes) while every other Bash command keeps acceptEdits behavior:
+    // the allow rule rides $permission ahead of $writable-roots and --model.
+    assert.deepEqual(claudeWorkspaceWrite.args, [
+      "-p",
+      "--verbose",
+      "--settings",
+      '{"attribution":{"commit":"","pr":"","sessionUrl":false}}',
+      "--output-format",
+      "stream-json",
+      "--permission-mode",
+      "acceptEdits",
+      "--allowedTools",
+      "Bash(ha *)",
+      "--add-dir",
+      "/workspace/repo/tmp",
       "--model",
       "claude-fable-5",
       "--bare",
