@@ -197,15 +197,6 @@ export function reviewDigest(review: ReviewV1): `sha256:${string}` {
   return `sha256:${sha256Text(stableStringify(review))}`;
 }
 
-/**
- * The single write-side rule for the review return budget: once the task's iteration reaches the
- * effective budget, a `changes_requested` verdict can no longer be recorded. Review dispatch
- * preflights must reuse this predicate so an exhausted budget refuses a new attempt before any
- * reviewer worker is spawned, instead of rejecting the verdict at write time.
- */
-export function reviewReturnBudgetSpent(iteration: number, returnBudget: number): boolean {
-  return iteration >= returnBudget;
-}
 function invalidReviewIssue(message: string): ContractValidationIssue {
   return { code: "invalid_review", message };
 }

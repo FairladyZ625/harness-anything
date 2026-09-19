@@ -92,6 +92,15 @@ test("review-consent derives the recorded Review digests without a packet and re
     await cell.run({ kind: "task-start", taskId, executionId }, binding);
     writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, binding)).outcome, "applied");
+    assert.equal(
+      (
+        await cell.run(
+          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Owner forwards the cut." },
+          binding,
+        )
+      ).outcome,
+      "applied",
+    );
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] }),
@@ -265,6 +274,21 @@ test("review-consent derives the recorded Review digests without a packet and re
         .outcome,
       "applied",
     );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-adjudicate",
+            taskId: ambiguousTaskId,
+            executionId: ambiguousExecutionId,
+            forward: true,
+            reason: "Owner forwards the ambiguous-review fixture.",
+          },
+          binding,
+        )
+      ).outcome,
+      "applied",
+    );
     for (const reviewId of ["review-a", "review-b"])
       assert.equal(
         (
@@ -330,6 +354,21 @@ test("review-execution without --execution-id derives the sole current submitted
       (await cell.run({ kind: "task-submit", taskId, executionId: firstExecutionId }, owner)).outcome,
       "applied",
     );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId: firstExecutionId,
+            forward: true,
+            reason: "Owner forwards round one.",
+          },
+          owner,
+        )
+      ).outcome,
+      "applied",
+    );
     writeFileSync(
       path.join(rootDir, "review-changes.json"),
       JSON.stringify({
@@ -351,14 +390,45 @@ test("review-execution without --execution-id derives the sole current submitted
     assert.equal(returned.outcome, "applied", JSON.stringify(returned));
     const returnedEvent = store().readEvent(String(returned.opId));
     if (returnedEvent?.type !== "review_recorded") throw new Error("returned review event missing");
-    assert.equal(returnedEvent.payload.execution.state, "changes_requested");
+    assert.equal(returnedEvent.payload.execution.state, "submitted");
     assert.equal(returnedEvent.payload.execution.iteration, 0);
-    assert.equal(returnedEvent.payload.task.iteration, 1);
+    assert.equal(returnedEvent.payload.task.iteration, 0);
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId: firstExecutionId,
+            return: true,
+            reviewId: "review-selection-r1",
+            reason: "Owner accepts the review findings and returns the cut.",
+          },
+          owner,
+        )
+      ).outcome,
+      "applied",
+    );
 
     await cell.run({ kind: "task-start", taskId, executionId: secondExecutionId }, owner);
     writeSelectionCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     assert.equal(
       (await cell.run({ kind: "task-submit", taskId, executionId: secondExecutionId }, owner)).outcome,
+      "applied",
+    );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId: secondExecutionId,
+            forward: true,
+            reason: "Owner forwards round two.",
+          },
+          owner,
+        )
+      ).outcome,
       "applied",
     );
 
@@ -416,6 +486,21 @@ test("review-execution without --execution-id names the resubmission command whi
       (await cell.run({ kind: "task-submit", taskId, executionId: firstExecutionId }, owner)).outcome,
       "applied",
     );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId: firstExecutionId,
+            forward: true,
+            reason: "Owner forwards the selection fixture.",
+          },
+          owner,
+        )
+      ).outcome,
+      "applied",
+    );
     writeFileSync(
       path.join(rootDir, "review-changes.json"),
       JSON.stringify({
@@ -435,6 +520,22 @@ test("review-execution without --execution-id names the resubmission command whi
             fromFile: "review-changes.json",
           },
           reviewer,
+        )
+      ).outcome,
+      "applied",
+    );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId: firstExecutionId,
+            return: true,
+            reviewId: "review-selection-empty",
+            reason: "Owner returns the cut before resubmission.",
+          },
+          owner,
         )
       ).outcome,
       "applied",

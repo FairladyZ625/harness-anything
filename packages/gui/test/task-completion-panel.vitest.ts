@@ -20,7 +20,7 @@ afterEach(cleanupMountedDetail);
 describe("Task completion panel", () => {
   it("shows the panel for an in_review task and waits while the review blocker stands", async () => {
     installBridge({
-      completionAction: "ha task triage task-w3 --forward --note-file <path>",
+      completionAction: "ha task adjudicate task-w3 --forward --note-file <path>",
       completionBlocker: { code: "review_missing", gate: "review" },
     });
     await mount();

@@ -114,10 +114,19 @@ Use the same Fact → Decision → Task → Fact cycle for the next handoff.
 ha task submit task_...
 ```
 
-预期：`ok=true command=task-submit transition.from=active/implementation transition.to=in_review/review`。
-`submit` 会发布符合条件的 task 文档，包括 closeout；不要再手工提交私有 ledger Git。
+预期：`ok=true command=task-submit transition.from=active/implementation transition.to=submitted/review`。
+`submit` 会发布符合条件的 task 文档，包括 closeout；不要再手工提交私有 ledger Git，也不会自动派
+reviewer。owner 先初验方向：
 
-## 6. 评审并带 owner consent 完成
+```bash
+ha task adjudicate task_... --forward --note "方向与证据已可进入独立质检。"
+```
+
+预期：`ok=true command=task-adjudicate transition.from=submitted/review
+transition.to=in_review/review`。打回使用 `--return --note <返工说明>`，任务回到 `active`；
+reviewer 不得直接向 worker 派工。
+
+## 6. 评审、owner 终审与机械结项
 
 独立 reviewer 针对已提交 execution 写入 verdict：
 
@@ -127,6 +136,14 @@ HARNESS_ACTOR=agent:loop-reviewer ha task review-execution task_... --review-id 
 
 预期：`ok=true command=task-review-execution reviewId=review-docs-loop`。reviewer 不能与
 execution 的 agent 相同。
+approved 只是回流给 owner 的报告，不会自行批准完成。owner 显式记录终审批准：
+
+```bash
+ha task review-consent task_... --review-id review-docs-loop
+```
+
+若结论是 `changes_requested`，任务仍停在 `in_review`，直到 owner 执行
+`ha task adjudicate task_... --return --review-id <id> --note <返工说明>`。
 
 ```bash
 ha task complete task_...
@@ -136,12 +153,17 @@ ha task complete task_...
 code=fact_retirement_undeclared`。回执会点名仍需明确处置的上游 Fact，不要绕过。
 
 ```bash
-ha task complete task_... --consent --fact-holds "F-3C9EB45C:The handoff-loss observation still holds after publishing this note."
+ha task complete task_... --fact-holds "F-3C9EB45C:The handoff-loss observation still holds after publishing this note."
 ```
 
 预期：`ok=true command=task-complete transition.to=done/review status=accepted_durable`。
-`--consent` 会原子地选中 approved Review 并记录 owner consent；`--fact-holds` 记录开头
-那条证据为何仍然成立。
+`complete` 不派 reviewer、不等待或代选评审，也不合并 Git 分支；它只机械校验已经登记的评审、
+owner consent、witness 与文档，然后关闭台账任务。`--fact-holds` 记录开头那条证据为何仍然成立。
+
+多个边缘节点的命令都进入中心单写队列。任务事件的 compare-and-swap fence 只允许两个并发裁决或
+complete 中的一个成功；败者收到 invalid-transition 回执后重读。评审派发以
+task/execution/iteration/submission-digest 组成确定性键，所以重试收敛到同一个 review runtime，
+不会覆盖另一节点的 artifact。
 
 现在得到的是可查询的完整闭环，而不是 task 形状的聊天记录。下一步可读
 [三原语内核](../../learn/zh/01-three-primitive-kernel.md)，或把[日常命令速记表](03-daily-commands.md)

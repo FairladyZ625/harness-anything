@@ -206,7 +206,7 @@ function submitValidation(input: TaskActionCapabilityInput): PredicateEvaluation
     status: input.invocation?.amend === false ? "unmet" : "invocation-required",
     nextActions: [
       `Execution ${executionId} is already submitted; use ${amend} to correct it, or wait for the ` +
-        `owning CEO to adjudicate the cut (ha task triage ${taskId}).`,
+        `owning CEO to adjudicate the cut (ha task adjudicate ${taskId}).`,
     ],
   };
 }

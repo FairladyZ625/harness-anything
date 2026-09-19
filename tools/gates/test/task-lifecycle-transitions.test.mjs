@@ -591,6 +591,12 @@ test("G10 the owner's adjudication is the only authority over a submitted cut", 
     () => applyTransition(forwarded.snapshot, adjudicate(5, "return", "rework", "review-unknown"), adjudicateProof()),
     (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof",
   );
+  // A queued initial-triage return cannot be reinterpreted as a final-review verdict after a
+  // concurrent forward wins. Final return orders bind the review that the owner adjudicated.
+  assert.throws(
+    () => applyTransition(forwarded.snapshot, adjudicate(5, "return", "stale initial return"), adjudicateProof()),
+    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof",
+  );
   // A return order closes the cut and reopens the implementation iteration.
   const returned = applyTransition(
     submitted.snapshot,

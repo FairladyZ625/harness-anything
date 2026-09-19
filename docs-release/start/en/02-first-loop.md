@@ -123,11 +123,20 @@ Use the same Fact → Decision → Task → Fact cycle for the next handoff.
 ha task submit task_...
 ```
 
-Expected: `ok=true command=task-submit transition.from=active/implementation transition.to=in_review/review`.
+Expected: `ok=true command=task-submit transition.from=active/implementation transition.to=submitted/review`.
 `submit` publishes eligible task documents, including the closeout; do not make
-a separate manual Git commit in the private ledger.
+a separate manual Git commit in the private ledger. Submission does not dispatch
+a reviewer. The owner first checks that the result matches the requested direction:
 
-## 6. Review and complete with owner consent
+```bash
+ha task adjudicate task_... --forward --note "Direction and evidence are ready for independent review."
+```
+
+Expected: `ok=true command=task-adjudicate transition.from=submitted/review
+transition.to=in_review/review`. A return order uses `--return --note <instructions>`
+and moves the task back to `active`; the reviewer never sends work directly to the worker.
+
+## 6. Review, owner verdict, and mechanical completion
 
 An independent reviewer records the verdict against the submitted execution:
 
@@ -137,6 +146,15 @@ HARNESS_ACTOR=agent:loop-reviewer ha task review-execution task_... --review-id 
 
 Expected: `ok=true command=task-review-execution reviewId=review-docs-loop`.
 The reviewer must not be the execution's agent.
+An approved review is a report to the owner, not permission to complete. The owner
+records the final approval explicitly:
+
+```bash
+ha task review-consent task_... --review-id review-docs-loop
+```
+
+For `changes_requested`, the task remains `in_review` until the owner issues
+`ha task adjudicate task_... --return --review-id <id> --note <instructions>`.
 
 ```bash
 ha task complete task_...
@@ -147,12 +165,20 @@ code=fact_retirement_undeclared`. The receipt names every upstream Fact that
 still needs an explicit disposition; do not bypass it.
 
 ```bash
-ha task complete task_... --consent --fact-holds "F-3C9EB45C:The handoff-loss observation still holds after publishing this note."
+ha task complete task_... --fact-holds "F-3C9EB45C:The handoff-loss observation still holds after publishing this note."
 ```
 
 Expected: `ok=true command=task-complete transition.to=done/review status=accepted_durable`.
-`--consent` selects the approved Review and records owner consent atomically;
-`--fact-holds` records why the opening evidence remains standing.
+`complete` does not dispatch, wait for, or choose a reviewer and does not merge Git
+branches. It only validates the already-recorded review, owner consent, witnesses,
+and documents before closing the ledger task. `--fact-holds` records why the opening
+evidence remains standing.
+
+All edge nodes submit these commands to the center's single write queue. The task-event
+compare-and-swap fence admits one of two concurrent owner rulings or completions; the
+loser receives an invalid-transition receipt and must reread. Reviewer dispatch uses a
+deterministic task/execution/iteration/submission-digest key, so retries converge on one
+review runtime rather than overwriting another node's artifact.
 
 You now have a complete, queryable cycle rather than a task-shaped chat log.
 Next, read [The three-primitive kernel](../../learn/en/01-three-primitive-kernel.md)

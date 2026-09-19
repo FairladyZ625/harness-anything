@@ -194,7 +194,7 @@ function evaluateCompletion(
     return one(
       "not_in_review",
       "lifecycle",
-      `ha task triage ${task.taskId} --forward --note-file <path>`,
+      `ha task adjudicate ${task.taskId} --forward --note-file <path>`,
       "The cut awaits the owning CEO's triage; completion is mechanical only after independent review " +
         "and the owner's verdict.",
     );

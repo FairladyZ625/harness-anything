@@ -50,7 +50,7 @@ test("completion next is one pure judgment across lifecycle and unavailable-inpu
       submitted,
       context,
       "not_in_review",
-      "ha task triage task-1 --forward --note-file <path>",
+      "ha task adjudicate task-1 --forward --note-file <path>",
     ],
     ["forwarded unreviewed", forwarded, context, "review_missing", "ha task dispatch-review task-1"],
     ["approved awaits the owner's verdict", at(5), context, "consent_missing", "ha task review-verdict task-1"],

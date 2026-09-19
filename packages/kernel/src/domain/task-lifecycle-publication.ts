@@ -337,7 +337,7 @@ function renderIndex(
       task.status === "active"
         ? `Run \`ha task submit ${task.taskId}\`.`
         : task.status === "submitted"
-          ? `Await the owning CEO's triage: \`ha task triage ${task.taskId} --forward|--return --note-file <path>\`.`
+          ? `Await the owning CEO's triage: \`ha task adjudicate ${task.taskId} --forward|--return --note-file <path>\`.`
           : task.status === "in_review" && !approved.length
             ? `Run \`ha task complete ${task.taskId}\`.`
             : task.status === "in_review" && !selected

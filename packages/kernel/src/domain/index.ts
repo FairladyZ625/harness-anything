@@ -47,8 +47,6 @@ export {
   approvedReviewHistoryForExecution,
   approvedReviewsForExecution,
   consentedApprovedReviewForExecution,
-  reviewReturnBudgetSpent,
-  reviewsForExecution,
   reviewVerdicts,
 } from "./review.ts";
 
