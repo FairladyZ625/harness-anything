@@ -35,7 +35,7 @@ describe("Task completion panel", () => {
 
   it("routes the owner-verdict button once the read reports the consent blocker", async () => {
     installBridge({
-      completionAction: "ha task review-verdict task-w3",
+      completionAction: "ha task review-consent task-w3",
       completionBlocker: { code: "consent_missing", gate: "consent" },
     });
     const consents: string[] = [];
