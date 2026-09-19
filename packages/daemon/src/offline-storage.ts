@@ -5,9 +5,7 @@ import {
   resolveActiveGeneration,
   runGenerationTwoConversion,
 } from "../../kernel/src/index.ts";
-import { daemonUserRoot } from "./client/local-daemon-target.ts";
 import { generationMigrationCommand } from "./offline-storage-command.ts";
-import { openPersistentWriterEpoch } from "./writer-epoch.ts";
 
 export function runOfflineStorageCommand(argv: readonly string[]): number {
   try {
@@ -39,9 +37,6 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
       if (!destinationRoot) throw new Error("restore requires --to <absolute-directory>");
       const result = restoreLedgerBackup({ backupDir, destinationRoot }),
         registration = result.manifest.registration;
-      const writerEpoch = registration
-        ? advanceWriterEpoch(daemonUserRoot(), registration.repoId, registration.writerEpoch)
-        : null;
       emitReceipt({
         ok: true,
         schema: "ledger-restore-receipt/v1",
@@ -49,7 +44,6 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
         ...backupReceipt(backupDir, result.manifest),
         restoredRoot: result.restoredRoot,
         registration,
-        writerEpoch,
         next:
           `ha --root ${JSON.stringify(result.restoredRoot)} init --repo-id ${registration?.repoId ?? "<repo-id>"} ` +
           "--person-id <owner-person-id> --display-name <owner-display-name>",
@@ -81,15 +75,6 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
       hint: error instanceof Error ? error.message : String(error),
     });
     return 1;
-  }
-}
-
-function advanceWriterEpoch(userRoot: string, repoId: string, minimum: number): number {
-  const authority = openPersistentWriterEpoch({ stateRoot: path.join(userRoot, "fleet") });
-  try {
-    return authority.acquire(repoId, minimum).epoch;
-  } finally {
-    authority.close();
   }
 }
 

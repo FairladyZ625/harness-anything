@@ -14,7 +14,7 @@ import {
   registerDaemonRepo,
   taskLifecycleWritePlan,
 } from "../../kernel/src/index.ts";
-import { openPersistentWriterEpoch } from "../../daemon/src/writer-epoch.ts";
+import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "../../daemon/src/writer-epoch.ts";
 
 const cli = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 
@@ -145,12 +145,50 @@ test("CLI delegates backup and restore drill to the daemon while event tail stay
     assert.equal(restore.manifest, undefined);
     assert.equal(restored.schema, "ledger-restore-receipt/v1");
     assert.equal(restored.manifest, undefined);
-    assert.equal(restored.writerEpoch, 3);
+    assert.equal(restored.writerEpoch, undefined);
+    const epochCheck = openPersistentWriterEpoch({
+      stateRoot: path.join(userRoot, "fleet"),
+      holderId: "epoch-check",
+    });
+    assert.equal(epochCheck.highWatermark("offline-spawn"), 2);
+    epochCheck.close();
     assert.equal(events.schema, "offline-ledger-events/v1");
     assert.equal((events.events as readonly unknown[]).length, 1);
     const repeated = invokeCliResult(["restore", backupDir, "--to", restoredRoot], userRoot);
     assert.equal(repeated.status, 1);
     assert.match(String((JSON.parse(repeated.stdout) as { hint: string }).hint), /already exists/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(backupDir, { recursive: true, force: true });
+    rmSync(restoredRoot, { recursive: true, force: true });
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("offline restore --to leaves the serving daemon's writer epoch lease intact", async () => {
+  const root = mkdtempSync(path.join(os.tmpdir(), "ha-cli-restore-fence-")),
+    backupDir = path.join(os.tmpdir(), `ha-cli-fence-backup-${process.pid}-${Date.now()}`),
+    restoredRoot = path.join(os.tmpdir(), `ha-cli-fence-restored-${process.pid}-${Date.now()}`),
+    userRoot = mkdtempSync(path.join(os.tmpdir(), "ha-cli-fence-user-"));
+  try {
+    register(userRoot, root, "restore-fence");
+    await seedNativeLedger(root, "restore-fence");
+    invokeCli(["backup", backupDir, "--root", root], userRoot);
+    const stateRoot = path.join(userRoot, "fleet"),
+      live = openPersistentWriterEpoch({ stateRoot, holderId: "live-daemon" }),
+      lease = live.acquire("restore-fence"),
+      restored = invokeCli(["restore", backupDir, "--to", restoredRoot], userRoot);
+    assert.equal(restored.schema, "ledger-restore-receipt/v1");
+    live.assert("restore-fence", lease.epoch, lease.holderId);
+    const successor = openPersistentWriterEpoch({ stateRoot, holderId: "restored-daemon" }),
+      next = successor.acquire("restore-fence", readLedgerWriterEpoch("restore-fence", restoredRoot));
+    assert.equal(next.epoch, lease.epoch + 1);
+    assert.throws(
+      () => live.assert("restore-fence", lease.epoch, lease.holderId),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "writer_epoch_stale",
+    );
+    successor.close();
+    live.close();
   } finally {
     rmSync(root, { recursive: true, force: true });
     rmSync(backupDir, { recursive: true, force: true });
