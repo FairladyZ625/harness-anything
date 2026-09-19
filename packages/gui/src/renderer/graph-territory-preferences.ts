@@ -20,10 +20,12 @@ export function graphTerritoryPreferenceStorage(): {
 
 export function readGraphTerritoryShowArchived(
   storage: { getItem(key: string): string | null } | null | undefined,
+  // The archived-Fact switch keeps its own key through the same read/write pair.
+  key: string = storageKey,
 ): boolean {
   if (!storage) return false;
   try {
-    const parsed: unknown = JSON.parse(storage.getItem(storageKey) ?? "null");
+    const parsed: unknown = JSON.parse(storage.getItem(key) ?? "null");
     // 只有显式 true 才打开;null(未设)/坏 JSON/其他值一律回落默认:隐藏。
     return parsed === true;
   } catch (cause) {
@@ -35,10 +37,11 @@ export function readGraphTerritoryShowArchived(
 export function writeGraphTerritoryShowArchived(
   storage: { setItem(key: string, value: string): void } | null | undefined,
   showArchived: boolean,
+  key: string = storageKey,
 ): void {
   if (!storage) return;
   try {
-    storage.setItem(storageKey, JSON.stringify(showArchived));
+    storage.setItem(key, JSON.stringify(showArchived));
   } catch (cause) {
     // 隐私模式/quota 满:本会话开关仍生效,只是不跨会话记忆(显式消费,不静默吞)。
     consumeKnownError(cause);

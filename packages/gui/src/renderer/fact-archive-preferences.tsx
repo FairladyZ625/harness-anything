@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import { consumeKnownError } from "../api/error-consumption.ts";
+import { readGraphTerritoryShowArchived, writeGraphTerritoryShowArchived } from "./graph-territory-preferences.ts";
 
 /**
  * 「显示已归档 Fact」开关的本地记忆与全局状态(task 对齐 dec_62CAE6CA):
@@ -19,32 +19,14 @@ export function factArchivePreferenceStorage(): {
   return typeof window === "undefined" ? null : window.localStorage;
 }
 
-export function readFactArchiveShowArchived(
+export const readFactArchiveShowArchived = (
   storage: { getItem(key: string): string | null } | null | undefined,
-): boolean {
-  if (!storage) return false;
-  try {
-    const parsed: unknown = JSON.parse(storage.getItem(storageKey) ?? "null");
-    // 只有显式 true 才打开;null(未设)/坏 JSON/其他值一律回落默认:隐藏。
-    return parsed === true;
-  } catch (cause) {
-    consumeKnownError(cause);
-    return false;
-  }
-}
+): boolean => readGraphTerritoryShowArchived(storage, storageKey);
 
-export function writeFactArchiveShowArchived(
+export const writeFactArchiveShowArchived = (
   storage: { setItem(key: string, value: string): void } | null | undefined,
   showArchived: boolean,
-): void {
-  if (!storage) return;
-  try {
-    storage.setItem(storageKey, JSON.stringify(showArchived));
-  } catch (cause) {
-    // 隐私模式/quota 满:本会话开关仍生效,只是不跨会话记忆(显式消费,不静默吞)。
-    consumeKnownError(cause);
-  }
-}
+): void => writeGraphTerritoryShowArchived(storage, showArchived, storageKey);
 
 /**
  * 全局共享的开关状态:关系图(行/锚点/触及边)、任务证据列表与 facts 切面
