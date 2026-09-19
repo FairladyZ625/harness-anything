@@ -63,20 +63,13 @@ export function launchArgs(
   effort: string | null = null,
   permissionMode: RuntimePermissionMode | undefined = undefined,
   fast = false,
-  writableRoots: readonly string[] = [],
 ): string[] {
   const declaration = runtimeKindForId(config.kindId),
     launch: RuntimeProviderDeclaration["launch"] = declaration.launch,
     permission = permissionMode
       ? ((providerSessionId ? launch.resumePermissionArgs : undefined)?.[permissionMode] ??
         launch.permissionArgs[permissionMode])
-      : [],
-    writableRootTemplate = launch.writableRootArgs;
-  if (writableRoots.length > 0 && writableRootTemplate === undefined)
-    throw runtimeInstanceError(
-      "runtime_writable_roots_unsupported",
-      `Runtime kind ${config.kindId} does not support additional writable roots.`,
-    );
+      : [];
   return launch.argumentTemplate.flatMap((token) => {
     if (token === "$model") return [model];
     if (token === "$prompt") return [prompt];
@@ -88,8 +81,6 @@ export function launchArgs(
     if (token === "$effort-config") return effort ? ["--config", `model_reasoning_effort=${tomlString(effort)}`] : [];
     if (token === "$api-auth") return config.auth.mode === "api-key" ? (launch.apiKeyArgs ?? []) : [];
     if (token === "$fast") return fast ? (launch.fastArgs ?? []) : [];
-    if (token === "$writable-roots")
-      return writableRoots.flatMap((root) => writableRootTemplate!.map((part) => (part === "$root" ? root : part)));
     return [token];
   });
 }
