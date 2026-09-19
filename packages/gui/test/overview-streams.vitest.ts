@@ -84,6 +84,8 @@ const agenda = (patch: Partial<AgendaSuccess> = {}): AgendaSuccess => ({
   ok: true,
   status: "ready",
   inFlight: [],
+  pinnedEntities: [],
+  pinnedEntityOverflow: 0,
   awaitingDecision: [],
   waitingOnOthers: [],
   dispatchable: [],
@@ -860,6 +862,16 @@ describe("overview pinned stream", () => {
           blockingAssessment: blocking,
         },
       ],
+      pinnedEntities: [
+        {
+          ref: "decision/dec_PINNED",
+          kind: "decision",
+          title: "Pinned decision",
+          status: "proposed",
+          pinnedAt: "2026-08-30T04:00:00.000Z",
+        },
+      ],
+      pinnedEntityOverflow: 0,
       awaitingDecision: [
         {
           kind: "execution",
@@ -873,7 +885,11 @@ describe("overview pinned stream", () => {
       ],
     });
 
-    expect(pinnedAgendaItems(projection).map(({ taskId }) => taskId)).toEqual(["task_pin_review", "task_pin_active"]);
+    expect(pinnedAgendaItems(projection).map(({ taskId }) => taskId)).toEqual([
+      "decision/dec_PINNED",
+      "task_pin_review",
+      "task_pin_active",
+    ]);
     const markup = renderToStaticMarkup(
       createElement(PinnedStream, {
         agenda: projection,
@@ -883,6 +899,7 @@ describe("overview pinned stream", () => {
     );
     expect(markup).toContain("Pinned active");
     expect(markup).toContain("Pinned review");
+    expect(markup).toContain("Pinned decision");
     expect(markup).not.toContain("Plain planned");
     expect(markup).toContain("repo.agenda.read");
     expect(markup.match(/title="task_pin_active/gu)).toHaveLength(1);

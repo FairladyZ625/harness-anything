@@ -268,6 +268,7 @@ test("agenda groups a changes_requested return into awaiting rework, not the in-
     result = makeTaskQueryReadModel({
       rootDir: canonicalRoot(process.cwd()),
       projection,
+      readPinnedEntities: () => [],
       judgments: {
         closeout: (() => ({ readiness: "missing", blocker: "execution", gates: [] })) as never,
         blocking: ((tasks: readonly { taskId: string }[]) =>
@@ -397,6 +398,7 @@ function queryRead(rootDir: string, projection: TaskProjection) {
   return makeTaskQueryReadModel({
     rootDir: canonicalRoot(rootDir),
     projection,
+    readPinnedEntities: () => [],
     judgments: {
       closeout: (() => ({ readiness: "missing", blocker: "execution", gates: [] })) as never,
       blocking: (() => []) as never,

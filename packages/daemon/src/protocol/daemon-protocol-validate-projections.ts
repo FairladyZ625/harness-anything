@@ -137,6 +137,30 @@ export function validateDaemonAgenda(value: unknown): readonly string[] {
         "must be a valid awaiting item",
       ),
     ];
+  if (!Array.isArray(value.pinnedEntities))
+    return [validationError(entityId, "pinnedEntities", value.pinnedEntities, "must be an array")];
+  if (!Number.isSafeInteger(value.pinnedEntityOverflow) || Number(value.pinnedEntityOverflow) < 0)
+    return [
+      validationError(entityId, "pinnedEntityOverflow", value.pinnedEntityOverflow, "must be a non-negative integer"),
+    ];
+  const pinnedIndex = value.pinnedEntities.findIndex(
+    (row) =>
+      !isJsonObject(row) ||
+      !nonEmpty(row.ref) ||
+      !nonEmpty(row.kind) ||
+      !nonEmpty(row.title) ||
+      !nonEmpty(row.status) ||
+      !nonEmpty(row.pinnedAt),
+  );
+  if (pinnedIndex >= 0)
+    return [
+      validationError(
+        entityId,
+        `pinnedEntities[${pinnedIndex}]`,
+        value.pinnedEntities[pinnedIndex],
+        "must be a valid pinned entity",
+      ),
+    ];
   return [];
 }
 

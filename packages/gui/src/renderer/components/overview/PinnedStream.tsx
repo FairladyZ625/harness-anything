@@ -8,6 +8,7 @@ import type { AgendaSuccess } from "../../api-client.ts";
 
 export interface PinnedAgendaItem {
   readonly taskId: string;
+  readonly kind: string;
   readonly title: string;
   readonly status: SnapshotStatus;
   readonly updatedAt: string;
@@ -37,12 +38,16 @@ export function pinnedAgendaItems(agenda: AgendaSuccess): readonly PinnedAgendaI
   for (const group of [agenda.inFlight, agenda.waitingOnOthers, agenda.dispatchable]) {
     for (const row of group) {
       if (row.pinned !== true) continue;
-      accept({ taskId: row.taskId, title: row.title, status: row.status, updatedAt: row.updatedAt });
+      accept({ taskId: row.taskId, kind: "task", title: row.title, status: row.status, updatedAt: row.updatedAt });
     }
   }
   for (const row of agenda.awaitingDecision) {
     if (row.kind !== "execution" || row.pinned !== true) continue;
-    accept({ taskId: row.taskId, title: row.title, status: "in_review", updatedAt: row.submittedAt });
+    accept({ taskId: row.taskId, kind: "task", title: row.title, status: "in_review", updatedAt: row.submittedAt });
+  }
+  for (const row of agenda.pinnedEntities) {
+    if (row.kind === "task") continue;
+    accept({ taskId: row.ref, kind: row.kind, title: row.title, status: "planned", updatedAt: row.pinnedAt });
   }
   return [...rows.values()].sort(
     (left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.taskId.localeCompare(left.taskId),
@@ -95,7 +100,7 @@ export function PinnedStream({
           <div key={task.taskId} className={PINNED_ROW_CLASS_NAME}>
             <button
               type="button"
-              onClick={() => onOpenPreview(task.taskId)}
+              onClick={() => task.kind === "task" && onOpenPreview(task.taskId)}
               title={`${task.taskId} · ${task.title}`}
               className="flex min-w-0 flex-1 items-center gap-2 text-left"
             >
@@ -108,7 +113,7 @@ export function PinnedStream({
                 {streamTime(task.updatedAt)}
               </span>
             </button>
-            {onSetPin ? (
+            {onSetPin && task.kind === "task" ? (
               <button
                 type="button"
                 data-testid={`overview-pin-toggle-${task.taskId}`}

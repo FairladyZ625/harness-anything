@@ -745,6 +745,7 @@ export default Object.freeze({
     "Governed-Entity-W2",
     "Repo-Lifecycle",
     "Ledger-Read",
+    "Entity-Pin",
   ]),
   commands: daemonOwnedProtocolCommands,
   methods: Object.freeze([
@@ -788,6 +789,7 @@ export { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 export { validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
 export type {
   AgendaAwaitingRow,
+  AgendaPinnedEntityRow,
   AgendaTaskRow,
   DaemonAgendaPayload,
   DaemonAgendaResult,

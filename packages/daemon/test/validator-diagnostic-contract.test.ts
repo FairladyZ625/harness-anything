@@ -135,6 +135,8 @@ const relationGraph = {
     ok: true,
     command: "agenda",
     status: "ready",
+    pinnedEntities: [],
+    pinnedEntityOverflow: 0,
     inFlight: [agendaTask],
     awaitingDecision: [],
     waitingOnOthers: [],

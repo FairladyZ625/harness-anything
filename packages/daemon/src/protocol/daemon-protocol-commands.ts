@@ -159,8 +159,29 @@ const doctorProtocolCommands = Object.freeze([
     inputs: [],
   }),
 ]);
+const entityPinProtocolCommands = Object.freeze([
+  defineCliCommand({
+    id: "entity-pin",
+    phase: "Entity-Pin",
+    path: ["pin", "<entity-ref>"],
+    summary: "Pin an existing entity to the repository agenda.",
+    method: "repo.task.run",
+    inputs: [],
+    ...settingsWriteTopology,
+  }),
+  defineCliCommand({
+    id: "entity-unpin",
+    phase: "Entity-Pin",
+    path: ["unpin", "<entity-ref>"],
+    summary: "Remove an entity from the repository agenda pins.",
+    method: "repo.task.run",
+    inputs: [],
+    ...settingsWriteTopology,
+  }),
+]);
 
 export const daemonOwnedProtocolCommands = Object.freeze([
+  ...entityPinProtocolCommands,
   ...taskSurfaceProtocolCommands,
   ...doctorProtocolCommands,
   ...agentProtocolCommands,

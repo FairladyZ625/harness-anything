@@ -75,6 +75,8 @@ export const DAEMON_AGENDA_SCHEMA = Object.freeze({
     "ok",
     "command",
     "status",
+    "pinnedEntities",
+    "pinnedEntityOverflow",
     "inFlight",
     "awaitingDecision",
     "waitingOnOthers",

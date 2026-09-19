@@ -162,6 +162,10 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "entity-import":
       return authorizeRepoCellAction(input);
+    case "entity-pin":
+      return authorizeRepoCellAction(input);
+    case "entity-unpin":
+      return authorizeRepoCellAction(input);
     case "entity-update":
       return authorizeRepoCellAction(input);
     case "entity-archive":
@@ -556,6 +560,8 @@ function delegationFailureExpectation(
 }
 
 function actionTarget(action: RepoTaskAction): EntityRef {
+  if (typeof action.entityRef === "string" && parseEntityRef(action.entityRef) !== null)
+    return action.entityRef as EntityRef;
   const candidates = [
     ["task", action.taskId],
     ["decision", action.decisionId],

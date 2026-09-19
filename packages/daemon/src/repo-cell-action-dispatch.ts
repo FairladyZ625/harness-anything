@@ -30,6 +30,7 @@ import { runFactAction } from "./repo-cell-fact-action.ts";
 import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts";
 import { runVerticalDeclarationAction } from "./vertical-declaration-action.ts";
 import { attestGateWitness } from "./repo-cell-witness-adapters.ts";
+import { runEntityPinAction } from "./entity-pin-action.ts";
 
 export async function executeAction(
   cell: RepoCellOperationalContext,
@@ -104,6 +105,7 @@ export async function executeAction(
         };
   }
   if (action.kind === "ledger-reconcile") return runLedgerReconcileAction(cell, action, binding);
+  if (action.kind === "entity-pin" || action.kind === "entity-unpin") return runEntityPinAction(cell, action, binding);
   if (action.kind === "receipt-show") {
     const opId = String(action.opId ?? "");
     return cell.receiptForOperation(opId, binding);

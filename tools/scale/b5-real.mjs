@@ -429,6 +429,7 @@ async function measureB5RealSingle(options) {
     ? daemonQueryModule.makeTaskQueryReadModel({
         rootDir,
         projection,
+        readPinnedEntities: projection.listPinnedEntities,
         judgments: { closeout: kernel.closeoutReadiness, blocking: kernel.blockingOf },
       })
     : makeBaselineReadModel({ rootDir, projection, kernel, relationGraphProjection });

@@ -31,6 +31,8 @@ export function parseRouted(
       ? accepted(rootDir, repoId, json, { kind: "agenda", ...projectFlags(route.id, f) }, route.method)
       : rejected(f.code, f.nextAction, json);
   }
+  const entityPin = parseEntityPinRouted(route, args, rootDir, repoId, json);
+  if (entityPin) return entityPin;
   if (route.id === "migrate-import") {
     const f = readFlags(route.id, args.slice(2), inputs);
     return f.ok
@@ -114,6 +116,20 @@ export function parseRouted(
   if (route.phase.startsWith("Preset-") || rootCommand === "agent" || rootCommand === "squad")
     return parsePreset(route, args, rootDir, repoId, json, inputs);
   return undefined;
+}
+
+function parseEntityPinRouted(
+  route: ProtocolCommand,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+): ThinParseResult | undefined {
+  if (route.id !== "entity-pin" && route.id !== "entity-unpin") return undefined;
+  const entityRef = args[1];
+  return nonEmpty(entityRef) && args.length === 2
+    ? accepted(rootDir, repoId, json, { kind: route.id, entityRef })
+    : rejected("missing_field", `Use ha ${route.id === "entity-pin" ? "pin" : "unpin"} <entity-ref>.`, json);
 }
 
 export function parseStorageRoute(

@@ -9,27 +9,23 @@ import {
 } from "../src/protocol/daemon-protocol.contract.ts";
 
 /**
- * GUI pin/unpin 是既有 task amend 写面的具名入口,不是第二条写路:协议层必须把它
- * 映射成与 `ha task pin` 完全相同的 pinned-only `task-amend` 动作,并且 payload 闭集
- * 不允许 renderer 夹带其它 amend 字段。
+ * GUI task pin/unpin 与顶层 Entity Pin 共用 durable write path，payload 仍保持闭集。
  */
-test("GUI pin ingress maps onto the pinned-only task-amend action", () => {
+test("GUI task pin ingress maps onto the Entity Pin action", () => {
   const pin = parseDaemonRpcParams("repo.task.pin", {
     repo: { repoId: "alpha" },
     payload: { taskId: "task_current" },
   });
   assert.equal(pin.ok, true);
   assert.deepEqual(actionForDaemonMethod("repo.task.pin", { taskId: "task_current" }), {
-    patches: [{ field: "pinned", value: "true" }],
-    kind: "task-amend",
+    kind: "entity-pin",
     taskId: "task_current",
   });
   assert.deepEqual(actionForDaemonMethod("repo.task.unpin", { taskId: "task_current" }), {
-    patches: [{ field: "pinned", value: "false" }],
-    kind: "task-amend",
+    kind: "entity-unpin",
     taskId: "task_current",
   });
-  assert.equal(commandClassForAction("task-amend"), "repo-write");
+  assert.equal(commandClassForAction("entity-pin"), "repo-write");
 });
 
 test("GUI pin ingress stays closed to the renderer", () => {

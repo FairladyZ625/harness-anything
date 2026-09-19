@@ -73,26 +73,24 @@ export const daemonGuiActionMethods = Object.freeze([
     "repo-write",
   ),
   ...taskCompletionGuiActions,
-  // Pin/unpin is a named ingress onto task-amend, not a second path; its closed payload keeps the write canonical.
+  // Task buttons are aliases onto the repository-wide Entity Pin write path.
   guiAction(
     "task.pin",
     "repo.task.pin",
-    "task-amend",
+    "entity-pin",
     shape({ taskId: "string" }),
     "pinTask",
     "/api/tasks/:taskId/pin",
     "repo-write",
-    { patches: [{ field: "pinned", value: "true" }] },
   ),
   guiAction(
     "task.unpin",
     "repo.task.unpin",
-    "task-amend",
+    "entity-unpin",
     shape({ taskId: "string" }),
     "unpinTask",
     "/api/tasks/:taskId/unpin",
     "repo-write",
-    { patches: [{ field: "pinned", value: "false" }] },
   ),
   guiAction(
     "decision.list",

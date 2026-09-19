@@ -524,6 +524,8 @@ const FIXTURE_AGENDA = {
       blockingAssessment: { state: "clear", blockers: [], warnings: [] },
     },
   ],
+  pinnedEntities: [],
+  pinnedEntityOverflow: 0,
   awaitingDecision: [
     {
       kind: "execution" as const,

@@ -144,6 +144,7 @@ export type { TaskWipRootRow, TaskWipSnapshotEntryV1 } from "./task-wip-policy.t
 
 export { parseEntityRef } from "./entity-ref.ts";
 export type { EntityRef, EntityRefKind, ParsedEntityRef } from "./entity-ref.ts";
+export { compileEntityPinEvent } from "./entity-pin-event.ts";
 
 export { buildCausalGraphView } from "./causal-graph-view.ts";
 export type { CausalGraphEdgeInput, CausalGraphNodeInfo } from "./causal-graph-view.ts";

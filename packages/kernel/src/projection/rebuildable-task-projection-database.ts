@@ -473,6 +473,11 @@ function createTables(db: DatabaseSync): void {
       execution_id TEXT NOT NULL,
       event_json TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS pinned_entities (
+      entity_ref TEXT PRIMARY KEY,
+      pinned_at TEXT NOT NULL,
+      pinned_by TEXT NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS entity_projection (
       entity_kind TEXT NOT NULL,
       entity_id TEXT NOT NULL,

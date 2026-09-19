@@ -118,6 +118,13 @@ test("canonical event compatibility gate projects the locked history through pro
   assert.equal(typeof result.durationMs, "number");
 });
 
+test("the agenda replay sample reads entity pins through the production pin reader", () => {
+  const sample = projectFrozenDaemonResponses(sourceRoot).find((entry) => entry.name === "validateDaemonAgenda");
+  assert.ok(sample, "agenda sample is projected");
+  assert.ok(Array.isArray(sample.value.pinnedEntities));
+  assert.equal(sample.value.pinnedEntityOverflow, 0);
+});
+
 test("the relation graph replay sample is the explicit paged read, not an implicit full-graph read", () => {
   const sample = projectFrozenDaemonResponses(sourceRoot).find((entry) => entry.name === "validateDaemonRelationGraph");
   assert.ok(sample, "relation graph sample is projected");

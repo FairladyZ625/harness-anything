@@ -43,18 +43,11 @@ export function taskMutation(
         : "Authenticated holder released the lease.",
     activeLease = snapshot.lease,
     amendPatches = action.kind === "task-amend" && Array.isArray(action.patches) ? action.patches : [],
-    pinOnlyAmend =
-      amendPatches.length > 0 &&
-      amendPatches.every(
-        (raw) => raw !== null && typeof raw === "object" && (raw as Record<string, unknown>).field === "pinned",
-      ),
     metadataFreeAmend =
       amendPatches.length > 0 &&
       amendPatches.every(
         (raw) =>
-          raw !== null &&
-          typeof raw === "object" &&
-          ["pinned", "reviewReturnBudget"].includes(String((raw as Record<string, unknown>).field)),
+          raw !== null && typeof raw === "object" && (raw as Record<string, unknown>).field === "reviewReturnBudget",
       );
   if (action.kind === "task-release") {
     if (!activeLease)
@@ -117,7 +110,7 @@ export function taskMutation(
   // reservation CAS), so only a live reservation or hold keeps task-level mutations out. Release
   // above still needs the orphaned record itself to settle it.
   const liveLease = activeLease !== null && ["reserving", "held"].includes(activeLease.phase);
-  if (liveLease && !pinOnlyAmend && action.kind !== "task-contract-migrate")
+  if (liveLease && action.kind !== "task-contract-migrate")
     throw cell.cellCodedError("active_lease", `Run ha task release ${task.taskId} before ${action.kind}.`);
   if (action.kind === "task-amend") {
     const patches = amendPatches,
@@ -136,8 +129,6 @@ export function taskMutation(
         field = cell.requiredCellText(patch.field, "patch.field"),
         value = cell.requiredCellText(patch.value, "patch.value");
       if (field === "title") changed = { ...changed, title: value };
-      else if (field === "pinned" && (value === "true" || value === "false"))
-        changed = { ...changed, pinned: value === "true" };
       else if (field === "parentTaskId") {
         if (!cell.projectedTaskIds().has(value))
           throw cell.cellCodedError("parent_not_found", `Create parent task ${value} before amending parentTaskId.`);

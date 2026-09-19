@@ -239,6 +239,7 @@ function read() {
   return makeTaskQueryReadModel({
     rootDir: canonicalRoot(process.cwd()),
     projection: projectionStub(),
+    readPinnedEntities: () => [],
     judgments: { closeout: closeoutReadiness, blocking: blockingOf },
   });
 }

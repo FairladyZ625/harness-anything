@@ -31,6 +31,7 @@ export {
 } from "./doc-sync-writer.ts";
 export { validateCurrentDocEvent, validateDocEvent } from "./doc-sync-validation.ts";
 export { isEntityEvent } from "./entity-event.ts";
+export { isEntityPinEvent } from "./entity-pin-event.ts";
 export { isScheduleEvent } from "./schedule-event.ts";
 export { isSettingsEvent } from "./settings-event.ts";
 export { isVerticalDeclarationEvent } from "./vertical-declaration.ts";
