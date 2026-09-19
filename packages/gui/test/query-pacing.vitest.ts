@@ -106,3 +106,35 @@ describe("focus refetch flows through the ledger probe only", () => {
     }
   });
 });
+
+/**
+ * 台账探针心跳的量级锁定(反熵 finding「时钟自引用」):行为测试的时钟推进必须是独立
+ * 字面量。若这里用 `QUERY_PACING_MS.ledgerProbe + 1` 快进,生产常量被改成 24h 时测试
+ * 仍绿(自验证);固定 1_000 / 2_001 两档让「过大」与「过小」的回归都必红。
+ */
+describe("ledger probe heartbeat on a fixed literal clock", () => {
+  it("fires the probe timer just past 2s and not at 1s", async () => {
+    vi.useFakeTimers();
+    focusManager.setFocused(true);
+    const read = vi.fn(async () => taskListCut(41)),
+      client = new QueryClient({
+        defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+      }),
+      observer = new QueryObserver(client, { ...taskListQuery("repo-a"), queryFn: read }),
+      unsubscribe = observer.subscribe(() => undefined);
+    client.mount();
+    try {
+      await observer.refetch();
+      expect(read).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(read).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1_001);
+      expect(read).toHaveBeenCalledTimes(2);
+    } finally {
+      unsubscribe();
+      client.unmount();
+      client.clear();
+      vi.useRealTimers();
+    }
+  });
+});

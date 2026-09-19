@@ -750,11 +750,14 @@ test("CI observation pull --task imports the first covering successful main run"
       }),
     },
   };
+  // Coverage keys are the full `${delivery}...${head}` compare range: keyed by head alone the
+  // stub accepts any base, so a delivery-resolution regression (an older iteration's commit)
+  // still reads as covered. Unknown ranges answer "diverged" and fail the pull closed.
   const coverage: Readonly<Record<string, string>> = {
-      "sha-905": "diverged",
-      "sha-904": "ahead",
-      "sha-903": "ahead",
-      "sha-902": "ahead",
+      [`${delivery}...sha-905`]: "diverged",
+      [`${delivery}...sha-904`]: "ahead",
+      [`${delivery}...sha-903`]: "ahead",
+      [`${delivery}...sha-902`]: "ahead",
     },
     runs = [
       {
@@ -800,7 +803,7 @@ test("CI observation pull --task imports the first covering successful main run"
     ];
   const runGh = async (_command: string, args: readonly string[]) => {
     if (args[0] === "api") {
-      const status = coverage[String(args[1]).split("...")[1] ?? ""] ?? "diverged";
+      const status = coverage[String(args[1]).replace(/^.*\/compare\//u, "")] ?? "diverged";
       // Exercise the production subprocess buffer with a historical compare whose
       // patch exceeds it. gh must project the response before writing stdout.
       return runProcessTextAsync(process.execPath, [
@@ -902,10 +905,13 @@ test("CI observation pull --task fails closed when no completed success covers t
       conclusion: "success",
     },
   ];
-  const coverage: Readonly<Record<string, string>> = { "sha-906": "ahead", "sha-905": "diverged" };
+  const coverage: Readonly<Record<string, string>> = {
+    [`${delivery}...sha-906`]: "ahead",
+    [`${delivery}...sha-905`]: "diverged",
+  };
   const runGh = (async (_command: string, args: readonly string[]) => {
     if (args[0] === "api")
-      return JSON.stringify({ status: coverage[String(args[1]).split("...")[1] ?? ""] ?? "diverged" });
+      return JSON.stringify({ status: coverage[String(args[1]).replace(/^.*\/compare\//u, "")] ?? "diverged" });
     if (args[1] === "list") return JSON.stringify(runs);
     throw new Error(`unexpected gh call: ${args.join(" ")}`);
   }) as never;
