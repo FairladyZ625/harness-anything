@@ -194,6 +194,10 @@ export async function performOpenRegistered(
     const cell = opened;
     opened = undefined;
     context.cells.set(repo.repoId, cell);
+    // Local attach owns the canonical cell, so the system schedules seed here; fleet mirrors
+    // (remote-edge) and remote-center views never seed. A seed rejection must not fail the
+    // attach itself — the next attach retries.
+    if (repo.mode === "local") await context.seedBuiltinSchedules(cell, repo);
     await context.scheduleScheduler.refresh();
     context.settleWarming(repo.repoId);
     context.unavailable.delete(repo.repoId);

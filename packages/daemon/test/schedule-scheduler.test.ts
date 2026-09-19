@@ -287,6 +287,51 @@ test("an active Schedule records the next tick as single-flight missed", async (
   scheduler.close();
 });
 
+test("a builtin Schedule arms on its local node and never on a remote-edge mirror", async () => {
+  const clock = fakeClock("2026-08-27T10:00:00.000Z"),
+    builtin = createScheduleV1({
+      scheduleId: "builtin-ledger-backup",
+      name: "Ledger backup",
+      mode: "detect",
+      spec: {
+        trigger: { kind: "interval", everyMs: 30 * 60_000, anchorAt: "2026-08-27T10:00:00.000Z" },
+        target: { kind: "builtin", builtinId: "ledger-backup" },
+        mission: "System ledger backup.",
+      },
+      actor,
+      occurredAt: "2026-08-27T10:00:00.000Z",
+    }) as MutableSchedule,
+    local = fixtureRepo("builtin-local", "local", [builtin]),
+    edgeActions: string[] = [],
+    edge = fixtureRepo("builtin-edge", "remote-edge", [builtin]);
+  const scheduler = makeScheduleScheduler({
+    cells: new Map([
+      [local.repoId, local.cell],
+      [edge.repoId, edge.cell],
+    ]),
+    localBinding,
+    remoteEdgeAction: async (_repoId, _rootDir, action) => {
+      edgeActions.push(String(action.kind));
+      return edge.execute(action);
+    },
+    now: clock.now,
+    setTimer: clock.setTimer,
+    clearTimer: clock.clearTimer,
+  });
+  await scheduler.start();
+  // One timer, armed by the local canonical cell only.
+  assert.equal(clock.liveTimers().length, 1);
+  assert.equal(clock.liveTimers()[0]!.delayMs, 30 * 60_000);
+  assert.deepEqual(edgeActions, ["schedule-list"]);
+
+  clock.value = "2026-08-27T10:30:00.000Z";
+  clock.liveTimers()[0]!.callback();
+  await scheduler.refresh();
+  assert.deepEqual(local.fired, ["builtin-ledger-backup"]);
+  assert.deepEqual(edge.fired, []);
+  scheduler.close();
+});
+
 test("remote-center installs no timer while remote-edge uses its assignment action", async () => {
   const clock = fakeClock("2026-08-27T10:00:00.000Z"),
     center = fixtureRepo("center", "remote-center", [schedule("center-schedule")]),

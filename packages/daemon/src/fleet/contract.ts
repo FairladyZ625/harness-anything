@@ -499,7 +499,6 @@ const scheduleMission: Check = (value) => typeof value === "string" && value.len
           model: text,
           reasoningEffort: one("minimal", "low", "medium", "high", "xhigh", "max"),
           fast: boolean,
-          writableRoots: array(logicalPath),
           cwd: logicalPath,
           disabled: boolean,
           idempotencyKey: text,
@@ -535,7 +534,8 @@ const scheduleMission: Check = (value) => typeof value === "string" && value.len
           model: nullable(text),
           reasoningEffort: nullable(one("minimal", "low", "medium", "high", "xhigh", "max")),
           fast: boolean,
-          writableRoots: array(logicalPath),
+          keepDays: positiveInt,
+          keepMonthly: boolean,
           cwd: nullable(logicalPath),
           idempotencyKey: text,
         },
@@ -554,7 +554,8 @@ const scheduleMission: Check = (value) => typeof value === "string" && value.len
         "model",
         "reasoningEffort",
         "fast",
-        "writableRoots",
+        "keepDays",
+        "keepMonthly",
         "cwd",
       ].some((field) => Object.hasOwn(value, field)) &&
       !(

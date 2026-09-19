@@ -81,6 +81,11 @@ export interface DaemonHostRegistryContext extends HostMaps, DaemonHostAdmission
   readonly runtimeDaemonRoute: RuntimeDaemonRoute;
   readonly scheduleScheduler: ReturnType<typeof makeScheduleScheduler>;
   readonly edgeRuntimeFor: (request: FleetEdgeRuntimeRequest["payload"]) => ReturnType<typeof openFleetEdgeRuntime>;
+  /** Seed the system builtin schedules on a freshly attached local cell. */
+  readonly seedBuiltinSchedules: (
+    cell: RepoCell,
+    repo: { readonly repoId: string; readonly canonicalRoot: string },
+  ) => Promise<void>;
   readonly invalidRepoId: (repo: InvalidDaemonRegistryRepo) => string;
   readonly closeCell: (repoId: string) => Promise<void>;
   readonly unavailableProbes: Map<string, ReturnType<typeof makeRecoveryProbe>>;

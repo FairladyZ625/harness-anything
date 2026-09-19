@@ -1,4 +1,3 @@
-import path from "node:path";
 import {
   getExecutableEntityAction,
   isScheduleEvent,
@@ -8,6 +7,7 @@ import {
   type ScheduleV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
+import { executeBuiltinScheduleOccurrence } from "./schedule-builtin-executor.ts";
 import {
   scheduleDeleteJsonAllowedFields,
   scheduleDeleteJsonFields,
@@ -130,7 +130,13 @@ async function dispatchClaimedReceipt(
 ): Promise<WriteReceipt> {
   const schedule = (claimed as WriteReceipt & { readonly schedule?: ScheduleV1 }).schedule,
     active = schedule?.status.activeRun;
-  if (claimed.outcome !== "applied" || !schedule || !active || cell.mode === "remote-center") return claimed;
+  if (claimed.outcome !== "applied" || !schedule || !active) return claimed;
+  // A builtin occurrence executes in-process right here — no workspace, no spawn — and settles
+  // before the claim returns. This branch precedes the remote-center hand-off because an edge
+  // can never claim a builtin occurrence (the kernel rejects assignment-sourced claims).
+  if (schedule.spec.target.kind === "builtin")
+    return executeBuiltinScheduleOccurrence({ cell, schedule, idempotencyKey, binding, runInternal });
+  if (cell.mode === "remote-center") return claimed;
   if (active.dispatchId && active.runtimeSessionId) return claimed;
   let workspace: ScheduleOccurrenceWorkspace;
   try {
@@ -378,11 +384,6 @@ export async function dispatchClaimedSchedule<
       ...(target.reasoningEffort ? { effort: target.reasoningEffort } : {}),
       ...(target.fast === undefined ? {} : { fast: target.fast }),
       cwd: input.workspace.cwd,
-      ...(input.schedule.spec.writableRoots?.length
-        ? {
-            writableRoots: input.schedule.spec.writableRoots.map((root) => path.resolve(input.workspace.rootDir, root)),
-          }
-        : {}),
       mode: input.schedule.mode,
       occurrenceId: active.occurrenceId,
       ...(input.workspace.runtime.worktree ? { worktree: input.workspace.runtime.worktree } : {}),

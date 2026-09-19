@@ -37,6 +37,7 @@ export {
   createLedgerBackup,
   drillLedgerBackup,
   readLedgerBackupManifest,
+  readVerifiedLedgerBackup,
   restoreLedgerBackup,
   readOfflineLedgerEvents,
   restoreDrillRetentionFor,
