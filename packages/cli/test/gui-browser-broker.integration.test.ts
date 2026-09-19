@@ -121,6 +121,7 @@ test("ordinary Chromium reaches the task shell through authenticated browser RPC
       await page.getByTestId("browser-capability-notice").waitFor();
       await page.reload();
       await page.getByTestId("app-sidebar").waitFor({ timeout: 30_000 });
+      await page.getByTestId("overview-status-planned").click();
       const taskRow = page.getByText("Browser E2E task", { exact: true });
       await taskRow.waitFor();
       await taskRow.click();
