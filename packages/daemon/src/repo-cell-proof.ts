@@ -235,8 +235,8 @@ export async function proofFor(
         legacyKey = currentKey.replace(/^task-review:/u, "complete-review:");
       // The current key ends in the fixed-length submission digest, so no earlier cut's key can be
       // a strict prefix. Every reviewer dispatch — the owner's forward order or the manual
-      // dispatch-review lane — shares this one key shape.
-      if (key !== currentKey && key !== legacyKey && !key.startsWith(`${legacyKey}:`))
+      // dispatch-review lane — shares this one key shape; past the ":" is the attempt of the same cut.
+      if (![currentKey, legacyKey].some((cut) => key === cut || key.startsWith(`${cut}:`)))
         throw cellCodedError(
           "invalid_proof",
           "This reviewer dispatch belongs to an earlier submission cut; wait for the owner's next forward order.",
