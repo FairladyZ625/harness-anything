@@ -1,4 +1,4 @@
-import { relationFreshnessWords, relationStateWords } from "./daemon-protocol-vocabulary.ts";
+import { relationFreshnessWords, relationStateWords, taskStatusWords } from "./daemon-protocol-vocabulary.ts";
 import {
   defineCenterForwardWriteCommand,
   cliInput,
@@ -330,7 +330,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
           code: "invalid_field",
         },
         {
-          enum: ["planned", "active", "blocked", "in_review", "done", "cancelled"],
+          enum: taskStatusWords,
         },
       ),
       cliInput("--module", "single", false, {

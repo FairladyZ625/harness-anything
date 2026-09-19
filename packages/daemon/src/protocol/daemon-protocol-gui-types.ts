@@ -763,7 +763,7 @@ export type DaemonTaskWipResult = {
   readonly limitLabel: string;
   readonly counted: readonly {
     readonly taskId: string;
-    readonly status: "active" | "blocked" | "in_review";
+    readonly status: import("../../../kernel/src/domain/task-wip-policy.ts").TaskWipOccupyingStatus;
     readonly title: string;
   }[];
   readonly roots: readonly TaskWipRootRow[];

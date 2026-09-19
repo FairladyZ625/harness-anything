@@ -2,6 +2,7 @@ import path from "node:path";
 import {
   makeTaskEventReader,
   makeTaskProjectionReader,
+  isDomainStatus,
   timestamp,
   type TaskProjection,
   type TaskProjectionListQuery,
@@ -40,13 +41,11 @@ import { openWriterSupervisor } from "./writer-supervisor.ts";
 import { runtimeOutcomeSettled, runtimeSettlementGraceMs } from "./runtime-settlement.ts";
 import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
 
-const TASK_STATUS_FILTERS = Object.freeze(["planned", "active", "blocked", "in_review", "done", "cancelled"]);
 const writerAttached = (cell: { readonly state: string }): boolean => cell.state === "attached";
 const writerServing = (cell: { readonly state: string }): boolean =>
   cell.state === "attached" || cell.state === "unavailable";
 const projectionReady = (read: { readonly status: string }): boolean => read.status === "ready";
-const validTaskStatusFilter = (value: string | undefined): boolean =>
-  value === undefined || TASK_STATUS_FILTERS.includes(value);
+const validTaskStatusFilter = (value: string | undefined): boolean => value === undefined || isDomainStatus(value);
 
 /** Host-side RepoCell boundary: admission/proxy plus completed-cut projection reads only. */
 export async function openRepoCellProxy(

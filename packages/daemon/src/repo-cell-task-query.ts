@@ -269,7 +269,7 @@ export function readTaskWipSnapshot(cell: TaskQueryCell) {
       .filter((entry) => isExecutionWipTask(entry, rootSetting.threshold))
       .map(({ taskId, status, title }) => ({
         taskId,
-        status: status as "active" | "blocked" | "in_review",
+        status: status as (typeof taskWipOccupyingStatuses)[number],
         title,
       })),
     roots: entries.flatMap((entry) => {

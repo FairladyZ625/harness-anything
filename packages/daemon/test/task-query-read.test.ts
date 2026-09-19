@@ -237,6 +237,7 @@ test("agenda reads one narrow lifecycle page per status and no wide-assembly rea
     { status: "active", activePackagesOnly: true, limit: 100, pinnedFirst: true },
     { status: "blocked", activePackagesOnly: true, limit: 100, pinnedFirst: true },
     { status: "planned", activePackagesOnly: true, limit: 100, pinnedFirst: true },
+    { status: "submitted", activePackagesOnly: true, limit: 100, pinnedFirst: true },
     { status: "in_review", activePackagesOnly: true, limit: 100, pinnedFirst: true },
   ]);
   assert.deepEqual(decisionCalls, []);
@@ -351,8 +352,9 @@ test("the real WIP producer output passes the protocol validator, with or withou
     } as unknown as TaskQueryCell);
 
   // Contrast 1 — no root: a leaf-only worktable validates.
-  const noRoots = wipOf([protocolTaskRow("task_leaf", [], { status: "active" })]);
+  const noRoots = wipOf([protocolTaskRow("task_leaf", [], { status: "submitted" })]);
   assert.deepEqual(noRoots.roots, []);
+  assert.equal(noRoots.counted[0]?.status, "submitted");
   assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.wip", noRoots), noRoots);
 
   // Contrast 2 — legit root: the producer's four-field root row validates through the same
