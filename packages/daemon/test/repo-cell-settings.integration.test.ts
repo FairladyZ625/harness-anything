@@ -5,9 +5,16 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, validateReceiptAcceptance, WRITE_RECEIPT_SCHEMA } from "../../kernel/src/index.ts";
+import {
+  makeTaskEventReader,
+  makeTaskEventStore,
+  makeTaskProjection,
+  validateReceiptAcceptance,
+  WRITE_RECEIPT_SCHEMA,
+} from "../../kernel/src/index.ts";
 import { validateWriteReceipt } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { settingsLastChanged } from "../src/repo-cell-settings-state.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
 const actor = { principal: { personId: "settings-owner" }, executor: null } as const,
@@ -553,3 +560,51 @@ function initRepo(root: string): void {
 function git(root: string, ...args: string[]): void {
   execFileSync("git", ["-C", root, ...args], { stdio: "pipe" });
 }
+
+test("settingsLastChanged resolves in O(1) through projection entity and matches scan fallback", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-settings-last-changed-"));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(root);
+    cell = await openRepoCell({
+      repoId: workspaceId("settings-perf"),
+      rootDir: canonicalRoot(root),
+      ownerId: "settings-perf-test",
+    });
+    const binding = { actor, source: "local" as const };
+    // Trigger an update so we have a distinct settings_changed event
+    await cell.run(
+      {
+        kind: "settings-update",
+        defaultPreset: "standard-task",
+        defaultProfile: "baseline",
+        expectedVersion: 1,
+        idempotencyKey: "settings-perf-test-update",
+      },
+      binding,
+    );
+    const read = (await cell.read("repo.settings.read")) as { readonly lastChanged: unknown };
+    assert.ok(read.lastChanged);
+
+    // 1. Projection-assisted fast lookup
+    const store = makeTaskEventStore({ repoId: workspaceId("settings-perf"), rootDir: canonicalRoot(root) });
+    const projection = makeTaskProjection({ rootDir: canonicalRoot(root), eventStore: store });
+    try {
+      const fastAttribution = settingsLastChanged(store, projection);
+      assert.deepEqual(fastAttribution, read.lastChanged);
+
+      // 2. Fallback scan without projection
+      const fallbackAttribution = settingsLastChanged(store);
+      assert.deepEqual(fallbackAttribution, read.lastChanged);
+
+      // 3. Uninitialized / empty projection returns "initial"
+      const emptyProjection = { getEntity: () => null };
+      assert.equal(settingsLastChanged(store, emptyProjection), "initial");
+    } finally {
+      projection.close();
+    }
+  } finally {
+    cell?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

@@ -134,15 +134,35 @@ export function readEffectiveReviewReturnBudget(
 }
 
 /**
- * The `settings read` attribution: the latest `settings_changed` event already carries the
- * provenance (occurredAt, actor, workspace revision) the entity projection does not retain, so the
- * read path derives it from the canonical stream through the bounded `readBatch` window — never a
- * full-history `store.read()` on the request path. A repository with no settings change event
- * reports "initial". The actor compacts to `person:<personId>` or `<executor-kind>:<id>`.
+ * The `settings read` attribution: the latest `settings_changed` event carries the provenance
+ * (occurredAt, actor, workspace revision). When projection and readEventAtRevision are available,
+ * it resolves the latest settings entity revision in O(1) via primary-key lookup. When projection
+ * has no settings entity, it immediately reports "initial". Otherwise it derives attribution through
+ * the bounded `readBatch` window. The actor compacts to `person:<personId>` or `<executor-kind>:<id>`.
  */
 export function settingsLastChanged(
-  store: Pick<CanonicalEventStore, "readBatch">,
+  store: Pick<CanonicalEventStore, "readBatch"> & {
+    readonly readEventAtRevision?: (revision: number) => CanonicalEventV1 | null;
+  },
+  projection?: Pick<TaskProjectionQueries, "getEntity">,
 ): DaemonSettingsLastChange | "initial" {
+  if (projection) {
+    const entity = projection.getEntity("settings", "repository");
+    if (!entity) return "initial";
+    if (typeof store.readEventAtRevision === "function") {
+      const event = store.readEventAtRevision(entity.workspaceRevision);
+      if (event && isSettingsEvent(event)) {
+        return {
+          occurredAt: event.occurredAt,
+          actor:
+            event.actor.executor === null
+              ? `person:${event.actor.principal.personId}`
+              : `${event.actor.executor.kind}:${event.actor.executor.id}`,
+          revision: event.workspaceRevision,
+        };
+      }
+    }
+  }
   let latest: CanonicalEventV1 | undefined,
     cursor: string | null = null;
   for (;;) {
