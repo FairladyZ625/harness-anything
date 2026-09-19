@@ -92,7 +92,8 @@ export function assembleTaskCausalContext(input: {
   }
   const factRead = factRefs.length === 0 ? null : projection.searchFacts({ refs: factRefs.slice(0, MAX_FACTS) });
   if (factRead !== null) reads.push(factRead);
-  const facts = new Map((factRead?.facts ?? []).map((row) => [row.ref, row] as const));
+  // Archived Facts stay in the ledger but leave the agent-facing retrieval surface.
+  const facts = new Map((factRead?.facts ?? []).filter((row) => !row.archived).map((row) => [row.ref, row] as const));
   let milestoneGoal: string | null = null;
   if (milestone?.packagePath) {
     const plan = projection.readDocument(`${milestone.packagePath}/task_plan.md`);
