@@ -3,6 +3,18 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const testFilePattern = /\.(test|spec)\.(?:mjs|js|ts)$/u;
+// Other runners own their own discovery roots: `npm run test:gui` collects *.vitest.ts(x) under
+// packages/gui/test (recursively) and `npm run test:e2e` runs packages/gui/e2e/*.e2e.mjs
+// (top level only). A test-shaped file matching those names inside those roots is discovered
+// there; anywhere else the same name is silently skipped like any other misnamed test file.
+const alternateTestDiscovery = [
+  (file) => file.startsWith("packages/gui/test/") && /\.vitest\.tsx?$/u.test(file),
+  (file) => path.posix.dirname(file) === "packages/gui/e2e" && /\.e2e\.mjs$/u.test(file),
+];
+const scannableFilePattern = /\.(?:cjs|cts|js|jsx|mjs|mts|ts|tsx)$/u;
+// A file "is a test" when it registers cases at statement level, regardless of how it is named;
+// helpers that only import after/mock/TestContext from node:test or vitest are not tests.
+const testRegistrationPattern = /^\s*(?:test|describe|it)(?:\.\w+)*\s*\(/mu;
 // app-node_modules is the GUI packaging output: gitignored, full of vendored third-party test
 // files, and present on any machine that has built the GUI. Walking it makes check:local red
 // with "test tier marker missing" for a file nobody in this repository wrote.
@@ -73,8 +85,15 @@ export function deriveTestTierManifest(testFiles, readSource) {
 
 export function discoverTestFiles(repoRoot, roots = ["packages", "tools"]) {
   const files = [];
+  const misnamed = [];
   for (const root of roots) {
-    walk(path.join(repoRoot, root), repoRoot, files);
+    walk(path.join(repoRoot, root), repoRoot, files, misnamed);
+  }
+  if (misnamed.length > 0) {
+    throw new Error(
+      "test file name does not match the .test/.spec pattern " +
+        `(file registers tests but is never discovered): ${misnamed.sort().join(", ")}`,
+    );
   }
   return files.sort();
 }
@@ -99,7 +118,7 @@ function main() {
   console.log(`Test tier manifest passed (${count} test files).`);
 }
 
-function walk(directory, repoRoot, files) {
+function walk(directory, repoRoot, files, misnamed) {
   if (!existsSync(directory)) return;
   for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
     left.name.localeCompare(right.name),
@@ -107,9 +126,18 @@ function walk(directory, repoRoot, files) {
     if (entry.name.startsWith(".") || ignoredDirectoryNames.has(entry.name)) continue;
     const entryPath = path.join(directory, entry.name);
     if (entry.isDirectory()) {
-      walk(entryPath, repoRoot, files);
-    } else if (entry.isFile() && testFilePattern.test(entry.name)) {
-      files.push(path.relative(repoRoot, entryPath).split(path.sep).join("/"));
+      walk(entryPath, repoRoot, files, misnamed);
+      continue;
+    }
+    if (!entry.isFile() || !scannableFilePattern.test(entry.name)) continue;
+    const relativePath = path.relative(repoRoot, entryPath).split(path.sep).join("/");
+    if (testFilePattern.test(entry.name)) {
+      files.push(relativePath);
+    } else if (
+      !alternateTestDiscovery.some((discoveredElsewhere) => discoveredElsewhere(relativePath)) &&
+      testRegistrationPattern.test(readFileSync(entryPath, "utf8"))
+    ) {
+      misnamed.push(relativePath);
     }
   }
 }
