@@ -105,6 +105,37 @@ test("the block carries milestone, decision, and fact refs at one cut", () => {
   assert.ok(Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES);
 });
 
+test("archived facts leave the injected block while their edges stay canonical", () => {
+  const projection = stub({
+    readRelationQuery: () => ({
+      ...cut(),
+      rows: [
+        {
+          relationId: "rel_2",
+          sourceRef: "decision/dec_ABC/C1",
+          targetRef: "fact/F-0001",
+          relationType: "evidenced-by",
+          direction: "directed",
+          state: "active",
+        },
+      ],
+    }),
+    searchFacts: () => ({
+      ...cut(),
+      facts: [
+        {
+          ref: "fact/F-0001",
+          statement: "archived bookkeeping noise",
+          evidenceSource: "packages/x.ts",
+          archived: true,
+        },
+      ],
+    }),
+  });
+  const block = assembleTaskCausalContext({ projection, taskId: "task_leaf" });
+  if (block !== null) assert.doesNotMatch(block, /F-0001/u);
+});
+
 test("a cut advancing mid-read is rejected instead of serving a mixed view", () => {
   let reads = 0;
   const projection = stub({

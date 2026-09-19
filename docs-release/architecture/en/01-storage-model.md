@@ -189,6 +189,16 @@ byte-for-byte the same, the append is an idempotent no-op and the file body is
 left unchanged. If the id matches but the bytes differ, the write is still
 rejected as a duplicate fact id.
 
+**Archiving removes the document, not the fact.** `ha fact archive <id>
+--reason <text>` (or `--ids-file <path>` for a batch) appends one
+`fact_archived` event per fact and retires its `facts/F-<id>.md` document
+through the managed-document write path. The event history and the projection
+row stay canonical: `ha fact show` still reads the row and marks it archived,
+`ha graph` and dispatch causal context hide it unless `--include-archived` is
+passed, and `ha fact rematerialize --all` skips it. `ha fact unarchive <id>
+--reason <text>` appends `fact_unarchived` and rematerializes the document.
+Archiving is orthogonal to liveness — a `standing` fact stays `standing`.
+
 ## The common thread: attribution
 
 The three primitives attribute differently, but none permits an anonymous
