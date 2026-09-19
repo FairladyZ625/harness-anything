@@ -52,7 +52,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     boundDispatch = JSON.parse(
       await readPublishedDispatch(path.join(artifactRoot, "dispatches", `${boundDispatchId}.json`)),
     ) as Record<string, unknown>;
-  const assembledPrompt = readFileSync(path.join(artifactRoot, "missions", `${boundDispatchId}.md`), "utf8");
+  const assembledPrompt = await readPublishedDispatch(path.join(artifactRoot, "missions", `${boundDispatchId}.md`));
   assert.ok(assembledPrompt.startsWith(assembledPromptPrefix), assembledPrompt);
   assert.match(assembledPrompt, /# Worker Role/u);
   assertTaskMissionPrompt(assembledPrompt, {
@@ -101,7 +101,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     "separate report bodies must not overwrite one another",
   );
   assert.equal(
-    readFileSync(path.join(artifactRoot, "reports", `${boundDispatchId}.md`), "utf8"),
+    await readPublishedDispatch(path.join(artifactRoot, "reports", `${boundDispatchId}.md`)),
     `final:${assembledPrompt}`,
   );
   assert.deepEqual(boundDispatch, {
@@ -615,8 +615,9 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     reusedDispatch = JSON.parse(
       await readPublishedDispatch(path.join(artifactRoot, "dispatches", `${reusedDispatchId}.json`)),
     ) as Record<string, unknown>;
-  const reusedMission = readFileSync(path.join(artifactRoot, "missions", `${reusedDispatchId}.md`), "utf8"),
-    reusedReport = readFileSync(path.join(artifactRoot, "reports", `${reusedDispatchId}.md`), "utf8");
+  // The mission and report publish after the dispatch record, so they are awaited the same way.
+  const reusedMission = await readPublishedDispatch(path.join(artifactRoot, "missions", `${reusedDispatchId}.md`)),
+    reusedReport = await readPublishedDispatch(path.join(artifactRoot, "reports", `${reusedDispatchId}.md`));
   context.diagnostic(
     `hand-written mission route: ${JSON.stringify({
       before: {
