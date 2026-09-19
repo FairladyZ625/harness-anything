@@ -1,4 +1,14 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { userInfo } from "node:os";
 import path from "node:path";
 import { consumeKnownError } from "../../kernel/src/index.ts";
@@ -243,11 +253,13 @@ export function openRuntimeInstanceStore(input: {
     const model = selectRuntimeModel(config, request.model),
       effort = selectRuntimeEffort(config, request.effort),
       fast = selectRuntimeFast(config, request.fast),
-      permissionMode = runtimePermissionMode(request.permissionMode ?? config.permissionMode, config.kindId),
-      witnessed = await refreshInstallations(),
-      installation = witnessed.find(
-        (entry) => entry.installationId === config.installationId && entry.kindId === config.kindId,
-      );
+      permissionMode = runtimePermissionMode(request.permissionMode ?? config.permissionMode, config.kindId);
+    let witnessed = input.discover(),
+      installation = findInstallation(config, witnessed);
+    if (!installation || !installationEntryMatches(installation)) {
+      witnessed = await refreshInstallations();
+      installation = findInstallation(config, witnessed);
+    }
     if (!installation) {
       const hint = missingInstallationHint(config, witnessed);
       rememberAuthReadiness(config.instanceId, unavailable("runtime_installation_not_found", hint));
@@ -628,6 +640,23 @@ export function openRuntimeInstanceStore(input: {
   };
   async function refreshInstallations(): Promise<readonly RuntimeInstallationWitness[]> {
     return input.refreshDiscovery ? input.refreshDiscovery() : input.discover();
+  }
+  function findInstallation(
+    config: RuntimeInstanceConfig,
+    witnessed: readonly RuntimeInstallationWitness[],
+  ): RuntimeInstallationWitness | undefined {
+    return witnessed.find((entry) => entry.installationId === config.installationId && entry.kindId === config.kindId);
+  }
+  function installationEntryMatches(installation: RuntimeInstallationWitness): boolean {
+    if (!installation.executableEntryPath) return true;
+    // A vanished entry reads as undefined rather than throwing; any other failure stays loud.
+    const entry = statSync(installation.executableEntryPath, { throwIfNoEntry: false });
+    return (
+      entry !== undefined &&
+      entry.isFile() &&
+      (process.platform === "win32" || (entry.mode & 0o111) !== 0) &&
+      realpathSync.native(installation.executableEntryPath) === installation.executablePath
+    );
   }
   function read(witnessed?: readonly RuntimeInstallationWitness[]): RuntimeInstanceConfig[] {
     if (cachedInstances) {
