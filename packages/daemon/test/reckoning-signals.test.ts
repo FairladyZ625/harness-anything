@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { CanonicalEventV1, RuntimeSession } from "../../kernel/src/index.ts";
-import { collectReckoningSignals } from "../src/reckoning-signals.ts";
+import { collectReckoningSignals, readReckoningSignals } from "../src/reckoning-signals.ts";
 
 const now = Date.parse("2026-09-19T23:30:00.000Z");
 
@@ -88,4 +88,43 @@ test("one superseding fact is one correction, never two recurrences", () => {
     result.signals.map(({ kind, occurrences }) => [kind, occurrences]),
     [["corrected-fact", 1]],
   );
+});
+
+test("the signal read walks newest-first and stops once it is past the decision lookback", () => {
+  const DAY = 86_400_000,
+    at = (revision: number, ageDays: number, type: string, id: string) =>
+      ({
+        type,
+        workspaceRevision: revision,
+        occurredAt: new Date(now - ageDays * DAY).toISOString(),
+        entity: { kind: "decision", id },
+        payload: {},
+      }) as unknown as CanonicalEventV1,
+    // 2,000 old events, then an accept six days ago and its supersede inside the 24 hour window.
+    ledger = [
+      ...Array.from({ length: 2_000 }, (_, index) => at(index + 1, 30, "decision_accepted", `dec_old_${index}`)),
+      at(2_001, 6, "decision_accepted", "dec_short"),
+      at(2_002, 0.5, "decision_superseded", "dec_short"),
+    ],
+    reads: number[] = [];
+  const result = readReckoningSignals(
+    {
+      readHead: () => ({ revision: 2_002 }) as never,
+      readEventsBefore: (before, maxItems) => {
+        reads.push(before);
+        return ledger
+          .filter((event) => event.workspaceRevision < before)
+          .slice(-maxItems)
+          .reverse();
+      },
+    },
+    { readRuntimeSessions: () => [] },
+    new Date(now).toISOString(),
+  );
+  assert.deepEqual(
+    result.signals.map((signal) => signal.key),
+    ["decision:dec_short"],
+  );
+  // One page reaches past the lookback; the 2,000 older events are never paged through.
+  assert.deepEqual(reads, [2_003]);
 });
