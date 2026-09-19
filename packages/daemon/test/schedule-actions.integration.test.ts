@@ -203,7 +203,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
       );
       assert.equal(started.outcome, "applied", JSON.stringify(started));
       assert.equal(launchCount, 1);
-      assert.equal(preparedPermissionMode, "read-only");
+      assert.equal(preparedPermissionMode, "bypass");
       assert.equal(preparedFast, true);
       assert.equal(workerGitEnvironmentRequests, 0);
       assert.equal((launched as { env: NodeJS.ProcessEnv } | null)?.env.HARNESS_TASK_BOUND, undefined);
@@ -212,7 +212,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
       assert.equal((launched as { env: NodeJS.ProcessEnv } | null)?.env.GITHUB_TOKEN, undefined);
       assert.match(
         (launched as { prompt: string } | null)?.prompt ?? "",
-        /Schedule claim fence:[\s\S]*Assigned Mission/u,
+        /Schedule claim fence:[\s\S]*detect occurrence: observe and report only[\s\S]*Assigned Mission/u,
       );
       const activeDelete = await cell.run(
         { kind: "schedule-delete", scheduleId: "e2e-probe", idempotencyKey: "delete-while-active" },

@@ -473,6 +473,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 canonicalRoot: input.rootDir,
                 workerRoot: cwd,
                 scheduleId: trustedSchedule.scheduleId,
+                mode: trustedSchedule.mode,
                 claimFence: trustedSchedule.claimFence,
                 daemonRoute: missionDaemonRoute!,
                 runtimeActor,
@@ -869,9 +870,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ...(scheduled.model ? { model: scheduled.model } : {}),
           ...(scheduled.effort ? { effort: scheduled.effort } : {}),
           ...(scheduled.fast === undefined ? {} : { fast: scheduled.fast }),
-          // A remediation occurrence is unattended and has to run commands (the `ha` CLI first of all);
-          // `workspace-write` maps to edit-only modes that refuse every shell call in a headless session.
-          permissionMode: scheduled.mode === "detect" ? "read-only" : "bypass",
+          // Narrower modes refuse every shell call headless; detect states its no-write boundary in the mission.
+          permissionMode: "bypass",
         },
         binding,
         undefined,

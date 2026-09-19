@@ -336,6 +336,7 @@ export function assembleScheduledMission(input: {
   readonly canonicalRoot: string;
   readonly workerRoot: string;
   readonly scheduleId: string;
+  readonly mode: "detect" | "remediate";
   readonly claimFence: string;
   readonly daemonRoute: RuntimeDaemonRoute;
   readonly runtimeActor: string;
@@ -354,6 +355,13 @@ export function assembleScheduledMission(input: {
     `Daemon endpoint: ${input.daemonRoute.endpoint}`,
     `Runtime actor: ${input.runtimeActor}`,
     "The daemon route, repository selection, runtime actor, and Schedule claim are sealed into this launch.",
+    // A detect occurrence runs with full command access in the canonical checkout: observing is what
+    // it is for, so the boundary is stated here rather than enforced by a mode that also forbids reading.
+    ...(input.mode === "detect"
+      ? [
+          "This is a detect occurrence: observe and report only. Run any command you need to read state, but do not modify, create or delete files in the repository, do not commit, and do not write to the ledger. Your report is your final message.",
+        ]
+      : []),
     "# Assigned Mission",
     input.mission,
   ].join("\n");
