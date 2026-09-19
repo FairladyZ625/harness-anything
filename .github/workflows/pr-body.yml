@@ -96,3 +96,42 @@ jobs:
         with:
           node-version: 24
       - run: node tools/gates/evidence-contract.mjs --event "$GITHUB_EVENT_PATH"
+
+  dependency-policy-declaration:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    env:
+      HARNESS_CI_GATE_RESULTS: tmp/ci-observation/gates.json
+      HARNESS_CI_OBSERVATION_OUTPUT: tmp/ci-observation/observation.json
+      HARNESS_CI_JOB: ${{ github.job }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Start structured CI observation timer
+        run: echo "HARNESS_CI_JOB_STARTED_MS=$(date +%s%3N)" >> "$GITHUB_ENV"
+      - name: Verify dependency declaration
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          git fetch --no-tags origin main
+          gh pr view "$PR_NUMBER" --json body --jq .body > "$RUNNER_TEMP/pr-body.md"
+          node tools/gates/dependency-policy.mjs --base origin/main --pr-body-file "$RUNNER_TEMP/pr-body.md"
+      - name: Finalize structured CI observation artifact
+        if: always()
+        run: node tools/write-ci-observation.mjs
+      - name: Upload structured CI observation artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-G31
+          path: tmp/ci-observation/observation.json
+          if-no-files-found: error
+          retention-days: 14
