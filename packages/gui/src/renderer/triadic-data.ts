@@ -5,6 +5,7 @@ import { harnessClient } from "./api-client.ts";
 import type { DecisionListSuccess, RelationFactSummaryRow, RelationGraphSuccess } from "./api-client.ts";
 import { agentEntityClient } from "./agent-entity-client.ts";
 import { schedulesClient } from "./schedules-client.ts";
+import { useFactArchiveVisibility } from "./fact-archive-preferences.tsx";
 import { KIND_LABEL } from "./graph/constants.ts";
 import { agentNodeRowOf, scheduleNodeRowOf, withAgentTaskCounts } from "./graph/runtimeEntities.ts";
 import { isAvailableAgentEntityRow } from "./agent-entity-client.ts";
@@ -85,8 +86,11 @@ export function useDecisionSummaryQuery(repoId: string | null, options: { readon
 /**
  * 事实切面的唯一读面(⌘K 面板与关系图左栏搜索共用):`enabled` 由调用方决定
  * (面板打开或左栏有搜索输入),首次启用读取第一个事实页;后续页由面板显式加载。
+ * 已归档 Fact 默认退出切面(dec_62CAE6CA):过滤在缓存之外的派生层做,开关翻转
+ * 不重读;`archivedCount` 如实报告已加载页里的归档行数,供统计面显示隐藏量。
  */
 export function usePaletteFactsQuery(repoId: string | null, enabled: boolean) {
+  const { showArchivedFacts } = useFactArchiveVisibility();
   const query = useInfiniteQuery({
     queryKey: triadicQueryKeys.facts(repoId ?? "unselected"),
     initialPageParam: undefined as string | undefined,
@@ -101,12 +105,17 @@ export function usePaletteFactsQuery(repoId: string | null, enabled: boolean) {
     enabled: repoId !== null && enabled,
     staleTime: 10_000,
   });
-  const facts = useMemo<ReadonlyArray<RelationFactSummaryRow>>(
-    () => query.data?.pages.flatMap((page) => page.facts) ?? [],
+  const facts = useMemo<ReadonlyArray<RelationFactSummaryRow>>(() => {
+    const rows = query.data?.pages.flatMap((page) => page.facts) ?? [];
+    return showArchivedFacts ? rows : rows.filter((row) => row.archived !== true);
+  }, [query.data, showArchivedFacts]);
+  const archivedCount = useMemo(
+    () => (query.data?.pages.flatMap((page) => page.facts) ?? []).filter((row) => row.archived === true).length,
     [query.data],
   );
   return {
     facts,
+    archivedCount,
     domainTypes: query.data?.pages[0]?.domainTypes ?? [],
     isPending: repoId !== null && enabled && query.isPending,
     isError: query.isError,
@@ -343,6 +352,7 @@ export function buildTriadicRendererData(input: {
       source: row.source,
       provenance: row.provenance,
       invalidated: row.invalidated,
+      archived: row.archived,
     })),
     relations,
     coverageRows: input.graph.coverageRows,

@@ -28,7 +28,7 @@ export interface PaletteRow {
 export function buildPaletteIndex(
   tasks: ReadonlyArray<{ taskId: string; title: string; coordinationStatus?: string }>,
   decisions: ReadonlyArray<{ decisionId: string; title: string; state?: string }>,
-  facts: ReadonlyArray<{ anchor: string; taskId?: string; text: string; category?: string }>,
+  facts: ReadonlyArray<{ anchor: string; taskId?: string; text: string; category?: string; archived?: boolean }>,
   extra: ReadonlyArray<PaletteRow> = [],
 ): PaletteEntry[] {
   const entries: PaletteEntry[] = [];
@@ -42,7 +42,8 @@ export function buildPaletteIndex(
     entries.push({
       ref: f.anchor.startsWith("fact/") ? f.anchor : `fact/${f.anchor}`,
       label: f.text,
-      sub: f.category,
+      // 已归档行(facet 默认隐藏,开关放行时才进来)带标记,避免被当成活事实。
+      sub: f.archived ? `已归档 · ${f.category ?? ""}` : f.category,
       entity: "fact",
     });
   }

@@ -526,8 +526,10 @@ function egoLabelOf(meta: EgoNodeMeta): string {
   if (meta.entity === "schedule") return (meta.row as ScheduleNodeRow).name;
   if (meta.entity === "fact") {
     const fact = meta.row as FactRef;
-    // 无正文的 anchor:显示锚点本身,不拿别处的文字冒充观察。
-    return fact.text ? fact.text.slice(0, 60) : fact.anchor;
+    // 无正文的 anchor:显示锚点本身,不拿别处的文字冒充观察。已归档行带前缀标记
+    // (dec_62CAE6CA):开关放行回来时,聚光灯里第一眼能认出它为什么默认被藏。
+    const label = fact.text ? fact.text.slice(0, 60) : fact.anchor;
+    return fact.archived ? `已归档 · ${label}` : label;
   }
   // 其余都是声明实体:标题在描述符里,没有就显示 entityId。
   return governedEntityLabel(meta.row as GovernedEntityRow);

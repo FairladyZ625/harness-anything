@@ -75,6 +75,8 @@ function countOf(value: number): number {
 export interface FactFacetStats {
   readonly state: "ready" | "pending" | "error";
   readonly total: number | null;
+  /** 已加载页里的已归档行数:默认隐藏时如实显示「藏了多少」,开关放行时计入 total。 */
+  readonly archivedCount: number;
   readonly hasNextPage: boolean;
   readonly isFetching: boolean;
   readonly fetchNextPage: () => unknown;
@@ -97,6 +99,7 @@ export function useFactFacetStats(repoId: string, enabled: boolean): FactFacetSt
   return {
     state: query.isError ? "error" : query.isPending ? "pending" : "ready",
     total: query.isError || query.isPending ? null : query.facts.length,
+    archivedCount: query.archivedCount,
     byCategory,
     domainTypes: query.domainTypes,
     hasNextPage: query.hasNextPage,

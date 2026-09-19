@@ -1,5 +1,6 @@
 import { FACT_TYPE_VOCABULARY } from "../../entity-docs.ts";
 import type { useFactFacetStats } from "../../entities-data.ts";
+import { useFactArchiveVisibility } from "../../fact-archive-preferences.tsx";
 
 /**
  * Fact 详情专属的两个区块(dec_2935057783CD5D56E9F287AE4D CH1-CH3):Type 受控词表
@@ -48,6 +49,7 @@ export function FactTypeVocabulary({ stats }: { readonly stats: ReturnType<typeo
 }
 
 export function FactFacetLive({ stats }: { readonly stats: ReturnType<typeof useFactFacetStats> }) {
+  const { showArchivedFacts } = useFactArchiveVisibility();
   return (
     <section data-testid="fact-facet-live" className="mt-4 border-t border-border pt-4">
       <h3 className="mb-2 ui-meta font-semibold uppercase tracking-wide text-text-muted">本仓实况</h3>
@@ -59,6 +61,14 @@ export function FactFacetLive({ stats }: { readonly stats: ReturnType<typeof use
             {stats.hasNextPage ? "已加载 " : ""}
             {stats.total} 条 fact
           </span>
+          {stats.archivedCount > 0 && (
+            <span
+              className="rounded border border-border px-1.5 py-0.5 font-mono ui-micro text-text-faint"
+              title="已归档 Fact 默认不进切面(与 ha graph 同口径);关系图页头的开关可放行显示"
+            >
+              已归档 {stats.archivedCount} 条{showArchivedFacts ? " · 已计入" : " · 默认隐藏"}
+            </span>
+          )}
           {stats.byCategory.map((entry) => (
             <span
               key={entry.category}

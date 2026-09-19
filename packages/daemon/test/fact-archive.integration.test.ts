@@ -171,6 +171,17 @@ test("fact archive retires the managed document, leaves the projection row, and 
       "--include-archived must render the archived Fact",
     );
 
+    // The GUI facts facet keeps serving the row with the archived flag: the default
+    // hide lives in the renderer (dec_62CAE6CA GUI alignment), the read surface stays honest.
+    const factsFacet = (await cell.read("repo.triadic.relationGraph", { facet: "facts" })) as {
+      readonly facts: readonly { readonly anchor: string; readonly archived?: boolean }[];
+    };
+    assert.equal(
+      factsFacet.facts.find((row) => row.anchor === factRef)?.archived,
+      true,
+      "facts facet must flag the archived Fact so the GUI default filter can hide it",
+    );
+
     // Unarchive restores document and visibility.
     const unarchived = await cell.run({ kind: "fact-unarchive", factId, reason: "still load-bearing" }, binding);
     assert.equal(unarchived.outcome, "applied", JSON.stringify(unarchived));

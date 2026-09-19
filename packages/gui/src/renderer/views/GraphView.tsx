@@ -39,6 +39,8 @@ import { selectGraphFocusSet } from "../graph/focusSet";
 import type { AgentNodeRow, ScheduleNodeRow } from "../graph/runtimeEntities";
 import { focusHistoryReducer, EMPTY_HISTORY, canBack, canForward } from "../navigation/focusHistory";
 import { isTaskArchiveNoise } from "../model/taskFilters";
+import { applyFactArchiveVisibility } from "../model/triadic";
+import { useFactArchiveVisibility } from "../fact-archive-preferences.tsx";
 import {
   graphTerritoryPreferenceStorage,
   readGraphTerritoryShowArchived,
@@ -144,6 +146,20 @@ function GraphViewInner({
   useEffect(() => {
     writeGraphTerritoryShowArchived(graphTerritoryPreferenceStorage(), showArchived);
   }, [showArchived]);
+  // 已归档 Fact 开关(task 对齐 dec_62CAE6CA):与 `ha graph` 同口径,已归档 Fact 的
+  // 行、锚点与触及边默认一起退出图;开关是全局共享态(⌘K 切面/实体页统计同读),
+  // 状态与记忆都在 fact-archive-preferences,本页只放按钮。
+  const { showArchivedFacts, setShowArchivedFacts } = useFactArchiveVisibility();
+  const graphFeed = useMemo(
+    () =>
+      applyFactArchiveVisibility({
+        facts,
+        factAnchors: factAnchors ?? EMPTY_ANCHORS,
+        relations,
+        includeArchived: showArchivedFacts,
+      }),
+    [facts, factAnchors, relations, showArchivedFacts],
+  );
   // 聚光灯布局统计(EgoNeighborhood 上报,页头计数与焦点面包屑共用)。
   const [spotlightStats, setSpotlightStats] = useState<{ nodes: number; edges: number; focusLabel: string | null }>({
     nodes: 0,
@@ -275,8 +291,8 @@ function GraphViewInner({
   );
   const typeOn = useCallback((kind: string) => territoryTypes === null || territoryTypes.has(kind), [territoryTypes]);
   // 三元边 + 运行时平面边(agent→task 派发)合成一份;memo 保引用稳定,否则
-  // ego 图与重点集每个 render 都会重建。
-  const graphRelations = useMemo(() => [...relations, ...runtimeRelations], [relations, runtimeRelations]);
+  // ego 图与重点集每个 render 都会重建。三元边已过归档收口(graphFeed)。
+  const graphRelations = useMemo(() => [...graphFeed.relations, ...runtimeRelations], [graphFeed, runtimeRelations]);
   // 重点集:整份台账(未过 module/status 筛选)上算,领地与聚光灯共用同一份。
   // 重点模式关闭时为 null(不分层)。
   const focusSelection = useMemo(
@@ -303,9 +319,9 @@ function GraphViewInner({
     const allTaskIds = new Set(tasks.map((task) => task.taskId));
     // fact 跟随宿主 task 的可见性(宿主可见性已含模块/状态/归档筛选);无宿主 fact 保持可见。
     const isFactRefVisible = (ref: string) =>
-      typeOn("fact") && isFactVisibleWithHost(ref, visibleTaskIds, allTaskIds, relations);
-    const visibleFacts = facts.filter((f) => isFactRefVisible(f.anchor));
-    const visibleFactAnchors = (factAnchors ?? []).filter((a) => isFactRefVisible(a.factRef));
+      typeOn("fact") && isFactVisibleWithHost(ref, visibleTaskIds, allTaskIds, graphFeed.relations);
+    const visibleFacts = graphFeed.facts.filter((f) => isFactRefVisible(f.anchor));
+    const visibleFactAnchors = graphFeed.factAnchors.filter((a) => isFactRefVisible(a.factRef));
     const partition = partitionForSkel(
       skel,
       visibleTasks,
@@ -314,7 +330,7 @@ function GraphViewInner({
         : [],
       visibleFacts,
       visibleFactAnchors,
-      relations,
+      graphFeed.relations,
       coverageRows ?? [],
       typeOn("agent") ? agents : [],
       typeOn("schedule") ? schedules : [],
@@ -327,9 +343,7 @@ function GraphViewInner({
     skel,
     tasks,
     decisions,
-    facts,
-    factAnchors,
-    relations,
+    graphFeed,
     coverageRows,
     filters.modules,
     filters.entityStatus,
@@ -447,6 +461,19 @@ function GraphViewInner({
             </button>
           </span>
         )}
+        <span
+          className="inline-flex items-center gap-1 rounded bg-surface-raised px-1.5 py-0.5 font-mono text-text-muted"
+          title="已归档 Fact 默认不进图(与 ha graph 同口径);点击切回全量并带标记,本机记忆"
+        >
+          已归档 Fact
+          <button
+            data-testid="fact-archive-toggle"
+            onClick={() => setShowArchivedFacts((v) => !v)}
+            className="rounded px-1 ui-micro text-text hover:bg-surface"
+          >
+            {showArchivedFacts ? "显示" : "隐藏"}
+          </button>
+        </span>
         {viewMode === "territory" && territory && territory.deferredCount !== undefined && (
           <span
             data-testid="territory-deferred-count"
@@ -554,9 +581,9 @@ function GraphViewInner({
             focusRef={focusRef}
             tasks={tasks}
             decisions={decisions}
-            facts={facts}
+            facts={graphFeed.facts}
             relations={graphRelations}
-            factAnchors={factAnchors ?? EMPTY_ANCHORS}
+            factAnchors={graphFeed.factAnchors}
             agents={agents}
             schedules={schedules}
             governed={governedEntities}

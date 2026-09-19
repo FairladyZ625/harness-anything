@@ -358,13 +358,20 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
     );
     assert.deepEqual([edgeFacet.coverageRows, edgeFacet.factAnchors, edgeFacet.facts], [[], [], []]);
     assert.deepEqual(
-      factsFacet.facts.map(({ anchor, text, category, taskId }) => ({ anchor, text, category, taskId })),
+      factsFacet.facts.map(({ anchor, text, category, taskId, archived }) => ({
+        anchor,
+        text,
+        category,
+        taskId,
+        archived,
+      })),
       [
         {
           anchor: `fact/${String((factReceipt as Record<string, unknown>).factId)}`,
           text: "Alpha depends on Beta for query equivalence",
           category: "lesson",
           taskId: "task_real_Alpha",
+          archived: false,
         },
       ],
     );

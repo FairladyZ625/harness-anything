@@ -347,6 +347,8 @@ export interface FactRef {
   provenance?: ReadonlyArray<ProvenanceEntry>;
   /** 是否已被 supersedes-fact 边指向而失效（由图投影推得） */
   invalidated?: boolean;
+  /** `fact_archived` 投影态(dec_62CAE6CA):默认退出检索面,开关打开后带标记显示。 */
+  archived?: boolean;
 }
 
 export interface Project {

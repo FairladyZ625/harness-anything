@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App } from "./App.tsx";
 import { I18nProvider } from "./i18n/index.tsx";
+import { FactArchiveVisibilityProvider } from "./fact-archive-preferences.tsx";
 import { rendererQueryDefaults } from "./query-pacing.ts";
 import "./styles.css";
 
@@ -15,7 +16,9 @@ createRoot(root).render(
   <StrictMode>
     <I18nProvider>
       <QueryClientProvider client={queryClient}>
-        <App />
+        <FactArchiveVisibilityProvider>
+          <App />
+        </FactArchiveVisibilityProvider>
       </QueryClientProvider>
     </I18nProvider>
   </StrictMode>,

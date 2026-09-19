@@ -359,11 +359,12 @@ function fullFactInvalid(row: unknown): boolean {
 function factSummaryInvalid(row: unknown): boolean {
   return (
     !recordWith(row, ["anchor", "text", "category"]) ||
-    Object.keys(row).some((field) => !["anchor", "text", "category", "taskId"].includes(field)) ||
+    Object.keys(row).some((field) => !["anchor", "text", "category", "taskId", "archived"].includes(field)) ||
     !nonEmpty(row.anchor) ||
     !nonEmpty(row.text) ||
     !["lesson", "finding", "progress"].includes(String(row.category)) ||
-    (row.taskId !== undefined && !nonEmpty(row.taskId))
+    (row.taskId !== undefined && !nonEmpty(row.taskId)) ||
+    (row.archived !== undefined && typeof row.archived !== "boolean")
   );
 }
 

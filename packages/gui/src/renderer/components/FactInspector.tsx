@@ -193,6 +193,11 @@ export function FactInspector({
                 <span className="font-mono ui-micro text-text-faint">
                   {t("components.factInspector.confidenceValue", { confidence: fact.confidence })}
                 </span>
+                {fact.archived && (
+                  <span className="rounded bg-surface-raised px-1.5 py-0.5 font-mono ui-micro text-text-faint">
+                    已归档
+                  </span>
+                )}
                 {fact.invalidated && (
                   <span className="ml-auto inline-flex items-center gap-1 ui-micro text-stale">
                     <WarningCircle weight="bold" />

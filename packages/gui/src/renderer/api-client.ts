@@ -143,6 +143,8 @@ export interface RelationFactSummaryRow {
   readonly text: string;
   readonly category: "lesson" | "finding" | "progress";
   readonly taskId?: string;
+  /** `fact_archived` 投影态(dec_62CAE6CA);缺省 = 未归档(旧 daemon 行)。 */
+  readonly archived?: boolean;
 }
 export interface RelationFactFacetSuccess {
   readonly page: QueryPage;
@@ -718,7 +720,8 @@ function isRelationFactSummaryRow(value: unknown): value is RelationFactSummaryR
     typeof value.anchor === "string" &&
     typeof value.text === "string" &&
     (value.category === "lesson" || value.category === "finding" || value.category === "progress") &&
-    (value.taskId === undefined || typeof value.taskId === "string")
+    (value.taskId === undefined || typeof value.taskId === "string") &&
+    (value.archived === undefined || typeof value.archived === "boolean")
   );
 }
 
