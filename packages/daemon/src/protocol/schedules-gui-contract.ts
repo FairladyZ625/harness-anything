@@ -98,11 +98,17 @@ export interface ScheduleGuiRowDto {
         readonly fast: boolean;
         readonly cwd: null;
       }
-    | { readonly kind: "squad"; readonly squadId: string };
+    | { readonly kind: "squad"; readonly squadId: string }
+    | {
+        readonly kind: "builtin";
+        readonly builtinId: string;
+        /** Effective retention policy (defaults applied daemon-side); renderer only renders. */
+        readonly keepDays: number;
+        readonly keepMonthly: boolean;
+      };
   readonly targetState?: "invalid" | "missing";
   readonly targetError?: { readonly code: string; readonly hint: string };
   readonly mission: string;
-  readonly writableRoots: readonly string[];
   readonly executionAvailability: ScheduleExecutionAvailability;
   readonly claim: { readonly nodeId: string | null; readonly assignmentId: string | null };
   readonly health: ScheduleGuiHealthDto;
@@ -188,7 +194,6 @@ const scheduleGuiRowFields = [
   "targetState",
   "targetError",
   "mission",
-  "writableRoots",
   "executionAvailability",
   "claim",
   "health",
@@ -257,6 +262,14 @@ function validTriggerDto(value: unknown): boolean {
 function validTargetDto(value: unknown): boolean {
   if (!isJsonObject(value)) return false;
   if (value.kind === "squad") return Object.keys(value).length === 2 && scheduleNonEmptyText(value.squadId);
+  if (value.kind === "builtin")
+    return (
+      Object.keys(value).length === 4 &&
+      scheduleNonEmptyText(value.builtinId) &&
+      Number.isSafeInteger(value.keepDays) &&
+      Number(value.keepDays) >= 1 &&
+      typeof value.keepMonthly === "boolean"
+    );
   return (
     value.kind === "agent" &&
     Object.keys(value).length === 7 &&
@@ -363,8 +376,6 @@ export function validateSchedulesList(value: unknown): readonly string[] {
       !validTargetDto(row.target) ||
       !validTargetProjection(row) ||
       typeof row.mission !== "string" ||
-      !Array.isArray(row.writableRoots) ||
-      !row.writableRoots.every(scheduleNonEmptyText) ||
       !scheduleGuiAvailabilityWords.includes(String(row.executionAvailability)) ||
       !isJsonObject(row.claim) ||
       Object.keys(row.claim).length !== 2 ||

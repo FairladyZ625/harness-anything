@@ -27,6 +27,7 @@ import type {
   SchedulesListResult,
 } from "./protocol/schedules-gui-contract.ts";
 import { isAvailableScheduleGuiAgentOption } from "./protocol/schedules-gui-contract.ts";
+import { defaultLedgerBackupRetention } from "./schedule-builtin-executor.ts";
 import { emptyScheduleHealthRollup, scheduleHealthRollupsFromEvents } from "./schedule-projection.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
@@ -69,6 +70,29 @@ export interface SchedulesGuiReadContext {
 interface RosterAssignment {
   readonly assignmentId: string;
   readonly nodeId: string;
+}
+
+/** Builtin rows expose the effective retention policy (defaults applied here, not in the renderer). */
+function targetDtoOf(schedule: ScheduleV1): ScheduleGuiRowDto["target"] {
+  const target = schedule.spec.target;
+  if (target.kind === "agent")
+    return {
+      kind: "agent",
+      agentId: target.agentId,
+      runtimeInstanceId: target.runtimeInstanceId,
+      model: target.model ?? null,
+      reasoningEffort: target.reasoningEffort ?? null,
+      fast: target.fast ?? false,
+      cwd: null,
+    };
+  if (target.kind === "builtin")
+    return {
+      kind: "builtin",
+      builtinId: target.builtinId,
+      keepDays: target.params?.keepDays ?? defaultLedgerBackupRetention.keepDays,
+      keepMonthly: target.params?.keepMonthly ?? defaultLedgerBackupRetention.keepMonthly,
+    };
+  return { kind: "squad", squadId: target.squadId };
 }
 
 function triggerDtoOf(schedule: ScheduleV1): ScheduleGuiTriggerDto {
@@ -166,9 +190,14 @@ function admissionFacet(
   return scheduleActionFacet(admission.ok, admission.ok ? null : admission.code);
 }
 
-function deleteFacet(mode: DaemonRepoMode, active: ScheduleV1["status"]["activeRun"]): ScheduleGuiActionFacet {
+function deleteFacet(
+  mode: DaemonRepoMode,
+  active: ScheduleV1["status"]["activeRun"],
+  targetKind: "agent" | "squad" | "builtin",
+): ScheduleGuiActionFacet {
   const admission = admissionFacet("schedule-delete", mode);
   if (!admission.available) return admission;
+  if (targetKind === "builtin") return scheduleActionFacet(false, "schedule_builtin_protected");
   return active === null ? admission : scheduleActionFacet(false, "schedule_single_flight_active");
 }
 
@@ -178,7 +207,7 @@ function runNowFacet(input: {
   readonly availability: ScheduleExecutionAvailability;
   readonly active: { readonly occurrenceId: string; readonly nodeId: string } | null;
   readonly claimNodeId: string | null;
-  readonly targetKind: "agent" | "squad";
+  readonly targetKind: "agent" | "squad" | "builtin";
 }): ScheduleGuiActionFacet {
   const admission = admissionFacet("schedule-run-now", input.mode);
   if (!admission.available) return admission;
@@ -296,21 +325,9 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
         definitionResidency: "ledger",
         definitionRevision: row.workspaceRevision,
         trigger: triggerDtoOf(schedule),
-        target:
-          schedule.spec.target.kind === "agent"
-            ? {
-                kind: "agent",
-                agentId: schedule.spec.target.agentId,
-                runtimeInstanceId: schedule.spec.target.runtimeInstanceId,
-                model: schedule.spec.target.model ?? null,
-                reasoningEffort: schedule.spec.target.reasoningEffort ?? null,
-                fast: schedule.spec.target.fast ?? false,
-                cwd: null,
-              }
-            : { kind: "squad", squadId: schedule.spec.target.squadId },
+        target: targetDtoOf(schedule),
         ...(targetProjection ? { targetState: targetProjection.state, targetError: targetProjection.error } : {}),
         mission: schedule.spec.mission,
-        writableRoots: schedule.spec.writableRoots ?? [],
         executionAvailability: availability,
         claim: active
           ? { nodeId: active.nodeId, assignmentId: active.assignmentId }
@@ -321,7 +338,7 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
         nextRunAt: schedule.state === "armed" ? nextScheduleOccurrence(schedule.spec.trigger, now) : null,
         actions: {
           edit: admissionFacet("schedule-update", mode),
-          delete: deleteFacet(mode, schedule.status.activeRun),
+          delete: deleteFacet(mode, schedule.status.activeRun, schedule.spec.target.kind),
           enable: stateFacet("schedule-enable", mode, schedule.state),
           disable: stateFacet("schedule-disable", mode, schedule.state),
           runNow:
