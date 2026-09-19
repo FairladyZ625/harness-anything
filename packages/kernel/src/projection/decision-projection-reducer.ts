@@ -74,6 +74,8 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
         ).run(fulfillment.mode, revision, event.decisionId, fulfillment.claimId);
     }
     insertDecisionPin(db, event);
+    if (["decision_accepted", "decision_rejected"].includes(event.type))
+      prepareQuery(db, "DELETE FROM pinned_entities WHERE entity_ref=?").run(`decision/${event.decisionId}`);
     refreshDecisionFts(db, event.decisionId);
     return;
   }
@@ -86,6 +88,7 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
       event.decisionId,
     );
     insertDecisionPin(db, event);
+    prepareQuery(db, "DELETE FROM pinned_entities WHERE entity_ref=?").run(`decision/${event.decisionId}`);
     refreshDecisionFts(db, event.decisionId);
     return;
   }

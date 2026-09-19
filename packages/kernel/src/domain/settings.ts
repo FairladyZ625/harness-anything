@@ -63,6 +63,7 @@ export const SETTINGS_FIELD_OWNERSHIP = Object.freeze({
   ci: "repository",
   gates: "repository",
   closeout: "repository",
+  agenda: "repository",
   restoreDrillRetention: "repository",
 } as const);
 
@@ -92,6 +93,7 @@ export interface RepositorySettingsV1 {
   readonly ci: { readonly workflows: readonly string[] };
   readonly gates: readonly GateWitnessMappingV1[];
   readonly closeout: CloseoutSettingsV1;
+  readonly agenda: { readonly pinLimit: number };
   readonly restoreDrillRetention: number;
 }
 
@@ -118,6 +120,7 @@ export interface SettingsV1 {
   readonly ci: { readonly workflows: readonly string[] };
   readonly gates: readonly GateWitnessMappingV1[];
   readonly closeout: CloseoutSettingsV1;
+  readonly agenda: { readonly pinLimit: number };
   readonly restoreDrillRetention: number;
 }
 
@@ -150,6 +153,7 @@ export const INITIAL_SETTINGS_V1: SettingsV1 = Object.freeze({
   ci: Object.freeze({ workflows: DEFAULT_CI_WORKFLOWS }),
   gates: Object.freeze([]),
   closeout: DEFAULT_CLOSEOUT_SETTINGS,
+  agenda: Object.freeze({ pinLimit: 30 }),
   restoreDrillRetention: DEFAULT_RESTORE_DRILL_RETENTION,
 });
 
@@ -211,6 +215,12 @@ export const SETTINGS_V1_SCHEMA: EntityDocumentJsonSchema<SettingsV1> = {
     ci: ciSettingsSchema(),
     gates: gateSettingsSchema(),
     closeout: closeoutSettingsSchema(),
+    agenda: ownedSchema("agenda", {
+      type: "object",
+      properties: { pinLimit: { type: "integer", minimum: 1 } },
+      required: ["pinLimit"],
+      additionalProperties: false,
+    }),
     restoreDrillRetention: ownedSchema("restoreDrillRetention", { type: "integer", minimum: 1 }),
   },
   required: [
@@ -272,6 +282,12 @@ export const SETTINGS_REPOSITORY_V1_SCHEMA: EntityDocumentJsonSchema<RepositoryS
     ci: ciSettingsSchema(),
     gates: gateSettingsSchema(),
     closeout: closeoutSettingsSchema(),
+    agenda: ownedSchema("agenda", {
+      type: "object",
+      properties: { pinLimit: { type: "integer", minimum: 1 } },
+      required: ["pinLimit"],
+      additionalProperties: false,
+    }),
     restoreDrillRetention: ownedSchema("restoreDrillRetention", { type: "integer", minimum: 1 }),
   },
   required: ["schema", "settingsId", "defaultVertical", "defaultPreset", "defaultProfile", "scaffolds", "walFlush"],
@@ -297,6 +313,7 @@ export function repositorySettings(settings: SettingsV1 | RepositorySettingsV1):
     ci: settings.ci ?? INITIAL_SETTINGS_V1.ci,
     gates: canonicalGateMappings(settings.gates ?? INITIAL_SETTINGS_V1.gates),
     closeout: settings.closeout ?? INITIAL_SETTINGS_V1.closeout,
+    agenda: settings.agenda ?? INITIAL_SETTINGS_V1.agenda,
     restoreDrillRetention: settings.restoreDrillRetention ?? DEFAULT_RESTORE_DRILL_RETENTION,
   };
 }
@@ -336,6 +353,9 @@ export function readSettingsFacet(body: string): SettingsV1 {
     ci: readCiSettings(body),
     gates: readGateSettings(body),
     closeout: readCloseoutSettings(body),
+    agenda: {
+      pinLimit: Number(settingBlockValue(body, "agenda", "pinLimit") ?? INITIAL_SETTINGS_V1.agenda.pinLimit),
+    },
     restoreDrillRetention: readRestoreDrillRetention(body),
   };
   const errors = validateSettingsV1(settings);
@@ -396,6 +416,13 @@ export function writeRepositorySettingsFacet(body: string, settings: RepositoryS
   next = writeCiFacet(next, repository.ci);
   next = writeGatesFacet(next, repository.gates);
   next = writeCloseoutFacet(next, repository.closeout);
+  next = replaceDefaultedBlockScalar(
+    next,
+    "agenda",
+    "pinLimit",
+    String(repository.agenda.pinLimit),
+    String(INITIAL_SETTINGS_V1.agenda.pinLimit),
+  );
   next = replaceOptionalDefaultedScalar(
     next,
     "  ",

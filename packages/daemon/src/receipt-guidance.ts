@@ -51,6 +51,26 @@ export function taskCreateGuidance(
   return Object.freeze(returns.guidance.map((entry) => resolveGuidanceEntry(entry, scopedValues)));
 }
 
+export function actionReceiptGuidance(
+  action: NonNullable<ReturnType<typeof getExecutableEntityAction>>,
+  values: Readonly<Record<string, unknown>>,
+) {
+  // Guidance is advice appended to a write that already committed; an entry whose values this receipt
+  // does not carry is left out rather than failing the write.
+  return Object.freeze(
+    action.returns.guidance
+      .filter((entry) => Object.values(entry.args).every((argument) => argumentAvailable(argument, values)))
+      .map((entry) => resolveGuidanceEntry(entry, values)),
+  );
+}
+
+function argumentAvailable(argument: ReceiptGuidanceArgument, values: Readonly<Record<string, unknown>>): boolean {
+  if (typeof argument !== "string") return true;
+  return [...argument.matchAll(/\{([^{}]+)\}/gu)].every(([, field]) =>
+    ["string", "number", "boolean"].includes(typeof values[field as string]),
+  );
+}
+
 export function diagnosticForError(error: unknown): ReceiptDiagnostic | undefined {
   if (!error || typeof error !== "object") return undefined;
   if ("diagnostic" in error && isReceiptDiagnostic(error.diagnostic)) return error.diagnostic;
@@ -83,7 +103,7 @@ export function diagnosticForError(error: unknown): ReceiptDiagnostic | undefine
 
 function resolveGuidanceEntry(
   entry: ReceiptGuidanceContractEntry,
-  values: Readonly<Record<string, string | number | boolean>>,
+  values: Readonly<Record<string, unknown>>,
 ): ReceiptGuidanceContractEntry {
   return Object.freeze({
     kind: entry.kind,
@@ -96,12 +116,13 @@ function resolveGuidanceEntry(
 
 function resolveArgument(
   argument: ReceiptGuidanceArgument,
-  values: Readonly<Record<string, string | number | boolean>>,
+  values: Readonly<Record<string, unknown>>,
 ): ReceiptGuidanceArgument {
   if (typeof argument !== "string") return argument;
   return argument.replaceAll(/\{([^{}]+)\}/gu, (_match, field: string) => {
     const value = values[field];
-    if (value === undefined) throw new Error(`Receipt guidance placeholder ${field} is not available.`);
+    if (typeof value !== "string" && typeof value !== "number" && typeof value !== "boolean")
+      throw new Error(`Receipt guidance placeholder ${field} is not available.`);
     return String(value);
   });
 }

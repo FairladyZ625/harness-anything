@@ -270,6 +270,7 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
         : {}),
       reviewIndependence: updatedReviewIndependence(input.action.reviewIndependence, current.reviewIndependence),
       reviewReturnBudget: updatedPositiveInteger(input.action, "reviewReturnBudget", current.reviewReturnBudget),
+      agenda: current.agenda,
       scaffolds: {
         task: updatedText(input.action, "taskScaffold", current.scaffolds.task),
         repository: updatedText(input.action, "repositoryScaffold", current.scaffolds.repository),

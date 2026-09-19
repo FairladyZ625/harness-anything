@@ -54,6 +54,7 @@ import {
 } from "./artifact-entity-action.ts";
 import { executeRelationAction, publicationKillpoints, reject } from "./entity-action-relation.ts";
 import { decisionRelationLinkResolver } from "./entity-document-links.ts";
+import { actionReceiptGuidance } from "./receipt-guidance.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 type FactBundle = ReturnType<typeof compileFactWrite>;
@@ -352,13 +353,17 @@ export function makeEntityActionCatalogExecutor(input: {
     }
     const result = decisions.record(bundle);
     publicationKillpoints(input.killpoint);
-    return decisionReceipt(
-      result,
-      bundle.event,
-      authorizationDecision,
-      Array.isArray(action.defaultedDecisionPacketFields)
-        ? action.defaultedDecisionPacketFields.filter((field): field is string => typeof field === "string")
-        : [],
+    return deriveActionResult(
+      contract,
+      action,
+      decisionReceipt(
+        result,
+        bundle.event,
+        authorizationDecision,
+        Array.isArray(action.defaultedDecisionPacketFields)
+          ? action.defaultedDecisionPacketFields.filter((field): field is string => typeof field === "string")
+          : [],
+      ),
     );
   };
 
@@ -495,6 +500,9 @@ export function deriveActionResult(
       : null;
   return {
     ...receipt,
+    ...(!rejected && contract.returns.guidance.length > 0
+      ? { guidance: actionReceiptGuidance(contract, { ...action, ...receiptFields }) }
+      : {}),
     unmetCriteria,
     effects: rejected ? [] : (receipt.effects ?? contract.effects.map(({ ref }) => ref)),
     updatedProjection: Object.hasOwn(receipt, "updatedProjection")
@@ -830,6 +838,7 @@ function decisionReceipt(
       result.revision === event.workspaceRevision,
     base = {
       opId: event.opId,
+      decisionId: event.decisionId,
       revision: result.revision,
       evidence: JSON.stringify({
         ...(result.decision as object),

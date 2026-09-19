@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
@@ -572,66 +572,97 @@ test("task pin and unpin route through entity pin events and update agenda order
 });
 
 test("entity pins cover task, decision, and schedule with bounded rendering and ordered idempotency", async () => {
-  await withCell("agenda-entity-pins", async (cell) => {
-    assert.equal(
-      (await cell.run({ kind: "task-create", taskId: "task_pin", title: "Pinned task" }, binding)).outcome,
-      "applied",
-    );
-    const decision = (await cell.run(decisionProposal(), binding)) as Record<string, unknown>;
-    assert.equal(decision.outcome, "applied", JSON.stringify(decision));
-    const decisionId = String((JSON.parse(String(decision.evidence)) as { decisionId: string }).decisionId);
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "schedule-create",
-            scheduleId: "nightly-reckoning",
-            name: "Nightly reckoning",
-            mode: "detect",
-            everyMs: 300_000,
-            agentId: "probe-agent",
-            runtimeInstanceId: "runtime-local",
-            mission: "Run nightly reckoning.",
-            idempotencyKey: "agenda-pin:schedule",
-          },
-          binding,
-        )
-      ).outcome,
-      "applied",
-    );
-    for (const entityRef of ["task/task_pin", `decision/${decisionId}`, "schedule/nightly-reckoning"]) {
-      const receipt = await cell.run({ kind: "entity-pin", entityRef }, binding);
-      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-    }
-    assert.equal((await cell.run({ kind: "entity-pin", entityRef: "task/task_pin" }, binding)).outcome, "no_changes");
-    const agenda = await cell.read("repo.agenda.read");
-    assert.deepEqual(
-      new Set(agenda.pinnedEntities.map(({ ref }) => ref)),
-      new Set(["task/task_pin", `decision/${decisionId}`, "schedule/nightly-reckoning"]),
-    );
-    for (const label of ["Task", "Decision", "Schedule"])
-      assert.match(agenda.summary, new RegExp(`📌 \\[${label}\\]`, "u"));
-    assert.equal(
-      (await cell.run({ kind: "entity-unpin", entityRef: `decision/${decisionId}` }, binding)).outcome,
-      "applied",
-    );
-    assert.equal(
-      (await cell.read("repo.agenda.read")).pinnedEntities.some(({ ref }) => ref === `decision/${decisionId}`),
-      false,
-    );
-    assert.equal(
-      (await cell.run({ kind: "entity-pin", entityRef: `decision/${decisionId}` }, binding)).outcome,
-      "applied",
-    );
-    assert.equal(
-      (await cell.run({ kind: "entity-unpin", entityRef: `decision/${decisionId}` }, binding)).outcome,
-      "applied",
-    );
-    assert.equal(
-      (await cell.read("repo.agenda.read")).pinnedEntities.some(({ ref }) => ref === `decision/${decisionId}`),
-      false,
-    );
-  });
+  await withCell(
+    "agenda-entity-pins",
+    async (cell) => {
+      const task = await cell.run({ kind: "task-create", taskId: "task_pin", title: "Pinned task" }, binding);
+      assert.equal(task.outcome, "applied");
+      assert.deepEqual(
+        task.guidance?.find(({ kind }) => kind === "pin-agenda"),
+        {
+          kind: "pin-agenda",
+          args: { entityKind: "task", entityId: "task_pin" },
+          when: { dryRun: false },
+        },
+      );
+      assert.equal(
+        (await cell.run({ kind: "task-create", taskId: "task_capacity", title: "Capacity task" }, binding)).outcome,
+        "applied",
+      );
+      const decision = (await cell.run(decisionProposal(), binding)) as Record<string, unknown>;
+      assert.equal(decision.outcome, "applied", JSON.stringify(decision));
+      const decisionId = String((JSON.parse(String(decision.evidence)) as { decisionId: string }).decisionId);
+      assert.deepEqual(
+        (decision.guidance as { kind: string; args: unknown }[]).find(({ kind }) => kind === "pin-agenda"),
+        { kind: "pin-agenda", args: { entityKind: "decision", entityId: decisionId } },
+      );
+      assert.equal(
+        (
+          await cell.run(
+            {
+              kind: "schedule-create",
+              scheduleId: "nightly-reckoning",
+              name: "Nightly reckoning",
+              mode: "detect",
+              everyMs: 300_000,
+              agentId: "probe-agent",
+              runtimeInstanceId: "runtime-local",
+              mission: "Run nightly reckoning.",
+              idempotencyKey: "agenda-pin:schedule",
+            },
+            binding,
+          )
+        ).outcome,
+        "applied",
+      );
+      let capacityGuidance: unknown;
+      for (const entityRef of ["task/task_pin", `decision/${decisionId}`, "schedule/nightly-reckoning"]) {
+        const receipt = await cell.run({ kind: "entity-pin", entityRef }, binding);
+        assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+        capacityGuidance = receipt.guidance;
+      }
+      assert.deepEqual(capacityGuidance, [{ kind: "pin-agenda", args: { used: 3, limit: 3 } }]);
+      const atCapacity = await cell.run({ kind: "entity-pin", entityRef: "task/task_capacity" }, binding);
+      assert.deepEqual(
+        { outcome: atCapacity.outcome, code: atCapacity.code },
+        { outcome: "op_rejected", code: "pin_capacity_exceeded" },
+      );
+      assert.match(String(atCapacity.rejectionExplanation), /3\/3.*unpin/u);
+      assert.equal((await cell.run({ kind: "entity-pin", entityRef: "task/task_pin" }, binding)).outcome, "no_changes");
+      const agenda = await cell.read("repo.agenda.read");
+      assert.deepEqual(
+        new Set(agenda.pinnedEntities.map(({ ref }) => ref)),
+        new Set(["task/task_pin", `decision/${decisionId}`, "schedule/nightly-reckoning"]),
+      );
+      for (const label of ["Task", "Decision", "Schedule"])
+        assert.match(agenda.summary, new RegExp(`📌 \\[${label}\\]`, "u"));
+      const rejected = await cell.run(
+        { kind: "decision-reject", decisionId, reason: "The proposed outcome is no longer needed." },
+        withRoleBinding(
+          { actor: { principal: { personId: "person-independent" }, executor: null }, source: "local" },
+          "arbiter",
+        ),
+      );
+      assert.equal(rejected.outcome, "applied", JSON.stringify(rejected));
+      assert.equal(
+        (await cell.read("repo.agenda.read")).pinnedEntities.some(({ ref }) => ref === `decision/${decisionId}`),
+        false,
+      );
+      assert.equal(
+        (await cell.run({ kind: "entity-pin", entityRef: "task/task_capacity" }, binding)).outcome,
+        "applied",
+      );
+    },
+    (rootDir) => {
+      const settingsPath = path.join(rootDir, "harness/harness.yaml");
+      mkdirSync(path.dirname(settingsPath), { recursive: true });
+      writeFileSync(
+        settingsPath,
+        "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" +
+          "settings:\n  agenda:\n    pinLimit: 3\n",
+      );
+    },
+  );
 });
 
 test("terminal task transitions clear pins without changing unpinned task outcomes", async () => {
@@ -664,11 +695,13 @@ test("terminal task transitions clear pins without changing unpinned task outcom
 async function withCell(
   name: string,
   run: (cell: Awaited<ReturnType<typeof openRepoCell>>, rootDir: string) => Promise<void>,
+  prepare?: (rootDir: string) => void,
 ): Promise<void> {
   const rootDir = mkdtempSync(path.join(tmpdir(), `${name}-`));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
+    prepare?.(rootDir);
     cell = await openRepoCell({
       repoId: workspaceId(name),
       rootDir: canonicalRoot(rootDir),

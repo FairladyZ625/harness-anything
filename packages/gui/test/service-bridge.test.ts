@@ -317,6 +317,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       ci: { workflows: [] },
       gates: [],
       closeout: { profile: "standard" },
+      agenda: { pinLimit: 30 },
     });
     const settingsUpdated = parseDaemonGuiActionResponse(
       "repo.settings.update",
@@ -565,6 +566,11 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       decisionId: string;
     };
     assert.match(proposedEvidence.decisionId, /^dec_[0-9A-F]{26}$/u);
+    assert.equal(proposed.decisionId, proposedEvidence.decisionId);
+    assert.deepEqual(
+      proposed.guidance?.find(({ kind }) => kind === "pin-agenda"),
+      { kind: "pin-agenda", args: { entityKind: "decision", entityId: proposedEvidence.decisionId } },
+    );
     const accepted = parseDaemonGuiActionResponse(
       "repo.decision.accept",
       await bridge.invoke("acceptDecision", {

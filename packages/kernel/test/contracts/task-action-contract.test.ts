@@ -244,7 +244,7 @@ test("task creation result and all seven guidance entries derive from its descri
       when: { dryRun: false, "proof.canonicalVisible": false },
     },
     { kind: "edit-plan", args: { packagePath: "{packagePath}" } },
-    { kind: "pin-agenda", args: { taskId: "{taskId}" } },
+    { kind: "pin-agenda", args: { entityKind: "task", entityId: "{taskId}" }, when: { dryRun: false } },
     { kind: "ledger-managed", args: { fields: ["INDEX.md", "closeout.md"] } },
   ]);
   for (const field of [
@@ -262,6 +262,27 @@ test("task creation result and all seven guidance entries derive from its descri
     "proof.canonicalVisible",
   ])
     assert.ok(create.returns.fields.includes(field), field);
+});
+
+test("pinnable entity creation actions derive one optional agenda follow-up", () => {
+  for (const [kind, actionId, entityId] of [
+    ["task", "create", "taskId"],
+    ["decision", "propose", "decisionId"],
+    ["schedule", "create", "scheduleId"],
+  ] as const) {
+    const action = getEntityKindContract(kind)?.actionCatalog?.actions.find(({ id }) => id === actionId);
+    assert.ok(action, `${kind}.${actionId}`);
+    assert.deepEqual(
+      action.returns.guidance.filter(({ kind: guidanceKind }) => guidanceKind === "pin-agenda"),
+      [
+        {
+          kind: "pin-agenda",
+          args: { entityKind: kind, entityId: `{${entityId}}` },
+          ...(kind === "task" ? { when: { dryRun: false } } : {}),
+        },
+      ],
+    );
+  }
 });
 
 test("nested vocabularies retain identity and state projections select one declared branch", () => {

@@ -27,6 +27,54 @@ const bindActionDeclaration = (kind: string, action: EntityActionContract): Enti
   });
 };
 
+const pinnableCreationIds: Readonly<
+  Record<string, Readonly<{ actionId: string; resultIdField: string; when?: ActionPredicate }>>
+> = Object.freeze({
+  // A dry run creates nothing, so there is nothing to pin yet.
+  task: Object.freeze({
+    actionId: "create",
+    resultIdField: "taskId",
+    when: Object.freeze({ fieldEquals: Object.freeze({ path: "result.dryRun", value: false }) }),
+  }),
+  decision: Object.freeze({ actionId: "propose", resultIdField: "decisionId" }),
+  schedule: Object.freeze({ actionId: "create", resultIdField: "scheduleId" }),
+});
+
+const withCreationPinGuidance = (kind: string, action: EntityActionContract): EntityActionContract => {
+  const creation = pinnableCreationIds[kind];
+  if (!creation || action.id !== creation.actionId) return action;
+  const resultFields = action.result.fields.some(({ field }) => field === creation.resultIdField)
+    ? action.result.fields
+    : Object.freeze([
+        ...action.result.fields,
+        Object.freeze({ field: creation.resultIdField, type: "string" as const, required: true }),
+      ]);
+  return {
+    ...action,
+    result: Object.freeze({ ...action.result, fields: resultFields }),
+    followUps: Object.freeze([
+      ...action.followUps,
+      Object.freeze({
+        capabilityRef: "entity.pin",
+        role: "agenda" as const,
+        when: creation.when ?? null,
+        args: Object.freeze({
+          entityKind: kind,
+          entityId: Object.freeze({ resultPath: `result.${creation.resultIdField}` }),
+        }),
+      }),
+    ]),
+  };
+};
+
+const bindEntityAction = (kind: string, action: EntityActionContract): EntityActionContract => {
+  const guided = withCreationPinGuidance(kind, action),
+    bound = bindActionDeclaration(kind, guided);
+  return guided === action
+    ? bound
+    : Object.freeze({ ...bound, returns: Object.freeze(deriveActionReturnsContract(bound)) });
+};
+
 export const withDeclaredEntityActions = <T extends readonly EntityKindContract[]>(contracts: T): T =>
   Object.freeze(
     contracts.map((contract) =>
@@ -37,7 +85,7 @@ export const withDeclaredEntityActions = <T extends readonly EntityKindContract[
             actionCatalog: Object.freeze({
               ...contract.actionCatalog,
               actions: Object.freeze(
-                contract.actionCatalog.actions.map((action) => bindActionDeclaration(contract.kind, action)),
+                contract.actionCatalog.actions.map((action) => bindEntityAction(contract.kind, action)),
               ),
             }),
           }),
@@ -213,6 +261,7 @@ const followUpKinds: Readonly<Record<string, ReceiptGuidanceKind>> = Object.free
   "receipt.query": "receipt-query",
   "task.plan.edit": "edit-plan",
   "task.pin": "pin-agenda",
+  "entity.pin": "pin-agenda",
 });
 
 export function deriveActionReturnsContract(

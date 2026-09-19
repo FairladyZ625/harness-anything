@@ -21,6 +21,7 @@ import { relationProtocolCommands } from "./daemon-protocol-commands-relation.ts
 import { daemonGuiActionMethods, daemonStreamFacets } from "./daemon-protocol-gui-actions.ts";
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 import { DaemonProtocolContractError, type JsonObject } from "./json-rpc-types.ts";
+import { AGENDA_PIN_CRITERIA } from "./daemon-protocol-vocabulary.ts";
 
 const settingsWriteTopology = {
     commandClass: "repo-write" as const,
@@ -164,7 +165,7 @@ const entityPinProtocolCommands = Object.freeze([
     id: "entity-pin",
     phase: "Entity-Pin",
     path: ["pin", "<entity-ref>"],
-    summary: "Pin an existing entity to the repository agenda.",
+    summary: `Pin an existing entity only when it is ${AGENDA_PIN_CRITERIA}.`,
     method: "repo.task.run",
     inputs: [],
     ...settingsWriteTopology,

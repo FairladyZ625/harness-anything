@@ -114,7 +114,6 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
           "Goal, Context, Required Reading, Entry Conditions, Dependencies, Execution Surface, Constraints, " +
           "Checkpoint, CI/Gate Authority Stop Condition, Implementation Plan, Deliverable Contract, Evidence " +
           "Protocol, Verification",
-        "agenda: use ha task pin task-alpha to pin it to the CEO agenda",
         "ledger: INDEX.md and closeout.md are coordinator-managed; update them through ha doc sync",
       ].join("\n"),
     );

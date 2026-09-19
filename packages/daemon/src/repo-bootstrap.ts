@@ -124,6 +124,8 @@ export function resolveRepoBootstrap(
       `    milliseconds: ${INITIAL_SETTINGS_V1.walFlush.milliseconds}`,
       "  tasks:",
       `    wipLimit: ${DEFAULT_TASK_WIP_LIMIT}`,
+      "  agenda:",
+      "    pinLimit: 30",
       "  scaffolds:",
       `    task: ${INITIAL_SETTINGS_V1.scaffolds.task}`,
       `    repository: ${INITIAL_SETTINGS_V1.scaffolds.repository}`,
