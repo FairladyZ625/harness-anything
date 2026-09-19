@@ -24,12 +24,13 @@ export function runEntityPinAction(
     parsed.kind === "schedule"
       ? cell.projection.listEntities("schedule").some((row) => row.id === parsed.id)
       : cell.projection.readEntityVersionWitness(entityRef).currentVersion !== null;
-  if (!exists) throw cell.cellCodedError("entity_not_found", `Entity ${entityRef} does not exist.`);
   const pinned = action.kind === "entity-pin",
     pinnedEntities = cell.projection.listPinnedEntities(),
     current = pinnedEntities.some((row) => row.entityRef === entityRef),
     revision = cell.store.readHead()?.revision ?? 0,
     opId = cell.operationId(action, binding, cell.input.repoId, revision);
+  if (!exists && (pinned || !current))
+    throw cell.cellCodedError("entity_not_found", `Entity ${entityRef} does not exist.`);
   if (current === pinned)
     return { outcome: "no_changes", opId, revision, evidence: JSON.stringify({ entityRef, pinned }) };
   const capacity = resolveAgendaPinLimit(cell.rootDir);

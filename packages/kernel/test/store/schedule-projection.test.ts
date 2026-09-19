@@ -7,6 +7,7 @@ import {
   compileScheduleDeletedEvent,
   compileScheduleRunEvent,
 } from "../../src/domain/schedule-event.ts";
+import { compileEntityPinEvent } from "../../src/domain/entity-pin-event.ts";
 import { createScheduleV1, type ScheduleV1 } from "../../src/domain/schedule.ts";
 import { taskProjectionSchemaVersion } from "../../src/projection/projection-schema.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
@@ -100,8 +101,22 @@ test("Schedule definition and run view share one canonical stream and rebuild ex
     assert.equal(projection.readStateDigest(), digest);
     assert.equal(eventStore.read().revision, 4);
 
+    const pin = compileEntityPinEvent({
+      entityRef: "schedule/schedule-heartbeat",
+      pinned: true,
+      opId: "schedule-pin",
+      eventId: "schedule-pin-event",
+      workspaceRevision: 5,
+      actor,
+      source: "local",
+      occurredAt: "2026-08-26T10:32:00.000Z",
+    });
+    eventStore.append(pin);
+    projection.apply(pin.event, pin.plan);
+    assert.equal(projection.listPinnedEntities().length, 1);
+
     const deleted = compileScheduleDeletedEvent({
-      ...input(5, "schedule_deleted", settledSchedule),
+      ...input(6, "schedule_deleted", settledSchedule),
       baseBlobSha256: created.blobs[0].sha256,
       reason: "No longer required",
     });
@@ -109,6 +124,7 @@ test("Schedule definition and run view share one canonical stream and rebuild ex
     projection.apply(deleted.event, deleted.plan);
     assert.equal(projection.readDocument("schedules/schedule-heartbeat.json").document, null);
     assert.equal(projection.getEntity("schedule", "schedule-heartbeat"), null);
+    assert.deepEqual(projection.listPinnedEntities(), []);
     assert.deepEqual(
       eventStore.read().events.map(({ type }) => type),
       [
@@ -116,13 +132,15 @@ test("Schedule definition and run view share one canonical stream and rebuild ex
         "schedule_occurrence_claimed",
         "schedule_occurrence_dispatched",
         "schedule_run_settled",
+        "entity_pinned",
         "schedule_deleted",
       ],
     );
     const rebuiltAfterDelete = projection.rebuild();
-    assert.equal(rebuiltAfterDelete.watermark, 5);
+    assert.equal(rebuiltAfterDelete.watermark, 6);
     assert.equal(projection.readDocument("schedules/schedule-heartbeat.json").document, null);
     assert.equal(projection.getEntity("schedule", "schedule-heartbeat"), null);
+    assert.deepEqual(projection.listPinnedEntities(), []);
   });
 });
 

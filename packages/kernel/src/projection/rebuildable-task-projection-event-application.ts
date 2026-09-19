@@ -352,6 +352,7 @@ export function applyEvent(
     if ("declarationDocumentRetirement" in event.payload) {
       runSql(db, "DELETE FROM document WHERE path = ?", event.payload.declarationDocumentRetirement.path);
       deleteEntityProjectionRow(db, "schedule", event.entity.id);
+      runSql(db, "DELETE FROM pinned_entities WHERE entity_ref = ?", `schedule/${event.entity.id}`);
       return;
     }
     projectEmbeddedCanonicalEntities(db, event);
