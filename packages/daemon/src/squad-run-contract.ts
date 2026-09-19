@@ -366,15 +366,18 @@ function squadRunIso(value: unknown): value is string {
 function squadRunReadyStatus(value: unknown): boolean {
   return value === "ready" || value === "pending";
 }
+// A token-named key carries a credential only when its value is a string — the same value-type
+// line as the dispatch-stream scrubber (dispatch-stream.ts), because this contract is the one
+// reject-side surface where LLM usage telemetry legitimately crosses (tokenUsage counters). The
+// old tokenUsage key exemption was weaker: it waved any value, strings included, through under
+// that one name; counting keys with non-string values now pass on their type instead.
+const squadRunForbiddenKey = /(?:credential|password|secret|authorization|api[-_]?key|transcript|stdout|stderr)/iu,
+  squadRunTokenKey = /token/iu;
 function squadRunSafeKeys(value: unknown): boolean {
   if (Array.isArray(value)) return value.every(squadRunSafeKeys);
   if (!squadRunRecord(value)) return true;
   for (const [key, nested] of Object.entries(value)) {
-    if (
-      key !== "tokenUsage" &&
-      /(?:credential|password|secret|authorization|api[-_]?key|token|transcript|stdout|stderr)/iu.test(key)
-    )
-      return false;
+    if (squadRunForbiddenKey.test(key) || (squadRunTokenKey.test(key) && typeof nested === "string")) return false;
     if (!squadRunSafeKeys(nested)) return false;
   }
   return true;

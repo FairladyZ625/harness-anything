@@ -186,14 +186,29 @@ test("squad run list validator locks the redacted wire shape", () => {
   assert.deepEqual(validateSquadRunsList(list), []);
   assert.equal(parseDaemonGuiReadResult("repo.squad.runs.list", list), list);
   assert.equal(serializeSquadRunsList(list), `${JSON.stringify(list)}\n`);
-  assert.notDeepEqual(validateSquadRunsList({ ...list, token: "secret" }), []);
+  for (const key of ["token", "access_token", "id_token"])
+    assert.notDeepEqual(validateSquadRunsList({ ...list, [key]: "secret" }), [], `${key} must stay rejected`);
 });
 
 test("squad run read validator locks the orchestration-flow wire shape", () => {
   assert.deepEqual(validateSquadRunRead(detail), []);
   assert.equal(parseDaemonGuiReadResult("repo.squad.run.read", detail), detail);
   assert.equal(serializeSquadRunRead(detail), `${JSON.stringify(detail)}\n`);
-  assert.notDeepEqual(validateSquadRunRead({ ...detail, token: "secret" }), []);
+  for (const key of ["token", "access_token", "id_token"])
+    assert.notDeepEqual(validateSquadRunRead({ ...detail, [key]: "secret" }), [], `${key} must stay rejected`);
+  // tokenUsage counts pass on their value type (numbers), never on the key name: a string under
+  // that name is a credential and must be rejected, exemption-free.
+  const stringTokenUsage = {
+    ...detail,
+    run: {
+      ...detail.run,
+      leaderTurns: detail.run.leaderTurns.map((turn: { readonly tokenUsage: unknown }) => ({
+        ...turn,
+        tokenUsage: "ghp_secret",
+      })),
+    },
+  };
+  assert.notDeepEqual(validateSquadRunRead(stringTokenUsage), []);
   // 台账行缺失(leader 轮次无对应派工)必须以 null 呈现,不得伪造状态。
   assert.deepEqual(
     validateSquadRunRead({

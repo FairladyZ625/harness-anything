@@ -518,6 +518,10 @@ test("secret-like keys are rejected at any depth while the JSON object check sta
   assert.deepEqual(rejectSecretKeys({ items: [{ ok: 1 }, { token: "t" }] }), [
     "payload contains a forbidden secret-like key",
   ]);
+  // String-valued token keys stay rejected under every spelling; no usage payload crosses this
+  // surface, so the value-type line from the dispatch scrubber deliberately does not apply here.
+  for (const key of ["token", "access_token", "id_token"])
+    assert.deepEqual(rejectSecretKeys({ [key]: "opaque" }), ["payload contains a forbidden secret-like key"]);
   assert.deepEqual(rejectSecretKeys({ note: "token appears only in a value" }), []);
   assert.equal(isJsonObject({ nested: { anything: () => 1 } }), true);
   assert.equal(isJsonObject([]), false);
