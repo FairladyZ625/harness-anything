@@ -217,8 +217,7 @@ export async function seedBuiltinSchedules(input: {
       disabled: true,
       mission:
         "Run `ha schedule reckon` and review the general ledger signals from the most recent window. Open the " +
-        "evidence behind each candidate and " +
-        "Group items with the same cause. First ask whether the mechanism creating the friction can be fixed; then " +
+        "evidence behind each candidate and group items with the same cause. First ask whether the mechanism creating the friction can be fixed; then " +
         "whether an existing rule can be removed; only then consider a new rule with an explicit expiry condition. " +
         "Treat the second occurrence of the same class as a structural problem. Report no finding when the evidence " +
         "does not justify one.",
