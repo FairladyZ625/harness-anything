@@ -250,9 +250,7 @@ test("task settle parses to the closed orchestration action", () => {
 });
 
 test("consent accepts only server-derived Review inputs", () => {
-  const complete = parseThinCommand(["task", "complete", "task-1", "--consent"]);
-  assert.equal(complete.ok, true, JSON.stringify(complete));
-  if (complete.ok) assert.equal(complete.command.action.consent, true);
+  assert.equal(parseThinCommand(["task", "complete", "task-1", "--consent"]).ok, false);
   for (const flag of ["--consent-id", "--from-file", "--json-input"])
     assert.equal(parseThinCommand(["task", "review-consent", "task-1", flag, "obsolete"]).ok, false, flag);
 });

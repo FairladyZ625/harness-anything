@@ -53,6 +53,35 @@ describe("Task completion panel", () => {
     expect(consents).toEqual(["review-w3"]);
   });
 
+  it("routes submitted triage and in-review return through owner adjudication", async () => {
+    installBridge({ completionBlocker: { code: "review_missing", gate: "review" } });
+    const calls: Array<[string, string | undefined]> = [];
+    await mount({
+      task: {
+        ...task,
+        coordinationStatus: "submitted",
+        canonicalStatus: "submitted",
+        ...projectedTaskFields("submitted"),
+      },
+      onAdjudicate: (decision, _reason, reviewId) => (calls.push([decision, reviewId]), Promise.resolve()),
+    });
+    await clickTab("收口");
+    await act(async () => {
+      byTestId("task-triage-forward").click();
+    });
+    expect(calls).toEqual([["forward", undefined]]);
+
+    cleanupMountedDetail();
+    await mount({
+      onAdjudicate: (decision, _reason, reviewId) => (calls.push([decision, reviewId]), Promise.resolve()),
+    });
+    await clickTab("收口");
+    await act(async () => {
+      byTestId("task-review-return").click();
+    });
+    expect(calls.at(-1)).toEqual(["return", "review-w3"]);
+  });
+
   it("keeps button behavior identical when the action prose changes", async () => {
     // 面板阶段只认结构化 blocker.code;action 文案换成完全不同的措辞,按钮状态必须不变。
     installBridge({

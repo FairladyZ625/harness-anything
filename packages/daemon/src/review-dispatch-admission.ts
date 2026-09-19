@@ -10,6 +10,11 @@ export function selectReviewTarget(
   remote: boolean,
 ): ExecutionV1 | null {
   if (taskId === null || remote || taskSnapshot === null) return null;
+  if (taskSnapshot.task?.status !== "in_review")
+    throw runtimeSpawnError(
+      "review_admission_denied",
+      `Task ${taskId} is not in review. The task owner must forward the submitted cut before a reviewer is dispatched.`,
+    );
   const candidates = currentSubmittedExecutions(taskSnapshot);
   if (requestedExecutionId !== undefined) {
     const match = candidates.find((candidate) => candidate.executionId === requestedExecutionId);

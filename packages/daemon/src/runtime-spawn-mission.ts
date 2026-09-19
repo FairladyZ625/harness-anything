@@ -241,8 +241,16 @@ export function deriveTaskMission(
       : null,
     causalContextResolved =
       causalContext === undefined ? assembleTaskCausalContext({ projection, taskId }) : causalContext,
+    snapshot = projection.read(taskId).snapshot,
+    priorIteration = snapshot.task && snapshot.task.iteration > 0 ? snapshot.task.iteration - 1 : null,
+    returnDocument =
+      priorIteration === null
+        ? null
+        : projection.readDocument(`${planDocument.packagePath}/returns/iteration-${String(priorIteration)}.md`)
+            .document,
     mission = [
       `Your task package is ${packageRoot}.\nRead ${path.basename(planPath)} in that package and complete the task.`,
+      ...(returnDocument ? [`# Owner rework instruction\n\n${returnDocument.body.trim()}`] : []),
       taskQueryGuidance(taskId),
       ...(causalContextResolved === null ? [] : [causalContextResolved]),
       ...(missionDocument ? [`# Mission: ${missionName}\n\n${missionDocument.body.trim()}`] : []),

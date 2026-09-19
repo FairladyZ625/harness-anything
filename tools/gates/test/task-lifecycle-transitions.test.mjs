@@ -591,12 +591,14 @@ test("G10 the owner's adjudication is the only authority over a submitted cut", 
     () => applyTransition(forwarded.snapshot, adjudicate(5, "return", "rework", "review-unknown"), adjudicateProof()),
     (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof",
   );
-  // A queued initial-triage return cannot be reinterpreted as a final-review verdict after a
-  // concurrent forward wins. Final return orders bind the review that the owner adjudicated.
-  assert.throws(
-    () => applyTransition(forwarded.snapshot, adjudicate(5, "return", "stale initial return"), adjudicateProof()),
-    (error) => error instanceof TaskLifecycleContractError && error.code === "invalid_proof",
+  // A forwarded cut whose reviewer attempt failed before recording any Review still has an owner
+  // recovery exit. Once any Review exists, final return orders must bind the reviewed record.
+  const failedAttemptReturn = applyTransition(
+    forwarded.snapshot,
+    adjudicate(5, "return", "review attempt ended without a report"),
+    adjudicateProof(),
   );
+  assert.equal(failedAttemptReturn.snapshot.task.status, "active");
   // A return order closes the cut and reopens the implementation iteration.
   const returned = applyTransition(
     submitted.snapshot,

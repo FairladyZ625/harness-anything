@@ -451,6 +451,10 @@ function AppShell() {
                   onProgress={(input) => taskActions.appendProgress(selected, input)}
                   onSubmit={() => taskActions.submitTask(selected)}
                   onComplete={() => taskActions.completeTask(selected)}
+                  onAdjudicate={(decision, reason, reviewId) =>
+                    taskActions.adjudicateTask(selected, decision, reason, reviewId)
+                  }
+                  onConsentReview={(reviewId) => taskActions.consentReview(selected, reviewId)}
                   onAttest={taskActions.attestGate}
                   onSetPin={handleSetPin}
                   onOpenTerminal={(task) => {

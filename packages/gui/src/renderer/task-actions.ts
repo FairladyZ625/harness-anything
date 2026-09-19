@@ -244,7 +244,7 @@ export function useTaskActions(repoId: string) {
   );
   // CEO 裁决:送审(--forward,daemon 同时派出独立评审)或打回(--return,带返工说明)。
   const adjudicateTask = useCallback(
-    (task: TaskRow, decision: "forward" | "return", reason: string): Promise<TaskMutationFeedback> =>
+    (task: TaskRow, decision: "forward" | "return", reason: string, reviewId?: string): Promise<TaskMutationFeedback> =>
       once(`adjudicate:${task.taskId}:${decision}`, task.taskId, async () => {
         publish(task.taskId, {
           state: "pending",
@@ -257,6 +257,7 @@ export function useTaskActions(repoId: string) {
             repoId,
             taskId: task.taskId,
             executionId: task.activeExecutionId,
+            ...(reviewId ? { reviewId } : {}),
             ...(decision === "forward" ? { forward: true } : { return: true }),
             reason,
           }),

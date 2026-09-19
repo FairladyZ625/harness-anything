@@ -56,7 +56,11 @@ export const adjudicate: Transition = {
             "a return order requires the current submitted cut at the review gate (status submitted or in_review)",
           ),
         );
-      else if (task.status === "in_review" && command.reviewId === undefined)
+      else if (
+        task.status === "in_review" &&
+        command.reviewId === undefined &&
+        snapshot.reviews.some((value) => value.executionId === command.executionId)
+      )
         issues.push(
           lifecycleContractIssue(
             "invalid_proof",
@@ -71,6 +75,16 @@ export const adjudicate: Transition = {
       )
         issues.push(
           lifecycleContractIssue("invalid_proof", "a verdict return must name a recorded review of this cut"),
+        );
+      else if (
+        task.status === "in_review" &&
+        snapshot.consents.some((value) => value.executionId === command.executionId)
+      )
+        issues.push(
+          lifecycleContractIssue(
+            "invalid_transition",
+            "the current submitted cut already has owner consent and cannot be returned",
+          ),
         );
     } else {
       issues.push(lifecycleContractIssue("invalid_schema", "adjudication decides forward or return"));

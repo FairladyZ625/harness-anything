@@ -24,6 +24,20 @@ export function reviewDispatchKey(taskId: string, execution: ExecutionV1): strin
   )}`;
 }
 
+function reviewAttemptKey(base: string, attempt: number): string {
+  return attempt === 0 ? base : `${base}:attempt${String(attempt)}`;
+}
+
+function reviewAttemptEnded(cell: RepoCellOperationalContext, runtimeSessionId: string): boolean {
+  return cell.projection
+    .readRuntimeSessionEvents(runtimeSessionId, 0, 10_000)
+    .some((event) =>
+      ["runtime_session_exited", "runtime_session_outcome_observed", "runtime_dispatch_outcome_unknown"].includes(
+        event.type,
+      ),
+    );
+}
+
 export function reviewDispatchIds(
   repoId: string,
   idempotencyKey: string,
@@ -241,6 +255,15 @@ export async function dispatchTaskReview(
     const read = requireCurrentTaskProjection(cell.projection, taskId, "task dispatch-review"),
       snapshot = read.snapshot,
       candidates = currentSubmittedExecutions(snapshot);
+    if (snapshot.task?.status !== "in_review") {
+      fail(
+        snapshot.task?.status === "submitted"
+          ? `Task ${taskId} still awaits its owner's triage. Run ha task adjudicate ${taskId} --forward ` +
+              "--note <why>; the forward order dispatches the independent reviewer."
+          : `Task ${taskId} is not at the in-review gate.`,
+      );
+      continue;
+    }
     let execution: ExecutionV1 | undefined;
     if (executionSelector !== undefined) {
       execution = candidates.find((candidate) => candidate.executionId === executionSelector);
@@ -257,14 +280,6 @@ export async function dispatchTaskReview(
           "cut; submit the implementation first.",
       );
       continue;
-    } else if (snapshot.task?.status === "submitted") {
-      // The owner's forward order owns the first dispatch (owner adjudication 2026-09-19); this
-      // manual lane re-dispatches a cut already sitting at the review gate.
-      fail(
-        `Task ${taskId} still awaits its owner's triage. Run ha task adjudicate ${taskId} --forward ` +
-          "--note <why>; the forward order dispatches the independent reviewer.",
-      );
-      continue;
     } else if (candidates.length > 1) {
       fail(
         `Task ${taskId} has ${String(candidates.length)} submitted executions on its current iteration. ` +
@@ -272,9 +287,17 @@ export async function dispatchTaskReview(
       );
       continue;
     } else execution = candidates[0]!;
-    const key = reviewDispatchKey(taskId, execution),
+    const baseKey = reviewDispatchKey(taskId, execution);
+    let attempt = 0,
+      key = reviewAttemptKey(baseKey, attempt),
       ids = reviewDispatchIds(cell.input.repoId, key),
       existing = cell.store.readEvent(ids.dispatchOpId);
+    while (existing !== null && reviewAttemptEnded(cell, ids.runtimeSessionId)) {
+      attempt += 1;
+      key = reviewAttemptKey(baseKey, attempt);
+      ids = reviewDispatchIds(cell.input.repoId, key);
+      existing = cell.store.readEvent(ids.dispatchOpId);
+    }
     if (existing !== null) {
       steps.push({
         taskId,
@@ -283,17 +306,6 @@ export async function dispatchTaskReview(
         runtimeSessionId: ids.runtimeSessionId,
         dispatchOpId: ids.dispatchOpId,
         outcome: "already_dispatched",
-      });
-      continue;
-    }
-    if (snapshot.reviews.some((review) => review.reviewId === `review-${ids.dispatchId}`)) {
-      steps.push({
-        taskId,
-        executionId: execution.executionId,
-        dispatchId: ids.dispatchId,
-        runtimeSessionId: ids.runtimeSessionId,
-        dispatchOpId: ids.dispatchOpId,
-        outcome: "already_reviewed",
       });
       continue;
     }

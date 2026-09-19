@@ -53,6 +53,7 @@ export function TaskDetailView({
   onProgress,
   onSubmit,
   onComplete,
+  onAdjudicate,
   onConsentReview,
   onAttest,
   onSetPin,
@@ -80,6 +81,7 @@ export function TaskDetailView({
   onSubmit?: () => Promise<unknown>;
   /** 收口销账写通道(`ha task complete` 同一动作);缺省时完成面板只读。 */
   onComplete?: () => Promise<unknown>;
+  onAdjudicate?: (decision: "forward" | "return", reason: string, reviewId?: string) => Promise<unknown>;
   onConsentReview?: (reviewId: string) => Promise<unknown>;
   /** Gate 签注写通道(`ha task attest` 同一动作);缺省时签注卡只读。 */
   onAttest?: (
@@ -369,6 +371,7 @@ export function TaskDetailView({
                 onProgress={onProgress}
                 onSubmit={onSubmit}
                 onComplete={onComplete}
+                onAdjudicate={onAdjudicate}
                 onConsentReview={onConsentReview}
                 onAttest={onAttest}
               />

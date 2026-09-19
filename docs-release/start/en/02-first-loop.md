@@ -175,9 +175,11 @@ and documents before closing the ledger task. `--fact-holds` records why the ope
 evidence remains standing.
 
 All edge nodes submit these commands to the center's single write queue. The task-event
-compare-and-swap fence admits one of two concurrent owner rulings or completions; the
-loser receives an invalid-transition receipt and must reread. Reviewer dispatch uses a
-deterministic task/execution/iteration/submission-digest key, so retries converge on one
+compare-and-swap fence admits one of two conflicting owner rulings; the loser receives an
+invalid-transition receipt and must reread. Two concurrent completions of the same ready cut
+converge idempotently on one operation id and return the same closeout result. Reviewer dispatch
+uses a deterministic task/execution/iteration/submission-digest/attempt key, so one live attempt
+converges on one runtime; only after it terminates can the owner deterministically open the next
 review runtime rather than overwriting another node's artifact.
 
 You now have a complete, queryable cycle rather than a task-shaped chat log.

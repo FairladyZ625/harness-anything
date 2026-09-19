@@ -46,6 +46,8 @@ export function lifecycleDocumentPaths(event: TaskEventV1, packagePath: string):
   const paths = [`${packagePath}/INDEX.md`, `${packagePath}/executions/${event.payload.execution.executionId}.md`];
   if (event.type === "review_recorded" || event.type === "review_consent_recorded")
     paths.push(`${packagePath}/reviews/${event.payload.review.reviewId}.md`);
+  if (event.type === "submission_returned")
+    paths.push(`${packagePath}/returns/iteration-${String(event.payload.execution.iteration)}.md`);
   if (event.type === "code_doc_reconciled" || event.type === "code_doc_repointed")
     paths.push(`${packagePath}/code-doc-anchors.json`);
   return paths;
@@ -286,6 +288,16 @@ export function renderLifecycleDocument(
       snapshot.consents.find((value) => value.reviewId === review?.reviewId) ?? null,
     );
   }
+  if (path.includes("/returns/") && event.type === "submission_returned")
+    return [
+      `# Owner return for iteration ${String(event.payload.execution.iteration)}\n\n`,
+      "Managed by `ha task adjudicate --return`; hand edits are rejected.\n\n",
+      `- Task: ${event.taskId}\n`,
+      `- Execution: ${event.payload.execution.executionId}\n`,
+      `- Review: ${event.payload.reviewId ?? "none recorded"}\n`,
+      `- Returned at: ${event.occurredAt}\n`,
+      `\n## Rework instruction\n\n${event.payload.reason}\n`,
+    ].join("");
   const execution =
     "execution" in event.payload
       ? event.payload.execution
@@ -337,11 +349,13 @@ function renderIndex(
       task.status === "active"
         ? `Run \`ha task submit ${task.taskId}\`.`
         : task.status === "submitted"
-          ? `Await the owning CEO's triage: \`ha task adjudicate ${task.taskId} --forward|--return --note-file <path>\`.`
+          ? gatesForCut.includes("review")
+            ? `Await the owning CEO's triage: \`ha task adjudicate ${task.taskId} --forward|--return --note-file <path>\`.`
+            : `Run \`ha task complete ${task.taskId}\`.`
           : task.status === "in_review" && !approved.length
-            ? `Run \`ha task complete ${task.taskId}\`.`
+            ? `Run \`ha task dispatch-review ${task.taskId}\`, or record the assigned review.`
             : task.status === "in_review" && !selected
-              ? [`Run \`ha task complete ${task.taskId} --consent\`.`].join("")
+              ? `Run \`ha task review-consent ${task.taskId} --review-id ${approved.at(-1)!.reviewId}\`.`
               : missingGate === "code-doc-reconciliation"
                 ? `Run \`ha task code-doc reconcile ${task.taskId} --path <repo-relative-path>...\`.`
                 : task.status === "done"

@@ -324,7 +324,7 @@ test("already merged dispatch preserves earlier branch changes and rejects unrel
   assert.throws(() => derive(root, "Worktree delivery."), { code: "invalid_submission" });
 });
 
-test("removed dispatch worktree resolves an explicit published cut in the canonical repository", (t) => {
+test("removed dispatch worktree resolves an explicit delivery cut in the canonical repository", (t) => {
   const { root } = fixture(t),
     cwd = path.join(root, "worker");
   git(root, "worktree", "add", "-qb", "worker", cwd);
@@ -341,7 +341,7 @@ test("removed dispatch worktree resolves an explicit published cut in the canoni
   assert.throws(() => derive(root, `Delivery ${"f".repeat(40)}`), /not published/u);
   put(root, "src/unpublished.ts", "unpublished\n");
   const unpublished = commit(root);
-  assert.throws(() => derive(root, `Delivery ${unpublished}`), /published merge commit/u);
+  assert.equal(derive(root, `Delivery ${unpublished}`).commitSha, unpublished);
 });
 
 test("one execution with two dispatch directories accepts its published merge cut", (t) => {

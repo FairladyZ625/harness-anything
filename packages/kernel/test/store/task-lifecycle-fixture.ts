@@ -246,6 +246,7 @@ export function twoRoundLifecycleEvents(
       firstExecutionId,
       "return",
       "owner accepted the changes_requested report; rework the cut",
+      "review-round-one",
     ),
     adjudicationProof,
   );

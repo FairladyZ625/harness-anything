@@ -230,12 +230,13 @@ export async function proofFor(
         ? projection.readRuntimeDispatch(runtimeSession.runtimeSessionId, runtimeSession.definitionSnapshotRef)
         : null,
       key = dispatch?.payload.idempotencyKey;
-    if (key?.startsWith("task-review:") && execution?.submission) {
-      const currentKey = reviewDispatchKey(command.taskId, execution);
+    if ((key?.startsWith("task-review:") || key?.startsWith("complete-review:")) && execution?.submission) {
+      const currentKey = reviewDispatchKey(command.taskId, execution),
+        legacyKey = currentKey.replace(/^task-review:/u, "complete-review:");
       // The current key ends in the fixed-length submission digest, so no earlier cut's key can be
       // a strict prefix. Every reviewer dispatch — the owner's forward order or the manual
       // dispatch-review lane — shares this one key shape.
-      if (key !== currentKey)
+      if (key !== currentKey && key !== legacyKey && !key.startsWith(`${legacyKey}:`))
         throw cellCodedError(
           "invalid_proof",
           "This reviewer dispatch belongs to an earlier submission cut; wait for the owner's next forward order.",

@@ -420,12 +420,6 @@ export const taskActionDescriptorProjection = {
             required: false,
             cli: { name: "--execution-id", kind: "single", error: "invalid_field" },
           },
-          {
-            field: "consent",
-            type: "boolean",
-            required: false,
-            cli: { name: "--consent", kind: "boolean", error: "invalid_field" },
-          },
           { field: "ci", type: "string", required: false },
           { field: "paths", type: "string-array", required: false },
           {

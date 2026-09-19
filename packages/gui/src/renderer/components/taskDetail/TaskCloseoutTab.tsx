@@ -28,6 +28,8 @@ export interface TaskActionProps {
   readonly onSubmit?: () => Promise<unknown>;
   /** 收口销账:纯机械动作。 */
   readonly onComplete?: () => Promise<unknown>;
+  /** CEO 初审送审/打回与终审打回。 */
+  readonly onAdjudicate?: (decision: "forward" | "return", reason: string, reviewId?: string) => Promise<unknown>;
   /** CEO 终审批准:对指定已批准评审记录同意。 */
   readonly onConsentReview?: (reviewId: string) => Promise<unknown>;
   /** Gate 签注:manual-attest 打勾(approve)或失败关卡特批(override)。 */
@@ -45,6 +47,7 @@ export function TaskCloseoutTab({
   onProgress,
   onSubmit,
   onComplete,
+  onAdjudicate,
   onConsentReview,
   onAttest,
 }: { readonly task: TaskRow } & TaskActionProps) {
@@ -105,6 +108,7 @@ export function TaskCloseoutTab({
             task={task}
             completionBlocker={completion.data?.completionBlocker ?? null}
             onComplete={onComplete}
+            onAdjudicate={onAdjudicate}
             onConsentReview={onConsentReview}
           />
           <AuditGroup title="Review" count={reviews.length}>
@@ -178,11 +182,13 @@ function CompletionPanel({
   task,
   completionBlocker,
   onComplete,
+  onAdjudicate,
   onConsentReview,
 }: {
   readonly task: TaskRow;
   readonly completionBlocker: TaskCompletionRead["completionBlocker"];
   readonly onComplete?: () => Promise<unknown>;
+  readonly onAdjudicate?: (decision: "forward" | "return", reason: string, reviewId?: string) => Promise<unknown>;
   readonly onConsentReview?: (reviewId: string) => Promise<unknown>;
 }) {
   const code = completionBlocker?.code,
@@ -194,7 +200,7 @@ function CompletionPanel({
           : code === undefined || code === null
             ? ("ready" as const)
             : ("other" as const);
-  if (task.coordinationStatus !== "in_review" || stage === "other") return null;
+  if (!["submitted", "in_review"].includes(task.coordinationStatus) || stage === "other") return null;
   const approved = (task.reviews ?? []).filter((review) => review.verdict === "approved").at(-1),
     buttonClass =
       "rounded-md bg-accent px-2.5 py-1.5 ui-meta font-semibold text-accent-fg transition-colors duration-100 " +
@@ -210,6 +216,43 @@ function CompletionPanel({
             : "终审批准已记录:结项是纯机械动作,立即封存。"}
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
+        {task.coordinationStatus === "submitted" ? (
+          <>
+            <button
+              type="button"
+              data-testid="task-triage-forward"
+              disabled={!onAdjudicate}
+              onClick={() =>
+                void onAdjudicate?.("forward", "Owner initial review accepted this cut for independent review.")
+              }
+              className={buttonClass}
+            >
+              送独立评审
+            </button>
+            <button
+              type="button"
+              data-testid="task-triage-return"
+              disabled={!onAdjudicate}
+              onClick={() => void onAdjudicate?.("return", "Owner initial review returned this cut for rework.")}
+              className={buttonClass}
+            >
+              初审打回
+            </button>
+          </>
+        ) : null}
+        {task.coordinationStatus === "in_review" && approved ? (
+          <button
+            type="button"
+            data-testid="task-review-return"
+            disabled={!onAdjudicate}
+            onClick={() =>
+              void onAdjudicate?.("return", "Owner final review returned this cut for rework.", approved.reviewId)
+            }
+            className={buttonClass}
+          >
+            终审打回
+          </button>
+        ) : null}
         {stage === "consent" ? (
           <button
             type="button"

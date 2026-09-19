@@ -446,6 +446,7 @@ export async function mount(
   overrides: {
     readonly task?: TaskRow;
     readonly onComplete?: () => Promise<unknown>;
+    readonly onAdjudicate?: (decision: "forward" | "return", reason: string, reviewId?: string) => Promise<unknown>;
     readonly onConsentReview?: (reviewId: string) => Promise<unknown>;
   } = {},
 ) {
@@ -471,6 +472,7 @@ export async function mount(
           onNavigateEntity: () => undefined,
           onOpenTerminal,
           onComplete: overrides.onComplete,
+          onAdjudicate: overrides.onAdjudicate,
           onConsentReview: overrides.onConsentReview,
           projectName: "Harness",
         }),

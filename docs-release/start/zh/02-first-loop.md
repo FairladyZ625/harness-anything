@@ -160,10 +160,11 @@ ha task complete task_... --fact-holds "F-3C9EB45C:The handoff-loss observation 
 `complete` 不派 reviewer、不等待或代选评审，也不合并 Git 分支；它只机械校验已经登记的评审、
 owner consent、witness 与文档，然后关闭台账任务。`--fact-holds` 记录开头那条证据为何仍然成立。
 
-多个边缘节点的命令都进入中心单写队列。任务事件的 compare-and-swap fence 只允许两个并发裁决或
-complete 中的一个成功；败者收到 invalid-transition 回执后重读。评审派发以
-task/execution/iteration/submission-digest 组成确定性键，所以重试收敛到同一个 review runtime，
-不会覆盖另一节点的 artifact。
+多个边缘节点的命令都进入中心单写队列。任务事件的 compare-and-swap fence 只允许两个冲突裁决
+中的一个成功；败者收到 invalid-transition 回执后重读。两个并发 complete 对同一已就绪 cut
+以同一个 operation id 幂等收敛，得到同一结项结果。评审派发以
+task/execution/iteration/submission-digest/attempt 组成确定性键；同一在飞 attempt 收敛到同一个
+review runtime，已终结 attempt 后 owner 才能确定性地开启下一次，且不会覆盖另一节点的 artifact。
 
 现在得到的是可查询的完整闭环，而不是 task 形状的聊天记录。下一步可读
 [三原语内核](../../learn/zh/01-three-primitive-kernel.md)，或把[日常命令速记表](03-daily-commands.md)

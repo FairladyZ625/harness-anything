@@ -635,7 +635,6 @@ export const declarations: readonly Declaration[] = Object.freeze([
       taskId,
       expectedVersion,
       cli("executionId", "string", false, "--execution-id"),
-      cli("consent", "boolean", false, "--consent", "boolean"),
       field("ci"),
       field("paths", "string-array"),
       cli("factHolds", "fact-hold-array", false, "--fact-holds", "repeated", {

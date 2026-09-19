@@ -392,6 +392,7 @@ export const harnessClient = {
     payload: RepoScope & {
       readonly taskId: string;
       readonly executionId?: string;
+      readonly reviewId?: string;
       readonly forward?: boolean;
       readonly return?: boolean;
       readonly reason?: string;

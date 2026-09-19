@@ -61,6 +61,41 @@ const boundCuts = (f: Awaited<ReturnType<typeof fixture>>, runtimeSessionId: str
     });
 
 test(
+  "submitted cuts reject explicit dispatch-review and generic reviewer runtime ingress before owner forward",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, undefined, {
+      closeoutProfile: "standard",
+      autoForward: false,
+    });
+    try {
+      await f.install();
+      const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], executionId });
+      assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
+      assert.match(dispatchesOf(receipt)[0]?.error ?? "", /awaits its owner's triage/u);
+      await expectCoded(
+        f.cell().spawnRuntime(
+          {
+            agentId: "closeout-reviewer",
+            role: "reviewer",
+            taskId,
+            executionId,
+            cwd: { scope: "repo-root" },
+            idempotencyKey: "review-before-forward",
+            prompt: "review",
+          },
+          owner,
+        ),
+        "review_admission_denied",
+      );
+      assert.equal(f.launches.length, 0);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
   "task dispatch-review launches one reviewer bound to the submitted cut without touching the implementation iteration",
   { timeout: 20_000 },
   async () => {
