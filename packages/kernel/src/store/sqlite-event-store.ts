@@ -694,7 +694,6 @@ function createSchema(db: DatabaseSync, query: SqliteQuery, repoId: string, gene
       digest TEXT NOT NULL, occurred_at TEXT NOT NULL,
       recorded_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     ) STRICT;
-    DROP INDEX IF EXISTS event_event_id;
     CREATE INDEX IF NOT EXISTS event_event_id ON event(json_extract(event_json, '$.eventId'));
     CREATE INDEX IF NOT EXISTS event_type ON event(json_extract(event_json, '$.type'), revision DESC);
     CREATE INDEX IF NOT EXISTS event_actor_person
