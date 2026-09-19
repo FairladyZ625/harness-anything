@@ -246,6 +246,64 @@ test("runtime installation probes are asynchronous and parallel across providers
   }
 });
 
+test("launch reuses the witnessed installation and refreshes only when its PATH entry changes", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-launch-witness-")),
+    bin = path.join(root, "bin"),
+    entry = path.join(bin, "codex"),
+    firstExecutable = path.join(root, "codex-first.mjs"),
+    secondExecutable = path.join(root, "codex-second.mjs");
+  try {
+    mkdirSync(bin);
+    writeProviderExecutable(firstExecutable, 'console.log("codex-first");\n');
+    writeProviderExecutable(secondExecutable, 'console.log("codex-second");\n');
+    symlinkSync(firstExecutable, entry);
+    let witnessed = await discoverRuntimeInstallations({ env: { PATH: bin } }),
+      refreshes = 0,
+      subscriptionChecks = 0;
+    const store = openRuntimeInstanceStore({
+      userRoot: path.join(root, "user"),
+      discover: () => witnessed,
+      refreshDiscovery: async () => {
+        refreshes += 1;
+        witnessed = await discoverRuntimeInstallations({ env: { PATH: bin } });
+        return witnessed;
+      },
+      subscriptionReady: () => {
+        subscriptionChecks += 1;
+        return { status: "ready", code: null, hint: null };
+      },
+    });
+    const installation = witnessed[0]!;
+    store.create({
+      schemaVersion: 2,
+      instanceId: "codex-witness",
+      name: "Codex witness",
+      kindId: "codex",
+      installationId: installation.installationId,
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      defaultModel: "gpt-5.6-sol",
+      enabled: true,
+      codex: {},
+      auth: { mode: "subscription" },
+    });
+
+    const first = await store.prepareLaunch("codex-witness", { cwd: root, prompt: "first" });
+    assert.equal(first.executablePath, realpathSync(firstExecutable));
+    assert.equal(refreshes, 0);
+    assert.equal(subscriptionChecks, 1);
+
+    rmSync(entry);
+    symlinkSync(secondExecutable, entry);
+    const second = await store.prepareLaunch("codex-witness", { cwd: root, prompt: "second" });
+    assert.equal(second.executablePath, realpathSync(secondExecutable));
+    assert.equal(refreshes, 1);
+    assert.equal(subscriptionChecks, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("Codex sidecar launch materializes the complete non-secret provider config in isolated CODEX_HOME", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-api-isolation-"));
   try {
