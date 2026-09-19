@@ -36,11 +36,13 @@ export { reconcileSqliteEvents } from "../store/sqlite-ledger-reconcile.ts";
 export {
   createLedgerBackup,
   drillLedgerBackup,
+  readVerifiedLedgerBackup,
   restoreLedgerBackup,
   readOfflineLedgerEvents,
   restoreDrillRetentionFor,
   runGenerationTwoConversion,
 } from "../store/ledger-backup.ts";
+export { applyLedgerBackupRetention, type LedgerBackupRetentionPolicyV1 } from "../store/ledger-backup-retention.ts";
 export {
   activateEmptyCanonicalGeneration,
   createImmutableLegacyGenerationSnapshotFromStoppedRepository,

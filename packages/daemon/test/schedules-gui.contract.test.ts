@@ -173,6 +173,65 @@ test("the schedule run history projection keeps a closed occurrence query", () =
   );
 });
 
+test("a builtin schedule row exposes its effective retention and a protected delete facet", () => {
+  const builtin = createScheduleV1({
+    scheduleId: "builtin-ledger-backup",
+    name: "Ledger backup",
+    mode: "detect",
+    spec: {
+      trigger: { kind: "cron", expression: "17 3 * * *", timezone: "UTC" },
+      target: { kind: "builtin", builtinId: "ledger-backup" },
+      mission: "System ledger backup.",
+    },
+    actor,
+    occurredAt: "2026-08-27T07:00:00.000Z",
+  });
+  const result = readSchedulesGui(
+    guiContext({
+      projection: {
+        ...guiContext().projection,
+        listEntities: (kind) =>
+          kind === "schedule"
+            ? [
+                { id: armedSchedule.scheduleId, value: armedSchedule, workspaceRevision: 3 },
+                { id: builtin.scheduleId, value: builtin, workspaceRevision: 1 },
+              ]
+            : kind === "agent"
+              ? [{ id: probeAgent.id, value: probeAgent, workspaceRevision: 2 }]
+              : [],
+      },
+    }),
+  );
+  assert.deepEqual(validateSchedulesList(result), []);
+  const row = result.schedules.find(({ scheduleId }) => scheduleId === builtin.scheduleId) as ScheduleGuiRowDto;
+  assert.deepEqual(row.target, { kind: "builtin", builtinId: "ledger-backup", keepDays: 3, keepMonthly: true });
+  assert.equal(row.actions.edit.available, true);
+  assert.equal(row.actions.enable.available, false);
+  assert.equal(row.actions.enable.code, "no_changes");
+  assert.equal(row.actions.runNow.available, true);
+  assert.deepEqual(row.actions.delete, {
+    available: false,
+    code: "schedule_builtin_protected",
+    nextAction: "schedule_builtin_protected",
+  });
+  // The joined wire shape stays closed around the builtin target: a bad retention value or an
+  // extra field must fail validation instead of reaching the renderer.
+  for (const mutate of [
+    (target: ScheduleGuiRowDto["target"]) => ({ ...target, keepDays: 0 }),
+    (target: ScheduleGuiRowDto["target"]) => ({ ...target, keepMonthly: "yes" }),
+    (target: ScheduleGuiRowDto["target"]) => ({ ...target, params: {} }),
+  ])
+    assert.notDeepEqual(
+      validateSchedulesList({
+        ...result,
+        schedules: result.schedules.map((candidate) =>
+          candidate.scheduleId === builtin.scheduleId ? { ...candidate, target: mutate(row.target) } : candidate,
+        ),
+      }),
+      [],
+    );
+});
+
 test("the six schedule GUI actions reuse the canonical action kinds", () => {
   const methods = daemonGuiActionMethods
     .filter(({ method }) => method.startsWith("repo.schedule."))

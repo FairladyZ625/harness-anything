@@ -119,7 +119,11 @@ export function ScheduleRunDetail({
             </KVRow>
             <KVRow name={t("schedules.fields.claimedAt")}>{time(occurrence.claimedAt)}</KVRow>
             <KVRow name={t("schedules.fields.agent")}>
-              {row.target.kind === "agent" ? row.target.agentId : row.target.squadId}
+              {row.target.kind === "agent"
+                ? row.target.agentId
+                : row.target.kind === "squad"
+                  ? row.target.squadId
+                  : row.target.builtinId}
             </KVRow>
           </KV>
         </div>

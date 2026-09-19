@@ -13,7 +13,7 @@ import {
   ScheduleGuiOptionsDto,
   ScheduleGuiRowDto,
 } from "../../../../daemon/src/protocol/schedules-gui-contract.ts";
-import type { ScheduleDefinitionInput, ScheduleModeWord } from "../schedules-client.ts";
+import type { ScheduleBuiltinEditInput, ScheduleDefinitionInput, ScheduleModeWord } from "../schedules-client.ts";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import { Badge, Btn, Chip, Hint, Modal, PlannedBox, TextInput, Toggle } from "./runtime/parts.tsx";
 
@@ -97,13 +97,16 @@ export function ScheduleForm({
   readonly busy: boolean;
   readonly error: string | null;
   readonly onCancel: () => void;
-  readonly onSubmit: (input: ScheduleDefinitionInput) => void;
+  readonly onSubmit: (input: ScheduleDefinitionInput | ScheduleBuiltinEditInput) => void;
 }) {
   const availableAgents = options.agents.filter(isAvailableScheduleGuiAgentOption),
     unavailableAgents = options.agents.filter(
       (option): option is Extract<ScheduleGuiAgentOptionDto, { readonly state: "invalid" | "missing" }> =>
         !isAvailableScheduleGuiAgentOption(option),
     ),
+    // A built-in Schedule is a system preset: only its name, cadence, and retention policy
+    // may change, so the executor/purpose/mission segments stay agent-form concerns.
+    builtinTarget = initial?.target.kind === "builtin" ? initial.target : undefined,
     initialAgentTarget = initial?.target.kind === "agent" ? initial.target : undefined,
     initialTrigger = initial?.trigger ?? null,
     initialCron = initialTrigger?.kind === "cron" ? parseCronCalendar(initialTrigger.expression) : null,
@@ -128,6 +131,8 @@ export function ScheduleForm({
     [fast, setFast] = useState(initialAgentTarget?.fast ?? false),
     [mission, setMission] = useState(initial?.mission ?? ""),
     [mode, setMode] = useState<ScheduleModeWord>(initial?.mode ?? "detect"),
+    [keepDays, setKeepDays] = useState(builtinTarget === undefined ? "" : String(builtinTarget.keepDays)),
+    [keepMonthly, setKeepMonthly] = useState(builtinTarget?.keepMonthly ?? true),
     [routing, setRouting] = useState<ScheduleRoutingState>({
       recordFact: true,
       draftDecisionPacket: true,
@@ -166,21 +171,32 @@ export function ScheduleForm({
     duplicate = initial === null && scheduleIds.includes(scheduleId),
     triggerReady =
       triggerKind === "interval" ? intervalMs !== null : cronExpression !== null && cronTimezone.trim() !== "",
+    keepDaysValue = Number(keepDays),
+    keepDaysValid =
+      keepDays.trim() !== "" && Number.isSafeInteger(keepDaysValue) && keepDaysValue >= 1 && keepDaysValue <= 3_650,
     ready =
       /^[a-z0-9][a-z0-9-]{0,63}$/u.test(scheduleId) &&
       !duplicate &&
       name.trim().length > 0 &&
       triggerReady &&
-      agent !== null &&
-      instance !== null &&
-      mission.trim().length > 0;
+      (builtinTarget !== undefined ? keepDaysValid : agent !== null && instance !== null && mission.trim().length > 0);
   const submit = () => {
-    if (!ready || instance === null) return;
+    if (!ready || (builtinTarget === undefined && instance === null)) return;
     const trigger =
       triggerKind === "interval"
         ? intervalMs !== null && { everyMs: intervalMs }
         : cronExpression !== null && cronTimezone.trim() !== "" && { cronExpression, timezone: cronTimezone.trim() };
     if (!trigger) return;
+    if (builtinTarget !== undefined) {
+      onSubmit({
+        scheduleId,
+        name: name.trim(),
+        ...trigger,
+        keepDays: keepDaysValue,
+        keepMonthly,
+      } satisfies ScheduleBuiltinEditInput);
+      return;
+    }
     const base: ScheduleDefinitionInput = {
       scheduleId,
       name: name.trim(),
@@ -339,226 +355,267 @@ export function ScheduleForm({
         )}
       </FormSection>
 
-      <FormSection testId="schedule-form-sec-executor" title={t("schedules.form.sec.executor")}>
-        <div
-          data-testid="schedule-form-executor"
-          className="inline-flex overflow-hidden rounded border border-border-strong"
-        >
-          <button type="button" aria-pressed className="bg-accent px-2.5 py-0.5 ui-micro font-semibold text-accent-fg">
-            {t("schedules.form.executor.agent")}
-          </button>
-          <button
-            type="button"
-            data-testid="schedule-form-executor-squad"
-            disabled
-            title={t("schedules.form.executor.squadPending")}
-            className="px-2.5 py-0.5 ui-micro text-text-faint"
+      {builtinTarget === undefined && (
+        <FormSection testId="schedule-form-sec-executor" title={t("schedules.form.sec.executor")}>
+          <div
+            data-testid="schedule-form-executor"
+            className="inline-flex overflow-hidden rounded border border-border-strong"
           >
-            {t("schedules.form.executor.squad")}
-          </button>
-        </div>
-        <div className="mt-2.5 grid grid-cols-[repeat(auto-fill,minmax(215px,1fr))] gap-x-[18px] gap-y-3">
-          <FormField label={t("schedules.fields.agent")}>
-            <select
-              data-testid="schedule-form-agent"
-              className="control w-full"
-              value={agentId}
-              onChange={(event) => {
-                setAgentId(event.target.value);
-                setRuntimeInstanceId("");
-                setModel("");
-                setReasoningEffort("");
-                setFast(false);
-              }}
+            <button
+              type="button"
+              aria-pressed
+              className="bg-accent px-2.5 py-0.5 ui-micro font-semibold text-accent-fg"
             >
-              {availableAgents.map((option) => (
-                <option key={option.agentId} value={option.agentId}>
-                  {option.name} · {option.agentId}
-                </option>
-              ))}
-            </select>
-            {unavailableAgents.map((option) => (
-              <span
-                key={option.agentId}
-                data-testid={`schedule-agent-option-${option.agentId}`}
-                className="mt-1 flex items-center gap-1.5 font-mono ui-micro text-text-faint"
+              {t("schedules.form.executor.agent")}
+            </button>
+            <button
+              type="button"
+              data-testid="schedule-form-executor-squad"
+              disabled
+              title={t("schedules.form.executor.squadPending")}
+              className="px-2.5 py-0.5 ui-micro text-text-faint"
+            >
+              {t("schedules.form.executor.squad")}
+            </button>
+          </div>
+          <div className="mt-2.5 grid grid-cols-[repeat(auto-fill,minmax(215px,1fr))] gap-x-[18px] gap-y-3">
+            <FormField label={t("schedules.fields.agent")}>
+              <select
+                data-testid="schedule-form-agent"
+                className="control w-full"
+                value={agentId}
+                onChange={(event) => {
+                  setAgentId(event.target.value);
+                  setRuntimeInstanceId("");
+                  setModel("");
+                  setReasoningEffort("");
+                  setFast(false);
+                }}
               >
-                {option.agentId}
-                <Badge tip={option.error.hint}>{scheduleAgentStateLabels()[option.state]}</Badge>
-              </span>
-            ))}
-          </FormField>
-          <FormField label={t("schedules.fields.instance")}>
-            <select
-              data-testid="schedule-form-instance"
-              className="control w-full"
-              value={selectedInstanceId}
-              onChange={(event) => {
-                setRuntimeInstanceId(event.target.value);
-                setModel("");
-                setReasoningEffort("");
-              }}
-            >
-              {compatibleInstances.map((option) => (
-                <option key={option.instanceId} value={option.instanceId}>
-                  {option.name} · {option.instanceId}
-                </option>
+                {availableAgents.map((option) => (
+                  <option key={option.agentId} value={option.agentId}>
+                    {option.name} · {option.agentId}
+                  </option>
+                ))}
+              </select>
+              {unavailableAgents.map((option) => (
+                <span
+                  key={option.agentId}
+                  data-testid={`schedule-agent-option-${option.agentId}`}
+                  className="mt-1 flex items-center gap-1.5 font-mono ui-micro text-text-faint"
+                >
+                  {option.agentId}
+                  <Badge tip={option.error.hint}>{scheduleAgentStateLabels()[option.state]}</Badge>
+                </span>
               ))}
-            </select>
-          </FormField>
-          <FormField label={t("schedules.fields.model")}>
-            <select
-              data-testid="schedule-form-model"
-              className="control w-full"
-              value={selectedModel}
-              onChange={(event) => setModel(event.target.value)}
-            >
-              <option value="">{t("schedules.form.instanceDefault")}</option>
-              {modelChoices.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                  {option === model && !instance?.models.includes(option)
-                    ? ` · ${t("schedules.form.notInInstanceList")}`
-                    : ""}
-                </option>
-              ))}
-            </select>
-          </FormField>
-          <FormField label={t("schedules.form.effort")}>
-            <select
-              data-testid="schedule-form-effort"
-              className="control w-full"
-              value={selectedEffort}
-              onChange={(event) => setReasoningEffort(event.target.value)}
-            >
-              <option value="">{t("schedules.form.instanceDefault")}</option>
-              {effortChoices.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                  {option === reasoningEffort && !instance?.efforts.includes(option)
-                    ? ` · ${t("schedules.form.notInInstanceList")}`
-                    : ""}
-                </option>
-              ))}
-            </select>
-          </FormField>
-          {instance?.kindId === "codex" ? (
-            <FormField label={t("agentRuntime.fast")}>
+            </FormField>
+            <FormField label={t("schedules.fields.instance")}>
+              <select
+                data-testid="schedule-form-instance"
+                className="control w-full"
+                value={selectedInstanceId}
+                onChange={(event) => {
+                  setRuntimeInstanceId(event.target.value);
+                  setModel("");
+                  setReasoningEffort("");
+                }}
+              >
+                {compatibleInstances.map((option) => (
+                  <option key={option.instanceId} value={option.instanceId}>
+                    {option.name} · {option.instanceId}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+            <FormField label={t("schedules.fields.model")}>
+              <select
+                data-testid="schedule-form-model"
+                className="control w-full"
+                value={selectedModel}
+                onChange={(event) => setModel(event.target.value)}
+              >
+                <option value="">{t("schedules.form.instanceDefault")}</option>
+                {modelChoices.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                    {option === model && !instance?.models.includes(option)
+                      ? ` · ${t("schedules.form.notInInstanceList")}`
+                      : ""}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+            <FormField label={t("schedules.form.effort")}>
+              <select
+                data-testid="schedule-form-effort"
+                className="control w-full"
+                value={selectedEffort}
+                onChange={(event) => setReasoningEffort(event.target.value)}
+              >
+                <option value="">{t("schedules.form.instanceDefault")}</option>
+                {effortChoices.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                    {option === reasoningEffort && !instance?.efforts.includes(option)
+                      ? ` · ${t("schedules.form.notInInstanceList")}`
+                      : ""}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+            {instance?.kindId === "codex" ? (
+              <FormField label={t("agentRuntime.fast")}>
+                <span
+                  data-testid="schedule-form-fast"
+                  className="inline-flex min-h-8 items-center gap-2 ui-micro text-text-muted"
+                >
+                  <Toggle checked={selectedFast} onChange={setFast} label={t("agentRuntime.fast")} />
+                  {t("agentRuntime.fastDescription")}
+                </span>
+              </FormField>
+            ) : null}
+          </div>
+          <PlannedBox>{t("schedules.form.executor.squadPending")}</PlannedBox>
+        </FormSection>
+      )}
+
+      {builtinTarget !== undefined && (
+        <FormSection testId="schedule-form-sec-retention" title={t("schedules.form.sec.retention")}>
+          <p className="ui-micro text-text-muted" data-testid="schedule-form-builtin-hint">
+            {t("schedules.builtin.hint")}
+          </p>
+          <div className="mt-2.5 grid grid-cols-[repeat(auto-fill,minmax(215px,1fr))] gap-x-[18px] gap-y-3">
+            <FormField label={t("schedules.form.keepDays")}>
+              <TextInput
+                label={t("schedules.form.keepDays")}
+                testId="schedule-form-keep-days"
+                type="number"
+                value={keepDays}
+                onChange={setKeepDays}
+              />
+            </FormField>
+            <FormField label={t("schedules.form.keepMonthly")}>
               <span
-                data-testid="schedule-form-fast"
+                data-testid="schedule-form-keep-monthly"
                 className="inline-flex min-h-8 items-center gap-2 ui-micro text-text-muted"
               >
-                <Toggle checked={selectedFast} onChange={setFast} label={t("agentRuntime.fast")} />
-                {t("agentRuntime.fastDescription")}
+                <Toggle checked={keepMonthly} onChange={setKeepMonthly} label={t("schedules.form.keepMonthly")} />
+                {t("schedules.form.keepMonthlyHint")}
               </span>
             </FormField>
-          ) : null}
-        </div>
-        <PlannedBox>{t("schedules.form.executor.squadPending")}</PlannedBox>
-      </FormSection>
+          </div>
+          <Hint>{t("schedules.form.retention.hint")}</Hint>
+        </FormSection>
+      )}
 
-      <FormSection testId="schedule-form-sec-purpose" title={t("schedules.form.sec.purpose")}>
-        <div
-          data-testid="schedule-form-purpose"
-          className="inline-flex overflow-hidden rounded border border-border-strong"
-        >
-          <button
-            type="button"
-            data-testid="schedule-form-purpose-detect"
-            aria-pressed={mode === "detect"}
-            onClick={() => setMode("detect")}
-            className={mode === "detect" ? SEGMENT_ON_CLASS : SEGMENT_OFF_CLASS}
+      {builtinTarget === undefined && (
+        <FormSection testId="schedule-form-sec-purpose" title={t("schedules.form.sec.purpose")}>
+          <div
+            data-testid="schedule-form-purpose"
+            className="inline-flex overflow-hidden rounded border border-border-strong"
           >
-            {t("schedules.form.purpose.detect")}
-          </button>
-          <button
-            type="button"
-            data-testid="schedule-form-purpose-remediate"
-            aria-pressed={mode === "remediate"}
-            onClick={() => setMode("remediate")}
-            className={mode === "remediate" ? SEGMENT_ON_CLASS : SEGMENT_OFF_CLASS}
-          >
-            {t("schedules.form.purpose.remediate")}
-          </button>
-        </div>
-        <div className="mt-2.5 grid gap-2 md:grid-cols-2">
-          <ModeCard active={mode === "detect"} title={t("schedules.form.purpose.detect")}>
-            {t("schedules.form.purpose.detectBoundary")}
-          </ModeCard>
-          <ModeCard active={mode === "remediate"} title={t("schedules.form.purpose.remediate")}>
-            {t("schedules.form.purpose.remediateBoundary")}
-          </ModeCard>
-        </div>
-      </FormSection>
+            <button
+              type="button"
+              data-testid="schedule-form-purpose-detect"
+              aria-pressed={mode === "detect"}
+              onClick={() => setMode("detect")}
+              className={mode === "detect" ? SEGMENT_ON_CLASS : SEGMENT_OFF_CLASS}
+            >
+              {t("schedules.form.purpose.detect")}
+            </button>
+            <button
+              type="button"
+              data-testid="schedule-form-purpose-remediate"
+              aria-pressed={mode === "remediate"}
+              onClick={() => setMode("remediate")}
+              className={mode === "remediate" ? SEGMENT_ON_CLASS : SEGMENT_OFF_CLASS}
+            >
+              {t("schedules.form.purpose.remediate")}
+            </button>
+          </div>
+          <div className="mt-2.5 grid gap-2 md:grid-cols-2">
+            <ModeCard active={mode === "detect"} title={t("schedules.form.purpose.detect")}>
+              {t("schedules.form.purpose.detectBoundary")}
+            </ModeCard>
+            <ModeCard active={mode === "remediate"} title={t("schedules.form.purpose.remediate")}>
+              {t("schedules.form.purpose.remediateBoundary")}
+            </ModeCard>
+          </div>
+        </FormSection>
+      )}
 
-      <FormSection testId="schedule-form-sec-routing" title={t("schedules.form.sec.routing")}>
-        <RoutingCard when={t("schedules.form.routing.onSucceeded")}>
-          <RoutingToggle
-            testId="schedule-form-routing-report"
-            label={t("schedules.form.routing.writeReport")}
-            tip={t("schedules.form.routing.lockedDefault")}
-            checked
-            locked
-          />
-        </RoutingCard>
-        <RoutingCard when={t("schedules.form.routing.onFindings")}>
-          <RoutingToggle
-            testId="schedule-form-routing-fact"
-            label={t("schedules.form.routing.recordFact")}
-            checked={routing.recordFact}
-            onChange={(checked) => setRouting((current) => ({ ...current, recordFact: checked }))}
-          />
-          <RoutingToggle
-            testId="schedule-form-routing-decision"
-            label={t("schedules.form.routing.draftDecision")}
-            checked={routing.draftDecisionPacket}
-            onChange={(checked) => setRouting((current) => ({ ...current, draftDecisionPacket: checked }))}
-          />
-          <RoutingToggle
-            testId="schedule-form-routing-notify"
-            label={t("schedules.form.routing.notify")}
-            checked={routing.notify}
-            onChange={(checked) => setRouting((current) => ({ ...current, notify: checked }))}
-          />
-        </RoutingCard>
-        <RoutingCard when={t("schedules.form.routing.onFailed")}>
-          <RoutingToggle
-            testId="schedule-form-routing-remediation"
-            label={t("schedules.form.routing.remediationTask")}
-            checked={routing.remediationTask}
-            onChange={(checked) => setRouting((current) => ({ ...current, remediationTask: checked }))}
-          />
-          <RoutingToggle
-            testId="schedule-form-routing-downstream"
-            label={t("schedules.form.routing.downstream")}
-            tip={t("schedules.form.routing.downstreamDisabled")}
-            checked={false}
-            locked
-          />
-        </RoutingCard>
-        <PlannedBox>{t("schedules.form.routing.pending")}</PlannedBox>
-      </FormSection>
+      {builtinTarget === undefined && (
+        <FormSection testId="schedule-form-sec-routing" title={t("schedules.form.sec.routing")}>
+          <RoutingCard when={t("schedules.form.routing.onSucceeded")}>
+            <RoutingToggle
+              testId="schedule-form-routing-report"
+              label={t("schedules.form.routing.writeReport")}
+              tip={t("schedules.form.routing.lockedDefault")}
+              checked
+              locked
+            />
+          </RoutingCard>
+          <RoutingCard when={t("schedules.form.routing.onFindings")}>
+            <RoutingToggle
+              testId="schedule-form-routing-fact"
+              label={t("schedules.form.routing.recordFact")}
+              checked={routing.recordFact}
+              onChange={(checked) => setRouting((current) => ({ ...current, recordFact: checked }))}
+            />
+            <RoutingToggle
+              testId="schedule-form-routing-decision"
+              label={t("schedules.form.routing.draftDecision")}
+              checked={routing.draftDecisionPacket}
+              onChange={(checked) => setRouting((current) => ({ ...current, draftDecisionPacket: checked }))}
+            />
+            <RoutingToggle
+              testId="schedule-form-routing-notify"
+              label={t("schedules.form.routing.notify")}
+              checked={routing.notify}
+              onChange={(checked) => setRouting((current) => ({ ...current, notify: checked }))}
+            />
+          </RoutingCard>
+          <RoutingCard when={t("schedules.form.routing.onFailed")}>
+            <RoutingToggle
+              testId="schedule-form-routing-remediation"
+              label={t("schedules.form.routing.remediationTask")}
+              checked={routing.remediationTask}
+              onChange={(checked) => setRouting((current) => ({ ...current, remediationTask: checked }))}
+            />
+            <RoutingToggle
+              testId="schedule-form-routing-downstream"
+              label={t("schedules.form.routing.downstream")}
+              tip={t("schedules.form.routing.downstreamDisabled")}
+              checked={false}
+              locked
+            />
+          </RoutingCard>
+          <PlannedBox>{t("schedules.form.routing.pending")}</PlannedBox>
+        </FormSection>
+      )}
 
-      <FormSection testId="schedule-form-sec-mission" title={t("schedules.form.sec.mission")}>
-        <div className="mb-2 flex flex-wrap items-center gap-1.5">
-          <Chip onClick={() => setMission(t("schedules.form.mission.template.probe.text"))}>
-            {t("schedules.form.mission.template.label")}: {t("schedules.form.mission.template.probe.label")}
-          </Chip>
-          <Chip onClick={() => insertMission("{{lastReport}}")}>{"{{lastReport}}"}</Chip>
-          <Chip onClick={() => insertMission("{{repo}}")}>{"{{repo}}"}</Chip>
-        </div>
-        <textarea
-          aria-label={t("schedules.form.mission")}
-          data-testid="schedule-form-mission"
-          className={
-            "min-h-28 w-full rounded border border-border-strong bg-surface px-2 py-1.5 ui-meta " +
-            "outline-none focus-visible:border-accent"
-          }
-          value={mission}
-          onChange={(event) => setMission(event.target.value)}
-        />
-        <Hint>{t("schedules.form.mission.hint")}</Hint>
-      </FormSection>
+      {builtinTarget === undefined && (
+        <FormSection testId="schedule-form-sec-mission" title={t("schedules.form.sec.mission")}>
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            <Chip onClick={() => setMission(t("schedules.form.mission.template.probe.text"))}>
+              {t("schedules.form.mission.template.label")}: {t("schedules.form.mission.template.probe.label")}
+            </Chip>
+            <Chip onClick={() => insertMission("{{lastReport}}")}>{"{{lastReport}}"}</Chip>
+            <Chip onClick={() => insertMission("{{repo}}")}>{"{{repo}}"}</Chip>
+          </div>
+          <textarea
+            aria-label={t("schedules.form.mission")}
+            data-testid="schedule-form-mission"
+            className={
+              "min-h-28 w-full rounded border border-border-strong bg-surface px-2 py-1.5 ui-meta " +
+              "outline-none focus-visible:border-accent"
+            }
+            value={mission}
+            onChange={(event) => setMission(event.target.value)}
+          />
+          <Hint>{t("schedules.form.mission.hint")}</Hint>
+        </FormSection>
+      )}
 
       {error !== null && (
         <p role="alert" data-testid="schedule-form-error" className="font-mono ui-micro text-status-blocked">
@@ -607,7 +664,7 @@ export function ScheduleFormDialog({
   readonly busy: boolean;
   readonly error: string | null;
   readonly onCancel: () => void;
-  readonly onSubmit: (input: ScheduleDefinitionInput) => void;
+  readonly onSubmit: (input: ScheduleDefinitionInput | ScheduleBuiltinEditInput) => void;
 }) {
   return (
     <Modal

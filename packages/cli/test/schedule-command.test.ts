@@ -25,9 +25,6 @@ test("Schedule CLI exposes CRUD and run-control commands with closed inputs", ()
     "--mission",
     "Run the probe",
     "--fast",
-    "--writable-root",
-    "tmp/harness-backup",
-    "--writable-root=.harness/restore-drills",
     "--disabled",
     "--idempotency-key",
     "seed-e2e-probe",
@@ -44,7 +41,6 @@ test("Schedule CLI exposes CRUD and run-control commands with closed inputs", ()
       runtimeInstanceId: "codex-probe",
       mission: "Run the probe",
       fast: true,
-      writableRoots: ["tmp/harness-backup", ".harness/restore-drills"],
       disabled: true,
       idempotencyKey: "seed-e2e-probe",
     });
@@ -175,18 +171,40 @@ test("Schedule CLI accepts cron and rejects ambiguous triggers, sub-minute inter
       mission: "one",
     });
   assert.equal(parseThinCommand(["schedule", "update", "probe"]).ok, false);
-  const cleared = parseThinCommand(["schedule", "update", "probe", "--clear-writable-roots"]);
-  assert.equal(cleared.ok, true);
-  if (cleared.ok)
-    assert.deepEqual(cleared.command.action, {
+  // Retention parameters ride the update verb; the kernel admits them on built-in schedules only.
+  const retention = parseThinCommand([
+    "schedule",
+    "update",
+    "builtin-ledger-backup",
+    "--keep-days",
+    "5",
+    "--keep-monthly",
+    "--idempotency-key",
+    "retention-1",
+  ]);
+  assert.equal(retention.ok, true);
+  if (retention.ok)
+    assert.deepEqual(retention.command.action, {
       kind: "schedule-update",
-      scheduleId: "probe",
-      writableRoots: [],
+      scheduleId: "builtin-ledger-backup",
+      keepDays: 5,
+      keepMonthly: true,
+      idempotencyKey: "retention-1",
+    });
+  const noMonthly = parseThinCommand(["schedule", "update", "builtin-ledger-backup", "--no-keep-monthly"]);
+  assert.equal(noMonthly.ok, true);
+  if (noMonthly.ok)
+    assert.deepEqual(noMonthly.command.action, {
+      kind: "schedule-update",
+      scheduleId: "builtin-ledger-backup",
+      keepMonthly: false,
     });
   assert.equal(
-    parseThinCommand(["schedule", "update", "probe", "--writable-root", "tmp/backup", "--clear-writable-roots"]).ok,
+    parseThinCommand(["schedule", "update", "builtin-ledger-backup", "--keep-monthly", "--no-keep-monthly"]).ok,
     false,
   );
+  assert.equal(parseThinCommand(["schedule", "update", "builtin-ledger-backup", "--keep-days", "0"]).ok, false);
+  assert.equal(parseThinCommand(["schedule", "update", "builtin-ledger-backup", "--keep-days", "soon"]).ok, false);
   assert.equal(
     parseThinCommand(["schedule", "update", "probe", "--mission", "one", "--mission-file", "mission.md"]).ok,
     false,

@@ -58,7 +58,20 @@ export interface ScheduleSquadTargetV1 {
   readonly squadId: string;
 }
 
-type ScheduleTargetV1 = ScheduleAgentTargetV1 | ScheduleSquadTargetV1;
+/** Retention policy of the ledger-backup builtin; unset fields take the executor defaults. */
+export interface ScheduleBuiltinParamsV1 {
+  readonly keepDays?: number;
+  readonly keepMonthly?: boolean;
+}
+
+/** A daemon in-process executor target: no worktree, no runtime spawn, no mission dispatch. */
+interface ScheduleBuiltinTargetV1 {
+  readonly kind: "builtin";
+  readonly builtinId: string;
+  readonly params?: ScheduleBuiltinParamsV1;
+}
+
+type ScheduleTargetV1 = ScheduleAgentTargetV1 | ScheduleSquadTargetV1 | ScheduleBuiltinTargetV1;
 
 export interface ScheduleDefinitionV1 {
   readonly schema: "schedule/v1";
@@ -130,13 +143,23 @@ const triggerSchema: EntityJsonObjectSchema = {
 const targetSchema: EntityJsonObjectSchema = {
   type: "object",
   properties: {
-    kind: { type: "string", enum: ["agent", "squad"] },
+    kind: { type: "string", enum: ["agent", "squad", "builtin"] },
     agentId: { type: "string", pattern: ENTITY_ID_PATTERN, minLength: 1 },
     runtimeInstanceId: { type: "string", minLength: 1 },
     model: { type: "string", minLength: 1 },
     reasoningEffort: { type: "string", minLength: 1 },
     fast: { type: "boolean" },
     squadId: { type: "string", pattern: ENTITY_ID_PATTERN, minLength: 1 },
+    builtinId: { type: "string", pattern: ENTITY_ID_PATTERN, minLength: 1 },
+    params: {
+      type: "object",
+      properties: {
+        keepDays: { type: "integer", minimum: 1 },
+        keepMonthly: { type: "boolean" },
+      },
+      required: [],
+      additionalProperties: false,
+    },
   },
   required: ["kind"],
   additionalProperties: false,
@@ -232,7 +255,6 @@ export function createScheduleV1(input: {
     spec: {
       ...input.spec,
       mission: input.spec.mission.trim(),
-      ...(input.spec.writableRoots ? { writableRoots: normalizeScheduleWritableRoots(input.spec.writableRoots) } : {}),
     },
     createdAt: input.occurredAt,
     createdBy: input.actor,
@@ -340,26 +362,22 @@ function validSpec(value: unknown, allowUnknownFields: boolean): boolean {
   );
 }
 
-export function normalizeScheduleWritableRoots(values: readonly string[]): readonly string[] {
-  const normalized = values.map((value) => {
-    if (value.split("/").includes("..")) throw new Error(`writable root must not contain a .. segment: ${value}`);
-    const root = normalizeRelativeDocumentPath(value);
-    if (root.split("/").some((segment) => segment.toLowerCase() === ".git"))
-      throw new Error(`writable root must not point to .git: ${value}`);
-    return root;
-  });
-  return [...new Set(normalized)];
-}
-
+// `spec.writableRoots` is a retired write-path shape: no producer emits it any more, but
+// already-recorded schedule events still carry it and cold-replayed projections re-validate
+// through this strict path, so the read side keeps tolerating the field exactly as recorded.
 function validScheduleWritableRoots(value: unknown): boolean {
   if (value === undefined) return true;
-  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) return false;
-  try {
-    const normalized = normalizeScheduleWritableRoots(value);
-    return normalized.length === value.length && normalized.every((entry, index) => entry === value[index]);
-  } catch {
-    return false;
-  }
+  if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || entry.length === 0)) return false;
+  const roots = value as readonly string[];
+  return !roots.some((entry) => {
+    const segments = entry.split("/");
+    return (
+      segments.includes("..") ||
+      segments.some((segment) => segment.toLowerCase() === ".git") ||
+      normalizeRelativeDocumentPath(entry) !== entry ||
+      roots.indexOf(entry) !== roots.lastIndexOf(entry)
+    );
+  });
 }
 
 function validTrigger(value: unknown, allowUnknownFields: boolean): value is ScheduleTriggerV1 {
@@ -399,6 +417,17 @@ function validTarget(value: unknown, allowUnknownFields: boolean): value is Sche
       typeof value.squadId === "string" &&
       scheduleIdPattern.test(value.squadId)
     );
+  if (value.kind === "builtin")
+    return (
+      hasContractFields(
+        value,
+        ["kind", "builtinId", ...(value.params === undefined ? [] : ["params"])],
+        allowUnknownFields,
+      ) &&
+      typeof value.builtinId === "string" &&
+      scheduleIdPattern.test(value.builtinId) &&
+      validBuiltinParams(value.params, allowUnknownFields)
+    );
   const optionalText = ["model", "reasoningEffort"],
     optional = [...optionalText, "fast"],
     required = ["kind", "agentId", "runtimeInstanceId"];
@@ -411,6 +440,18 @@ function validTarget(value: unknown, allowUnknownFields: boolean): value is Sche
     isNonEmptyString(value.runtimeInstanceId) &&
     optionalText.every((field) => value[field] === undefined || isNonEmptyString(value[field])) &&
     (value.fast === undefined || typeof value.fast === "boolean")
+  );
+}
+
+function validBuiltinParams(value: unknown, allowUnknownFields: boolean): boolean {
+  if (value === undefined) return true;
+  if (!isRecord(value)) return false;
+  if (!allowUnknownFields && !Object.keys(value).every((field) => field === "keepDays" || field === "keepMonthly"))
+    return false;
+  return (
+    (value.keepDays === undefined ||
+      (Number.isSafeInteger(value.keepDays) && Number(value.keepDays) >= 1 && Number(value.keepDays) <= 3_650)) &&
+    (value.keepMonthly === undefined || typeof value.keepMonthly === "boolean")
   );
 }
 

@@ -41,8 +41,8 @@ export type ValidScheduleListRow = {
       | { readonly kind: "cron"; readonly expression: string; readonly timezone: string };
     readonly target:
       | { readonly kind: "agent"; readonly agentId: string; readonly runtimeInstanceId: string }
-      | { readonly kind: "squad"; readonly squadId: string };
-    readonly writableRoots?: readonly string[];
+      | { readonly kind: "squad"; readonly squadId: string }
+      | { readonly kind: "builtin"; readonly builtinId: string };
   };
   readonly status: {
     readonly automaticEvaluatedThrough: string;
@@ -168,9 +168,8 @@ function scheduleListRow(value: unknown): value is ScheduleListRow {
       nonEmpty(trigger.anchorAt)) ||
       (trigger.kind === "cron" && nonEmpty(trigger.expression) && nonEmpty(trigger.timezone))) &&
     ((target.kind === "agent" && nonEmpty(target.agentId) && nonEmpty(target.runtimeInstanceId)) ||
-      (target.kind === "squad" && nonEmpty(target.squadId))) &&
-    (value.spec.writableRoots === undefined ||
-      (Array.isArray(value.spec.writableRoots) && value.spec.writableRoots.every(nonEmpty))) &&
+      (target.kind === "squad" && nonEmpty(target.squadId)) ||
+      (target.kind === "builtin" && nonEmpty(target.builtinId))) &&
     nonEmpty(value.status.automaticEvaluatedThrough) &&
     nonEmpty(value.updatedAt) &&
     integer(value.definitionRevision) &&

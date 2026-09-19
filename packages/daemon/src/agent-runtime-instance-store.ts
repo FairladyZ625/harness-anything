@@ -230,7 +230,6 @@ export function openRuntimeInstanceStore(input: {
       readonly fast?: boolean;
       readonly providerSessionId?: string;
       readonly permissionMode?: string;
-      readonly writableRoots?: readonly string[];
     },
   ): Promise<PreparedRuntimeLaunch> {
     const config = readOne(instanceId);
@@ -266,7 +265,6 @@ export function openRuntimeInstanceStore(input: {
         request.effort === undefined && runtimeEffortRidesProviderConfig(config.kindId) ? null : effort,
         permissionMode,
         fast,
-        request.writableRoots ?? [],
       ),
       definition = definitionSnapshot(config, model, effort, fast),
       protocolFamily = runtimeKindForId(config.kindId).protocolFamily;

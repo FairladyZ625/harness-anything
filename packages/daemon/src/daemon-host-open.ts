@@ -74,6 +74,7 @@ import { causeClassOf, latchReprobeThrottleMs, openRepoCell, type RepoCell, type
 import { type RepoModeAdmission } from "./repo-mode.ts";
 import type { RuntimeLauncher } from "./runtime-spawn.ts";
 import { makeScheduleScheduler } from "./schedule-scheduler.ts";
+import { seedBuiltinSchedules } from "./schedule-builtin-executor.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import type { DaemonHostApiContext, DaemonHostRegistryContext } from "./daemon-host-context.ts";
 import { openRemoteProxyManager } from "./remote-proxy.ts";
@@ -254,6 +255,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         return edgeRuntimeFor(request).run(request.method, action);
       },
     });
+  // The system builtin schedules are seeded on local attach with the same writer binding the
+  // scheduler fires occurrences through, so seeding and firing share one authority.
+  const seedBuiltinSchedulesOnAttach = async (repoId: string, rootDir: string, cell: RepoCell): Promise<void> => {
+    await seedBuiltinSchedules({ cell, binding: daemonWriterBinding(repoId, localSystemBinding(rootDir)) });
+  };
   let latestControl: DaemonControlReceipt | null = null;
   let fleetCenter: FleetTlsCenter | null = null;
   // Fleet roster snapshot retained when the center is admitted (daemon-fleet-center-start).
@@ -354,6 +360,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     runtimeDaemonRoute,
     scheduleScheduler,
     edgeRuntimeFor,
+    seedBuiltinSchedules: (cell, repo) => seedBuiltinSchedulesOnAttach(repo.repoId, repo.canonicalRoot, cell),
     invalidRepoId,
     closeCell,
     unavailableProbes,

@@ -19,10 +19,10 @@ import {
 } from "./schedule-event.ts";
 import {
   createScheduleV1,
-  normalizeScheduleWritableRoots,
   scheduleMissedReasons,
   scheduleRunOutcomes,
   validateScheduleV1,
+  type ScheduleBuiltinParamsV1,
   type ScheduleMissedReason,
   type ScheduleMode,
   type ScheduleRunOutcome,
@@ -95,7 +95,8 @@ const definitionFields = Object.freeze([
   field("model"),
   field("reasoningEffort", "string", false, ["minimal", "low", "medium", "high", "xhigh"]),
   field("fast", "boolean"),
-  field("writableRoots", "string-array"),
+  field("keepDays", "number"),
+  field("keepMonthly", "boolean"),
 ]);
 const createDefinitionFields = Object.freeze([
   field("name", "string", true),
@@ -103,6 +104,9 @@ const createDefinitionFields = Object.freeze([
   ...definitionFields.filter(
     ({ field }) => !["name", "mode", "agentId", "runtimeInstanceId", "mission"].includes(field),
   ),
+  // Internal-only seeding surface: no CLI flag, packet field, or GUI action exposes these,
+  // so a built-in target can only originate from the daemon's deterministic seed.
+  field("builtinId", "string"),
   field("agentId", "string", true),
   field("runtimeInstanceId", "string", true),
   field("mission", "string", true),
@@ -398,18 +402,8 @@ function compileScheduleAction(
       mode: scheduleMode(action.mode),
       spec: {
         trigger: scheduleTriggerFromCreate(action, input.occurredAt),
-        target: {
-          kind: "agent",
-          agentId: text(action.agentId, "agentId"),
-          runtimeInstanceId: text(action.runtimeInstanceId, "runtimeInstanceId"),
-          ...(typeof action.model === "string" ? { model: action.model } : {}),
-          ...(typeof action.reasoningEffort === "string" ? { reasoningEffort: action.reasoningEffort } : {}),
-          ...(typeof action.fast === "boolean" ? { fast: action.fast } : {}),
-        },
+        target: scheduleTargetFromCreate(action),
         mission: text(action.mission, "mission"),
-        ...(Array.isArray(action.writableRoots)
-          ? { writableRoots: stringArray(action.writableRoots, "writableRoots") }
-          : {}),
       },
       actor: input.actor,
       occurredAt: input.occurredAt,
@@ -427,6 +421,7 @@ function compileScheduleAction(
       );
     if (!record(current))
       reject("entity_not_found", `Schedule ${text(action.scheduleId, "scheduleId")} does not exist.`);
+    assertUpdatableDefinitionFields(current, action);
     const merged = mergeScheduleUpdate(current, action, input.occurredAt);
     if (!merged.schedule)
       reject(
@@ -443,6 +438,11 @@ function compileScheduleAction(
   }
   if (!schedule) reject("entity_not_found", `Schedule ${text(action.scheduleId, "scheduleId")} does not exist.`);
   if (id === "delete") {
+    if (schedule.spec.target.kind === "builtin")
+      reject(
+        "schedule_builtin_protected",
+        `Built-in Schedule ${schedule.scheduleId} is system-seeded; disable it instead of deleting it.`,
+      );
     if (schedule.status.activeRun)
       rejectCriterion(
         "delete",
@@ -547,10 +547,17 @@ function claimOccurrence(
       "schedule_single_flight_active",
       `Schedule ${schedule.scheduleId} already has active occurrence ${schedule.status.activeRun.occurrenceId}.`,
     );
-  if (schedule.spec.target.kind !== "agent")
+  const assignment = typeof input.source === "object" && input.source.kind === "assignment" ? input.source : null;
+  if (schedule.spec.target.kind === "squad")
     reject(
       "schedule_target_unavailable",
       `Schedule ${schedule.scheduleId} target ${schedule.spec.target.kind} is declared but has no dispatch route.`,
+    );
+  if (schedule.spec.target.kind === "builtin" && assignment !== null)
+    reject(
+      "schedule_builtin_local_only",
+      `Built-in Schedule ${schedule.scheduleId} executes on the node holding its canonical cell; ` +
+        `an edge assignment cannot claim its occurrence.`,
     );
   const scheduledFor = typeof action.scheduledFor === "string" ? action.scheduledFor : input.occurredAt,
     kind = typeof action.scheduledFor === "string" ? "scheduled" : "manual";
@@ -560,7 +567,6 @@ function claimOccurrence(
     occurrenceHash = sha256Text(`${schedule.scheduleId}\0${kind}\0${scheduledFor}\0${idempotency}`),
     occurrenceId = `${kind === "manual" ? "manual" : "occurrence"}_${occurrenceHash.slice(0, 24)}`,
     claimFence = `claim_${sha256Text(`${occurrenceHash}\0${revision + 1}`).slice(0, 24)}`,
-    assignment = typeof input.source === "object" && input.source.kind === "assignment" ? input.source : null,
     updated: ScheduleV1 = {
       ...schedule,
       status: {
@@ -706,39 +712,80 @@ function mergeScheduleUpdate(
       : currentTarget?.kind === "agent" && typeof currentTarget.fast === "boolean"
         ? currentTarget.fast
         : undefined,
-    writableRoots = Object.hasOwn(action, "writableRoots")
-      ? normalizeScheduleWritableRoots(stringArray(action.writableRoots, "writableRoots"))
-      : Array.isArray(currentSpec?.writableRoots)
-        ? currentSpec.writableRoots
-        : undefined,
+    // An update rewrites the spec, so a retired writableRoots field is not carried forward.
+    { writableRoots: _retired, ...currentSpecRest } = currentSpec ?? {},
     target =
-      currentTarget?.kind === "agent" || Object.hasOwn(action, "agentId") || Object.hasOwn(action, "runtimeInstanceId")
+      currentTarget?.kind === "builtin"
         ? {
-            kind: "agent",
-            agentId: Object.hasOwn(action, "agentId") ? text(action.agentId, "agentId") : currentTarget?.agentId,
-            runtimeInstanceId: Object.hasOwn(action, "runtimeInstanceId")
-              ? text(action.runtimeInstanceId, "runtimeInstanceId")
-              : currentTarget?.runtimeInstanceId,
-            ...(model ? { model } : {}),
-            ...(reasoningEffort ? { reasoningEffort } : {}),
-            ...(fast === undefined ? {} : { fast }),
+            kind: "builtin",
+            builtinId: currentTarget.builtinId,
+            ...builtinParamsFromAction(action, currentTarget.params as ScheduleBuiltinParamsV1 | undefined),
           }
-        : currentSpec?.target,
+        : currentTarget?.kind === "agent" ||
+            Object.hasOwn(action, "agentId") ||
+            Object.hasOwn(action, "runtimeInstanceId")
+          ? {
+              kind: "agent",
+              agentId: Object.hasOwn(action, "agentId") ? text(action.agentId, "agentId") : currentTarget?.agentId,
+              runtimeInstanceId: Object.hasOwn(action, "runtimeInstanceId")
+                ? text(action.runtimeInstanceId, "runtimeInstanceId")
+                : currentTarget?.runtimeInstanceId,
+              ...(model ? { model } : {}),
+              ...(reasoningEffort ? { reasoningEffort } : {}),
+              ...(fast === undefined ? {} : { fast }),
+            }
+          : currentSpec?.target,
     candidate = {
       ...value,
       name: Object.hasOwn(action, "name") ? text(action.name, "name").trim() : value.name,
       mode: Object.hasOwn(action, "mode") ? scheduleMode(action.mode) : value.mode,
       spec: {
-        ...(currentSpec ?? {}),
+        ...currentSpecRest,
         trigger,
         target,
         mission: Object.hasOwn(action, "mission") ? text(action.mission, "mission").trim() : currentSpec?.mission,
-        ...(writableRoots === undefined ? {} : { writableRoots }),
       },
       updatedAt: occurredAt,
     },
     errors = validateScheduleV1(candidate);
   return errors.length === 0 ? { schedule: candidate as ScheduleV1, errors } : { schedule: null, errors };
+}
+
+/**
+ * Field policy per target kind: a built-in Schedule keeps its executor and mission (only
+ * name, trigger, and retention parameters may change); retention parameters exist only on
+ * built-in Schedules, and `builtinId` never changes — seeding is the single source.
+ */
+function assertUpdatableDefinitionFields(
+  current: Readonly<Record<string, unknown>>,
+  action: Readonly<Record<string, unknown>>,
+): void {
+  const target = record(current.spec) && record(current.spec.target) ? current.spec.target : null;
+  if (target?.kind === "builtin") {
+    const forbidden = [
+      "mode",
+      "agentId",
+      "runtimeInstanceId",
+      "builtinId",
+      "mission",
+      "model",
+      "reasoningEffort",
+      "fast",
+    ].filter((field) => Object.hasOwn(action, field));
+    if (forbidden.length)
+      reject(
+        "schedule_builtin_definition_fixed",
+        `A built-in Schedule keeps its executor and mission; only name, trigger, and retention ` +
+          `parameters can change (unsupported: ${forbidden.join(", ")}).`,
+      );
+    return;
+  }
+  const retention = ["keepDays", "keepMonthly"].filter((field) => Object.hasOwn(action, field));
+  if (retention.length)
+    reject(
+      "invalid_command",
+      `Retention parameters apply only to built-in Schedules (unsupported: ${retention.join(", ")}).`,
+    );
 }
 
 function scheduleTriggerFromCreate(action: Readonly<Record<string, unknown>>, occurredAt: string): ScheduleTriggerV1 {
@@ -747,6 +794,54 @@ function scheduleTriggerFromCreate(action: Readonly<Record<string, unknown>>, oc
   return Object.hasOwn(action, "everyMs")
     ? { kind: "interval", everyMs: Number(action.everyMs), anchorAt: occurredAt }
     : { kind: "cron", expression: String(action.cronExpression), timezone: String(action.timezone) };
+}
+
+/** Create is agent-shaped on every public surface; `builtinId` is the daemon seed's own lane. */
+function scheduleTargetFromCreate(action: Readonly<Record<string, unknown>>): ScheduleV1["spec"]["target"] {
+  if (action.builtinId === undefined)
+    return {
+      kind: "agent",
+      agentId: text(action.agentId, "agentId"),
+      runtimeInstanceId: text(action.runtimeInstanceId, "runtimeInstanceId"),
+      ...(typeof action.model === "string" ? { model: action.model } : {}),
+      ...(typeof action.reasoningEffort === "string" ? { reasoningEffort: action.reasoningEffort } : {}),
+      ...(typeof action.fast === "boolean" ? { fast: action.fast } : {}),
+    };
+  if (Object.hasOwn(action, "agentId") || Object.hasOwn(action, "runtimeInstanceId"))
+    reject("invalid_command", "A built-in Schedule target cannot combine agent target fields.");
+  return {
+    kind: "builtin",
+    builtinId: text(action.builtinId, "builtinId"),
+    ...builtinParamsFromAction(action, undefined),
+  };
+}
+
+function builtinParamsFromAction(
+  action: Readonly<Record<string, unknown>>,
+  current: ScheduleBuiltinParamsV1 | undefined,
+): { readonly params: ScheduleBuiltinParamsV1 } | Record<string, never> {
+  const keepDays = Object.hasOwn(action, "keepDays") ? retentionKeepDays(action.keepDays) : current?.keepDays,
+    keepMonthly = Object.hasOwn(action, "keepMonthly")
+      ? retentionKeepMonthly(action.keepMonthly)
+      : current?.keepMonthly;
+  if (keepDays === undefined && keepMonthly === undefined) return {};
+  return {
+    params: {
+      ...(keepDays === undefined ? {} : { keepDays }),
+      ...(keepMonthly === undefined ? {} : { keepMonthly }),
+    },
+  };
+}
+
+function retentionKeepDays(value: unknown): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 1 || Number(value) > 3_650)
+    reject("invalid_command", "keepDays must be a whole number of days between 1 and 3650.");
+  return Number(value);
+}
+
+function retentionKeepMonthly(value: unknown): boolean {
+  if (typeof value !== "boolean") reject("invalid_command", "keepMonthly must be a boolean.");
+  return value;
 }
 
 function scheduleTriggerFromUpdate(
@@ -779,11 +874,6 @@ function scheduleMode(value: unknown): ScheduleMode {
 function text(value: unknown, name: string): string {
   if (typeof value === "string" && value.trim()) return value.trim();
   reject("invalid_command", `${name} must be a non-empty string.`);
-}
-
-function stringArray(value: unknown, name: string): readonly string[] {
-  if (Array.isArray(value) && value.every((entry) => typeof entry === "string")) return value;
-  reject("invalid_command", `${name} must be an array of strings.`);
 }
 
 function reject(code: string, message: string): never {

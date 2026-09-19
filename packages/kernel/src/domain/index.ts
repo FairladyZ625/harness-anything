@@ -296,6 +296,7 @@ export type {
 export { createScheduleV1, nextScheduleOccurrence, validateScheduleV1 } from "./schedule.ts";
 export type {
   ScheduleActiveRunV1,
+  ScheduleBuiltinParamsV1,
   ScheduleLastRunV1,
   ScheduleMissedReason,
   ScheduleRunOutcome,

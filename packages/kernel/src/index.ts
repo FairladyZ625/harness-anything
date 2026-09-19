@@ -338,7 +338,10 @@ export {
   sqliteLedgerPath,
   reconcileSqliteEvents,
   makeTaskProjectionReader,
+  applyLedgerBackupRetention,
+  readVerifiedLedgerBackup,
 } from "./composition/index.ts";
+export type { LedgerBackupRetentionPolicyV1 } from "./composition/index.ts";
 export type {
   CanonicalContentBlob,
   CanonicalEventAppendReceipt,

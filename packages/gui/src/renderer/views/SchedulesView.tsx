@@ -20,6 +20,7 @@ import {
   scheduleRowTargetKind,
   schedulesClient,
   type ScheduleActionReceipt,
+  type ScheduleBuiltinEditInput,
   type ScheduleDefinitionInput,
 } from "../schedules-client.ts";
 import { ScheduleDetailView } from "./ScheduleDetailView.tsx";
@@ -174,16 +175,18 @@ export function ScheduleWorkspace({
       setBusy(false);
     }
   };
-  const saveDefinition = async (input: ScheduleDefinitionInput): Promise<void> => {
+  const saveDefinition = async (input: ScheduleDefinitionInput | ScheduleBuiltinEditInput): Promise<void> => {
     setBusy(true);
     setActionError(null);
     setReceipt(null);
     try {
       const kind = selected === null ? "create" : "update",
         idempotencyKey = `gui:schedule-${kind}:${input.scheduleId}:${Date.now().toString(36)}`,
+        // Create stays agent-shaped (a built-in is only ever system-seeded); an update may
+        // carry the partial builtin edit input.
         next =
           kind === "create"
-            ? await schedulesClient.create(repoId, input, idempotencyKey)
+            ? await schedulesClient.create(repoId, input as ScheduleDefinitionInput, idempotencyKey)
             : await schedulesClient.update(repoId, input, idempotencyKey);
       setReceipt(next);
       setDialog(null);
@@ -431,7 +434,14 @@ function ScheduleListPane({
                         {row.name}
                         <ArrowRight className="size-3 text-text-faint" />
                       </button>
-                      <div className="font-mono ui-micro text-text-faint">{row.scheduleId}</div>
+                      <div className="font-mono ui-micro text-text-faint">
+                        {row.scheduleId}
+                        {scheduleRowTargetKind(row) === "builtin" && (
+                          <span className="ml-1.5" title={t("schedules.builtin.hint")}>
+                            <Badge>{t("schedules.builtin.preset")}</Badge>
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-2.5 py-1.5">
                       <span className="inline-flex items-center gap-1.5">
@@ -448,9 +458,11 @@ function ScheduleListPane({
                     <td className="px-2.5 py-1.5">
                       <span className="inline-flex items-center gap-1.5">
                         {t(
-                          scheduleRowTargetKind(row) === "squad"
-                            ? "schedules.executor.squad"
-                            : "schedules.executor.agent",
+                          scheduleRowTargetKind(row) === "builtin"
+                            ? "schedules.executor.builtin"
+                            : scheduleRowTargetKind(row) === "squad"
+                              ? "schedules.executor.squad"
+                              : "schedules.executor.agent",
                         )}
                         {row.targetState !== undefined && row.targetError !== undefined && (
                           <Badge tip={row.targetError.hint}>{t(TARGET_STATE_KEY[row.targetState])}</Badge>

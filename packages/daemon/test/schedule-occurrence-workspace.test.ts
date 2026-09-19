@@ -34,7 +34,7 @@ test("detect occurrences use the canonical root without creating a worktree", ()
   }
 });
 
-test("scheduled dispatch resolves writable roots against the canonical repository root", async () => {
+test("scheduled dispatch spawns from the occurrence workspace without extra writable roots", async () => {
   const root = path.join(tmpdir(), "ha-schedule-canonical"),
     occurrence = path.join(root, ".worktrees", "occ-backup"),
     created = createScheduleV1({
@@ -45,7 +45,6 @@ test("scheduled dispatch resolves writable roots against the canonical repositor
         trigger: { kind: "interval", everyMs: 60_000, anchorAt: "2026-09-15T00:00:00.000Z" },
         target: { kind: "agent", agentId: "backup-agent", runtimeInstanceId: "codex-backup" },
         mission: "Back up the ledger.",
-        writableRoots: ["tmp/harness-backup", ".harness/restore-drills"],
       },
       actor: { principal: { personId: "schedule-test" }, executor: null },
       occurredAt: "2026-09-15T00:00:00.000Z",
@@ -105,7 +104,6 @@ test("scheduled dispatch resolves writable roots against the canonical repositor
         null,
         "workspace-write",
         false,
-        value.writableRoots,
       );
       return { outcome: "applied", dispatchId: "dispatch-backup", runtimeSessionId: "runtime-backup" };
     },
@@ -113,11 +111,8 @@ test("scheduled dispatch resolves writable roots against the canonical repositor
     settleFailure: async () => ({ outcome: "applied" }),
   });
   assert.equal(spawned?.cwd, occurrence);
-  assert.deepEqual(spawned?.writableRoots, [
-    path.join(root, "tmp", "harness-backup"),
-    path.join(root, ".harness", "restore-drills"),
-  ]);
-  assert.deepEqual(argv.slice(0, 12), [
+  assert.equal("writableRoots" in (spawned ?? {}), false);
+  assert.deepEqual(argv.slice(0, 8), [
     "exec",
     "--json",
     "--sandbox",
@@ -126,11 +121,8 @@ test("scheduled dispatch resolves writable roots against the canonical repositor
     "sandbox_workspace_write.exclude_tmpdir_env_var=true",
     "--config",
     "sandbox_workspace_write.exclude_slash_tmp=true",
-    "--add-dir",
-    path.join(root, "tmp", "harness-backup"),
-    "--add-dir",
-    path.join(root, ".harness", "restore-drills"),
   ]);
+  assert.equal(argv.includes("--add-dir"), false);
 });
 
 test("remediate occurrences start from origin/main and clean empty worktrees", () => {

@@ -333,10 +333,30 @@ test("schedule read and action payloads stay closed at the preload boundary", ()
     () => assertPreloadPayload("createSchedule", { ...cronDefinition, cronExpression: "30 2 * * *", timezone: " " }),
     /invalid/u,
   );
-  // mode is required on both mutations and limited to the daemon vocabulary.
+  // mode is required on create, optional on a partial update, and limited to the daemon
+  // vocabulary wherever it appears.
   const { mode: _mode, ...withoutMode } = definition;
   assert.throws(() => assertPreloadPayload("createSchedule", withoutMode), /invalid/u);
+  assert.equal(assertPreloadPayload("updateSchedule", withoutMode), true);
   assert.throws(() => assertPreloadPayload("updateSchedule", { ...definition, mode: "observe" }), /invalid/u);
+  // A built-in edit sends name, trigger, and retention parameters only — no agent target.
+  assert.equal(
+    assertPreloadPayload("updateSchedule", {
+      repoId: "repo-a",
+      scheduleId: "builtin-ledger-backup",
+      name: "Ledger backup",
+      cronExpression: "30 4 * * *",
+      timezone: "UTC",
+      keepDays: 5,
+      keepMonthly: false,
+      idempotencyKey: "retry-1",
+    }),
+    true,
+  );
+  // Retention parameters are update-only and bounded; create stays agent-shaped.
+  assert.throws(() => assertPreloadPayload("createSchedule", { ...definition, keepDays: 5 }), /invalid/u);
+  assert.throws(() => assertPreloadPayload("updateSchedule", { ...definition, keepDays: 0 }), /invalid/u);
+  assert.throws(() => assertPreloadPayload("updateSchedule", { ...definition, keepMonthly: "yes" }), /invalid/u);
   assert.equal(
     assertPreloadPayload("deleteSchedule", {
       repoId: "repo-a",

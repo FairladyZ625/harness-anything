@@ -67,8 +67,8 @@ export type ScheduleHealthRollup = ScheduleGuiHealthDto;
 /** mode 是 daemon 列表行的必有事实(detect/remediate),渲染层不再保留 pending 态。 */
 export const scheduleRowMode = (row: ScheduleGuiRowDto): ScheduleModeWord => row.mode;
 
-/** 执行体种类来自 target 判别式(agent/squad),不是本地默认。 */
-export const scheduleRowTargetKind = (row: ScheduleGuiRowDto): "agent" | "squad" => row.target.kind;
+/** 执行体种类来自 target 判别式(agent/squad/builtin),不是本地默认。 */
+export const scheduleRowTargetKind = (row: ScheduleGuiRowDto): "agent" | "squad" | "builtin" => row.target.kind;
 
 /** 健康度 rollup 由 daemon 投影;无效行(invalid)没有该字段,调用方先行过滤。 */
 export const scheduleRowHealth = (row: ScheduleGuiRowDto): ScheduleHealthRollup => row.health;
@@ -98,7 +98,20 @@ export interface ScheduleDefinitionInput {
   readonly model?: string | null;
   readonly reasoningEffort?: string | null;
   readonly fast?: boolean;
-  readonly writableRoots?: readonly string[];
+}
+
+/**
+ * A built-in Schedule edit: only name, cadence, and the retention policy may change — the
+ * daemon rejects target/mission edits on a built-in, and its executor/mission are fixed.
+ */
+export interface ScheduleBuiltinEditInput {
+  readonly scheduleId: string;
+  readonly name: string;
+  readonly everyMs?: number;
+  readonly cronExpression?: string;
+  readonly timezone?: string;
+  readonly keepDays?: number;
+  readonly keepMonthly?: boolean;
 }
 
 export const schedulesClient = {
@@ -135,8 +148,11 @@ export const schedulesClient = {
   },
   create: (repoId: string, input: ScheduleDefinitionInput, idempotencyKey: string): Promise<ScheduleActionReceipt> =>
     invokeSchedule("createSchedule", { repoId, ...input, idempotencyKey }),
-  update: (repoId: string, input: ScheduleDefinitionInput, idempotencyKey: string): Promise<ScheduleActionReceipt> =>
-    invokeSchedule("updateSchedule", { repoId, ...input, idempotencyKey }),
+  update: (
+    repoId: string,
+    input: ScheduleDefinitionInput | ScheduleBuiltinEditInput,
+    idempotencyKey: string,
+  ): Promise<ScheduleActionReceipt> => invokeSchedule("updateSchedule", { repoId, ...input, idempotencyKey }),
   delete: (
     repoId: string,
     scheduleId: string,

@@ -376,6 +376,11 @@ function readSqliteEvents(databasePath: string): readonly unknown[] {
   }
 }
 
+/** Read and shape-check a backup manifest without digesting the payload (retention identification). */
+export function readLedgerBackupManifest(backupDir: string): LedgerBackupManifestV1 {
+  return readManifest(backupDir);
+}
+
 function readManifest(backupDir: string): LedgerBackupManifestV1 {
   const value = JSON.parse(fileSystem.read(path.join(backupDir, "manifest.json"), "utf8")) as LedgerBackupManifestV1;
   if (value.schema !== "ledger-backup/v1" || !Array.isArray(value.files)) throw new Error("backup manifest is invalid");

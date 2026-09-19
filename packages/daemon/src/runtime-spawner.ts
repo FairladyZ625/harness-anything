@@ -152,7 +152,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     trustedSchedule?: TrustedScheduleRuntime,
     handoffFromRuntimeSessionId?: string,
     retainCoordinatorTaskLease = false,
-    writableRoots: readonly string[] = [],
   ): Promise<JsonObject> => {
     const allowed = [
         "runtimeInstanceId",
@@ -507,7 +506,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         ...(fast === undefined ? {} : { fast }),
         ...(declaredPermissionMode ? { permissionMode: declaredPermissionMode } : {}),
         ...(providerSessionId ? { providerSessionId } : {}),
-        ...(writableRoots.length > 0 ? { writableRoots } : {}),
       }),
       definition = prepared.definition,
       installation = prepared.installation,
@@ -878,7 +876,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         scheduled,
         undefined,
         false,
-        scheduled.writableRoots ?? [],
       ),
     adopt: () => adoptRuntimes(extracted),
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),

@@ -193,6 +193,9 @@ export function makeScheduleScheduler(input: {
         continue;
       }
       for (const schedule of schedules) {
+        // A builtin occurrence executes on the node holding the canonical cell; a remote-edge
+        // mirror must never claim one (the kernel also rejects assignment-sourced claims).
+        if (mode === "remote-edge" && schedule.state !== "invalid" && schedule.spec.target.kind === "builtin") continue;
         const evaluated = evaluateSchedule(target, schedule, observedAt);
         if (evaluated.due) {
           const key = occurrenceKey(evaluated.due);
@@ -252,7 +255,8 @@ function evaluateSchedule(
   observedAt: string,
 ): { readonly due: DueOccurrence | null; readonly missed: MissedOccurrences | null } {
   if (schedule.state === "invalid") return { due: null, missed: null };
-  if (schedule.state !== "armed" || schedule.spec.target.kind !== "agent") return { due: null, missed: null };
+  if (schedule.state !== "armed" || (schedule.spec.target.kind !== "agent" && schedule.spec.target.kind !== "builtin"))
+    return { due: null, missed: null };
   const cursor =
       Date.parse(schedule.updatedAt) > Date.parse(schedule.status.automaticEvaluatedThrough)
         ? schedule.updatedAt

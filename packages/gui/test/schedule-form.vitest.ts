@@ -125,6 +125,72 @@ describe("calendar → cron builder (Q5 leaning b)", () => {
   });
 });
 
+const builtinRow: ScheduleGuiRowDto = {
+  ...initialRow,
+  scheduleId: "builtin-ledger-backup",
+  name: "Ledger backup",
+  mode: "detect",
+  trigger: { kind: "cron", everyMs: null, expression: "17 3 * * *", timezone: "UTC", summary: "at 03:17 (UTC)" },
+  target: { kind: "builtin", builtinId: "ledger-backup", keepDays: 3, keepMonthly: true },
+  mission: "System ledger backup.",
+};
+
+describe("built-in schedule edit form", () => {
+  it("edits only name, cadence, and retention — the agent segments never render", async () => {
+    const onSubmit = vi.fn();
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    await act(async () => {
+      root.render(
+        createElement(ScheduleFormDialog, {
+          options,
+          scheduleIds: [],
+          initial: builtinRow,
+          busy: false,
+          error: null,
+          onCancel: () => undefined,
+          onSubmit,
+        }),
+      );
+    });
+    mounted.push({ root, container });
+    expect(container.querySelector('[data-testid="schedule-form-sec-retention"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="schedule-form-builtin-hint"]')?.textContent).toContain("daemon");
+    for (const section of [
+      "schedule-form-sec-executor",
+      "schedule-form-sec-purpose",
+      "schedule-form-sec-routing",
+      "schedule-form-sec-mission",
+    ])
+      expect(container.querySelector(`[data-testid="${section}"]`), section).toBeNull();
+    // The seeded cron loads into the calendar; changing the time keeps the save armed.
+    expect(container.querySelector('[data-testid="schedule-form-cron-time"]')).not.toBeNull();
+    await setValue(container, "schedule-form-keep-days", "5");
+    await setValue(container, "schedule-form-cron-time", "04:30");
+    await click(container, "schedule-form-submit");
+    expect(onSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scheduleId: "builtin-ledger-backup",
+        cronExpression: "30 4 * * *",
+        timezone: "UTC",
+        keepDays: 5,
+        keepMonthly: true,
+      }),
+    );
+  });
+
+  it("disarms the save when keep-days leaves the bounded whole-number range", async () => {
+    const container = await renderForm(builtinRow);
+    await setValue(container, "schedule-form-keep-days", "0");
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="schedule-form-submit"]')?.disabled).toBe(true);
+    await setValue(container, "schedule-form-keep-days", "2.5");
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="schedule-form-submit"]')?.disabled).toBe(true);
+    await setValue(container, "schedule-form-keep-days", "7");
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="schedule-form-submit"]')?.disabled).toBe(false);
+  });
+});
+
 describe("segmented guided form (M5)", () => {
   it("renders all six segments with the executor squad option reserved and the downstream toggle locked off", async () => {
     const container = await renderForm(initialRow);
