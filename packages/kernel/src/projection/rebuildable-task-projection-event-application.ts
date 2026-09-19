@@ -143,7 +143,7 @@ export function applyEvent(
         event.actor.principal.personId,
       );
     else runSql(db, "DELETE FROM pinned_entities WHERE entity_ref = ?", event.payload.entityRef);
-    const taskId = /^task\/(.+)$/u.exec(event.payload.entityRef)?.[1];
+    const taskId = event.payload.entityRef.match(/^task\/(.+)$/u)?.[1];
     if (taskId)
       runSql(
         db,

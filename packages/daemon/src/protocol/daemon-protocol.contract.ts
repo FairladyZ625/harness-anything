@@ -745,6 +745,7 @@ export default Object.freeze({
     "Governed-Entity-W2",
     "Repo-Lifecycle",
     "Ledger-Read",
+    "Entity-Pin",
   ]),
   commands: daemonOwnedProtocolCommands,
   methods: Object.freeze([
