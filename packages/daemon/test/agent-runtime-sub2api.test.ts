@@ -93,6 +93,13 @@ test("Codex private HTTP and credential-header configuration preserves its trust
       (error: unknown) => codedAs(error, "invalid_runtime_credential_header"),
     );
     assert.deepEqual(runtimeHttpHeaders({ "X-Custom": "static" }), { "X-Custom": "static" });
+    // Header values are strings by definition, so a token-named header is always a credential
+    // transport; the dispatch scrubber's value-type line cannot apply on this surface.
+    for (const name of ["token", "x-access-token", "x-id-token"])
+      assert.throws(
+        () => runtimeHttpHeaders({ [name]: "opaque" }),
+        (error: unknown) => codedAs(error, "invalid_runtime_http_headers"),
+      );
     assert.throws(
       () => runtimeHttpHeaders({ "X-Custom": "first", "x-custom": "second" }),
       (error: unknown) => codedAs(error, "invalid_runtime_http_headers"),

@@ -628,4 +628,11 @@ test("runtime update still rejects empty values, empty model lists, and secret-l
     () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", apiKey: "secret" }),
     /secret-like/u,
   );
+  // No usage payload crosses the preload boundary, so string-valued token keys stay rejected
+  // under every spelling — the value-type line from the dispatch scrubber has no traffic here.
+  for (const key of ["token", "access_token", "id_token"])
+    assert.throws(
+      () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", [key]: "opaque" }),
+      /secret-like/u,
+    );
 });

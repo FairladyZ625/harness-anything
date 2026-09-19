@@ -797,6 +797,11 @@ test("GUI Agent and Squad catalogs isolate invalid and missing projection rows",
   });
   assert.deepEqual(validateAgentEntityCatalog(agents), []);
   assert.deepEqual(validateSquadEntityCatalog(squads), []);
+  // Identity envelopes carry no usage telemetry, so credential-shaped key names — including the
+  // delimited token spellings — stay rejected on this surface; the dispatch scrubber's value-type
+  // line does not apply here.
+  for (const key of ["token", "access_token", "id_token"])
+    assert.notDeepEqual(validateAgentEntityCatalog({ ...agents, [key]: "opaque" }), [], `${key} must stay rejected`);
 
   const healthyAgents = { ...agents, agents: [agents.agents[0]!] },
     healthySquads = { ...squads, squads: [squads.squads[0]!] };
