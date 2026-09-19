@@ -62,6 +62,7 @@ export function parseSchedule(
       every = flags.one.get("--every"),
       cronExpression = flags.one.get("--cron"),
       timezone = flags.one.get("--timezone"),
+      keepDays = flags.one.get("--keep-days"),
       updateFlags = [
         "--name",
         "--mode",
@@ -75,8 +76,9 @@ export function parseSchedule(
         "--model",
         "--effort",
         "--fast",
-        "--writable-root",
-        "--clear-writable-roots",
+        "--keep-days",
+        "--keep-monthly",
+        "--no-keep-monthly",
       ];
     if (mission && missionFile)
       return rejected("invalid_field", "Use --mission <text> or --mission-file <path>, not both.", json);
@@ -108,7 +110,7 @@ export function parseSchedule(
       ...(timezone === undefined ? {} : { timezone }),
       ...(mission ? { mission } : missionFile ? { missionFile } : {}),
       ...(flags.booleans.has("--fast") ? { fast: true } : {}),
-      ...scheduleWritableRootUpdate(flags),
+      ...scheduleRetentionUpdate(flags, keepDays),
       ...retry,
     });
   }
@@ -146,18 +148,25 @@ export function parseSchedule(
     ]),
     ...(flags.booleans.has("--fast") ? { fast: true } : {}),
     ...(flags.booleans.has("--disabled") ? { disabled: true } : {}),
-    ...scheduleWritableRootUpdate(flags),
     ...retry,
   });
 }
 
-function scheduleWritableRootUpdate(flags: {
-  readonly many: ReadonlyMap<string, string[]>;
-  readonly booleans: ReadonlySet<string>;
-}): { readonly writableRoots?: readonly string[] } {
-  const declared = flags.many.get("--writable-root");
-  if (declared) return { writableRoots: declared };
-  return flags.booleans.has("--clear-writable-roots") ? { writableRoots: [] } : {};
+/** Retention parameters apply to the system-seeded builtin schedules only; the kernel rejects
+ * them on agent schedules with invalid_command. `--keep-monthly` and `--no-keep-monthly` are
+ * declared mutually exclusive by the protocol input, so only one can be present here. */
+function scheduleRetentionUpdate(
+  flags: { readonly booleans: ReadonlySet<string> },
+  keepDays: string | undefined,
+): { readonly keepDays?: number; readonly keepMonthly?: boolean } {
+  return {
+    ...(keepDays === undefined ? {} : { keepDays: Number(keepDays) }),
+    ...(flags.booleans.has("--keep-monthly")
+      ? { keepMonthly: true }
+      : flags.booleans.has("--no-keep-monthly")
+        ? { keepMonthly: false }
+        : {}),
+  };
 }
 
 function isPacketInputToken(value: string | undefined): boolean {

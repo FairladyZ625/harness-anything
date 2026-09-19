@@ -506,7 +506,13 @@ export const scheduleProtocolCommands = Object.freeze([
       cliInput("--fast", "boolean", false, {
         code: "invalid_runtime_fast",
       }),
-      cliInput("--keep-days", "single", false, { code: "invalid_field" }, { field: "keepDays" }),
+      cliInput(
+        "--keep-days",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "keepDays", regex: "^[1-9][0-9]{0,3}$" },
+      ),
       cliInput(
         "--keep-monthly",
         "boolean",
