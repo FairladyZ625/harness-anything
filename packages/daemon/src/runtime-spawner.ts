@@ -869,7 +869,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ...(scheduled.model ? { model: scheduled.model } : {}),
           ...(scheduled.effort ? { effort: scheduled.effort } : {}),
           ...(scheduled.fast === undefined ? {} : { fast: scheduled.fast }),
-          permissionMode: scheduled.mode === "detect" ? "read-only" : "workspace-write",
+          // A remediation occurrence is unattended and has to run commands (the `ha` CLI first of all);
+          // `workspace-write` maps to edit-only modes that refuse every shell call in a headless session.
+          permissionMode: scheduled.mode === "detect" ? "read-only" : "bypass",
         },
         binding,
         undefined,
