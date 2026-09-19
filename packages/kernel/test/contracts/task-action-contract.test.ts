@@ -244,7 +244,7 @@ test("task creation result and all seven guidance entries derive from its descri
       when: { dryRun: false, "proof.canonicalVisible": false },
     },
     { kind: "edit-plan", args: { packagePath: "{packagePath}" } },
-    { kind: "pin-agenda", args: { entityKind: "task", entityId: "{taskId}" } },
+    { kind: "pin-agenda", args: { entityKind: "task", entityId: "{taskId}" }, when: { dryRun: false } },
     { kind: "ledger-managed", args: { fields: ["INDEX.md", "closeout.md"] } },
   ]);
   for (const field of [
@@ -274,7 +274,13 @@ test("pinnable entity creation actions derive one optional agenda follow-up", ()
     assert.ok(action, `${kind}.${actionId}`);
     assert.deepEqual(
       action.returns.guidance.filter(({ kind: guidanceKind }) => guidanceKind === "pin-agenda"),
-      [{ kind: "pin-agenda", args: { entityKind: kind, entityId: `{${entityId}}` } }],
+      [
+        {
+          kind: "pin-agenda",
+          args: { entityKind: kind, entityId: `{${entityId}}` },
+          ...(kind === "task" ? { when: { dryRun: false } } : {}),
+        },
+      ],
     );
   }
 });

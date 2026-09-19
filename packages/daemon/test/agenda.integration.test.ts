@@ -579,7 +579,11 @@ test("entity pins cover task, decision, and schedule with bounded rendering and 
       assert.equal(task.outcome, "applied");
       assert.deepEqual(
         task.guidance?.find(({ kind }) => kind === "pin-agenda"),
-        { kind: "pin-agenda", args: { entityKind: "task", entityId: "task_pin" } },
+        {
+          kind: "pin-agenda",
+          args: { entityKind: "task", entityId: "task_pin" },
+          when: { dryRun: false },
+        },
       );
       assert.equal(
         (await cell.run({ kind: "task-create", taskId: "task_capacity", title: "Capacity task" }, binding)).outcome,
