@@ -679,6 +679,46 @@ describe("overview task stream: freshly created tasks are visible with zero inte
     expect(tasksAheadOfStatus(rows, "planned")).toEqual([]);
   });
 
+  it("filters out non-active packages from stream and ahead rows to align with workspace census", () => {
+    const mixed = [
+      task({
+        taskId: "task_active_live",
+        title: "Live active task",
+        coordinationStatus: "active",
+        packageDisposition: "active",
+        createdAt: "2026-08-20T10:00:00.000Z",
+      }),
+      task({
+        taskId: "task_active_archived",
+        title: "Archived active task",
+        coordinationStatus: "active",
+        packageDisposition: "archived",
+        createdAt: "2026-08-21T10:00:00.000Z",
+      }),
+      task({
+        taskId: "task_planned_archived",
+        title: "Archived planned task",
+        coordinationStatus: "planned",
+        packageDisposition: "archived",
+        createdAt: "2026-08-22T10:00:00.000Z",
+      }),
+    ];
+
+    expect(tasksAheadOfStatus(mixed, "active")).toEqual([]);
+
+    const markup = renderToStaticMarkup(
+      createElement(TaskStream, {
+        tasks: mixed,
+        summary: taskSummary({ active: 1 }),
+        onOpenPreview: noop,
+        onGoBoard: noop,
+      }),
+    );
+    expect(markup).toContain("Live active task");
+    expect(markup).not.toContain("Archived active task");
+    expect(markup).not.toContain("Archived planned task");
+  });
+
   // 组件级证据说明 leaf 会渲染,页面级证据说明总览页真的把这条流接上了。
   it("carries the zero-interaction visibility through the overview page", () => {
     const page = renderToStaticMarkup(

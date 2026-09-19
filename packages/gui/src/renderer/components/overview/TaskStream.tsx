@@ -82,13 +82,14 @@ function TaskStreamRow({
  * 无阈值——那正是「全新仓库刚建第一条任务、active 为空」的场景。
  */
 export function tasksAheadOfStatus(tasks: ReadonlyArray<TaskRow>, status: SnapshotStatus): TaskRow[] {
-  const newestVisible = tasks.reduce<string | null>((newest, task) => {
+  const activeTasks = tasks.filter((task) => task.packageDisposition === "active");
+  const newestVisible = activeTasks.reduce<string | null>((newest, task) => {
     if (task.coordinationStatus !== status) return newest;
     const at = taskCreatedAt(task);
     return at !== null && (newest === null || at > newest) ? at : newest;
   }, null);
   return sortTasksByCreatedDesc(
-    tasks.filter((task) => {
+    activeTasks.filter((task) => {
       if (task.coordinationStatus === status) return false;
       const at = taskCreatedAt(task);
       return at !== null && (newestVisible === null || at > newestVisible);
@@ -123,7 +124,10 @@ export function TaskStream({
 }) {
   const [status, setStatus] = useState<SnapshotStatus>("active");
   const rows = useMemo(
-    () => sortTasksByCreatedDesc(tasks.filter((task) => task.coordinationStatus === status)),
+    () =>
+      sortTasksByCreatedDesc(
+        tasks.filter((task) => task.packageDisposition === "active" && task.coordinationStatus === status),
+      ),
     [tasks, status],
   );
   const ahead = useMemo(() => tasksAheadOfStatus(tasks, status), [tasks, status]);
