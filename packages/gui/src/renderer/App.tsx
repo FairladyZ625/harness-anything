@@ -26,7 +26,13 @@ import { useAppShortcuts } from "./navigation/useAppShortcuts.ts";
 import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
 import { adaptProjectionRows } from "./task-adapter.ts";
 import { deriveAttestationLanes, type AttestationPoolTabId } from "./model/attestation-pool.ts";
-import { invalidateLedgerDependents, useTasksQuery, useTaskWipQuery } from "./task-data.ts";
+import {
+  invalidateLedgerDependents,
+  mergeTaskRows,
+  useActiveTasksQuery,
+  useTasksQuery,
+  useTaskWipQuery,
+} from "./task-data.ts";
 import { useAgendaQuery } from "./agenda-data.ts";
 import {
   useActiveEdgesQuery,
@@ -100,6 +106,12 @@ function AppShell() {
   const governedEntities = useGovernedEntityRows(projectId);
   const declaredKinds = useMemo(() => entityKinds.map(({ kind }) => kind), [entityKinds]);
   const tasksQuery = useTasksQuery(activeRepoId);
+  // 首屏活跃切片:四个非终态的状态下推窄读(一行 SQL 过滤,十几行),把「当前在
+  // 做什么」抢到完整水化(几百毫秒)之前渲染;台账切面未读完期间才读,ready 后停读。
+  const activeTasksQuery = useActiveTasksQuery(
+    activeRepoId,
+    activeRepoId !== null && tasksQuery.data?.status !== "ready",
+  );
   const workspaceSummaryQuery = useWorkspaceSummaryQuery(activeRepoId);
 
   // 侧栏左下角系统运行区的第一行输入(原左上角状态栏,task_b2fb4bc7):
@@ -165,11 +177,17 @@ function AppShell() {
   // spawningDecisionIds(F-84CF0391),所以任务行适配不再依赖任何三元读取。
   const tasks = useMemo(() => {
     const roots = new Map(taskWipQuery.data?.roots.map((root) => [root.taskId, root]));
-    return adaptProjectionRows(tasksQuery.data?.rows ?? [], projectId, tasksQuery.data?.status).map((task) => {
+    // 行集 = 完整切面(水化中渐进成形)∪ 活跃切片;完整切面未落地的那一小段首屏
+    // 只有切片行,freshness 诚实地按 pending(尚未读完)标记。
+    return adaptProjectionRows(
+      mergeTaskRows(tasksQuery.data?.rows, activeTasksQuery.data),
+      projectId,
+      tasksQuery.data?.status ?? "pending",
+    ).map((task) => {
       const rootAssessment = roots.get(task.taskId);
       return rootAssessment ? { ...task, rootAssessment } : task;
     });
-  }, [projectId, taskWipQuery.data, tasksQuery.data]);
+  }, [projectId, taskWipQuery.data, tasksQuery.data, activeTasksQuery.data]);
   const activeRepo = systemQuery.data?.repos.find((repo) => repo.repoId === activeRepoId);
   const project = adaptRepoProject(
     projectId,
