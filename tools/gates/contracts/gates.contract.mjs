@@ -75,6 +75,13 @@ export default Object.freeze({
       job: "boundaries",
       command: "npm run harness:check-fallback-boundaries",
     },
+    {
+      id: "G41",
+      phase: "P2",
+      workflow: ".github/workflows/pr-body.yml",
+      job: "dependency-policy-declaration",
+      command: 'node tools/gates/dependency-policy.mjs --base origin/main --pr-body-file "$RUNNER_TEMP/pr-body.md"',
+    },
   ],
   schemas: [],
 });

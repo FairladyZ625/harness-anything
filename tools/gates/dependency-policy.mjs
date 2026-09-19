@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { changedFiles, repoRoot } from "./git.mjs";
+import { writeCiGateResult } from "../ci-gate-result.mjs";
 
 const DEPENDENCY_SECTIONS = Object.freeze([
   "dependencies",
@@ -71,35 +72,56 @@ export function validateDependencyDeclaration(paths, prBody, declarationRequired
   return [];
 }
 
-export function eventContext(event) {
-  if (event?.pull_request === undefined) return { declarationRequired: false, base: null, body: "" };
-  return {
-    declarationRequired: true,
-    base: event.pull_request.base?.sha ?? null,
-    body: event.pull_request.body ?? "",
-  };
+function parseArgs(argv) {
+  const options = { base: null, prBodyFile: null, sbom: false };
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "--lock") continue;
+    if (arg === "--sbom") {
+      options.sbom = true;
+      continue;
+    }
+    if (arg === "--base") {
+      options.base = argv[(index += 1)] ?? null;
+      continue;
+    }
+    if (arg === "--pr-body-file") {
+      options.prBodyFile = argv[(index += 1)] ?? null;
+      continue;
+    }
+    throw new Error(`unknown argument: ${arg}`);
+  }
+  if (options.prBodyFile !== null && options.base === null) {
+    throw new Error(
+      "usage: node tools/gates/dependency-policy.mjs [--lock] [--sbom] [--base <ref> --pr-body-file <path>]",
+    );
+  }
+  return options;
 }
 
+// The Dependency-Change declaration judges the pull request as it is now, so it runs only in the
+// pr-body workflow where the live body is fetched per run. Lockfile consistency is body-independent
+// and also gates rebuild-gates runs, including pushes to main.
 export function main(argv = process.argv.slice(2)) {
-  if (argv.some((arg) => !["--lock", "--sbom"].includes(arg)))
-    throw new Error("usage: node tools/gates/dependency-policy.mjs [--lock] [--sbom]");
-  const rootDir = repoRoot();
-  const event =
-    process.env.GITHUB_EVENT_PATH && existsSync(process.env.GITHUB_EVENT_PATH)
-      ? JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"))
-      : null;
-  const context = eventContext(event);
-  const paths = context.base === null ? [] : changedFiles(rootDir, context.base);
-  const errors = [
-    ...validateLockfile(rootDir),
-    ...validateDependencyDeclaration(paths, context.body, context.declarationRequired),
-  ];
-  console.log("dependency-policy: online advisory lookup skipped (non-required; deterministic gate is offline)");
-  if (argv.includes("--sbom"))
-    console.log("dependency-policy: SBOM reporting is not required by the P2 mission contract");
-  if (errors.length > 0) for (const error of errors) console.error(`G31 dependency-policy: ${error}`);
-  else console.log("G31 dependency-policy: pass");
-  return errors.length === 0 ? 0 : 1;
+  try {
+    const { base, prBodyFile, sbom } = parseArgs(argv);
+    const rootDir = repoRoot();
+    const errors = [...validateLockfile(rootDir)];
+    if (prBodyFile !== null) {
+      const prBody = readFileSync(prBodyFile, "utf8");
+      errors.push(...validateDependencyDeclaration(changedFiles(rootDir, base), prBody));
+    }
+    console.log("dependency-policy: online advisory lookup skipped (non-required; deterministic gate is offline)");
+    if (sbom) console.log("dependency-policy: SBOM reporting is not required by the P2 mission contract");
+    writeCiGateResult("G31", errors.length === 0 ? "pass" : "fail", { errors: errors.length });
+    if (errors.length > 0) for (const error of errors) console.error(`G31 dependency-policy: ${error}`);
+    else console.log("G31 dependency-policy: pass");
+    return errors.length === 0 ? 0 : 1;
+  } catch (error) {
+    writeCiGateResult("G31", "fail", {});
+    console.error(`G31 dependency-policy: ${error.message}`);
+    return 1;
+  }
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(process.argv[1]).href) process.exitCode = main();
