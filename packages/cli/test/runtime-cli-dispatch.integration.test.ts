@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFi
 import path from "node:path";
 import test from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
+import { taskQueryGuidance } from "../../daemon/src/runtime-spawn-mission.ts";
 import { makeTaskEventReader } from "../../kernel/src/index.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 import {
@@ -63,7 +64,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: String(bound.runtimeSessionId),
-    mission: "bound prompt",
+    mission: `${taskQueryGuidance(taskId)}\n\nbound prompt`,
   });
   assert.ok(
     assembledPrompt.indexOf("# Worker Role") < assembledPrompt.indexOf("prompt://review") &&
@@ -594,9 +595,10 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     "--no-stream",
   ]);
   assert.equal(promptFile.status, 0, JSON.stringify(promptFile));
-  assert.match(
-    String((promptFile.receipt.result as Record<string, unknown>).text),
-    /# Assigned Mission\nexisting mission$/u,
+  assert.ok(
+    String((promptFile.receipt.result as Record<string, unknown>).text).endsWith(
+      `# Assigned Mission\n${taskQueryGuidance(taskId)}\n\nexisting mission`,
+    ),
   );
   const promptFileDispatchId = String((promptFile.receipt.spawn as Record<string, unknown>).dispatchId);
   const reused = run(root, env, [
@@ -644,11 +646,15 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     mission:
       `Your task package is ${path.join(realpathSync(root), "harness", packagePath)}.\n` +
       "Read task_plan.md in that package and complete the task.\n\n" +
+      `${taskQueryGuidance(taskId)}\n\n` +
       "# Mission: existing-mission\n\nexisting mission",
   });
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const taskPackage = path.join(realpathSync(root), "harness", packagePath),
-    derivedMission = `Your task package is ${taskPackage}.\nRead task_plan.md in that package and complete the task.`,
+    derivedMission =
+      `Your task package is ${taskPackage}.\n` +
+      `Read task_plan.md in that package and complete the task.\n\n` +
+      taskQueryGuidance(taskId),
     derived = run(root, env, ["agent", "run", "terra", "--task", taskId, "--cwd", ".", "--no-stream"]),
     derivedText = String((derived.result as Record<string, unknown>).text);
   assert.match(

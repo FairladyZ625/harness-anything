@@ -385,7 +385,7 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, rou
       realizedPlan("Release Acceptance Artifacts"),
     );
     run(root, userRoot, ["doc", "sync", "--submit", "--path", `${packagePath}/task_plan.md`]);
-    run(root, userRoot, [
+    const artifactFact = run(root, userRoot, [
       "fact",
       "record",
       "--task",
@@ -537,7 +537,12 @@ test("release acceptance: JSON, PDF and binary artifacts publish byte-exact, rou
     ]);
     assert.equal(rebound.ok, true, JSON.stringify(rebound));
     const restoredTask = run(restoredRoot, restoredUserRoot, ["task", "show", taskId]),
-      restoredFacts = run(restoredRoot, restoredUserRoot, ["fact", "search", "artifact fixture"]);
+      restoredFacts = run(restoredRoot, restoredUserRoot, [
+        "fact",
+        "show",
+        "--id",
+        String(JSON.parse(String(artifactFact.evidence)).factId),
+      ]);
     assert.match(String(restoredTask.evidence), new RegExp(`"taskId":"${taskId}"`, "u"));
     assert.match(JSON.stringify(restoredFacts), /artifact fixture/u);
     context.diagnostic(JSON.stringify({ schema: "release-acceptance-artifacts/v1", taskId, backupDir, shadowRoot }));

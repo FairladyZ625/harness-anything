@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } fro
 import path from "node:path";
 import test from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
+import { taskQueryGuidance } from "../../daemon/src/runtime-spawn-mission.ts";
 import { safePath } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { runCommandThroughDaemon } from "../src/daemon/client.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
@@ -154,7 +155,7 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: detachedSessionId,
-    mission: "hold",
+    mission: `${taskQueryGuidance(taskId)}\n\nhold`,
   });
   const cancelledWait = runMaybe(root, env, ["runtime", "status", detachedSessionId, "--wait", "--no-stream"]);
   assert.equal(cancelledWait.status, 1);
@@ -228,7 +229,7 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: String(resumedDispatch.runtimeSessionId),
-    mission: "follow up",
+    mission: `${taskQueryGuidance(taskId)}\n\nfollow up`,
   });
   const resumedRow = (run(root, env, ["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>).find(
     (row) => row.dispatchId === resumedDispatchId,
@@ -400,7 +401,7 @@ test("CLI installs identities, updates squads and assembles wildcard worker prom
     wildcardText,
   );
   assert.match(wildcardText, /# Worker Role/u);
-  assert.ok(wildcardText.endsWith("# Assigned Mission\nwildcard prompt"), wildcardText);
+  assert.ok(wildcardText.endsWith(`# Assigned Mission\n${taskQueryGuidance(taskId)}\n\nwildcard prompt`), wildcardText);
   assert.ok(
     wildcardText.indexOf("# Worker Role") < wildcardText.indexOf("prompt://review") &&
       wildcardText.indexOf("prompt://review") < wildcardText.indexOf("# Standard Task") &&
@@ -642,16 +643,16 @@ test("Read-only dispatch contracts and closed batch and wire payloads are enforc
     },
     { kind: "validation", field: "force" },
   );
-  const unknownFact = await runCommandThroughDaemon(
+  const unknownRead = await runCommandThroughDaemon(
     {
       rootDir: safePath(root),
       repoId: "runtime-cli",
       json: true,
       method: "repo.task.read",
-      action: { kind: "fact-search", taskId, permissionMode: "read-only" } as never,
+      action: { kind: "decision-list", permissionMode: "read-only" } as never,
     },
     undefined,
     { env: { ...env, HARNESS_ACTOR: "" } },
   );
-  assert.equal(unknownFact.code, "invalid_command");
+  assert.equal(unknownRead.code, "invalid_command");
 });

@@ -67,11 +67,6 @@ try {
   const factRow = JSON.parse(assertString(fact.evidence, "fact record evidence"));
   const factRef = assertString(factRow.ref, "created fact ref");
 
-  step = "fact search";
-  const search = JSON.parse(
-    assertString(runCli(["fact", "search", "queryable", "--task", taskId]).evidence, "fact search evidence"),
-  );
-  assertEqual(search.facts?.[0]?.ref, factRef, "Fact FTS result");
   step = "fact show";
   const shown = JSON.parse(
     assertString(runCli(["fact", "show", "--id", factRow.factId]).evidence, "fact show evidence"),

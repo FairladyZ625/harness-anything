@@ -178,8 +178,6 @@ export const commandTable = [
   // Facts.
   ["fact-record", (c, s) => ["fact", "record", c.task(s), "--statement", c.text(`fact ${s}`), "--source", "bench"]],
   ["fact-show", (c, s) => ["fact", "show", "--id", c.id("fact-record", s)]],
-  ["fact-search", () => ["fact", "search", "bench"]],
-  ["fact-search~task", (c, s) => ["fact", "search", "--task", c.task(s)]],
   ["fact-type-register", (c, s) => ["fact", "type", "register", `bench-type-${s}`, "--source", "bench"]],
   ["fact-type-list", () => ["fact", "type", "list"]],
   [

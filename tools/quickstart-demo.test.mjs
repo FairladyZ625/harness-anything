@@ -10,7 +10,7 @@ const repoRoot = path.resolve(import.meta.dirname, "..");
 const demoScript = path.join(repoRoot, "scripts/quickstart-demo.mjs");
 const cliEntry = path.join(repoRoot, "packages/cli/src/index.ts");
 
-test("quickstart demo runs daemon init to task to event-backed Fact search/show", () => {
+test("quickstart demo runs daemon init to task to event-backed Fact show", () => {
   withTempRoot((rootDir) => {
     const stdout = execFileSync(process.execPath, [demoScript, "--cli", cliEntry, "--root", rootDir], {
       cwd: repoRoot,

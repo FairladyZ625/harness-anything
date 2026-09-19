@@ -184,6 +184,34 @@ export async function resolveRuntimeInstanceId(input: {
   return selected;
 }
 
+/**
+ * The fixed how-to-look-up guidance every task-bound dispatch carries, filled
+ * with the dispatch's own task id so the first `ha graph` line is executable
+ * verbatim. It is plain text assembled with the mission — fleet-edge dispatches
+ * walk the same assembly — and deliberately not configurable: the causal-context
+ * block is empty for tasks without a deriving decision or parent chain, and
+ * those are exactly the tasks that must query the graph themselves.
+ */
+export function taskQueryGuidance(taskId: string): string {
+  return [
+    "# 台账查询引导",
+    "- Fact/Decision 正文直接读文件：harness/facts/F-*.md、harness/decisions/decision-dec_*/decision.md，" +
+      "grep 即可（Markdown 与数据库同步）。",
+    `- 这个任务/决策/事实连着什么、由什么推出、被什么证据支撑，用 ha graph 查：先执行 ha graph ${taskId}，` +
+      "再按需 ha graph <ref> --depth 2。没有语义边时它只显示父子结构，孤任务只有自己一行——那不是命令坏了。",
+    "- 动手改代码前先看一眼图。",
+  ].join("\n");
+}
+
+/** An explicit prompt on a task-bound dispatch still owes the worker the same lookup guidance as a derived mission. */
+export function explicitPromptMission(taskId: string | null, causalContext: string | null, prompt: string): string {
+  return [
+    ...(taskId === null ? [] : [taskQueryGuidance(taskId)]),
+    ...(causalContext === null ? [] : [causalContext]),
+    prompt,
+  ].join("\n\n");
+}
+
 export function deriveTaskMission(
   rootDir: string,
   projection: TaskProjection,
@@ -215,6 +243,7 @@ export function deriveTaskMission(
       causalContext === undefined ? assembleTaskCausalContext({ projection, taskId }) : causalContext,
     mission = [
       `Your task package is ${packageRoot}.\nRead ${path.basename(planPath)} in that package and complete the task.`,
+      taskQueryGuidance(taskId),
       ...(causalContextResolved === null ? [] : [causalContextResolved]),
       ...(missionDocument ? [`# Mission: ${missionName}\n\n${missionDocument.body.trim()}`] : []),
     ].join("\n\n");

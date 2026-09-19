@@ -210,6 +210,9 @@ test("task-bound dispatch injects the milestone, deriving decision, and evidence
       /\* F-00CA05A1: Dispatch prompts previously carried no causal topology\. \(src:packages\/daemon\/src\/runtime-spaw…\)/u,
     );
     assert.ok(Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES, "causal block exceeds the byte budget");
+    assert.doesNotMatch(block, /ha graph/u, "the causal block no longer spends budget on a bare command word");
+    assert.match(prompt!, /# 台账查询引导/u, "the lookup guidance rides every task-bound mission");
+    assert.match(prompt!, /ha graph task_ctx_leaf/u, "the guidance's first graph command carries this task's id");
 
     // An explicit prompt on a task-bound dispatch still gets the same block prepended.
     prompt = null;
@@ -226,6 +229,7 @@ test("task-bound dispatch injects the milestone, deriving decision, and evidence
     assert.equal(explicit.outcome, "applied", JSON.stringify(explicit));
     const explicitBlock = causalBlock(prompt!);
     assert.ok(explicitBlock !== null, "explicit-prompt dispatch lost the causal block");
+    assert.match(prompt!, /ha graph task_ctx_explicit/u, "explicit-prompt dispatch keeps the lookup guidance");
 
     // An agent-bound dispatch (ha agent run shape) assembles the same mission body.
     const installed = await cell.run(
@@ -257,7 +261,9 @@ test("task-bound dispatch injects the milestone, deriving decision, and evidence
     assert.match(prompt!, /# Agent Identity: Causal Worker/u);
     assert.ok(causalBlock(prompt!) !== null, "agent-bound dispatch lost the causal block");
 
-    // A task with no causal neighborhood injects no block at all.
+    // A task with no causal neighborhood injects no causal block, but the fixed
+    // lookup guidance still teaches how to query the graph — those tasks need it
+    // most, because nothing else points them at their surroundings.
     prompt = null;
     const lonely = await cell.spawnRuntime(
       {
@@ -270,6 +276,8 @@ test("task-bound dispatch injects the milestone, deriving decision, and evidence
     );
     assert.equal(lonely.outcome, "applied", JSON.stringify(lonely));
     assert.equal(causalBlock(prompt!), null, "relation-free task must not carry a fabricated block");
+    assert.match(prompt!, /# 台账查询引导/u);
+    assert.match(prompt!, /ha graph task_ctx_lonely/u, "the guidance is filled with the lonely task's own id");
   } finally {
     await cell?.close();
     rmSync(root, { recursive: true, force: true });
@@ -395,6 +403,7 @@ test("dry-run preview returns the injected prompt byte-for-byte with zero dispat
     assert.equal(preview.runtimeSessionId, real.runtimeSessionId);
     assert.equal(preview.prompt, prompt, "preview prompt must equal the injected prompt byte-for-byte");
     assert.match(String(preview.mission), /# Task Causal Context/u);
+    assert.match(String(preview.mission), /ha graph task_pv_leaf/u, "preview mission carries the filled guidance");
 
     // Negative control: changing an injected declaration field must change the preview.
     const updated = await cell.run(

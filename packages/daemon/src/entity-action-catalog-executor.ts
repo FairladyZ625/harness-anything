@@ -15,7 +15,6 @@ import {
   requireEntityStoreKindContract,
   readAcceptedCommandOutcome,
   timestamp,
-  validDomainType,
   type AuthorizationDecision,
   type CanonicalEventCut,
   type CanonicalEventStore,
@@ -27,18 +26,13 @@ import {
   type EntityUpsertBundle,
   type EntityDeletedBundle,
   type EventPublicationKillpoint,
-  type FactConfidence,
-  type FactDomainType,
   type FactEventV1,
-  type FactMemoryClass,
-  type FactSearchFilters,
   type SessionIdentity,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { prepareDecisionAmend, validateDecisionPackages } from "./decision-surface-actions.ts";
 import { factReplayBundle, supersededFactDocumentSource } from "./fact-supersede-document.ts";
-import { unknownFieldViolation } from "./protocol/json-rpc-types.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import {
   commitRuntimeSessionBundle,
@@ -93,7 +87,6 @@ export function makeEntityActionCatalogExecutor(input: {
   const runCompiled = (action: RepoTaskAction, binding: RepoCellBinding, opId: string): WriteReceipt => {
     const contract = executableAction(action.kind);
     if (contract.execution.read) {
-      if (action.kind === "fact-search") return readReceipt("fact-search", facts.search(factFilters(action)));
       if (action.kind === "fact-type-list") return readReceipt("fact-type-list", facts.listDomainTypes());
       if (action.kind === "fact-show")
         return readReceipt("fact-show", facts.show(requiredCommandText(action.factId, "factId")));
@@ -931,66 +924,6 @@ function readReceipt<
     },
   };
   return read.status === "ready" ? { outcome: "applied", ...base } : { outcome: "pending", ...base };
-}
-
-function factFilters(action: Readonly<Record<string, unknown>>): FactSearchFilters {
-  const allowed = [
-      "kind",
-      "query",
-      "taskId",
-      "confidence",
-      "domainType",
-      "memoryClass",
-      "observedAfter",
-      "observedBefore",
-      "limit",
-      "cursor",
-    ],
-    unknownField = unknownFieldViolation(action, allowed);
-  if (unknownField) reject("invalid_command", `Fact search filters contain an ${unknownField}`);
-  const { query, taskId, confidence, domainType, memoryClass, observedAfter, observedBefore, limit, cursor } = action;
-  if (query !== undefined && (typeof query !== "string" || !query.trim()))
-    reject("invalid_command", "Fact search query must be a non-empty string.");
-  if (taskId !== undefined && (typeof taskId !== "string" || !taskId.trim()))
-    reject("invalid_command", "Fact search taskId must be a non-empty string.");
-  if (
-    confidence !== undefined &&
-    (typeof confidence !== "string" || !(["low", "medium", "high"] as const).includes(confidence as FactConfidence))
-  )
-    reject("invalid_command", "Fact search confidence is invalid.");
-  if (
-    memoryClass !== undefined &&
-    (typeof memoryClass !== "string" ||
-      !(["semantic", "episodic", "procedural"] as const).includes(memoryClass as FactMemoryClass))
-  )
-    reject("invalid_command", "Fact search memory class is invalid.");
-  if (domainType !== undefined && !validDomainType(domainType))
-    reject("invalid_command", "Fact search domain type is invalid.");
-  if (observedAfter !== undefined && !timestamp(observedAfter))
-    reject("invalid_command", "observedAfter must be an ISO-8601 UTC timestamp.");
-  if (observedBefore !== undefined && !timestamp(observedBefore))
-    reject("invalid_command", "observedBefore must be an ISO-8601 UTC timestamp.");
-  if (
-    typeof observedAfter === "string" &&
-    typeof observedBefore === "string" &&
-    Date.parse(observedAfter) > Date.parse(observedBefore)
-  )
-    reject("invalid_command", "observedAfter must not be later than observedBefore.");
-  if (limit !== undefined && (typeof limit !== "number" || !Number.isSafeInteger(limit) || limit < 1 || limit > 500))
-    reject("invalid_command", "Fact search limit must be an integer between 1 and 500.");
-  if (cursor !== undefined && (typeof cursor !== "string" || !cursor.trim()))
-    reject("invalid_command", "Fact search cursor is invalid.");
-  return {
-    ...(typeof query === "string" ? { query } : {}),
-    ...(typeof taskId === "string" ? { taskId } : {}),
-    ...(typeof confidence === "string" ? { confidence: confidence as FactConfidence } : {}),
-    ...(typeof domainType === "string" ? { domainType: domainType as FactDomainType } : {}),
-    ...(typeof memoryClass === "string" ? { memoryClass: memoryClass as FactMemoryClass } : {}),
-    ...(typeof observedAfter === "string" ? { observedAfter } : {}),
-    ...(typeof observedBefore === "string" ? { observedBefore } : {}),
-    ...(typeof limit === "number" ? { limit } : {}),
-    ...(typeof cursor === "string" ? { cursor } : {}),
-  };
 }
 
 function decisionFilters(action: Readonly<Record<string, unknown>>) {

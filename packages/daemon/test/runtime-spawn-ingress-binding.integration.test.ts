@@ -321,7 +321,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       );
       assert.match(
         launchedPrompt,
-        /^# Agent Identity: Sol Reviewer \(sol-reviewer\)[\s\S]*AGENT_CLI_INGRESS_WITNESS[\s\S]*# Assigned Mission\nReview through the declared identity\.[\s\S]*# Read-only Dispatch Contract[\s\S]*final stdout/u,
+        /^# Agent Identity: Sol Reviewer \(sol-reviewer\)[\s\S]*AGENT_CLI_INGRESS_WITNESS[\s\S]*# Assigned Mission\n# 台账查询引导[\s\S]*\n\nReview through the declared identity\.[\s\S]*# Read-only Dispatch Contract[\s\S]*final stdout/u,
       );
     });
     await t.test("enforced Codex runtimes receive a callback relay without opening operator routes", async () => {

@@ -55,6 +55,7 @@ import {
   dispatchMissionForPermission,
   resolveRuntimeInstanceId,
   runtimeMissionName,
+  explicitPromptMission,
   validateMissionCommands,
 } from "./runtime-spawn-mission.ts";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
@@ -333,9 +334,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       mission =
         explicitMission === undefined
           ? (taskMission?.mission ?? requiredRuntimeSpawnText(undefined, "prompt"))
-          : causalContext === null
-            ? explicitMission
-            : `${causalContext}\n\n${explicitMission}`;
+          : explicitPromptMission(taskId, causalContext, explicitMission);
     if (taskMission) validateMissionCommands(taskMission.plan, cwd, taskMission.planPath);
     if (taskMission?.missionBody && taskMission.missionPath)
       validateMissionCommands(taskMission.missionBody, cwd, taskMission.missionPath);

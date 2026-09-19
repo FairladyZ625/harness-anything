@@ -463,7 +463,7 @@ test("all purge backs up and drills before deleting, then restores and rebinds w
       auth,
     );
     assert.equal(fact.outcome, "applied", JSON.stringify(fact));
-    const factsBefore = await host.run(repoId, { kind: "fact-search", taskId: "task_purge_restore" }, auth);
+    const factsBefore = await host.run(repoId, { kind: "fact-show", factId: String(fact.factId) }, auth);
     assert.match(String(factsBefore.evidence), /Purge restore fact witness/u);
     for (const receipt of [created, fact] as const) {
       const settled = await host.run(
@@ -538,7 +538,7 @@ test("all purge backs up and drills before deleting, then restores and rebinds w
     const shown = await host.run(repoId, { kind: "task-show", taskId: "task_purge_restore" }, auth);
     assert.equal(shown.outcome, "applied", JSON.stringify(shown));
     assert.match(String(shown.evidence), /"taskId":"task_purge_restore"/u);
-    const factsAfter = await host.run(repoId, { kind: "fact-search", taskId: "task_purge_restore" }, auth);
+    const factsAfter = await host.run(repoId, { kind: "fact-show", factId: String(fact.factId) }, auth);
     assert.equal(factsAfter.evidence, factsBefore.evidence);
   } finally {
     await host.close();

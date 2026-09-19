@@ -1,6 +1,5 @@
 import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
 import { accepted, nonEmpty, readFlags, rejected } from "./thin-command-flags.ts";
-import { parseProjected } from "./thin-command-projection.ts";
 import { parseRematerialize } from "./thin-command-rematerialize.ts";
 import type { ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
@@ -47,10 +46,6 @@ export function parseFact(
     return accepted(rootDir, repoId, json, {
       kind: "fact-type-list",
     });
-  if (id === "fact-search") {
-    const query = args[2]?.startsWith("--") ? undefined : args[2];
-    return parseProjected(id, args.slice(query ? 3 : 2), rootDir, repoId, json, inputs, query ? { query } : {});
-  }
   if (id === "fact-show") {
     const positional = args[2]?.startsWith("--") ? undefined : args[2],
       f = readFlags(id, args.slice(positional ? 3 : 2), inputs);
@@ -62,7 +57,7 @@ export function parseFact(
       ? accepted(rootDir, repoId, json, { kind: "fact-show", factId: positional ?? flagged })
       : rejected("missing_field", "Run ha fact show <fact-id>.", json);
   }
-  return rejected("unsupported_command", "Use fact record, type register, type list, search, or show.", json);
+  return rejected("unsupported_command", "Use fact record, type register, type list, or show.", json);
 }
 
 export function parseFactRecord(
