@@ -22,6 +22,7 @@ import { withRoleBinding } from "./role-binding.fixtures.ts";
 import {
   closeWriterEpochFenceDescriptors,
   openPersistentWriterEpoch,
+  readLedgerWriterEpoch,
   withWriterEpochFenceDescriptor,
 } from "../src/writer-epoch.ts";
 
@@ -477,6 +478,31 @@ test("remote-center takeover preserves the committed SQLite outcome without prep
   } finally {
     await recoveryCell?.close();
     await oldCell?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("a lease taken before registration floors at the restored ledger's recorded writer epoch", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-writer-epoch-restore-floor-")),
+    repo = probeRepo(root),
+    store = openSqliteEventStore({ rootInput: repo, repoId: "probe-repo" }),
+    authority = openPersistentWriterEpoch({ stateRoot: path.join(root, "epochs"), holderId: "restored-daemon" });
+  try {
+    store.claimWriter({ repoId: "probe-repo", holder: "previous-daemon", epoch: 3 });
+    // Init takes the daemon lease before the registry row exists, so a registry-driven floor reads
+    // nothing and allocates epoch 1 — which the restored ledger's fence rejects as stale.
+    const unfloored = authority.acquire("probe-repo", readLedgerWriterEpoch("probe-repo", undefined));
+    assert.equal(unfloored.epoch, 1);
+    assert.throws(
+      () => store.claimWriter({ repoId: "probe-repo", holder: unfloored.holderId, epoch: unfloored.epoch }),
+      /stale/u,
+    );
+    const floored = authority.acquire("probe-repo", readLedgerWriterEpoch("probe-repo", repo));
+    assert.equal(floored.epoch, 4);
+    store.claimWriter({ repoId: "probe-repo", holder: floored.holderId, epoch: floored.epoch });
+  } finally {
+    authority.close();
+    store.close();
     rmSync(root, { recursive: true, force: true });
   }
 });

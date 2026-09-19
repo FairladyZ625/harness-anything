@@ -76,7 +76,7 @@ export interface DaemonHostRegistryContext extends HostMaps, DaemonHostAdmission
   readonly attachTimeoutMs: number;
   readonly attachBudgetError: (repoId: string, timeoutMs: number) => Error;
   readonly openCell: NonNullable<DaemonHostOpenInput["openCell"]>;
-  readonly writerEpochFence: (repoId: string) => WriterEpochFenceDescriptor;
+  readonly writerEpochFence: (repoId: string, rootDir?: string) => WriterEpochFenceDescriptor;
   readonly runtimePorts: DaemonRuntimePorts;
   readonly runtimeDaemonRoute: RuntimeDaemonRoute;
   readonly scheduleScheduler: ReturnType<typeof makeScheduleScheduler>;
@@ -121,8 +121,8 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
     executor?: import("./repo-cell-types.ts").RepoCellBinding["actor"]["executor"],
     writerRepoId?: string,
   ) => Promise<import("./repo-cell-types.ts").RepoCellBinding>;
-  readonly writerEpochFence: (repoId: string) => WriterEpochFenceDescriptor;
-  readonly writerEpochLease: (repoId: string) => WriterEpochLease;
+  readonly writerEpochFence: (repoId: string, rootDir?: string) => WriterEpochFenceDescriptor;
+  readonly writerEpochLease: (repoId: string, rootDir?: string) => WriterEpochLease;
   readonly writerEpochHighWatermark: (repoId: string) => number;
   readonly retireWriterEpoch: (repoId: string) => void;
   readonly closeDaemonWriterEpoch: () => void;
