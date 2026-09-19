@@ -158,6 +158,7 @@ test("Schedule explanations expose revision, single-flight, assignment, claim-fe
     "record-missed",
     "settle",
     "list",
+    "reckon",
     "runs",
     "show",
   ]);

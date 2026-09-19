@@ -18,6 +18,7 @@ import type { RepoTaskAction } from "../src/repo-cell-types.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import {
   builtinLedgerBackupScheduleId,
+  builtinNightlyReckoningScheduleId,
   executeBuiltinScheduleOccurrence,
   scheduledLedgerBackupRoot,
   seedBuiltinSchedules,
@@ -120,7 +121,7 @@ test("the seeded ledger-backup builtin executes in-process and settles with dril
       }),
     });
     try {
-      // Seeding is idempotent: two attaches converge on exactly one system schedule.
+      // Seeding is idempotent: two attaches converge on exactly one copy of each system schedule.
       await seedBuiltinSchedules({ cell, binding: actor });
       await seedBuiltinSchedules({ cell, binding: actor });
       const seeded = (await cell.run({ kind: "schedule-show", scheduleId: builtinLedgerBackupScheduleId }, actor)) as {
@@ -130,7 +131,14 @@ test("the seeded ledger-backup builtin executes in-process and settles with dril
       assert.equal(seeded.schedule.spec.target.kind, "builtin");
       assert.equal(seeded.schedule.spec.target.builtinId, "ledger-backup");
       const listed = (await cell.run({ kind: "schedule-list" }, actor)) as { schedules: readonly unknown[] };
-      assert.equal(listed.schedules.length, 1);
+      assert.equal(listed.schedules.length, 2);
+      const reckoning = (await cell.run(
+        { kind: "schedule-show", scheduleId: builtinNightlyReckoningScheduleId },
+        actor,
+      )) as { schedule: { state: string; systemPresetId: string; spec: { target: { kind: string } } } };
+      assert.equal(reckoning.schedule.state, "paused");
+      assert.equal(reckoning.schedule.systemPresetId, "nightly-reckoning");
+      assert.equal(reckoning.schedule.spec.target.kind, "agent-unconfigured");
 
       // Retention fixtures: the 7-day-old backup is always deletable (its month always has a
       // newer sibling among the older trio); the fresh in-window one always survives.
@@ -452,7 +460,7 @@ test(
         };
         assert.deepEqual(
           first.schedules.map(({ scheduleId }) => scheduleId),
-          [builtinLedgerBackupScheduleId],
+          [builtinLedgerBackupScheduleId, builtinNightlyReckoningScheduleId],
         );
         const run = (await host.run(
           repoId,
@@ -465,7 +473,7 @@ test(
         assert.equal(backups.length, 1);
         assert.match(backups[0] ?? "", /^ledger-backup-manual_[0-9a-f]{24}$/u);
         await host.close();
-        // A second attach converges on the same single seeded schedule — no duplicates.
+        // A second attach converges on the same two seeded schedules — no duplicates.
         host = await openDaemonHost({ daemonId: "builtin-seed-test", userRoot });
         await host.attachmentsSettled();
         const second = (await host.run(repoId, { kind: "schedule-list" }, localAuth)) as {
@@ -473,7 +481,7 @@ test(
         };
         assert.deepEqual(
           second.schedules.map(({ scheduleId }) => scheduleId),
-          [builtinLedgerBackupScheduleId],
+          [builtinLedgerBackupScheduleId, builtinNightlyReckoningScheduleId],
         );
       } finally {
         await host.close();

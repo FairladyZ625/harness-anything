@@ -35,6 +35,7 @@ export type ValidScheduleListRow = {
   readonly scheduleId: string;
   readonly state: "armed" | "paused";
   readonly mode: "detect" | "remediate";
+  readonly systemPresetId?: string;
   readonly spec: {
     readonly trigger:
       | { readonly kind: "interval"; readonly everyMs: number; readonly anchorAt: string }
@@ -42,7 +43,8 @@ export type ValidScheduleListRow = {
     readonly target:
       | { readonly kind: "agent"; readonly agentId: string; readonly runtimeInstanceId: string }
       | { readonly kind: "squad"; readonly squadId: string }
-      | { readonly kind: "builtin"; readonly builtinId: string };
+      | { readonly kind: "builtin"; readonly builtinId: string }
+      | { readonly kind: "agent-unconfigured" };
   };
   readonly status: {
     readonly automaticEvaluatedThrough: string;
@@ -169,7 +171,8 @@ function scheduleListRow(value: unknown): value is ScheduleListRow {
       (trigger.kind === "cron" && nonEmpty(trigger.expression) && nonEmpty(trigger.timezone))) &&
     ((target.kind === "agent" && nonEmpty(target.agentId) && nonEmpty(target.runtimeInstanceId)) ||
       (target.kind === "squad" && nonEmpty(target.squadId)) ||
-      (target.kind === "builtin" && nonEmpty(target.builtinId))) &&
+      (target.kind === "builtin" && nonEmpty(target.builtinId)) ||
+      target.kind === "agent-unconfigured") &&
     nonEmpty(value.status.automaticEvaluatedThrough) &&
     nonEmpty(value.updatedAt) &&
     integer(value.definitionRevision) &&

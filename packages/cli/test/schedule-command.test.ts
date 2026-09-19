@@ -5,7 +5,12 @@ import { materializePacketStdin } from "../src/index.ts";
 import { createScheduleV1 } from "../../kernel/src/index.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 import { parseScheduleDuration } from "../../daemon/src/protocol/daemon-protocol-vocabulary.ts";
-import { renderScheduleList, renderScheduleRuns, renderScheduleShow } from "../src/cli/thin-command-schedule.ts";
+import {
+  renderScheduleList,
+  renderScheduleReckon,
+  renderScheduleRuns,
+  renderScheduleShow,
+} from "../src/cli/thin-command-schedule.ts";
 
 test("Schedule CLI exposes CRUD and run-control commands with closed inputs", () => {
   const created = parseThinCommand([
@@ -50,6 +55,9 @@ test("Schedule CLI exposes CRUD and run-control commands with closed inputs", ()
     if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: `schedule-${verb}`, scheduleId: "e2e-probe" });
   }
   assert.equal(parseThinCommand(["schedule", "list"]).ok, true);
+  const reckon = parseThinCommand(["schedule", "reckon", "--window-hours", "48"]);
+  assert.equal(reckon.ok, true);
+  if (reckon.ok) assert.deepEqual(reckon.command.action, { kind: "schedule-reckon", windowHours: 48 });
   const shown = parseThinCommand(["schedule", "show", "e2e-probe"]);
   assert.equal(shown.ok, true);
   if (shown.ok) assert.deepEqual(shown.command.action, { kind: "schedule-show", scheduleId: "e2e-probe" });
@@ -114,6 +122,14 @@ test("Schedule CLI exposes CRUD and run-control commands with closed inputs", ()
   assert.equal(parseScheduleDuration("2h"), 7_200_000);
   assert.equal(parseScheduleDuration("1d"), 86_400_000);
   assert.equal(parseScheduleDuration("30s"), null);
+});
+
+test("Schedule reckon renders its structured read result", () => {
+  const evidence = { schema: "reckoning-signals/v1", generatedAt: "2026-09-19T23:30:00.000Z", signals: [] };
+  assert.equal(
+    renderScheduleReckon({ command: "schedule-reckon", evidence: JSON.stringify(evidence) }),
+    `${JSON.stringify(evidence, null, 2)}\n`,
+  );
 });
 
 test("Schedule CLI accepts cron and rejects ambiguous triggers, sub-minute intervals, and missions", () => {

@@ -612,6 +612,7 @@
   "schedules.detail.tab.danger": "Danger",
   "schedules.detail.purpose.title": "这个计划解决什么问题",
   "schedules.detail.purpose.modeLine": "——目的模式决定要求 agent 做什么(只观察 vs 在自己的 worktree 里修复)。",
+  "schedules.detail.targetUnconfigured": "启用或运行此预置前，请先选择 agent 与 runtime 实例。",
   "schedules.detail.routing.title": "产出去向",
   "schedules.detail.routing.ternary": "Report → Fact → Decision → Task 三元语回路(默认)。按裁定不提供 schedule 间直连。",
   "schedules.detail.health.title": "健康度(最近若干次)",

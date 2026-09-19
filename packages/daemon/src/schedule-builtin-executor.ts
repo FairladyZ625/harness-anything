@@ -15,6 +15,7 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 export const scheduledLedgerBackupRoot = "tmp/harness-backup";
 /** Deterministic schedule id of the system-seeded ledger backup. */
 export const builtinLedgerBackupScheduleId = "builtin-ledger-backup";
+export const builtinNightlyReckoningScheduleId = "builtin-nightly-reckoning";
 /** Retention defaults when the schedule carries no explicit params. */
 export const defaultLedgerBackupRetention: LedgerBackupRetentionPolicyV1 = { keepDays: 3, keepMonthly: true };
 
@@ -189,7 +190,7 @@ export async function seedBuiltinSchedules(input: {
   };
   readonly binding: RepoCellBinding;
 }): Promise<void> {
-  const receipt = (await input.cell.run(
+  const seeds: readonly RepoTaskAction[] = [
     {
       kind: "schedule-create",
       scheduleId: builtinLedgerBackupScheduleId,
@@ -198,17 +199,41 @@ export async function seedBuiltinSchedules(input: {
       cronExpression: "17 3 * * *",
       timezone: "UTC",
       builtinId: "ledger-backup",
+      systemPresetId: "ledger-backup",
       keepDays: defaultLedgerBackupRetention.keepDays,
       keepMonthly: defaultLedgerBackupRetention.keepMonthly,
       mission: "System ledger backup: snapshot, restore drill, retention cleanup.",
       idempotencyKey: `builtin-seed:${builtinLedgerBackupScheduleId}:v1`,
     },
-    input.binding,
-  )) as { readonly outcome?: unknown; readonly code?: unknown };
-  if (receipt.outcome === "applied" || receipt.outcome === "no_changes") return;
-  if (receipt.code === "entity_exists") return;
-  console.warn(
-    `[schedule-builtin] seeding ${builtinLedgerBackupScheduleId} was ${String(receipt.outcome)}` +
-      `${receipt.code ? ` (${String(receipt.code)})` : ""}; retrying on the next attach.`,
-  );
+    {
+      kind: "schedule-create",
+      scheduleId: builtinNightlyReckoningScheduleId,
+      name: "Nightly reckoning",
+      mode: "detect",
+      cronExpression: "30 23 * * *",
+      timezone: "UTC",
+      systemPresetId: "nightly-reckoning",
+      unconfiguredAgent: true,
+      disabled: true,
+      mission:
+        "Run `ha schedule reckon` and review the general ledger signals from the most recent window. Open the " +
+        "evidence behind each candidate and " +
+        "Group items with the same cause. First ask whether the mechanism creating the friction can be fixed; then " +
+        "whether an existing rule can be removed; only then consider a new rule with an explicit expiry condition. " +
+        "Treat the second occurrence of the same class as a structural problem. Report no finding when the evidence " +
+        "does not justify one.",
+      idempotencyKey: `builtin-seed:${builtinNightlyReckoningScheduleId}:v1`,
+    },
+  ];
+  for (const seed of seeds) {
+    const receipt = (await input.cell.run(seed, input.binding)) as {
+      readonly outcome?: unknown;
+      readonly code?: unknown;
+    };
+    if (receipt.outcome === "applied" || receipt.outcome === "no_changes" || receipt.code === "entity_exists") continue;
+    console.warn(
+      `[schedule-builtin] seeding ${seed.scheduleId} was ${String(receipt.outcome)}` +
+        `${receipt.code ? ` (${String(receipt.code)})` : ""}; retrying on the next attach.`,
+    );
+  }
 }

@@ -424,6 +424,22 @@ export const scheduleProtocolCommands = Object.freeze([
     inputs: [],
   }),
   defineCenterForwardReadCommand({
+    id: "schedule-reckon",
+    phase: "Schedule-S6",
+    path: ["schedule", "reckon"],
+    summary: "Read general ledger friction signals for a recent time window.",
+    method: "repo.task.read",
+    inputs: [
+      cliInput(
+        "--window-hours",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { regex: "^(?:[1-9]|[1-9][0-9]|1[0-6][0-8])$" },
+      ),
+    ],
+  }),
+  defineCenterForwardReadCommand({
     id: "schedule-runs",
     phase: "Schedule-S5",
     path: ["schedule", "runs", "<schedule-id>"],

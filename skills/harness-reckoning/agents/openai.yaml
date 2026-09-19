@@ -1,4 +1,4 @@
 interface:
   display_name: "Harness Reckoning"
   short_description: "Read the nightly reckoning report and judge what recurred, without writing anything"
-  default_prompt: "Use $harness-reckoning to run the read-only nightly reckoning over this repository's ledger projection, open the evidence behind each candidate, and report what a person should decide."
+  default_prompt: "Use $harness-reckoning to run the read-only reckoning over this Harness ledger, open the evidence behind each candidate, and report what a person should decide."

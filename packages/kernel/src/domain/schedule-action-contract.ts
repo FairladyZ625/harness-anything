@@ -50,6 +50,7 @@ type ScheduleActionId =
   | "record-missed"
   | "settle"
   | "list"
+  | "reckon"
   | "runs"
   | "show";
 
@@ -107,6 +108,8 @@ const createDefinitionFields = Object.freeze([
   // Internal-only seeding surface: no CLI flag, packet field, or GUI action exposes these,
   // so a built-in target can only originate from the daemon's deterministic seed.
   field("builtinId", "string"),
+  field("systemPresetId", "string"),
+  field("unconfiguredAgent", "boolean"),
   field("agentId", "string", true),
   field("runtimeInstanceId", "string", true),
   field("mission", "string", true),
@@ -320,7 +323,7 @@ const declarations = Object.freeze([
     effects: scheduleEffect("schedule-event/schedule_run_settled"),
     explain: "Settle only the active occurrence that owns the supplied claim fence.",
   },
-  ...(["list", "runs", "show"] as const).map((id) => ({
+  ...(["list", "reckon", "runs", "show"] as const).map((id) => ({
     id,
     ingress: `schedule-${id}`,
     input: input(id === "list" ? [] : [scheduleId, ...(id === "runs" ? [field("limit", "number")] : [])]),
@@ -330,7 +333,13 @@ const declarations = Object.freeze([
     concurrency: scheduleConcurrency(),
     effects: Object.freeze([]),
     explain: [
-      id === "list" ? "List canonical Schedules" : id === "runs" ? "Read occurrence history" : "Read one Schedule",
+      id === "list"
+        ? "List canonical Schedules"
+        : id === "reckon"
+          ? "Read general reckoning signals"
+          : id === "runs"
+            ? "Read occurrence history"
+            : "Read one Schedule",
       "from the canonical projection.",
     ].join(" "),
   })),
@@ -359,7 +368,7 @@ export function createScheduleActionCatalog(
               read: declaration.read,
               implementation: "catalog-runtime" as const,
               ...(declaration.read ? {} : { topology: "center-forward-write" as const }),
-              ...(declaration.id === "list" ? {} : { targetIdField: "scheduleId" }),
+              ...(["list", "reckon"].includes(declaration.id) ? {} : { targetIdField: "scheduleId" }),
             }),
           }),
       ),
@@ -400,6 +409,7 @@ function compileScheduleAction(
       name: text(action.name, "name"),
       state: action.disabled === true ? "paused" : "armed",
       mode: scheduleMode(action.mode),
+      ...(typeof action.systemPresetId === "string" ? { systemPresetId: action.systemPresetId } : {}),
       spec: {
         trigger: scheduleTriggerFromCreate(action, input.occurredAt),
         target: scheduleTargetFromCreate(action),
@@ -438,10 +448,10 @@ function compileScheduleAction(
   }
   if (!schedule) reject("entity_not_found", `Schedule ${text(action.scheduleId, "scheduleId")} does not exist.`);
   if (id === "delete") {
-    if (schedule.spec.target.kind === "builtin")
+    if (schedule.systemPresetId)
       reject(
         "schedule_builtin_protected",
-        `Built-in Schedule ${schedule.scheduleId} is system-seeded; disable it instead of deleting it.`,
+        `System preset Schedule ${schedule.scheduleId} cannot be deleted; disable it instead.`,
       );
     if (schedule.status.activeRun)
       rejectCriterion(
@@ -464,6 +474,8 @@ function compileScheduleAction(
     );
   }
   if (id === "enable" || id === "disable") {
+    if (id === "enable" && schedule.spec.target.kind === "agent-unconfigured")
+      reject("schedule_target_unconfigured", `Schedule ${schedule.scheduleId} needs an agent and runtime instance.`);
     const state = id === "enable" ? "armed" : "paused";
     if (schedule.state === state) return { kind: "no-changes", schedule, revision };
     return event(
@@ -531,6 +543,8 @@ function claimOccurrence(
   common: CommonEventInput,
 ): ScheduleActionDraft {
   const action = input.action;
+  if (schedule.spec.target.kind === "agent-unconfigured")
+    reject("schedule_target_unconfigured", `Schedule ${schedule.scheduleId} needs an agent and runtime instance.`);
   if (schedule.state !== "armed")
     reject("schedule_paused", `Schedule ${schedule.scheduleId} is paused; enable it before claiming.`);
   if (typeof action.observedDefinitionRevision === "number" && action.observedDefinitionRevision !== revision)
@@ -722,6 +736,7 @@ function mergeScheduleUpdate(
             ...builtinParamsFromAction(action, currentTarget.params as ScheduleBuiltinParamsV1 | undefined),
           }
         : currentTarget?.kind === "agent" ||
+            currentTarget?.kind === "agent-unconfigured" ||
             Object.hasOwn(action, "agentId") ||
             Object.hasOwn(action, "runtimeInstanceId")
           ? {
@@ -786,6 +801,15 @@ function assertUpdatableDefinitionFields(
       "invalid_command",
       `Retention parameters apply only to built-in Schedules (unsupported: ${retention.join(", ")}).`,
     );
+  if (target?.kind === "agent-unconfigured") {
+    const hasAgent = Object.hasOwn(action, "agentId"),
+      hasInstance = Object.hasOwn(action, "runtimeInstanceId");
+    if (hasAgent !== hasInstance)
+      reject(
+        "schedule_target_unconfigured",
+        "Configure an unconfigured Schedule with both agentId and runtimeInstanceId in one update.",
+      );
+  }
 }
 
 function scheduleTriggerFromCreate(action: Readonly<Record<string, unknown>>, occurredAt: string): ScheduleTriggerV1 {
@@ -798,6 +822,11 @@ function scheduleTriggerFromCreate(action: Readonly<Record<string, unknown>>, oc
 
 /** Create is agent-shaped on every public surface; `builtinId` is the daemon seed's own lane. */
 function scheduleTargetFromCreate(action: Readonly<Record<string, unknown>>): ScheduleV1["spec"]["target"] {
+  if (action.unconfiguredAgent === true) {
+    if (!action.systemPresetId || Object.hasOwn(action, "agentId") || Object.hasOwn(action, "runtimeInstanceId"))
+      reject("invalid_command", "An unconfigured agent target is reserved for a system preset seed.");
+    return { kind: "agent-unconfigured" };
+  }
   if (action.builtinId === undefined)
     return {
       kind: "agent",

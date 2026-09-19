@@ -390,7 +390,7 @@ export function openFleetEdgeRuntime(input: {
     const actionKind = requiredScheduleText(action.kind, "kind"),
       assigned = await readFleetAssignmentClient(peer),
       scheduleId =
-        actionKind === "schedule-list"
+        actionKind === "schedule-list" || actionKind === "schedule-reckon"
           ? assigned.scope.kind === "schedule"
             ? assigned.scope.scheduleId
             : ""
@@ -418,7 +418,7 @@ export function openFleetEdgeRuntime(input: {
       });
     if (command.outcome !== "applied") return scheduleResult(actionKind, command);
     const receipt = command.receipt as JsonObject;
-    if (["schedule-list", "schedule-runs", "schedule-show"].includes(actionKind))
+    if (["schedule-list", "schedule-reckon", "schedule-runs", "schedule-show"].includes(actionKind))
       return scheduleResult(actionKind, command);
     if (actionKind !== "schedule-run-now") {
       await syncScheduleMirror();

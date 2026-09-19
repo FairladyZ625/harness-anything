@@ -178,6 +178,7 @@ test("a builtin schedule row exposes its effective retention and a protected del
     scheduleId: "builtin-ledger-backup",
     name: "Ledger backup",
     mode: "detect",
+    systemPresetId: "ledger-backup",
     spec: {
       trigger: { kind: "cron", expression: "17 3 * * *", timezone: "UTC" },
       target: { kind: "builtin", builtinId: "ledger-backup" },

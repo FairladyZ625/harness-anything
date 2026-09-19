@@ -265,6 +265,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "record-missed",
       "settle",
       "list",
+      "reckon",
       "runs",
       "show",
     ],

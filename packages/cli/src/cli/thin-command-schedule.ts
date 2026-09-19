@@ -21,6 +21,15 @@ export function parseSchedule(
     return args.length === 2
       ? accepted(rootDir, repoId, json, { kind: "schedule-list" })
       : rejected("unknown_field", "ha schedule list takes no options or positional arguments.", json);
+  if (route.id === "schedule-reckon") {
+    const flags = readFlags(route.id, args.slice(2), inputs);
+    return flags.ok
+      ? accepted(rootDir, repoId, json, {
+          kind: "schedule-reckon",
+          ...(flags.one.has("--window-hours") ? { windowHours: Number(flags.one.get("--window-hours")) } : {}),
+        })
+      : rejected(flags.code, flags.nextAction, json);
+  }
   const packetOnly = isPacketInputToken(args[2]),
     scheduleId = packetOnly ? undefined : args[2],
     flags = readFlags(route.id, args.slice(packetOnly ? 2 : 3), inputs);
@@ -221,6 +230,16 @@ export function renderScheduleRuns(receipt: Record<string, unknown>): string | n
         ].join("\t"),
       )
       .join("\n");
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
+}
+
+export function renderScheduleReckon(receipt: Record<string, unknown>): string | null {
+  if (receipt.command !== "schedule-reckon" || typeof receipt.evidence !== "string") return null;
+  try {
+    return `${JSON.stringify(JSON.parse(receipt.evidence), null, 2)}\n`;
   } catch (error) {
     consumeKnownError(error);
     return null;
