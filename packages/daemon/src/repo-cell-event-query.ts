@@ -4,11 +4,11 @@ import type {
   ReceiptDiagnostic,
   WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
+import { canonicalEventEntityRefs } from "../../kernel/src/index.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 export const DEFAULT_EVENT_LIST_LIMIT = 50;
 export const EVENT_LIST_LIMIT_MAX = 500;
-const EVENT_SCAN_BATCH = 1024;
 
 export interface EventQueryCell {
   readonly input: { readonly repoId: string };
@@ -48,7 +48,7 @@ export interface EventListRow {
 
 export interface EventListPage {
   readonly rows: readonly EventListRow[];
-  readonly matched: number;
+  readonly hasMore: boolean;
   readonly nextCursor: string | null;
 }
 
@@ -78,8 +78,10 @@ export function eventListQueryFromAction(
   ] as const)
     if (value !== undefined && Number.isNaN(Date.parse(value)))
       throw cell.cellCodedError("invalid_command", `Event list ${name} must be an ISO-8601 timestamp.`);
-  const after = optionalText(action.after),
-    before = optionalText(action.before);
+  const afterText = optionalText(action.after),
+    beforeText = optionalText(action.before),
+    after = afterText === undefined ? undefined : new Date(afterText).toISOString(),
+    before = beforeText === undefined ? undefined : new Date(beforeText).toISOString();
   if (after !== undefined && before !== undefined && after > before)
     throw cell.cellCodedError("invalid_command", "Event list --after must not be later than --before.");
   return {
@@ -93,32 +95,7 @@ export function eventListQueryFromAction(
   };
 }
 
-export function eventEntityRefs(event: CanonicalEventV1): readonly string[] {
-  const refs = new Set<string>(),
-    envelope = event as unknown as Readonly<Record<string, unknown>>,
-    payload =
-      typeof envelope.payload === "object" && envelope.payload !== null
-        ? (envelope.payload as Readonly<Record<string, unknown>>)
-        : {},
-    add = (kind: unknown, id: unknown) => {
-      if (typeof kind === "string" && kind && typeof id === "string" && id) refs.add(`${kind}/${id}`);
-    },
-    addNamed = (source: Readonly<Record<string, unknown>>) => {
-      add("task", source.taskId);
-      add("decision", source.decisionId);
-      add("fact", source.factId);
-      add("execution", source.executionId);
-      add("schedule", source.scheduleId);
-      add(source.entityKind, source.entityId);
-      if (typeof source.entity === "object" && source.entity !== null) {
-        const entity = source.entity as Readonly<Record<string, unknown>>;
-        add(entity.kind, entity.id);
-      }
-    };
-  addNamed(envelope);
-  addNamed(payload);
-  return [...refs];
-}
+export const eventEntityRefs = canonicalEventEntityRefs;
 
 export function eventMatches(event: CanonicalEventV1, query: EventListQuery): boolean {
   if (query.type !== undefined && event.type !== query.type) return false;
@@ -136,25 +113,14 @@ export function eventMatches(event: CanonicalEventV1, query: EventListQuery): bo
 }
 
 /**
- * Reads newest→oldest from the revision index and stops once one look-ahead match proves another page exists.
- * The exclusive revision bound decreases every round, so even sparse filters never revisit an event.
+ * Pushes filtering into the canonical store and asks for one look-ahead match to prove another page exists.
  */
 export function selectLedgerEvents(
-  store: Pick<CanonicalEventStore, "readEventsBefore">,
+  store: Pick<CanonicalEventStore, "queryEvents">,
   query: EventListQuery,
 ): EventListPage {
-  if (!store.readEventsBefore) throw new Error("canonical event store does not support reverse event reads");
-  const selected: CanonicalEventV1[] = [];
-  let bound = query.revisionBound ?? Number.MAX_SAFE_INTEGER;
-  while (bound > 1 && selected.length <= query.limit) {
-    const events = store.readEventsBefore(bound, EVENT_SCAN_BATCH);
-    if (events.length === 0) break;
-    for (const event of events) {
-      if (eventMatches(event, query)) selected.push(event);
-      if (selected.length > query.limit) break;
-    }
-    bound = events.at(-1)!.workspaceRevision;
-  }
+  if (!store.queryEvents) throw new Error("canonical event store does not support indexed event queries");
+  const selected = store.queryEvents({ ...query, limit: query.limit + 1 });
   const rows = selected.slice(0, query.limit).map((event) => ({
     revision: event.workspaceRevision,
     opId: event.opId,
@@ -167,7 +133,7 @@ export function selectLedgerEvents(
   }));
   return {
     rows,
-    matched: selected.length,
+    hasMore: selected.length > query.limit,
     nextCursor: selected.length > query.limit && rows.length ? String(rows.at(-1)!.revision) : null,
   };
 }
@@ -192,7 +158,7 @@ export function listEvents(cell: EventQueryCell, action: RepoTaskAction, binding
       schema: "event-list/v1",
       rows: page.rows,
       count: page.rows.length,
-      matched: page.matched,
+      hasMore: page.hasMore,
       page: {
         limit: query.limit,
         cursor: optionalText(action.cursor) ?? null,

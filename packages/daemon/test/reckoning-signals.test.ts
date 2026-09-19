@@ -90,7 +90,7 @@ test("one superseding fact is one correction, never two recurrences", () => {
   );
 });
 
-test("the signal read walks newest-first and stops once it is past the decision lookback", () => {
+test("the signal read uses an indexed time range and keeps an acceptance before the signal window", () => {
   const DAY = 86_400_000,
     at = (revision: number, ageDays: number, type: string, id: string) =>
       ({
@@ -106,16 +106,16 @@ test("the signal read walks newest-first and stops once it is past the decision 
       at(2_001, 6, "decision_accepted", "dec_short"),
       at(2_002, 0.5, "decision_superseded", "dec_short"),
     ],
-    reads: number[] = [];
+    reads: unknown[] = [];
   const result = readReckoningSignals(
     {
-      readHead: () => ({ revision: 2_002 }) as never,
-      readEventsBefore: (before, maxItems) => {
-        reads.push(before);
-        return ledger
-          .filter((event) => event.workspaceRevision < before)
-          .slice(-maxItems)
-          .reverse();
+      queryEvents: (query) => {
+        reads.push(query);
+        return ledger.filter(
+          (event) =>
+            (query.after === undefined || event.occurredAt >= query.after) &&
+            (query.before === undefined || event.occurredAt <= query.before),
+        );
       },
     },
     { readRuntimeSessions: () => [] },
@@ -125,6 +125,42 @@ test("the signal read walks newest-first and stops once it is past the decision 
     result.signals.map((signal) => signal.key),
     ["decision:dec_short"],
   );
-  // One page reaches past the lookback; the 2,000 older events are never paged through.
-  assert.deepEqual(reads, [2_003]);
+  assert.deepEqual(reads, [
+    {
+      after: new Date(now - 8 * DAY).toISOString(),
+      before: new Date(now).toISOString(),
+      limit: Number.MAX_SAFE_INTEGER,
+    },
+  ]);
+});
+
+test("out-of-order imported timestamps cannot hide a recent correction", () => {
+  const DAY = 86_400_000,
+    correction = {
+      type: "fact_recorded",
+      occurredAt: new Date(now - DAY / 2).toISOString(),
+      workspaceRevision: 1,
+      entity: { kind: "fact", id: "F-NEW" },
+      payload: { supersedes: { factRef: "fact/F-OLD" } },
+    } as unknown as CanonicalEventV1,
+    imports = Array.from({ length: 500 }, (_, index) => ({
+      type: "entity_upserted",
+      occurredAt: new Date(now - 30 * DAY).toISOString(),
+      workspaceRevision: index + 2,
+      payload: {},
+    })) as unknown as CanonicalEventV1[];
+  const result = readReckoningSignals(
+    {
+      queryEvents: (query) =>
+        [correction, ...imports].filter(
+          (event) => event.occurredAt >= query.after! && event.occurredAt <= query.before!,
+        ),
+    },
+    { readRuntimeSessions: () => [] },
+    new Date(now).toISOString(),
+  );
+  assert.deepEqual(
+    result.signals.map(({ key }) => key),
+    ["fact/F-OLD"],
+  );
 });

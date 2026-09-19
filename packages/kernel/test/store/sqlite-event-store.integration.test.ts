@@ -980,6 +980,54 @@ test("50k bootstrap is incremental and subsequent canonical bundles append one c
   }
 });
 
+test("duplicate historical event ids remain readable with earliest-revision semantics", () => {
+  const databasePath = scratch("duplicate-event-id"),
+    first = eventAt(1),
+    second = { ...eventAt(2), eventId: first.eventId };
+  let store = openSqliteEventStore({ repoId, databasePath });
+  store.appendCommand({ fence, intent: intentFor(first), events: [first] });
+  store.appendCommand({ fence, intent: intentFor(second), events: [second] });
+  store.close();
+  store = openSqliteEventStore({ repoId, databasePath });
+  try {
+    assert.equal(store.eventById(first.eventId)?.workspaceRevision, 1);
+  } finally {
+    store.close();
+  }
+});
+
+test("document head backfill rejects a ledger whose declared tail event is missing", () => {
+  const databasePath = scratch("missing-tail"),
+    store = openSqliteEventStore({ repoId, databasePath });
+  store.appendCommand({ fence, intent: intent(1), events: [eventAt(1)] });
+  store.close();
+  const db = new DatabaseSync(databasePath);
+  db.exec("DELETE FROM document_head_meta; DELETE FROM document_head");
+  db.prepare("UPDATE ledger_meta SET revision=2 WHERE singleton=1").run();
+  db.close();
+  assert.throws(
+    () => openSqliteEventStore({ repoId, databasePath }),
+    /document head backfill ended at revision 1, expected 2/u,
+  );
+});
+
+test("indexed event queries find sparse matches without decoding unrelated rows", () => {
+  const store = openSqliteEventStore({ repoId, databasePath: scratch("event-query") });
+  try {
+    for (let revision = 1; revision <= 20; revision += 1) {
+      const event = eventAt(revision);
+      store.appendCommand({ fence, intent: intentFor(event), events: [event] });
+    }
+    assert.deepEqual(store.queryEvents({ entity: "task/missing", limit: 2 }), []);
+    assert.deepEqual(
+      store.queryEvents({ entity: "task/task-00001", limit: 2 }).map(({ workspaceRevision }) => workspaceRevision),
+      [1],
+    );
+  } finally {
+    store.close();
+  }
+});
+
 function command(_store: SqliteEventStore, revision: number, opId = eventAt(revision).opId) {
   const event = { ...eventAt(revision), opId };
   return { fence, intent: intentFor(event), events: [event] } as const;

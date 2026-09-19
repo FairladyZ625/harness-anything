@@ -1,6 +1,7 @@
 // Public compatibility façade for the canonical task event store.
 export {
   CANONICAL_EVENT_REF,
+  canonicalEventEntityRefs,
   materializationStates,
   TaskEventStoreError,
   type CanonicalContentBlob,

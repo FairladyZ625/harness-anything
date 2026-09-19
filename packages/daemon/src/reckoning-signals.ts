@@ -18,7 +18,7 @@ export interface ReckoningResult {
 }
 
 export function readReckoningSignals(
-  store: Pick<CanonicalEventStore, "readHead" | "readEventsBefore">,
+  store: Pick<CanonicalEventStore, "queryEvents">,
   projection: Pick<TaskProjection, "readRuntimeSessions">,
   generatedAt: string,
   windowHours = 24,
@@ -26,16 +26,15 @@ export function readReckoningSignals(
   const until = Date.parse(generatedAt),
     since = until - windowHours * 3_600_000,
     // A superseded decision is short-lived when accepted up to seven days earlier, so the read reaches that far back.
-    oldest = since - SHORT_LIVED_DECISION_MS,
-    events: CanonicalEventV1[] = [];
-  if (!store.readEventsBefore) throw new Error("reckoning requires a store with newest-first event reads");
-  for (let before = (store.readHead()?.revision ?? 0) + 1; before > 1; ) {
-    const page = store.readEventsBefore(before, 500);
-    if (page.length === 0) break;
-    events.push(...page);
-    before = Math.min(...page.map((event) => event.workspaceRevision));
-    if (page.some((event) => Date.parse(event.occurredAt) < oldest)) break;
-  }
+    oldest = since - SHORT_LIVED_DECISION_MS;
+  if (!store.queryEvents) throw new Error("reckoning requires indexed event queries");
+  const events = [
+    ...store.queryEvents({
+      after: new Date(oldest).toISOString(),
+      before: new Date(until).toISOString(),
+      limit: Number.MAX_SAFE_INTEGER,
+    }),
+  ];
   events.sort((left, right) => left.workspaceRevision - right.workspaceRevision);
   return collectReckoningSignals({ events, sessions: projection.readRuntimeSessions(), since, until });
 }
