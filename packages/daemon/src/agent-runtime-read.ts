@@ -211,7 +211,10 @@ export function makeAgentRuntimeReadModel(input: {
             session,
             installationsById.get(session.installationId),
             definitionFor(session, dispatchEventFor(session)),
-            activityEvidenceFor(session, dispatchEventFor(session)),
+            // Exited sessions get nothing from the stream read but a lastObservedAt bump and
+            // metrics: their liveness is final and their metrics render through the per-session
+            // read. Skipping it keeps the overview proportional to live sessions, not history.
+            session.liveness === "exited" ? undefined : activityEvidenceFor(session, dispatchEventFor(session)),
           ),
         ),
         ...(paged === null
@@ -248,7 +251,9 @@ export function makeAgentRuntimeReadModel(input: {
       const sessions = input.projection
           .readRuntimeSessions()
           .map((session) =>
-            sessionWithActivityEvidence(session, activityEvidenceFor(session, dispatchEventFor(session))),
+            session.liveness === "exited"
+              ? session
+              : sessionWithActivityEvidence(session, activityEvidenceFor(session, dispatchEventFor(session))),
           )
           .filter((session) => runtimeSessionInActivityWindow(session, query.since)),
         sessionIds = new Set(sessions.map(({ runtimeSessionId }) => runtimeSessionId)),
@@ -263,16 +268,25 @@ export function makeAgentRuntimeReadModel(input: {
             ...dispatches.flatMap((dispatch) => (dispatch.taskId ? [dispatch.taskId] : [])),
           ]),
         ],
-        taskLabels = runtimeTaskLabels(input.projection, taskIds);
+        taskLabels = runtimeTaskLabels(input.projection, taskIds),
+        // One entity listing per kind, not one getEntity per member: each getEntity opened its
+        // own withDatabase, so a 400-member read paid 400 SQLite opens for two small tables.
+        entityNames = new Map<string, ReadonlyMap<string, string>>();
+      const entityLabel = (kind: "agent" | "squad", id: string): string | null => {
+        if (cut.status !== "ready") return null;
+        let names = entityNames.get(kind);
+        if (names === undefined) {
+          names = latestEntityNames(input.projection.listEntities(kind));
+          entityNames.set(kind, names);
+        }
+        return names.get(id) ?? null;
+      };
       return buildAgentRuntimeSessionGroups({
         sessions,
         dispatches,
         dispatchStartedAt,
         taskLabels,
-        entityLabel: (kind, id) => {
-          const value = cut.status === "ready" ? input.projection.getEntity(kind, id)?.value : undefined;
-          return typeof value?.name === "string" && value.name ? value.name : null;
-        },
+        entityLabel,
         query,
         cut,
       });
@@ -374,6 +388,24 @@ function historicalRuntimeKindId(
   const kindId = definition?.kindId ?? session.kindId;
   if (isRuntimeKindId(kindId)) return kindId;
   throw coded("invalid_result", `Runtime session ${session.runtimeSessionId} has an unsupported runtime kind.`);
+}
+
+// getEntity semantics over a full listing: the highest-revision row wins, and only its name
+// labels the entity — an unnamed newer row shadows an older named one, matching the point query.
+function latestEntityNames(
+  rows: readonly ReturnType<TaskProjection["listEntities"]>[number][],
+): ReadonlyMap<string, string> {
+  const latest = new Map<string, ReturnType<TaskProjection["listEntities"]>[number]>();
+  for (const row of rows) {
+    const known = latest.get(row.id);
+    if (known === undefined || row.workspaceRevision >= known.workspaceRevision) latest.set(row.id, row);
+  }
+  const names = new Map<string, string>();
+  for (const [id, row] of latest) {
+    const name = row.value.name;
+    if (typeof name === "string" && name) names.set(id, name);
+  }
+  return names;
 }
 
 function runtimeTaskLabels(projection: TaskProjection, taskIds: readonly string[]): ReadonlyMap<string, string> {
