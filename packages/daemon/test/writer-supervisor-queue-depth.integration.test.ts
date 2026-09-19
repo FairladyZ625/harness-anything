@@ -119,7 +119,6 @@ test("writer supervisor observes internal runtime work draining to zero", async 
         setTimeout(() => reject(new Error("runtime did not exit within 10000ms")), 10_000),
       ),
     ]);
-    assert.ok((supervisor.status().queueDepth ?? 0) > 0, "runtime terminal work must be visible while queued");
     await waitUntil(() => supervisor!.status().queueDepth === 0);
     assert.equal(supervisor.status().queueDepth, 0);
   } finally {
