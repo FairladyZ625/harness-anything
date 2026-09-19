@@ -690,6 +690,20 @@ test("entity pins cover task, decision, and schedule with bounded rendering and 
         (await cell.run({ kind: "entity-pin", entityRef: "task/task_capacity" }, binding)).outcome,
         "applied",
       );
+      const deleted = await cell.run(
+        {
+          kind: "schedule-delete",
+          scheduleId: "nightly-reckoning",
+          reason: "The replacement schedule owns this work.",
+          idempotencyKey: "agenda-pin:schedule-delete",
+        },
+        binding,
+      );
+      assert.equal(deleted.outcome, "applied", JSON.stringify(deleted));
+      assert.equal(
+        (await cell.read("repo.agenda.read")).pinnedEntities.some(({ ref }) => ref === "schedule/nightly-reckoning"),
+        false,
+      );
     },
     (rootDir) => {
       const settingsPath = path.join(rootDir, "harness/harness.yaml");
@@ -701,6 +715,22 @@ test("entity pins cover task, decision, and schedule with bounded rendering and 
       );
     },
   );
+});
+
+test("agenda pin listing follows the requested limit", async () => {
+  await withCell("agenda-pin-list-limit", async (cell) => {
+    for (let index = 0; index < 12; index += 1) {
+      const taskId = `task_pin_${String(index).padStart(2, "0")}`;
+      assert.equal((await cell.run({ kind: "task-create", taskId, title: taskId }, binding)).outcome, "applied");
+      assert.equal((await cell.run({ kind: "entity-pin", entityRef: `task/${taskId}` }, binding)).outcome, "applied");
+    }
+    const complete = await cell.read("repo.agenda.read", { limit: 12 });
+    assert.equal(complete.pinnedEntities.length, 12);
+    assert.equal(complete.pinnedEntityOverflow, 0);
+    const bounded = await cell.read("repo.agenda.read", { limit: 10 });
+    assert.equal(bounded.pinnedEntities.length, 10);
+    assert.equal(bounded.pinnedEntityOverflow, 2);
+  });
 });
 
 test("terminal task transitions clear pins without changing unpinned task outcomes", async () => {

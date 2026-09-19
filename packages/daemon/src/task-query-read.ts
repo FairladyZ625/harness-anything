@@ -427,7 +427,7 @@ export function makeTaskQueryReadModel(input: {
       })),
       awaitingDecision = [...awaitingExecutions, ...awaitingDecisions].sort(compareAwaiting),
       allPinnedEntities = readPinnedEntities().map(resolvePinnedEntity),
-      pinnedEntities = allPinnedEntities.slice(0, 10),
+      pinnedEntities = allPinnedEntities.slice(0, sourceLimit),
       pinnedEntityOverflow = Math.max(0, allPinnedEntities.length - pinnedEntities.length),
       nextState: AgendaCursor = {
         active: active?.page?.nextCursor ?? null,
@@ -798,7 +798,7 @@ function renderAgendaSummary(
   return [
     section(
       "📌 重点关注",
-      "仓库级 Entity Pin（最多显示 10 项）",
+      "仓库级 Entity Pin（服从 --limit）",
       [
         ...groups.pinnedEntities.map(
           (row) => `- 📌 [${row.kind[0]?.toUpperCase()}${row.kind.slice(1)}] ${row.ref} ${row.title} [${row.status}]`,
