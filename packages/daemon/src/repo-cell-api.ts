@@ -934,6 +934,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     makeTaskQueryReadModel({
       rootDir: context.rootDir,
       projection: context.projection,
+      readPinnedEntities: context.projection.listPinnedEntities,
       judgments: repoCellTaskQueryJudgmentsFor(context.projection),
     });
   Object.assign(context.extracted, { taskListQueryFromAction, queryRead, relationQueryFromAction });

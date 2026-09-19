@@ -27,6 +27,8 @@ test("agenda result schema rejects mistyped pin state", () => {
     ok: true,
     command: "agenda",
     status: "ready",
+    pinnedEntities: [],
+    pinnedEntityOverflow: 0,
     inFlight: [],
     awaitingDecision: [],
     waitingOnOthers: [task],

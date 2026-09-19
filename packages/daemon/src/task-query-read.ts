@@ -65,9 +65,10 @@ export interface TaskQueryJudgments {
 export function makeTaskQueryReadModel(input: {
   readonly rootDir: CanonicalRoot;
   readonly projection: TaskProjection;
+  readonly readPinnedEntities: TaskProjection["listPinnedEntities"];
   readonly judgments: TaskQueryJudgments;
 }): TaskQueryReadModel {
-  const { rootDir, projection, judgments } = input,
+  const { rootDir, projection, readPinnedEntities, judgments } = input,
     closeout = judgments.closeout,
     blocking = judgments.blocking;
   let runtimeEdgesMtime = -1;
@@ -423,7 +424,7 @@ export function makeTaskQueryReadModel(input: {
         proposedAt: decision.proposedAt,
       })),
       awaitingDecision = [...awaitingExecutions, ...awaitingDecisions].sort(compareAwaiting),
-      allPinnedEntities = projection.listPinnedEntities().map(resolvePinnedEntity),
+      allPinnedEntities = readPinnedEntities().map(resolvePinnedEntity),
       pinnedEntities = allPinnedEntities.slice(0, 10),
       pinnedEntityOverflow = Math.max(0, allPinnedEntities.length - pinnedEntities.length),
       nextState: AgendaCursor = {

@@ -317,6 +317,7 @@ export function projectFrozenDaemonResponses(rootDir, transformEvent = (event) =
     const model = makeTaskQueryReadModel({
       rootDir: temporaryRoot,
       projection,
+      readPinnedEntities: projection.listPinnedEntities,
       judgments: { closeout: closeoutReadiness, blocking: blockingOf },
     });
     const taskRead = model.guiTasks({ limit: 100 }),

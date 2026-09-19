@@ -599,7 +599,7 @@ test("Relation actions serialize aggregate revisions and reject cycles and stale
         {
           kind: "task-amend",
           taskId: "task_relation_b",
-          patches: [{ field: "pinned", value: "true" }],
+          patches: [{ field: "title", value: "Relation B updated" }],
         },
         binding,
       );

@@ -309,6 +309,7 @@ export async function openRepoCellProxy(
           makeTaskQueryReadModel({
             rootDir: input.rootDir,
             projection: projection as TaskProjection,
+            readPinnedEntities: projection.listPinnedEntities,
             judgments: repoCellTaskQueryJudgmentsFor(projection),
           }).guiTasks(taskListQuery(payload)),
         ) as never;

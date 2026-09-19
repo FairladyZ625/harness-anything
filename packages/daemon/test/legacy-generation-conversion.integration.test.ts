@@ -661,7 +661,7 @@ test("inactive generation conversion witnesses separated legacy relations at the
           await run({
             kind: "task-amend",
             taskId: "task_target",
-            patches: [{ field: "pinned", value: index % 2 === 0 ? "true" : "false" }],
+            patches: [{ field: "title", value: `Target revision ${index}` }],
           });
       },
       relate = (sourceRef: string) =>

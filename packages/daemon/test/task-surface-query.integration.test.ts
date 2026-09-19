@@ -577,16 +577,7 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
     ] as const)
       assert.equal((await cell.run(action, binding)).outcome, "applied");
     assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-amend",
-            taskId: "task_child_beta",
-            patches: [{ field: "pinned", value: "true" }],
-          },
-          binding,
-        )
-      ).outcome,
+      (await cell.run({ kind: "entity-pin", entityRef: "task/task_child_beta" }, binding)).outcome,
       "applied",
     );
     const eventCount = makeTaskEventReader({
