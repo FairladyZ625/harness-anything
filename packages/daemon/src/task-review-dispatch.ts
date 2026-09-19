@@ -257,6 +257,14 @@ export async function dispatchTaskReview(
           "cut; submit the implementation first.",
       );
       continue;
+    } else if (snapshot.task?.status === "submitted") {
+      // The owner's forward order owns the first dispatch (owner adjudication 2026-09-19); this
+      // manual lane re-dispatches a cut already sitting at the review gate.
+      fail(
+        `Task ${taskId} still awaits its owner's triage. Run ha task adjudicate ${taskId} --forward ` +
+          "--note <why>; the forward order dispatches the independent reviewer.",
+      );
+      continue;
     } else if (candidates.length > 1) {
       fail(
         `Task ${taskId} has ${String(candidates.length)} submitted executions on its current iteration. ` +

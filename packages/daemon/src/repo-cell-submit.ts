@@ -121,18 +121,9 @@ export function deriveCloseoutSubmission(
     );
   const root = publishedRoot,
     commitSha = git.run(root, ["rev-parse", `${named[0]!}^{commit}`]).stdout;
-  // One execution may dispatch through several cwds (delivery worktree, then closeout prep at
-  // the canonical root). A cut already published to origin/main needs nothing else; an
-  // unpublished cut must be the HEAD of one of those directories.
-  if (
-    directories.length &&
-    !git.run(root, ["merge-base", "--is-ancestor", commitSha, "origin/main"]).ok &&
-    !directories.some((directory) => git.run(directory, ["rev-parse", "HEAD"]).stdout === commitSha)
-  )
-    throw cell.cellCodedError(
-      "invalid_submission",
-      "Summary commit must be the bound worktree HEAD or its published merge commit.",
-    );
+  // Task delivery is not a Git publication state: a resolvable commit may be reviewed before it
+  // becomes a bound worktree HEAD or reaches origin/main. The merge base below derives the cut's
+  // file manifest only; it is not submission admission.
   let deliverables: readonly string[], commitOutputs: readonly string[];
   if (frozen?.commitSha === commitSha) {
     // A submitted commit already owns its file manifest. Advancing main must not
