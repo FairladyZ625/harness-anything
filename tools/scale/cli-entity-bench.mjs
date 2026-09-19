@@ -388,7 +388,6 @@ function digestRows(receipt) {
 const coldReads = () => [
   ["task-list", ["task", "list"]],
   ["decision-list", ["decision", "list"]],
-  ["fact-search", ["fact", "search", "bench"]],
   ["relation-list", ["relation", "list"]],
   ["agenda", ["agenda"]],
   ...benchKinds.map((kind) => [`entity-list~${kind}`, ["entity", "list", kind]]),

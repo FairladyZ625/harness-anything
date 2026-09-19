@@ -181,7 +181,8 @@ test("oversized CJK content truncates inside the byte budget and keeps refs", ()
   assert.match(block, /dec_0/u);
   assert.match(block, /…/u, "dropped detail is honestly marked");
   assert.match(block, /F-1:/u, "the evidence layer survives the widened budget");
-  assert.match(block, /Refs: .*ha graph task_leaf/u, "canonical refs stay queryable");
+  assert.match(block, /Refs: [^\n]*task_root/u, "canonical refs stay queryable");
+  assert.doesNotMatch(block, /ha graph/u, "the lookup guidance lives in the mission, not the Refs tail");
 });
 
 test("ASCII noise, long ids, and long source paths stay inside the byte budget", () => {
@@ -258,5 +259,6 @@ test("ASCII noise, long ids, and long source paths stay inside the byte budget",
     `block is ${Buffer.byteLength(block, "utf8")} bytes`,
   );
   assert.match(block, /^# Task Causal Context\n/u);
-  assert.match(block, /ha graph task_leaf/u);
+  assert.match(block, /Refs: [^\n]*fact\/F-long/u);
+  assert.doesNotMatch(block, /ha graph/u, "the lookup guidance lives in the mission, not the Refs tail");
 });

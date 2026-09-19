@@ -11,7 +11,7 @@ import { workspacePathFormat, workspacePathResolutionRule } from "../../preset/s
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 import { materializePacketStdin, rawDocumentBody, rawTemplateBody } from "../src/index.ts";
 
-test("Fact CLI exposes record, controlled types, search, and show while keeping local errors closed", () => {
+test("Fact CLI exposes record, controlled types, and show while keeping local errors closed", () => {
   const record = parseThinCommand([
     "fact",
     "record",
@@ -30,8 +30,7 @@ test("Fact CLI exposes record, controlled types, search, and show while keeping 
     "--memory-tag",
     "pattern",
   ]);
-  const search = parseThinCommand(["fact", "search", "Observed", "--task", "task-1"]),
-    facetedSearch = parseThinCommand(["fact", "search", "--type", "architecture"]),
+  const retiredSearch = parseThinCommand(["fact", "search", "Observed", "--task", "task-1"]),
     registration = parseThinCommand(["fact", "type", "register", "architecture", "--source", "decision/CH1"]),
     vocabulary = parseThinCommand(["fact", "type", "list"]),
     reclassification = parseThinCommand([
@@ -48,8 +47,12 @@ test("Fact CLI exposes record, controlled types, search, and show while keeping 
     show = parseThinCommand(["fact", "show", "--id", "F-ABCDEFGH"]),
     showPositional = parseThinCommand(["fact", "show", "F-ABCDEFGH"]);
   assert.equal(record.ok, true);
-  assert.equal(search.ok, true);
-  assert.equal(facetedSearch.ok, true);
+  assert.equal(retiredSearch.ok, false, "ha fact search is retired");
+  if (!retiredSearch.ok)
+    assert.match(
+      retiredSearch.nextAction,
+      /fact has no search .*command; run ha fact --help for the commands it does have\./u,
+    );
   assert.equal(show.ok, true);
   assert.equal(showPositional.ok, true, JSON.stringify(showPositional));
   assert.equal(registration.ok, true);
@@ -66,8 +69,6 @@ test("Fact CLI exposes record, controlled types, search, and show while keeping 
       memoryClass: "semantic",
       memoryTags: ["pattern"],
     });
-  if (facetedSearch.ok)
-    assert.deepEqual(facetedSearch.command.action, { kind: "fact-search", domainType: "architecture" });
   if (registration.ok)
     assert.deepEqual(registration.command.action, {
       kind: "fact-type-register",
@@ -127,7 +128,7 @@ test("Fact CLI exposes record, controlled types, search, and show while keeping 
       "duplicate_field",
       "invalid_field",
       "missing_field",
-      "unknown_field",
+      "unsupported_command",
       "unsupported_command",
       "duplicate_field",
       "missing_field",
@@ -251,35 +252,6 @@ test("fact record help declares the supersedes/rationale pairing the rejection e
     assert.equal(parsed.ok, false, name);
     if (!parsed.ok) assert.equal(parsed.nextAction, `${name} requires ${partner}.`, name);
   }
-});
-
-test("Fact search CLI forwards observed-time windows and keyset pagination", () => {
-  const parsed = parseThinCommand([
-    "fact",
-    "search",
-    "observation",
-    "--task",
-    "task-1",
-    "--observed-after",
-    "2026-08-01T00:00:00.000Z",
-    "--observed-before",
-    "2026-08-31T00:00:00.000Z",
-    "--limit",
-    "25",
-    "--cursor",
-    "cursor-a",
-  ]);
-  assert.equal(parsed.ok, true, JSON.stringify(parsed));
-  if (parsed.ok)
-    assert.deepEqual(parsed.command.action, {
-      kind: "fact-search",
-      query: "observation",
-      taskId: "task-1",
-      observedAfter: "2026-08-01T00:00:00.000Z",
-      observedBefore: "2026-08-31T00:00:00.000Z",
-      limit: 25,
-      cursor: "cursor-a",
-    });
 });
 
 test("Decision CLI maps every canonical command and keeps the five local error codes closed", () => {

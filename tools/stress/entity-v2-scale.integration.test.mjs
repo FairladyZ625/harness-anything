@@ -272,8 +272,6 @@ test(`V2 scale tier: ${config.targetEvents} generated events`, { skip, timeout: 
         ["read.relation-list.page", () => ["relation", "list", "--limit", "50"]],
         ["read.relation-list.hub", () => ["relation", "list", "--entity", hub, "--limit", "50"]],
         ["read.relation-list.leaf", () => ["relation", "list", "--entity", leaf, "--limit", "50"]],
-        ["read.fact-search.selective", () => ["fact", "search", samples.factToken, "--limit", "20"]],
-        ["read.fact-search.broad", () => ["fact", "search", "observation", "--limit", "20"]],
       ];
     for (const [metric, argv] of reads)
       guard(metric, () => {

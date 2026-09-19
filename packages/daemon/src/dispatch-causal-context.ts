@@ -20,7 +20,9 @@ import { requireSameProjectionCut, type ProjectionCut } from "./task-query-read.
  * old 500 B cap dropped at least one line in 16% of blocks — usually the
  * evidence Facts or the milestone Goal under CJK text. 2 KiB covers the
  * observed maximum with headroom. Canonical refs are never truncated away —
- * a worker can always re-query `ha graph <task-id>`.
+ * the fixed lookup guidance every task-bound mission carries (see
+ * taskQueryGuidance) is what tells the worker `ha graph <task-id>` re-queries
+ * them; this block no longer spends budget repeating that command.
  */
 export const CAUSAL_CONTEXT_MAX_BYTES = 2048;
 
@@ -146,7 +148,7 @@ export function assembleTaskCausalContext(input: {
     ...decisionIds.map((decisionId) => `decision/${decisionId}`),
     ...factRefs,
   ];
-  return renderWithinBudget(details, refs, taskId);
+  return renderWithinBudget(details, refs);
 }
 
 /**
@@ -156,13 +158,13 @@ export function assembleTaskCausalContext(input: {
  * (only a pathological id set can do that), refs are shed from the tail and
  * the output is hard-clamped to the ceiling on a character boundary.
  */
-function renderWithinBudget(details: readonly string[], refs: readonly string[], taskId: string): string {
+function renderWithinBudget(details: readonly string[], refs: readonly string[]): string {
   const kept: string[] = [],
     mutable = [...refs];
-  let refsLine = `Refs: ${mutable.join(" ")} · ha graph ${taskId}`;
+  let refsLine = `Refs: ${mutable.join(" ")}`;
   while (mutable.length > 0 && byteLength(`${HEADER}\n${refsLine}`) > CAUSAL_CONTEXT_MAX_BYTES) {
     mutable.pop();
-    refsLine = `Refs: ${mutable.join(" ")} … · ha graph ${taskId}`;
+    refsLine = `Refs: ${mutable.join(" ")} …`;
   }
   let used = byteLength(HEADER) + 1 + byteLength(refsLine),
     dropped = false;

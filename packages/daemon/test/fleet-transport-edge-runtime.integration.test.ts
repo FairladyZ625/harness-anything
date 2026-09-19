@@ -761,7 +761,8 @@ test(
     assert.ok(explicitBlock !== null, `no causal block in remote-edge prompt:\n${explicitPrompt}`);
     assert.match(explicitBlock, /CENTERFRESH-ZQ decision/u);
     assert.match(explicitBlock, /CENTERFRESH-ZQ evidence recorded post-pull\./u);
-    assert.match(explicitBlock, /Refs: .*ha graph /u);
+    assert.match(explicitBlock, /Refs: [^\s]/u);
+    assert.doesNotMatch(explicitBlock, /ha graph/u, "the bare graph command word left the Refs tail");
     assert.ok(
       Buffer.byteLength(explicitBlock, "utf8") <= 500,
       `causal block is ${Buffer.byteLength(explicitBlock, "utf8")} bytes`,

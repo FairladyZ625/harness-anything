@@ -35,7 +35,7 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { dispatchClaimedSchedule } from "./schedule-action-runtime.ts";
 import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
-import { runtimeMissionName } from "./runtime-spawn-mission.ts";
+import { runtimeMissionName, taskQueryGuidance } from "./runtime-spawn-mission.ts";
 
 export interface FleetEdgeRuntimeRequest {
   readonly payload: {
@@ -259,6 +259,7 @@ export function openFleetEdgeRuntime(input: {
           plan,
           mission: [
             baseMission,
+            taskQueryGuidance(taskId),
             ...(causalContext === null ? [] : [causalContext]),
             ...(mission ? [`# Mission: ${missionName}\n\n${mission.body.trim()}`] : []),
           ].join("\n\n"),

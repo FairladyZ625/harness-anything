@@ -164,13 +164,6 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
       state: string;
     };
     assert.equal(fact.state, "standing");
-    const factSearch = JSON.parse(
-      String(run(fixture.alpha, fixture.userRoot, ["fact", "search", "Canonical", "--task", "task-alpha"]).evidence),
-    ) as { facts: readonly { factId: string }[] };
-    assert.deepEqual(
-      factSearch.facts.map((row) => row.factId),
-      [fact.factId],
-    );
     const factShow = JSON.parse(
       String(run(fixture.alpha, fixture.userRoot, ["fact", "show", "--id", fact.factId]).evidence),
     ) as { fact: { statement: string } };

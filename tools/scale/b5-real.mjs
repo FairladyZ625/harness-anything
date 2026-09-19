@@ -110,9 +110,6 @@ async function measureB5RealSingle(options) {
   const { makeTaskProjection } = await importSource("packages/kernel/src/projection/rebuildable-task-projection.ts");
   const relationGraphProjection = await importSource("packages/kernel/src/projection/relation-graph-projection.ts");
   const daemonQueryModule = await importSource("packages/daemon/src/task-query-read.ts").catch(() => null);
-  const daemonActionModule = await importSource("packages/daemon/src/entity-action-catalog-executor.ts").catch(
-    () => null,
-  );
   const metadata =
     options.events !== null
       ? {
@@ -435,25 +432,14 @@ async function measureB5RealSingle(options) {
         judgments: { closeout: kernel.closeoutReadiness, blocking: kernel.blockingOf },
       })
     : makeBaselineReadModel({ rootDir, projection, kernel, relationGraphProjection });
-  const catalogActions = daemonActionModule?.makeEntityActionCatalogExecutor({
-    store: eventStore,
-    projection,
-    now: () => "2026-12-31T00:00:00.000Z",
-  });
   const narrowSupported = typeof projection.readRelationQuery === "function";
   const windowStart = new Date(Date.UTC(2026, 0, 10)).toISOString();
 
   const unparamTask = () => readModel.guiTasks();
   const unparamGraph = () => readModel.relationGraphFacet({ facet: "edges" });
-  const factRead = (action) => {
-    if (!catalogActions) return projection.searchFacts(action);
-    const receipt = catalogActions.run(
-      { kind: "fact-search", ...action },
-      { actor, source: "local" },
-      "read:b5-fact-search",
-    );
-    return JSON.parse(String(receipt.evidence));
-  };
+  // The `ha fact search` ingress is retired; B5 measures the projection read
+  // path itself, which is what the GUI facts facet and dispatch causal context use.
+  const factRead = (action) => projection.searchFacts(action);
   const factQuery = (index) => factRead({ query: factStatements[index % factStatements.length] });
   const narrowStatus = () => readModel.guiTasks({ status: "active", limit: 50 });
   const narrowWindow = () => readModel.guiTasks({ updatedAfter: windowStart, limit: 50 });

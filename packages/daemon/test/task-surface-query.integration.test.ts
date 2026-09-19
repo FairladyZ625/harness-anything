@@ -400,7 +400,7 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
   }
 });
 
-test("fact search action forwards observed-time windows and preserves keyset page equivalence", async () => {
+test("fact surface serves controlled types, GUI vocabulary, reclassify, and show without the retired search ingress", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-query-real-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
@@ -473,44 +473,11 @@ test("fact search action forwards observed-time windows and preserves keyset pag
         ).outcome,
         "applied",
       );
-    const full = evidence(await cell.run({ kind: "fact-search", taskId: "task_fact_query" }, binding)),
-      first = evidence(await cell.run({ kind: "fact-search", taskId: "task_fact_query", limit: 2 }, binding));
-    assert.deepEqual(
-      (full.facts as { factId: string }[]).map(({ factId }) => factId),
-      ["F-00000005", "F-00000004", "F-00000003", "F-00000002", "F-00000001"],
-    );
-    assert.equal((first.page as { limit: number }).limit, 2);
-    let cursor = (first.page as { nextCursor: string | null }).nextCursor,
-      rows = [...(first.facts as { factId: string }[])];
-    while (cursor) {
-      const next = evidence(
-        await cell.run({ kind: "fact-search", taskId: "task_fact_query", limit: 2, cursor }, binding),
-      );
-      rows = [...rows, ...(next.facts as { factId: string }[])];
-      cursor = (next.page as { nextCursor: string | null }).nextCursor;
-    }
-    assert.deepEqual(rows, full.facts);
-    const window = evidence(
-      await cell.run(
-        {
-          kind: "fact-search",
-          taskId: "task_fact_query",
-          observedAfter: "2026-08-15T00:00:03.000Z",
-          observedBefore: "2026-08-15T00:00:04.000Z",
-        },
-        binding,
-      ),
-    );
-    assert.deepEqual(
-      (window.facts as { factId: string }[]).map(({ factId }) => factId),
-      ["F-00000004", "F-00000003"],
-    );
-    const architecture = evidence(
-      await cell.run({ kind: "fact-search", taskId: "task_fact_query", domainType: "architecture" }, binding),
-    );
-    assert.deepEqual(
-      (architecture.facts as { factId: string }[]).map(({ factId }) => factId),
-      ["F-00000002", "F-00000001"],
+    // The retired `ha fact search` ingress is closed at the command-descriptor
+    // boundary; its read path lives on in the projection and the GUI facts facet.
+    await assert.rejects(
+      cell.run({ kind: "fact-search", taskId: "task_fact_query" }, binding),
+      (error: unknown) => (error as { readonly code?: string }).code === "unsupported_command",
     );
     assert.equal(
       (
@@ -528,40 +495,6 @@ test("fact search action forwards observed-time windows and preserves keyset pag
     );
     const reclassified = evidence(await cell.run({ kind: "fact-show", factId: "F-00000001" }, binding));
     assert.deepEqual((reclassified.fact as { domainTypes: string[] }).domainTypes, ["architecture", "custom-3"]);
-    const invalidDate = await cell.run(
-        {
-          kind: "fact-search",
-          taskId: "task_fact_query",
-          observedAfter: "not-a-date",
-        },
-        binding,
-      ),
-      invertedWindow = await cell.run(
-        {
-          kind: "fact-search",
-          taskId: "task_fact_query",
-          observedAfter: "2026-08-16T00:00:00.000Z",
-          observedBefore: "2026-08-15T00:00:00.000Z",
-        },
-        binding,
-      ),
-      invalidLimit = await cell.run({ kind: "fact-search", taskId: "task_fact_query", limit: 0 }, binding);
-    const unknownField = await cell.run(
-      {
-        kind: "fact-search",
-        taskId: "task_fact_query",
-        permissionMode: "read-only",
-      },
-      binding,
-    );
-    assert.equal(invalidDate.outcome, "op_rejected");
-    assert.deepEqual(invalidDate.diagnostic, { kind: "failure", code: "invalid_command" });
-    assert.equal(invertedWindow.outcome, "op_rejected");
-    assert.deepEqual(invertedWindow.diagnostic, { kind: "failure", code: "invalid_command" });
-    assert.equal(invalidLimit.outcome, "op_rejected");
-    assert.deepEqual(invalidLimit.diagnostic, { kind: "failure", code: "invalid_command" });
-    assert.equal(unknownField.outcome, "op_rejected");
-    assert.deepEqual(unknownField.diagnostic, { kind: "failure", code: "invalid_command" });
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

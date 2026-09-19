@@ -40,7 +40,7 @@ the `repoId` printed in the restore receipt to bind and verify the restored repo
 cd /srv/restored-project
 ha init --repo-id <repoId> --person-id <owner-person-id> --display-name <owner-display-name>
 ha task show <known-task-id>
-ha fact search <known-query>
+ha fact show <known-fact-id>
 ```
 
 Use the registry metadata printed in the receipt when the original repository used a non-local
