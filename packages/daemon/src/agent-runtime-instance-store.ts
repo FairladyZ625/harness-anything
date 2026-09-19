@@ -1,13 +1,12 @@
 import {
-  accessSync,
   chmodSync,
-  constants,
   existsSync,
   mkdirSync,
   readFileSync,
   realpathSync,
   renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from "node:fs";
 import { userInfo } from "node:os";
@@ -650,13 +649,14 @@ export function openRuntimeInstanceStore(input: {
   }
   function installationEntryMatches(installation: RuntimeInstallationWitness): boolean {
     if (!installation.executableEntryPath) return true;
-    try {
-      accessSync(installation.executableEntryPath, constants.X_OK);
-      return realpathSync.native(installation.executableEntryPath) === installation.executablePath;
-    } catch (error) {
-      consumeKnownError(error);
-      return false;
-    }
+    // A vanished entry reads as undefined rather than throwing; any other failure stays loud.
+    const entry = statSync(installation.executableEntryPath, { throwIfNoEntry: false });
+    return (
+      entry !== undefined &&
+      entry.isFile() &&
+      (process.platform === "win32" || (entry.mode & 0o111) !== 0) &&
+      realpathSync.native(installation.executableEntryPath) === installation.executablePath
+    );
   }
   function read(witnessed?: readonly RuntimeInstallationWitness[]): RuntimeInstanceConfig[] {
     if (cachedInstances) {
