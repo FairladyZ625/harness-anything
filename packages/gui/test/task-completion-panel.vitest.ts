@@ -71,7 +71,7 @@ describe("Task completion panel", () => {
     });
     expect(calls).toEqual([["forward", undefined]]);
 
-    cleanupMountedDetail();
+    await cleanupMountedDetail();
     await mount({
       onAdjudicate: (decision, _reason, reviewId) => (calls.push([decision, reviewId]), Promise.resolve()),
     });
