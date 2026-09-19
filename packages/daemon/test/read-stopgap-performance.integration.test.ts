@@ -31,6 +31,8 @@ test("runtime discovery write load keeps independent read clients within the sto
       installationId: "installation-read-stopgap",
       kindId: "codex" as const,
       executablePath,
+      // The PATH entry is gone, so the launch rediscovers: that slow discovery is the load under test.
+      executableEntryPath: path.join(parent, "vanished-codex-entry"),
       version: "1.0.0",
       observedAt: "2026-09-01T00:00:00.000Z",
     };
