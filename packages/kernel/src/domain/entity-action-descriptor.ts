@@ -27,12 +27,18 @@ const bindActionDeclaration = (kind: string, action: EntityActionContract): Enti
   });
 };
 
-const pinnableCreationIds: Readonly<Record<string, Readonly<{ actionId: string; resultIdField: string }>>> =
-  Object.freeze({
-    task: Object.freeze({ actionId: "create", resultIdField: "taskId" }),
-    decision: Object.freeze({ actionId: "propose", resultIdField: "decisionId" }),
-    schedule: Object.freeze({ actionId: "create", resultIdField: "scheduleId" }),
-  });
+const pinnableCreationIds: Readonly<
+  Record<string, Readonly<{ actionId: string; resultIdField: string; when?: ActionPredicate }>>
+> = Object.freeze({
+  // A dry run creates nothing, so there is nothing to pin yet.
+  task: Object.freeze({
+    actionId: "create",
+    resultIdField: "taskId",
+    when: Object.freeze({ fieldEquals: Object.freeze({ path: "result.dryRun", value: false }) }),
+  }),
+  decision: Object.freeze({ actionId: "propose", resultIdField: "decisionId" }),
+  schedule: Object.freeze({ actionId: "create", resultIdField: "scheduleId" }),
+});
 
 const withCreationPinGuidance = (kind: string, action: EntityActionContract): EntityActionContract => {
   const creation = pinnableCreationIds[kind];
@@ -51,7 +57,7 @@ const withCreationPinGuidance = (kind: string, action: EntityActionContract): En
       Object.freeze({
         capabilityRef: "entity.pin",
         role: "agenda" as const,
-        when: null,
+        when: creation.when ?? null,
         args: Object.freeze({
           entityKind: kind,
           entityId: Object.freeze({ resultPath: `result.${creation.resultIdField}` }),

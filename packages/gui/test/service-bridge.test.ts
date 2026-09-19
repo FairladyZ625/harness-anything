@@ -317,6 +317,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       ci: { workflows: [] },
       gates: [],
       closeout: { profile: "standard" },
+      agenda: { pinLimit: 30 },
     });
     const settingsUpdated = parseDaemonGuiActionResponse(
       "repo.settings.update",
