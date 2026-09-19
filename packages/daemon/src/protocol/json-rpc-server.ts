@@ -542,6 +542,16 @@ export function createJsonRpcProtocolServer(options: {
         if (settled === parkedWaitAbandoned) return undefined;
         return reply(method, settled);
       } catch (error) {
+        // A parked wait that wakes while this daemon drains re-reads through a RepoCell that close()
+        // already shut — the drain closes cells before the transport. That repo_unavailable is the
+        // handoff, not a verdict about the awaited sessions, and answering it ended real waits with
+        // an error receipt before the transport closed. Silence keeps the abandonment contract: the
+        // connection teardown is the signal, and the client's reconnect budget re-issues this
+        // idempotent read on the daemon that survives.
+        if (options.stopping?.() === true && rpcServerErrorCode(error) === "repo_unavailable") {
+          consumeKnownError(error);
+          return undefined;
+        }
         return reply(method, protocolFailure(method, error));
       }
     }

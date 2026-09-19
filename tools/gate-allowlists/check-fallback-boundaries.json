@@ -129,6 +129,7 @@
       "packages/daemon/src/migration-import-tasks.ts#jsonRecordOrBody",
       "packages/daemon/src/migration-import-tasks.ts#utf8Absolute",
       "packages/daemon/src/observe-jsonl-tail.ts#jsonlTailFile",
+      "packages/daemon/src/protocol/json-rpc-server.ts#run",
       "packages/daemon/src/repo-bootstrap.ts#decodedName",
       "packages/daemon/src/repo-bootstrap.ts#npmScriptsDocument",
       "packages/daemon/src/repo-bootstrap.ts#optionalGit",
