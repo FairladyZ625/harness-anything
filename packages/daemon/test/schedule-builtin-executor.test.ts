@@ -1,15 +1,21 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createScheduleV1, readVerifiedLedgerBackup, type ScheduleV1 } from "../../kernel/src/index.ts";
+import {
+  createScheduleV1,
+  readVerifiedLedgerBackup,
+  type ScheduleV1,
+  registerDaemonRepo,
+} from "../../kernel/src/index.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { definition, initHarnessRepo } from "./schedule-actions.fixtures.ts";
 import type { RepoTaskAction } from "../src/repo-cell-types.ts";
+import { openDaemonHost } from "../src/daemon-host.ts";
 import {
   builtinLedgerBackupScheduleId,
   executeBuiltinScheduleOccurrence,
@@ -385,3 +391,95 @@ test("a partially written backup of the same occurrence is retaken, a verified o
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test(
+  "a registered local repo seeds one builtin schedule across attaches and runs it from the daemon host",
+  { timeout: 30_000 },
+  async () => {
+    const root = mkdtempSync(path.join(tmpdir(), "ha-schedule-builtin-seed-")),
+      repo = path.join(root, "repo"),
+      userRoot = path.join(root, "user"),
+      repoId = "builtin-seed",
+      localAuth = {
+        transportKind: "unix-socket" as const,
+        unixSocketOwnerBoundary: {
+          ownerUid: process.getuid?.() ?? 0,
+          source: "unix-socket-filesystem-owner-boundary" as const,
+        },
+      };
+    try {
+      initHarnessRepo(repo, "builtin-seed");
+      writeFileSync(
+        path.join(repo, "harness/people.yaml"),
+        `${JSON.stringify(
+          {
+            schema: "harness-people/v1",
+            people: [
+              {
+                personId: "owner",
+                displayName: "Owner",
+                roles: ["owner"],
+                credentials: [
+                  {
+                    kind: "unix-socket-owner-boundary",
+                    issuer: `host:${hostname()}`,
+                    subject: String(process.getuid?.() ?? 0),
+                  },
+                ],
+              },
+            ],
+            roles: [{ roleId: "owner", commandClasses: ["repo-read", "repo-write"] }],
+          },
+          null,
+          2,
+        )}\n`,
+      );
+      const { execFileSync } = await import("node:child_process");
+      execFileSync("git", ["-C", repo, "add", "harness"], { stdio: "ignore" });
+      execFileSync("git", ["-C", repo, "commit", "-qm", "people"], { stdio: "ignore" });
+      registerDaemonRepo({
+        canonicalRoot: repo,
+        repoId,
+        mode: "local",
+        userRoot,
+        createConvenienceLinks: false,
+      });
+      let host = await openDaemonHost({ daemonId: "builtin-seed-test", userRoot });
+      try {
+        await host.attachmentsSettled();
+        const first = (await host.run(repoId, { kind: "schedule-list" }, localAuth)) as {
+          schedules: readonly { scheduleId: string }[];
+        };
+        assert.deepEqual(
+          first.schedules.map(({ scheduleId }) => scheduleId),
+          [builtinLedgerBackupScheduleId],
+        );
+        const run = (await host.run(
+          repoId,
+          { kind: "schedule-run-now", scheduleId: builtinLedgerBackupScheduleId, idempotencyKey: "seed-run-1" },
+          localAuth,
+        )) as { outcome: string; code?: string };
+        assert.equal(run.outcome, "applied", JSON.stringify(run));
+        assert.equal(run.code, undefined);
+        const backups = readdirSync(path.join(repo, scheduledLedgerBackupRoot));
+        assert.equal(backups.length, 1);
+        assert.match(backups[0] ?? "", /^ledger-backup-manual_[0-9a-f]{24}$/u);
+        await host.close();
+        // A second attach converges on the same single seeded schedule — no duplicates.
+        host = await openDaemonHost({ daemonId: "builtin-seed-test", userRoot });
+        await host.attachmentsSettled();
+        const second = (await host.run(repoId, { kind: "schedule-list" }, localAuth)) as {
+          schedules: readonly { scheduleId: string }[];
+        };
+        assert.deepEqual(
+          second.schedules.map(({ scheduleId }) => scheduleId),
+          [builtinLedgerBackupScheduleId],
+        );
+      } finally {
+        await host.close();
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  },
+);
