@@ -1,6 +1,7 @@
-import type { CanonicalEventV1, RuntimeSession, TaskProjection } from "../../kernel/src/index.ts";
+import type { CanonicalEventStore, CanonicalEventV1, RuntimeSession, TaskProjection } from "../../kernel/src/index.ts";
 
-const DAY_MS = 86_400_000;
+const DAY_MS = 86_400_000,
+  SHORT_LIVED_DECISION_MS = 7 * DAY_MS;
 
 export interface ReckoningSignal {
   readonly kind: "abnormal-session" | "corrected-fact" | "short-lived-decision" | "rework";
@@ -17,21 +18,24 @@ export interface ReckoningResult {
 }
 
 export function readReckoningSignals(
-  projection: Pick<TaskProjection, "readCanonicalEvents" | "readRuntimeSessions">,
+  store: Pick<CanonicalEventStore, "queryEvents">,
+  projection: Pick<TaskProjection, "readRuntimeSessions">,
   generatedAt: string,
   windowHours = 24,
 ): ReckoningResult {
   const until = Date.parse(generatedAt),
     since = until - windowHours * 3_600_000,
-    events: CanonicalEventV1[] = [];
-  let afterRevision = 0;
-  for (;;) {
-    const page = projection.readCanonicalEvents(afterRevision, 500);
-    events.push(...page.events);
-    const lastRevision = page.events.at(-1)?.workspaceRevision ?? afterRevision;
-    if (page.events.length === 0 || lastRevision >= page.watermark) break;
-    afterRevision = lastRevision;
-  }
+    // A superseded decision is short-lived when accepted up to seven days earlier, so the read reaches that far back.
+    oldest = since - SHORT_LIVED_DECISION_MS;
+  if (!store.queryEvents) throw new Error("reckoning requires indexed event queries");
+  const events = [
+    ...store.queryEvents({
+      after: new Date(oldest).toISOString(),
+      before: new Date(until).toISOString(),
+      limit: Number.MAX_SAFE_INTEGER,
+    }),
+  ];
+  events.sort((left, right) => left.workspaceRevision - right.workspaceRevision);
   return collectReckoningSignals({ events, sessions: projection.readRuntimeSessions(), since, until });
 }
 
@@ -121,7 +125,7 @@ function ledgerSignals(events: readonly CanonicalEventV1[], since: number, until
     if ((event.type === "decision_superseded" || event.type === "decision_retired") && entityId) {
       const acceptedAt = accepted.get(entityId),
         lifetime = acceptedAt === undefined ? Number.NaN : occurredAt - Date.parse(acceptedAt);
-      if (lifetime >= 0 && lifetime < 7 * DAY_MS)
+      if (lifetime >= 0 && lifetime < SHORT_LIVED_DECISION_MS)
         signals.push({
           kind: "short-lived-decision",
           key: `decision:${entityId}`,

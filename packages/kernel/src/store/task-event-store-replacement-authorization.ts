@@ -21,36 +21,6 @@ type DocumentNode = {
 };
 type DocumentHead = Omit<DocumentNode, "body">;
 
-/**
- * Per-store cache of each path's latest claimed-or-retired head, advanced by `eventsAfter` instead
- * of rescanning the ledger on every write: O(N) the first time a store needs it, O(delta) after.
- */
-const documentHeadCaches = new WeakMap<
-  SqliteEventStore,
-  { revision: number; heads: Map<string, DocumentHead | "retired"> }
->();
-
-function documentHeadCache(store: SqliteEventStore): Map<string, DocumentHead | "retired"> {
-  const cache = documentHeadCaches.get(store) ?? { revision: 0, heads: new Map<string, DocumentHead | "retired">() };
-  documentHeadCaches.set(store, cache);
-  // Page the first build: the live ledger holds over 100 MB of event JSON.
-  for (const revision = store.revision(); cache.revision < revision; ) {
-    const events = store.eventsAfter(cache.revision, Math.min(1024, revision - cache.revision));
-    if (events.length === 0) throw new TaskEventStoreError("invalid_store", `Missing events after ${cache.revision}`);
-    for (const event of events) {
-      for (const claim of canonicalDocumentClaims(event))
-        cache.heads.set(claim.path, {
-          sha256: claim.sha256,
-          size: claim.size,
-          nodeKind: canonicalDocumentMode(event, claim.path) === "120000" ? "symbolic-link" : "file",
-        });
-      for (const retirement of canonicalDocumentRetirements(event)) cache.heads.set(retirement.path, "retired");
-    }
-    cache.revision += events.length;
-  }
-  return cache.heads;
-}
-
 export function assertAuthorizedReplacements(
   store: SqliteEventStore,
   input: HarnessLayoutInput,
@@ -67,14 +37,13 @@ export function assertAuthorizedReplacements(
   if (!members.some(({ event }) => requiresAuthorization(event))) return;
   const authoredRoot = resolveHarnessLayout(input).authoredRoot,
     pending = new Map<string, DocumentNode | null>(),
-    heads = documentHeadCache(store),
     local = (target: string): DocumentNode | null => {
       const node = localGitWorktreeSettlement.readNode(`${authoredRoot}/${target}`);
       return node && { ...node, nodeKind: node.mode === "120000" ? "symbolic-link" : "file" };
     },
     current = (target: string): DocumentHead | null => {
       if (pending.has(target)) return pending.get(target)!;
-      const head = heads.get(target);
+      const head = store.documentHead(target);
       if (head === "retired") return null;
       // Only a never-claimed bootstrap document can take its baseline from authored bytes.
       if (head === undefined) return local(target);
@@ -84,7 +53,7 @@ export function assertAuthorizedReplacements(
     if (store.event(member.event.opId)) continue; // SQLite still verifies the replay's exact intent digest.
     authorize(member, current, local, (target) => {
       if (pending.has(target)) return pending.get(target)?.body ?? null;
-      const head = heads.get(target);
+      const head = store.documentHead(target);
       if (head === "retired") return null;
       if (head === undefined) return local(target)?.body ?? null;
       const bytes = store.readContentObject(head.sha256);

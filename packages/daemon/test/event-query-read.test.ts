@@ -4,6 +4,7 @@ import test from "node:test";
 import type { CanonicalEventStore, CanonicalEventV1 } from "../../kernel/src/index.ts";
 import {
   eventEntityRefs,
+  eventMatches,
   eventListQueryFromAction,
   findLedgerEvent,
   selectLedgerEvents,
@@ -25,22 +26,19 @@ function event(overrides: Partial<CanonicalEventV1> & { readonly workspaceRevisi
 
 function store(
   events: readonly CanonicalEventV1[],
-  batchSize = 3,
-): Pick<CanonicalEventStore, "readBatch" | "readEvent"> {
+): Pick<CanonicalEventStore, "readEvent" | "readEventById" | "queryEvents"> {
   return {
-    readBatch: (cursor, maxItems) => {
-      const start = cursor === null ? 0 : Number(cursor),
-        items = events.slice(start, start + Math.min(maxItems, batchSize)),
-        next = start + items.length;
-      return {
-        sourceRevision: events.at(-1)?.workspaceRevision ?? 0,
-        events: items,
-        cursor: String(next),
-        done: next >= events.length,
-        accessedItems: items.length,
-      };
-    },
     readEvent: (opId) => events.find((candidate) => candidate.opId === opId) ?? null,
+    readEventById: (eventId) => events.find((candidate) => candidate.eventId === eventId) ?? null,
+    queryEvents: (query) =>
+      events
+        .filter(
+          (candidate) =>
+            (query.revisionBound === undefined || candidate.workspaceRevision < query.revisionBound) &&
+            eventMatches(candidate, query),
+        )
+        .slice(-query.limit)
+        .reverse(),
   };
 }
 
@@ -125,13 +123,13 @@ test("event list cursor pages do not overlap and the final page reports no curso
 
 test("event list scan keeps only the newest window and entity refs cover envelope and payload", () => {
   const events = [1, 2, 3].map((revision) => event({ workspaceRevision: revision })),
-    ledger = store(events, 1),
+    ledger = store(events),
     page = selectLedgerEvents(ledger, { limit: 2 });
   assert.deepEqual(
     page.rows.map(({ revision }) => revision),
     [3, 2],
   );
-  assert.equal(page.matched, 3);
+  assert.equal(page.hasMore, true);
   const entityEvent = event({
     workspaceRevision: 9,
     type: "entity_upserted",
@@ -156,9 +154,9 @@ test("event list query validation bounds limit and rejects malformed cursor and 
   assert.throws(() => parse({ after: "2026-09-02T00:00:00Z", before: "2026-09-01T00:00:00Z" }), /--after/u);
 });
 
-test("event show resolves op ids directly and event ids through the stream", () => {
+test("event show resolves op ids and event ids without scanning batches", () => {
   const target = event({ workspaceRevision: 2, eventId: "event-needle", opId: "op-2" }),
-    ledger = store([event({ workspaceRevision: 1 }), target], 1);
+    ledger = store([event({ workspaceRevision: 1 }), target]);
   assert.equal(findLedgerEvent(ledger, "op-2")?.eventId, "event-needle");
   assert.equal(findLedgerEvent(ledger, "event-needle")?.opId, "op-2");
   assert.equal(findLedgerEvent(ledger, "missing"), null);

@@ -143,6 +143,41 @@ export interface CanonicalFollowerFacet {
   readonly reason?: string;
   readonly conflicts?: readonly string[];
 }
+export interface CanonicalEventQuery {
+  readonly type?: string;
+  readonly entity?: string;
+  readonly actor?: string;
+  readonly after?: string;
+  readonly before?: string;
+  readonly revisionBound?: number;
+  readonly limit: number;
+}
+export function canonicalEventEntityRefs(event: CanonicalEventV1): readonly string[] {
+  const refs = new Set<string>(),
+    envelope = event as unknown as Readonly<Record<string, unknown>>,
+    payload =
+      typeof envelope.payload === "object" && envelope.payload !== null
+        ? (envelope.payload as Readonly<Record<string, unknown>>)
+        : {};
+  const add = (kind: unknown, id: unknown) => {
+      if (typeof kind === "string" && kind && typeof id === "string" && id) refs.add(`${kind}/${id}`);
+    },
+    addNamed = (source: Readonly<Record<string, unknown>>) => {
+      add("task", source.taskId);
+      add("decision", source.decisionId);
+      add("fact", source.factId);
+      add("execution", source.executionId);
+      add("schedule", source.scheduleId);
+      add(source.entityKind, source.entityId);
+      if (typeof source.entity === "object" && source.entity !== null) {
+        const entity = source.entity as Readonly<Record<string, unknown>>;
+        add(entity.kind, entity.id);
+      }
+    };
+  addNamed(envelope);
+  addNamed(payload);
+  return [...refs];
+}
 export type EventPublicationKillpoint =
   | "before_event_write"
   | "after_event_write"
@@ -164,6 +199,9 @@ export interface CanonicalEventStore {
   readonly revisionAt: (commit: LedgerCommitSha) => number | null;
   readonly readEvent: (opId: string) => CanonicalEventV1 | null;
   readonly readEventAtRevision?: (revision: number) => CanonicalEventV1 | null;
+  readonly readEventById?: (eventId: string) => CanonicalEventV1 | null;
+  readonly readEventsBefore?: (revision: number, maxItems: number) => readonly CanonicalEventV1[];
+  readonly queryEvents?: (query: CanonicalEventQuery) => readonly CanonicalEventV1[];
   readonly readTaskEvent: (opId: string) => TaskEventV1 | null;
   readonly readCommandOutcome: (opId: string) => CanonicalCommandOutcome | null;
   readonly ledgerMetadata: () => { readonly repoId: string; readonly generation: number; readonly revision: number };

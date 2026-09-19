@@ -411,7 +411,7 @@ function publishTaskArtifactBytes(
       // The projection names the revision that last wrote this path, so a same-bytes republish reads that one event.
       replay =
         document?.blobSha256 === sha && existsSync(authoredTarget) && sha256Bytes(readFileSync(authoredTarget)) === sha
-          ? input.store.readBatch(String(document.workspaceRevision - 1), 1).events[0]
+          ? input.store.readEventAtRevision?.(document.workspaceRevision)
           : undefined;
     if (
       replay &&

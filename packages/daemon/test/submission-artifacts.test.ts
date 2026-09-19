@@ -21,21 +21,17 @@ function fixture() {
     payload: { changes: [{ path, candidate: { sha256: blobSha256 } }] },
   };
   const store = {
-    readBatch: (cursor: string) => ({
-      events:
-        Number(cursor) === 6
-          ? [event]
-          : Number(cursor) === 7
-            ? [
-                {
-                  ...event,
-                  workspaceRevision: 8,
-                  opId: "accepted-8",
-                  payload: { changes: [{ path: `${path}.other`, candidate: { sha256: blobSha256 } }] },
-                },
-              ]
-            : [],
-    }),
+    readEventAtRevision: (revision: number) =>
+      revision === 7
+        ? event
+        : revision === 8
+          ? {
+              ...event,
+              workspaceRevision: 8,
+              opId: "accepted-8",
+              payload: { changes: [{ path: `${path}.other`, candidate: { sha256: blobSha256 } }] },
+            }
+          : null,
     readContentBlob: () => bytes,
   };
   const cell = {

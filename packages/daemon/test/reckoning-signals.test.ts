@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { CanonicalEventV1, RuntimeSession } from "../../kernel/src/index.ts";
-import { collectReckoningSignals } from "../src/reckoning-signals.ts";
+import { collectReckoningSignals, readReckoningSignals } from "../src/reckoning-signals.ts";
 
 const now = Date.parse("2026-09-19T23:30:00.000Z");
 
@@ -87,5 +87,80 @@ test("one superseding fact is one correction, never two recurrences", () => {
   assert.deepEqual(
     result.signals.map(({ kind, occurrences }) => [kind, occurrences]),
     [["corrected-fact", 1]],
+  );
+});
+
+test("the signal read uses an indexed time range and keeps an acceptance before the signal window", () => {
+  const DAY = 86_400_000,
+    at = (revision: number, ageDays: number, type: string, id: string) =>
+      ({
+        type,
+        workspaceRevision: revision,
+        occurredAt: new Date(now - ageDays * DAY).toISOString(),
+        entity: { kind: "decision", id },
+        payload: {},
+      }) as unknown as CanonicalEventV1,
+    // 2,000 old events, then an accept six days ago and its supersede inside the 24 hour window.
+    ledger = [
+      ...Array.from({ length: 2_000 }, (_, index) => at(index + 1, 30, "decision_accepted", `dec_old_${index}`)),
+      at(2_001, 6, "decision_accepted", "dec_short"),
+      at(2_002, 0.5, "decision_superseded", "dec_short"),
+    ],
+    reads: unknown[] = [];
+  const result = readReckoningSignals(
+    {
+      queryEvents: (query) => {
+        reads.push(query);
+        return ledger.filter(
+          (event) =>
+            (query.after === undefined || event.occurredAt >= query.after) &&
+            (query.before === undefined || event.occurredAt <= query.before),
+        );
+      },
+    },
+    { readRuntimeSessions: () => [] },
+    new Date(now).toISOString(),
+  );
+  assert.deepEqual(
+    result.signals.map((signal) => signal.key),
+    ["decision:dec_short"],
+  );
+  assert.deepEqual(reads, [
+    {
+      after: new Date(now - 8 * DAY).toISOString(),
+      before: new Date(now).toISOString(),
+      limit: Number.MAX_SAFE_INTEGER,
+    },
+  ]);
+});
+
+test("out-of-order imported timestamps cannot hide a recent correction", () => {
+  const DAY = 86_400_000,
+    correction = {
+      type: "fact_recorded",
+      occurredAt: new Date(now - DAY / 2).toISOString(),
+      workspaceRevision: 1,
+      entity: { kind: "fact", id: "F-NEW" },
+      payload: { supersedes: { factRef: "fact/F-OLD" } },
+    } as unknown as CanonicalEventV1,
+    imports = Array.from({ length: 500 }, (_, index) => ({
+      type: "entity_upserted",
+      occurredAt: new Date(now - 30 * DAY).toISOString(),
+      workspaceRevision: index + 2,
+      payload: {},
+    })) as unknown as CanonicalEventV1[];
+  const result = readReckoningSignals(
+    {
+      queryEvents: (query) =>
+        [correction, ...imports].filter(
+          (event) => event.occurredAt >= query.after! && event.occurredAt <= query.before!,
+        ),
+    },
+    { readRuntimeSessions: () => [] },
+    new Date(now).toISOString(),
+  );
+  assert.deepEqual(
+    result.signals.map(({ key }) => key),
+    ["fact/F-OLD"],
   );
 });

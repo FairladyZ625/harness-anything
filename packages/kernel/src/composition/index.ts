@@ -13,6 +13,7 @@ export {
   canonicalDocumentClaims,
   canonicalDocumentRetirements,
   canonicalEventCut,
+  canonicalEventEntityRefs,
   canonicalEventWritePlan,
   TaskEventStoreError,
 } from "../store/task-event-store.ts";

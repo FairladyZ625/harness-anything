@@ -609,23 +609,21 @@ test("a path-scoped materialization refuses a path the canonical cut cannot rest
   }
 });
 
-test("a decision write on a still-unclaimed path reads only the events appended since the last authorization check", (t) => {
+test("a decision write on a still-unclaimed path uses the durable document-head index", (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-replacement-authorization-"));
   initRepo(rootDir);
   const store = openSqliteEventStore({ repoId: replacementRepoId, rootInput: rootDir });
   try {
     store.claimWriter(replacementFence);
     for (let revision = 1; revision <= 2_000; revision += 1) store.appendCommand(replacementCommand(revision));
-    // Prime the cache: the first authorization check after opening bears the one-time full-history cost.
     assertAuthorizedReplacements(store, rootDir, [decisionBundle("op-decision-a")]);
     for (let revision = 2_001; revision <= 2_050; revision += 1) store.appendCommand(replacementCommand(revision));
 
-    const eventsAfter = t.mock.method(store, "eventsAfter");
-    // The decision path (decisions/decision-dec_STORE/decision.md) has never been claimed, so the
-    // old backward scan would walk every one of the 2,050 accepted events to prove that again.
+    const eventsAfter = t.mock.method(store, "eventsAfter"),
+      documentHead = t.mock.method(store, "documentHead");
     assertAuthorizedReplacements(store, rootDir, [decisionBundle("op-decision-b")]);
-    assert.equal(eventsAfter.mock.calls.length, 1);
-    assert.equal((eventsAfter.mock.calls[0]!.result as readonly unknown[]).length, 50);
+    assert.equal(eventsAfter.mock.calls.length, 0);
+    assert.equal(documentHead.mock.calls.length, 1);
   } finally {
     store.close();
   }

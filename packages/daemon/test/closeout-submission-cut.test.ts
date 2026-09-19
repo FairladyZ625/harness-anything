@@ -61,19 +61,15 @@ function artifactStore() {
   return {
     blobSha256,
     store: {
-      readBatch: (cursor: string) => ({
-        events:
-          Number(cursor) === 6
-            ? [
-                {
-                  schema: "doc-event/v1",
-                  workspaceRevision: 7,
-                  opId: "accepted-7",
-                  payload: { changes: [{ path: artifactPath, candidate: { sha256: blobSha256 } }] },
-                },
-              ]
-            : [],
-      }),
+      readEventAtRevision: (revision: number) =>
+        revision === 7
+          ? {
+              schema: "doc-event/v1",
+              workspaceRevision: 7,
+              opId: "accepted-7",
+              payload: { changes: [{ path: artifactPath, candidate: { sha256: blobSha256 } }] },
+            }
+          : null,
       readContentBlob: () => bytes,
     },
   };

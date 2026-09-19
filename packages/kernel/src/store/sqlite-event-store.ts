@@ -9,9 +9,12 @@ import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import { replayClaim, replayRelease, replayRenew } from "../projection/rebuildable-task-projection-runtime.ts";
-import { TaskEventStoreError } from "./task-event-store-types.ts";
+import { canonicalEventEntityRefs, TaskEventStoreError } from "./task-event-store-types.ts";
 import type { CanonicalContentBlob } from "./task-event-store-types.ts";
 import {
+  canonicalDocumentClaims,
+  canonicalDocumentMode,
+  canonicalDocumentRetirements,
   listContentObjectDigests,
   prepareContentObjects,
   readContentObject,
@@ -47,6 +50,12 @@ export interface SqliteEventIdentity {
   readonly revision: number;
   readonly opId: string;
   readonly eventDigest: `sha256:${string}`;
+}
+
+export interface SqliteDocumentHead {
+  readonly sha256: string;
+  readonly size: number;
+  readonly nodeKind: "file" | "symbolic-link";
 }
 
 export interface SqliteCommandIntent {
@@ -137,10 +146,22 @@ export interface SqliteEventStore {
   readonly revision: () => number;
   readonly events: () => readonly CanonicalEventV1[];
   readonly event: (opId: string) => CanonicalEventV1 | null;
+  readonly eventById: (eventId: string) => CanonicalEventV1 | null;
   readonly eventAtRevision: (revision: number) => CanonicalEventV1 | null;
   readonly eventIdentity: (opId: string) => SqliteEventIdentity | null;
   readonly eventIdentityAtRevision: (revision: number) => SqliteEventIdentity | null;
+  readonly documentHead: (documentPath: string) => SqliteDocumentHead | "retired" | undefined;
   readonly eventsAfter: (revision: number, limit?: number) => readonly CanonicalEventV1[];
+  readonly eventsBefore: (revision: number, limit?: number) => readonly CanonicalEventV1[];
+  readonly queryEvents: (input: {
+    readonly type?: string;
+    readonly entity?: string;
+    readonly actor?: string;
+    readonly after?: string;
+    readonly before?: string;
+    readonly revisionBound?: number;
+    readonly limit: number;
+  }) => readonly CanonicalEventV1[];
   readonly close: () => void;
 }
 
@@ -394,7 +415,7 @@ export function openSqliteEventStore(options: {
   configureLedgerConnection(db, options.readOnly);
   const query: SqliteQuery = (sql, values = []) =>
     /* @gate-identity check-bypass-write-boundary/bypass-write-117 */ db.prepare(sql).all(...values);
-  if (!options.readOnly) createSchema(db, options.repoId!, generation);
+  if (!options.readOnly) createSchema(db, query, options.repoId!, generation);
   const metadata = readMetadata(query),
     repoId = options.repoId ?? metadata.repoId;
   assertMetadata(query, repoId, generation);
@@ -426,6 +447,12 @@ export function openSqliteEventStore(options: {
       throw error;
     }
   };
+  if (!options.readOnly)
+    transaction(() => {
+      backfillDocumentHeads(query);
+      backfillEventQueryRefs(query);
+    });
+  if (!options.readOnly) ensureEventQueryIndexes(query);
   // All lease mutations share the store's transaction and the same repository ownership boundary.
   const persistWriterLease = (fence: SqliteWriterFence | null): void => {
     /* @gate-identity check-bypass-write-boundary/bypass-write-122 */ db.prepare(
@@ -514,7 +541,9 @@ export function openSqliteEventStore(options: {
           event.occurredAt,
           input.historicalRecord?.eventRecordedAt[offset] ?? null,
         );
+        applyEventQueryRefs(query, event);
         applyDerivedGuards(db, event);
+        applyDocumentHeads(query, event);
       }
       const firstRevision = input.events.length ? head + 1 : null,
         lastRevision = input.events.length ? head + input.events.length : null,
@@ -593,13 +622,21 @@ export function openSqliteEventStore(options: {
         (row) => JSON.parse(String(row.event_json)) as CanonicalEventV1,
       ),
     event: (opId) => readEvent(query, "op_id", opId),
+    eventById: (eventId) =>
+      readEvent(query, "json_extract(event_json, '$.eventId')", eventId, "ORDER BY revision LIMIT 1"),
     eventAtRevision: (revision) => readEvent(query, "revision", revision),
     eventIdentity: (opId) => readEventIdentity(query, "op_id", opId),
     eventIdentityAtRevision: (revision) => readEventIdentity(query, "revision", revision),
+    documentHead: (documentPath) => readDocumentHead(query, documentPath),
     eventsAfter: (revision, limit = 4096) =>
       query("SELECT event_json FROM event WHERE revision>? ORDER BY revision LIMIT ?", [revision, limit]).map(
         (row) => JSON.parse(String(row.event_json)) as CanonicalEventV1,
       ),
+    eventsBefore: (revision, limit = 4096) =>
+      query("SELECT event_json FROM event WHERE revision<? ORDER BY revision DESC LIMIT ?", [revision, limit]).map(
+        (row) => JSON.parse(String(row.event_json)) as CanonicalEventV1,
+      ),
+    queryEvents: (input) => queryEvents(query, input),
     close: registerLedgerClose(databasePath, db),
   };
 }
@@ -646,7 +683,7 @@ export function migrateEventsToSqlite(input: {
   return { migrated: revision - existingRevision, revision };
 }
 
-function createSchema(db: DatabaseSync, repoId: string, generation: number): void {
+function createSchema(db: DatabaseSync, query: SqliteQuery, repoId: string, generation: number): void {
   /* @gate-identity check-bypass-write-boundary/bypass-write-116 */ db.exec(`
     CREATE TABLE IF NOT EXISTS ledger_meta (
       singleton INTEGER PRIMARY KEY CHECK(singleton=1), repo_id TEXT NOT NULL UNIQUE,
@@ -656,6 +693,31 @@ function createSchema(db: DatabaseSync, repoId: string, generation: number): voi
       revision INTEGER PRIMARY KEY, op_id TEXT NOT NULL UNIQUE, event_json TEXT NOT NULL,
       digest TEXT NOT NULL, occurred_at TEXT NOT NULL,
       recorded_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
+    ) STRICT;
+    CREATE INDEX IF NOT EXISTS event_event_id ON event(json_extract(event_json, '$.eventId'));
+    CREATE INDEX IF NOT EXISTS event_type ON event(json_extract(event_json, '$.type'), revision DESC);
+    CREATE INDEX IF NOT EXISTS event_actor_person
+      ON event(json_extract(event_json, '$.actor.principal.personId'), revision DESC);
+    CREATE INDEX IF NOT EXISTS event_actor_executor
+      ON event(json_extract(event_json, '$.actor.executor.id'), revision DESC);
+    CREATE INDEX IF NOT EXISTS event_occurred_at ON event(occurred_at, revision DESC);
+    CREATE TABLE IF NOT EXISTS event_query_entity (
+      revision INTEGER NOT NULL REFERENCES event(revision), ref TEXT NOT NULL, entity_id TEXT NOT NULL,
+      PRIMARY KEY(revision, ref)
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS event_query_meta (
+      singleton INTEGER PRIMARY KEY CHECK(singleton=1), revision INTEGER NOT NULL CHECK(revision>=0)
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS document_head (
+      path TEXT PRIMARY KEY, sha256 TEXT, size INTEGER, node_kind TEXT,
+      revision INTEGER NOT NULL,
+      CHECK(
+        (sha256 IS NULL AND size IS NULL AND node_kind IS NULL)
+        OR (sha256 IS NOT NULL AND size >= 0 AND node_kind IN ('file','symbolic-link'))
+      )
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS document_head_meta (
+      singleton INTEGER PRIMARY KEY CHECK(singleton=1), revision INTEGER NOT NULL CHECK(revision>=0)
     ) STRICT;
     CREATE TABLE IF NOT EXISTS command_outcome (
       op_id TEXT PRIMARY KEY, status TEXT NOT NULL CHECK(status IN ('accepted_durable','rejected')),
@@ -694,6 +756,11 @@ function createSchema(db: DatabaseSync, repoId: string, generation: number): voi
     );
 }
 
+function ensureEventQueryIndexes(query: SqliteQuery): void {
+  query("CREATE INDEX IF NOT EXISTS event_query_entity_ref ON event_query_entity(ref, revision DESC)");
+  query("CREATE INDEX IF NOT EXISTS event_query_entity_id ON event_query_entity(entity_id, revision DESC)");
+}
+
 type SqliteQuery = (
   sql: string,
   values?: readonly (string | number | null)[],
@@ -705,9 +772,65 @@ function assertMetadata(query: SqliteQuery, repoId: string, generation: number):
     throw new TaskEventStoreError("repo_mismatch", "SQLite ledger belongs to another repository or generation");
 }
 
-function readEvent(query: SqliteQuery, column: "op_id" | "revision", value: string | number): CanonicalEventV1 | null {
-  const row = query(`SELECT event_json FROM event WHERE ${column}=?`, [value]).at(0);
+function readEvent(
+  query: SqliteQuery,
+  column: "op_id" | "revision" | "json_extract(event_json, '$.eventId')",
+  value: string | number,
+  suffix = "",
+): CanonicalEventV1 | null {
+  const row = query(`SELECT event_json FROM event WHERE ${column}=? ${suffix}`, [value]).at(0);
   return row ? (JSON.parse(String(row.event_json)) as CanonicalEventV1) : null;
+}
+
+function queryEvents(
+  query: SqliteQuery,
+  input: {
+    readonly type?: string;
+    readonly entity?: string;
+    readonly actor?: string;
+    readonly after?: string;
+    readonly before?: string;
+    readonly revisionBound?: number;
+    readonly limit: number;
+  },
+): readonly CanonicalEventV1[] {
+  const clauses: string[] = [],
+    values: (string | number)[] = [];
+  const equal = (expression: string, value: string | number) => {
+    clauses.push(`${expression}=?`);
+    values.push(value);
+  };
+  if (input.type !== undefined) equal("json_extract(event_json, '$.type')", input.type);
+  if (input.actor !== undefined) {
+    clauses.push(
+      "(json_extract(event_json, '$.actor.principal.personId')=? " +
+        "OR json_extract(event_json, '$.actor.executor.id')=?)",
+    );
+    values.push(input.actor, input.actor);
+  }
+  if (input.after !== undefined) {
+    clauses.push("occurred_at>=?");
+    values.push(input.after);
+  }
+  if (input.before !== undefined) {
+    clauses.push("occurred_at<=?");
+    values.push(input.before);
+  }
+  if (input.revisionBound !== undefined) {
+    clauses.push("revision<?");
+    values.push(input.revisionBound);
+  }
+  if (input.entity !== undefined) {
+    const fullRef = input.entity.includes("/");
+    clauses.push(`revision IN (SELECT revision FROM event_query_entity WHERE ${fullRef ? "ref" : "entity_id"}=?)`);
+    values.push(input.entity);
+  }
+  values.push(input.limit);
+  return query(
+    `SELECT event_json FROM event${clauses.length ? ` WHERE ${clauses.join(" AND ")}` : ""} ` +
+      "ORDER BY revision DESC LIMIT ?",
+    values,
+  ).map((row) => JSON.parse(String(row.event_json)) as CanonicalEventV1);
 }
 
 function readEventIdentity(
@@ -730,6 +853,98 @@ function applyDerivedGuards(db: DatabaseSync, event: CanonicalEventV1): void {
     event.type === "lease_released"
   )
     replayRelease(db, event.taskId, event.payload.execution.executionId, event.workspaceRevision);
+}
+
+function applyDocumentHeads(query: SqliteQuery, event: CanonicalEventV1, updateWatermark = true): void {
+  const upsert = (values: readonly (string | number | null)[]) =>
+    query(
+      "INSERT INTO document_head(path, sha256, size, node_kind, revision) VALUES (?, ?, ?, ?, ?) " +
+        "ON CONFLICT(path) DO UPDATE SET sha256=excluded.sha256, size=excluded.size, " +
+        "node_kind=excluded.node_kind, revision=excluded.revision",
+      values,
+    );
+  for (const claim of canonicalDocumentClaims(event))
+    upsert([
+      claim.path,
+      claim.sha256,
+      claim.size,
+      canonicalDocumentMode(event, claim.path) === "120000" ? "symbolic-link" : "file",
+      event.workspaceRevision,
+    ]);
+  for (const retirement of canonicalDocumentRetirements(event))
+    upsert([retirement.path, null, null, null, event.workspaceRevision]);
+  if (updateWatermark) updateDocumentHeadWatermark(query, event.workspaceRevision);
+}
+
+function updateDocumentHeadWatermark(query: SqliteQuery, revision: number): void {
+  query(
+    "INSERT INTO document_head_meta(singleton, revision) VALUES (1, ?) " +
+      "ON CONFLICT(singleton) DO UPDATE SET revision=excluded.revision",
+    [revision],
+  );
+}
+
+function applyEventQueryRefs(query: SqliteQuery, event: CanonicalEventV1, updateWatermark = true): void {
+  for (const ref of canonicalEventEntityRefs(event))
+    query("INSERT OR IGNORE INTO event_query_entity(revision, ref, entity_id) VALUES (?, ?, ?)", [
+      event.workspaceRevision,
+      ref,
+      ref.slice(ref.lastIndexOf("/") + 1),
+    ]);
+  if (updateWatermark) updateEventQueryWatermark(query, event.workspaceRevision);
+}
+
+function updateEventQueryWatermark(query: SqliteQuery, revision: number): void {
+  query(
+    "INSERT INTO event_query_meta(singleton, revision) VALUES (1, ?) " +
+      "ON CONFLICT(singleton) DO UPDATE SET revision=excluded.revision",
+    [revision],
+  );
+}
+
+function backfillEventQueryRefs(query: SqliteQuery): void {
+  const indexed = Number(query("SELECT revision FROM event_query_meta WHERE singleton=1").at(0)?.revision ?? 0),
+    head = Number(query("SELECT revision FROM ledger_meta WHERE singleton=1").at(0)!.revision);
+  if (indexed > head) throw new TaskEventStoreError("invalid_store", "event query index is ahead of the ledger");
+  if (indexed === head) return;
+  const rows = query("SELECT event_json FROM event WHERE revision>? ORDER BY revision", [indexed]);
+  for (const row of rows) applyEventQueryRefs(query, JSON.parse(String(row.event_json)) as CanonicalEventV1, false);
+  const lastRevision =
+    rows.length === 0 ? indexed : Number(JSON.parse(String(rows.at(-1)!.event_json)).workspaceRevision);
+  if (lastRevision !== head)
+    throw new TaskEventStoreError(
+      "invalid_store",
+      `event query backfill ended at revision ${lastRevision}, expected ${head}`,
+    );
+  updateEventQueryWatermark(query, head);
+}
+
+function backfillDocumentHeads(query: SqliteQuery): void {
+  const indexed = Number(query("SELECT revision FROM document_head_meta WHERE singleton=1").at(0)?.revision ?? 0),
+    head = Number(query("SELECT revision FROM ledger_meta WHERE singleton=1").at(0)!.revision);
+  if (indexed > head) throw new TaskEventStoreError("invalid_store", "document head index is ahead of the ledger");
+  if (indexed === head) return;
+  const rows = query("SELECT event_json FROM event WHERE revision>? ORDER BY revision", [indexed]);
+  for (const row of rows) applyDocumentHeads(query, JSON.parse(String(row.event_json)) as CanonicalEventV1, false);
+  const lastRevision =
+    rows.length === 0 ? indexed : Number(JSON.parse(String(rows.at(-1)!.event_json)).workspaceRevision);
+  if (lastRevision !== head)
+    throw new TaskEventStoreError(
+      "invalid_store",
+      `document head backfill ended at revision ${lastRevision}, expected ${head}`,
+    );
+  updateDocumentHeadWatermark(query, head);
+}
+
+function readDocumentHead(query: SqliteQuery, documentPath: string): SqliteDocumentHead | "retired" | undefined {
+  const row = query("SELECT sha256, size, node_kind FROM document_head WHERE path=?", [documentPath]).at(0);
+  if (!row) return undefined;
+  if (row.sha256 === null) return "retired";
+  return {
+    sha256: String(row.sha256),
+    size: Number(row.size),
+    nodeKind: String(row.node_kind) as SqliteDocumentHead["nodeKind"],
+  };
 }
 
 function assertFenceShape(fence: SqliteWriterFence, repoId: string): void {

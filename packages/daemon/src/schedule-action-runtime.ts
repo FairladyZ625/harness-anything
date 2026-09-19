@@ -249,7 +249,7 @@ function readScheduleAction(
 ): WriteReceipt {
   if (action.kind === "schedule-reckon") {
     const revision = cell.store.readHead()?.revision ?? 0,
-      result = readReckoningSignals(cell.projection, cell.now(), Number(action.windowHours ?? 24)),
+      result = readReckoningSignals(cell.store, cell.projection, cell.now(), Number(action.windowHours ?? 24)),
       opId = cell.operationId(action, binding, cell.input.repoId, revision);
     return scheduleReadReceipt(opId, revision, JSON.stringify(result), {
       summary: `${result.signals.length} reckoning signal(s)`,

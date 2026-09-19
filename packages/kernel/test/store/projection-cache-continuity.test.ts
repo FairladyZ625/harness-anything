@@ -42,6 +42,8 @@ test("a real SQLite event gap blocks schema rebuild and preserves the cache byte
     const ledgerPath = sqliteLedgerPath(rootDir, 2),
       ledger = new DatabaseSync(ledgerPath);
     try {
+      // The entity-ref index rows reference the event row, so the simulated corruption removes them first.
+      ledger.prepare("DELETE FROM event_query_entity WHERE revision = ?").run(missingEvent.workspaceRevision);
       assert.equal(
         ledger.prepare("DELETE FROM event WHERE revision = ?").run(missingEvent.workspaceRevision).changes,
         1,
