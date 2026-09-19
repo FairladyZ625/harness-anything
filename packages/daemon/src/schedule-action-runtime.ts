@@ -3,6 +3,7 @@ import {
   getExecutableEntityAction,
   isScheduleEvent,
   nextScheduleOccurrence,
+  validateScheduleV1,
   type EntityActionCompileInput,
   type ScheduleActionDraft,
   type ScheduleV1,
@@ -82,6 +83,7 @@ export function makeScheduleActionRuntime(cell: RepoCellRuntimeContext): EntityA
     if (contract.execution.read) return readScheduleAction(cell, action, binding);
     if (binding.authorizationDecision?.outcome !== "allowed")
       throw cell.cellCodedError("actor_unauthorized", "Schedule Action execution requires AuthorizationPort approval.");
+    rejectUnsupportedRemediateTarget(cell, action);
     const scheduleId = cell.requiredCellText(action.scheduleId, "scheduleId"),
       idempotencyKey =
         typeof action.idempotencyKey === "string" && action.idempotencyKey.trim()
@@ -419,6 +421,39 @@ export async function dispatchClaimedSchedule<
       idempotencyKey: `${input.idempotencyKey}:dispatch`,
     });
   return { kind: "linked", receipt, dispatchId, runtimeSessionId } as const;
+}
+
+// The Codex workspace-write sandbox rejects every unix-socket connect (Seatbelt
+// deny-default with network off; witnessed as `connect EPERM` on the daemon
+// socket and even on the in-repo callback relay socket), so a remediate
+// occurrence dispatched to a Codex instance can never run its `ha` commands and
+// would fail every night. Reject the combination when the definition is written
+// instead. Unknown instances or a missing instance port stay allowed: the guard
+// only fires on a positively identified Codex target.
+function rejectUnsupportedRemediateTarget(cell: RepoCellRuntimeContext, action: RepoTaskAction): void {
+  if (action.kind !== "schedule-create" && action.kind !== "schedule-update") return;
+  const scheduleId = typeof action.scheduleId === "string" ? action.scheduleId : "",
+    row = scheduleId ? cell.projection.getEntity("schedule", scheduleId) : null,
+    current = row && validateScheduleV1(row.value).length === 0 ? (row.value as unknown as ScheduleV1) : null,
+    mode = typeof action.mode === "string" ? action.mode : current?.mode,
+    runtimeInstanceId =
+      typeof action.runtimeInstanceId === "string"
+        ? action.runtimeInstanceId
+        : current?.spec.target.kind === "agent"
+          ? current.spec.target.runtimeInstanceId
+          : undefined;
+  if (mode !== "remediate" || runtimeInstanceId === undefined) return;
+  const instance = cell.input.runtimeInstances?.().find((entry) => entry.instanceId === runtimeInstanceId);
+  if (instance?.kindId !== "codex") return;
+  throw cell.cellCodedError(
+    "codex_remediate_daemon_unreachable",
+    [
+      `Schedule ${scheduleId || "<unresolved id>"} combines mode remediate with Codex runtime instance `,
+      `${runtimeInstanceId}: the Codex workspace-write sandbox rejects connections to the harness daemon `,
+      "socket, so dispatched `ha` commands fail with daemon_unavailable on every occurrence. Target a ",
+      "Claude-kind runtime instance instead; its workspace-write mapping allows exactly the `ha` prefix.",
+    ].join(""),
+  );
 }
 
 function resolveScheduleAction(rootDir: string, action: RepoTaskAction): RepoTaskAction {

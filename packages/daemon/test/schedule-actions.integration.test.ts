@@ -776,3 +776,138 @@ test(
     }
   },
 );
+
+test("remediate Schedule definitions reject Codex targets and accept Claude targets", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-schedule-codex-reject-"));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    git(root, "init", "-q");
+    git(root, "config", "user.name", "Schedule Test");
+    git(root, "config", "user.email", "schedule@example.invalid");
+    git(root, "commit", "--allow-empty", "-qm", "base");
+    const summary = (kindId: "codex" | "claude", instanceId: string) => ({
+      schemaVersion: 2 as const,
+      instanceId,
+      name: instanceId,
+      kindId,
+      installationId: `installation-${kindId}`,
+      providerId: kindId === "codex" ? "openai" : "glm",
+      models: ["probe-model"],
+      defaultModel: "probe-model",
+      enabled: true,
+      permissionMode: "bypass" as const,
+      ...(kindId === "codex" ? { codex: {} } : { claude: {} }),
+      authMode: "subscription" as const,
+      authState: "configured" as const,
+      authReadiness: { status: "ready" as const, code: null, hint: null },
+      isolationState: "operator-environment" as const,
+    });
+    cell = await openRepoCell({
+      repoId: workspaceId("schedule-codex-reject"),
+      rootDir: canonicalRoot(root),
+      ownerId: "schedule-test",
+      runtimeInstances: () => [summary("codex", "codex-probe"), summary("claude", "claude-probe")],
+    });
+    const codexRemediate = await cell.run(
+      {
+        kind: "schedule-create",
+        scheduleId: "codex-remediate",
+        name: "Codex remediate",
+        mode: "remediate",
+        everyMs: 300_000,
+        agentId: "probe-agent",
+        runtimeInstanceId: "codex-probe",
+        mission: "Back up the ledger.",
+        idempotencyKey: "codex-remediate-create",
+      },
+      actor,
+    );
+    assert.deepEqual(
+      { outcome: codexRemediate.outcome, code: codexRemediate.code },
+      { outcome: "op_rejected", code: "codex_remediate_daemon_unreachable" },
+    );
+    assert.match(
+      String((codexRemediate as { readonly rejectionExplanation?: string }).rejectionExplanation ?? ""),
+      /Codex runtime instance codex-probe/u,
+    );
+    // A detect-mode Codex definition and a remediate Claude definition both stay
+    // creatable; only the combination that cannot reach the daemon is rejected.
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "schedule-create",
+            scheduleId: "codex-detect",
+            name: "Codex detect",
+            mode: "detect",
+            everyMs: 300_000,
+            agentId: "probe-agent",
+            runtimeInstanceId: "codex-probe",
+            mission: "Inspect the repository.",
+            idempotencyKey: "codex-detect-create",
+          },
+          actor,
+        )
+      ).outcome,
+      "applied",
+    );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "schedule-create",
+            scheduleId: "claude-remediate",
+            name: "Claude remediate",
+            mode: "remediate",
+            everyMs: 300_000,
+            agentId: "probe-agent",
+            runtimeInstanceId: "claude-probe",
+            mission: "Back up the ledger.",
+            idempotencyKey: "claude-remediate-create",
+          },
+          actor,
+        )
+      ).outcome,
+      "applied",
+    );
+    // Flipping an existing schedule into the broken combination is also a
+    // definition write, so update carries the same rejection.
+    const flipped = await cell.run(
+      {
+        kind: "schedule-update",
+        scheduleId: "codex-detect",
+        mode: "remediate",
+        idempotencyKey: "codex-detect-to-remediate",
+      },
+      actor,
+    );
+    assert.deepEqual(
+      { outcome: flipped.outcome, code: flipped.code },
+      { outcome: "op_rejected", code: "codex_remediate_daemon_unreachable" },
+    );
+    // Unknown instance ids cannot be positively identified as Codex here, so
+    // the guard stays open and the kernel's own validation remains authoritative.
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "schedule-create",
+            scheduleId: "ghost-remediate",
+            name: "Ghost remediate",
+            mode: "remediate",
+            everyMs: 300_000,
+            agentId: "probe-agent",
+            runtimeInstanceId: "not-installed",
+            mission: "Back up the ledger.",
+            idempotencyKey: "ghost-remediate-create",
+          },
+          actor,
+        )
+      ).outcome,
+      "applied",
+    );
+  } finally {
+    await cell?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
