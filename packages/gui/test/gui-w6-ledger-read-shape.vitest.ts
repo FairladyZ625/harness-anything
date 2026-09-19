@@ -272,15 +272,16 @@ describe("首屏活跃切片:状态下推 + 首屏合并", () => {
     return { calls, rows };
   }
 
-  it("四个非终态各一页窄读并行发出,状态过滤下推进 daemon,不带游标/增量面", async () => {
+  it("五个非终态各一页窄读并行发出,状态过滤下推进 daemon,不带游标/增量面", async () => {
     const ledger = installStatusLedger();
     const pending = readActiveTaskSlice("repo-a");
-    // map() 同步发完四个请求:串行实现在这里只会看到第一个调用。
-    expect((window.harness as { getTasks: ReturnType<typeof vi.fn> }).getTasks).toHaveBeenCalledTimes(4);
+    // map() 同步发完五个请求:串行实现在这里只会看到第一个调用。
+    expect((window.harness as { getTasks: ReturnType<typeof vi.fn> }).getTasks).toHaveBeenCalledTimes(5);
     const slice = await pending;
     expect(ledger.calls).toEqual([
       { repoId: "repo-a", status: "planned", limit: TASK_LIST_PAGE_LIMIT },
       { repoId: "repo-a", status: "active", limit: TASK_LIST_PAGE_LIMIT },
+      { repoId: "repo-a", status: "submitted", limit: TASK_LIST_PAGE_LIMIT },
       { repoId: "repo-a", status: "blocked", limit: TASK_LIST_PAGE_LIMIT },
       { repoId: "repo-a", status: "in_review", limit: TASK_LIST_PAGE_LIMIT },
     ]);
@@ -312,16 +313,16 @@ describe("首屏活跃切片:状态下推 + 首屏合并", () => {
     const unsubscribe = observer.subscribe(() => undefined);
     try {
       await observer.refetch();
-      expect(getTasks).toHaveBeenCalledTimes(4); // 水化中:切片在读。
+      expect(getTasks).toHaveBeenCalledTimes(5); // 水化中:切片在读。
       // 完整切面 ready → App 关掉 enabled(切片查询仍挂载,与生产同形):
       // 挂载但停用的观察者不算 active,cut 前进的扇出不再触发它——稳态请求面
       // 回到「一页增量」,切片不构成常驻后台负载。
       observer.setOptions(activeTasksQuery("repo-a", false));
       await invalidateLedgerDependents(client, "repo-a");
-      expect(getTasks).toHaveBeenCalledTimes(4);
+      expect(getTasks).toHaveBeenCalledTimes(5);
       // 切面回退(投影回归重水化)→ 重新启用:重读,不拿停读前的旧切片冒充。
       observer.setOptions(activeTasksQuery("repo-a", true));
-      await vi.waitFor(() => expect(getTasks).toHaveBeenCalledTimes(8));
+      await vi.waitFor(() => expect(getTasks).toHaveBeenCalledTimes(10));
     } finally {
       unsubscribe();
       client.clear();

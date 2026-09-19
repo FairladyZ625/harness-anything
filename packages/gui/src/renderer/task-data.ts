@@ -20,7 +20,7 @@ export const HYDRATION_PAGE_BUDGET = 12;
  * 全部非终态。done/cancelled 是终态;unknown 不是 daemon 过滤词,认不出状态的行由
  * 完整切面兜住,切片不追。
  */
-const ACTIVE_TASK_STATUSES = ["planned", "active", "blocked", "in_review"] as const;
+const ACTIVE_TASK_STATUSES = ["planned", "active", "submitted", "blocked", "in_review"] as const;
 
 export const taskQueryKeys = {
   all: (repoId: string) => ["tasks", repoId] as const,
