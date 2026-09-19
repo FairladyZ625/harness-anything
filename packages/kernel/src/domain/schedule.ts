@@ -65,7 +65,7 @@ export interface ScheduleBuiltinParamsV1 {
 }
 
 /** A daemon in-process executor target: no worktree, no runtime spawn, no mission dispatch. */
-export interface ScheduleBuiltinTargetV1 {
+interface ScheduleBuiltinTargetV1 {
   readonly kind: "builtin";
   readonly builtinId: string;
   readonly params?: ScheduleBuiltinParamsV1;

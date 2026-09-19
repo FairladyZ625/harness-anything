@@ -297,7 +297,6 @@ export { createScheduleV1, nextScheduleOccurrence, validateScheduleV1 } from "./
 export type {
   ScheduleActiveRunV1,
   ScheduleBuiltinParamsV1,
-  ScheduleBuiltinTargetV1,
   ScheduleLastRunV1,
   ScheduleMissedReason,
   ScheduleRunOutcome,
