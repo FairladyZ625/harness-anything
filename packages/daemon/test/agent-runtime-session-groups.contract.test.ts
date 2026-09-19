@@ -241,6 +241,7 @@ function projectionFixture(): TaskProjection {
     readCut: () => ({ status: "ready", watermark: 40, sourceRevision: 40 }),
     readTaskStatuses: () => ({ status: "ready", rows: [], watermark: 40, sourceRevision: 40 }),
     readRuntimeSessions: selected,
+    readRuntimeInstallations: () => [],
     readRuntimeDispatches: () => sessions.map(runtimeDispatch),
     readTaskRuntimeBatch: ({ taskIds }: { readonly taskIds: readonly string[] }) => ({
       rows: taskIds.map((taskId) => ({
@@ -253,9 +254,12 @@ function projectionFixture(): TaskProjection {
     read: (taskId: string) => ({
       snapshot: { task: { title: taskId === "task-a" ? "Task Alpha" : taskId } },
     }),
-    getEntity: (kind: string, id: string) => ({
-      value: { name: kind === "squad" && id === "core-squad" ? "Core Squad" : id },
-    }),
+    listEntities: (kind: string) =>
+      (kind === "squad" ? ["core-squad"] : ["sol", "terra", "luna"]).map((id) => ({
+        id,
+        workspaceRevision: 1,
+        value: { name: id === "core-squad" ? "Core Squad" : id },
+      })),
   } as unknown as TaskProjection;
 }
 
@@ -298,7 +302,10 @@ function runtimeDispatch(
   return {
     type: "runtime_dispatch_requested",
     occurredAt: session.lastObservedAt,
-    payload: { runtimeSessionId: session.runtimeSessionId },
+    payload: {
+      runtimeSessionId: session.runtimeSessionId,
+      definitionSnapshotRef: session.definitionSnapshotRef,
+    },
   } as Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>;
 }
 
@@ -353,7 +360,7 @@ function mixedPrecisionProjection(): TaskProjection {
       })),
     }),
     read: (taskId: string) => ({ snapshot: { task: { title: taskId } } }),
-    getEntity: (kind: string, id: string) => ({ value: { name: id } }),
+    listEntities: () => [],
   } as unknown as TaskProjection;
 }
 
@@ -462,7 +469,7 @@ test("status narrowing selects members, not the group's latestStatus", () => {
         rows: taskIds.map((taskId) => ({ taskId, title: taskId, packagePath: null, sessions: mixed })),
       }),
       read: (taskId: string) => ({ snapshot: { task: { title: taskId } } }),
-      getEntity: (_kind: string, id: string) => ({ value: { name: id } }),
+      listEntities: () => [],
     } as unknown as TaskProjection,
     store: {} as never,
     stream: {} as never,
@@ -518,4 +525,45 @@ test("each unattributed bucket names the thing that is actually missing", () => 
     byAgent.groups.map(({ key }) => key).filter((key) => key.startsWith("instance:")),
     ["instance:instance-direct"],
   );
+});
+
+test("exited sessions skip the dispatch-stream evidence read in session groups and overview", () => {
+  let evidenceReads = 0;
+  const reads = makeAgentRuntimeReadModel({
+    projection: { ...projectionFixture(), currentLease: () => null } as unknown as TaskProjection,
+    store: {} as never,
+    stream: { latestCursor: () => "stream:0" } as never,
+    now: () => "2026-08-26T12:00:00.000Z",
+    readActivityEvidence: () => {
+      evidenceReads += 1;
+      return { lastObservedAt: "2026-08-26T11:30:00.000Z", workerHostAlive: true };
+    },
+    readDispatches: () => dispatches,
+  });
+  reads.sessionGroups({ since: SINCE_ALL });
+  reads.overview({});
+  // fixture 四条会话里只有 runtime-c 不是 exited;两条读面各只为它读一次活动证据,
+  // exited 会话的时间/终态全部来自投影本身。
+  assert.equal(evidenceReads, 2);
+});
+
+test("session groups list entity names once per kind, not once per member", () => {
+  const listings: string[] = [];
+  const projection = {
+      ...projectionFixture(),
+      listEntities: (kind: string) => {
+        listings.push(kind);
+        return kind === "squad" ? [{ id: "core-squad", workspaceRevision: 1, value: { name: "Core Squad" } }] : [];
+      },
+    } as unknown as TaskProjection,
+    reads = makeAgentRuntimeReadModel({
+      projection,
+      store: {} as never,
+      stream: {} as never,
+      now: () => "2026-08-26T12:00:00.000Z",
+      readDispatches: () => dispatches,
+    });
+  const groups = reads.sessionGroups({ groupBy: "squad", since: SINCE_ALL }).groups;
+  assert.equal(groups.find(({ key }) => key === "core-squad")?.label, "Core Squad");
+  assert.deepEqual(listings, ["squad"]);
 });
