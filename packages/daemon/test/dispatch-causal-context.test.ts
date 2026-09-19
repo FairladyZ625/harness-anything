@@ -107,13 +107,46 @@ test("the block carries milestone, decision, and fact refs at one cut", () => {
 
 test("archived facts leave the injected block while their edges stay canonical", () => {
   const projection = stub({
+    readTaskRelationsByTargets: () => ({
+      ...cut(),
+      rows: [
+        {
+          relationId: "rel_1",
+          sourceRef: "decision/dec_ABC/CH1",
+          targetRef: "task/task_leaf",
+          relationType: "derives",
+          direction: "directed",
+          state: "active",
+        },
+      ],
+    }),
+    readDecisions: () => ({
+      ...cut(),
+      decisions: [
+        {
+          decisionId: "dec_ABC",
+          title: "Archive read face",
+          question: "",
+          chosen: [{ id: "CH1", text: "Archive events retire the document", rationale: "" }],
+          claims: [{ id: "C1", text: "archived facts leave the injection", loadBearing: true }],
+        },
+      ],
+    }),
     readRelationQuery: () => ({
       ...cut(),
       rows: [
         {
           relationId: "rel_2",
           sourceRef: "decision/dec_ABC/C1",
-          targetRef: "fact/F-0001",
+          targetRef: "fact/F-ARCHIVE1",
+          relationType: "evidenced-by",
+          direction: "directed",
+          state: "active",
+        },
+        {
+          relationId: "rel_3",
+          sourceRef: "decision/dec_ABC/C1",
+          targetRef: "fact/F-STANDING",
           relationType: "evidenced-by",
           direction: "directed",
           state: "active",
@@ -124,16 +157,19 @@ test("archived facts leave the injected block while their edges stay canonical",
       ...cut(),
       facts: [
         {
-          ref: "fact/F-0001",
+          ref: "fact/F-ARCHIVE1",
           statement: "archived bookkeeping noise",
           evidenceSource: "packages/x.ts",
           archived: true,
         },
+        { ref: "fact/F-STANDING", statement: "still load-bearing", evidenceSource: "packages/y.ts" },
       ],
     }),
   });
   const block = assembleTaskCausalContext({ projection, taskId: "task_leaf" });
-  if (block !== null) assert.doesNotMatch(block, /F-0001/u);
+  assert.ok(block !== null, "a deriving decision must produce a block");
+  assert.doesNotMatch(block, /F-ARCHIVE1/u, "archived fact refs must leave the whole block, Refs line included");
+  assert.match(block, /F-STANDING: still load-bearing/u);
 });
 
 test("a cut advancing mid-read is rejected instead of serving a mixed view", () => {
