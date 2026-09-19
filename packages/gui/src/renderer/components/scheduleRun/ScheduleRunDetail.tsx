@@ -123,7 +123,9 @@ export function ScheduleRunDetail({
                 ? row.target.agentId
                 : row.target.kind === "squad"
                   ? row.target.squadId
-                  : row.target.builtinId}
+                  : row.target.kind === "builtin"
+                    ? row.target.builtinId
+                    : "—"}
             </KVRow>
           </KV>
         </div>
