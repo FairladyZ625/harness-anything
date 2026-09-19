@@ -393,3 +393,23 @@ test("integration shard checker rejects gate manifest required context drift", (
     ],
   });
 });
+
+test("measured weights take the per-file median, skip files under the floor and ignore other tiers", async () => {
+  const { integrationWeightsFromObservations } = await import("./refresh-integration-test-weights.mjs");
+  const observation = (heavyMs) => ({
+    tests: [
+      { file: "packages/a/test/heavy.integration.test.ts", tier: "integration", durationMs: heavyMs / 2 },
+      { file: "packages/a/test/heavy.integration.test.ts", tier: "integration", durationMs: heavyMs / 2 },
+      { file: "packages/a/test/light.integration.test.ts", tier: "integration", durationMs: 300 },
+      { file: "packages/a/test/unit.test.ts", tier: "fast", durationMs: 90_000 },
+      { file: "packages/a/test/deleted.integration.test.ts", tier: "integration", durationMs: 90_000 },
+    ],
+  });
+  assert.deepEqual(
+    integrationWeightsFromObservations(
+      [observation(10_000), observation(400_000), observation(12_040)],
+      ["packages/a/test/heavy.integration.test.ts", "packages/a/test/light.integration.test.ts"],
+    ),
+    { "packages/a/test/heavy.integration.test.ts": 12_000 },
+  );
+});

@@ -1,20 +1,14 @@
+import { readFileSync } from "node:fs";
+
 export const integrationShardCount = 6;
 export const defaultIntegrationTestWeightMs = 1000;
 
-// Optional balancing overrides. New tests need no entry: they receive the
-// deterministic default weight and are placed into the lightest shard.
-export const integrationTestFileWeightsMs = Object.freeze({
-  "packages/cli/test/daemon-multi-repo-lifecycle-cli.test.ts": 15469.7,
-  "packages/cli/test/daemon-thin-client-cli.test.ts": 38159.7,
-  "packages/kernel/test/store/daemon-registry.test.ts": 190.1,
-  "packages/kernel/test/store/relation-graph-projection.test.ts": 850.9,
-  "tools/check-docs-release-map.test.mjs": 590.0,
-  "tools/check-import-boundaries.test.mjs": 1230.7,
-  "tools/check-kernel-dead-exports.test.mjs": 1909.3,
-  "tools/check-runtime-release-readiness.test.mjs": 1003.8,
-  "tools/check-supply-chain.test.mjs": 8797.4,
-  "tools/quickstart-demo.test.mjs": 5488.9,
-});
+// Measured per-file durations, regenerated from CI observation artifacts by
+// tools/refresh-integration-test-weights.mjs. A file without an entry (new, or under the
+// generator's floor) takes the default weight and is placed into the lightest shard.
+export const integrationTestFileWeightsMs = Object.freeze(
+  JSON.parse(readFileSync(new URL("./integration-test-weights.json", import.meta.url), "utf8")),
+);
 
 export function assignIntegrationTestShards(
   manifestFiles,
