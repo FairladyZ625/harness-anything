@@ -80,7 +80,12 @@ test("the default Policy covers the frozen durable inventory exactly once", () =
   // fact-unarchive enter the durable inventory as repo-write Actions alongside the other Fact writes — archiving
   // retires a Fact's managed document and the decision requires it to be reversible; a repo-read actor is
   // refused below, 123 → 125.
-  assert.equal(durablePolicyActions.length, 125);
+  // task_b21092c1c09c16117806ea62af: owner requires entity_pinned/entity_unpinned durable audit events, 125 → 127.
+  assert.equal(durablePolicyActions.length, 127);
+  for (const kind of ["entity-pin", "entity-unpin"] as const) {
+    assert.equal(port.authorize(action(kind), roleContext("repo-write")).outcome, "allowed");
+    assert.equal(port.authorize(action(kind), roleContext("repo-read")).outcome, "denied");
+  }
   for (const kind of ["fact-archive", "fact-unarchive"] as const) {
     assert.equal(port.authorize(action(kind), roleContext("repo-write")).outcome, "allowed");
     assert.equal(port.authorize(action(kind), roleContext("repo-read")).outcome, "denied");

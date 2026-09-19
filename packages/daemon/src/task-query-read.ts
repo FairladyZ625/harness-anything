@@ -30,6 +30,7 @@ import { readDispatchStreamHeaders, type DispatchStreamHeader } from "./dispatch
 import {
   isolateDaemonTaskSnapshotRows,
   type AgendaAwaitingRow,
+  type AgendaPinnedEntityRow,
   type AgendaTaskRow,
   type CanonicalRoot,
   type DaemonAgendaResult,
@@ -422,6 +423,9 @@ export function makeTaskQueryReadModel(input: {
         proposedAt: decision.proposedAt,
       })),
       awaitingDecision = [...awaitingExecutions, ...awaitingDecisions].sort(compareAwaiting),
+      allPinnedEntities = projection.listPinnedEntities().map(resolvePinnedEntity),
+      pinnedEntities = allPinnedEntities.slice(0, 10),
+      pinnedEntityOverflow = Math.max(0, allPinnedEntities.length - pinnedEntities.length),
       nextState: AgendaCursor = {
         active: active?.page?.nextCursor ?? null,
         blocked: blocked?.page?.nextCursor ?? null,
@@ -446,6 +450,8 @@ export function makeTaskQueryReadModel(input: {
       ok: true,
       command: "agenda",
       ...cut,
+      pinnedEntities,
+      pinnedEntityOverflow,
       inFlight,
       awaitingRework,
       awaitingDecision,
@@ -453,7 +459,49 @@ export function makeTaskQueryReadModel(input: {
       dispatchable,
       page: { sourceLimit, cursor: query.cursor ?? null, nextCursor },
       warnings,
-      summary: renderAgendaSummary({ inFlight, awaitingRework, awaitingDecision, waitingOnOthers, dispatchable }),
+      summary: renderAgendaSummary({
+        pinnedEntities,
+        pinnedEntityOverflow,
+        inFlight,
+        awaitingRework,
+        awaitingDecision,
+        waitingOnOthers,
+        dispatchable,
+      }),
+    };
+  }
+  function resolvePinnedEntity(row: ReturnType<TaskProjection["listPinnedEntities"]>[number]): AgendaPinnedEntityRow {
+    const parsed = /^([^/]+)\/(.+)$/u.exec(row.entityRef),
+      kind = parsed?.[1] ?? "entity",
+      id = parsed?.[2] ?? row.entityRef;
+    if (kind === "task") {
+      const task = projection.read(id).snapshot.task;
+      return {
+        ref: row.entityRef,
+        kind,
+        title: task?.title ?? id,
+        status: task?.status ?? "unknown",
+        pinnedAt: row.pinnedAt,
+      };
+    }
+    if (kind === "decision") {
+      const decision = projection.readDecision(id).decision;
+      return {
+        ref: row.entityRef,
+        kind,
+        title: decision?.title ?? id,
+        status: decision?.state ?? "unknown",
+        pinnedAt: row.pinnedAt,
+      };
+    }
+    const entity = projection.getEntity(kind, id),
+      value = entity?.value;
+    return {
+      ref: row.entityRef,
+      kind,
+      title: typeof value?.title === "string" ? value.title : id,
+      status: typeof value?.state === "string" ? value.state : (entity?.freshness ?? "current"),
+      pinnedAt: row.pinnedAt,
     };
   }
   /**
@@ -723,7 +771,13 @@ function encodeAgendaCursor(value: AgendaCursor): string {
 function renderAgendaSummary(
   groups: Pick<
     DaemonAgendaResult,
-    "inFlight" | "awaitingRework" | "awaitingDecision" | "waitingOnOthers" | "dispatchable"
+    | "pinnedEntities"
+    | "pinnedEntityOverflow"
+    | "inFlight"
+    | "awaitingRework"
+    | "awaitingDecision"
+    | "waitingOnOthers"
+    | "dispatchable"
   >,
 ): string {
   const taskLine = (row: AgendaTaskRow) =>
@@ -736,6 +790,12 @@ function renderAgendaSummary(
     section = (title: string, filter: string, rows: readonly string[]) =>
       `${title} (${rows.length}) — ${filter}\n${rows.length ? rows.join("\n") : "- 无"}`;
   return [
+    section("📌 重点关注", "仓库级 Entity Pin（最多显示 10 项）", [
+      ...groups.pinnedEntities.map(
+        (row) => `- 📌 [${row.kind[0]?.toUpperCase()}${row.kind.slice(1)}] ${row.ref} ${row.title} [${row.status}]`,
+      ),
+      ...(groups.pinnedEntityOverflow ? [`- …另有 ${groups.pinnedEntityOverflow} 项已折叠`] : []),
+    ]),
     section("在飞线", "status=active 且（有 lease 或有 active execution）", groups.inFlight.map(taskLine)),
     section(
       "等我修",

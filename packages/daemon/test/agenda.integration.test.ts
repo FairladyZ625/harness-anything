@@ -73,18 +73,10 @@ test("agenda derives all four groups, pins first, and rejects a missing task pin
       (await cell.run({ kind: "task-start", taskId: "task_active", executionId: "exe_active" }, binding)).outcome,
       "applied",
     );
-    const activePin = await cell.run(
-      { kind: "task-amend", taskId: "task_active", patches: [{ field: "pinned", value: "true" }] },
-      binding,
-    );
+    const activePin = await cell.run({ kind: "entity-pin", entityRef: "task/task_active" }, binding);
     assert.equal(activePin.outcome, "applied", JSON.stringify(activePin));
     assert.equal(
-      (
-        await cell.run(
-          { kind: "task-amend", taskId: "task_dispatch_pinned", patches: [{ field: "pinned", value: "true" }] },
-          binding,
-        )
-      ).outcome,
+      (await cell.run({ kind: "entity-pin", entityRef: "task/task_dispatch_pinned" }, binding)).outcome,
       "applied",
     );
     assert.equal(
@@ -136,13 +128,10 @@ test("agenda derives all four groups, pins first, and rejects a missing task pin
     const proposed = await cell.run(decisionProposal(), binding);
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
 
-    const missing = await cell.run(
-      { kind: "task-amend", taskId: "task_missing", patches: [{ field: "pinned", value: "true" }] },
-      binding,
-    );
+    const missing = await cell.run({ kind: "entity-pin", entityRef: "task/task_missing" }, binding);
     assert.deepEqual(
       { outcome: missing.outcome, code: missing.code },
-      { outcome: "op_rejected", code: "task_not_found" },
+      { outcome: "op_rejected", code: "entity_not_found" },
     );
 
     const agenda = await cell.read("repo.agenda.read", { limit: 50 });
@@ -242,7 +231,7 @@ test("agenda derives all four groups, pins first, and rejects a missing task pin
     const contract = JSON.parse(
       readFileSync(path.join(rootDir, "harness/tasks/task_active-active-pinned/task-contract.json"), "utf8"),
     ) as { pinned?: boolean };
-    assert.equal(contract.pinned, true);
+    assert.equal(contract.pinned, undefined, "Entity Pin does not rewrite the Task authored document");
 
     let page: DaemonAgendaResult = await cell.read("repo.agenda.read", { limit: 1 });
     const dispatchable = [...page.dispatchable];
@@ -458,7 +447,7 @@ test("agenda projects an all-blocked ledger only into the waiting group", async 
   });
 });
 
-test("task pin and unpin reuse amend events and update agenda order", async () => {
+test("task pin and unpin route through entity pin events and update agenda order", async () => {
   await withCell("agenda-pin-command", async (cell, rootDir) => {
     for (const taskId of ["task_a", "task_z"] as const)
       assert.equal((await cell.run({ kind: "task-create", taskId, title: taskId }, binding)).outcome, "applied");
@@ -474,8 +463,9 @@ test("task pin and unpin reuse amend events and update agenda order", async () =
       },
       pin = await runCli(["task", "pin", "task_z"]);
     assert.equal(pin.outcome, "applied", JSON.stringify(pin));
-    const pinEvent = pinnedAmendEvent(await eventFor(pin.opId));
-    assert.deepEqual(pinEvent, { type: "task_amended", command: "amend", fields: ["pinned"], pinned: true });
+    const pinEvent = await eventFor(pin.opId);
+    assert.equal(pinEvent?.schema, "entity-pin-event/v1");
+    assert.equal(pinEvent?.type, "entity_pinned");
     assert.deepEqual(
       (await cell.read("repo.agenda.read")).dispatchable.map(({ taskId }) => taskId),
       ["task_z", "task_a"],
@@ -483,12 +473,7 @@ test("task pin and unpin reuse amend events and update agenda order", async () =
 
     const unpin = await runCli(["task", "unpin", "task_z"]);
     assert.equal(unpin.outcome, "applied", JSON.stringify(unpin));
-    assert.deepEqual(pinnedAmendEvent(await eventFor(unpin.opId)), {
-      type: "task_amended",
-      command: "amend",
-      fields: ["pinned"],
-      pinned: false,
-    });
+    assert.equal((await eventFor(unpin.opId))?.type, "entity_unpinned");
     const shown = await runCli(["task", "show", "task_z"]);
     assert.match(String(shown.evidence), /"pinned":false/u);
     assert.deepEqual(
@@ -497,8 +482,76 @@ test("task pin and unpin reuse amend events and update agenda order", async () =
     );
 
     const amend = await runCli(["task", "amend", "task_z", "--set", "pinned:true"]);
-    assert.equal(amend.outcome, "applied", JSON.stringify(amend));
-    assert.deepEqual(pinnedAmendEvent(await eventFor(amend.opId)), pinEvent);
+    assert.equal(amend.outcome, "op_rejected", JSON.stringify(amend));
+    assert.equal((await runCli(["task", "pin", "task_z"])).outcome, "applied");
+    assert.equal((await cell.run({ kind: "projection-rebuild" }, binding)).outcome, "applied");
+    assert.equal(
+      (await cell.read("repo.agenda.read")).pinnedEntities.some(({ ref }) => ref === "task/task_z"),
+      true,
+    );
+  });
+});
+
+test("entity pins cover task, decision, and schedule with bounded rendering and ordered idempotency", async () => {
+  await withCell("agenda-entity-pins", async (cell) => {
+    assert.equal(
+      (await cell.run({ kind: "task-create", taskId: "task_pin", title: "Pinned task" }, binding)).outcome,
+      "applied",
+    );
+    const decision = (await cell.run(decisionProposal(), binding)) as Record<string, unknown>;
+    assert.equal(decision.outcome, "applied", JSON.stringify(decision));
+    const decisionId = String((JSON.parse(String(decision.evidence)) as { decisionId: string }).decisionId);
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "schedule-create",
+            scheduleId: "nightly-reckoning",
+            name: "Nightly reckoning",
+            mode: "detect",
+            everyMs: 300_000,
+            agentId: "probe-agent",
+            runtimeInstanceId: "runtime-local",
+            mission: "Run nightly reckoning.",
+            idempotencyKey: "agenda-pin:schedule",
+          },
+          binding,
+        )
+      ).outcome,
+      "applied",
+    );
+    for (const entityRef of ["task/task_pin", `decision/${decisionId}`, "schedule/nightly-reckoning"]) {
+      const receipt = await cell.run({ kind: "entity-pin", entityRef }, binding);
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    }
+    assert.equal((await cell.run({ kind: "entity-pin", entityRef: "task/task_pin" }, binding)).outcome, "no_changes");
+    const agenda = await cell.read("repo.agenda.read");
+    assert.deepEqual(
+      new Set(agenda.pinnedEntities.map(({ ref }) => ref)),
+      new Set(["task/task_pin", `decision/${decisionId}`, "schedule/nightly-reckoning"]),
+    );
+    for (const label of ["Task", "Decision", "Schedule"])
+      assert.match(agenda.summary, new RegExp(`📌 \\[${label}\\]`, "u"));
+    assert.equal(
+      (await cell.run({ kind: "entity-unpin", entityRef: `decision/${decisionId}` }, binding)).outcome,
+      "applied",
+    );
+    assert.equal(
+      (await cell.read("repo.agenda.read")).pinnedEntities.some(({ ref }) => ref === `decision/${decisionId}`),
+      false,
+    );
+    assert.equal(
+      (await cell.run({ kind: "entity-pin", entityRef: `decision/${decisionId}` }, binding)).outcome,
+      "applied",
+    );
+    assert.equal(
+      (await cell.run({ kind: "entity-unpin", entityRef: `decision/${decisionId}` }, binding)).outcome,
+      "applied",
+    );
+    assert.equal(
+      (await cell.read("repo.agenda.read")).pinnedEntities.some(({ ref }) => ref === `decision/${decisionId}`),
+      false,
+    );
   });
 });
 
@@ -506,15 +559,7 @@ test("terminal task transitions clear pins without changing unpinned task outcom
   await withCell("agenda-terminal-pin", async (cell) => {
     for (const taskId of ["task_pinned", "task_plain"] as const)
       assert.equal((await cell.run({ kind: "task-create", taskId, title: taskId }, binding)).outcome, "applied");
-    assert.equal(
-      (
-        await cell.run(
-          { kind: "task-amend", taskId: "task_pinned", patches: [{ field: "pinned", value: "true" }] },
-          binding,
-        )
-      ).outcome,
-      "applied",
-    );
+    assert.equal((await cell.run({ kind: "entity-pin", entityRef: "task/task_pinned" }, binding)).outcome, "applied");
 
     const cancel = (taskId: "task_pinned" | "task_plain") =>
       cell.run(
@@ -536,37 +581,6 @@ test("terminal task transitions clear pins without changing unpinned task outcom
     );
   });
 });
-
-function pinnedAmendEvent(event: unknown): {
-  readonly type: "task_amended";
-  readonly command: "amend";
-  readonly fields: readonly string[];
-  readonly pinned: boolean;
-} {
-  if (event === null || typeof event !== "object") throw new Error("expected a task event");
-  const candidate = event as {
-    readonly schema?: unknown;
-    readonly type?: unknown;
-    readonly payload?: {
-      readonly mutation?: { readonly command?: unknown; readonly fields?: unknown };
-      readonly task?: { readonly pinned?: unknown };
-    };
-  };
-  if (
-    candidate.schema !== "task-event/v1" ||
-    candidate.type !== "task_amended" ||
-    candidate.payload?.mutation?.command !== "amend" ||
-    !Array.isArray(candidate.payload.mutation.fields) ||
-    typeof candidate.payload.task?.pinned !== "boolean"
-  )
-    throw new Error("expected a pinned task_amended event");
-  return {
-    type: "task_amended",
-    command: "amend",
-    fields: candidate.payload.mutation.fields as readonly string[],
-    pinned: candidate.payload.task.pinned,
-  };
-}
 
 async function withCell(
   name: string,

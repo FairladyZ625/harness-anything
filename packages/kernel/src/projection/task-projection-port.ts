@@ -65,6 +65,11 @@ export interface EntityProjectionRow {
   readonly currentVersion: EntityVersion | null;
   readonly value: Readonly<Record<string, unknown>>;
 }
+export interface PinnedEntityProjectionRow {
+  readonly entityRef: string;
+  readonly pinnedAt: string;
+  readonly pinnedBy: string;
+}
 export interface TaskProjection {
   readonly path: string;
   readonly close: () => void;
@@ -79,6 +84,7 @@ export interface TaskProjection {
   };
   readonly listEntities: (entityKind: string) => readonly EntityProjectionRow[];
   readonly getEntity: (entityKind: string, entityId: string) => EntityProjectionRow | null;
+  readonly listPinnedEntities: () => readonly PinnedEntityProjectionRow[];
   readonly read: (taskId: string) => TaskProjectionRead;
   readonly list: (query?: TaskProjectionListQuery) => TaskProjectionListRead;
   readonly readTaskIndex: (

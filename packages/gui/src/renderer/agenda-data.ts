@@ -71,6 +71,8 @@ function joinAgendaCut(previous: AgendaSuccess | undefined, read: AgendaSuccess)
   return {
     ok: true,
     status: complete ? read.status : "pending",
+    pinnedEntities: read.pinnedEntities,
+    pinnedEntityOverflow: read.pinnedEntityOverflow,
     inFlight,
     awaitingDecision,
     waitingOnOthers,

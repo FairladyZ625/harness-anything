@@ -223,6 +223,7 @@ export function makeTaskProjectionReader(options: {
       readOperation: taskQueries.readOperation,
       readRelationEdge: taskQueries.readRelationEdge,
       readEntityVersionWitness: taskQueries.readEntityVersionWitness,
+      listPinnedEntities: taskQueries.listPinnedEntities,
       readTaskOperation: taskQueries.readTaskOperation,
       readTaskSubmissionOperation: taskQueries.readTaskSubmissionOperation,
       readTaskCompletion: taskQueries.readTaskCompletion,

@@ -817,12 +817,21 @@ export type AgendaAwaitingRow =
       readonly urgency: "low" | "medium" | "high";
       readonly proposedAt: string;
     };
+export interface AgendaPinnedEntityRow {
+  readonly ref: string;
+  readonly kind: string;
+  readonly title: string;
+  readonly status: string;
+  readonly pinnedAt: string;
+}
 
 export type DaemonAgendaResult = {
   readonly schema: "daemon.agenda/v1";
   readonly ok: true;
   readonly command: "agenda";
   readonly status: "ready" | "pending";
+  readonly pinnedEntities: readonly AgendaPinnedEntityRow[];
+  readonly pinnedEntityOverflow: number;
   readonly inFlight: readonly AgendaTaskRow[];
   /** 评审打回、等使用者修:active 且最新 execution=changes_requested、无 lease、无 active execution。可选,旧形状可省略。 */
   readonly awaitingRework?: readonly AgendaTaskRow[];

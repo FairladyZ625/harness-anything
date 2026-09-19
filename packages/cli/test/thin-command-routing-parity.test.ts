@@ -490,6 +490,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "people-revoke-delegation",
       "people-set-role",
     ],
+    pin: ["entity-pin"],
     squad: [
       "squad-cancel",
       "squad-delete",
@@ -535,6 +536,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "task-unpin",
     ],
     template: ["template-list", "template-render"],
+    unpin: ["entity-unpin"],
     vertical: [
       "vertical-kind-publish-schema-cli",
       "vertical-kind-retire-cli",

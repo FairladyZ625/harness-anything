@@ -1,4 +1,5 @@
 import { validateCurrentEntityEvent, validateEntityEvent } from "./entity-event.ts";
+import { validateCurrentEntityPinEvent, validateEntityPinEvent } from "./entity-pin-event.ts";
 import {
   validateCiRunObservationEvent,
   validateCiRunObservationEventV2,
@@ -37,6 +38,7 @@ interface CanonicalEventSchemaRegistration {
 }
 
 export const canonicalEventSchemas: readonly CanonicalEventSchemaRegistration[] = Object.freeze([
+  { schema: "entity-pin-event/v1", validate: validateEntityPinEvent, validateCurrent: validateCurrentEntityPinEvent },
   {
     schema: "ci-run-observation/v2",
     validate: validateCiRunObservationEventV2,

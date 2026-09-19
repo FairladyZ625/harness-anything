@@ -137,6 +137,7 @@ export function taskQueryApi(
   | "readOperation"
   | "readRelationEdge"
   | "readEntityVersionWitness"
+  | "listPinnedEntities"
   | "readTaskOperation"
   | "readTaskSubmissionOperation"
   | "readTaskCompletion"
@@ -273,6 +274,17 @@ export function taskQueryApi(
       withDatabase(projectionPath, readHead, (db) => readRelationProjectionRow(db, relationId)),
     readEntityVersionWitness: (entityRef) =>
       withDatabase(projectionPath, readHead, (db) => readEntityVersionWitness(db, entityRef)),
+    listPinnedEntities: () =>
+      withDatabase(projectionPath, readHead, (db) =>
+        queryRows(
+          db,
+          "SELECT entity_ref, pinned_at, pinned_by FROM pinned_entities ORDER BY pinned_at DESC, entity_ref ASC",
+        ).map((row) => ({
+          entityRef: String(row.entity_ref),
+          pinnedAt: String(row.pinned_at),
+          pinnedBy: String(row.pinned_by),
+        })),
+      ),
     readTaskOperation: (opId) =>
       withDatabase(projectionPath, readHead, (db) => {
         const row = prepareQuery(db, EVENT_BY_OP_SQL, (sql) =>

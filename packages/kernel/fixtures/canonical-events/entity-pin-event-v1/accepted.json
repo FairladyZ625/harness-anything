@@ -1,0 +1,1 @@
+{"actor":{"executor":null,"principal":{"personId":"person-fixture"}},"eventId":"event-entity-pin-fixture","occurredAt":"2026-09-19T00:00:00.000Z","opId":"op-entity-pin-fixture","payload":{"entityRef":"task/task_fixture"},"schema":"entity-pin-event/v1","source":"local","type":"entity_pinned","workspaceRevision":1}

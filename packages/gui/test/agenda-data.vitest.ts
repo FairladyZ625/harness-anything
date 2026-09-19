@@ -25,6 +25,8 @@ const page = (over: Partial<AgendaRead> = {}): AgendaSuccess => {
     command: "agenda",
     status: "ready" as const,
     inFlight: [],
+    pinnedEntities: [],
+    pinnedEntityOverflow: 0,
     awaitingDecision: [],
     waitingOnOthers: [],
     dispatchable: [],

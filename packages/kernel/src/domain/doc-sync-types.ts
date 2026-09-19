@@ -1,5 +1,6 @@
 import type { PortableDocumentPath } from "../layout/portable-path.ts";
 import type { EntityEventV1, LegacyAgentEntityEventV1 } from "./entity-event.ts";
+import type { EntityPinEventV1 } from "./entity-pin-event.ts";
 import type { AgentRuntimeEventV1 } from "./agent-runtime.ts";
 import type { CiRunObservationEventV2, CiRunObservationEventV3 } from "./ci-run-observation-event.ts";
 import { OPAQUE_TEXTUAL_POLICY_ID, type OpaqueTextualMediaType } from "./artifact-text-classification.ts";
@@ -180,6 +181,7 @@ export type CurrentDocEventV1 = EventEnvelope<
 
 export type CanonicalEventV1 =
   | TaskEventV1
+  | EntityPinEventV1
   | DocEventV1
   | AgentRuntimeEventV1
   | ScheduleEventV1

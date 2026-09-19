@@ -217,6 +217,8 @@ async function mountApp(options: { readonly view: string; readonly decisionResul
         ok: true,
         status: "ready",
         inFlight: [],
+        pinnedEntities: [],
+        pinnedEntityOverflow: 0,
         awaitingDecision: [],
         waitingOnOthers: [],
         dispatchable: [],

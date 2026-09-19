@@ -124,6 +124,10 @@ test("migration replays archived executions and keeps v0 tasks explicit about co
     assert.equal(row.generation, "v0");
     assert.equal(row.snapshot.task?.schema, "task/v2");
     assert.equal(row.snapshot.task?.pinned, true);
+    assert.equal(
+      (await cell.read("repo.agenda.read")).pinnedEntities.some(({ ref }) => ref === "task/task_coverage"),
+      true,
+    );
     assert.equal(row.createdAt, "2026-01-01T00:00:00.000Z");
     assert.deepEqual(
       {

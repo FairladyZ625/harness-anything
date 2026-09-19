@@ -77,9 +77,8 @@ export function parseTask(
   if (id === "task-amend") return parseAmend(args, taskId, rootDir, repoId, json, inputs);
   if (id === "task-pin" || id === "task-unpin")
     return accepted(rootDir, repoId, json, {
-      kind: "task-amend",
-      taskId,
-      patches: [{ field: "pinned", value: id === "task-pin" ? "true" : "false" }],
+      kind: id === "task-pin" ? "entity-pin" : "entity-unpin",
+      entityRef: `task/${taskId}`,
     });
   if (id === "task-supersede") return parseSupersede(args, taskId, rootDir, repoId, json, inputs);
   if (id === "task-annotate") {

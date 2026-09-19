@@ -15,6 +15,7 @@ import {
   type DocumentState,
 } from "../domain/doc-sync.contract.ts";
 import { isEntityDocumentEvent } from "../domain/entity-document-event.ts";
+import { isEntityPinEvent } from "../domain/entity-pin-event.ts";
 import { isLedgerLayoutMigrationEvent } from "../domain/ledger-layout-migration-event.ts";
 import { currentTaskForWrite } from "../domain/task.ts";
 import {
@@ -125,6 +126,33 @@ export function applyEvent(
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
 ): void {
+  if (isEntityPinEvent(event)) {
+    runSql(
+      db,
+      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
+      event.opId,
+      event.workspaceRevision,
+      eventJson,
+    );
+    if (event.type === "entity_pinned")
+      runSql(
+        db,
+        "INSERT INTO pinned_entities(entity_ref, pinned_at, pinned_by) VALUES (?, ?, ?) ON CONFLICT(entity_ref) DO UPDATE SET pinned_at=excluded.pinned_at, pinned_by=excluded.pinned_by",
+        event.payload.entityRef,
+        event.occurredAt,
+        event.actor.principal.personId,
+      );
+    else runSql(db, "DELETE FROM pinned_entities WHERE entity_ref = ?", event.payload.entityRef);
+    const taskId = /^task\/(.+)$/u.exec(event.payload.entityRef)?.[1];
+    if (taskId)
+      runSql(
+        db,
+        "UPDATE task_snapshot SET snapshot_json=json_set(snapshot_json, '$.task.pinned', json(?)) WHERE task_id=?",
+        event.type === "entity_pinned" ? "true" : "false",
+        taskId,
+      );
+    return;
+  }
   if (isCiRunObservationEvent(event)) {
     runSql(
       db,
@@ -157,6 +185,13 @@ export function applyEvent(
   }
   if (isMigrationImportEvent(event)) {
     projectMigration(db, event, eventJson, readBlob);
+    runSql(
+      db,
+      "INSERT OR IGNORE INTO pinned_entities(entity_ref, pinned_at, pinned_by) " +
+        "SELECT 'task/' || task_id, ?, ? FROM task_snapshot WHERE pinned = 1",
+      event.occurredAt,
+      event.actor.principal.personId,
+    );
     return;
   }
   if (isEntityDocumentEvent(event)) {
@@ -715,6 +750,15 @@ export function applyTaskEvent(
     snapshot.task?.status ?? null,
     event.occurredAt,
   );
+  if (snapshot.task?.pinned)
+    runSql(
+      db,
+      "INSERT INTO pinned_entities(entity_ref, pinned_at, pinned_by) VALUES (?, ?, ?) ON CONFLICT(entity_ref) DO UPDATE SET pinned_at=excluded.pinned_at, pinned_by=excluded.pinned_by",
+      `task/${event.taskId}`,
+      event.occurredAt,
+      event.actor.principal.personId,
+    );
+  else runSql(db, "DELETE FROM pinned_entities WHERE entity_ref = ?", `task/${event.taskId}`);
   applyEmbeddedRelationProjectionEvents(db, event);
   if (event.type === "task_created") {
     runSql(

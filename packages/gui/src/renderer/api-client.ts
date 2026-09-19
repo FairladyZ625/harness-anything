@@ -83,7 +83,16 @@ export interface RelationGraphSuccess {
  * daemon 投影里完成,renderer 不重推任何「在飞/待裁/球在别人手里/可派」判据。
  */
 export interface AgendaSuccess
-  extends Pick<AgendaRead, "inFlight" | "awaitingDecision" | "waitingOnOthers" | "dispatchable" | "summary"> {
+  extends Pick<
+    AgendaRead,
+    | "pinnedEntities"
+    | "pinnedEntityOverflow"
+    | "inFlight"
+    | "awaitingDecision"
+    | "waitingOnOthers"
+    | "dispatchable"
+    | "summary"
+  > {
   readonly ok: true;
   readonly status: "ready" | "pending";
   readonly page: { readonly sourceLimit: number; readonly cursor: string | null; readonly nextCursor: string | null };
@@ -554,6 +563,8 @@ function readAgendaResult(value: unknown): AgendaSuccess {
     result.ok !== true ||
     (result.status !== "ready" && result.status !== "pending") ||
     !Array.isArray(result.inFlight) ||
+    !Array.isArray(result.pinnedEntities) ||
+    !Number.isSafeInteger(result.pinnedEntityOverflow) ||
     !result.inFlight.every(isAgendaTaskRow) ||
     !Array.isArray(result.awaitingDecision) ||
     !result.awaitingDecision.every(isAgendaAwaitingRow) ||
