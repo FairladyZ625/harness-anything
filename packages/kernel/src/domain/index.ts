@@ -330,7 +330,6 @@ export {
   applyPeopleRosterAction,
   mergePeopleRosterDocuments,
   parsePeopleRosterDocument,
-  serializePeopleRosterDocument,
   PEOPLE_ROSTER_PATH,
 } from "./people-roster.ts";
 export type {

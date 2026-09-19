@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   bindWriterGenerationToken,
-  serializePeopleRosterDocument,
   type DelegatedExecutionToken,
   type LeaseV1,
   type RuntimeSession,
@@ -11,6 +10,9 @@ import {
 import { createRepoCellApi, type RepoCellApiContext } from "../src/repo-cell-api.ts";
 import { failed } from "../src/repo-cell-settlement.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
+
+// The People roster document is plain JSON; the reader under test parses and normalizes it.
+const serializePeopleRosterDocument = (roster: unknown): string => `${JSON.stringify(roster, null, 2)}\n`;
 
 const now = "2026-09-19T12:00:00.000Z";
 const ownedTaskId = "task-delegation-owned",
