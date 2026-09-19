@@ -535,6 +535,17 @@ for (const file of files) {
     ) {
       record(`${rel}: daemon protocol handlers must not perform write coordination or authored writes directly`);
     }
+  }
+
+  // The status-branch contract guards the JSON-RPC handler surface: method dispatch and
+  // command/action handlers may only do auth/path/schema/transport-error mapping. Wire
+  // declaration modules (*-contract, *validate*, *types, vocabulary, schema registry) compare
+  // status fields for schema validation, which the contract explicitly permits; below the
+  // protocol layer, status branching is the file's own business logic.
+  if (
+    rel.startsWith("packages/daemon/src/protocol/") &&
+    !/(?:^|[-.])(?:contract|validate|validation|types|vocabulary|schema|identifiers|version)(?:[-.]|$)/.test(rel)
+  ) {
     if (/switch\s*\([^)]*status[^)]*\)|if\s*\([^)]*status[^)]*(?:===|!==|==|!=)/i.test(text)) {
       record(`${rel}: daemon protocol handlers must not infer business state from status values`);
     }

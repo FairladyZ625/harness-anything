@@ -117,6 +117,75 @@ test("renderer rule blocks credential token shapes and private paths but passes 
   }
 });
 
+test("daemon status-branch rule judges by protocol handler landing site, not comparison syntax", () => {
+  const fixture = mkdtempSync(path.join(os.tmpdir(), "implementation-contract-status-"));
+  try {
+    const files = globSync(["packages/**/*", "package.json", "package-lock.json", "tsconfig.json"], {
+      cwd: root,
+      withFileTypes: true,
+      exclude: ["**/node_modules/**", "**/dist/**"],
+    })
+      .filter((entry) => entry.isFile())
+      .map((entry) => path.relative(root, path.join(entry.parentPath, entry.name)));
+    for (const file of files) {
+      const destination = path.join(fixture, file);
+      mkdirSync(path.dirname(destination), { recursive: true });
+      copyFileSync(path.join(root, file), destination);
+    }
+    const runGate = () =>
+      spawnSync(process.execPath, [path.join(root, "tools/check-implementation-contracts.mjs")], {
+        cwd: fixture,
+        encoding: "utf8",
+      });
+    const readModelProbe = path.join(fixture, "packages/daemon/src/probe-read-model.ts");
+    const handlerProbe = path.join(fixture, "packages/daemon/src/protocol/probe-handler.ts");
+    const wireProbe = path.join(fixture, "packages/daemon/src/protocol/probe-wire-validate.ts");
+
+    // Below the protocol surface, status classification is the file's own business logic:
+    // a direct comparison and the synonymous membership spelling must be treated alike.
+    writeFileSync(
+      readModelProbe,
+      'export const settled = (row) => {\n  if (row.status === "succeeded") return true;\n  return false;\n};\n',
+    );
+    assert.equal(runGate().status, 0, "direct status comparison in a non-handler file must pass");
+    writeFileSync(
+      readModelProbe,
+      'export const settled = (row) => {\n  if (["succeeded"].includes(row.status)) return true;\n  return false;\n};\n',
+    );
+    assert.equal(runGate().status, 0, "synonymous membership spelling in a non-handler file must pass");
+
+    // Wire declaration modules inside protocol/ compare status fields for schema
+    // validation — the transport-error mapping the contract permits handlers to do.
+    writeFileSync(
+      wireProbe,
+      'export const check = (value) => {\n  if (value.status === "accepted_durable") return [];\n  return ["bad"];\n};\n',
+    );
+    assert.equal(runGate().status, 0, "schema validation in a wire declaration module must pass");
+
+    // Inside the JSON-RPC handler surface, branching behavior on a status value is the
+    // business-state inference the contract forbids.
+    writeFileSync(
+      handlerProbe,
+      'export const settle = (row) => {\n  if (row.status === "succeeded") return "done";\n  return "wait";\n};\n',
+    );
+    const branch = runGate();
+    assert.equal(branch.status, 1, branch.stdout);
+    assert.match(
+      branch.stderr,
+      /packages\/daemon\/src\/protocol\/probe-handler\.ts: daemon protocol handlers must not infer business state from status values/,
+    );
+    writeFileSync(
+      handlerProbe,
+      'export const settle = (row) => {\n  switch (row.status) {\n    case "succeeded":\n      return "done";\n  }\n  return "wait";\n};\n',
+    );
+    const switchBranch = runGate();
+    assert.equal(switchBranch.status, 1, switchBranch.stdout);
+    assert.match(switchBranch.stderr, /probe-handler\.ts: daemon protocol handlers must not infer business state/);
+  } finally {
+    rmSync(fixture, { recursive: true, force: true });
+  }
+});
+
 test("real implementation gate accepts renamed titles and rejects each missing or misplaced contract marker", () => {
   const fixture = mkdtempSync(path.join(os.tmpdir(), "implementation-contract-"));
   try {
