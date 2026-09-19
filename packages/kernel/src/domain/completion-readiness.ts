@@ -292,7 +292,7 @@ function evaluateCompletion(
     return one(
       "consent_missing",
       "consent",
-      `ha task review-verdict ${task.taskId} --review-id <review-id> --accept`,
+      `ha task review-consent ${task.taskId} --review-id <review-id>`,
       "The owner's verdict accepts the latest approved review, pinned to its reviewed content.",
     );
   return [];
