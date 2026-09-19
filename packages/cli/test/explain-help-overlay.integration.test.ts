@@ -26,6 +26,9 @@ test("ha explain and Task help overlay share one typed read, renderer, cut, and 
       0,
     );
 
+    // Attach seeds the system presets and their Git materialization lands a moment later; the
+    // zero-write baseline is taken once no tracked path is mid-publication.
+    await gitWorktreeSettled(root);
     const store = makeTaskEventReader({ repoId: workspaceId(repoId), rootDir: canonicalRoot(root) }),
       beforeStream = store.read(),
       beforeGit = git(root, "status", "--porcelain=v1"),
@@ -311,6 +314,16 @@ function environment(root: string, userRoot: string): NodeJS.ProcessEnv {
   };
 }
 
+async function gitWorktreeSettled(root: string): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const tracked = git(root, "status", "--porcelain=v1")
+      .split("\n")
+      .filter((line) => line !== "" && !line.startsWith("??"));
+    if (tracked.length === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error("Git materialization did not settle");
+}
 function git(root: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
 }
