@@ -12,6 +12,9 @@ import { replayClaim, replayRelease, replayRenew } from "../projection/rebuildab
 import { TaskEventStoreError } from "./task-event-store-types.ts";
 import type { CanonicalContentBlob } from "./task-event-store-types.ts";
 import {
+  canonicalDocumentClaims,
+  canonicalDocumentMode,
+  canonicalDocumentRetirements,
   listContentObjectDigests,
   prepareContentObjects,
   readContentObject,
@@ -47,6 +50,12 @@ export interface SqliteEventIdentity {
   readonly revision: number;
   readonly opId: string;
   readonly eventDigest: `sha256:${string}`;
+}
+
+export interface SqliteDocumentHead {
+  readonly sha256: string;
+  readonly size: number;
+  readonly nodeKind: "file" | "symbolic-link";
 }
 
 export interface SqliteCommandIntent {
@@ -141,6 +150,7 @@ export interface SqliteEventStore {
   readonly eventAtRevision: (revision: number) => CanonicalEventV1 | null;
   readonly eventIdentity: (opId: string) => SqliteEventIdentity | null;
   readonly eventIdentityAtRevision: (revision: number) => SqliteEventIdentity | null;
+  readonly documentHead: (documentPath: string) => SqliteDocumentHead | "retired" | undefined;
   readonly eventsAfter: (revision: number, limit?: number) => readonly CanonicalEventV1[];
   readonly eventsBefore: (revision: number, limit?: number) => readonly CanonicalEventV1[];
   readonly close: () => void;
@@ -396,7 +406,7 @@ export function openSqliteEventStore(options: {
   configureLedgerConnection(db, options.readOnly);
   const query: SqliteQuery = (sql, values = []) =>
     /* @gate-identity check-bypass-write-boundary/bypass-write-117 */ db.prepare(sql).all(...values);
-  if (!options.readOnly) createSchema(db, options.repoId!, generation);
+  if (!options.readOnly) createSchema(db, query, options.repoId!, generation);
   const metadata = readMetadata(query),
     repoId = options.repoId ?? metadata.repoId;
   assertMetadata(query, repoId, generation);
@@ -428,6 +438,7 @@ export function openSqliteEventStore(options: {
       throw error;
     }
   };
+  if (!options.readOnly) transaction(() => backfillDocumentHeads(query));
   // All lease mutations share the store's transaction and the same repository ownership boundary.
   const persistWriterLease = (fence: SqliteWriterFence | null): void => {
     /* @gate-identity check-bypass-write-boundary/bypass-write-122 */ db.prepare(
@@ -517,6 +528,7 @@ export function openSqliteEventStore(options: {
           input.historicalRecord?.eventRecordedAt[offset] ?? null,
         );
         applyDerivedGuards(db, event);
+        applyDocumentHeads(query, event);
       }
       const firstRevision = input.events.length ? head + 1 : null,
         lastRevision = input.events.length ? head + input.events.length : null,
@@ -599,6 +611,7 @@ export function openSqliteEventStore(options: {
     eventAtRevision: (revision) => readEvent(query, "revision", revision),
     eventIdentity: (opId) => readEventIdentity(query, "op_id", opId),
     eventIdentityAtRevision: (revision) => readEventIdentity(query, "revision", revision),
+    documentHead: (documentPath) => readDocumentHead(query, documentPath),
     eventsAfter: (revision, limit = 4096) =>
       query("SELECT event_json FROM event WHERE revision>? ORDER BY revision LIMIT ?", [revision, limit]).map(
         (row) => JSON.parse(String(row.event_json)) as CanonicalEventV1,
@@ -653,7 +666,7 @@ export function migrateEventsToSqlite(input: {
   return { migrated: revision - existingRevision, revision };
 }
 
-function createSchema(db: DatabaseSync, repoId: string, generation: number): void {
+function createSchema(db: DatabaseSync, query: SqliteQuery, repoId: string, generation: number): void {
   /* @gate-identity check-bypass-write-boundary/bypass-write-116 */ db.exec(`
     CREATE TABLE IF NOT EXISTS ledger_meta (
       singleton INTEGER PRIMARY KEY CHECK(singleton=1), repo_id TEXT NOT NULL UNIQUE,
@@ -665,6 +678,17 @@ function createSchema(db: DatabaseSync, repoId: string, generation: number): voi
       recorded_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     ) STRICT;
     CREATE UNIQUE INDEX IF NOT EXISTS event_event_id ON event(json_extract(event_json, '$.eventId'));
+    CREATE TABLE IF NOT EXISTS document_head (
+      path TEXT PRIMARY KEY, sha256 TEXT, size INTEGER, node_kind TEXT,
+      revision INTEGER NOT NULL,
+      CHECK(
+        (sha256 IS NULL AND size IS NULL AND node_kind IS NULL)
+        OR (sha256 IS NOT NULL AND size >= 0 AND node_kind IN ('file','symbolic-link'))
+      )
+    ) STRICT;
+    CREATE TABLE IF NOT EXISTS document_head_meta (
+      singleton INTEGER PRIMARY KEY CHECK(singleton=1), revision INTEGER NOT NULL CHECK(revision>=0)
+    ) STRICT;
     CREATE TABLE IF NOT EXISTS command_outcome (
       op_id TEXT PRIMARY KEY, status TEXT NOT NULL CHECK(status IN ('accepted_durable','rejected')),
       first_revision INTEGER, last_revision INTEGER, intent_digest TEXT NOT NULL,
@@ -742,6 +766,56 @@ function applyDerivedGuards(db: DatabaseSync, event: CanonicalEventV1): void {
     event.type === "lease_released"
   )
     replayRelease(db, event.taskId, event.payload.execution.executionId, event.workspaceRevision);
+}
+
+function applyDocumentHeads(query: SqliteQuery, event: CanonicalEventV1, updateWatermark = true): void {
+  const upsert = (values: readonly (string | number | null)[]) =>
+    query(
+      "INSERT INTO document_head(path, sha256, size, node_kind, revision) VALUES (?, ?, ?, ?, ?) " +
+        "ON CONFLICT(path) DO UPDATE SET sha256=excluded.sha256, size=excluded.size, " +
+        "node_kind=excluded.node_kind, revision=excluded.revision",
+      values,
+    );
+  for (const claim of canonicalDocumentClaims(event))
+    upsert([
+      claim.path,
+      claim.sha256,
+      claim.size,
+      canonicalDocumentMode(event, claim.path) === "120000" ? "symbolic-link" : "file",
+      event.workspaceRevision,
+    ]);
+  for (const retirement of canonicalDocumentRetirements(event))
+    upsert([retirement.path, null, null, null, event.workspaceRevision]);
+  if (updateWatermark) updateDocumentHeadWatermark(query, event.workspaceRevision);
+}
+
+function updateDocumentHeadWatermark(query: SqliteQuery, revision: number): void {
+  query(
+    "INSERT INTO document_head_meta(singleton, revision) VALUES (1, ?) " +
+      "ON CONFLICT(singleton) DO UPDATE SET revision=excluded.revision",
+    [revision],
+  );
+}
+
+function backfillDocumentHeads(query: SqliteQuery): void {
+  const indexed = Number(query("SELECT revision FROM document_head_meta WHERE singleton=1").at(0)?.revision ?? 0),
+    head = Number(query("SELECT revision FROM ledger_meta WHERE singleton=1").at(0)!.revision);
+  if (indexed > head) throw new TaskEventStoreError("invalid_store", "document head index is ahead of the ledger");
+  if (indexed === head) return;
+  const rows = query("SELECT event_json FROM event WHERE revision>? ORDER BY revision", [indexed]);
+  for (const row of rows) applyDocumentHeads(query, JSON.parse(String(row.event_json)) as CanonicalEventV1, false);
+  updateDocumentHeadWatermark(query, head);
+}
+
+function readDocumentHead(query: SqliteQuery, documentPath: string): SqliteDocumentHead | "retired" | undefined {
+  const row = query("SELECT sha256, size, node_kind FROM document_head WHERE path=?", [documentPath]).at(0);
+  if (!row) return undefined;
+  if (row.sha256 === null) return "retired";
+  return {
+    sha256: String(row.sha256),
+    size: Number(row.size),
+    nodeKind: String(row.node_kind) as SqliteDocumentHead["nodeKind"],
+  };
 }
 
 function assertFenceShape(fence: SqliteWriterFence, repoId: string): void {
