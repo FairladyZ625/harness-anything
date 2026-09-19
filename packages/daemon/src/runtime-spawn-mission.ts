@@ -203,6 +203,15 @@ export function taskQueryGuidance(taskId: string): string {
   ].join("\n");
 }
 
+/** An explicit prompt on a task-bound dispatch still owes the worker the same lookup guidance as a derived mission. */
+export function explicitPromptMission(taskId: string | null, causalContext: string | null, prompt: string): string {
+  return [
+    ...(taskId === null ? [] : [taskQueryGuidance(taskId)]),
+    ...(causalContext === null ? [] : [causalContext]),
+    prompt,
+  ].join("\n\n");
+}
+
 export function deriveTaskMission(
   rootDir: string,
   projection: TaskProjection,

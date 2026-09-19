@@ -55,7 +55,7 @@ import {
   dispatchMissionForPermission,
   resolveRuntimeInstanceId,
   runtimeMissionName,
-  taskQueryGuidance,
+  explicitPromptMission,
   validateMissionCommands,
 } from "./runtime-spawn-mission.ts";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
@@ -334,13 +334,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       mission =
         explicitMission === undefined
           ? (taskMission?.mission ?? requiredRuntimeSpawnText(undefined, "prompt"))
-          : [
-              // An explicit prompt on a task-bound dispatch still owes the worker
-              // the same lookup guidance as a derived mission.
-              ...(taskId === null ? [] : [taskQueryGuidance(taskId)]),
-              ...(causalContext === null ? [] : [causalContext]),
-              explicitMission,
-            ].join("\n\n");
+          : explicitPromptMission(taskId, causalContext, explicitMission);
     if (taskMission) validateMissionCommands(taskMission.plan, cwd, taskMission.planPath);
     if (taskMission?.missionBody && taskMission.missionPath)
       validateMissionCommands(taskMission.missionBody, cwd, taskMission.missionPath);
