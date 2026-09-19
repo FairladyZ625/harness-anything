@@ -12,10 +12,7 @@
     "taskId": "task_01KX5HEBCHAKMA25FH5KHRWSEX",
     "recordedAt": "2026-07-10",
     "packageScripts": "package.json",
-    "workflows": [
-      ".github/workflows/rewrite-ci.yml",
-      ".github/workflows/pr-body.yml"
-    ],
+    "workflows": [".github/workflows/rewrite-ci.yml", ".github/workflows/pr-body.yml"],
     "branchProtectionDocument": ".github/branch-protection.md",
     "githubActualBranchProtection": {
       "branch": "main",
@@ -65,6 +62,7 @@
         "check-cli-help-contract",
         "check-cli-error-codes",
         "check-error-classification",
+        "check-entity-doc-contract",
         "check-import-boundaries",
         "check-poll-spin-boundary",
         "check-fallback-boundaries",
@@ -114,6 +112,7 @@
         "check-cli-help-contract",
         "check-cli-error-codes",
         "check-error-classification",
+        "check-entity-doc-contract",
         "check-import-boundaries",
         "check-poll-spin-boundary",
         "check-fallback-boundaries",
@@ -183,11 +182,7 @@
       ]
     },
     "prBody": {
-      "pullRequestGateJobs": [
-        "pr-body-lint",
-        "production-delta",
-        "evidence-contract"
-      ],
+      "pullRequestGateJobs": ["pr-body-lint", "production-delta", "evidence-contract"],
       "helperJobsNotRegisteredAsGates": [],
       "nonPullRequestGateJobs": []
     },
@@ -223,11 +218,34 @@
       "tierReason": null,
       "authoritySource": ["dec_EF5F3820E81FB8A5266F1F3342#CH3"],
       "consumerScope": ["polling and spin syntax in production package sources and gate scripts"],
-      "githubContext": { "requiredContexts": ["crlf-checkout"], "workflowJobs": ["crlf-checkout"], "nodeVersions": [24] },
-      "allowlistPolicy": { "allowed": true, "location": "tools/gate-allowlists/check-poll-spin-boundary.json", "adrOrDecisionRequired": true, "notes": "Exact function and syntax-kind list naming the event that cannot be awaited." },
-      "changeControl": { "ordinaryImplementationMayModify": false, "requiresGovernanceEvidence": true, "protectedSurfaces": ["tools/gates/eslint-rules/no-poll-spin.js", "tools/check-poll-spin-boundary.mjs", "tools/gate-allowlists/check-poll-spin-boundary.json", "tools/gate-manifest.json"] },
+      "githubContext": {
+        "requiredContexts": ["crlf-checkout"],
+        "workflowJobs": ["crlf-checkout"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/gate-allowlists/check-poll-spin-boundary.json",
+        "adrOrDecisionRequired": true,
+        "notes": "Exact function and syntax-kind list naming the event that cannot be awaited."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/eslint-rules/no-poll-spin.js",
+          "tools/check-poll-spin-boundary.mjs",
+          "tools/gate-allowlists/check-poll-spin-boundary.json",
+          "tools/gate-manifest.json"
+        ]
+      },
       "bypassFixtureRequired": true,
-      "executionSurfaces": { "packageJson": { "check": true, "checkPr": true, "script": "harness:check-poll-spin-boundary" }, "rewriteCi": { "pullRequestJobs": ["crlf-checkout"], "nonPullRequestJobs": [] }, "branchProtection": { "required": true, "contexts": ["crlf-checkout"] }, "classes": ["local", "pr"] },
+      "executionSurfaces": {
+        "packageJson": { "check": true, "checkPr": true, "script": "harness:check-poll-spin-boundary" },
+        "rewriteCi": { "pullRequestJobs": ["crlf-checkout"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": true, "contexts": ["crlf-checkout"] },
+        "classes": ["local", "pr"]
+      },
       "deterministic": true,
       "positiveControl": { "status": "covered", "evidence": ["tools/gates/test/syntax-boundaries.test.mjs"] }
     },
@@ -240,12 +258,67 @@
       "authoritySource": ["dec_EF5F3820E81FB8A5266F1F3342#CH4"],
       "consumerScope": ["consumeKnownError, catch substitution, and online full-history reads"],
       "githubContext": { "requiredContexts": ["boundaries"], "workflowJobs": ["boundaries"], "nodeVersions": [24] },
-      "allowlistPolicy": { "allowed": true, "location": "tools/gate-allowlists/check-fallback-boundaries.json", "adrOrDecisionRequired": true, "notes": "Exact file and function list with reachable scenario or deletion task." },
-      "changeControl": { "ordinaryImplementationMayModify": false, "requiresGovernanceEvidence": true, "protectedSurfaces": ["tools/check-fallback-boundaries.mjs", "tools/gates/eslint-rules/no-swallowed-failure.js", "tools/gate-allowlists/check-fallback-boundaries.json", "tools/gate-manifest.json"] },
+      "allowlistPolicy": {
+        "allowed": true,
+        "location": "tools/gate-allowlists/check-fallback-boundaries.json",
+        "adrOrDecisionRequired": true,
+        "notes": "Exact file and function list with reachable scenario or deletion task."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-fallback-boundaries.mjs",
+          "tools/gates/eslint-rules/no-swallowed-failure.js",
+          "tools/gate-allowlists/check-fallback-boundaries.json",
+          "tools/gate-manifest.json"
+        ]
+      },
       "bypassFixtureRequired": true,
-      "executionSurfaces": { "packageJson": { "check": true, "checkPr": true, "script": "harness:check-fallback-boundaries" }, "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["boundaries"] }, "branchProtection": { "required": true, "contexts": ["boundaries"] }, "classes": ["local", "pr"] },
+      "executionSurfaces": {
+        "packageJson": { "check": true, "checkPr": true, "script": "harness:check-fallback-boundaries" },
+        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["boundaries"] },
+        "branchProtection": { "required": true, "contexts": ["boundaries"] },
+        "classes": ["local", "pr"]
+      },
       "deterministic": true,
       "positiveControl": { "status": "covered", "evidence": ["tools/gates/test/syntax-boundaries.test.mjs"] }
+    },
+    {
+      "id": "check-entity-doc-contract",
+      "command": "npm run harness:check-entity-doc-contract",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": ["tools/generate-entity-doc-contract.mjs", "task_5a8b9bb1cff98ebd897402f2d2"],
+      "consumerScope": [
+        "committed generated region of packages/gui/src/renderer/entity-docs.ts against the live kernel entity kind registry"
+      ],
+      "githubContext": { "requiredContexts": ["boundaries"], "workflowJobs": ["boundaries"], "nodeVersions": [24] },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Generated-region freshness has no exemptions; a stale region fails until the generator is rerun."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/generate-entity-doc-contract.mjs",
+          "package.json:scripts.harness:check-entity-doc-contract",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": { "check": true, "checkPr": true, "script": "harness:check-entity-doc-contract" },
+        "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["boundaries"] },
+        "branchProtection": { "required": true, "contexts": ["boundaries"] },
+        "classes": ["local", "pr"]
+      },
+      "deterministic": true,
+      "positiveControl": { "status": "covered", "evidence": ["tools/generate-entity-doc-contract.test.mjs"] }
     },
     {
       "id": "aggregate-full-check",
@@ -254,23 +327,12 @@
       "category": "meta-governance",
       "tier": "main-only",
       "tierReason": "Full aggregate check is intentionally not a pull_request or push job; rewrite-ci runs it on schedule and workflow_dispatch, where a single-process run still covers shard-boundary effects.",
-      "authoritySource": [
-        "package.json:scripts.check",
-        ".github/workflows/rewrite-ci.yml:jobs.full-check"
-      ],
-      "consumerScope": [
-        "full local gate suite",
-        "non-PR rewrite-ci full-check matrix"
-      ],
+      "authoritySource": ["package.json:scripts.check", ".github/workflows/rewrite-ci.yml:jobs.full-check"],
+      "consumerScope": ["full local gate suite", "non-PR rewrite-ci full-check matrix"],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": [
-          "full-check"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
+        "workflowJobs": ["full-check"],
+        "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -281,11 +343,7 @@
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
-        "protectedSurfaces": [
-          "package.json",
-          ".github/workflows/rewrite-ci.yml",
-          "tools/gate-manifest.json"
-        ]
+        "protectedSurfaces": ["package.json", ".github/workflows/rewrite-ci.yml", "tools/gate-manifest.json"]
       },
       "bypassFixtureRequired": false,
       "executionSurfaces": {
@@ -296,25 +354,18 @@
         },
         "rewriteCi": {
           "pullRequestJobs": [],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": ["full-check"]
         },
         "branchProtection": {
           "required": false,
           "contexts": []
         },
-        "classes": [
-          "local",
-          "main-full"
-        ]
+        "classes": ["local", "main-full"]
       },
       "deterministic": false,
       "positiveControl": {
         "status": "not-applicable",
-        "evidence": [
-          "Composite runner only; positive controls are declared by its leaf gates."
-        ]
+        "evidence": ["Composite runner only; positive controls are declared by its leaf gates."]
       }
     },
     {
@@ -324,13 +375,8 @@
       "category": "meta-governance",
       "tier": "manual-only",
       "tierReason": "Local PR approximation script is not invoked by rewrite-ci; GitHub PRs use tiered jobs instead.",
-      "authoritySource": [
-        "package.json:scripts.check:pr",
-        "harness/governance/standards/ci-cd-standard.md#ci-lane"
-      ],
-      "consumerScope": [
-        "local PR approximation command"
-      ],
+      "authoritySource": ["package.json:scripts.check:pr", "harness/governance/standards/ci-cd-standard.md#ci-lane"],
+      "consumerScope": ["local PR approximation command"],
       "githubContext": {
         "requiredContexts": [],
         "workflowJobs": [],
@@ -345,10 +391,7 @@
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
-        "protectedSurfaces": [
-          "package.json",
-          "tools/gate-manifest.json"
-        ]
+        "protectedSurfaces": ["package.json", "tools/gate-manifest.json"]
       },
       "bypassFixtureRequired": false,
       "executionSurfaces": {
@@ -365,17 +408,12 @@
           "required": false,
           "contexts": []
         },
-        "classes": [
-          "local",
-          "manual"
-        ]
+        "classes": ["local", "manual"]
       },
       "deterministic": false,
       "positiveControl": {
         "status": "not-applicable",
-        "evidence": [
-          "Composite runner only; positive controls are declared by its leaf gates."
-        ]
+        "evidence": ["Composite runner only; positive controls are declared by its leaf gates."]
       }
     },
     {
@@ -396,15 +434,9 @@
         "migration command names rendered by ha migrate --help from the daemon protocol command catalog"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "pr-body-lint"
-        ],
-        "workflowJobs": [
-          "pr-body-lint"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["pr-body-lint"],
+        "workflowJobs": ["pr-body-lint"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -434,27 +466,19 @@
           "nonPullRequestJobs": []
         },
         "prBody": {
-          "pullRequestJobs": [
-            "pr-body-lint"
-          ],
+          "pullRequestJobs": ["pr-body-lint"],
           "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "pr-body-lint"
-          ]
+          "contexts": ["pr-body-lint"]
         },
-        "classes": [
-          "pr"
-        ]
+        "classes": ["pr"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-pr-body-bilingual.test.mjs"
-        ]
+        "evidence": ["tools/check-pr-body-bilingual.test.mjs"]
       }
     },
     {
@@ -477,15 +501,9 @@
         "manifest-derived protected governance surfaces"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "pr-body-lint"
-        ],
-        "workflowJobs": [
-          "pr-body-lint"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["pr-body-lint"],
+        "workflowJobs": ["pr-body-lint"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -523,27 +541,19 @@
           "nonPullRequestJobs": []
         },
         "prBody": {
-          "pullRequestJobs": [
-            "pr-body-lint"
-          ],
+          "pullRequestJobs": ["pr-body-lint"],
           "nonPullRequestJobs": []
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "pr-body-lint"
-          ]
+          "contexts": ["pr-body-lint"]
         },
-        "classes": [
-          "pr"
-        ]
+        "classes": ["pr"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-pr-governance.test.mjs"
-        ]
+        "evidence": ["tools/check-pr-governance.test.mjs"]
       }
     },
     {
@@ -552,10 +562,7 @@
       "category": "meta-governance",
       "tier": "pr-advisory",
       "tierReason": "The computed production delta is reported on every PR-body workflow run but is not a required context.",
-      "authoritySource": [
-        "tools/gates/production-delta.mjs",
-        ".github/pull_request_template.md"
-      ],
+      "authoritySource": ["tools/gates/production-delta.mjs", ".github/pull_request_template.md"],
       "consumerScope": ["GitHub job summary and structured CI observation"],
       "githubContext": {
         "requiredContexts": [],
@@ -583,13 +590,8 @@
       "category": "meta-governance",
       "tier": "pr-advisory",
       "tierReason": "Evidence claims are checked on every PR-body workflow run but this job is not a required context.",
-      "authoritySource": [
-        "tools/gates/evidence-contract.mjs",
-        ".github/pull_request_template.md"
-      ],
-      "consumerScope": [
-        "GitHub pull request evidence claims"
-      ],
+      "authoritySource": ["tools/gates/evidence-contract.mjs", ".github/pull_request_template.md"],
+      "consumerScope": ["GitHub pull request evidence claims"],
       "githubContext": {
         "requiredContexts": [],
         "workflowJobs": ["evidence-contract"],
@@ -616,26 +618,12 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "authoritySource": [
-        "tsconfig.json",
-        "package.json:scripts.typecheck"
-      ],
-      "consumerScope": [
-        "TypeScript project references"
-      ],
+      "authoritySource": ["tsconfig.json", "package.json:scripts.typecheck"],
+      "consumerScope": ["TypeScript project references"],
       "githubContext": {
-        "requiredContexts": [
-          "typecheck (24)",
-          "node26-compatibility"
-        ],
-        "workflowJobs": [
-          "typecheck",
-          "node26-compatibility"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
+        "requiredContexts": ["typecheck (24)", "node26-compatibility"],
+        "workflowJobs": ["typecheck", "node26-compatibility"],
+        "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -646,10 +634,7 @@
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
-        "protectedSurfaces": [
-          "tsconfig*.json",
-          "package.json:scripts.typecheck"
-        ]
+        "protectedSurfaces": ["tsconfig*.json", "package.json:scripts.typecheck"]
       },
       "bypassFixtureRequired": false,
       "executionSurfaces": {
@@ -659,35 +644,19 @@
           "script": "typecheck"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "typecheck",
-            "node26-compatibility"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "node26-compatibility",
-            "typecheck"
-          ]
+          "pullRequestJobs": ["typecheck", "node26-compatibility"],
+          "nonPullRequestJobs": ["full-check", "node26-compatibility", "typecheck"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "typecheck (24)",
-            "node26-compatibility"
-          ]
+          "contexts": ["typecheck (24)", "node26-compatibility"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "documented-gap",
-        "evidence": [
-          "No dedicated negative TypeScript compilation fixture is registered."
-        ]
+        "evidence": ["No dedicated negative TypeScript compilation fixture is registered."]
       }
     },
     {
@@ -696,12 +665,7 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": [
-        "**/*.js",
-        "**/*.mjs",
-        "**/*.ts",
-        "**/*.tsx"
-      ],
+      "localPathGlobs": ["**/*.js", "**/*.mjs", "**/*.ts", "**/*.tsx"],
       "authoritySource": [
         "eslint.config.mjs",
         "tools/port-physical-io-boundary-known-debt.mjs",
@@ -717,15 +681,9 @@
         "kernel/application production-source physical I/O import boundary: fs/fs/promises/child_process imports are rejected outside explicit port implementation debt files"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "crlf-checkout"
-        ],
-        "workflowJobs": [
-          "crlf-checkout"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["crlf-checkout"],
+        "workflowJobs": ["crlf-checkout"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -750,32 +708,19 @@
           "script": "lint"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "crlf-checkout"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "crlf-checkout"
-          ]
+          "pullRequestJobs": ["crlf-checkout"],
+          "nonPullRequestJobs": ["full-check", "crlf-checkout"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "crlf-checkout"
-          ]
+          "contexts": ["crlf-checkout"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/port-physical-io-eslint-boundary.test.mjs"
-        ]
+        "evidence": ["tools/port-physical-io-eslint-boundary.test.mjs"]
       }
     },
     {
@@ -784,23 +729,12 @@
       "category": "local-consistency",
       "tier": "main-only",
       "tierReason": "PR workflow runs the node test tiers separately through fast-contract and integration; the aggregate npm test command only runs through full-check.",
-      "authoritySource": [
-        "tools/test-tier-manifest.mjs",
-        "tools/run-node-tests.mjs",
-        "package.json:scripts.test"
-      ],
-      "consumerScope": [
-        "all node:test suites registered by the node test runner"
-      ],
+      "authoritySource": ["tools/test-tier-manifest.mjs", "tools/run-node-tests.mjs", "package.json:scripts.test"],
+      "consumerScope": ["all node:test suites registered by the node test runner"],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": [
-          "full-check"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
+        "workflowJobs": ["full-check"],
+        "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -811,10 +745,7 @@
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
-        "protectedSurfaces": [
-          "tools/test-tier-manifest.mjs",
-          "package.json:scripts.test"
-        ]
+        "protectedSurfaces": ["tools/test-tier-manifest.mjs", "package.json:scripts.test"]
       },
       "bypassFixtureRequired": false,
       "executionSurfaces": {
@@ -825,25 +756,18 @@
         },
         "rewriteCi": {
           "pullRequestJobs": [],
-          "nonPullRequestJobs": [
-            "full-check"
-          ]
+          "nonPullRequestJobs": ["full-check"]
         },
         "branchProtection": {
           "required": false,
           "contexts": []
         },
-        "classes": [
-          "local",
-          "main-full"
-        ]
+        "classes": ["local", "main-full"]
       },
       "deterministic": false,
       "positiveControl": {
         "status": "not-applicable",
-        "evidence": [
-          "Aggregate test runner; behavioral positive controls live in the registered Node test files."
-        ]
+        "evidence": ["Aggregate test runner; behavioral positive controls live in the registered Node test files."]
       }
     },
     {
@@ -868,13 +792,8 @@
         "tools/**/*.spec.mjs",
         "tools/**/*.spec.ts"
       ],
-      "authoritySource": [
-        "tools/test-tier-manifest.mjs",
-        "package.json:scripts.harness:check-test-tier-manifest"
-      ],
-      "consumerScope": [
-        "first-line tier markers for every discovered package and tool test"
-      ],
+      "authoritySource": ["tools/test-tier-manifest.mjs", "package.json:scripts.harness:check-test-tier-manifest"],
+      "consumerScope": ["first-line tier markers for every discovered package and tool test"],
       "githubContext": {
         "requiredContexts": ["boundaries"],
         "workflowJobs": ["boundaries"],
@@ -924,27 +843,12 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "authoritySource": [
-        "tools/test-tier-manifest.mjs",
-        "tools/run-node-tests.mjs",
-        "package.json:scripts.test:fast"
-      ],
-      "consumerScope": [
-        "node:test suites classified as fast"
-      ],
+      "authoritySource": ["tools/test-tier-manifest.mjs", "tools/run-node-tests.mjs", "package.json:scripts.test:fast"],
+      "consumerScope": ["node:test suites classified as fast"],
       "githubContext": {
-        "requiredContexts": [
-          "fast-contract"
-        ],
-        "workflowJobs": [
-          "fast-contract",
-          "node26-compatibility",
-          "crlf-checkout"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
+        "requiredContexts": ["fast-contract"],
+        "workflowJobs": ["fast-contract", "node26-compatibility", "crlf-checkout"],
+        "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -955,10 +859,7 @@
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
-        "protectedSurfaces": [
-          "tools/test-tier-manifest.mjs",
-          "package.json:scripts.test:fast"
-        ]
+        "protectedSurfaces": ["tools/test-tier-manifest.mjs", "package.json:scripts.test:fast"]
       },
       "bypassFixtureRequired": false,
       "executionSurfaces": {
@@ -968,32 +869,19 @@
           "script": "test:fast"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "fast-contract"
-          ],
-          "nonPullRequestJobs": [
-            "node26-compatibility",
-            "crlf-checkout",
-            "fast-contract"
-          ]
+          "pullRequestJobs": ["fast-contract"],
+          "nonPullRequestJobs": ["node26-compatibility", "crlf-checkout", "fast-contract"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "fast-contract"
-          ]
+          "contexts": ["fast-contract"]
         },
-        "classes": [
-          "local",
-          "pr"
-        ]
+        "classes": ["local", "pr"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/test-tier-manifest.mjs and fast-tier test assertions under packages/**/test/**"
-        ]
+        "evidence": ["tools/test-tier-manifest.mjs and fast-tier test assertions under packages/**/test/**"]
       }
     },
     {
@@ -1016,18 +904,9 @@
         "GUI bridge static lock: API registry shipped/deferred methods, preload allowlist, and registered IPC channels stay aligned"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "fast-contract"
-        ],
-        "workflowJobs": [
-          "fast-contract",
-          "node26-compatibility",
-          "crlf-checkout"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
+        "requiredContexts": ["fast-contract"],
+        "workflowJobs": ["fast-contract", "node26-compatibility", "crlf-checkout"],
+        "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -1052,32 +931,19 @@
           "script": "test:contract"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "fast-contract"
-          ],
-          "nonPullRequestJobs": [
-            "node26-compatibility",
-            "crlf-checkout",
-            "fast-contract"
-          ]
+          "pullRequestJobs": ["fast-contract"],
+          "nonPullRequestJobs": ["node26-compatibility", "crlf-checkout", "fast-contract"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "fast-contract"
-          ]
+          "contexts": ["fast-contract"]
         },
-        "classes": [
-          "local",
-          "pr"
-        ]
+        "classes": ["local", "pr"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/test-tier-manifest.mjs and contract-tier test assertions under packages/**/test/**"
-        ]
+        "evidence": ["tools/test-tier-manifest.mjs and contract-tier test assertions under packages/**/test/**"]
       }
     },
     {
@@ -1107,13 +973,8 @@
           "integration-shard (5)",
           "integration-shard (6)"
         ],
-        "workflowJobs": [
-          "integration-shard",
-          "windows-integration-shard"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "workflowJobs": ["integration-shard", "windows-integration-shard"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -1139,13 +1000,8 @@
           "script": "test:integration"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "integration-shard"
-          ],
-          "nonPullRequestJobs": [
-            "windows-integration-shard",
-            "integration-shard"
-          ]
+          "pullRequestJobs": ["integration-shard"],
+          "nonPullRequestJobs": ["windows-integration-shard", "integration-shard"]
         },
         "branchProtection": {
           "required": true,
@@ -1158,18 +1014,12 @@
             "integration-shard (6)"
           ]
         },
-        "classes": [
-          "local",
-          "pr"
-        ]
+        "classes": ["local", "pr"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/run-node-tests.test.mjs",
-          "tools/check-integration-test-shards.test.mjs"
-        ]
+        "evidence": ["tools/run-node-tests.test.mjs", "tools/check-integration-test-shards.test.mjs"]
       }
     },
     {
@@ -1178,24 +1028,12 @@
       "category": "smoke",
       "tier": "pr-required",
       "tierReason": null,
-      "authoritySource": [
-        "tools/run-gui-tests.mjs",
-        "tools/gui-test-runner-lib.mjs",
-        "package.json:scripts.test:gui"
-      ],
-      "consumerScope": [
-        "GUI tests dynamically discovered under packages/gui/test by the GUI test runner"
-      ],
+      "authoritySource": ["tools/run-gui-tests.mjs", "tools/gui-test-runner-lib.mjs", "package.json:scripts.test:gui"],
+      "consumerScope": ["GUI tests dynamically discovered under packages/gui/test by the GUI test runner"],
       "githubContext": {
-        "requiredContexts": [
-          "gui-build"
-        ],
-        "workflowJobs": [
-          "gui-build"
-        ],
-        "nodeVersions": [
-          24
-        ],
+        "requiredContexts": ["gui-build"],
+        "workflowJobs": ["gui-build"],
+        "nodeVersions": [24],
         "pathFiltered": true
       },
       "allowlistPolicy": {
@@ -1221,33 +1059,20 @@
           "script": "test:gui"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "gui-build"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "gui-build"
-          ],
+          "pullRequestJobs": ["gui-build"],
+          "nonPullRequestJobs": ["full-check", "gui-build"],
           "pathFiltered": true
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "gui-build"
-          ]
+          "contexts": ["gui-build"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "packages/gui/test/*.test.ts"
-        ]
+        "evidence": ["packages/gui/test/*.test.ts"]
       }
     },
     {
@@ -1256,23 +1081,12 @@
       "category": "smoke",
       "tier": "pr-required",
       "tierReason": null,
-      "authoritySource": [
-        "packages/gui/package.json:scripts.build",
-        ".github/workflows/rewrite-ci.yml:jobs.gui-build"
-      ],
-      "consumerScope": [
-        "@harness-anything/gui build artifact"
-      ],
+      "authoritySource": ["packages/gui/package.json:scripts.build", ".github/workflows/rewrite-ci.yml:jobs.gui-build"],
+      "consumerScope": ["@harness-anything/gui build artifact"],
       "githubContext": {
-        "requiredContexts": [
-          "gui-build"
-        ],
-        "workflowJobs": [
-          "gui-build"
-        ],
-        "nodeVersions": [
-          24
-        ],
+        "requiredContexts": ["gui-build"],
+        "workflowJobs": ["gui-build"],
+        "nodeVersions": [24],
         "pathFiltered": true
       },
       "allowlistPolicy": {
@@ -1284,10 +1098,7 @@
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
-        "protectedSurfaces": [
-          "packages/gui/package.json:scripts.build",
-          ".github/workflows/rewrite-ci.yml"
-        ]
+        "protectedSurfaces": ["packages/gui/package.json:scripts.build", ".github/workflows/rewrite-ci.yml"]
       },
       "bypassFixtureRequired": false,
       "executionSurfaces": {
@@ -1297,28 +1108,20 @@
           "script": null
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "gui-build"
-          ],
+          "pullRequestJobs": ["gui-build"],
           "nonPullRequestJobs": ["gui-build"],
           "pathFiltered": true
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "gui-build"
-          ]
+          "contexts": ["gui-build"]
         },
-        "classes": [
-          "pr"
-        ]
+        "classes": ["pr"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "documented-gap",
-        "evidence": [
-          "No dedicated negative GUI package-build fixture is registered."
-        ]
+        "evidence": ["No dedicated negative GUI package-build fixture is registered."]
       }
     },
     {
@@ -1354,11 +1157,7 @@
       "changeControl": {
         "ordinaryImplementationMayModify": false,
         "requiresGovernanceEvidence": true,
-        "protectedSurfaces": [
-          "packages/gui/e2e/**",
-          "tools/run-gui-e2e-tests.mjs",
-          "package.json:scripts.test:gui:e2e"
-        ]
+        "protectedSurfaces": ["packages/gui/e2e/**", "tools/run-gui-e2e-tests.mjs", "package.json:scripts.test:gui:e2e"]
       },
       "bypassFixtureRequired": false,
       "executionSurfaces": {
@@ -1376,17 +1175,12 @@
           "required": false,
           "contexts": []
         },
-        "classes": [
-          "local",
-          "manual"
-        ]
+        "classes": ["local", "manual"]
       },
       "deterministic": false,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/run-gui-e2e-tests.test.mjs"
-        ]
+        "evidence": ["tools/run-gui-e2e-tests.test.mjs"]
       }
     },
     {
@@ -1399,19 +1193,11 @@
         "harness/governance/standards/file-complexity-structural-decomposition-standard.md",
         "tools/check-file-complexity.mjs"
       ],
-      "consumerScope": [
-        "repository source file size and structural thresholds"
-      ],
+      "consumerScope": ["repository source file size and structural thresholds"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -1436,32 +1222,19 @@
           "script": "harness:check-file-complexity"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-file-complexity.test.mjs"
-        ]
+        "evidence": ["tools/check-file-complexity.test.mjs"]
       }
     },
     {
@@ -1470,28 +1243,13 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": [
-        "packages/**/src/**"
-      ],
-      "authoritySource": [
-        "packages/cli/src",
-        "tools/check-cli-structure.mjs"
-      ],
-      "consumerScope": [
-        "CLI source structure"
-      ],
+      "localPathGlobs": ["packages/**/src/**"],
+      "authoritySource": ["packages/cli/src", "tools/check-cli-structure.mjs"],
+      "consumerScope": ["CLI source structure"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries",
-          "full-check"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries", "full-check"],
+        "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -1516,32 +1274,19 @@
           "script": "harness:check-cli-structure"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/gates/test/cli-structure.test.mjs"
-        ]
+        "evidence": ["tools/gates/test/cli-structure.test.mjs"]
       }
     },
     {
@@ -1557,21 +1302,11 @@
         "tools/tool-command-contract.mjs",
         "tools/check-cli-help-contract.mjs"
       ],
-      "consumerScope": [
-        "CLI and supported-tool help plus shared unknown-option rejection contract"
-      ],
+      "consumerScope": ["CLI and supported-tool help plus shared unknown-option rejection contract"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries",
-          "full-check"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries", "full-check"],
+        "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -1596,32 +1331,19 @@
           "script": "harness:check-cli-help-contract"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-cli-help-contract.test.mjs"
-        ]
+        "evidence": ["tools/check-cli-help-contract.test.mjs"]
       }
     },
     {
@@ -1630,25 +1352,12 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "authoritySource": [
-        "packages/cli/src/cli/thin-command.ts",
-        "tools/check-cli-error-codes.mjs"
-      ],
-      "consumerScope": [
-        "CLI error code registry and CLI source usage"
-      ],
+      "authoritySource": ["packages/cli/src/cli/thin-command.ts", "tools/check-cli-error-codes.mjs"],
+      "consumerScope": ["CLI error code registry and CLI source usage"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries",
-          "full-check"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries", "full-check"],
+        "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -1673,32 +1382,19 @@
           "script": "harness:check-cli-error-codes"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-cli-error-codes.test.mjs"
-        ]
+        "evidence": ["tools/check-cli-error-codes.test.mjs"]
       }
     },
     {
@@ -1712,21 +1408,11 @@
         "packages/cli/src/cli/thin-command.ts",
         "tools/check-error-classification.mjs"
       ],
-      "consumerScope": [
-        "kernel and CLI error classification tables"
-      ],
+      "consumerScope": ["kernel and CLI error classification tables"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries",
-          "full-check"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries", "full-check"],
+        "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -1751,32 +1437,19 @@
           "script": "harness:check-error-classification"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-error-classification.test.mjs"
-        ]
+        "evidence": ["tools/check-error-classification.test.mjs"]
       }
     },
     {
@@ -1785,27 +1458,17 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": [
-        "packages/**/src/**"
-      ],
+      "localPathGlobs": ["packages/**/src/**"],
       "authoritySource": [
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d1",
         "package.json:workspaces",
         "packages/*/package.json"
       ],
-      "consumerScope": [
-        "cross-package import statements under packages/**"
-      ],
+      "consumerScope": ["cross-package import statements under packages/**"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -1830,32 +1493,19 @@
           "script": "harness:check-import-boundaries"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-import-boundaries.test.mjs"
-        ]
+        "evidence": ["tools/check-import-boundaries.test.mjs"]
       }
     },
     {
@@ -1875,15 +1525,9 @@
         "metabolic write-admissibility policy modules named by ADR-0022 F6"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -1908,32 +1552,19 @@
           "script": "harness:check-write-coordinator-boundary"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-write-coordinator-boundary.test.mjs"
-        ]
+        "evidence": ["tools/check-write-coordinator-boundary.test.mjs"]
       }
     },
     {
@@ -1954,15 +1585,9 @@
         "ADR-0016 D1 bypass write channel closure and explicit exemption registry"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -1989,32 +1614,19 @@
           "script": "harness:check-bypass-write-boundary"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-bypass-write-boundary.test.mjs"
-        ]
+        "evidence": ["tools/check-bypass-write-boundary.test.mjs"]
       }
     },
     {
@@ -2038,15 +1650,9 @@
         "preset/script declared writes and produces"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -2073,32 +1679,19 @@
           "script": "harness:check-write-road-registry"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-write-road-registry.test.mjs"
-        ]
+        "evidence": ["tools/check-write-road-registry.test.mjs"]
       }
     },
     {
@@ -2107,9 +1700,7 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": [
-        "packages/kernel/src/**"
-      ],
+      "localPathGlobs": ["packages/kernel/src/**"],
       "authoritySource": [
         "packages/kernel/src/index.ts",
         "packages/kernel/tsconfig.json",
@@ -2121,15 +1712,9 @@
         "kernel public barrel export symbols from packages/kernel/src/index.ts"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -2155,32 +1740,19 @@
           "script": "harness:check-kernel-dead-exports"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-kernel-dead-exports.test.mjs"
-        ]
+        "evidence": ["tools/check-kernel-dead-exports.test.mjs"]
       }
     },
     {
@@ -2199,15 +1771,9 @@
         "non-test packages/** and tools/** source files"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -2232,32 +1798,19 @@
           "script": "harness:check-relation-cycle-substrate"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-relation-cycle-substrate.test.mjs"
-        ]
+        "evidence": ["tools/check-relation-cycle-substrate.test.mjs"]
       }
     },
     {
@@ -2280,15 +1833,9 @@
         "daemon task blocking projection and GUI DTO consumption"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -2313,25 +1860,14 @@
           "script": "harness:check-domain-judgment-single-definition"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
@@ -2361,15 +1897,9 @@
         "non-test packages/** sources re-reading the retired invalidated-by alias"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -2394,32 +1924,19 @@
           "script": "harness:check-relation-canonical-direction"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-relation-canonical-direction.test.mjs"
-        ]
+        "evidence": ["tools/check-relation-canonical-direction.test.mjs"]
       }
     },
     {
@@ -2439,15 +1956,9 @@
         "task-event/v1 constructors with dynamically selected event types"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -2473,32 +1984,19 @@
           "script": "harness:check-task-event-aggregate-entry"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-task-event-aggregate-entry.test.mjs"
-        ]
+        "evidence": ["tools/check-task-event-aggregate-entry.test.mjs"]
       }
     },
     {
@@ -2519,13 +2017,8 @@
       ],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": [
-          "full-check"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
+        "workflowJobs": ["full-check"],
+        "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -2552,26 +2045,19 @@
         },
         "rewriteCi": {
           "pullRequestJobs": [],
-          "nonPullRequestJobs": [
-            "full-check"
-          ],
+          "nonPullRequestJobs": ["full-check"],
           "scheduleOnly": true
         },
         "branchProtection": {
           "required": false,
           "contexts": []
         },
-        "classes": [
-          "local",
-          "nightly"
-        ]
+        "classes": ["local", "nightly"]
       },
       "deterministic": false,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-enforcement-debt-sunset.test.mjs"
-        ]
+        "evidence": ["tools/check-enforcement-debt-sunset.test.mjs"]
       }
     },
     {
@@ -2584,19 +2070,11 @@
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d6",
         "packages/** public contracts"
       ],
-      "consumerScope": [
-        "forbidden deprecated architectural symbols under packages/**"
-      ],
+      "consumerScope": ["forbidden deprecated architectural symbols under packages/**"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -2621,32 +2099,19 @@
           "script": "harness:scan-forbidden-symbols"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/scan-forbidden-symbols.test.mjs"
-        ]
+        "evidence": ["tools/scan-forbidden-symbols.test.mjs"]
       }
     },
     {
@@ -2659,21 +2124,11 @@
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d6",
         "packages/kernel/src/** canonical substrate declarations"
       ],
-      "consumerScope": [
-        "canonical substrate and integrity single-source declarations"
-      ],
+      "consumerScope": ["canonical substrate and integrity single-source declarations"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries",
-          "full-check"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries", "full-check"],
+        "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -2698,32 +2153,19 @@
           "script": "harness:check-integrity-single-source"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-integrity-single-source.test.mjs"
-        ]
+        "evidence": ["tools/check-integrity-single-source.test.mjs"]
       }
     },
     {
@@ -2732,24 +2174,12 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "authoritySource": [
-        "AGENTS.md",
-        "harness/AGENTS.md",
-        "harness/governance/standards/repo-governance-standard.md"
-      ],
-      "consumerScope": [
-        "public repository tracked files and private harness boundary"
-      ],
+      "authoritySource": ["AGENTS.md", "harness/AGENTS.md", "harness/governance/standards/repo-governance-standard.md"],
+      "consumerScope": ["public repository tracked files and private harness boundary"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -2774,32 +2204,19 @@
           "script": "harness:check-private-boundary"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-private-boundary.test.mjs"
-        ]
+        "evidence": ["tools/check-private-boundary.test.mjs"]
       }
     },
     {
@@ -2820,15 +2237,9 @@
         "workflow shards and required contexts must remain aligned"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -2856,32 +2267,19 @@
           "script": "harness:check-integration-test-shards"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-integration-test-shards.test.mjs"
-        ]
+        "evidence": ["tools/check-integration-test-shards.test.mjs"]
       }
     },
     {
@@ -2899,15 +2297,9 @@
         "GitHub branch rules must require exactly the same contexts as the gate manifest branch-protection surface"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -2933,28 +2325,19 @@
           "script": "harness:check-github-required-contexts"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
+          "pullRequestJobs": ["boundaries"],
           "nonPullRequestJobs": ["boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr"
-        ]
+        "classes": ["local", "pr"]
       },
       "deterministic": false,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-github-required-contexts.test.mjs"
-        ]
+        "evidence": ["tools/check-github-required-contexts.test.mjs"]
       }
     },
     {
@@ -2963,29 +2346,13 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "authoritySource": [
-        "docs-release/",
-        "tools/check-docs-release-map.mjs"
-      ],
-      "consumerScope": [
-        "public docs-release map"
-      ],
-      "localPathGlobs": [
-        "README.md",
-        "docs-release/**"
-      ],
+      "authoritySource": ["docs-release/", "tools/check-docs-release-map.mjs"],
+      "consumerScope": ["public docs-release map"],
+      "localPathGlobs": ["README.md", "docs-release/**"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries",
-          "full-check"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries", "full-check"],
+        "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -3010,32 +2377,19 @@
           "script": "harness:check-docs-release-map"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-docs-release-map.test.mjs"
-        ]
+        "evidence": ["tools/check-docs-release-map.test.mjs"]
       }
     },
     {
@@ -3061,15 +2415,9 @@
         "manifest tier reasons, boundary gate metadata, and boundary allowlist authority location checks"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -3097,32 +2445,19 @@
           "script": "harness:check-gate-surface"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-gate-surface.test.mjs"
-        ]
+        "evidence": ["tools/check-gate-surface.test.mjs"]
       }
     },
     {
@@ -3130,9 +2465,7 @@
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-gate-manifest-invariants.test.mjs"
-        ]
+        "evidence": ["tools/check-gate-manifest-invariants.test.mjs"]
       },
       "command": "npm run harness:check-gate-manifest-invariants",
       "category": "meta-governance",
@@ -3143,22 +2476,11 @@
         "tools/gate-manifest.schema.md",
         ".github/workflows/rewrite-ci.yml"
       ],
-      "consumerScope": [
-        "deterministic gate execution surfaces",
-        "rewrite-ci workflow job and step topology"
-      ],
+      "consumerScope": ["deterministic gate execution surfaces", "rewrite-ci workflow job and step topology"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries",
-          "full-check"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries", "full-check"],
+        "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -3185,25 +2507,14 @@
           "script": "harness:check-gate-manifest-invariants"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       }
     },
     {
@@ -3212,25 +2523,12 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "authoritySource": [
-        "packages/cli/src/cli/thin-command.ts",
-        "tools/check-template-command-surface.mjs"
-      ],
-      "consumerScope": [
-        "seeded task templates and current CLI command registry"
-      ],
+      "authoritySource": ["packages/cli/src/cli/thin-command.ts", "tools/check-template-command-surface.mjs"],
+      "consumerScope": ["seeded task templates and current CLI command registry"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries",
-          "full-check"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries", "full-check"],
+        "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -3255,32 +2553,19 @@
           "script": "harness:check-template-command-surface"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-template-command-surface.test.mjs"
-        ]
+        "evidence": ["tools/check-template-command-surface.test.mjs"]
       }
     },
     {
@@ -3289,23 +2574,12 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "authoritySource": [
-        "packages/cli/src/cli/thin-command.ts",
-        "tools/check-locale-content.mjs"
-      ],
-      "consumerScope": [
-        "seeded zh-CN task templates"
-      ],
+      "authoritySource": ["packages/cli/src/cli/thin-command.ts", "tools/check-locale-content.mjs"],
+      "consumerScope": ["seeded zh-CN task templates"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -3331,32 +2605,19 @@
           "script": "harness:check-locale-content"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-locale-content.test.mjs"
-        ]
+        "evidence": ["tools/check-locale-content.test.mjs"]
       }
     },
     {
@@ -3370,19 +2631,11 @@
         "packages/cli/src/cli/thin-command.ts",
         "tools/check-catalog-schema.mjs"
       ],
-      "consumerScope": [
-        "bundled software/coding template catalog schema and bodyPath assets"
-      ],
+      "consumerScope": ["bundled software/coding template catalog schema and bodyPath assets"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -3407,32 +2660,19 @@
           "script": "harness:check-catalog-schema"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "documented-gap",
-        "evidence": [
-          "No dedicated positive-control fixture is registered for check-catalog-schema."
-        ]
+        "evidence": ["No dedicated positive-control fixture is registered for check-catalog-schema."]
       }
     },
     {
@@ -3446,23 +2686,12 @@
         "packages/gui/src/distribution/runtime-release-readiness.ts",
         "docs-release/"
       ],
-      "consumerScope": [
-        "runtime release readiness declarations"
-      ],
-      "localPathGlobs": [
-        "README.md",
-        "docs-release/**"
-      ],
+      "consumerScope": ["runtime release readiness declarations"],
+      "localPathGlobs": ["README.md", "docs-release/**"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -3487,32 +2716,19 @@
           "script": "harness:check-runtime-release-readiness"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-runtime-release-readiness.test.mjs"
-        ]
+        "evidence": ["tools/check-runtime-release-readiness.test.mjs"]
       }
     },
     {
@@ -3526,19 +2742,11 @@
         "package.json",
         "packages/*/package.json"
       ],
-      "consumerScope": [
-        "workspace package release policy"
-      ],
+      "consumerScope": ["workspace package release policy"],
       "githubContext": {
-        "requiredContexts": [
-          "package-policy"
-        ],
-        "workflowJobs": [
-          "package-policy"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["package-policy"],
+        "workflowJobs": ["package-policy"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -3565,32 +2773,19 @@
           "script": "harness:check-package-policy"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "package-policy"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "package-policy"
-          ]
+          "pullRequestJobs": ["package-policy"],
+          "nonPullRequestJobs": ["full-check", "package-policy"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "package-policy"
-          ]
+          "contexts": ["package-policy"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "documented-gap",
-        "evidence": [
-          "No dedicated positive-control fixture is registered for check-package-policy."
-        ]
+        "evidence": ["No dedicated positive-control fixture is registered for check-package-policy."]
       }
     },
     {
@@ -3599,27 +2794,17 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": [
-        "packages/**/src/**"
-      ],
+      "localPathGlobs": ["packages/**/src/**"],
       "authoritySource": [
         "harness/governance/standards/implementation-contract-standard.md",
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d6",
         "packages/** implementation contracts"
       ],
-      "consumerScope": [
-        "effect layering, adapter composition, and implementation contract imports"
-      ],
+      "consumerScope": ["effect layering, adapter composition, and implementation contract imports"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -3644,32 +2829,19 @@
           "script": "harness:check-implementation-contracts"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/implementation-contract-evidence.test.mjs"
-        ]
+        "evidence": ["tools/implementation-contract-evidence.test.mjs"]
       }
     },
     {
@@ -3678,26 +2850,12 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "authoritySource": [
-        "packages/application/src",
-        "packages/gui/src/api",
-        "tools/check-service-mappability.mjs"
-      ],
-      "consumerScope": [
-        "service declarations and mappability projections"
-      ],
+      "authoritySource": ["packages/application/src", "packages/gui/src/api", "tools/check-service-mappability.mjs"],
+      "consumerScope": ["service declarations and mappability projections"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries",
-          "full-check"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries", "full-check"],
+        "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -3722,32 +2880,19 @@
           "script": "harness:check-service-mappability"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-service-mappability.test.mjs"
-        ]
+        "evidence": ["tools/check-service-mappability.test.mjs"]
       }
     },
     {
@@ -3762,21 +2907,11 @@
         "packages/gui/src/api/service-bridge.ts",
         "packages/application/src/index.ts"
       ],
-      "consumerScope": [
-        "GUI API route registry, preload allowlist, bridge handlers, and service methods"
-      ],
+      "consumerScope": ["GUI API route registry, preload allowlist, bridge handlers, and service methods"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries",
-          "full-check"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries", "full-check"],
+        "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -3803,32 +2938,19 @@
           "script": "harness:check-api-contract-registry"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-api-contract-registry.test.mjs"
-        ]
+        "evidence": ["tools/check-api-contract-registry.test.mjs"]
       }
     },
     {
@@ -3842,19 +2964,11 @@
         "packages/gui/src/api/api-contract-registry.ts",
         "tools/check-schema-contracts.mjs"
       ],
-      "consumerScope": [
-        "published schema contracts and schema references"
-      ],
+      "consumerScope": ["published schema contracts and schema references"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -3879,32 +2993,19 @@
           "script": "harness:check-schema-contracts"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "packages/kernel/fixtures/schemas/*/invalid.json"
-        ]
+        "evidence": ["packages/kernel/fixtures/schemas/*/invalid.json"]
       }
     },
     {
@@ -3917,21 +3018,11 @@
         "packages/kernel/src/domain/entity-field-contracts.ts",
         "tools/check-schema-field-coverage.mjs"
       ],
-      "consumerScope": [
-        "entity schema field contract coverage"
-      ],
+      "consumerScope": ["entity schema field contract coverage"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries",
-          "full-check"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries", "full-check"],
+        "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -3956,32 +3047,19 @@
           "script": "harness:check-schema-field-coverage"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-schema-field-coverage.test.mjs"
-        ]
+        "evidence": ["tools/check-schema-field-coverage.test.mjs"]
       }
     },
     {
@@ -3990,28 +3068,13 @@
       "category": "release-policy",
       "tier": "pr-required",
       "tierReason": null,
-      "authoritySource": [
-        "docs-release/",
-        "packages/cli/package.json",
-        "tools/check-legacy-intake-readiness.mjs"
-      ],
-      "consumerScope": [
-        "Legacy Intake readiness and retired full-cutover surface"
-      ],
-      "localPathGlobs": [
-        "README.md",
-        "docs-release/**"
-      ],
+      "authoritySource": ["docs-release/", "packages/cli/package.json", "tools/check-legacy-intake-readiness.mjs"],
+      "consumerScope": ["Legacy Intake readiness and retired full-cutover surface"],
+      "localPathGlobs": ["README.md", "docs-release/**"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -4036,32 +3099,19 @@
           "script": "harness:check-legacy-intake-readiness"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-legacy-intake-readiness.test.mjs"
-        ]
+        "evidence": ["tools/check-legacy-intake-readiness.test.mjs"]
       }
     },
     {
@@ -4074,19 +3124,11 @@
         "package-lock.json",
         "harness/governance/standards/ci-cd-standard.md#local-distribution-and-release"
       ],
-      "consumerScope": [
-        "npm dependency lockfile, generated SBOM, license policy, and supply-chain CI presence"
-      ],
+      "consumerScope": ["npm dependency lockfile, generated SBOM, license policy, and supply-chain CI presence"],
       "githubContext": {
-        "requiredContexts": [
-          "supply-chain"
-        ],
-        "workflowJobs": [
-          "supply-chain"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["supply-chain"],
+        "workflowJobs": ["supply-chain"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -4112,32 +3154,19 @@
           "script": "harness:check-supply-chain"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "supply-chain"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "supply-chain"
-          ]
+          "pullRequestJobs": ["supply-chain"],
+          "nonPullRequestJobs": ["full-check", "supply-chain"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "supply-chain"
-          ]
+          "contexts": ["supply-chain"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": false,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-supply-chain.test.mjs"
-        ]
+        "evidence": ["tools/check-supply-chain.test.mjs"]
       }
     },
     {
@@ -4146,25 +3175,12 @@
       "category": "smoke",
       "tier": "pr-required",
       "tierReason": null,
-      "authoritySource": [
-        "packages/cli/src/cli/thin-command.ts",
-        "tools/smoke-legacy-intake.mjs"
-      ],
-      "consumerScope": [
-        "W3 retired Legacy Intake command surface"
-      ],
+      "authoritySource": ["packages/cli/src/cli/thin-command.ts", "tools/smoke-legacy-intake.mjs"],
+      "consumerScope": ["W3 retired Legacy Intake command surface"],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries",
-          "full-check"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries", "full-check"],
+        "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -4189,32 +3205,19 @@
           "script": "harness:smoke-legacy-intake"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "documented-gap",
-        "evidence": [
-          "No dedicated negative Legacy Intake smoke fixture is registered."
-        ]
+        "evidence": ["No dedicated negative Legacy Intake smoke fixture is registered."]
       }
     },
     {
@@ -4223,23 +3226,12 @@
       "category": "smoke",
       "tier": "pr-required",
       "tierReason": null,
-      "authoritySource": [
-        "packages/cli/package.json",
-        "tools/smoke-cli-package.mjs"
-      ],
-      "consumerScope": [
-        "@harness-anything/cli pack/install smoke workflow"
-      ],
+      "authoritySource": ["packages/cli/package.json", "tools/smoke-cli-package.mjs"],
+      "consumerScope": ["@harness-anything/cli pack/install smoke workflow"],
       "githubContext": {
-        "requiredContexts": [
-          "package-policy"
-        ],
-        "workflowJobs": [
-          "package-policy"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["package-policy"],
+        "workflowJobs": ["package-policy"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -4264,32 +3256,19 @@
           "script": "harness:smoke-cli-package"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "package-policy"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "package-policy"
-          ]
+          "pullRequestJobs": ["package-policy"],
+          "nonPullRequestJobs": ["full-check", "package-policy"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "package-policy"
-          ]
+          "contexts": ["package-policy"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/smoke-cli-package.test.mjs"
-        ]
+        "evidence": ["tools/smoke-cli-package.test.mjs"]
       }
     },
     {
@@ -4310,12 +3289,8 @@
       ],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": [
-          "nightly-daemon-soak"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "workflowJobs": ["nightly-daemon-soak"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -4342,19 +3317,14 @@
         },
         "rewriteCi": {
           "pullRequestJobs": [],
-          "nonPullRequestJobs": [
-            "nightly-daemon-soak"
-          ],
+          "nonPullRequestJobs": ["nightly-daemon-soak"],
           "scheduleOnly": true
         },
         "branchProtection": {
           "required": false,
           "contexts": []
         },
-        "classes": [
-          "local",
-          "nightly"
-        ]
+        "classes": ["local", "nightly"]
       },
       "deterministic": false,
       "positiveControl": {
@@ -4384,12 +3354,8 @@
       ],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": [
-          "nightly-cli-command-timing"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "workflowJobs": ["nightly-cli-command-timing"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -4418,18 +3384,14 @@
         },
         "rewriteCi": {
           "pullRequestJobs": [],
-          "nonPullRequestJobs": [
-            "nightly-cli-command-timing"
-          ],
+          "nonPullRequestJobs": ["nightly-cli-command-timing"],
           "scheduleOnly": true
         },
         "branchProtection": {
           "required": false,
           "contexts": []
         },
-        "classes": [
-          "nightly"
-        ]
+        "classes": ["nightly"]
       },
       "deterministic": false,
       "positiveControl": {
@@ -4446,24 +3408,14 @@
       "category": "smoke",
       "tier": "pr-required",
       "tierReason": null,
-      "authoritySource": [
-        "tools/gates/windows-first-run.mjs",
-        ".github/workflows/rewrite-ci.yml"
-      ],
+      "authoritySource": ["tools/gates/windows-first-run.mjs", ".github/workflows/rewrite-ci.yml"],
       "consumerScope": [
         "First-run product path on every supported platform: init, resident daemon, task and fact publication, ledger clone fidelity, and daemon stop"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "windows-first-run (ubuntu-latest)",
-          "windows-first-run (windows-latest)"
-        ],
-        "workflowJobs": [
-          "windows-first-run"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["windows-first-run (ubuntu-latest)", "windows-first-run (windows-latest)"],
+        "workflowJobs": ["windows-first-run"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -4488,26 +3440,14 @@
           "script": "harness:windows-first-run"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "windows-first-run"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "package-policy"
-          ]
+          "pullRequestJobs": ["windows-first-run"],
+          "nonPullRequestJobs": ["full-check", "package-policy"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "windows-first-run (ubuntu-latest)",
-            "windows-first-run (windows-latest)"
-          ]
+          "contexts": ["windows-first-run (ubuntu-latest)", "windows-first-run (windows-latest)"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
@@ -4543,17 +3483,9 @@
         "connected Decision digest and current Relation shape derivation controls from the 2026-09-02 incident"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries",
-          "full-check"
-        ],
-        "nodeVersions": [
-          24,
-          26
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries", "full-check"],
+        "nodeVersions": [24, 26]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -4581,25 +3513,14 @@
           "script": "harness:check-canonical-event-compat"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
@@ -4631,15 +3552,9 @@
         "the GUI decision adapter unknown fallback (triadic-data.ts decisionState)"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -4664,32 +3579,19 @@
           "script": "harness:check-status-vocabulary"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-status-vocabulary.test.mjs"
-        ]
+        "evidence": ["tools/check-status-vocabulary.test.mjs"]
       }
     },
     {
@@ -4708,15 +3610,9 @@
         "the frozen path, named semantic scope, syntax kind, content fingerprint, and same-shape occurrence baseline; comments, strings, synchronous filesystem APIs, and unrelated modules are excluded"
       ],
       "githubContext": {
-        "requiredContexts": [
-          "boundaries"
-        ],
-        "workflowJobs": [
-          "boundaries"
-        ],
-        "nodeVersions": [
-          24
-        ]
+        "requiredContexts": ["boundaries"],
+        "workflowJobs": ["boundaries"],
+        "nodeVersions": [24]
       },
       "allowlistPolicy": {
         "allowed": true,
@@ -4743,32 +3639,19 @@
           "script": "harness:check-sync-subprocess"
         },
         "rewriteCi": {
-          "pullRequestJobs": [
-            "boundaries"
-          ],
-          "nonPullRequestJobs": [
-            "full-check",
-            "boundaries"
-          ]
+          "pullRequestJobs": ["boundaries"],
+          "nonPullRequestJobs": ["full-check", "boundaries"]
         },
         "branchProtection": {
           "required": true,
-          "contexts": [
-            "boundaries"
-          ]
+          "contexts": ["boundaries"]
         },
-        "classes": [
-          "local",
-          "pr",
-          "main-full"
-        ]
+        "classes": ["local", "pr", "main-full"]
       },
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": [
-          "tools/check-sync-subprocess.test.mjs"
-        ]
+        "evidence": ["tools/check-sync-subprocess.test.mjs"]
       }
     },
     {
@@ -4777,10 +3660,7 @@
       "category": "local-consistency",
       "tier": "pr-advisory",
       "tierReason": "Real-ledger GUI latency is host-sensitive, so the PR job enforces only the committed shrink-only request/payload/latency ratchet; G-slice reports supply fresh measurements.",
-      "authoritySource": [
-        "task_c03713017573032b7b7149b9b5",
-        "tools/measure-gui-read-baseline.mjs"
-      ],
+      "authoritySource": ["task_c03713017573032b7b7149b9b5", "tools/measure-gui-read-baseline.mjs"],
       "consumerScope": [
         "cold-load daemon reads for overview, board, graph, sessions, schedules, Agent/Squad, and Artifacts views",
         "per-view request count, response payload, IPC elapsed time, and daemon handler elapsed time"
@@ -4826,10 +3706,7 @@
       "category": "boundary",
       "tier": "pr-advisory",
       "tierReason": "B13 starts in the existing advisory governance job; promotion to a required context remains a CEO-controlled switch after observation.",
-      "authoritySource": [
-        "task_01130d097481420c8d59e1fe08",
-        "decision/dec_99000027E6BCC263E341D38DC0/CH2"
-      ],
+      "authoritySource": ["task_01130d097481420c8d59e1fe08", "decision/dec_99000027E6BCC263E341D38DC0/CH2"],
       "consumerScope": [
         "path-accounting sections in tools/gate-allowlists/*.json",
         "path fingerprints and known-debt entries in the five registered inline baseline modules"
@@ -4881,10 +3758,7 @@
         "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f1-统一语义坐标系被证伪至少四套-kindactionread-坐标并存",
         "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f6-entity-化有真货也有文档metadata换皮"
       ],
-      "consumerScope": [
-        "kernel canonical entity-kind registry",
-        "registry-external EntityRef kind authorities"
-      ],
+      "consumerScope": ["kernel canonical entity-kind registry", "registry-external EntityRef kind authorities"],
       "githubContext": {
         "requiredContexts": ["boundaries"],
         "workflowJobs": ["boundaries"],
@@ -4976,10 +3850,7 @@
         "task_6afb9b18781322b945d268d8f2",
         "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f7-projection-基础有效但统一读取协议甚至出现了query-shape-truth差异"
       ],
-      "consumerScope": [
-        "daemon task query read model",
-        "daemon WIP snapshot event-projection read"
-      ],
+      "consumerScope": ["daemon task query read model", "daemon WIP snapshot event-projection read"],
       "githubContext": {
         "requiredContexts": ["boundaries"],
         "workflowJobs": ["boundaries"],
@@ -5023,10 +3894,7 @@
         "task_6afb9b18781322b945d268d8f2",
         "harness/context/research/2026-08-23-ontology-architecture/ontology-adversarial-audit-report.md#f2-action-catalog-大部分是可解释名字不是可执行-action-authority"
       ],
-      "consumerScope": [
-        "kernel entity action catalogs",
-        "entity explain transitions.available output"
-      ],
+      "consumerScope": ["kernel entity action catalogs", "entity explain transitions.available output"],
       "githubContext": {
         "requiredContexts": ["boundaries"],
         "workflowJobs": ["boundaries"],

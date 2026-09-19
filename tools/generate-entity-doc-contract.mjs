@@ -100,9 +100,8 @@ export async function generateEntityDocContract() {
   replaceGeneratedRegion(catalogTarget, await renderEntityDocContract());
 }
 
-export async function checkEntityDocContract() {
-  const source = readFileSync(catalogTarget, "utf8"),
-    current = generatedRegion(source, catalogTarget),
+export async function checkEntityDocContract(source = readFileSync(catalogTarget, "utf8")) {
+  const current = generatedRegion(source, catalogTarget),
     expected = await renderEntityDocContract();
   if (normalizeContractLineEndings(current) !== normalizeContractLineEndings(expected)) {
     throw new Error("Generated entity kind contract is stale; run tools/generate-entity-doc-contract.mjs.");
