@@ -124,7 +124,8 @@ test("platform stop during a long migration replay exits the daemon in bounded t
       [cli, "--root", fixture.root, "--json", "migrate", "import", "--source", legacyRoot],
       { encoding: "utf8", env: cliEnv(fixture.root, fixture.userRoot) },
     );
-    await waitForImportProgress(fixture.root, 3);
+    // Attach seeds two system preset schedules (revisions 1-2); wait for two accepted migration writes past them.
+    await waitForImportProgress(fixture.root, 4);
     const pid = readDaemonPid(fixture.userRoot, "default");
     assert.ok(pid, "a resident daemon pid file must exist mid-replay");
     const stopAt = Date.now();

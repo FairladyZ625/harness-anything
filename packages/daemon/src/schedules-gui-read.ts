@@ -92,6 +92,7 @@ function targetDtoOf(schedule: ScheduleV1): ScheduleGuiRowDto["target"] {
       keepDays: target.params?.keepDays ?? defaultLedgerBackupRetention.keepDays,
       keepMonthly: target.params?.keepMonthly ?? defaultLedgerBackupRetention.keepMonthly,
     };
+  if (target.kind === "agent-unconfigured") return { kind: "agent-unconfigured" };
   return { kind: "squad", squadId: target.squadId };
 }
 
@@ -193,11 +194,11 @@ function admissionFacet(
 function deleteFacet(
   mode: DaemonRepoMode,
   active: ScheduleV1["status"]["activeRun"],
-  targetKind: "agent" | "squad" | "builtin",
+  systemPresetId: string | undefined,
 ): ScheduleGuiActionFacet {
   const admission = admissionFacet("schedule-delete", mode);
   if (!admission.available) return admission;
-  if (targetKind === "builtin") return scheduleActionFacet(false, "schedule_builtin_protected");
+  if (systemPresetId) return scheduleActionFacet(false, "schedule_builtin_protected");
   return active === null ? admission : scheduleActionFacet(false, "schedule_single_flight_active");
 }
 
@@ -207,10 +208,11 @@ function runNowFacet(input: {
   readonly availability: ScheduleExecutionAvailability;
   readonly active: { readonly occurrenceId: string; readonly nodeId: string } | null;
   readonly claimNodeId: string | null;
-  readonly targetKind: "agent" | "squad" | "builtin";
+  readonly targetKind: "agent" | "agent-unconfigured" | "squad" | "builtin";
 }): ScheduleGuiActionFacet {
   const admission = admissionFacet("schedule-run-now", input.mode);
   if (!admission.available) return admission;
+  if (input.targetKind === "agent-unconfigured") return scheduleActionFacet(false, "schedule_target_unconfigured");
   if (input.targetKind === "squad") return scheduleActionFacet(false, "schedule_target_unavailable");
   if (input.state === "paused") return scheduleActionFacet(false, "schedule_paused");
   if (input.active) return scheduleActionFacet(false, "schedule_single_flight_active");
@@ -224,9 +226,12 @@ function stateFacet(
   actionKind: "schedule-enable" | "schedule-disable",
   mode: DaemonRepoMode,
   state: "armed" | "paused",
+  targetKind?: ScheduleV1["spec"]["target"]["kind"],
 ): ScheduleGuiActionFacet {
   const admission = admissionFacet(actionKind, mode);
   if (!admission.available) return admission;
+  if (actionKind === "schedule-enable" && targetKind === "agent-unconfigured")
+    return scheduleActionFacet(false, "schedule_target_unconfigured");
   // Domain no-op guard: the GUI never offers an action the cell would answer no_changes.
   const wanted = actionKind === "schedule-enable" ? "paused" : "armed";
   return state === wanted ? admission : scheduleActionFacet(false, "no_changes");
@@ -322,6 +327,7 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
         name: schedule.name,
         state: schedule.state,
         mode: schedule.mode,
+        systemPresetId: schedule.systemPresetId ?? null,
         definitionResidency: "ledger",
         definitionRevision: row.workspaceRevision,
         trigger: triggerDtoOf(schedule),
@@ -338,8 +344,8 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
         nextRunAt: schedule.state === "armed" ? nextScheduleOccurrence(schedule.spec.trigger, now) : null,
         actions: {
           edit: admissionFacet("schedule-update", mode),
-          delete: deleteFacet(mode, schedule.status.activeRun, schedule.spec.target.kind),
-          enable: stateFacet("schedule-enable", mode, schedule.state),
+          delete: deleteFacet(mode, schedule.status.activeRun, schedule.systemPresetId),
+          enable: stateFacet("schedule-enable", mode, schedule.state, schedule.spec.target.kind),
           disable: stateFacet("schedule-disable", mode, schedule.state),
           runNow:
             targetProjection && runNow.available

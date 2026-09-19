@@ -612,6 +612,7 @@
   "schedules.detail.tab.danger": "Danger",
   "schedules.detail.purpose.title": "What this schedule is for",
   "schedules.detail.purpose.modeLine": "— the purpose mode sets what the agent is asked to do (observe only vs fix in its own worktree).",
+  "schedules.detail.targetUnconfigured": "Choose an agent and runtime instance before enabling or running this preset.",
   "schedules.detail.routing.title": "Where outcomes go",
   "schedules.detail.routing.ternary": "Report → Fact → Decision → Task loop (default). Downstream-schedule chaining stays off by ruling.",
   "schedules.detail.health.title": "Health (recent occurrences)",

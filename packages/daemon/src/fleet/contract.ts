@@ -528,6 +528,7 @@ const scheduleMission: Check = (value) => typeof value === "string" && value.len
       "scheduleId",
     ]),
     "schedule-list": optionalShape({ kind: one("schedule-list"), scheduleId: id }, ["kind", "scheduleId"]),
+    "schedule-reckon": optionalShape({ kind: one("schedule-reckon"), windowHours: positiveInt }, ["kind"]),
     "schedule-runs": optionalShape({ kind: one("schedule-runs"), scheduleId: id, limit: positiveInt }, [
       "kind",
       "scheduleId",

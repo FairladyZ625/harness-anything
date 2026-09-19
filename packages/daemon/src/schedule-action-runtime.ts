@@ -25,6 +25,7 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { TrustedScheduleSpawn } from "./runtime-spawn.ts";
 import { readScheduleRuns } from "./schedule-runs-read.ts";
 import { inspectScheduleProjection } from "./schedule-projection.ts";
+import { readReckoningSignals } from "./reckoning-signals.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 import {
   prepareScheduleOccurrenceWorkspace,
@@ -246,6 +247,14 @@ function readScheduleAction(
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): WriteReceipt {
+  if (action.kind === "schedule-reckon") {
+    const revision = cell.store.readHead()?.revision ?? 0,
+      result = readReckoningSignals(cell.projection, cell.now(), Number(action.windowHours ?? 24)),
+      opId = cell.operationId(action, binding, cell.input.repoId, revision);
+    return scheduleReadReceipt(opId, revision, JSON.stringify(result), {
+      summary: `${result.signals.length} reckoning signal(s)`,
+    });
+  }
   if (action.kind === "schedule-list") {
     const revision = cell.store.readHead()?.revision ?? 0,
       assignmentScheduleId =

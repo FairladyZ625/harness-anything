@@ -53,6 +53,10 @@ export interface ScheduleAgentTargetV1 {
   readonly fast?: boolean;
 }
 
+export interface ScheduleAgentUnconfiguredTargetV1 {
+  readonly kind: "agent-unconfigured";
+}
+
 export interface ScheduleSquadTargetV1 {
   readonly kind: "squad";
   readonly squadId: string;
@@ -71,7 +75,11 @@ interface ScheduleBuiltinTargetV1 {
   readonly params?: ScheduleBuiltinParamsV1;
 }
 
-type ScheduleTargetV1 = ScheduleAgentTargetV1 | ScheduleSquadTargetV1 | ScheduleBuiltinTargetV1;
+type ScheduleTargetV1 =
+  | ScheduleAgentTargetV1
+  | ScheduleAgentUnconfiguredTargetV1
+  | ScheduleSquadTargetV1
+  | ScheduleBuiltinTargetV1;
 
 export interface ScheduleDefinitionV1 {
   readonly schema: "schedule/v1";
@@ -79,6 +87,7 @@ export interface ScheduleDefinitionV1 {
   readonly name: string;
   readonly state: ScheduleState;
   readonly mode: ScheduleMode;
+  readonly systemPresetId?: string;
   readonly spec: {
     readonly trigger: ScheduleTriggerV1;
     readonly target: ScheduleTargetV1;
@@ -143,7 +152,7 @@ const triggerSchema: EntityJsonObjectSchema = {
 const targetSchema: EntityJsonObjectSchema = {
   type: "object",
   properties: {
-    kind: { type: "string", enum: ["agent", "squad", "builtin"] },
+    kind: { type: "string", enum: ["agent", "agent-unconfigured", "squad", "builtin"] },
     agentId: { type: "string", pattern: ENTITY_ID_PATTERN, minLength: 1 },
     runtimeInstanceId: { type: "string", minLength: 1 },
     model: { type: "string", minLength: 1 },
@@ -170,6 +179,7 @@ const definitionProperties = {
   name: { type: "string", minLength: 1 },
   state: { type: "string", enum: scheduleStates },
   mode: { type: "string", enum: scheduleModes },
+  systemPresetId: { type: "string", pattern: ENTITY_ID_PATTERN, minLength: 1 },
   spec: {
     type: "object",
     properties: {
@@ -242,6 +252,7 @@ export function createScheduleV1(input: {
   readonly name: string;
   readonly state?: ScheduleState;
   readonly mode: ScheduleMode;
+  readonly systemPresetId?: string;
   readonly spec: ScheduleDefinitionV1["spec"];
   readonly actor: ActorIdentity;
   readonly occurredAt: string;
@@ -252,6 +263,7 @@ export function createScheduleV1(input: {
     name: input.name.trim(),
     state: input.state ?? "armed",
     mode: input.mode,
+    ...(input.systemPresetId ? { systemPresetId: input.systemPresetId } : {}),
     spec: {
       ...input.spec,
       mission: input.spec.mission.trim(),
@@ -283,6 +295,7 @@ export function scheduleDefinition(schedule: ScheduleV1): ScheduleDefinitionV1 {
     name: schedule.name,
     state: schedule.state,
     mode: schedule.mode,
+    ...(schedule.systemPresetId ? { systemPresetId: schedule.systemPresetId } : {}),
     spec: schedule.spec,
     createdAt: schedule.createdAt,
     createdBy: schedule.createdBy,
@@ -296,7 +309,8 @@ export function validateScheduleDefinitionV1(value: unknown, allowUnknownFields 
     ? []
     : validateEntityJsonSchema(SCHEDULE_DEFINITION_V1_SCHEMA, value, "schedule");
   if (structural.length) return structural;
-  if (!hasContractFields(value, definitionFields, allowUnknownFields) || value.schema !== "schedule/v1")
+  const fields = [...definitionFields, ...(value.systemPresetId === undefined ? [] : ["systemPresetId"])];
+  if (!hasContractFields(value, fields, allowUnknownFields) || value.schema !== "schedule/v1")
     return ["schedule definition fields are invalid"];
   if (
     typeof value.scheduleId !== "string" ||
@@ -307,7 +321,13 @@ export function validateScheduleDefinitionV1(value: unknown, allowUnknownFields 
     !timestamp(value.createdAt) ||
     !timestamp(value.updatedAt) ||
     validateActorIdentity(value.createdBy, allowUnknownFields).length > 0 ||
+    (value.systemPresetId !== undefined &&
+      (typeof value.systemPresetId !== "string" || !scheduleIdPattern.test(value.systemPresetId))) ||
     !validSpec(value.spec, allowUnknownFields) ||
+    (isRecord(value.spec) &&
+      isRecord(value.spec.target) &&
+      value.spec.target.kind === "agent-unconfigured" &&
+      value.state !== "paused") ||
     (isRecord(value.spec) &&
       Array.isArray(value.spec.writableRoots) &&
       value.spec.writableRoots.length > 0 &&
@@ -321,7 +341,12 @@ export function validateScheduleV1(value: unknown, allowUnknownFields = false): 
   if (!isRecord(value)) return ["schedule is not an object"];
   const structural = allowUnknownFields ? [] : validateEntityJsonSchema(SCHEDULE_V1_SCHEMA, value, "schedule");
   if (structural.length) return structural;
-  const definition = Object.fromEntries(definitionFields.map((field) => [field, value[field]]));
+  const definition = Object.fromEntries(
+    [...definitionFields, ...(value.systemPresetId === undefined ? [] : ["systemPresetId"])].map((field) => [
+      field,
+      value[field],
+    ]),
+  );
   if (
     validateScheduleDefinitionV1(definition, allowUnknownFields).length ||
     !validRunView(value.status, allowUnknownFields)
@@ -411,6 +436,7 @@ function validTrigger(value: unknown, allowUnknownFields: boolean): value is Sch
 
 function validTarget(value: unknown, allowUnknownFields: boolean): value is ScheduleTargetV1 {
   if (!isRecord(value)) return false;
+  if (value.kind === "agent-unconfigured") return hasContractFields(value, ["kind"], allowUnknownFields);
   if (value.kind === "squad")
     return (
       hasContractFields(value, ["kind", "squadId"], allowUnknownFields) &&

@@ -144,6 +144,25 @@ test("Schedule builtin targets carry a builtin id and bounded retention params",
   );
 });
 
+test("an unconfigured system preset is valid only while paused", () => {
+  const schedule = createScheduleV1({
+    scheduleId: "builtin-nightly-reckoning",
+    name: "Nightly reckoning",
+    state: "paused",
+    mode: "detect",
+    systemPresetId: "nightly-reckoning",
+    spec: {
+      trigger: { kind: "cron", expression: "30 23 * * *", timezone: "UTC" },
+      target: { kind: "agent-unconfigured" },
+      mission: "Review recent friction.",
+    },
+    actor,
+    occurredAt: "2026-08-26T10:00:00.000Z",
+  });
+  assert.deepEqual(validateScheduleV1(schedule), []);
+  assert.notDeepEqual(validateScheduleV1({ ...schedule, state: "armed" }), []);
+});
+
 function fixtureSchedule(): ScheduleV1 {
   return createScheduleV1({
     scheduleId: "schedule-heartbeat",

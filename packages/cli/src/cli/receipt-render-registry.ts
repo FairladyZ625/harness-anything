@@ -6,7 +6,12 @@ import {
 import { renderCausalGraph } from "./graph-render.ts";
 import { consumeKnownError } from "../daemon/client.ts";
 import { humanError, renderReceiptGuidance } from "./guidance-plane.ts";
-import { renderScheduleList, renderScheduleRuns, renderScheduleShow } from "./thin-command-schedule.ts";
+import {
+  renderScheduleList,
+  renderScheduleReckon,
+  renderScheduleRuns,
+  renderScheduleShow,
+} from "./thin-command-schedule.ts";
 
 export interface RenderedCliReceipt {
   readonly stream: "stdout" | "stderr";
@@ -35,6 +40,7 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
   ["init", renderInitReceipt],
   ["settings-read", renderSettingsRead],
   ["schedule-list", renderScheduleReceipt],
+  ["schedule-reckon", renderScheduleReceipt],
   ["schedule-show", renderScheduleReceipt],
   ["schedule-runs", renderScheduleReceipt],
   ["squad-list", renderSquadListReceipt],
@@ -207,6 +213,7 @@ function renderDispatches(dispatches: readonly unknown[]): string {
 function renderScheduleReceipt(receipt: Record<string, unknown>): string {
   return (
     renderScheduleList(receipt) ??
+    renderScheduleReckon(receipt) ??
     renderScheduleShow(receipt) ??
     renderScheduleRuns(receipt) ??
     renderSuccessfulReceipt(receipt)

@@ -85,6 +85,7 @@ export interface ScheduleGuiRowDto {
   readonly name: string;
   readonly state: "armed" | "paused";
   readonly mode: "detect" | "remediate";
+  readonly systemPresetId: string | null;
   readonly definitionResidency: "ledger";
   readonly definitionRevision: number;
   readonly trigger: ScheduleGuiTriggerDto;
@@ -105,7 +106,8 @@ export interface ScheduleGuiRowDto {
         /** Effective retention policy (defaults applied daemon-side); renderer only renders. */
         readonly keepDays: number;
         readonly keepMonthly: boolean;
-      };
+      }
+    | { readonly kind: "agent-unconfigured" };
   readonly targetState?: "invalid" | "missing";
   readonly targetError?: { readonly code: string; readonly hint: string };
   readonly mission: string;
@@ -187,6 +189,7 @@ const scheduleGuiRowFields = [
   "name",
   "state",
   "mode",
+  "systemPresetId",
   "definitionResidency",
   "definitionRevision",
   "trigger",
@@ -261,6 +264,7 @@ function validTriggerDto(value: unknown): boolean {
 
 function validTargetDto(value: unknown): boolean {
   if (!isJsonObject(value)) return false;
+  if (value.kind === "agent-unconfigured") return Object.keys(value).length === 1;
   if (value.kind === "squad") return Object.keys(value).length === 2 && scheduleNonEmptyText(value.squadId);
   if (value.kind === "builtin")
     return (
@@ -369,6 +373,7 @@ export function validateSchedulesList(value: unknown): readonly string[] {
       !scheduleNonEmptyText(row.name) ||
       !["armed", "paused"].includes(String(row.state)) ||
       !["detect", "remediate"].includes(String(row.mode)) ||
+      !nullableNonEmpty(row.systemPresetId) ||
       row.definitionResidency !== "ledger" ||
       !Number.isSafeInteger(row.definitionRevision) ||
       Number(row.definitionRevision) < 0 ||

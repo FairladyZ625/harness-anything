@@ -475,6 +475,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "schedule-disable",
       "schedule-enable",
       "schedule-list",
+      "schedule-reckon",
       "schedule-run-now",
       "schedule-runs",
       "schedule-show",

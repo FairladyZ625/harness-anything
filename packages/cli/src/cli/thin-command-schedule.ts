@@ -17,10 +17,8 @@ export function parseSchedule(
   json: boolean,
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
-  if (route.id === "schedule-list")
-    return args.length === 2
-      ? accepted(rootDir, repoId, json, { kind: "schedule-list" })
-      : rejected("unknown_field", "ha schedule list takes no options or positional arguments.", json);
+  const read = parseScheduleRead(route, args, rootDir, repoId, json, inputs);
+  if (read) return read;
   const packetOnly = isPacketInputToken(args[2]),
     scheduleId = packetOnly ? undefined : args[2],
     flags = readFlags(route.id, args.slice(packetOnly ? 2 : 3), inputs);
@@ -225,4 +223,31 @@ export function renderScheduleRuns(receipt: Record<string, unknown>): string | n
     consumeKnownError(error);
     return null;
   }
+}
+
+function parseScheduleRead(
+  route: ProtocolCommand,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult | null {
+  if (route.id === "schedule-list")
+    return args.length === 2
+      ? accepted(rootDir, repoId, json, { kind: "schedule-list" })
+      : rejected("unknown_field", "ha schedule list takes no options or positional arguments.", json);
+  if (route.id !== "schedule-reckon") return null;
+  const flags = readFlags(route.id, args.slice(2), inputs);
+  return flags.ok
+    ? accepted(rootDir, repoId, json, {
+        kind: "schedule-reckon",
+        ...(flags.one.has("--window-hours") ? { windowHours: Number(flags.one.get("--window-hours")) } : {}),
+      })
+    : rejected(flags.code, flags.nextAction, json);
+}
+
+export function renderScheduleReckon(receipt: Record<string, unknown>): string | null {
+  if (receipt.command !== "schedule-reckon" || typeof receipt.evidence !== "string") return null;
+  return `${JSON.stringify(JSON.parse(receipt.evidence), null, 2)}\n`;
 }

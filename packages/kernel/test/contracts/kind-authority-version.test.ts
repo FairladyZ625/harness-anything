@@ -88,6 +88,7 @@ test("one named kind-contract authority explains all fourteen entity kinds with 
       "record-missed",
       "settle",
       "list",
+      "reckon",
       "runs",
       "show",
     ],

@@ -153,8 +153,9 @@ test("CLI delegates backup and restore drill to the daemon while event tail stay
     assert.equal(epochCheck.highWatermark("offline-spawn"), 2);
     epochCheck.close();
     assert.equal(events.schema, "offline-ledger-events/v1");
-    // The seeded ledger event, then the built-in backup schedule the daemon seeds on attach.
+    // The seeded ledger event, then the two system preset schedules the daemon seeds on attach.
     assert.deepEqual((events.events as readonly { type: string }[]).map((event) => event.type).slice(1), [
+      "schedule_created",
       "schedule_created",
     ]);
     const repeated = invokeCliResult(["restore", backupDir, "--to", restoredRoot], userRoot);

@@ -68,7 +68,7 @@ export type ScheduleHealthRollup = ScheduleGuiHealthDto;
 export const scheduleRowMode = (row: ScheduleGuiRowDto): ScheduleModeWord => row.mode;
 
 /** 执行体种类来自 target 判别式(agent/squad/builtin),不是本地默认。 */
-export const scheduleRowTargetKind = (row: ScheduleGuiRowDto): "agent" | "squad" | "builtin" => row.target.kind;
+export const scheduleRowTargetKind = (row: ScheduleGuiRowDto): ScheduleGuiRowDto["target"]["kind"] => row.target.kind;
 
 /** 健康度 rollup 由 daemon 投影;无效行(invalid)没有该字段,调用方先行过滤。 */
 export const scheduleRowHealth = (row: ScheduleGuiRowDto): ScheduleHealthRollup => row.health;

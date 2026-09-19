@@ -484,6 +484,11 @@ function ScheduleOverviewTab({
           </CardHead>
           <CardBody>
             <p className="whitespace-pre-wrap ui-meta leading-relaxed text-text">{row.mission}</p>
+            {row.target.kind === "agent-unconfigured" && (
+              <p data-testid="schedule-target-unconfigured" className="mt-2 ui-meta text-warning">
+                {t("schedules.detail.targetUnconfigured")}
+              </p>
+            )}
             <div className="mt-2.5 flex flex-wrap items-center gap-2 ui-micro text-text-muted">
               <ModeBadge mode={mode} />
               <span>{t("schedules.detail.purpose.modeLine")}</span>
