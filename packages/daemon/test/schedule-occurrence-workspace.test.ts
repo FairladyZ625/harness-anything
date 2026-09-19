@@ -176,7 +176,7 @@ test("remediate occurrences link the canonical node_modules store into the workt
       "present\n",
     );
     assert.equal(workspace.runtime.worktree?.note, undefined);
-    // The linked store is gitignored, so it neither marks the worktree dirty nor blocks removal.
+    // The linked store is the workspace's own doing: it neither marks the worktree dirty nor blocks removal.
     assert.equal(settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime).retainedDetail, null);
     assert.equal(existsSync(workspace.cwd), false);
     assert.equal(existsSync(path.join(fixture.root, "node_modules", "sentinel-pkg")), true);
@@ -235,7 +235,8 @@ function repositoryFixture(): { readonly base: string; readonly root: string } {
   git(root, "config", "user.name", "Schedule Test");
   git(root, "config", "user.email", "schedule@example.invalid");
   writeFileSync(path.join(root, "README.md"), "base\n");
-  writeFileSync(path.join(root, ".gitignore"), "node_modules\n.worktrees\n");
+  // Same form as this repository: a trailing slash matches directories only, so not the linked store.
+  writeFileSync(path.join(root, ".gitignore"), "node_modules/\n.worktrees\n");
   git(root, "add", "README.md", ".gitignore");
   git(root, "commit", "-qm", "base");
   git(root, "remote", "add", "origin", remote);

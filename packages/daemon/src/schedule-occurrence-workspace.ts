@@ -1,5 +1,5 @@
 import { /* @gate-identity check-sync-subprocess/sync-subprocess-018 */ execFileSync } from "node:child_process";
-import { existsSync, symlinkSync } from "node:fs";
+import { existsSync, lstatSync, symlinkSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import type { ScheduleV1 } from "../../kernel/src/index.ts";
 import type { TrustedScheduleRuntime } from "./runtime-spawn-types.ts";
@@ -65,7 +65,8 @@ export function settleScheduleOccurrenceWorkspace(
   if (!worktree) return { retainedDetail: null };
   if (!existsSync(worktree.cwd)) return { retainedDetail: null };
   try {
-    const dirty = git(worktree.cwd, "status", "--porcelain").length > 0,
+    // The linked node_modules is this module's own doing, not the occurrence's work.
+    const dirty = git(worktree.cwd, "status", "--porcelain", "--", ".", ":(exclude)node_modules").length > 0,
       commits = Number(git(worktree.cwd, "rev-list", "--count", `${worktree.baseRef}..HEAD`));
     if (dirty || commits > 0)
       return {
@@ -76,6 +77,8 @@ export function settleScheduleOccurrenceWorkspace(
           .filter(Boolean)
           .join(", ")}).`,
       };
+    const linked = path.join(worktree.cwd, "node_modules");
+    if (lstatSync(linked, { throwIfNoEntry: false })?.isSymbolicLink()) unlinkSync(linked);
     /* @gate-identity check-sync-subprocess/sync-subprocess-020 */ execFileSync(
       "git",
       ["-C", rootDir, "worktree", "remove", worktree.cwd],
