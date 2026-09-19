@@ -575,9 +575,11 @@ test("entity pins cover task, decision, and schedule with bounded rendering and 
   await withCell(
     "agenda-entity-pins",
     async (cell) => {
-      assert.equal(
-        (await cell.run({ kind: "task-create", taskId: "task_pin", title: "Pinned task" }, binding)).outcome,
-        "applied",
+      const task = await cell.run({ kind: "task-create", taskId: "task_pin", title: "Pinned task" }, binding);
+      assert.equal(task.outcome, "applied");
+      assert.deepEqual(
+        task.guidance?.find(({ kind }) => kind === "pin-agenda"),
+        { kind: "pin-agenda", args: { entityKind: "task", entityId: "task_pin" } },
       );
       assert.equal(
         (await cell.run({ kind: "task-create", taskId: "task_capacity", title: "Capacity task" }, binding)).outcome,
@@ -586,6 +588,10 @@ test("entity pins cover task, decision, and schedule with bounded rendering and 
       const decision = (await cell.run(decisionProposal(), binding)) as Record<string, unknown>;
       assert.equal(decision.outcome, "applied", JSON.stringify(decision));
       const decisionId = String((JSON.parse(String(decision.evidence)) as { decisionId: string }).decisionId);
+      assert.deepEqual(
+        (decision.guidance as { kind: string; args: unknown }[]).find(({ kind }) => kind === "pin-agenda"),
+        { kind: "pin-agenda", args: { entityKind: "decision", entityId: decisionId } },
+      );
       assert.equal(
         (
           await cell.run(

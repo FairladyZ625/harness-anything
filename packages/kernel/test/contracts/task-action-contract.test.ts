@@ -223,7 +223,7 @@ test("named lifecycle specifications preserve every execution metadata field", (
   );
 });
 
-test("task creation result and all six guidance entries derive from its descriptor", () => {
+test("task creation result and all seven guidance entries derive from its descriptor", () => {
   const create = getEntityKindContract("task")?.actionCatalog?.actions.find(({ id }) => id === "create");
   assert.ok(create);
   assert.deepEqual(
@@ -244,6 +244,7 @@ test("task creation result and all six guidance entries derive from its descript
       when: { dryRun: false, "proof.canonicalVisible": false },
     },
     { kind: "edit-plan", args: { packagePath: "{packagePath}" } },
+    { kind: "pin-agenda", args: { entityKind: "task", entityId: "{taskId}" } },
     { kind: "ledger-managed", args: { fields: ["INDEX.md", "closeout.md"] } },
   ]);
   for (const field of [
@@ -261,6 +262,21 @@ test("task creation result and all six guidance entries derive from its descript
     "proof.canonicalVisible",
   ])
     assert.ok(create.returns.fields.includes(field), field);
+});
+
+test("pinnable entity creation actions derive one optional agenda follow-up", () => {
+  for (const [kind, actionId, entityId] of [
+    ["task", "create", "taskId"],
+    ["decision", "propose", "decisionId"],
+    ["schedule", "create", "scheduleId"],
+  ] as const) {
+    const action = getEntityKindContract(kind)?.actionCatalog?.actions.find(({ id }) => id === actionId);
+    assert.ok(action, `${kind}.${actionId}`);
+    assert.deepEqual(
+      action.returns.guidance.filter(({ kind: guidanceKind }) => guidanceKind === "pin-agenda"),
+      [{ kind: "pin-agenda", args: { entityKind: kind, entityId: `{${entityId}}` } }],
+    );
+  }
 });
 
 test("nested vocabularies retain identity and state projections select one declared branch", () => {
@@ -295,7 +311,7 @@ test("nested vocabularies retain identity and state projections select one decla
   });
   for (const transition of TASK_LIFECYCLE_TRANSITIONS)
     assert.deepEqual(Object.keys(transition).sort(), ["actionId", "matches", "reduce", "validate"]);
-  assert.equal(new Set(actions.flatMap(({ returns }) => returns.guidance.map(({ kind }) => kind))).size, 6);
+  assert.equal(new Set(actions.flatMap(({ returns }) => returns.guidance.map(({ kind }) => kind))).size, 7);
 });
 
 test("CompleteTask reducer output equals its declared terminal projection", () => {

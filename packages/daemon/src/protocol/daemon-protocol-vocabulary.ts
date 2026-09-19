@@ -14,6 +14,8 @@ import type {
   taskPhaseSteps,
 } from "../../../kernel/src/index.ts";
 
+export const AGENDA_PIN_CRITERIA = "very important, easy to forget, next to do, or urgent; otherwise leave it unpinned";
+
 // daemon-status-vocabulary:generated:start
 export const taskStatusWords = ["planned", "active", "submitted", "blocked", "in_review", "done", "cancelled"] as const;
 

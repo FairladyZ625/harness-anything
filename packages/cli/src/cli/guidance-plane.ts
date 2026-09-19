@@ -1,3 +1,5 @@
+import { AGENDA_PIN_CRITERIA } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+
 type GuidanceArgs = Readonly<Record<string, unknown>>;
 type GuidanceTemplate = (args: GuidanceArgs) => string;
 
@@ -28,8 +30,10 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
   [
     "*:pin-agenda",
     (args) =>
-      `agenda: pins are for something very important, easy to forget, next to do, or urgent; otherwise do not pin. ` +
-      `Capacity is ${numberArg(args, "used")}/${numberArg(args, "limit")}; unpin stale attention first.`,
+      "entityId" in args
+        ? `agenda: pin only if ${AGENDA_PIN_CRITERIA} — ha pin ${textArg(args, "entityKind")}/${textArg(args, "entityId")}.`
+        : `agenda: pin only if ${AGENDA_PIN_CRITERIA}. Capacity is ${numberArg(args, "used")}/${numberArg(args, "limit")}; ` +
+          "unpin stale attention first.",
   ],
   [
     "task-create:ledger-managed",

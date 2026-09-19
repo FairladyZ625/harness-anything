@@ -5,6 +5,7 @@ import {
   defineLedgerWriteCommand,
   defineRepoReadCommand,
 } from "../../../preset/src/preset-command-contract.ts";
+import { AGENDA_PIN_CRITERIA } from "./daemon-protocol-vocabulary.ts";
 
 export const taskSurfaceProtocolCommands = Object.freeze([
   defineRepoReadCommand({
@@ -150,7 +151,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     id: "task-pin",
     phase: "W3",
     path: ["task", "pin", "<task-id>"],
-    summary: "Pin a task only when it is very important, easy to forget, next to do, or urgent; otherwise do not pin.",
+    summary: `Pin a task only when it is ${AGENDA_PIN_CRITERIA}.`,
     method: "repo.task.run",
     inputs: [],
   }),

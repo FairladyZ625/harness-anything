@@ -11,6 +11,7 @@ import { daemonGuiActionSchemas, daemonGuiReadSchemas } from "./daemon-protocol-
 import type { DaemonStatusResult } from "./daemon-status-contract.ts";
 export type { DaemonRepoAttachProgress, DaemonStatusResult } from "./daemon-status-contract.ts";
 import {
+  AGENDA_PIN_CRITERIA,
   daemonRepoModeWords,
   daemonRepoModeWordsAreExact,
   decisionStateWords,
@@ -25,6 +26,7 @@ import {
   taskStatusWords,
 } from "./daemon-protocol-vocabulary.ts";
 export {
+  AGENDA_PIN_CRITERIA,
   daemonRepoModeWords,
   daemonRepoModeWordsAreExact,
   decisionStateWords,
