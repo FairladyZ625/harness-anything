@@ -352,7 +352,9 @@ function delay(ms: number): Promise<void> {
 export function daemonCheckoutRoot(rootDir: string): string {
   let current = canonicalPath(path.resolve(rootDir));
   for (;;) {
-    if (existsSync(path.join(current, ".git"))) return current;
+    // The starting directory may not exist, in which case it could not be resolved; the checkout
+    // root that was found does exist, so it is resolved here and compares equal to a registered root.
+    if (existsSync(path.join(current, ".git"))) return canonicalPath(current);
     const parent = path.dirname(current);
     if (parent === current) return canonicalPath(rootDir);
     current = parent;
