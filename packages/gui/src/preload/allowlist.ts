@@ -393,7 +393,9 @@ function validQueryPayload(method: string, value: Record<string, unknown>): bool
     before = value.updatedBefore,
     changedAfterRevision = value.changedAfterRevision,
     states =
-      method === "getTasks" ? ["planned", "active", "blocked", "in_review", "done", "cancelled"] : relationStates,
+      method === "getTasks"
+        ? ["planned", "active", "submitted", "blocked", "in_review", "done", "cancelled"]
+        : relationStates,
     common =
       (value.limit === undefined ||
         (Number.isSafeInteger(value.limit) && Number(value.limit) >= 1 && Number(value.limit) <= 500)) &&

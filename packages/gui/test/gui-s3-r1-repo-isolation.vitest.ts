@@ -107,10 +107,11 @@ describe("GUI S3 R1 repository isolation", () => {
   });
 
   // W6(task_be076d3ac25b87b79be09b02dd):这里原本断言的是"一次调用里沿 nextCursor
-  // 把台账拉完",那正是 Goal 第二项禁止的形态。现在的合同是"一次刷新一页,没读完就
-  // 把游标和 pending 状态一起交回缓存"。分页读取形态的完整门在
+  // 把台账拉完",那正是 Goal 第二项禁止的形态;后来收敛为"一次刷新一页"。现在的合同
+  // 是受控快读水化(task_8bc3ca29):同一刷新内沿游标顺序补完剩余页,页预算封顶——
+  // 没读完(预算耗尽)才把游标和 pending 状态交回缓存。分页读取形态的完整门在
   // packages/gui/test/gui-w6-ledger-read-shape.vitest.ts。
-  it("reads one bounded page per refresh and carries the cursor in the returned cut", async () => {
+  it("finishes cursor continuation within one refresh and only carries the cursor when the budget runs out", async () => {
     const getTasks = vi.fn(
       async (payload: { readonly repoId: string; readonly limit: number; readonly cursor?: string }) => ({
         ok: true as const,
@@ -130,19 +131,14 @@ describe("GUI S3 R1 repository isolation", () => {
     Object.defineProperty(window, "harness", { configurable: true, value: { getTasks } });
 
     const first = await taskListQuery("repo-a").queryFn();
-    expect(getTasks).toHaveBeenCalledTimes(1);
-    expect(getTasks).toHaveBeenNthCalledWith(1, { repoId: "repo-a", limit: TASK_LIST_PAGE_LIMIT });
-    expect(first.status).toBe("pending");
-    expect(first.page?.nextCursor).toBe("task-page-2");
-
-    const second = await readTaskList("repo-a", first);
     expect(getTasks).toHaveBeenCalledTimes(2);
+    expect(getTasks).toHaveBeenNthCalledWith(1, { repoId: "repo-a", limit: TASK_LIST_PAGE_LIMIT });
     expect(getTasks).toHaveBeenNthCalledWith(2, {
       repoId: "repo-a",
       limit: TASK_LIST_PAGE_LIMIT,
       cursor: "task-page-2",
     });
-    expect(second).toEqual({
+    expect(first).toEqual({
       ok: true,
       status: "ready",
       rows: [],
@@ -151,6 +147,25 @@ describe("GUI S3 R1 repository isolation", () => {
       sourceRevision: 42,
       warnings: [],
     });
+
+    // 预算耗尽的切面才带游标交回缓存:下一刷新从游标续读,不重读第一页。
+    const pending = await readTaskList("repo-a", {
+      ok: true,
+      status: "pending",
+      rows: [],
+      invalidRows: [],
+      watermark: 42,
+      sourceRevision: 42,
+      warnings: [],
+      page: { limit: TASK_LIST_PAGE_LIMIT, cursor: null, nextCursor: "task-page-2" },
+    });
+    expect(getTasks).toHaveBeenCalledTimes(3);
+    expect(getTasks).toHaveBeenNthCalledWith(3, {
+      repoId: "repo-a",
+      limit: TASK_LIST_PAGE_LIMIT,
+      cursor: "task-page-2",
+    });
+    expect(pending.status).toBe("ready");
   });
 
   // 原断言:跨 cut 的两页拼在一起要抛错。跨刷新续读必然跨 cut,抛错会让忙仓库永远读不完,
