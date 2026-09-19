@@ -36,7 +36,7 @@ test("quiet window emits an honest quiet attestation", async () => {
   );
 });
 
-test("failed redispatch is upgraded instead of receiving another patch", async () => {
+test("one instance failing twice is one recurring problem; a redispatch that then succeeds is not", async () => {
   const input = fixture(
     [],
     [
@@ -52,6 +52,8 @@ test("failed redispatch is upgraded instead of receiving another patch", async (
         settledAt: "2026-09-19T11:00:00Z",
         taskBindings: [{ taskId: "task-a" }],
       },
+      { runtimeSessionId: "r3", instanceId: "w1", outcome: "failed", settledAt: "2026-09-19T12:00:00Z" },
+      { runtimeSessionId: "r4", instanceId: "w1", outcome: "failed", settledAt: "2026-09-19T13:00:00Z" },
     ],
   );
   const signals = await collectReckoning({
@@ -59,8 +61,14 @@ test("failed redispatch is upgraded instead of receiving another patch", async (
     since: Date.parse("2026-09-18T23:30:00Z"),
     until: Date.parse("2026-09-19T23:30:00Z"),
   });
-  assert.equal(signals.find((signal) => signal.kind === "rework")?.recommendation, "architecture-defect");
-  assert.equal(signals.find((signal) => signal.kind === "abnormal-session")?.recommendation, "fix-framework");
+  assert.equal(signals.find((signal) => signal.kind === "rework")?.recommendation, "fix-framework");
+  const recurring = signals.find((signal) => signal.key === "runtime:w1:failed");
+  assert.deepEqual(recurring?.evidence, { runtimeSessionIds: ["r3", "r4"] });
+  assert.equal(recurring?.recommendation, "architecture-defect");
+  assert.equal(
+    signals.find((signal) => signal.key === "runtime:unknown-instance:failed")?.recommendation,
+    "fix-framework",
+  );
 });
 
 test("recent walls failure is a framework candidate and zombie text is a deletion candidate", async () => {

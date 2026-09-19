@@ -48,19 +48,23 @@ function runtimeSignals(database, since, until) {
             kind: "rework",
             key: `task:${taskId}`,
             evidence: { taskId, dispatches: values.length },
-            occurrences: values.length,
           },
         ]
       : [],
   );
-  const abnormal = sessions
-    .filter((session) => ["failed", "unknown", "cancelled"].includes(session.outcome))
-    .map((session) => ({
-      kind: "abnormal-session",
-      key: `runtime:${session.runtimeSessionId}`,
-      evidence: { runtimeSessionId: session.runtimeSessionId, outcome: session.outcome },
-      occurrences: 1,
-    }));
+  // Sessions of one instance ending the same way are one recurring problem, not one signal each.
+  const byClass = new Map();
+  for (const session of sessions) {
+    if (!["failed", "unknown", "cancelled"].includes(session.outcome)) continue;
+    const key = `runtime:${session.instanceId ?? "unknown-instance"}:${session.outcome}`;
+    byClass.set(key, [...(byClass.get(key) ?? []), session.runtimeSessionId]);
+  }
+  const abnormal = [...byClass].map(([key, runtimeSessionIds]) => ({
+    kind: "abnormal-session",
+    key,
+    evidence: { runtimeSessionIds },
+    occurrences: runtimeSessionIds.length,
+  }));
   return [...rework, ...abnormal];
 }
 

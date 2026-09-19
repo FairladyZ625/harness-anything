@@ -9,13 +9,13 @@ Use this skill when a maintainer wants a daily, offline review of repeated frict
 
 ## Run
 
-The schedule must use `mode: detect` and a Codex-first agent runtime. Its mission invokes:
+The schedule uses `mode: detect`; any agent runtime can run it. Its mission invokes:
 
 ```sh
 node tools/nightly-reckoning/run-reckoning.mjs --root "$REPOSITORY_ROOT" --db "$LEDGER_ROOT/.harness/cache/task.sqlite"
 ```
 
-The command reads the local SQLite projection and repository files and writes only stdout. The occurrence runtime's final output is the report artifact. A missing projection is an error, never a healthy empty report. Do not invoke `ha`, connect to the daemon socket, or redirect output into the repository.
+The command reads the local SQLite projection and repository files and writes only stdout. The occurrence runtime's final output is the report artifact. A missing projection is an error, never a healthy empty report. To open the evidence behind a candidate you may run any read command (`ha task show`, `ha runtime status`, `ha fact show`, `git log`). Do not write: no `ha` command that records or changes an entity, no edits or new files in the repository, no commits, and no redirecting output into the repository.
 
 Optional sources implement the contract in [references/source-contract.md](references/source-contract.md) and are passed with repeated `--source` arguments.
 
