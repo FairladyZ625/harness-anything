@@ -131,3 +131,80 @@ function fact(revision: number, factId: string, supersedesRef?: string, domainTy
     },
   };
 }
+
+test("Fact archive toggles the archived flag and rejects repeat or premature transitions", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    createRelationGraphProjectionTables(db);
+    createFactProjectionTables(db);
+    reduceFactEvent(db, fact(1, "F-ABCDEFGH"));
+    assert.equal(readFactRow(db, "F-ABCDEFGH")?.archived, false);
+
+    assert.throws(
+      () => reduceFactEvent(db, archive(2, "F-ABCDEFGH", "fact_unarchived")),
+      (error: unknown) =>
+        error instanceof FactProjectionError &&
+        error.code === "invalid_transition" &&
+        /not archived/u.test(error.message),
+    );
+    assert.throws(
+      () => reduceFactEvent(db, archive(2, "F-BCDEFGHJ", "fact_archived")),
+      (error: unknown) =>
+        error instanceof FactProjectionError &&
+        error.code === "entity_not_found" &&
+        /does not exist/u.test(error.message),
+    );
+
+    reduceFactEvent(db, archive(2, "F-ABCDEFGH", "fact_archived"));
+    const archivedRow = readFactRow(db, "F-ABCDEFGH");
+    assert.equal(archivedRow?.archived, true);
+    assert.equal(archivedRow?.state, "standing");
+    assert.equal(archivedRow?.statement, "Fact F-ABCDEFGH");
+
+    assert.throws(
+      () => reduceFactEvent(db, archive(3, "F-ABCDEFGH", "fact_archived")),
+      (error: unknown) =>
+        error instanceof FactProjectionError &&
+        error.code === "invalid_transition" &&
+        /already archived/u.test(error.message),
+    );
+    assert.throws(
+      () => reduceFactEvent(db, reclassify(3, "F-ABCDEFGH")),
+      (error: unknown) =>
+        error instanceof FactProjectionError &&
+        error.code === "invalid_transition" &&
+        /archived; unarchive/u.test(error.message),
+    );
+
+    reduceFactEvent(db, archive(3, "F-ABCDEFGH", "fact_unarchived"));
+    const restored = readFactRow(db, "F-ABCDEFGH");
+    assert.equal(restored?.archived, false);
+    assert.equal(restored?.state, "standing");
+  } finally {
+    db.close();
+  }
+});
+
+function archive(revision: number, factId: string, type: "fact_archived" | "fact_unarchived"): FactEventV1 {
+  const recorded = fact(revision, factId);
+  return {
+    ...recorded,
+    type,
+    payload: {
+      ...recorded.payload,
+      archiveReason: "admission test",
+      ...(type === "fact_archived"
+        ? { factsDocumentRetirement: { path: `facts/${factId}.md`, sha256: "0".repeat(64) } }
+        : {}),
+    },
+  };
+}
+
+function reclassify(revision: number, factId: string): FactEventV1 {
+  const recorded = fact(revision, factId);
+  return {
+    ...recorded,
+    type: "fact_reclassified",
+    payload: { ...recorded.payload, reclassificationRationale: "admission test", domainTypes: ["closeout"] },
+  };
+}

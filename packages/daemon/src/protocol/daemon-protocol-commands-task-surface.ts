@@ -532,6 +532,9 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         },
         { regex: "^(?:[1-9]|1[0-6])$" },
       ),
+      cliInput("--include-archived", "boolean", false, {
+        code: "invalid_field",
+      }),
     ],
   }),
   defineRepoReadCommand({

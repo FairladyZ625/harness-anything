@@ -11,7 +11,7 @@
     "opId": { "type": "string", "minLength": 1 },
     "taskId": { "type": "string", "minLength": 1, "pattern": "^[^/\\\\]+$" },
     "factId": { "type": "string", "pattern": "^F-[0-9A-HJKMNP-TV-Z]{8}$" },
-    "type": { "enum": ["fact_recorded", "fact_reclassified"] },
+    "type": { "enum": ["fact_recorded", "fact_reclassified", "fact_archived", "fact_unarchived"] },
     "actor": {
       "type": "object",
       "additionalProperties": false,
@@ -26,7 +26,7 @@
     "payload": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["statement", "evidenceSource", "observedAt", "confidence", "memoryClass", "memoryTags", "provenance", "factsDocumentClaim"],
+      "required": ["statement", "evidenceSource", "observedAt", "confidence", "memoryClass", "memoryTags", "provenance"],
       "properties": {
         "statement": { "type": "string", "minLength": 1 },
         "evidenceSource": { "type": "string", "minLength": 1 },
@@ -39,8 +39,21 @@
         "memoryTags": { "type": "array", "uniqueItems": true, "items": { "enum": ["episode", "procedural", "tool_memory", "pattern", "task_skill", "abstract_rule", "other"] } },
         "provenance": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "object", "additionalProperties": false, "required": ["runtime", "sessionId", "boundAt"], "properties": { "runtime": { "enum": ["human", "claude-code", "codex", "zcode", "antigravity"] }, "sessionId": { "type": "string", "minLength": 1 }, "boundAt": { "type": "string", "minLength": 1, "format": "date-time" } } } },
         "factsDocumentClaim": { "type": "object", "additionalProperties": false, "required": ["path", "sha256", "size", "mediaType", "policyId"], "properties": { "path": { "type": "string", "pattern": "^facts/F-[0-9A-HJKMNP-TV-Z]{8}\\.md$" }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }, "size": { "type": "integer", "minimum": 0 }, "mediaType": { "const": "text/markdown" }, "policyId": { "const": "typed-machine-writer/v1" } } },
-        "supersedes": { "type": "object", "additionalProperties": false, "required": ["factRef", "rationale"], "properties": { "factRef": { "type": "string", "pattern": "^fact/F-[0-9A-HJKMNP-TV-Z]{8}$" }, "rationale": { "type": "string", "minLength": 1, "maxLength": 199 } } }
+        "supersedes": { "type": "object", "additionalProperties": false, "required": ["factRef", "rationale"], "properties": { "factRef": { "type": "string", "pattern": "^fact/F-[0-9A-HJKMNP-TV-Z]{8}$" }, "rationale": { "type": "string", "minLength": 1, "maxLength": 199 } } },
+        "archiveReason": { "type": "string", "minLength": 1, "maxLength": 199 },
+        "factsDocumentRetirement": { "type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": { "path": { "type": "string", "pattern": "^facts/F-[0-9A-HJKMNP-TV-Z]{8}\\.md$" }, "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" } } }
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "fact_archived" } }, "required": ["type"] },
+      "then": { "properties": { "payload": { "required": ["archiveReason", "factsDocumentRetirement"] } } },
+      "else": { "properties": { "payload": { "required": ["factsDocumentClaim"] } } }
+    },
+    {
+      "if": { "properties": { "type": { "const": "fact_unarchived" } }, "required": ["type"] },
+      "then": { "properties": { "payload": { "required": ["archiveReason"] } } }
+    }
+  ]
 }

@@ -34,6 +34,8 @@ export interface FactProjectionRow {
   readonly state: "standing" | "superseded_fact";
   /** Derived from `state` by `factInvalidated`; consumers read this instead of comparing the word. */
   readonly invalidated: boolean;
+  /** Set by `fact_archived`, cleared by `fact_unarchived`; the projection row itself is never deleted. */
+  readonly archived: boolean;
 }
 export interface FactRelationEdgeRow {
   readonly relationId: string;
@@ -110,16 +112,28 @@ export function createFactProjectionTables(db: DatabaseSync): void {
 
 export function assertFactAdmission(db: DatabaseSync, event: FactEventV1): void {
   const ownRef = factRef(event.factId);
-  const existing = prepareQuery(db, "SELECT 1 FROM fact WHERE fact_id = ?").get(event.factId);
-  if (event.type === "fact_reclassified" && !existing)
+  const record = prepareQuery(db, "SELECT row_json FROM fact WHERE fact_id = ?").get(event.factId) as
+      | { readonly row_json: string }
+      | undefined,
+    row = record ? (JSON.parse(record.row_json) as FactProjectionRow) : null;
+  if (event.type === "fact_archived" || event.type === "fact_unarchived") {
+    if (!row) throw new FactProjectionError("entity_not_found", `Fact ${ownRef} does not exist.`);
+    if (event.type === "fact_archived" && row.archived === true)
+      throw new FactProjectionError("invalid_transition", `Fact ${ownRef} is already archived.`);
+    if (event.type === "fact_unarchived" && row.archived !== true)
+      throw new FactProjectionError("invalid_transition", `Fact ${ownRef} is not archived.`);
+    return;
+  }
+  if (event.type === "fact_reclassified" && !row)
     throw new FactProjectionError("entity_not_found", `Fact ${ownRef} does not exist.`);
-  if (event.type === "fact_recorded" && existing)
+  if (event.type === "fact_recorded" && row)
     throw new FactProjectionError("invalid_transition", `Fact ${ownRef} already exists.`);
   if (event.type === "fact_reclassified") {
-    const record = prepareQuery(db, "SELECT row_json FROM fact WHERE fact_id = ?").get(event.factId) as
-      | { readonly row_json: string }
-      | undefined;
-    const row = record ? (JSON.parse(record.row_json) as FactProjectionRow) : null;
+    if (row!.archived === true)
+      throw new FactProjectionError(
+        "invalid_transition",
+        `Fact ${ownRef} is archived; unarchive it before reclassifying.`,
+      );
     if (
       !row ||
       row.taskId !== event.taskId ||
@@ -163,6 +177,23 @@ export function assertFactAdmission(db: DatabaseSync, event: FactEventV1): void 
 
 export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
   assertFactAdmission(db, event);
+  if (event.type === "fact_archived" || event.type === "fact_unarchived") {
+    const record = prepareQuery(db, "SELECT row_json FROM fact WHERE fact_id = ?").get(event.factId) as
+      | { readonly row_json: string }
+      | undefined;
+    if (!record) throw new FactProjectionError("entity_not_found", `Fact fact/${event.factId} does not exist.`);
+    const row = JSON.parse(record.row_json) as FactProjectionRow;
+    prepareQuery(db, "UPDATE fact SET workspace_revision = ?, row_json = ? WHERE fact_id = ?").run(
+      event.workspaceRevision,
+      JSON.stringify({
+        ...row,
+        archived: event.type === "fact_archived",
+        workspaceRevision: event.workspaceRevision,
+      }),
+      event.factId,
+    );
+    return;
+  }
   if (event.type === "fact_reclassified") {
     const record = prepareQuery(db, "SELECT row_json FROM fact WHERE fact_id = ?").get(event.factId) as
       | { readonly row_json: string }
@@ -205,6 +236,7 @@ export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
     source: event.source,
     occurredAt: event.occurredAt,
     workspaceRevision: event.workspaceRevision,
+    archived: false,
   };
   prepareQuery(
     db,
@@ -280,7 +312,7 @@ function decodeFactRows(db: DatabaseSync, records: readonly FactRecord[]): reado
     );
   return raw.map((row) => {
     const state = factLiveness(row, relations);
-    return { ...row, state, invalidated: factInvalidated(state) };
+    return { ...row, state, invalidated: factInvalidated(state), archived: row.archived === true };
   });
 }
 function listFactRows(db: DatabaseSync, where: string, values: readonly string[]): readonly FactProjectionRow[] {

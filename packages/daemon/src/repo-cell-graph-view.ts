@@ -120,8 +120,16 @@ export function graphView(cell: TaskQueryCell, action: RepoTaskAction, binding: 
       (structuralChildren[parentRef] ??= []).push({ ref: `task/${row.taskId}`, type: "child" });
     }
   for (const list of Object.values(structuralChildren)) list.sort((a, b) => a.ref.localeCompare(b.ref));
-  const refs = new Set<string>([root.ref, ...root.anchors, ...anchorRefs]);
-  for (const edge of read.edges) {
+  // Archived Facts keep their edges in the ledger but leave the default retrieval surface:
+  // drop edges touching them unless the caller asked for --include-archived. The root ref
+  // itself stays resolvable either way.
+  const includeArchived = action.includeArchived === true,
+    archivedFactRefs = new Set(read.facts.filter((fact) => fact.archived).map((fact) => fact.ref)),
+    servedEdges = includeArchived
+      ? read.edges
+      : read.edges.filter((edge) => !archivedFactRefs.has(edge.sourceRef) && !archivedFactRefs.has(edge.targetRef)),
+    refs = new Set<string>([root.ref, ...root.anchors, ...anchorRefs]);
+  for (const edge of servedEdges) {
     refs.add(edge.sourceRef);
     refs.add(edge.targetRef);
   }
@@ -130,7 +138,7 @@ export function graphView(cell: TaskQueryCell, action: RepoTaskAction, binding: 
   const view = buildCausalGraphView({
     rootRef: root.ref,
     depth,
-    edges: read.edges.map(
+    edges: servedEdges.map(
       (edge): CausalGraphEdgeInput => ({
         relationId: edge.relationId,
         sourceRef: edge.sourceRef,
@@ -228,7 +236,12 @@ function hydrateGraphNodes(
   refs: ReadonlySet<string>,
   taskByRef: ReadonlyMap<string, { readonly title: string; readonly status: string; readonly taskClass: string }>,
   read: ProjectionCut & {
-    readonly facts: readonly { readonly ref: string; readonly statement: string; readonly liveness: string }[];
+    readonly facts: readonly {
+      readonly ref: string;
+      readonly statement: string;
+      readonly liveness: string;
+      readonly archived: boolean;
+    }[];
   },
 ): Record<string, CausalGraphNodeInfo> {
   const decisionIds = new Set<string>(),

@@ -13,6 +13,37 @@ export function parseFact(
 ): ThinParseResult {
   if (id === "fact-record") return parseFactRecord(args, rootDir, repoId, json, inputs);
   if (id === "fact-rematerialize") return parseRematerialize(id, "factId", args, rootDir, repoId, json, inputs);
+  if (id === "fact-archive") {
+    const factId = args[2]?.startsWith("--") ? undefined : args[2],
+      f = readFlags(id, args.slice(factId ? 3 : 2), inputs);
+    if (!f.ok) return rejected(f.code, f.nextAction, json);
+    const idsFile = f.one.get("--ids-file");
+    if (factId && idsFile)
+      return rejected("duplicate_field", "Use either ha fact archive <fact-id> or --ids-file <path>, not both.", json);
+    if (!factId && !idsFile)
+      return rejected(
+        "missing_field",
+        "Use ha fact archive <fact-id> --reason <why> or --ids-file <path> --reason <why>.",
+        json,
+      );
+    return accepted(rootDir, repoId, json, {
+      kind: "fact-archive",
+      ...(factId ? { factId } : { idsFile }),
+      reason: f.one.get("--reason"),
+      ...(f.booleans.has("--dry-run") ? { dryRun: true } : {}),
+    });
+  }
+  if (id === "fact-unarchive") {
+    const factId = args[2]?.startsWith("--") ? undefined : args[2],
+      f = readFlags(id, args.slice(factId ? 3 : 2), inputs);
+    if (!factId) return rejected("missing_field", "Use ha fact unarchive <fact-id> --reason <why>.", json);
+    if (!f.ok) return rejected(f.code, f.nextAction, json);
+    return accepted(rootDir, repoId, json, {
+      kind: "fact-unarchive",
+      factId,
+      reason: f.one.get("--reason"),
+    });
+  }
   if (id === "fact-reclassify") {
     const factId = args[2]?.startsWith("--") ? undefined : args[2],
       f = readFlags(id, args.slice(factId ? 3 : 2), inputs);

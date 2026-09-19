@@ -38,7 +38,11 @@ export function factReplayBundle(
   readonly path: string;
   readonly body: string;
 } {
-  const claim = existing.payload.factsDocumentClaim,
+  if (existing.type === "fact_archived") {
+    const retirement = existing.payload.factsDocumentRetirement!;
+    return { event: existing, plan: factWritePlan(existing), blobs: [], path: retirement.path, body: "" };
+  }
+  const claim = existing.payload.factsDocumentClaim!,
     supersededClaim = existing.payload.supersededFactsDocumentClaim,
     body = factDocumentBody(store, claim.sha256, claim.path);
   return {

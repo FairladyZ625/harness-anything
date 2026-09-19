@@ -142,8 +142,30 @@ export function projectFact(
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
 ): void {
-  const claim = event.payload.factsDocumentClaim,
-    bytes = readBlob(claim.sha256);
+  if (event.type === "fact_archived") {
+    const retirement = event.payload.factsDocumentRetirement,
+      base = queryRows(db, DOCUMENT_BASE_SQL, retirement?.path ?? "")[0];
+    if (
+      !retirement ||
+      retirement.path !== `facts/${event.factId}.md` ||
+      retirement.sha256 !== (base?.blob_sha256 ?? null)
+    )
+      throw new Error(`archived fact document path or base mismatch for ${event.factId}`);
+    reduceFactEvent(db, event);
+    runSql(
+      db,
+      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",
+      event.opId,
+      event.workspaceRevision,
+      event.taskId ?? null,
+      eventJson,
+    );
+    runSql(db, "DELETE FROM document WHERE path = ?", retirement.path);
+    return;
+  }
+  const claim = event.payload.factsDocumentClaim;
+  if (!claim) throw new Error(`fact document claim missing for ${event.factId}`);
+  const bytes = readBlob(claim.sha256);
   if (claim.path !== `facts/${event.factId}.md` || !bytes || bytes.byteLength !== claim.size)
     throw new Error(`fact document path or blob mismatch for ${event.factId}`);
   reduceFactEvent(db, event);

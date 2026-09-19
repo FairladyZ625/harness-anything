@@ -494,6 +494,7 @@ export function makeTaskQueryReadModel(input: {
       provenance: relationProvenance(row.provenance),
       liveness: row.state,
       invalidated: row.invalidated,
+      archived: row.archived,
     }));
     return {
       ok: true,

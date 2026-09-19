@@ -180,6 +180,8 @@ export type {
 export { DECISION_DOCUMENT_POLICY_ID } from "./decision-event.ts";
 export type { DecisionRelationLinkResolver } from "./decision-event.ts";
 export {
+  compileFactArchiveWrite,
+  compileFactUnarchiveWrite,
   compileFactWrite,
   FACT_DOCUMENT_POLICY_ID,
   factConfidenceLevels,
@@ -187,7 +189,14 @@ export {
   factWritePlan,
   isFactId,
 } from "./fact-event.ts";
-export type { FactContentBlob, FactEventDraftV1, FactEventV1, SupersededFactDocumentSource } from "./fact-event.ts";
+export type {
+  CompiledFactWrite,
+  FactContentBlob,
+  FactDocumentRecord,
+  FactEventDraftV1,
+  FactEventV1,
+  SupersededFactDocumentSource,
+} from "./fact-event.ts";
 
 export { CONTRACT_VERSION_1_0, isContractVersion, isContractVersionCompatible } from "./contract-version.ts";
 export type { ContractVersion } from "./contract-version.ts";

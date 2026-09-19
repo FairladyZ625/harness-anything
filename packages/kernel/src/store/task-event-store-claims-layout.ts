@@ -92,6 +92,12 @@ export function canonicalDocumentRetirements(
         : [];
   if (isScheduleEvent(event) && "declarationDocumentRetirement" in event.payload)
     return [event.payload.declarationDocumentRetirement];
+  if (isFactEvent(event)) {
+    const retirement = event.payload.factsDocumentRetirement;
+    return event.type === "fact_archived" && retirement !== undefined
+      ? [{ path: retirement.path, baseBlobSha256: retirement.sha256 }]
+      : [];
+  }
   return isDocEvent(event)
     ? event.payload.changes.flatMap(({ path: target, baseBlobSha256, candidate }) =>
         candidate === null && baseBlobSha256 !== null ? [{ path: target, baseBlobSha256 }] : [],
@@ -189,9 +195,10 @@ function factEventDocumentClaims(event: FactEventV1): readonly {
   readonly mediaType: string;
 }[] {
   const { factsDocumentClaim, supersededFactsDocumentClaim } = event.payload;
-  return supersededFactsDocumentClaim === undefined
-    ? [factsDocumentClaim]
-    : [factsDocumentClaim, supersededFactsDocumentClaim];
+  return [
+    ...(factsDocumentClaim === undefined ? [] : [factsDocumentClaim]),
+    ...(supersededFactsDocumentClaim === undefined ? [] : [supersededFactsDocumentClaim]),
+  ];
 }
 
 function relationEventDocumentClaims(event: RelationEventV1): readonly {
