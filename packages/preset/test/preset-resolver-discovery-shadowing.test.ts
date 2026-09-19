@@ -26,7 +26,11 @@ test("template and script discovery expose builtin content with typed vertical e
       materializeAs: string;
       locales: string[];
     }>;
-    assert.equal(templates.length, 33);
+    assert.equal(templates.length, 34);
+    assert.equal(
+      templates.find(({ templateRef }) => templateRef === "template://planning/closeout-lightweight@1")?.slot,
+      "task.closeout",
+    );
     assert.deepEqual(
       templates,
       [...templates].sort((left, right) => left.templateRef.localeCompare(right.templateRef)),

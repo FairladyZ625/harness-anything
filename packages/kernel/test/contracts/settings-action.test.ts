@@ -29,6 +29,7 @@ test("closeout profiles default consistently and task gates can only tighten", (
   assert.deepEqual(effectiveCloseoutGates({ profile: "standard" }), {
     review: false,
     consent: false,
+    fact: true,
     factDisposition: false,
     codeDoc: false,
   });
@@ -44,9 +45,17 @@ test("task-level closeout overrides take precedence over repository settings", (
   assert.deepEqual(effectiveCloseoutGates({ profile: "strict" }, [], { review: false, consent: false }), {
     review: false,
     consent: false,
+    fact: true,
     factDisposition: true,
     codeDoc: true,
   });
+  // `fact` is task-bound only: a repository cannot switch off Fact production, and its settings
+  // facet rejects the key instead of accepting an inert value.
+  assert.equal(effectiveCloseoutGates({ profile: "standard", overrides: { fact: false } }).fact, true);
+  assert.throws(
+    () => readSettingsFacet(`${documentBody}  closeout:\n    profile: standard\n    overrides:\n      fact: false\n`),
+    /additionalProperties|fact/u,
+  );
   // A task override wins over a repository override on the same key.
   assert.equal(
     effectiveCloseoutGates({ profile: "standard", overrides: { review: true } }, [], { review: false }).review,

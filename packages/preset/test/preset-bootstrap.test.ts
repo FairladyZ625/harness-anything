@@ -211,7 +211,7 @@ test("standard and milestone bootstrap compile one exact canonical birth and reb
   }
 });
 
-test("the lightweight profile materializes the three-section plan and freezes archiveOnComplete", () => {
+test("the lightweight profile materializes the minimal plan and closeout and freezes its gates", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-lightweight-"));
   try {
     git(rootDir, "init", "-q");
@@ -242,11 +242,20 @@ test("the lightweight profile materializes the three-section plan and freezes ar
         [...plan.body.matchAll(/^## .+$/gmu)].map((match) => match[0]),
         ["## Brief", "## Context", "## Verification"],
       );
+      const closeout = compiled.documents.find((document) => document.relativePath === "closeout.md")!;
+      assert.deepEqual(
+        [...closeout.body.matchAll(/^## .+$/gmu)].map((match) => match[0]),
+        ["## Summary", "## Verification"],
+      );
       assert.equal(compiled.event.payload.task.archiveOnComplete, true);
-      assert.deepEqual(compiled.event.payload.task.closeoutOverrides, { review: false, consent: false });
+      assert.deepEqual(compiled.event.payload.task.closeoutOverrides, {
+        review: false,
+        consent: false,
+        fact: false,
+      });
       const contract = JSON.parse(compiled.documents[1]!.body) as Record<string, unknown>;
       assert.equal(contract.archiveOnComplete, true);
-      assert.deepEqual(contract.closeoutOverrides, { review: false, consent: false });
+      assert.deepEqual(contract.closeoutOverrides, { review: false, consent: false, fact: false });
     }
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

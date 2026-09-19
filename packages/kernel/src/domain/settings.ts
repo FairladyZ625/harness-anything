@@ -16,9 +16,9 @@ import {
 import { validateEntityJsonSchema } from "./entity-json-schema.ts";
 import {
   DEFAULT_CLOSEOUT_SETTINGS,
-  closeoutOverrideKeys,
   closeoutProfiles,
   readCloseoutSettings,
+  settingsCloseoutOverrideKeys,
   writeCloseoutFacet,
   type CloseoutSettingsV1,
 } from "./settings-closeout.ts";
@@ -487,7 +487,7 @@ function closeoutSettingsSchema() {
         ...ownedSchema("closeout", {}),
         type: "object" as const,
         properties: Object.fromEntries(
-          closeoutOverrideKeys.map((key) => [key, ownedSchema("closeout", { type: "boolean" as const })]),
+          settingsCloseoutOverrideKeys.map((key) => [key, ownedSchema("closeout", { type: "boolean" as const })]),
         ),
         required: [],
         additionalProperties: false,

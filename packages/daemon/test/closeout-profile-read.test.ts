@@ -25,7 +25,7 @@ const submitted: TaskLifecycleSnapshot = lifecycleFixture().events.slice(0, 3).r
 });
 
 /** Settings-facet-aware read projection stub: one submitted unreviewed in_review cut and a valid closeout. */
-function projection(closeout: CloseoutSettingsV1 | null): TaskProjectionQueries {
+function projection(closeout: CloseoutSettingsV1 | null, factRows = 1): TaskProjectionQueries {
   return {
     read: () => ({
       snapshot: submitted,
@@ -56,7 +56,10 @@ function projection(closeout: CloseoutSettingsV1 | null): TaskProjectionQueries 
             "## Same Mechanism Elsewhere\nChecked.\n",
       },
     }),
-    readRelationQuery: () => ({ rows: [{ targetRef: "fact/f-read-side", state: "active" }], status: "ready" }),
+    readRelationQuery: () => ({
+      rows: factRows ? [{ targetRef: "fact/f-read-side", state: "active" }] : [],
+      status: "ready",
+    }),
     getEntity: (kind: string, id: string) =>
       kind === "settings" && id === "repository" && closeout ? { value: { closeout } } : null,
   } as unknown as TaskProjectionQueries;
@@ -64,19 +67,51 @@ function projection(closeout: CloseoutSettingsV1 | null): TaskProjectionQueries 
 
 test("standard profile read side reports no closed-gate completion blockers", () => {
   const context = readCompletionContext(projection({ profile: "standard" }), "task-1", submitted, "ready");
-  assert.deepEqual(context.closeoutGates, { review: false, consent: false, factDisposition: false, codeDoc: false });
+  assert.deepEqual(context.closeoutGates, {
+    review: false,
+    consent: false,
+    fact: true,
+    factDisposition: false,
+    codeDoc: false,
+  });
   assert.equal(taskCompletionNext(submitted, context).blocker, null);
 });
 
 test("strict profile read side keeps demanding review and consent", () => {
   const context = readCompletionContext(projection({ profile: "strict" }), "task-1", submitted, "ready");
-  assert.deepEqual(context.closeoutGates, { review: true, consent: true, factDisposition: true, codeDoc: true });
+  assert.deepEqual(context.closeoutGates, {
+    review: true,
+    consent: true,
+    fact: true,
+    factDisposition: true,
+    codeDoc: true,
+  });
   assert.equal(taskCompletionNext(submitted, context).blocker?.code, "review_missing");
 });
 
 test("a repository without a settings entity reads the standard default gates", () => {
   const context = readCompletionContext(projection(null), "task-1", submitted, "ready");
   assert.equal(taskCompletionNext(submitted, context).blocker, null);
+});
+
+test("a task-bound fact lift completes factless; the repository default still demands one", () => {
+  const lightweight = {
+      ...submitted,
+      task: { ...submitted.task!, closeoutOverrides: { review: false, consent: false, fact: false } },
+    },
+    context = readCompletionContext(projection({ profile: "standard" }, 0), "task-1", lightweight, "ready");
+  assert.deepEqual(context.closeoutGates, {
+    review: false,
+    consent: false,
+    fact: false,
+    factDisposition: false,
+    codeDoc: false,
+  });
+  assert.equal(context.producesFactCount, 0);
+  assert.equal(taskCompletionNext(lightweight, context).blocker, null);
+  // Negative control: without the task-bound lift the same factless cut is blocked.
+  const baseline = readCompletionContext(projection({ profile: "standard" }, 0), "task-1", submitted, "ready");
+  assert.equal(taskCompletionNext(submitted, baseline).blocker?.code, "fact_missing");
 });
 
 test("the task query closeout judgment follows the effective gate set", () => {

@@ -423,7 +423,7 @@ function serialize(value: unknown, validate: (input: unknown) => readonly string
 // This file is a zero-dependency contract leaf (thin CLI and daemon transport reach it), so the
 // closeout gate vocabulary is restated here; packages/preset/test keeps it equal to the kernel's
 // closeoutOverrideKeys.
-const closeoutOverrideKeys = ["review", "consent", "factDisposition", "codeDoc"] as const;
+const closeoutOverrideKeys = ["review", "consent", "fact", "factDisposition", "codeDoc"] as const;
 function closeoutOverrides(value: unknown): boolean {
   return (
     isPresetContractRecord(value) &&

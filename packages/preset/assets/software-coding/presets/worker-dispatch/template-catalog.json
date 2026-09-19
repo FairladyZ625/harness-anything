@@ -87,6 +87,37 @@
           "bodyPath": "templates/task.plan.lightweight/en-US.md"
         }
       ]
+    },
+    {
+      "id": "planning/closeout-lightweight",
+      "version": "1",
+      "documentKind": "task-closeout",
+      "slot": "task.closeout",
+      "materializeAs": "closeout.md",
+      "frontmatterSchema": "task-package/v2",
+      "requiredAnchors": [
+        "## Summary",
+        "## Verification"
+      ],
+      "fallbackLocale": "en-US",
+      "locales": [
+        {
+          "locale": "zh-CN",
+          "anchors": [
+            "## Summary",
+            "## Verification"
+          ],
+          "bodyPath": "templates/task.closeout.lightweight/zh-CN.md"
+        },
+        {
+          "locale": "en-US",
+          "anchors": [
+            "## Summary",
+            "## Verification"
+          ],
+          "bodyPath": "templates/task.closeout.lightweight/en-US.md"
+        }
+      ]
     }
   ]
 }

@@ -15,8 +15,8 @@ import {
 } from "../../src/domain/task-lifecycle.contract.ts";
 import { implementer, lifecycleFixture } from "../store/task-lifecycle-fixture.ts";
 
-const standardGates = { review: false, consent: false, factDisposition: false, codeDoc: false };
-const strictGates = { review: true, consent: true, factDisposition: true, codeDoc: true };
+const standardGates = { review: false, consent: false, fact: true, factDisposition: false, codeDoc: false };
+const strictGates = { review: true, consent: true, fact: true, factDisposition: true, codeDoc: true };
 
 function snapshotAfter(recordedEvents: number): TaskLifecycleSnapshot {
   const fixture = lifecycleFixture();
@@ -85,7 +85,7 @@ test("a consent-only override keeps the review gate while waiving consent", () =
 
 test("completion proof must carry a well-formed closeout gate set", () => {
   const snapshot = snapshotAfter(3);
-  const malformed = { review: "false", consent: true, factDisposition: true, codeDoc: true };
+  const malformed = { review: "false", consent: true, fact: true, factDisposition: true, codeDoc: true };
   for (const invalid of [undefined, {}, { review: false }, malformed])
     assert.throws(
       () => applyTransition(snapshot, completeCommand(snapshot), completeProof(invalid)),
