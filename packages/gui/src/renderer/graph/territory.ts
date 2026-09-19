@@ -228,7 +228,12 @@ export function partitionFacts(
     const ref = f.anchor.startsWith("fact/") ? f.anchor : `fact/${f.anchor}`;
     if (seen.has(ref)) continue;
     seen.add(ref);
-    allFacts.push({ ref, taskId: f.taskId, label: f.text, sub: f.invalidated ? "已失效" : f.category });
+    allFacts.push({
+      ref,
+      taskId: f.taskId,
+      label: f.text,
+      sub: f.archived ? "已归档" : f.invalidated ? "已失效" : f.category,
+    });
   }
   for (const a of factAnchors) {
     if (seen.has(a.factRef)) continue;
@@ -236,7 +241,11 @@ export function partitionFacts(
     allFacts.push({ ref: a.factRef, ...(a.taskId ? { taskId: a.taskId } : {}), label: a.factId, sub: "anchor" });
   }
 
-  // 失效 fact 集合(用于异常标记)。
+  // 失效 fact 集合(用于异常标记);归档标记优先于失效——归档行不在默认检索面,
+  // 开关放行回来时第一眼要能看到它为什么被藏。
+  const archivedRefs = new Set(
+    facts.filter((f) => f.archived).map((f) => (f.anchor.startsWith("fact/") ? f.anchor : `fact/${f.anchor}`)),
+  );
   const invalidatedRefs = new Set(
     facts.filter((f) => f.invalidated).map((f) => (f.anchor.startsWith("fact/") ? f.anchor : `fact/${f.anchor}`)),
   );
@@ -263,7 +272,7 @@ export function partitionFacts(
       chips: group.map((f) => ({
         navRef: f.ref,
         label: f.label,
-        sub: invalidatedRefs.has(f.ref) ? "已失效" : f.sub,
+        sub: archivedRefs.has(f.ref) ? "已归档" : invalidatedRefs.has(f.ref) ? "已失效" : f.sub,
         entity: "fact" as const,
         moduleId: mod,
       })),
@@ -333,7 +342,7 @@ export function partitionFactsByAnomaly(
           chips: items.map((f) => ({
             navRef: f.ref,
             label: f.label,
-            sub: f.fact?.category,
+            sub: f.fact?.archived ? "已归档" : f.fact?.category,
             entity: "fact" as const,
             moduleId: mod,
           })),

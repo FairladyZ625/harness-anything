@@ -557,6 +557,8 @@ export interface DaemonFactSummaryRow {
   readonly text: string;
   readonly category: "lesson" | "finding" | "progress";
   readonly taskId?: string;
+  /** `fact_archived` 投影态(dec_62CAE6CA):读面如实携带,默认过滤在 GUI 消费端。 */
+  readonly archived?: boolean;
 }
 
 type EventProjectionCut = Pick<

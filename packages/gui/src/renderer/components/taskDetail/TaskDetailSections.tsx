@@ -10,6 +10,7 @@ import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client
 import { harnessClient } from "../../api-client.ts";
 import { useTaskDocumentQuery } from "../../task-data.ts";
 import { buildTriadicRendererData, useCompleteRelationGraphQuery, triadicQueryKeys } from "../../triadic-data.ts";
+import { useFactArchiveVisibility } from "../../fact-archive-preferences.tsx";
 import { formatTime } from "../../model/time.ts";
 import type { RelationEdge, TaskRow } from "../../model/types.ts";
 
@@ -327,9 +328,15 @@ export function TaskEvidenceTab({
     () => new Set(activeProducesFactRefs(projected.relations, `task/${task.taskId}`).map((edge) => edge.targetRef)),
     [projected.relations, task.taskId],
   );
+  // 已归档 Fact 默认退出证据列表(dec_62CAE6CA,与图/切面同一开关);开关放行时
+  // 行内带「已归档」标记,不冒充活证据。
+  const { showArchivedFacts } = useFactArchiveVisibility();
   const facts = useMemo(
-    () => (graph.data?.facts ?? []).filter((fact) => ownedFactRefs.has(fact.ref)),
-    [graph.data, ownedFactRefs],
+    () =>
+      (graph.data?.facts ?? []).filter(
+        (fact) => ownedFactRefs.has(fact.ref) && (showArchivedFacts || fact.archived !== true),
+      ),
+    [graph.data, ownedFactRefs, showArchivedFacts],
   );
   const triageByAnchor = useMemo(
     () =>
@@ -426,6 +433,11 @@ function FactRow({
         >
           {fact.liveness}
         </span>
+        {fact.archived === true && (
+          <span className="mt-1 inline-flex rounded bg-surface-raised px-1.5 py-0.5 font-mono ui-micro text-text-faint">
+            已归档
+          </span>
+        )}
       </div>
       <div className="min-w-0">
         {item && item.signals.length > 0 && (

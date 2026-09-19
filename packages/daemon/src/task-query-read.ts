@@ -134,6 +134,9 @@ export function makeTaskQueryReadModel(input: {
                 ? ("progress" as const)
                 : ("finding" as const),
           ...(row.taskId === undefined ? {} : { taskId: row.taskId }),
+          // 归档态随行送达(dec_62CAE6CA):GUI 默认隐藏已归档 Fact,开关打开时
+          // 也要能带标记显示 —— 过滤在消费端做,读面只负责如实携带。
+          archived: row.archived === true,
         })),
         domainTypes: domainTypes.domainTypes,
         warnings: relationFacetWarnings(read.status === "ready" ? domainTypes.status : read.status),

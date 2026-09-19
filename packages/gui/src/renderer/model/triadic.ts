@@ -1,4 +1,5 @@
 import { incomingRelations } from "./relation-direction.ts";
+import type { FactAnchorRow } from "../../api/renderer-dto";
 import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "./types";
 
 type ProducesFactRelation = {
@@ -84,6 +85,38 @@ export function supersedeChain(
 export function factOf(ref: string, facts: FactRef[]): FactRef | undefined {
   const anchor = ref.replace(/^fact\//, "");
   return facts.find((fact) => fact.anchor === anchor);
+}
+
+/**
+ * 关系图喂入面的归档收口(task 对齐 dec_62CAE6CA,与 `ha graph` 的默认语义同一条):
+ * 已归档 Fact 的**行、锚点与触及边**一起退出默认视图——只隐行不隐锚点会让
+ * anchor-only chip 原样回来,只隐节点不隐边会在聚光灯留下断头边。开关打开时
+ * 三者整体回来,标记由各渲染点按行上的 `archived` 自行附加。
+ */
+export function applyFactArchiveVisibility<F extends { readonly anchor: string; readonly archived?: boolean }>(input: {
+  readonly facts: ReadonlyArray<F>;
+  readonly factAnchors: ReadonlyArray<FactAnchorRow>;
+  readonly relations: ReadonlyArray<RelationEdge>;
+  readonly includeArchived: boolean;
+}): {
+  readonly facts: ReadonlyArray<F>;
+  readonly factAnchors: ReadonlyArray<FactAnchorRow>;
+  readonly relations: ReadonlyArray<RelationEdge>;
+} {
+  if (input.includeArchived) return input;
+  const archivedRefs = new Set(
+    input.facts.filter((fact) => fact.archived === true).map((fact) => normalizeFactRef(fact.anchor)),
+  );
+  if (archivedRefs.size === 0) return input;
+  return {
+    facts: input.facts.filter((fact) => !archivedRefs.has(normalizeFactRef(fact.anchor))),
+    factAnchors: input.factAnchors.filter((anchor) => !archivedRefs.has(anchor.factRef)),
+    relations: input.relations.filter((edge) => !archivedRefs.has(edge.from) && !archivedRefs.has(edge.to)),
+  };
+}
+
+function normalizeFactRef(anchor: string): string {
+  return anchor.startsWith("fact/") ? anchor : `fact/${anchor}`;
 }
 
 export function rationaleFor(ref: string, relations: RelationEdge[]): string | undefined {
