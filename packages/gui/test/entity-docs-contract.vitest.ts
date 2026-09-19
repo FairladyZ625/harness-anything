@@ -8,11 +8,7 @@ import {
   type EntityRefKind,
   type RelationType,
 } from "../../kernel/src/index.ts";
-import {
-  checkEntityDocContract,
-  explainEntityKind,
-  projectedEntityKinds,
-} from "../../../tools/generate-entity-doc-contract.mjs";
+import { explainEntityKind, projectedEntityKinds } from "../../../tools/generate-entity-doc-contract.mjs";
 import {
   CURATED_ENTITY_DOC_BY_KIND,
   CURATED_ENTITY_DOC_GROUPS,
@@ -64,15 +60,6 @@ describe("entity docs cover the registered entity universe", () => {
 });
 
 describe("per-kind contract against kernel explainEntityKind", () => {
-  /**
-   * 目录的机器半现在是从 kernel 生成并提交进仓库的,所以再断言「目录 == kernel」
-   * 已经是同源恒等、零信息。真正有信息的是:**已提交的生成区块**与**当前 kernel**
-   * 是否还一致——kernel 改了而没重跑生成器,这里红。
-   */
-  it("committed generated region is not stale against the live kernel", async () => {
-    await expect(checkEntityDocContract()).resolves.toBeUndefined();
-  });
-
   it.each(KERNEL_KINDS)("%s: has a doc entry carrying the kernel contract", (kind) => {
     const explanation = explainEntityKind(kind),
       doc = CURATED_ENTITY_DOC_BY_KIND.get(kind);

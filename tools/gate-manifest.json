@@ -65,6 +65,7 @@
         "check-cli-help-contract",
         "check-cli-error-codes",
         "check-error-classification",
+        "check-entity-doc-contract",
         "check-import-boundaries",
         "check-poll-spin-boundary",
         "check-fallback-boundaries",
@@ -114,6 +115,7 @@
         "check-cli-help-contract",
         "check-cli-error-codes",
         "check-error-classification",
+        "check-entity-doc-contract",
         "check-import-boundaries",
         "check-poll-spin-boundary",
         "check-fallback-boundaries",
@@ -246,6 +248,26 @@
       "executionSurfaces": { "packageJson": { "check": true, "checkPr": true, "script": "harness:check-fallback-boundaries" }, "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["boundaries"] }, "branchProtection": { "required": true, "contexts": ["boundaries"] }, "classes": ["local", "pr"] },
       "deterministic": true,
       "positiveControl": { "status": "covered", "evidence": ["tools/gates/test/syntax-boundaries.test.mjs"] }
+    },
+    {
+      "id": "check-entity-doc-contract",
+      "command": "npm run harness:check-entity-doc-contract",
+      "category": "local-consistency",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": [
+        "tools/generate-entity-doc-contract.mjs",
+        "harness/tasks/task_f00d3428b2169efdcb07f13628-2026-09-19/artifacts/owner-ruling-2026-09-19.md",
+        "task_5a8b9bb1cff98ebd897402f2d2"
+      ],
+      "consumerScope": ["committed generated region of packages/gui/src/renderer/entity-docs.ts against the live kernel entity kind registry"],
+      "githubContext": { "requiredContexts": ["boundaries"], "workflowJobs": ["boundaries"], "nodeVersions": [24] },
+      "allowlistPolicy": { "allowed": false, "location": null, "adrOrDecisionRequired": false, "notes": "Generated-region freshness has no exemptions; a stale region fails until the generator is rerun." },
+      "changeControl": { "ordinaryImplementationMayModify": false, "requiresGovernanceEvidence": true, "protectedSurfaces": ["tools/generate-entity-doc-contract.mjs", "package.json:scripts.harness:check-entity-doc-contract", "tools/gate-manifest.json"] },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": { "packageJson": { "check": true, "checkPr": true, "script": "harness:check-entity-doc-contract" }, "rewriteCi": { "pullRequestJobs": ["boundaries"], "nonPullRequestJobs": ["boundaries"] }, "branchProtection": { "required": true, "contexts": ["boundaries"] }, "classes": ["local", "pr"] },
+      "deterministic": true,
+      "positiveControl": { "status": "covered", "evidence": ["harness/tasks/task_5a8b9bb1cff98ebd897402f2d2-pr-gui-prettier/artifacts/report.md"] }
     },
     {
       "id": "aggregate-full-check",
