@@ -32,7 +32,10 @@ export type DecisionFieldKey =
   | "body";
 export type TaskFieldKey = keyof TaskFrontmatter;
 export type FactFieldKey =
-  | Exclude<keyof FactEventPayload, "factsDocumentClaim" | "supersededFactsDocumentClaim">
+  | Exclude<
+      keyof FactEventPayload,
+      "factsDocumentClaim" | "supersededFactsDocumentClaim" | "factsDocumentRetirement" | "archiveReason"
+    >
   | "factId";
 export type RelationFieldKey = keyof EntityRelationRecord;
 

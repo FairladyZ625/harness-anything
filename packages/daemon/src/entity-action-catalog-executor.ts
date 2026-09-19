@@ -33,6 +33,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { prepareDecisionAmend, validateDecisionPackages } from "./decision-surface-actions.ts";
 import { factReplayBundle, supersededFactDocumentSource } from "./fact-supersede-document.ts";
+import { archiveAllFacts, factArchiveBundle, factArchivePreload, factUnarchiveBundle } from "./fact-archive-document.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import {
   commitRuntimeSessionBundle,
@@ -108,6 +109,21 @@ export function makeEntityActionCatalogExecutor(input: {
       });
     }
     if (action.kind === "decision-repin" && action.all === true) return repinAll(action, binding, opId);
+    if (action.kind === "fact-archive" && (Array.isArray(action.factIds) || action.idsFile !== undefined))
+      return archiveAllFacts(
+        {
+          rootDir: input.rootDir,
+          store: input.store,
+          projection: input.projection,
+          now: input.now,
+          killpoint: input.killpoint,
+          authorize: () => decisionAuthorization(action, binding, opId, input),
+          compile: (preloaded, memberOpId, occurredAt, allocatedRevision) =>
+            compileAction(contract, preloaded, binding, memberOpId, occurredAt, allocatedRevision) as FactBundle,
+        },
+        action,
+        opId,
+      );
     return runWrite(contract, action, binding, opId);
   };
 
@@ -255,7 +271,9 @@ export function makeEntityActionCatalogExecutor(input: {
             )
           : contract.id === "reclassify"
             ? reclassificationAction(rawAction, input.projection)
-            : rawAction
+            : rawAction.kind === "fact-archive" || rawAction.kind === "fact-unarchive"
+              ? factArchivePreload(input.projection, rawAction, requiredCommandText(rawAction.factId, "factId"))
+              : rawAction
       ) as RepoTaskAction,
       dryRun = action.dryRun === true,
       existing = dryRun ? null : input.store.readEvent(opId),
@@ -550,6 +568,8 @@ function compileDraft(
       event: draft.event,
       supersededFact: supersededFactDocumentSource(projection, draft.event),
     });
+  if (draft.kind === "fact-archive") return factArchiveBundle(projection, draft.event);
+  if (draft.kind === "fact-unarchive") return factUnarchiveBundle(projection, draft.event);
   if (draft.kind === "entity")
     return compileEntityUpsert({ ...event, entityKind: draft.entityKind, entity: draft.entity });
   if (draft.kind === "entity-delete")

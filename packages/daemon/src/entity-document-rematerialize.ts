@@ -14,6 +14,8 @@ import {
   sha256Text,
   type DecisionRelationLinkResolver,
   type EntityDocumentUpdate,
+  type FactDocumentRecord,
+  type FactProjectionRow,
   type LifecycleDocumentState,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
@@ -211,7 +213,8 @@ function resolveEntityIds(
   if (entityKind === "fact")
     return cell.projection
       .searchFacts({})
-      .facts.map(({ factId }) => factId)
+      .facts.filter((fact) => fact.archived !== true)
+      .map(({ factId }) => factId)
       .sort();
   return cell.projection
     .list({})
@@ -271,13 +274,25 @@ function decisionDocumentUpdates(
 function factDocumentUpdates(projection: TaskProjection, factId: string): readonly EntityDocumentUpdate[] {
   const fact = projection.readFact(factId).fact,
     path = `facts/${factId}.md`;
+  if (fact?.archived === true)
+    reject("invalid_command", `Fact ${path} is archived; unarchive it before rematerializing.`);
   if (!fact || !projection.readDocument(path).document)
     reject("content_not_ready", `Fact document ${path} is unavailable.`);
+  return [
+    {
+      path,
+      policyId: FACT_DOCUMENT_POLICY_ID,
+      mediaType: "text/markdown",
+      body: renderFactsDocument([factDocumentRecord(projection, fact)]),
+    },
+  ];
+}
+
+/** The Fact document record the current projection implies: observation fields plus derived liveness. */
+export function factDocumentRecord(projection: TaskProjection, fact: FactProjectionRow): FactDocumentRecord {
   const incoming = relationRecords(
-      projection.readRelationQuery({ target: `fact/${factId}`, relationType: "supersedes-fact" }).rows,
-    ).filter(
-      ({ target, type, state }) => target === `fact/${factId}` && type === "supersedes-fact" && state === "active",
-    ),
+      projection.readRelationQuery({ target: fact.ref, relationType: "supersedes-fact" }).rows,
+    ).filter(({ target, type, state }) => target === fact.ref && type === "supersedes-fact" && state === "active"),
     state = factLiveness(
       { ref: fact.ref },
       incoming.map(({ source, target, type, state: relationState }) => ({
@@ -287,26 +302,17 @@ function factDocumentUpdates(projection: TaskProjection, factId: string): readon
         state: relationState,
       })),
     );
-  return [
-    {
-      path,
-      policyId: FACT_DOCUMENT_POLICY_ID,
-      mediaType: "text/markdown",
-      body: renderFactsDocument([
-        {
-          factId,
-          ...(fact.taskId ? { taskId: fact.taskId } : {}),
-          statement: fact.statement,
-          evidenceSource: fact.evidenceSource,
-          observedAt: fact.observedAt,
-          confidence: fact.confidence,
-          state,
-          supersededBy: incoming.map(({ source, rationale }) => ({ factRef: source, rationale })),
-          workspaceRevision: fact.workspaceRevision,
-        },
-      ]),
-    },
-  ];
+  return {
+    factId: fact.factId,
+    ...(fact.taskId ? { taskId: fact.taskId } : {}),
+    statement: fact.statement,
+    evidenceSource: fact.evidenceSource,
+    observedAt: fact.observedAt,
+    confidence: fact.confidence,
+    state,
+    supersededBy: incoming.map(({ source, rationale }) => ({ factRef: source, rationale })),
+    workspaceRevision: fact.workspaceRevision,
+  };
 }
 
 function taskDocumentUpdates(projection: TaskProjection, taskId: string): readonly EntityDocumentUpdate[] {

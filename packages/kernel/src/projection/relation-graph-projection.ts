@@ -52,6 +52,8 @@ export interface RelationFactRow {
   readonly liveness: "standing" | "superseded_fact";
   /** Derived from `liveness` by `factInvalidated`; consumers read this instead of comparing the word. */
   readonly invalidated: boolean;
+  /** Orthogonal to liveness: `fact_archived` retired the managed document but the row stays canonical. */
+  readonly archived: boolean;
 }
 export interface DecisionAnchorTruth {
   readonly decisionRef: string;

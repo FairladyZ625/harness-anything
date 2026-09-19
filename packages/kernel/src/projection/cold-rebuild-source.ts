@@ -612,6 +612,7 @@ function parseLegacyFacts(
         })),
         liveness: "standing",
         invalidated: false,
+        archived: false,
       });
       anchors.push({ factRef: ref, taskId, factId, sourcePath: portablePath });
     }
@@ -632,6 +633,9 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
     relationHistory: Array<RelationEventV1 | MigrationImportEventV1> = [],
     legacyFactRefs = new Map<string, string>(),
     legacyRelationIds = new Map<string, string>(),
+    // Archive transitions apply to the fact row their `fact_recorded` event produced, regardless of
+    // the order the event files were enumerated in; keep the highest-revision outcome per Fact.
+    factArchiveTransitions = new Map<string, { readonly revision: number; readonly archived: boolean }>(),
     issues: ColdRebuildIssue[] = [];
   for (const file of listColdRebuildFiles(eventsRoot).filter(
     (candidate) => path.extname(candidate) === ".json" && path.basename(candidate) !== "head.json",
@@ -656,12 +660,21 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
       }
     }
     if (isFactEvent(event)) {
-      const ref = `fact/${event.factId}`,
-        legacyRef = event.taskId ? `fact/${event.taskId}/${event.factId}` : null,
+      const ref = `fact/${event.factId}`;
+      if (event.type === "fact_archived" || event.type === "fact_unarchived") {
+        const prior = factArchiveTransitions.get(event.factId);
+        if (prior === undefined || prior.revision < event.workspaceRevision)
+          factArchiveTransitions.set(event.factId, {
+            revision: event.workspaceRevision,
+            archived: event.type === "fact_archived",
+          });
+        continue;
+      }
+      const legacyRef = event.taskId ? `fact/${event.taskId}/${event.factId}` : null,
         identityRef =
           allowLegacyFactRefs &&
           legacyRef !== null &&
-          event.payload.factsDocumentClaim.path !== `facts/${event.factId}.md`
+          event.payload.factsDocumentClaim!.path !== `facts/${event.factId}.md`
             ? legacyRef
             : ref,
         row: RelationFactRow = {
@@ -678,6 +691,7 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
           provenance: relationProvenance(event.payload.provenance),
           liveness: "standing",
           invalidated: false,
+          archived: false,
         };
       addEventFactSource(rows, issues, identityRef, row, `event:${event.opId}`);
       if (allowLegacyFactRefs && legacyRef !== null) legacyFactRefs.set(legacyRef, ref);
@@ -724,6 +738,7 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
           provenance: entity.fact.provenance,
           liveness: "standing",
           invalidated: false,
+          archived: false,
         };
       addEventFactSource(rows, issues, ref, row, `event:${event.opId}`);
       if (entity.fact.taskId) {
@@ -802,7 +817,16 @@ function readAuthoredEvents(rootDir: string, authoredRoot: string, allowLegacyFa
   }
   for (const { entity, sourcePath: eventPath } of projected.values())
     relations.push(relationEntry(relationRecord(entity), relationOwnerRef(entity.source), eventPath, 0));
-  return { rows: [...rows.values()], relations, legacyFactRefs, legacyRelationIds, issues };
+  return {
+    rows: [...rows.values()].map((entry) => {
+      const transition = factArchiveTransitions.get(entry.row.factId);
+      return transition === undefined ? entry : { ...entry, row: { ...entry.row, archived: transition.archived } };
+    }),
+    relations,
+    legacyFactRefs,
+    legacyRelationIds,
+    issues,
+  };
 }
 
 function addEventFactSource(

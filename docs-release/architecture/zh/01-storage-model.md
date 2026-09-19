@@ -160,6 +160,14 @@ append-only 并不意味着每一次重复追加都会报错。当 fact append �
 存储层会比较格式化后的记录字节。如果现有记录与传入记录逐字节相同，这次追加就是幂等 no-op，文件
 正文保持不变。如果 id 相同但字节不同，写入仍会作为重复 fact id 被拒绝。
 
+**归档撤下的是文档，不是 fact。** `ha fact archive <id> --reason <text>`
+（批量用 `--ids-file <path>`）为每条 fact 追加一条 `fact_archived` 事件，
+并经受管文档写路退役其 `facts/F-<id>.md`。事件历史与投影行仍是 canonical：
+`ha fact show` 仍读得到并标明 archived；`ha graph` 与派工因果上下文默认
+不展示，传 `--include-archived` 才展示；`ha fact rematerialize --all` 跳过它。
+`ha fact unarchive <id> --reason <text>` 追加 `fact_unarchived` 并重新物化
+文档。归档与活性正交——`standing` 的 fact 归档后仍是 `standing`。
+
 ## 共同的那根线:可归因
 
 三种实体的可归因方式各不相同,但都不允许匿名写入。decision 的 frontmatter 携带

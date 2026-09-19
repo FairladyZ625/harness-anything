@@ -30,6 +30,7 @@ export const factMemoryTags = [
   "abstract_rule",
   "other",
 ] as const;
+export const factEventTypes = ["fact_recorded", "fact_reclassified", "fact_archived", "fact_unarchived"] as const;
 export const factProvenanceRuntimes = ["human", "claude-code", "codex", "zcode", "antigravity"] as const;
 export type FactConfidence = (typeof factConfidenceLevels)[number];
 export type FactMemoryClass = (typeof factMemoryClasses)[number];
@@ -75,13 +76,18 @@ export interface FactEventPayload {
   readonly memoryTags: readonly FactMemoryTag[];
   readonly provenance: readonly SessionProvenanceV1[];
   readonly supersedes?: { readonly factRef: string; readonly rationale: string };
-  readonly factsDocumentClaim: FactsDocumentClaim;
+  /** Required on every type except `fact_archived`, which retires the document instead of writing one. */
+  readonly factsDocumentClaim?: FactsDocumentClaim;
   readonly supersededFactsDocumentClaim?: FactsDocumentClaim;
+  /** Audit reason carried by `fact_archived`/`fact_unarchived`. */
+  readonly archiveReason?: string;
+  /** The managed document a `fact_archived` event retires: its canonical path and pre-delete blob hash. */
+  readonly factsDocumentRetirement?: { readonly path: string; readonly sha256: string };
 }
 
 export type FactEventV1 = EventEnvelope<
   "fact-event/v1",
-  "fact_recorded" | "fact_reclassified",
+  "fact_recorded" | "fact_reclassified" | "fact_archived" | "fact_unarchived",
   ActorIdentity,
   FactEventPayload
 > & {
@@ -90,7 +96,10 @@ export type FactEventV1 = EventEnvelope<
   readonly factId: string;
 };
 export type FactEventDraftV1 = Omit<FactEventV1, "payload"> & {
-  readonly payload: Omit<FactEventPayload, "factsDocumentClaim" | "supersededFactsDocumentClaim">;
+  readonly payload: Omit<
+    FactEventPayload,
+    "factsDocumentClaim" | "supersededFactsDocumentClaim" | "factsDocumentRetirement"
+  >;
 };
 export interface CompiledFactWrite {
   readonly event: FactEventV1;
@@ -187,6 +196,59 @@ function supersededFactDocument(
     blob: { sha256, size, mediaType: "text/markdown", body },
   };
 }
+/** A `fact_archived` event carries no new document — it retires `facts/<factId>.md`, proven by
+ * `retiredDocumentSha256` (the projected blob hash the caller read at this cut). */
+export function compileFactArchiveWrite(input: {
+  readonly event: FactEventDraftV1;
+  readonly retiredDocumentSha256: string;
+}): CompiledFactWrite {
+  const path = `facts/${input.event.factId}.md`;
+  try {
+    if (normalizeRelativeDocumentPath(path) !== path) throw new Error();
+  } catch {
+    throw new Error("facts package path is invalid");
+  }
+  const event: FactEventV1 = {
+    ...input.event,
+    payload: {
+      ...input.event.payload,
+      factsDocumentRetirement: { path, sha256: input.retiredDocumentSha256 },
+    },
+  };
+  return { event, plan: factWritePlan(event), blobs: [], path, body: "" };
+}
+/** A `fact_unarchived` event re-materializes the Fact document from the current projection row
+ * (including derived liveness), so replay restores exactly the document this record renders. */
+export function compileFactUnarchiveWrite(input: {
+  readonly event: FactEventDraftV1;
+  readonly document: FactDocumentRecord;
+}): CompiledFactWrite {
+  const path = `facts/${input.event.factId}.md`;
+  try {
+    if (normalizeRelativeDocumentPath(path) !== path) throw new Error();
+  } catch {
+    throw new Error("facts package path is invalid");
+  }
+  const body = renderFactsDocument([input.document]),
+    claim: FactsDocumentClaim = {
+      path,
+      sha256: sha256Text(body),
+      size: Buffer.byteLength(body),
+      mediaType: "text/markdown",
+      policyId: FACT_DOCUMENT_POLICY_ID,
+    },
+    event: FactEventV1 = {
+      ...input.event,
+      payload: { ...input.event.payload, factsDocumentClaim: claim },
+    };
+  return {
+    event,
+    plan: factWritePlan(event),
+    blobs: [{ sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType, body }],
+    path,
+    body,
+  };
+}
 export function renderFactsDocument(records: readonly FactDocumentRecord[]): string {
   return `# Facts\n\nManaged by \`ha fact record\`; hand edits are rejected.\n\n## Records\n\n${[...records]
     .sort((left, right) => left.workspaceRevision - right.workspaceRevision || left.factId.localeCompare(right.factId))
@@ -202,48 +264,66 @@ export function renderFactsDocument(records: readonly FactDocumentRecord[]): str
     .join("")}`;
 }
 export function factWritePlan(event: FactEventV1): FrozenWritePlan<"FactRecord"> {
-  const claim = event.payload.factsDocumentClaim,
-    supersededClaim = event.payload.supersededFactsDocumentClaim,
-    targets: WriteTarget[] = [
-      { kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" },
-      { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
+  const targets: WriteTarget[] = [
+    { kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" },
+    { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
+  ];
+  if (event.type === "fact_archived") {
+    const retirement = event.payload.factsDocumentRetirement;
+    if (!retirement) throw new Error("fact_archived requires a factsDocumentRetirement");
+    targets.push(
       {
-        kind: "authored_file",
-        path: claim.path,
-        operation: "replace",
-        sha256: claim.sha256,
-        size: claim.size,
-        mediaType: claim.mediaType,
+        kind: "authored_file_delete",
+        path: retirement.path,
+        operation: "delete",
+        baseSha256: retirement.sha256,
       },
-      ...(supersededClaim
-        ? [
-            {
-              kind: "authored_file",
-              path: supersededClaim.path,
-              operation: "replace",
-              sha256: supersededClaim.sha256,
-              size: supersededClaim.size,
-              mediaType: supersededClaim.mediaType,
-            } as const,
-          ]
-        : []),
-      { kind: "content_blob", sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType },
-      ...(supersededClaim
-        ? [
-            {
-              kind: "content_blob",
-              sha256: supersededClaim.sha256,
-              size: supersededClaim.size,
-              mediaType: supersededClaim.mediaType,
-            } as const,
-          ]
-        : []),
       { kind: "projection_invalidation", projection: "fact/v1", key: event.factId },
-      { kind: "projection_invalidation", projection: "document/v1", key: claim.path },
-      ...(supersededClaim
-        ? [{ kind: "projection_invalidation", projection: "document/v1", key: supersededClaim.path } as const]
-        : []),
-    ];
+      { kind: "projection_invalidation", projection: "document/v1", key: retirement.path },
+    );
+    return freezeDeclaredWritePlan({ commandType: "FactRecord", targets }, ["FactRecord"]);
+  }
+  const claim = event.payload.factsDocumentClaim;
+  if (!claim) throw new Error(`fact event ${event.type} requires a factsDocumentClaim`);
+  const supersededClaim = event.payload.supersededFactsDocumentClaim;
+  targets.push(
+    {
+      kind: "authored_file",
+      path: claim.path,
+      operation: "replace",
+      sha256: claim.sha256,
+      size: claim.size,
+      mediaType: claim.mediaType,
+    },
+    ...(supersededClaim
+      ? [
+          {
+            kind: "authored_file",
+            path: supersededClaim.path,
+            operation: "replace",
+            sha256: supersededClaim.sha256,
+            size: supersededClaim.size,
+            mediaType: supersededClaim.mediaType,
+          } as const,
+        ]
+      : []),
+    { kind: "content_blob", sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType },
+    ...(supersededClaim
+      ? [
+          {
+            kind: "content_blob",
+            sha256: supersededClaim.sha256,
+            size: supersededClaim.size,
+            mediaType: supersededClaim.mediaType,
+          } as const,
+        ]
+      : []),
+    { kind: "projection_invalidation", projection: "fact/v1", key: event.factId },
+    { kind: "projection_invalidation", projection: "document/v1", key: claim.path },
+    ...(supersededClaim
+      ? [{ kind: "projection_invalidation", projection: "document/v1", key: supersededClaim.path } as const]
+      : []),
+  );
   return freezeDeclaredWritePlan({ commandType: "FactRecord", targets }, ["FactRecord"]);
 }
 export function assertFactWritePlan(event: FactEventV1, plan: FrozenWritePlan | undefined): void {
@@ -271,7 +351,7 @@ function validateFactEventFields(value: unknown, allowUnknownFields: boolean): r
     !isRecord(value) ||
     !factEventFields(value, allowUnknownFields) ||
     value.schema !== "fact-event/v1" ||
-    (value.type !== "fact_recorded" && value.type !== "fact_reclassified") ||
+    !factEventTypes.includes(value.type as never) ||
     (value.taskId !== undefined && !safeId(value.taskId)) ||
     typeof value.factId !== "string" ||
     !isFactId(value.factId) ||
@@ -279,17 +359,17 @@ function validateFactEventFields(value: unknown, allowUnknownFields: boolean): r
     !isRecord(value.payload) ||
     !requiredWithOptional(
       value.payload,
+      ["statement", "evidenceSource", "observedAt", "confidence", "memoryClass", "memoryTags", "provenance"],
       [
-        "statement",
-        "evidenceSource",
-        "observedAt",
-        "confidence",
-        "memoryClass",
-        "memoryTags",
-        "provenance",
+        "domainTypes",
+        "registersDomainType",
+        "supersedes",
         "factsDocumentClaim",
+        "supersededFactsDocumentClaim",
+        "reclassificationRationale",
+        "archiveReason",
+        "factsDocumentRetirement",
       ],
-      ["domainTypes", "registersDomainType", "supersedes", "supersededFactsDocumentClaim", "reclassificationRationale"],
       allowUnknownFields,
     )
   )
@@ -322,10 +402,34 @@ function validateFactEventFields(value: unknown, allowUnknownFields: boolean): r
       (payload.domainTypes === undefined ||
         payload.registersDomainType !== undefined ||
         payload.supersedes !== undefined ||
+        payload.archiveReason !== undefined ||
+        payload.factsDocumentRetirement !== undefined ||
         !codePoints(payload.reclassificationRationale, 1, 199))) ||
-    (value.type === "fact_recorded" && payload.reclassificationRationale !== undefined) ||
+    (value.type === "fact_recorded" &&
+      (payload.reclassificationRationale !== undefined ||
+        payload.archiveReason !== undefined ||
+        payload.factsDocumentRetirement !== undefined)) ||
+    (value.type === "fact_archived" &&
+      (payload.factsDocumentClaim !== undefined ||
+        payload.supersededFactsDocumentClaim !== undefined ||
+        payload.supersedes !== undefined ||
+        payload.domainTypes !== undefined ||
+        payload.registersDomainType !== undefined ||
+        payload.reclassificationRationale !== undefined ||
+        !codePoints(payload.archiveReason, 1, 199) ||
+        !validFactDocumentRetirement(payload.factsDocumentRetirement, value.factId))) ||
+    (value.type === "fact_unarchived" &&
+      (payload.factsDocumentClaim === undefined ||
+        payload.factsDocumentRetirement !== undefined ||
+        payload.supersededFactsDocumentClaim !== undefined ||
+        payload.supersedes !== undefined ||
+        payload.domainTypes !== undefined ||
+        payload.registersDomainType !== undefined ||
+        payload.reclassificationRationale !== undefined ||
+        !codePoints(payload.archiveReason, 1, 199))) ||
     (payload.registersDomainType !== undefined && payload.domainTypes !== undefined) ||
-    !validFactsClaim(payload.factsDocumentClaim, value.factId, value.taskId, allowUnknownFields)
+    (value.type !== "fact_archived" &&
+      !validFactsClaim(payload.factsDocumentClaim, value.factId, value.taskId, allowUnknownFields))
   )
     return ["fact event payload is invalid"];
   return [];
@@ -368,6 +472,15 @@ function factEventFields(value: Readonly<Record<string, unknown>>, allowUnknownF
   return (
     Object.keys(value).every((field) => required.includes(field) || field === "taskId") &&
     required.every((field) => Object.hasOwn(value, field))
+  );
+}
+
+function validFactDocumentRetirement(value: unknown, factId: unknown): boolean {
+  return (
+    isRecord(value) &&
+    value.path === `facts/${String(factId)}.md` &&
+    typeof value.sha256 === "string" &&
+    /^[0-9a-f]{64}$/u.test(value.sha256)
   );
 }
 

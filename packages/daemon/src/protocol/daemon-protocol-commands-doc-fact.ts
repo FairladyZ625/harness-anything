@@ -168,6 +168,52 @@ export const docFactProtocolCommands = Object.freeze([
     ],
   }),
   defineLedgerWriteCommand({
+    id: "fact-archive",
+    phase: "DecisionFact-A",
+    path: ["fact", "archive"],
+    syntaxPath: ["fact", "archive", "<fact-id>"],
+    summary:
+      "Archive one Fact (or every id listed by --ids-file) with an audited fact_archived event: " +
+      "the managed Markdown retires while the event and projection row stay canonical.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput(
+        "--reason",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { regex: "^[\\s\\S]{1,199}$" },
+      ),
+      cliInput("--ids-file", "single", false, {
+        code: "invalid_field",
+      }),
+      cliInput("--dry-run", "boolean", false, {
+        code: "invalid_field",
+      }),
+    ],
+  }),
+  defineLedgerWriteCommand({
+    id: "fact-unarchive",
+    phase: "DecisionFact-A",
+    path: ["fact", "unarchive"],
+    syntaxPath: ["fact", "unarchive", "<fact-id>"],
+    summary: "Restore one archived Fact's managed document and visibility with an audited fact_unarchived event.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput(
+        "--reason",
+        "single",
+        true,
+        {
+          code: "missing_field",
+        },
+        { regex: "^[\\s\\S]{1,199}$" },
+      ),
+    ],
+  }),
+  defineLedgerWriteCommand({
     id: "fact-rematerialize",
     phase: "DecisionFact-A",
     path: ["fact", "rematerialize"],

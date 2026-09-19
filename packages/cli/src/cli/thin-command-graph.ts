@@ -20,7 +20,12 @@ export function parseGraph(
     rootDir,
     repoId,
     json,
-    { kind: "graph", ref, ...(depth === undefined ? {} : { depth: Number(depth) }) },
+    {
+      kind: "graph",
+      ref,
+      ...(depth === undefined ? {} : { depth: Number(depth) }),
+      ...(flags.booleans.has("--include-archived") ? { includeArchived: true } : {}),
+    },
     route.method,
   );
 }

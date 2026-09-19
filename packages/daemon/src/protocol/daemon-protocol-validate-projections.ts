@@ -334,10 +334,12 @@ function fullFactInvalid(row: unknown): boolean {
       "provenance",
       "liveness",
       "invalidated",
+      "archived",
     ]) ||
     row.schema !== "task-fact-row/v1" ||
     !statusWord(factLivenessWords, row.liveness) ||
     typeof row.invalidated !== "boolean" ||
+    typeof row.archived !== "boolean" ||
     !["low", "medium", "high"].includes(String(row.confidence)) ||
     !["semantic", "episodic", "procedural"].includes(String(row.memoryClass)) ||
     !stringArray(row.memoryTags) ||

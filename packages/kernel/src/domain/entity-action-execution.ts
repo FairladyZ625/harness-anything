@@ -122,6 +122,8 @@ export type EntityActionDraft =
   | RuntimeSessionActionDraft
   | { readonly kind: "decision"; readonly event: DecisionEventDraftV1 }
   | { readonly kind: "fact"; readonly event: FactEventDraftV1 }
+  | { readonly kind: "fact-archive"; readonly event: FactEventDraftV1 }
+  | { readonly kind: "fact-unarchive"; readonly event: FactEventDraftV1 }
   | { readonly kind: "relation"; readonly event: RelationEventV1 }
   | { readonly kind: "schedule"; readonly result: ScheduleActionDraft }
   | { readonly kind: "settings"; readonly result: SettingsActionDraft }
@@ -206,6 +208,30 @@ export function compileFactReclassifyAction(input: EntityActionCompileInput): En
       },
     },
   };
+}
+
+/** Archive/unarchive drafts reuse the Fact observation snapshot the daemon preloaded from the
+ * projection row (same fields `reclassify` copies); the archive reason is the only authored input. */
+function compileFactArchiveDraft(
+  input: EntityActionCompileInput,
+  type: "fact_archived" | "fact_unarchived",
+): FactEventDraftV1 {
+  const recorded = compileFactRecordAction(input);
+  if (recorded.kind !== "fact") throw new Error("fact archive compiler produced a non-Fact draft");
+  return {
+    ...recorded.event,
+    type,
+    payload: {
+      ...recorded.event.payload,
+      archiveReason: short(input, input.action.reason, "reason"),
+    },
+  };
+}
+export function compileFactArchiveAction(input: EntityActionCompileInput): EntityActionDraft {
+  return { kind: "fact-archive", event: compileFactArchiveDraft(input, "fact_archived") };
+}
+export function compileFactUnarchiveAction(input: EntityActionCompileInput): EntityActionDraft {
+  return { kind: "fact-unarchive", event: compileFactArchiveDraft(input, "fact_unarchived") };
 }
 
 export type DecisionActionCompilerId =

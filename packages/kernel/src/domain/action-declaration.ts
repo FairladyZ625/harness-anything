@@ -101,6 +101,8 @@ export const actionDeclarations = Object.freeze([
   canonical("entity-delete", null, "repo-write"),
   canonical("entity-import", null, "repo-write"),
   canonical("entity-update", null, "repo-write"),
+  canonical("fact-archive", "fact/archive", "repo-write"),
+  canonical("fact-unarchive", "fact/unarchive", "repo-write"),
   canonical("fact-reclassify", "fact/reclassify", "repo-write"),
   canonical("fact-record", "fact/record", "repo-write"),
   canonical("fact-rematerialize", null, "repo-write"),

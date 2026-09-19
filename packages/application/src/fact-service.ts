@@ -60,7 +60,7 @@ export function makeFactService(options: {
       watermark: read.watermark,
       commitSha: appended.commitSha?.sha ?? null,
       cut: appended.cut,
-      path: event.payload.factsDocumentClaim.path,
+      path: event.payload.factsDocumentClaim?.path ?? `facts/${event.factId}.md`,
     };
   };
   const show = (factId: string) => {

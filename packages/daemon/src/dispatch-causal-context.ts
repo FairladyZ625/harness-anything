@@ -93,6 +93,9 @@ export function assembleTaskCausalContext(input: {
   const factRead = factRefs.length === 0 ? null : projection.searchFacts({ refs: factRefs.slice(0, MAX_FACTS) });
   if (factRead !== null) reads.push(factRead);
   const facts = new Map((factRead?.facts ?? []).map((row) => [row.ref, row] as const));
+  // Archived Facts stay in the ledger but leave the agent-facing retrieval surface: neither
+  // their statements nor their refs belong in the injected block.
+  const servedFactRefs = factRefs.filter((ref) => facts.get(ref)?.archived !== true);
   let milestoneGoal: string | null = null;
   if (milestone?.packagePath) {
     const plan = projection.readDocument(`${milestone.packagePath}/task_plan.md`);
@@ -131,7 +134,7 @@ export function assembleTaskCausalContext(input: {
     decisionBlocks.push(block);
   }
   details.push(...(decisionBlocks[0] ?? []));
-  const factLines = factRefs.slice(0, MAX_FACTS).map((ref) => {
+  const factLines = servedFactRefs.slice(0, MAX_FACTS).map((ref) => {
     const fact = facts.get(ref);
     return `  * ${ref.replace(/^fact\//u, "")}: ${
       fact === undefined
@@ -146,7 +149,7 @@ export function assembleTaskCausalContext(input: {
     ...(milestone === null ? [] : [`task/${milestone.taskId}`]),
     ...(parent === null || parent.taskId === milestone?.taskId ? [] : [`task/${parent.taskId}`]),
     ...decisionIds.map((decisionId) => `decision/${decisionId}`),
-    ...factRefs,
+    ...servedFactRefs,
   ];
   return renderWithinBudget(details, refs);
 }
