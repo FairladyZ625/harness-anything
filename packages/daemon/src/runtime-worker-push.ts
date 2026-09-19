@@ -41,15 +41,12 @@ export async function readWorkerGitIdentity(input: {
   readonly cwd: string;
   readonly env?: NodeJS.ProcessEnv;
 }): Promise<WorkerGitIdentity | null> {
-  const env = gitEnvironment(input.env);
-  try {
-    const name = (await readGitText(input.cwd, ["config", "--get", "user.name"], env)).trim(),
-      email = (await readGitText(input.cwd, ["config", "--get", "user.email"], env)).trim();
-    return name && email ? { name, email } : null;
-  } catch (error) {
-    consumeKnownError(error);
-    return null;
-  }
+  // `--default ""` makes an unset key an ordinary empty answer instead of exit status 1, so "no
+  // identity configured" is a value here and only a git that cannot run at all throws.
+  const env = gitEnvironment(input.env),
+    name = (await readGitText(input.cwd, ["config", "--get", "--default", "", "user.name"], env)).trim(),
+    email = (await readGitText(input.cwd, ["config", "--get", "--default", "", "user.email"], env)).trim();
+  return name && email ? { name, email } : null;
 }
 
 // Git ranks these four variables above every config file for author and committer, on commits
