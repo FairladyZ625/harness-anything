@@ -21,6 +21,7 @@ import {
   deriveUseCaseProjectionInputs,
   durablePolicyActions,
   getExecutableEntityAction,
+  isDomainStatus,
   projectDecisionReadiness,
   relationDirections,
   relationStates,
@@ -906,11 +907,9 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     if (cursor !== undefined && !cursor) throw context.cellCodedError("invalid_command", "Query cursor is invalid.");
     const stateInvalid =
       status !== undefined &&
-      !(
-        (method === "repo.tasks.list"
-          ? ["planned", "active", "blocked", "in_review", "done", "cancelled"]
-          : relationStates) as readonly string[]
-      ).includes(status);
+      (method === "repo.tasks.list"
+        ? !isDomainStatus(status)
+        : !(relationStates as readonly string[]).includes(status));
     if (stateInvalid) throw context.cellCodedError("invalid_command", "Query status is invalid for this read.");
     return {
       explicit:

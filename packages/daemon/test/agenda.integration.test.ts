@@ -48,6 +48,44 @@ test("agenda projects an empty ledger without synthetic state", async () => {
   });
 });
 
+test("agenda and task list keep a pinned submitted task visible for owner adjudication", async () => {
+  await withCell("agenda-submitted", async (cell, rootDir) => {
+    const taskId = "task_submitted_pinned",
+      executionId = "exe_submitted_pinned",
+      created = await cell.run({ kind: "task-create", taskId, title: "Submitted pinned" }, binding);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, binding);
+    const packagePath = String((created as Record<string, unknown>).packagePath);
+    await realizeTaskPlanFixture(rootDir, packagePath, (planPath) =>
+      cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+    );
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied");
+    assert.equal((await cell.run({ kind: "entity-pin", entityRef: `task/${taskId}` }, binding)).outcome, "applied");
+    writeFileSync(
+      path.join(rootDir, "harness", packagePath, "closeout.md"),
+      `# Closeout\n\n## Summary\n\nSubmitted agenda fixture ${git(rootDir, "rev-parse", "fixture-delivery")} is ready.\n\n## Verification\n\nIntegration assertions cover submitted visibility.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nTask list and agenda share the lifecycle projection.\n`,
+    );
+    assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, binding)).outcome, "applied");
+
+    const agenda = await cell.read("repo.agenda.read", { limit: 50 }),
+      submitted = await cell.read("repo.tasks.list", { status: "submitted" });
+    assert.equal(
+      agenda.pinnedEntities.some(({ ref }) => ref === `task/${taskId}`),
+      true,
+    );
+    assert.equal(
+      agenda.awaitingDecision.some(
+        (row) => row.kind === "execution" && row.taskId === taskId && row.executionId === executionId && row.pinned,
+      ),
+      true,
+    );
+    assert.deepEqual(
+      submitted.rows.map((row) => row.taskId),
+      [taskId],
+    );
+  });
+});
+
 test("agenda derives all four groups, pins first, and rejects a missing task pin", async () => {
   await withCell("agenda-four-groups", async (cell, rootDir) => {
     const createdTasks = new Map<string, string>();

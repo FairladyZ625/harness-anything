@@ -315,7 +315,7 @@ export function makeTaskQueryReadModel(input: {
    * agenda consumes snapshots and blocking assessments directly.
    */
   function readAgendaTaskPage(
-    status: "active" | "blocked" | "planned" | "in_review",
+    status: "active" | "submitted" | "blocked" | "planned" | "in_review",
     sourceLimit: number,
     pageCursor: string | undefined,
   ): AgendaSourcePage {
@@ -346,11 +346,12 @@ export function makeTaskQueryReadModel(input: {
   function agenda(query: { readonly limit?: number; readonly cursor?: string } = {}): DaemonAgendaResult {
     const sourceLimit = query.limit ?? 100,
       cursor = query.cursor === undefined ? null : decodeAgendaCursor(query.cursor),
-      readTaskPage = (status: "active" | "blocked" | "planned" | "in_review", key: AgendaCursorKey) =>
+      readTaskPage = (status: "active" | "submitted" | "blocked" | "planned" | "in_review", key: AgendaCursorKey) =>
         cursor?.[key] === null ? null : readAgendaTaskPage(status, sourceLimit, cursor?.[key] ?? undefined),
       active = readTaskPage("active", "active"),
       blocked = readTaskPage("blocked", "blocked"),
       planned = readTaskPage("planned", "planned"),
+      submitted = readTaskPage("submitted", "submitted"),
       inReview = readTaskPage("in_review", "inReview"),
       decisions =
         cursor?.decisions === null
@@ -364,6 +365,7 @@ export function makeTaskQueryReadModel(input: {
         ...(active?.reads ?? []),
         ...(blocked?.reads ?? []),
         ...(planned?.reads ?? []),
+        ...(submitted?.reads ?? []),
         ...(inReview?.reads ?? []),
         ...(decisions === null ? [] : [decisions]),
       ],
@@ -392,7 +394,7 @@ export function makeTaskQueryReadModel(input: {
         .filter(({ blockingAssessment }) => blockingAssessment.state === "clear")
         .map(agendaTaskRow)
         .sort(compareAgendaTasks),
-      awaitingExecutions: AgendaAwaitingRow[] = (inReview?.rows ?? []).flatMap((row) =>
+      awaitingExecutions: AgendaAwaitingRow[] = [...(submitted?.rows ?? []), ...(inReview?.rows ?? [])].flatMap((row) =>
         row.snapshot.executions
           .filter(
             (execution) =>
@@ -431,6 +433,7 @@ export function makeTaskQueryReadModel(input: {
         active: active?.page?.nextCursor ?? null,
         blocked: blocked?.page?.nextCursor ?? null,
         planned: planned?.page?.nextCursor ?? null,
+        submitted: submitted?.page?.nextCursor ?? null,
         inReview: inReview?.page?.nextCursor ?? null,
         decisions: decisions?.page.nextCursor ?? null,
       },
@@ -439,7 +442,9 @@ export function makeTaskQueryReadModel(input: {
         "review queue",
         reads.length === 0 ? [projection.readRelationQuery({ limit: 1 })] : reads,
       ),
-      warningCodes = [...new Set([active, blocked, planned, inReview].flatMap((read) => read?.warnings ?? []))],
+      warningCodes = [
+        ...new Set([active, blocked, planned, submitted, inReview].flatMap((read) => read?.warnings ?? [])),
+      ],
       warnings: DaemonAgendaResult["warnings"] = warningCodes.map((code) => ({
         code,
         source: "generated-cache",
@@ -707,7 +712,7 @@ type AgendaSourcePage = {
   readonly warnings: ReturnType<TaskProjection["list"]>["warnings"];
   readonly reads: readonly ProjectionCut[];
 };
-type AgendaCursorKey = "active" | "blocked" | "planned" | "inReview";
+type AgendaCursorKey = "active" | "blocked" | "planned" | "submitted" | "inReview";
 type AgendaCursor = Readonly<Record<AgendaCursorKey | "decisions", string | null>>;
 function agendaTaskRow(row: AgendaSourceRow): AgendaTaskRow {
   const task = row.snapshot.task!;
@@ -750,7 +755,7 @@ function decodeAgendaCursor(value: string): AgendaCursor {
   } catch {
     throw new Error("agenda cursor is invalid");
   }
-  const keys = ["active", "blocked", "planned", "inReview", "decisions"] as const;
+  const keys = ["active", "blocked", "planned", "submitted", "inReview", "decisions"] as const;
   if (
     parsed === null ||
     typeof parsed !== "object" ||

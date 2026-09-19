@@ -13,7 +13,15 @@ import {
   type TaskTreeNode,
 } from "./task-tree.ts";
 
-const statusOrder: readonly SnapshotStatus[] = ["planned", "active", "blocked", "in_review", "done", "cancelled"];
+const statusOrder: readonly SnapshotStatus[] = [
+  "planned",
+  "active",
+  "submitted",
+  "blocked",
+  "in_review",
+  "done",
+  "cancelled",
+];
 const timeChoices: readonly (number | null)[] = [null, 7, 30, 90];
 
 /**

@@ -53,7 +53,7 @@ export {
 export { isPriorityTier, isTaskWorkKind, priorityTiers, taskWorkKinds } from "./task-metadata.ts";
 export type { PriorityTier, TaskWorkKind } from "./task-metadata.ts";
 
-export { explainStatusTransition, isDomainStatus, isTerminalStatus } from "./lifecycle-status.ts";
+export { domainStatuses, explainStatusTransition, isDomainStatus, isTerminalStatus } from "./lifecycle-status.ts";
 export type {
   CanonicalStatus,
   DomainStatus,

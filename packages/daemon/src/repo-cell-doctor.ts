@@ -1,6 +1,7 @@
 import {
   currentExecutionCuts,
   resolveLedgerGitLayout,
+  taskWipOccupyingStatuses,
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import type { DaemonBuildStatus } from "./build-identity.ts";
@@ -85,7 +86,7 @@ function submittedRoundExecutions(cell: RepoCellOperationalContext): {
   readonly commitSha: string | null;
   readonly executor: string | null;
 }[] {
-  const tasks = (["in_review", "active"] as const).flatMap(
+  const tasks = (["submitted", "in_review", "active"] as const).flatMap(
     (status) => cell.projection.list({ status, activePackagesOnly: true }).rows,
   );
   return tasks.flatMap((row) => {
@@ -214,7 +215,7 @@ function executorUndeclaredCheck(submitted: ReturnType<typeof submittedRoundExec
 // reports the record, never a verdict on the worker.
 function orphanLeaseCheck(cell: RepoCellOperationalContext): DoctorCheck {
   const now = cell.now(),
-    items = (["planned", "active", "blocked", "in_review"] as const)
+    items = (["planned", ...taskWipOccupyingStatuses] as const)
       .flatMap((status) => cell.projection.list({ status, activePackagesOnly: true }).rows)
       .flatMap((row) => {
         const lease = cell.projection.currentLease(row.taskId, now);

@@ -10,6 +10,7 @@ import {
 } from "../agent-runtime-contract.ts";
 import {
   taskWipRootRowFields,
+  taskWipOccupyingStatuses,
   validateEntityActionExplanationSet,
   validateEntityKindCatalog,
   validateSettingsV1,
@@ -183,7 +184,7 @@ export function validateDaemonTaskWip(value: unknown): readonly string[] {
           typeof row.taskId === "string" &&
           row.taskId.length > 0 &&
           typeof row.title === "string" &&
-          ["active", "blocked", "in_review"].includes(String(row.status)),
+          (taskWipOccupyingStatuses as readonly string[]).includes(String(row.status)),
       ),
     roots =
       Array.isArray(value.roots) &&
