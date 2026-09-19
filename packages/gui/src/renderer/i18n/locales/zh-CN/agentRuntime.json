@@ -526,5 +526,17 @@
   "agentRuntime.plane_agy-acp": "Antigravity (AGY) ACP 桥; OAuth 或 Gemini API key。",
   "agentRuntime.modelHint_agy-acp": "只接受 gemini 系模型；强度随会话模型选择器下发。",
   "agentRuntime.plane_opencode": "只有 OpenCode 登录态;经 ACP 协议接入。",
-  "agentRuntime.modelHint_opencode": "开放模型名,按实例自填;模型目录随会话建立下发。"
+  "agentRuntime.modelHint_opencode": "开放模型名,按实例自填;模型目录随会话建立下发。",
+  "agentRuntime.filterSearchLabel": "搜索 Agent 与 Squad",
+  "agentRuntime.filterSearchPlaceholder": "搜索 name 或 id…  (/)",
+  "agentRuntime.filterClearQuery": "清空搜索词",
+  "agentRuntime.filterAll": "全部",
+  "agentRuntime.filterCountItems": "已选 {count} 项",
+  "agentRuntime.filterRole": "角色",
+  "agentRuntime.filterRuntime": "运行时",
+  "agentRuntime.filterLayer": "层级",
+  "agentRuntime.filterInSquad": "已入小队",
+  "agentRuntime.filterClear": "清除筛选",
+  "agentRuntime.filterNoMatches": "没有命中。",
+  "agentRuntime.filterSelectionHidden": "当前选中项被筛选隐藏。"
 }

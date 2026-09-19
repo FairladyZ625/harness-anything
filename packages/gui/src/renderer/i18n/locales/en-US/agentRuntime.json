@@ -526,5 +526,17 @@
   "agentRuntime.plane_agy-acp": "Antigravity (AGY) ACP bridge; OAuth or Gemini API key.",
   "agentRuntime.modelHint_agy-acp": "Gemini-family models only; strength rides the session model selector.",
   "agentRuntime.plane_opencode": "OpenCode login only; connected over ACP.",
-  "agentRuntime.modelHint_opencode": "Open, free-form model names configured per instance; models arrive on session start."
+  "agentRuntime.modelHint_opencode": "Open, free-form model names configured per instance; models arrive on session start.",
+  "agentRuntime.filterSearchLabel": "Search agents and squads",
+  "agentRuntime.filterSearchPlaceholder": "Search name or id…  (/)",
+  "agentRuntime.filterClearQuery": "Clear the search text",
+  "agentRuntime.filterAll": "All",
+  "agentRuntime.filterCountItems": "{count} selected",
+  "agentRuntime.filterRole": "role",
+  "agentRuntime.filterRuntime": "runtime",
+  "agentRuntime.filterLayer": "layer",
+  "agentRuntime.filterInSquad": "in a squad",
+  "agentRuntime.filterClear": "Clear filters",
+  "agentRuntime.filterNoMatches": "No matches.",
+  "agentRuntime.filterSelectionHidden": "The selected entry is hidden by the current filters."
 }

@@ -1,10 +1,18 @@
-import { useState } from "react";
+import { useDeferredValue, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { agentEntityClient, isAvailableAgentEntityRow, isAvailableSquadEntityRow } from "../agent-entity-client.ts";
 import { useCatalogSnapshot } from "../catalog-data.ts";
 import type { DispatchRequest, DispatchSubject } from "../dispatch-flow.ts";
 import { t } from "../i18n/index.tsx";
 import { DispatchDialog, type DispatchDialogTaskOption } from "../components/DispatchDialog.tsx";
+import { AgentSquadFilterBar } from "../components/AgentSquadFilterBar.tsx";
+import {
+  DEFAULT_AGENT_SQUAD_FILTERS,
+  filterAgents,
+  filterSquads,
+  hasActiveAgentSquadFilters,
+  type AgentSquadFilters,
+} from "../model/agentSquadFilters.ts";
 import { AgentCard, agentDeclarationFrom, agentDraftFrom } from "../components/runtime/AgentCard.tsx";
 import { NewEntityDialog, type NewEntityRequest } from "../components/runtime/NewEntityDialog.tsx";
 import { Badge, Btn, Empty, Hint } from "../components/runtime/parts.tsx";
@@ -65,11 +73,18 @@ export function AgentSquadView({
       staleTime: 10_000,
     });
   const [dialog, setDialog] = useState<Dialog | null>(null),
-    [inspector, setInspector] = useState(true);
+    [inspector, setInspector] = useState(true),
+    // 查看者本地过滤状态:内存即可,不写台账(任务契约 §6)。deferred 保输入不卡。
+    [filters, setFilters] = useState<AgentSquadFilters>(DEFAULT_AGENT_SQUAD_FILTERS);
+  const deferredQuery = useDeferredValue(filters.query),
+    effectiveFilters = filters.query === deferredQuery ? filters : { ...filters, query: deferredQuery };
   const agentRows = workspace.agents.data ?? [],
     squadRows = workspace.squads.data ?? [],
     agents = agentRows.filter(isAvailableAgentEntityRow),
-    squads = squadRows.filter(isAvailableSquadEntityRow);
+    squads = squadRows.filter(isAvailableSquadEntityRow),
+    filteredAgentRows = filterAgents(agentRows, squadRows, effectiveFilters),
+    filteredSquadRows = filterSquads(squadRows, effectiveFilters),
+    filtering = hasActiveAgentSquadFilters(effectiveFilters);
   // 深链指向的实体可能已被删除(或仍在读取):存在才采用,否则回落首项 Agent、再
   // 回落首项 Squad——派生选择,不写回导航栈。
   const current: RuntimeSelection | null =
@@ -84,6 +99,15 @@ export function AgentSquadView({
             : null;
   const agentDetail = useAgentDetail(repoId, current?.type === "agent" ? current.id : null),
     squadDetail = useSquadDetail(repoId, current?.type === "squad" ? current.id : null);
+  // 过滤命中不含当前选中项时不改派生选择(详情不跳走),只在列表上显形提示 +
+  // 一键清除——选中态的裁决权仍在导航栈,过滤只是查看者的镜头。
+  const selectionHidden =
+    filtering &&
+    current !== null &&
+    !(current.type === "agent"
+      ? filteredAgentRows.some((row) => row.id === current.id)
+      : filteredSquadRows.some((row) => row.id === current.id));
+  const clearFilters = () => setFilters(DEFAULT_AGENT_SQUAD_FILTERS);
 
   const openAgentDispatch = async (agentId: string, mission: string) => {
     const row = agents.find((agent) => agent.id === agentId);
@@ -207,11 +231,65 @@ export function AgentSquadView({
       )}
       <div className="flex min-h-0 flex-1">
         <IdentityRail
-          agents={agentRows}
-          squads={squadRows}
+          agents={filteredAgentRows}
+          squads={filteredSquadRows}
+          agentsTotal={agentRows.length}
+          squadsTotal={squadRows.length}
           selection={current}
           onSelect={(selection) => onSelectEntity(runtimeSelectionRef(selection))}
           onNew={(segment) => setDialog({ kind: "new-entity", entity: segment === "agents" ? "agent" : "squad" })}
+          toolbar={
+            <AgentSquadFilterBar agents={agentRows} squads={squadRows} filters={filters} onChange={setFilters} />
+          }
+          notice={
+            selectionHidden && (
+              <p
+                role="status"
+                data-testid="agent-squad-selection-hidden"
+                className="shrink-0 border-b border-border px-2.5 py-1.5 ui-micro text-text-muted"
+              >
+                {t("agentRuntime.filterSelectionHidden")}{" "}
+                <button
+                  type="button"
+                  data-testid="agent-squad-selection-hidden-clear"
+                  onClick={clearFilters}
+                  className="text-accent underline underline-offset-2 hover:text-text"
+                >
+                  {t("agentRuntime.filterClear")}
+                </button>
+              </p>
+            )
+          }
+          agentsEmpty={
+            filtering ? (
+              <p data-testid="agent-squad-agents-empty" className="px-2 py-1 ui-micro text-text-faint">
+                {t("agentRuntime.filterNoMatches")}{" "}
+                <button
+                  type="button"
+                  data-testid="agent-squad-agents-empty-clear"
+                  onClick={clearFilters}
+                  className="text-accent underline underline-offset-2"
+                >
+                  {t("agentRuntime.filterClear")}
+                </button>
+              </p>
+            ) : undefined
+          }
+          squadsEmpty={
+            filtering ? (
+              <p data-testid="agent-squad-squads-empty" className="px-2 py-1 ui-micro text-text-faint">
+                {t("agentRuntime.filterNoMatches")}{" "}
+                <button
+                  type="button"
+                  data-testid="agent-squad-squads-empty-clear"
+                  onClick={clearFilters}
+                  className="text-accent underline underline-offset-2"
+                >
+                  {t("agentRuntime.filterClear")}
+                </button>
+              </p>
+            ) : undefined
+          }
         />
         <main className="min-w-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6">
           {current === null ? (

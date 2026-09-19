@@ -92,12 +92,28 @@ export function IdentityRail({
   selection,
   onSelect,
   onNew,
+  toolbar,
+  agentsTotal,
+  squadsTotal,
+  notice,
+  agentsEmpty,
+  squadsEmpty,
 }: {
   readonly agents: readonly AgentEntityRow[];
   readonly squads: readonly SquadEntityRow[];
   readonly selection: RuntimeSelection | null;
   readonly onSelect: (selection: RuntimeSelection) => void;
   readonly onNew: (segment: "agents" | "squads") => void;
+  /** 列表顶部工具栏(搜索/筛选);rail 只出位置,内容归视图组装。 */
+  readonly toolbar?: ReactNode;
+  /** 过滤态的总数;给出且与可见数不同时段标题显示「命中/总数」。 */
+  readonly agentsTotal?: number;
+  readonly squadsTotal?: number;
+  /** 贴在工具栏下的提示条(如「当前选中项被筛选隐藏」+ 清除入口)。 */
+  readonly notice?: ReactNode;
+  /** 段内零命中时的占位行(仅在对应段为空时渲染)。 */
+  readonly agentsEmpty?: ReactNode;
+  readonly squadsEmpty?: ReactNode;
 }) {
   const [segments, setSegments] = useState<Readonly<Record<string, boolean>>>({ agents: true, squads: true });
   const onToggle = (segment: string) => setSegments((value) => ({ ...value, [segment]: !(value[segment] ?? true) }));
@@ -108,14 +124,18 @@ export function IdentityRail({
       aria-label={t("agentRuntime.railLabel")}
       className="flex basis-1/5 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface"
     >
+      {toolbar}
+      {notice}
       <Segment
         segment="agents"
         title={t("agentRuntime.segAgents")}
         sub={t("agentRuntime.segAgentsSub")}
         count={agents.length}
+        total={agentsTotal}
         open={segments.agents ?? true}
         onToggle={() => onToggle("agents")}
         onNew={() => onNew("agents")}
+        emptyHint={agentsEmpty}
       >
         {agents.map((agent) => {
           if (!isAvailableAgentEntityRow(agent))
@@ -161,9 +181,11 @@ export function IdentityRail({
         title={t("agentRuntime.segSquads")}
         sub={t("agentRuntime.segSquadsSub")}
         count={squads.length}
+        total={squadsTotal}
         open={segments.squads ?? true}
         onToggle={() => onToggle("squads")}
         onNew={() => onNew("squads")}
+        emptyHint={squadsEmpty}
       >
         {squads.map((squad) => {
           if (!isAvailableSquadEntityRow(squad))
@@ -216,18 +238,22 @@ function Segment({
   title,
   sub,
   count,
+  total,
   open,
   onToggle,
   onNew,
+  emptyHint,
   children,
 }: {
   readonly segment: string;
   readonly title: string;
   readonly sub: string;
   readonly count: number;
+  readonly total?: number;
   readonly open: boolean;
   readonly onToggle: () => void;
   readonly onNew?: () => void;
+  readonly emptyHint?: ReactNode;
   readonly children: ReactNode;
 }) {
   return (
@@ -247,7 +273,9 @@ function Segment({
           </span>
           <span className="ui-micro font-bold uppercase tracking-[0.09em] text-text-faint">{title}</span>
           <span className="truncate ui-micro text-text-faint">{sub}</span>
-          <span className="ml-auto shrink-0 font-mono ui-micro text-text-faint">{count}</span>
+          <span className="ml-auto shrink-0 font-mono ui-micro text-text-faint">
+            {total !== undefined && total !== count ? `${count}/${total}` : count}
+          </span>
         </button>
         {onNew && (
           <button
@@ -260,7 +288,7 @@ function Segment({
           </button>
         )}
       </div>
-      {open && <div className="px-1.5 pb-2">{children}</div>}
+      {open && <div className="px-1.5 pb-2">{count === 0 && emptyHint !== undefined ? emptyHint : children}</div>}
     </section>
   );
 }

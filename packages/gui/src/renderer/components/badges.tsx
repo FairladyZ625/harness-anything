@@ -224,6 +224,11 @@ export function decisionStateLabel(state: DecisionState): string {
   return DECISION_STATE_META[state].label;
 }
 
+/** daemon 给的字符串是否落在决策态词表内;词表外的词由调用方按原文显示。 */
+export function isDecisionState(value: string): value is DecisionState {
+  return Object.hasOwn(DECISION_STATE_META, value);
+}
+
 const RISK_META: Record<RiskTier, { label: string; cls: string }> = {
   high: { ...localizedLabel("components.badges.highRisk"), cls: "text-danger" },
   medium: { ...localizedLabel("components.badges.mediumRisk"), cls: "text-stale" },
