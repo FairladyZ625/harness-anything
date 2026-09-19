@@ -176,6 +176,7 @@ export interface RepoCellOpenInput {
   readonly onAttemptTerminal?: (terminal: RuntimeAttemptTerminal) => void;
   /** Internal writer status bridge for asynchronous materialization health changes. */
   readonly onMaterializationHealthChange?: Parameters<typeof makeTaskEventStore>[0]["onMaterializationHealthChange"];
+  readonly onQueueDepthChange?: (queueDepth: number) => void;
   readonly now?: () => string;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly shouldStop?: () => boolean;
@@ -397,14 +398,16 @@ export async function openRepoWriterCell(
   };
   const schedule = (work: () => void | Promise<void>, binding?: RuntimeAttemptTerminal["binding"]): void => {
     queueDepth += 1;
+    input.onQueueDepthChange?.(queueDepth);
     const pending = chainRepoCellWrite(tail, async () => {
       queueDepth -= 1;
+      input.onQueueDepthChange?.(queueDepth);
       // Runtime terminal work (exit publication, Schedule settlement) queued here must survive the
       // latched window: the durable SQLite ledger still accepts appends while Git publication and
       // projection recovery run behind them, and the writer-epoch fence rejects appends whose epoch
       // a replacement already superseded. Only a closed cell skips the work entirely.
       if (state !== "closed") await (binding ? withWriterEpochBinding(binding, work) : work());
-    });
+    }).finally(() => input.onQueueDepthChange?.(queueDepth));
     tail = pending.catch(() => undefined);
     void pending.then(
       () => replica.kick(),
@@ -416,8 +419,10 @@ export async function openRepoWriterCell(
   };
   const backup: NonNullable<RepoCell["backup"]> = (request) => {
     queueDepth += 1;
+    input.onQueueDepthChange?.(queueDepth);
     const pending = chainRepoCellWrite(tail, () => {
       queueDepth -= 1;
+      input.onQueueDepthChange?.(queueDepth);
       return request.kind === "backup"
         ? backupRepo({
             rootDir,
@@ -430,7 +435,7 @@ export async function openRepoWriterCell(
             backupDir: request.backupDir,
             ...(request.shadowParent ? { shadowParent: request.shadowParent } : {}),
           });
-    });
+    }).finally(() => input.onQueueDepthChange?.(queueDepth));
     tail = pending.then(
       () => undefined,
       () => undefined,

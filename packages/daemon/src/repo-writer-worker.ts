@@ -127,6 +127,11 @@ async function startRepoWriterWorker(): Promise<void> {
           openingStatus = status;
           postStatus({ kind: "status", status });
         },
+        onQueueDepthChange: (queueDepth) => {
+          const status = cell === null ? { ...openingStatus, queueDepth } : cell.status();
+          openingStatus = status;
+          postStatus({ kind: "status", status });
+        },
         onBootstrap: (receipt) => notify("bootstrap", receipt),
         onOpenProgress: (progress) => {
           if (cell !== null) return;
