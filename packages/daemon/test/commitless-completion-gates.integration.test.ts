@@ -92,7 +92,7 @@ test("artifact-only cuts skip code-cut gates while commit cuts retain both", () 
       closeoutPath: "tasks/task-artifact-only/closeout.md",
       eligibleDirtyPaths: [],
       producesFactCount: 1,
-      closeoutGates: { review: false, consent: false, factDisposition: false, codeDoc: true },
+      closeoutGates: { review: false, consent: false, fact: true, factDisposition: false, codeDoc: true },
     },
     artifactOnly = snapshot(null),
     committed = snapshot("b".repeat(40));

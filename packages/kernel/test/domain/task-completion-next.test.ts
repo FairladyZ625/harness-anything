@@ -164,6 +164,22 @@ test("missing facts guide an observable change while a recorded fact clears the 
   assert.equal(taskCompletionNext(snapshot, context).blocker, null);
 });
 
+test("a profile that lifted the fact gate completes without facts; the gate stays on by default", () => {
+  const snapshot = at(5),
+    lightweight = {
+      ...context,
+      producesFactCount: 0,
+      closeoutGates: { review: false, consent: false, fact: false, factDisposition: false, codeDoc: false },
+    };
+  assert.equal(taskCompletionNext(snapshot, lightweight).blocker, null);
+  // Repository ceremony profiles cannot relax it: only the task-bound declaration did.
+  const repositoryRelaxed = {
+    ...lightweight,
+    closeoutGates: { review: false, consent: false, fact: true, factDisposition: false, codeDoc: false },
+  };
+  assert.equal(taskCompletionNext(snapshot, repositoryRelaxed).blocker?.code, "fact_missing");
+});
+
 test("missing CI witness precedes independent review and requests canonical observation", () => {
   const result = taskCompletionNext(gatedAt([ciRequirement], 3), context);
   assert.equal(result.blocker?.code, "ci_missing");

@@ -217,7 +217,7 @@ function legacyCompletion() {
     payload: {
       task: { ...snapshot.task!, status: "done" },
       execution: { ...current, state: "accepted", closedAt: "2026-08-11T00:05:00.000Z" },
-      closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
+      closeoutGates: { review: true, consent: true, fact: true, factDisposition: true, codeDoc: true },
       documentClaims: [],
     },
   };
@@ -245,7 +245,7 @@ test("accepted completion keeps legacy receipts without admitting a new unbound 
         capabilityRef: "cap-complete",
         actorRole: "owner",
         noActiveLease: true,
-        closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
+        closeoutGates: { review: true, consent: true, fact: true, factDisposition: true, codeDoc: true },
         gateReceipts: [],
       }),
     /gate|witness|completion/i,

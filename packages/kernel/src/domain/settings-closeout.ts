@@ -50,8 +50,15 @@ export function replaceDefaultedBlockScalar(
 
 export const closeoutProfiles = ["standard", "strict"] as const;
 export type CloseoutProfile = (typeof closeoutProfiles)[number];
-export const closeoutOverrideKeys = ["review", "consent", "factDisposition", "codeDoc"] as const;
+export const closeoutOverrideKeys = ["review", "consent", "fact", "factDisposition", "codeDoc"] as const;
 export type CloseoutOverrideKey = (typeof closeoutOverrideKeys)[number];
+/**
+ * The override keys a repository settings facet may carry. `fact` is deliberately absent: Fact
+ * production is not closeout ceremony a repository switches off — only a task-bound profile
+ * declaration (the lightweight profile, frozen onto the task) lifts it, so baseline tasks keep
+ * the requirement under every repository profile.
+ */
+export const settingsCloseoutOverrideKeys = ["review", "consent", "factDisposition", "codeDoc"] as const;
 export type CloseoutOverridesV1 = Readonly<Partial<Record<CloseoutOverrideKey, boolean>>>;
 export interface CloseoutSettingsV1 {
   readonly profile: CloseoutProfile;
@@ -74,7 +81,8 @@ export function isValidCloseoutOverrides(value: unknown): value is CloseoutOverr
  * The one effective closeout gate set every submit/complete judgment shares: a task-bound
  * override (declared by the preset profile and frozen onto the task at creation) wins over the
  * repository profile and its overrides, which fill the rest. `codeDoc` additionally stays on
- * whenever the task's own completion gates declare code-doc reconciliation.
+ * whenever the task's own completion gates declare code-doc reconciliation, and `fact` ignores
+ * the repository baseline entirely — it is on unless the task's own declaration lifted it.
  */
 export function effectiveCloseoutGates(
   closeout: CloseoutSettingsV1,
@@ -86,6 +94,7 @@ export function effectiveCloseoutGates(
   return Object.freeze({
     review: gate("review"),
     consent: gate("consent"),
+    fact: taskOverrides?.fact ?? true,
     factDisposition: gate("factDisposition"),
     codeDoc: gate("codeDoc") || taskGateIds.includes("code-doc-reconciliation"),
   });

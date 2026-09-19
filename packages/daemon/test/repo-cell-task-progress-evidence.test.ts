@@ -504,7 +504,7 @@ test("complete without a code-doc witness stops on code_doc_missing under its ow
         eligibleDirtyPaths: [],
         producesFactCount: 1,
         projectionStatus: "ready",
-        closeoutGates: { review: false, consent: false, factDisposition: false, codeDoc: true },
+        closeoutGates: { review: false, consent: false, fact: true, factDisposition: false, codeDoc: true },
       },
       cell = {
         rootDir: root,
@@ -802,7 +802,7 @@ async function completeOverRedCi(
           eligibleDirtyPaths: [],
           producesFactCount: 1,
           projectionStatus: "ready",
-          closeoutGates: { review: false, consent: false, factDisposition: false, codeDoc: false },
+          closeoutGates: { review: false, consent: false, fact: true, factDisposition: false, codeDoc: false },
         }),
         completionStopped,
         completionSettlement,

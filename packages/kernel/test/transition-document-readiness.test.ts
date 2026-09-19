@@ -41,9 +41,14 @@ const planTemplate = readFileSync(
     new URL("../../preset/assets/software-coding/templates/task.plan.lightweight/en-US.md", import.meta.url),
     "utf8",
   ),
+  lightweightCloseoutTemplate = readFileSync(
+    new URL("../../preset/assets/software-coding/templates/task.closeout.lightweight/en-US.md", import.meta.url),
+    "utf8",
+  ),
   planContract = transitionDocumentContract(planTemplate),
   closeoutContract = transitionDocumentContract(closeoutTemplate),
   lightweightPlanContract = transitionDocumentContract(lightweightPlanTemplate),
+  lightweightCloseoutContract = transitionDocumentContract(lightweightCloseoutTemplate),
   plan = (body: string) => assessTransitionDocument("task.plan", body, planContract),
   closeout = (body: string) => assessTransitionDocument("task.closeout", body, closeoutContract);
 
@@ -368,4 +373,30 @@ test("closeout submission fails closed on missing or scaffold sections", () => {
   ]) {
     assert.throws(() => submissionFromCloseout(body, cut, closeoutContract), { code: "closeout_placeholder" });
   }
+});
+
+test("the lightweight closeout contract requires only Summary and Verification and submits without risk sections", () => {
+  assert.deepEqual(lightweightCloseoutContract.requiredSections, ["Summary", "Verification"]);
+  const sha = "b".repeat(40),
+    body = `## Summary\nDelivered ${sha}.\n## Verification\nnode tools/x.test.mjs — exit 0.`,
+    cut = { commitSha: sha, deliverables: [], outputs: [] },
+    packet = submissionFromCloseout(body, cut, lightweightCloseoutContract);
+  assert.deepEqual(packet, {
+    ...cut,
+    completionClaim: `Delivered ${sha}.`,
+    verificationNotes: ["node tools/x.test.mjs — exit 0."],
+    knownGaps: [],
+    residualRisks: [],
+  });
+  // A placeholder Verification is still rejected under the minimal contract.
+  const verificationScaffold = lightweightCloseoutContract.scaffoldBySection["Verification"]![0]!;
+  assert.throws(
+    () =>
+      submissionFromCloseout(
+        `## Summary\nDelivered ${sha}.\n## Verification\n${verificationScaffold}`,
+        cut,
+        lightweightCloseoutContract,
+      ),
+    { code: "closeout_placeholder" },
+  );
 });

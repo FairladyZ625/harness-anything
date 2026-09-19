@@ -214,7 +214,7 @@ function explain(
     completionContext: {
       closeout: "ready",
       closeoutPath: "tasks/task-1/closeout.md",
-      closeoutGates: { review: true, consent: true, factDisposition: false, codeDoc: false },
+      closeoutGates: { review: true, consent: true, fact: true, factDisposition: false, codeDoc: false },
       eligibleDirtyPaths: [],
       producesFactCount,
     } satisfies CompletionReadinessContext,

@@ -15,6 +15,7 @@ async function runChildSlice(
   childTaskId: string,
   childExecutionId: string,
   create: Readonly<Record<string, unknown>>,
+  options: { readonly factless?: boolean } = {},
 ) {
   const created = (await f.run({
     kind: "task-create",
@@ -31,26 +32,27 @@ async function runChildSlice(
     (await f.run({ kind: "task-start", taskId: childTaskId, executionId: childExecutionId })).outcome,
     "applied",
   );
-  assert.equal(
-    (
-      await f.run({
-        kind: "fact-record",
-        taskId: childTaskId,
-        statement: "README contains the reviewed delivery.",
-        evidenceSource: "README.md",
-        confidence: "high",
-        memoryClass: "episodic",
-        memoryTags: [],
-      })
-    ).outcome,
-    "applied",
-  );
-  const delivery = execFileSync("git", ["-C", f.root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-  writeFileSync(
-    path.join(f.root, "harness", packagePath, "closeout.md"),
-    `# Closeout\n\n## Summary\n\nReviewed delivery ${delivery}\n\n## Verification\n\nREADME bytes checked.\n\n` +
-      "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nReview dispatch retry.\n",
-  );
+  if (!options.factless)
+    assert.equal(
+      (
+        await f.run({
+          kind: "fact-record",
+          taskId: childTaskId,
+          statement: "README contains the reviewed delivery.",
+          evidenceSource: "README.md",
+          confidence: "high",
+          memoryClass: "episodic",
+          memoryTags: [],
+        })
+      ).outcome,
+      "applied",
+    );
+  const delivery = execFileSync("git", ["-C", f.root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+    closeoutBody = options.factless
+      ? `# Closeout\n\n## Summary\n\nReviewed delivery ${delivery}\n\n## Verification\n\nnode tools/x.test.mjs — exit 0.\n\n`
+      : `# Closeout\n\n## Summary\n\nReviewed delivery ${delivery}\n\n## Verification\n\nREADME bytes checked.\n\n` +
+        "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nReview dispatch retry.\n";
+  writeFileSync(path.join(f.root, "harness", packagePath, "closeout.md"), closeoutBody);
   const submitted = (await f.run({
     kind: "task-submit",
     taskId: childTaskId,
@@ -171,9 +173,13 @@ test(
     });
     try {
       await f.install();
-      const { created, packagePath } = await runChildSlice(f, "task-lightweight-child", "execution-lightweight-child", {
-        profileId: "lightweight",
-      });
+      const { created, packagePath } = await runChildSlice(
+        f,
+        "task-lightweight-child",
+        "execution-lightweight-child",
+        { profileId: "lightweight" },
+        { factless: true },
+      );
       const child = createdTask(f.events(), "task-lightweight-child");
       assert.equal(child.metadata?.parentTaskId, taskId, "the child keeps its canonical parent reference");
       assert.equal(
@@ -191,8 +197,24 @@ test(
       );
       assert.deepEqual(
         child.closeoutOverrides,
-        { review: false, consent: false },
+        { review: false, consent: false, fact: false },
         "the profile's closeout overrides freeze into the task",
+      );
+      const closeoutDescriptor = childContract(f.root, packagePath).documents.find(
+        (document: { readonly slot?: string }) => document.slot === "task.closeout",
+      );
+      assert.equal(
+        closeoutDescriptor?.templateRef,
+        "template://planning/closeout-lightweight@1",
+        "the lightweight closeout scaffold is frozen into the contract",
+      );
+      assert.equal(
+        f
+          .events()
+          .filter((event) => event.type === "fact_recorded" && event.payload?.taskId === "task-lightweight-child")
+          .length,
+        0,
+        "the lightweight child recorded no Fact; the closeout verification is its evidence",
       );
       assert.equal(f.launches.length, 0, "a lightweight submit must not launch a reviewer");
       assert.equal(
@@ -213,7 +235,7 @@ test(
       assert.equal(
         completed.outcome,
         "applied",
-        `a lightweight child completes without review or consent: ${JSON.stringify(completed)}`,
+        `a lightweight child completes without review, consent, or a fact: ${JSON.stringify(completed)}`,
       );
       assert.equal(f.launches.length, 0, "completion must not dispatch a reviewer either");
       // The frozen task cannot be silently re-bound: a preset upgrade with an unchanged snapshot

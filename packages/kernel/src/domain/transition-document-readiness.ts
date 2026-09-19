@@ -178,7 +178,11 @@ export function submissionFromCloseout(
 ): SubmissionV1 {
   assertTransitionDocumentReady("task.closeout", body, contract);
   const sections = markdownSections(body),
-    risks = [sections.get("residual risk")!, sections.get("same mechanism elsewhere")!];
+    // A lightweight closeout scaffold declares only Summary and Verification; the risk sections
+    // ride along when the scaffold declared them, and are honestly absent when it did not.
+    risks = [sections.get("residual risk"), sections.get("same mechanism elsewhere")].filter(
+      (section): section is string => section !== undefined,
+    );
   return {
     completionClaim: sections.get("summary")!,
     verificationNotes: [sections.get("verification")!],

@@ -204,7 +204,13 @@ function evaluateCompletion(
       `ha task release ${task.taskId}`,
       "The held execution lease must be released by its current holder.",
     );
-  const closeoutGates = context.closeoutGates ?? { review: true, consent: true, factDisposition: true, codeDoc: true },
+  const closeoutGates = context.closeoutGates ?? {
+      review: true,
+      consent: true,
+      fact: true,
+      factDisposition: true,
+      codeDoc: true,
+    },
     assessment = closeoutReadiness(snapshot, undefined, closeoutGates);
   const gate = assessment.gates.find(
     ({ gateId, status }) =>
@@ -238,7 +244,9 @@ function evaluateCompletion(
       `Identify the authorizing Decision claim in harness/${context.closeoutPath} Summary.`,
       `A ${task.taskClass} task completes only with an active decision derives edge; no active edge names this task.`,
     );
-  if (context.producesFactCount < 1)
+  // The Fact-production requirement is task-bound: a profile that declared `fact: false`
+  // (lightweight) closes its loop with the closeout verification record instead.
+  if (closeoutGates.fact !== false && context.producesFactCount < 1)
     return one(
       "fact_missing",
       "facts",
