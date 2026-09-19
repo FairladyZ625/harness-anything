@@ -24,7 +24,7 @@ export type ImmutableBindingField = (typeof immutableBindingFields)[number];
 export function validateLifecycleBindingInvariant(
   taskId: TaskId,
   previous: LifecycleBinding,
-  next: LifecycleBinding
+  next: LifecycleBinding,
 ): BindingInvariantResult {
   for (const field of immutableBindingFields) {
     if (previous[field] !== next[field]) {
@@ -35,8 +35,8 @@ export function validateLifecycleBindingInvariant(
           taskId,
           field,
           expected: previous[field],
-          actual: next[field]
-        }
+          actual: next[field],
+        },
       };
     }
   }

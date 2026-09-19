@@ -21,10 +21,8 @@ export interface ArtifactStore {
   readonly readAuthoredDocument: (path: string) => Effect.Effect<ArtifactDocument, ArtifactStoreError>;
   readonly findBindingByExternalRef: (
     engine: EngineId,
-    ref: ExternalRef
+    ref: ExternalRef,
   ) => Effect.Effect<Option.Option<TaskId>, ArtifactStoreError>;
 }
 
-export const ArtifactStore = Context.GenericTag<ArtifactStore>(
-  "@harness-anything/kernel/ArtifactStore"
-);
+export const ArtifactStore = Context.GenericTag<ArtifactStore>("@harness-anything/kernel/ArtifactStore");

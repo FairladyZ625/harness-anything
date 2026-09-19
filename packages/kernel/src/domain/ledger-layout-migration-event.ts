@@ -31,20 +31,13 @@ export function isLedgerLayoutMigrationEvent(event: {
 }): event is LedgerLayoutMigrationEventV1 {
   return event.schema === "ledger-layout-event/v1";
 }
-export function validateLedgerLayoutMigrationEvent(
-  value: unknown,
-): readonly string[] {
+export function validateLedgerLayoutMigrationEvent(value: unknown): readonly string[] {
   return validateLedgerLayoutMigrationEventFields(value, true);
 }
-export function validateCurrentLedgerLayoutMigrationEvent(
-  value: unknown,
-): readonly string[] {
+export function validateCurrentLedgerLayoutMigrationEvent(value: unknown): readonly string[] {
   return validateLedgerLayoutMigrationEventFields(value, false);
 }
-function validateLedgerLayoutMigrationEventFields(
-  value: unknown,
-  allowUnknownFields: boolean,
-): readonly string[] {
+function validateLedgerLayoutMigrationEventFields(value: unknown, allowUnknownFields: boolean): readonly string[] {
   const hasFields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
   if (
     !isRecord(value) ||
@@ -62,13 +55,7 @@ function validateLedgerLayoutMigrationEventFields(
     value.schema !== "ledger-layout-event/v1" ||
     value.type !== "ledger_layout_migrated" ||
     !isRecord(value.payload) ||
-    !hasFields(value.payload, [
-      "from",
-      "to",
-      "eventCount",
-      "blobCount",
-      "preEventsTreeSha",
-    ]) ||
+    !hasFields(value.payload, ["from", "to", "eventCount", "blobCount", "preEventsTreeSha"]) ||
     value.payload.from !== "flat/v1" ||
     value.payload.to !== "sharded-sha256-2/v1" ||
     ![value.payload.eventCount, value.payload.blobCount].every(
@@ -101,10 +88,7 @@ export function ledgerLayoutMigrationWritePlan(
       key: event.payload.to,
     },
   ];
-  return freezeDeclaredWritePlan(
-    { commandType: "LedgerLayoutMigrate", targets },
-    ["LedgerLayoutMigrate"],
-  );
+  return freezeDeclaredWritePlan({ commandType: "LedgerLayoutMigrate", targets }, ["LedgerLayoutMigrate"]);
 }
 export function assertLedgerLayoutMigrationWritePlan(
   event: LedgerLayoutMigrationEventV1,
@@ -115,12 +99,6 @@ export function assertLedgerLayoutMigrationWritePlan(
       commandType: value.commandType,
       targets: value.targets.map(stableStringify).sort(),
     });
-  if (
-    !plan ||
-    !isFrozenWritePlan(plan) ||
-    shape(plan) !== shape(ledgerLayoutMigrationWritePlan(event))
-  )
-    throw new Error(
-      "ledger layout migration plan must exactly declare event, head, and layout projection targets",
-    );
+  if (!plan || !isFrozenWritePlan(plan) || shape(plan) !== shape(ledgerLayoutMigrationWritePlan(event)))
+    throw new Error("ledger layout migration plan must exactly declare event, head, and layout projection targets");
 }

@@ -1,1 +1,3 @@
-export function ftsQuery(value: string): string { return `"${value.trim().replaceAll('"', '""')}"`; }
+export function ftsQuery(value: string): string {
+  return `"${value.trim().replaceAll('"', '""')}"`;
+}

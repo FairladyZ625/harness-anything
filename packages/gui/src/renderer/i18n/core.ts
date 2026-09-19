@@ -51,8 +51,12 @@ export const LOCALE_STORAGE_KEY = "harness-locale";
 function systemLocale(): Locale {
   // rebuild 线产品文案以中文为一等公民(历史视图均为中文),默认 zh-CN;
   // en-US 为显式 opt-in(设置页切换)。已保存的偏好始终优先。
-  if (typeof window !== "undefined" && typeof navigator !== "undefined"
-    && navigator.language.toLowerCase().startsWith("en")) return "en-US";
+  if (
+    typeof window !== "undefined" &&
+    typeof navigator !== "undefined" &&
+    navigator.language.toLowerCase().startsWith("en")
+  )
+    return "en-US";
   return "zh-CN";
 }
 

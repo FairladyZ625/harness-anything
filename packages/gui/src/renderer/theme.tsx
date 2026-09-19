@@ -1,10 +1,4 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
 export type ThemeMode = "dark" | "light" | "system";
 export type UiScale = "compact" | "standard" | "comfortable";
@@ -22,16 +16,10 @@ const ThemeContext = createContext<{
 });
 
 const resolve = (mode: ThemeMode): "dark" | "light" =>
-  mode === "system"
-    ? matchMedia("(prefers-color-scheme: light)").matches
-      ? "light"
-      : "dark"
-    : mode;
+  mode === "system" ? (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark") : mode;
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [mode, setMode] = useState<ThemeMode>(
-    () => (localStorage.getItem("harness-theme") as ThemeMode) ?? "dark",
-  );
+  const [mode, setMode] = useState<ThemeMode>(() => (localStorage.getItem("harness-theme") as ThemeMode) ?? "dark");
   const [uiScale, setUiScale] = useState<UiScale>(
     () => (localStorage.getItem("harness-ui-scale") as UiScale) ?? "standard",
   );
@@ -53,11 +41,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     document.documentElement.dataset.uiScale = uiScale;
   }, [uiScale]);
 
-  return (
-    <ThemeContext.Provider value={{ mode, setMode, uiScale, setUiScale }}>
-      {children}
-    </ThemeContext.Provider>
-  );
+  return <ThemeContext.Provider value={{ mode, setMode, uiScale, setUiScale }}>{children}</ThemeContext.Provider>;
 }
 
 export const useTheme = () => useContext(ThemeContext);

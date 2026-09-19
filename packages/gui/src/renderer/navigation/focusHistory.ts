@@ -21,10 +21,7 @@ export type FocusHistoryAction =
 
 export const EMPTY_HISTORY: FocusHistoryState = { stack: [], index: -1 };
 
-export function focusHistoryReducer(
-  state: FocusHistoryState,
-  action: FocusHistoryAction,
-): FocusHistoryState {
+export function focusHistoryReducer(state: FocusHistoryState, action: FocusHistoryAction): FocusHistoryState {
   switch (action.type) {
     case "push": {
       if (state.stack[state.index] === action.ref) return state;
@@ -56,7 +53,7 @@ export function focusHistoryReducer(
 
 /** 当前焦点 ref(null = 无)。 */
 export function currentFocus(state: FocusHistoryState): string | null {
-  return state.index >= 0 ? state.stack[state.index] ?? null : null;
+  return state.index >= 0 ? (state.stack[state.index] ?? null) : null;
 }
 
 export function canBack(state: FocusHistoryState): boolean {

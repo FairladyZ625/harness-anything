@@ -1,1 +1,3 @@
-export function consumeKnownError(error: unknown): void { void error; }
+export function consumeKnownError(error: unknown): void {
+  void error;
+}

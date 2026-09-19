@@ -38,8 +38,9 @@ export function readDirNamesIfPresent(inputPath: string): string[] | null {
 }
 
 function isVanishedPathError(error: unknown): boolean {
-  const code = typeof error === "object" && error !== null && "code" in error
-    ? (error as { readonly code?: unknown }).code
-    : undefined;
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? (error as { readonly code?: unknown }).code
+      : undefined;
   return code === "ENOENT" || code === "ENOTDIR";
 }

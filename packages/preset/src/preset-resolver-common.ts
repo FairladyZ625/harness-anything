@@ -3,10 +3,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-export const defaultAssets = path.resolve(
-    path.dirname(fileURLToPath(import.meta.url)),
-    "../assets/software-coding",
-  ),
+export const defaultAssets = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../assets/software-coding"),
   defaultBundled = path.join(defaultAssets, "presets");
 
 export function resolverContentHash(body: string): string {
@@ -19,16 +16,10 @@ export function key(verticalId: string, id: string): string {
 
 export function isWithinPresetAssetRoot(root: string, target: string): boolean {
   const relative = path.relative(root, target);
-  return (
-    relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative)
-  );
+  return relative !== "" && !relative.startsWith("..") && !path.isAbsolute(relative);
 }
 
-export function presetFailure(
-  code: string,
-  message: string,
-  missingProviderIds?: readonly string[],
-): PresetFailure {
+export function presetFailure(code: string, message: string, missingProviderIds?: readonly string[]): PresetFailure {
   return Object.defineProperties(new Error(message), {
     code: { value: code, enumerable: true },
     message: { value: message, enumerable: true },
@@ -44,26 +35,17 @@ export function presetFailure(
 }
 
 export function asFailure(error: unknown): PresetFailure {
-  return error &&
-    typeof error === "object" &&
-    "code" in error &&
-    "message" in error
+  return error && typeof error === "object" && "code" in error && "message" in error
     ? (error as PresetFailure)
-    : presetFailure(
-        "invalid_package",
-        error instanceof Error ? error.message : String(error),
-      );
+    : presetFailure("invalid_package", error instanceof Error ? error.message : String(error));
 }
 
-export function isPresetResolutionRecord(
-  value: unknown,
-): value is Record<string, unknown> {
+export function isPresetResolutionRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
 export function requiredText(value: unknown, field: string): string {
-  if (typeof value !== "string" || !value.trim())
-    throw presetFailure("invalid_command", `${field} is required.`);
+  if (typeof value !== "string" || !value.trim()) throw presetFailure("invalid_command", `${field} is required.`);
   return value;
 }
 
@@ -75,7 +57,6 @@ export function compareVersion(left: string, right: string): number {
   const a = left.split(".").map(Number),
     b = right.split(".").map(Number);
   for (let index = 0; index < Math.max(a.length, b.length); index += 1)
-    if ((a[index] ?? 0) !== (b[index] ?? 0))
-      return (a[index] ?? 0) > (b[index] ?? 0) ? 1 : -1;
+    if ((a[index] ?? 0) !== (b[index] ?? 0)) return (a[index] ?? 0) > (b[index] ?? 0) ? 1 : -1;
   return 0;
 }

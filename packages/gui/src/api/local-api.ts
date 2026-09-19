@@ -28,7 +28,7 @@ export function createLocalApiSession(): LocalApiSession {
     bindHost: localApiBindHost,
     sessionToken: randomBytes(32).toString("base64url"),
     corsAllowedOrigins: [],
-    maxBodyBytes: localApiMaxBodyBytes
+    maxBodyBytes: localApiMaxBodyBytes,
   };
 }
 
