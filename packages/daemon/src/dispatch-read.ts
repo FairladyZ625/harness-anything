@@ -215,7 +215,8 @@ export function taskDispatchRowSettled(row: TaskDispatchRow, dispatchIds: readon
   if (row.fallbackState === "scheduled") return false;
   if (row.fallbackState === "dispatched" && (row.nextDispatchId === null || !dispatchIds.includes(row.nextDispatchId)))
     return false;
-  if (["succeeded", "failed", "cancelled", "lost"].includes(row.status)) return true;
+  if (row.status === "succeeded" || row.status === "failed" || row.status === "cancelled" || row.status === "lost")
+    return true;
   return row.status === "unknown" && row.outcome === "unknown";
 }
 

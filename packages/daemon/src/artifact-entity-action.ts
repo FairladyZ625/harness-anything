@@ -510,9 +510,9 @@ async function resolveArtifactSource(input: {
     // One deadline covers the response headers and the body: a response that stalls after its headers times out.
     try {
       const response = await fetch(locator.value, { redirect: "follow", signal: controller.signal }),
-        source = { kind: "url" as const, url: locator.value },
-        code = response.status;
-      if (code === 404 || code === 410) return { status: "missing", source, reason: `HTTP ${code}`, resolver: "http" };
+        source = { kind: "url" as const, url: locator.value };
+      if (response.status === 404 || response.status === 410)
+        return { status: "missing", source, reason: `HTTP ${response.status}`, resolver: "http" };
       if (!response.ok) throw new Error(`URL resolver returned HTTP ${response.status}.`);
       const content = new Uint8Array(await response.arrayBuffer()),
         name = path.basename(new URL(locator.value).pathname) || new URL(locator.value).hostname;
