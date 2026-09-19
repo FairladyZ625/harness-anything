@@ -434,7 +434,6 @@
   "views.overviewView.pinnedStreamTitle": "Pin 在做",
   "views.overviewView.decisionEmpty": "该状态下暂无决策。",
   "views.overviewView.taskEmpty": "该状态下暂无任务。",
-  "views.overviewView.taskAhead": "更新的 {count} 条 · 不在当前状态筛选内",
   "views.overviewView.pinnedEmpty": "当前没有 pin 的任务。",
   "views.overviewView.pinnedHint": "用 ha task pin <task-id> 标记你正在做的任务。",
   "views.overviewView.pinnedLoading": "正在读取与 ha agenda 相同的 PIN 投影…",
