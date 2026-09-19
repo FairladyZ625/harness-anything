@@ -3,7 +3,7 @@
   "shell.nav.overview": "Overview",
   "shell.nav.board": "Board",
   "shell.nav.decisionPool": "Approvals",
-  "shell.nav.freshness": "Freshness",
+  "shell.nav.freshness": "Drift Alerts",
   "shell.nav.graph": "Relation Graph",
   "shell.nav.presets": "Preset / Vertical",
 "shell.nav.entities": "Entities",
