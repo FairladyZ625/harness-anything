@@ -77,6 +77,10 @@ test("canonical adapter accepts in SQLite before independently verifying the Git
     await store.settlePendingMaterialization?.("test");
     assert.equal(receipt.status, "applied");
     assert.equal(store.ledgerMetadata().revision, 1);
+    assert.deepEqual(store.readEventById?.(event.eventId), event);
+    assert.equal(store.readEventById?.("event-missing"), null);
+    assert.deepEqual(store.readEventsBefore?.(2, 1), [event]);
+    assert.deepEqual(store.readEventsBefore?.(1, 1), []);
     assert.deepEqual(store.readCommandOutcome(event.opId)?.memberOpIds, [event.opId]);
     assert.equal(store.followerStatus().git.status, "verified");
     assert.equal(store.followerStatus().worktree.status, "verified");

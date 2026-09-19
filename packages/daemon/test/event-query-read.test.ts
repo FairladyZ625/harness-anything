@@ -26,21 +26,15 @@ function event(overrides: Partial<CanonicalEventV1> & { readonly workspaceRevisi
 function store(
   events: readonly CanonicalEventV1[],
   batchSize = 3,
-): Pick<CanonicalEventStore, "readBatch" | "readEvent"> {
+): Pick<CanonicalEventStore, "readEvent" | "readEventById" | "readEventsBefore"> {
   return {
-    readBatch: (cursor, maxItems) => {
-      const start = cursor === null ? 0 : Number(cursor),
-        items = events.slice(start, start + Math.min(maxItems, batchSize)),
-        next = start + items.length;
-      return {
-        sourceRevision: events.at(-1)?.workspaceRevision ?? 0,
-        events: items,
-        cursor: String(next),
-        done: next >= events.length,
-        accessedItems: items.length,
-      };
-    },
     readEvent: (opId) => events.find((candidate) => candidate.opId === opId) ?? null,
+    readEventById: (eventId) => events.find((candidate) => candidate.eventId === eventId) ?? null,
+    readEventsBefore: (revision, maxItems) =>
+      events
+        .filter((candidate) => candidate.workspaceRevision < revision)
+        .slice(-Math.min(maxItems, batchSize))
+        .reverse(),
   };
 }
 
@@ -156,7 +150,7 @@ test("event list query validation bounds limit and rejects malformed cursor and 
   assert.throws(() => parse({ after: "2026-09-02T00:00:00Z", before: "2026-09-01T00:00:00Z" }), /--after/u);
 });
 
-test("event show resolves op ids directly and event ids through the stream", () => {
+test("event show resolves op ids and event ids without scanning batches", () => {
   const target = event({ workspaceRevision: 2, eventId: "event-needle", opId: "op-2" }),
     ledger = store([event({ workspaceRevision: 1 }), target], 1);
   assert.equal(findLedgerEvent(ledger, "op-2")?.eventId, "event-needle");

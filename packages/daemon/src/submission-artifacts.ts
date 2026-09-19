@@ -59,7 +59,7 @@ export function readSubmissionArtifact(
   if (normalized !== path || !artifact.startsWith(`${packagePath}/artifacts/`))
     return invalid("path must belong to this task's artifacts");
   if (!Number.isSafeInteger(revision) || revision < 1) invalid("revision must be a positive safe integer");
-  const event = cell.store.readBatch(String(revision - 1), 1).events[0];
+  const event = cell.store.readEventAtRevision?.(revision);
   if (!event || event.workspaceRevision !== revision || !isDocEvent(event))
     return invalid("revision is not a document acceptance");
   const change = event.payload.changes.find((candidate) => candidate.path === artifact);

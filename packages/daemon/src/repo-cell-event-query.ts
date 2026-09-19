@@ -136,65 +136,50 @@ export function eventMatches(event: CanonicalEventV1, query: EventListQuery): bo
 }
 
 /**
- * Scans the canonical event table oldest→newest keeping only the newest `limit` matches below the
- * revision bound, so the returned page is revision-descending without materializing every event.
- * The loop terminates on the reader's own `done` signal, never on cursor nullability.
+ * Reads newest→oldest from the revision index and stops once one look-ahead match proves another page exists.
+ * The exclusive revision bound decreases every round, so even sparse filters never revisit an event.
  */
 export function selectLedgerEvents(
-  store: Pick<CanonicalEventStore, "readBatch">,
+  store: Pick<CanonicalEventStore, "readEventsBefore">,
   query: EventListQuery,
 ): EventListPage {
-  const bound = query.revisionBound ?? Number.MAX_SAFE_INTEGER,
-    tail: CanonicalEventV1[] = [];
-  let matched = 0,
-    cursor: string | null = null;
-  for (;;) {
-    const batch = store.readBatch(cursor, EVENT_SCAN_BATCH);
-    for (const event of batch.events) {
-      if (event.workspaceRevision >= bound || !eventMatches(event, query)) continue;
-      matched += 1;
-      tail.push(event);
-      if (tail.length > query.limit) tail.shift();
+  if (!store.readEventsBefore) throw new Error("canonical event store does not support reverse event reads");
+  const selected: CanonicalEventV1[] = [];
+  let bound = query.revisionBound ?? Number.MAX_SAFE_INTEGER;
+  while (bound > 1 && selected.length <= query.limit) {
+    const events = store.readEventsBefore(bound, EVENT_SCAN_BATCH);
+    if (events.length === 0) break;
+    for (const event of events) {
+      if (eventMatches(event, query)) selected.push(event);
+      if (selected.length > query.limit) break;
     }
-    if (batch.done) break;
-    cursor = batch.cursor;
+    bound = events.at(-1)!.workspaceRevision;
   }
-  const rows = tail
-    .slice()
-    .reverse()
-    .map((event) => ({
-      revision: event.workspaceRevision,
-      opId: event.opId,
-      eventId: event.eventId,
-      schema: event.schema,
-      type: event.type,
-      occurredAt: event.occurredAt,
-      actor: { personId: event.actor.principal.personId, executorId: event.actor.executor?.id ?? null },
-      entityRefs: eventEntityRefs(event),
-    }));
+  const rows = selected.slice(0, query.limit).map((event) => ({
+    revision: event.workspaceRevision,
+    opId: event.opId,
+    eventId: event.eventId,
+    schema: event.schema,
+    type: event.type,
+    occurredAt: event.occurredAt,
+    actor: { personId: event.actor.principal.personId, executorId: event.actor.executor?.id ?? null },
+    entityRefs: eventEntityRefs(event),
+  }));
   return {
     rows,
-    matched,
-    nextCursor: matched > query.limit && rows.length ? String(rows.at(-1)!.revision) : null,
+    matched: selected.length,
+    nextCursor: selected.length > query.limit && rows.length ? String(rows.at(-1)!.revision) : null,
   };
 }
 
 export function findLedgerEvent(
-  store: Pick<CanonicalEventStore, "readBatch" | "readEvent">,
+  store: Pick<CanonicalEventStore, "readEvent" | "readEventById">,
   id: string,
 ): CanonicalEventV1 | null {
   const byOpId = store.readEvent(id);
   if (byOpId !== null) return byOpId;
-  // Same done-signal termination as the list scan; the lookup is an eventId fallback after the
-  // op_id index missed, so a full pass is unavoidable when the event does not exist.
-  let cursor: string | null = null;
-  for (;;) {
-    const batch = store.readBatch(cursor, EVENT_SCAN_BATCH),
-      found = batch.events.find((event) => event.eventId === id);
-    if (found) return found;
-    if (batch.done) return null;
-    cursor = batch.cursor;
-  }
+  if (!store.readEventById) throw new Error("canonical event store does not support event-id lookup");
+  return store.readEventById(id);
 }
 
 export function listEvents(cell: EventQueryCell, action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt {

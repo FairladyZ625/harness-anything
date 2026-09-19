@@ -137,10 +137,12 @@ export interface SqliteEventStore {
   readonly revision: () => number;
   readonly events: () => readonly CanonicalEventV1[];
   readonly event: (opId: string) => CanonicalEventV1 | null;
+  readonly eventById: (eventId: string) => CanonicalEventV1 | null;
   readonly eventAtRevision: (revision: number) => CanonicalEventV1 | null;
   readonly eventIdentity: (opId: string) => SqliteEventIdentity | null;
   readonly eventIdentityAtRevision: (revision: number) => SqliteEventIdentity | null;
   readonly eventsAfter: (revision: number, limit?: number) => readonly CanonicalEventV1[];
+  readonly eventsBefore: (revision: number, limit?: number) => readonly CanonicalEventV1[];
   readonly close: () => void;
 }
 
@@ -593,11 +595,16 @@ export function openSqliteEventStore(options: {
         (row) => JSON.parse(String(row.event_json)) as CanonicalEventV1,
       ),
     event: (opId) => readEvent(query, "op_id", opId),
+    eventById: (eventId) => readEvent(query, "json_extract(event_json, '$.eventId')", eventId),
     eventAtRevision: (revision) => readEvent(query, "revision", revision),
     eventIdentity: (opId) => readEventIdentity(query, "op_id", opId),
     eventIdentityAtRevision: (revision) => readEventIdentity(query, "revision", revision),
     eventsAfter: (revision, limit = 4096) =>
       query("SELECT event_json FROM event WHERE revision>? ORDER BY revision LIMIT ?", [revision, limit]).map(
+        (row) => JSON.parse(String(row.event_json)) as CanonicalEventV1,
+      ),
+    eventsBefore: (revision, limit = 4096) =>
+      query("SELECT event_json FROM event WHERE revision<? ORDER BY revision DESC LIMIT ?", [revision, limit]).map(
         (row) => JSON.parse(String(row.event_json)) as CanonicalEventV1,
       ),
     close: registerLedgerClose(databasePath, db),
@@ -657,6 +664,7 @@ function createSchema(db: DatabaseSync, repoId: string, generation: number): voi
       digest TEXT NOT NULL, occurred_at TEXT NOT NULL,
       recorded_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
     ) STRICT;
+    CREATE UNIQUE INDEX IF NOT EXISTS event_event_id ON event(json_extract(event_json, '$.eventId'));
     CREATE TABLE IF NOT EXISTS command_outcome (
       op_id TEXT PRIMARY KEY, status TEXT NOT NULL CHECK(status IN ('accepted_durable','rejected')),
       first_revision INTEGER, last_revision INTEGER, intent_digest TEXT NOT NULL,
@@ -705,7 +713,11 @@ function assertMetadata(query: SqliteQuery, repoId: string, generation: number):
     throw new TaskEventStoreError("repo_mismatch", "SQLite ledger belongs to another repository or generation");
 }
 
-function readEvent(query: SqliteQuery, column: "op_id" | "revision", value: string | number): CanonicalEventV1 | null {
+function readEvent(
+  query: SqliteQuery,
+  column: "op_id" | "revision" | "json_extract(event_json, '$.eventId')",
+  value: string | number,
+): CanonicalEventV1 | null {
   const row = query(`SELECT event_json FROM event WHERE ${column}=?`, [value]).at(0);
   return row ? (JSON.parse(String(row.event_json)) as CanonicalEventV1) : null;
 }

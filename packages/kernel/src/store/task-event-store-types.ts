@@ -164,6 +164,8 @@ export interface CanonicalEventStore {
   readonly revisionAt: (commit: LedgerCommitSha) => number | null;
   readonly readEvent: (opId: string) => CanonicalEventV1 | null;
   readonly readEventAtRevision?: (revision: number) => CanonicalEventV1 | null;
+  readonly readEventById?: (eventId: string) => CanonicalEventV1 | null;
+  readonly readEventsBefore?: (revision: number, maxItems: number) => readonly CanonicalEventV1[];
   readonly readTaskEvent: (opId: string) => TaskEventV1 | null;
   readonly readCommandOutcome: (opId: string) => CanonicalCommandOutcome | null;
   readonly ledgerMetadata: () => { readonly repoId: string; readonly generation: number; readonly revision: number };
