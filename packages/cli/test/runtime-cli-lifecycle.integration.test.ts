@@ -145,7 +145,7 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     ).outcome,
     "cancelled",
   );
-  const cancelledReport = readFileSync(path.join(artifactRoot, "reports", `${detachedDispatchId}.md`), "utf8");
+  const cancelledReport = await readPublishedDispatch(path.join(artifactRoot, "reports", `${detachedDispatchId}.md`));
   assertTaskMissionPrompt(cancelledReport.slice("live:".length), {
     repoId: "runtime-cli",
     taskId,
