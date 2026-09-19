@@ -32,6 +32,8 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
     installGitHelpers(root);
     execFileSync("git", ["init", "--bare", remote]);
     git(root, "remote", "add", "origin", remote);
+    git(root, "push", "--quiet", "origin", "HEAD:main");
+    const baseHead = gitText(root, "rev-parse", "HEAD").trim();
     git(root, "worktree", "add", "--quiet", workerRoot, "-b", "codex/github-worker");
     writeFileSync(path.join(workerRoot, "worker-change.txt"), "task-bound worker change\n");
     git(workerRoot, "add", "worker-change.txt");
@@ -94,6 +96,12 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
           assert.equal(prepared.env.GH_TOKEN, secret);
           assert.equal(prepared.env.HARNESS_GITHUB_TOKEN, secret);
           assert.equal(prepared.env.GIT_ASKPASS, path.join(root, "tools", "git-hooks", "git-askpass"));
+          // The conventional git identity rides the worker environment explicitly, so commits
+          // and rebases in the worktree never depend on implicit config inheritance.
+          assert.equal(prepared.env.GIT_AUTHOR_NAME, "GitHub Worker Test");
+          assert.equal(prepared.env.GIT_AUTHOR_EMAIL, "github-worker@example.invalid");
+          assert.equal(prepared.env.GIT_COMMITTER_NAME, "GitHub Worker Test");
+          assert.equal(prepared.env.GIT_COMMITTER_EMAIL, "github-worker@example.invalid");
           mainPush = spawnSync("git", ["-C", workerRoot, "push", "origin", "HEAD:main"], {
             cwd: workerRoot,
             encoding: "utf8",
@@ -103,6 +111,10 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
           assert.equal(prepared.env.GH_TOKEN, undefined);
           assert.equal(prepared.env.HARNESS_GITHUB_TOKEN, undefined);
           assert.equal(prepared.env.GIT_ASKPASS, undefined);
+          assert.equal(prepared.env.GIT_AUTHOR_NAME, undefined);
+          assert.equal(prepared.env.GIT_AUTHOR_EMAIL, undefined);
+          assert.equal(prepared.env.GIT_COMMITTER_NAME, undefined);
+          assert.equal(prepared.env.GIT_COMMITTER_EMAIL, undefined);
         }
         return successfulRuntimeProcess();
       },
@@ -145,7 +157,9 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
     assert.match(String(mainPush?.stderr), /outside refs\/heads\/codex/u);
     assert.notEqual(mainPush?.status, 0, mainPush?.stderr);
     assert.match(gitText(remote, "show-ref", "--verify", "refs/heads/codex/github-worker"), /codex\/github-worker/u);
-    assert.notEqual(spawnSync("git", ["-C", remote, "show-ref", "--verify", "refs/heads/main"]).status, 0);
+    // The worker change never lands on main: the remote baseline stands exactly where the
+    // fixture published it before the worker branch existed.
+    assert.equal(gitText(remote, "rev-parse", "refs/heads/main").trim(), baseHead);
 
     const shown = instances.command({ kind: "runtime-instance-show", instanceId }),
       events = makeTaskEventReader({ repoId, rootDir: root }).read().events,
@@ -236,9 +250,16 @@ async function runtimeOutcome(root: string, repoId: string, runtimeSessionId: st
 }
 
 function git(root: string, ...args: string[]): void {
-  execFileSync("git", ["-C", root, ...args]);
+  execFileSync("git", ["-C", root, ...args], { env: harnessGitEnvironment() });
 }
 
 function gitText(root: string, ...args: string[]): string {
-  return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" });
+  return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", env: harnessGitEnvironment() });
+}
+
+// Fixture-side git is not a task-bound worker, so the push guard wrapper must not see one.
+function harnessGitEnvironment(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.HARNESS_TASK_BOUND;
+  return env;
 }

@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -359,6 +359,52 @@ test("terminal settlement names the branch when the worker push fails", async (c
   assert.equal(outcomes[0]?.outcome, "succeeded", "a push failure is reported, not turned into a task failure");
 });
 
+test("terminal settlement refuses to publish a worker commit outside the conventional identity", async (context) => {
+  const fixture = workerGitFixture(context, "settle-identity", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, { finalText: "worker delivery" }),
+    outcomeBodies: string[] = [],
+    outcomes: Record<string, unknown>[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}, _opId?, _binding?, body?) => {
+      if (type === "runtime_session_outcome_observed") {
+        outcomes.push(payload);
+        outcomeBodies.push(String(body));
+      }
+      return {};
+    });
+  git(
+    fixture.worker,
+    "-c",
+    "user.name=Stale Worker",
+    "-c",
+    "user.email=stale-worker@example.invalid",
+    "commit",
+    "--allow-empty",
+    "--quiet",
+    "-m",
+    "feat: stale worker change",
+  );
+  const staleHead = git(fixture.worker, "rev-parse", "HEAD").trim();
+  await publishExit(settleContext, runtime, 0);
+  assert.equal(outcomeBodies.length, 1);
+  assert.match(
+    outcomeBodies[0],
+    new RegExp(
+      `^worker delivery\\n\\nWorker branch push failed \\(no retry\\): ` +
+        `codex\\/settle-identity @ ${staleHead}: commit ${staleHead} carries author ` +
+        "<stale-worker@example.invalid> and committer <stale-worker@example.invalid>, " +
+        "not the conventional identity <settle-test@example.invalid>",
+      "u",
+    ),
+  );
+  assert.equal(outcomes[0]?.outcome, "succeeded", "an identity refusal is reported, not turned into a task failure");
+  assert.notEqual(
+    spawnSync("git", ["-C", fixture.bare, "show-ref", "--verify", "--quiet", "refs/heads/codex/settle-identity"])
+      .status,
+    0,
+    "the settlement refusal leaves the branch unpublished",
+  );
+});
+
 function active(overrides: Partial<ActiveRuntime>): ActiveRuntime {
   return {
     dispatchId: "dispatch_0123456789abcdef01234567",
@@ -407,11 +453,13 @@ function workerGitFixture(
   writeFileSync(path.join(canonical, "README.md"), "fixture\n");
   git(canonical, "add", "README.md");
   git(canonical, "commit", "--quiet", "-m", "fixture");
+  git(canonical, "remote", "add", "origin", bare);
+  git(canonical, "push", "--quiet", "origin", "HEAD:main");
+  if (!options.reachableRemote) git(canonical, "remote", "set-url", "origin", path.join(root, "missing.git"));
   git(canonical, "worktree", "add", "--quiet", worker, "-b", `codex/${slug}`);
   writeFileSync(path.join(worker, "change.txt"), "worker\n");
   git(worker, "add", "change.txt");
   git(worker, "commit", "--quiet", "-m", "feat: worker change");
-  git(worker, "remote", "add", "origin", options.reachableRemote ? bare : path.join(root, "missing.git"));
   return { root, bare, canonical, worker };
 }
 
@@ -489,5 +537,8 @@ function workerSettlementContext(
 }
 
 function git(root: string, ...args: string[]): string {
-  return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" });
+  // Fixture pushes to main are harness-side git, not a task-bound worker push the wrapper refuses.
+  const env = { ...process.env };
+  delete env.HARNESS_TASK_BOUND;
+  return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", env });
 }

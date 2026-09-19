@@ -172,6 +172,7 @@
       "packages/daemon/src/runtime-worker-acp.ts#runAcpProviderSession",
       "packages/daemon/src/runtime-worker-acp.ts#send",
       "packages/daemon/src/runtime-worker-host.ts#appendProviderLine",
+      "packages/daemon/src/runtime-worker-push.ts#readWorkerGitIdentity",
       "packages/daemon/src/runtime-worker-push.ts#workerWorktreeDirty",
       "packages/daemon/src/runtime.ts#settleTeardownStep",
       "packages/daemon/src/schedule-runs-read.ts#reportTextOf",

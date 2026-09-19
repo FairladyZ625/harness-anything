@@ -81,6 +81,7 @@ import {
   runtimeResultText as runtimeResultTextImpl,
 } from "./runtime-spawn-settlement.ts";
 import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
+import { readWorkerGitIdentity, workerGitIdentityEnvironment } from "./runtime-worker-push.ts";
 import type {
   ActiveRuntime,
   ResumeProcessObservation,
@@ -546,7 +547,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         ? await prepareWorkerGitEnvironment(runtimeInstanceId)
         : trustedSchedule?.mode === "remediate"
           ? await input.prepareWorkerGitEnvironment?.(runtimeInstanceId)
-          : undefined;
+          : undefined,
+      // Every worker launch states the conventional git identity as environment instead of
+      // leaving commits and rebases to whatever the worktree's config resolves to implicitly.
+      workerGitIdentity =
+        taskId || trustedSchedule || reviewerBinding ? await readWorkerGitIdentity({ cwd: input.rootDir }) : undefined;
     // A squad coordinator explicitly retains one stable binding while sibling workers share the
     // same lease generation. Direct runtime/batch dispatches still transfer ownership even when
     // they select a squad member through --to.
@@ -578,6 +583,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             env: {
               ...prepared.env,
               ...workerGitEnvironment,
+              ...(workerGitIdentity ? workerGitIdentityEnvironment(workerGitIdentity) : {}),
               HARNESS_CANONICAL_ROOT: input.rootDir,
               PATH: [
                 path.join(input.rootDir, "tools", "git-hooks"),
