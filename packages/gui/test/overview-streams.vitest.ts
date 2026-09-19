@@ -885,15 +885,16 @@ describe("overview pinned stream", () => {
       ],
     });
 
-    expect(pinnedAgendaItems(projection).map(({ taskId }) => taskId)).toEqual([
+    expect(pinnedAgendaItems(projection).map(({ ref }) => ref)).toEqual([
       "decision/dec_PINNED",
-      "task_pin_review",
-      "task_pin_active",
+      "task/task_pin_review",
+      "task/task_pin_active",
     ]);
     const markup = renderToStaticMarkup(
       createElement(PinnedStream, {
         agenda: projection,
         onOpenPreview: noop,
+        onNavigateEntity: noop,
         onSetPin: noop,
       }),
     );
@@ -902,20 +903,48 @@ describe("overview pinned stream", () => {
     expect(markup).toContain("Pinned decision");
     expect(markup).not.toContain("Plain planned");
     expect(markup).toContain("repo.agenda.read");
-    expect(markup.match(/title="task_pin_active/gu)).toHaveLength(1);
+    expect(markup.match(/title="task\/task_pin_active/gu)).toHaveLength(1);
     expect(markup).toContain("overview-pin-toggle-task_pin_active");
+    // kind 徽标与各自的状态词:decision 行显示「决策」徽标与 proposed 的决策文案,
+    // 不套任务生命周期词表。
+    expect(markup).toContain('data-testid="pinned-kind-decision"');
+    expect(markup).toContain("决策");
+    expect(markup).toContain("待决策批准");
   });
 
   it("explains how to pin when nothing is pinned", () => {
     const markup = renderToStaticMarkup(createElement(PinnedStream, { agenda: agenda(), onOpenPreview: noop }));
-    expect(markup).toContain("当前没有 pin 的任务");
-    expect(markup).toContain("ha task pin");
+    expect(markup).toContain("当前没有置顶项");
+    expect(markup).toContain("ha pin");
   });
 
   it("shows projection loading instead of the task-list-derived false empty state", () => {
     const markup = renderToStaticMarkup(createElement(PinnedStream, { agenda: undefined, onOpenPreview: noop }));
     expect(markup).toContain("ha agenda");
-    expect(markup).not.toContain("当前没有 pin 的任务");
+    expect(markup).not.toContain("当前没有置顶项");
+  });
+
+  it("surfaces the daemon collapsed pin count instead of dropping it", () => {
+    const markup = renderToStaticMarkup(
+      createElement(PinnedStream, {
+        agenda: agenda({
+          pinnedEntities: [
+            {
+              ref: "decision/dec_folded",
+              kind: "decision",
+              title: "Folded window",
+              status: "in_effect",
+              pinnedAt: "2026-08-30T04:00:00.000Z",
+            },
+          ],
+          pinnedEntityOverflow: 3,
+        }),
+        onOpenPreview: noop,
+        onNavigateEntity: noop,
+      }),
+    );
+    expect(markup).toContain('data-testid="pinned-entity-overflow"');
+    expect(markup).toContain("3");
   });
 });
 

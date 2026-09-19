@@ -503,6 +503,7 @@ function AppShell() {
                     }
                     onOpenDecision={navigateToDecision}
                     onNavigateEntity={navigateToEntity}
+                    declaredKinds={declaredKinds}
                     onDecisionPreviewChange={setOverviewDecisionPreviewId}
                     onSetPin={handleSetPin}
                   />

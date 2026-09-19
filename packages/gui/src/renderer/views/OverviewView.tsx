@@ -43,6 +43,7 @@ export function OverviewView({
   onDrill,
   onOpenInbox,
   onOpenDecision,
+  declaredKinds,
   onSetPin,
   onDecisionPreviewChange,
 }: {
@@ -69,6 +70,8 @@ export function OverviewView({
   onOpenDecision: (decisionId: string) => void;
   /** G10 实体互链:决策预览抽屉里的 agent/task ID 的导航出口。 */
   onNavigateEntity: (ref: string) => void;
+  /** 已注册 kind 清单:置顶流用它判定非任务实体 ref 是否有可寻址落点。 */
+  declaredKinds?: readonly string[];
   onSetPin?: (task: Pick<TaskRow, "taskId">, pinned: boolean) => void;
   /** 让 App 只在决策抽屉实际打开时挂载 active-edge 窄面。 */
   onDecisionPreviewChange?: (decisionId: string | null) => void;
@@ -140,7 +143,13 @@ export function OverviewView({
           bodyClassName="p-3"
           className="xl:col-start-1 xl:row-start-2"
         >
-          <PinnedStream agenda={agenda} onOpenPreview={onSelect} onSetPin={onSetPin} />
+          <PinnedStream
+            agenda={agenda}
+            onOpenPreview={onSelect}
+            onNavigateEntity={onNavigateEntity}
+            declaredKinds={declaredKinds}
+            onSetPin={onSetPin}
+          />
         </Card>
       </div>
 
