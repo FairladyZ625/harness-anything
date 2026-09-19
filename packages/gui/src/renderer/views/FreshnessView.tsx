@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { HourglassMedium } from "@phosphor-icons/react";
+import { ArrowRight, HourglassMedium } from "@phosphor-icons/react";
 import type { DecisionRow } from "../model/types";
 import type { RelationCoverageRow } from "../../api/renderer-dto.ts";
 import {
@@ -13,8 +13,9 @@ import { StreamBody, StreamEmpty } from "../components/overview/streamParts.tsx"
 import { t } from "../i18n/index.tsx";
 
 /**
- * 风化视图(O-08):全仓「承重 claim 失去可达支撑」的聚合列表。
- * 数据只来自 canonical coverageRows(App 级 triadic 投影),判据见 model/freshness.ts。
+ * 决策失真预警视图(原 O-08 风化视图):把「承重断言失去事实支撑」的候选按严重度
+ * 分三档展示——被事实反驳(必须处置)、缺少事实支撑(建议补证)、从未声明验证方式
+ * (自然老化)。数据只来自 canonical coverageRows,判据见 model/freshness.ts。
  * 完整渲染,不分批(2026-08-25 泽宇裁决:性能顾虑用按需渲染解决,不转嫁给用户点击):
  * 每行带 content-visibility:auto,离屏行的布局与绘制由渲染器跳过;标题报出真实总数。
  * 计数范围只含 decision.state ∈ {in_effect, proposed}(2026-08-29 泽宇裁决):
@@ -26,6 +27,9 @@ const REASON_CLASS: Record<FreshnessReason, string> = {
   "no-live-evidence": "border-stale/50 bg-stale/10 text-stale",
   "fulfillment-undeclared": "border-border bg-surface-raised text-text-muted",
 };
+
+/** 分档展示顺序与 model/freshness.ts 的 REASON_RANK 一致:最危险的排最前。 */
+const SECTION_ORDER: readonly FreshnessReason[] = ["refuted", "no-live-evidence", "fulfillment-undeclared"];
 
 function ReasonBadge({ reason }: { reason: FreshnessReason }) {
   return (
@@ -45,6 +49,7 @@ function FreshnessRow({
   candidate: FreshnessCandidate;
   onNavigateEntity: (ref: string) => void;
 }) {
+  const decisionRef = `decision/${candidate.decisionId}`;
   return (
     <div
       data-testid="freshness-row"
@@ -53,7 +58,6 @@ function FreshnessRow({
         "cv-auto-3r"
       }
     >
-      <ReasonBadge reason={candidate.reason} />
       <div className="min-w-0 flex-1">
         <p className="truncate ui-body text-text" title={candidate.claimText ?? candidate.claimId}>
           <span className="font-mono ui-micro text-text-faint">{candidate.claimId} </span>
@@ -61,7 +65,7 @@ function FreshnessRow({
         </p>
         <p className="mt-0.5 flex flex-wrap items-center gap-1 font-mono ui-micro text-text-faint">
           <EntityRefLink
-            entityRef={`decision/${candidate.decisionId}`}
+            entityRef={decisionRef}
             onNavigate={onNavigateEntity}
             title={candidate.decisionTitle ?? candidate.decisionId}
           >
@@ -77,7 +81,17 @@ function FreshnessRow({
             </span>
           )}
         </p>
+        <p className="mt-0.5 ui-micro text-text-muted">{t(`views.freshnessView.suggestion.${candidate.reason}`)}</p>
       </div>
+      <button
+        type="button"
+        data-testid="freshness-goto-decision"
+        className="mt-0.5 flex shrink-0 items-center gap-1 rounded border border-border px-1.5 py-0.5 ui-micro text-text-muted hover:text-text"
+        onClick={() => onNavigateEntity(decisionRef)}
+      >
+        {t("views.freshnessView.action.gotoDecision")}
+        <ArrowRight weight="bold" />
+      </button>
     </div>
   );
 }
@@ -102,6 +116,15 @@ export function FreshnessView({
   );
   const decisionsInvolved = new Set(candidates.map((candidate) => candidate.decisionId)).size;
   const basis = basisRevisionOf(coverageRows);
+  const byReason = useMemo(() => {
+    const groups = new Map<FreshnessReason, FreshnessCandidate[]>();
+    for (const candidate of candidates) {
+      const bucket = groups.get(candidate.reason);
+      if (bucket) bucket.push(candidate);
+      else groups.set(candidate.reason, [candidate]);
+    }
+    return groups;
+  }, [candidates]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="freshness-view">
@@ -130,17 +153,35 @@ export function FreshnessView({
         ) : relationState === "error" ? (
           <StreamEmpty>{t("views.freshnessView.error")}</StreamEmpty>
         ) : candidates.length === 0 ? (
-          // 空态必须是明确的「没有风化」,不是空白页;与加载/错误态分开,不冒充。
+          // 空态必须是明确的「没有待处置项」,不是空白页;与加载/错误态分开,不冒充。
           <StreamEmpty>{t("views.freshnessView.empty")}</StreamEmpty>
         ) : (
           <StreamBody testId="freshness-rows">
-            {candidates.map((candidate) => (
-              <FreshnessRow
-                key={`${candidate.decisionId}/${candidate.claimId}`}
-                candidate={candidate}
-                onNavigateEntity={onNavigateEntity}
-              />
-            ))}
+            {SECTION_ORDER.map((reason) => {
+              const group = byReason.get(reason);
+              if (!group || group.length === 0) return null;
+              return (
+                <section key={reason} data-testid={`freshness-section-${reason}`} className="flex flex-col gap-2">
+                  <header className="flex items-baseline gap-2">
+                    <ReasonBadge reason={reason} />
+                    <h2 className="ui-body font-semibold text-text">
+                      {t(`views.freshnessView.section.${reason}.title`)}
+                    </h2>
+                    <span className="font-mono ui-meta text-text-faint">
+                      {t("views.freshnessView.section.count", { count: group.length })}
+                    </span>
+                  </header>
+                  <p className="ui-meta text-text-muted">{t(`views.freshnessView.section.${reason}.description`)}</p>
+                  {group.map((candidate) => (
+                    <FreshnessRow
+                      key={`${candidate.decisionId}/${candidate.claimId}`}
+                      candidate={candidate}
+                      onNavigateEntity={onNavigateEntity}
+                    />
+                  ))}
+                </section>
+              );
+            })}
           </StreamBody>
         )}
       </div>

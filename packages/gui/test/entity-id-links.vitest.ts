@@ -1099,12 +1099,12 @@ describe("风化视图(O-08):uncovered 承重论点的聚合与跳转", () => {
     const empty = await mountFreshness({ coverageRows: [freshnessCoverage()] });
     expect(empty.querySelectorAll("[data-testid='freshness-row']")).toHaveLength(0);
     expect(empty.querySelector("[data-testid='freshness-rows']")).toBeNull();
-    expect(empty.textContent).toContain("当前没有风化候选");
+    expect(empty.textContent).toContain("一切正常");
 
     const loading = await mountFreshness({ relationState: "loading" });
-    expect(loading.textContent).toContain("关系投影加载中");
+    expect(loading.textContent).toContain("正在读取关联数据");
     const error = await mountFreshness({ relationState: "error" });
-    expect(error.textContent).toContain("关系投影读取失败");
+    expect(error.textContent).toContain("关联数据读取失败");
     for (const container of [loading, error]) {
       expect(container.querySelectorAll("[data-testid='freshness-row']")).toHaveLength(0);
     }
