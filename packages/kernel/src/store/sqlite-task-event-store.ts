@@ -445,6 +445,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     publication: (event) => ({ commitSha: null, cut: canonicalEventCut(options.repoId, event) }),
     revisionAt: () => null,
     readEvent: sqlite.event,
+    readEventAtRevision: sqlite.eventAtRevision,
     readTaskEvent: (opId) => {
       const event = sqlite.event(opId);
       return event && isTaskEvent(event) ? event : null;
