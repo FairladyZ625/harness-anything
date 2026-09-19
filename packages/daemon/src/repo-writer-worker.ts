@@ -219,11 +219,12 @@ async function startRepoWriterWorker(): Promise<void> {
           break;
         }
       }
-      postStatus({ kind: "cut", status: cell.status() });
+      // A drain that lands while this request is in flight closes the cell and posts "closed" itself.
+      if (cell) postStatus({ kind: "cut", status: cell.status() });
       postReceipt(request.requestId, value);
     } catch (error) {
       consumeKnownError(error);
-      postStatus({ kind: "status", status: cell.status() });
+      if (cell) postStatus({ kind: "status", status: cell.status() });
       postReceipt(request.requestId, undefined, error);
     } finally {
       activeRequests.delete(request.requestId);
