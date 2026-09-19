@@ -55,3 +55,37 @@ test("the 12 ACP provider launch contracts stay pinned", () => {
     assert.equal(kind.auth.acpCredentialKey, expected.acpCredentialKey, `${expected.kindId} acpCredentialKey`);
   }
 });
+
+/**
+ * The workspace-write permission contract of the non-ACP CLI kinds. acceptEdits
+ * alone leaves a headless Claude session unable to run any Bash command, so the
+ * claude mapping must carry exactly the `ha` prefix rule — `ha` writes ride the
+ * daemon's authorization and single-writer queue, and Claude Code requires each
+ * subcommand of a compound command to match a rule independently. Codex keeps
+ * its OS sandbox mapping; its socket reachability gap is handled at Schedule
+ * definition time, not by widening these args.
+ */
+test("claude workspace-write allows exactly the ha command prefix and codex keeps its sandbox mapping", () => {
+  const claude = runtimeKinds.find((entry) => entry.kindId === "claude"),
+    codex = runtimeKinds.find((entry) => entry.kindId === "codex");
+  assert.ok(claude && codex, "claude and codex kinds must stay in the inventory");
+  assert.deepEqual(claude.launch.permissionArgs["workspace-write"], [
+    "--permission-mode",
+    "acceptEdits",
+    "--allowedTools",
+    "Bash(ha *)",
+  ]);
+  // The rule must stay prefix-scoped: no bare tool wildcard, no unspaced prefix
+  // that would also match unrelated commands (Bash(ha*) matches `hack`).
+  const rule = claude.launch.permissionArgs["workspace-write"][3];
+  assert.equal(rule, "Bash(ha *)");
+  assert.equal(claude.launch.resumePermissionArgs, undefined);
+  assert.deepEqual(codex.launch.permissionArgs["workspace-write"], [
+    "--sandbox",
+    "workspace-write",
+    "--config",
+    "sandbox_workspace_write.exclude_tmpdir_env_var=true",
+    "--config",
+    "sandbox_workspace_write.exclude_slash_tmp=true",
+  ]);
+});
