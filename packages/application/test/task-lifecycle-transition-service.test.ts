@@ -107,6 +107,8 @@ test("completion blocker matrix returns one canonical next for every substantive
     };
     const cases = [
       ["not_in_review", started.snapshot, ready],
+      // A submitted cut the owner has not forwarded is still outside review.
+      ["not_in_review", submitted.snapshot, ready],
       ["closeout_placeholder", consented.snapshot, { ...ready, closeout: "placeholder" as const }],
       ["review_missing", forwarded.snapshot, ready],
       ["consent_missing", reviewed.snapshot, ready],
