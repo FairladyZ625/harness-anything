@@ -81,6 +81,7 @@ import {
   runtimeResultText as runtimeResultTextImpl,
 } from "./runtime-spawn-settlement.ts";
 import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
+import { conventionalWorkerGitEnvironment } from "./runtime-worker-push.ts";
 import type {
   ActiveRuntime,
   ResumeProcessObservation,
@@ -546,7 +547,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         ? await prepareWorkerGitEnvironment(runtimeInstanceId)
         : trustedSchedule?.mode === "remediate"
           ? await input.prepareWorkerGitEnvironment?.(runtimeInstanceId)
-          : undefined;
+          : undefined,
+      workerIdentityEnvironment =
+        taskId || trustedSchedule || reviewerBinding ? await conventionalWorkerGitEnvironment(input.rootDir) : {};
     // A squad coordinator explicitly retains one stable binding while sibling workers share the
     // same lease generation. Direct runtime/batch dispatches still transfer ownership even when
     // they select a squad member through --to.
@@ -578,6 +581,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             env: {
               ...prepared.env,
               ...workerGitEnvironment,
+              ...workerIdentityEnvironment,
               HARNESS_CANONICAL_ROOT: input.rootDir,
               PATH: [
                 path.join(input.rootDir, "tools", "git-hooks"),
