@@ -217,7 +217,9 @@ function legacyCompletion() {
     payload: {
       task: { ...snapshot.task!, status: "done" },
       execution: { ...current, state: "accepted", closedAt: "2026-08-11T00:05:00.000Z" },
-      closeoutGates: { review: true, consent: true, fact: true, factDisposition: true, codeDoc: true },
+      // Completions recorded before the `fact` gate existed carry the other four gates only;
+      // every ledger holds such events, so a cold replay must keep admitting this shape.
+      closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
       documentClaims: [],
     },
   };

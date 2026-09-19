@@ -104,7 +104,12 @@ export function isValidCloseoutGateRecord(value: unknown): value is Readonly<Rec
   return (
     typeof value === "object" &&
     value !== null &&
-    closeoutOverrideKeys.every((key) => typeof (value as Record<CloseoutGate, unknown>)[key] === "boolean")
+    closeoutOverrideKeys.every((key) => {
+      const gate = (value as Record<CloseoutGate, unknown>)[key];
+      // `fact` joined the record later than the other gates: task_completed events already in a
+      // ledger omit it, and an absent `fact` reads as enforced (completion-readiness `!== false`).
+      return typeof gate === "boolean" || (key === "fact" && gate === undefined);
+    })
   );
 }
 
