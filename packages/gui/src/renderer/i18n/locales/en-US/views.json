@@ -434,7 +434,6 @@
   "views.overviewView.pinnedStreamTitle": "Pinned",
   "views.overviewView.decisionEmpty": "No decisions in this state.",
   "views.overviewView.taskEmpty": "No tasks in this status.",
-  "views.overviewView.taskAhead": "{count} newer · outside this status filter",
   "views.overviewView.pinnedEmpty": "Nothing pinned right now.",
   "views.overviewView.pinnedHint": "Pin an entity you are watching with ha pin <entity-ref>.",
   "views.overviewView.pinnedLoading": "Reading the same pinned projection as ha agenda…",
