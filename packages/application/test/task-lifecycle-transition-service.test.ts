@@ -48,6 +48,7 @@ test("completion blocker matrix returns one canonical next for every substantive
       submitted = await harness.submit("execution-1", "op-submit-report-only", "implemented", "a".repeat(40), [
         "tasks/task-1-audit/artifacts/report.md",
       ]),
+      forwarded = await harness.adjudicate("execution-1", "forward"),
       reviewed = await harness.review("execution-1", "acceptance", "approved"),
       consented = await harness.consent("execution-1");
     const ready = {
@@ -107,7 +108,7 @@ test("completion blocker matrix returns one canonical next for every substantive
     const cases = [
       ["not_in_review", started.snapshot, ready],
       ["closeout_placeholder", consented.snapshot, { ...ready, closeout: "placeholder" as const }],
-      ["review_missing", submitted.snapshot, ready],
+      ["review_missing", forwarded.snapshot, ready],
       ["consent_missing", reviewed.snapshot, ready],
       ["ci_missing", withGates(["ci"]), ready],
       ["code_doc_missing", withGates(["code-doc-reconciliation"]), ready],
@@ -229,6 +230,7 @@ test("canonical checker receipt becomes a content-cut gate witness before Comple
         },
       ],
     );
+    await harness.adjudicate("execution-1", "forward");
     await harness.review("execution-1", "acceptance", "approved");
     const consented = await harness.consent("execution-1");
     const snapshot = {
@@ -646,6 +648,7 @@ test("terminal lifecycle states clear a prior task pin", async () => {
 
     await harness.start("execution-1");
     await harness.submit("execution-1");
+    await harness.adjudicate("execution-1", "forward");
     await harness.review("execution-1", "acceptance", "approved");
     const consented = await harness.consent("execution-1");
     const completed = applyTransition(
@@ -1001,9 +1004,12 @@ test("transition service replays reject through a new Execution before completio
     await harness.create();
     await harness.start("execution-1");
     await harness.submit("execution-1");
-    await harness.review("execution-1", "anti_entropy", "changes_requested");
+    await harness.adjudicate("execution-1", "forward");
+    const rejected = await harness.review("execution-1", "anti_entropy", "changes_requested");
+    await harness.adjudicate("execution-1", "return", rejected.snapshot.reviews.at(-1)?.reviewId);
     await harness.start("execution-2");
     await harness.submit("execution-2");
+    await harness.adjudicate("execution-2", "forward");
     await harness.review("execution-2", "anti_entropy", "approved");
     await harness.consent("execution-2");
     const completed = await harness.complete("execution-2");
@@ -1016,7 +1022,8 @@ test("transition service replays reject through a new Execution before completio
     );
     assert.deepEqual(
       completed.snapshot.edgesTaken.map((edge) => edge.on),
-      ["submitted", "changes_requested", "submitted"],
+      // A return is the owner's adjudication (submission_returned), not a review-driven graph edge.
+      ["submitted", "submitted"],
     );
   } finally {
     await harness.cleanup();
@@ -1029,7 +1036,9 @@ test("second lifecycle claim uses monotonic lease CAS", async () => {
     await harness.create();
     await harness.start("execution-1");
     await harness.submit("execution-1");
-    await harness.review("execution-1", "anti_entropy", "changes_requested");
+    await harness.adjudicate("execution-1", "forward");
+    const rejected = await harness.review("execution-1", "anti_entropy", "changes_requested");
+    await harness.adjudicate("execution-1", "return", rejected.snapshot.reviews.at(-1)?.reviewId);
     await harness.start("execution-2");
 
     const claims = harness.eventStore.read().events.filter((candidate) => candidate.type === "execution_started");
