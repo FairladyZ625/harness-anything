@@ -294,12 +294,14 @@ export function recordDecision(
   assert.equal(projection.readDocument(result.path).document?.workspaceRevision, result.revision);
   return result;
 }
+// Projecting a Fact rewrites its task's relation rows, so a backlog on one task costs the square of
+// its length. The backlog only has to be long, not concentrated: it is spread over many tasks.
 export function factBacklog(count: number, taskId: string) {
   const events: FactEventV1[] = [],
     contents = new Map<string, Uint8Array>();
   for (let index = 0; index < count; index += 1) {
     const compiled = compileFactWrite({
-      event: factEvent(index + 1, taskId, `F-${String(index + 1).padStart(8, "0")}`),
+      event: factEvent(index + 1, `${taskId}-${index % 128}`, `F-${String(index + 1).padStart(8, "0")}`),
     });
     events.push(compiled.event);
     contents.set(compiled.event.payload.factsDocumentClaim.sha256, Buffer.from(compiled.body));

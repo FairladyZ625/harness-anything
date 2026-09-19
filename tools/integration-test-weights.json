@@ -1,9 +1,9 @@
 {
   "packages/application/test/execution-lifecycle-integrity.integration.test.ts": 4000,
-  "packages/application/test/fact-event-service.test.ts": 182400,
   "packages/application/test/task-lifecycle-transition-service.test.ts": 18300,
   "packages/cli/test/agent-create.integration.test.ts": 34500,
-  "packages/cli/test/cli-lifecycle-user-journey-stress-scenario-1.integration.test.ts": 192000,
+  "packages/cli/test/cli-lifecycle-user-journey-stress-isolated-clients.integration.test.ts": 155700,
+  "packages/cli/test/cli-lifecycle-user-journey-stress-scenario-1.integration.test.ts": 112000,
   "packages/cli/test/daemon-autostart-cleanup.integration.test.ts": 4600,
   "packages/cli/test/daemon-autostart-cli.test.ts": 103500,
   "packages/cli/test/daemon-fleet-cli.test.ts": 80800,
