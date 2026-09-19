@@ -60,6 +60,14 @@ export function workerGitIdentityEnvironment(identity: WorkerGitIdentity): NodeJ
   };
 }
 
+// Every worker launch states the conventional git identity as environment instead of leaving
+// commits and rebases to whatever the worktree's config resolves to implicitly. A root that
+// resolves no identity injects nothing; the settlement push assertion is the boundary that holds.
+export async function conventionalWorkerGitEnvironment(canonicalRoot: string): Promise<NodeJS.ProcessEnv> {
+  const identity = await readWorkerGitIdentity({ cwd: canonicalRoot });
+  return identity ? workerGitIdentityEnvironment(identity) : {};
+}
+
 // Read-only: settlement observes the worktree, it never commits, stashes or cleans it. A worktree
 // git refuses to describe is not a clean worktree, so an unreadable one answers "dirty" rather than
 // letting the failure escape and strand the dispatch without a terminal outcome.
