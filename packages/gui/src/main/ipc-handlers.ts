@@ -7,14 +7,14 @@ import { registerAgentRuntimeIpc } from "./agent-runtime-ipc.ts";
 export interface HarnessIpcRegistrar {
   readonly handle: (
     channel: string,
-    listener: (event: IpcMainInvokeEvent, payload: unknown) => Promise<unknown>
+    listener: (event: IpcMainInvokeEvent, payload: unknown) => Promise<unknown>,
   ) => void;
   readonly on: (channel: string, listener: (event: IpcMainEvent, payload: unknown) => void) => void;
 }
 export function registerHarnessIpcHandlers(
   registrar: HarnessIpcRegistrar,
   bridge: GuiServiceBridge,
-  trustPolicy: IpcWebContentsTrustPolicy
+  trustPolicy: IpcWebContentsTrustPolicy,
 ): void {
   assertUniqueHarnessIpcChannels(preloadAllowlist);
   for (const method of preloadAllowlist) {
@@ -38,10 +38,7 @@ export function assertUniqueHarnessIpcChannels(methods: ReadonlyArray<string>): 
   }
   return true;
 }
-export function assertTrustedIpcSender(
-  event: IpcSenderIdentity,
-  trustPolicy: IpcWebContentsTrustPolicy
-): true {
+export function assertTrustedIpcSender(event: IpcSenderIdentity, trustPolicy: IpcWebContentsTrustPolicy): true {
   const decision = evaluateIpcSender(event, trustPolicy);
   if (decision.action === "deny") {
     throw new Error(`Rejected IPC message: ${decision.reason}.`);

@@ -30,9 +30,7 @@ export function NavigationHistoryBar({
         title={t("navHistory.back")}
         aria-label={t("navHistory.back")}
         className={`grid size-6 place-items-center rounded ${
-          canBack
-            ? "text-text-muted hover:bg-surface-raised hover:text-text"
-            : "text-text-faint opacity-40"
+          canBack ? "text-text-muted hover:bg-surface-raised hover:text-text" : "text-text-faint opacity-40"
         }`}
       >
         <ArrowLeft weight="bold" className="size-3.5" />
@@ -44,9 +42,7 @@ export function NavigationHistoryBar({
         title={t("navHistory.forward")}
         aria-label={t("navHistory.forward")}
         className={`grid size-6 place-items-center rounded ${
-          canForward
-            ? "text-text-muted hover:bg-surface-raised hover:text-text"
-            : "text-text-faint opacity-40"
+          canForward ? "text-text-muted hover:bg-surface-raised hover:text-text" : "text-text-faint opacity-40"
         }`}
       >
         <ArrowRight weight="bold" className="size-3.5" />

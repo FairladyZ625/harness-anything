@@ -17,8 +17,15 @@ import type { AppLocation } from "./viewHistory.ts";
  * 不是硬约束。首次到访无快照,保持自然行为。
  */
 
-interface ScrollEntry { readonly path: string; readonly top: number; readonly left: number }
-interface RestoreSnapshot { scrolls: Map<string, ScrollEntry>; focusPath: string | null }
+interface ScrollEntry {
+  readonly path: string;
+  readonly top: number;
+  readonly left: number;
+}
+interface RestoreSnapshot {
+  scrolls: Map<string, ScrollEntry>;
+  focusPath: string | null;
+}
 
 function structuralPath(element: Element, root: ParentNode): string | null {
   const segments: string[] = [];
@@ -106,7 +113,11 @@ export function useLocationRestore(location: AppLocation, container: ParentNode 
     if (snapshot.focusPath !== null) {
       const target = findByPath(container, snapshot.focusPath);
       if (target !== null && target instanceof HTMLElement) {
-        try { target.focus({ preventScroll: true }); } catch (error) { consumeKnownError(error); }
+        try {
+          target.focus({ preventScroll: true });
+        } catch (error) {
+          consumeKnownError(error);
+        }
       }
     }
   }, [location, container]);

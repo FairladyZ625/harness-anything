@@ -22,7 +22,7 @@ export const ProjectionWarningCodeSchema = Schema.Literal(
   "duplicate_relation_id",
   "relation_rationale_missing",
   "relation_endpoint_unknown",
-  "relation_cycle_detected"
+  "relation_cycle_detected",
 );
 
 const HarnessCheckAxisReportSchema = Schema.Struct({
@@ -30,7 +30,7 @@ const HarnessCheckAxisReportSchema = Schema.Struct({
   ok: Schema.Boolean,
   warningCount: Schema.Number,
   hardFailCount: Schema.Number,
-  codes: Schema.Array(ProjectionWarningCodeSchema)
+  codes: Schema.Array(ProjectionWarningCodeSchema),
 });
 
 export const HarnessCheckReportSchema = Schema.Struct({
@@ -40,6 +40,6 @@ export const HarnessCheckReportSchema = Schema.Struct({
   summary: Schema.Struct({
     rowCount: Schema.Number,
     warningCount: Schema.Number,
-    hardFailCount: Schema.Number
-  })
+    hardFailCount: Schema.Number,
+  }),
 });

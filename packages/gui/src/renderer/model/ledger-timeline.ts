@@ -15,7 +15,8 @@ export function taskCreatedAt(task: TaskRow): string | null {
 /** 任务按创建时间倒序;最新在最上面,无时间的排尾部(尾部内按 id 稳定)。 */
 export function sortTasksByCreatedDesc(tasks: ReadonlyArray<TaskRow>): TaskRow[] {
   return [...tasks].sort((left, right) => {
-    const leftAt = taskCreatedAt(left), rightAt = taskCreatedAt(right);
+    const leftAt = taskCreatedAt(left),
+      rightAt = taskCreatedAt(right);
     if (leftAt === null && rightAt === null) return right.taskId.localeCompare(left.taskId);
     if (leftAt === null) return 1;
     if (rightAt === null) return -1;

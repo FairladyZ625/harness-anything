@@ -26,9 +26,7 @@ export function verifyCodeDocCommitPaths(
   const roots = [
     ...new Set([path.resolve(input.rootDir), path.resolve(resolveLedgerGitLayout(input.rootDir).rootDir)]),
   ];
-  const owners = roots.filter(
-    (root) => source.run(root, ["cat-file", "-e", `${input.commitSha}^{commit}`]).ok,
-  );
+  const owners = roots.filter((root) => source.run(root, ["cat-file", "-e", `${input.commitSha}^{commit}`]).ok);
   if (!owners.length)
     return {
       ok: false,

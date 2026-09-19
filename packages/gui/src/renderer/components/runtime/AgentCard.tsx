@@ -157,9 +157,7 @@ export function AgentCard({
       // ride the declaration, which the daemon rejects as agent_instance_incompatible. An
       // unpinned kind — or a pin of a different kind — keeps the kind's full union.
       const pinned = draft.instance
-        ? instances.find(
-            (entry) => entry.enabled && entry.instanceId === draft.instance && entry.kindId === kindId,
-          )
+        ? instances.find((entry) => entry.enabled && entry.instanceId === draft.instance && entry.kindId === kindId)
         : undefined;
       return [
         ...new Set(

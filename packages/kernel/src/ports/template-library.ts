@@ -20,6 +20,4 @@ export interface TemplateLibrary {
   readonly getTemplate: (ref: TemplateRef) => Effect.Effect<TemplateDocument, TemplateLibraryError>;
 }
 
-export const TemplateLibrary = Context.GenericTag<TemplateLibrary>(
-  "@harness-anything/kernel/TemplateLibrary"
-);
+export const TemplateLibrary = Context.GenericTag<TemplateLibrary>("@harness-anything/kernel/TemplateLibrary");

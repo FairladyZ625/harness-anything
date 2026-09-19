@@ -18,10 +18,7 @@ export interface DecisionGroup {
   readonly rows: readonly DecisionRow[];
 }
 
-export function groupDecisions(
-  rows: readonly DecisionRow[],
-  groupBy: PoolGroupBy,
-): readonly DecisionGroup[] {
+export function groupDecisions(rows: readonly DecisionRow[], groupBy: PoolGroupBy): readonly DecisionGroup[] {
   if (groupBy === "none") return [{ key: "all", title: "", rows }];
   const buckets = new Map<string, DecisionRow[]>();
   for (const row of rows) {
@@ -40,7 +37,8 @@ export function groupDecisions(
   return [...buckets.entries()]
     .sort(([aKey, aRows], [bKey, bRows]) => {
       // 未投影组沉底,不占 C 位。
-      const aUn = aKey === UNASSIGNED_GROUP ? 1 : 0, bUn = bKey === UNASSIGNED_GROUP ? 1 : 0;
+      const aUn = aKey === UNASSIGNED_GROUP ? 1 : 0,
+        bUn = bKey === UNASSIGNED_GROUP ? 1 : 0;
       if (aUn !== bUn) return aUn - bUn;
       if (aRows.length !== bRows.length) return bRows.length - aRows.length;
       return aKey.localeCompare(bKey);

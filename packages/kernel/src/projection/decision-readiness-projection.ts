@@ -43,10 +43,7 @@ export function projectDecisionReadiness(
     tree = /^[0-9a-f]{40}$/u.test(basis)
       ? source.run(input.rootDir, ["ls-tree", "-r", "--name-only", basis])
       : { ok: false as const, stdout: "" };
-  if (!tree.ok)
-    return input.decisions.map(() =>
-      unknown(basis, "The canonical Git cut is unavailable."),
-    );
+  if (!tree.ok) return input.decisions.map(() => unknown(basis, "The canonical Git cut is unavailable."));
   const files = tree.stdout.split("\n").filter(Boolean).sort(),
     projected: DecisionReadinessProjection[] = input.decisions.map(() =>
       unknown(basis, "The canonical applies_to scope is unavailable."),
@@ -73,10 +70,7 @@ export function projectDecisionReadiness(
   if (!scoped.length) return projected;
   const roots = unique(scoped.flatMap(({ scope }) => scope.roots)),
     valid = scoped.filter(({ since }) => Number.isFinite(since)),
-    earliest = valid.reduce(
-      (found, row) => (row.since < found.since ? row : found),
-      valid[0],
-    );
+    earliest = valid.reduce((found, row) => (row.since < found.since ? row : found), valid[0]);
   const driftRead = earliest
       ? source.run(input.rootDir, [
           "log",
@@ -91,16 +85,7 @@ export function projectDecisionReadiness(
     history = driftRead.ok ? changeHistory(driftRead.stdout) : [];
   const conflictRead = source.run(
       input.rootDir,
-      [
-        "grep",
-        "-n",
-        "-I",
-        "-E",
-        "^(<<<<<<<|=======|>>>>>>>)",
-        basis,
-        "--",
-        ...roots,
-      ],
+      ["grep", "-n", "-I", "-E", "^(<<<<<<<|=======|>>>>>>>)", basis, "--", ...roots],
       true,
     ),
     allConflicting = conflictRead.ok ? conflictPaths(conflictRead.stdout) : [];
@@ -115,63 +100,49 @@ export function projectDecisionReadiness(
             )
           : [],
       lastCommitAt = changed.length
-        ? (history.find(({ paths }) =>
-            paths.some((entry) => changed.includes(entry)),
-          )?.committedAt ?? null)
+        ? (history.find(({ paths }) => paths.some((entry) => changed.includes(entry)))?.committedAt ?? null)
         : null,
-      conflicting = allConflicting.filter((entry) =>
-        scope.paths.includes(entry),
-      );
+      conflicting = allConflicting.filter((entry) => scope.paths.includes(entry));
     const scopeUnknown = scope.unresolved.length > 0,
-      driftUnknown =
-        !Number.isFinite(since) ||
-        !driftRead.ok ||
-        (changed.length > 0 && lastCommitAt === null),
+      driftUnknown = !Number.isFinite(since) || !driftRead.ok || (changed.length > 0 && lastCommitAt === null),
       conflictUnknown = !conflictRead.ok;
-    const appliesToDrift: DecisionReadinessProjection["appliesToDrift"] =
-      changed.length
+    const appliesToDrift: DecisionReadinessProjection["appliesToDrift"] = changed.length
+      ? {
+          state: "drift",
+          paths: changed,
+          lastCommitAt,
+          summary: `${changed.length} canonical applies_to path(s) changed after proposal.`,
+        }
+      : driftUnknown || scopeUnknown
         ? {
-            state: "drift",
-            paths: changed,
-            lastCommitAt,
-            summary: `${changed.length} canonical applies_to path(s) changed after proposal.`,
+            state: "unknown",
+            paths: [],
+            lastCommitAt: null,
+            summary: driftUnknown ? "The proposal timestamp or canonical Git history is unavailable." : scope.reason,
           }
-        : driftUnknown || scopeUnknown
-          ? {
-              state: "unknown",
-              paths: [],
-              lastCommitAt: null,
-              summary: driftUnknown
-                ? "The proposal timestamp or canonical Git history is unavailable."
-                : scope.reason,
-            }
-          : {
-              state: "clear",
-              paths: scope.roots,
-              lastCommitAt: null,
-              summary: "No canonical applies_to path changed after proposal.",
-            };
-    const conflictMarker: DecisionReadinessProjection["conflictMarker"] =
-      conflicting.length
+        : {
+            state: "clear",
+            paths: scope.roots,
+            lastCommitAt: null,
+            summary: "No canonical applies_to path changed after proposal.",
+          };
+    const conflictMarker: DecisionReadinessProjection["conflictMarker"] = conflicting.length
+      ? {
+          state: "conflict",
+          paths: conflicting,
+          summary: `${conflicting.length} canonical applies_to path(s) contain committed conflict markers.`,
+        }
+      : conflictUnknown || scopeUnknown
         ? {
-            state: "conflict",
-            paths: conflicting,
-            summary: `${conflicting.length} canonical applies_to path(s) contain committed conflict markers.`,
+            state: "unknown",
+            paths: [],
+            summary: conflictUnknown ? "The canonical conflict-marker scan is unavailable." : scope.reason,
           }
-        : conflictUnknown || scopeUnknown
-          ? {
-              state: "unknown",
-              paths: [],
-              summary: conflictUnknown
-                ? "The canonical conflict-marker scan is unavailable."
-                : scope.reason,
-            }
-          : {
-              state: "clear",
-              paths: scope.roots,
-              summary:
-                "No committed conflict marker exists in canonical applies_to paths.",
-            };
+        : {
+            state: "clear",
+            paths: scope.roots,
+            summary: "No committed conflict marker exists in canonical applies_to paths.",
+          };
     projected[index] = {
       schema: "decision-readiness/v1",
       basisCommitSha: basis,
@@ -194,33 +165,20 @@ function resolveScope(
   const roots: string[] = [],
     unresolved: string[] = [];
   for (const raw of modules) {
-    const normalized = raw
-      .replaceAll("\\", "/")
-      .replace(/^\.\//u, "")
-      .replace(/\/+$/u, "");
-    if (
-      !normalized ||
-      path.posix.isAbsolute(normalized) ||
-      normalized.split("/").includes("..")
-    ) {
+    const normalized = raw.replaceAll("\\", "/").replace(/^\.\//u, "").replace(/\/+$/u, "");
+    if (!normalized || path.posix.isAbsolute(normalized) || normalized.split("/").includes("..")) {
       unresolved.push(raw);
       continue;
     }
-    const candidates = normalized.startsWith("packages/")
-        ? [normalized]
-        : [normalized, `packages/${normalized}`],
+    const candidates = normalized.startsWith("packages/") ? [normalized] : [normalized, `packages/${normalized}`],
       root = candidates.find((candidate) =>
-        files.some(
-          (file) => file === candidate || file.startsWith(`${candidate}/`),
-        ),
+        files.some((file) => file === candidate || file.startsWith(`${candidate}/`)),
       );
     if (root) roots.push(root);
     else unresolved.push(raw);
   }
   const uniqueRoots = unique(roots),
-    paths = files.filter((file) =>
-      uniqueRoots.some((root) => file === root || file.startsWith(`${root}/`)),
-    );
+    paths = files.filter((file) => uniqueRoots.some((root) => file === root || file.startsWith(`${root}/`)));
   return {
     roots: uniqueRoots,
     paths,
@@ -233,10 +191,7 @@ function resolveScope(
           : "Canonical applies_to scope is unavailable.",
   };
 }
-function unknown(
-  basisCommitSha: string,
-  summary: string,
-): DecisionReadinessProjection {
+function unknown(basisCommitSha: string, summary: string): DecisionReadinessProjection {
   return {
     schema: "decision-readiness/v1",
     basisCommitSha,
@@ -264,16 +219,13 @@ function changeHistory(stdout: string): readonly {
       const [rawCommittedAt, ...paths] = block.split("\n"),
         committedAt = rawCommittedAt?.trim() ?? "",
         committedAtMs = Date.parse(committedAt);
-      return Number.isFinite(committedAtMs)
-        ? [{ committedAt, committedAtMs, paths: paths.filter(Boolean) }]
-        : [];
+      return Number.isFinite(committedAtMs) ? [{ committedAt, committedAtMs, paths: paths.filter(Boolean) }] : [];
     });
 }
 function conflictPaths(stdout: string): readonly string[] {
   const markers = new Map<string, Set<string>>();
   for (const line of stdout.split("\n")) {
-    const match =
-      /^(?:[0-9a-f]{40}:)?([^:]+):[0-9]+:(<<<<<<<|=======|>>>>>>>)/u.exec(line);
+    const match = /^(?:[0-9a-f]{40}:)?([^:]+):[0-9]+:(<<<<<<<|=======|>>>>>>>)/u.exec(line);
     if (!match) continue;
     const found = markers.get(match[1]!) ?? new Set<string>();
     found.add(match[2]!);

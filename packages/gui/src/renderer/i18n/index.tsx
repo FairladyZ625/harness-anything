@@ -10,12 +10,7 @@ import {
   type ReactElement,
   type ReactNode,
 } from "react";
-import {
-  LOCALE_STORAGE_KEY,
-  initialLocale,
-  setActiveLocale,
-  type Locale,
-} from "./core.ts";
+import { LOCALE_STORAGE_KEY, initialLocale, setActiveLocale, type Locale } from "./core.ts";
 
 export { t } from "./core.ts";
 export type { Locale, MessageKey, MessageParams } from "./core.ts";
@@ -57,15 +52,13 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       })
     : children;
 
-  return (
-    <LocaleContext.Provider value={value}>
-      {localizedChildren}
-    </LocaleContext.Provider>
-  );
+  return <LocaleContext.Provider value={value}>{localizedChildren}</LocaleContext.Provider>;
 }
 
 export function useI18n() {
   return useContext(LocaleContext);
 }
 
-function consumeKnownError(error: unknown): void { void error; }
+function consumeKnownError(error: unknown): void {
+  void error;
+}

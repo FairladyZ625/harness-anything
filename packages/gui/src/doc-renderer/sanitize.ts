@@ -10,7 +10,7 @@ const unsafePatterns: ReadonlyArray<readonly [RegExp, string]> = [
   [/(?:\/Users|\/tmp|\/private\/var|\/var\/folders)\/[^\s"'<>]+/gu, "absolute-local-path"],
   [/\.harness-private(?:\/[^\s"'<>]*)?/gu, "private-harness-path"],
   [/\bauthorization\s*:\s*bearer\s+[^\s"'<>]+/giu, "secret-marker"],
-  [/\b(?:api[_-]?key|access[_-]?token|token)\s*[:=]\s*[^\s"'<>]+/giu, "secret-marker"]
+  [/\b(?:api[_-]?key|access[_-]?token|token)\s*[:=]\s*[^\s"'<>]+/giu, "secret-marker"],
 ];
 
 const urlAttributePattern = /\s(?:src|href|srcset|poster|data|action|formaction)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+)/giu;
@@ -26,7 +26,10 @@ export function sanitizeMarkdownHtml(input: string): SanitizedDocument {
   }
   html = html.replace(urlAttributePattern, (attribute) => {
     const normalized = attribute.toLowerCase();
-    const value = normalized.replace(/^[^=]+=\s*/, "").trim().replace(/^["']|["']$/g, "");
+    const value = normalized
+      .replace(/^[^=]+=\s*/, "")
+      .trim()
+      .replace(/^["']|["']$/g, "");
     if (value.startsWith("javascript:")) {
       strippedReasons.add("script-url");
       return "";
@@ -47,6 +50,6 @@ export function sanitizeMarkdownHtml(input: string): SanitizedDocument {
   });
   return {
     html,
-    strippedReasons: [...strippedReasons].sort()
+    strippedReasons: [...strippedReasons].sort(),
   };
 }

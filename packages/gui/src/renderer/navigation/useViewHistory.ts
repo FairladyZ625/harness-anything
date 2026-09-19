@@ -47,13 +47,19 @@ export function useViewHistory(projectId: string, initial: AppLocation) {
     setState((prev) => ({ ...prev, history: update(prev.history) }));
   }, []);
 
-  const navigate = useCallback((fields: Partial<AppLocation>) => {
-    setHistory((prev) => pushLocation(prev, { ...currentLocation(prev), ...fields }));
-  }, [setHistory]);
+  const navigate = useCallback(
+    (fields: Partial<AppLocation>) => {
+      setHistory((prev) => pushLocation(prev, { ...currentLocation(prev), ...fields }));
+    },
+    [setHistory],
+  );
 
-  const updateLocation = useCallback((fields: Partial<AppLocation>) => {
-    setHistory((prev) => patchCurrent(prev, fields));
-  }, [setHistory]);
+  const updateLocation = useCallback(
+    (fields: Partial<AppLocation>) => {
+      setHistory((prev) => patchCurrent(prev, fields));
+    },
+    [setHistory],
+  );
 
   const back = useCallback(() => {
     setHistory((prev) => goBack(prev));

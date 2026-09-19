@@ -10,7 +10,7 @@ export function workspaceSummaryFromProjection(projection: TaskProjection): Daem
     ...read.summary,
     watermark: read.watermark,
     sourceRevision: read.sourceRevision,
-    warnings: []
+    warnings: [],
   };
 }
 
