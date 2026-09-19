@@ -28,13 +28,21 @@ export function readReckoningSignals(
     // A superseded decision is short-lived when accepted up to seven days earlier, so the read reaches that far back.
     oldest = since - SHORT_LIVED_DECISION_MS;
   if (!store.queryEvents) throw new Error("reckoning requires indexed event queries");
-  const events = [
-    ...store.queryEvents({
-      after: new Date(oldest).toISOString(),
-      before: new Date(until).toISOString(),
-      limit: Number.MAX_SAFE_INTEGER,
-    }),
-  ];
+  const query = store.queryEvents,
+    range = (type: string, after: number) =>
+      query({
+        type,
+        after: new Date(after).toISOString(),
+        before: new Date(until).toISOString(),
+        limit: Number.MAX_SAFE_INTEGER,
+      }),
+    // ledgerSignals reads exactly these types; accepts reach back so a superseded decision's lifetime is known.
+    events = [
+      ...range("fact_recorded", since),
+      ...range("decision_superseded", since),
+      ...range("decision_retired", since),
+      ...range("decision_accepted", oldest),
+    ];
   events.sort((left, right) => left.workspaceRevision - right.workspaceRevision);
   return collectReckoningSignals({ events, sessions: projection.readRuntimeSessions(), since, until });
 }
