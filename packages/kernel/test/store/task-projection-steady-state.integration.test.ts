@@ -47,7 +47,7 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
 
     const first = projection.read("task-1");
     assert.equal(first.status, "ready");
-    assert.equal(first.watermark, 6);
+    assert.equal(first.watermark, 7);
     assert.equal(first.snapshot.task?.status, "done");
     assert.deepEqual(
       first.snapshot.executions.map((execution) => execution.state),
@@ -57,7 +57,7 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
     assert.equal(projection.readOperation(startOpId)?.event.type, "execution_started");
     assert.deepEqual(projection.readWorkspaceSummary().summary.tasks, {
       total: 1,
-      byStatus: { planned: 0, active: 0, blocked: 0, in_review: 0, done: 1, cancelled: 0, unknown: 0 },
+      byStatus: { planned: 0, active: 0, submitted: 0, blocked: 0, in_review: 0, done: 1, cancelled: 0, unknown: 0 },
     });
     assert.deepEqual(
       projection.readLeaseIntervals("task-1").map((interval) => ({
@@ -84,10 +84,10 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
     projection.close();
     rmSync(projection.path, { force: true });
     const rebuilt = projection.rebuild();
-    assert.equal(rebuilt.watermark, 6);
+    assert.equal(rebuilt.watermark, 7);
     assert.equal(rebuilt.stateDigest, incrementalStateDigest);
     assert.equal(projection.readStateDigest(), incrementalStateDigest);
-    assert.equal(rebuilt.metrics.reducedItems, 6);
+    assert.equal(rebuilt.metrics.reducedItems, 7);
     assert.equal(rebuilt.metrics.maxBatchItems <= 64, true);
     assert.deepEqual(projection.read("task-1").snapshot, first.snapshot);
     assert.deepEqual(
@@ -363,17 +363,17 @@ test("projection catch-up processes at most one bounded round and never reports 
     const before = projection.read("task-1");
     assert.deepEqual(
       { status: before.status, watermark: before.watermark, sourceRevision: before.sourceRevision },
-      { status: "pending", watermark: 0, sourceRevision: 6 },
+      { status: "pending", watermark: 0, sourceRevision: 7 },
     );
     assert.deepEqual(before.catchUp, { maxItems: 2, reducedItems: 0, sqliteTransactions: 0 });
 
     const catchUp = projection.catchUp!(),
       read = projection.read("task-1");
     assert.equal(catchUp.metrics.maxBatchItems <= 2, true);
-    assert.equal(catchUp.metrics.reducedItems, 6);
+    assert.equal(catchUp.metrics.reducedItems, 7);
     assert.deepEqual(
       { status: read.status, watermark: read.watermark, sourceRevision: read.sourceRevision },
-      { status: "ready", watermark: 6, sourceRevision: 6 },
+      { status: "ready", watermark: 7, sourceRevision: 7 },
     );
     assert.deepEqual(read.catchUp, { maxItems: 2, reducedItems: 0, sqliteTransactions: 0 });
   });

@@ -24,6 +24,20 @@ export function reviewDispatchKey(taskId: string, execution: ExecutionV1): strin
   )}`;
 }
 
+function reviewAttemptKey(base: string, attempt: number): string {
+  return attempt === 0 ? base : `${base}:attempt${String(attempt)}`;
+}
+
+function reviewAttemptEnded(cell: RepoCellOperationalContext, runtimeSessionId: string): boolean {
+  return cell.projection
+    .readRuntimeSessionEvents(runtimeSessionId, 0, 10_000)
+    .some((event) =>
+      ["runtime_session_exited", "runtime_session_outcome_observed", "runtime_dispatch_outcome_unknown"].includes(
+        event.type,
+      ),
+    );
+}
+
 export function reviewDispatchIds(
   repoId: string,
   idempotencyKey: string,
@@ -82,6 +96,100 @@ type DispatchStep = {
   readonly outcome: "dispatched" | "already_dispatched" | "already_reviewed" | "failed";
   readonly error?: string;
 };
+
+/**
+ * The one review-dispatch spawn: the cut's frozen completionContract reviewer claim wins over the
+ * repository default, the dispatch is keyed by `reviewDispatchKey` (task/execution/iteration/digest,
+ * the deterministic claim fence that makes concurrent dispatches share one reviewer), and launch
+ * admission is awaited while provider completion is not. Returns the idempotent identities the
+ * caller reports on its own step shape.
+ */
+export async function spawnCutReviewDispatch(
+  cell: RepoCellOperationalContext,
+  input: {
+    readonly taskId: string;
+    readonly execution: ExecutionV1;
+    readonly packagePath: string;
+    readonly binding: RepoCellBinding;
+    readonly revision: number;
+    readonly reviewerId: string;
+    readonly extras?: Readonly<Record<string, unknown>>;
+  },
+): Promise<
+  | { readonly outcome: "dispatched" | "already_dispatched"; readonly ids: ReturnType<typeof reviewDispatchIds> }
+  | { readonly outcome: "failed"; readonly error: string }
+> {
+  const key = reviewDispatchKey(input.taskId, input.execution),
+    ids = reviewDispatchIds(cell.input.repoId, key);
+  if (cell.store.readEvent(ids.dispatchOpId) !== null) return { outcome: "already_dispatched", ids };
+  let resolved;
+  try {
+    resolved = readAgentDeclarationResolution({
+      rootDir: cell.rootDir,
+      agentId: input.reviewerId,
+      entityStore: createEntityStore(cell.store),
+    });
+  } catch (error) {
+    if (!isAgentDeclarationInvalid(error)) throw error;
+    return { outcome: "failed", error: error instanceof Error ? error.message : String(error) };
+  }
+  if (!resolved)
+    return {
+      outcome: "failed",
+      error:
+        `Reviewer ${input.reviewerId} is not bundled or installed. Install a repository override, or select an ` +
+        `available reviewer with ha task dispatch-review ${input.taskId} --agent <agent-id>.`,
+    };
+  const { declaration: agent, layer } = resolved;
+  if (layer === "installed" && !agentDeclaresExplicitModels(agent.runtimes) && typeof input.extras?.model !== "string")
+    return {
+      outcome: "failed",
+      error:
+        `Declare an explicit model on every runtimes row for reviewer ${input.reviewerId}, or pass --model <model>. ` +
+        "Installed reviewer overrides must not select an instance default model.",
+    };
+  const extras = input.extras ?? {},
+    payload = {
+      agentId: agent.id,
+      role: "reviewer",
+      taskId: input.taskId,
+      executionId: input.execution.executionId,
+      cwd: { scope: "repo-root" },
+      idempotencyKey: key,
+      ...(typeof extras.runtimeInstanceId === "string" ? { runtimeInstanceId: extras.runtimeInstanceId } : {}),
+      ...(typeof extras.model === "string" ? { model: extras.model } : {}),
+      ...(typeof extras.effort === "string" ? { effort: extras.effort } : {}),
+      ...(extras.fast === true ? { fast: true } : {}),
+      prompt: reviewDispatchPrompt({
+        cell,
+        taskId: input.taskId,
+        packagePath: input.packagePath,
+        dispatchId: ids.dispatchId,
+        execution: input.execution,
+        gates: completionGateIds(
+          cell.projection.read(input.taskId).snapshot.task?.completionGateIds ?? [],
+          input.execution.submission,
+        ),
+      }),
+    },
+    authorizationDecision = authorizeRepoCellAction({
+      action: { kind: "runtime-spawn", ...payload },
+      binding: input.binding,
+      actionId: ids.dispatchOpId,
+      revision: input.revision,
+      now: cell.now(),
+    });
+  if (authorizationDecision.outcome !== "allowed")
+    return { outcome: "failed", error: `authorization_denied: ${authorizationDecision.nextActions.join(" ")}` };
+  try {
+    // Already inside the center queue. Only launch admission is awaited; provider completion is not.
+    await cell.runtimeSpawner.spawn(payload, { ...input.binding, authorizationDecision });
+  } catch (error) {
+    consumeKnownError(error);
+    return { outcome: "failed", error: error instanceof Error ? error.message : String(error) };
+  }
+  return { outcome: "dispatched", ids };
+}
 
 /**
  * `ha task dispatch-review`: expand one batch invocation into one independent reviewer dispatch per
@@ -147,6 +255,15 @@ export async function dispatchTaskReview(
     const read = requireCurrentTaskProjection(cell.projection, taskId, "task dispatch-review"),
       snapshot = read.snapshot,
       candidates = currentSubmittedExecutions(snapshot);
+    if (snapshot.task?.status !== "in_review") {
+      fail(
+        snapshot.task?.status === "submitted"
+          ? `Task ${taskId} still awaits its owner's triage. Run ha task adjudicate ${taskId} --forward ` +
+              "--note <why>; the forward order dispatches the independent reviewer."
+          : `Task ${taskId} is not at the in-review gate.`,
+      );
+      continue;
+    }
     let execution: ExecutionV1 | undefined;
     if (executionSelector !== undefined) {
       execution = candidates.find((candidate) => candidate.executionId === executionSelector);
@@ -170,9 +287,17 @@ export async function dispatchTaskReview(
       );
       continue;
     } else execution = candidates[0]!;
-    const key = reviewDispatchKey(taskId, execution),
+    const baseKey = reviewDispatchKey(taskId, execution);
+    let attempt = 0,
+      key = reviewAttemptKey(baseKey, attempt),
       ids = reviewDispatchIds(cell.input.repoId, key),
       existing = cell.store.readEvent(ids.dispatchOpId);
+    while (existing !== null && reviewAttemptEnded(cell, ids.runtimeSessionId)) {
+      attempt += 1;
+      key = reviewAttemptKey(baseKey, attempt);
+      ids = reviewDispatchIds(cell.input.repoId, key);
+      existing = cell.store.readEvent(ids.dispatchOpId);
+    }
     if (existing !== null) {
       steps.push({
         taskId,
@@ -181,17 +306,6 @@ export async function dispatchTaskReview(
         runtimeSessionId: ids.runtimeSessionId,
         dispatchOpId: ids.dispatchOpId,
         outcome: "already_dispatched",
-      });
-      continue;
-    }
-    if (snapshot.reviews.some((review) => review.reviewId === `review-${ids.dispatchId}`)) {
-      steps.push({
-        taskId,
-        executionId: execution.executionId,
-        dispatchId: ids.dispatchId,
-        runtimeSessionId: ids.runtimeSessionId,
-        dispatchOpId: ids.dispatchOpId,
-        outcome: "already_reviewed",
       });
       continue;
     }

@@ -82,6 +82,52 @@ test("Execution receipts distinguish undeclared gates from required missing witn
   assert.match(codeDoc, /- Code-doc witness: pending/u);
 });
 
+test("owner consent and return are mutually exclusive for the current cut", () => {
+  const { snapshot } = lifecycleFixture({ complete: false }),
+    command = {
+      ...normalizeTaskLifecycleCommand(
+        { workspaceId: "workspace-1", actor: implementer, source: "local", expectedRevision: snapshot.revision },
+        {
+          type: "AdjudicateSubmission",
+          taskId: snapshot.task!.taskId,
+          executionId: snapshot.executions[0]!.executionId,
+          decision: "return" as const,
+          reason: "Owner rejects the already approved cut.",
+          reviewId: snapshot.reviews[0]!.reviewId,
+        },
+      ),
+      eventId: "event-return-after-consent",
+      workspaceRevision: snapshot.revision + 1,
+      occurredAt: "2026-08-11T00:07:00.000Z",
+    };
+  assert.throws(
+    () =>
+      applyTransition(snapshot, command, {
+        actorBinding: implementer,
+        capability: "task-adjudicate@v1",
+        capabilityRef: "cap-adjudicate",
+      }),
+    /already has owner consent/u,
+  );
+});
+
+test("an owner return publishes its instruction as a managed task document", () => {
+  const fixture = twoRoundLifecycleEvents(),
+    returned = fixture.events.find((event) => event.type === "submission_returned")!,
+    returnedSnapshot = fixture.events
+      .slice(0, 6)
+      .reduce((snapshot, event) => reduceTaskEvent(snapshot, event), emptyTaskLifecycleSnapshot());
+  assert.ok(returned);
+  const compiled = compileTaskLifecycleWrite({
+    event: returned,
+    snapshot: returnedSnapshot,
+    packagePath: "tasks/task-two-round",
+    currentDocuments: [],
+  });
+  assert.ok(compiled.changedPaths.includes("tasks/task-two-round/returns/iteration-0.md"));
+  assert.match(compiled.blobs.map((blob) => blob.body).join("\n"), /owner accepted the changes_requested report/u);
+});
+
 test("lease release replay ignores only the retired longRunning task metadata", () => {
   const task = {
       schema: "task/v2",

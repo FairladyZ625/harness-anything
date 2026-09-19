@@ -37,13 +37,16 @@ test("column and rank are total over the status vocabulary", () => {
     rank: taskBoardRankOf(status),
   }));
   assert.deepEqual(table, [
-    { status: "planned", columnId: "open", rank: 3 },
-    { status: "active", columnId: "open", rank: 1 },
+    { status: "planned", columnId: "open", rank: 4 },
+    { status: "active", columnId: "open", rank: 2 },
+    // A cut awaiting the owner's triage outranks active work: the CEO gate is the lane's
+    // critical path once a worker has submitted.
+    { status: "submitted", columnId: "open", rank: 1 },
     { status: "blocked", columnId: "blocked", rank: 0 },
-    { status: "in_review", columnId: "in_review", rank: 2 },
-    { status: "done", columnId: "terminal", rank: 4 },
-    { status: "cancelled", columnId: "terminal", rank: 5 },
-    { status: "unknown", columnId: null, rank: 5 },
+    { status: "in_review", columnId: "in_review", rank: 3 },
+    { status: "done", columnId: "terminal", rank: 5 },
+    { status: "cancelled", columnId: "terminal", rank: 6 },
+    { status: "unknown", columnId: null, rank: 6 },
   ]);
 });
 
@@ -55,11 +58,11 @@ test("a blocked relation moves an open task's column without changing its canoni
   });
   assert.deepEqual(taskBoardPlacement(row({ status: "in_review", blockingState: "blocked" })), {
     columnId: "in_review",
-    rank: 2,
+    rank: 3,
   });
   assert.deepEqual(taskBoardPlacement(row({ snapshot: { ...emptySnapshot, task: null } })), {
     columnId: null,
-    rank: 5,
+    rank: 6,
   });
 });
 
@@ -73,7 +76,7 @@ test("visibility is the package disposition and, for noise, cancellation too", (
 });
 
 test("phase follows the lifecycle main path and codes every off-path reason", () => {
-  assert.deepEqual(taskPhaseSteps, ["planned", "active", "in_review", "done"]);
+  assert.deepEqual(taskPhaseSteps, ["planned", "active", "submitted", "in_review", "done"]);
   for (const [from, to] of taskPhaseSteps
     .slice(0, -1)
     .map((from, index) => [from, taskPhaseSteps[index + 1]!] as const))
@@ -86,9 +89,10 @@ test("phase follows the lifecycle main path and codes every off-path reason", ()
     [
       { status: "planned", index: 0, reason: null, steps: taskPhaseSteps },
       { status: "active", index: 1, reason: null, steps: taskPhaseSteps },
+      { status: "submitted", index: 2, reason: null, steps: taskPhaseSteps },
       { status: "blocked", index: null, reason: "blocked_overlay", steps: taskPhaseSteps },
-      { status: "in_review", index: 2, reason: null, steps: taskPhaseSteps },
-      { status: "done", index: 3, reason: null, steps: taskPhaseSteps },
+      { status: "in_review", index: 3, reason: null, steps: taskPhaseSteps },
+      { status: "done", index: 4, reason: null, steps: taskPhaseSteps },
       { status: "cancelled", index: null, reason: "terminal_cancelled", steps: taskPhaseSteps },
       { status: "unknown", index: null, reason: "phase_unresolved", steps: taskPhaseSteps },
     ],

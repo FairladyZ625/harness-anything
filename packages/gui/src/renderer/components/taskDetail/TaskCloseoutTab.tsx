@@ -26,8 +26,12 @@ export interface TaskActionProps {
     evidence: ReadonlyArray<{ type: string; path: string; summary: string }>;
   }) => Promise<unknown>;
   readonly onSubmit?: () => Promise<unknown>;
-  /** 收口销账:true=同意完成,false=提交完成(请中心派发独立评审)。 */
-  readonly onComplete?: (consent: boolean) => Promise<unknown>;
+  /** 收口销账:纯机械动作。 */
+  readonly onComplete?: () => Promise<unknown>;
+  /** CEO 初审送审/打回与终审打回。 */
+  readonly onAdjudicate?: (decision: "forward" | "return", reason: string, reviewId?: string) => Promise<unknown>;
+  /** CEO 终审批准:对指定已批准评审记录同意。 */
+  readonly onConsentReview?: (reviewId: string) => Promise<unknown>;
   /** Gate 签注:manual-attest 打勾(approve)或失败关卡特批(override)。 */
   readonly onAttest?: (
     task: Pick<TaskRow, "taskId">,
@@ -43,6 +47,8 @@ export function TaskCloseoutTab({
   onProgress,
   onSubmit,
   onComplete,
+  onAdjudicate,
+  onConsentReview,
   onAttest,
 }: { readonly task: TaskRow } & TaskActionProps) {
   const completion = useTaskCompletionQuery(task.projectId, task.taskId),
@@ -102,6 +108,8 @@ export function TaskCloseoutTab({
             task={task}
             completionBlocker={completion.data?.completionBlocker ?? null}
             onComplete={onComplete}
+            onAdjudicate={onAdjudicate}
+            onConsentReview={onConsentReview}
           />
           <AuditGroup title="Review" count={reviews.length}>
             {reviews.map((review) => (
@@ -174,43 +182,97 @@ function CompletionPanel({
   task,
   completionBlocker,
   onComplete,
+  onAdjudicate,
+  onConsentReview,
 }: {
   readonly task: TaskRow;
   readonly completionBlocker: TaskCompletionRead["completionBlocker"];
-  readonly onComplete?: (consent: boolean) => Promise<unknown>;
+  readonly onComplete?: () => Promise<unknown>;
+  readonly onAdjudicate?: (decision: "forward" | "return", reason: string, reviewId?: string) => Promise<unknown>;
+  readonly onConsentReview?: (reviewId: string) => Promise<unknown>;
 }) {
   const code = completionBlocker?.code,
-    stage = code === "consent_missing" ? ("consent" as const) : code === "review_missing" ? ("review" as const) : null;
-  if (task.coordinationStatus !== "in_review" || stage === null) return null;
-  const buttonClass =
-    "rounded-md bg-accent px-2.5 py-1.5 ui-meta font-semibold text-accent-fg transition-colors duration-100 " +
-    "hover:bg-accent/85 disabled:opacity-50";
+    stage =
+      code === "consent_missing"
+        ? ("consent" as const)
+        : code === "review_missing"
+          ? ("review" as const)
+          : code === undefined || code === null
+            ? ("ready" as const)
+            : ("other" as const);
+  if (!["submitted", "in_review"].includes(task.coordinationStatus) || stage === "other") return null;
+  const approved = (task.reviews ?? []).filter((review) => review.verdict === "approved").at(-1),
+    buttonClass =
+      "rounded-md bg-accent px-2.5 py-1.5 ui-meta font-semibold text-accent-fg transition-colors duration-100 " +
+      "hover:bg-accent/85 disabled:opacity-50";
   return (
     <section data-testid="task-completion-panel" className="rounded-lg border border-accent/40 bg-accent/5 p-3">
       <h3 className="ui-body font-semibold text-text">完成销账</h3>
       <p className="mt-1 ui-meta text-text-muted">
         {stage === "review"
-          ? "独立评审尚未批准:提交完成会请中心派发独立评审者;批准前同意完成不可用。"
-          : "独立评审已批准:同意完成即按已评审内容记录一次同意并收口。"}
+          ? "独立评审尚未记录结论:评审员只查验,结论回流后由任务 owner 裁决;裁决前完成不可用。"
+          : stage === "consent"
+            ? "独立评审已批准:owner 终审批准即按已评审内容记录同意;同意后完成是纯机械动作。"
+            : "终审批准已记录:结项是纯机械动作,立即封存。"}
       </p>
       <div className="mt-3 flex flex-wrap gap-2">
+        {task.coordinationStatus === "submitted" ? (
+          <>
+            <button
+              type="button"
+              data-testid="task-triage-forward"
+              disabled={!onAdjudicate}
+              onClick={() =>
+                void onAdjudicate?.("forward", "Owner initial review accepted this cut for independent review.")
+              }
+              className={buttonClass}
+            >
+              送独立评审
+            </button>
+            <button
+              type="button"
+              data-testid="task-triage-return"
+              disabled={!onAdjudicate}
+              onClick={() => void onAdjudicate?.("return", "Owner initial review returned this cut for rework.")}
+              className={buttonClass}
+            >
+              初审打回
+            </button>
+          </>
+        ) : null}
+        {task.coordinationStatus === "in_review" && approved ? (
+          <button
+            type="button"
+            data-testid="task-review-return"
+            disabled={!onAdjudicate}
+            onClick={() =>
+              void onAdjudicate?.("return", "Owner final review returned this cut for rework.", approved.reviewId)
+            }
+            className={buttonClass}
+          >
+            终审打回
+          </button>
+        ) : null}
+        {stage === "consent" ? (
+          <button
+            type="button"
+            data-testid="task-completion-consent"
+            disabled={!onConsentReview || !approved}
+            onClick={() => approved && void onConsentReview?.(approved.reviewId)}
+            className={buttonClass}
+          >
+            终审批准
+          </button>
+        ) : null}
         <button
           type="button"
-          data-testid="task-completion-submit"
-          disabled={stage !== "review"}
-          onClick={() => void onComplete?.(false)}
+          data-testid="task-completion-complete"
+          disabled={stage !== "ready" || !onComplete}
+          title={stage === "ready" ? undefined : "先终审批准,再机械结项"}
+          onClick={() => void onComplete?.()}
           className={buttonClass}
         >
-          提交完成
-        </button>
-        <button
-          type="button"
-          data-testid="task-completion-consent"
-          disabled={stage !== "consent"}
-          onClick={() => void onComplete?.(true)}
-          className={buttonClass}
-        >
-          同意完成
+          机械结项
         </button>
       </div>
     </section>

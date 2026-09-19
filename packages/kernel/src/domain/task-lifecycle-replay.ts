@@ -84,7 +84,7 @@ function assertAtomic(snapshot: TaskLifecycleSnapshot, command: TaskLifecycleCom
   if (
     command.type === "SubmitExecution" &&
     command.amend !== true &&
-    (result.snapshot.task?.status !== "in_review" ||
+    (result.snapshot.task?.status !== "submitted" ||
       result.snapshot.task.currentNode !== "review" ||
       result.snapshot.lease !== null ||
       changed?.state !== "submitted" ||
@@ -93,7 +93,7 @@ function assertAtomic(snapshot: TaskLifecycleSnapshot, command: TaskLifecycleCom
     throw new TaskLifecycleContractError("invalid_transition", [
       lifecycleContractIssue(
         "invalid_submit_atomicity",
-        "submit must finalize Execution, release lease, and enter in_review atomically",
+        "submit must finalize Execution, release lease, and land the cut in submitted atomically",
       ),
     ]);
   if (command.type === "SubmitExecution" && command.amend === true) {
@@ -119,18 +119,52 @@ function assertAtomic(snapshot: TaskLifecycleSnapshot, command: TaskLifecycleCom
   if (
     command.type === "RecordReview" &&
     command.verdict === "changes_requested" &&
-    (result.snapshot.task?.status !== "active" ||
-      result.snapshot.task.currentNode !== "implementation" ||
-      result.snapshot.task.iteration !== (snapshot.task?.iteration ?? -1) + 1 ||
-      changed?.state !== "changes_requested" ||
-      result.snapshot.lease !== null)
+    (result.snapshot.task?.status !== "in_review" ||
+      result.snapshot.task.currentNode !== "review" ||
+      result.snapshot.task.iteration !== snapshot.task?.iteration ||
+      changed?.state !== "submitted" ||
+      result.snapshot.lease !== null ||
+      (result.event.type === "review_recorded" && result.event.payload.edge !== undefined))
   )
     throw new TaskLifecycleContractError("invalid_graph", [
       lifecycleContractIssue(
         "invalid_return_atomicity",
-        "changes_requested must close Execution and return to implementation atomically",
+        "changes_requested must record its verdict and leave the cut at the review gate; only the owner's " +
+          "adjudication returns work",
       ),
     ]);
+  if (command.type === "AdjudicateSubmission") {
+    if (command.decision === "forward") {
+      if (
+        result.event.type !== "submission_forwarded" ||
+        result.snapshot.task?.status !== "in_review" ||
+        result.snapshot.task.currentNode !== "review" ||
+        result.snapshot.task.iteration !== snapshot.task?.iteration ||
+        result.snapshot.lease !== snapshot.lease ||
+        stableStringify(changed) !== stableStringify(execution(snapshot, command.executionId))
+      )
+        throw new TaskLifecycleContractError("invalid_transition", [
+          lifecycleContractIssue(
+            "invalid_adjudication_atomicity",
+            "a forward order must move the task to in_review and touch nothing else",
+          ),
+        ]);
+    } else if (
+      result.event.type !== "submission_returned" ||
+      result.snapshot.task?.status !== "active" ||
+      result.snapshot.task.currentNode !== "implementation" ||
+      result.snapshot.task.iteration !== (snapshot.task?.iteration ?? -1) + 1 ||
+      changed?.state !== "changes_requested" ||
+      changed.closedAt !== command.occurredAt ||
+      result.snapshot.lease !== null
+    )
+      throw new TaskLifecycleContractError("invalid_transition", [
+        lifecycleContractIssue(
+          "invalid_adjudication_atomicity",
+          "a return order must close the cut and reopen the implementation iteration atomically",
+        ),
+      ]);
+  }
 }
 export function compileExecutionExecutorDeclaration(input: {
   readonly snapshot: TaskLifecycleSnapshot;
@@ -172,7 +206,10 @@ export function compileExecutionExecutorDeclaration(input: {
           "review node that originally declared no executor; unblock a blocked task before retrying",
       ),
     ]);
-  const nextTask = { ...task, status: "in_review" as const },
+  // The repair preserves the adjudication corridor: a `submitted` cut awaiting the owner's
+  // triage stays submitted; only pre-2026-09-19 history normalized an active-at-review task to
+  // in_review, which the replay invariant below still accepts.
+  const nextTask = { ...task },
     nextExecution: ExecutionV1 = {
       ...current,
       actor: { principal: input.actor.principal, executor: input.executor },
@@ -309,6 +346,21 @@ export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEven
       edgesTaken: event.payload.edge ? [...snapshot.edgesTaken, event.payload.edge] : snapshot.edgesTaken,
       lease: null,
     };
+  else if (event.type === "submission_forwarded")
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      task: event.payload.task,
+      executions: replaceExecution(snapshot.executions, event.payload.execution),
+    };
+  else if (event.type === "submission_returned")
+    next = {
+      ...snapshot,
+      revision: event.workspaceRevision,
+      task: event.payload.task,
+      executions: replaceExecution(snapshot.executions, event.payload.execution),
+      lease: null,
+    };
   else if (event.type === "execution_executor_declared")
     next = {
       ...snapshot,
@@ -427,8 +479,10 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
   if (event.type === "execution_submitted") {
     const supersedes = event.payload.supersedesSubmissionId;
     if (supersedes === undefined) {
+      // New semantics land the cut in `submitted` awaiting the owner's triage; history recorded
+      // the pre-2026-09-19 semantics where submit entered in_review directly. Both replay.
       if (
-        event.payload.task.status !== "in_review" ||
+        !["submitted", "in_review"].includes(event.payload.task.status) ||
         event.payload.task.currentNode !== "review" ||
         event.payload.execution.state !== "submitted" ||
         event.payload.edge?.on !== "submitted" ||
@@ -451,8 +505,8 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
       if (
         !current?.submission ||
         current.state !== "submitted" ||
-        snapshot.task?.status !== "in_review" ||
-        snapshot.task.currentNode !== "review" ||
+        !["submitted", "in_review"].includes(String(snapshot.task?.status)) ||
+        snapshot.task?.currentNode !== "review" ||
         snapshot.lease !== null ||
         !event.payload.execution.submission ||
         supersedes !== submissionId(current.submission) ||
@@ -486,7 +540,14 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
   if (event.type === "execution_executor_declared") {
     const current = execution(snapshot, event.payload.execution.executionId),
       expected = current ? { ...current, actor: event.payload.execution.actor } : null,
-      expectedTask = snapshot.task ? { ...snapshot.task, status: "in_review" as const } : null;
+      // History normalized every executor declaration to in_review; the current repair preserves
+      // the corridor status (submitted stays submitted — the CEO gate is never skipped).
+      expectedTask = snapshot.task
+        ? {
+            ...snapshot.task,
+            status: snapshot.task.status === "active" ? ("in_review" as const) : snapshot.task.status,
+          }
+        : null;
     if (
       !current ||
       !sameReplayTask(event.payload.task, expectedTask) ||
@@ -496,7 +557,7 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
       event.payload.execution.actor.executor === null ||
       !isSamePerson(current.actor, event.actor) ||
       !isSamePerson(event.payload.execution.actor, event.actor) ||
-      !["active", "in_review"].includes(String(snapshot.task?.status)) ||
+      !["active", "submitted", "in_review"].includes(String(snapshot.task?.status)) ||
       snapshot.task?.currentNode !== "review" ||
       snapshot.lease !== null ||
       current.state !== "submitted" ||
@@ -541,18 +602,77 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
     throw new TaskLifecycleContractError("invalid_transition", [
       lifecycleContractIssue("invalid_transition", "replayed append-only Review reused an existing review id"),
     ]);
-  if (
-    event.type === "review_recorded" &&
-    event.payload.review.verdict === "changes_requested" &&
-    (event.payload.edge?.on !== "changes_requested" ||
-      event.payload.execution.state !== "changes_requested" ||
-      event.payload.task.status !== "active" ||
-      event.payload.task.currentNode !== "implementation" ||
-      event.payload.task.iteration !== (snapshot.task?.iteration ?? -1) + 1)
-  )
-    throw new TaskLifecycleContractError("invalid_graph", [
-      lifecycleContractIssue("invalid_return_atomicity", "replayed changes_requested is incomplete"),
-    ]);
+  if (event.type === "review_recorded" && event.payload.review.verdict === "changes_requested") {
+    // History: the verdict itself returned the task (edge taken, execution closed, iteration+1).
+    // Current: the verdict reports to the owner; the cut stays at the review gate unchanged.
+    const historicalReturn =
+        event.payload.edge?.on === "changes_requested" &&
+        event.payload.execution.state === "changes_requested" &&
+        event.payload.task.status === "active" &&
+        event.payload.task.currentNode === "implementation" &&
+        event.payload.task.iteration === (snapshot.task?.iteration ?? -1) + 1,
+      staysAtGate =
+        event.payload.edge === undefined &&
+        event.payload.execution.state === "submitted" &&
+        event.payload.task.status === "in_review" &&
+        event.payload.task.currentNode === "review" &&
+        event.payload.task.iteration === snapshot.task?.iteration &&
+        sameReplayTask(event.payload.task, snapshot.task) &&
+        stableStringify(event.payload.execution) ===
+          stableStringify(execution(snapshot, event.payload.execution.executionId));
+    if (!historicalReturn && !staysAtGate)
+      throw new TaskLifecycleContractError("invalid_graph", [
+        lifecycleContractIssue("invalid_return_atomicity", "replayed changes_requested is incomplete"),
+      ]);
+  }
+  if (event.type === "submission_forwarded") {
+    const current = execution(snapshot, event.payload.execution.executionId);
+    if (
+      snapshot.task?.status !== "submitted" ||
+      snapshot.task.currentNode !== "review" ||
+      snapshot.lease !== null ||
+      !current?.submission ||
+      current.state !== "submitted" ||
+      stableStringify(event.payload.execution) !== stableStringify(current) ||
+      event.payload.task.status !== "in_review" ||
+      event.payload.task.currentNode !== "review" ||
+      event.payload.task.iteration !== snapshot.task.iteration
+    )
+      throw new TaskLifecycleContractError("invalid_transition", [
+        lifecycleContractIssue("invalid_adjudication_atomicity", "replayed forward order is incomplete"),
+      ]);
+  }
+  if (event.type === "submission_returned") {
+    const current = execution(snapshot, event.payload.execution.executionId),
+      expectedExecution = current
+        ? { ...current, state: "changes_requested" as const, closedAt: event.occurredAt }
+        : null,
+      expectedTask = snapshot.task
+        ? {
+            ...snapshot.task,
+            status: "active" as const,
+            currentNode: "implementation" as const,
+            iteration: snapshot.task.iteration + 1,
+          }
+        : null;
+    if (
+      !snapshot.task ||
+      !["submitted", "in_review"].includes(snapshot.task.status) ||
+      snapshot.task.currentNode !== "review" ||
+      snapshot.lease !== null ||
+      !current?.submission ||
+      current.state !== "submitted" ||
+      stableStringify(event.payload.execution) !== stableStringify(expectedExecution) ||
+      !sameReplayTask(event.payload.task, expectedTask) ||
+      (event.payload.reviewId !== undefined &&
+        !snapshot.reviews.some(
+          (value) => value.reviewId === event.payload.reviewId && value.executionId === current.executionId,
+        ))
+    )
+      throw new TaskLifecycleContractError("invalid_transition", [
+        lifecycleContractIssue("invalid_adjudication_atomicity", "replayed return order is incomplete"),
+      ]);
+  }
   if (
     event.type === "review_consent_recorded" &&
     (event.payload.consent.reviewDigest !== reviewDigest(event.payload.review) ||
@@ -617,7 +737,8 @@ function acceptedCompletionWitnesses(
 ): boolean {
   const current = execution(snapshot, executionId);
   if (
-    snapshot.task?.status !== "in_review" ||
+    !snapshot.task ||
+    !["submitted", "in_review"].includes(snapshot.task.status) ||
     current?.state !== "submitted" ||
     current.iteration !== snapshot.task.iteration ||
     !current.submission ||

@@ -15,7 +15,7 @@ import type {
 } from "../../../kernel/src/index.ts";
 
 // daemon-status-vocabulary:generated:start
-export const taskStatusWords = ["planned", "active", "blocked", "in_review", "done", "cancelled"] as const;
+export const taskStatusWords = ["planned", "active", "submitted", "blocked", "in_review", "done", "cancelled"] as const;
 
 export const decisionStateWords = [
   "proposed",
@@ -97,6 +97,7 @@ export const taskCapabilityIdWords = Object.freeze([
   "start",
   "progress",
   "submit",
+  "adjudicate",
   "review",
   "complete",
 ] as const satisfies readonly TaskCapabilityId[]);
@@ -134,6 +135,7 @@ export const taskPhaseReasonWordsAreExact: [TaskPhaseReason] extends [(typeof ta
 export const taskPhaseStepWords = Object.freeze([
   "planned",
   "active",
+  "submitted",
   "in_review",
   "done",
 ] as const satisfies typeof taskPhaseSteps);

@@ -554,6 +554,14 @@ function operationIdentityFromCommand<C extends TaskLifecycleCommand>(command: C
       reviewDigest: command.reviewDigest,
       contentDigest: command.contentDigest,
     };
+  if (command.type === "AdjudicateSubmission")
+    return {
+      ...common,
+      executionId: command.executionId,
+      decision: command.decision,
+      reason: command.reason,
+      ...(command.reviewId === undefined ? {} : { reviewId: command.reviewId }),
+    };
   if (command.type === "RepointCodeDoc")
     return {
       ...common,
@@ -584,15 +592,17 @@ function operationIdentityFromEvent(event: TaskEventV1): unknown {
             ? "TransitionTask"
             : event.type === "execution_submitted"
               ? "SubmitExecution"
-              : event.type === "review_recorded"
-                ? "RecordReview"
-                : event.type === "review_consent_recorded"
-                  ? "RecordReviewConsent"
-                  : event.type === "code_doc_reconciled"
-                    ? "ReconcileCodeDoc"
-                    : event.type === "code_doc_repointed"
-                      ? "RepointCodeDoc"
-                      : "CompleteTask";
+              : event.type === "submission_forwarded" || event.type === "submission_returned"
+                ? "AdjudicateSubmission"
+                : event.type === "review_recorded"
+                  ? "RecordReview"
+                  : event.type === "review_consent_recorded"
+                    ? "RecordReviewConsent"
+                    : event.type === "code_doc_reconciled"
+                      ? "ReconcileCodeDoc"
+                      : event.type === "code_doc_repointed"
+                        ? "RepointCodeDoc"
+                        : "CompleteTask";
   const common = {
     type,
     taskId: event.taskId,
@@ -633,6 +643,16 @@ function operationIdentityFromEvent(event: TaskEventV1): unknown {
       executionId: event.payload.execution.executionId,
       submission: event.payload.execution.submission,
       ...(event.payload.supersedesSubmissionId === undefined ? {} : { amend: true }),
+    };
+  if (event.type === "submission_forwarded" || event.type === "submission_returned")
+    return {
+      ...common,
+      executionId: event.payload.execution.executionId,
+      decision: event.type === "submission_forwarded" ? ("forward" as const) : ("return" as const),
+      reason: event.payload.reason,
+      ...(event.type === "submission_returned" && event.payload.reviewId !== undefined
+        ? { reviewId: event.payload.reviewId }
+        : {}),
     };
   if (event.type === "review_recorded") {
     const review = event.payload.review;

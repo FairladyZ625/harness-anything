@@ -110,6 +110,15 @@ test("an owner break-glasses a gate with no automated receipt; a later receipt v
     assert.equal(run(root, userRoot, daemonId, ["doc", "sync", "--submit", "--task", taskId]).outcome, "applied");
     const submitted = run(root, userRoot, daemonId, ["task", "submit", taskId, "--execution-id", executionId]);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const forwarded = run(root, userRoot, daemonId, [
+      "task",
+      "adjudicate",
+      taskId,
+      "--forward",
+      "--note",
+      "Forward override fixture cut.",
+    ]);
+    assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
     const shown = taskSnapshot(run(root, userRoot, daemonId, ["task", "show", taskId])),
       cutSha = shown.executions[0]?.submission?.commitSha;
     assert.equal(typeof cutSha, "string");

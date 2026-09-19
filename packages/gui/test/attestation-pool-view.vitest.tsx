@@ -114,6 +114,7 @@ const consentTask: TaskRow = {
   gates: [],
   executions: [submittedExecution("task-consent", "any", "manual-attest")],
   closeoutBlocker: "consent",
+  reviews: [{ reviewId: "review-pool-approved", verdict: "approved", reason: "ok", reviewedAt: "2026-09-19" }],
 } as TaskRow;
 
 const proposedDecision: DecisionRow = {
@@ -144,7 +145,8 @@ const summary = {
 interface PoolHarness {
   readonly tabChanges: AttestationPoolTabId[];
   readonly attestCalls: { taskId: string; gateId: string; mode: string; rationale?: string }[];
-  readonly consentCalls: { taskId: string; consent: boolean }[];
+  readonly consentCalls: { taskId: string; reviewId: string }[];
+  readonly completeCalls: string[];
   readonly judged: { decisionId: string; action: string; rationale: string }[];
 }
 
@@ -152,7 +154,7 @@ async function mountPool(
   initialTab: AttestationPoolTabId = "taskCloseout",
   tasks: readonly TaskRow[] = [attestTask, failedTask, consentTask],
 ): Promise<PoolHarness> {
-  const harness: PoolHarness = { tabChanges: [], attestCalls: [], consentCalls: [], judged: [] };
+  const harness: PoolHarness = { tabChanges: [], attestCalls: [], consentCalls: [], completeCalls: [], judged: [] };
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
     container = document.createElement("div"),
     root = createRoot(container);
@@ -180,8 +182,12 @@ async function mountPool(
               hint: "this cut has no recorded automated fail or pass yet",
             });
           },
-          onCompleteTask: (task, consent) => {
-            harness.consentCalls.push({ taskId: task.taskId, consent });
+          onCompleteTask: (task) => {
+            harness.completeCalls.push(task.taskId);
+            return Promise.resolve();
+          },
+          onConsentReview: (task, reviewId) => {
+            harness.consentCalls.push({ taskId: task.taskId, reviewId });
             return Promise.resolve();
           },
           onNavigateTask: () => undefined,
@@ -424,12 +430,12 @@ describe("AttestationPoolView", () => {
     expect(byTestId("attestation-pool-tab-breakGlass").textContent).toMatch(/\S+\s*·\s*0(?=\s|$)/);
   });
 
-  it("signs a consent straight from the pool through the complete write path", async () => {
+  it("signs a consent straight from the pool through the owner-verdict write path", async () => {
     const harness = await mountPool("consents");
     await act(async () => {
       byTestId("pool-consent-approve-task-consent").click();
     });
-    expect(harness.consentCalls).toEqual([{ taskId: "task-consent", consent: true }]);
+    expect(harness.consentCalls).toEqual([{ taskId: "task-consent", reviewId: "review-pool-approved" }]);
   });
 
   it("keeps the quick-judgment surface and the focus mode on the decisions domain", async () => {

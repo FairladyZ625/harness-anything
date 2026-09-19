@@ -57,16 +57,17 @@ const row = {
   },
   executionEvidence: [],
   // A row whose task the projection could not resolve sits in no board column and affords nothing.
-  board: { columnId: null, rank: 5 },
+  board: { columnId: null, rank: 6 },
   visibility: { archived: false, noise: false },
   capabilities: [
     { id: "start", available: false, reason: "unknown" },
     { id: "progress", available: false, reason: "unknown" },
     { id: "submit", available: false, reason: "unknown" },
+    { id: "adjudicate", available: false, reason: "unknown" },
     { id: "review", available: false, reason: "unknown" },
     { id: "complete", available: false, reason: "unknown" },
   ],
-  phase: { index: null, reason: "phase_unresolved", steps: ["planned", "active", "in_review", "done"] },
+  phase: { index: null, reason: "phase_unresolved", steps: ["planned", "active", "submitted", "in_review", "done"] },
   risk: { flagged: true },
 } as const;
 const list = {

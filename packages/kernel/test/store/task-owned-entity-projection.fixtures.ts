@@ -33,18 +33,18 @@ export function reviewEvents(
       taskId: "task-first",
       executionId: "execution-shared",
       reviewId: "review-shared",
-    }).events.slice(0, 4),
+    }).events.slice(0, 5),
     second = lifecycleFixture({
       taskId: "task-second",
       executionId: secondExecutionId,
       reviewId: secondReviewId,
     })
-      .events.slice(0, 4)
+      .events.slice(0, 5)
       .map((event, index) => ({
         ...event,
-        eventId: `event-second-${index + 5}`,
-        opId: `op-second-${event.type}-${index + 5}`,
-        workspaceRevision: index + 5,
+        eventId: `event-second-${index + 6}`,
+        opId: `op-second-${event.type}-${index + 6}`,
+        workspaceRevision: index + 6,
       }));
   return [...first, ...second] as readonly CanonicalEventV1[];
 }

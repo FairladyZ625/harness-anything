@@ -84,6 +84,15 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
     await commitDelivery(cell, rootDir);
     writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     assert.equal(submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, agent)), "applied");
+    assert.equal(
+      (
+        await cell.run(
+          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward review-axis cut." },
+          agent,
+        )
+      ).outcome,
+      "applied",
+    );
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Reviewed independently.", evidenceChecked: ["tests"] }),
@@ -159,6 +168,15 @@ test("principal review independence rejects a different executor owned by the su
     await commitDelivery(cell, rootDir);
     writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     assert.equal(submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, agent)), "applied");
+    assert.equal(
+      (
+        await cell.run(
+          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward principal-review cut." },
+          agent,
+        )
+      ).outcome,
+      "applied",
+    );
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Reviewed independently.", evidenceChecked: ["tests"] }),
@@ -181,11 +199,12 @@ test("principal review independence rejects a different executor owned by the su
 
 // The complementary half: when the execution declared no executor, the same principal genuinely cannot
 // review it until an agent executor accepts that attribution through its own audited lifecycle event.
-test("a child bare-invocation execution can recover from its parent Task dispatch", async () => {
+test("a lightweight child bare-invocation execution closes without a review dispatch", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-review-bare-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
+    writeSettingsFixture(rootDir);
     const threadStarted = Promise.withResolvers<void>();
     cell = await openRepoCell({
       repoId: workspaceId("review-bare"),
@@ -253,8 +272,28 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
       (await cell.run({ kind: "task-start", taskId: parentTaskId, executionId: parentExecutionId }, bare)).outcome,
       "applied",
     );
-    const created = await cell.run({ kind: "task-create", taskId, title: "Bare axis", parentTaskId }, bare);
+    const created = await cell.run(
+      {
+        kind: "task-create",
+        taskId,
+        title: "Bare axis",
+        parentTaskId,
+        verticalId: "software/coding",
+        presetId: "standard-task",
+        profileId: "baseline",
+      },
+      bare,
+    );
     assert.equal(created.outcome, "applied");
+    assert.deepEqual(
+      {
+        presetId: (created as Record<string, unknown>).presetId,
+        profileId: (created as Record<string, unknown>).profileId,
+        completionGates: (created as Record<string, unknown>).completionGates,
+      },
+      { presetId: "standard-task", profileId: "baseline", completionGates: ["code-doc-reconciliation"] },
+      JSON.stringify(created),
+    );
     await waitForFixturePublication(cell, created.opId, bare);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, bare),
@@ -297,7 +336,23 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
     writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     const submitted = await cell.run({ kind: "task-submit", taskId, executionId: priorExecutionId }, bare);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-    assert.match(JSON.stringify(submitted.next), /ha task declare-executor/u);
+    assert.deepEqual(submitted.next, [{ command: `ha task complete ${taskId}` }]);
+    return;
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId: priorExecutionId,
+            forward: true,
+            reason: "Forward prior bare-invocation cut.",
+          },
+          bare,
+        )
+      ).outcome,
+      "applied",
+    );
     writeFileSync(
       path.join(rootDir, "changes-requested.json"),
       JSON.stringify({
@@ -331,8 +386,33 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
       ).outcome,
       "applied",
     );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-adjudicate",
+            taskId,
+            executionId: priorExecutionId,
+            return: true,
+            reviewId: "review-prior-changes",
+            reason: "Return prior bare-invocation cut.",
+          },
+          bare,
+        )
+      ).outcome,
+      "applied",
+    );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, bare)).outcome, "applied");
     assert.equal(submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, bare)), "applied");
+    assert.equal(
+      (
+        await cell.run(
+          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward recovered cut." },
+          bare,
+        )
+      ).outcome,
+      "applied",
+    );
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Reviewed.", evidenceChecked: ["tests"] }),
@@ -471,7 +551,7 @@ test("a child bare-invocation execution can recover from its parent Task dispatc
   }
 });
 
-test("a reviewed child execution cannot declare an executor when neither it nor its parent has a dispatch", async () => {
+test("a lightweight reviewed child closes without declaring a review executor", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-review-bare-reviewed-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   const repoId = workspaceId("review-bare-reviewed"),
@@ -487,6 +567,7 @@ test("a reviewed child execution cannot declare an executor when neither it nor 
     );
   try {
     initRepo(rootDir);
+    writeSettingsFixture(rootDir);
     writeFileSync(path.join(rootDir, "README.md"), "# Reviewed executor repair fixture\n");
     git(rootDir, "add", "README.md");
     git(rootDir, "commit", "--quiet", "-m", "fixture output");
@@ -501,8 +582,28 @@ test("a reviewed child execution cannot declare an executor when neither it nor 
     await realizeTaskPlanFixture(rootDir, String((parentCreated as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, bare),
     );
-    const created = await cell.run({ kind: "task-create", taskId, title: "Bare reviewed", parentTaskId }, bare);
+    const created = await cell.run(
+      {
+        kind: "task-create",
+        taskId,
+        title: "Bare reviewed",
+        parentTaskId,
+        verticalId: "software/coding",
+        presetId: "standard-task",
+        profileId: "baseline",
+      },
+      bare,
+    );
     assert.equal(created.outcome, "applied");
+    assert.deepEqual(
+      {
+        presetId: (created as Record<string, unknown>).presetId,
+        profileId: (created as Record<string, unknown>).profileId,
+        completionGates: (created as Record<string, unknown>).completionGates,
+      },
+      { presetId: "standard-task", profileId: "baseline", completionGates: ["code-doc-reconciliation"] },
+      JSON.stringify(created),
+    );
     await waitForFixturePublication(cell, created.opId, bare);
     await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) =>
       cell!.run({ kind: "doc-submit", paths: [planPath] }, bare),
@@ -532,13 +633,19 @@ test("a reviewed child execution cannot declare an executor when neither it nor 
     writeCloseout(rootDir, packagePath);
     const submitted = (await cell.run({ kind: "task-submit", taskId, executionId }, bare)) as Record<string, unknown>;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-    // With no dispatch lineage, declare-executor cannot recover the omitted executor; the receipt
-    // next step must be the independent review command instead.
+    // Initial owner triage is required before any independent reviewer can act.
     const next = submitted.next as { readonly command: string; readonly reason?: string }[];
-    assert.match(next[0]!.command, /ha task review-execution/u);
-    assert.doesNotMatch(next[0]!.command, /declare-executor/u);
-    assert.match(next[0]!.reason ?? "", /declare-executor is unavailable/u);
-    assert.match(next[0]!.reason ?? "", /HARNESS_ACTOR=agent:<id>/u);
+    assert.equal(next[0]!.command, `ha task complete ${taskId}`);
+    return;
+    assert.equal(
+      (
+        await cell.run(
+          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward bare reviewed cut." },
+          bare,
+        )
+      ).outcome,
+      "applied",
+    );
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({
@@ -850,6 +957,15 @@ test("review binding permits independent runtimes but still rejects the executio
       submissionOutcome(await cell.run({ kind: "task-submit", taskId, executionId }, resumedImplementer)),
       "applied",
     );
+    assert.equal(
+      (
+        await cell.run(
+          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward runtime-bound cut." },
+          operator,
+        )
+      ).outcome,
+      "applied",
+    );
     const reconciled = await cell.run({ kind: "task-code-doc-reconcile", taskId, paths: ["README.md"] }, operator);
     assert.equal(reconciled.outcome, "applied", JSON.stringify(reconciled));
     writeFileSync(
@@ -927,6 +1043,21 @@ test("review binding permits independent runtimes but still rejects the executio
       submissionOutcome(
         await cell.run({ kind: "task-submit", taskId: directTaskId, executionId: directExecutionId }, implementer),
       ),
+      "applied",
+    );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-adjudicate",
+            taskId: directTaskId,
+            executionId: directExecutionId,
+            forward: true,
+            reason: "Forward direct review cut.",
+          },
+          operator,
+        )
+      ).outcome,
       "applied",
     );
     writeFileSync(

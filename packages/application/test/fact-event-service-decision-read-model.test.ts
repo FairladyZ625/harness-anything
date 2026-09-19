@@ -119,9 +119,9 @@ test("Decision coverage replays all fulfillment modes, refutation, and exact tas
     }
     const factService = makeFactService({ eventStore: store, projection }),
       decisionService = makeDecisionService({ eventStore: store, projection });
-    recordFact(factService, projection, factEvent(7, "task-1", "F-ABCDEFGH"));
-    recordFact(factService, projection, factEvent(8, "task-1", "F-BCDEFGHJ"));
-    let revision = 9;
+    recordFact(factService, projection, factEvent(8, "task-1", "F-ABCDEFGH"));
+    recordFact(factService, projection, factEvent(9, "task-1", "F-BCDEFGHJ"));
+    let revision = 10;
     const record = (
       decisionId: string,
       type: DecisionEventDraftV1["type"],

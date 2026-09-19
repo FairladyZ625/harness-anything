@@ -24,7 +24,7 @@ const submitted: TaskLifecycleSnapshot = lifecycleFixture().events.slice(0, 3).r
   lease: null,
 });
 
-/** Settings-facet-aware read projection stub: one submitted unreviewed in_review cut and a valid closeout. */
+/** Settings-facet-aware read projection stub: one submitted unreviewed cut and a valid closeout. */
 function projection(closeout: CloseoutSettingsV1 | null, factRows = 1): TaskProjectionQueries {
   return {
     read: () => ({
@@ -86,7 +86,8 @@ test("strict profile read side keeps demanding review and consent", () => {
     factDisposition: true,
     codeDoc: true,
   });
-  assert.equal(taskCompletionNext(submitted, context).blocker?.code, "review_missing");
+  // The strict cut sits in `submitted`: the blocker names the owner's triage, not a reviewer.
+  assert.equal(taskCompletionNext(submitted, context).blocker?.code, "not_in_review");
 });
 
 test("a repository without a settings entity reads the standard default gates", () => {

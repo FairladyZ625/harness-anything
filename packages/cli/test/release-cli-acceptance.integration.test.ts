@@ -93,6 +93,12 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
     const commitSha = git(root, "rev-parse", "HEAD");
     writeCloseout(root, packagePath, `The chain fixture is complete at ${commitSha}.`);
     run(root, userRoot, ["task", "submit", taskId, "--execution-id", executionId], worker);
+    run(
+      root,
+      userRoot,
+      ["task", "adjudicate", taskId, "--forward", "--note", "Forward release acceptance cut."],
+      worker,
+    );
     const reconciled = run(
       root,
       userRoot,
@@ -234,6 +240,7 @@ test("release acceptance: changes_requested rework keeps both same-named reports
       "已知缺口：The report needs a second execution.",
     );
     run(root, userRoot, ["task", "submit", taskId, "--execution-id", firstExecutionId], worker);
+    run(root, userRoot, ["task", "adjudicate", taskId, "--forward", "--note", "Forward first release cut."], worker);
     const firstSubmission = reader
       .read()
       .events.find(
@@ -266,6 +273,21 @@ test("release acceptance: changes_requested rework keeps both same-named reports
       reviewer,
     );
     assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+    run(
+      root,
+      userRoot,
+      [
+        "task",
+        "adjudicate",
+        taskId,
+        "--return",
+        "--review-id",
+        "review-release-acc-rework",
+        "--note",
+        "Return the first release cut for rework.",
+      ],
+      worker,
+    );
     const afterReturn = JSON.parse(String(run(root, userRoot, ["task", "show", taskId]).evidence)) as {
       task: { status: string; iteration: number };
     };
@@ -297,6 +319,7 @@ test("release acceptance: changes_requested rework keeps both same-named reports
     }
     writeCloseout(root, packagePath, `Second round: artifact:${reportLogical}@${secondPublication.revision}`);
     run(root, userRoot, ["task", "submit", taskId, "--execution-id", secondExecutionId], worker);
+    run(root, userRoot, ["task", "adjudicate", taskId, "--forward", "--note", "Forward second release cut."], worker);
     const secondSubmission = reader
       .read()
       .events.find(

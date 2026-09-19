@@ -1050,6 +1050,15 @@ test("semantic sources and agent execution cross the daemon before transport-bou
     run(
       fixture.root,
       fixture.userRoot,
+      ["task", "adjudicate", taskId, "--forward", "--note", "Forward daemon autostart cut."],
+      "agent:claude-code",
+    ).outcome,
+    "applied",
+  );
+  assert.equal(
+    run(
+      fixture.root,
+      fixture.userRoot,
       ["task", "code-doc", "reconcile", taskId, "--path", "executor-axis.mjs"],
       "agent:claude-code",
     ).outcome,

@@ -218,29 +218,33 @@ export function lifecycleReceipt(
           ? `ha task submit ${event.taskId}`
           : snapshot.task?.status === "active"
             ? `ha task start ${event.taskId}`
-            : snapshot.task?.status !== "in_review"
-              ? null
-              : !approved.length && !approvedHistory.length
-                ? declarationNeeded && !dispatchlessDeclaration
-                  ? [
-                      "ha task declare-executor ",
-                      `${event.taskId}`,
-                      " --execution-id ",
-                      `${executionId}`,
-                      " --reason <auditable-recovery-reason>",
-                    ].join("")
-                  : [
-                      "ha task review-execution ",
-                      `${event.taskId}`,
-                      " --execution-id ",
-                      `${executionId}`,
-                      " --review-id <id> --from-file <review.json>",
-                    ].join("")
-                : !selected
-                  ? `ha task complete ${event.taskId} --consent`
-                  : missingGate === "code-doc-reconciliation"
-                    ? `ha task code-doc reconcile ${event.taskId} --path <repo-relative-path>...`
-                    : `ha task complete ${event.taskId}`,
+            : snapshot.task?.status === "submitted"
+              ? snapshot.task.completionGateIds.includes("review")
+                ? `ha task adjudicate ${event.taskId} --forward --note-file <path>`
+                : `ha task complete ${event.taskId}`
+              : snapshot.task?.status !== "in_review"
+                ? null
+                : !approved.length && !approvedHistory.length
+                  ? declarationNeeded && !dispatchlessDeclaration
+                    ? [
+                        "ha task declare-executor ",
+                        `${event.taskId}`,
+                        " --execution-id ",
+                        `${executionId}`,
+                        " --reason <auditable-recovery-reason>",
+                      ].join("")
+                    : [
+                        "ha task review-execution ",
+                        `${event.taskId}`,
+                        " --execution-id ",
+                        `${executionId}`,
+                        " --review-id <id> --from-file <review.json>",
+                      ].join("")
+                  : !selected
+                    ? `ha task review-consent ${event.taskId} --review-id ${approved.at(-1)!.reviewId}`
+                    : missingGate === "code-doc-reconciliation"
+                      ? `ha task code-doc reconcile ${event.taskId} --path <repo-relative-path>...`
+                      : `ha task complete ${event.taskId}`,
     next = nextCommand
       ? [
           {

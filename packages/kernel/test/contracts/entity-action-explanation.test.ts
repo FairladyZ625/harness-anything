@@ -139,7 +139,7 @@ test("catalog and object modes share one strict schema with four honest criterio
   );
   assert.equal(
     actions.reduce((count, action) => count + action.criteria.length, 0),
-    30,
+    33,
   );
 
   const dishonestAvailability = structuredClone(object) as unknown as {

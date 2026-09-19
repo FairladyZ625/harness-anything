@@ -326,7 +326,7 @@ test("event batches are revision ordered even when the Git tree is hash ordered"
     const batch = writer.readBatch(null, 4096);
     assert.deepEqual(
       batch.events.map((event) => event.workspaceRevision),
-      [1, 2, 3, 4, 5, 6],
+      [1, 2, 3, 4, 5, 6, 7],
     );
   });
 });

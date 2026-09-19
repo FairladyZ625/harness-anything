@@ -184,6 +184,22 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         ).outcome,
         "applied",
       );
+      assert.equal(
+        (
+          await host.run(
+            repoId,
+            {
+              kind: "task-adjudicate",
+              taskId,
+              executionId: firstExecutionId,
+              forward: true,
+              reason: "Forward first runtime cut.",
+            },
+            auth,
+          )
+        ).outcome,
+        "applied",
+      );
       writeFileSync(
         path.join(root, "redispatch-changes.json"),
         JSON.stringify({
@@ -228,6 +244,23 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
                 kind: "agent",
                 id: `runtime-session:${String(firstReviewer.runtimeSessionId)}`,
               },
+            },
+            auth,
+          )
+        ).outcome,
+        "applied",
+      );
+      assert.equal(
+        (
+          await host.run(
+            repoId,
+            {
+              kind: "task-adjudicate",
+              taskId,
+              executionId: firstExecutionId,
+              return: true,
+              reviewId: "redispatch-changes",
+              reason: "Return first runtime cut for rework.",
             },
             auth,
           )
@@ -299,6 +332,22 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           auth,
         );
       assert.equal(secondSubmission.outcome, "applied", JSON.stringify(secondSubmission));
+      assert.equal(
+        (
+          await host.run(
+            repoId,
+            {
+              kind: "task-adjudicate",
+              taskId,
+              executionId: secondExecutionId,
+              forward: true,
+              reason: "Forward second runtime cut.",
+            },
+            auth,
+          )
+        ).outcome,
+        "applied",
+      );
       const observations = makeTaskEventReader({ repoId, rootDir: root })
         .read()
         .events.filter((event) => event.type === "ci_run_observed" && event.workspaceRevision > beforeSubmission);
@@ -359,6 +408,22 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
               kind: "task-submit",
               taskId,
               executionId,
+            },
+            auth,
+          )
+        ).outcome,
+        "applied",
+      );
+      assert.equal(
+        (
+          await host.run(
+            repoId,
+            {
+              kind: "task-adjudicate",
+              taskId,
+              executionId,
+              forward: true,
+              reason: "Forward runtime continuation cut.",
             },
             auth,
           )

@@ -165,6 +165,66 @@ export const taskActionDescriptorProjection = {
       },
     },
     {
+      id: "adjudicate",
+      input: {
+        schema: "entity-action-input/v1",
+        fields: [
+          { field: "taskId", type: "string", required: true },
+          { field: "expectedVersion", type: "number", required: false },
+          {
+            field: "executionId",
+            type: "string",
+            required: false,
+            cli: { name: "--execution-id", kind: "single", error: "invalid_field" },
+          },
+          {
+            field: "forward",
+            type: "boolean",
+            required: false,
+            cli: { name: "--forward", kind: "boolean", error: "invalid_field" },
+          },
+          {
+            field: "return",
+            type: "boolean",
+            required: false,
+            cli: { name: "--return", kind: "boolean", error: "invalid_field" },
+          },
+          {
+            field: "reviewId",
+            type: "string",
+            required: false,
+            cli: { name: "--review-id", kind: "single", error: "invalid_field" },
+          },
+          {
+            field: "reason",
+            type: "string",
+            required: false,
+            cli: { name: "--note", kind: "single", error: "invalid_field" },
+          },
+          {
+            field: "noteFile",
+            type: "string",
+            required: false,
+            cli: { conflictsWith: ["--note"], name: "--note-file", kind: "single", error: "invalid_field" },
+          },
+          { field: "commandType", type: "string", required: false, enum: ["AdjudicateSubmission"] },
+        ],
+        exactlyOneOf: [["forward", "return"]],
+      },
+      explain:
+        "The owning CEO's double gate: forward a submitted cut to independent review, or return it with a rework note.",
+      execution: {
+        ingress: "task-adjudicate",
+        topology: "ledger-write",
+        lifecycle: {
+          transitionId: "adjudicate_submission",
+          commandType: "AdjudicateSubmission",
+          targetIdField: "executionId",
+          coordination: "execute",
+        },
+      },
+    },
+    {
       id: "review",
       input: {
         schema: "entity-action-input/v1",
@@ -359,12 +419,6 @@ export const taskActionDescriptorProjection = {
             type: "string",
             required: false,
             cli: { name: "--execution-id", kind: "single", error: "invalid_field" },
-          },
-          {
-            field: "consent",
-            type: "boolean",
-            required: false,
-            cli: { name: "--consent", kind: "boolean", error: "invalid_field" },
           },
           { field: "ci", type: "string", required: false },
           { field: "paths", type: "string-array", required: false },

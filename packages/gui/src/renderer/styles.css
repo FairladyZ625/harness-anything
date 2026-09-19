@@ -41,6 +41,7 @@
   /* coordinationStatus 六色 + unknown，等亮度 OKLch（L≈0.78；cancelled 中性） */
   --color-status-planned: oklch(0.78 0.03 285);
   --color-status-active: oklch(0.78 0.14 250);
+  --color-status-submitted: oklch(0.78 0.11 210);
   --color-status-blocked: oklch(0.78 0.14 75);
   --color-status-in-review: oklch(0.78 0.14 305);
   --color-status-done: oklch(0.78 0.14 150);
@@ -80,6 +81,7 @@ html[data-theme="light"] {
 
   --color-status-planned: oklch(0.52 0.03 285);
   --color-status-active: oklch(0.54 0.16 250);
+  --color-status-submitted: oklch(0.68 0.12 210);
   --color-status-blocked: oklch(0.57 0.13 75);
   --color-status-in-review: oklch(0.54 0.16 305);
   --color-status-done: oklch(0.56 0.14 150);

@@ -1,8 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { performance } from "node:perf_hooks";
 import test from "node:test";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
@@ -61,6 +60,59 @@ const boundCuts = (f: Awaited<ReturnType<typeof fixture>>, runtimeSessionId: str
       return [String(taskBinding.taskId), String(taskBinding.executionId)];
     });
 
+async function spawnReviewerForKey(f: Awaited<ReturnType<typeof fixture>>, idempotencyKey: string): Promise<string> {
+  const receipt = await f.cell().spawnRuntime(
+    {
+      agentId: "closeout-reviewer",
+      role: "reviewer",
+      taskId,
+      executionId,
+      cwd: { scope: "repo-root" },
+      idempotencyKey,
+      prompt: "Review the bound submission cut.",
+    },
+    owner,
+  );
+  assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+  assert.equal(typeof receipt.runtimeSessionId, "string", JSON.stringify(receipt));
+  return String(receipt.runtimeSessionId);
+}
+
+test(
+  "submitted cuts reject explicit dispatch-review and generic reviewer runtime ingress before owner forward",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, undefined, {
+      closeoutProfile: "standard",
+      autoForward: false,
+    });
+    try {
+      await f.install();
+      const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], executionId });
+      assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
+      assert.match(dispatchesOf(receipt)[0]?.error ?? "", /awaits its owner's triage/u);
+      await expectCoded(
+        f.cell().spawnRuntime(
+          {
+            agentId: "closeout-reviewer",
+            role: "reviewer",
+            taskId,
+            executionId,
+            cwd: { scope: "repo-root" },
+            idempotencyKey: "review-before-forward",
+            prompt: "review",
+          },
+          owner,
+        ),
+        "review_admission_denied",
+      );
+      assert.equal(f.launches.length, 0);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
 test(
   "task dispatch-review launches one reviewer bound to the submitted cut without touching the implementation iteration",
   { timeout: 20_000 },
@@ -74,7 +126,7 @@ test(
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       const steps = dispatchesOf(receipt);
       assert.equal(steps.length, 1);
-      assert.equal(steps[0]!.outcome, "dispatched", JSON.stringify(steps[0]));
+      assert.equal(steps[0]!.outcome, "already_dispatched", JSON.stringify(steps[0]));
       assert.equal(steps[0]!.executionId, executionId);
       const dispatchId = steps[0]!.dispatchId!,
         runtimeSessionId = steps[0]!.runtimeSessionId!;
@@ -103,6 +155,53 @@ test(
 );
 
 test(
+  "reviewer runtime submission fences accept every current-cut key shape and reject both stale-cut shapes",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
+    try {
+      await f.install();
+      const initialDispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
+      assert.ok(initialDispatch?.type === "runtime_dispatch_requested");
+      const currentKey = initialDispatch.payload.idempotencyKey,
+        currentSession = initialDispatch.payload.runtimeSessionId,
+        attemptSession = await spawnReviewerForKey(f, `${currentKey}:attempt1`),
+        legacyKey = currentKey.replace(/^task-review:/u, "complete-review:"),
+        legacySession = await spawnReviewerForKey(f, legacyKey),
+        legacySuffixSession = await spawnReviewerForKey(f, `${legacyKey}:upgrade-in-flight`);
+
+      for (const [sessionId, reviewId] of [
+        [currentSession, "review-current-cut"],
+        [attemptSession, "review-current-cut-attempt1"],
+        [legacySession, "review-current-cut-legacy"],
+        [legacySuffixSession, "review-current-cut-legacy-suffix"],
+      ] as const) {
+        const reviewed = await f.review(sessionId, reviewId);
+        assert.equal(reviewed.outcome, "applied", `${reviewId}: ${JSON.stringify(reviewed)}`);
+      }
+
+      const staleCurrentSession = await spawnReviewerForKey(f, currentKey),
+        staleLegacySession = await spawnReviewerForKey(f, legacyKey),
+        closeoutPath = path.join(f.root, "harness", f.packagePath, "closeout.md");
+      writeFileSync(closeoutPath, `${readFileSync(closeoutPath, "utf8")}\nAmended verification evidence.\n`);
+      const amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
+      assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+
+      for (const [sessionId, reviewId] of [
+        [staleCurrentSession, "review-stale-current-key"],
+        [staleLegacySession, "review-stale-legacy-key"],
+      ] as const) {
+        const rejected = await f.review(sessionId, reviewId);
+        assert.equal(rejected.outcome, "op_rejected", `${reviewId}: ${JSON.stringify(rejected)}`);
+        assert.equal(rejected.code, "invalid_proof", `${reviewId}: ${JSON.stringify(rejected)}`);
+      }
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
   "task dispatch-review expands a batch into one independent review dispatch per task",
   { timeout: 20_000 },
   async () => {
@@ -112,6 +211,18 @@ test(
       const task2 = "task-completion-review-batch",
         execution2 = "execution-completion-review-batch";
       await f.submitExtraTask(task2, execution2);
+      assert.equal(
+        (
+          await f.run({
+            kind: "task-adjudicate",
+            taskId: task2,
+            executionId: execution2,
+            forward: true,
+            reason: "Owner forwards the second cut for independent review.",
+          })
+        ).outcome,
+        "applied",
+      );
       const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId, task2] });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       const steps = dispatchesOf(receipt);
@@ -119,8 +230,8 @@ test(
       assert.deepEqual(
         steps.map((step) => [step.taskId, step.outcome]),
         [
-          [taskId, "dispatched"],
-          [task2, "dispatched"],
+          [taskId, "already_dispatched"],
+          [task2, "already_dispatched"],
         ],
       );
       assert.notEqual(steps[0]!.dispatchId, steps[1]!.dispatchId, "each task gets its own review dispatch");
@@ -292,8 +403,8 @@ test(
       const steps = dispatchesOf(receipt);
       assert.equal(steps.length, 1);
       assert.equal(steps[0]!.outcome, "failed");
-      assert.match(steps[0]!.error ?? "", /no submitted execution/u);
-      assert.equal(f.launches.length, 0, "no reviewer launch may happen without a submitted cut");
+      assert.match(steps[0]!.error ?? "", /not at the in-review gate/u);
+      assert.equal(f.launches.length, 1, "the planned task must not add a reviewer launch");
       // The internal spawn path enforces the same invariant.
       await expectCoded(
         f.cell().spawnRuntime(
@@ -307,117 +418,8 @@ test(
           },
           owner,
         ),
-        "review_target_missing",
+        "review_admission_denied",
       );
-    } finally {
-      await f.close();
-    }
-  },
-);
-
-test(
-  "a spent review return budget refuses new review dispatches while the claimed attempt keeps its identity",
-  { timeout: 20_000 },
-  async (t) => {
-    const f = await fixture(false, true, false, false, false, 2, { closeoutProfile: "standard" });
-    try {
-      await f.install();
-      const first = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
-      assert.equal(dispatchesOf(first)[0]!.outcome, "dispatched", JSON.stringify(first));
-      assert.equal(f.launches.length, 1);
-      const firstSession = dispatchesOf(first)[0]!.runtimeSessionId!;
-      // A recorded changes_requested spends one return unit and reopens implementation.
-      const packet = `${f.packagePath}/artifacts/reports/review-return.json`;
-      mkdirSync(path.dirname(path.join(f.root, "harness", packet)), { recursive: true });
-      writeFileSync(
-        path.join(f.root, "harness", packet),
-        JSON.stringify({
-          verdict: "changes_requested",
-          reason: "Another pass is required.",
-          evidenceChecked: ["closeout.md"],
-        }),
-      );
-      assert.equal(
-        (
-          await f.cell().run(
-            {
-              kind: "task-review-execution",
-              taskId,
-              executionId,
-              reviewId: "review-return",
-              fromFile: `harness/${packet}`,
-            },
-            reviewerActor(firstSession),
-          )
-        ).outcome,
-        "applied",
-      );
-      const roundTwo = "execution-review-budget-two";
-      assert.equal((await f.run({ kind: "task-start", taskId, executionId: roundTwo })).outcome, "applied");
-      assert.equal((await f.run({ kind: "task-submit", taskId, executionId: roundTwo })).outcome, "applied");
-      // Tightening the task budget spends it while the round-one attempt is still live.
-      assert.equal(
-        (
-          await f.run({
-            kind: "task-amend",
-            taskId,
-            patches: [{ field: "reviewReturnBudget", value: "1" }],
-          })
-        ).outcome,
-        "applied",
-      );
-      // The already-claimed attempt returns its identity through the same-cut fence even now.
-      const liveDispatch = f.events().find((event) => event.type === "runtime_dispatch_requested"),
-        liveKey = String(liveDispatch?.payload.idempotencyKey);
-      assert.ok(liveDispatch?.type === "runtime_dispatch_requested");
-      const replay = (await f.cell().spawnRuntime(
-        {
-          agentId: "closeout-reviewer",
-          role: "reviewer",
-          taskId,
-          cwd: { scope: "repo-root" },
-          idempotencyKey: liveKey,
-          prompt: "review",
-        },
-        owner,
-      )) as Record<string, unknown>;
-      assert.equal(replay.runtimeSessionId, liveDispatch.payload.runtimeSessionId);
-      assert.equal(f.launches.length, 1, "the claimed attempt is replayed, never re-dispatched");
-      // A fresh review attempt is refused at admission, before any worker or dispatch event.
-      const startedAt = performance.now();
-      await expectCoded(
-        f.cell().spawnRuntime(
-          {
-            agentId: "closeout-reviewer",
-            role: "reviewer",
-            taskId,
-            cwd: { scope: "repo-root" },
-            idempotencyKey: "review-budget-spent-probe",
-            prompt: "review",
-          },
-          owner,
-        ),
-        "review_return_budget_exhausted",
-      );
-      const elapsedMs = performance.now() - startedAt;
-      t.diagnostic(`resident admission refusal elapsed: ${elapsedMs.toFixed(1)}ms`);
-      assert.equal(elapsedMs < 100, true, `resident admission refusal took ${elapsedMs.toFixed(1)}ms`);
-      assert.equal(f.launches.length, 1, "no worker may spawn once the return budget is spent");
-      assert.equal(
-        f.events().filter((event) => event.type === "runtime_dispatch_requested").length,
-        1,
-        "no new dispatch event may be written",
-      );
-      // The manual dispatch entry surfaces the same refusal as a failed step with owner guidance.
-      const refused = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
-      assert.equal(refused.outcome, "op_rejected", JSON.stringify(refused));
-      const steps = dispatchesOf(refused);
-      assert.equal(steps.length, 1);
-      assert.equal(steps[0]!.outcome, "failed");
-      assert.match(steps[0]!.error ?? "", /Return budget 1 is spent at iteration 1/u);
-      assert.match(steps[0]!.error ?? "", /ha task amend/u);
-      assert.match(steps[0]!.error ?? "", /--review-return-budget/u);
-      assert.equal(f.launches.length, 1);
     } finally {
       await f.close();
     }

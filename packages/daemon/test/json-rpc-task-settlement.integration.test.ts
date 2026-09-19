@@ -109,6 +109,15 @@ test("milestone-closeout uses the normal completion facade, review, and gates ex
       "All checks passed.",
     );
     assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, binding)).outcome, "applied");
+    assert.equal(
+      (
+        await cell.run(
+          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Owner forwards the milestone." },
+          binding,
+        )
+      ).outcome,
+      "applied",
+    );
     const missingCi = await cell.run({ kind: "task-complete", taskId, executionId }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: missingCi.outcome, code: missingCi.code, steps: missingCi.steps }, { outcome: "op_rejected", code: "ci_missing", steps: [] }); await publishCiObservation("completion-facade", rootDir, executionId, commitSha, "run-completion-facade");
     const beforeReviewBlock = store().read().revision,
       missingReview = await cell.run({ kind: "task-complete", taskId, executionId }, binding) as unknown as Record<string, unknown>;
@@ -118,7 +127,7 @@ test("milestone-closeout uses the normal completion facade, review, and gates ex
     const reviewBinding = (id: string) => withRoleBinding({ actor: { principal: { personId: `person-${id}` }, executor: { kind: "agent" as const, id } }, source: "local" as const }, "arbiter");
     const recordReview = async (reviewId: string, verdict: "approved" | "dismissed") => { writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict, reason: `${reviewId} ${verdict}.`, evidenceChecked: ["tests"] })); const receipt = await cell!.run({ kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" }, reviewBinding(reviewId)); assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); const visible = await waitForAcceptedReceipt(cell!, receipt, binding); assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible)); return receipt; };
     await recordReview("review-dismissed", "dismissed");
-    assert.match(readFileSync(path.join(rootDir, "harness", `${packagePath}/INDEX.md`), "utf8"), /ha task complete/u, "a dismissed Review must leave the execution awaiting review");
+    assert.match(readFileSync(path.join(rootDir, "harness", `${packagePath}/INDEX.md`), "utf8"), /ha task dispatch-review/u, "a dismissed Review must leave the execution awaiting review");
     await recordReview("review-unselected", "approved");
     await recordReview("review-complete", "approved");
     const reviewEvents = store().read().events.filter((event) => event.type === "review_recorded"); assert.deepEqual(reviewEvents.map((event) => event.payload.review.reviewId), ["review-dismissed", "review-unselected", "review-complete"]);
@@ -556,6 +565,7 @@ test("Policy rejects a principal without a durable-action RoleBinding", async ()
       "Role-bound delivery complete.",
     );
     assert.equal((await host.run("rbac", { kind: "task-submit", taskId: "task-rbac", executionId }, auth(ids.writer))).outcome, "applied");
+    assert.equal((await host.run("rbac", { kind: "task-adjudicate", taskId: "task-rbac", executionId, forward: true, reason: "Owner forwards the RBAC fixture." }, auth(ids.writer))).outcome, "applied");
     writeFileSync(path.join(root, "review.json"), JSON.stringify({ verdict: "approved", reason: "checked", evidenceChecked: [] }));
     const review = await host.run("rbac", { kind: "task-review-execution", taskId: "task-rbac", executionId, reviewId: "review-rbac", fromFile: "review.json" }, auth(ids.arbiter)); assert.equal(review.outcome, "applied", JSON.stringify(review));
     const attached = await rpc(host, auth(ids.admin), "daemon.repo.register", { rootDir: second, repoId: "second", mode: "remote-edge" }); assert.equal(attached.outcome, "applied"); assert.equal((attached.repo as Record<string, unknown>).mode, "remote-edge");
@@ -817,6 +827,17 @@ async function prepareReadyCompletion(
   const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, binding);
   assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
   assert.equal((await waitForAcceptedReceipt(cell, submitted, binding)).wait?.state, "satisfied");
+  const forwarded = await cell.run(
+    {
+      kind: "task-adjudicate",
+      taskId,
+      executionId,
+      forward: true,
+      reason: "Owner forwards the ready completion fixture for independent review.",
+    },
+    binding,
+  );
+  assert.equal((await waitForAcceptedReceipt(cell, forwarded, binding)).wait?.state, "satisfied");
   writeFileSync(
     path.join(rootDir, "review.json"),
     JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }),

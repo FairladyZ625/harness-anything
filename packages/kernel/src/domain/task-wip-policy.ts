@@ -12,6 +12,7 @@ export const DEFAULT_TASK_ROOT_THRESHOLD = 3;
 
 export const taskWipOccupyingStatuses = [
   "active",
+  "submitted",
   "blocked",
   "in_review",
 ] as const satisfies ReadonlyArray<DomainStatus>;

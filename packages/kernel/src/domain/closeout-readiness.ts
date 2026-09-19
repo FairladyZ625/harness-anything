@@ -90,7 +90,13 @@ export function closeoutReadiness(
       gates,
     };
   }
-  if (task.status !== "in_review") return { readiness: "not_required", gates: gateResults(snapshot, availability) };
+  // The owner's triage gate stands only while the review gate does: a lightweight profile
+  // (review/consent lifted) completes straight off its submitted cut, exactly as it did before
+  // the corridor existed; a reviewing profile must be forwarded to in_review first.
+  if (task.status === "submitted" && effectiveGates?.review !== false)
+    return { readiness: "incomplete", blocker: "review", gates: gateResults(snapshot, availability) };
+  if (task.status !== "in_review" && task.status !== "submitted")
+    return { readiness: "not_required", gates: gateResults(snapshot, availability) };
   const execution = cut?.state === "submitted" ? cut : undefined;
   if (!execution?.submission)
     return { readiness: "missing", blocker: "execution", gates: gateResults(snapshot, availability) };

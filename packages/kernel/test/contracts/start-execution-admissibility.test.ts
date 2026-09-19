@@ -162,7 +162,9 @@ test("a held lease blocks StartExecution regardless of the execution id", () => 
 
 test("a submitted execution preserves review integrity and blocks StartExecution", () => {
   const review = submitted();
-  assert.equal(review.task?.status, "in_review");
+  // The cut sits in `submitted` awaiting the owner's triage; the review node is closed to
+  // implementation until an adjudicated return reopens the iteration.
+  assert.equal(review.task?.status, "submitted");
   assert.equal(review.task?.currentNode, "review");
   assert.equal(review.executions[0]?.state, "submitted");
   assert.equal(canStartExecution(review, "execution-1"), false);

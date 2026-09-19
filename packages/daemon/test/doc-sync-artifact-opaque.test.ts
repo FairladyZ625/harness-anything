@@ -602,6 +602,11 @@ async function reachGreenInReview(
   );
   const submitted = await cell.run({ kind: "task-submit", taskId }, binding);
   assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+  const forwarded = await cell.run(
+    { kind: "task-adjudicate", taskId, forward: true, reason: "Forward opaque artifact cut." },
+    binding,
+  );
+  assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
   writeFileSync(
     path.join(rootDir, "review.json"),
     JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }),

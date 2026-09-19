@@ -5,6 +5,7 @@ import {
   emptyTaskLifecycleSnapshot,
   normalizeTaskLifecycleCommand,
   reviewDigest,
+  type AdjudicationProof,
   type CompleteTaskProof,
   type CreateReplayTaskProof,
   type RecordReviewCommand,
@@ -66,7 +67,13 @@ export function lifecycleFixture(
   let snapshot = emptyTaskLifecycleSnapshot();
   const run = (
     command: TaskLifecycleCommand,
-    proof: CreateReplayTaskProof | StartExecutionProof | SubmitExecutionProof | ReviewProof | CompleteTaskProof,
+    proof:
+      | CreateReplayTaskProof
+      | StartExecutionProof
+      | SubmitExecutionProof
+      | AdjudicationProof
+      | ReviewProof
+      | CompleteTaskProof,
   ) => {
     const result = applyTransition(snapshot, command, proof as never);
     snapshot = result.snapshot;
@@ -122,15 +129,15 @@ export function lifecycleFixture(
     }),
     { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" },
   );
-  run(reviewCommand(4, taskId, executionId, "approved", reviewId, completionContract), {
+  run(adjudicateCommand(4, taskId, executionId, "forward", "forwarded for independent review"), adjudicationProof);
+  run(reviewCommand(5, taskId, executionId, "approved", reviewId, completionContract), {
     actorBinding: reviewer,
     capability: "execution-review@v1",
     capabilityRef: "cap-review",
-    returnBudget: 3,
   });
   const review = snapshot.reviews[0]!;
   run(
-    command(implementer, 5, {
+    command(implementer, 6, {
       type: "RecordReviewConsent",
       taskId,
       executionId,
@@ -142,7 +149,7 @@ export function lifecycleFixture(
     { actorBinding: implementer, capability: "execution-consent@v1", capabilityRef: "cap-consent" } as never,
   );
   if (options.complete !== false)
-    run(command(implementer, 6, { type: "CompleteTask", taskId, executionId }), {
+    run(command(implementer, 7, { type: "CompleteTask", taskId, executionId }), {
       capability: "task-complete@v1",
       capabilityRef: "cap-complete",
       actorRole: "owner",
@@ -170,7 +177,7 @@ export function twoRoundLifecycleEvents(
   let snapshot = emptyTaskLifecycleSnapshot();
   const run = (
     command: TaskLifecycleCommand,
-    proof: CreateReplayTaskProof | StartExecutionProof | SubmitExecutionProof | ReviewProof,
+    proof: CreateReplayTaskProof | StartExecutionProof | SubmitExecutionProof | AdjudicationProof | ReviewProof,
   ) => {
     const result = applyTransition(snapshot, command, proof as never);
     snapshot = result.snapshot;
@@ -226,14 +233,25 @@ export function twoRoundLifecycleEvents(
     }),
     { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" },
   );
-  run(reviewCommand(4, taskId, firstExecutionId, "changes_requested", "review-round-one"), {
+  run(adjudicateCommand(4, taskId, firstExecutionId, "forward", "forwarded for independent review"), adjudicationProof);
+  run(reviewCommand(5, taskId, firstExecutionId, "changes_requested", "review-round-one"), {
     actorBinding: reviewer,
     capability: "execution-review@v1",
     capabilityRef: "cap-review",
-    returnBudget: 3,
   });
   run(
-    command(implementer, 5, {
+    adjudicateCommand(
+      6,
+      taskId,
+      firstExecutionId,
+      "return",
+      "owner accepted the changes_requested report; rework the cut",
+      "review-round-one",
+    ),
+    adjudicationProof,
+  );
+  run(
+    command(implementer, 7, {
       type: "StartExecution",
       taskId,
       executionId: secondExecutionId,
@@ -253,6 +271,30 @@ export function twoRoundLifecycleEvents(
     },
   );
   return { events, snapshot };
+}
+
+const adjudicationProof: AdjudicationProof = {
+  actorBinding: implementer,
+  capability: "task-adjudicate@v1",
+  capabilityRef: "cap-adjudicate",
+};
+
+function adjudicateCommand(
+  revision: number,
+  taskId: string,
+  executionId: string,
+  decision: "forward" | "return",
+  reason: string,
+  reviewId?: string,
+) {
+  return command(implementer, revision, {
+    type: "AdjudicateSubmission",
+    taskId,
+    executionId,
+    decision,
+    reason,
+    ...(reviewId === undefined ? {} : { reviewId }),
+  });
 }
 
 function reviewCommand(

@@ -57,6 +57,7 @@ export function parseTask(
   if (
     id === "task-start" ||
     id === "task-submit" ||
+    id === "task-adjudicate" ||
     id === "task-settle" ||
     id === "task-review-execution" ||
     id === "task-complete" ||

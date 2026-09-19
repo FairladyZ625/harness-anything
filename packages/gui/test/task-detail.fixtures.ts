@@ -445,7 +445,9 @@ export function setDetailOpenTerminal(handler: ((task: TaskRow) => void) | undef
 export async function mount(
   overrides: {
     readonly task?: TaskRow;
-    readonly onComplete?: (consent: boolean) => Promise<unknown>;
+    readonly onComplete?: () => Promise<unknown>;
+    readonly onAdjudicate?: (decision: "forward" | "return", reason: string, reviewId?: string) => Promise<unknown>;
+    readonly onConsentReview?: (reviewId: string) => Promise<unknown>;
   } = {},
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -470,6 +472,8 @@ export async function mount(
           onNavigateEntity: () => undefined,
           onOpenTerminal,
           onComplete: overrides.onComplete,
+          onAdjudicate: overrides.onAdjudicate,
+          onConsentReview: overrides.onConsentReview,
           projectName: "Harness",
         }),
       ),

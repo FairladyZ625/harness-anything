@@ -113,7 +113,7 @@ test("G29 submit publishes only its frozen targets while preserving unrelated by
 
     const read = await harness.service.read("task-1");
     assert.equal(read.snapshot.executions[0]?.state, "submitted");
-    assert.equal(read.snapshot.task?.status, "in_review");
+    assert.equal(read.snapshot.task?.status, "submitted");
     assert.equal(read.snapshot.task?.currentNode, "review");
     assert.deepEqual(
       read.snapshot.edgesTaken.map((edge) => edge.on),
@@ -163,6 +163,7 @@ test("an amendment makes prior Review and consent pins stale until explicit cons
     await harness.create();
     await harness.start("execution-1");
     await harness.submit("execution-1", "op-submit-original", "original claim");
+    await harness.adjudicate("execution-1", "forward", undefined, "op-forward-original");
     await harness.review("execution-1", "acceptance", "approved", "op-review-original");
     await harness.consent("execution-1", "op-consent-original");
 
@@ -266,10 +267,11 @@ test("approval retry reuses Review identity and ignores transport-only metadata"
     await harness.create();
     await harness.start("execution-1");
     await harness.submit("execution-1");
+    await harness.adjudicate("execution-1", "forward");
     const submitted = (await harness.service.read("task-1")).snapshot.executions[0]!.submission!;
     const command = {
       ...normalizeTaskLifecycleCommand(
-        { workspaceId: harness.rootDir, actor: reviewer, source: "local", expectedRevision: 3 },
+        { workspaceId: harness.rootDir, actor: reviewer, source: "local", expectedRevision: 4 },
         {
           type: "RecordReview" as const,
           taskId: "task-1",
@@ -285,7 +287,7 @@ test("approval retry reuses Review identity and ignores transport-only metadata"
         },
       ),
       eventId: "event-review-ae",
-      workspaceRevision: 4,
+      workspaceRevision: 5,
       occurredAt: "2026-08-11T00:04:00.000Z",
       transport: { attempt: 1 },
     };
@@ -300,7 +302,7 @@ test("approval retry reuses Review identity and ignores transport-only metadata"
 
     assert.equal(first.event?.type, "review_recorded");
     assert.equal(second.event?.eventId, first.event?.eventId);
-    assert.equal(harness.eventStore.read().events.length, 4);
+    assert.equal(harness.eventStore.read().events.length, 5);
     assert.equal(second.snapshot.reviews[0]?.reviewId, "review-ae");
   } finally {
     await harness.cleanup();
@@ -313,10 +315,11 @@ test("idempotent retry rejects source, workspace, expectedRevision, digest drift
     await harness.create();
     await harness.start("execution-1");
     await harness.submit("execution-1");
+    await harness.adjudicate("execution-1", "forward");
     const submitted = (await harness.service.read("task-1")).snapshot.executions[0]!.submission!;
     const command = {
       ...normalizeTaskLifecycleCommand(
-        { workspaceId: harness.rootDir, actor: reviewer, source: "local", expectedRevision: 3 },
+        { workspaceId: harness.rootDir, actor: reviewer, source: "local", expectedRevision: 4 },
         {
           type: "RecordReview" as const,
           taskId: "task-1",
@@ -332,7 +335,7 @@ test("idempotent retry rejects source, workspace, expectedRevision, digest drift
         },
       ),
       eventId: "event-review-drift",
-      workspaceRevision: 4,
+      workspaceRevision: 5,
       occurredAt: "2026-08-11T00:04:00.000Z",
     };
     const proof = {
@@ -352,7 +355,7 @@ test("idempotent retry rejects source, workspace, expectedRevision, digest drift
     for (const drift of drifts) {
       await assert.rejects(() => harness.service.execute({ ...command, ...drift }, proof));
     }
-    assert.equal(harness.eventStore.read().events.length, 4);
+    assert.equal(harness.eventStore.read().events.length, 5);
   } finally {
     await harness.cleanup();
   }
@@ -364,30 +367,37 @@ test("changes_requested records Review, return edge, Execution closure, and Task
     await harness.create();
     await harness.start("execution-1");
     await harness.submit("execution-1");
+    await harness.adjudicate("execution-1", "forward");
     const before = (await harness.service.read("task-1")).snapshot;
     harness.kill("after_event_write");
     await assert.rejects(
-      harness.review("execution-1", "anti_entropy", "changes_requested"),
+      harness.adjudicate("execution-1", "return", undefined, "op-return-no-review"),
       /killpoint:after_event_write/u,
     );
     harness.projection.catchUp();
     assert.deepEqual((await harness.service.read("task-1")).snapshot, before);
-    assert.equal(harness.eventStore.read().revision, 3);
+    assert.equal(harness.eventStore.read().revision, 4);
     harness.kill("after_sqlite_commit");
     await assert.rejects(
       harness.review("execution-1", "anti_entropy", "changes_requested"),
       /killpoint:after_sqlite_commit/u,
     );
-    assert.equal(harness.eventStore.read().revision, 4);
+    assert.equal(harness.eventStore.read().revision, 5);
     harness.projection.catchUp();
     const snapshot = (await harness.service.read("task-1")).snapshot;
     assert.equal(snapshot.reviews.at(-1)?.verdict, "changes_requested");
-    assert.equal(snapshot.edgesTaken.at(-1)?.on, "changes_requested");
-    assert.equal(snapshot.executions[0]?.state, "changes_requested");
-    assert.notEqual(snapshot.executions[0]?.closedAt, null);
-    assert.equal(snapshot.task?.status, "active");
-    assert.equal(snapshot.task?.currentNode, "implementation");
-    assert.equal(snapshot.task?.iteration, 1);
+    assert.equal(snapshot.executions[0]?.state, "submitted");
+    assert.equal(snapshot.task?.status, "in_review");
+    const returned = await harness.adjudicate(
+      "execution-1",
+      "return",
+      snapshot.reviews.at(-1)?.reviewId,
+      "op-return-reviewed",
+    );
+    assert.equal(returned.snapshot.executions[0]?.state, "changes_requested");
+    assert.equal(returned.snapshot.task?.status, "active");
+    assert.equal(returned.snapshot.task?.currentNode, "implementation");
+    assert.equal(returned.snapshot.task?.iteration, 1);
     assert.equal(snapshot.lease, null);
   } finally {
     await harness.cleanup();
@@ -475,6 +485,7 @@ test("event saga rejects a second executor and self-review, then completes on Re
     await harness.start("execution-1");
     await assert.rejects(harness.start("execution-2", "op-start-second"), /effective lease|active execution/iu);
     await harness.submit("execution-1");
+    await harness.adjudicate("execution-1", "forward");
     await assert.rejects(harness.complete("execution-1", "op-complete-early"), /approved|in_review/iu);
 
     const selfReview = authorizationPort.authorize(

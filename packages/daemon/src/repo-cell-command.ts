@@ -167,6 +167,55 @@ export function buildCommand(
       submissionDigest: selection.submissionDigest,
     });
   }
+  if (action.kind === "task-adjudicate") {
+    const allowed = [
+      "kind",
+      "taskId",
+      "executionId",
+      "forward",
+      "return",
+      "reviewId",
+      "reason",
+      "noteFile",
+      "expectedVersion",
+      "commandType",
+      "verb",
+    ];
+    if (Object.keys(action).some((name) => !allowed.includes(name)))
+      throw cellCodedError(
+        "invalid_command",
+        `Adjudication derives its cut from the current submitted execution; ${String(action.taskId)} takes --forward or --return, --note or --note-file, and optionally --review-id.`,
+      );
+    const forward = action.forward === true,
+      returned = action.return === true;
+    if (forward === returned)
+      throw cellCodedError(
+        "invalid_command",
+        `Adjudicate ${taskId} with exactly one of --forward (send to independent review) or --return (rework order).`,
+      );
+    const reason = requiredCellText(action.reason, "reason");
+    const executionId =
+      typeof action.executionId === "string" && action.executionId
+        ? action.executionId
+        : uniqueDerivedExecutionId(
+            currentSubmittedExecutions(snapshot),
+            "Current submitted execution",
+            `Run ha task show ${taskId}; adjudication binds to the current submitted cut.`,
+            (candidate) =>
+              `ha task adjudicate ${taskId} --execution-id ${candidate} --${forward ? "forward" : "return"}`,
+          );
+    const execution = snapshot.executions.find((value) => value.executionId === executionId);
+    if (!execution?.submission)
+      throw cellCodedError("invalid_transition", `Adjudication requires a submitted execution cut: ${executionId}.`);
+    return normalizeTaskLifecycleCommand(bound, {
+      type: "AdjudicateSubmission",
+      taskId,
+      executionId,
+      decision: forward ? "forward" : "return",
+      reason,
+      ...(typeof action.reviewId === "string" && action.reviewId ? { reviewId: action.reviewId } : {}),
+    });
+  }
   if (action.kind === "task-review-consent") {
     const allowed = ["kind", "taskId", "executionId", "reviewId", "expectedVersion", "commandType"];
     if (Object.keys(action).some((name) => !allowed.includes(name)))

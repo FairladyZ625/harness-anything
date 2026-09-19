@@ -7,6 +7,16 @@ import { firstCliCommand, firstCliCommandIndex, parseThinCommand } from "../src/
 
 test("lifecycle CLI maps explicit selectors and accepts every derivable execution or Review selector", () => {
   const submit = parseThinCommand(["task", "submit", "task-1", "--execution-id", "execution-1"]),
+    adjudicate = parseThinCommand([
+      "task",
+      "adjudicate",
+      "task-1",
+      "--execution-id",
+      "execution-1",
+      "--forward",
+      "--note",
+      "Forward the submitted cut.",
+    ]),
     declare = parseThinCommand([
       "task",
       "declare-executor",
@@ -48,7 +58,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "--fact-holds",
       "F-ABCDEFGH:The upstream observation remains true after this task.",
     ]);
-  for (const parsed of [submit, declare, review, consent, reconcile, complete])
+  for (const parsed of [submit, adjudicate, declare, review, consent, reconcile, complete])
     assert.equal(parsed.ok, true, JSON.stringify(parsed));
   if (submit.ok)
     assert.deepEqual(submit.command.action, {
@@ -57,6 +67,15 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       commandType: "SubmitExecution",
       taskId: "task-1",
       executionId: "execution-1",
+    });
+  if (adjudicate.ok)
+    assert.deepEqual(adjudicate.command.action, {
+      kind: "task-adjudicate",
+      taskId: "task-1",
+      executionId: "execution-1",
+      forward: true,
+      reason: "Forward the submitted cut.",
+      commandType: "AdjudicateSubmission",
     });
   if (declare.ok)
     assert.deepEqual(declare.command.action, {
@@ -250,9 +269,7 @@ test("task settle parses to the closed orchestration action", () => {
 });
 
 test("consent accepts only server-derived Review inputs", () => {
-  const complete = parseThinCommand(["task", "complete", "task-1", "--consent"]);
-  assert.equal(complete.ok, true, JSON.stringify(complete));
-  if (complete.ok) assert.equal(complete.command.action.consent, true);
+  assert.equal(parseThinCommand(["task", "complete", "task-1", "--consent"]).ok, false);
   for (const flag of ["--consent-id", "--from-file", "--json-input"])
     assert.equal(parseThinCommand(["task", "review-consent", "task-1", flag, "obsolete"]).ok, false, flag);
 });

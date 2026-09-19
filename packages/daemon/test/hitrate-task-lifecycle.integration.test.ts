@@ -266,6 +266,16 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
         },
         "arbiter",
       ),
+      forwarded = await cell.run(
+        {
+          kind: "task-adjudicate",
+          taskId,
+          executionId,
+          forward: true,
+          reason: "Owner forwards the final amended cut for independent review.",
+        },
+        holder,
+      ),
       reviewed = await cell.run(
         {
           kind: "task-review-execution",
@@ -279,6 +289,7 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
         },
         reviewer,
       );
+    assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
     const consented = await cell.run(
       {

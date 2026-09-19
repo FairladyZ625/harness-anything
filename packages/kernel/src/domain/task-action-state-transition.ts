@@ -41,27 +41,31 @@ export function stateTransition(id: string): EntityActionContract["stateTransiti
     return transition(
       [
         coordinate("active", "implementation", { executionState: "active" }),
+        coordinate("submitted", "review", { executionState: "submitted" }),
         coordinate("in_review", "review", { executionState: "submitted" }),
       ],
       [
-        branch(coordinate("in_review", "review", { executionState: "submitted" }), equals("input.amend", true)),
-        branch(coordinate("in_review", "review", { executionState: "submitted" }), not(equals("input.amend", true))),
+        branch(coordinate("submitted", "review", { executionState: "submitted" }), equals("input.amend", true)),
+        branch(coordinate("submitted", "review", { executionState: "submitted" }), not(equals("input.amend", true))),
+      ],
+    );
+  if (id === "adjudicate")
+    return transition(
+      [
+        coordinate("submitted", "review", { executionState: "submitted" }),
+        coordinate("in_review", "review", { executionState: "submitted" }),
+      ],
+      [
+        branch(coordinate("in_review", "review", { executionState: "submitted" }), equals("input.forward", true)),
+        branch(
+          coordinate("active", "implementation", { executionState: "changes_requested" }),
+          equals("input.return", true),
+        ),
       ],
     );
   if (id === "review")
-    return transition(
-      [coordinate("in_review", "review", { executionState: "submitted" })],
-      [
-        branch(
-          coordinate("active", "implementation", { executionState: "changes_requested" }),
-          equals("input.verdict", "changes_requested"),
-        ),
-        branch(
-          coordinate("in_review", "review", { executionState: "submitted" }),
-          not(equals("input.verdict", "changes_requested")),
-        ),
-      ],
-    );
+    // A changes_requested verdict reports to the adjudicating owner; the cut stays at the gate.
+    return unchanged("in_review", "review", "submitted");
   if (id === "consent" || id === "reconcile") return unchanged("in_review", "review", "submitted");
   if (id === "repoint") return unchanged("done", "review", "accepted");
   if (id === "complete")

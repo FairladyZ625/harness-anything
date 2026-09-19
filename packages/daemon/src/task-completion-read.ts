@@ -3,7 +3,6 @@ import {
   assessFactRetirement,
   assessTransitionDocument,
   consumeKnownError,
-  completionBlockers,
   requireTransitionDocumentKind,
   taskCompletionNext,
   type CompletionReadinessContext,
@@ -16,20 +15,6 @@ import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { cellCodedError, cellErrorCode } from "./repo-cell-errors.ts";
-
-/** Explicit --consent is recorded under every profile; the profile only decides whether absence blocks. */
-export function completionBlockersForAction(
-  snapshot: TaskLifecycleSnapshot,
-  executionId: string,
-  context: CompletionReadinessContext,
-  consent: unknown,
-): readonly ReturnType<typeof completionBlockers>[number][] {
-  return completionBlockers(snapshot, executionId, consent === true ? consentArmed(context) : context);
-}
-
-function consentArmed(context: CompletionReadinessContext): CompletionReadinessContext {
-  return { ...context, closeoutGates: { ...context.closeoutGates!, consent: true } };
-}
 
 /** Canonical completion inputs shared by command and GUI projection consumers. */
 export function readCompletionContext(

@@ -265,6 +265,13 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     divergence: "entity-scoped",
   },
   {
+    word: "submitted",
+    entity: "Task",
+    field: "status",
+    meaning: "The worker submitted the current cut; it awaits the owning CEO's triage.",
+    divergence: "entity-scoped",
+  },
+  {
     word: "done",
     entity: "Task",
     field: "status",

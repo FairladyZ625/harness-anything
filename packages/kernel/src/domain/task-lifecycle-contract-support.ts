@@ -93,7 +93,7 @@ export function executionExecutorDeclarationCandidates(
   if (
     !task ||
     task.taskId !== taskId ||
-    !["active", "in_review"].includes(task.status) ||
+    !["active", "submitted", "in_review"].includes(task.status) ||
     task.currentNode !== "review" ||
     snapshot.lease !== null
   )

@@ -79,7 +79,10 @@ test(
   "a submit under a review-disabled closeout profile freezes no dispatch and never launches a reviewer",
   { timeout: 20_000 },
   async () => {
-    const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
+    const f = await fixture(false, true, false, false, false, undefined, {
+      closeoutProfile: "standard",
+      autoForward: false,
+    });
     try {
       await f.install();
       assert.equal(f.launches.length, 0, "review-disabled profiles must not dispatch at submit");
@@ -95,27 +98,22 @@ test(
 );
 
 test(
-  "a failed review dispatch leaves the accepted submission submitted and stays retryable from complete",
+  "submit leaves the accepted cut at owner triage and complete never dispatches a reviewer",
   { timeout: 20_000 },
   async () => {
     const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
     try {
       await f.install();
-      f.disableInstances();
       const submitted = (await f.submit()) as Record<string, unknown>;
       assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-      const reviewStep = ((submitted.steps as Record<string, unknown>[] | undefined) ?? []).find(
-        (step) => step.code === "review_missing",
-      );
-      assert.ok(reviewStep, `the failed dispatch must surface as a step: ${JSON.stringify(submitted)}`);
       assert.equal(f.launches.length, 0);
       assert.equal(
         f.events().filter((event) => event.type === "execution_submitted").length,
         1,
-        "the accepted submission is recorded even though the review dispatch failed",
+        "the accepted submission is recorded before owner triage",
       );
       const completed = await f.complete();
-      assert.equal(completed.code, "review_missing", JSON.stringify(completed));
+      assert.equal(completed.code, "not_in_review", JSON.stringify(completed));
       assert.equal(f.launches.length, 0);
     } finally {
       await f.close();
@@ -124,14 +122,14 @@ test(
 );
 
 test(
-  "an amended submission is a new cut: submit dispatches a fresh reviewer under the same frozen declaration",
+  "an amended submission remains at owner triage and only the forwarded cut dispatches",
   { timeout: 20_000 },
   async () => {
     const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
     try {
       await f.install();
       await f.submit();
-      assert.equal(f.launches.length, 1);
+      assert.equal(f.launches.length, 0);
       const closeoutPath = path.join(f.root, "harness", f.packagePath, "closeout.md");
       writeFileSync(
         closeoutPath,
@@ -143,19 +141,16 @@ test(
         amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
       }
       assert.equal(amended.outcome, "applied", JSON.stringify(amended));
-      assert.equal(f.launches.length, 2, "the amended cut owns its own review dispatch");
+      assert.equal(f.launches.length, 0, "amend must not dispatch before owner triage");
+      assert.equal((await f.forward()).outcome, "applied");
+      assert.equal(f.launches.length, 1, "only the owner-forwarded cut dispatches");
       const dispatches = f
         .events()
         .filter(
           (event) =>
             event.type === "runtime_dispatch_requested" && !event.payload.idempotencyKey.includes(":fallback:"),
         );
-      assert.equal(dispatches.length, 2);
-      assert.notEqual(
-        dispatches[0]!.payload.idempotencyKey,
-        dispatches[1]!.payload.idempotencyKey,
-        "each submitted cut gets its own dispatch attempt",
-      );
+      assert.equal(dispatches.length, 1);
     } finally {
       await f.close();
     }
@@ -300,7 +295,7 @@ test(
 );
 
 test(
-  "a baseline-profile sibling under identical strict settings still dispatches an independent reviewer",
+  "a baseline-profile sibling under strict settings waits for owner forward before reviewer dispatch",
   { timeout: 30_000 },
   async () => {
     const f = await fixture(false, true, false, false, false, undefined, {
@@ -316,10 +311,18 @@ test(
       assert.equal(child.completionGateIds.includes("code-doc-reconciliation"), true);
       assert.equal(
         f.events().filter((event) => event.type === "runtime_dispatch_requested").length,
-        1,
-        "the standard sibling triggers the review dispatch the lightweight child skipped",
+        0,
+        "the standard sibling must wait at owner triage",
       );
-      assert.equal(f.launches.length, 1, "the standard sibling launches a reviewer");
+      const forwarded = await f.run({
+        kind: "task-adjudicate",
+        taskId: "task-standard-child",
+        executionId: "execution-standard-child",
+        forward: true,
+        reason: "The owner accepts the direction and sends the cut to independent review.",
+      });
+      assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
+      assert.equal(f.launches.length, 1, "owner forward launches the standard sibling reviewer");
     } finally {
       await f.close();
     }

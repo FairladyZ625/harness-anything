@@ -26,6 +26,7 @@ test("all public Task writes are complete executable Action contracts", () => {
       "start",
       "transition",
       "submit",
+      "adjudicate",
       "review",
       "consent",
       "reconcile",
@@ -62,6 +63,7 @@ test("all public Task writes are complete executable Action contracts", () => {
     "start",
     "transition",
     "submit",
+    "adjudicate",
     "review",
     "consent",
     "reconcile",
@@ -150,6 +152,17 @@ test("named lifecycle specifications preserve every execution metadata field", (
         coordination: "execute",
         eventType: "execution_submitted",
         proof: ["actorBinding", "leaseVersion-or-submitted-cut", "submission"],
+      },
+      {
+        id: "adjudicate",
+        ingress: "task-adjudicate",
+        commandType: "AdjudicateSubmission",
+        transitionId: "adjudicate_submission",
+        implementation: "task-lifecycle",
+        topology: "ledger-write",
+        coordination: "execute",
+        eventType: "submission_forwarded",
+        proof: ["ownerActor", "task-adjudicate@v1", "auditedNote"],
       },
       {
         id: "review",
@@ -258,7 +271,19 @@ test("nested vocabularies retain identity and state projections select one decla
       .find(({ field }) => field === "fromFile")
       ?.cli?.jsonSchema?.fields.find(({ field }) => field === "verdict");
   assert.strictEqual(verdict?.value?.kind === "string" ? verdict.value.enumRef : undefined, REVIEW_V1_SCHEMA.verdicts);
+  // A changes_requested verdict reports to the adjudicating owner; the cut stays at the gate.
   assert.deepEqual(projectActionState(review, { verdict: "changes_requested" }, {}), {
+    status: "in_review",
+    currentNode: "review",
+    executionState: "submitted",
+  });
+  const adjudicate = actions.find(({ id }) => id === "adjudicate")!;
+  assert.deepEqual(projectActionState(adjudicate, { forward: true }, {}), {
+    status: "in_review",
+    currentNode: "review",
+    executionState: "submitted",
+  });
+  assert.deepEqual(projectActionState(adjudicate, { return: true }, {}), {
     status: "active",
     currentNode: "implementation",
     executionState: "changes_requested",

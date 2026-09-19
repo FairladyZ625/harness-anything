@@ -87,6 +87,8 @@ export async function fixture(
   reviewReturnBudget?: number,
   options: {
     readonly autoSubmit?: boolean;
+    /** False stops after submit: the cut awaits the owner's triage. */
+    readonly autoForward?: boolean;
     readonly closeoutProfile?: "standard" | "strict";
     readonly create?: Readonly<Record<string, unknown>>;
     /** Migration-window fixture: install the default reviewer in the pre-runtimes declaration
@@ -267,7 +269,24 @@ export async function fixture(
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     return receipt;
   };
-  if (options.autoSubmit !== false) await submit();
+  // The owner's forward order opens the review gate and dispatches the independent reviewer
+  // (owner adjudication 2026-09-19); submit alone leaves the cut awaiting triage.
+  const forward = async (reason = "Owner forwards the cut for independent review.") =>
+    run({ kind: "task-adjudicate", taskId, executionId, forward: true, reason });
+  const returnCut = async (reason: string, reviewId?: string) =>
+    run({
+      kind: "task-adjudicate",
+      taskId,
+      executionId,
+      return: true,
+      reason,
+      ...(reviewId === undefined ? {} : { reviewId }),
+    });
+  const consent = (reviewId: string) => run({ kind: "task-review-consent", taskId, executionId, reviewId });
+  if (options.autoSubmit !== false) {
+    await submit();
+    if (options.autoForward !== false) assert.equal((await forward()).outcome, "applied");
+  }
   const events = () => makeTaskEventReader({ repoId, rootDir: root }).read().events;
   const awaitOutcome = async (runtimeSessionId: string) => {
     for (let attempt = 0; attempt < 500; attempt += 1) {
@@ -295,7 +314,10 @@ export async function fixture(
     events,
     cell: () => cell,
     submit,
-    complete: (consent = false) => run({ kind: "task-complete", taskId, executionId, ...(consent ? { consent } : {}) }),
+    forward,
+    returnCut,
+    consent,
+    complete: () => run({ kind: "task-complete", taskId, executionId }),
     install: async () => {
       const installed = await run({
         kind: "agent-install",
