@@ -437,6 +437,7 @@ function contextFor(
         readRuntimeSession,
         currentLease,
         readCut: () => ({ status: "ready", watermark: 3, sourceRevision: 3 }),
+        readDocument: () => ({ status: "ready", document: null, watermark: 3, sourceRevision: 3 }),
       },
       now: () => now,
       executeAction: (_action: unknown, verified: RepoCellBinding) => {

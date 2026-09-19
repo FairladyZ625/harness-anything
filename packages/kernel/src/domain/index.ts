@@ -150,7 +150,8 @@ export type { CausalGraphEdgeInput, CausalGraphNodeInfo } from "./causal-graph-v
 
 export { projectDeclaredRoleBindings, roleBindingActorMatches, roleBindingExpired } from "./role-binding.ts";
 export type { RoleBinding } from "./role-binding.ts";
-export type { DelegatedExecutionToken } from "./delegated-execution-token.ts";
+export { verifyDelegatedExecutionToken } from "./delegated-execution-token.ts";
+export type { DelegatedExecutionToken, DelegatedExecutionTokenReasonCode } from "./delegated-execution-token.ts";
 
 export {
   decisionEntityId,

@@ -6,6 +6,7 @@ import {
   type AuthorizationDecision,
   type CanonicalEventCut,
   type DaemonRepoMode,
+  type DelegatedExecutionToken,
   type MaterializationHealth,
   type RoleBinding,
   type WriteReceipt,
@@ -41,6 +42,11 @@ export interface RepoCellBinding {
   readonly authorizationBindingMode?: "default" | "declared";
   readonly sessionEnvironment?: Readonly<Record<string, string | undefined>>;
   readonly roleBindings?: readonly RoleBinding[];
+  /**
+   * Center-verified DelegatedExecutionToken covering the one Action currently executing; resolved from the
+   * writer-cut People document together with the issuer-projected actor, never supplied by transport.
+   */
+  readonly delegatedExecutionToken?: DelegatedExecutionToken;
   /** Center-issued decision for the one Action currently executing; transport never supplies this. */
   readonly authorizationDecision?: AuthorizationDecision;
   readonly assignmentScope?: FleetAssignmentScope;
