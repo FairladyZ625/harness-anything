@@ -33,6 +33,7 @@ test("repository skills are discoverable with agent metadata", () => {
     "harness-download",
     "harness-install",
     "harness-migration",
+    "harness-reckoning",
     "preset-creator",
     "preset-trigger",
     "vertical-creator",
@@ -42,6 +43,7 @@ test("repository skills are discoverable with agent metadata", () => {
     "harness-download",
     "harness-install",
     "harness-migration",
+    "harness-reckoning",
     "preset-trigger",
   ]) {
     assert.equal(existsSync(path.join(skillsRoot, skillName, "SKILL.md")), true, skillName);
