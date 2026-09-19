@@ -279,6 +279,19 @@ const lifecycleSpecs = Object.freeze({
     eventType: "execution_submitted",
     proof: ["actorBinding", "leaseVersion-or-submitted-cut", "submission"],
   },
+  adjudicate: {
+    ingress: "task-adjudicate",
+    commandType: "AdjudicateSubmission",
+    transitionId: "adjudicate_submission",
+    implementation: "task-lifecycle",
+    topology: "ledger-write",
+    coordination: "execute",
+    // The decision chooses the event: forward records submission_forwarded, return records
+    // submission_returned. The descriptor names both; the transition's matches/validate is the
+    // single authority for which one a command produces.
+    eventType: "submission_forwarded" as "submission_forwarded" | "submission_returned",
+    proof: ["ownerActor", "task-adjudicate@v1", "auditedNote"],
+  },
   review: {
     ingress: "task-review-execution",
     commandType: "RecordReview",
@@ -483,6 +496,42 @@ export const declarations: readonly Declaration[] = Object.freeze([
       { authority: "operation-id", retry: "canonical-event-replay" },
     ),
     explain: "Publish the initial submission or amend the current submitted execution without replacing its history.",
+  }),
+  lifecycle("adjudicate", {
+    input: input(
+      [
+        taskId,
+        expectedVersion,
+        cli("executionId", "string", false, "--execution-id"),
+        cli("forward", "boolean", false, "--forward", "boolean"),
+        cli("return", "boolean", false, "--return", "boolean"),
+        cli("reviewId", "string", false, "--review-id"),
+        cli("reason", "string", false, "--note"),
+        cli("noteFile", "string", false, "--note-file", "single", {
+          conflictsWith: ["--note"],
+        }),
+      ],
+      [["forward", "return"]],
+    ),
+    criteria: Object.freeze([
+      criterion(
+        "task-lifecycle-adjudication-transitions/adjudicate.validate",
+        "invalid_transition",
+        "The owner adjudicates the current submitted cut: forward requires status submitted; " +
+          "return accepts submitted or in_review and may name a recorded review.",
+      ),
+      criterion(
+        "repo-cell-proof/proofFor.AdjudicateSubmission",
+        "actor_unauthorized",
+        "Only the task-owning principal may forward or return a submitted cut; reviewers report, owners command.",
+      ),
+    ]),
+    concurrency: taskConcurrency(
+      { authority: "task-lease/v1", mode: "must-be-released" },
+      { authority: "operation-id", retry: "canonical-event-replay" },
+    ),
+    explain:
+      "The owning CEO's double gate: forward a submitted cut to independent review, or return it with a rework note.",
   }),
   lifecycle("review", {
     input: input(

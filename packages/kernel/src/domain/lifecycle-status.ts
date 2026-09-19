@@ -1,4 +1,4 @@
-export const domainStatuses = ["planned", "active", "blocked", "in_review", "done", "cancelled"] as const;
+export const domainStatuses = ["planned", "active", "submitted", "blocked", "in_review", "done", "cancelled"] as const;
 
 export type DomainStatus = (typeof domainStatuses)[number];
 export type CanonicalStatus = DomainStatus;
@@ -11,6 +11,7 @@ export type StatusTransitionExplanation =
 export const openDomainStatuses = [
   "planned",
   "active",
+  "submitted",
   "blocked",
   "in_review",
 ] as const satisfies ReadonlyArray<DomainStatus>;
@@ -40,9 +41,14 @@ export function statusCoarseClass(status: DomainStatus): StatusCoarseClass {
  * its integrity is vouched for by the completion chain, so reversal is a different semantic. */
 export const reinstateTaskTargets = ["planned", "active", "in_review"] as const satisfies ReadonlyArray<DomainStatus>;
 
+/** The adjudication corridor (owner ruling 2026-09-19): submit lands the cut in `submitted`
+ * awaiting the owning CEO's triage; only the owner's adjudication moves it to `in_review`
+ * (forward to the reviewer gate) or back to `active` (rework). `done` is reachable only from
+ * `in_review` through consented completion — the direct `active → done` shortcut is gone. */
 const allowedStatusTransitions = {
   planned: ["active", "blocked", "cancelled"],
-  active: ["planned", "blocked", "in_review", "done", "cancelled"],
+  active: ["planned", "submitted", "blocked", "cancelled"],
+  submitted: ["active", "in_review", "cancelled"],
   blocked: ["active", "cancelled"],
   in_review: ["active", "blocked", "done", "cancelled"],
   done: [],

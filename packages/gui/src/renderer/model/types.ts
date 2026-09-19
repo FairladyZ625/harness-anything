@@ -6,7 +6,7 @@ import type {
   TaskSnapshotProjectionRow,
 } from "../../api/renderer-dto.ts";
 
-export type CanonicalStatus = "planned" | "active" | "blocked" | "in_review" | "done" | "cancelled";
+export type CanonicalStatus = "planned" | "active" | "submitted" | "blocked" | "in_review" | "done" | "cancelled";
 
 /**
  * GUI adapter superset of the kernel task-status vocabulary plus the explicit
@@ -14,7 +14,15 @@ export type CanonicalStatus = "planned" | "active" | "blocked" | "in_review" | "
  * column). Spelled out literally so the status-word register gate can lock this
  * mirror against the kernel vocabulary directly.
  */
-export type SnapshotStatus = "planned" | "active" | "blocked" | "in_review" | "done" | "cancelled" | "unknown";
+export type SnapshotStatus =
+  | "planned"
+  | "active"
+  | "submitted"
+  | "blocked"
+  | "in_review"
+  | "done"
+  | "cancelled"
+  | "unknown";
 
 export type Freshness = "fresh" | "stale-but-usable" | "unavailable-no-cache";
 
@@ -391,6 +399,7 @@ export const taskCan = (task: Pick<TaskRow, "capabilities">, id: TaskCapabilityI
 export const BOARD_COLUMNS: SnapshotStatus[] = [
   "planned",
   "active",
+  "submitted",
   "blocked",
   "in_review",
   "done",

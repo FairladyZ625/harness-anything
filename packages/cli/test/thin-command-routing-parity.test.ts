@@ -503,6 +503,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     ],
     subtask: ["subtask-create"],
     task: [
+      "task-adjudicate",
       "task-amend",
       "task-annotate",
       "task-archive",

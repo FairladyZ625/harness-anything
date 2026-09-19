@@ -42,6 +42,8 @@ export const taskEventTypes = [
   "execution_started",
   "lease_renewed",
   "execution_submitted",
+  "submission_forwarded",
+  "submission_returned",
   "execution_executor_declared",
   "execution_annotated",
   "review_recorded",
@@ -122,6 +124,27 @@ export type ExecutionSubmittedEvent = TaskEventEnvelope<
     readonly execution: ExecutionV1;
     readonly edge?: TaskEdgeTaken;
     readonly supersedesSubmissionId?: string;
+  }
+>;
+/** The owning CEO's triage forward: the submitted cut enters the independent review gate. */
+export type SubmissionForwardedEvent = TaskEventEnvelope<
+  "submission_forwarded",
+  {
+    readonly task: TaskV2;
+    readonly execution: ExecutionV1;
+    readonly reason: string;
+  }
+>;
+/** The owning CEO's return order (triage return or review verdict return): the cut is closed and
+ * the task returns to the implementation node on the next iteration with the adjudicated note. */
+export type SubmissionReturnedEvent = TaskEventEnvelope<
+  "submission_returned",
+  {
+    readonly task: TaskV2;
+    readonly execution: ExecutionV1;
+    readonly reason: string;
+    /** Present when the return adjudicates a recorded review verdict. */
+    readonly reviewId?: string;
   }
 >;
 export type ExecutionExecutorDeclaredEvent = TaskEventEnvelope<
@@ -224,6 +247,8 @@ export type TaskMutationEventType = Exclude<
   | "execution_started"
   | "lease_renewed"
   | "execution_submitted"
+  | "submission_forwarded"
+  | "submission_returned"
   | "execution_executor_declared"
   | "execution_annotated"
   | "review_recorded"
@@ -243,6 +268,8 @@ export type TaskEventV1 =
   | ExecutionStartedEvent
   | LeaseRenewedEvent
   | ExecutionSubmittedEvent
+  | SubmissionForwardedEvent
+  | SubmissionReturnedEvent
   | ExecutionExecutorDeclaredEvent
   | ExecutionAnnotatedEvent
   | ReviewRecordedEvent
@@ -331,6 +358,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "dispatchTaskId"),
       Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "supersedesSubmissionId"),
       Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "closeoutGates"),
+      Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "reviewId"),
     ),
     claims = payload.documentClaims;
   const claimlessFields =
@@ -364,6 +392,8 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       "execution_started",
       "lease_renewed",
       "execution_submitted",
+      "submission_forwarded",
+      "submission_returned",
       "execution_executor_declared",
       "execution_annotated",
       "review_recorded",
@@ -376,6 +406,13 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
     ].includes(String(value.type))
   )
     issues.push(...validateExecutionV1(payload.execution, allowUnknownFields));
+  if (value.type === "submission_forwarded" && !isNonEmptyString(payload.reason))
+    issues.push(invalidEventPayloadIssue("a forward adjudication must carry the owner's auditable note"));
+  if (
+    value.type === "submission_returned" &&
+    (!isNonEmptyString(payload.reason) || (Object.hasOwn(payload, "reviewId") && !isNonEmptyString(payload.reviewId)))
+  )
+    issues.push(invalidEventPayloadIssue("a return adjudication must carry the owner's note and a recorded review id"));
   if (value.type === "execution_started" || value.type === "lease_renewed") {
     issues.push(...validateLeaseV1(payload.lease, allowUnknownFields));
     if (payload.previousHolder !== null)
@@ -504,6 +541,7 @@ function lifecyclePayloadFields(
   dispatchTaskId = false,
   supersedesSubmissionId = false,
   closeoutGates = false,
+  reviewId = false,
 ): readonly string[] {
   const common = ["task", "execution", "documentClaims"];
   if (type === "task_created") return ["task", "documentClaims"];
@@ -511,6 +549,8 @@ function lifecyclePayloadFields(
     return [...common, "lease", "previousHolder", "leaseExpiresAt", "reason"];
   if (type === "execution_submitted")
     return [...common, ...(edge ? ["edge"] : []), ...(supersedesSubmissionId ? ["supersedesSubmissionId"] : [])];
+  if (type === "submission_forwarded") return [...common, "reason"];
+  if (type === "submission_returned") return [...common, "reason", ...(reviewId ? ["reviewId"] : [])];
   if (type === "execution_executor_declared")
     return [...common, "previousActor", ...(dispatchTaskId ? ["dispatchTaskId"] : []), "reason"];
   if (type === "execution_annotated") return [...common, "annotation"];

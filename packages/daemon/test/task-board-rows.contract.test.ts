@@ -34,7 +34,8 @@ const guiIsTaskStartable = (row: BoardRow): boolean =>
 const guiStatusBucket = (status: string): string => {
   if (status === "done" || status === "active" || status === "blocked") return status;
   if (status === "in_review") return "in_review";
-  if (status === "planned") return "planned";
+  // submitted and planned share the renderer's open bucket: the triage cut is open work.
+  if (status === "planned" || status === "submitted") return "planned";
   return "unknown";
 };
 
@@ -43,16 +44,20 @@ const guiStatusWeight = (status: string): number => {
   switch (status) {
     case "blocked":
       return 0;
-    case "active":
+    // A cut awaiting the owner's triage outranks active work: the CEO gate is the lane's
+    // critical path once a worker has submitted (kernel boardRankOrder).
+    case "submitted":
       return 1;
-    case "in_review":
+    case "active":
       return 2;
-    case "planned":
+    case "in_review":
       return 3;
-    case "done":
+    case "planned":
       return 4;
-    default:
+    case "done":
       return 5;
+    default:
+      return 6;
   }
 };
 
@@ -60,6 +65,9 @@ const guiStatusWeight = (status: string): number => {
 const guiBoardColumnOfBucket: Readonly<Record<string, string | null>> = {
   planned: "open",
   active: "open",
+  // A cut awaiting the owner's triage sits in the open column — the CEO gate is not the
+  // reviewer gate.
+  submitted: "open",
   blocked: "blocked",
   in_review: "in_review",
   done: "terminal",
@@ -128,7 +136,7 @@ test("capabilities.start.available equals isTaskStartable on every row", () => {
 test("phase and risk equal the renderer predicates on every row", () => {
   const rows = boardRows();
   for (const row of rows) {
-    const stepFlow = ["planned", "active", "in_review", "done"];
+    const stepFlow = ["planned", "active", "submitted", "in_review", "done"];
     assert.deepEqual(row.phase.steps, stepFlow, `${row.taskId} phase steps`);
     assert.equal(
       row.phase.index,

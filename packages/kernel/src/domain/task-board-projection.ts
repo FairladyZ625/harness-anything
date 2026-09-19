@@ -27,7 +27,14 @@ export type TaskBoardColumnId = (typeof taskBoardColumnIds)[number];
  * Sort weight by coordination status: what needs attention first. Statuses outside this list
  * (`cancelled`, and rows with no projected task) rank last.
  */
-const boardRankOrder = ["blocked", "active", "in_review", "planned", "done"] as const satisfies readonly DomainStatus[];
+const boardRankOrder = [
+  "blocked",
+  "submitted",
+  "active",
+  "in_review",
+  "planned",
+  "done",
+] as const satisfies readonly DomainStatus[];
 
 export interface TaskBoardPlacement {
   /** `null` when the row has no projected task: it belongs to no column and is not displayed. */
@@ -41,7 +48,13 @@ export interface TaskVisibility {
   readonly noise: boolean;
 }
 
-export const taskPhaseSteps = ["planned", "active", "in_review", "done"] as const satisfies readonly DomainStatus[];
+export const taskPhaseSteps = [
+  "planned",
+  "active",
+  "submitted",
+  "in_review",
+  "done",
+] as const satisfies readonly DomainStatus[];
 export const taskPhaseReasons = ["blocked_overlay", "terminal_cancelled", "phase_unresolved"] as const;
 export type TaskPhaseReason = (typeof taskPhaseReasons)[number];
 
@@ -61,7 +74,7 @@ export interface TaskRisk {
  * alongside submit. The catalog's remaining ids (release, amend, archive, supersede, delete,
  * reopen, contract-migrate) are not board affordances and are not projected onto every row.
  */
-export const taskCapabilityIds = ["start", "progress", "submit", "review", "complete"] as const;
+export const taskCapabilityIds = ["start", "progress", "submit", "adjudicate", "review", "complete"] as const;
 export type TaskCapabilityId = (typeof taskCapabilityIds)[number];
 
 /**
@@ -173,6 +186,7 @@ function capabilityReason(id: TaskCapabilityId, row: TaskBoardRowInput): TaskCap
   if (row.packageDisposition !== "active" || row.origin !== "native") return "invalid_disposition";
   if (id === "start") return startReason(row, task.status);
   if (id === "progress" || id === "submit") return leaseHolderReason(row, task.status);
+  if (id === "adjudicate") return adjudicateReason(row, task.status);
   if (id === "review") return reviewReason(row);
   return row.snapshot.lease !== null ? "lease_conflict" : completeReason(row);
 }
@@ -193,6 +207,13 @@ function startReason(row: TaskBoardRowInput, status: DomainStatus): TaskCapabili
 function leaseHolderReason(row: TaskBoardRowInput, status: DomainStatus): TaskCapabilityReason | null {
   if (status !== "active") return "invalid_transition";
   return row.snapshot.lease === null ? "lease_required" : null;
+}
+
+/** The owner's triage gate: afforded while a cut awaits adjudication or sits at the review gate. */
+function adjudicateReason(row: TaskBoardRowInput, status: DomainStatus): TaskCapabilityReason | null {
+  if (row.snapshot.lease !== null) return "lease_conflict";
+  if (status !== "submitted" && status !== "in_review") return "invalid_transition";
+  return currentSubmittedExecutions(row.snapshot).length > 0 ? null : "invalid_transition";
 }
 
 function reviewReason(row: TaskBoardRowInput): TaskCapabilityReason | null {

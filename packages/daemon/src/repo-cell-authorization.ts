@@ -312,6 +312,8 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "task-reopen":
       return authorizeRepoCellAction(input);
+    case "task-adjudicate":
+      return authorizeRepoCellAction(input);
     case "task-review-consent":
       return authorizeRepoCellAction(input);
     case "task-review-execution":

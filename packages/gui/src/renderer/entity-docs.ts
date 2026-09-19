@@ -287,7 +287,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     statuses: [
       {
         field: "lifecycle.status",
-        words: ["planned", "active", "blocked", "in_review", "done", "cancelled"],
+        words: ["planned", "active", "submitted", "blocked", "in_review", "done", "cancelled"],
       },
     ],
     actions: [
@@ -295,6 +295,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       "start",
       "transition",
       "submit",
+      "adjudicate",
       "review",
       "consent",
       "reconcile",

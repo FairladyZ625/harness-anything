@@ -173,6 +173,7 @@ export const actionDeclarations = Object.freeze([
   canonical("task-progress-append", null, "repo-write"),
   canonical("task-release", "task/release", "repo-write"),
   canonical("task-reopen", "task/reopen", "repo-write"),
+  canonical("task-adjudicate", "task/adjudicate", "repo-write"),
   canonical("task-review-consent", "task/consent", "repo-write"),
   canonical("task-review-execution", "task/review", "arbiter"),
   canonical("task-settle", null, "repo-write"),

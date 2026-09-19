@@ -336,17 +336,19 @@ function renderIndex(
     next =
       task.status === "active"
         ? `Run \`ha task submit ${task.taskId}\`.`
-        : task.status === "in_review" && !approved.length
-          ? `Run \`ha task complete ${task.taskId}\`.`
-          : task.status === "in_review" && !selected
-            ? [`Run \`ha task complete ${task.taskId} --consent\`.`].join("")
-            : missingGate === "code-doc-reconciliation"
-              ? `Run \`ha task code-doc reconcile ${task.taskId} --path <repo-relative-path>...\`.`
-              : task.status === "done"
-                ? "Task complete."
-                : task.status === "cancelled"
-                  ? "Task cancelled; create follow-up work with `ha task supersede`."
-                  : `Run \`ha task complete ${task.taskId}\`.`,
+        : task.status === "submitted"
+          ? `Await the owning CEO's triage: \`ha task triage ${task.taskId} --forward|--return --note-file <path>\`.`
+          : task.status === "in_review" && !approved.length
+            ? `Run \`ha task complete ${task.taskId}\`.`
+            : task.status === "in_review" && !selected
+              ? [`Run \`ha task complete ${task.taskId} --consent\`.`].join("")
+              : missingGate === "code-doc-reconciliation"
+                ? `Run \`ha task code-doc reconcile ${task.taskId} --path <repo-relative-path>...\`.`
+                : task.status === "done"
+                  ? "Task complete."
+                  : task.status === "cancelled"
+                    ? "Task cancelled; create follow-up work with `ha task supersede`."
+                    : `Run \`ha task complete ${task.taskId}\`.`,
     gates = gatesForCut.length
       ? gatesForCut.map((gateId) => `- ${gateId}: ${gateStatus(gateId) ? "pass" : "blocked"}`).join("\n")
       : "- none",

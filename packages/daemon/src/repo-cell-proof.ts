@@ -311,7 +311,26 @@ export async function proofFor(
       actorBinding: command.actor,
       capability: "execution-review@v1",
       capabilityRef: authorizationDecision.policyRef,
-      returnBudget: snapshot.task?.reviewReturnBudget ?? settings.reviewReturnBudget,
+      authorizationDecision,
+    };
+  }
+  if (command.type === "AdjudicateSubmission") {
+    const authorizationDecision = requiredAuthorizationDecision(binding);
+    if (!snapshot.task || !isSamePerson(snapshot.task.createdBy, command.actor))
+      throw cellCodedError(
+        "actor_unauthorized",
+        snapshot.task
+          ? [
+              "Adjudication requires the task-owning principal (personId=",
+              `${snapshot.task.createdBy.principal.personId}`,
+              "); reviewers report verdicts, only the owner commands the cut.",
+            ].join("")
+          : "Adjudication requires an existing task owner.",
+      );
+    return {
+      actorBinding: command.actor,
+      capability: "task-adjudicate@v1",
+      capabilityRef: authorizationDecision.policyRef,
       authorizationDecision,
     };
   }

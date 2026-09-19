@@ -81,12 +81,15 @@ test("the default Policy covers the frozen durable inventory exactly once", () =
   // retires a Fact's managed document and the decision requires it to be reversible; a repo-read actor is
   // refused below, 123 → 125.
   // task_b21092c1c09c16117806ea62af: owner requires entity_pinned/entity_unpinned durable audit events, 125 → 127.
-  assert.equal(durablePolicyActions.length, 127);
+  // task_dcf07acd47f00a30691722e276 (owner adjudication 2026-09-19, derives dec_13FF6AEF): task-adjudicate
+  // enters the durable inventory as the repo-write owner gate between submit and review — the CEO's forward
+  // and return orders; a repo-read actor is refused below, 127 → 128.
+  assert.equal(durablePolicyActions.length, 128);
   for (const kind of ["entity-pin", "entity-unpin"] as const) {
     assert.equal(port.authorize(action(kind), roleContext("repo-write")).outcome, "allowed");
     assert.equal(port.authorize(action(kind), roleContext("repo-read")).outcome, "denied");
   }
-  for (const kind of ["fact-archive", "fact-unarchive"] as const) {
+  for (const kind of ["fact-archive", "fact-unarchive", "task-adjudicate"] as const) {
     assert.equal(port.authorize(action(kind), roleContext("repo-write")).outcome, "allowed");
     assert.equal(port.authorize(action(kind), roleContext("repo-read")).outcome, "denied");
   }

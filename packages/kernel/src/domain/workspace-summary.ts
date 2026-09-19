@@ -101,6 +101,7 @@ function countTasks(tasks: readonly WorkspaceSummaryTask[]): WorkspaceTaskSummar
   const byStatus: Record<DomainStatus | "unknown", number> = {
     planned: 0,
     active: 0,
+    submitted: 0,
     blocked: 0,
     in_review: 0,
     done: 0,

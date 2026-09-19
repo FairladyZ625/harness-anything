@@ -2,7 +2,7 @@ import { isNativeCommitSha, submissionDigest } from "./execution.ts";
 import { digest } from "./digest.ts";
 import { sameCodeDocPaths } from "./code-doc-witness.ts";
 import type { ExecutionV1 } from "./execution.ts";
-import { reviewDigest, reviewReturnBudgetSpent } from "./review.ts";
+import { reviewDigest } from "./review.ts";
 import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
 import type { CodeDocWitnessV1 } from "./code-doc-witness.ts";
 import type { ContractValidationIssue, TaskV2 } from "./task.ts";
@@ -38,7 +38,6 @@ import {
   lifecycleContractIssue,
   replaceExecution,
   revisionIssues,
-  takeEdge,
 } from "./task-lifecycle-contract-support.ts";
 
 // Review, consent, code-document, and completion transition definitions.
@@ -77,18 +76,6 @@ function reviewIssues(
     issues.push(
       lifecycleContractIssue("invalid_proof", "transport-bound execution review proof and content digest are required"),
     );
-  const iteration = snapshot.task?.iteration ?? 0;
-  if (command.verdict === "changes_requested" && reviewReturnBudgetSpent(iteration, proof.returnBudget ?? 0))
-    issues.push(
-      lifecycleContractIssue(
-        "manual_intervention_required",
-        "return budget exhausted: a changes_requested verdict cannot be recorded for this cut. Amend the " +
-          "submitted packet with `ha task submit --amend` so the reviewer can approve, or escalate to the " +
-          "dispatching principal to raise the review return budget — for this task with `ha task amend " +
-          `${snapshot.task?.taskId ?? "<task-id>"} --set reviewReturnBudget:<n>\`, or repository-wide ` +
-          "with `ha settings update --review-return-budget <n>`",
-      ),
-    );
   return issues;
 }
 function reviewFrom(command: RecordReviewCommand, proof: ReviewProof): ReviewV1 {
@@ -126,52 +113,19 @@ export const review: Transition = {
     const command = raw as RecordReviewCommand,
       current = execution(snapshot, command.executionId) as ExecutionV1,
       recorded = reviewFrom(command, rawProof as ReviewProof);
-    if (command.verdict !== "changes_requested")
-      return {
-        snapshot: {
-          ...snapshot,
-          revision: command.workspaceRevision,
-          reviews: [...snapshot.reviews, recorded],
-        },
-        event: envelope<ReviewRecordedEvent>(command, "review_recorded", {
-          task: snapshot.task as TaskV2,
-          execution: current,
-          review: recorded,
-        }),
-      };
-    const nextExecution: ExecutionV1 = {
-        ...current,
-        state: "changes_requested",
-        closedAt: command.occurredAt,
-      },
-      task: TaskV2 = {
-        ...(snapshot.task as TaskV2),
-        status: "active",
-        currentNode: "implementation",
-        iteration: (snapshot.task?.iteration ?? 0) + 1,
-      },
-      edge = takeEdge(
-        snapshot.task as TaskV2,
-        "changes_requested",
-        command.reason,
-        command.commitSha,
-        command.iteration,
-      );
+    // A changes_requested verdict is a report to the adjudicating owner, not a command to the
+    // worker: the cut stays at the review gate in in_review until the owner's return order
+    // (AdjudicateSubmission return) reopens the implementation iteration (owner ruling 2026-09-19).
     return {
       snapshot: {
         ...snapshot,
         revision: command.workspaceRevision,
-        task,
-        executions: replaceExecution(snapshot.executions, nextExecution),
         reviews: [...snapshot.reviews, recorded],
-        edgesTaken: [...snapshot.edgesTaken, edge],
-        lease: null,
       },
       event: envelope<ReviewRecordedEvent>(command, "review_recorded", {
-        task,
-        execution: nextExecution,
+        task: snapshot.task as TaskV2,
+        execution: current,
         review: recorded,
-        edge,
       }),
     };
   },
@@ -264,7 +218,12 @@ export const reconcile: Transition = {
       proof = rawProof as Partial<CodeDocProof>,
       issues = revisionIssues(snapshot, command),
       current = execution(snapshot, command.executionId);
-    if (snapshot.task?.status !== "in_review" || current?.state !== "submitted" || !current.submission)
+    if (
+      !snapshot.task ||
+      !["submitted", "in_review"].includes(snapshot.task.status) ||
+      current?.state !== "submitted" ||
+      !current.submission
+    )
       issues.push(
         lifecycleContractIssue("invalid_transition", "code-doc reconcile requires the current submitted execution"),
       );
@@ -342,7 +301,8 @@ export const complete: Transition = {
     )
       issues.push(lifecycleContractIssue("invalid_schema", "CompleteTask Fact retirement attestations are invalid"));
     if (
-      task?.status !== "in_review" ||
+      !task ||
+      !["submitted", "in_review"].includes(task.status) ||
       task.currentNode !== "review" ||
       current?.state !== "submitted" ||
       assessment.readiness !== "ready"

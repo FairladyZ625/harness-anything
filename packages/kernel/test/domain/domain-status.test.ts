@@ -11,14 +11,18 @@ import {
 import { decisionStates } from "../../src/domain/decision-event.ts";
 import { DomainStatusSchema } from "../../src/schemas/registry.ts";
 
-test("domain status vocabulary is exactly the six canonical coordination states", () => {
-  assert.deepEqual([...domainStatuses], ["planned", "active", "blocked", "in_review", "done", "cancelled"]);
+test("domain status vocabulary is exactly the seven canonical coordination states", () => {
+  assert.deepEqual(
+    [...domainStatuses],
+    ["planned", "active", "submitted", "blocked", "in_review", "done", "cancelled"],
+  );
   assert.equal(domainStatuses.includes("unknown" as never), false);
 });
 
 test("domain statuses classify into open, terminal and review-artifact states", () => {
   assert.equal(statusCoarseClass("planned"), "open");
   assert.equal(statusCoarseClass("active"), "open");
+  assert.equal(statusCoarseClass("submitted"), "open");
   assert.equal(statusCoarseClass("blocked"), "open");
   assert.equal(statusCoarseClass("in_review"), "open");
   assert.equal(statusCoarseClass("done"), "terminal");
@@ -44,10 +48,13 @@ test("domain owns canonical lifecycle status transition semantics", () => {
     "planned->cancelled",
     "active->active",
     "active->planned",
+    "active->submitted",
     "active->blocked",
-    "active->in_review",
-    "active->done",
     "active->cancelled",
+    "submitted->submitted",
+    "submitted->active",
+    "submitted->in_review",
+    "submitted->cancelled",
     "blocked->blocked",
     "blocked->active",
     "blocked->cancelled",
@@ -72,6 +79,21 @@ test("domain owns canonical lifecycle status transition semantics", () => {
   assert.deepEqual(explainStatusTransition("done", "planned"), { allowed: false, reason: "terminal_status" });
   assert.deepEqual(explainStatusTransition("cancelled", "blocked"), { allowed: false, reason: "terminal_status" });
   assert.deepEqual(explainStatusTransition("planned", "done"), { allowed: false, reason: "unsupported_transition" });
+  // The adjudication corridor (owner ruling 2026-09-19): done is reachable only through
+  // in_review, and only the owner's adjudication moves a submitted cut.
+  assert.deepEqual(explainStatusTransition("active", "done"), { allowed: false, reason: "unsupported_transition" });
+  assert.deepEqual(explainStatusTransition("active", "in_review"), {
+    allowed: false,
+    reason: "unsupported_transition",
+  });
+  assert.deepEqual(explainStatusTransition("submitted", "done"), {
+    allowed: false,
+    reason: "unsupported_transition",
+  });
+  assert.deepEqual(explainStatusTransition("submitted", "planned"), {
+    allowed: false,
+    reason: "unsupported_transition",
+  });
 });
 
 test("Decision event vocabulary exposes only canonical projection states", () => {

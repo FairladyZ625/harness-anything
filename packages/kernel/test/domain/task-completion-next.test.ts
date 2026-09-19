@@ -17,7 +17,8 @@ const context = {
 test("completion next is one pure judgment across lifecycle and unavailable-input fixtures", () => {
   const active = at(2),
     submitted = at(3),
-    ready = at(5);
+    forwarded = at(4),
+    ready = at(6);
   const cases = [
     ["planned", at(1), context, "not_in_review", "ha task start task-1"],
     ["active own lease", active, context, "not_in_review", "submit execution execution-1"],
@@ -44,16 +45,23 @@ test("completion next is one pure judgment across lifecycle and unavailable-inpu
       "not_in_review",
       "ha task start task-1",
     ],
-    ["submitted unreviewed", submitted, context, "review_missing", "ha task complete"],
-    ["approved awaits consent", at(4), context, "consent_missing", "ha task complete task-1 --consent"],
     [
-      "multiple approved reviews await consent",
-      { ...at(4), reviews: [...at(4).reviews, { ...at(4).reviews[0]!, reviewId: "review-additional" }] },
+      "submitted awaits the owner's triage",
+      submitted,
+      context,
+      "not_in_review",
+      "ha task triage task-1 --forward --note-file <path>",
+    ],
+    ["forwarded unreviewed", forwarded, context, "review_missing", "ha task dispatch-review task-1"],
+    ["approved awaits the owner's verdict", at(5), context, "consent_missing", "ha task review-verdict task-1"],
+    [
+      "multiple approved reviews await the owner's verdict",
+      { ...at(5), reviews: [...at(5).reviews, { ...at(5).reviews[0]!, reviewId: "review-additional" }] },
       context,
       "consent_missing",
-      "ha task complete task-1 --consent",
+      "ha task review-verdict task-1",
     ],
-    ["done", at(6), context, null, null],
+    ["done", at(7), context, null, null],
     [
       "projection unknown",
       ready,
@@ -146,14 +154,14 @@ const gatedAt = (gates: readonly (typeof ciRequirement | typeof codeDocRequireme
     .reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
 
 test("missing delivery paths identify the Summary instead of a JSON closeout recipe", () => {
-  const result = taskCompletionNext(gatedAt([codeDocRequirement], 5), context);
+  const result = taskCompletionNext(gatedAt([codeDocRequirement], 6), context);
   assert.equal(result.blocker?.code, "code_doc_missing");
   assert.match(result.next!.action, /Identify the delivery paths.*Summary/);
   assert.doesNotMatch(result.next!.action, /packet.json|task closeout/);
 });
 
 test("missing facts guide an observable change while a recorded fact clears the blocker", () => {
-  const snapshot = at(5),
+  const snapshot = at(6),
     missing = taskCompletionNext(snapshot, { ...context, producesFactCount: 0 });
   assert.equal(missing.blocker?.code, "fact_missing");
   assert.match(missing.next!.action, /ha fact record --task task-1/);
@@ -165,7 +173,7 @@ test("missing facts guide an observable change while a recorded fact clears the 
 });
 
 test("a profile that lifted the fact gate completes without facts; the gate stays on by default", () => {
-  const snapshot = at(5),
+  const snapshot = at(6),
     lightweight = {
       ...context,
       producesFactCount: 0,
@@ -181,7 +189,7 @@ test("a profile that lifted the fact gate completes without facts; the gate stay
 });
 
 test("missing CI witness precedes independent review and requests canonical observation", () => {
-  const result = taskCompletionNext(gatedAt([ciRequirement], 3), context);
+  const result = taskCompletionNext(gatedAt([ciRequirement], 6), context);
   assert.equal(result.blocker?.code, "ci_missing");
   assert.equal(result.next?.action, "ha ci observe pull");
 });

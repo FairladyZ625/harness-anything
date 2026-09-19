@@ -67,8 +67,8 @@ export function projectTaskActions() {
         },
       },
     }));
-  if (actions.length !== 9 || actions.some(({ execution }) => !execution.topology))
-    throw new Error("Task Action protocol projection requires create and eight lifecycle descriptors.");
+  if (actions.length !== 10 || actions.some(({ execution }) => !execution.topology))
+    throw new Error("Task Action protocol projection requires create and nine lifecycle descriptors.");
   const create = descriptors.find(({ id }) => id === "create"),
     start = descriptors.find(({ id }) => id === "start");
   if (!create || !start) throw new Error("Task create/start descriptors are missing.");

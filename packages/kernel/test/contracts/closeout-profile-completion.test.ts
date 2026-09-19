@@ -51,8 +51,10 @@ function completeProof(closeoutGates: unknown) {
 }
 
 test("standard gates complete without review or consent and record the effective gate set", () => {
+  // The lightweight cut completes straight off `submitted`: its review gate is lifted, so the
+  // owner's triage corridor stands down exactly as before the corridor existed.
   const snapshot = snapshotAfter(3);
-  assert.equal(snapshot.task?.status, "in_review");
+  assert.equal(snapshot.task?.status, "submitted");
   assert.deepEqual(snapshot.reviews, []);
   const result = applyTransition(snapshot, completeCommand(snapshot), completeProof(standardGates));
   assert.equal(result.snapshot.task?.status, "done");
@@ -71,7 +73,7 @@ test("strict gates still reject completion without a consent-selected approved r
 
 test("a consent-only override keeps the review gate while waiving consent", () => {
   const gates = { ...strictGates, consent: false };
-  const withApprovedReview = snapshotAfter(4);
+  const withApprovedReview = snapshotAfter(5);
   assert.equal(withApprovedReview.reviews.length, 1);
   assert.deepEqual(withApprovedReview.consents, []);
   const result = applyTransition(withApprovedReview, completeCommand(withApprovedReview), completeProof(gates));
@@ -96,10 +98,10 @@ test("completion proof must carry a well-formed closeout gate set", () => {
 
 test("legacy completion replay without recorded gates still demands consent", () => {
   const fixture = lifecycleFixture(),
-    snapshot = snapshotAfter(5),
-    { closeoutGates: _recorded, ...legacyPayload } = fixture.events[5]!.payload,
-    legacy: TaskEventV1 = { ...fixture.events[5]!, payload: legacyPayload };
-  assert.equal(fixture.events[5]!.type, "task_completed");
+    snapshot = snapshotAfter(6),
+    { closeoutGates: _recorded, ...legacyPayload } = fixture.events[6]!.payload,
+    legacy: TaskEventV1 = { ...fixture.events[6]!, payload: legacyPayload };
+  assert.equal(fixture.events[6]!.type, "task_completed");
   assert.equal(reduceTaskEvent(snapshot, legacy).task?.status, "done");
   assert.throws(() => reduceTaskEvent({ ...snapshot, consents: [] }, legacy), /accepted task and execution state/u);
 });

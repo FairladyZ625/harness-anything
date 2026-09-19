@@ -28,6 +28,7 @@ import {
   ChatCircleDots,
   Archive,
   ArrowArcRight,
+  PaperPlaneTilt,
 } from "@phosphor-icons/react";
 import type { ReactNode } from "react";
 import { t, type MessageKey } from "../i18n/index.tsx";
@@ -51,6 +52,11 @@ export const STATUS_META: Record<SnapshotStatus, { label: string; color: string;
     ...localizedLabel("components.badges.active"),
     color: "var(--color-status-active)",
     icon: <CircleNotch weight="bold" />,
+  },
+  submitted: {
+    ...localizedLabel("components.badges.submitted"),
+    color: "var(--color-status-submitted)",
+    icon: <PaperPlaneTilt weight="duotone" />,
   },
   blocked: {
     ...localizedLabel("components.badges.blocked"),

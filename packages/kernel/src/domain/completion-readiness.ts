@@ -190,7 +190,17 @@ function evaluateCompletion(
         "declare-executor requires an existing dispatch record; without one, an independent reviewer " +
         "(a different person or HARNESS_ACTOR=agent:<id>) must record the review.",
     );
-  if (task.status !== "in_review")
+  if (task.status === "submitted" && context.closeoutGates?.review !== false)
+    return one(
+      "not_in_review",
+      "lifecycle",
+      `ha task triage ${task.taskId} --forward --note-file <path>`,
+      "The cut awaits the owning CEO's triage; completion is mechanical only after independent review " +
+        "and the owner's verdict.",
+    );
+  // A lightweight cut (review gate lifted) completes straight off submitted; every other
+  // status off the review corridor has no completion to run.
+  if (!["submitted", "in_review"].includes(task.status))
     return one(
       "not_in_review",
       "lifecycle",
@@ -275,15 +285,15 @@ function evaluateCompletion(
     return one(
       "review_missing",
       "review",
-      `ha task complete ${task.taskId}`,
-      "Dispatch an independent reviewer for the current submitted cut.",
+      `ha task dispatch-review ${task.taskId}`,
+      "The forwarded cut has no recorded review; wait for the dispatched reviewer's verdict or dispatch one.",
     );
   if (assessment.blocker === "consent")
     return one(
       "consent_missing",
       "consent",
-      `ha task complete ${task.taskId} --consent`,
-      "Consent to the latest approved Review by canonical revision, pinned to its reviewed content.",
+      `ha task review-verdict ${task.taskId} --review-id <review-id> --accept`,
+      "The owner's verdict accepts the latest approved review, pinned to its reviewed content.",
     );
   return [];
 }

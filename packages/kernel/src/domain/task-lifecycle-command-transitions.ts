@@ -386,7 +386,7 @@ export const submit: Transition = {
     if (amendment) {
       if (
         !task ||
-        task.status !== "in_review" ||
+        !["submitted", "in_review"].includes(task.status) ||
         task.currentNode !== "review" ||
         current?.state !== "submitted" ||
         !current.submission
@@ -441,7 +441,7 @@ export const submit: Transition = {
       },
       task: TaskV2 = amendment
         ? (snapshot.task as TaskV2)
-        : { ...(snapshot.task as TaskV2), status: "in_review", currentNode: "review" },
+        : { ...(snapshot.task as TaskV2), status: "submitted", currentNode: "review" },
       edge = amendment
         ? undefined
         : takeEdge(task, "submitted", command.submission.completionClaim, command.submission.commitSha, task.iteration);

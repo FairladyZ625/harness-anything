@@ -34,7 +34,15 @@ export function createTaskIdentity(id: TaskId, title: string): TaskIdentity {
   return { id, title };
 }
 
-export const replayTaskStatuses = ["planned", "active", "blocked", "in_review", "done", "cancelled"] as const;
+export const replayTaskStatuses = [
+  "planned",
+  "active",
+  "submitted",
+  "blocked",
+  "in_review",
+  "done",
+  "cancelled",
+] as const;
 export type ReplayTaskStatus = (typeof replayTaskStatuses)[number];
 export const taskClasses = ["standard", "milestone", "epic", "long_running"] as const;
 export type TaskClass = (typeof taskClasses)[number];
