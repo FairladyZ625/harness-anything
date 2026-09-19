@@ -34,7 +34,7 @@
   "description": "Resident daemon and runtime worker host for Harness Anything.",
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
-    "prepare": "npm run build"
+    "prepack": "npm run build"
   },
   "bin": {
     "harness-anything-daemon": "dist/index.js"
