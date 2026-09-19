@@ -3,9 +3,8 @@ import {
   canStartExecution,
   assessTransitionDocument,
   compileTaskProgress,
+  completionBlockers,
   completionPreparationBlockers,
-  approvedReviewsForExecution,
-  reviewDigest,
   taskCompletionNext,
   completionGuidance,
   completionGateIds,
@@ -35,15 +34,11 @@ import { runDocAction } from "./doc-sync-actions.ts";
 import { scanDocCandidates } from "./doc-sync-candidate-scanner.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
-import {
-  readCompletionContext,
-  completionBlockersForAction,
-  factRetirementAssessment,
-} from "./task-completion-read.ts";
+import { readCompletionContext, factRetirementAssessment } from "./task-completion-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
+import { spawnCutReviewDispatch } from "./task-review-dispatch.ts";
 
-import { dispatchCompletionReview } from "./task-completion-review.ts";
 import {
   acceptedGateWitness,
   actionWitnessCollections,
@@ -252,16 +247,6 @@ export function appendProgress(
   return receipt;
 }
 
-function latestApprovedReview(cell: RepoCellOperationalContext, reviews: Snapshot["reviews"]) {
-  return reviews
-    .map((review) => {
-      const row = cell.projection.getEntity("review", review.reviewId);
-      if (!row) throw cell.cellCodedError("content_not_ready", `Review ${review.reviewId} is not projected.`);
-      return { review, revision: row.workspaceRevision };
-    })
-    .sort((a, b) => b.revision - a.revision)[0]?.review;
-}
-
 export async function completeTask(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
@@ -276,17 +261,12 @@ export async function completeTask(
       typeof action.executionId === "string" ? action.executionId : undefined,
     ),
     executionId = decision.executionId ?? "",
-    allowed = ["kind", "taskId", "executionId", "verb", "commandType", "factHolds", "consent"],
+    allowed = ["kind", "taskId", "executionId", "verb", "commandType", "factHolds"],
     factRetirementAttestations = stillHoldsAttestations(cell, action.factHolds),
     submittedExecution = initial.snapshot.executions.find(
       (value) => value.executionId === executionId && value.iteration === initial.snapshot.task?.iteration,
     ),
-    paths = submittedExecution?.submission?.deliverables ?? [],
-    initialReviews =
-      action.consent === true && submittedExecution?.submission
-        ? approvedReviewsForExecution(initial.snapshot.reviews, submittedExecution)
-        : [],
-    consentReview = latestApprovedReview(cell, initialReviews);
+    paths = submittedExecution?.submission?.deliverables ?? [];
   if (Object.keys(action).some((field) => !allowed.includes(field)))
     throw cell.cellCodedError("invalid_command", "Complete derives CI evidence and paths from the submitted cut.");
   const initialOpId = cell.operationId(action, binding, cell.input.repoId, initial.snapshot.revision);
@@ -450,7 +430,7 @@ export async function completeTask(
       binding,
       presetSnapshotDigest,
     );
-    const blocker = completionBlockersForAction(current.snapshot, executionId, completion, action.consent)[0];
+    const blocker = completionBlockers(current.snapshot, executionId, completion)[0];
     if (!blocker) {
       const retirement = factRetirementAssessment(cell.projection, taskId, factRetirementAttestations);
       if (completion.closeoutGates?.factDisposition && !retirement.ready)
@@ -501,39 +481,9 @@ export async function completeTask(
         ]);
       return archive.warning ? { ...applied, warnings: [...(applied.warnings ?? []), archive.warning] } : applied;
     }
-    if (blocker.code === "review_missing") {
-      const execution = current.snapshot.executions.find(
-        (value) => value.executionId === executionId && value.submission,
-      );
-      if (!execution?.submission || !current.packagePath)
-        return cell.completionStopped(facadeOpId, current.snapshot, executionId, blocker, steps);
-      return dispatchCompletionReview(
-        cell,
-        current.snapshot,
-        execution,
-        current.packagePath,
-        binding,
-        facadeOpId,
-        steps,
-      );
-    }
-    if (blocker.code === "consent_missing" && consentReview) {
-      const execution = current.snapshot.executions.find(
-          (value) => value.executionId === executionId && value.submission,
-        ),
-        reviews = execution?.submission ? approvedReviewsForExecution(current.snapshot.reviews, execution) : [];
-      const latest = latestApprovedReview(cell, reviews);
-      if (!latest || reviewDigest(latest) !== reviewDigest(consentReview))
-        return cell.completionStopped(facadeOpId, current.snapshot, executionId, blocker, steps);
-      const step = await cell.lifecycleAction(
-        { kind: "task-review-consent", taskId, executionId, reviewId: consentReview.reviewId },
-        binding,
-      );
-      steps.push(step);
-      if (step.outcome !== "applied")
-        return cell.completionSettlement(step, current.snapshot, executionId, steps, "consent-settlement");
-      continue;
-    }
+    // review_missing and consent_missing are hard stops (owner adjudication 2026-09-19): the
+    // verdict and consent belong to the owner's explicit actions, never to a complete that
+    // would otherwise dispatch reviewers or write consent inline on someone's behalf.
     if (
       (blocker.code === "ci_missing" || blocker.code === "gate_witness_missing") &&
       evidenceByGate.has(blocker.gate) &&
@@ -742,4 +692,53 @@ export function completionContext(
     eligibleDirtyPaths: eligible.map((row) => row.path),
     ...(invalid ? { invalidDocument: { path: invalid.path, reason: invalid.reason ?? invalid.state } } : {}),
   };
+}
+
+/**
+ * The owner's adjudication (owner ruling 2026-09-19): one command, two orders. `--forward`
+ * applies the kernel transition and then dispatches the independent reviewer for the forwarded
+ * cut — the single dispatch point in the new lifecycle; `--return` applies the owner's rework
+ * order. A dispatch failure never undoes the durable forward: it lands as the receipt's step
+ * with the manual `ha task dispatch-review` retry lane, which is idempotent on the same key.
+ */
+export async function adjudicateTask(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): Promise<WriteReceipt> {
+  const taskId = cell.requiredCellText(action.taskId, "taskId"),
+    receipt = await cell.lifecycleAction(action, binding);
+  if (receipt.outcome !== "applied" || action.forward !== true) return receipt;
+  const current = await cell.service.read(taskId),
+    execution = current.snapshot.executions.find(
+      (value) => value.iteration === current.snapshot.task?.iteration && value.state === "submitted",
+    );
+  if (!execution?.submission || !current.packagePath)
+    throw cell.cellCodedError("invalid_transition", `The forwarded cut on task ${taskId} has no submitted execution.`);
+  const reviewerId =
+      execution.submission.completionContract?.reviewer?.agentId ??
+      cell.settings.readRepository().defaultReviewer ??
+      "closeout-reviewer",
+    dispatch = await spawnCutReviewDispatch(cell, {
+      taskId,
+      execution,
+      packagePath: current.packagePath,
+      binding,
+      revision: cell.store.readHead()?.revision ?? 0,
+      reviewerId,
+    }),
+    // The step mirrors the historical review-dispatch receipt shape (dispatchId/runtimeSessionId
+    // ride the draft the same way dispatch-review's steps do).
+    step: WriteReceipt =
+      dispatch.outcome === "failed"
+        ? cell.failed(receipt.opId, cell.cellCodedError("review_dispatch_failed", dispatch.error))
+        : ({
+            ...receipt,
+            dispatchId: dispatch.ids.dispatchId,
+            runtimeSessionId: dispatch.ids.runtimeSessionId,
+          } as WriteReceipt);
+  return {
+    ...receipt,
+    steps: [...((receipt as { readonly steps?: readonly WriteReceipt[] }).steps ?? []), step],
+  } as WriteReceipt;
 }

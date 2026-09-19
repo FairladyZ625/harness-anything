@@ -177,16 +177,18 @@ test("preload exposes only the approved API methods", () => {
   );
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", staleRepoId: "repo-b" }), /not allowed/u);
   assert.throws(() => assertPreloadPayload("getSystemStatus", { repoId: "repo-a" }), /not allowed/u);
-  // 39 explicit actions plus the complete declaration read are the 40 editing-facing facets.
+  // 41 explicit actions plus the complete declaration read are the 42 editing-facing facets:
+  // task adjudication (owner triage/verdict) and the owner's review consent joined as named
+  // facets alongside complete.
   const editingFacets = [
     ...daemonGuiActionMethods.map(({ guiBridgeMethod }) => guiBridgeMethod),
     "readVerticalDeclaration",
   ];
-  assert.equal(editingFacets.length, 40);
+  assert.equal(editingFacets.length, 42);
   assert.equal(preloadAllowlist.includes("readVerticalDeclaration"), true);
   // entity.update / entity.archive / entity.delete plus vertical kind upsert / publish-schema / retire
   // are explicit GUI facets.
-  assert.equal(daemonGuiActionMethods.length, 39);
+  assert.equal(daemonGuiActionMethods.length, 41);
   assert.equal(
     daemonGuiActionMethods.some(({ method }) => method === "repo.entity.delete"),
     true,

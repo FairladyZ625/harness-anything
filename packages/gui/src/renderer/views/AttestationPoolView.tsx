@@ -88,7 +88,7 @@ export function AttestationPoolView({
   tasks,
   onAttest,
   taskFeedback,
-  onCompleteTask,
+  onConsentReview,
   onNavigateTask,
   poolTab,
   onPoolTabChange,
@@ -124,7 +124,8 @@ export function AttestationPoolView({
     rationale?: string,
   ) => Promise<TaskMutationFeedback>;
   taskFeedback?: (taskId: string) => TaskMutationFeedback | undefined;
-  onCompleteTask?: (task: TaskRow, consent: boolean) => Promise<unknown>;
+  /** CEO 终审批准:对最新已批准评审记录同意。 */
+  onConsentReview?: (task: TaskRow, reviewId: string) => Promise<unknown>;
   onNavigateTask?: (taskId: string) => void;
   /** 当前 Tab 由应用位置携带(可寻址、刷新不丢)。 */
   poolTab: AttestationPoolTabId;
@@ -310,7 +311,8 @@ export function AttestationPoolView({
                     lanes.consents.map((item) => {
                       const task = tasks.find((candidate) => candidate.taskId === item.taskId),
                         feedback = taskFeedback?.(item.taskId),
-                        consentFeedback = feedback?.kind === "complete" ? feedback : undefined;
+                        approved = (task?.reviews ?? []).filter((review) => review.verdict === "approved").at(-1),
+                        consentFeedback = feedback?.kind === "adjudicate" ? feedback : undefined;
                       return (
                         <article
                           key={item.taskId}
@@ -334,8 +336,8 @@ export function AttestationPoolView({
                             <button
                               type="button"
                               data-testid={`pool-consent-approve-${item.taskId}`}
-                              disabled={!onCompleteTask || !task || consentFeedback?.state === "pending"}
-                              onClick={() => task && void onCompleteTask?.(task, true)}
+                              disabled={!onConsentReview || !task || !approved || consentFeedback?.state === "pending"}
+                              onClick={() => task && approved && void onConsentReview?.(task, approved.reviewId)}
                               className="rounded-md bg-accent px-2.5 py-1.5 ui-meta font-semibold text-accent-fg transition-colors duration-100 hover:bg-accent/85 disabled:opacity-50"
                             >
                               {t("views.attestationPoolView.consentApprove")}

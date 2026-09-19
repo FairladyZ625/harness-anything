@@ -120,16 +120,35 @@ export const entityDeclarationGuiActions = Object.freeze([
 /** 任务收口的 GUI 写入 ingress:与 `ha task complete` 同一个 fleet `task-complete` 动作。放在这里
  * 而不是注册表文件,沿用 43aa1a51e9 的做法,让 `daemon-protocol-gui-actions.ts` 维持在 G0-5 基线内。 */
 export const taskCompletionGuiActions = Object.freeze([
-  // Pure passthrough of the fleet `task-complete` action: consent=false asks the center to
-  // dispatch the independent reviewer, consent=true records the one human consent. The GUI
-  // adds no verdict, CI, or business judgment of its own.
+  // Pure passthrough of the fleet `task-complete` action: completion is mechanical — the
+  // review verdict and the owner's consent are separate explicit actions, never complete flags.
   guiAction(
     "task.complete",
     "repo.task.complete",
     "task-complete",
-    shape({ taskId: "string", executionId: "string?", consent: "boolean?" }),
+    shape({ taskId: "string", executionId: "string?" }),
     "completeTask",
     "/api/tasks/:taskId/complete",
+    "repo-write",
+  ),
+  // The owner's triage gate onto the same `task-adjudicate` action as `ha task adjudicate`.
+  guiAction(
+    "task.adjudicate",
+    "repo.task.adjudicate",
+    "task-adjudicate",
+    shape({ taskId: "string", executionId: "string?", forward: "boolean?", return: "boolean?", reason: "string?" }),
+    "adjudicateTask",
+    "/api/tasks/:taskId/adjudicate",
+    "repo-write",
+  ),
+  // The owner's verdict accept onto the same `task-review-consent` action as the CLI.
+  guiAction(
+    "task.consent",
+    "repo.task.consent",
+    "task-review-consent",
+    shape({ taskId: "string", executionId: "string?", reviewId: "string" }),
+    "consentReview",
+    "/api/tasks/:taskId/consent",
     "repo-write",
   ),
   // Named ingress onto the same `task-attest` action as `ha task attest`: the closed payload mirrors the

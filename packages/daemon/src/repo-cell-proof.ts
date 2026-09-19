@@ -34,8 +34,8 @@ import { cellCodedError, cellCriterionError } from "./repo-cell-errors.ts";
 import { makeGitReadinessSource } from "./process-port.ts";
 import { readDispatchStream } from "./dispatch-stream.ts";
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
-import { completionReviewKey } from "./task-completion-review.ts";
 import { readTaskLineageDispatches } from "./dispatch-read.ts";
+import { reviewDispatchKey } from "./task-review-dispatch.ts";
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { leaseTtlMs } from "./repo-cell-types.ts";
 
@@ -230,14 +230,15 @@ export async function proofFor(
         ? projection.readRuntimeDispatch(runtimeSession.runtimeSessionId, runtimeSession.definitionSnapshotRef)
         : null,
       key = dispatch?.payload.idempotencyKey;
-    if (key?.startsWith("complete-review:") && execution?.submission) {
-      const currentKey = completionReviewKey(command.taskId, execution);
+    if (key?.startsWith("task-review:") && execution?.submission) {
+      const currentKey = reviewDispatchKey(command.taskId, execution);
       // The current key ends in the fixed-length submission digest, so no earlier cut's key can be
-      // a strict prefix; everything past the ":" is fallback or retry provenance of the same cut.
-      if (key !== currentKey && !key.startsWith(`${currentKey}:`))
+      // a strict prefix. Every reviewer dispatch — the owner's forward order or the manual
+      // dispatch-review lane — shares this one key shape.
+      if (key !== currentKey)
         throw cellCodedError(
           "invalid_proof",
-          "This reviewer dispatch belongs to an earlier submission cut; run task complete for the current cut.",
+          "This reviewer dispatch belongs to an earlier submission cut; wait for the owner's next forward order.",
         );
     }
     const independentActor =

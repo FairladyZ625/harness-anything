@@ -97,7 +97,7 @@ import { isProviderFailureClassification } from "./runtime-fallback-contract.ts"
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
-import { assertReviewReturnBudgetAvailable, selectReviewTarget } from "./review-dispatch-admission.ts";
+import { selectReviewTarget } from "./review-dispatch-admission.ts";
 import { continuationMission, initialFallbackAttempt, requiredRuntimeFast } from "./runtime-spawn-fallback.ts";
 import { admitRuntimeResume, assertResumeAgent, resolveResumeCwd } from "./runtime-resume-admission.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const,
@@ -357,15 +357,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         ...applied(existing, store!.publication(existing), runtimeSessionId, newDispatchId),
         authorizationDecision: authorizationDecision as unknown as JsonObject | null,
       };
-    }
-    // Reviewer fail-fast: a new review attempt is refused before any dispatch event or worker
-    // process exists when the return budget is already spent, because the ledger can no longer
-    // record a changes_requested verdict for the cut. An already-claimed attempt returned above
-    // keeps its identity; an already-approved review completes unaffected. The judgment reads
-    // the latest center snapshot, so every entry (submit-time review, complete facade,
-    // dispatch-review, runtime.run, fallback continuation) enforces the same write-side rule.
-    if (reviewerBinding && reviewTarget !== null && taskSnapshot?.task) {
-      assertReviewReturnBudgetAvailable(projection!, taskId!, taskSnapshot.task);
     }
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
       squad =

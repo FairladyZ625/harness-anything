@@ -84,6 +84,100 @@ type DispatchStep = {
 };
 
 /**
+ * The one review-dispatch spawn: the cut's frozen completionContract reviewer claim wins over the
+ * repository default, the dispatch is keyed by `reviewDispatchKey` (task/execution/iteration/digest,
+ * the deterministic claim fence that makes concurrent dispatches share one reviewer), and launch
+ * admission is awaited while provider completion is not. Returns the idempotent identities the
+ * caller reports on its own step shape.
+ */
+export async function spawnCutReviewDispatch(
+  cell: RepoCellOperationalContext,
+  input: {
+    readonly taskId: string;
+    readonly execution: ExecutionV1;
+    readonly packagePath: string;
+    readonly binding: RepoCellBinding;
+    readonly revision: number;
+    readonly reviewerId: string;
+    readonly extras?: Readonly<Record<string, unknown>>;
+  },
+): Promise<
+  | { readonly outcome: "dispatched" | "already_dispatched"; readonly ids: ReturnType<typeof reviewDispatchIds> }
+  | { readonly outcome: "failed"; readonly error: string }
+> {
+  const key = reviewDispatchKey(input.taskId, input.execution),
+    ids = reviewDispatchIds(cell.input.repoId, key);
+  if (cell.store.readEvent(ids.dispatchOpId) !== null) return { outcome: "already_dispatched", ids };
+  let resolved;
+  try {
+    resolved = readAgentDeclarationResolution({
+      rootDir: cell.rootDir,
+      agentId: input.reviewerId,
+      entityStore: createEntityStore(cell.store),
+    });
+  } catch (error) {
+    if (!isAgentDeclarationInvalid(error)) throw error;
+    return { outcome: "failed", error: error instanceof Error ? error.message : String(error) };
+  }
+  if (!resolved)
+    return {
+      outcome: "failed",
+      error:
+        `Reviewer ${input.reviewerId} is not bundled or installed. Install a repository override, or select an ` +
+        `available reviewer with ha task dispatch-review ${input.taskId} --agent <agent-id>.`,
+    };
+  const { declaration: agent, layer } = resolved;
+  if (layer === "installed" && !agentDeclaresExplicitModels(agent.runtimes) && typeof input.extras?.model !== "string")
+    return {
+      outcome: "failed",
+      error:
+        `Declare an explicit model on every runtimes row for reviewer ${input.reviewerId}, or pass --model <model>. ` +
+        "Installed reviewer overrides must not select an instance default model.",
+    };
+  const extras = input.extras ?? {},
+    payload = {
+      agentId: agent.id,
+      role: "reviewer",
+      taskId: input.taskId,
+      executionId: input.execution.executionId,
+      cwd: { scope: "repo-root" },
+      idempotencyKey: key,
+      ...(typeof extras.runtimeInstanceId === "string" ? { runtimeInstanceId: extras.runtimeInstanceId } : {}),
+      ...(typeof extras.model === "string" ? { model: extras.model } : {}),
+      ...(typeof extras.effort === "string" ? { effort: extras.effort } : {}),
+      ...(extras.fast === true ? { fast: true } : {}),
+      prompt: reviewDispatchPrompt({
+        cell,
+        taskId: input.taskId,
+        packagePath: input.packagePath,
+        dispatchId: ids.dispatchId,
+        execution: input.execution,
+        gates: completionGateIds(
+          cell.projection.read(input.taskId).snapshot.task?.completionGateIds ?? [],
+          input.execution.submission,
+        ),
+      }),
+    },
+    authorizationDecision = authorizeRepoCellAction({
+      action: { kind: "runtime-spawn", ...payload },
+      binding: input.binding,
+      actionId: ids.dispatchOpId,
+      revision: input.revision,
+      now: cell.now(),
+    });
+  if (authorizationDecision.outcome !== "allowed")
+    return { outcome: "failed", error: `authorization_denied: ${authorizationDecision.nextActions.join(" ")}` };
+  try {
+    // Already inside the center queue. Only launch admission is awaited; provider completion is not.
+    await cell.runtimeSpawner.spawn(payload, { ...input.binding, authorizationDecision });
+  } catch (error) {
+    consumeKnownError(error);
+    return { outcome: "failed", error: error instanceof Error ? error.message : String(error) };
+  }
+  return { outcome: "dispatched", ids };
+}
+
+/**
  * `ha task dispatch-review`: expand one batch invocation into one independent reviewer dispatch per
  * task. Each dispatch is keyed by the task's submitted cut and binds to that execution only — never
  * to the task's active implementation lease — so a review cannot open or claim an implementation

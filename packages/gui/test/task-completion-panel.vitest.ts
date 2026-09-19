@@ -18,45 +18,39 @@ beforeAll(prepareDetailEnvironment);
 afterEach(cleanupMountedDetail);
 
 describe("Task completion panel", () => {
-  it("shows the panel for an in_review task and keeps consent disabled while the review blocker stands", async () => {
+  it("shows the panel for an in_review task and waits while the review blocker stands", async () => {
     installBridge({
-      completionAction: "ha task complete task-w3",
+      completionAction: "ha task triage task-w3 --forward --note-file <path>",
       completionBlocker: { code: "review_missing", gate: "review" },
     });
-    const calls: boolean[] = [];
-    await mount({ onComplete: (consent) => (calls.push(consent), Promise.resolve()) });
+    await mount();
     await clickTab("收口");
     const panel = byTestId("task-completion-panel");
-    const submit = panel.querySelector<HTMLButtonElement>('[data-testid="task-completion-submit"]');
-    const consent = panel.querySelector<HTMLButtonElement>('[data-testid="task-completion-consent"]');
-    expect(submit).toBeInstanceOf(HTMLButtonElement);
-    expect(consent).toBeInstanceOf(HTMLButtonElement);
-    // 评审未批准(blocker.code = review_missing)时,同意完成不可点。
-    expect(consent?.disabled).toBe(true);
-    expect(submit?.disabled).toBe(false);
-    await act(async () => {
-      submit!.click();
-    });
-    expect(calls).toEqual([false]);
+    // 评审未记录(blocker.code = review_missing)时没有任何可点按钮:评审员只查验,
+    // 结论回流 owner 裁决前既不能同意也不能结项。
+    expect(panel.querySelector('[data-testid="task-completion-consent"]')).toBeNull();
+    expect(panel.querySelector<HTMLButtonElement>('[data-testid="task-completion-complete"]')?.disabled).toBe(true);
+    expect(panel.textContent).toContain("独立评审尚未记录结论");
   });
 
-  it("routes the consent button once the read reports the consent blocker", async () => {
+  it("routes the owner-verdict button once the read reports the consent blocker", async () => {
     installBridge({
-      completionAction: "ha task complete task-w3 --consent",
+      completionAction: "ha task review-verdict task-w3",
       completionBlocker: { code: "consent_missing", gate: "consent" },
     });
-    const calls: boolean[] = [];
-    await mount({ onComplete: (consent) => (calls.push(consent), Promise.resolve()) });
+    const consents: string[] = [];
+    await mount({ onConsentReview: (reviewId) => (consents.push(reviewId), Promise.resolve()) });
     await clickTab("收口");
     const panel = byTestId("task-completion-panel");
-    const submit = panel.querySelector<HTMLButtonElement>('[data-testid="task-completion-submit"]');
     const consent = panel.querySelector<HTMLButtonElement>('[data-testid="task-completion-consent"]');
+    const complete = panel.querySelector<HTMLButtonElement>('[data-testid="task-completion-complete"]');
     expect(consent?.disabled).toBe(false);
-    expect(submit?.disabled).toBe(true);
+    // 机械结项在终审批准前保持不可点。
+    expect(complete?.disabled).toBe(true);
     await act(async () => {
       consent!.click();
     });
-    expect(calls).toEqual([true]);
+    expect(consents).toEqual(["review-w3"]);
   });
 
   it("keeps button behavior identical when the action prose changes", async () => {
@@ -65,18 +59,12 @@ describe("Task completion panel", () => {
       completionAction: "请中心按评审流程处理这个任务的收口",
       completionBlocker: { code: "review_missing", gate: "review" },
     });
-    const calls: boolean[] = [];
-    await mount({ onComplete: (consent) => (calls.push(consent), Promise.resolve()) });
+    await mount();
     await clickTab("收口");
     const panel = byTestId("task-completion-panel");
-    const submit = panel.querySelector<HTMLButtonElement>('[data-testid="task-completion-submit"]');
-    const consent = panel.querySelector<HTMLButtonElement>('[data-testid="task-completion-consent"]');
-    expect(submit?.disabled).toBe(false);
-    expect(consent?.disabled).toBe(true);
-    await act(async () => {
-      submit!.click();
-    });
-    expect(calls).toEqual([false]);
+    // review 阶段没有可点按钮,prose 变化不产生任何可点面。
+    expect(panel.querySelector('[data-testid="task-completion-consent"]')).toBeNull();
+    expect(panel.querySelector<HTMLButtonElement>('[data-testid="task-completion-complete"]')?.disabled).toBe(true);
   });
 
   it("hides the panel outside in_review", async () => {

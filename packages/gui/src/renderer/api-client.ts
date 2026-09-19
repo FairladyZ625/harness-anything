@@ -381,15 +381,29 @@ export const harnessClient = {
   ): Promise<GuiActionResult> {
     return readGuiActionResult(await invoke("repo.task.submit", payload, "submitTask"));
   },
-  /** 收口销账的唯一 GUI 写通道:无 consent=请中心派发独立评审,true=记录一次人的同意。 */
+  /** 收口销账的唯一 GUI 写通道:纯机械动作;评审裁决与同意是各自的显式动作。 */
   async completeTask(
+    payload: RepoScope & { readonly taskId: string; readonly executionId?: string },
+  ): Promise<GuiActionResult> {
+    return readGuiActionResult(await invoke("repo.task.complete", payload, "completeTask"));
+  },
+  /** CEO 初审/终审裁决:与 `ha task adjudicate` 同一条 daemon 动作。 */
+  async adjudicateTask(
     payload: RepoScope & {
       readonly taskId: string;
       readonly executionId?: string;
-      readonly consent?: boolean;
+      readonly forward?: boolean;
+      readonly return?: boolean;
+      readonly reason?: string;
     },
   ): Promise<GuiActionResult> {
-    return readGuiActionResult(await invoke("repo.task.complete", payload, "completeTask"));
+    return readGuiActionResult(await invoke("repo.task.adjudicate", payload, "adjudicateTask"));
+  },
+  /** CEO 终审批准:与 `ha task review-consent` 同一条 daemon 动作。 */
+  async consentReview(
+    payload: RepoScope & { readonly taskId: string; readonly executionId?: string; readonly reviewId: string },
+  ): Promise<GuiActionResult> {
+    return readGuiActionResult(await invoke("repo.task.consent", payload, "consentReview"));
   },
   /** 台账 pin 的唯一 GUI 写通道:daemon 侧就是 `ha task pin` 的 pinned-only amend。 */
   async pinTask(payload: RepoScope & { readonly taskId: string }): Promise<GuiActionResult> {

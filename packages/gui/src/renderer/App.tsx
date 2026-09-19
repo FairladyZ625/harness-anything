@@ -450,7 +450,7 @@ function AppShell() {
                   mutationFeedback={taskActions.feedback.get(selected.taskId)}
                   onProgress={(input) => taskActions.appendProgress(selected, input)}
                   onSubmit={() => taskActions.submitTask(selected)}
-                  onComplete={(consent) => taskActions.completeTask(selected, consent)}
+                  onComplete={() => taskActions.completeTask(selected)}
                   onAttest={taskActions.attestGate}
                   onSetPin={handleSetPin}
                   onOpenTerminal={(task) => {
@@ -603,7 +603,7 @@ function AppShell() {
                     tasks={projectTasks}
                     onAttest={taskActions.attestGate}
                     taskFeedback={feedbackOf}
-                    onCompleteTask={(task, consent) => taskActions.completeTask(task, consent)}
+                    onConsentReview={(task, reviewId) => taskActions.consentReview(task, reviewId)}
                     onNavigateTask={navigateToTask}
                     poolTab={location.poolTab ?? "decisions"}
                     onPoolTabChange={setPoolTab}

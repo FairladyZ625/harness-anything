@@ -11,7 +11,6 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RepoCellBinding, RuntimeIngressAction } from "./repo-cell-types.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
-import { assertReviewReturnBudgetAvailable } from "./review-dispatch-admission.ts";
 
 const auxiliaryEventTypes = Object.freeze([
   "runtime_installation_observed",
@@ -105,7 +104,6 @@ export function appendAuxiliaryRuntimeIngress(
             `Task ${taskScope.taskId} has no current submitted cut for execution ${taskScope.executionId}; ` +
               "submit the implementation at the center, refresh the assignment, then retry reviewer dispatch.",
           );
-        assertReviewReturnBudgetAvailable(cell.projection, taskScope.taskId, snapshot.task!);
       }
     }
     const key = cell.requiredCellText(action.payload.idempotencyKey, "idempotencyKey"),
