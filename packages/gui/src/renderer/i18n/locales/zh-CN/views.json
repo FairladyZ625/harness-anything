@@ -859,5 +859,15 @@
   "views.attestationPoolView.laneAllCloseout": "全部收口",
   "views.attestationPoolView.focusEntry": "专注裁决",
   "views.attestationPoolView.focusEntryTitle": "进入专注裁决模式（J/K 逐条、A/R/D 裁决、S 跳过）",
-  "views.attestationPoolView.focusEntryHint": "逐条键盘流与判定历史在专注模式内。"
+  "views.attestationPoolView.focusEntryHint": "逐条键盘流与判定历史在专注模式内。",
+  "schedules.executor.builtin": "内置",
+  "schedules.builtin.preset": "系统预置",
+  "schedules.builtin.hint": "由 daemon 进程内执行:台账快照、恢复演练、再按保留策略清理,不启动 agent 会话。",
+  "schedules.form.sec.retention": "保留策略",
+  "schedules.form.keepDays": "保留天数",
+  "schedules.form.keepMonthly": "按月保留",
+  "schedules.form.keepMonthlyHint": "更早的月份各保留最新一份",
+  "schedules.form.retention.hint": "最近保留天数内的备份全部保留;更早的月份各保留最新一份。",
+  "schedules.fields.keepDays": "保留天数",
+  "schedules.fields.keepMonthly": "按月保留"
 }

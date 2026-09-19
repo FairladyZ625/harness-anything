@@ -42,6 +42,7 @@ import {
   scheduleRowMode,
   scheduleRowTargetKind,
   type ScheduleActionReceipt,
+  type ScheduleBuiltinEditInput,
   type ScheduleDefinitionInput,
   type ScheduleGuiRunRowDto,
   type ScheduleRunOutcomeWord,
@@ -186,7 +187,7 @@ export function ScheduleDetailView({
   readonly receipt: ScheduleActionReceipt | null;
   readonly actionError: string | null;
   readonly onAction: (kind: "enable" | "disable" | "runNow") => void;
-  readonly onSave: (input: ScheduleDefinitionInput) => void;
+  readonly onSave: (input: ScheduleDefinitionInput | ScheduleBuiltinEditInput) => void;
   readonly onDelete: () => void;
   /** Entity routing for refs with their own view (agent/provider/session/fact/…). Run sessions stay embedded. */
   readonly onSelectEntity: (ref: string) => void;
@@ -246,8 +247,15 @@ export function ScheduleDetailView({
             {row.activeRun !== null && <RoleTag tone="active">{t("schedules.activeRun")}</RoleTag>}
             <ModeBadge mode={mode} />
             <Chip tone="mono">
-              {targetKind === "squad" ? t("schedules.executor.squad") : t("schedules.executor.agent")}
+              {targetKind === "builtin"
+                ? t("schedules.executor.builtin")
+                : targetKind === "squad"
+                  ? t("schedules.executor.squad")
+                  : t("schedules.executor.agent")}
             </Chip>
+            {targetKind === "builtin" && (
+              <Badge tip={t("schedules.builtin.hint")}>{t("schedules.builtin.preset")}</Badge>
+            )}
             {row.targetState !== undefined && row.targetError !== undefined && (
               <Badge tip={row.targetError.hint}>{t(TARGET_STATE_KEY[row.targetState])}</Badge>
             )}
@@ -465,7 +473,8 @@ function ScheduleOverviewTab({
   readonly onOpenRun: (occurrenceId: string) => void;
 }) {
   const availabilityKey = AVAILABILITY_META[row.executionAvailability],
-    agentTarget = row.target.kind === "agent" ? row.target : null;
+    agentTarget = row.target.kind === "agent" ? row.target : null,
+    builtinTarget = row.target.kind === "builtin" ? row.target : null;
   return (
     <div className="grid gap-3 lg:grid-cols-[5fr_7fr]">
       <div className="min-w-0">
@@ -536,8 +545,23 @@ function ScheduleOverviewTab({
               <Field label={t("schedules.fields.timezone")} value={row.trigger.timezone ?? "—"} />
               <Field label={t("schedules.fields.definitionRevision")} value={String(row.definitionRevision)} />
               <Field label={t("schedules.fields.updatedAt")} value={time(row.updatedAt)} />
-              <Field label={t("schedules.fields.model")} value={agentTarget?.model ?? "—"} />
-              <Field label={t("schedules.fields.cwd")} value={agentTarget?.cwd ?? "—"} />
+              <Field
+                label={t("schedules.fields.model")}
+                value={builtinTarget === null ? (agentTarget?.model ?? "—") : "—"}
+              />
+              <Field
+                label={t("schedules.fields.cwd")}
+                value={builtinTarget === null ? (agentTarget?.cwd ?? "—") : "—"}
+              />
+              {builtinTarget !== null && (
+                <>
+                  <Field label={t("schedules.fields.keepDays")} value={String(builtinTarget.keepDays)} />
+                  <Field
+                    label={t("schedules.fields.keepMonthly")}
+                    value={builtinTarget.keepMonthly ? t("schedules.form.keepMonthly") : "—"}
+                  />
+                </>
+              )}
             </FieldGrid>
             {/* G10: displayed entity ids are paths — the agent and runtime-instance
                 ids stay activatable links. Run sessions are the exception by design:

@@ -317,7 +317,8 @@ function validScheduleDefinitionMutation(value: unknown, nullableOptionals: bool
     "model",
     "reasoningEffort",
     "fast",
-    "writableRoots",
+    "keepDays",
+    "keepMonthly",
     "idempotencyKey",
   ];
   if (!isPreloadPayloadRecord(value) || !closed(value, fields)) return false;
@@ -335,19 +336,28 @@ function validScheduleDefinitionMutation(value: unknown, nullableOptionals: bool
         Number(value.everyMs) >= 60_000 &&
         cron === undefined &&
         value.timezone === undefined;
+  // A create is agent-shaped and complete; an update may be partial — a built-in edit sends
+  // name, trigger, and retention only, never agent target fields.
+  const requiredText = nullableOptionals
+    ? ["repoId", "scheduleId", "idempotencyKey"]
+    : ["repoId", "scheduleId", "name", "agentId", "runtimeInstanceId", "mission", "idempotencyKey"];
   if (
     !triggerOk ||
-    !["repoId", "scheduleId", "name", "agentId", "runtimeInstanceId", "mission", "idempotencyKey"].every(
-      (field) => typeof value[field] === "string" && String(value[field]).trim().length > 0,
-    ) ||
-    (value.mode !== "detect" && value.mode !== "remediate")
+    !requiredText.every((field) => typeof value[field] === "string" && String(value[field]).trim().length > 0) ||
+    (value.mode !== undefined && value.mode !== "detect" && value.mode !== "remediate") ||
+    (!nullableOptionals && value.mode === undefined)
   )
     return false;
   return (
     (value.fast === undefined || typeof value.fast === "boolean") &&
-    (value.writableRoots === undefined ||
-      (Array.isArray(value.writableRoots) &&
-        value.writableRoots.every((root) => typeof root === "string" && root.trim().length > 0))) &&
+    (value.keepDays === undefined || (Number.isSafeInteger(value.keepDays) && Number(value.keepDays) >= 1)) &&
+    (value.keepMonthly === undefined || typeof value.keepMonthly === "boolean") &&
+    (nullableOptionals || value.keepDays === undefined) &&
+    (nullableOptionals || value.keepMonthly === undefined) &&
+    ["name", "agentId", "runtimeInstanceId", "mission"].every(
+      (field) =>
+        value[field] === undefined || (typeof value[field] === "string" && String(value[field]).trim().length > 0),
+    ) &&
     [value.model, value.reasoningEffort].every(
       (field) =>
         field === undefined ||

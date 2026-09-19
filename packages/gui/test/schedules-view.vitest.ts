@@ -140,6 +140,32 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     expect(container.querySelector('[data-testid="schedules-inspector"]')).toBeNull();
   });
 
+  it("marks a built-in system preset row with its executor and an undeletable facet", async () => {
+    const container = await renderSurface(
+      createElement(ScheduleWorkspace, {
+        repoId: "repo-a",
+        data: dto({
+          scheduleId: "builtin-ledger-backup",
+          name: "Ledger backup",
+          trigger: { kind: "cron", everyMs: null, expression: "17 3 * * *", timezone: "UTC", summary: "at 03:17" },
+          target: { kind: "builtin", builtinId: "ledger-backup", keepDays: 3, keepMonthly: true },
+          mission: "System ledger backup.",
+          actions: {
+            ...dto().schedules[0]!.actions,
+            delete: { available: false, code: "schedule_builtin_protected", nextAction: null },
+          },
+        }),
+        pending: false,
+        focusedEntityRef: null,
+        onSelectEntity: noop,
+        onFocusSchedule: noop,
+      }),
+    );
+    const row = container.querySelector('[data-testid="schedule-row-builtin-ledger-backup"]');
+    expect(row?.textContent).toContain("Built-in");
+    expect(row?.textContent).toContain("System preset");
+  });
+
   it("renders unavailable Agent targets and options as row-level grey hints", async () => {
     const hint = "Install agent/ghost-agent, then retry.",
       data = dto(

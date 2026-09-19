@@ -859,5 +859,15 @@
   "views.attestationPoolView.laneAllCloseout": "All closeout items",
   "views.attestationPoolView.focusEntry": "Focus mode",
   "views.attestationPoolView.focusEntryTitle": "Enter focus mode (J/K next/prev, A/R/D judge, S skip)",
-  "views.attestationPoolView.focusEntryHint": "Keyboard flow and judgment history live inside focus mode."
+  "views.attestationPoolView.focusEntryHint": "Keyboard flow and judgment history live inside focus mode.",
+  "schedules.executor.builtin": "Built-in",
+  "schedules.builtin.preset": "System preset",
+  "schedules.builtin.hint": "Executed inside the daemon: ledger snapshot, restore drill, then retention cleanup. No agent session is started.",
+  "schedules.form.sec.retention": "Retention",
+  "schedules.form.keepDays": "Keep days",
+  "schedules.form.keepMonthly": "Keep monthly",
+  "schedules.form.keepMonthlyHint": "keep the newest backup of each older month",
+  "schedules.form.retention.hint": "Backups from the most recent keep-days window are all retained; older months keep their newest backup.",
+  "schedules.fields.keepDays": "Keep days",
+  "schedules.fields.keepMonthly": "Keep monthly"
 }

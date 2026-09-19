@@ -237,6 +237,36 @@ describe("schedule detail hub (M2)", () => {
     expect(onSelectEntity).toHaveBeenCalledWith("agent/probe-agent");
   });
 
+  it("renders a built-in row as a system preset with its retention policy and no agent link", async () => {
+    const container = await renderDetail(
+      "schedule/builtin-ledger-backup",
+      listResult(
+        {},
+        {
+          scheduleId: "builtin-ledger-backup",
+          name: "Ledger backup",
+          trigger: { kind: "cron", everyMs: null, expression: "17 3 * * *", timezone: "UTC", summary: "at 03:17" },
+          target: { kind: "builtin", builtinId: "ledger-backup", keepDays: 3, keepMonthly: true },
+          mission: "System ledger backup.",
+          actions: {
+            ...listResult().schedules[0]!.actions,
+            delete: { available: false, code: "schedule_builtin_protected", nextAction: null },
+          },
+        },
+      ),
+    );
+    const text = container.textContent ?? "";
+    expect(text).toContain("Built-in");
+    expect(text).toContain("System preset");
+    const definition = container.querySelector('[data-testid="schedule-overview-definition"]');
+    expect(definition?.textContent).toContain("Keep days");
+    expect(definition?.textContent).toContain("3");
+    expect(definition?.textContent).toContain("Keep monthly");
+    // The danger tab still renders, but the daemon facet disarms the delete itself.
+    await click(container, "schedule-tab-danger");
+    expect(container.querySelector<HTMLButtonElement>('[data-testid="schedule-action-delete"]')?.disabled).toBe(true);
+  });
+
   it("falls back to the occurrences the list row carries when the runs read fails, labeled as an error", async () => {
     vi.spyOn(schedulesClient, "runs").mockRejectedValue(new Error("bridge unavailable"));
     const container = await renderDetail("schedule/heartbeat-probe");
