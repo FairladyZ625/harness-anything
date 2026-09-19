@@ -2,6 +2,8 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
@@ -26,6 +28,7 @@ import {
 import {
   deriveTestTierManifest,
   discoverTestFileTimeouts,
+  discoverTestFiles,
   discoverTestTierManifest,
   parseTestFileTimeoutMarker,
   parseTestTierMarker,
@@ -316,6 +319,69 @@ test("inline test tier markers fail closed when missing, repeated, or invalid", 
       ),
     /multiple test tier markers: distant-duplicate\.test\.ts/u,
   );
+});
+
+function withTempRepoTree(files, fn) {
+  const root = mkdtempSync(path.join(os.tmpdir(), "test-name-fail-closed-"));
+  try {
+    for (const [relativePath, source] of Object.entries(files)) {
+      const absolutePath = path.join(root, relativePath);
+      mkdirSync(path.dirname(absolutePath), { recursive: true });
+      writeFileSync(absolutePath, source);
+    }
+    return fn(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+test("discoverTestFiles fails closed on a file that registers tests under a non-matching name", () => {
+  const testSource = '// harness-test-tier: fast\nimport test from "node:test";\ntest("x", () => {});\n';
+  for (const name of ["foo.tests.ts", "foo-test.ts", "foo.test.helper.ts"]) {
+    withTempRepoTree({ [`packages/pkg/test/${name}`]: testSource }, (root) => {
+      assert.throws(
+        () => discoverTestFiles(root),
+        (error) =>
+          /does not match the \.test\/\.spec pattern/u.test(error.message) &&
+          error.message.includes(`packages/pkg/test/${name}`),
+      );
+    });
+  }
+});
+
+test("discoverTestFiles ignores helpers that import node:test without registering cases", () => {
+  withTempRepoTree(
+    {
+      "packages/pkg/test/cleanup.fixture.ts":
+        'import { after } from "node:test";\nexport function cleanup(fn) { after(fn); }\n',
+      "packages/pkg/test/data-helpers.ts": "export const cases = [1, 2, 3];\n",
+      "packages/pkg/test/real.test.ts":
+        '// harness-test-tier: fast\nimport test from "node:test";\ntest("x", () => {});\n',
+    },
+    (root) => {
+      assert.deepEqual(discoverTestFiles(root), ["packages/pkg/test/real.test.ts"]);
+    },
+  );
+});
+
+test("discoverTestFiles defers to the vitest and e2e runners only inside their own roots", () => {
+  const vitestSource = 'import { describe, it } from "vitest";\ndescribe("x", () => { it("y", () => {}); });\n';
+  const e2eSource = 'import test from "node:test";\ntest("x", () => {});\n';
+  withTempRepoTree(
+    {
+      "packages/gui/test/deep/nested.vitest.tsx": vitestSource,
+      "packages/gui/e2e/smoke.e2e.mjs": e2eSource,
+    },
+    (root) => {
+      assert.deepEqual(discoverTestFiles(root), []);
+    },
+  );
+  // The same names outside those runners' roots are silently skipped by every runner.
+  for (const file of ["packages/kernel/test/lonely.vitest.ts", "packages/gui/e2e/nested/smoke.e2e.mjs"]) {
+    withTempRepoTree({ [file]: vitestSource }, (root) => {
+      assert.throws(() => discoverTestFiles(root), new RegExp(file.replaceAll(".", "\\."), "u"));
+    });
+  }
 });
 
 test("integration discovery equals the files executed by the CI runner", () => {
