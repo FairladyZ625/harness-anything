@@ -1,4 +1,4 @@
 // Version 20 indexes task_relation by task_id and keys decision_fts rows by the decision rowid,
 // so a Task or Decision event no longer scans those tables. A mismatch discards and replays the
-// rebuildable cache.
-export const taskProjectionSchemaVersion = 22;
+// rebuildable cache. Version 23 adds pinned_entities, which the replay fills from historical task pins.
+export const taskProjectionSchemaVersion = 23;
