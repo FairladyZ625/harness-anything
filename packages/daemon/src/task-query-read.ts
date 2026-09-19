@@ -788,15 +788,20 @@ function renderAgendaSummary(
         ? `- ${row.pinned ? "📌 " : ""}execution ${row.executionId} / ${row.taskId} ${row.title}`
         : `- decision ${row.decisionId} ${row.title}`,
     // 每组标题旁写出过滤条件,「为什么这条不在里面」可对照自查,不必逐条比对。
-    section = (title: string, filter: string, rows: readonly string[]) =>
-      `${title} (${rows.length}) — ${filter}\n${rows.length ? rows.join("\n") : "- 无"}`;
+    section = (title: string, filter: string, rows: readonly string[], total = rows.length) =>
+      `${title} (${total}) — ${filter}\n${rows.length ? rows.join("\n") : "- 无"}`;
   return [
-    section("📌 重点关注", "仓库级 Entity Pin（最多显示 10 项）", [
-      ...groups.pinnedEntities.map(
-        (row) => `- 📌 [${row.kind[0]?.toUpperCase()}${row.kind.slice(1)}] ${row.ref} ${row.title} [${row.status}]`,
-      ),
-      ...(groups.pinnedEntityOverflow ? [`- …另有 ${groups.pinnedEntityOverflow} 项已折叠`] : []),
-    ]),
+    section(
+      "📌 重点关注",
+      "仓库级 Entity Pin（最多显示 10 项）",
+      [
+        ...groups.pinnedEntities.map(
+          (row) => `- 📌 [${row.kind[0]?.toUpperCase()}${row.kind.slice(1)}] ${row.ref} ${row.title} [${row.status}]`,
+        ),
+        ...(groups.pinnedEntityOverflow ? [`- …另有 ${groups.pinnedEntityOverflow} 项已折叠`] : []),
+      ],
+      groups.pinnedEntities.length + groups.pinnedEntityOverflow,
+    ),
     section("在飞线", "status=active 且（有 lease 或有 active execution）", groups.inFlight.map(taskLine)),
     section(
       "等我修",
