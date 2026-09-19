@@ -113,6 +113,7 @@ test("the signal read uses an indexed time range and keeps an acceptance before 
         reads.push(query);
         return ledger.filter(
           (event) =>
+            event.type === query.type &&
             (query.after === undefined || event.occurredAt >= query.after) &&
             (query.before === undefined || event.occurredAt <= query.before),
         );
@@ -125,12 +126,15 @@ test("the signal read uses an indexed time range and keeps an acceptance before 
     result.signals.map((signal) => signal.key),
     ["decision:dec_short"],
   );
+  // Only the types the signals read are queried, and only accepts reach back past the window.
+  const before = new Date(now).toISOString(),
+    windowStart = new Date(now - DAY).toISOString(),
+    limit = Number.MAX_SAFE_INTEGER;
   assert.deepEqual(reads, [
-    {
-      after: new Date(now - 8 * DAY).toISOString(),
-      before: new Date(now).toISOString(),
-      limit: Number.MAX_SAFE_INTEGER,
-    },
+    { type: "fact_recorded", after: windowStart, before, limit },
+    { type: "decision_superseded", after: windowStart, before, limit },
+    { type: "decision_retired", after: windowStart, before, limit },
+    { type: "decision_accepted", after: new Date(now - 8 * DAY).toISOString(), before, limit },
   ]);
 });
 
@@ -153,7 +157,7 @@ test("out-of-order imported timestamps cannot hide a recent correction", () => {
     {
       queryEvents: (query) =>
         [correction, ...imports].filter(
-          (event) => event.occurredAt >= query.after! && event.occurredAt <= query.before!,
+          (event) => event.type === query.type && event.occurredAt >= query.after! && event.occurredAt <= query.before!,
         ),
     },
     { readRuntimeSessions: () => [] },
