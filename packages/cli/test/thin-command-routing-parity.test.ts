@@ -795,7 +795,6 @@ test("human preset and task receipts print resolved completion contracts byte-fo
           "Context, Required Reading, Entry Conditions, Dependencies, Execution Surface, Constraints, Checkpoint, " +
           "CI/Gate Authority Stop Condition, Implementation Plan, Deliverable Contract, Evidence Protocol, " +
           "Verification",
-        "agenda: use ha task pin task-one to pin it to the CEO agenda",
         "ledger: INDEX.md and closeout.md are coordinator-managed; update them through ha doc sync",
       ].join("\n");
     assert.deepEqual(Buffer.from(taskOutput), Buffer.from(expectedTask));

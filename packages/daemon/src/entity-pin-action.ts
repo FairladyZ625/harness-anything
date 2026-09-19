@@ -6,6 +6,7 @@ import {
 } from "../../kernel/src/index.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import { resolveAgendaPinLimit } from "./task-wip-settings.ts";
 
 export function runEntityPinAction(
   cell: RepoCellOperationalContext,
@@ -25,11 +26,19 @@ export function runEntityPinAction(
       : cell.projection.readEntityVersionWitness(entityRef).currentVersion !== null;
   if (!exists) throw cell.cellCodedError("entity_not_found", `Entity ${entityRef} does not exist.`);
   const pinned = action.kind === "entity-pin",
-    current = cell.projection.listPinnedEntities().some((row) => row.entityRef === entityRef),
+    pinnedEntities = cell.projection.listPinnedEntities(),
+    current = pinnedEntities.some((row) => row.entityRef === entityRef),
     revision = cell.store.readHead()?.revision ?? 0,
     opId = cell.operationId(action, binding, cell.input.repoId, revision);
   if (current === pinned)
     return { outcome: "no_changes", opId, revision, evidence: JSON.stringify({ entityRef, pinned }) };
+  const capacity = resolveAgendaPinLimit(cell.rootDir);
+  if (pinned && pinnedEntities.length >= capacity.limit)
+    throw cell.cellCodedError(
+      "pin_capacity_exceeded",
+      `Agenda pin capacity is ${pinnedEntities.length}/${capacity.limit} (${capacity.label}); ` +
+        "unpin an existing entity before pinning another.",
+    );
   const compiled = compileEntityPinEvent({
       entityRef,
       pinned,
@@ -60,5 +69,12 @@ export function runEntityPinAction(
     ...publication,
     summary: compiled.event.type,
   };
-  return canonicalVisible ? { outcome: "applied", ...base } : { outcome: "pending", ...base };
+  const used = pinned ? pinnedEntities.length + 1 : pinnedEntities.length - 1,
+    guidance =
+      pinned && used / capacity.limit >= 0.8
+        ? [{ kind: "pin-agenda" as const, args: { used, limit: capacity.limit } }]
+        : undefined;
+  return canonicalVisible
+    ? { outcome: "applied", ...base, ...(guidance ? { guidance } : {}) }
+    : { outcome: "pending", ...base, ...(guidance ? { guidance } : {}) };
 }

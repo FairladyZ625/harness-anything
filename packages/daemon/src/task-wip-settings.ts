@@ -12,6 +12,8 @@ export const TASK_WIP_LIMIT_ENV = "HARNESS_TASK_WIP_LIMIT";
 export const TASK_WIP_LIMIT_SETTING = "settings.tasks.wipLimit";
 export const TASK_ROOT_THRESHOLD_ENV = "HARNESS_TASK_ROOT_THRESHOLD";
 export const TASK_ROOT_THRESHOLD_SETTING = "settings.tasks.rootThreshold";
+export const DEFAULT_AGENDA_PIN_LIMIT = 30;
+export const AGENDA_PIN_LIMIT_SETTING = "settings.agenda.pinLimit";
 
 export interface TaskWipLimitSetting {
   readonly limit: number;
@@ -21,14 +23,31 @@ export interface TaskRootThresholdSetting {
   readonly threshold: number;
   readonly label: string;
 }
+export interface AgendaPinLimitSetting {
+  readonly limit: number;
+  readonly label: string;
+}
 
 interface CachedTaskSettings {
   readonly mtimeMs: number;
   readonly wipLimit: string | undefined;
   readonly rootThreshold: string | undefined;
+  readonly pinLimit: string | undefined;
 }
 
 const taskSettingsCache = new Map<string, CachedTaskSettings>();
+
+/** Effective cross-entity agenda pin limit. Invalid authored values fail closed. */
+export function resolveAgendaPinLimit(rootDir: string): AgendaPinLimitSetting {
+  const raw = readTaskSettings(rootDir).pinLimit;
+  if (raw === undefined) return { limit: DEFAULT_AGENDA_PIN_LIMIT, label: AGENDA_PIN_LIMIT_SETTING };
+  const limit = parseTaskWipLimit(raw);
+  if (limit === undefined)
+    throw Object.assign(new Error(`${AGENDA_PIN_LIMIT_SETTING} must be a positive integer.`), {
+      code: "agenda_pin_limit_invalid",
+    });
+  return { limit, label: AGENDA_PIN_LIMIT_SETTING };
+}
 
 /** Effective WIP limit: environment override, then harness.yaml settings.tasks.wipLimit, then the default. Invalid values fail closed. */
 export function resolveTaskWipLimit(rootDir: string, env: NodeJS.ProcessEnv = process.env): TaskWipLimitSetting {
@@ -76,7 +95,7 @@ function readTaskSettings(rootDir: string): CachedTaskSettings {
   const configPath = path.join(resolveHarnessLayout(rootDir).authoredRoot, "harness.yaml");
   if (!existsSync(configPath)) {
     taskSettingsCache.delete(configPath);
-    return { mtimeMs: 0, wipLimit: undefined, rootThreshold: undefined };
+    return { mtimeMs: 0, wipLimit: undefined, rootThreshold: undefined, pinLimit: undefined };
   }
   const mtimeMs = statSync(configPath).mtimeMs,
     cached = taskSettingsCache.get(configPath);
@@ -86,6 +105,7 @@ function readTaskSettings(rootDir: string): CachedTaskSettings {
       mtimeMs,
       wipLimit: settingBlockValue(body, "tasks", "wipLimit"),
       rootThreshold: settingBlockValue(body, "tasks", "rootThreshold"),
+      pinLimit: settingBlockValue(body, "agenda", "pinLimit"),
     };
   taskSettingsCache.set(configPath, settings);
   return settings;

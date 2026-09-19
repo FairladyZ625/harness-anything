@@ -223,7 +223,7 @@ test("named lifecycle specifications preserve every execution metadata field", (
   );
 });
 
-test("task creation result and all seven guidance entries derive from its descriptor", () => {
+test("task creation result and all six guidance entries derive from its descriptor", () => {
   const create = getEntityKindContract("task")?.actionCatalog?.actions.find(({ id }) => id === "create");
   assert.ok(create);
   assert.deepEqual(
@@ -244,7 +244,6 @@ test("task creation result and all seven guidance entries derive from its descri
       when: { dryRun: false, "proof.canonicalVisible": false },
     },
     { kind: "edit-plan", args: { packagePath: "{packagePath}" } },
-    { kind: "pin-agenda", args: { taskId: "{taskId}" } },
     { kind: "ledger-managed", args: { fields: ["INDEX.md", "closeout.md"] } },
   ]);
   for (const field of [
@@ -296,7 +295,7 @@ test("nested vocabularies retain identity and state projections select one decla
   });
   for (const transition of TASK_LIFECYCLE_TRANSITIONS)
     assert.deepEqual(Object.keys(transition).sort(), ["actionId", "matches", "reduce", "validate"]);
-  assert.equal(new Set(actions.flatMap(({ returns }) => returns.guidance.map(({ kind }) => kind))).size, 7);
+  assert.equal(new Set(actions.flatMap(({ returns }) => returns.guidance.map(({ kind }) => kind))).size, 6);
 });
 
 test("CompleteTask reducer output equals its declared terminal projection", () => {

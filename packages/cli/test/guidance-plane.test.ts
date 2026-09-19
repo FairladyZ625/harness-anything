@@ -111,7 +111,7 @@ test("accepted_durable receipts affirm success, attribute the git outbox, and se
   );
 });
 
-test("guidance plane renders all seven descriptor-derived task-create messages exactly", () => {
+test("guidance plane renders all six descriptor-derived task-create messages exactly", () => {
   const physicalRoot = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-guidance-golden-"));
   try {
     mkdirSync(path.join(physicalRoot, "harness"));
@@ -138,10 +138,9 @@ test("guidance plane renders all seven descriptor-derived task-create messages e
           "Context, Required Reading, Entry Conditions, Dependencies, Execution Surface, Constraints, Checkpoint, " +
           "CI/Gate Authority Stop Condition, Implementation Plan, Deliverable Contract, Evidence Protocol, " +
           "Verification",
-        "agenda: use ha task pin task-a to pin it to the CEO agenda",
         "ledger: INDEX.md and closeout.md are coordinator-managed; update them through ha doc sync",
       ];
-    assert.equal(guidance.length, 7);
+    assert.equal(guidance.length, 6);
     assert.deepEqual(renderReceiptGuidance(receipt(true, false)), [
       shared[0],
       "next: remove --dry-run to publish this exact resolved scaffold",

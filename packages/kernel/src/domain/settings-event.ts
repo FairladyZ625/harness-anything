@@ -158,6 +158,7 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
       ci: value.ci ?? INITIAL_SETTINGS_V1.ci,
       gates: value.gates ?? INITIAL_SETTINGS_V1.gates,
       closeout: value.closeout ?? INITIAL_SETTINGS_V1.closeout,
+      agenda: value.agenda ?? INITIAL_SETTINGS_V1.agenda,
       restoreDrillRetention: value.restoreDrillRetention ?? DEFAULT_RESTORE_DRILL_RETENTION,
     },
     current = validateRepositorySettings(normalized).length === 0;
@@ -180,6 +181,7 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
           "ci",
           "gates",
           "closeout",
+          "agenda",
           "restoreDrillRetention",
         ].includes(field),
       )

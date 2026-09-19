@@ -26,8 +26,10 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
       "Verification",
   ],
   [
-    "task-create:pin-agenda",
-    (args) => `agenda: use ha task pin ${textArg(args, "taskId")} to pin it to the CEO agenda`,
+    "*:pin-agenda",
+    (args) =>
+      `agenda: pins are for something very important, easy to forget, next to do, or urgent; otherwise do not pin. ` +
+      `Capacity is ${numberArg(args, "used")}/${numberArg(args, "limit")}; unpin stale attention first.`,
   ],
   [
     "task-create:ledger-managed",

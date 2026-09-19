@@ -942,12 +942,6 @@ export function descriptorFacets(id: string) {
               taskId: Object.freeze({ resultPath: "result.taskId" }),
             }),
           }),
-          Object.freeze({
-            capabilityRef: "task.pin",
-            role: "agenda" as const,
-            when: null,
-            args: Object.freeze({ taskId: Object.freeze({ resultPath: "result.taskId" }) }),
-          }),
         ])
       : Object.freeze([]),
   };

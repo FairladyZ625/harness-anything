@@ -164,7 +164,8 @@ const entityPinProtocolCommands = Object.freeze([
     id: "entity-pin",
     phase: "Entity-Pin",
     path: ["pin", "<entity-ref>"],
-    summary: "Pin an existing entity to the repository agenda.",
+    summary:
+      "Pin an existing entity only when it is very important, easy to forget, next to do, or urgent; otherwise do not pin.",
     method: "repo.task.run",
     inputs: [],
     ...settingsWriteTopology,

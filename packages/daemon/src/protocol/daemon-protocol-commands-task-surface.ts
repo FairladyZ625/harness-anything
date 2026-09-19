@@ -150,7 +150,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     id: "task-pin",
     phase: "W3",
     path: ["task", "pin", "<task-id>"],
-    summary: "Pin a task to the front of its agenda group.",
+    summary: "Pin a task only when it is very important, easy to forget, next to do, or urgent; otherwise do not pin.",
     method: "repo.task.run",
     inputs: [],
   }),
