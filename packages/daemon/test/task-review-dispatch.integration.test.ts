@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -59,6 +59,24 @@ const boundCuts = (f: Awaited<ReturnType<typeof fixture>>, runtimeSessionId: str
       const taskBinding = event.payload.taskBinding as { taskId: string; executionId: string };
       return [String(taskBinding.taskId), String(taskBinding.executionId)];
     });
+
+async function spawnReviewerForKey(f: Awaited<ReturnType<typeof fixture>>, idempotencyKey: string): Promise<string> {
+  const receipt = await f.cell().spawnRuntime(
+    {
+      agentId: "closeout-reviewer",
+      role: "reviewer",
+      taskId,
+      executionId,
+      cwd: { scope: "repo-root" },
+      idempotencyKey,
+      prompt: "Review the bound submission cut.",
+    },
+    owner,
+  );
+  assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+  assert.equal(typeof receipt.runtimeSessionId, "string", JSON.stringify(receipt));
+  return String(receipt.runtimeSessionId);
+}
 
 test(
   "submitted cuts reject explicit dispatch-review and generic reviewer runtime ingress before owner forward",
@@ -130,6 +148,53 @@ test(
         [[taskId, executionId]],
         "one review execution binds exactly one task, at the submitted cut",
       );
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
+  "reviewer runtime submission fences accept every current-cut key shape and reject both stale-cut shapes",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
+    try {
+      await f.install();
+      const initialDispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
+      assert.ok(initialDispatch?.type === "runtime_dispatch_requested");
+      const currentKey = initialDispatch.payload.idempotencyKey,
+        currentSession = initialDispatch.payload.runtimeSessionId,
+        attemptSession = await spawnReviewerForKey(f, `${currentKey}:attempt1`),
+        legacyKey = currentKey.replace(/^task-review:/u, "complete-review:"),
+        legacySession = await spawnReviewerForKey(f, legacyKey),
+        legacySuffixSession = await spawnReviewerForKey(f, `${legacyKey}:upgrade-in-flight`);
+
+      for (const [sessionId, reviewId] of [
+        [currentSession, "review-current-cut"],
+        [attemptSession, "review-current-cut-attempt1"],
+        [legacySession, "review-current-cut-legacy"],
+        [legacySuffixSession, "review-current-cut-legacy-suffix"],
+      ] as const) {
+        const reviewed = await f.review(sessionId, reviewId);
+        assert.equal(reviewed.outcome, "applied", `${reviewId}: ${JSON.stringify(reviewed)}`);
+      }
+
+      const staleCurrentSession = await spawnReviewerForKey(f, currentKey),
+        staleLegacySession = await spawnReviewerForKey(f, legacyKey),
+        closeoutPath = path.join(f.root, "harness", f.packagePath, "closeout.md");
+      writeFileSync(closeoutPath, `${readFileSync(closeoutPath, "utf8")}\nAmended verification evidence.\n`);
+      const amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
+      assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+
+      for (const [sessionId, reviewId] of [
+        [staleCurrentSession, "review-stale-current-key"],
+        [staleLegacySession, "review-stale-legacy-key"],
+      ] as const) {
+        const rejected = await f.review(sessionId, reviewId);
+        assert.equal(rejected.outcome, "op_rejected", `${reviewId}: ${JSON.stringify(rejected)}`);
+        assert.equal(rejected.code, "invalid_proof", `${reviewId}: ${JSON.stringify(rejected)}`);
+      }
     } finally {
       await f.close();
     }
@@ -338,7 +403,7 @@ test(
       const steps = dispatchesOf(receipt);
       assert.equal(steps.length, 1);
       assert.equal(steps[0]!.outcome, "failed");
-      assert.match(steps[0]!.error ?? "", /no submitted execution/u);
+      assert.match(steps[0]!.error ?? "", /not at the in-review gate/u);
       assert.equal(f.launches.length, 1, "the planned task must not add a reviewer launch");
       // The internal spawn path enforces the same invariant.
       await expectCoded(
@@ -353,7 +418,7 @@ test(
           },
           owner,
         ),
-        "review_target_missing",
+        "review_admission_denied",
       );
     } finally {
       await f.close();
