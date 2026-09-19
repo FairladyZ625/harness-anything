@@ -408,6 +408,15 @@ function createTables(db: DatabaseSync): void {
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1';
     CREATE INDEX IF NOT EXISTS event_index_ci_observations ON event_index(workspace_revision)
       WHERE json_extract(event_json, '$.schema') = 'ci-run-observation/v3';
+    CREATE INDEX IF NOT EXISTS event_index_schedule_events ON event_index(workspace_revision)
+      WHERE json_extract(event_json, '$.schema') = 'schedule-event/v1';
+    CREATE INDEX IF NOT EXISTS event_index_schedule_entity ON event_index (
+      json_extract(event_json, '$.entity.id'), workspace_revision
+    ) WHERE json_extract(event_json, '$.schema') = 'schedule-event/v1';
+    CREATE INDEX IF NOT EXISTS event_index_actor_executor ON event_index (
+      json_extract(event_json, '$.actor.executor.id'), workspace_revision
+    ) WHERE
+      json_extract(event_json, '$.schema') IN ('fact-event/v1','decision-event/v1','task-event/v1');
     CREATE TABLE IF NOT EXISTS document (
       path TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL,

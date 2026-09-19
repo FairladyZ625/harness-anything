@@ -106,6 +106,9 @@ test("previous projection DDL is replaced on reopen and hot reads use their inde
       assert.deepEqual(projection.readRuntimeDispatches(), []);
       assert.deepEqual(projection.readRuntimeSessionEvents("missing", 0, 10), []);
       projection.readCiRunObservations(10);
+      assert.deepEqual(projection.readScheduleEvents("missing").events, []);
+      assert.deepEqual(projection.readScheduleEvents().events, []);
+      assert.deepEqual(projection.readScheduleOutputEvents(["missing"]), []);
     } finally {
       DatabaseSync.prototype.prepare = prepare;
       projection.close();
@@ -118,6 +121,9 @@ test("previous projection DDL is replaced on reopen and hot reads use their inde
         ["runtime_dispatch_requested' ORDER BY", [], "event_index_runtime_dispatches"],
         ["WHERE workspace_revision > ? AND json_extract", [0, "missing", 10], "event_index_runtime_session"],
         ["ci-run-observation/v3", [10], "event_index_ci_observations"],
+        ["'schedule-event/v1' AND json_extract", ["missing"], "event_index_schedule_entity"],
+        ["'schedule-event/v1' ORDER BY", [], "event_index_schedule_events"],
+        ["actor.executor.id", ["runtime-session:missing"], "event_index_actor_executor"],
       ] as const) {
         const sql = statements.find((statement) => statement.includes(part));
         assert.ok(sql, part);
