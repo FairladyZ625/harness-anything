@@ -3,7 +3,7 @@ import path from "node:path";
 import type { TaskProjection } from "../../kernel/src/index.ts";
 import { resolveHarnessLayout } from "../../kernel/src/index.ts";
 import { agentRolePrompt, sharedExecutionDiscipline } from "./agent-role-prompts.ts";
-import { runtimeTypeMatchesKind } from "./agent-runtime-contract.ts";
+import { agentRuntimeTargetSummary, agentRuntimeKindMatches } from "./agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import { type ResolvedAgentSkill } from "./agent-skills.ts";
 import { resolveContainedPath } from "./contained-path.ts";
@@ -79,7 +79,7 @@ export function resolveRuntimeInstanceCandidates(input: {
   readonly agent: RuntimeAgent | null;
   readonly model?: string;
   /** The concrete kind selected for an unbound runtime dispatch. */
-  readonly runtimeType?: string;
+  readonly runtimeKind?: string;
   readonly instances: readonly RuntimeInstanceSummary[];
   readonly sessions: readonly RuntimeSessionSelection[];
 }): string[] {
@@ -88,28 +88,47 @@ export function resolveRuntimeInstanceCandidates(input: {
     if (session) return [session.instanceId];
   }
   if (input.requested) return [input.requested];
-  const declaredModel = input.model ?? input.agent?.model;
-  const declaredType = input.runtimeType ?? input.agent?.runtime_type;
+  // input.model is the dispatch-level override (--model); the per-kind declared model lives
+  // on the matching runtimes row and applies only when no override was given.
+  const declaredModel = input.model,
+    declaredType = input.runtimeKind,
+    declaredTargets = input.agent?.runtimes;
   const typed = input.instances.filter(
     (instance) =>
       instance.enabled &&
-      (declaredType === undefined || declaredType === "any" || runtimeTypeMatchesKind(declaredType, instance.kindId)),
+      (declaredType === undefined || declaredType === instance.kindId) &&
+      (declaredTargets === undefined || agentRuntimeKindMatches(declaredTargets, instance.kindId)),
   );
-  const declared = declaredModel ? typed.filter((instance) => instance.models.includes(declaredModel)) : typed;
+  const declared = declaredModel
+    ? typed.filter((instance) => instance.models.includes(declaredModel))
+    : typed.filter((instance) => {
+        const target = declaredTargets?.find((row) => row.type === instance.kindId);
+        return target?.model === undefined || instance.models.includes(target.model);
+      });
+  const targetSummary =
+    declaredTargets === undefined ? (declaredType ?? "any") : agentRuntimeTargetSummary(declaredTargets);
   if (declared.length === 0) {
     const typeCandidates = typed.length > 0;
-    if (input.agent && declaredType !== "any" && !typeCandidates)
+    if (input.agent && !typeCandidates)
       throw runtimeSpawnError(
         "agent_runtime_unavailable",
-        `Agent ${input.agent.id} requires ${declaredType}, ` +
-          `but no enabled ${declaredType} instance is available on this node.`,
+        `Agent ${input.agent.id} requires ${targetSummary}, ` +
+          "but no enabled instance of those runtime kinds is available on this node.",
       );
+    // A model constraint excluded every typed instance: name it whether it came from the
+    // --model override or from the runtimes row binding each kind's model.
+    const modelConstraint =
+      declaredModel ??
+      declaredTargets
+        ?.filter((row) => row.model !== undefined && typed.some((instance) => instance.kindId === row.type))
+        .map((row) => row.model)
+        .join(", ");
     throw runtimeSpawnError(
-      declaredModel && typeCandidates ? "agent_model_unavailable" : "agent_runtime_unavailable",
-      declaredModel && typeCandidates
+      typeCandidates ? "agent_model_unavailable" : "agent_runtime_unavailable",
+      typeCandidates
         ? [
             "No enabled runtime instance declares model ",
-            `${declaredModel}`,
+            `${modelConstraint}`,
             "; add it to an instance or remove the Agent model declaration.",
           ].join("")
         : declaredModel
@@ -117,10 +136,10 @@ export function resolveRuntimeInstanceCandidates(input: {
               "No enabled runtime instance declares model ",
               `${declaredModel}`,
               "; no instance is compatible with runtime type ",
-              `${declaredType ?? "any"}`,
+              targetSummary,
               ".",
             ].join("")
-          : `No enabled runtime instance is compatible with runtime type ${declaredType ?? "any"}.`,
+          : `No enabled runtime instance is compatible with runtime type ${targetSummary}.`,
     );
   }
   const ready = declared.filter(
@@ -132,7 +151,7 @@ export function resolveRuntimeInstanceCandidates(input: {
       "runtime_model_not_ready",
       declaredModel
         ? `Runtime instances declare model ${declaredModel}, but none are authentication-ready.`
-        : `Compatible runtime instances exist for ${declaredType ?? "any"}, but none are authentication-ready.`,
+        : `Compatible runtime instances exist for ${targetSummary}, but none are authentication-ready.`,
     );
   const active = new Map<string, number>(ready.map((instance) => [instance.instanceId, 0]));
   for (const session of input.sessions)

@@ -1,4 +1,4 @@
-import { runtimeTypeMatchesKind } from "../agent-runtime-contract.ts";
+import { agentRuntimeKindMatches } from "../agent-runtime-contract.ts";
 import { SCHEDULE_MIN_EVERY_MS } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, rejectSecretKeys } from "./json-rpc-types.ts";
 
@@ -35,7 +35,7 @@ export type ScheduleGuiAgentOptionDto =
   | {
       readonly agentId: string;
       readonly name: string;
-      readonly runtimeType: string;
+      readonly runtimes: readonly { readonly type: string; readonly model?: string }[];
     }
   | {
       readonly agentId: string;
@@ -60,13 +60,13 @@ export interface ScheduleGuiOptionsDto {
   }[];
 }
 
-/** An agent runs only on instances whose kind its runtime type accepts; no agent means every instance. */
+/** An agent runs only on instances whose kind its runtime targets accept; no agent means every instance. */
 export function compatibleScheduleInstances(
   agent: Extract<ScheduleGuiAgentOptionDto, { readonly name: string }> | null,
   instances: ScheduleGuiOptionsDto["instances"],
 ): ScheduleGuiOptionsDto["instances"] {
   if (agent === null) return instances;
-  return instances.filter((instance) => runtimeTypeMatchesKind(agent.runtimeType, instance.kindId));
+  return instances.filter((instance) => agentRuntimeKindMatches(agent.runtimes, instance.kindId));
 }
 
 /**
@@ -436,7 +436,18 @@ function validAgentOption(agent: unknown): boolean {
       ["invalid", "missing"].includes(String(agent.state)) &&
       validProjectionError(agent.error)
     );
-  return Object.keys(agent).length === 3 && scheduleNonEmptyText(agent.name) && scheduleNonEmptyText(agent.runtimeType);
+  return (
+    Object.keys(agent).length === 3 &&
+    scheduleNonEmptyText(agent.name) &&
+    Array.isArray(agent.runtimes) &&
+    agent.runtimes.every(
+      (target: unknown) =>
+        isJsonObject(target) &&
+        Object.keys(target).every((key) => ["type", "model"].includes(key)) &&
+        scheduleNonEmptyText(target.type) &&
+        (target.model === undefined || scheduleNonEmptyText(target.model)),
+    )
+  );
 }
 
 function validProjectionError(value: unknown): boolean {

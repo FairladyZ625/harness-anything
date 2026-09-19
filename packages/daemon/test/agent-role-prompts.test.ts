@@ -10,7 +10,7 @@ for (const role of ["worker", "commander"] as const)
         id: role,
         name: role,
         instructions: "Do the assigned work.",
-        runtime_type: "codex",
+        runtimes: [{ type: "codex" }],
         role,
       },
       "Run the targeted test.",

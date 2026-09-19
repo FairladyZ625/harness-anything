@@ -1,5 +1,8 @@
 import { type ReactNode } from "react";
-import type { AgentRuntimeSessionDto } from "../../../../../daemon/src/agent-runtime-contract.ts";
+import {
+  agentRuntimeTargetSummary,
+  type AgentRuntimeSessionDto,
+} from "../../../../../daemon/src/agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
 import type { AgentEntityAvailableRow, SquadEntityAvailableRow } from "../../agent-entity-client.ts";
 import { formatTime } from "../../model/time.ts";
@@ -240,7 +243,7 @@ function AgentFacts({
       <Section title={t("agentRuntime.inspectorDefinition")}>
         <KV>
           <KVRow name="role">{agent.role}</KVRow>
-          <KVRow name="runtime_type">{agent.runtimeType || "—"}</KVRow>
+          <KVRow name="runtimes">{agentRuntimeTargetSummary(agent.runtimes)}</KVRow>
           <KVRow name="layer">{agent.layer}</KVRow>
         </KV>
       </Section>

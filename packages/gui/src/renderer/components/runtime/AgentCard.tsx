@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Eye } from "@phosphor-icons/react";
 import type { AgentDeclarationV1 } from "../../../../../daemon/src/protocol/daemon-protocol-gui-types.ts";
 import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
-import { runtimeTypeMatchesKind } from "../../../../../daemon/src/agent-runtime-contract.ts";
+import { agentRuntimeKindMatches } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import type {
   AgentEntityAvailableRow,
   AgentEntityDetail,
@@ -37,8 +37,8 @@ import {
 export type AgentDraft = {
   readonly name: string;
   readonly role: "worker" | "commander";
-  readonly runtimeType: string;
-  readonly model: string;
+  /** One row per accepted runtime kind; model "" means the instance default. */
+  readonly runtimes: readonly { readonly type: string; readonly model: string }[];
   readonly preset: string;
   readonly skills: readonly { readonly id: string; readonly path: string }[];
   readonly instructions: string;
@@ -53,8 +53,7 @@ export type AgentDraft = {
 export const agentDraftFrom = (detail: AgentEntityDetail): AgentDraft => ({
   name: detail.name,
   role: detail.role,
-  runtimeType: detail.runtimeType,
-  model: detail.model ?? "",
+  runtimes: detail.runtimes.map((target) => ({ type: target.type, model: target.model ?? "" })),
   preset: detail.preset ?? "",
   skills: detail.skills,
   instructions: detail.instructions,
@@ -69,9 +68,11 @@ export function agentDeclarationFrom(id: string, draft: AgentDraft): AgentDeclar
     id,
     name: draft.name.trim(),
     instructions: draft.instructions,
-    runtime_type: draft.runtimeType.trim(),
+    runtimes: draft.runtimes.map((target) => ({
+      type: target.type,
+      ...(target.model.trim() ? { model: target.model.trim() } : {}),
+    })),
     role: draft.role,
-    ...(draft.model.trim() ? { model: draft.model.trim() } : {}),
     ...(draft.skills.length ? { skills: draft.skills } : {}),
     ...(draft.prompts.filter((prompt) => prompt.trim()).length
       ? { prompts: draft.prompts.map((prompt) => prompt.trim()).filter(Boolean) }
@@ -120,16 +121,42 @@ export function AgentCard({
     [runtimeListOpen, setRuntimeListOpen] = useState(false),
     [skillSearch, setSkillSearch] = useState(""),
     [presetSearch, setPresetSearch] = useState(""),
-    [customModelOpen, setCustomModelOpen] = useState(false),
     [viewingSkill, setViewingSkill] = useState<ViewingSkill | null>(null);
   useEffect(() => {
     setDraft(agentDraftFrom(detail));
   }, [detail]);
   const patch = (value: Partial<AgentDraft>) => setDraft((current) => ({ ...current, ...value }));
   const compatible = instances.filter(
-    (instance) => instance.enabled && runtimeTypeMatchesKind(draft.runtimeType, instance.kindId),
+    (instance) => instance.enabled && agentRuntimeKindMatches(draft.runtimes, instance.kindId),
   );
-  const models = [...new Set(compatible.flatMap((instance) => instance.models))].sort(),
+  const patchRuntime = (kindId: string, value: { readonly model: string }) =>
+      patch({
+        runtimes: draft.runtimes.map((target) => (target.type === kindId ? { ...target, ...value } : target)),
+      }),
+    toggleRuntime = (kindId: string) => {
+      const selected = draft.runtimes.some((target) => target.type === kindId),
+        runtimes = selected
+          ? draft.runtimes.filter((target) => target.type !== kindId)
+          : [...draft.runtimes, { type: kindId, model: "" }];
+      patch({
+        runtimes,
+        // A pinned instance only stays valid while its kind still matches a selected row.
+        instance:
+          draft.instance &&
+          instances.some(
+            (entry) =>
+              entry.enabled && entry.instanceId === draft.instance && agentRuntimeKindMatches(runtimes, entry.kindId),
+          )
+            ? draft.instance
+            : "",
+      });
+    },
+    modelsForKind = (kindId: string) =>
+      [
+        ...new Set(
+          instances.filter((entry) => entry.enabled && entry.kindId === kindId).flatMap((entry) => entry.models),
+        ),
+      ].sort(),
     filteredSkills = availableSkills.filter(
       (skill) =>
         !draft.skills.some((selected) => selected.id === skill.id) &&
@@ -410,31 +437,51 @@ export function AgentCard({
         </Sect>
 
         <Sect title={t("agentRuntime.runtimeConstraint")} desc={t("agentRuntime.runtimeConstraintDesc")}>
-          <div className="flex flex-wrap items-center gap-2">
-            <SegCtl
-              label={t("agentRuntime.runtimeConstraint")}
-              value={draft.runtimeType}
-              onChange={(runtimeType) =>
-                patch({
-                  runtimeType,
-                  // A pinned instance only stays valid while its kind still matches the new type.
-                  instance:
-                    draft.instance &&
-                    instances.some(
-                      (entry) =>
-                        entry.enabled &&
-                        entry.instanceId === draft.instance &&
-                        runtimeTypeMatchesKind(runtimeType, entry.kindId),
-                    )
-                      ? draft.instance
-                      : "",
-                })
-              }
-              options={[
-                { value: "any", label: t("agentRuntime.anyRuntime") },
-                ...RUNTIME_KIND_IDS.map((kindId) => ({ value: kindId, label: kindId })),
-              ]}
-            />
+          <ChipZone>
+            {draft.runtimes.map((target) => (
+              <Chip
+                key={target.type}
+                tone="mono"
+                onRemove={() => toggleRuntime(target.type)}
+                removeLabel={t("agentRuntime.removeRuntime", { kind: target.type })}
+              >
+                {target.type}
+              </Chip>
+            ))}
+            {RUNTIME_KIND_IDS.filter((kindId) => !draft.runtimes.some((target) => target.type === kindId)).map(
+              (kindId) => (
+                <AddChip key={kindId} onClick={() => toggleRuntime(kindId)}>
+                  + {kindId}
+                </AddChip>
+              ),
+            )}
+          </ChipZone>
+          {draft.runtimes.length === 0 && <Hint>{t("agentRuntime.anyRuntimeHint")}</Hint>}
+          {draft.runtimes.map((target) => {
+            const kindModels = modelsForKind(target.type),
+              options =
+                target.model === "" || kindModels.includes(target.model) ? kindModels : [...kindModels, target.model];
+            return (
+              <div key={target.type} className="mt-1.5 flex flex-wrap items-center gap-2">
+                <Chip tone="mono">{target.type}</Chip>
+                <select
+                  aria-label={t("agentRuntime.modelForKind", { kind: target.type })}
+                  data-testid={`agent-runtime-model-${target.type}`}
+                  value={target.model}
+                  onChange={(event) => patchRuntime(target.type, { model: event.target.value })}
+                  className="control"
+                >
+                  <option value="">{t("agentRuntime.providerDefault")}</option>
+                  {options.map((model) => (
+                    <option key={model} value={model}>
+                      {model}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            );
+          })}
+          <div className="mt-2 flex flex-wrap items-center gap-2">
             <select
               aria-label={t("agentRuntime.instanceAssignment")}
               data-testid="agent-instance-select"
@@ -468,36 +515,6 @@ export function AgentCard({
             <Btn size="sm" variant="ghost" onClick={() => setRuntimeListOpen(!runtimeListOpen)}>
               {t(runtimeListOpen ? "agentRuntime.collapse" : "agentRuntime.expand")}
             </Btn>
-            <select
-              aria-label={t("agentRuntime.modelPreference")}
-              data-testid="agent-model-select"
-              value={models.includes(draft.model) ? draft.model : ""}
-              onChange={(event) => {
-                patch({ model: event.target.value });
-                setCustomModelOpen(false);
-              }}
-              className="control"
-            >
-              <option value="">{t("agentRuntime.providerDefault")}</option>
-              {models.map((model) => (
-                <option key={model} value={model}>
-                  {model}
-                </option>
-              ))}
-            </select>
-            <Btn size="sm" variant="ghost" onClick={() => setCustomModelOpen(!customModelOpen)}>
-              {t("agentRuntime.customModelOverride")}
-            </Btn>
-            {(customModelOpen || (draft.model && !models.includes(draft.model))) && (
-              <TextInput
-                label={t("agentRuntime.customModelOverride")}
-                testId="agent-model-custom"
-                mono
-                value={draft.model}
-                onChange={(model) => patch({ model })}
-                placeholder={t("agentRuntime.modelPreferencePlaceholder")}
-              />
-            )}
           </div>
           {runtimeListOpen && (
             <div className="mt-2 rounded border border-border px-2 py-1.5">

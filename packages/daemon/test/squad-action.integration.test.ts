@@ -35,14 +35,14 @@ const owner = {
     id: "squad-leader",
     name: "Squad Leader",
     instructions: "Coordinate the declared workers and synthesize their evidence.",
-    runtime_type: "codex",
+    runtimes: [{ type: "codex" }],
   },
   worker = {
     schema: "agent-declaration/v1",
     id: "squad-worker",
     name: "Squad Worker",
     instructions: "Complete one bounded assignment and report evidence.",
-    runtime_type: "codex",
+    runtimes: [{ type: "codex" }],
   },
   squad = {
     schema: "squad-declaration/v1",

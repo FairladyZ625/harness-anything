@@ -9,8 +9,7 @@ const installed: AgentDeclarationV1 = {
   id: "closeout-reviewer",
   name: "Repository reviewer",
   instructions: "Review precisely.",
-  runtime_type: "codex",
-  model: "review-model",
+  runtimes: [{ type: "codex", model: "review-model" }],
   role: "worker",
 };
 
@@ -42,7 +41,7 @@ test("installed Agent declarations shadow the bundled product declaration", () =
   });
   assert.ok(bundled);
   assert.equal(bundled.layer, "bundled");
-  assert.equal(bundled.declaration.model, undefined);
+  assert.deepEqual(bundled.declaration.runtimes, []);
 
   const resolved = readAgentDeclarationResolution({
     rootDir: "/unused",
@@ -52,10 +51,10 @@ test("installed Agent declarations shadow the bundled product declaration", () =
   assert.ok(resolved);
   assert.equal(resolved.layer, "installed");
   assert.equal(resolved.declaration.name, "Repository reviewer");
-  assert.equal(
+  assert.deepEqual(
     readAgentDeclaration({ rootDir: "/unused", agentId: "closeout-reviewer", entityStore: entityStore(installed) })
-      .model,
-    "review-model",
+      .runtimes,
+    [{ type: "codex", model: "review-model" }],
   );
 });
 
@@ -67,5 +66,35 @@ test("unknown and invalid Agent ids resolve as absent", () => {
   assert.equal(
     readAgentDeclarationResolution({ rootDir: "/unused", agentId: "../invalid", entityStore: entityStore(null) }),
     null,
+  );
+});
+
+test("an installed declaration the current schema rejects resolves as an actionable reinstall error", () => {
+  const invalidStore = {
+    upsert: () => {
+      throw new Error("unused");
+    },
+    // The entity store throws exactly this for a stored declaration the schema rejects.
+    get: () => {
+      throw Object.assign(
+        new Error(
+          'agent declaration is missing required field "runtimes".; agent declaration field "runtime_type" is unknown; remove it.',
+        ),
+        { code: "invalid_entity_contract" },
+      );
+    },
+    list: () => [],
+  } as unknown as EntityStore;
+  assert.throws(
+    () => readAgentDeclaration({ rootDir: "/unused", agentId: "legacy-worker", entityStore: invalidStore }),
+    (error: unknown) => {
+      assert.equal((error as { code?: string }).code, "agent_declaration_invalid");
+      assert.match(String((error as Error).message), /ha agent install --source harness\/agents\/legacy-worker\.json/u);
+      return true;
+    },
+  );
+  assert.throws(
+    () => readAgentDeclarationResolution({ rootDir: "/unused", agentId: "legacy-worker", entityStore: invalidStore }),
+    (error: unknown) => (error as { code?: string }).code === "agent_declaration_invalid",
   );
 });

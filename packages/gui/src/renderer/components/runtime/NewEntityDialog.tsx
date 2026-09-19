@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { AgentEntityAvailableRow, SquadEntityAvailableRow } from "../../agent-entity-client.ts";
+import { agentRuntimeTargetSummary } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import { t } from "../../i18n/index.tsx";
 import { Avatar, Badge, Btn, CfgRow, Hint, KindDot, Modal, TextInput, WarnBar } from "./parts.tsx";
 
@@ -100,7 +101,10 @@ export function NewEntityDialog({
                 onPick={() => choose(agent.id)}
                 icon={<Avatar id={agent.id} />}
                 title={agent.name}
-                desc={t("agentRuntime.agentTemplateDesc", { role: agent.role, runtime: agent.runtimeType || "any" })}
+                desc={t("agentRuntime.agentTemplateDesc", {
+                  role: agent.role,
+                  runtime: agentRuntimeTargetSummary(agent.runtimes),
+                })}
                 meta={agent.layer}
               />
             ))

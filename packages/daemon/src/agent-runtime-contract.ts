@@ -7,7 +7,7 @@ import {
 } from "../../kernel/src/index.ts";
 import { validAgentRuntimeAttemptChain, type AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 export type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
-export type { RuntimeInstallationState } from "../../kernel/src/index.ts";
+export type { AgentRuntimeTargetV1, RuntimeInstallationState } from "../../kernel/src/index.ts";
 export interface AgentRuntimeInstallationDto {
   readonly installationId: string;
   readonly kindId: string;
@@ -50,8 +50,40 @@ export interface AgentRuntimeInstallationErrorDto {
   readonly code: "runtime_installation_not_found";
   readonly hint: string;
 }
-export const runtimeTypeMatchesKind = (runtimeType: string, kindId: AgentRuntimeInstanceDto["kindId"]): boolean =>
-  runtimeType === "any" || runtimeType === kindId;
+/** An empty target set accepts every runtime kind; otherwise the instance kind must appear as a row. */
+export const agentRuntimeKindMatches = (
+  runtimes: readonly { readonly type: string }[],
+  kindId: AgentRuntimeInstanceDto["kindId"],
+): boolean => runtimes.length === 0 || runtimes.some((target) => target.type === kindId);
+/** The declaration row binding a runtime kind, used to resolve that kind's declared model. */
+export const agentRuntimeTargetForKind = <T extends { readonly type: string }>(
+  runtimes: readonly T[],
+  kindId: AgentRuntimeInstanceDto["kindId"],
+): T | undefined => runtimes.find((target) => target.type === kindId);
+export const agentRuntimeTargetSummary = (runtimes: readonly { readonly type: string }[]): string =>
+  runtimes.length === 0 ? "any" : runtimes.map((target) => target.type).join(", ");
+/** Verbatim mismatch text for the dispatch guard, naming the whole declared set and the actual kind. */
+export const agentRuntimeKindMismatchDetail = (
+  agentId: string,
+  runtimes: readonly { readonly type: string }[],
+  instanceId: string,
+  kindId: string,
+): string =>
+  [
+    "Agent ",
+    `${agentId}`,
+    " requires ",
+    agentRuntimeTargetSummary(runtimes),
+    ", but instance ",
+    `${instanceId}`,
+    " is ",
+    `${kindId}`,
+    ".",
+  ].join("");
+/** Every declared runtime row pins a model, so no dispatch can land on an instance default. */
+export const agentDeclaresExplicitModels = (
+  runtimes: readonly { readonly type: string; readonly model?: string }[],
+): boolean => runtimes.length > 0 && runtimes.every((target) => target.model !== undefined);
 export interface AgentRuntimeSessionMetricsDto {
   readonly inputTokens: number;
   readonly cacheReadTokens: number;

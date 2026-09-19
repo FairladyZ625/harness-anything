@@ -414,7 +414,7 @@ async function mountSurface(element: ReturnType<typeof createElement>, { seed = 
     viewerNodeId: "local",
     actions: { create: { available: true, code: null, nextAction: null } },
     options: {
-      agents: [{ agentId: AGENT_ID, name: "Probe Agent", runtimeType: "codex" }],
+      agents: [{ agentId: AGENT_ID, name: "Probe Agent", runtimes: [{ type: "codex" }] }],
       instances: [
         {
           instanceId: PROVIDER_ID,

@@ -6,6 +6,10 @@ import {
   makeTaskEventStore,
   openEntityStore,
   openSqliteEventStore,
+  ownedContentForDeclarationEvent,
+  requireEntityStoreKindContract,
+  sha256Text,
+  type EntityUpsertEventV1,
 } from "../../kernel/src/index.ts";
 import {
   prepareAgentEntityInstall,
@@ -19,8 +23,7 @@ export const agent = {
     id: "terra",
     name: "Terra",
     instructions: "Review precisely.",
-    runtime_type: "codex",
-    model: "gpt-5.6-terra",
+    runtimes: [{ type: "codex", model: "gpt-5.6-terra" }],
     skills: [{ id: "review", path: "skills/review" }],
     prompts: ["prompt://review"],
     preset: "standard-task",
@@ -152,4 +155,53 @@ export function writeEntity(
     path.join(target, kind === "agent" ? "agent.json" : "squad.json"),
     `${JSON.stringify(declaration, null, 2)}\n`,
   );
+}
+
+/** The migration-window fixture: one installed Agent declaration in the pre-runtimes shape
+ * (`runtime_type` string plus top-level `model`), appended as a raw entity_upserted command under
+ * the "direct-store" fence holder the fixtures' task event store also uses — the exact way the
+ * old daemon wrote it, bypassing the bundle validation that now refuses that shape. */
+export function appendLegacyAgentDeclaration(rootDir: string): void {
+  const contract = requireEntityStoreKindContract("agent"),
+    value = {
+      schema: "agent-declaration/v1",
+      id: "legacy-worker",
+      name: "Legacy Worker",
+      instructions: "Legacy fixture agent.",
+      runtime_type: "zcode",
+      model: "GLM-5.3",
+    },
+    body = `${JSON.stringify(value, null, 2)}\n`,
+    claim = {
+      path: "agents/legacy-worker.json",
+      sha256: sha256Text(body),
+      size: Buffer.byteLength(body),
+      mediaType: contract.entityStore.document.mediaType,
+      policyId: contract.entityStore.document.policyId,
+    },
+    seed: EntityUpsertEventV1 = {
+      schema: "entity-event/v1",
+      eventId: "event-legacy-worker",
+      workspaceRevision: 1,
+      opId: "op-legacy-worker",
+      actor: { principal: { personId: "agent-entities-test" }, executor: null },
+      source: "local",
+      occurredAt: "2026-09-18T00:00:00.000Z",
+      type: "entity_upserted",
+      payload: { entityKind: "agent", entityId: "legacy-worker", declarationDocumentClaim: claim },
+    },
+    event = { ...seed, payload: { ...seed.payload, ownedContent: ownedContentForDeclarationEvent(seed) } },
+    fence = { repoId: "agent-entities", holder: "direct-store", epoch: 1 } as const,
+    writer = openSqliteEventStore({ repoId: "agent-entities", rootInput: rootDir });
+  try {
+    writer.claimWriter(fence);
+    writer.appendCommand({
+      fence,
+      intent: { opId: seed.opId, intentDigest: `sha256:${"a".repeat(64)}`, summary: seed.type },
+      events: [event],
+      blobs: [{ sha256: claim.sha256, size: claim.size, mediaType: claim.mediaType, body }],
+    });
+  } finally {
+    writer.close();
+  }
 }

@@ -146,7 +146,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
                 id: "probe-agent",
                 name: "Probe Agent",
                 instructions: "Run the exact probe mission.",
-                runtime_type: "codex",
+                runtimes: [{ type: "codex" }],
                 instance: definition.instanceId,
                 fallback: {
                   providerPriority: [definition.providerId, "openai-secondary"],
@@ -629,7 +629,7 @@ test(
                 id: "probe-agent",
                 name: "Probe Agent",
                 instructions: "Run the exact probe mission.",
-                runtime_type: "codex",
+                runtimes: [{ type: "codex" }],
                 instance: definition.instanceId,
               },
             },

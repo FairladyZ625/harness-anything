@@ -280,7 +280,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
             id: "sol-reviewer",
             name: "Sol Reviewer",
             instructions: "Include AGENT_CLI_INGRESS_WITNESS in the review.",
-            runtime_type: "codex",
+            runtimes: [{ type: "codex" }],
             instance: ingressDefinition.instanceId,
             permissionMode: "read-only",
             role: "worker",

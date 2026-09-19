@@ -254,14 +254,14 @@ async function installSquad(cell: Awaited<ReturnType<typeof openRepoCell>>): Pro
       id: "parent-leader",
       name: "Parent Leader",
       instructions: "Delegate work.",
-      runtime_type: "codex",
+      runtimes: [{ type: "codex" }],
     },
     {
       schema: "agent-declaration/v1",
       id: "parent-worker",
       name: "Parent Worker",
       instructions: "Do the work.",
-      runtime_type: "codex",
+      runtimes: [{ type: "codex" }],
     },
     {
       schema: "squad-declaration/v1",

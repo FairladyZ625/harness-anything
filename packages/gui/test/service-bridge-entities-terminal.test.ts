@@ -42,10 +42,9 @@ test("GUI entity write channel validates then installs an Agent and preserves a 
         id: "gui-created-agent",
         name: "GUI Created Agent",
         instructions: "Keep the roster intact.\nSecond line.",
-        runtime_type: "codex",
+        runtimes: [{ type: "codex", model: "gpt-5.6-terra" }],
         instance: "codex-gui",
         role: "commander",
-        model: "gpt-5.6-terra",
         skills: [{ id: "review", path: "skills/review" }],
         prompts: ["prompt://gui"],
         preset: "standard-task",
@@ -110,7 +109,7 @@ test("GUI entity write channel validates then installs an Agent and preserves a 
         agentId: "gui-created-agent",
       }),
     );
-    assert.equal(shownAgent.agent.model, "gpt-5.6-terra");
+    assert.deepEqual(shownAgent.agent.runtimes, [{ type: "codex", model: "gpt-5.6-terra" }]);
     assert.equal(shownAgent.agent.role, "commander");
     const shown = parseDaemonGuiReadResult(
       "repo.squad.entity.read",

@@ -25,7 +25,9 @@ import {
   runtimeSessionId,
 } from "../domain/agent-runtime.ts";
 import { contractForDeclarationEvent, isEntityDeclarationEvent, isEntityEvent } from "../domain/entity-event.ts";
-import { interpretEntityValue } from "../domain/entity-kind-projection.ts";
+import { interpretEntityValue, type InterpretedEntityValue } from "../domain/entity-kind-projection.ts";
+import { EntitySchemaContractError } from "../domain/entity-json-schema.ts";
+import { consumeKnownError } from "../error-consumption.ts";
 import { isTaskBootstrapEvent, taskBootstrapPackagePath } from "../domain/task-bootstrap-event.ts";
 import { isTaskProgressEvent } from "../domain/task-progress-event.ts";
 import { isPresetSnapshotUpgradeEvent } from "../domain/preset-snapshot-upgrade-event.ts";
@@ -54,6 +56,7 @@ import {
 import {
   deleteEntityProjectionRow,
   markEntityProjectionMissing,
+  markEntityProjectionUninterpretable,
   projectEmbeddedCanonicalEntities,
   projectInterpretedEntityValue,
   projectRuntimeSessionCanonicalEntity,
@@ -204,9 +207,39 @@ export function applyEvent(
     } catch {
       throw new Error(`entity declaration blob ${claim.sha256} is not JSON`);
     }
-    const contract = contractForDeclarationEvent(event),
-      entity = interpretEntityValue(contract, value),
-      contractErrors = contract.entityStore.validate?.(entity.value) ?? [];
+    const contract = contractForDeclarationEvent(event);
+    let entity: InterpretedEntityValue;
+    try {
+      entity = interpretEntityValue(contract, value);
+    } catch (error) {
+      // A declaration the current schema rejects (a stored pre-runtimes Agent shape during the
+      // declaration-rewrite window) fails as one row, not as a rebuild: the event and its
+      // declaration document still land, the entity row is marked uninterpretable, and a newer
+      // current-shape event for the same entity overwrites the degraded row. Storage corruption
+      // (missing blob, non-UTF-8, non-JSON, identity mismatch) keeps failing the rebuild loudly.
+      if (!(error instanceof EntitySchemaContractError)) throw error;
+      consumeKnownError(error);
+      const degraded: DocumentState = {
+        path: claim.path as DocumentState["path"],
+        blobSha256: claim.sha256,
+        body,
+        size: docByteLength(claim.size),
+        mediaType: claim.mediaType,
+        policyId: claim.policyId,
+        workspaceRevision: event.workspaceRevision,
+      };
+      runSql(
+        db,
+        "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
+        event.opId,
+        event.workspaceRevision,
+        eventJson,
+      );
+      runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(degraded));
+      markEntityProjectionUninterpretable(db, contract.kind, event.payload.entityId, event.workspaceRevision, value);
+      return;
+    }
+    const contractErrors = contract.entityStore.validate?.(entity.value) ?? [];
     if (contractErrors.length) throw new Error(contractErrors.join("; "));
     if (entity.id !== event.payload.entityId)
       throw new Error(`entity declaration blob ${claim.sha256} identity mismatch`);

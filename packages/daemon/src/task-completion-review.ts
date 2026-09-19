@@ -9,7 +9,8 @@ import {
 } from "../../kernel/src/index.ts";
 import { isRuntimeEvent, runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
 import { readDispatchStream } from "./dispatch-stream.ts";
-import { readAgentDeclarationResolution } from "./agent-entities.ts";
+import { readAgentDeclarationResolution, storedAgentDeclarationOutcome } from "./agent-entities.ts";
+import { agentDeclaresExplicitModels, agentRuntimeTargetSummary } from "./agent-runtime-contract.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import { reviewDispatchIds, reviewDispatchPrompt } from "./task-review-dispatch.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
@@ -78,22 +79,30 @@ export async function dispatchCompletionReview(
         execution.submission!.completionContract?.reviewer?.agentId ??
         cell.settings.readRepository().defaultReviewer ??
         "closeout-reviewer";
-      const resolved = readAgentDeclarationResolution({
-        rootDir: cell.rootDir,
+      // A reviewer whose stored declaration fails the current schema (the rewrite window) stops
+      // the review gate with the reinstall command; the raw contract message never surfaces.
+      const outcome = storedAgentDeclarationOutcome({
         agentId: reviewerId,
-        entityStore: createEntityStore(cell.store),
+        read: () =>
+          readAgentDeclarationResolution({
+            rootDir: cell.rootDir,
+            agentId: reviewerId,
+            entityStore: createEntityStore(cell.store),
+          }),
       });
-      if (!resolved)
+      if (outcome.kind === "invalid")
+        return stopped(`ha agent install --source harness/agents/${reviewerId}.json`, outcome.error.message);
+      if (outcome.kind === "missing")
         return stopped(
           "ha agent install --source <closeout-reviewer-declaration>",
           `Reviewer ${reviewerId} is not bundled or installed. Install a repository override, or select an available ` +
             "reviewer with ha settings update --default-reviewer <agent-id>, then retry completion.",
         );
-      const { declaration: agent, layer } = resolved;
-      if (layer === "installed" && !agent.model)
+      const { declaration: agent, layer } = outcome.value;
+      if (layer === "installed" && !agentDeclaresExplicitModels(agent.runtimes))
         return stopped(
           "ha agent install --source <closeout-reviewer-declaration>",
-          `Declare an explicit model for reviewer ${reviewerId}, then retry completion. ` +
+          `Declare an explicit model on every runtimes row for reviewer ${reviewerId}, then retry completion. ` +
             "Installed reviewer overrides must not select an instance default model.",
         );
       const payload = {
@@ -150,10 +159,12 @@ export async function dispatchCompletionReview(
           ...stopped(
             "ha runtime instance list",
             layer === "bundled"
-              ? `Bundled reviewer ${reviewerId} needs a ready ${agent.runtime_type} runtime instance; configure one, ` +
+              ? `Bundled reviewer ${reviewerId} needs a ready runtime instance matching ` +
+                  `${agentRuntimeTargetSummary(agent.runtimes)}; configure one, ` +
                   "then retry completion. Its configured default model will be used."
-              : `Reviewer ${reviewerId} requires model ${agent.model}; configure a ready compatible instance, ` +
-                  "then retry completion. The declared model is not replaced by an instance default.",
+              : `Reviewer ${reviewerId} requires a ready runtime instance matching ` +
+                  `${agentRuntimeTargetSummary(agent.runtimes)} and its declared models; ` +
+                  "configure one, then retry completion.",
           ),
           diagnostic: { kind: "failure", code: String(error.code) },
           rejectionExplanation: error.message,

@@ -17,6 +17,7 @@ import type {
   AgentFallbackDeclarationV1,
   AgentPermissionMode,
   AgentRole,
+  AgentRuntimeTargetV1,
   AgentSkillDeclarationV1,
   ScheduleRunOutcome,
 } from "../../kernel/src/index.ts";
@@ -135,11 +136,10 @@ export type RuntimeAgent = {
   readonly id: string;
   readonly name: string;
   readonly instructions: string;
-  readonly runtime_type: string;
+  readonly runtimes: readonly AgentRuntimeTargetV1[];
   readonly instance?: string;
   readonly permissionMode?: AgentPermissionMode;
   readonly role?: AgentRole;
-  readonly model?: string;
   readonly skills?: readonly AgentSkillDeclarationV1[];
   readonly prompts?: readonly string[];
   readonly preset?: string;

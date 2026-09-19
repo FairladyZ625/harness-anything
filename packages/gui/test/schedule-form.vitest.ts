@@ -21,7 +21,7 @@ afterEach(() => vi.restoreAllMocks());
 const mounted: { root: Root; container: HTMLElement }[] = [];
 
 const options: ScheduleGuiOptionsDto = {
-  agents: [{ agentId: "probe-agent", name: "Probe Agent", runtimeType: "codex" }],
+  agents: [{ agentId: "probe-agent", name: "Probe Agent", runtimes: [{ type: "codex" }] }],
   instances: [
     {
       instanceId: "codex-schedule",
@@ -239,7 +239,7 @@ describe("segmented guided form (M5)", () => {
   it("offers only the instances the selected agent's runtime type can run", async () => {
     const mixed: ScheduleGuiOptionsDto = {
       ...options,
-      agents: [...options.agents, { agentId: "any-agent", name: "Any Agent", runtimeType: "any" }],
+      agents: [...options.agents, { agentId: "any-agent", name: "Any Agent", runtimes: [] }],
       instances: [
         ...options.instances,
         {
@@ -272,7 +272,7 @@ describe("segmented guided form (M5)", () => {
       [...container.querySelectorAll<HTMLSelectElement>('[data-testid="schedule-form-instance"] option')].map(
         (option) => option.value,
       );
-    // probe-agent declares runtimeType codex, so the claude instance is not offered.
+    // probe-agent declares runtimes codex, so the claude instance is not offered.
     expect(instanceOptions()).toEqual(["codex-schedule"]);
     const agent = container.querySelector<HTMLSelectElement>('[data-testid="schedule-form-agent"]');
     await act(async () => {

@@ -83,7 +83,7 @@ provider session id。
 `nextAction` 提供续跑命令。
 leader 使用 `--agent <leader-id> --to <worker-id>` 时，同一条 dispatch artifact 还会记录声明的
 `squadId`、worker `agentId` 与 `delegatedByAgentId`；目标必须属于该 leader 的 roster，且开放的
-`runtime_type` 必须与封闭的实例 kind 一致。
+`runtimes` 集合必须包含封闭的实例 kind。
 
 派活绑定 task 时,daemon 还会通过 canonical doc sync 发布终态工作产物。一次批量写入创建
 `artifacts/missions/<dispatch-id>.md`、`artifacts/dispatches/<dispatch-id>.json` 与

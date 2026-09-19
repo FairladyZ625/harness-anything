@@ -78,7 +78,7 @@ const probeAgent = {
   id: "probe-agent",
   name: "Probe Agent",
   instructions: "Inspect scheduled work.",
-  runtime_type: "codex",
+  runtimes: [{ type: "codex" }],
 };
 
 function guiContext(overrides: Partial<SchedulesGuiReadContext> = {}): SchedulesGuiReadContext {
@@ -251,7 +251,7 @@ test("the schedules list validator locks the joined wire shape", () => {
   assert.equal(row.actions.enable.code, "no_changes");
   assert.equal(result.actions.create.available, true);
   assert.deepEqual(result.options, {
-    agents: [{ agentId: "probe-agent", name: "Probe Agent", runtimeType: "codex" }],
+    agents: [{ agentId: "probe-agent", name: "Probe Agent", runtimes: [{ type: "codex" }] }],
     instances: [],
   });
   assert.equal(row.watermarkParent, undefined);
@@ -377,7 +377,7 @@ test("malformed definitions degrade to invalid rows while trigger DTO variants r
 });
 
 test("invalid Agent options and schedules with unavailable Agent targets degrade row by row", () => {
-  const invalidAgent = { ...probeAgent, id: "broken-agent", name: "Broken Agent", runtime_type: "NOT VALID" },
+  const invalidAgent = { ...probeAgent, id: "broken-agent", name: "Broken Agent", runtimes: [{ type: "NOT VALID" }] },
     invalidTarget = {
       ...armedSchedule,
       scheduleId: "invalid-target",
@@ -427,11 +427,11 @@ test("invalid Agent options and schedules with unavailable Agent targets degrade
       hint: (result.options.agents[0] as { readonly error: { readonly hint: string } }).error.hint,
     },
   });
-  assert.match((result.options.agents[0] as { readonly error: { readonly hint: string } }).error.hint, /runtime_type/u);
+  assert.match((result.options.agents[0] as { readonly error: { readonly hint: string } }).error.hint, /runtimes/u);
   assert.deepEqual(result.options.agents[1], {
     agentId: "probe-agent",
     name: "Probe Agent",
-    runtimeType: "codex",
+    runtimes: [{ type: "codex" }],
   });
   const healthy = result.schedules.find((row) => row.scheduleId === "heartbeat-probe")!,
     invalid = result.schedules.find((row) => row.scheduleId === "invalid-target")!,

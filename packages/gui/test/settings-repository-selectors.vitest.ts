@@ -191,7 +191,7 @@ const AGENT_ROWS = [
   {
     id: "arch-reviewer",
     name: "Arch Reviewer",
-    runtimeType: "codex",
+    runtimes: [{ type: "codex" }],
     instance: null,
     permissionMode: null,
     role: "worker",

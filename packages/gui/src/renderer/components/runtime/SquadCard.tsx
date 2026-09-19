@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { SquadDeclarationV1 } from "../../../../../daemon/src/protocol/daemon-protocol-gui-types.ts";
+import { agentRuntimeTargetSummary } from "../../../../../daemon/src/agent-runtime-contract.ts";
 import type { AgentEntityAvailableRow, SquadEntityDetail } from "../../agent-entity-client.ts";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
@@ -347,7 +348,7 @@ function SlotConfig({
         >
           {agents.map((agent) => (
             <option key={agent.id} value={agent.id}>
-              {agent.name} · {agent.role} · {agent.runtimeType}
+              {agent.name} · {agent.role} · {agentRuntimeTargetSummary(agent.runtimes)}
             </option>
           ))}
           {agents.some((agent) => agent.id === current) ? null : (

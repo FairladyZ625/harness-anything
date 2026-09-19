@@ -374,7 +374,7 @@ test("Agent and Squad writes stay on the daemon allowlist and reject secret-shap
       id: "fable",
       name: "Fable",
       instructions: "Review.",
-      runtime_type: "any",
+      runtimes: [],
     },
   };
   const squad = {

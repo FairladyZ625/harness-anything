@@ -122,7 +122,7 @@ time when the provider supplies one and a resume command in `nextAction`.
 When a leader supplies `--agent <leader-id> --to <worker-id>`, the same
 dispatch artifact records `squadId`, worker `agentId`, and
 `delegatedByAgentId`; the target must be that leader's roster member and its
-open `runtime_type` must match the closed instance kind.
+open `runtimes` set must contain the closed instance kind.
 
 When a dispatch is task-bound, the daemon also publishes its terminal work
 artifacts through canonical doc sync. One batch creates

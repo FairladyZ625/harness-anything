@@ -1,4 +1,5 @@
 import type { AgentEntityGuiAvailableRow } from "../../../../daemon/src/agent-entities.ts";
+import { agentRuntimeTargetSummary } from "../../../../daemon/src/agent-runtime-contract.ts";
 import type { ScheduleGuiRowDto } from "../../../../daemon/src/protocol/schedules-gui-contract.ts";
 import type { RelationEdge } from "../model/types";
 
@@ -21,7 +22,7 @@ export interface AgentNodeRow {
   /** 图键空间 id:`agent/<id>`。 */
   readonly id: string;
   readonly name: string;
-  /** chip 副标(role + runtimeType),纯展示。 */
+  /** chip 副标(role + runtimes 摘要),纯展示。 */
   readonly sub: string;
   /** 派工它的 task 数(领地/卡片徽章用,来自 runtimeEdges 切面)。 */
   readonly taskCount: number;
@@ -39,7 +40,12 @@ export interface ScheduleNodeRow {
 
 /** agent 目录行 → 图节点行。`taskCount` 由切面边数补齐(见 withAgentTaskCounts)。 */
 export function agentNodeRowOf(row: AgentEntityGuiAvailableRow): AgentNodeRow {
-  return { id: agentNodeId(row.id), name: row.name, sub: `${row.role} · ${row.runtimeType}`, taskCount: 0 };
+  return {
+    id: agentNodeId(row.id),
+    name: row.name,
+    sub: `${row.role} · ${agentRuntimeTargetSummary(row.runtimes)}`,
+    taskCount: 0,
+  };
 }
 
 export function scheduleNodeRowOf(row: ScheduleGuiRowDto): ScheduleNodeRow {

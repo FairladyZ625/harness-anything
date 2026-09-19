@@ -102,7 +102,7 @@ function listResult(
     viewerNodeId: "local",
     actions: { create: { available: true, code: null, nextAction: null } },
     options: {
-      agents: [{ agentId: "probe-agent", name: "Probe Agent", runtimeType: "codex" }],
+      agents: [{ agentId: "probe-agent", name: "Probe Agent", runtimes: [{ type: "codex" }] }],
       instances: [
         {
           instanceId: "codex-schedule",

@@ -19,15 +19,18 @@ export type AgentRole = "worker" | "commander";
 export type AgentPermissionMode = "bypass" | "workspace-write" | "read-only";
 export const agentStates = ["configured", "active", "retired"] as const;
 export type AgentState = (typeof agentStates)[number];
+export interface AgentRuntimeTargetV1 {
+  readonly type: string;
+  readonly model?: string;
+}
 export interface AgentDeclarationV1 {
   readonly id: string;
   readonly name: string;
   readonly instructions: string;
-  readonly runtime_type: string;
+  readonly runtimes: readonly AgentRuntimeTargetV1[];
   readonly instance?: string;
   readonly permissionMode?: AgentPermissionMode;
   readonly role?: AgentRole;
-  readonly model?: string;
   readonly skills?: readonly AgentSkillDeclarationV1[];
   readonly prompts?: readonly string[];
   readonly preset?: string;
@@ -52,15 +55,33 @@ export const AGENT_DECLARATION_V1_SCHEMA = Object.freeze({
   $id: "agent-declaration/v1",
   type: "object",
   additionalProperties: false,
-  required: Object.freeze(["schema", "id", "name", "instructions", "runtime_type"]),
+  required: Object.freeze(["schema", "id", "name", "instructions", "runtimes"]),
   properties: Object.freeze({
     schema: { type: "string", const: "agent-declaration/v1", description: "Schema discriminator." },
     id: { ...slug("Stable Agent identity."), "x-error": "must be a lowercase entity slug." },
     name: nonEmptyString("Display name."),
     instructions: nonEmptyString("Agent instructions."),
-    runtime_type: {
-      ...slug("Required runtime kind."),
-      "x-error": "must be a non-empty lowercase runtime identifier such as claude, codex, or opencode.",
+    runtimes: {
+      type: "array",
+      "x-unique-by": "type",
+      description:
+        "Runtime kinds this Agent may dispatch to, each bound to the model used on that kind. " +
+        "An empty array means any compatible runtime kind.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["type"],
+        properties: {
+          type: {
+            ...slug("Runtime kind identifier."),
+            "x-error": "must be a non-empty lowercase runtime identifier such as claude, codex, or opencode.",
+          },
+          model: {
+            ...nonEmptyString("Model used on this runtime kind; omit to use the instance default."),
+            "x-error": "must be a non-empty string.",
+          },
+        },
+      },
     },
     instance: {
       ...slug("Optional node-local runtime instance selection."),
@@ -78,7 +99,6 @@ export const AGENT_DECLARATION_V1_SCHEMA = Object.freeze({
       description: "Prompt discipline role.",
       "x-error": "must be worker or commander.",
     },
-    model: { ...nonEmptyString("Optional model selection."), "x-error": "must be a non-empty string." },
     skills: {
       type: "array",
       "x-unique-by": "id",
@@ -191,12 +211,9 @@ export function serializeAgentDeclarationV1(value: unknown): string {
 export function serializeSquadDeclarationV1(value: unknown): string {
   return serialize(SQUAD_DECLARATION_V1_SCHEMA, value, "squad declaration");
 }
-const runtimeTypeIdentifierPattern = new RegExp(ENTITY_ID_PATTERN, "u");
-export function isRuntimeTypeIdentifier(value: string): boolean {
-  return runtimeTypeIdentifierPattern.test(value);
-}
+const runtimeKindIdentifierPattern = new RegExp(ENTITY_ID_PATTERN, "u");
 export function entitySlug(value: unknown): value is string {
-  return typeof value === "string" && runtimeTypeIdentifierPattern.test(value);
+  return typeof value === "string" && runtimeKindIdentifierPattern.test(value);
 }
 export function entityNonEmpty(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;

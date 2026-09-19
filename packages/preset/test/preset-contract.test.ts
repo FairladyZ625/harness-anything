@@ -119,7 +119,7 @@ test("preset v3 rejects identity kinds and identity fields now that Agent and Sq
   assert.match(
     validatePresetManifestV3({
       ...task,
-      agent: { id: "terra", name: "Terra", instructions: "Review.", runtime_type: "claude" },
+      agent: { id: "terra", name: "Terra", instructions: "Review.", runtimes: [{ type: "claude" }] },
     }).join("\n"),
     /unknown field "agent"/u,
   );

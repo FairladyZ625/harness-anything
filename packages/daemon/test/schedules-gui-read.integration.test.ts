@@ -151,7 +151,7 @@ test(
                   id: "probe-agent",
                   name: "Probe Agent",
                   instructions: "Run the exact probe mission.",
-                  runtime_type: "codex",
+                  runtimes: [{ type: "codex" }],
                 },
               },
               actor,
@@ -193,7 +193,7 @@ test(
         assert.equal(initial.schedules.length, 1);
         assert.deepEqual(initial.actions.create, { available: true, code: null, nextAction: null });
         assert.deepEqual(initial.options.agents, [
-          { agentId: "probe-agent", name: "Probe Agent", runtimeType: "codex" },
+          { agentId: "probe-agent", name: "Probe Agent", runtimes: [{ type: "codex" }] },
         ]);
         assert.equal(initial.options.instances[0]?.instanceId, definition.instanceId);
         assert.deepEqual(initial.options.instances[0]?.models, [definition.model]);

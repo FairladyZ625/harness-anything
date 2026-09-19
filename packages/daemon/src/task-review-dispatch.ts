@@ -10,7 +10,8 @@ import {
   type WriteReceiptDraft,
 } from "../../kernel/src/index.ts";
 import { readSubmissionArtifact } from "./submission-artifacts.ts";
-import { readAgentDeclarationResolution } from "./agent-entities.ts";
+import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./agent-entities.ts";
+import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
@@ -109,14 +110,22 @@ export async function dispatchTaskReview(
       "--execution-id selects exactly one reviewed execution; a batch dispatch reviews each task's submitted cut.",
     );
   const reviewerId =
-      typeof action.agentId === "string" && action.agentId.length > 0
-        ? action.agentId
-        : (cell.settings.readRepository().defaultReviewer ?? "closeout-reviewer"),
+    typeof action.agentId === "string" && action.agentId.length > 0
+      ? action.agentId
+      : (cell.settings.readRepository().defaultReviewer ?? "closeout-reviewer");
+  let resolved;
+  try {
     resolved = readAgentDeclarationResolution({
       rootDir: cell.rootDir,
       agentId: reviewerId,
       entityStore: createEntityStore(cell.store),
     });
+  } catch (error) {
+    // A reviewer whose stored declaration fails the current schema (the rewrite window) rejects
+    // the batch with the reinstall command; the raw contract message never surfaces.
+    if (!isAgentDeclarationInvalid(error)) throw error;
+    throw cell.cellCodedError("review_dispatch_failed", error instanceof Error ? error.message : String(error));
+  }
   if (!resolved)
     throw cell.cellCodedError(
       "review_dispatch_failed",
@@ -124,10 +133,10 @@ export async function dispatchTaskReview(
         "available reviewer with ha task dispatch-review <task-id> --agent <agent-id>.",
     );
   const { declaration: agent, layer } = resolved;
-  if (layer === "installed" && !agent.model && typeof action.model !== "string")
+  if (layer === "installed" && !agentDeclaresExplicitModels(agent.runtimes) && typeof action.model !== "string")
     throw cell.cellCodedError(
       "review_dispatch_failed",
-      `Declare an explicit model for reviewer ${reviewerId}, or pass --model <model>. ` +
+      `Declare an explicit model on every runtimes row for reviewer ${reviewerId}, or pass --model <model>. ` +
         "Installed reviewer overrides must not select an instance default model.",
     );
   const revision = cell.store.readHead()?.revision ?? 0,

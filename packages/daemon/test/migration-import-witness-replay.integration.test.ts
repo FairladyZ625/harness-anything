@@ -430,9 +430,8 @@ function entityBackfillSource(root: string) {
       id: "backfill-agent",
       name: "Backfill Agent",
       instructions: "Preserve the source projection and report migration evidence precisely.",
-      runtime_type: "codex",
+      runtimes: [{ type: "codex", model: "gpt-5.6-terra" }],
       role: "worker",
-      model: "gpt-5.6-terra",
       skills: [],
     },
     schedule = {

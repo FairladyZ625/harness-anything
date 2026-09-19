@@ -118,13 +118,13 @@ const agentRows = [
   {
     id: "fable",
     name: "fable",
-    runtimeType: "claude",
+    runtimes: [{ type: "claude" }],
     role: "commander",
     layer: "user",
   },
-  { id: "luna", name: "luna", runtimeType: "codex", role: "worker", layer: "user" },
-  { id: "sol", name: "sol", runtimeType: "codex", role: "worker", layer: "user" },
-  { id: "terra", name: "terra", runtimeType: "codex", role: "worker", layer: "user" },
+  { id: "luna", name: "luna", runtimes: [{ type: "codex" }], role: "worker", layer: "user" },
+  { id: "sol", name: "sol", runtimes: [{ type: "codex" }], role: "worker", layer: "user" },
+  { id: "terra", name: "terra", runtimes: [{ type: "codex" }], role: "worker", layer: "user" },
 ] as const;
 const squadRows = [
   {
@@ -138,10 +138,10 @@ const squadRows = [
 const agentDetail = {
   id: "fable",
   name: "fable",
-  runtimeType: "claude",
+  runtimes: [{ type: "claude" }],
   role: "commander",
   instructions: "Lead the squad. Decide before dispatch.",
-  model: null,
+
   skills: [
     { id: "review", path: "/Users/test/.claude/skills/review" },
     { id: "triage", path: "/repo/skills/triage" },

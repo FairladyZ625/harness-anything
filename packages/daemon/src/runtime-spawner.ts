@@ -13,7 +13,11 @@ import {
 } from "../../kernel/src/index.ts";
 import { presetDocumentBody } from "../../preset/src/preset-resolver.ts";
 import { presetRuntimeDefaults, presetUserRoot } from "../../preset/src/preset-system.ts";
-import { runtimeTypeMatchesKind } from "./agent-runtime-contract.ts";
+import {
+  agentRuntimeTargetForKind,
+  agentRuntimeKindMismatchDetail,
+  agentRuntimeKindMatches,
+} from "./agent-runtime-contract.ts";
 import { resolveAgentSkills } from "./agent-skills.ts";
 import {
   openDispatchStream,
@@ -419,16 +423,23 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           runtimeSessions,
         ),
       fallbackCandidate = fallbackAttempt?.candidates[fallbackAttempt.attemptIndex],
-      selectedModel = fallbackCandidate?.model ?? model ?? agent?.model ?? undefined,
       runtimeInstanceId = await resolveRuntimeInstanceId({
         requested: fallbackCandidate?.instance ?? explicitRuntimeInstanceId ?? agent?.instance,
         providerSessionId: providerSessionId ?? undefined,
         agent,
-        model: selectedModel,
+        model,
         instances: runtimeInstances,
         sessions: runtimeSessions,
       }),
       runtimeInstance = runtimeInstances.find((instance) => instance.instanceId === runtimeInstanceId),
+      // Model resolution order: --model override > the runtimes row matching the selected
+      // instance's kind > the instance default (undefined defers to prepareLaunch).
+      selectedModel =
+        fallbackCandidate?.model ??
+        model ??
+        (agent && runtimeInstance
+          ? agentRuntimeTargetForKind(agent.runtimes, runtimeInstance.kindId)?.model
+          : undefined),
       configuredPermissionMode = runtimeInstance?.permissionMode ?? undefined,
       declaredPermissionMode = permissionMode ?? agent?.permissionMode,
       effectivePermissionMode = declaredPermissionMode ?? configuredPermissionMode,
@@ -509,20 +520,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           `Set permissionMode to bypass in Agent ${agent?.id ?? "declaration"}.`,
         ].join(""),
       );
-    if (agent && !runtimeTypeMatchesKind(agent.runtime_type, declaredKindId))
+    if (agent && !agentRuntimeKindMatches(agent.runtimes, declaredKindId))
       throw runtimeSpawnError(
         "agent_runtime_type_mismatch",
-        [
-          "Agent ",
-          `${agent.id}`,
-          " requires ",
-          `${agent.runtime_type}`,
-          ", but instance ",
-          `${runtimeInstanceId}`,
-          " is ",
-          `${definition.kindId}`,
-          ".",
-        ].join(""),
+        agentRuntimeKindMismatchDetail(agent.id, agent.runtimes, runtimeInstanceId, definition.kindId),
       );
     if (
       definition.instanceId !== runtimeInstanceId ||

@@ -225,7 +225,7 @@ export function benchContext(f, n, writes, samples) {
           id: `bench-agent-${s}`,
           name: `Bench ${s}`,
           instructions: "Bench agent.",
-          runtime_type: "codex",
+          runtimes: [{ type: "codex" }],
           skills: [],
           prompts: [],
           preset: "standard-task",

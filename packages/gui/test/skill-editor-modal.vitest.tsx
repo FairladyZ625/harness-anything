@@ -28,10 +28,10 @@ const SKILL_MD = `${SKILL_DIR}/SKILL.md`;
 const agentDetail = {
   id: "fable",
   name: "fable",
-  runtimeType: "claude",
+  runtimes: [{ type: "claude" }],
   role: "worker",
   instructions: "Do the work.",
-  model: null,
+
   skills: [{ id: "review", path: SKILL_DIR }],
   prompts: [],
   preset: null,
