@@ -10,7 +10,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "../../kernel/src/index.ts";
 import { actionCriterionFailure, attributeCellCriterion } from "./repo-cell-errors.ts";
-import { runtimeSessionDispatchRole } from "./repo-cell-proof.ts";
+import { actorHint, runtimeSessionDispatchRole } from "./repo-cell-proof.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
 import { leaseTtlMs, type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
@@ -98,17 +98,18 @@ export async function runTaskActionCatalogRuntime(
       } as WriteReceipt;
     }
     if (!contract) throw new Error(`Task Action ${action.kind} is not declared.`);
-    const leaseEvaluation = criterionEvaluation(evaluations, START_CRITERION);
-    return taskActionRejection(
-      cell,
-      action,
-      binding,
-      current.snapshot.revision,
-      contract,
-      [leaseEvaluation],
-      undefined,
-      "lease_conflict",
-    );
+    const leaseEvaluation = criterionEvaluation(evaluations, START_CRITERION),
+      rejected = {
+        ...cell.rejected(
+          cell.operationId(action, binding, cell.input.repoId, current.snapshot.revision),
+          "lease_conflict",
+        ),
+        rejectionExplanation:
+          `Task ${taskId} has an active ${activeLease.phase} lease for execution ${activeLease.executionId}, ` +
+          `held by ${actorHint(activeLease.actor)} until ${activeLease.expiresAt}; wait until it expires or ask ` +
+          `that holder to run ha task release ${taskId}.`,
+      };
+    return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [leaseEvaluation], rejected);
   }
   const submitValidationEvaluation = evaluations.find(
       ({ criterionRef }) => criterionRef === SUBMIT_VALIDATION_CRITERION,
@@ -399,7 +400,6 @@ function taskActionRejection(
     readonly nextActions: readonly string[];
   }[],
   rejected?: WriteReceipt,
-  rejectionCode?: string,
 ): WriteReceipt {
   const unmetCriteria: readonly EntityActionUnmetCriterionV1[] = unmet.map(({ criterionRef }) => {
       const criterion = contract.criteria.find(({ ref }) => ref === criterionRef);
@@ -411,11 +411,7 @@ function taskActionRejection(
       : Object.freeze([...new Set([...unmet.flatMap(({ nextActions: next }) => next)])]),
     first = unmetCriteria[0]!;
   return {
-    ...(rejected ??
-      cell.rejected(
-        cell.operationId(action, binding, cell.input.repoId, revision),
-        rejectionCode ?? first.failureCode,
-      )),
+    ...(rejected ?? cell.rejected(cell.operationId(action, binding, cell.input.repoId, revision), first.failureCode)),
 
     evidence: `criterion:${first.ref}`,
     unmetCriteria,

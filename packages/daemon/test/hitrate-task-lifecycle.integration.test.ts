@@ -120,7 +120,27 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
     const rejected = (await cell.run({ kind: "task-start", taskId }, foreign)) as Record<string, unknown>;
     assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
     assert.equal(rejected.code, "lease_conflict");
+    const startedEvent = events()
+      .filter((event) => event.type === "execution_started")
+      .at(-1);
+    if (startedEvent?.type !== "execution_started") throw new Error("missing execution_started event");
+    const leaseExpiresAt = startedEvent.payload.leaseExpiresAt,
+      assertForeignLeaseGuidance = (receipt: Record<string, unknown>) => {
+        const explanation = String(receipt.rejectionExplanation);
+        assert.match(explanation, /personId=person-owner, executor=agent:worker-owner/u);
+        assert.ok(explanation.includes(leaseExpiresAt), explanation);
+        assert.match(explanation, /wait/u);
+        assert.ok(explanation.includes(`ha task release ${taskId}`), explanation);
+        assert.doesNotMatch(explanation, /no active lease/u);
+      };
+    assertForeignLeaseGuidance(rejected);
     assert.equal(events().length, startedEvents, "foreign retry must not append an event");
+
+    const settleRejected = (await cell.run({ kind: "task-settle", taskId }, foreign)) as Record<string, unknown>;
+    assert.equal(settleRejected.outcome, "op_rejected", JSON.stringify(settleRejected));
+    assert.equal(settleRejected.code, "lease_conflict");
+    assertForeignLeaseGuidance(settleRejected);
+    assert.equal(events().length, startedEvents, "foreign settle must not append an event");
 
     const submitted = await cell.run({ kind: "task-submit", taskId }, holder);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));

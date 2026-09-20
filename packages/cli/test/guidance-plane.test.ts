@@ -294,6 +294,17 @@ test("failure guidance renders structured missing-section, validator, and worksp
 });
 
 test("a rejected receipt's own explanation replaces the generic code-only hint", () => {
+  const leaseConflictExplanation =
+    "Task task-a has an active lease held by personId=person-owner, executor=agent:worker-owner until " +
+    "2026-09-21T12:34:56.000Z; wait for expiry or ask that holder to run ha task release task-a.";
+  assert.equal(
+    humanError({
+      code: "lease_conflict",
+      diagnostic: { kind: "failure", code: "lease_conflict" },
+      rejectionExplanation: leaseConflictExplanation,
+    }).hint,
+    leaseConflictExplanation,
+  );
   assert.equal(
     humanError({
       code: "preset_snapshot_mismatch",
