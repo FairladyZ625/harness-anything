@@ -107,6 +107,11 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
     );
     assert.equal(reconciled.outcome, "applied", JSON.stringify(reconciled));
 
+    mkdirSync(path.join(root, "harness", packagePath, "artifacts", "reports"), { recursive: true });
+    writeFileSync(
+      path.join(root, "harness", packagePath, "artifacts", "reports", "release-acc-approved.md"),
+      "# Review review-release-acc-approved\n\nIndependent reviewer approved the chain fixture.\n",
+    );
     const reviewed = run(
       root,
       userRoot,
@@ -252,6 +257,10 @@ test("release acceptance: changes_requested rework keeps both same-named reports
         "已知缺口：The report needs a second execution.",
       ),
     );
+    writeFileSync(
+      path.join(root, "harness", packagePath, "artifacts", "reports", "release-acc-rework.md"),
+      "# Review review-release-acc-rework\n\nThe report needs a second execution.\n",
+    );
     const returned = run(
       root,
       userRoot,
@@ -327,6 +336,10 @@ test("release acceptance: changes_requested rework keeps both same-named reports
       );
     assert.ok(secondSubmission?.type === "execution_submitted");
     assert.ok(!secondSubmission.payload.execution.submission?.knownGaps.some((gap) => gap.includes("已知缺口")));
+    writeFileSync(
+      path.join(root, "harness", packagePath, "artifacts", "reports", "release-acc-rework-2.md"),
+      "# Review review-release-acc-rework-2\n\nThe second execution satisfied the requested changes.\n",
+    );
     const approved = run(
       root,
       userRoot,

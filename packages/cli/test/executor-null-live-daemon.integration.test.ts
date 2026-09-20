@@ -134,6 +134,12 @@ test("a live installed-bin daemon refuses to declare an executor for a reviewed 
         evidenceChecked: ["live installed-bin daemon route"],
       }),
     );
+    const reviewReportDir = path.join(root, "harness", packagePath, "artifacts", "reports");
+    mkdirSync(reviewReportDir, { recursive: true });
+    writeFileSync(
+      path.join(reviewReportDir, "executor-null-live.md"),
+      "# Review review-executor-null-live\n\nIndependent agent review passed.\n",
+    );
     const reviewed = run(
       root,
       userRoot,

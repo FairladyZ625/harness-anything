@@ -145,6 +145,11 @@ async function runChain(
     ["task", "adjudicate", taskId, "--forward", "--note", "Forward CLI stress cut."],
     workerEnvironment,
   );
+  mkdirSync(path.join(packageRoot, "artifacts", "reports"), { recursive: true });
+  writeFileSync(
+    path.join(packageRoot, "artifacts", "reports", `${taskId}.md`),
+    `# Review review-${taskId}\n\nIndependent synthetic reviewer checked the submitted execution.\n`,
+  );
   await expectApplied(
     fixture,
     [

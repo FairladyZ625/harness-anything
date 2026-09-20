@@ -156,6 +156,11 @@ function taskChain(f, reader, index) {
   f.invoke("task.adjudicate", ["task", "adjudicate", taskId, "--forward", "--note", "Forward calibration cut."], {
     actor,
   });
+  mkdirSync(path.join(f.root, "harness", packagePath, "artifacts", "reports"), { recursive: true });
+  writeFileSync(
+    path.join(f.root, "harness", packagePath, "artifacts", "reports", `${f.seed}-${index}.md`),
+    `# Review review-${f.seed}-${index}\n\nCanonical artifact bytes checked.\n`,
+  );
   const reviewed = f.invoke(
     "task.review",
     ["task", "review-execution", taskId, "--review-id", `review-${f.seed}-${index}`, "--json-input", "@-"],

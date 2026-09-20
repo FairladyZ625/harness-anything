@@ -443,6 +443,11 @@ function taskLifecycle(f, reader, label) {
   f.publish(report, `task.report.${label}`, actor);
   f.check(`task.${label}.report-same-cut-bytes`, () => assertBytes(f.root, reportPath, reportBody, report, reader));
   f.invoke(`task.submit.${label}`, ["task", "submit", taskId], { actor });
+  mkdirSync(path.join(f.root, "harness", packagePath, "artifacts", "reports"), { recursive: true });
+  writeFileSync(
+    path.join(f.root, "harness", packagePath, "artifacts", "reports", `${label}.md`),
+    `# Review review-${label}\n\nCanonical artifact bytes checked.\n`,
+  );
   const reviewed = f.invoke(
     `task.review.${label}`,
     ["task", "review-execution", taskId, "--review-id", `review-${label}`, "--json-input", "@-"],
