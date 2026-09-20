@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
@@ -97,6 +97,16 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Reviewed independently.", evidenceChecked: ["tests"] }),
     );
+    const reviewReportDir = path.join(
+      rootDir,
+      "harness",
+      String((created as Record<string, unknown>).packagePath),
+      "artifacts",
+      "reports",
+    );
+    mkdirSync(reviewReportDir, { recursive: true });
+    for (const id of ["r1", "r2", "r3"])
+      writeFileSync(path.join(reviewReportDir, `${id}.md`), `# Review ${id}\n\nPhysical review findings.\n`);
 
     // Missing the arbiter RoleBinding is a role problem, not an independence problem.
     const withoutRole = await cell.run(
@@ -180,6 +190,18 @@ test("principal review independence rejects a different executor owned by the su
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Reviewed independently.", evidenceChecked: ["tests"] }),
+    );
+    const strictReportDir = path.join(
+      rootDir,
+      "harness",
+      String((created as Record<string, unknown>).packagePath),
+      "artifacts",
+      "reports",
+    );
+    mkdirSync(strictReportDir, { recursive: true });
+    writeFileSync(
+      path.join(strictReportDir, "strict-review.md"),
+      "# Review strict-review\n\nPhysical review findings.\n",
     );
 
     const refused = await cell.run(
@@ -972,6 +994,16 @@ test("review binding permits independent runtimes but still rejects the executio
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Reviewed.", evidenceChecked: ["tests"] }),
     );
+    const runtimeBoundReportDir = path.join(
+      rootDir,
+      "harness",
+      String((created as Record<string, unknown>).packagePath),
+      "artifacts",
+      "reports",
+    );
+    mkdirSync(runtimeBoundReportDir, { recursive: true });
+    for (const id of ["executor", "dispatched-reviewer"])
+      writeFileSync(path.join(runtimeBoundReportDir, `${id}.md`), `# Review ${id}\n\nPhysical review findings.\n`);
 
     // Reviewer dispatch derives the task mission and records task dispatch provenance without
     // taking the execution lease or becoming its executor.
@@ -1064,6 +1096,15 @@ test("review binding permits independent runtimes but still rejects the executio
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Reviewed by another agent.", evidenceChecked: ["tests"] }),
     );
+    const childReportDir = path.join(
+      rootDir,
+      "harness",
+      String((directCreated as Record<string, unknown>).packagePath),
+      "artifacts",
+      "reports",
+    );
+    mkdirSync(childReportDir, { recursive: true });
+    writeFileSync(path.join(childReportDir, "child-agent.md"), "# Review child-agent\n\nPhysical review findings.\n");
     // A child/non-runtime agent has no runtime-session identity; existing executor independence decides it.
     const reviewedByAgent = await cell.run(
       {

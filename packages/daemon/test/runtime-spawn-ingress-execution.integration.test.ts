@@ -130,6 +130,22 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       projection.close();
     }
   };
+  const writeReviewReport = (taskId: string, reviewId: string): void => {
+    const projection = makeTaskProjection({
+      rootDir: root,
+      eventStore: makeTaskEventReader({ repoId, rootDir: root }),
+    });
+    try {
+      const reportDir = path.join(root, "harness", projection.read(taskId).packagePath!, "artifacts", "reports");
+      mkdirSync(reportDir, { recursive: true });
+      writeFileSync(
+        path.join(reportDir, `${reviewId.replace(/^review-/u, "")}.md`),
+        `# Review ${reviewId}\n\nPhysical review findings.\n`,
+      );
+    } finally {
+      projection.close();
+    }
+  };
   const endpoint = localUserDaemonEndpoint(userRoot, "runtime-spawn-ingress"),
     transport = createUnixSocketTransportServer({
       daemonId: "runtime-spawn-ingress",
@@ -230,6 +246,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
                 event.payload.runtimeSessionId === firstReviewer.runtimeSessionId,
             ) ?? null,
       );
+      writeReviewReport(taskId, "redispatch-changes");
       assert.equal(
         (
           await host.run(

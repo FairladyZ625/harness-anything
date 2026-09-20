@@ -207,6 +207,17 @@ export function benchContext(f, n, writes, samples) {
     review: (s, chain = "") => {
       const reportPath = `${receiptOf(`task-create${chain}`, s)?.packagePath}/artifacts/report.md`;
       assert.equal(readFileSync(path.join(f.root, "harness", reportPath), "utf8"), `# Report ${s}\n`);
+      // review-execution requires the reviewer-authored report on disk at artifacts/reports/<stem>.md.
+      const reviewReport = path.join(
+        f.root,
+        "harness",
+        receiptOf(`task-create${chain}`, s)?.packagePath ?? "missing",
+        "artifacts",
+        "reports",
+        `rev${chain.replace("~", "-")}-${s}.md`,
+      );
+      mkdirSync(path.dirname(reviewReport), { recursive: true });
+      writeFileSync(reviewReport, `# Review rev${chain.replace("~", "-")}-${s}\n\nReport bytes verified.\n`);
       return {
         verdict: "approved",
         reason: "The artifact reviewer verified the report bytes against the benchmark sample.",

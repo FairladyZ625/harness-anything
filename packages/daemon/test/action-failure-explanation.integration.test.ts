@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { before, after } from "node:test";
@@ -167,6 +167,17 @@ test("Task execution rejects with the exact Action criterion and performs no rej
         evidenceChecked: ["integration"],
       }),
     );
+    // The physical report is present so the failure under test stays the independence proof.
+    const selfReport = path.join(
+      rootDir,
+      "harness",
+      String((created as Record<string, unknown>).packagePath),
+      "artifacts",
+      "reports",
+      "self.md",
+    );
+    mkdirSync(path.dirname(selfReport), { recursive: true });
+    writeFileSync(selfReport, "# Review self\n\nPhysical review findings.\n");
     await assertRejectedWithoutMutation(
       rootDir,
       repoId,

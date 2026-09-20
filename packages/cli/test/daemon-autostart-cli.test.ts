@@ -1073,6 +1073,11 @@ test("semantic sources and agent execution cross the daemon before transport-bou
       evidenceChecked: ["end-to-end daemon flow"],
     }),
   );
+  mkdirSync(path.join(fixture.root, "harness", packagePath, "artifacts", "reports"), { recursive: true });
+  writeFileSync(
+    path.join(fixture.root, "harness", packagePath, "artifacts", "reports", "executor-axis.md"),
+    "# Review review-executor-axis\n\nHuman review accepted the agent execution.\n",
+  );
   const reviewed = run(fixture.root, fixture.userRoot, [
     "task",
     "review-execution",

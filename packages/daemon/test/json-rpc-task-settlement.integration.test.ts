@@ -125,7 +125,7 @@ test("milestone-closeout uses the normal completion facade, review, and gates ex
     assert.deepEqual((missingReview.steps as { opId: string }[]).map((step) => store().readEvent(step.opId)?.type), ["completion_gate_verified"]);
     assert.equal(store().read().revision, beforeReviewBlock + 1);
     const reviewBinding = (id: string) => withRoleBinding({ actor: { principal: { personId: `person-${id}` }, executor: { kind: "agent" as const, id } }, source: "local" as const }, "arbiter");
-    const recordReview = async (reviewId: string, verdict: "approved" | "dismissed") => { writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict, reason: `${reviewId} ${verdict}.`, evidenceChecked: ["tests"] })); const receipt = await cell!.run({ kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" }, reviewBinding(reviewId)); assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); const visible = await waitForAcceptedReceipt(cell!, receipt, binding); assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible)); return receipt; };
+    const recordReview = async (reviewId: string, verdict: "approved" | "dismissed") => { writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict, reason: `${reviewId} ${verdict}.`, evidenceChecked: ["tests"] })); const reportPath = `${packagePath}/artifacts/reports/${reviewId.replace(/^review-/u, "")}.md`; mkdirSync(path.join(rootDir, "harness", packagePath, "artifacts", "reports"), { recursive: true }); writeFileSync(path.join(rootDir, "harness", reportPath), `# Review ${reviewId}\n\nPhysical review findings.\n`); assert.equal((await cell!.run({ kind: "doc-submit", paths: [reportPath] }, binding)).outcome, "applied"); const receipt = await cell!.run({ kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" }, reviewBinding(reviewId)); assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); const visible = await waitForAcceptedReceipt(cell!, receipt, binding); assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible)); return receipt; };
     await recordReview("review-dismissed", "dismissed");
     assert.match(readFileSync(path.join(rootDir, "harness", `${packagePath}/INDEX.md`), "utf8"), /ha task dispatch-review/u, "a dismissed Review must leave the execution awaiting review");
     await recordReview("review-unselected", "approved");
@@ -567,6 +567,7 @@ test("Policy rejects a principal without a durable-action RoleBinding", async ()
     assert.equal((await host.run("rbac", { kind: "task-submit", taskId: "task-rbac", executionId }, auth(ids.writer))).outcome, "applied");
     assert.equal((await host.run("rbac", { kind: "task-adjudicate", taskId: "task-rbac", executionId, forward: true, reason: "Owner forwards the RBAC fixture." }, auth(ids.writer))).outcome, "applied");
     writeFileSync(path.join(root, "review.json"), JSON.stringify({ verdict: "approved", reason: "checked", evidenceChecked: [] }));
+    const rbacReportDir = path.join(root, "harness", String((created as Record<string, unknown>).packagePath), "artifacts", "reports"); mkdirSync(rbacReportDir, { recursive: true }); writeFileSync(path.join(rbacReportDir, "rbac.md"), "# Review rbac\n\nPhysical review findings.\n");
     const review = await host.run("rbac", { kind: "task-review-execution", taskId: "task-rbac", executionId, reviewId: "review-rbac", fromFile: "review.json" }, auth(ids.arbiter)); assert.equal(review.outcome, "applied", JSON.stringify(review));
     const attached = await rpc(host, auth(ids.admin), "daemon.repo.register", { rootDir: second, repoId: "second", mode: "remote-edge" }); assert.equal(attached.outcome, "applied"); assert.equal((attached.repo as Record<string, unknown>).mode, "remote-edge");
     const deniedEdgePreset = await rpc(host, auth(ids.writer), "repo.preset.run.start", { repo: { repoId: "second" }, payload: { presetId: "standard-task", entrypoint: "run", idempotencyKey: "edge-preset" } }); assert.equal(deniedEdgePreset.outcome, "op_rejected"); assert.equal(deniedEdgePreset.code, "repo_mode_read_only");
@@ -842,6 +843,10 @@ async function prepareReadyCompletion(
     path.join(rootDir, "review.json"),
     JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }),
   );
+  const readyReportPath = `${packagePath}/artifacts/reports/ready.md`;
+  mkdirSync(path.dirname(path.join(rootDir, "harness", readyReportPath)), { recursive: true });
+  writeFileSync(path.join(rootDir, "harness", readyReportPath), "# Review ready\n\nPhysical review findings.\n");
+  assert.equal((await cell.run({ kind: "doc-submit", paths: [readyReportPath] }, binding)).outcome, "applied");
   const reviewed = await cell.run(
     { kind: "task-review-execution", taskId, executionId, reviewId: "review-ready", fromFile: "review.json" },
     withRoleBinding(

@@ -258,6 +258,7 @@ export async function runTaskCommandWithDocs(
       current.snapshot.revision,
       cell.rootDir,
       current.snapshot,
+      current.packagePath,
     ),
     command = cell.withServerMeta(
       normalized,

@@ -143,6 +143,7 @@ export async function runTaskActionCatalogRuntime(
       expectedRevision,
       cell.rootDir,
       current.snapshot,
+      current.packagePath,
     );
   } catch (error) {
     const rejection = taskActionFailure(

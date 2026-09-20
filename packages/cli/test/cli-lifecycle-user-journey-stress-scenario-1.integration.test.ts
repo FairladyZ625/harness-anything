@@ -5,6 +5,7 @@ import * as shared from "./cli-lifecycle-user-journey-stress.fixture.ts";
 const {
   assert,
   existsSync,
+  mkdirSync,
   readFileSync,
   readdirSync,
   rmSync,
@@ -141,6 +142,11 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
       ["task", "adjudicate", taskId, "--forward", "--note", "Forward first stress cut."],
       workerEnvironment,
     );
+    mkdirSync(path.join(packageRoot, "artifacts", "reports"), { recursive: true });
+    writeFileSync(
+      path.join(packageRoot, "artifacts", "reports", "cli-changes-requested.md"),
+      "# Review review-cli-changes-requested\n\nThe first iteration needs a clearer verification note.\n",
+    );
     const requested = await expectApplied(
       fixture,
       [
@@ -193,6 +199,10 @@ test("CLI changes-requested recovery releases and re-enters a new execution", as
       fixture,
       ["task", "adjudicate", taskId, "--forward", "--note", "Forward second stress cut."],
       workerEnvironment,
+    );
+    writeFileSync(
+      path.join(packageRoot, "artifacts", "reports", "cli-recovery-approved.md"),
+      "# Review review-cli-recovery-approved\n\nThe second execution includes the requested verification note.\n",
     );
     await expectApplied(
       fixture,

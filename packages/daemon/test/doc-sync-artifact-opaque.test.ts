@@ -611,6 +611,7 @@ async function reachGreenInReview(
     path.join(rootDir, "review.json"),
     JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }),
   );
+  write(rootDir, `${packagePath}/artifacts/reports/opaque.md`, "# Review opaque\n\nPhysical review findings.\n");
   const reviewed = (await cell.run(
     { kind: "task-review-execution", taskId, reviewId: "review-opaque", fromFile: "review.json" },
     reviewerBinding,

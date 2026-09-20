@@ -407,8 +407,10 @@ export async function fixture(
         readFileSync(path.join(root, "harness", packagePath, "closeout.md"), "utf8"),
         /README bytes checked/u,
       );
-      const packet = `${packagePath}/artifacts/reports/${reviewId}.json`;
+      const packet = `${packagePath}/artifacts/reports/${reviewId}.json`,
+        report = `${packagePath}/artifacts/reports/${reviewId.startsWith("review-") ? reviewId.slice("review-".length) : reviewId}.md`;
       mkdirSync(path.dirname(path.join(root, "harness", packet)), { recursive: true });
+      writeFileSync(path.join(root, "harness", report), `# Review ${reviewId}\n\nPhysical review findings.\n`);
       writeFileSync(
         path.join(root, "harness", packet),
         JSON.stringify({

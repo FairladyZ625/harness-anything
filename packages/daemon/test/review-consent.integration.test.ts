@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
@@ -26,6 +26,14 @@ after(() => {
   else process.env.PATH = originalPath;
   rmSync(ciBin, { recursive: true, force: true });
 });
+
+function writeReviewReport(rootDir: string, packagePath: unknown, reviewId: string, body?: string): string {
+  const stem = reviewId.startsWith("review-") ? reviewId.slice("review-".length) : reviewId,
+    report = path.join(rootDir, "harness", String(packagePath), "artifacts", "reports", `${stem}.md`);
+  mkdirSync(path.dirname(report), { recursive: true });
+  writeFileSync(report, body ?? `# Review ${reviewId}\n\nIndependent review findings recorded.\n`);
+  return report;
+}
 
 function writeCloseout(rootDir: string, packagePath: unknown): void {
   writeFileSync(
@@ -105,6 +113,7 @@ test("review-consent derives the recorded Review digests without a packet and re
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] }),
     );
+    writeReviewReport(rootDir, (created as Record<string, unknown>).packagePath, "review-derived");
     const reviewed = (await cell.run(
       { kind: "task-review-execution", taskId, executionId, reviewId: "review-derived", fromFile: "review.json" },
       reviewBinding,
@@ -189,6 +198,7 @@ test("review-consent derives the recorded Review digests without a packet and re
         .outcome,
       "applied",
     );
+    writeReviewReport(rootDir, (mismatchCreated as Record<string, unknown>).packagePath, "review-mismatch");
     const mismatchReviewed = (await cell.run(
       {
         kind: "task-review-execution",
@@ -289,7 +299,8 @@ test("review-consent derives the recorded Review digests without a packet and re
       ).outcome,
       "applied",
     );
-    for (const reviewId of ["review-a", "review-b"])
+    for (const reviewId of ["review-a", "review-b"]) {
+      writeReviewReport(rootDir, (ambiguousCreated as Record<string, unknown>).packagePath, reviewId);
       assert.equal(
         (
           await cell.run(
@@ -305,6 +316,7 @@ test("review-consent derives the recorded Review digests without a packet and re
         ).outcome,
         "applied",
       );
+    }
     const ambiguous = (await cell.run(
       { kind: "task-review-consent", taskId: ambiguousTaskId },
       binding,
@@ -377,6 +389,7 @@ test("review-execution without --execution-id derives the sole current submitted
         evidenceChecked: ["first-round receipt"],
       }),
     );
+    writeReviewReport(rootDir, (created as Record<string, unknown>).packagePath, "review-selection-r1");
     const returned = await cell.run(
       {
         kind: "task-review-execution",
@@ -442,6 +455,7 @@ test("review-execution without --execution-id derives the sole current submitted
       path.join(rootDir, "review-approved.json"),
       JSON.stringify({ verdict: "approved", reason: "Second round passes.", evidenceChecked: ["second round"] }),
     );
+    writeReviewReport(rootDir, (created as Record<string, unknown>).packagePath, "review-selection-r2");
     const reviewed = await cell.run(
       {
         kind: "task-review-execution",
@@ -509,6 +523,7 @@ test("review-execution without --execution-id names the resubmission command whi
         evidenceChecked: ["first-round receipt"],
       }),
     );
+    writeReviewReport(rootDir, (created as Record<string, unknown>).packagePath, "review-selection-empty");
     assert.equal(
       (
         await cell.run(
@@ -552,6 +567,113 @@ test("review-execution without --execution-id names the resubmission command whi
     assert.equal(rejected.code, "invalid_command", JSON.stringify(rejected));
     assert.match(String(rejected.rejectionExplanation), /ha task show/u);
     assert.match(String(rejected.rejectionExplanation), /ha task submit/u);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("review-execution and review-consent require a substantive physical report on disk", async () => {
+  const rootDir = workspace("physical-report"),
+    taskId = "task-physical-report",
+    executionId = "exec-physical-report",
+    owner = binding("physical-owner"),
+    reviewer = withRoleBinding(binding("physical-reviewer"), "arbiter");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({
+      repoId: workspaceId("physical-report"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "physical-report",
+    });
+    const created = await cell.run({ kind: "task-create", taskId, title: "Physical report" }, owner);
+    await waitForFixturePublication(cell, created.opId, owner);
+    const packagePath = (created as Record<string, unknown>).packagePath;
+    await realizeTaskPlanFixture(rootDir, String(packagePath), (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, owner),
+    );
+    await cell.run({ kind: "task-start", taskId, executionId }, owner);
+    writeSelectionCloseout(rootDir, packagePath);
+    assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, owner)).outcome, "applied");
+    assert.equal(
+      (
+        await cell.run(
+          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Owner forwards the cut." },
+          owner,
+        )
+      ).outcome,
+      "applied",
+    );
+    writeFileSync(
+      path.join(rootDir, "review.json"),
+      JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] }),
+    );
+    const record = (reviewId: string, extra: Record<string, unknown> = { fromFile: "review.json" }) =>
+      cell!.run(
+        { kind: "task-review-execution", taskId, executionId, reviewId, ...extra } as never,
+        reviewer,
+      ) as Promise<Record<string, unknown>>;
+    const consent = (reviewId: string) =>
+      cell!.run({ kind: "task-review-consent", taskId, executionId, reviewId }, owner) as Promise<
+        Record<string, unknown>
+      >;
+
+    // No landed report: the record itself is refused, whether the packet arrives by file or by
+    // in-memory JSON injection.
+    const absent = await record("review-absent");
+    assert.deepEqual(
+      { outcome: absent.outcome, code: absent.code },
+      { outcome: "op_rejected", code: "review_report_missing" },
+      JSON.stringify(absent),
+    );
+    assert.match(String(absent.rejectionExplanation), /artifacts\/reports\/absent\.md/u);
+    const injected = await record("review-injected", {
+      jsonInput: JSON.stringify({ verdict: "approved", reason: "injected", evidenceChecked: ["none"] }),
+    });
+    assert.deepEqual(
+      { outcome: injected.outcome, code: injected.code },
+      { outcome: "op_rejected", code: "review_report_missing" },
+      JSON.stringify(injected),
+    );
+
+    // An empty report and a crash-output placeholder are invalid, not missing.
+    writeReviewReport(rootDir, packagePath, "review-empty", "");
+    const empty = await record("review-empty");
+    assert.deepEqual(
+      { outcome: empty.outcome, code: empty.code },
+      { outcome: "op_rejected", code: "review_report_invalid" },
+      JSON.stringify(empty),
+    );
+    writeReviewReport(rootDir, packagePath, "review-crashed", "Connection error.\n");
+    const crashed = await record("review-crashed");
+    assert.deepEqual(
+      { outcome: crashed.outcome, code: crashed.code },
+      { outcome: "op_rejected", code: "review_report_invalid" },
+      JSON.stringify(crashed),
+    );
+
+    // A substantive report records cleanly.
+    const reportPath = writeReviewReport(rootDir, packagePath, "review-landed");
+    const landed = await record("review-landed");
+    assert.equal(landed.outcome, "applied", JSON.stringify(landed));
+
+    // Consent re-verifies the physical report: deleting or degrading it after the record blocks signing.
+    rmSync(reportPath);
+    const missing = await consent("review-landed");
+    assert.deepEqual(
+      { outcome: missing.outcome, code: missing.code },
+      { outcome: "op_rejected", code: "review_report_missing" },
+      JSON.stringify(missing),
+    );
+    writeReviewReport(rootDir, packagePath, "review-landed", "turn.failed: rate_limit\n");
+    const degraded = await consent("review-landed");
+    assert.deepEqual(
+      { outcome: degraded.outcome, code: degraded.code },
+      { outcome: "op_rejected", code: "review_report_invalid" },
+      JSON.stringify(degraded),
+    );
+    writeReviewReport(rootDir, packagePath, "review-landed");
+    assert.equal((await consent("review-landed")).outcome, "applied");
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
