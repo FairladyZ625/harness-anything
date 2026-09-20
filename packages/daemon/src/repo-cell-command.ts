@@ -22,6 +22,7 @@ import {
   uniqueDerivedExecutionId,
 } from "./repo-cell-execution-selection.ts";
 import { reviewPacket, reviewQualificationFields, submissionPacket } from "./repo-cell-packets.ts";
+import { assertPhysicalReviewReport } from "./reviewer-artifact-publication.ts";
 import { actorHint, operationId } from "./repo-cell-proof.ts";
 import { reviewVerdict } from "./repo-cell-review-lint.ts";
 import { cellStringList, requiredCellText } from "./repo-cell-settlement.ts";
@@ -83,6 +84,7 @@ export function buildCommand(
   expectedRevision: number,
   rootDir: string,
   snapshot: Snapshot,
+  packagePath: string | null,
 ): Omit<TaskLifecycleCommand, "eventId" | "workspaceRevision" | "occurredAt"> {
   const bound = {
       workspaceId,
@@ -151,21 +153,24 @@ export function buildCommand(
   }
   if (lifecycleAction?.commandType === "RecordReview") {
     const packet = reviewPacket(rootDir, action),
-      selection = reviewExecutionSelection(action, snapshot, taskId);
-    return normalizeTaskLifecycleCommand(bound, {
-      type: "RecordReview",
-      taskId,
-      executionId: selection.executionId,
-      reviewId: requiredCellText(action.reviewId, "reviewId"),
-      verdict: reviewVerdict(packet.value.verdict),
-      reason: requiredCellText(packet.value.reason, "reason"),
-      evidenceChecked: cellStringList(packet.value.evidenceChecked),
-      ...reviewQualificationFields(packet.value),
-      commitSha: selection.commitSha,
-      iteration: selection.iteration,
-      contentDigest: packet.digest,
-      submissionDigest: selection.submissionDigest,
-    });
+      selection = reviewExecutionSelection(action, snapshot, taskId),
+      reviewId = requiredCellText(action.reviewId, "reviewId"),
+      fields = {
+        type: "RecordReview" as const,
+        taskId,
+        executionId: selection.executionId,
+        reviewId,
+        verdict: reviewVerdict(packet.value.verdict),
+        reason: requiredCellText(packet.value.reason, "reason"),
+        evidenceChecked: cellStringList(packet.value.evidenceChecked),
+        ...reviewQualificationFields(packet.value),
+        commitSha: selection.commitSha,
+        iteration: selection.iteration,
+        contentDigest: packet.digest,
+        submissionDigest: selection.submissionDigest,
+      };
+    assertPhysicalReviewReport({ rootDir, packagePath, reviewId, taskId, verb: "review-execution" });
+    return normalizeTaskLifecycleCommand(bound, fields);
   }
   if (action.kind === "task-adjudicate") {
     const allowed = [
@@ -254,6 +259,7 @@ export function buildCommand(
       );
     const current = snapshot.executions.find((value) => value.executionId === executionId);
     if (!current?.submission) throw cellCodedError("invalid_transition", "Consent requires a submitted execution cut.");
+    assertPhysicalReviewReport({ rootDir, packagePath, reviewId, taskId, verb: "review-consent" });
     return normalizeTaskLifecycleCommand(bound, {
       type: "RecordReviewConsent",
       taskId,

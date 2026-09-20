@@ -276,19 +276,25 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
         },
         holder,
       ),
-      reviewed = await cell.run(
-        {
-          kind: "task-review-execution",
-          taskId,
-          reviewId: "review-hitrate-lifecycle",
-          jsonInput: JSON.stringify({
-            verdict: "approved",
-            reason: "Independent review passed.",
-            evidenceChecked: ["tests"],
-          }),
-        },
-        reviewer,
-      );
+      reportDir = path.join(rootDir, "harness", packagePath, "artifacts", "reports");
+    mkdirSync(reportDir, { recursive: true });
+    writeFileSync(
+      path.join(reportDir, "hitrate-lifecycle.md"),
+      "# Review hitrate-lifecycle\n\nPhysical review findings.\n",
+    );
+    const reviewed = await cell.run(
+      {
+        kind: "task-review-execution",
+        taskId,
+        reviewId: "review-hitrate-lifecycle",
+        jsonInput: JSON.stringify({
+          verdict: "approved",
+          reason: "Independent review passed.",
+          evidenceChecked: ["tests"],
+        }),
+      },
+      reviewer,
+    );
     assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
     const consented = await cell.run(

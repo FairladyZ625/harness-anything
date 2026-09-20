@@ -204,6 +204,7 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
     const forwarded = await cell.run({ kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward lifecycle fixture." }, binding);
     assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
     writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] })); const reviewBinding = withRoleBinding({ actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent" as const, id: "arbiter" } }, source: "local" as const }, "arbiter");
+    const reviewReportDir = path.join(rootDir, "harness", packagePath, "artifacts", "reports"); mkdirSync(reviewReportDir, { recursive: true }); writeFileSync(path.join(reviewReportDir, "life.md"), "# Review life\n\nPhysical review findings.\n");
     const reviewed = await cell.run({ kind: "task-review-execution", taskId, executionId, reviewId: "review-life", fromFile: "review.json" }, reviewBinding) as unknown as Record<string, unknown>; await assertCut(reviewed, "review_recorded", [indexPath, executionPath, reviewPath]); assert.equal(reviewed.reviewId, "review-life"); assert.match(readFileSync(path.join(rootDir, "harness", reviewPath), "utf8"), /Verdict: approved[\s\S]*Consent: pending/u);
     assert.equal((reviewed.authorizationDecision as Record<string, unknown>).policyRef, "default@5");
     assert.equal((reviewed.authorizationDecision as Record<string, unknown>).outcome, "allowed");
@@ -506,6 +507,9 @@ async function prepareReadyCompletion(
     path.join(rootDir, "review.json"),
     JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }),
   );
+  const readyReportDir = path.join(rootDir, "harness", packagePath, "artifacts", "reports");
+  mkdirSync(readyReportDir, { recursive: true });
+  writeFileSync(path.join(readyReportDir, "ready.md"), "# Review ready\n\nPhysical review findings.\n");
   const reviewed = await cell.run(
     { kind: "task-review-execution", taskId, executionId, reviewId: "review-ready", fromFile: "review.json" },
     withRoleBinding(

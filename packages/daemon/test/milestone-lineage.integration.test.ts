@@ -114,6 +114,9 @@ async function reachGreenInReview(
     path.join(rootDir, "review.json"),
     JSON.stringify({ verdict: "approved", reason: "Approved.", evidenceChecked: ["verified"] }),
   );
+  const lineageReportDir = path.join(rootDir, "harness", packagePath, "artifacts", "reports");
+  mkdirSync(lineageReportDir, { recursive: true });
+  writeFileSync(path.join(lineageReportDir, "lineage.md"), "# Review lineage\n\nPhysical review findings.\n");
   const reviewed = (await cell.run(
     { kind: "task-review-execution", taskId, executionId, reviewId: "review-lineage", fromFile: "review.json" },
     reviewerBinding,

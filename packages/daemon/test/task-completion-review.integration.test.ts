@@ -36,8 +36,10 @@ async function recordReview(
   reviewId: string,
   verdict: "approved" | "changes_requested",
 ) {
-  const packet = `${f.packagePath}/artifacts/reports/${reviewId}.json`;
+  const packet = `${f.packagePath}/artifacts/reports/${reviewId}.json`,
+    report = `${f.packagePath}/artifacts/reports/${reviewId.startsWith("review-") ? reviewId.slice("review-".length) : reviewId}.md`;
   mkdirSync(path.dirname(path.join(f.root, "harness", packet)), { recursive: true });
+  writeFileSync(path.join(f.root, "harness", report), `# Review ${reviewId}\n\nPhysical review findings.\n`);
   writeFileSync(
     path.join(f.root, "harness", packet),
     JSON.stringify({

@@ -85,6 +85,15 @@ test("submit lease refusals name the state-specific command that advances the ex
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Independent review.", evidenceChecked: ["integration"] }),
     );
+    const reportDir = path.join(
+      rootDir,
+      "harness",
+      String((created as Record<string, unknown>).packagePath),
+      "artifacts",
+      "reports",
+    );
+    mkdirSync(reportDir, { recursive: true });
+    writeFileSync(path.join(reportDir, "submit-exit.md"), "# Review submit-exit\n\nPhysical review findings.\n");
     assert.equal(
       (
         await cell.run(

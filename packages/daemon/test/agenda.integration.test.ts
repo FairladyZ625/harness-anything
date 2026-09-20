@@ -32,6 +32,13 @@ after(() => {
 const actor = { principal: { personId: "person-agenda" }, executor: { kind: "agent", id: "codex-sol" } } as const;
 const binding = { actor, source: "local" as const };
 
+function writeReviewReport(rootDir: string, packagePath: string, reviewId: string): void {
+  const stem = reviewId.startsWith("review-") ? reviewId.slice("review-".length) : reviewId,
+    report = path.join(rootDir, "harness", packagePath, "artifacts", "reports", `${stem}.md`);
+  mkdirSync(path.dirname(report), { recursive: true });
+  writeFileSync(report, `# Review ${reviewId}\n\nPhysical review findings.\n`);
+}
+
 test("agenda projects an empty ledger without synthetic state", async () => {
   await withCell("agenda-empty", async (cell) => {
     const agenda = await cell.read("repo.agenda.read");
@@ -233,6 +240,7 @@ test("agenda derives all four groups, pins first, and rejects a missing task pin
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "dismissed", reason: "Superseded opinion.", evidenceChecked: ["agenda"] }),
     );
+    writeReviewReport(rootDir, createdTasks.get("task_review")!, "review-dismissed");
     assert.equal(
       (
         await cell.run(
@@ -259,6 +267,7 @@ test("agenda derives all four groups, pins first, and rejects a missing task pin
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Current opinion.", evidenceChecked: ["agenda"] }),
     );
+    writeReviewReport(rootDir, createdTasks.get("task_review")!, "review-approved");
     assert.equal(
       (
         await cell.run(
@@ -358,6 +367,7 @@ test("agenda surfaces a changes_requested task in the rework group and nowhere e
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "changes_requested", reason: "Needs another pass.", evidenceChecked: ["agenda"] }),
     );
+    writeReviewReport(rootDir, packagePath, "review-rework");
     assert.equal(
       (
         await cell.run(
@@ -480,6 +490,7 @@ test("agenda excludes archived rework tasks without consuming a page", async () 
         path.join(rootDir, "review.json"),
         JSON.stringify({ verdict: "changes_requested", reason: "Needs another pass.", evidenceChecked: ["agenda"] }),
       );
+      writeReviewReport(rootDir, packagePath, `review_${taskId}`);
       assert.equal(
         (
           await cell.run(
