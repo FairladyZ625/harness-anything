@@ -396,12 +396,6 @@
         "reason": "S4 return-path visibility creates only an exact temporary authored symlink before atomic worktree publication."
       },
       {
-        "value": "bypass-write-078",
-        "api": "symlinkSync",
-        "ref": "dec_F906FA4E1BE047B6F591CF4316; task_32e553b6c0ff5f31a6d914e5cb",
-        "reason": "S4 return-path conflict preservation copies only the divergent authored symlink into deterministic scratch."
-      },
-      {
         "value": "bypass-write-079",
         "api": "open",
         "ref": "task_01KZXGJWVCKCA6B0MKB220PKFB",
@@ -432,18 +426,6 @@
         "reason": "Materialization registers only the deterministic conflict-scratch ignore rule."
       },
       {
-        "value": "bypass-write-085",
-        "api": "mkdirSync",
-        "ref": "task_01KZWZEW11C499EACS9M5HVJZ8",
-        "reason": "Materialization creates only a deterministic conflict-scratch parent."
-      },
-      {
-        "value": "bypass-write-086",
-        "api": "writeFileSync",
-        "ref": "dec_F906FA4E1BE047B6F591CF4316; task_32e553b6c0ff5f31a6d914e5cb",
-        "reason": "S4 return-path conflict preservation registers only the deterministic conflict-scratch ignore rule."
-      },
-      {
         "value": "bypass-write-087",
         "api": "mkdirSync",
         "ref": "dec_F906FA4E1BE047B6F591CF4316; task_32e553b6c0ff5f31a6d914e5cb",
@@ -454,12 +436,6 @@
         "api": "openSync",
         "ref": "task_01KZWZEW11C499EACS9M5HVJZ8",
         "reason": "Materialization opens only the exact temporary conflict scratch."
-      },
-      {
-        "value": "bypass-write-089",
-        "api": "writeFileSync",
-        "ref": "task_01KZWZEW11C499EACS9M5HVJZ8",
-        "reason": "Materialization preserves only divergent local bytes in scratch."
       },
       {
         "value": "bypass-write-090",

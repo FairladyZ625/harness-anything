@@ -1,6 +1,7 @@
 import { isTaskEvent, ledgerCommitSha, type CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
 import { isTaskBootstrapEvent } from "../domain/task-bootstrap-event.ts";
 import type { LedgerCutIdentity } from "../domain/write-chain.contract.ts";
+import type { HarnessLayout } from "../layout/index.ts";
 import { ledgerAuthoredPath, ledgerGitPath, type LedgerGitLayout } from "./ledger-git-layout.ts";
 import { localGitObjectRefStore, localGitWorktreeSettlement } from "./local-version-control-system.ts";
 import { openSqliteEventStore } from "./sqlite-event-store.ts";
@@ -31,6 +32,7 @@ export interface MaterializeStoreContext {
   readonly readContent: (sha256: string) => Uint8Array | null;
   readonly acceptedWorktree: Map<string, { readonly fingerprint: string; readonly preserve: boolean }>;
   readonly worktreeConflicts: Map<string, string>;
+  readonly layout: () => HarnessLayout;
 }
 
 /**
@@ -171,7 +173,7 @@ export function restoreRequestedDocuments(
         if (node && node.sha256 !== publicationDigest(file.body)) {
           hooks.beforeRename();
           copy = localGitWorktreeSettlement.preserveVisibleConflict(
-            currentLedger.rootDir,
+            context.layout(),
             `${currentLedger.rootDir}/${target}`,
             target,
             accepted.headDigest,

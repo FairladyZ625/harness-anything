@@ -37,7 +37,8 @@ export function publishConvertedGeneration(input: {
   readonly store: SqliteEventStore;
   readonly authoredBranch?: string;
 }): { readonly commitSha: string; readonly revision: number; readonly changed: boolean } {
-  const ledger = resolveLedgerGitLayout(input.rootInput),
+  const layout = resolveHarnessLayout(input.rootInput),
+    ledger = resolveLedgerGitLayout(input.rootInput),
     branch = input.authoredBranch ?? localGitObjectRefStore.currentBranch(ledger.rootDir);
   if (!branch) throw new TaskEventStoreError("publication_indeterminate", "authored branch is detached");
   const authoredRef = `refs/heads/${branch}`,
@@ -62,7 +63,7 @@ export function publishConvertedGeneration(input: {
     localGitWorktreeSettlement.index(ledger.rootDir, files);
     if (
       !worktreeMatchesBaseline(ledger.rootDir, baseline, files) ||
-      settleWorktree(ledger.rootDir, files, baseline).conflicts.length > 0
+      settleWorktree(layout, ledger.rootDir, files, baseline).conflicts.length > 0
     )
       throw new TaskEventStoreError("publication_indeterminate", "authored worktree has concurrent edits");
     settleWorktreeDirectories(ledger.rootDir, directories);
@@ -75,7 +76,7 @@ export function publishConvertedGeneration(input: {
   localGitWorktreeSettlement.index(ledger.rootDir, files);
   if (
     !worktreeMatchesBaseline(ledger.rootDir, baseline, files) ||
-    settleWorktree(ledger.rootDir, files, baseline).conflicts.length > 0
+    settleWorktree(layout, ledger.rootDir, files, baseline).conflicts.length > 0
   )
     throw new TaskEventStoreError("publication_indeterminate", "authored worktree has concurrent edits");
   settleWorktreeDirectories(ledger.rootDir, directories);
@@ -419,6 +420,7 @@ function verifyDocumentClosure(
 
 /** Returns the targets a caller changed before their rename: they keep the caller's bytes, the rest still settle. */
 export function settleWorktree(
+  layout: ReturnType<typeof resolveHarnessLayout>,
   repoRoot: string,
   files: readonly PublicationFile[],
   baseline: ReadonlyMap<string, string>,
@@ -454,7 +456,7 @@ export function settleWorktree(
             if (node && node.sha256 !== digest)
               preserved.push({
                 target: file.target,
-                copy: localGitWorktreeSettlement.preserveVisibleConflict(repoRoot, absolute, file.target, commit),
+                copy: localGitWorktreeSettlement.preserveVisibleConflict(layout, absolute, file.target, commit),
               });
           }
           localGitWorktreeSettlement.visible(repoRoot, [file], hooks);
@@ -514,7 +516,12 @@ export function captureConversionBaseline(
       "target" in file ? `${file.mode}:${publicationDigest(file.body)}:${Buffer.byteLength(file.body)}` : "missing";
     if (current === baseline.get(target) || current === settled) continue;
     const preservedPath = node
-      ? localGitWorktreeSettlement.preserveConflict(repoRoot, `${repoRoot}/${target}`, target, parent)
+      ? localGitWorktreeSettlement.preserveConflict(
+          resolveHarnessLayout(rootInput),
+          `${repoRoot}/${target}`,
+          target,
+          parent,
+        )
       : null;
     if (
       node &&

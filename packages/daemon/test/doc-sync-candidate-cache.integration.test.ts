@@ -11,6 +11,7 @@ import {
   makeTaskEventReader,
   makeTaskEventStore,
   makeTaskProjection,
+  resolveHarnessLayout,
   sha256Text,
 } from "../../kernel/src/index.ts";
 import { runDocAction } from "../src/doc-sync-command-actions.ts";
@@ -119,7 +120,7 @@ test("doc status reuses unchanged file inputs and observes accepted updates, dra
     assert.equal(cut.baseLedgerSha.revision, update.revision);
 
     const scratch = localGitWorktreeSettlement.preserveVisibleConflict(
-      rootDir,
+      resolveHarnessLayout(rootDir),
       target,
       `harness/${logical}`,
       "cache-conflict-cut",

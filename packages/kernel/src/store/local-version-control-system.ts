@@ -608,8 +608,7 @@ export const localGitWorktreeSettlement = Object.freeze({
     for (const logical of logicalPaths) {
       const target = path.join(repoRoot, ...logical.split("/"));
       try {
-        /* @gate-identity check-bypass-write-boundary/bypass-write-134 */
-        rmdirSync(target);
+        removeEmptyDirectory(target);
       } catch (error) {
         consumeKnownError(error);
         if (existsSync(target)) preserved.push(logical);
@@ -666,10 +665,10 @@ export const localGitWorktreeSettlement = Object.freeze({
     );
     return 1;
   },
-  preserveConflict: (repoRoot: string, target: string, logical: string, commit: string): string =>
-    preserveConflict(repoRoot, target, logical, commit, true),
-  preserveVisibleConflict: (repoRoot: string, target: string, logical: string, cutIdentity: string): string =>
-    preserveConflict(repoRoot, target, logical, cutIdentity, false),
+  preserveConflict: (layout: HarnessLayout, target: string, logical: string, commit: string): string =>
+    preserveConflict(layout, target, logical, commit, true),
+  preserveVisibleConflict: (layout: HarnessLayout, target: string, logical: string, cutIdentity: string): string =>
+    preserveConflict(layout, target, logical, cutIdentity, false),
   docSyncConflicts: (layout: HarnessLayout): readonly DocSyncConflictRecord[] => docSyncConflicts(layout),
   docSyncConflict: (rootDir: string, conflictId: string): DocSyncConflictRecord | null =>
     docSyncConflict(rootDir, conflictId),
@@ -687,7 +686,7 @@ export interface DocSyncConflictRecord {
   readonly localPath: string;
 }
 function preserveConflict(
-  repoRoot: string,
+  layout: HarnessLayout,
   target: string,
   logical: string,
   identity: string,
@@ -695,8 +694,7 @@ function preserveConflict(
 ): string {
   const node = readNode(target);
   if (!node) throw new Error(`conflicting worktree node disappeared at ${logical}`);
-  const layout = resolveHarnessLayout(repoRoot),
-    logicalPath = path.relative(layout.authoredRoot, target).split(path.sep).join("/"),
+  const logicalPath = path.relative(layout.authoredRoot, target).split(path.sep).join("/"),
     sourceWorkspaceId = hashVcsBytes("sha256", layout.rootDir),
     operation = durable ? ("durable-preservation" as const) : ("visible-preservation" as const),
     conflictId = `doc-${hashVcsBytes(
@@ -759,7 +757,7 @@ function settleDocSyncConflict(rootDir: string, conflictId: string): void {
     directory = path.join(layout.localRoot, "conflicts", "doc-sync", conflictId);
   removeNode(path.join(directory, "local"));
   removeNode(path.join(directory, "manifest.json"));
-  rmdirSync(directory);
+  removeEmptyDirectory(directory);
 }
 function readNode(target: string): {
   readonly mode: "100644" | "120000";
@@ -794,6 +792,10 @@ function removeNode(target: string): void {
   } catch (error) {
     consumeKnownError(error);
   }
+}
+function removeEmptyDirectory(target: string): void {
+  /* @gate-identity check-bypass-write-boundary/bypass-write-134 */
+  rmdirSync(target);
 }
 // Settlement markers sit beside their target because rename(2) is only atomic
 // within one filesystem, and "same directory" is the one placement that
