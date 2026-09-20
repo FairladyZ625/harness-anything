@@ -417,7 +417,13 @@ function archiveRow(
       resultRef,
       ...(session?.reasonCode ? { reasonCode: session.reasonCode } : {}),
     }),
-    metrics = dispatchMetrics(stream);
+    metrics = dispatchMetrics(stream),
+    // The settled archive is the durable record: its providerSessionId outranks the volatile
+    // stream summary, which can legitimately miss provider_binding inside its read windows.
+    providerSessionId =
+      typeof value.providerSessionId === "string"
+        ? value.providerSessionId
+        : (stream?.providerSessionId ?? session?.providerSessionId ?? null);
   return {
     dispatchId: String(value.dispatchId),
     taskId: String(value.taskId),
@@ -445,9 +451,15 @@ function archiveRow(
     reason,
     ...(attemptOutcome?.faultClass ? { faultClass: attemptOutcome.faultClass } : {}),
     ...(attemptOutcome?.resetAt ? { resetAt: attemptOutcome.resetAt } : {}),
-    ...(stream
-      ? (resumeDispatch(stream.header, stream.providerSessionId, resumedDispatches, classification) ?? {})
-      : {}),
+    ...(resumeDispatch(
+      {
+        dispatchId: String(value.dispatchId),
+        agentId: stream?.header.agentId ?? (typeof value.agentId === "string" ? value.agentId : null),
+      },
+      providerSessionId,
+      resumedDispatches,
+      classification,
+    ) ?? {}),
     fallbackState: stream?.fallbackState ?? null,
     nextDispatchId: stream?.nextDispatchId ?? null,
     ...(metrics ? { metrics } : {}),
@@ -465,8 +477,7 @@ function archiveRow(
     ...(typeof value.parentRuntimeSessionId === "string"
       ? { parentRuntimeSessionId: value.parentRuntimeSessionId }
       : {}),
-    providerSessionId:
-      typeof value.providerSessionId === "string" ? value.providerSessionId : (session?.providerSessionId ?? null),
+    providerSessionId,
     eventStreamRef: typeof value.eventStreamRef === "string" ? value.eventStreamRef : null,
     startedAt: String(value.startedAt),
     endedAt: typeof value.endedAt === "string" ? value.endedAt : null,
@@ -546,14 +557,14 @@ function existingReportPath(rootDir: string, packagePath: string | null, dispatc
   return existsSync(absolute) ? reportPath : null;
 }
 function resumeDispatch(
-  header: DispatchStreamHeader,
+  dispatch: { readonly dispatchId: string; readonly agentId?: string | null },
   providerSessionId: string | null,
   resumedDispatches: ReadonlyMap<string, string>,
   classification: TaskDispatchRow["classification"],
 ): Pick<TaskDispatchRow, "resume" | "nextAction"> | undefined {
   const admission = runtimeResumeAdmission({
-    dispatchId: header.dispatchId,
-    agentId: header.agentId ?? null,
+    dispatchId: dispatch.dispatchId,
+    agentId: dispatch.agentId ?? null,
     providerSessionId,
     resumedDispatches,
   });

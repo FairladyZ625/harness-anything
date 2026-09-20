@@ -469,6 +469,7 @@ test("archived dispatch rows expose terminal result and task artifact references
       provider: { instance: "instance-1", model: null },
       classification: null,
       reason: null,
+      resume: { dispatchId, agentId: null },
       fallbackState: null,
       nextDispatchId: null,
       providerSessionId: "provider-1",
@@ -506,6 +507,113 @@ test("single-dispatch point reads resolve from the stream header without buildin
     assert.equal(readTaskDispatchSession(rootDir, "task-other", dispatchId), null);
     assert.equal(readTaskDispatchSession(rootDir, "not-a-dispatch-id", "whatever"), null);
     assert.equal(readTaskDispatchSession(rootDir, taskId, "dispatch_000000000000000000000000"), null);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+// A provider's startup preamble has no size bound: Devin CLI emitted ~66KB of init logs
+// before its provider_binding, pushing the record past the summary's head windows while the
+// tail window only reaches the last 128KB. The summary must still recover the binding.
+test("a provider_binding written after a long provider preamble still exposes resume", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-blindspot-"));
+  try {
+    const writer = openDispatchStream(rootDir, {
+      dispatchId,
+      taskId,
+      executionId: "execution-1",
+      runtimeSessionId,
+      instanceId: "instance-1",
+      agentId: "terra",
+      startedAt: "2026-08-23T00:00:00.000Z",
+    });
+    for (let index = 0; index < 3; index += 1)
+      writer.appendProviderEvent({ type: "stderr", chunk: "x".repeat(24 * 1024), index }, "2026-08-23T00:00:30.000Z");
+    writer.appendProviderBinding("provider-session", "2026-08-23T00:00:31.000Z");
+    for (let index = 0; index < 6; index += 1)
+      writer.appendProviderEvent(
+        { type: "item.completed", item: { text: "y".repeat(24 * 1024), index } },
+        "2026-08-23T00:01:00.000Z",
+      );
+    const row = readTaskDispatches({ rootDir, projection: projectionFor(session("exited", "failed")), taskId })
+      .dispatches[0];
+    assert.equal(row?.providerSessionId, "provider-session");
+    assert.deepEqual(row?.resume, { dispatchId, agentId: "terra" });
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+// The settled archive is the durable record: even when the volatile stream is gone entirely
+// or never exposes a binding, an archived providerSessionId keeps the dispatch resumable.
+test("an archived providerSessionId restores resume without a stream binding", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-read-archive-resume-"));
+  try {
+    const archived = {
+      schema: "runtime-dispatch/v1",
+      dispatchId,
+      taskId,
+      executionId: "execution-1",
+      runtimeSessionId,
+      instanceId: "instance-1",
+      agentId: "terra",
+      providerSessionId: "provider-archived",
+      startedAt: "2026-08-23T00:00:00.000Z",
+      endedAt: "2026-08-23T00:01:00.000Z",
+      outcome: "failed",
+      exitCode: 1,
+    };
+    const projectionForArchive = (body: Record<string, unknown>) =>
+      ({
+        read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { task: { taskId } } }),
+        readTaskRuntimeBatch: () => ({
+          status: "ready",
+          taskIds: [taskId],
+          rows: [{ taskId, packagePath: "tasks/task-1", sessions: [session("exited", "failed")] }],
+          watermark: 1,
+          sourceRevision: 1,
+        }),
+        readRuntimeDispatch: () => ({ payload: { dispatchId } }),
+        readDocument: () => ({ document: { body: JSON.stringify(body) } }),
+        readReplicaBasis: () => {
+          throw new Error("dispatch reads must not enumerate the replica document basis");
+        },
+      }) as unknown as TaskProjection;
+
+    const withoutStream = readTaskDispatches({
+      rootDir,
+      projection: projectionForArchive(archived),
+      taskId,
+    }).dispatches[0];
+    assert.equal(withoutStream?.providerSessionId, "provider-archived");
+    assert.deepEqual(withoutStream?.resume, { dispatchId, agentId: "terra" });
+
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId,
+      executionId: "execution-1",
+      runtimeSessionId,
+      instanceId: "instance-1",
+      startedAt: "2026-08-23T00:00:00.000Z",
+    });
+    const unboundStream = readTaskDispatches({
+      rootDir,
+      projection: projectionForArchive(archived),
+      taskId,
+    }).dispatches[0];
+    assert.equal(unboundStream?.providerSessionId, "provider-archived");
+    assert.deepEqual(unboundStream?.resume, { dispatchId, agentId: "terra" });
+
+    // Negative control: without any providerSessionId the dispatch stays non-resumable.
+    const noSession = { ...archived } as Record<string, unknown>;
+    delete noSession.providerSessionId;
+    const negative = readTaskDispatches({
+      rootDir,
+      projection: projectionForArchive(noSession),
+      taskId,
+    }).dispatches[0];
+    assert.equal(negative?.providerSessionId, null);
+    assert.equal(Object.hasOwn(negative ?? {}, "resume"), false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

@@ -168,6 +168,13 @@ const summaryCache = new Map<string, SummaryCacheEntry>();
 const headerCache = new Map<string, HeaderCacheEntry>();
 const summaryHeadBytes = 16 * 1024;
 const summaryTailBytes = 128 * 1024;
+// A blind-spot probe overlaps each covered window by this many bytes so a record line that
+// straddles a window boundary is still recovered whole.
+const summaryProbeOverlapBytes = 4 * 1024;
+// A provider's startup preamble (stderr/init output) before its binding has no hard protocol
+// bound, but real providers settle binding within hundreds of KB. Bound the forward probe so
+// oversized or sparse stream files (e.g. hundreds of MB) are never scanned end-to-end.
+const summaryPreambleProbeLimitBytes = 2 * 1024 * 1024;
 const readLimitWarnings = new Set<string>();
 const writeLimitWarnings = new Set<string>();
 const summaryKinds = new Set([
@@ -352,6 +359,23 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
     }
   }
   const value = summarizeDispatch(header, records, stat.mtimeMs);
+  if (value.providerSessionId === null) {
+    // provider_binding lands after the provider's startup preamble, which has no size bound;
+    // when it falls between the head windows and the tail window, probe the gap directly
+    // up to a bounded preamble limit so oversized/sparse streams are not scanned end-to-end.
+    const coveredEnd = Math.min(stat.size, headerEnd + summaryHeadBytes),
+      tailStart = Math.max(0, stat.size - summaryTailBytes),
+      probeLimit = Math.min(stat.size, headerEnd + summaryPreambleProbeLimitBytes);
+    if (coveredEnd < tailStart && coveredEnd < probeLimit) {
+      const binding = readStreamRecordOfKindForward(
+        target,
+        "provider_binding",
+        Math.max(headerEnd, coveredEnd - summaryProbeOverlapBytes),
+        Math.min(probeLimit, tailStart + summaryProbeOverlapBytes),
+      );
+      if (binding) records.push(binding);
+    }
+  }
   if (value.runtimeMetrics === null) {
     const runtimeMetrics = readLatestRecordOfKind(target, "runtime_metrics");
     if (runtimeMetrics && isRuntimeMetrics(runtimeMetrics)) records.push(runtimeMetrics);
@@ -785,6 +809,54 @@ function lineKind(value: string): string | null {
   const match = /"kind"\s*:\s*"([^"\\]+)"/u.exec(value);
   return match?.[1] ?? null;
 }
+/** Forward scan of [start, end) for the first JSON-lines record matching `"kind":"${kind}"`.
+ * Used to recover an initialization lifecycle record (e.g. provider_binding) that landed
+ * past the summary's initial head window due to a long provider startup preamble.
+ * Scans byte buffers directly to stay fast and avoid accumulating memory across unread gaps. */
+function readStreamRecordOfKindForward(
+  target: string,
+  kind: string,
+  start: number,
+  end: number,
+): DispatchStreamRecord | null {
+  const descriptor = openSync(target, fsConstants.O_RDONLY),
+    marker = Buffer.from(`"kind":"${kind}"`),
+    chunkSize = 64 * 1024,
+    bytes = Buffer.alloc(chunkSize);
+  try {
+    for (let offset = start; offset < end; ) {
+      const length = Math.min(chunkSize, end - offset),
+        read = readSync(descriptor, bytes, 0, length, offset);
+      if (read === 0) break;
+      const slice = bytes.subarray(0, read),
+        markerIndex = slice.indexOf(marker);
+      if (markerIndex !== -1) {
+        const markerOffset = offset + markerIndex,
+          windowStart = Math.max(0, markerOffset - 16 * 1024),
+          windowEnd = markerOffset + 16 * 1024,
+          windowLength = windowEnd - windowStart,
+          windowBuf = Buffer.alloc(windowLength),
+          windowRead = readSync(descriptor, windowBuf, 0, windowLength, windowStart),
+          windowSlice = windowBuf.subarray(0, windowRead),
+          relMarker = markerOffset - windowStart;
+        const lineStart = windowSlice.lastIndexOf(10, relMarker) + 1,
+          newlineAfter = windowSlice.indexOf(10, relMarker),
+          lineEnd = newlineAfter === -1 ? windowRead : newlineAfter,
+          line = windowSlice.subarray(lineStart, lineEnd).toString("utf8"),
+          record = parseRecord(line);
+        if (record?.kind === kind) return record;
+        offset += markerIndex + marker.length;
+        continue;
+      }
+      if (read < length || offset + length >= end) break;
+      offset += length - (marker.length - 1);
+    }
+  } finally {
+    closeSync(descriptor);
+  }
+  return null;
+}
+
 function readLatestRecordOfKind(target: string, kind: string): Record<string, unknown> | null {
   const descriptor = openSync(target, fsConstants.O_RDONLY),
     size = fstatSync(descriptor).size,
