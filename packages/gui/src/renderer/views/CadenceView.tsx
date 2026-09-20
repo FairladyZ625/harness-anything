@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { harnessClient, type AgendaSuccess } from "../api-client.ts";
-import { consumeKnownError } from "../../api/error-consumption.ts";
 import type { ObserveTailRead } from "../../api/renderer-dto.ts";
 import { t } from "../i18n/index.tsx";
 import {
@@ -89,14 +88,33 @@ function useCadenceFeed(repoId: string): CadenceFeedState {
         pages = 0,
         delay: number;
       while (!cancelled) {
-        try {
-          const walkingHistory = !historyComplete && pages < CADENCE_HISTORY_PAGE_BUDGET,
-            page: ObserveTailRead = await harnessClient.tailObservability(
-              walkingHistory
-                ? observeTailRequest(repoId, "events", "history", historyCursor)
-                : observeTailRequest(repoId, "events", "follow", liveCursor),
-            );
-          if (cancelled) return;
+        const walkingHistory: boolean = !historyComplete && pages < CADENCE_HISTORY_PAGE_BUDGET;
+        const result:
+          | { readonly ok: true; readonly page: ObserveTailRead }
+          | { readonly ok: false; readonly message: string } = await harnessClient
+          .tailObservability(
+            walkingHistory
+              ? observeTailRequest(repoId, "events", "history", historyCursor)
+              : observeTailRequest(repoId, "events", "follow", liveCursor),
+          )
+          .then(
+            (page): { readonly ok: true; readonly page: ObserveTailRead } => ({ ok: true, page }),
+            (error: unknown): { readonly ok: false; readonly message: string } => ({
+              ok: false,
+              message: error instanceof Error ? error.message : String(error),
+            }),
+          );
+        if (cancelled) return;
+        if (!result.ok) {
+          commit({
+            ...stateRef.current,
+            status: "error",
+            error: result.message,
+            now: new Date().toISOString(),
+          });
+          delay = CADENCE_ERROR_MS;
+        } else {
+          const page: ObserveTailRead = result.page;
           if (page.status === "unavailable") {
             events = [];
             historyCursor = null;
@@ -138,17 +156,6 @@ function useCadenceFeed(repoId: string): CadenceFeedState {
                   ? CADENCE_FOLLOW_MS
                   : 0;
           }
-        } catch (error) {
-          // 失败投影为可读横幅并按 CADENCE_ERROR_MS 重试;不吞错继续跑。
-          consumeKnownError(error);
-          if (cancelled) return;
-          commit({
-            ...stateRef.current,
-            status: "error",
-            error: error instanceof Error ? error.message : String(error),
-            now: new Date().toISOString(),
-          });
-          delay = CADENCE_ERROR_MS;
         }
         await new Promise<void>((resolve) => {
           timer = setTimeout(resolve, delay);
