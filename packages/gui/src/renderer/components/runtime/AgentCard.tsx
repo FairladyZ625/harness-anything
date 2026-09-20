@@ -36,7 +36,7 @@ import {
 
 export type AgentDraft = {
   readonly name: string;
-  readonly role: "worker" | "commander";
+  readonly role: "worker" | "commander" | "reviewer";
   /** One row per accepted runtime kind; model "" means the instance default. */
   readonly runtimes: readonly { readonly type: string; readonly model: string }[];
   readonly preset: string;
@@ -235,6 +235,11 @@ export function AgentCard({
                     value: "commander" as const,
                     label: t("agentRuntime.roleCommander"),
                     tip: t("agentRuntime.roleCommanderTip"),
+                  },
+                  {
+                    value: "reviewer" as const,
+                    label: t("agentRuntime.roleReviewer"),
+                    tip: t("agentRuntime.roleReviewerTip"),
                   },
                 ]}
               />

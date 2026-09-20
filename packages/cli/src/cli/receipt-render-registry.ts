@@ -30,6 +30,7 @@ const schemaRenderers = new Map<string, ReceiptRenderer>([
 
 const commandRenderers = new Map<string, ReceiptRenderer>([
   ["task-create", renderTaskCreate],
+  ["task-adjudicate", renderAdjudication],
   ["task-dispatch-review", renderReviewDispatches],
   ["task-show", renderTaskShow],
   ["decision-propose", renderDecisionPropose],
@@ -110,6 +111,19 @@ function renderCliReceiptBase(
   if (commandRenderer) return { stream: "stdout", text: commandRenderer(receipt) };
   if (Array.isArray(receipt.dispatches)) return { stream: "stdout", text: renderDispatches(receipt.dispatches) };
   return { stream: "stdout", text: renderSuccessfulReceipt(receipt) };
+}
+
+function renderAdjudication(receipt: Record<string, unknown>): string {
+  const steps = Array.isArray(receipt.steps) ? receipt.steps.filter(isRecord) : [];
+  return [
+    renderSuccessfulReceipt(receipt),
+    ...(typeof receipt.reviewerId === "string"
+      ? [`reviewer: ${receipt.reviewerId} (source: ${String(receipt.reviewerSource)})`]
+      : []),
+    ...steps
+      .filter((step) => step.outcome === "failed" || step.outcome === "op_rejected")
+      .map((step) => `review dispatch failed: ${humanError(step).hint}`),
+  ].join("\n");
 }
 
 function renderTaskCreate(receipt: Record<string, unknown>): string {

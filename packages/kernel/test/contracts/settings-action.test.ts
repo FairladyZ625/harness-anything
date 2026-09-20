@@ -4,7 +4,7 @@ import test from "node:test";
 import { explainEntityKind, getExecutableEntityAction } from "../../src/domain/entity-kind-registry.ts";
 import { SettingsActionError, settingsUpdateInputFields } from "../../src/domain/settings-action-contract.ts";
 import { repositorySettingsActionValues } from "../../src/domain/settings-action-values.ts";
-import { assertSettingsEventInputs } from "../../src/domain/settings-event.ts";
+import { assertSettingsEventInputs, validateCurrentSettingsEvent } from "../../src/domain/settings-event.ts";
 import { effectiveCloseoutGates } from "../../src/domain/settings-closeout.ts";
 import { readSettingsFacet, repositorySettings } from "../../src/domain/settings.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
@@ -111,11 +111,74 @@ test("Settings update persists principal review independence through the existin
 });
 
 test("Settings pins a configured reviewer through its canonical event and authored facet", () => {
-  const draft = compile({ defaultReviewer: "audit-reviewer" });
+  const draft = compile({ roles: { defaultReviewer: "audit-reviewer" } });
   assert.equal(draft.kind, "settings");
   if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
-  assert.equal(draft.result.bundle.event.payload.settings.defaultReviewer, "audit-reviewer");
-  assert.equal(readSettingsFacet(draft.result.bundle.blobs[0].body).defaultReviewer, "audit-reviewer");
+  assert.equal(draft.result.bundle.event.payload.settings.roles?.defaultReviewer, "audit-reviewer");
+  assert.equal(readSettingsFacet(draft.result.bundle.blobs[0].body).roles?.defaultReviewer, "audit-reviewer");
+  assertSettingsEventInputs(draft.result.bundle.event, draft.result.bundle.plan, draft.result.bundle.blobs);
+});
+
+test("role deltas preserve other edge preferences and null clears only the selected role", () => {
+  const first = compile({ roles: { defaultReviewer: "audit-reviewer", defaultWorker: "dev-worker" } });
+  assert.equal(first.kind, "settings");
+  if (first.kind !== "settings" || first.result.kind !== "event") throw new Error("missing settings event");
+  const next = compile(
+    { roles: { defaultCommander: "lead", defaultWorker: null } },
+    {
+      currentEntity: first.result.bundle.event.payload.settings,
+      currentDocumentBody: first.result.bundle.blobs[0].body,
+    },
+  );
+  if (next.kind !== "settings" || next.result.kind !== "event") throw new Error("missing settings event");
+  assert.deepEqual(next.result.bundle.event.payload.settings.roles, {
+    defaultReviewer: "audit-reviewer",
+    defaultCommander: "lead",
+  });
+  assertSettingsEventInputs(next.result.bundle.event, next.result.bundle.plan, next.result.bundle.blobs);
+});
+
+test("role delta rejects unknown roles and malformed ids and current events reject the retired root", () => {
+  for (const roles of [
+    [],
+    null,
+    "reviewer",
+    { reviewer: "audit" },
+    { defaultReviewer: "" },
+    { defaultWorker: 3 },
+    { defaultCommander: "bad id" },
+  ]) {
+    assert.throws(
+      () => compile({ roles }),
+      (error: unknown) => error instanceof SettingsActionError && error.code === "invalid_command",
+    );
+  }
+  const draft = compile({ roles: { defaultReviewer: "audit-reviewer" } });
+  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
+  const event = draft.result.bundle.event;
+  assert.notDeepEqual(
+    validateCurrentSettingsEvent({
+      ...event,
+      payload: { ...event.payload, settings: { ...event.payload.settings, defaultReviewer: "retired-reviewer" } },
+    }),
+    [],
+  );
+});
+
+test("a new roles write removes the retired YAML root while preserving the normalized preference", () => {
+  const draft = compile(
+    { roles: { defaultCommander: "lead" } },
+    {
+      currentEntity: { ...current, roles: { defaultReviewer: "legacy-reviewer" } },
+      currentDocumentBody: `${documentBody}  defaultReviewer: legacy-reviewer\n`,
+    },
+  );
+  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
+  assert.doesNotMatch(draft.result.bundle.blobs[0].body, /^  defaultReviewer:/mu);
+  assert.deepEqual(readSettingsFacet(draft.result.bundle.blobs[0].body).roles, {
+    defaultReviewer: "legacy-reviewer",
+    defaultCommander: "lead",
+  });
   assertSettingsEventInputs(draft.result.bundle.event, draft.result.bundle.plan, draft.result.bundle.blobs);
 });
 
@@ -348,7 +411,7 @@ test("settings update field surface has one source: the catalog input is the exp
     "defaultVertical",
     "defaultPreset",
     "defaultProfile",
-    "defaultReviewer",
+    "roles",
     "reviewIndependence",
     "reviewReturnBudget",
     "taskScaffold",
@@ -372,7 +435,7 @@ test("settings update field surface has one source: the catalog input is the exp
 test("repositorySettingsActionValues covers every repository field for a fully populated settings", () => {
   const populated = repositorySettings(
     readSettingsFacet(
-      `${documentBody}  defaultReviewer: arch-reviewer\n  ci:\n    workflows: [ci]\n  restoreDrillRetention: 5\n`,
+      `${documentBody}  roles:\n    defaultReviewer: arch-reviewer\n  ci:\n    workflows: [ci]\n  restoreDrillRetention: 5\n`,
     ),
   );
   const values = repositorySettingsActionValues(populated),

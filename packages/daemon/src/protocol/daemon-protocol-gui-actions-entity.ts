@@ -139,6 +139,7 @@ export const taskCompletionGuiActions = Object.freeze([
     shape({
       taskId: "string",
       executionId: "string?",
+      reviewer: "string?",
       reviewId: "string?",
       forward: "boolean?",
       return: "boolean?",

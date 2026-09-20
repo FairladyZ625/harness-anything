@@ -84,6 +84,21 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
     errors.push(...validateObserveTailPayload((value.params as JsonObject).payload));
   if (!errors.length && (value.method === "repo.task.run" || value.method === "repo.task.read"))
     errors.push(...validateCatalogActionPayload(value.params as JsonObject));
+  if (!errors.length && value.method === "repo.task.run") {
+    const action = ((value.params as JsonObject).payload as JsonObject).action;
+    if (isJsonObject(action) && action.kind === "settings-update") {
+      const { kind: _kind, executor: _executor, ...settings } = action;
+      // The CLI facade has the same closed Settings input as the GUI; its retry key is optional.
+      const settingsMethod = allDaemonProtocolMethods.find((entry) => entry.method === "repo.settings.update")!;
+      errors.push(
+        ...validateShape(
+          { idempotencyKey: "settings-input-validation", ...settings },
+          settingsMethod.params.fields.payload!,
+          "params.payload.action",
+        ),
+      );
+    }
+  }
   if (!errors.length && isDaemonGuiActionMethod(value.method))
     errors.push(...validateGuiActionPayload(value.method, (value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.terminal.attach") {
@@ -216,7 +231,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
   if (method === "repo.settings.update") {
     // ciWorkflows and the closeout fields are typed settings judged by the kernel compiler, not here.
     const settingFields = (
-        "defaultVertical defaultPreset defaultProfile defaultReviewer reviewIndependence reviewReturnBudget " +
+        "defaultVertical defaultPreset defaultProfile roles reviewIndependence reviewReturnBudget " +
         "closeoutProfile closeoutReview closeoutConsent closeoutFactDisposition closeoutCodeDoc " +
         "locale taskScaffold repositoryScaffold walFlushAdaptive walFlushEvents " +
         "walFlushBytes walFlushMilliseconds ciWorkflows gatesFromDocument gatesDraft restoreDrillRetention"
@@ -230,6 +245,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
           (field) =>
             !field.startsWith("walFlush") &&
             !field.startsWith("closeout") &&
+            field !== "roles" &&
             field !== "ciWorkflows" &&
             field !== "gatesFromDocument" &&
             field !== "gatesDraft" &&
@@ -244,6 +260,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
         value.reviewReturnBudget,
         value.restoreDrillRetention,
       ].some((item) => item !== undefined && (!Number.isSafeInteger(item) || Number(item) < 1)) ||
+      (value.roles !== undefined && !isJsonObject(value.roles)) ||
       (value.gatesDraft !== undefined &&
         (!Array.isArray(value.gatesDraft) || value.gatesDraft.some((mapping) => !isJsonObject(mapping)))) ||
       (value.locale !== undefined && !["en-US", "zh-CN"].includes(String(value.locale))) ||

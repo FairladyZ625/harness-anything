@@ -253,10 +253,15 @@ test("install preparation does not hide stored declaration integrity failures", 
   );
 });
 
-test("Agent role is optional, closed to worker or commander, and defaults to worker in GUI projections", () => {
+test("Agent role is optional and closed to worker, commander, or reviewer", () => {
+  assert.deepEqual(validateAgentDeclarationV1(agent), []);
   assert.deepEqual(validateAgentDeclarationV1({ ...agent, role: "worker" }), []);
+  assert.deepEqual(validateAgentDeclarationV1({ ...agent, role: "reviewer" }), []);
   assert.deepEqual(validateAgentDeclarationV1({ ...agent, role: "commander" }), []);
-  assert.match(validateAgentDeclarationV1({ ...agent, role: "ceo" }).join("\n"), /role.*worker or commander/u);
+  assert.match(
+    validateAgentDeclarationV1({ ...agent, role: "ceo" }).join("\n"),
+    /role.*worker, commander, or reviewer/u,
+  );
 });
 
 test("Agent skills only accept unique exact {id, path} declarations", () => {

@@ -22,12 +22,22 @@ export interface SettingsFieldDescriptor {
   readonly enum?: readonly string[];
 }
 
-export type SettingsFieldValue = string | number | boolean | readonly string[] | readonly GateMappingDraft[];
+export type RolePreferences = Readonly<
+  Partial<Record<"defaultWorker" | "defaultCommander" | "defaultReviewer", string | null>>
+>;
+export type SettingsFieldValue =
+  | string
+  | number
+  | boolean
+  | readonly string[]
+  | readonly GateMappingDraft[]
+  | RolePreferences;
 
 /** 表单草稿:扁平 action 值,键 = 契约字段名,来源 daemon settings read 的 values。 */
 export type SettingsDraft = Readonly<Record<string, SettingsFieldValue | undefined>>;
 
 export type SettingsFieldWidget =
+  | "role-selectors"
   | "enum-select"
   | "catalog-select"
   | "catalog-multi-select"
@@ -50,7 +60,6 @@ export const CATALOG_SELECT_FIELDS: ReadonlySet<string> = new Set([
   "defaultProfile",
   "taskScaffold",
   "repositoryScaffold",
-  "defaultReviewer",
 ]);
 
 /** 目录多选的字段:CI 工作流(取值面 = .github/workflows 的 *.yml 基名,空集合合法)。 */
@@ -69,6 +78,8 @@ const EXCLUDED_FIELDS: ReadonlySet<string> = new Set([
 export function settingsFormRows(fields: readonly SettingsFieldDescriptor[]): readonly SettingsFieldRow[] {
   return fields.flatMap((descriptor): SettingsFieldRow[] => {
     if (EXCLUDED_FIELDS.has(descriptor.field)) return [];
+    if (descriptor.field === "roles" && descriptor.type === "json-object")
+      return [{ field: "roles", widget: "role-selectors", options: null }];
     if (CATALOG_SELECT_FIELDS.has(descriptor.field) && descriptor.type === "string")
       return [{ field: descriptor.field, widget: "catalog-select", options: null }];
     if (CATALOG_MULTI_SELECT_FIELDS.has(descriptor.field) && descriptor.type === "string-array")
@@ -92,10 +103,19 @@ export function settingsFormRows(fields: readonly SettingsFieldDescriptor[]): re
 export function settingsPayloadFromDraft(
   draft: SettingsDraft,
   fields: readonly SettingsFieldDescriptor[],
+  baseline: SettingsDraft = {},
 ): Readonly<Record<string, SettingsFieldValue>> {
   return Object.fromEntries(
-    settingsFormRows(fields).flatMap((row) => {
+    settingsFormRows(fields).flatMap((row): [string, SettingsFieldValue][] => {
       const value = draft[row.field];
+      if (row.field === "roles") {
+        const roles = (value ?? {}) as RolePreferences,
+          previous = (baseline.roles ?? {}) as RolePreferences,
+          delta = Object.fromEntries(
+            Object.entries(roles).filter(([key, entry]) => entry !== previous[key as keyof RolePreferences]),
+          );
+        return Object.keys(delta).length ? [["roles", delta]] : [];
+      }
       return value === undefined ? [] : [[row.field, value]];
     }),
   );

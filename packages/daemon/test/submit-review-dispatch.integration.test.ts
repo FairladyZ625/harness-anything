@@ -328,3 +328,59 @@ test(
     }
   },
 );
+
+test(
+  "forward honors the frozen reviewer over arguments and settings and recovers dispatch without adjudication",
+  {
+    timeout: 30_000,
+  },
+  async () => {
+    const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
+    try {
+      await f.install();
+      const settings = await f.runPrincipal({
+        kind: "settings-update",
+        roles: { defaultReviewer: "missing-reviewer" },
+        idempotencyKey: "freeze-missing",
+      });
+      assert.equal(settings.outcome, "applied", JSON.stringify(settings));
+      assert.equal((await f.submit()).outcome, "applied");
+      assert.equal(
+        (
+          await f.runPrincipal({
+            kind: "settings-update",
+            roles: { defaultReviewer: "closeout-reviewer" },
+            idempotencyKey: "change-default",
+          })
+        ).outcome,
+        "applied",
+      );
+      const forwarded = (await f.run({
+        kind: "task-adjudicate",
+        taskId,
+        forward: true,
+        reviewer: "closeout-reviewer",
+        reason: "Review frozen cut.",
+      })) as unknown as Record<string, unknown>;
+      assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
+      assert.equal(forwarded.reviewerId, "missing-reviewer");
+      assert.equal(forwarded.reviewerSource, "frozen");
+      assert.match(JSON.stringify(forwarded.steps), /already in_review/u);
+      assert.match(
+        JSON.stringify(forwarded.steps),
+        /ha task dispatch-review task-completion-review --agent missing-reviewer/u,
+      );
+      const state = (await f.cell().read("repo.tasks.list")).rows.find((row) => row.taskId === taskId);
+      assert.equal(state?.snapshot.task?.status, "in_review");
+      assert.equal(f.launches.length, 0);
+      const recovered = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], agentId: "closeout-reviewer" });
+      assert.equal(recovered.outcome, "applied", JSON.stringify(recovered));
+      assert.equal(f.launches.length, 1);
+      const retry = await f.run({ kind: "task-dispatch-review", taskIds: [taskId], agentId: "closeout-reviewer" });
+      assert.match(JSON.stringify(retry), /already_dispatched/u);
+      assert.equal(f.launches.length, 1);
+    } finally {
+      await f.close();
+    }
+  },
+);

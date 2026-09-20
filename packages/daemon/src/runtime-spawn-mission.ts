@@ -1,8 +1,8 @@
 import { existsSync, globSync } from "node:fs";
 import path from "node:path";
-import type { TaskProjection } from "../../kernel/src/index.ts";
+import type { AgentRole, TaskProjection } from "../../kernel/src/index.ts";
 import { resolveHarnessLayout } from "../../kernel/src/index.ts";
-import { agentRolePrompt, sharedExecutionDiscipline } from "./agent-role-prompts.ts";
+import { agentRolePrompt } from "./agent-role-prompts.ts";
 import { agentRuntimeTargetSummary, agentRuntimeKindMatches } from "./agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import { type ResolvedAgentSkill } from "./agent-skills.ts";
@@ -53,11 +53,11 @@ export function assembleAgentPrompt(
 }
 
 /**
- * A task-bound dispatch without an agent declaration has no role, but it is worker work and the execution
- * boundaries still apply. A direct prompt with neither task nor agent is passed through verbatim.
+ * Without an agent declaration, task dispatches default to worker discipline; review dispatches
+ * explicitly select reviewer discipline. Direct prompts with neither task nor role pass through verbatim.
  */
-export function assembleUnboundPrompt(mission: string): string {
-  return [sharedExecutionDiscipline, "# Mission", mission].join("\n\n");
+export function assembleUnboundPrompt(mission: string, role?: AgentRole): string {
+  return [agentRolePrompt(role), "# Mission", mission].join("\n\n");
 }
 
 export function dispatchMissionForPermission(mission: string, permissionMode: string | undefined): string {

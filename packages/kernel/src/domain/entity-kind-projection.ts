@@ -1,3 +1,4 @@
+import { normalizeHistoricalSettingsRoles } from "./settings-history.ts";
 import { deriveRelationId } from "./entity-relation.ts";
 import { parseEntityJsonSchema } from "./entity-json-schema.ts";
 import type { EntityKindContract } from "./entity-kind-registry.ts";
@@ -125,7 +126,11 @@ export function interpretEmbeddedEntityProjections(
   return declaration.embeddedEvents
     .filter((source) => source.schema === event.schema && source.types.includes(event.type))
     .map((source) => {
-      const value = payload[source.payloadField];
+      // 下一次代际转换跑过 settings-roles 迁移后删除此读取规范化。
+      const value =
+        contract.kind === "settings"
+          ? normalizeHistoricalSettingsRoles(payload[source.payloadField])
+          : payload[source.payloadField];
       const projected = interpretEntityProjection(contract, value, event.workspaceRevision, `event:${event.opId}`);
       if (projected === null) throw new Error(`${contract.kind} embedded projection declaration is unavailable`);
       return projected;

@@ -77,6 +77,11 @@ const flatSettingsValue = (item: unknown): boolean =>
   typeof item === "number" ||
   typeof item === "boolean" ||
   (Array.isArray(item) && item.every((entry) => typeof entry === "string"));
+// `roles` is the one action field that is itself a record (role name to declared agent id).
+const settingsActionValue = ([field, item]: readonly [string, unknown]): boolean =>
+  field === "roles"
+    ? isJsonObject(item) && Object.values(item).every((agent) => typeof agent === "string")
+    : flatSettingsValue(item);
 const settingsLastChange = (item: unknown): boolean =>
   item === "initial" ||
   (isJsonObject(item) &&
@@ -90,7 +95,7 @@ export const validateDaemonSettingsRead: ResultValidator = (value) =>
   value.ok === true &&
   validateSettingsV1(value.settings).length === 0 &&
   isJsonObject(value.values) &&
-  Object.values(value.values).every(flatSettingsValue) &&
+  Object.entries(value.values).every(settingsActionValue) &&
   settingsLastChange(value.lastChanged)
     ? []
     : [

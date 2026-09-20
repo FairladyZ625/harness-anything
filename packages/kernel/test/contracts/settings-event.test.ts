@@ -139,3 +139,21 @@ test("settings_changed carries the singleton snapshot, parent CAS, YAML claim, a
     ],
   );
 });
+
+test("new event compilation rejects the retired reviewer root before projecting fields", () => {
+  assert.throws(
+    () =>
+      compileSettingsChangedEvent({
+        settings: { ...readSettingsFacet(original), defaultReviewer: "legacy-reviewer" } as SettingsV1,
+        baseDocumentBody: original,
+        candidateDocumentBody: original,
+        eventId: "event-retired-settings",
+        opId: "op-retired-settings",
+        workspaceRevision: 1,
+        actor: { principal: { personId: "person-settings" }, executor: null },
+        source: "local",
+        occurredAt: "2026-09-21T00:00:00.000Z",
+      }),
+    /defaultReviewer/u,
+  );
+});

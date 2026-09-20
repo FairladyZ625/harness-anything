@@ -5,7 +5,7 @@ import { repositorySettings, type RepositorySettingsV1, type SettingsV1 } from "
  * effective values (explicit override, else the strict-profile baseline) exactly like the update
  * compile treats an omitted-but-materialized override. */
 export function repositorySettingsActionValues(read: SettingsV1 | RepositorySettingsV1): {
-  readonly [field: string]: string | number | boolean | readonly string[];
+  readonly [field: string]: string | number | boolean | readonly string[] | NonNullable<RepositorySettingsV1["roles"]>;
 } {
   const settings = repositorySettings(read),
     closeoutGate = (gate: keyof NonNullable<RepositorySettingsV1["closeout"]["overrides"]>) =>
@@ -14,7 +14,7 @@ export function repositorySettingsActionValues(read: SettingsV1 | RepositorySett
     defaultVertical: settings.defaultVertical,
     defaultPreset: settings.defaultPreset,
     defaultProfile: settings.defaultProfile,
-    ...(settings.defaultReviewer !== undefined ? { defaultReviewer: settings.defaultReviewer } : {}),
+    roles: settings.roles ?? {},
     reviewIndependence: settings.reviewIndependence,
     reviewReturnBudget: settings.reviewReturnBudget,
     taskScaffold: settings.scaffolds.task,

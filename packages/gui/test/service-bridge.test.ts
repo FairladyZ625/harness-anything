@@ -307,6 +307,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       defaultVertical: "software/coding",
       defaultPreset: "standard-task",
       defaultProfile: "baseline",
+      roles: {},
       reviewIndependence: "execution",
       reviewReturnBudget: 3,
       restoreDrillRetention: 3,

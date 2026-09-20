@@ -15,7 +15,7 @@ export interface DaemonSettingsRead {
   readonly schema: "daemon.settings-read/v1";
   readonly ok: true;
   readonly settings: SettingsV1;
-  readonly values: Readonly<Record<string, string | number | boolean | readonly string[]>>;
+  readonly values: ReturnType<typeof repositorySettingsActionValues>;
   readonly lastChanged: DaemonSettingsLastChange | "initial";
 }
 

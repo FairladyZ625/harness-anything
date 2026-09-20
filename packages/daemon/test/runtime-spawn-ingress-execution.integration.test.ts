@@ -74,13 +74,15 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       installationId: "installation-claude",
       kindId: "claude" as const,
     };
-  let launchCount = 0;
+  let launchCount = 0,
+    launchedPrompt = "";
   const host = await openDaemonHost({
     daemonId: "runtime-spawn-ingress",
     userRoot,
     runtimeDiscover: () => [ingressInstallation, claudeInstallation],
-    runtimeLaunch: () => {
+    runtimeLaunch: (request) => {
       launchCount += 1;
+      launchedPrompt = request.prompt;
       return {
         pid: 4310,
         onOutput: (listener) => {
@@ -236,6 +238,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         },
       });
       assert.equal(firstReviewer.outcome, "applied", JSON.stringify(firstReviewer));
+      assert.match(launchedPrompt, /# Reviewer Role/u);
+      assert.doesNotMatch(launchedPrompt, /# Implementation Permissions|# Worker Role|temporary WIP commit/u);
       await eventuallyValue(
         async () =>
           makeTaskEventReader({ repoId, rootDir: root })
@@ -411,18 +415,37 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         new RegExp(`ha task dispatch-review ${taskId} --agent <reviewer-agent-id>`, "u"),
       );
 
+      const installed = await host.run(
+        repoId,
+        {
+          kind: "agent-install",
+          declaration: {
+            schema: "agent-declaration/v1",
+            id: "worker-as-reviewer",
+            name: "Worker assigned to review",
+            instructions: "Independently review the pinned cut.",
+            role: "worker",
+            runtimes: [],
+          },
+        },
+        auth,
+      );
+      assert.equal(installed.outcome, "applied", JSON.stringify(installed));
       const independentReview = await rpc(host, auth, "repo.agentRuntime.spawn", {
         repo: { repoId },
         payload: {
           runtimeInstanceId: ingressDefinition.instanceId,
           cwd: { scope: "repo-root" },
           prompt: "Review the continuation.",
+          agentId: "worker-as-reviewer",
           role: "reviewer",
           taskId,
           idempotencyKey: "runtime-changes-requested-reviewer",
         },
       });
       assert.equal(independentReview.outcome, "applied", JSON.stringify(independentReview));
+      assert.match(launchedPrompt, /# Reviewer Role/u);
+      assert.doesNotMatch(launchedPrompt, /# Implementation Permissions|# Worker Role|temporary WIP commit/u);
     });
     await t.test("an in-review task dispatches a closeout continuation without reopening execution", async () => {
       const taskId = "task-runtime-review-continuation",

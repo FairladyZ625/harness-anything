@@ -15,7 +15,7 @@ export interface AgentFallbackDeclarationV1 {
   readonly providerPriority?: readonly string[];
   readonly backoff: { readonly baseMs: number; readonly maxMs: number };
 }
-export type AgentRole = "worker" | "commander";
+export type AgentRole = "worker" | "commander" | "reviewer";
 export type AgentPermissionMode = "bypass" | "workspace-write" | "read-only";
 export const agentStates = ["configured", "active", "retired"] as const;
 export type AgentState = (typeof agentStates)[number];
@@ -95,9 +95,9 @@ export const AGENT_DECLARATION_V1_SCHEMA = Object.freeze({
     },
     role: {
       type: "string",
-      enum: ["worker", "commander"],
+      enum: ["worker", "commander", "reviewer"],
       description: "Prompt discipline role.",
-      "x-error": "must be worker or commander.",
+      "x-error": "must be worker, commander, or reviewer.",
     },
     skills: {
       type: "array",

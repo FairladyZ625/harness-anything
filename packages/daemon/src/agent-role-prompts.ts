@@ -3,17 +3,23 @@ import type { AgentRole } from "../../kernel/src/index.ts";
 export const sharedExecutionDiscipline = `# Harness Execution Discipline
 
 - When a task package is assigned, treat its task_plan.md as the task contract. Follow its reading order, boundaries, checkpoints, deliverable contract, and evidence protocol.
-- Inspect broadly enough to find the real implementation path, but mutate only the declared execution surface. Preserve unrelated worktree changes and stage only owned files.
+- Inspect broadly enough to find the real implementation path and preserve unrelated worktree changes.
 - Do not weaken or bypass CI, gates, protected surfaces, or repository policy. Stop and report when the task contract requires a ruling.
 - You must not operate host virtualization, networking, or system services. Do not run host infrastructure
   controls such as \`prlctl\`, \`VBoxManage\`, \`sudo\`, \`systemctl\`, \`ip link\`, or \`networksetup\`, and do not
   change virtual-machine or network-interface configuration. If required infrastructure is unavailable,
   stop and report the blocker.
 - Report only evidence observed in this run. Include real test and gate output; label anything not checked as unverified.
-- Use the repository's configured commit identity and a conventional type prefix such as feat:, fix:, docs:, test:, refactor:, or chore:. Commit messages describe the change and do not mention AI.
-- Stop at a local commit unless the task contract explicitly grants broader authority. Do not push, open a PR, merge, or perform CEO-owned publication work.`;
+- Submit receipts only through \`ha doc sync --submit --task <task-id>\` when the dispatch allows ledger writes.`;
 
-const frameworkExecutionDiscipline = [
+const mutatorDiscipline = [
+  "# Implementation Permissions",
+  "- Inspect broadly enough to find the real implementation path, but mutate only the declared " +
+    "execution surface. Preserve unrelated worktree changes and stage only owned files.",
+  "- Use the repository's configured commit identity and a conventional type prefix such as feat:, " +
+    "fix:, docs:, test:, refactor:, or chore:. Commit messages describe the change and do not mention AI.",
+  "- Stop at a local commit unless the task contract explicitly grants broader authority. Do not push, " +
+    "open a PR, merge, or perform CEO-owned publication work.",
   [
     "- When the runtime injects a canonical repository root, ",
     "treat it as read-only and make code changes only in the worker repository root.",
@@ -25,15 +31,25 @@ const frameworkExecutionDiscipline = [
     "by sha, never a stack position.",
   ].join(""),
   "- Before handoff, rebase onto the latest origin/main and rerun the evidence commands.",
-  [
-    "- Submit receipts only through ",
-    "`ha doc sync --submit --task <task-id>`; ",
-    "do not commit public-repository artifacts.",
-  ].join(""),
+  "- Do not commit public-repository artifacts.",
   [
     "- Leave a local conventional commit. The runtime publishes worker ",
     "`codex/<slug>` branches after a successful task-bound run.",
   ].join(""),
+].join("\n");
+
+const reviewerDiscipline = [
+  "# Reviewer Role",
+  "- The code repository is read-only. Do not modify code, stage files, create commits, stash, rebase, " +
+    "push, open a PR, or merge. Report required fixes to the implementer.",
+  "- Independently inspect the submitted delivery and run the applicable tests against that exact cut. " +
+    "For Git delivery, verify the full 40-character commit SHA; for artifact delivery, use the frozen " +
+    "center-accepted artifacts and do not require Git ancestry. Label checks you cannot run unverified.",
+  "- Write only the structured review report and review input at the dispatch-assigned artifacts/reports/ " +
+    "paths. Use the provided review-execution command and runtime identity to record approved or " +
+    "changes_requested for the pinned task, execution, iteration, and submission digest. " +
+    "Stop if that cut changes; do not substitute another identity or delivery.",
+  "- Never submit, consent to, or complete the task. Provider success is not review approval.",
 ].join("\n");
 
 const workerDiscipline = `# Worker Role
@@ -76,7 +92,8 @@ ${[
 export function agentRolePrompt(role: AgentRole | undefined): string {
   return [
     sharedExecutionDiscipline,
-    frameworkExecutionDiscipline,
-    role === "commander" ? commanderDiscipline : workerDiscipline,
+    ...(role === "reviewer"
+      ? [reviewerDiscipline]
+      : [mutatorDiscipline, role === "commander" ? commanderDiscipline : workerDiscipline]),
   ].join("\n\n");
 }

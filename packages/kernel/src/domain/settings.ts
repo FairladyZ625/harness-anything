@@ -54,7 +54,7 @@ export const SETTINGS_FIELD_OWNERSHIP = Object.freeze({
   defaultVertical: "repository",
   defaultPreset: "repository",
   defaultProfile: "repository",
-  defaultReviewer: "repository",
+  roles: "repository",
   reviewIndependence: "repository",
   reviewReturnBudget: "repository",
   locale: "local",
@@ -82,7 +82,7 @@ export interface RepositorySettingsV1 {
   readonly defaultVertical: string;
   readonly defaultPreset: string;
   readonly defaultProfile: string;
-  readonly defaultReviewer?: string;
+  readonly roles?: Readonly<Partial<Record<"defaultWorker" | "defaultCommander" | "defaultReviewer", string>>>;
   readonly reviewIndependence: ReviewIndependence;
   readonly reviewReturnBudget: number;
   readonly scaffolds: {
@@ -108,7 +108,7 @@ export interface SettingsV1 {
   readonly defaultVertical: string;
   readonly defaultPreset: string;
   readonly defaultProfile: string;
-  readonly defaultReviewer?: string;
+  readonly roles?: Readonly<Partial<Record<"defaultWorker" | "defaultCommander" | "defaultReviewer", string>>>;
   readonly reviewIndependence: ReviewIndependence;
   readonly reviewReturnBudget: number;
   readonly locale: SettingsLocale;
@@ -159,6 +159,29 @@ export const INITIAL_SETTINGS_V1: SettingsV1 = Object.freeze({
 
 export const settingValuePattern = "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$";
 
+export const rolePreferenceFields = ["defaultWorker", "defaultCommander", "defaultReviewer"] as const;
+
+function rolesSettingsSchema() {
+  return ownedSchema("roles", {
+    type: "object" as const,
+    properties: Object.fromEntries(
+      rolePreferenceFields.map((key) => [key, { type: "string" as const, pattern: settingValuePattern, minLength: 1 }]),
+    ),
+    required: [],
+    additionalProperties: false,
+  });
+}
+
+function writeRoleSettings(body: string, roles: NonNullable<RepositorySettingsV1["roles"]>): string {
+  // Retired root preference is removed on the next canonical settings write.
+  const next = body.replace(/^  defaultReviewer:[^\r\n]*(?:\r?\n|$)/mu, ""),
+    section = /^  roles:[^\r\n]*(?:\r?\n|$)(?:    [^\r\n]*(?:\r?\n|$))*/mu,
+    lines = rolePreferenceFields.flatMap((key) => (roles[key] === undefined ? [] : [`    ${key}: ${roles[key]}`])),
+    rendered = lines.length ? ["  roles:", ...lines, ""].join("\n") : "";
+  if (section.test(next)) return next.replace(section, rendered);
+  return next.replace(/^settings:[^\r\n]*(?:\r?\n|$)/mu, (header) => `${header}${rendered}`);
+}
+
 export const SETTINGS_V1_SCHEMA: EntityDocumentJsonSchema<SettingsV1> = {
   $schema: "https://json-schema.org/draft/2020-12/schema",
   $id: "Settings/v1",
@@ -184,7 +207,7 @@ export const SETTINGS_V1_SCHEMA: EntityDocumentJsonSchema<SettingsV1> = {
       minLength: 1,
       ...ownedSchema("defaultProfile", {}),
     },
-    defaultReviewer: ownedSchema("defaultReviewer", { type: "string", pattern: settingValuePattern, minLength: 1 }),
+    roles: rolesSettingsSchema(),
     reviewIndependence: ownedSchema("reviewIndependence", {
       type: "string",
       enum: reviewIndependenceLevels,
@@ -257,7 +280,7 @@ export const SETTINGS_REPOSITORY_V1_SCHEMA: EntityDocumentJsonSchema<RepositoryS
       minLength: 1,
       ...ownedSchema("defaultProfile", {}),
     },
-    defaultReviewer: ownedSchema("defaultReviewer", { type: "string", pattern: settingValuePattern, minLength: 1 }),
+    roles: rolesSettingsSchema(),
     reviewIndependence: ownedSchema("reviewIndependence", {
       type: "string",
       enum: reviewIndependenceLevels,
@@ -305,7 +328,7 @@ export function repositorySettings(settings: SettingsV1 | RepositorySettingsV1):
     defaultVertical: settings.defaultVertical,
     defaultPreset: settings.defaultPreset,
     defaultProfile: settings.defaultProfile,
-    ...(settings.defaultReviewer ? { defaultReviewer: settings.defaultReviewer } : {}),
+    roles: settings.roles ?? {},
     reviewIndependence: settings.reviewIndependence ?? INITIAL_SETTINGS_V1.reviewIndependence,
     reviewReturnBudget: settings.reviewReturnBudget ?? INITIAL_SETTINGS_V1.reviewReturnBudget,
     scaffolds: { task: settings.scaffolds.task, repository: settings.scaffolds.repository },
@@ -340,7 +363,16 @@ export function readSettingsFacet(body: string): SettingsV1 {
     defaultVertical: setting(body, "defaultVertical") ?? INITIAL_SETTINGS_V1.defaultVertical,
     defaultPreset: setting(body, "defaultPreset") ?? INITIAL_SETTINGS_V1.defaultPreset,
     defaultProfile: setting(body, "defaultProfile") ?? INITIAL_SETTINGS_V1.defaultProfile,
-    ...(setting(body, "defaultReviewer") ? { defaultReviewer: setting(body, "defaultReviewer")! } : {}),
+    roles: Object.fromEntries(
+      rolePreferenceFields.flatMap((key) => {
+        // An authored document written before `settings.roles` keeps its reviewer at the root key;
+        // writeRoleSettings drops that key on the next write, so this read is the only carrier.
+        const value =
+          settingBlockValue(body, "roles", key) ??
+          (key === "defaultReviewer" ? setting(body, "defaultReviewer") : undefined);
+        return value === undefined ? [] : [[key, value]];
+      }),
+    ),
     reviewIndependence: (setting(body, "reviewIndependence") ??
       INITIAL_SETTINGS_V1.reviewIndependence) as ReviewIndependence,
     reviewReturnBudget: Number(setting(body, "reviewReturnBudget") ?? INITIAL_SETTINGS_V1.reviewReturnBudget),
@@ -390,7 +422,7 @@ export function writeRepositorySettingsFacet(body: string, settings: RepositoryS
     repository.defaultProfile,
     INITIAL_SETTINGS_V1.defaultProfile,
   );
-  next = replaceOptionalDefaultedScalar(next, "  ", "defaultReviewer", repository.defaultReviewer ?? "", "");
+  next = writeRoleSettings(next, repository.roles ?? {});
   next = replaceOptionalDefaultedScalar(
     next,
     "  ",

@@ -118,7 +118,7 @@
   "views.settingsView.closeoutReviewLabel": "Closeout review",
   "views.settingsView.defaultPresetLabel": "Default preset",
   "views.settingsView.defaultProfileLabel": "Default profile",
-  "views.settingsView.defaultReviewerDescription": "Agent declaration id dispatched as the independent closeout reviewer; unset falls back to closeout-reviewer",
+  "views.settingsView.defaultReviewerDescription": "Independent reviewer dispatched on owner forward; unset uses closeout-reviewer.",
   "views.settingsView.defaultReviewerLabel": "Default reviewer",
   "views.settingsView.defaultReviewerUnsetOption": "Unset",
   "views.settingsView.defaultVerticalLabel": "Default vertical",
@@ -1096,5 +1096,11 @@
   "views.overviewNext.changeCategory.decision": "Decisions",
   "views.overviewNext.changeCategory.delivery": "Delivery",
   "views.overviewNext.changesEmpty": "No change events in the recent window.",
-  "views.overviewNext.changesWindowNote": "recent window only: {count} events, rolling limit {limit}; full history in Cadence and task detail."
+  "views.overviewNext.changesWindowNote": "recent window only: {count} events, rolling limit {limit}; full history in Cadence and task detail.",
+  "views.settingsView.defaultCommanderDescription": "Preferred agent for coordinating workers.",
+  "views.settingsView.defaultCommanderLabel": "Default commander",
+  "views.settingsView.defaultWorkerDescription": "Preferred agent for implementation tasks.",
+  "views.settingsView.defaultWorkerLabel": "Default worker",
+  "views.settingsView.rolesDescription": "Agent preferences for implementation, coordination, and independent review.",
+  "views.settingsView.rolesLabel": "Default roles"
 }
