@@ -11,8 +11,10 @@ export type CanonicalStatus = "planned" | "active" | "submitted" | "blocked" | "
 /**
  * GUI adapter superset of the kernel task-status vocabulary plus the explicit
  * unknown (house convention: unknown shows as unknown, e.g. the board's unknown
- * column). Spelled out literally so the status-word register gate can lock this
- * mirror against the kernel vocabulary directly.
+ * column) and `archived` — the board's presentation bucket for package
+ * disposition, not a lifecycle state (task_8928cf1e): `domainStatuses` stays
+ * untouched. Spelled out literally so the status-word register gate can lock
+ * this mirror against the kernel vocabulary directly.
  */
 export type SnapshotStatus =
   | "planned"
@@ -22,7 +24,8 @@ export type SnapshotStatus =
   | "in_review"
   | "done"
   | "cancelled"
-  | "unknown";
+  | "unknown"
+  | "archived";
 
 export type Freshness = "fresh" | "stale-but-usable" | "unavailable-no-cache";
 
@@ -396,6 +399,10 @@ export const taskCapabilityOf = (
 export const taskCan = (task: Pick<TaskRow, "capabilities">, id: TaskCapabilityId): boolean =>
   taskCapabilityOf(task, id)?.available === true;
 
+/**
+ * 看板列全集(字面量拼写,词表门按文本锁定 = SnapshotStatus 精确覆盖):
+ * 生命周期状态列 + 归档处置桶(一等列,task_8928cf1e)。
+ */
 export const BOARD_COLUMNS: SnapshotStatus[] = [
   "planned",
   "active",
@@ -405,6 +412,22 @@ export const BOARD_COLUMNS: SnapshotStatus[] = [
   "done",
   "cancelled",
   "unknown",
+  "archived",
 ];
+
+/**
+ * 生命周期状态全集(内核 `coordinationStatus` 词 + unknown):归档处置桶不在其中。
+ * 消费方按 `coordinationStatus` 匹配状态时(关系图实体筛选等)必须用这份,不用
+ * BOARD_COLUMNS——"archived" 是表现层列桶,永远不会等于任何行的 coordinationStatus。
+ */
+export const LIFECYCLE_SNAPSHOT_STATUSES: SnapshotStatus[] = BOARD_COLUMNS.filter((status) => status !== "archived");
+
+/**
+ * 看板列桶路由(task_8928cf1e):非 active 处置(package archived/tombstoned,即投影
+ * `visibility.archived`)的行统一流向 archived 列,不再混进生命周期列;其余行按
+ * coordinationStatus 进列。renderer 只读投影字段,不自己重算处置语义。
+ */
+export const boardColumnOf = (task: Pick<TaskRow, "coordinationStatus" | "visibility">): SnapshotStatus =>
+  task.visibility.archived ? "archived" : task.coordinationStatus;
 
 export const DOC_GROUPS: DocGroup[] = ["必读", "计划", "设计", "进度", "收口", "证据"];

@@ -38,7 +38,8 @@
   --color-text-muted: oklch(0.8 0.01 285);
   --color-text-faint: oklch(0.72 0.01 285);
 
-  /* coordinationStatus 六色 + unknown，等亮度 OKLch（L≈0.78；cancelled 中性） */
+  /* coordinationStatus 六色 + unknown，等亮度 OKLch（L≈0.78；cancelled 中性）。
+     archived 是处置桶不是生命周期色：低饱和棕，弱于 stale、异于 cancelled 的紫灰。 */
   --color-status-planned: oklch(0.78 0.03 285);
   --color-status-active: oklch(0.78 0.14 250);
   --color-status-submitted: oklch(0.78 0.11 210);
@@ -47,6 +48,7 @@
   --color-status-done: oklch(0.78 0.14 150);
   --color-status-cancelled: oklch(0.68 0.02 285);
   --color-status-unknown: oklch(0.78 0.12 25);
+  --color-status-archived: oklch(0.7 0.05 75);
 
   /* 唯一行动强调色：closeoutReadiness=ready 与主操作 */
   --color-accent: oklch(0.8 0.13 195);
@@ -87,6 +89,7 @@ html[data-theme="light"] {
   --color-status-done: oklch(0.56 0.14 150);
   --color-status-cancelled: oklch(0.6 0.01 285);
   --color-status-unknown: oklch(0.55 0.15 25);
+  --color-status-archived: oklch(0.62 0.04 75);
 
   --color-accent: oklch(0.58 0.12 195);
   --color-accent-fg: oklch(0.99 0.005 195);

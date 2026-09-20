@@ -515,9 +515,11 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "status",
     module: "packages/gui/src/renderer/model/types.ts",
     anchor: "SnapshotStatus",
-    words: ["planned", "active", "submitted", "blocked", "in_review", "done", "cancelled", "unknown"],
+    words: ["planned", "active", "submitted", "blocked", "in_review", "done", "cancelled", "unknown", "archived"],
     mirrorOf: "task.status",
-    plusWords: ["unknown"],
+    // "archived" is the board's presentation bucket for packageDisposition !== active
+    // (task_8928cf1e), not a lifecycle state: domainStatuses stays untouched.
+    plusWords: ["unknown", "archived"],
   },
   {
     id: "gui.decision.state",

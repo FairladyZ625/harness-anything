@@ -1,18 +1,17 @@
 import type { CloseoutReadiness, EngineId, Freshness, SnapshotStatus, TaskRow } from "./types";
-import { isTerminal } from "./types";
+import { boardColumnOf, isTerminal } from "./types";
 
 export interface TaskFilters {
   query: string;
   module: string;
   engine: EngineId | "all";
   /**
-   * 状态多选(D-04):空数组=全部;非空=任务 status 必须命中数组。
-   * 替换原 `SnapshotStatus | "all"` 单选语义。
+   * 状态多选(= 看板列桶选择):空数组=全部列;非空=行的看板列桶
+   * (boardColumnOf,归档行→archived)必须命中数组,看板据此只渲染选中的列。
    */
   status: SnapshotStatus[];
   closeout: CloseoutReadiness | "all";
   freshness: Freshness | "all";
-  includeArchived: boolean;
   /** 仅看收藏(GUI 本地偏好,不写台账) */
   favoritesOnly: boolean;
   /**
@@ -29,7 +28,6 @@ export const DEFAULT_TASK_FILTERS: TaskFilters = {
   status: [],
   closeout: "all",
   freshness: "all",
-  includeArchived: false,
   favoritesOnly: false,
   expandColdTerminal: false,
 };
@@ -41,15 +39,15 @@ export const hasActiveTaskFilters = (filters: TaskFilters) =>
   filters.status.length > 0 ||
   filters.closeout !== "all" ||
   filters.freshness !== "all" ||
-  filters.includeArchived ||
   filters.favoritesOnly ||
   filters.expandColdTerminal;
 
 /**
- * 看板降噪判定(唯一实现,看板与关系图领地共用,不第二份):投影的
- * `visibility.noise`(kernel `taskVisibility`:package disposition 非 active,或
- * 已取消)。看板入口 = matchesTask 的 !includeArchived 分支;关系图领地入口 =
- * GraphView territory 的「显示已归档」开关(默认关 = 隐藏,task_b92c5138)。
+ * 看板降噪判定(唯一实现,不第二份):投影的 `visibility.noise`(kernel
+ * `taskVisibility`:package disposition 非 active,或已取消)。看板筛选不再用
+ * 它降噪(task_8928cf1e 起归档行走 archived 列桶、冷终态走 W8 折叠);关系图
+ * 领地入口 = GraphView territory 的「显示已归档」开关(默认关 = 隐藏,
+ * task_b92c5138)。
  */
 export const isTaskArchiveNoise = (task: Pick<TaskRow, "visibility">): boolean => task.visibility.noise;
 
@@ -105,10 +103,6 @@ function recentWindowCutoff(now: string): number {
 }
 
 export function matchesTask(task: TaskRow, filters: TaskFilters, favorites?: ReadonlySet<string>): boolean {
-  if (!filters.includeArchived && isTaskArchiveNoise(task)) {
-    return false;
-  }
-
   if (filters.favoritesOnly && favorites && !favorites.has(task.taskId)) {
     return false;
   }
@@ -135,19 +129,23 @@ export function matchesTask(task: TaskRow, filters: TaskFilters, favorites?: Rea
   if (filters.module !== "all" && task.module !== filters.module && !task.moduleKeys?.includes(filters.module))
     return false;
   if (filters.engine !== "all" && task.engine !== filters.engine) return false;
-  // 状态筛选命中协调状态或阻塞评估任一(blocking 的 unknown 由此吸纳进 unknown 档,
+  // 状态筛选命中看板列桶(boardColumnOf):归档行只认 archived 桶,不看生命周期词;
+  // 活跃行命中协调状态或阻塞评估任一(blocking 的 unknown 由此吸纳进 unknown 档,
   // blocked 档同时给出「带着 active blocking relation」的行)。比较对象是用户筛选
   // 数组与行字段,不是状态词字面量——判定语义由投影字段携带。
-  if (
-    filters.status.length > 0 &&
-    !filters.status.includes(task.coordinationStatus) &&
-    !filters.status.some((status) => task.blocking !== undefined && status === task.blocking)
-  )
-    return false;
+  if (filters.status.length > 0 && !matchesBoardColumn(task, filters.status)) return false;
   if (filters.closeout !== "all" && task.closeoutReadiness !== filters.closeout) return false;
   if (filters.freshness !== "all" && task.freshness !== filters.freshness) return false;
 
   return true;
+}
+
+function matchesBoardColumn(task: TaskRow, selected: readonly SnapshotStatus[]): boolean {
+  if (boardColumnOf(task) === "archived") return selected.includes("archived");
+  return (
+    selected.includes(task.coordinationStatus) ||
+    selected.some((status) => task.blocking !== undefined && status === task.blocking)
+  );
 }
 
 export const applyTaskFilters = (
@@ -164,7 +162,6 @@ export const taskFilterSummary = (filters: TaskFilters): string[] => {
   if (filters.status.length > 0) parts.push(`status=${filters.status.join("|")}`);
   if (filters.closeout !== "all") parts.push(`closeout=${filters.closeout}`);
   if (filters.freshness !== "all") parts.push(`freshness=${filters.freshness}`);
-  if (filters.includeArchived) parts.push("含归档/取消");
   if (filters.favoritesOnly) parts.push("仅看收藏");
   if (filters.expandColdTerminal) parts.push("已展开冷终态");
   return parts;

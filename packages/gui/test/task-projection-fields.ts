@@ -6,8 +6,12 @@ import type { SnapshotStatus, TaskCapabilityId, TaskRow } from "../src/renderer/
  * `taskBoardColumnOf` / `taskBoardRankOf` in the kernel's `task-board-projection.ts`,
  * which is the authority; fixtures restate the mapping here because those two are not
  * on the kernel's public barrel and tests may not deep-import kernel source.
+ * "archived" is the GUI's presentation bucket over package disposition, not a
+ * coordinationStatus the kernel could ever project, so it is excluded here.
  */
-const COLUMN_OF: Record<SnapshotStatus, TaskRow["board"]["columnId"]> = {
+type ProjectedStatus = Exclude<SnapshotStatus, "archived">;
+
+const COLUMN_OF: Record<ProjectedStatus, TaskRow["board"]["columnId"]> = {
   planned: "open",
   active: "open",
   blocked: "blocked",
@@ -17,7 +21,7 @@ const COLUMN_OF: Record<SnapshotStatus, TaskRow["board"]["columnId"]> = {
   unknown: null,
 };
 
-const RANK_OF: Record<SnapshotStatus, number> = {
+const RANK_OF: Record<ProjectedStatus, number> = {
   blocked: 0,
   active: 1,
   in_review: 2,
@@ -34,7 +38,7 @@ const CAPABILITY_IDS: readonly TaskCapabilityId[] = ["start", "progress", "submi
  * reason as the column map above: tests may not deep-import kernel source.
  */
 const PHASE_STEPS = ["planned", "active", "in_review", "done"] as const;
-const PHASE_OF: Record<SnapshotStatus, { readonly index: number; readonly reason: string | null } | null> = {
+const PHASE_OF: Record<ProjectedStatus, { readonly index: number; readonly reason: string | null } | null> = {
   planned: { index: 0, reason: null },
   active: { index: 1, reason: null },
   in_review: { index: 2, reason: null },
@@ -45,7 +49,7 @@ const PHASE_OF: Record<SnapshotStatus, { readonly index: number; readonly reason
 };
 
 export function projectedTaskFields(
-  status: SnapshotStatus,
+  status: ProjectedStatus,
   options: {
     readonly archived?: boolean;
     readonly can?: readonly TaskCapabilityId[];

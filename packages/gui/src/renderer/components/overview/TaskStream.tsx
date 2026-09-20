@@ -77,7 +77,9 @@ function TaskStreamRow({
  * 路由不动;「去看板」是唯一的显式路由出口,带当前状态预置。
  * Tab counts are rendered verbatim from the daemon workspace summary, one tab per
  * BOARD_COLUMNS entry —— 与看板同一列集合,包括 unknown:投影认不出状态的行在总览
- * 里同样不隐藏(与「未投影只沉底、不消失」同一条诚实边界)。
+ * 里同样不隐藏(与「未投影只沉底、不消失」同一条诚实边界)。archived 桶
+ * (task_8928cf1e)在 daemon census 里没有对应格,计数从行集本地数出;选它 =
+ * 流式查看全部已归档任务,其他 Tab 只显示活跃包的对应状态行。
  * 排序 = task_bootstrapped 创建时间倒序;内部滚动,不截断。
  */
 export function TaskStream({
@@ -94,10 +96,13 @@ export function TaskStream({
   onSetPin?: (task: Pick<TaskRow, "taskId">, pinned: boolean) => void;
 }) {
   const [status, setStatus] = useState<SnapshotStatus>("active");
+  const archivedCount = useMemo(() => tasks.filter((task) => task.visibility.archived).length, [tasks]);
   const rows = useMemo(
     () =>
       sortTasksByCreatedDesc(
-        tasks.filter((task) => task.packageDisposition === "active" && task.coordinationStatus === status),
+        status === "archived"
+          ? tasks.filter((task) => task.visibility.archived)
+          : tasks.filter((task) => !task.visibility.archived && task.coordinationStatus === status),
       ),
     [tasks, status],
   );
@@ -109,7 +114,7 @@ export function TaskStream({
           options={BOARD_COLUMNS.map((column) => ({
             key: column,
             label: STATUS_META[column].label,
-            count: summary.byStatus[column],
+            count: column === "archived" ? archivedCount : summary.byStatus[column],
           }))}
           value={status}
           onChange={setStatus}

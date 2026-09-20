@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { SnapshotStatus, TaskRow } from "../src/renderer/model/types.ts";
 import { BOARD_COLUMNS } from "../src/renderer/model/types.ts";
 import { TaskPreviewDrawer } from "../src/renderer/components/TaskPreviewDrawer.tsx";
+import { TaskStream } from "../src/renderer/components/overview/TaskStream.tsx";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
 import { SwimlaneBoard } from "../src/renderer/views/SwimlaneBoard.tsx";
 import {
@@ -105,6 +106,8 @@ describe("taskFilters status multi-select", () => {
 /**
  * 看板降噪判定(task_b92c5138 起与关系图领地共用同一个 isTaskArchiveNoise,
  * 不允许第二份实现):cancelled 状态或非 active disposition 的 task 默认是噪音。
+ * 看板筛选自 task_8928cf1e 起不再消费它(归档行走 archived 列桶,冷终态走 W8
+ * 折叠);这里钉住判定本体,消费方只剩关系图领地。
  */
 describe("taskFilters archive-noise rule (shared with graph territory)", () => {
   it("flags cancelled status and non-active dispositions as noise", () => {
@@ -118,18 +121,27 @@ describe("taskFilters archive-noise rule (shared with graph territory)", () => {
     );
   });
 
-  it("board hides noise under the default filters and shows it with includeArchived", () => {
+  it("keeps archived and cancelled rows under the default filters; cold-terminal collapse is the noise path now", () => {
     const tasks = [
       makeTask({ taskId: "t_live" }),
       makeTask({ taskId: "t_cancelled", coordinationStatus: "cancelled" }),
       makeTask({ taskId: "t_archived", packageDisposition: "archived" }),
     ];
-    expect(applyTaskFilters(tasks, { ...DEFAULT_TASK_FILTERS }).map((t) => t.taskId)).toEqual(["t_live"]);
-    expect(applyTaskFilters(tasks, { ...DEFAULT_TASK_FILTERS, includeArchived: true }).map((t) => t.taskId)).toEqual([
+    expect(applyTaskFilters(tasks, { ...DEFAULT_TASK_FILTERS }).map((t) => t.taskId)).toEqual([
       "t_live",
       "t_cancelled",
       "t_archived",
     ]);
+  });
+
+  it("routes archived rows to the archived pill only, whatever their lifecycle status", () => {
+    const archivedActive = makeTask({ taskId: "t_arch", coordinationStatus: "active", packageDisposition: "archived" });
+    expect(matchesTask(archivedActive, { ...DEFAULT_TASK_FILTERS, status: ["archived"] })).toBe(true);
+    // 生命周期词不再命中归档行:active Pill 选不中它。
+    expect(matchesTask(archivedActive, { ...DEFAULT_TASK_FILTERS, status: ["active"] })).toBe(false);
+    expect(
+      matchesTask(makeTask({ coordinationStatus: "active" }), { ...DEFAULT_TASK_FILTERS, status: ["archived"] }),
+    ).toBe(false);
   });
 });
 
@@ -481,6 +493,178 @@ describe("cold terminal collapse in BoardView (W8)", () => {
   });
 });
 
+/**
+ * 状态筛选平铺 Pill 与列动态渲染(task_8928cf1e):
+ *  - Pill 组平铺全部列桶(含一等 archived),点击切换选中并路由 TaskFilters.status;
+ *  - 选中了哪几列,看板就只渲染哪几列的 Column 组件——未选中列整列不进 DOM,
+ *    不再有「掏空卡片仍占宽」的空列;
+ *  - 归档行统一进 archived 列,不再混进生命周期列。
+ */
+describe("board status pills and dynamic column rendering (task_8928cf1e)", () => {
+  const archivedFixture = (): TaskRow[] => [
+    makeTask({ taskId: "t_active", title: "card-live-active", coordinationStatus: "active", lastKnownAt: daysAgo(1) }),
+    makeTask({
+      taskId: "t_archived_done",
+      title: "card-archived-done",
+      coordinationStatus: "done",
+      packageDisposition: "archived",
+      lastKnownAt: daysAgo(1),
+    }),
+    makeTask({
+      taskId: "t_archived_active",
+      title: "card-archived-active",
+      coordinationStatus: "active",
+      packageDisposition: "archived",
+      lastKnownAt: daysAgo(1),
+    }),
+  ];
+
+  it("renders a flat pill per column bucket (archived included) with bucket counts", async () => {
+    const markup = await boardHtml(archivedFixture());
+    for (const status of BOARD_COLUMNS) {
+      expect(markup).toContain(`data-testid="board-status-pill-${status}"`);
+    }
+    const pillBlock = (status: string) =>
+      markup.match(
+        new RegExp(`<button[^>]*data-testid="board-status-pill-${status}"[^>]*>[\\s\\S]*?</button>`, "u"),
+      )![0];
+    // 桶计数:active 1、archived 2(归档行不按生命周期词计);默认未选中。
+    expect(pillBlock("archived")).toContain('aria-pressed="false"');
+    expect(pillBlock("archived")).toContain("Archived");
+    expect(pillBlock("archived")).toMatch(/>\s*2\s*</u);
+    expect(pillBlock("active")).toMatch(/>\s*1\s*</u);
+  });
+
+  it("unmounts unselected columns entirely when pills narrow the selection", async () => {
+    // expandColdTerminal:归档终态行按 W8 默认折叠,展开后整列可见(见下一条用例)。
+    const markup = await boardHtml(archivedFixture(), {
+      ...DEFAULT_TASK_FILTERS,
+      status: ["archived"],
+      expandColdTerminal: true,
+    });
+    expect(markup).toContain('data-testid="board-column-archived"');
+    // 未选中列连空壳都不渲染,不再是占宽的掏空列(逐一断言其余列的 wrapper 不在)。
+    for (const status of BOARD_COLUMNS.filter((s) => s !== "archived")) {
+      expect(markup).not.toContain(`data-testid="board-column-${status}"`);
+    }
+    // 两张归档行的卡都进 archived 列(done 归档 + active 归档)。
+    expect(markup).toContain("card-archived-done");
+    expect(markup).toContain("card-archived-active");
+  });
+
+  it("routes archived rows into the archived column under the default all-columns view", async () => {
+    const markup = await boardHtml(archivedFixture());
+    const archivedColumn = markup.slice(
+      markup.indexOf('data-testid="board-column-archived"'),
+      markup.indexOf('data-testid="board-column-list-archived"'),
+    );
+    expect(archivedColumn).toContain("Archived");
+    // 默认视图:非终态归档行可见(active 归档 1);终态归档行按 W8 冷折叠。
+    expect(markup).toContain('data-testid="board-status-archived-count">1</span>');
+    expect(markup).toContain('data-testid="board-status-active-count">1</span>');
+    // 展开冷终态后,归档列计数回到全量(2)。
+    const expanded = await boardHtml(archivedFixture(), { ...DEFAULT_TASK_FILTERS, expandColdTerminal: true });
+    expect(expanded).toContain('data-testid="board-status-archived-count">2</span>');
+  });
+
+  it("toggles a status pill through TaskFilters (onFiltersChange regression)", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const seen: TaskFilters[] = [];
+    await act(async () => {
+      root.render(
+        createElement(BoardView, {
+          tasks: archivedFixture(),
+          allTasks: archivedFixture(),
+          filters: { ...DEFAULT_TASK_FILTERS },
+          onFiltersChange: (next) => seen.push(next),
+          onSelect: noop,
+          favorites: new Set<string>(),
+          onToggleFavorite: noop,
+          onSetPin: noop,
+        }),
+      );
+    });
+    const pill = container.querySelector('[data-testid="board-status-pill-planned"]') as HTMLButtonElement;
+    expect(pill.getAttribute("aria-pressed")).toBe("false");
+    act(() => {
+      pill.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(seen).toHaveLength(1);
+    expect(seen[0]!.status).toEqual(["planned"]);
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+  });
+
+  it("narrowed the search box to a bounded width instead of flexing across the bar", async () => {
+    const markup = await boardHtml([makeTask()]);
+    const searchLabel = markup.match(/<label[^>]*class="[^"]*w-\[240px\][^"]*"/u);
+    expect(searchLabel).not.toBeNull();
+    expect(searchLabel![0]).not.toContain("flex-1");
+  });
+});
+
+/** 总览任务流的 archived 页签(task_8928cf1e):页签交互后行集切换,须真实 DOM 点击。 */
+describe("overview task stream archived tab (task_8928cf1e)", () => {
+  const summary = {
+    total: 1,
+    byStatus: { planned: 0, active: 1, submitted: 0, blocked: 0, in_review: 0, done: 0, cancelled: 0, unknown: 0 },
+  };
+
+  it("streams archived rows under the archived tab; lifecycle tabs stay active-package only", async () => {
+    const rows = [
+      makeTask({ taskId: "t_live", title: "stream-live", coordinationStatus: "active" }),
+      makeTask({
+        taskId: "t_arch_done",
+        title: "stream-arch-done",
+        coordinationStatus: "done",
+        packageDisposition: "archived",
+      }),
+      makeTask({
+        taskId: "t_arch_active",
+        title: "stream-arch-active",
+        coordinationStatus: "active",
+        packageDisposition: "archived",
+      }),
+    ];
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () => {
+        root.render(
+          createElement(TaskStream, {
+            tasks: rows,
+            summary,
+            onOpenPreview: noop,
+            onGoBoard: noop,
+          }),
+        );
+      });
+      // 默认 active 页签:只有活跃包 active 行。
+      expect(container.textContent).toContain("stream-live");
+      expect(container.textContent).not.toContain("stream-arch-done");
+      const tab = container.querySelector('[data-testid="overview-status-archived"]') as HTMLButtonElement;
+      expect(tab.textContent).toMatch(/Archived\s*2/u); // 计数从行集本地数出。
+      act(() => {
+        tab.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      // archived 页签:归档行流式可见,生命周期词不再硬丢弃。
+      expect(container.textContent).toContain("stream-arch-done");
+      expect(container.textContent).toContain("stream-arch-active");
+      expect(container.textContent).not.toContain("stream-live");
+    } finally {
+      act(() => {
+        root.unmount();
+      });
+      container.remove();
+    }
+  });
+});
+
 describe("swimlane default order (W8)", () => {
   const laneFixture = (): TaskRow[] => [
     // lane-B 最新活动(1 天前)> lane-A(3 天前)> lane-C(30 天前)→ 行序 B, A, C。
@@ -524,6 +708,7 @@ describe("swimlane default order (W8)", () => {
       await act(async () => {
         root.render(
           createElement(SwimlaneBoard, {
+            columns: BOARD_COLUMNS,
             tasks: laneFixture(),
             groupBy: "root",
             onSelect: noop,
@@ -583,6 +768,7 @@ describe("swimlane default order (W8)", () => {
     ];
     const markup = renderToStaticMarkup(
       createElement(SwimlaneBoard, {
+        columns: BOARD_COLUMNS,
         tasks,
         groupBy: "root",
         onSelect: noop,
@@ -1004,6 +1190,7 @@ describe("swimlane single-pass grouping (W9)", () => {
   it("counts every status column header in one pass", () => {
     const markup = renderToStaticMarkup(
       createElement(SwimlaneBoard, {
+        columns: BOARD_COLUMNS,
         tasks: laneTasks(),
         groupBy: "root",
         onSelect: noop,
@@ -1025,6 +1212,7 @@ describe("swimlane single-pass grouping (W9)", () => {
   it("keeps lane order and drilldown cells after regrouping", () => {
     const markup = renderToStaticMarkup(
       createElement(SwimlaneBoard, {
+        columns: BOARD_COLUMNS,
         tasks: laneTasks(),
         groupBy: "root",
         onSelect: noop,
@@ -1171,6 +1359,7 @@ describe("swimlane row windowing (W10)", () => {
     setMeasureHeight(84); // 泳道行估算高(LANE_ROW_ESTIMATE_PX)
     return mountLive(
       createElement(SwimlaneBoard, {
+        columns: BOARD_COLUMNS,
         tasks,
         groupBy: "root",
         onSelect: noop,
@@ -1401,10 +1590,11 @@ describe("swimlane column resize (W11)", () => {
 
   // 泳道行是 windowing(W10):行在挂载后按视口窗口出现,SSR markup 里没有行,
   // 「表头 + 行都带模板」的断言必须走真实 DOM 挂载。
-  it("renders the default 180px lane + 7×230px status template on header and rows", async () => {
+  it("renders the default 180px lane + N×230px status template on header and rows", async () => {
     setMeasureHeight(84);
     const board = await mountLive(
       createElement(SwimlaneBoard, {
+        columns: BOARD_COLUMNS,
         tasks: laneResizeFixture(),
         groupBy: "root",
         onSelect: noop,
@@ -1417,7 +1607,10 @@ describe("swimlane column resize (W11)", () => {
     try {
       const markup = board.html();
       // 活 DOM 的 style 序列化在冒号后带空格,用宽容正则计数(表头 + 每泳道行)。
-      const template = new RegExp(`grid-template-columns:\\s*${["180px", ...Array(7).fill("230px")].join(" ")}`, "gu");
+      const template = new RegExp(
+        `grid-template-columns:\\s*${["180px", ...Array(BOARD_COLUMNS.length).fill("230px")].join(" ")}`,
+        "gu",
+      );
       expect(markup.match(template)).toHaveLength(2); // sticky 表头 + 单泳道行(fixture 1 条泳道)。
       expect(markup.split('data-testid="swimlane-column-resize-').length - 1).toBe(BOARD_COLUMNS.length);
       expect(markup).toContain('data-testid="swimlane-lane-resize"');
@@ -1430,6 +1623,7 @@ describe("swimlane column resize (W11)", () => {
     localStorage.setItem(WIDTH_KEY, JSON.stringify({ swimlane: { lane: 200, planned: 320 } }));
     const markup = renderToStaticMarkup(
       createElement(SwimlaneBoard, {
+        columns: BOARD_COLUMNS,
         tasks: laneResizeFixture(),
         groupBy: "root",
         onSelect: noop,
@@ -1449,6 +1643,7 @@ describe("swimlane column resize (W11)", () => {
     await act(async () => {
       root.render(
         createElement(SwimlaneBoard, {
+          columns: BOARD_COLUMNS,
           tasks: laneResizeFixture(),
           groupBy: "root",
           onSelect: noop,

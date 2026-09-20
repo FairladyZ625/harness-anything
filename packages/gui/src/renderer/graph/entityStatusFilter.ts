@@ -2,20 +2,22 @@
  * 聚光灯/关系图实体状态筛选纯函数。
  *
  * 词表来源(不硬编码拍脑袋):
- *   Task status  → BOARD_COLUMNS / SnapshotStatus (model/types.ts)
+ *   Task status  → LIFECYCLE_SNAPSHOT_STATUSES / SnapshotStatus (model/types.ts);
+ *     archived 是看板表现层处置桶,不进这里——它按 coordinationStatus 匹配,
+ *     永远不会等于 "archived"(task_8928cf1e)
  *   Decision state → DecisionState 字面量联合 (model/types.ts)
  *
  * 默认全选 = 不改变现状;未知状态归 OTHER_STATUS_BUCKET("其他") 不崩。
  */
 import type { DecisionState, SnapshotStatus, TaskRow, DecisionRow, FactRef } from "../model/types";
-import { BOARD_COLUMNS } from "../model/types";
+import { LIFECYCLE_SNAPSHOT_STATUSES } from "../model/types";
 import type { AgentNodeRow, ScheduleNodeRow } from "./runtimeEntities";
 import type { GovernedEntityRow } from "./governedEntities";
 
 export const OTHER_STATUS_BUCKET = "__other__" as const;
 export type OtherStatusBucket = typeof OTHER_STATUS_BUCKET;
 
-export const TASK_STATUS_FILTER_OPTIONS: ReadonlyArray<SnapshotStatus> = BOARD_COLUMNS;
+export const TASK_STATUS_FILTER_OPTIONS: ReadonlyArray<SnapshotStatus> = LIFECYCLE_SNAPSHOT_STATUSES;
 
 export const DECISION_STATE_FILTER_OPTIONS: ReadonlyArray<DecisionState> = [
   "proposed",
