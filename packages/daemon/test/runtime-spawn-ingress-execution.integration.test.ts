@@ -310,7 +310,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       assert.equal(implementationBinding?.type, "runtime_session_task_bound");
       if (implementationBinding?.type !== "runtime_session_task_bound") throw new Error("missing task binding");
       writeCloseout(taskId, "The second runtime execution is ready for review.");
-      // Import an unrelated failed run: this exercises actor attribution without supplying a green witness.
+      // An explicit observer imports an unrelated failed run: this exercises actor attribution
+      // without supplying a green witness or coupling the observation to submission.
       writeProviderExecutable(
         path.join(parent, "gh"),
         `
@@ -333,22 +334,41 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         } else process.exit(1);
       `,
       );
-      const beforeSubmission = makeTaskEventReader({ repoId, rootDir: root }).read().revision,
+      const beforeObservation = makeTaskEventReader({ repoId, rootDir: root }).read().revision,
         secondExecutionId = implementationBinding.payload.executionId,
+        runtimeExecutor = {
+          kind: "agent" as const,
+          id: `runtime-session:${String(implementation.runtimeSessionId)}`,
+        },
+        observed = await host.run(repoId, { kind: "ci-observe-pull", limit: 20, executor: runtimeExecutor }, auth);
+      assert.equal(observed.outcome, "applied", JSON.stringify(observed));
+      const observations = makeTaskEventReader({ repoId, rootDir: root })
+        .read()
+        .events.filter((event) => event.type === "ci_run_observed" && event.workspaceRevision > beforeObservation);
+      assert.ok(observations.length > 0, "the explicit observer must ingest the configured run");
+      for (const observation of observations)
+        assert.deepEqual(observation.actor.executor, implementationBinding.actor.executor);
+
+      const beforeSubmission = makeTaskEventReader({ repoId, rootDir: root }).read().revision,
         secondSubmission = await host.run(
           repoId,
           {
             kind: "task-submit",
             taskId,
             executionId: secondExecutionId,
-            executor: {
-              kind: "agent",
-              id: `runtime-session:${String(implementation.runtimeSessionId)}`,
-            },
+            executor: runtimeExecutor,
           },
           auth,
         );
       assert.equal(secondSubmission.outcome, "applied", JSON.stringify(secondSubmission));
+      assert.equal(
+        makeTaskEventReader({ repoId, rootDir: root })
+          .read()
+          .events.filter((event) => event.type === "ci_run_observed" && event.workspaceRevision > beforeSubmission)
+          .length,
+        0,
+        "submission must not pull another CI observation",
+      );
       assert.equal(
         (
           await host.run(
@@ -365,13 +385,6 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         ).outcome,
         "applied",
       );
-      const observations = makeTaskEventReader({ repoId, rootDir: root })
-        .read()
-        .events.filter((event) => event.type === "ci_run_observed" && event.workspaceRevision > beforeSubmission);
-      assert.ok(observations.length > 0, "automatic pull must ingest an observation on the runtime submission");
-      for (const observation of observations)
-        assert.deepEqual(observation.actor.executor, implementationBinding.actor.executor);
-
       writeFileSync(
         path.join(root, "redispatch-review.json"),
         JSON.stringify({ verdict: "approved", reason: "Second round reviewed.", evidenceChecked: ["second round"] }),

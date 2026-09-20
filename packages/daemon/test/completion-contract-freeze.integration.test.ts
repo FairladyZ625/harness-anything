@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test, { after, before } from "node:test";
+import test from "node:test";
 import { makeTaskEventReader, type FrozenCompletionContract } from "../../kernel/src/index.ts";
 import {
   canonicalRoot,
@@ -16,20 +16,6 @@ import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
-import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
-
-// Submission pulls CI observations for the configured workflows; this repository has no GitHub remote.
-const ciBin = mkdtempSync(path.join(tmpdir(), "ha-contract-freeze-gh-")),
-  originalPath = process.env.PATH;
-before(() => {
-  writeProviderExecutable(path.join(ciBin, "gh"), 'console.log("[]");\n');
-  process.env.PATH = `${ciBin}${path.delimiter}${originalPath ?? ""}`;
-});
-after(() => {
-  if (originalPath === undefined) delete process.env.PATH;
-  else process.env.PATH = originalPath;
-  rmSync(ciBin, { recursive: true, force: true });
-});
 
 const worker = withRoleBinding(
   { actor: { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } }, source: "local" },
