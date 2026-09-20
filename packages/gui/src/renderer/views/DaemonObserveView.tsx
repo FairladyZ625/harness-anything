@@ -10,6 +10,8 @@ import { useState } from "react";
  * 全部数据走 `observe.tail` RPC,GUI 不读文件。自动尾随滚动、可暂停、关键字过滤,
  * 事件行内的 task/decision/fact/session/provider/agent 引用可点跳转;
  * `unavailable` / `gap` 按契约原因显式呈现,不以空列表冒充。
+ * 观察现代化:两栏共享一个视图级「透镜」(活跃 taskId/sessionId/RPC 方法/节点),
+ * 点击右栏方法列或透镜候选时双栏一起收敛;各栏自带时序 HUD、慢操作排行与异常聚类。
  */
 
 export function DaemonObserveView({
@@ -24,6 +26,7 @@ export function DaemonObserveView({
   readonly onNavigateEntity: (ref: string) => void;
 }) {
   const [logKind, setLogKind] = useState<ObserveLogKind>("repo-log"),
+    [lens, setLens] = useState<string | null>(null),
     repo = repos.find((row) => row.repoId === repoId) ?? null,
     label = repo?.displayName?.trim() || repoId || "",
     navigate = (ref: string) => onNavigateEntity(repoId === null ? ref : `repo/${repoId}/${ref}`);
@@ -55,7 +58,13 @@ export function DaemonObserveView({
           data-testid="daemon-observe-content"
           className="grid w-full min-h-0 flex-1 gap-4 overflow-hidden p-4 lg:grid-cols-2"
         >
-          <DaemonTailPane repoId={repoId} kind="events" onNavigateEntity={navigate} />
+          <DaemonTailPane
+            repoId={repoId}
+            kind="events"
+            lens={lens}
+            onLensChange={setLens}
+            onNavigateEntity={navigate}
+          />
           <DaemonTailPane
             key={logKind}
             repoId={repoId}
@@ -69,6 +78,8 @@ export function DaemonObserveView({
               },
             ]}
             onKindChange={setLogKind}
+            lens={lens}
+            onLensChange={setLens}
             onNavigateEntity={navigate}
           />
         </div>

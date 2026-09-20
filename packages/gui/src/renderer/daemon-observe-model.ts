@@ -35,6 +35,18 @@ export interface ObserveRow {
   /** 日志行的成败位(events 行为 null)。 */
   readonly ok: boolean | null;
   readonly gapMarker: { readonly reason: string; readonly requestedFileId: string } | null;
+  /** at 的 epoch 毫秒(解析失败为 null):HUD 时间分桶与时段过滤的输入,建行时解析一次。 */
+  readonly atMs: number | null;
+  /** 日志行的 RPC 耗时毫秒(仅 request/conn 记录;events 行为 null),慢操作统计的输入。 */
+  readonly durationMs: number | null;
+  /** 请求/连接日志自带的节点标识(daemonId/nodeId 字段;多节点透镜区分归属用)。 */
+  readonly nodeId: string | null;
+  /** 日志行的失败码(outcome ?? code;异常聚类按 类型+失败码 去重)。 */
+  readonly code: string | null;
+  /** 主体归属(Top Talkers 的提取位):事件→taskId/会话;日志→executor 调用方/连接。 */
+  readonly subject: string | null;
+  /** 读写分类(锁争用与信噪比的输入):请求日志 commandClass 权威,缺省按方法名启发。 */
+  readonly opClass: "write" | "read" | null;
   readonly searchText: string;
 }
 
@@ -407,6 +419,25 @@ export class ObserveRowLog {
   }
 }
 
+/** 组合过滤(文本 + 透镜 + 时段):HUD 框选时段与双栏透镜共用的行级判定。 */
+export interface ObserveRowFilter {
+  readonly needle: string;
+  readonly lens: string | null;
+  readonly fromMs: number | null;
+  readonly toMs: number | null;
+}
+
+export function observeRowPasses(row: ObserveRow, filter: ObserveRowFilter): boolean {
+  if (filter.needle !== "" && !row.searchText.includes(filter.needle)) return false;
+  if (filter.lens !== null && !row.searchText.includes(filter.lens)) return false;
+  if (filter.fromMs !== null || filter.toMs !== null) {
+    if (row.atMs === null) return false;
+    if (filter.fromMs !== null && row.atMs < filter.fromMs) return false;
+    if (filter.toMs !== null && row.atMs >= filter.toMs) return false;
+  }
+  return true;
+}
+
 /**
  * 结构比较,不依赖对象键序:cursor 只有 events(revision)与文件游标(fileId+offset)
  * 两种形状,逐判别字段比较即可,避免 `JSON.stringify` 把键序差异误判为游标不同。
@@ -465,6 +496,12 @@ function gapMarkerRow(gap: { readonly reason: string; readonly requestedFileId: 
     refs: [],
     ok: null,
     gapMarker: gap,
+    atMs: null,
+    durationMs: null,
+    nodeId: null,
+    code: null,
+    subject: null,
+    opClass: null,
     searchText: `gap ${gap.reason} ${gap.requestedFileId}`.toLowerCase(),
   };
 }
@@ -489,9 +526,11 @@ export function observeEventRow(event: ObserveTailRead["items"][number]): Observ
     decisionId = stringOf(source.decisionId),
     factId = stringOf(source.factId),
     type = stringOf(source.type) ?? stringOf(source.schema) ?? "event",
+    at = stringOf(source.occurredAt),
+    runtimeSessionId = stringOf(payload.runtimeSessionId),
     base = {
       key: stringOf(source.eventId) ?? `${type}:${stringOf(source.workspaceRevision)}`,
-      at: stringOf(source.occurredAt),
+      at,
       revision: integerOf(source.workspaceRevision),
       type,
       text: eventSummary(payload),
@@ -499,6 +538,13 @@ export function observeEventRow(event: ObserveTailRead["items"][number]): Observ
       refs: eventRefs({ payload, taskId, decisionId, factId }),
       ok: null as boolean | null,
       gapMarker: null,
+      atMs: epochMsOf(at),
+      durationMs: null as number | null,
+      nodeId: null as string | null,
+      code: null as string | null,
+      // 主体归属:taskId 优先,无 taskId 的事件退到运行时会话(Top Talkers 的提取位)。
+      subject: (taskId ?? runtimeSessionId) as string | null,
+      opClass: null as "write" | "read" | null,
     };
   return { ...base, searchText: searchTextOf(base) };
 }
@@ -510,9 +556,10 @@ export function observeLogRow(record: Readonly<Record<string, unknown>>, seq: nu
     command = stringOf(record.command),
     outcome = stringOf(record.outcome) ?? stringOf(record.code),
     duration = numberToMs(record.durationMs),
+    at = stringOf(record.at),
     base = {
       key: `log:${seq}`,
-      at: stringOf(record.at),
+      at,
       revision: null as number | null,
       type: method ?? event ?? stringOf(record.schema) ?? "record",
       text: [command, outcome, duration].filter(Boolean).join(" "),
@@ -520,9 +567,54 @@ export function observeLogRow(record: Readonly<Record<string, unknown>>, seq: nu
       refs: [] as readonly ObserveRefChip[],
       ok: typeof record.ok === "boolean" ? record.ok : null,
       gapMarker: null,
+      atMs: epochMsOf(at),
+      durationMs:
+        typeof record.durationMs === "number" && Number.isFinite(record.durationMs) ? record.durationMs : null,
+      nodeId: stringOf(record.daemonId) ?? stringOf(record.nodeId),
+      code: outcome,
+      // 主体归属:executor 调用方(代理/运行时身份)优先,无执行者退到连接标识。
+      subject: (stringOf(recordOf(record.executor)?.id) ?? stringOf(record.connectionId) ?? stringOf(record.conn)) as
+        | string
+        | null,
+      opClass: observeLogOpClass(method ?? event ?? command ?? "", stringOf(record.commandClass)),
     };
   return { ...base, searchText: searchTextOf(base) };
 }
+
+/**
+ * 日志行的读写分类:请求日志自带的 commandClass(repo-read/repo-write/arbiter/admin,
+ * 见 daemon 端 commandClassForAction)是权威;conn-log 等无该字段的记录退化为方法名
+ * 分段启发(run/write/sync/amend…→写,read/list/tail/status…→读),识别不了返回
+ * null(不计入读写比与争用分母)。
+ */
+export function observeLogOpClass(method: string, commandClass: string | null): "write" | "read" | null {
+  if (commandClass === "repo-read") return "read";
+  if (commandClass === "repo-write" || commandClass === "arbiter" || commandClass === "admin") return "write";
+  if (commandClass !== null) return null;
+  const segments = method.toLowerCase().split(".");
+  if (segments.some((segment) => READ_METHOD_SEGMENTS.has(segment))) return "read";
+  if (segments.some((segment) => WRITE_METHOD_SEGMENTS.has(segment))) return "write";
+  return null;
+}
+
+const READ_METHOD_SEGMENTS = new Set(["read", "list", "tail", "status", "snapshot", "dispatches", "hello", "catalog"]),
+  WRITE_METHOD_SEGMENTS = new Set([
+    "run",
+    "write",
+    "sync",
+    "register",
+    "bootstrap",
+    "backup",
+    "retire",
+    "exit",
+    "stop",
+    "amend",
+    "record",
+    "confirm",
+    "adjudicate",
+    "pin",
+    "control",
+  ]);
 
 function eventRefs(input: {
   readonly payload: Readonly<Record<string, unknown>>;
@@ -570,10 +662,18 @@ function searchTextOf(row: Omit<ObserveRow, "searchText">): string {
     row.type,
     row.text,
     ...row.refs.flatMap((chip) => [chip.kind, chip.ref, chip.label]),
+    row.nodeId ?? "",
+    row.subject ?? "",
     row.detail,
   ]
     .join(" ")
     .toLowerCase();
+}
+
+function epochMsOf(iso: string | null): number | null {
+  if (iso === null) return null;
+  const ms = Date.parse(iso);
+  return Number.isFinite(ms) ? ms : null;
 }
 
 export function recordOf(value: unknown): Readonly<Record<string, unknown>> | null {
