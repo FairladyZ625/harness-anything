@@ -30,12 +30,15 @@ import type { ViewId } from "./viewHistory.ts";
 // 不同;决策队列在总池「决策待裁」域内以专注裁决模式存在(J/K 键盘流保留)。
 // 分组随之更名「治理」:组内同时住着 decision 裁决与 task 收口签发两类人工治理
 // 动作,再叫「决策」会重现"决策/签发是不是同一个东西"的歧义。
+// 研发态势(cadence)入组并置顶:项目研发心跳(节奏/摩擦/堵点/产出)是治理域的
+// 日常主阵地,decision 裁决与 task 签发是它下钻后的动作面。
 const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
   home: "shell.nav.home",
   overview: "shell.nav.overview",
   board: "shell.nav.board",
   decisionPool: "shell.nav.decisionPool",
   freshness: "shell.nav.freshness",
+  cadence: "shell.nav.cadence",
   decisionDetail: "shell.nav.decisionDetail",
   factDetail: "shell.nav.factDetail",
   graph: "shell.nav.graph",
@@ -77,6 +80,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     id: "governance",
     labelKey: "shell.nav.governanceGroup",
     items: [
+      { id: "cadence", icon: <Pulse weight="duotone" /> },
       { id: "decisionPool", icon: <GitBranch weight="duotone" /> },
       { id: "freshness", icon: <HourglassMedium weight="duotone" /> },
     ],

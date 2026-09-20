@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SnapshotStatus, TaskRow } from "./model/types.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
@@ -9,6 +9,7 @@ import { AttestationPoolView } from "./views/AttestationPoolView.tsx";
 import { FactDetailView } from "./views/EntityDetailView.tsx";
 import { DecisionDetailView } from "./components/decisionDetail/DecisionDetailView.tsx";
 import { FreshnessView } from "./views/FreshnessView.tsx";
+import { CadenceView } from "./views/CadenceView.tsx";
 import { EntityWorkspace } from "./components/EntityWorkspace.tsx";
 import { PresetsView } from "./views/PresetsView.tsx";
 import { EntitiesView } from "./views/EntitiesView.tsx";
@@ -73,6 +74,7 @@ import { useLocalDocOpener } from "./local-doc/local-doc-context.ts";
 import { useEntityKindOptions, useGovernedEntityRows } from "./entity-kind-data.ts";
 import { guiTransport } from "./gui-transport.ts";
 import { DaemonStartupGate } from "./components/DaemonStartupGate.tsx";
+import { agentRuntimeClient, runtimeQueryKeys } from "./agent-runtime-client.ts";
 
 /**
  * 渲染全量决策行的视图。总览只读决策摘要;其他集合内视图同时渲染图 + 决策。
@@ -149,9 +151,17 @@ function AppShell() {
   useLocationRestore(location, document.body);
   const { view, selectedId, previewId, focusedEntityRef, taskFilters, drill } = location;
   const taskWipQuery = useTaskWipQuery(activeRepoId, view === "overview" || view === "board");
-  // 总览的「PIN 在做」直接消费 `ha agenda` 同一条 repo.agenda.read 投影。
-  // 其他视图不挂载这条读,避免把已删除的独立议程页变成后台读取。
-  const agendaQuery = useAgendaQuery(activeRepoId !== null && view === "overview" ? activeRepoId : null);
+  // 总览的「PIN 在做」与研发态势的堵点计数直接消费 `ha agenda` 同一条 repo.agenda.read
+  // 投影。其他视图不挂载这条读,避免把已删除的独立议程页变成后台读取。
+  const agendaQuery = useAgendaQuery(
+    activeRepoId !== null && (view === "overview" || view === "cadence") ? activeRepoId : null,
+  );
+  const cadenceSessionsQuery = useQuery({
+    queryKey: [...runtimeQueryKeys.overview(projectId, "cadence"), "fleet"],
+    queryFn: () => agentRuntimeClient.overview(projectId, undefined, { limit: 500 }),
+    enabled: activeRepoId !== null && view === "cadence",
+    staleTime: 4_000,
+  });
   const setTaskFilters = useCallback((next: TaskFilters) => updateLocation({ taskFilters: next }), [updateLocation]);
   // 总池 Tab 走 AppLocation(可寻址、刷新不丢),与看板筛选同一「原地改,不推栈」路径。
   const setPoolTab = useCallback((tab: AttestationPoolTabId) => updateLocation({ poolTab: tab }), [updateLocation]);
@@ -221,7 +231,8 @@ function AppShell() {
   // 完整投影视图已经包含 decisions,不再并发读窄面。总览只读它的摘要，抽屉打开
   // 才按 id 读取完整行，不建立第二份全量投影。
   const decisionSummary = useDecisionSummaryQuery(activeRepoId, {
-    enabled: !fullProjectionMounted && (view === "overview" || selectedId !== null || paletteOpen),
+    enabled:
+      !fullProjectionMounted && (view === "overview" || view === "cadence" || selectedId !== null || paletteOpen),
   });
   const triadicQuery = useTriadicProjectionQuery(activeRepoId, {
     enabled: fullProjectionMounted,
@@ -645,6 +656,27 @@ function AppShell() {
                   coverageRows={coverageRows}
                   relationState={triadicQuery.relationState}
                   onNavigateEntity={navigateToEntity}
+                />
+              ) : view === "cadence" ? (
+                <CadenceView
+                  repoId={projectId}
+                  projectName={project.name}
+                  tasks={projectTasks}
+                  agenda={agendaQuery.data}
+                  decisions={decisionSummary.decisions}
+                  activeSessions={cadenceSessionsQuery.data?.sessions ?? []}
+                  onNavigateEntity={navigateToEntity}
+                  onOpenPool={() =>
+                    // 堵点直达的总池出口:决策待裁域(与总览收件箱同一条可寻址路由)。
+                    navigate({
+                      view: "decisionPool",
+                      poolTab: "decisions",
+                      focusedEntityRef: null,
+                      selectedId: null,
+                      previewId: null,
+                      drill: null,
+                    })
+                  }
                 />
               ) : view === "presets" ? (
                 <PresetsView

@@ -4,6 +4,7 @@
   "shell.nav.board": "Board",
   "shell.nav.decisionPool": "Approvals",
   "shell.nav.freshness": "Drift Alerts",
+  "shell.nav.cadence": "Cadence & Pulse",
   "shell.nav.graph": "Relation Graph",
   "shell.nav.presets": "Preset / Vertical",
 "shell.nav.entities": "Entities",
