@@ -64,7 +64,7 @@ test("ownership overlap respects directory boundaries and folds cross-platform a
   assert.equal(overlappingWorkerPaths([], ["src/"]), null);
 });
 
-test("committed additions, deletions and both rename endpoints produce findings without rollback", async (context) => {
+test("a repository without remotes retains the original ownership behavior", async (context) => {
   const cwd = mkdtempSync(path.join(tmpdir(), "ha-squad-ownership-"));
   context.after(() => rmSync(cwd, { recursive: true, force: true }));
   git(cwd, "init", "-q");
@@ -88,6 +88,7 @@ test("committed additions, deletions and both rename endpoints produce findings 
     finding = await checkWorkerOwnership(checkout, ["SRC/"]);
   assert.deepEqual(finding, {
     baseSha,
+    deliveryBaseSha: baseSha,
     headSha,
     changedPaths: [
       "outside/delete.txt",
@@ -106,6 +107,101 @@ test("committed additions, deletions and both rename endpoints produce findings 
   const unowned = await checkWorkerOwnership(checkout, []);
   assert.deepEqual(unowned.outsidePaths, unowned.changedPaths);
 });
+
+test("a worker without a rebase retains the original ownership behavior", async (context) => {
+  const cwd = ownershipRepository(context),
+    baseSha = git(cwd, "rev-parse", "HEAD").trim();
+  git(cwd, "update-ref", "refs/remotes/origin/main", baseSha);
+  writeFileSync(path.join(cwd, "src", "inside.txt"), "inside\n");
+  writeFileSync(path.join(cwd, "outside", "worker.txt"), "outside\n");
+  git(cwd, "add", ".");
+  git(cwd, "commit", "-qm", "test: worker delivery");
+  const finding = await checkWorkerOwnership({ cwd, branch: "worker", baseSha }, ["src/"]);
+  assert.equal(finding.deliveryBaseSha, baseSha);
+  assert.deepEqual(finding.changedPaths, ["outside/worker.txt", "src/inside.txt"]);
+  assert.deepEqual(finding.outsidePaths, ["outside/worker.txt"]);
+});
+
+test("ownership ignores fetched upstream commits after a worker rebase", async (context) => {
+  const cwd = ownershipRepository(context);
+  writeFileSync(path.join(cwd, "outside", "upstream.txt"), "upstream\n");
+  git(cwd, "add", ".");
+  git(cwd, "commit", "-qm", "test: upstream delivery");
+  const deliveryBaseSha = git(cwd, "rev-parse", "HEAD").trim();
+  git(cwd, "update-ref", "refs/remotes/origin/main", deliveryBaseSha);
+  writeFileSync(path.join(cwd, "src", "worker.txt"), "worker\n");
+  git(cwd, "add", ".");
+  git(cwd, "commit", "-qm", "test: worker delivery");
+  const headSha = git(cwd, "rev-parse", "HEAD").trim(),
+    finding = await checkWorkerOwnership({ cwd, branch: "worker", baseSha: git(cwd, "rev-parse", "HEAD~2").trim() }, [
+      "src/",
+    ]);
+  assert.equal(finding.headSha, headSha);
+  assert.equal(finding.deliveryBaseSha, deliveryBaseSha);
+  assert.deepEqual(finding.changedPaths, ["src/worker.txt"]);
+  assert.deepEqual(finding.outsidePaths, []);
+});
+
+test("ownership still reports a worker commit outside its declaration after a rebase", async (context) => {
+  const cwd = ownershipRepository(context);
+  writeFileSync(path.join(cwd, "outside", "upstream.txt"), "upstream\n");
+  git(cwd, "add", ".");
+  git(cwd, "commit", "-qm", "test: upstream delivery");
+  git(cwd, "update-ref", "refs/remotes/origin/main", "HEAD");
+  writeFileSync(path.join(cwd, "outside", "worker.txt"), "worker\n");
+  git(cwd, "add", ".");
+  git(cwd, "commit", "-qm", "test: worker delivery");
+  const finding = await checkWorkerOwnership(
+    { cwd, branch: "worker", baseSha: git(cwd, "rev-parse", "HEAD~2").trim() },
+    ["src/"],
+  );
+  assert.deepEqual(finding.changedPaths, ["outside/worker.txt"]);
+  assert.deepEqual(finding.outsidePaths, ["outside/worker.txt"]);
+});
+
+test("a remote-tracking worker branch cannot hide its own outside path", async (context) => {
+  const cwd = ownershipRepository(context),
+    baseSha = git(cwd, "rev-parse", "HEAD").trim();
+  writeFileSync(path.join(cwd, "outside", "worker.txt"), "worker\n");
+  git(cwd, "add", ".");
+  git(cwd, "commit", "-qm", "test: worker delivery");
+  git(cwd, "update-ref", "refs/remotes/origin/worker", "HEAD");
+  const finding = await checkWorkerOwnership({ cwd, branch: "worker", baseSha }, ["src/"]);
+  assert.deepEqual(finding.outsidePaths, ["outside/worker.txt"]);
+});
+
+test("ownership ignores fetched upstream commits merged into the worker branch", async (context) => {
+  const cwd = ownershipRepository(context),
+    baseSha = git(cwd, "rev-parse", "HEAD").trim();
+  git(cwd, "checkout", "-qb", "worker");
+  writeFileSync(path.join(cwd, "src", "worker.txt"), "worker\n");
+  git(cwd, "add", ".");
+  git(cwd, "commit", "-qm", "test: worker delivery");
+  git(cwd, "checkout", "-qb", "upstream", baseSha);
+  writeFileSync(path.join(cwd, "outside", "upstream.txt"), "upstream\n");
+  git(cwd, "add", ".");
+  git(cwd, "commit", "-qm", "test: upstream delivery");
+  git(cwd, "update-ref", "refs/remotes/origin/main", "HEAD");
+  git(cwd, "checkout", "-q", "worker");
+  git(cwd, "merge", "--no-edit", "upstream");
+  const finding = await checkWorkerOwnership({ cwd, branch: "worker", baseSha }, ["src/"]);
+  assert.deepEqual(finding.changedPaths, ["src/worker.txt"]);
+  assert.deepEqual(finding.outsidePaths, []);
+});
+
+function ownershipRepository(context: test.TestContext): string {
+  const cwd = mkdtempSync(path.join(tmpdir(), "ha-squad-ownership-"));
+  context.after(() => rmSync(cwd, { recursive: true, force: true }));
+  git(cwd, "init", "-q");
+  git(cwd, "config", "user.name", "Ownership Test");
+  git(cwd, "config", "user.email", "ownership@example.invalid");
+  mkdirSync(path.join(cwd, "src"));
+  mkdirSync(path.join(cwd, "outside"));
+  writeFileSync(path.join(cwd, "README.md"), "baseline\n");
+  git(cwd, "add", ".");
+  git(cwd, "commit", "-qm", "test: baseline");
+  return cwd;
+}
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8" });
