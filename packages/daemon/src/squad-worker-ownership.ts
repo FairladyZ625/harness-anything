@@ -40,6 +40,7 @@ export function overlappingWorkerPaths(left: readonly string[], right: readonly 
 
 export type WorkerOwnershipCheck = {
   readonly baseSha: string;
+  readonly deliveryBaseSha: string;
   readonly headSha: string;
   readonly changedPaths: readonly string[];
   readonly outsidePaths: readonly string[];
@@ -50,14 +51,49 @@ export async function checkWorkerOwnership(
   ownedPaths: readonly string[],
 ): Promise<WorkerOwnershipCheck> {
   const headSha = (await runProcessTextAsync("git", ["rev-parse", "HEAD"], checkout.cwd)).trim(),
-    changed = await runProcessTextAsync(
-      "git",
-      ["diff", "--no-renames", "--name-only", "-z", checkout.baseSha, headSha, "--"],
-      checkout.cwd,
-    ),
-    changedPaths = changed.split("\0").filter(Boolean);
+    remoteRefs = (
+      await runProcessTextAsync(
+        "git",
+        ["for-each-ref", "--format=%(refname)", `--no-contains=${headSha}`, "refs/remotes"],
+        checkout.cwd,
+      )
+    )
+      .split("\n")
+      .filter(Boolean),
+    workerCommits = (
+      await runProcessTextAsync(
+        "git",
+        [
+          "rev-list",
+          "--reverse",
+          "--topo-order",
+          `${checkout.baseSha}..${headSha}`,
+          ...(remoteRefs.length ? ["--not", ...remoteRefs] : []),
+        ],
+        checkout.cwd,
+      )
+    )
+      .split("\n")
+      .filter(Boolean),
+    deliveryBaseSha = workerCommits.length
+      ? (await runProcessTextAsync("git", ["rev-parse", `${workerCommits[0]}^`], checkout.cwd)).trim()
+      : headSha,
+    // Per-commit paths: a merge commit contributes only what its resolution changed (`--cc`).
+    changed = (
+      await Promise.all(
+        workerCommits.map((commit) =>
+          runProcessTextAsync(
+            "git",
+            ["diff-tree", "--root", "--no-commit-id", "--no-renames", "--name-only", "-z", "-r", "--cc", commit, "--"],
+            checkout.cwd,
+          ),
+        ),
+      )
+    ).join(""),
+    changedPaths = [...new Set(changed.split("\0").filter(Boolean))].sort();
   return {
     baseSha: checkout.baseSha,
+    deliveryBaseSha,
     headSha,
     changedPaths,
     outsidePaths: changedPaths.filter((file) => !ownedPaths.some((scope) => covers(scope, file))),
