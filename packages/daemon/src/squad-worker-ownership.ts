@@ -60,14 +60,16 @@ export async function checkWorkerOwnership(
     )
       .split("\n")
       .filter(Boolean),
-    range = `${checkout.baseSha}..${headSha}`,
-    allCommits = (await runProcessTextAsync("git", ["rev-list", "--reverse", "--topo-order", range], checkout.cwd))
-      .split("\n")
-      .filter(Boolean),
     workerCommits = (
       await runProcessTextAsync(
         "git",
-        ["rev-list", "--reverse", "--topo-order", range, ...(remoteRefs.length ? ["--not", ...remoteRefs] : [])],
+        [
+          "rev-list",
+          "--reverse",
+          "--topo-order",
+          `${checkout.baseSha}..${headSha}`,
+          ...(remoteRefs.length ? ["--not", ...remoteRefs] : []),
+        ],
         checkout.cwd,
       )
     )
@@ -76,39 +78,18 @@ export async function checkWorkerOwnership(
     deliveryBaseSha = workerCommits.length
       ? (await runProcessTextAsync("git", ["rev-parse", `${workerCommits[0]}^`], checkout.cwd)).trim()
       : headSha,
-    changed =
-      workerCommits.length === allCommits.length
-        ? await runProcessTextAsync(
+    // Per-commit paths: a merge commit contributes only what its resolution changed (`--cc`).
+    changed = (
+      await Promise.all(
+        workerCommits.map((commit) =>
+          runProcessTextAsync(
             "git",
-            ["diff", "--no-renames", "--name-only", "-z", checkout.baseSha, headSha, "--"],
+            ["diff-tree", "--root", "--no-commit-id", "--no-renames", "--name-only", "-z", "-r", "--cc", commit, "--"],
             checkout.cwd,
-          )
-        : (
-            await Promise.all(
-              workerCommits.map(async (commit) => {
-                const parents = (await runProcessTextAsync("git", ["show", "-s", "--format=%P", commit], checkout.cwd))
-                  .trim()
-                  .split(" ")
-                  .filter(Boolean);
-                return runProcessTextAsync(
-                  "git",
-                  [
-                    "diff-tree",
-                    "--root",
-                    "--no-commit-id",
-                    "--no-renames",
-                    "--name-only",
-                    "-z",
-                    "-r",
-                    ...(parents.length > 1 ? ["--cc"] : []),
-                    commit,
-                    "--",
-                  ],
-                  checkout.cwd,
-                );
-              }),
-            )
-          ).join(""),
+          ),
+        ),
+      )
+    ).join(""),
     changedPaths = [...new Set(changed.split("\0").filter(Boolean))].sort();
   return {
     baseSha: checkout.baseSha,
