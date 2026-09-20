@@ -14,6 +14,8 @@ import {
   mergeCadenceEvents,
   type CadenceFeedEvent,
 } from "../src/renderer/model/cadence.ts";
+import { deriveFleetPulse } from "../src/renderer/model/cadence-fleet.ts";
+import type { AgentRuntimeSessionDto } from "../../daemon/src/agent-runtime-contract.ts";
 
 /**
  * 研发态势纯聚合引擎的判据(输入是 observe.tail events item 的结构子集):
@@ -148,6 +150,32 @@ describe("cadenceEventOf", () => {
     expect(long.summary).toHaveLength(140);
     expect(long.summary!.endsWith("…")).toBe(true);
     expect(cadenceEventOf(seedToItem({ id: "ev-bare", type: "lease_renewed" })).summary).toBeNull();
+  });
+});
+
+describe("deriveFleetPulse", () => {
+  it("separates flow states and detects multiple active leases on one task", () => {
+    const session = (id: string, taskId: string, liveness: "live" | "exited"): AgentRuntimeSessionDto =>
+      ({
+        runtimeSessionId: id,
+        instanceId: id,
+        kindId: "codex",
+        liveness,
+        definitionSnapshot: null,
+        associations: [{ taskId, executionId: `exe_${id}`, holder: null, lease: { phase: "held", expiresAt: NOW } }],
+        activity: { lastObservedAt: NOW, outcome: null, exitCode: null, resultRef: null, missingEvidence: null },
+      }) as AgentRuntimeSessionDto;
+    const snapshot = deriveFleetPulse({
+      sessions: [session("runtime_a", "task_flight", "live"), session("runtime_b", "task_flight", "live")],
+      tasks: [
+        cadenceTask({ taskId: "task_claimed" }),
+        cadenceTask({ taskId: "task_flight" }),
+        cadenceTask({ taskId: "task_settled", coordinationStatus: "done" }),
+      ],
+      events: feed([]),
+    });
+    expect(snapshot.flow).toEqual({ claimed: 1, inFlight: 1, settled: 1 });
+    expect(snapshot.collisions).toEqual([{ taskId: "task_flight", workerCount: 2 }]);
   });
 });
 

@@ -23,6 +23,9 @@ import { TaskRhythmTrack } from "../components/cadence/TaskRhythmTrack.tsx";
 import { FrictionRadar } from "../components/cadence/FrictionRadar.tsx";
 import { YieldSummary } from "../components/cadence/YieldSummary.tsx";
 import { AttentionBlockers } from "../components/cadence/AttentionBlockers.tsx";
+import { FleetPulsePane } from "../components/cadence/FleetPulsePane.tsx";
+import { deriveFleetPulse } from "../model/cadence-fleet.ts";
+import type { AgentRuntimeSessionDto } from "../../../../daemon/src/agent-runtime-contract.ts";
 
 /**
  * 研发态势(Cadence & Pulse)一级视图:治理域下项目研发心跳的驾驶舱。
@@ -176,6 +179,7 @@ export function CadenceView({
   decisions,
   onNavigateEntity,
   onOpenPool,
+  activeSessions = [],
 }: {
   readonly repoId: string;
   readonly projectName: string;
@@ -184,8 +188,10 @@ export function CadenceView({
   readonly decisions: CadenceInput["decisions"];
   readonly onNavigateEntity: (ref: string) => void;
   readonly onOpenPool: () => void;
+  readonly activeSessions?: readonly AgentRuntimeSessionDto[];
 }) {
-  const feed = useCadenceFeed(repoId),
+  const [tab, setTab] = useState<"tasks" | "fleet">("tasks"),
+    feed = useCadenceFeed(repoId),
     // 议程未读完(pending)时 awaiting 为 null:HUD 与堵点卡片如实显示读取中,不冒充。
     awaiting = useMemo(
       () => (agenda !== undefined && agenda.status === "ready" ? agenda.awaitingDecision : null),
@@ -209,6 +215,10 @@ export function CadenceView({
           now: feed.now,
         }),
       [feed.events, feed.now, tasks, decisions, awaiting],
+    ),
+    fleet = useMemo(
+      () => deriveFleetPulse({ sessions: activeSessions, tasks, events: feed.events }),
+      [activeSessions, tasks, feed.events],
     ),
     openTask = (taskId: string): void => {
       onNavigateEntity(`task/${taskId}`);
@@ -243,23 +253,47 @@ export function CadenceView({
           {t("views.cadence.errorTitle")} {feed.error}
         </p>
       ) : null}
+      <div
+        role="tablist"
+        aria-label={t("views.cadence.tabsLabel")}
+        className="flex gap-1 border-b border-border px-4 pt-2"
+      >
+        {(["tasks", "fleet"] as const).map((id) => (
+          <button
+            key={id}
+            type="button"
+            role="tab"
+            aria-selected={tab === id}
+            onClick={() => setTab(id)}
+            className={`rounded-t px-3 py-2 ui-meta ${tab === id ? "bg-surface-raised text-accent" : "text-text-muted hover:text-text"}`}
+          >
+            {t(`views.cadence.tab.${id}`)}
+          </button>
+        ))}
+      </div>
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4">
-        <CadenceHud hud={snapshot.hud} awaitingDetail={awaitingDetail} />
-        <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1.5fr_1fr]">
-          <div className="flex min-h-[320px] flex-col lg:min-h-0">
-            <TaskRhythmTrack entries={snapshot.rhythm} onNavigateEntity={onNavigateEntity} />
-          </div>
-          <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
-            <AttentionBlockers
-              awaiting={awaiting}
-              lanes={lanes}
-              onNavigateEntity={onNavigateEntity}
-              onOpenPool={onOpenPool}
-            />
-            <FrictionRadar friction={snapshot.friction} onOpenTask={openTask} />
-            <YieldSummary snapshot={snapshot.yield} onNavigateEntity={onNavigateEntity} />
-          </div>
-        </div>
+        {tab === "fleet" ? (
+          <FleetPulsePane snapshot={fleet} onNavigateEntity={onNavigateEntity} />
+        ) : (
+          <>
+            <CadenceHud hud={snapshot.hud} awaitingDetail={awaitingDetail} />
+            <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1.5fr_1fr]">
+              <div className="flex min-h-[320px] flex-col lg:min-h-0">
+                <TaskRhythmTrack entries={snapshot.rhythm} onNavigateEntity={onNavigateEntity} />
+              </div>
+              <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
+                <AttentionBlockers
+                  awaiting={awaiting}
+                  lanes={lanes}
+                  onNavigateEntity={onNavigateEntity}
+                  onOpenPool={onOpenPool}
+                />
+                <FrictionRadar friction={snapshot.friction} onOpenTask={openTask} />
+                <YieldSummary snapshot={snapshot.yield} onNavigateEntity={onNavigateEntity} />
+              </div>
+            </div>
+          </>
+        )}
         <p className="shrink-0 ui-micro text-text-faint">
           {t("views.cadence.windowNote", { limit: CADENCE_EVENT_LIMIT })}
         </p>

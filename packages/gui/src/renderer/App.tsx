@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { SnapshotStatus, TaskRow } from "./model/types.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
@@ -74,6 +74,7 @@ import { useLocalDocOpener } from "./local-doc/local-doc-context.ts";
 import { useEntityKindOptions, useGovernedEntityRows } from "./entity-kind-data.ts";
 import { guiTransport } from "./gui-transport.ts";
 import { DaemonStartupGate } from "./components/DaemonStartupGate.tsx";
+import { agentRuntimeClient, runtimeQueryKeys } from "./agent-runtime-client.ts";
 
 /**
  * 渲染全量决策行的视图。总览只读决策摘要;其他集合内视图同时渲染图 + 决策。
@@ -155,6 +156,12 @@ function AppShell() {
   const agendaQuery = useAgendaQuery(
     activeRepoId !== null && (view === "overview" || view === "cadence") ? activeRepoId : null,
   );
+  const cadenceSessionsQuery = useQuery({
+    queryKey: [...runtimeQueryKeys.overview(projectId, "cadence"), "fleet"],
+    queryFn: () => agentRuntimeClient.overview(projectId, undefined, { limit: 500 }),
+    enabled: activeRepoId !== null && view === "cadence",
+    staleTime: 4_000,
+  });
   const setTaskFilters = useCallback((next: TaskFilters) => updateLocation({ taskFilters: next }), [updateLocation]);
   // 总池 Tab 走 AppLocation(可寻址、刷新不丢),与看板筛选同一「原地改,不推栈」路径。
   const setPoolTab = useCallback((tab: AttestationPoolTabId) => updateLocation({ poolTab: tab }), [updateLocation]);
@@ -657,6 +664,7 @@ function AppShell() {
                   tasks={projectTasks}
                   agenda={agendaQuery.data}
                   decisions={decisionSummary.decisions}
+                  activeSessions={cadenceSessionsQuery.data?.sessions ?? []}
                   onNavigateEntity={navigateToEntity}
                   onOpenPool={() =>
                     // 堵点直达的总池出口:决策待裁域(与总览收件箱同一条可寻址路由)。

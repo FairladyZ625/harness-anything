@@ -10,6 +10,7 @@ import type { ObserveTailRead } from "../src/api/renderer-dto.ts";
 import type { TaskRow } from "../src/renderer/model/types.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+import type { AgentRuntimeSessionDto } from "../../daemon/src/agent-runtime-contract.ts";
 
 /**
  * 研发态势视图的装配判据(happy-dom):
@@ -64,7 +65,7 @@ function eventItem(input: {
     workspaceRevision: input.revision,
     opId: "op-cadence-view",
     type: input.type,
-    actor: { kind: "agent", id: "agent_cv" },
+    actor: { principal: { personId: "probe" }, executor: { kind: "agent", id: "runtime-session:runtime_probe" } },
     source: { channel: "cli" },
     occurredAt: input.at ?? NOW,
     ...(input.taskId ? { taskId: input.taskId } : {}),
@@ -140,6 +141,7 @@ interface Mounted {
 async function mountCadence(options: {
   readonly page: ObserveTailRead;
   readonly agenda?: AgendaSuccess;
+  readonly sessions?: readonly AgentRuntimeSessionDto[];
 }): Promise<Mounted> {
   const navigate = vi.fn();
   vi.spyOn(harnessClient, "tailObservability").mockImplementation(async () => options.page);
@@ -175,6 +177,7 @@ async function mountCadence(options: {
             proposedAt: NOW,
           },
         ],
+        activeSessions: options.sessions ?? [],
         onNavigateEntity: navigate,
         onOpenPool: () => undefined,
       }),
@@ -202,6 +205,52 @@ function textOf(container: HTMLElement, testId: string): string {
 }
 
 describe("CadenceView", () => {
+  it("switches to fleet pulse and renders worker flow, contribution, task link and clean fence", async () => {
+    const session = {
+      runtimeSessionId: "runtime_probe",
+      instanceId: "codex-primary",
+      kindId: "codex",
+      liveness: "live",
+      definitionSnapshot: {
+        kindId: "codex",
+        model: "gpt-5.6-sol",
+      },
+      associations: [
+        { taskId: "task_live", executionId: "exe_1", holder: null, lease: { phase: "held", expiresAt: NOW } },
+      ],
+      activity: { lastObservedAt: NOW, outcome: null, exitCode: null, resultRef: null, missingEvidence: null },
+    } as AgentRuntimeSessionDto;
+    const { container, navigate } = await mountCadence({
+      page: historyPage([
+        eventItem({
+          id: "fleet-start",
+          type: "execution_started",
+          revision: 1,
+          taskId: "task_live",
+          at: "2026-09-20T10:00:00.000Z",
+        }),
+        eventItem({
+          id: "fleet-fact",
+          type: "fact_recorded",
+          revision: 2,
+          taskId: "task_live",
+          factId: "F-fleet",
+          payload: { documentClaims: [{ path: "packages/gui/src/fleet.ts" }] },
+        }),
+      ]),
+      sessions: [session],
+    });
+    const fleetTab = [...container.querySelectorAll('[role="tab"]')].find((row) => row.textContent?.includes("舰队"))!;
+    await act(async () => fleetTab.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(fleetTab.getAttribute("aria-selected")).toBe("true");
+    expect(textOf(container, "cadence-fleet")).toContain("codex · gpt-5.6-sol");
+    expect(textOf(container, "cadence-fleet")).toContain("Fact 1 · Decision 0 · 触碰文件 1");
+    expect(textOf(container, "cadence-fleet-fence")).toContain("无租约冲突");
+    const taskLink = [...container.querySelectorAll('[data-testid="cadence-fleet-worker"] button')][0]!;
+    await act(async () => taskLink.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(navigate).toHaveBeenCalledWith("task/task_live");
+  });
+
   it("renders the HUD, rhythm track, friction and yield from one observe.tail history page", async () => {
     const { container } = await mountCadence({
       page: historyPage([
