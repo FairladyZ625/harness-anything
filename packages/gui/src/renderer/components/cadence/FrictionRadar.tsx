@@ -58,7 +58,7 @@ export function FrictionRadar({
                   <span key={kind}>{`${KIND_LABEL[kind]()} ${friction.byKind[kind]}`}</span>
                 ))}
               </p>
-              <ul>
+              <ul data-testid="cadence-friction-tasks" className="max-h-56 overflow-y-auto">
                 {friction.tasks.map((task) => (
                   <li key={task.taskId} className="border-t border-border px-3 py-2 first:border-t-0">
                     <button

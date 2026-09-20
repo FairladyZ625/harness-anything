@@ -5,10 +5,12 @@ import { projectedTaskFields } from "./task-projection-fields.ts";
 import {
   CADENCE_EVENT_LIMIT,
   CADENCE_FRICTION_ALERT_THRESHOLD,
+  CADENCE_MICRO_EVENTS,
   CADENCE_MODULE_TOP,
   CADENCE_RECENT_FACTS,
   cadenceEventOf,
   deriveCadenceSnapshot,
+  deriveStageTiming,
   mergeCadenceEvents,
   type CadenceFeedEvent,
 } from "../src/renderer/model/cadence.ts";
@@ -16,6 +18,8 @@ import {
 /**
  * 研发态势纯聚合引擎的判据(输入是 observe.tail events item 的结构子集):
  *  - 阶段首达:bootstrap→wip→fact→gate→complete 各记首次时间,currentStage 取最新;
+ *  - 阶段耗时漏斗:相邻阶段首达差推导区间耗时,占比最大者为瓶颈;
+ *  - 微型事件链:任务事件按序携带摘要(statement/text/title 截断),封顶最新 N 条;
  *  - 摩擦:门禁 witness fail / 评审 changes_requested / 提交退回 / 任务重开四类计数,
  *    总数超过阈值(>2)标记高摩擦;
  *  - HUD:在飞/停滞/平均交付/今日收口/待人工(透传,议程未读为 null 不冒充);
@@ -122,6 +126,29 @@ describe("cadenceEventOf", () => {
     expect(opaque.taskId).toBeNull();
     expect(opaque.key).not.toBe("");
   });
+
+  it("extracts a clipped summary from statement/text/title for the micro event chain", () => {
+    const fact = cadenceEventOf(
+      seedToItem({
+        id: "ev-fact",
+        type: "fact_recorded",
+        taskId: "task_a",
+        factId: "F-aaaaaaaa",
+        payload: { statement: "聚合窗口按 5 秒追尾一次,封顶 4096 条" },
+      }),
+    );
+    expect(fact.summary).toBe("聚合窗口按 5 秒追尾一次,封顶 4096 条");
+    const progress = cadenceEventOf(
+      seedToItem({ id: "ev-progress", type: "task_progress_appended", payload: { text: "已收口" } }),
+    );
+    expect(progress.summary).toBe("已收口");
+    const long = cadenceEventOf(
+      seedToItem({ id: "ev-long", type: "fact_recorded", payload: { statement: "长".repeat(200) } }),
+    );
+    expect(long.summary).toHaveLength(140);
+    expect(long.summary!.endsWith("…")).toBe(true);
+    expect(cadenceEventOf(seedToItem({ id: "ev-bare", type: "lease_renewed" })).summary).toBeNull();
+  });
 });
 
 describe("mergeCadenceEvents", () => {
@@ -172,6 +199,111 @@ describe("deriveCadenceSnapshot", () => {
     expect(entry.currentStage).toBe("wip");
     expect(entry.eventCount).toBe(5);
     expect(entry.known).toBe(true);
+  });
+
+  it("derives the stage timing funnel from first arrivals and names the max-share bottleneck", () => {
+    const events = feed([
+      { id: "t1", type: "task_created", taskId: "task_t", at: "2026-09-20T01:00:00.000Z", revision: 1 },
+      { id: "t2", type: "execution_started", taskId: "task_t", at: "2026-09-20T02:00:00.000Z", revision: 2 },
+      {
+        id: "t3",
+        type: "fact_recorded",
+        taskId: "task_t",
+        factId: "F-tttttttt",
+        at: "2026-09-20T03:00:00.000Z",
+        revision: 3,
+      },
+      { id: "t4", type: "completion_gate_verified", taskId: "task_t", at: "2026-09-20T06:00:00.000Z", revision: 4 },
+      { id: "t5", type: "task_completed", taskId: "task_t", at: "2026-09-20T07:00:00.000Z", revision: 5 },
+    ]);
+    const snapshot = deriveCadenceSnapshot({
+      events,
+      tasks: [cadenceTask({ taskId: "task_t", coordinationStatus: "done" })],
+      decisions: [],
+      awaitingHuman: 0,
+      now: NOW,
+    });
+    const entry = snapshot.rhythm.find((row) => row.taskId === "task_t")!;
+    expect(entry.timing.segments).toEqual({
+      toWip: 3_600_000,
+      toFact: 3_600_000,
+      toGate: 3 * 3_600_000,
+      toComplete: 3_600_000,
+    });
+    expect(entry.timing.measuredMs).toBe(6 * 3_600_000);
+    expect(entry.timing.bottleneck).toBe("toGate");
+    expect(entry.timing.bottleneckShare).toBe(0.5);
+    expect(entry.deliveryMs).toBe(6 * 3_600_000);
+  });
+
+  it("keeps funnel segments null when the window misses a stage endpoint", () => {
+    const timing = deriveStageTiming({
+      bootstrap: "2026-09-20T01:00:00.000Z",
+      wip: "2026-09-20T04:00:00.000Z",
+      fact: null,
+      gate: null,
+      complete: "2026-09-20T05:00:00.000Z",
+    });
+    expect(timing.segments).toEqual({ toWip: 3 * 3_600_000, toFact: null, toGate: null, toComplete: null });
+    expect(timing.bottleneck).toBe("toWip");
+    expect(timing.bottleneckShare).toBe(1);
+    expect(
+      deriveStageTiming({ bootstrap: null, wip: null, fact: null, gate: null, complete: null }).bottleneck,
+    ).toBeNull();
+  });
+
+  it("exposes elapsed duration to completion or to the aggregation clock for in-flight tasks", () => {
+    const snapshot = deriveCadenceSnapshot({
+      events: feed([
+        { id: "e1", type: "task_created", taskId: "task_open", at: "2026-09-20T10:00:00.000Z", revision: 1 },
+        { id: "e2", type: "lease_renewed", taskId: "task_open", at: "2026-09-20T11:00:00.000Z", revision: 2 },
+        { id: "e3", type: "task_created", taskId: "task_closed", at: "2026-09-20T08:00:00.000Z", revision: 3 },
+        { id: "e4", type: "task_completed", taskId: "task_closed", at: "2026-09-20T09:00:00.000Z", revision: 4 },
+      ]),
+      tasks: [cadenceTask({ taskId: "task_open" }), cadenceTask({ taskId: "task_closed", coordinationStatus: "done" })],
+      decisions: [],
+      awaitingHuman: 0,
+      now: NOW,
+    });
+    const open = snapshot.rhythm.find((row) => row.taskId === "task_open")!,
+      closed = snapshot.rhythm.find((row) => row.taskId === "task_closed")!;
+    expect(open.elapsedMs).toBe(2 * 3_600_000);
+    expect(closed.elapsedMs).toBe(3_600_000);
+    const quiet = deriveCadenceSnapshot({
+      events: [],
+      tasks: [cadenceTask({ taskId: "task_quiet" })],
+      decisions: [],
+      awaitingHuman: 0,
+      now: NOW,
+    });
+    expect(quiet.rhythm.find((row) => row.taskId === "task_quiet")!.elapsedMs).toBeNull();
+  });
+
+  it("carries the per-task micro event chain in order, capped at the latest CADENCE_MICRO_EVENTS", () => {
+    const total = CADENCE_MICRO_EVENTS + 9;
+    const events = feed(
+      Array.from({ length: total }, (_, index) => ({
+        id: `m${index}`,
+        type: index === 0 ? "task_created" : "lease_renewed",
+        taskId: "task_m",
+        at: `2026-09-20T0${index % 10}:30:00.000Z`,
+        revision: index,
+      })),
+    );
+    const snapshot = deriveCadenceSnapshot({
+      events,
+      tasks: [cadenceTask({ taskId: "task_m" })],
+      decisions: [],
+      awaitingHuman: 0,
+      now: NOW,
+    });
+    const entry = snapshot.rhythm.find((row) => row.taskId === "task_m")!;
+    expect(entry.microEvents).toHaveLength(CADENCE_MICRO_EVENTS);
+    expect(entry.microTruncated).toBe(9);
+    // 截断保最新端:链首是被丢掉的第 10 条,链尾是最后一条。
+    expect(entry.microEvents[0]!.key).toBe("m9");
+    expect(entry.microEvents.at(-1)!.key).toBe(`m${total - 1}`);
+    expect(entry.microEvents.every((event) => event.taskId === "task_m")).toBe(true);
   });
 
   it("counts the four friction kinds and marks totals above the threshold as high friction", () => {

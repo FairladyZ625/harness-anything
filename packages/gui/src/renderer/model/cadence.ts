@@ -1,4 +1,4 @@
-import { recordOf, stringOf } from "../daemon-observe-model.ts";
+import { clip, recordOf, stringOf } from "../daemon-observe-model.ts";
 import type { SnapshotStatus, TaskRow } from "./types.ts";
 
 /**
@@ -22,11 +22,20 @@ export const CADENCE_FRICTION_ALERT_THRESHOLD = 2;
 export const CADENCE_MODULE_TOP = 6;
 /** 今日新 Fact 的展示条数上限。 */
 export const CADENCE_RECENT_FACTS = 5;
+/** 展开行微型事件链的条数上限(取最新 N 条,更早的只报截断数)。 */
+export const CADENCE_MICRO_EVENTS = 20;
+/** 事件摘要(fact statement / progress text)的展示长度上限,与观察页 eventSummary 同口径。 */
+const CADENCE_SUMMARY_LIMIT = 140;
 
 /** 节奏阶段:立项 → 编码 → 事实核验 → 门禁验证 → 收口(task_plan 的生命周期叙事)。 */
 export type CadenceStageId = "bootstrap" | "wip" | "fact" | "gate" | "complete";
 
 export const CADENCE_STAGE_ORDER: readonly CadenceStageId[] = ["bootstrap", "wip", "fact", "gate", "complete"];
+
+/** 阶段耗时漏斗的区间:相邻阶段首达之间的耗时(立项→编码→Fact→门禁→收口)。 */
+export type CadenceSegmentId = "toWip" | "toFact" | "toGate" | "toComplete";
+
+export const CADENCE_SEGMENT_ORDER: readonly CadenceSegmentId[] = ["toWip", "toFact", "toGate", "toComplete"];
 
 /** 事件 type(kernel 词表的呈现层分组;未列出的 type 不参与节奏,仍计入事件数)。 */
 const STAGE_BY_EVENT_TYPE: Readonly<Record<string, CadenceStageId>> = {
@@ -79,6 +88,8 @@ export interface CadenceFeedEvent {
   readonly gateId: string | null;
   readonly gateResult: CadenceGateResult | null;
   readonly reviewVerdict: CadenceReviewVerdict | null;
+  /** 事件单行摘要(fact statement / 进度文本 / 标题,截断);供微型事件链原地阅读。 */
+  readonly summary: string | null;
 }
 
 function gateResultOf(value: unknown): CadenceGateResult | null {
@@ -101,6 +112,7 @@ export function cadenceEventOf(item: unknown): CadenceFeedEvent {
     review = recordOf(payload.review),
     type = stringOf(source?.type) ?? stringOf(source?.schema) ?? "event";
   const fallbackKey = stringOf(source?.workspaceRevision) ?? stringOf(source?.occurredAt) ?? "?";
+  const directSummary = stringOf(payload.statement) ?? stringOf(payload.text) ?? stringOf(payload.title);
   return {
     key: stringOf(source?.eventId) ?? `${type}:${fallbackKey}`,
     type,
@@ -112,6 +124,7 @@ export function cadenceEventOf(item: unknown): CadenceFeedEvent {
     gateId: stringOf(witness?.gateId),
     gateResult: gateResultOf(witness?.result),
     reviewVerdict: reviewVerdictOf(review?.verdict),
+    summary: directSummary === null ? null : clip(directSummary, CADENCE_SUMMARY_LIMIT),
   };
 }
 
@@ -161,6 +174,53 @@ export interface TaskRhythmEntry {
   readonly frictionTotal: number;
   readonly deliveryMs: number | null;
   readonly stalled: boolean;
+  /** 窗口内首事件 → 收口(未收口则到聚合时钟)的历时;无事件为 null。 */
+  readonly elapsedMs: number | null;
+  /** 阶段耗时漏斗:相邻阶段首达差与瓶颈区间。 */
+  readonly timing: CadenceStageTiming;
+  /** 微型事件链(该任务窗口内事件,时序,最新 CADENCE_MICRO_EVENTS 条)。 */
+  readonly microEvents: readonly CadenceFeedEvent[];
+  /** 被截掉的更早事件数(0 = 窗口内全量呈现)。 */
+  readonly microTruncated: number;
+}
+
+/** 阶段耗时漏斗:区间耗时、可测总耗时与瓶颈区间(占比最大者)。 */
+export interface CadenceStageTiming {
+  /** 相邻阶段首达差(乱序到达夹到 0);窗口没覆盖端点的区间为 null。 */
+  readonly segments: Readonly<Record<CadenceSegmentId, number | null>>;
+  /** 可测区间之和(占比的分母);无可测区间为 0。 */
+  readonly measuredMs: number;
+  /** 耗时最大的区间;无可测区间为 null。 */
+  readonly bottleneck: CadenceSegmentId | null;
+  /** 瓶颈区间占 measuredMs 的比例(0..1)。 */
+  readonly bottleneckShare: number | null;
+}
+
+/** 阶段首达 → 漏斗区间:纯推导,无 IO;供展开面板与 vitest 共用。 */
+export function deriveStageTiming(stages: Readonly<Record<CadenceStageId, string | null>>): CadenceStageTiming {
+  const span = (from: string | null, to: string | null): number | null => {
+    if (from === null || to === null) return null;
+    const ms = Date.parse(to) - Date.parse(from);
+    return Number.isFinite(ms) ? Math.max(0, ms) : null;
+  };
+  const segments = {
+    toWip: span(stages.bootstrap, stages.wip),
+    toFact: span(stages.wip, stages.fact),
+    toGate: span(stages.fact, stages.gate),
+    toComplete: span(stages.gate, stages.complete),
+  } as Record<CadenceSegmentId, number | null>;
+  const measured = CADENCE_SEGMENT_ORDER.filter((segment) => segments[segment] !== null);
+  const measuredMs = measured.reduce((sum, segment) => sum + segments[segment]!, 0);
+  const bottleneck =
+    measuredMs > 0
+      ? measured.reduce((best, segment) => (segments[segment]! > segments[best]! ? segment : best), measured[0]!)
+      : null;
+  return {
+    segments,
+    measuredMs,
+    bottleneck,
+    bottleneckShare: bottleneck === null ? null : segments[bottleneck]! / measuredMs,
+  };
 }
 
 export interface CadenceFrictionTask {
@@ -246,6 +306,8 @@ interface TaskAccumulator {
   lastSignalAt: string | null;
   completedAt: string | null;
   bootstrapAt: string | null;
+  /** 该任务的窗口内事件(时序;引用共享,不复制),供微型事件链展开。 */
+  readonly events: CadenceFeedEvent[];
 }
 
 function isTerminalStatus(status: SnapshotStatus): boolean {
@@ -284,6 +346,7 @@ export function deriveCadenceSnapshot(input: CadenceInput): CadenceSnapshot {
         lastSignalAt: null,
         completedAt: null,
         bootstrapAt: null,
+        events: [],
       };
       byTask.set(taskId, created);
       return created;
@@ -299,6 +362,7 @@ export function deriveCadenceSnapshot(input: CadenceInput): CadenceSnapshot {
     if (event.taskId !== null) {
       const acc = ensure(event.taskId);
       acc.count += 1;
+      acc.events.push(event);
       if (event.at !== null && (acc.firstAt === null || event.at < acc.firstAt)) acc.firstAt = event.at;
       acc.lastAt = later(acc.lastAt, event.at);
       const stage = STAGE_BY_EVENT_TYPE[event.type];
@@ -364,6 +428,9 @@ export function deriveCadenceSnapshot(input: CadenceInput): CadenceSnapshot {
       heat.events += acc.count;
       moduleEvents.set(module, heat);
     }
+    const elapsedRaw =
+        acc !== null && acc.firstAt !== null ? Date.parse(acc.completedAt ?? now) - Date.parse(acc.firstAt) : null,
+      microTruncated = Math.max(0, (acc?.events.length ?? 0) - CADENCE_MICRO_EVENTS);
     return {
       taskId,
       title: row?.title ?? taskId,
@@ -378,6 +445,10 @@ export function deriveCadenceSnapshot(input: CadenceInput): CadenceSnapshot {
       frictionTotal: acc?.frictionTotal ?? 0,
       deliveryMs,
       stalled,
+      elapsedMs: elapsedRaw !== null && Number.isFinite(elapsedRaw) && elapsedRaw >= 0 ? elapsedRaw : null,
+      timing: deriveStageTiming(stages),
+      microEvents: microTruncated > 0 ? acc!.events.slice(-CADENCE_MICRO_EVENTS) : (acc?.events ?? []),
+      microTruncated,
     };
   };
 

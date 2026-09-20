@@ -24,7 +24,7 @@ export function YieldSummary({
       <header className="border-b border-border px-3 py-2">
         <h2 className="ui-body font-semibold">{t("views.cadence.yieldTitle")}</h2>
       </header>
-      <div className="flex flex-col">
+      <div data-testid="cadence-yield-body" className="flex max-h-60 flex-col overflow-y-auto">
         <div className="px-3 py-2">
           <p className="font-mono ui-micro uppercase tracking-wide text-text-faint">
             {t("views.cadence.yieldFactsToday")}
