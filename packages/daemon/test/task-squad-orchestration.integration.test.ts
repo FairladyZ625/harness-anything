@@ -88,20 +88,14 @@ test(
     }
     // Duplicate process notifications must not create another leader turn.
     for (const child of resumed.workers) fixture.providers.find((p) => p.dispatchId === child.dispatchId)!.exit!(0);
-    await bounded(
-      fixture.cell.settlePendingMaterialization("duplicate child notifications"),
-      "duplicate notifications materialization",
-    );
+    await fixture.cell.settlePendingMaterialization("duplicate child notifications");
     assert.equal((await fixture.status()).leaders.length, 2);
     const leader = fixture.providers.find((p) => p.dispatchId === resumed.leaders[1].dispatchId)!;
     assert.match(leader.prompt, /outside\.txt/u);
     assert.match(leader.prompt, /git push origin codex\/<mission-slug>/u);
     assert.match(leader.prompt, /gh pr create/u);
     assert.match(leader.prompt, /Do not merge/u);
-    await bounded(
-      fixture.cell.settlePendingMaterialization("before public integration"),
-      "before integration materialization",
-    );
+    await fixture.cell.settlePendingMaterialization("before public integration");
     git(fixture.root, "checkout", "-qb", "codex/mission-delivery");
     for (const head of heads) git(fixture.root, "cherry-pick", head);
     assert.equal(readFileSync(path.join(fixture.root, "src/a.txt"), "utf8"), "child 0\n");
@@ -162,7 +156,7 @@ for (const restart of [false, true])
       );
       assert.equal((await fixture.cell.run({ kind: "task-start", taskId }, binding)).outcome, "applied");
       const cwd = path.join(fixture.root, ".worktrees", "direct-targeted");
-      await bounded(fixture.cell.settlePendingMaterialization("before direct branch"), "direct branch base");
+      await fixture.cell.settlePendingMaterialization("before direct branch");
       git(fixture.root, "update-ref", "refs/remotes/origin/main", "HEAD");
       git(fixture.root, "worktree", "add", "-b", "codex/direct-targeted", cwd);
       const direct = await fixture.cell.spawnRuntime(
@@ -192,7 +186,7 @@ for (const restart of [false, true])
       fixture.finish(String(direct.dispatchId), "direct delivery", 0, restart);
       if (restart) await fixture.reopen();
       await fixture.waitStatus((state) => state.workerCallbackCount >= 1);
-      await bounded(fixture.cell.settlePendingMaterialization("publication owner"), "publication owner settlement");
+      await fixture.cell.settlePendingMaterialization("publication owner");
       const rows = (await fixture.cell.read("repo.task.dispatches", { taskId })).dispatches;
       assert.equal(rows[0]?.outcome, "succeeded");
       const childRows = (await fixture.cell.read("repo.task.dispatches", { taskId: child.taskId! })).dispatches;
@@ -386,7 +380,7 @@ async function openFixture(t: { after(fn: () => Promise<void>): void }, slug: st
     });
   let cell = await open();
   t.after(async () => {
-    await bounded(cell.close(), "fixture cell.close");
+    await cell.close();
     rmSync(parent, { recursive: true, force: true });
   });
   for (const [id, role] of [
@@ -467,9 +461,7 @@ async function openFixture(t: { after(fn: () => Promise<void>): void }, slug: st
   assert.equal(started.outcome, "completed", JSON.stringify(started));
   const squadRunId = String(evidence(started).squadRunId);
   const status = async () =>
-    evidence(
-      await bounded(cell.run({ kind: "squad-status", squadRunId }, binding), "squad-status"),
-    ) as unknown as Status;
+    evidence(await cell.run({ kind: "squad-status", squadRunId }, binding)) as unknown as Status;
   const task = (id: string) => {
     const projection = makeTaskProjection({
       rootDir: root,
@@ -549,8 +541,8 @@ async function openFixture(t: { after(fn: () => Promise<void>): void }, slug: st
     waitStatus,
     parentDispatchId,
     reopen: async () => {
-      await bounded(cell.close(), "center restart close");
-      cell = await bounded(open(), "center restart open");
+      await cell.close();
+      cell = await open();
     },
     plan: async (first: string[], second: string[]) => {
       const state = await status();
@@ -566,7 +558,7 @@ async function openFixture(t: { after(fn: () => Promise<void>): void }, slug: st
       );
     },
     submit: async (child: WorkerAttempt, head: string) => {
-      await bounded(cell.settlePendingMaterialization("child closeout fixture"), "child closeout materialization");
+      await cell.settlePendingMaterialization("child closeout fixture");
       const row = task(child.taskId!),
         holder = {
           ...binding,
@@ -579,9 +571,9 @@ async function openFixture(t: { after(fn: () => Promise<void>): void }, slug: st
         path.join(root, "harness", row.packagePath!, "closeout.md"),
         `# Closeout\n\n## Summary\n\nDelivered ${head}.\n\n## Verification\n\nCommitted child file contents inspected.\n\n## Residual Risk\n\nIntegration review remains.\n\n## Same Mechanism Elsewhere\n\nSibling delivery uses the same protocol.\n`,
       );
-      const receipt = await bounded(
-        cell.run({ kind: "task-submit", taskId: child.taskId!, executionId: child.executionId! }, holder),
-        `task-submit ${child.taskId}`,
+      const receipt = await cell.run(
+        { kind: "task-submit", taskId: child.taskId!, executionId: child.executionId! },
+        holder,
       );
       assert.equal(receipt.outcome, "applied", `real child submit: ${JSON.stringify(receipt)}`);
     },
@@ -656,18 +648,4 @@ function verifyPrCommand(root: string) {
   const captured = JSON.parse(readFileSync(receipt, "utf8"));
   assert.deepEqual(captured.args.slice(0, 4), ["pr", "create", "--head", "codex/mission-delivery"]);
   assert.equal(captured.body, readFileSync(bodyPath, "utf8"));
-}
-
-async function bounded<T>(operation: Promise<T>, label: string): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      operation,
-      new Promise<never>((_resolve, reject) => {
-        timer = setTimeout(() => reject(new Error(`Timed out at ${label}`)), 5_000);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
 }
