@@ -85,6 +85,8 @@
   "agentRuntime.role": "角色",
   "agentRuntime.roleWorker": "worker 执行",
   "agentRuntime.roleCommander": "commander 指挥",
+  "agentRuntime.roleReviewer": "reviewer 审查",
+  "agentRuntime.roleReviewerTip": "审查者:独立验证交付并记录评审,不修改代码。",
   "agentRuntime.roleWorkerTip": "执行者:领到 mission 就干活。",
   "agentRuntime.roleCommanderTip": "指挥者:读花名册拆任务、派子活。",
   "agentRuntime.roleModelDecoupled": "角色与模型 / provider 零绑定 —— 任何模型都能当 commander。",

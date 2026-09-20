@@ -8,6 +8,7 @@ import {
   readSettingsFacet,
   repositorySettings,
   validateRepositorySettings,
+  validateSettingsV1,
   type RepositorySettingsV1,
   type SettingsV1,
 } from "./settings.ts";
@@ -64,6 +65,9 @@ export function compileSettingsChangedEvent(input: {
   readonly source: WriteSource;
   readonly occurredAt: string;
 }): SettingsEventBundle {
+  const inputErrors =
+    "locale" in input.settings ? validateSettingsV1(input.settings) : validateRepositorySettings(input.settings);
+  if (inputErrors.length) throw new Error(inputErrors.join("; "));
   const settings = repositorySettings(input.settings),
     claim: SettingsDocumentClaim = {
       path: "harness.yaml",
@@ -139,7 +143,7 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
       defaultVertical: value.defaultVertical,
       defaultPreset: value.defaultPreset,
       defaultProfile: value.defaultProfile,
-      ...(value.defaultReviewer !== undefined ? { defaultReviewer: value.defaultReviewer } : {}),
+      ...(value.roles !== undefined ? { roles: value.roles } : {}),
       reviewIndependence: value.reviewIndependence ?? "execution",
       reviewReturnBudget: value.reviewReturnBudget ?? INITIAL_SETTINGS_V1.reviewReturnBudget,
       scaffolds: {
@@ -173,7 +177,7 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
           "defaultVertical",
           "defaultPreset",
           "defaultProfile",
-          "defaultReviewer",
+          "roles",
           "reviewIndependence",
           "reviewReturnBudget",
           "scaffolds",

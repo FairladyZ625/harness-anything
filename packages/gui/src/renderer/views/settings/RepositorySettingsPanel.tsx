@@ -10,6 +10,7 @@ import {
   settingsFormRows,
   settingsPayloadFromDraft,
   type SettingsDraft,
+  type RolePreferences,
   type SettingsFieldValue,
 } from "../../settings-form.ts";
 import {
@@ -39,9 +40,9 @@ export const FIELD_COPY: Readonly<Record<string, { readonly labelKey: MessageKey
     labelKey: "views.settingsView.defaultProfileLabel",
     descKey: "views.settingsView.profileDescription",
   },
-  defaultReviewer: {
-    labelKey: "views.settingsView.defaultReviewerLabel",
-    descKey: "views.settingsView.defaultReviewerDescription",
+  roles: {
+    labelKey: "views.settingsView.rolesLabel",
+    descKey: "views.settingsView.rolesDescription",
   },
   reviewIndependence: {
     labelKey: "views.settingsView.reviewIndependenceLabel",
@@ -187,7 +188,7 @@ export function RepositorySettingsPanel({
         { value: "", label: t("views.settingsView.defaultReviewerUnsetOption") },
         ...reviewerFace(snapshot?.bundledAgents ?? [], agentsQuery.data ?? []),
       ],
-      typeof draft.defaultReviewer === "string" ? draft.defaultReviewer : undefined,
+      undefined,
     ),
     reviewerBlocked = agentsQuery.isPending || !!agentsQuery.error,
     gateDescriptor = snapshot?.gateMappings ?? null,
@@ -249,7 +250,7 @@ export function RepositorySettingsPanel({
           disabled={settingsMutation.isPending || gateIssues.length > 0}
           onClick={() =>
             settingsMutation.mutate({
-              ...settingsPayloadFromDraft(draft, snapshot?.settingsFields ?? []),
+              ...settingsPayloadFromDraft(draft, snapshot?.settingsFields ?? [], settingsQuery.data?.values),
               ...(gatesPayload !== undefined ? { gatesDraft: gatesPayload } : {}),
             })
           }
@@ -381,6 +382,26 @@ function renderFieldControl(
   const { draft, catalogBlocked, updateDraft } = props,
     testId = FIELD_TEST_IDS[row.field];
   switch (row.widget) {
+    case "role-selectors": {
+      const roles = (draft.roles ?? {}) as RolePreferences;
+      return (
+        <div className="flex flex-col gap-3">
+          {(["defaultWorker", "defaultCommander", "defaultReviewer"] as const).map((key) => (
+            <div key={key}>
+              <div className="ui-meta text-text-muted">{t(`views.settingsView.${key}Description`)}</div>
+              <SettingSelect
+                label={t(`views.settingsView.${key}Label`)}
+                testId={`settings-${key}-select`}
+                value={roles[key] ?? ""}
+                disabled={props.catalogBlocked || props.reviewerBlocked}
+                options={selectorOptions(props.reviewerOptions, roles[key] ?? undefined)}
+                onChange={(value) => updateDraft("roles", { ...roles, [key]: value || null })}
+              />
+            </div>
+          ))}
+        </div>
+      );
+    }
     case "catalog-select": {
       const selector = catalogSelector(row.field, props);
       if (!selector) return <span className="ui-meta text-text-faint">{row.field}</span>;
@@ -480,14 +501,6 @@ function catalogSelector(
         options: props.repositoryScaffoldOptions,
         onChange: (value) => props.updateDraft(field, value),
         blocked: props.catalogBlocked,
-      };
-    case "defaultReviewer":
-      return {
-        options: props.reviewerOptions,
-        // 空串 = 未设置:kernel 拒绝空串,该字段不进 payload 即保持服务端语义
-        // (unset 保持 unset;kernel 的 update 动作本就不支持从已设改回未设)。
-        onChange: (value) => props.updateDraft(field, value === "" ? undefined : value),
-        blocked: props.reviewerBlocked,
       };
     default:
       return null;

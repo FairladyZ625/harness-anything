@@ -26,6 +26,7 @@ test("bundled closeout reviewer is machine-independent and leaves instance model
   const reviewer = readBundledAgentDeclaration("closeout-reviewer");
   assert.ok(reviewer);
   assert.deepEqual(reviewer.runtimes, []);
+  assert.equal(reviewer.role, "reviewer");
   assert.equal(reviewer.instance, undefined);
   assert.match(reviewer.instructions, /artifact delivery does not require a Git commit or ancestry/u);
   assert.match(reviewer.instructions, /only the completion gates declared by the task/u);

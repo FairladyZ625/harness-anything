@@ -118,7 +118,7 @@
   "views.settingsView.closeoutReviewLabel": "收口评审",
   "views.settingsView.defaultPresetLabel": "默认预设",
   "views.settingsView.defaultProfileLabel": "默认配置",
-  "views.settingsView.defaultReviewerDescription": "complete 自动派出的独立收口验收 Agent 声明 id；未设置回落 closeout-reviewer",
+  "views.settingsView.defaultReviewerDescription": "所有者送审时派发的独立审查者；未设置时使用 closeout-reviewer。",
   "views.settingsView.defaultReviewerLabel": "默认验收人",
   "views.settingsView.defaultReviewerUnsetOption": "未设置",
   "views.settingsView.defaultVerticalLabel": "默认垂直",
@@ -1096,5 +1096,11 @@
   "views.overviewNext.changeCategory.decision": "决策",
   "views.overviewNext.changeCategory.delivery": "交付",
   "views.overviewNext.changesEmpty": "最近窗口没有变化事件。",
-  "views.overviewNext.changesWindowNote": "仅最近窗口:{count} 条,滚动上限 {limit};完整经过在研发态势与任务详情。"
+  "views.overviewNext.changesWindowNote": "仅最近窗口:{count} 条,滚动上限 {limit};完整经过在研发态势与任务详情。",
+  "views.settingsView.defaultCommanderDescription": "协调执行小队的首选 Agent。",
+  "views.settingsView.defaultCommanderLabel": "默认指挥者",
+  "views.settingsView.defaultWorkerDescription": "实现任务的首选 Agent。",
+  "views.settingsView.defaultWorkerLabel": "默认执行者",
+  "views.settingsView.rolesDescription": "分别配置实现、协调与独立审查的 Agent 偏好。",
+  "views.settingsView.rolesLabel": "默认角色"
 }

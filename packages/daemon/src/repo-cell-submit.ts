@@ -221,7 +221,7 @@ function freezeCompletionContract(
   // cut already under review; cuts frozen before the field fall back to the repository default.
   return {
     ...resolved.contract,
-    reviewer: { agentId: cell.settings.readRepository().defaultReviewer ?? "closeout-reviewer" },
+    reviewer: { agentId: cell.settings.readRepository().roles?.defaultReviewer ?? "closeout-reviewer" },
   };
 }
 

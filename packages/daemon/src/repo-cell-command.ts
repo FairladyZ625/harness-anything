@@ -179,6 +179,7 @@ export function buildCommand(
       "executionId",
       "forward",
       "return",
+      "reviewer",
       "reviewId",
       "reason",
       "noteFile",

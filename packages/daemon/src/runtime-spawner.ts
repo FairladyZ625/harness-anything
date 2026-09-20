@@ -472,9 +472,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       readOnlyDispatch = effectivePermissionMode === "read-only",
       dispatchMission = dispatchMissionForPermission(selfContainedMission ?? mission, effectivePermissionMode),
       assembledPrompt = agent
-        ? assembleAgentPrompt(agent, dispatchMission, preset, resolvedSkills)
-        : taskMission
-          ? assembleUnboundPrompt(dispatchMission)
+        ? assembleAgentPrompt(role === "reviewer" ? { ...agent, role } : agent, dispatchMission, preset, resolvedSkills)
+        : taskMission || role === "reviewer"
+          ? assembleUnboundPrompt(dispatchMission, role === "reviewer" ? role : undefined)
           : dispatchMission,
       prompt = trustedSchedule ? scheduleMissionWithOutcomeProtocol(assembledPrompt) : assembledPrompt;
     // Dry-run preview ends exactly at the launch boundary: the same inputs, same

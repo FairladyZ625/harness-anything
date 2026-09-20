@@ -17,6 +17,14 @@ import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
+/** A frozen cut owns its reviewer; preferences only select for an unfrozen cut. */
+export function selectReviewAgent(frozen?: string, argument?: string, setting?: string) {
+  if (frozen) return { reviewerId: frozen, reviewerSource: "frozen" as const };
+  if (argument) return { reviewerId: argument, reviewerSource: "argument" as const };
+  if (setting) return { reviewerId: setting, reviewerSource: "settings" as const };
+  return { reviewerId: "closeout-reviewer", reviewerSource: "bundled" as const };
+}
+
 /** A user-initiated review dispatch is keyed by the reviewed cut, never by a caller or node. */
 export function reviewDispatchKey(taskId: string, execution: ExecutionV1): string {
   return `task-review:${taskId}:${execution.executionId}:${execution.iteration}:${submissionDigest(
@@ -220,7 +228,7 @@ export async function dispatchTaskReview(
   const reviewerId =
     typeof action.agentId === "string" && action.agentId.length > 0
       ? action.agentId
-      : (cell.settings.readRepository().defaultReviewer ?? "closeout-reviewer");
+      : (cell.settings.readRepository().roles?.defaultReviewer ?? "closeout-reviewer");
   let resolved;
   try {
     resolved = readAgentDeclarationResolution({

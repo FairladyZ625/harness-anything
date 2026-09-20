@@ -37,7 +37,7 @@ import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
 import { readCompletionContext, factRetirementAssessment } from "./task-completion-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
-import { spawnCutReviewDispatch } from "./task-review-dispatch.ts";
+import { selectReviewAgent, spawnCutReviewDispatch } from "./task-review-dispatch.ts";
 
 import {
   acceptedGateWitness,
@@ -715,10 +715,12 @@ export async function adjudicateTask(
     );
   if (!execution?.submission || !current.packagePath)
     throw cell.cellCodedError("invalid_transition", `The forwarded cut on task ${taskId} has no submitted execution.`);
-  const reviewerId =
-      execution.submission.completionContract?.reviewer?.agentId ??
-      cell.settings.readRepository().defaultReviewer ??
-      "closeout-reviewer",
+  const selection = selectReviewAgent(
+      execution.submission.completionContract?.reviewer?.agentId,
+      typeof action.reviewer === "string" ? action.reviewer : undefined,
+      cell.settings.readRepository().roles?.defaultReviewer,
+    ),
+    { reviewerId } = selection,
     dispatch = await spawnCutReviewDispatch(cell, {
       taskId,
       execution,
@@ -731,14 +733,23 @@ export async function adjudicateTask(
     // ride the draft the same way dispatch-review's steps do).
     step: WriteReceipt =
       dispatch.outcome === "failed"
-        ? cell.failed(receipt.opId, cell.cellCodedError("review_dispatch_failed", dispatch.error))
+        ? cell.failed(
+            receipt.opId,
+            cell.cellCodedError(
+              "review_dispatch_failed",
+              `Task ${taskId} is already in_review. Reviewer ${reviewerId} dispatch failed: ${dispatch.error} ` +
+                `Recover with ha task dispatch-review ${taskId} --agent ${reviewerId}; do not repeat adjudicate.`,
+            ),
+          )
         : ({
             ...receipt,
             dispatchId: dispatch.ids.dispatchId,
             runtimeSessionId: dispatch.ids.runtimeSessionId,
           } as WriteReceipt);
-  return {
+  const result = {
     ...receipt,
+    ...selection,
     steps: [...((receipt as { readonly steps?: readonly WriteReceipt[] }).steps ?? []), step],
-  } as WriteReceipt;
+  };
+  return result;
 }

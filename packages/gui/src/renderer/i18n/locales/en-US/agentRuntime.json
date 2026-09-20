@@ -85,6 +85,8 @@
   "agentRuntime.role": "Role",
   "agentRuntime.roleWorker": "worker",
   "agentRuntime.roleCommander": "commander",
+  "agentRuntime.roleReviewer": "reviewer",
+  "agentRuntime.roleReviewerTip": "Reviewer: independently verifies delivery and records a review without changing code.",
   "agentRuntime.roleWorkerTip": "Executor: takes a mission and does the work.",
   "agentRuntime.roleCommanderTip": "Commander: reads the roster, splits the work, and dispatches.",
   "agentRuntime.roleModelDecoupled": "Role is fully decoupled from model and provider — any model can be a commander.",

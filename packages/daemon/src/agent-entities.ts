@@ -35,6 +35,7 @@ import {
   validateSquadDeclarationV1,
   type AgentDeclarationV1,
   type AgentEntityKind,
+  type AgentRole,
   type AgentRuntimeTargetV1,
   type SquadDeclarationV1,
 } from "../../kernel/src/index.ts";
@@ -45,7 +46,7 @@ export interface AgentEntityGuiAvailableRow {
   readonly runtimes: readonly AgentRuntimeTargetV1[];
   readonly instance: string | null;
   readonly permissionMode: AgentDeclarationV1["permissionMode"] | null;
-  readonly role: "worker" | "commander";
+  readonly role: AgentRole;
   readonly layer: string;
 }
 export interface SquadEntityGuiAvailableRow {
@@ -75,7 +76,7 @@ export interface AgentEntityGuiDetail {
   readonly id: string;
   readonly name: string;
   readonly runtimes: readonly AgentRuntimeTargetV1[];
-  readonly role: "worker" | "commander";
+  readonly role: AgentRole;
   readonly instructions: string;
   readonly skills: readonly { readonly id: string; readonly path: string }[];
   readonly prompts: readonly string[];

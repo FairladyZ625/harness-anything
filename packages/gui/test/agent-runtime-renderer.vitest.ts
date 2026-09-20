@@ -608,6 +608,7 @@ describe("agent runtime renderer", () => {
     for (const text of [
       "Lead the squad. Decide before dispatch.",
       "commander",
+      "reviewer",
       "claude",
       "zcode",
       "review",

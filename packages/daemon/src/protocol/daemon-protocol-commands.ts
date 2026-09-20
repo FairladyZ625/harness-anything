@@ -74,7 +74,7 @@ const settingsWriteTopology = {
         settingValueInput("--default-vertical"),
         settingValueInput("--default-preset"),
         settingValueInput("--default-profile"),
-        settingValueInput("--default-reviewer"),
+        cliInput("--roles", "single", false, { code: "invalid_field" }, { projection: "json-object" }),
         cliInput(
           "--review-independence",
           "single",

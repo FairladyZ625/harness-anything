@@ -190,6 +190,12 @@ export const taskActionDescriptorProjection = {
             cli: { name: "--return", kind: "boolean", error: "invalid_field" },
           },
           {
+            field: "reviewer",
+            type: "string",
+            required: false,
+            cli: { name: "--reviewer", kind: "single", error: "invalid_field" },
+          },
+          {
             field: "reviewId",
             type: "string",
             required: false,

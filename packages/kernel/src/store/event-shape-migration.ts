@@ -14,6 +14,7 @@ import type { DecisionEventV1 } from "../domain/decision-event-types.ts";
 import type { CanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import { submissionDigest, type SubmissionV1 } from "../domain/execution.ts";
 import { reviewDigest, type ReviewConsentV1, type ReviewV1 } from "../domain/review.ts";
+import { normalizeHistoricalSettingsRoles } from "../domain/settings-history.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
 import { SETTINGS_REPOSITORY_V1_SCHEMA, type WalFlushSettingsV1 } from "../domain/settings.ts";
 import { canonicalMigrationProvenance, isMigrationImportEvent } from "../domain/migration-import-event.ts";
@@ -56,6 +57,7 @@ export type EventShapeMigrationName =
   | "decision-digests"
   | "schedule-definitions"
   | "settings-wal-flush"
+  | "settings-roles"
   | "ci-workflow-verification"
   | "ci-run-observation-v3";
 export type EventShapeMigrationKind =
@@ -65,7 +67,8 @@ export type EventShapeMigrationKind =
   | "review-submission-pins-migrate"
   | "decision-digests-migrate"
   | "schedule-definitions-migrate"
-  | "settings-wal-flush-migrate";
+  | "settings-wal-flush-migrate"
+  | "settings-roles-migrate";
 export interface EventShapeRewrite {
   readonly event: CanonicalEventV1;
   readonly blobs?: readonly CanonicalContentBlob[];
@@ -507,6 +510,23 @@ function validateHistoricalWalFlush(value: unknown, opId: string): void {
   if (errors.length > 0) throw new Error(errors.join("; "));
 }
 
+export const settingsRolesMigration: EventShapeMigrationSpec = {
+  name: "settings-roles",
+  matches: () => false,
+  rewrite: (event) => {
+    if (!isSettingsEvent(event) || event.type !== "settings_changed") return null;
+    const before = event.payload.settings,
+      after = normalizeHistoricalSettingsRoles(before);
+    if (after === before) return null;
+    return {
+      event: { ...event, payload: { ...event.payload, settings: after } } as CanonicalEventV1,
+      category: "root defaultReviewer moved into roles",
+      before,
+      after,
+    };
+  },
+};
+
 export const settingsWalFlushMigration: EventShapeMigrationSpec = {
   name: "settings-wal-flush",
   // The rewrite never reads the cut, so every settings event stays in bulk rounds.
@@ -673,6 +693,7 @@ export const eventShapeMigrations: Readonly<Record<EventShapeMigrationKind, Even
   "decision-digests-migrate": decisionDigestsMigration,
   "schedule-definitions-migrate": scheduleDefinitionsMigration,
   "settings-wal-flush-migrate": settingsWalFlushMigration,
+  "settings-roles-migrate": settingsRolesMigration,
 };
 
 const generationShapeMigrations = [

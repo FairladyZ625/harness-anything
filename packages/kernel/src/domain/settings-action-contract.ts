@@ -19,6 +19,7 @@ import {
   DEFAULT_RESTORE_DRILL_RETENTION,
   reviewIndependenceLevels,
   settingValuePattern,
+  rolePreferenceFields,
   settingsLocales,
   validateRepositorySettings,
   writeRepositorySettingsFacet,
@@ -44,7 +45,7 @@ const repositoryFieldNames = Object.freeze([
   "defaultVertical",
   "defaultPreset",
   "defaultProfile",
-  "defaultReviewer",
+  "roles",
   "reviewIndependence",
   "reviewReturnBudget",
   "taskScaffold",
@@ -84,7 +85,7 @@ export const settingsUpdateInputFields: readonly EntityActionInputField[] = Obje
   field("defaultVertical"),
   field("defaultPreset"),
   field("defaultProfile"),
-  field("defaultReviewer"),
+  field("roles", "json-object"),
   field("reviewIndependence", "string", false, reviewIndependenceLevels),
   field("reviewReturnBudget", "number"),
   field("locale", "string", false, settingsLocales),
@@ -265,9 +266,7 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
       defaultVertical: updatedText(input.action, "defaultVertical", current.defaultVertical),
       defaultPreset: updatedText(input.action, "defaultPreset", current.defaultPreset),
       defaultProfile: updatedText(input.action, "defaultProfile", current.defaultProfile),
-      ...(input.action.defaultReviewer !== undefined || current.defaultReviewer !== undefined
-        ? { defaultReviewer: updatedText(input.action, "defaultReviewer", current.defaultReviewer ?? "") }
-        : {}),
+      roles: updatedRoles(input.action.roles, current.roles ?? {}),
       reviewIndependence: updatedReviewIndependence(input.action.reviewIndependence, current.reviewIndependence),
       reviewReturnBudget: updatedPositiveInteger(input.action, "reviewReturnBudget", current.reviewReturnBudget),
       agenda: current.agenda,
@@ -451,4 +450,20 @@ function authoredDocumentBase(
 
 function rejectSettings(code: string, message: string): never {
   throw new SettingsActionError(code, message);
+}
+
+function updatedRoles(value: unknown, current: NonNullable<RepositorySettingsV1["roles"]>) {
+  if (value === undefined) return current;
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    rejectSettings("invalid_command", "roles must be an object of role preferences.");
+  const next = { ...current };
+  for (const [key, entry] of Object.entries(value)) {
+    if (!(rolePreferenceFields as readonly string[]).includes(key))
+      rejectSettings("invalid_command", `Unknown role preference ${key}.`);
+    const role = key as (typeof rolePreferenceFields)[number];
+    if (entry === null) delete next[role];
+    else if (typeof entry === "string" && new RegExp(settingValuePattern, "u").test(entry)) next[role] = entry;
+    else rejectSettings("invalid_command", `roles.${key} must be an agent id or null to clear.`);
+  }
+  return next;
 }

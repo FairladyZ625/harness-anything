@@ -345,13 +345,15 @@ test("repo.settings.update accepts every settings-contract field and nothing els
         ? 3
         : descriptor.type === "string-array" || descriptor.type === "json-object-array"
           ? []
-          : "value");
+          : descriptor.type === "json-object"
+            ? {}
+            : "value");
   for (const descriptor of settingsUpdateInputFields) {
     // 基础字段保证「至少一个真实设置字段」语义成立;transport 字段(expectedVersion)单独发
     // 本就应当被拒。
     const parsed = parseDaemonRpcParams("repo.settings.update", {
       repo: { repoId: "alpha" },
-      payload: { defaultReviewer: "probe", [descriptor.field]: sample(descriptor), idempotencyKey: "probe" },
+      payload: { roles: { defaultReviewer: "probe" }, [descriptor.field]: sample(descriptor), idempotencyKey: "probe" },
     });
     assert.equal(parsed.ok, true, `contract field ${descriptor.field} must survive the wire shape`);
   }

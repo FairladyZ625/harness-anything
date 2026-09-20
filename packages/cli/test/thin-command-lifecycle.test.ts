@@ -3,7 +3,27 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import { parseRuntimeBatchEntry, runtimeBatchSpawnPayload } from "../../daemon/src/runtime-orchestration.ts";
+import { parseDaemonRpcParams } from "../../daemon/src/protocol/daemon-protocol-rpc-validation.ts";
 import { firstCliCommand, firstCliCommandIndex, parseThinCommand } from "../src/cli/thin-command.ts";
+
+test("settings CLI and RPC accept role deltas and reject the retired root reviewer input", () => {
+  const roles = { defaultWorker: "dev-worker", defaultReviewer: null };
+  const command = parseThinCommand(["settings", "update", "--roles", JSON.stringify(roles)]);
+  assert.equal(command.ok, true);
+  if (command.ok) assert.deepEqual(command.command.action?.roles, roles);
+  assert.equal(parseThinCommand(["settings", "update", "--default-reviewer", "legacy"]).ok, false);
+  for (const method of ["repo.settings.update", "repo.task.run"] as const) {
+    const params = (fields: Record<string, unknown>) => ({
+      repo: { repoId: "repo" },
+      payload:
+        method === "repo.task.run"
+          ? { action: { kind: "settings-update", ...fields } }
+          : { ...fields, idempotencyKey: "roles-contract" },
+    });
+    assert.equal(parseDaemonRpcParams(method, params({ roles })).ok, true);
+    assert.equal(parseDaemonRpcParams(method, params({ roles, defaultReviewer: "legacy" })).ok, false);
+  }
+});
 
 test("lifecycle CLI maps explicit selectors and accepts every derivable execution or Review selector", () => {
   const submit = parseThinCommand(["task", "submit", "task-1", "--execution-id", "execution-1"]),
@@ -14,6 +34,8 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       "--execution-id",
       "execution-1",
       "--forward",
+      "--reviewer",
+      "specialist",
       "--note",
       "Forward the submitted cut.",
     ]),
@@ -74,6 +96,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       taskId: "task-1",
       executionId: "execution-1",
       forward: true,
+      reviewer: "specialist",
       reason: "Forward the submitted cut.",
       commandType: "AdjudicateSubmission",
     });

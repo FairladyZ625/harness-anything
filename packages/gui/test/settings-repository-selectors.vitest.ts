@@ -4,7 +4,7 @@
 // 单源同源 import),取值面可枚举的字段是选择器,枚举来源是 daemon 目录快照
 // (verticals / presets[].profiles / scaffolds / ciWorkflows / bundledAgents)与 agent 目录
 // 共享缓存(已安装层),不是手打字符串。
-// 覆盖:①字段集合 == 契约仓库字段(含 defaultReviewer/reviewIndependence/reviewReturnBudget/
+// 覆盖:①字段集合 == 契约仓库字段(含 roles/reviewIndependence/reviewReturnBudget/
 // ciWorkflows 四个历史缺失项);②目录字段都是点选控件且选项来自目录(验收人单选 = bundled ∪
 // 已安装,CI 工作流多选 checkbox,空集合合法);③当前值不在目录时并入选项/照实勾选、不静默
 // 丢值;④换 preset 时 profile 落到新 preset 的默认 profile;⑤目录读面失败时选择器停用
@@ -364,6 +364,12 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
       "arch-reviewer",
       "closeout-reviewer",
     ]);
+    for (const key of ["defaultWorker", "defaultCommander"])
+      expect(optionValues(select(container, `settings-${key}-select`))).toEqual([
+        "",
+        "arch-reviewer",
+        "closeout-reviewer",
+      ]);
     // CI 工作流 = 快照的 *.yml 基名,checkbox 多选,值一律不带 .yml/.yaml 后缀。
     const ciBoxes = checkboxValues(container);
     expect(ciBoxes.map(({ value }) => value)).toEqual(["gui-release", "issue-intake", "pr-body"]);
@@ -394,7 +400,7 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
       saveButton(container).click();
     });
     expect(lastUpdatePayload()).toMatchObject({
-      defaultReviewer: "arch-reviewer",
+      roles: { defaultReviewer: "arch-reviewer" },
       reviewIndependence: "execution",
       reviewReturnBudget: 3,
       ciWorkflows: [],
@@ -402,6 +408,38 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
       closeoutReview: false,
       restoreDrillRetention: 3,
     });
+  });
+
+  for (const role of ["defaultWorker", "defaultCommander", "defaultReviewer"] as const)
+    for (const selected of ["arch-reviewer", ""])
+      it(`${role} ${selected ? "选择" : "清空"}仅提交该角色增量`, async () => {
+        const container = await mountView({
+          values: {
+            roles: {
+              defaultWorker: "closeout-reviewer",
+              defaultCommander: "closeout-reviewer",
+              defaultReviewer: "closeout-reviewer",
+            },
+          },
+        });
+        const control = select(container, `settings-${role}-select`);
+        await act(async () => {
+          Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")!.set!.call(control, selected);
+          control.dispatchEvent(new Event("change", { bubbles: true }));
+        });
+        await act(async () => {
+          saveButton(container).click();
+        });
+        expect(lastUpdatePayload().roles).toEqual({ [role]: selected || null });
+        expect(lastUpdatePayload()).not.toHaveProperty("defaultReviewer");
+      });
+
+  it("未修改默认角色时不发送 roles,避免覆盖其他节点更新", async () => {
+    const container = await mountView({ values: { roles: { defaultReviewer: "closeout-reviewer" } } });
+    await act(async () => {
+      saveButton(container).click();
+    });
+    expect(lastUpdatePayload()).not.toHaveProperty("roles");
   });
 
   it("「终端」假面板已删除:tab 列表里没有终端项", async () => {
@@ -417,7 +455,7 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
         scaffolds: { task: ["governance/task-scaffold-strict.json"], repository: [] },
         presets: SNAPSHOT.presets.filter((row) => row.id !== "standard-task"),
       },
-      values: { defaultReviewer: "ghost-reviewer", ciWorkflows: ["gui-release", "gone-flow"] },
+      values: { roles: { defaultReviewer: "ghost-reviewer" }, ciWorkflows: ["gui-release", "gone-flow"] },
     });
     const taskScaffold = select(container, "settings-task-scaffold-select"),
       repositoryScaffold = select(container, "settings-repository-scaffold-select"),
@@ -451,7 +489,6 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
     });
     expect(lastUpdatePayload()).toMatchObject({
       defaultPreset: "standard-task",
-      defaultReviewer: "ghost-reviewer",
       ciWorkflows: ["gui-release", "gone-flow"],
       taskScaffold: "governance/task-scaffold.json",
       repositoryScaffold: "governance/repository-scaffold.json",

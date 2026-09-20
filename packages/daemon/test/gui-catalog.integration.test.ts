@@ -50,7 +50,7 @@ test("GUI catalog carries the settings field contract derived from the kernel si
   );
   // 修复前的漂移四字段必须在契约面里。
   const names = new Set(snapshot.settingsFields.map(({ field }) => field));
-  for (const expected of ["defaultReviewer", "reviewIndependence", "reviewReturnBudget", "ciWorkflows"])
+  for (const expected of ["roles", "reviewIndependence", "reviewReturnBudget", "ciWorkflows"])
     assert.ok(names.has(expected), `${expected} missing from snapshot settingsFields`);
 });
 
