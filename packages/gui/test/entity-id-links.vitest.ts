@@ -598,11 +598,18 @@ const VIEW_RENDERERS = {
       health: SYSTEM_HEALTH,
       daemonReadFailed: false,
       ledgerRevision: { watermark: 7, sourceRevision: 7 },
+      searchRows: [],
+      catalog: undefined,
+      catalogError: null,
       onNavigateEntity: noop,
       onOpenGroup: noop,
       onSelectRuntimeEntity: noop,
       onOpenPool: noop,
       onOpenSessions: noop,
+      onSwitchRepo: noop,
+      onSearchActiveChange: noop,
+      onRefreshLedger: noop,
+      onOpenTask: noop,
     }),
   board: () =>
     createElement(BoardView, {
