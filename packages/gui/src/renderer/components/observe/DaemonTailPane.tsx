@@ -7,6 +7,7 @@ import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { ObserveAnomalyCluster } from "./ObserveAnomalyCluster.tsx";
+import { ObserveCallVolumeBoard } from "./ObserveCallVolumeBoard.tsx";
 import { ObserveHudStrip, type ObserveHudWindow, type ObserveTimeSelection } from "./ObserveHudStrip.tsx";
 import { ObserveSlowOpsBoard } from "./ObserveSlowOpsBoard.tsx";
 import {
@@ -167,7 +168,7 @@ export function DaemonTailPane({
     [analytics, setAnalytics] = useState(true),
     [hudWindow, setHudWindow] = useState<ObserveHudWindow>("15m"),
     [timeRange, setTimeRange] = useState<ObserveTimeSelection | null>(null),
-    [boardTab, setBoardTab] = useState<"ops" | "anomalies">(kind === "events" ? "anomalies" : "ops"),
+    [boardTab, setBoardTab] = useState<"ops" | "volume" | "anomalies">(kind === "events" ? "volume" : "ops"),
     [lensOpen, setLensOpen] = useState(false),
     // 窗口化输入:滚动体的 scrollTop 与 clientHeight,随 scroll 事件/贴底写入/尺寸变化更新。
     [scroll, setScroll] = useState({ top: 0, height: 0 }),
@@ -414,6 +415,15 @@ export function DaemonTailPane({
             ) : null}
             <button
               type="button"
+              data-testid={`observe-tab-volume-${kind}`}
+              aria-pressed={boardTab === "volume"}
+              onClick={() => setBoardTab("volume")}
+              className={kindOptionClass(boardTab === "volume")}
+            >
+              {isLogPane ? t("views.daemonObserve.tabVolumeOps") : t("views.daemonObserve.tabVolumeEvents")}
+            </button>
+            <button
+              type="button"
               data-testid={`observe-tab-anomalies-${kind}`}
               aria-pressed={boardTab === "anomalies"}
               onClick={() => setBoardTab("anomalies")}
@@ -467,6 +477,14 @@ export function DaemonTailPane({
           </div>
           {boardTab === "ops" && isLogPane ? (
             <ObserveSlowOpsBoard testId={`observe-slowops-${kind}`} stats={stats} onFocusMethod={focusMethod} />
+          ) : null}
+          {boardTab === "volume" ? (
+            <ObserveCallVolumeBoard
+              testId={`observe-volume-${kind}`}
+              isLogPane={isLogPane}
+              stats={stats}
+              onFocusItem={(name) => (isLogPane ? focusMethod(name) : setQuery(name))}
+            />
           ) : null}
           {boardTab === "anomalies" ? (
             <ObserveAnomalyCluster

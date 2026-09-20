@@ -357,6 +357,42 @@ describe("统计缓存:增量续用与等价性", () => {
     expect(afterDrop.stats.total).toBe(state.rows.length);
     expect(observeStatsLog(state.rows, null).stats).toEqual(afterDrop.stats);
   });
+  it("统计命令与事件调用量分布并按降序给出占比", () => {
+    let state = initialObserveTail();
+    state = applyObserveTailPage(
+      state,
+      logPage(
+        [
+          logItem({ method: "repo.tasks.list", durationMs: 12 }),
+          logItem({ method: "repo.tasks.list", durationMs: 15 }),
+          logItem({ method: "repo.tasks.list", durationMs: 20 }),
+          logItem({ method: "observe.tail", durationMs: 5 }),
+          logItem({ method: "observe.tail", durationMs: 8 }),
+          logItem({ method: "repo.agenda.read", durationMs: 30 }),
+        ],
+        "history",
+        0,
+      ),
+    );
+    const stats = observeStatsLog(state.rows, null).stats;
+    expect(stats.total).toBe(6);
+    expect(stats.volumes).toHaveLength(3);
+    expect(stats.volumes[0]).toEqual({
+      name: "repo.tasks.list",
+      count: 3,
+      percentage: 50,
+    });
+    expect(stats.volumes[1]).toEqual({
+      name: "observe.tail",
+      count: 2,
+      percentage: (2 / 6) * 100,
+    });
+    expect(stats.volumes[2]).toEqual({
+      name: "repo.agenda.read",
+      count: 1,
+      percentage: (1 / 6) * 100,
+    });
+  });
 });
 
 describe("5000 行上限滚动下的统计耗时(Evidence Protocol)", () => {

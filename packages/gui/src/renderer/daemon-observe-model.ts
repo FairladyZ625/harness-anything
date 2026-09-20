@@ -462,6 +462,12 @@ export interface ObserveLensValue {
   readonly count: number;
 }
 
+export interface ObserveVolumeStat {
+  readonly name: string;
+  readonly count: number;
+  readonly percentage: number;
+}
+
 export interface ObserveStats {
   readonly bucketMs: number;
   /** 旧→新的时序桶(定长 ≤ 360,含零桶作基线);窗口裁剪由展示层做。 */
@@ -475,6 +481,8 @@ export interface ObserveStats {
   readonly maxMs: number | null;
   /** 按 maxMs 降序的方法耗时聚合(慢操作排行)。 */
   readonly ops: readonly ObserveOpStat[];
+  /** 按次数降序的命令/方法/事件调用量分布(带占比)。 */
+  readonly volumes: readonly ObserveVolumeStat[];
   /** 按次数降序的异常聚类。 */
   readonly clusters: readonly ObserveAnomalyStat[];
   readonly lens: {
@@ -525,6 +533,7 @@ export class ObserveStatsState {
   private readonly bucketCounts = new Array<number>(OBSERVE_BUCKET_COUNT).fill(0);
   private readonly bucketAnomalies = new Array<number>(OBSERVE_BUCKET_COUNT).fill(0);
   private readonly ops = new Map<string, ObserveOpMutable>();
+  private readonly types = new Map<string, number>();
   private readonly clusters = new Map<string, ObserveAnomalyMutable>();
   private readonly tasks = new Map<string, number>();
   private readonly sessions = new Map<string, number>();
@@ -535,6 +544,7 @@ export class ObserveStatsState {
 
   ingest(row: ObserveRow): void {
     this.total += 1;
+    bump(this.types, row.type);
     const failed = row.ok === false,
       gapped = row.gapMarker !== null;
     if (failed || gapped) this.anomalies += 1;
@@ -565,6 +575,13 @@ export class ObserveStatsState {
     for (const [method, op] of this.ops)
       ops.push({ method, count: op.count, maxMs: op.maxMs, durations: op.durations });
     ops.sort((left, right) => right.maxMs - left.maxMs || right.count - left.count);
+    const volumes: ObserveVolumeStat[] = [...this.types.entries()]
+      .map(([name, count]) => ({
+        name,
+        count,
+        percentage: this.total > 0 ? (count / this.total) * 100 : 0,
+      }))
+      .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
     const clusters = [...this.clusters.values()]
       .map((cluster): ObserveAnomalyStat => {
         const { key, kind, label, reason, matchText, count, lastAt, sample } = cluster;
@@ -584,6 +601,7 @@ export class ObserveStatsState {
       p95Ms,
       maxMs: this.overallMaxMs,
       ops,
+      volumes,
       clusters,
       lens: {
         tasks: topLens(this.tasks, "task"),
