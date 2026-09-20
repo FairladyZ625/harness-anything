@@ -114,6 +114,9 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
           "Goal, Context, Required Reading, Entry Conditions, Dependencies, Execution Surface, Constraints, " +
           "Checkpoint, CI/Gate Authority Stop Condition, Implementation Plan, Deliverable Contract, Evidence " +
           "Protocol, Verification",
+        "artifacts: persist supplementary context, research notes, design drafts, worker prompts, and review " +
+          "evidence under harness/tasks/task-alpha-alpha/artifacts/; consider landing any extra information or " +
+          "background materials here beyond task_plan.md",
         "ledger: INDEX.md and closeout.md are coordinator-managed; update them through ha doc sync",
       ].join("\n"),
     );

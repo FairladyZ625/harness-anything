@@ -98,6 +98,7 @@ export const RECEIPT_GUIDANCE_KINDS = [
   "task-create-start",
   "receipt-query",
   "edit-plan",
+  "task-artifacts",
   "pin-agenda",
   "ledger-managed",
   "retry-receipt",
@@ -260,6 +261,7 @@ const followUpKinds: Readonly<Record<string, ReceiptGuidanceKind>> = Object.free
   "task.start": "task-create-start",
   "receipt.query": "receipt-query",
   "task.plan.edit": "edit-plan",
+  "task.artifacts": "task-artifacts",
   "task.pin": "pin-agenda",
   "entity.pin": "pin-agenda",
 });

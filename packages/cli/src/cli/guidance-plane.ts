@@ -28,6 +28,13 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
       "Verification",
   ],
   [
+    "task-create:task-artifacts",
+    (args) =>
+      "artifacts: persist supplementary context, research notes, design drafts, worker prompts, and review " +
+      `evidence under ${textArg(args, "packagePath")}/artifacts/; consider landing any extra information or ` +
+      "background materials here beyond task_plan.md",
+  ],
+  [
     "*:pin-agenda",
     (args) =>
       "entityId" in args
