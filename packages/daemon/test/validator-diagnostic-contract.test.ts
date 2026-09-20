@@ -2,6 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { validateDaemonSettingsRead } from "../src/protocol/gui-result-validation.ts";
+import { daemonSettingsRead } from "../src/protocol/daemon-settings-read-types.ts";
+import { INITIAL_SETTINGS_V1 } from "../../kernel/src/index.ts";
 import {
   makeDaemonCommandReceipt,
   daemonProtocolError,
@@ -443,4 +445,16 @@ test("protocol SQLite failures preserve native result details in the error objec
     errstr: "database is locked",
   });
   assert.deepEqual(validateDaemonProtocolError(receipt), []);
+});
+
+test("the settings read built by its only constructor passes its own result validator, with and without roles", () => {
+  assert.deepEqual(validateDaemonSettingsRead(daemonSettingsRead(INITIAL_SETTINGS_V1, "initial")), []);
+  const configured = { ...INITIAL_SETTINGS_V1, roles: { defaultReviewer: "closeout-reviewer" } };
+  assert.deepEqual(validateDaemonSettingsRead(daemonSettingsRead(configured, "initial")), []);
+  const read = daemonSettingsRead(configured, "initial");
+  assert.notDeepEqual(
+    validateDaemonSettingsRead({ ...read, values: { ...read.values, roles: { defaultReviewer: 1 } } }),
+    [],
+  );
+  assert.notDeepEqual(validateDaemonSettingsRead({ ...read, values: { ...read.values, taskScaffold: {} } }), []);
 });

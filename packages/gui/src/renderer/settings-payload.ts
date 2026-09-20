@@ -8,12 +8,14 @@ export function isSettingsSuccess(value: unknown): value is SettingsRead {
     value.schema === "daemon.settings-read/v1" &&
     value.ok === true &&
     isRendererRecord(value.values) &&
-    Object.values(value.values).every(
-      (item) =>
-        typeof item === "string" ||
-        typeof item === "number" ||
-        typeof item === "boolean" ||
-        (Array.isArray(item) && item.every((entry) => typeof entry === "string")),
+    Object.entries(value.values).every(([field, item]) =>
+      // `roles` is the one action field that is itself a record (role name to declared agent id).
+      field === "roles"
+        ? isRendererRecord(item) && Object.values(item).every((agent) => typeof agent === "string")
+        : typeof item === "string" ||
+          typeof item === "number" ||
+          typeof item === "boolean" ||
+          (Array.isArray(item) && item.every((entry) => typeof entry === "string")),
     ) &&
     settings.schema === "settings/v1" &&
     settings.settingsId === "repository" &&

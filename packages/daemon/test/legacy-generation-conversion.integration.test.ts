@@ -359,6 +359,7 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
         { name: "decision-digests", count: 0, firstRevision: null, lastRevision: null },
         { name: "schedule-definitions", count: 0, firstRevision: null, lastRevision: null },
         { name: "settings-wal-flush", count: 1, firstRevision: 1, lastRevision: 1 },
+        { name: "settings-roles", count: 0, firstRevision: null, lastRevision: null },
         { name: "ci-workflow-verification", count: 0, firstRevision: null, lastRevision: null },
         { name: "ci-run-observation-v3", count: 0, firstRevision: null, lastRevision: null },
       ],
