@@ -50,7 +50,7 @@ export function FrictionRadar({
           {t("views.cadence.frictionEmpty")}
         </p>
       ) : (
-        <div className="flex flex-col">
+        <div className="flex max-h-80 flex-col overflow-y-auto">
           {signalTotal > 0 ? (
             <>
               <p className="flex flex-wrap gap-x-3 px-3 pt-2 font-mono ui-micro text-text-faint">
@@ -90,7 +90,7 @@ export function FrictionRadar({
               <p className="font-mono ui-micro uppercase tracking-wide text-text-faint">
                 {t("views.cadence.frictionStalled")}
               </p>
-              <ul data-testid="cadence-friction-stalled">
+              <ul data-testid="cadence-friction-stalled" className="max-h-36 overflow-y-auto">
                 {friction.stalled.map((task) => (
                   <li key={task.taskId} className="mt-1 flex min-w-0 items-center gap-2">
                     <button

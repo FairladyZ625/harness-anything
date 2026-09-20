@@ -107,7 +107,7 @@ export function AttentionBlockers({
           {t("views.cadence.blockersEmpty")}
         </p>
       ) : (
-        <div data-testid="cadence-blockers-groups" className="flex flex-col">
+        <div data-testid="cadence-blockers-groups" className="flex max-h-48 flex-col overflow-y-auto">
           {visibleGroups.map((group, index) => (
             <div key={group.key} className={index === 0 ? "" : "border-t border-border"}>
               <p className="px-3 pt-2 font-mono ui-micro uppercase tracking-wide text-text-faint">

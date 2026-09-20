@@ -158,7 +158,7 @@ function AppShell() {
   );
   const cadenceSessionsQuery = useQuery({
     queryKey: [...runtimeQueryKeys.overview(projectId, "cadence"), "fleet"],
-    queryFn: () => agentRuntimeClient.overview(projectId, undefined, { limit: 500 }),
+    queryFn: () => agentRuntimeClient.overview(projectId),
     enabled: activeRepoId !== null && view === "cadence",
     staleTime: 4_000,
   });
