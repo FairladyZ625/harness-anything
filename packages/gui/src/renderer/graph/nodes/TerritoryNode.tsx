@@ -50,7 +50,7 @@ export function TerritoryZoneNode({ data }: NodeProps<TerritoryZoneFlowNode>) {
       }}
     >
       {/* zone header:高度与布局常量同源,固定不死(negative flex 由 body 吸收) */}
-      <div className="flex shrink-0 flex-col border-b border-border" style={{ height: headerH }}>
+      <div className="pointer-events-auto flex shrink-0 flex-col border-b border-border" style={{ height: headerH }}>
         <div className="flex min-h-0 flex-1 items-center gap-2 px-3 pt-2" data-testid="territory-zone-header">
           <span
             className="inline-block size-2.5 shrink-0 rounded-sm"
@@ -129,7 +129,7 @@ export function TerritoryChipNode({ data }: NodeProps<TerritoryChipFlowNode>) {
         data-testid="territory-fold"
         data-zone-id={fold.zoneId}
         data-deferred={fold.deferred ? "true" : undefined}
-        className="nodrag flex h-full w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-dashed ui-micro transition-colors hover:border-border-strong hover:text-text"
+        className="nodrag pointer-events-auto flex h-full w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-dashed ui-micro transition-colors hover:border-border-strong hover:text-text"
         style={{
           borderColor: fold.deferred ? "color-mix(in oklch, var(--color-accent) 45%, var(--color-border))" : undefined,
           color: fold.deferred ? "var(--color-accent)" : undefined,
@@ -157,7 +157,7 @@ export function TerritoryChipNode({ data }: NodeProps<TerritoryChipFlowNode>) {
       }}
       data-testid="territory-chip"
       data-nav-ref={chip.navRef}
-      className="flex h-full w-full cursor-pointer items-center gap-2 overflow-hidden rounded-lg border border-border bg-surface-raised px-2.5 transition-colors hover:border-border-strong"
+      className="pointer-events-auto flex h-full w-full cursor-pointer items-center gap-2 overflow-hidden rounded-lg border border-border bg-surface-raised px-2.5 transition-colors hover:border-border-strong"
     >
       <span
         className="grid size-[18px] shrink-0 place-items-center rounded font-mono ui-micro font-bold"

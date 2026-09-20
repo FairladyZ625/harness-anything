@@ -186,7 +186,7 @@ describe("layoutTerritory (two-level zone + chip)", () => {
     expect(zoneNodes.length).toBeGreaterThanOrEqual(1);
   });
 
-  it("carries onRevealZone into deferred fold nodes and disables dragging on chip/fold nodes", () => {
+  it("carries onRevealZone into deferred fold nodes without disabling pointer events on chip/fold nodes", () => {
     const onRevealZone = vi.fn();
     const partition = partitionForSkel("task", [task()], [], [], [], []);
     const zoneWithDeferred = {
@@ -206,7 +206,8 @@ describe("layoutTerritory (two-level zone + chip)", () => {
     expect(foldNode).toBeDefined();
     expect(foldNode.data.fold.deferred).toBe(true);
     expect(foldNode.data.onRevealZone).toBe(onRevealZone);
-    expect(foldNode.draggable).toBe(false);
-    expect(foldNode.selectable).toBe(false);
+    // RF uses isSelectable || isDraggable for pointer-events; setting either to false shuts off pointer-events.
+    expect(foldNode.draggable).toBeUndefined();
+    expect(foldNode.selectable).toBeUndefined();
   });
 });

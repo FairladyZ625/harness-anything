@@ -5,6 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { TerritoryChipNode } from "../src/renderer/graph/nodes/TerritoryNode.tsx";
 import type { TerritoryFoldFlowNode } from "../src/renderer/graph/territoryLayout.ts";
+import { ReactFlow, ReactFlowProvider } from "@xyflow/react";
 
 beforeAll(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -103,5 +104,75 @@ describe("TerritoryChipNode (fold variants)", () => {
 
     expect(onFold).toHaveBeenCalledWith("zone_test");
     expect(onRevealZone).not.toHaveBeenCalled();
+  });
+
+  it("rendered inside ReactFlow retains pointer-events and interactive click handlers", async () => {
+    const onOpen = vi.fn();
+    const onRevealZone = vi.fn();
+    const nodes = [
+      {
+        id: "territory-chip:task/task_1",
+        type: "territoryChip",
+        position: { x: 0, y: 0 },
+        data: {
+          chip: {
+            navRef: "task/task_1",
+            label: "Test Task",
+            entity: "task",
+            pinned: false,
+          },
+          onOpen,
+        },
+      },
+      {
+        id: "territory-fold:deferred:zone_test",
+        type: "territoryChip",
+        position: { x: 0, y: 40 },
+        data: {
+          chip: null,
+          fold: {
+            zoneId: "zone_test",
+            hidden: 5,
+            deferred: true,
+          },
+          onRevealZone,
+        },
+      },
+    ];
+
+    const container = await mount(
+      createElement(
+        ReactFlowProvider,
+        null,
+        createElement(ReactFlow, {
+          nodes,
+          nodeTypes: { territoryChip: TerritoryChipNode },
+          nodesDraggable: false,
+          nodesConnectable: false,
+        }),
+      ),
+    );
+
+    const chipNode = container.querySelector<HTMLElement>("[data-id='territory-chip:task/task_1']");
+    expect(chipNode).not.toBeNull();
+    expect(chipNode?.style.pointerEvents).not.toBe("none");
+
+    const chipElem = container.querySelector<HTMLElement>("[data-testid='territory-chip']");
+    expect(chipElem).not.toBeNull();
+    await act(async () => {
+      chipElem?.click();
+    });
+    expect(onOpen).toHaveBeenCalledWith("task/task_1");
+
+    const foldNode = container.querySelector<HTMLElement>("[data-id='territory-fold:deferred:zone_test']");
+    expect(foldNode).not.toBeNull();
+    expect(foldNode?.style.pointerEvents).not.toBe("none");
+
+    const foldButton = container.querySelector<HTMLButtonElement>("[data-testid='territory-fold']");
+    expect(foldButton).not.toBeNull();
+    await act(async () => {
+      foldButton?.click();
+    });
+    expect(onRevealZone).toHaveBeenCalledWith("zone_test");
   });
 });
