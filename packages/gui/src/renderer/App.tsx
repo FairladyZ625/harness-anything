@@ -586,11 +586,18 @@ function AppShell() {
                         ? { watermark: tasksQuery.data.watermark, sourceRevision: tasksQuery.data.sourceRevision }
                         : null
                     }
+                    searchRows={paletteEntries}
+                    catalog={catalogQuery.data}
+                    catalogError={catalogQuery.error instanceof Error ? catalogQuery.error.message : null}
                     onNavigateEntity={navigateToEntity}
                     onOpenGroup={(taskId) =>
                       navigate({ view: "workspace", scopeRootTaskId: taskId, selectedId: null, previewId: null })
                     }
                     onSelectRuntimeEntity={selectRuntimeEntity}
+                    onSwitchRepo={() => setProjectSwitcherOpen(true)}
+                    onSearchActiveChange={onSearchActiveChange}
+                    onRefreshLedger={refreshLedger}
+                    onOpenTask={openTaskDetail}
                     onOpenPool={() =>
                       navigate({
                         view: "decisionPool",

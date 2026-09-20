@@ -283,11 +283,20 @@ async function mountOverviewNext(options: {
         health: HEALTH,
         daemonReadFailed: false,
         ledgerRevision: { watermark: 12, sourceRevision: 3 },
+        // G1 的入口面(S5)由 overview-next-work-entry.vitest.tsx 判;这里只把它接上,
+        // G2–G5 的断言一条不动。
+        searchRows: [],
+        catalog: undefined,
+        catalogError: null,
         onNavigateEntity: navigateEntity,
         onOpenGroup: openGroup,
         onSelectRuntimeEntity: selectRuntimeEntity,
         onOpenPool: () => undefined,
         onOpenSessions: () => undefined,
+        onSwitchRepo: () => undefined,
+        onSearchActiveChange: () => undefined,
+        onRefreshLedger: () => undefined,
+        onOpenTask: () => undefined,
       }),
     );
   });

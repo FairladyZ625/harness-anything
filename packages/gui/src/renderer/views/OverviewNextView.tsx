@@ -17,9 +17,13 @@ import type { Project } from "../model/types.ts";
 import type { RuntimeHealth } from "../model/runtime-health.ts";
 import type { AgendaSuccess } from "../api-client.ts";
 import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
+import type { CatalogSnapshotSuccess } from "../api-client-catalog.ts";
 import { t } from "../i18n/index.tsx";
 import { formatTime } from "../model/time.ts";
+import type { WorkSearchRow } from "../start-work-flow.ts";
 import { Card } from "../components/overview/parts.tsx";
+import { StartWorkDialog } from "../components/overview/StartWorkDialog.tsx";
+import { WorkEntryBar } from "../components/overview/WorkEntryBar.tsx";
 import { seg } from "../components/overview/streamParts.tsx";
 import { useCadenceFeed } from "../cadence-feed.ts";
 import { CADENCE_EVENT_LIMIT, type CadenceFeedEvent } from "../model/cadence.ts";
@@ -64,11 +68,18 @@ export function OverviewNextView({
   health,
   daemonReadFailed,
   ledgerRevision,
+  searchRows,
+  catalog,
+  catalogError,
   onNavigateEntity,
   onOpenGroup,
   onSelectRuntimeEntity,
   onOpenPool,
   onOpenSessions,
+  onSwitchRepo,
+  onSearchActiveChange,
+  onRefreshLedger,
+  onOpenTask,
 }: {
   repoId: string;
   project: Project;
@@ -81,15 +92,27 @@ export function OverviewNextView({
   health: RuntimeHealth;
   daemonReadFailed: boolean;
   ledgerRevision: { readonly watermark: number; readonly sourceRevision: number } | null;
+  /** ⌘K/关系图左栏共用的统一实体索引(当前仓装配);G1 搜索的唯一取数来源。 */
+  searchRows: readonly WorkSearchRow[];
+  /** `repo.gui.catalog.snapshot` 同一条投影(App 已挂载);创建向导的选型取值面。 */
+  catalog: CatalogSnapshotSuccess | undefined;
+  catalogError: string | null;
   onNavigateEntity: (ref: string) => void;
   /** 组点击下钻的单点切换位:S1 组工作页未合入,当前 = 现有任务详情。 */
   onOpenGroup: (taskId: string) => void;
   onSelectRuntimeEntity: (ref: string) => void;
   onOpenPool: () => void;
   onOpenSessions: () => void;
+  /** 壳层那一份仓库切换器(不另建切换状态)。 */
+  onSwitchRepo: () => void;
+  /** 有搜索输入时才启用事实索引读面,与关系图左栏同一个开关。 */
+  onSearchActiveChange: (active: boolean) => void;
+  onRefreshLedger: () => void;
+  onOpenTask: (taskId: string) => void;
 }) {
   const feed = useCadenceFeed(repoId),
     taskTitles = useMemo(() => new Map(tasks.map((task) => [task.taskId, task.title])), [tasks]);
+  const [startWorkOpen, setStartWorkOpen] = useState(false);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="overview-next-view">
@@ -98,7 +121,28 @@ export function OverviewNextView({
         health={health}
         daemonReadFailed={daemonReadFailed}
         ledgerRevision={ledgerRevision}
+        searchRows={searchRows}
+        tasks={tasks}
+        onSwitchRepo={onSwitchRepo}
+        onSearchActiveChange={onSearchActiveChange}
+        onNavigateEntity={onNavigateEntity}
+        onStartWork={() => setStartWorkOpen(true)}
       />
+      {startWorkOpen ? (
+        <StartWorkDialog
+          repoId={repoId}
+          catalog={catalog}
+          catalogError={catalogError}
+          daemonState={health.daemon.state}
+          tasks={tasks}
+          onClose={() => setStartWorkOpen(false)}
+          onRefreshLedger={onRefreshLedger}
+          onOpenTask={(taskId) => {
+            setStartWorkOpen(false);
+            onOpenTask(taskId);
+          }}
+        />
+      ) : null}
       <div
         className={[
           "grid min-h-0 flex-1 grid-cols-1 auto-rows-[minmax(15rem,1fr)] gap-4 overflow-y-auto p-5",
@@ -127,17 +171,32 @@ export function OverviewNextView({
   );
 }
 
-/** G1:工作范围与入口。顶部只留工作区名、路径、更新时间与连接异常;正常态不占版面。 */
+/**
+ * G1:工作范围与入口。工作区名 + 运行状态(正常态不占版面),下面是三个入口:
+ * 切仓、当前仓搜索、开始一项工作。
+ */
 function OverviewNextHeader({
   project,
   health,
   daemonReadFailed,
   ledgerRevision,
+  searchRows,
+  tasks,
+  onSwitchRepo,
+  onSearchActiveChange,
+  onNavigateEntity,
+  onStartWork,
 }: {
   project: Project;
   health: RuntimeHealth;
   daemonReadFailed: boolean;
   ledgerRevision: { readonly watermark: number; readonly sourceRevision: number } | null;
+  searchRows: readonly WorkSearchRow[];
+  tasks: readonly TaskRow[];
+  onSwitchRepo: () => void;
+  onSearchActiveChange: (active: boolean) => void;
+  onNavigateEntity: (ref: string) => void;
+  onStartWork: () => void;
 }) {
   const anomalies: string[] = [];
   if (health.daemon.state === "unresponsive") anomalies.push(t("views.overviewNext.statusDaemonDown"));
@@ -178,6 +237,15 @@ function OverviewNextHeader({
           </span>
         ) : null}
       </div>
+      <WorkEntryBar
+        projectName={project.name}
+        searchRows={searchRows}
+        tasks={tasks}
+        onSwitchRepo={onSwitchRepo}
+        onSearchActiveChange={onSearchActiveChange}
+        onNavigateEntity={onNavigateEntity}
+        onStartWork={onStartWork}
+      />
     </header>
   );
 }
