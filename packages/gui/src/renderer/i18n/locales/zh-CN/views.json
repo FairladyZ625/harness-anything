@@ -1066,6 +1066,7 @@
   "views.overviewNext.attentionEmpty": "没有需要你处理的事项;新的提交、评审返回与决策待裁会出现在这里。",
   "views.overviewNext.attentionGroup.reviewReturned": "评审返回",
   "views.overviewNext.attentionGroup.initialReview": "待初审",
+  "views.overviewNext.attentionGroup.underReview": "评审中/等 consent",
   "views.overviewNext.attentionGroup.decision": "决策待裁",
   "views.overviewNext.rowsOverflow": "已显示 {shown}/{total} 行,其余在详情与总池中查看",
   "views.overviewNext.attentionGoPool": "去签发总池",

@@ -45,13 +45,27 @@ test("agenda projects an empty ledger without synthetic state", async () => {
     assert.deepEqual(
       {
         inFlight: agenda.inFlight,
+        awaitingRework: agenda.awaitingRework,
+        awaitingAdjudication: agenda.awaitingAdjudication,
+        underReview: agenda.underReview,
         awaitingDecision: agenda.awaitingDecision,
         waitingOnOthers: agenda.waitingOnOthers,
         dispatchable: agenda.dispatchable,
       },
-      { inFlight: [], awaitingDecision: [], waitingOnOthers: [], dispatchable: [] },
+      {
+        inFlight: [],
+        awaitingRework: [],
+        awaitingAdjudication: [],
+        underReview: [],
+        awaitingDecision: [],
+        waitingOnOthers: [],
+        dispatchable: [],
+      },
     );
-    assert.match(agenda.summary, /在飞线 \(0\)[\s\S]*待裁 \(0\)[\s\S]*球在别人手里 \(0\)[\s\S]*可派队列 \(0\)/u);
+    assert.match(
+      agenda.summary,
+      /在飞线 \(0\)[\s\S]*待派审 \(0\)[\s\S]*评审中 \(0\)[\s\S]*待裁 Decision \(0\)[\s\S]*球在别人手里 \(0\)[\s\S]*可派队列 \(0\)/u,
+    );
   });
 });
 
@@ -81,9 +95,7 @@ test("agenda and task list keep a pinned submitted task visible for owner adjudi
       true,
     );
     assert.equal(
-      agenda.awaitingDecision.some(
-        (row) => row.kind === "execution" && row.taskId === taskId && row.executionId === executionId && row.pinned,
-      ),
+      agenda.awaitingAdjudication.some((row) => row.taskId === taskId && row.executionId === executionId && row.pinned),
       true,
     );
     assert.deepEqual(
@@ -93,7 +105,7 @@ test("agenda and task list keep a pinned submitted task visible for owner adjudi
   });
 });
 
-test("agenda derives all four groups, pins first, and rejects a missing task pin", async () => {
+test("agenda splits awaiting work by next action, pins first, and rejects a missing task pin", async () => {
   await withCell("agenda-four-groups", async (cell, rootDir) => {
     const createdTasks = new Map<string, string>();
     for (const [taskId, title] of [
@@ -104,13 +116,15 @@ test("agenda derives all four groups, pins first, and rejects a missing task pin
       ["task_wait", "Waits on dependency"],
       ["task_dependency", "Dependency"],
       ["task_review", "Review pending"],
+      ["task_wait_adjudicate", "Submitted, awaiting adjudication"],
+      ["task_returned", "Returned for rework"],
     ] as const) {
       const created = await cell.run({ kind: "task-create", taskId, title }, binding);
       assert.equal(created.outcome, "applied");
       await waitForFixturePublication(cell, created.opId, binding);
       createdTasks.set(taskId, String((created as Record<string, unknown>).packagePath));
     }
-    for (const taskId of ["task_active", "task_review"])
+    for (const taskId of ["task_active", "task_review", "task_wait_adjudicate", "task_returned"])
       await realizeTaskPlanFixture(rootDir, createdTasks.get(taskId)!, (planPath) =>
         cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
       );
@@ -185,6 +199,77 @@ test("agenda derives all four groups, pins first, and rejects a missing task pin
       ).outcome,
       "applied",
     );
+    // task_wait_adjudicate 提交后停住(submitted),派审与返工两条对照线各自走到位:
+    // 一个只等派审,一个走完 forward → changes_requested → return。
+    for (const [taskId, executionId] of [
+      ["task_wait_adjudicate", "exe_wait_adjudicate"],
+      ["task_returned", "exe_returned"],
+    ] as const) {
+      assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied");
+      writeFileSync(
+        path.join(rootDir, "harness", createdTasks.get(taskId)!, "closeout.md"),
+        `# Closeout\n\n## Summary\n\nAgenda fixture delivery ${git(rootDir, "rev-parse", "fixture-delivery")} is ready.\n\n## Verification\n\nIntegration assertions exercise agenda grouping and review visibility.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nTask lifecycle projections share the review cut.\n`,
+      );
+      assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, binding)).outcome, "applied");
+    }
+    const reviewerBinding = withRoleBinding(
+      {
+        actor: {
+          principal: { personId: "person-agenda-reviewer" },
+          executor: { kind: "agent" as const, id: "agenda-reviewer" },
+        },
+        source: "local" as const,
+      },
+      "arbiter",
+    );
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-adjudicate",
+            taskId: "task_returned",
+            executionId: "exe_returned",
+            forward: true,
+            reason: "Forward agenda rework cut.",
+          },
+          binding,
+        )
+      ).outcome,
+      "applied",
+    );
+    writeFileSync(
+      path.join(rootDir, "review.json"),
+      JSON.stringify({ verdict: "changes_requested", reason: "Needs another pass.", evidenceChecked: ["agenda"] }),
+    );
+    writeReviewReport(rootDir, createdTasks.get("task_returned")!, "review-returned");
+    assert.equal(
+      (
+        await cell.run(
+          {
+            kind: "task-review-execution",
+            taskId: "task_returned",
+            executionId: "exe_returned",
+            reviewId: "review-returned",
+            fromFile: "review.json",
+          },
+          reviewerBinding,
+        )
+      ).outcome,
+      "applied",
+    );
+    const returned = await cell.run(
+      {
+        kind: "task-adjudicate",
+        taskId: "task_returned",
+        executionId: "exe_returned",
+        return: true,
+        reviewId: "review-returned",
+        reason: "Return agenda cut for rework.",
+      },
+      binding,
+    );
+    assert.equal(returned.outcome, "applied");
+    await waitForFixturePublication(cell, returned.opId, binding);
     const proposed = await cell.run(decisionProposal(), binding);
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
 
@@ -201,13 +286,33 @@ test("agenda derives all four groups, pins first, and rejects a missing task pin
     );
     assert.equal(agenda.inFlight[0]?.pinned, true);
     assert.equal(agenda.inFlight[0]?.leaseExecutionId, "exe_active");
+    // 三种 task 状态 + 一条 decision 各落各组、互不重复(submitted→待派审、in_review→评审中、
+    // changes_requested→等我修、proposed decision→待裁)。
+    assert.deepEqual(
+      agenda.awaitingAdjudication.map(({ taskId }) => taskId),
+      ["task_wait_adjudicate"],
+    );
+    assert.deepEqual(
+      agenda.underReview.map(({ taskId }) => taskId),
+      ["task_review"],
+    );
+    assert.deepEqual(
+      agenda.awaitingRework.map(({ taskId }) => taskId),
+      ["task_returned"],
+    );
+    assert.equal(agenda.awaitingDecision.length, 1);
+    assert.match(agenda.awaitingDecision[0]?.decisionId ?? "", /^dec_/u);
     assert.equal(
-      agenda.awaitingDecision.some((row) => row.kind === "execution" && row.executionId === "exe_review"),
-      true,
+      agenda.underReview.some(({ executionId }) => executionId === "exe_wait_adjudicate"),
+      false,
     );
     assert.equal(
-      agenda.awaitingDecision.some((row) => row.kind === "decision"),
-      true,
+      agenda.awaitingAdjudication.some(({ executionId }) => executionId === "exe_review"),
+      false,
+    );
+    assert.equal(
+      [...agenda.awaitingAdjudication, ...agenda.underReview].some(({ taskId }) => taskId === "task_returned"),
+      false,
     );
     assert.equal(
       agenda.waitingOnOthers.some(({ taskId }) => taskId === "task_blocked"),
@@ -225,16 +330,9 @@ test("agenda derives all four groups, pins first, and rejects a missing task pin
       agenda.dispatchable.some(({ taskId }) => taskId === "task_wait"),
       false,
     );
-    assert.match(agenda.summary, /📌 task_active[\s\S]*待裁[\s\S]*球在别人手里[\s\S]*📌 task_dispatch_pinned/u);
-    const reviewerBinding = withRoleBinding(
-      {
-        actor: {
-          principal: { personId: "person-agenda-reviewer" },
-          executor: { kind: "agent" as const, id: "agenda-reviewer" },
-        },
-        source: "local" as const,
-      },
-      "arbiter",
+    assert.match(
+      agenda.summary,
+      /📌 task_active[\s\S]*待派审 \(1\)[\s\S]*task_wait_adjudicate[\s\S]*评审中 \(1\)[\s\S]*task_review[\s\S]*待裁 Decision \(1\)[\s\S]*球在别人手里[\s\S]*📌 task_dispatch_pinned/u,
     );
     writeFileSync(
       path.join(rootDir, "review.json"),
@@ -257,8 +355,8 @@ test("agenda derives all four groups, pins first, and rejects a missing task pin
       "applied",
     );
     assert.equal(
-      (await cell.read("repo.agenda.read", { limit: 50 })).awaitingDecision.some(
-        (row) => row.kind === "execution" && row.executionId === "exe_review",
+      (await cell.read("repo.agenda.read", { limit: 50 })).underReview.some(
+        ({ executionId }) => executionId === "exe_review",
       ),
       true,
       "dismissed history must not remove the execution from review work",
@@ -284,8 +382,8 @@ test("agenda derives all four groups, pins first, and rejects a missing task pin
       "applied",
     );
     assert.equal(
-      (await cell.read("repo.agenda.read", { limit: 50 })).awaitingDecision.some(
-        (row) => row.kind === "execution" && row.executionId === "exe_review",
+      (await cell.read("repo.agenda.read", { limit: 50 })).underReview.some(
+        ({ executionId }) => executionId === "exe_review",
       ),
       false,
       "an approved current-cut Review resolves review work even when dismissed history remains",
@@ -417,7 +515,7 @@ test("agenda surfaces a changes_requested task in the rework group and nowhere e
         false,
       );
     assert.equal(
-      agenda.awaitingDecision.some((row) => row.kind === "execution" && row.taskId === "task_rework"),
+      [...agenda.awaitingAdjudication, ...agenda.underReview].some(({ taskId }) => taskId === "task_rework"),
       false,
     );
     assert.match(agenda.summary, /等我修 \(1\) — status=active 且最新 execution=changes_requested[\s\S]*task_rework/u);
@@ -549,7 +647,9 @@ test("agenda excludes archived rework tasks without consuming a page", async () 
         false,
       );
     assert.equal(
-      agenda.awaitingDecision.some((row) => row.kind === "execution" && row.taskId === "task_000_archived_rework"),
+      [...agenda.awaitingAdjudication, ...agenda.underReview].some(
+        ({ taskId }) => taskId === "task_000_archived_rework",
+      ),
       false,
     );
     assert.match(agenda.summary, /等我修 \(1\)[\s\S]*task_zzz_active_rework/u);
@@ -569,8 +669,22 @@ test("agenda projects an all-blocked ledger only into the waiting group", async 
       ["task_blocked_a", "task_blocked_b"],
     );
     assert.deepEqual(
-      { inFlight: agenda.inFlight, awaitingDecision: agenda.awaitingDecision, dispatchable: agenda.dispatchable },
-      { inFlight: [], awaitingDecision: [], dispatchable: [] },
+      {
+        inFlight: agenda.inFlight,
+        awaitingRework: agenda.awaitingRework,
+        awaitingAdjudication: agenda.awaitingAdjudication,
+        underReview: agenda.underReview,
+        awaitingDecision: agenda.awaitingDecision,
+        dispatchable: agenda.dispatchable,
+      },
+      {
+        inFlight: [],
+        awaitingRework: [],
+        awaitingAdjudication: [],
+        underReview: [],
+        awaitingDecision: [],
+        dispatchable: [],
+      },
     );
   });
 });

@@ -52,15 +52,19 @@ export function CadenceView({
     [fleetWindow, setFleetWindow] = useState<FleetTimeWindow>("24h"),
     feed = useCadenceFeed(repoId),
     // 议程未读完(pending)时 awaiting 为 null:HUD 与堵点卡片如实显示读取中,不冒充。
-    awaiting = useMemo(
-      () => (agenda !== undefined && agenda.status === "ready" ? agenda.awaitingDecision : null),
-      [agenda],
-    ),
+    // 堵点卡片的「执行」组按旧口径收待派审与评审中两类(下一步动作不同,卡片合并呈现)。
+    awaiting = useMemo(() => {
+      if (agenda === undefined || agenda.status !== "ready") return null;
+      return {
+        decisions: agenda.awaitingDecision,
+        executions: [...agenda.awaitingAdjudication, ...agenda.underReview],
+      };
+    }, [agenda]),
     awaitingDetail = useMemo(() => {
       if (awaiting === null) return null;
       return {
-        decisions: awaiting.filter((row) => row.kind === "decision").length,
-        executions: awaiting.filter((row) => row.kind === "execution").length,
+        decisions: awaiting.decisions.length,
+        executions: awaiting.executions.length,
       };
     }, [awaiting]),
     lanes = useMemo(() => deriveAttestationLanes(tasks), [tasks]),
@@ -70,7 +74,7 @@ export function CadenceView({
           events: feed.events,
           tasks,
           decisions,
-          awaitingHuman: awaiting === null ? null : awaiting.length,
+          awaitingHuman: awaiting === null ? null : awaiting.decisions.length + awaiting.executions.length,
           now: feed.now,
         }),
       [feed.events, feed.now, tasks, decisions, awaiting],

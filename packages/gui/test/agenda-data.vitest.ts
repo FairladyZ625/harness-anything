@@ -17,6 +17,21 @@ const row = (taskId: string, pinned = false) => ({
   activeExecutionIds: [],
   blockingAssessment: blocking,
 });
+const executionRow = (taskId: string, executionId: string) => ({
+  taskId,
+  title: `标题 ${taskId}`,
+  pinned: false,
+  executionId,
+  submittedAt: AT,
+  blockingAssessment: blocking,
+});
+const decisionRow = (decisionId: string) => ({
+  decisionId,
+  title: `决策 ${decisionId}`,
+  riskTier: "medium" as const,
+  urgency: "high" as const,
+  proposedAt: AT,
+});
 
 const page = (over: Partial<AgendaRead> = {}): AgendaSuccess => {
   const full = {
@@ -27,6 +42,9 @@ const page = (over: Partial<AgendaRead> = {}): AgendaSuccess => {
     inFlight: [],
     pinnedEntities: [],
     pinnedEntityOverflow: 0,
+    awaitingRework: [],
+    awaitingAdjudication: [],
+    underReview: [],
     awaitingDecision: [],
     waitingOnOthers: [],
     dispatchable: [],
@@ -95,6 +113,34 @@ describe("agenda read discipline", () => {
     );
     const pending = await readAgenda("repo-a");
     expect(pending.status).toBe("pending");
+  });
+
+  it("merges each awaiting group by its own entity key across cursor pages", async () => {
+    pages.push(
+      page({
+        status: "pending",
+        awaitingRework: [row("task_rework")],
+        awaitingAdjudication: [executionRow("task_sub", "exe_sub")],
+        underReview: [executionRow("task_rev", "exe_rev")],
+        awaitingDecision: [decisionRow("dec_one")],
+        page: { sourceLimit: 100, cursor: null, nextCursor: "agenda-next" },
+      }),
+    );
+    const first = await readAgenda("repo-a");
+    pages.push(
+      page({
+        awaitingRework: [row("task_rework")],
+        awaitingAdjudication: [executionRow("task_sub2", "exe_sub2")],
+        underReview: [executionRow("task_rev", "exe_rev")],
+        awaitingDecision: [decisionRow("dec_one"), decisionRow("dec_two")],
+        page: { sourceLimit: 100, cursor: "agenda-next", nextCursor: null },
+      }),
+    );
+    const joined = await readAgenda("repo-a", first);
+    expect(joined.awaitingRework.map(({ taskId }) => taskId)).toEqual(["task_rework"]);
+    expect(joined.awaitingAdjudication.map(({ executionId }) => executionId)).toEqual(["exe_sub", "exe_sub2"]);
+    expect(joined.underReview.map(({ executionId }) => executionId)).toEqual(["exe_rev"]);
+    expect(joined.awaitingDecision.map(({ decisionId }) => decisionId)).toEqual(["dec_one", "dec_two"]);
   });
 });
 

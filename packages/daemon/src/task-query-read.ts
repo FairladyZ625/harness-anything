@@ -29,7 +29,8 @@ import {
 import { readDispatchStreamHeaders, type DispatchStreamHeader } from "./dispatch-stream.ts";
 import {
   isolateDaemonTaskSnapshotRows,
-  type AgendaAwaitingRow,
+  type AgendaDecisionRow,
+  type AgendaExecutionRow,
   type AgendaPinnedEntityRow,
   type AgendaTaskRow,
   type CanonicalRoot,
@@ -394,38 +395,21 @@ export function makeTaskQueryReadModel(input: {
         .filter(({ blockingAssessment }) => blockingAssessment.state === "clear")
         .map(agendaTaskRow)
         .sort(compareAgendaTasks),
-      awaitingExecutions: AgendaAwaitingRow[] = [...(submitted?.rows ?? []), ...(inReview?.rows ?? [])].flatMap((row) =>
-        row.snapshot.executions
-          .filter(
-            (execution) =>
-              execution.state === "submitted" &&
-              !row.snapshot.reviews.some(
-                (review) =>
-                  review.executionId === execution.executionId &&
-                  review.verdict === "approved" &&
-                  review.commitSha === execution.submission?.commitSha &&
-                  review.iteration === execution.iteration,
-              ),
-          )
-          .map((execution) => ({
-            kind: "execution" as const,
-            taskId: row.taskId,
-            title: row.snapshot.task?.title ?? row.taskId,
-            pinned: row.snapshot.task!.pinned,
-            executionId: execution.executionId,
-            submittedAt: execution.submittedAt ?? row.updatedAt,
-            blockingAssessment: row.blockingAssessment,
-          })),
+      // 三种「等你动手」按下一步动作分组(2026-09-20 业主裁定拆开):submitted 行 → 派审;
+      // in_review 行 → 等评审/consent;decision 行 → 裁决。同一 execution 只落所属组,不再合并。
+      awaitingAdjudication: AgendaExecutionRow[] = awaitingExecutionRows(submitted?.rows ?? []).sort(
+        compareAwaitingExecutions,
       ),
-      awaitingDecisions: AgendaAwaitingRow[] = (decisions?.decisions ?? []).map((decision) => ({
-        kind: "decision",
-        decisionId: decision.decisionId,
-        title: decision.title,
-        riskTier: decision.riskTier,
-        urgency: decision.urgency,
-        proposedAt: decision.proposedAt,
-      })),
-      awaitingDecision = [...awaitingExecutions, ...awaitingDecisions].sort(compareAwaiting),
+      underReview: AgendaExecutionRow[] = awaitingExecutionRows(inReview?.rows ?? []).sort(compareAwaitingExecutions),
+      awaitingDecision: AgendaDecisionRow[] = (decisions?.decisions ?? [])
+        .map((decision) => ({
+          decisionId: decision.decisionId,
+          title: decision.title,
+          riskTier: decision.riskTier,
+          urgency: decision.urgency,
+          proposedAt: decision.proposedAt,
+        }))
+        .sort((left, right) => left.decisionId.localeCompare(right.decisionId)),
       allPinnedEntities = readPinnedEntities().map(resolvePinnedEntity),
       pinnedEntities = allPinnedEntities.slice(0, sourceLimit),
       pinnedEntityOverflow = Math.max(0, allPinnedEntities.length - pinnedEntities.length),
@@ -460,6 +444,8 @@ export function makeTaskQueryReadModel(input: {
       pinnedEntityOverflow,
       inFlight,
       awaitingRework,
+      awaitingAdjudication,
+      underReview,
       awaitingDecision,
       waitingOnOthers,
       dispatchable,
@@ -470,6 +456,8 @@ export function makeTaskQueryReadModel(input: {
         pinnedEntityOverflow,
         inFlight,
         awaitingRework,
+        awaitingAdjudication,
+        underReview,
         awaitingDecision,
         waitingOnOthers,
         dispatchable,
@@ -737,16 +725,36 @@ function latestExecution(executions: readonly ProjectedExecution[]): ProjectedEx
     if (latest === undefined || execution.iteration >= latest.iteration) latest = execution;
   return latest;
 }
+/** 一页 task 行 → 未被同轮 approved 评审了结的 submitted execution 行;待派审/评审中两组共用这一谓词。 */
+function awaitingExecutionRows(rows: readonly AgendaSourceRow[]): AgendaExecutionRow[] {
+  return rows.flatMap((row) =>
+    row.snapshot.executions
+      .filter(
+        (execution) =>
+          execution.state === "submitted" &&
+          !row.snapshot.reviews.some(
+            (review) =>
+              review.executionId === execution.executionId &&
+              review.verdict === "approved" &&
+              review.commitSha === execution.submission?.commitSha &&
+              review.iteration === execution.iteration,
+          ),
+      )
+      .map((execution) => ({
+        taskId: row.taskId,
+        title: row.snapshot.task?.title ?? row.taskId,
+        pinned: row.snapshot.task!.pinned,
+        executionId: execution.executionId,
+        submittedAt: execution.submittedAt ?? row.updatedAt,
+        blockingAssessment: row.blockingAssessment,
+      })),
+  );
+}
 function compareAgendaTasks(left: AgendaTaskRow, right: AgendaTaskRow): number {
   return Number(right.pinned) - Number(left.pinned) || left.taskId.localeCompare(right.taskId);
 }
-function compareAwaiting(left: AgendaAwaitingRow, right: AgendaAwaitingRow): number {
-  const leftPinned = left.kind === "execution" && left.pinned,
-    rightPinned = right.kind === "execution" && right.pinned;
-  return Number(rightPinned) - Number(leftPinned) || awaitingKey(left).localeCompare(awaitingKey(right));
-}
-function awaitingKey(row: AgendaAwaitingRow): string {
-  return row.kind === "execution" ? `execution/${row.taskId}/${row.executionId}` : `decision/${row.decisionId}`;
+function compareAwaitingExecutions(left: AgendaExecutionRow, right: AgendaExecutionRow): number {
+  return Number(right.pinned) - Number(left.pinned) || left.executionId.localeCompare(right.executionId);
 }
 function decodeAgendaCursor(value: string): AgendaCursor {
   let parsed: unknown;
@@ -781,6 +789,8 @@ function renderAgendaSummary(
     | "pinnedEntityOverflow"
     | "inFlight"
     | "awaitingRework"
+    | "awaitingAdjudication"
+    | "underReview"
     | "awaitingDecision"
     | "waitingOnOthers"
     | "dispatchable"
@@ -788,11 +798,10 @@ function renderAgendaSummary(
 ): string {
   const taskLine = (row: AgendaTaskRow) =>
       `- ${row.pinned ? "📌 " : ""}${row.taskId} ${row.title}${row.blockingAssessment.blockers.length ? `（阻塞: ${row.blockingAssessment.blockers.map(({ targetTaskId }) => targetTaskId).join(", ")}）` : ""}`,
-    awaitingLine = (row: AgendaAwaitingRow) =>
-      row.kind === "execution"
-        ? `- ${row.pinned ? "📌 " : ""}execution ${row.executionId} / ${row.taskId} ${row.title}`
-        : `- decision ${row.decisionId} ${row.title}`,
-    // 每组标题旁写出过滤条件,「为什么这条不在里面」可对照自查,不必逐条比对。
+    executionLine = (row: AgendaExecutionRow) =>
+      `- ${row.pinned ? "📌 " : ""}execution ${row.executionId} / ${row.taskId} ${row.title}`,
+    decisionLine = (row: AgendaDecisionRow) => `- decision ${row.decisionId} ${row.title}`,
+    // 每组标题旁写出过滤条件与下一步命令,「为什么这条不在里面、接下来敲什么」可对照自查。
     section = (title: string, filter: string, rows: readonly string[], total = rows.length) =>
       `${title} (${total}) — ${filter}\n${rows.length ? rows.join("\n") : "- 无"}`;
   return [
@@ -807,18 +816,28 @@ function renderAgendaSummary(
       ],
       groups.pinnedEntities.length + groups.pinnedEntityOverflow,
     ),
-    section("在飞线", "status=active 且（有 lease 或有 active execution）", groups.inFlight.map(taskLine)),
+    section("在飞线", "status=active 且（有 lease 或有 active execution）；只需等", groups.inFlight.map(taskLine)),
     section(
       "等我修",
-      "status=active 且最新 execution=changes_requested 且无 lease、无 active execution",
-      (groups.awaitingRework ?? []).map(taskLine),
+      "status=active 且最新 execution=changes_requested 且无 lease、无 active execution；下一步 ha task start <taskId> 重开执行",
+      groups.awaitingRework.map(taskLine),
     ),
     section(
-      "待裁",
-      "in_review 且有未被 approved 覆盖的 submitted execution，或有 proposed decision",
-      groups.awaitingDecision.map(awaitingLine),
+      "待派审",
+      "status=submitted 且有 submitted execution；下一步 ha task adjudicate --forward",
+      groups.awaitingAdjudication.map(executionLine),
     ),
-    section("球在别人手里", "status=blocked 或 blocking 非 clear", groups.waitingOnOthers.map(taskLine)),
-    section("可派队列", "status=planned 且 blocking=clear", groups.dispatchable.map(taskLine)),
+    section(
+      "评审中",
+      "status=in_review 且有未被 approved 覆盖的 submitted execution；评审报告就绪后 ha task review-consent，评审未出只需等",
+      groups.underReview.map(executionLine),
+    ),
+    section(
+      "待裁 Decision",
+      "proposed decision；下一步 ha decision accept|reject|defer",
+      groups.awaitingDecision.map(decisionLine),
+    ),
+    section("球在别人手里", "status=blocked 或 blocking 非 clear；只需等", groups.waitingOnOthers.map(taskLine)),
+    section("可派队列", "status=planned 且 blocking=clear；下一步 ha runtime run", groups.dispatchable.map(taskLine)),
   ].join("\n\n");
 }

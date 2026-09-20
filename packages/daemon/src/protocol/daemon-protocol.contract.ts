@@ -634,7 +634,8 @@ export { daemonGuiActionMethods, daemonGuiStreamFacets, daemonStreamFacets } fro
 export { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 export { validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
 export type {
-  AgendaAwaitingRow,
+  AgendaDecisionRow,
+  AgendaExecutionRow,
   AgendaPinnedEntityRow,
   AgendaTaskRow,
   DaemonAgendaPayload,

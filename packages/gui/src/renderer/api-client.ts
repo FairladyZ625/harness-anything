@@ -2,7 +2,8 @@ import { validateDaemonTaskCompletion } from "@harness-anything/daemon/protocol"
 import type {
   AgendaRead,
   AgendaTaskRow,
-  AgendaAwaitingRow,
+  AgendaExecutionRow,
+  AgendaDecisionRow,
   ContractVersion,
   FactAnchorRow,
   RelationFactRow,
@@ -80,8 +81,9 @@ export interface RelationGraphSuccess {
 }
 
 /**
- * `repo.agenda.read` 的有界一页。四个分组只做透传:分组判定与组内 pin 置顶都在
- * daemon 投影里完成,renderer 不重推任何「在飞/待裁/球在别人手里/可派」判据。
+ * `repo.agenda.read` 的有界一页。全部分组只做透传:分组判定与组内 pin 置顶都在
+ * daemon 投影里完成,renderer 不重推任何「在飞/待派审/评审中/待裁/等我修/球在别人
+ * 手里/可派」判据。
  */
 export interface AgendaSuccess
   extends Pick<
@@ -89,8 +91,10 @@ export interface AgendaSuccess
     | "pinnedEntities"
     | "pinnedEntityOverflow"
     | "inFlight"
-    | "awaitingDecision"
     | "awaitingRework"
+    | "awaitingAdjudication"
+    | "underReview"
+    | "awaitingDecision"
     | "waitingOnOthers"
     | "dispatchable"
     | "summary"
@@ -591,8 +595,14 @@ function readAgendaResult(value: unknown): AgendaSuccess {
     !Array.isArray(result.pinnedEntities) ||
     !Number.isSafeInteger(result.pinnedEntityOverflow) ||
     !result.inFlight.every(isAgendaTaskRow) ||
+    !Array.isArray(result.awaitingRework) ||
+    !result.awaitingRework.every(isAgendaTaskRow) ||
+    !Array.isArray(result.awaitingAdjudication) ||
+    !result.awaitingAdjudication.every(isAgendaExecutionRow) ||
+    !Array.isArray(result.underReview) ||
+    !result.underReview.every(isAgendaExecutionRow) ||
     !Array.isArray(result.awaitingDecision) ||
-    !result.awaitingDecision.every(isAgendaAwaitingRow) ||
+    !result.awaitingDecision.every(isAgendaDecisionRow) ||
     !Array.isArray(result.waitingOnOthers) ||
     !result.waitingOnOthers.every(isAgendaTaskRow) ||
     !Array.isArray(result.dispatchable) ||
@@ -625,24 +635,26 @@ function isAgendaTaskRow(value: unknown): value is AgendaTaskRow {
   );
 }
 
-function isAgendaAwaitingRow(value: unknown): value is AgendaAwaitingRow {
-  if (!isRendererRecord(value)) return false;
-  if (value.kind === "decision")
-    return (
-      typeof value.decisionId === "string" &&
-      typeof value.title === "string" &&
-      ["low", "medium", "high"].includes(String(value.riskTier)) &&
-      ["low", "medium", "high"].includes(String(value.urgency)) &&
-      typeof value.proposedAt === "string"
-    );
+function isAgendaExecutionRow(value: unknown): value is AgendaExecutionRow {
   return (
-    value.kind === "execution" &&
+    isRendererRecord(value) &&
     typeof value.taskId === "string" &&
     typeof value.title === "string" &&
     typeof value.pinned === "boolean" &&
     typeof value.executionId === "string" &&
     typeof value.submittedAt === "string" &&
     isRendererRecord(value.blockingAssessment)
+  );
+}
+
+function isAgendaDecisionRow(value: unknown): value is AgendaDecisionRow {
+  return (
+    isRendererRecord(value) &&
+    typeof value.decisionId === "string" &&
+    typeof value.title === "string" &&
+    ["low", "medium", "high"].includes(String(value.riskTier)) &&
+    ["low", "medium", "high"].includes(String(value.urgency)) &&
+    typeof value.proposedAt === "string"
   );
 }
 

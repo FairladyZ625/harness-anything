@@ -11,47 +11,72 @@ test("agenda RPC accepts only its bounded page payload", () => {
   assert.equal(parse({ status: "active" }).ok, false);
 });
 
-test("agenda result schema rejects mistyped pin state", () => {
+test("agenda result schema rejects mistyped pin state and misgrouped awaiting rows", () => {
   const task = {
-    taskId: "task-current",
-    title: "Current task",
-    status: "blocked",
-    pinned: true,
-    updatedAt: "2026-08-21T00:00:00.000Z",
-    leaseExecutionId: null,
-    activeExecutionIds: [],
-    blockingAssessment: { taskId: "task-current", state: "clear", label: "none", blockers: [], warnings: [] },
-  };
-  const agenda = {
-    schema: "daemon.agenda/v1",
-    ok: true,
-    command: "agenda",
-    status: "ready",
-    pinnedEntities: [],
-    pinnedEntityOverflow: 0,
-    inFlight: [],
-    awaitingDecision: [],
-    waitingOnOthers: [task],
-    dispatchable: [],
-    page: { sourceLimit: 100, cursor: null, nextCursor: null },
-    watermark: 1,
-    sourceRevision: 1,
-    warnings: [
-      {
-        code: "projection_missing",
-        source: "generated-cache",
-        severity: "warning",
-        message: "Projection was rebuilt.",
-      },
-    ],
-    summary: "球在别人手里 (1)",
-  };
+      taskId: "task-current",
+      title: "Current task",
+      status: "blocked",
+      pinned: true,
+      updatedAt: "2026-08-21T00:00:00.000Z",
+      leaseExecutionId: null,
+      activeExecutionIds: [],
+      blockingAssessment: { taskId: "task-current", state: "clear", label: "none", blockers: [], warnings: [] },
+    },
+    execution = {
+      taskId: "task-awaiting",
+      title: "Awaiting execution",
+      pinned: false,
+      executionId: "exe-awaiting",
+      submittedAt: "2026-08-21T00:00:00.000Z",
+      blockingAssessment: { taskId: "task-awaiting", state: "clear", label: "none", blockers: [], warnings: [] },
+    },
+    decision = {
+      decisionId: "dec-awaiting",
+      title: "Awaiting decision",
+      riskTier: "medium",
+      urgency: "high",
+      proposedAt: "2026-08-21T00:00:00.000Z",
+    },
+    agenda = {
+      schema: "daemon.agenda/v1",
+      ok: true,
+      command: "agenda",
+      status: "ready",
+      pinnedEntities: [],
+      pinnedEntityOverflow: 0,
+      inFlight: [],
+      awaitingRework: [],
+      awaitingAdjudication: [execution],
+      underReview: [],
+      awaitingDecision: [decision],
+      waitingOnOthers: [task],
+      dispatchable: [],
+      page: { sourceLimit: 100, cursor: null, nextCursor: null },
+      watermark: 1,
+      sourceRevision: 1,
+      warnings: [
+        {
+          code: "projection_missing",
+          source: "generated-cache",
+          severity: "warning",
+          message: "Projection was rebuilt.",
+        },
+      ],
+      summary: "球在别人手里 (1)",
+    };
   assert.deepEqual(validateDaemonAgenda(agenda), []);
   assert.notDeepEqual(validateDaemonAgenda({ ...agenda, waitingOnOthers: [{ ...task, pinned: "true" }] }), []);
-  // awaitingRework is an optional additive group: absent validates, present rows are checked,
-  // and an undeclared field is still refused.
-  assert.deepEqual(validateDaemonAgenda({ ...agenda, awaitingRework: [task] }), []);
-  assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingRework: [{ ...task, pinned: "true" }] }), []);
-  assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingRework: "task-current" }), []);
+  // Each awaiting group admits only its own row shape: an execution row in the decision
+  // group (the old mixed shape) and vice versa are both refused.
+  assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingDecision: [execution] }), []);
+  assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingAdjudication: [decision] }), []);
+  assert.notDeepEqual(validateDaemonAgenda({ ...agenda, underReview: [{ ...execution, pinned: "true" }] }), []);
+  assert.notDeepEqual(
+    validateDaemonAgenda({ ...agenda, awaitingDecision: [{ ...decision, riskTier: "extreme" }] }),
+    [],
+  );
+  // awaitingRework is required now that the mixed shape is gone: omitting it is refused.
+  const { awaitingRework: _omit, ...withoutRework } = agenda;
+  assert.notDeepEqual(validateDaemonAgenda(withoutRework), []);
   assert.notDeepEqual(validateDaemonAgenda({ ...agenda, undeclaredGroup: [] }), []);
 });

@@ -1,10 +1,10 @@
 import { t } from "../../i18n/index.tsx";
-import type { AgendaAwaitingRow } from "../../../api/renderer-dto.ts";
+import type { AgendaDecisionRow, AgendaExecutionRow } from "../../../api/renderer-dto.ts";
 import type { AttestationPoolLanes } from "../../model/attestation-pool.ts";
 
 /**
  * 注意力堵点直达:集中呈现需要人类处理的事项——待裁 decision(repo.agenda.read)、
- * 待 owner 裁决的 submitted execution、人工门禁签发与特批放行(deriveAttestationLanes
+ * 待派审/评审中的 submitted execution、人工门禁签发与特批放行(deriveAttestationLanes
  * 的 gates/breakGlass lane)、待签署 Consent(consents lane)。跳转复用实体导航与
  * 待办签发总池,本卡片零写操作。
  */
@@ -28,8 +28,11 @@ export function AttentionBlockers({
   onNavigateEntity,
   onOpenPool,
 }: {
-  /** repo.agenda.read 的 awaitingDecision 分组;null = 议程未读完或未挂载。 */
-  readonly awaiting: readonly AgendaAwaitingRow[] | null;
+  /** repo.agenda.read 的待裁 decision 与待派审/评审中 execution;null = 议程未读完或未挂载。 */
+  readonly awaiting: {
+    readonly decisions: readonly AgendaDecisionRow[];
+    readonly executions: readonly AgendaExecutionRow[];
+  } | null;
   readonly lanes: AttestationPoolLanes;
   readonly onNavigateEntity: (ref: string) => void;
   readonly onOpenPool: () => void;
@@ -38,21 +41,22 @@ export function AttentionBlockers({
       {
         key: "decisions",
         title: () => t("views.cadence.blockersDecisions"),
-        items: (awaiting ?? [])
-          .filter((row): row is Extract<AgendaAwaitingRow, { readonly kind: "decision" }> => row.kind === "decision")
-          .map((row) => ({
-            id: row.decisionId,
-            label: row.title,
-            meta: `${row.riskTier} · ${row.urgency}`,
-            navigateRef: `decision/${row.decisionId}`,
-          })),
+        items: (awaiting?.decisions ?? []).map((row) => ({
+          id: row.decisionId,
+          label: row.title,
+          meta: `${row.riskTier} · ${row.urgency}`,
+          navigateRef: `decision/${row.decisionId}`,
+        })),
       },
       {
         key: "executions",
         title: () => t("views.cadence.blockersExecutions"),
-        items: (awaiting ?? [])
-          .filter((row): row is Extract<AgendaAwaitingRow, { readonly kind: "execution" }> => row.kind === "execution")
-          .map((row) => ({ id: row.taskId, label: row.title, meta: null, navigateRef: `task/${row.taskId}` })),
+        items: (awaiting?.executions ?? []).map((row) => ({
+          id: row.taskId,
+          label: row.title,
+          meta: null,
+          navigateRef: `task/${row.taskId}`,
+        })),
       },
       {
         key: "gates",

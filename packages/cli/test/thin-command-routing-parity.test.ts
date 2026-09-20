@@ -798,7 +798,7 @@ test("human preset and task receipts print resolved completion contracts byte-fo
         "artifacts: persist supplementary context, research notes, design drafts, worker prompts, and review " +
           "evidence under harness/tasks/task-one/artifacts/; consider landing any extra information or " +
           "background materials here beyond task_plan.md",
-        "agenda: pin only if very important, easy to forget, next to do, or urgent; otherwise leave it unpinned — " +
+        "agenda: pin only if blocking the active milestone or awaiting owner decision; otherwise leave unpinned — " +
           "ha pin task/task-one.",
         "ledger: INDEX.md and closeout.md are coordinator-managed; update them through ha doc sync",
       ].join("\n");

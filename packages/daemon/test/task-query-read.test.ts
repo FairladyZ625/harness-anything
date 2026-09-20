@@ -307,6 +307,75 @@ test("agenda groups a changes_requested return into awaiting rework, not the in-
   assert.deepEqual(validateDaemonAgenda(result), []);
 });
 
+test("agenda splits awaiting work by next action and keeps every row in exactly one group", () => {
+  const result = makeTaskQueryReadModel({
+    rootDir: canonicalRoot(process.cwd()),
+    projection: projectionStub({
+      taskRows: [
+        statusTaskRow("task_wait_adjudicate", "submitted", [
+          executionRow("exe_submitted", 0, "submitted", "task_wait_adjudicate"),
+        ]),
+        statusTaskRow("task_under_review", "in_review", [
+          executionRow("exe_review", 0, "submitted", "task_under_review"),
+        ]),
+        reworkTaskRow("task_returned"),
+      ],
+      decisionAgenda: [
+        {
+          decisionId: "dec_split",
+          title: "Split the agenda groups",
+          riskTier: "medium",
+          urgency: "high",
+          proposedAt: "2026-09-20T00:00:00.000Z",
+        },
+      ],
+    }),
+    readPinnedEntities: () => [],
+    judgments: {
+      closeout: (() => ({ readiness: "missing", blocker: "execution", gates: [] })) as never,
+      blocking: ((tasks: readonly { taskId: string }[]) =>
+        tasks.map(({ taskId }) => ({
+          taskId,
+          state: "clear",
+          label: "none",
+          blockers: [],
+          warnings: [],
+        }))) as never,
+    },
+  }).agenda();
+
+  // 三种 task 状态各落各组、一条 proposed decision 只落待裁组,互不重复。
+  assert.deepEqual(
+    result.awaitingAdjudication.map(({ taskId }) => taskId),
+    ["task_wait_adjudicate"],
+  );
+  assert.deepEqual(
+    result.underReview.map(({ taskId }) => taskId),
+    ["task_under_review"],
+  );
+  assert.deepEqual(
+    result.awaitingRework.map(({ taskId }) => taskId),
+    ["task_returned"],
+  );
+  assert.deepEqual(
+    result.awaitingDecision.map(({ decisionId }) => decisionId),
+    ["dec_split"],
+  );
+  assert.equal(
+    result.awaitingAdjudication.some(({ executionId }) => executionId === "exe_review"),
+    false,
+  );
+  assert.equal(
+    result.underReview.some(({ executionId }) => executionId === "exe_submitted"),
+    false,
+  );
+  assert.match(result.summary, /待派审 \(1\)[\s\S]*task_wait_adjudicate/u);
+  assert.match(result.summary, /评审中 \(1\)[\s\S]*task_under_review/u);
+  assert.match(result.summary, /待裁 Decision \(1\)[\s\S]*dec_split/u);
+  // The produced result passes the same wire validator the GUI-side parser uses.
+  assert.deepEqual(validateDaemonAgenda(result), []);
+});
+
 test("task reads fail closed when event truth has no packageDisposition", () => {
   const row = taskRowWithoutDisposition(),
     projection = projectionStub({ taskRows: [row] }),
@@ -444,12 +513,14 @@ function projectionStub(
     readonly statusCalls?: string[][];
     readonly decisionCalls?: string[][];
     readonly childCounts?: Readonly<Record<string, number>>;
+    readonly decisionAgenda?: readonly unknown[];
   } = {},
 ): TaskProjection {
   const cut = options.cut ?? readyCut,
     decisionCut = options.decisionCut ?? cut,
     edges = options.edges ?? [eventEdge],
-    taskRows = options.taskRows ?? [];
+    taskRows = options.taskRows ?? [],
+    decisionAgendaRows = options.decisionAgenda ?? [];
   return {
     list: (query: TaskProjectionListQuery = {}) => {
       options.listCalls?.push(query);
@@ -533,7 +604,7 @@ function projectionStub(
     listDecisions: () => ({ ...decisionCut, decisions: [] }),
     listDecisionAgendaPage: (query) => ({
       ...decisionCut,
-      decisions: [],
+      decisions: decisionAgendaRows,
       page: { limit: query.limit, cursor: query.cursor ?? null, nextCursor: null },
     }),
   } as unknown as TaskProjection;
@@ -547,7 +618,7 @@ function protocolTaskRow(
   taskId: string,
   codeDocWitnesses: readonly unknown[] = [],
   patch: {
-    readonly status?: "planned" | "active" | "blocked" | "in_review";
+    readonly status?: "planned" | "active" | "blocked" | "submitted" | "in_review";
     readonly taskClass?: "standard" | "milestone";
   } = {},
 ) {
@@ -607,6 +678,12 @@ function reworkTaskRow(
   executions: readonly unknown[] = [executionRow("exe_returned", 0, "changes_requested", taskId)],
 ) {
   const row = protocolTaskRow(taskId, [], { status: "active" });
+  return { ...row, snapshot: { ...row.snapshot, executions: [...executions] } };
+}
+
+/** 指定 task 状态 + 自带 executions 的行:submitted / in_review 页的待办分组用。 */
+function statusTaskRow(taskId: string, status: "submitted" | "in_review", executions: readonly unknown[]) {
+  const row = protocolTaskRow(taskId, [], { status });
   return { ...row, snapshot: { ...row.snapshot, executions: [...executions] } };
 }
 

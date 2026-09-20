@@ -528,9 +528,9 @@ const FIXTURE_AGENDA = {
   ],
   pinnedEntities: [],
   pinnedEntityOverflow: 0,
-  awaitingDecision: [
+  awaitingRework: [],
+  awaitingAdjudication: [
     {
-      kind: "execution" as const,
       taskId: TASK_B_ID,
       title: "G10 探针任务乙",
       pinned: false,
@@ -538,8 +538,10 @@ const FIXTURE_AGENDA = {
       submittedAt: AT,
       blockingAssessment: { state: "clear", blockers: [], warnings: [] },
     },
+  ],
+  underReview: [],
+  awaitingDecision: [
     {
-      kind: "decision" as const,
       decisionId: DECISION_B_ID,
       title: "G10 探针决策乙(待批)",
       riskTier: "low" as const,
