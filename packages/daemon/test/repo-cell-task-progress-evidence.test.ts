@@ -7,6 +7,7 @@ import path from "node:path";
 import test, { after } from "node:test";
 import {
   getExecutableEntityAction,
+  localGitObjectRefStore,
   readSettingsFacet,
   reviewDigest,
   submissionDigest,
@@ -215,6 +216,7 @@ test("automatic CI evidence selects exact and descendant main runs, excluding un
       current = execution(submitted);
     git(root, "commit", "--allow-empty", "-qm", "descendant");
     const descendant = git(root, "rev-parse", "HEAD");
+    git(root, "update-ref", "refs/remotes/origin/main", descendant);
     assert.equal(ci(fixture(root, current, [observation(submitted)]).cell, current)?.result, "pass");
     assert.equal(ci(fixture(root, current, [observation(descendant)]).cell, current)?.result, "pass");
     assert.equal(
@@ -227,6 +229,36 @@ test("automatic CI evidence selects exact and descendant main runs, excluding un
       () => ci(fixture(root, current, [observation(descendant, 1, "success", "rewrite-ci", "feature")]).cell, current),
       { code: "invalid_proof" },
     );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("unmerged descendant coverage checks the target head once and avoids loading the observation window", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-evidence-unmerged-"));
+  try {
+    const targetHead = init(root);
+    git(root, "update-ref", "refs/remotes/origin/main", targetHead);
+    git(root, "commit", "--allow-empty", "-qm", "unmerged delivery");
+    const submitted = git(root, "rev-parse", "HEAD"),
+      current = execution(submitted),
+      events = Array.from({ length: 775 }, (_, index) => observation(targetHead, index + 1)),
+      prepared = fixture(root, current, events),
+      limits: number[] = [];
+    Object.assign(prepared.cell.projection, {
+      readCiRunObservations: (limit: number) => {
+        limits.push(limit);
+        return { status: "ready", events: events.slice(0, limit), watermark: 775, sourceRevision: 775 };
+      },
+    });
+    const before = localGitObjectRefStore.processCount(),
+      startedAt = performance.now();
+    assert.equal(ci(prepared.cell, current), null);
+    const elapsedMs = performance.now() - startedAt;
+    assert.deepEqual(limits, [1]);
+    assert.equal(localGitObjectRefStore.processCount() - before, 3);
+    assert.ok(elapsedMs < 50, `unmerged descendant evaluation took ${elapsedMs.toFixed(1)}ms`);
+    t.diagnostic(`unmerged descendant evaluation: ${elapsedMs.toFixed(1)}ms`);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

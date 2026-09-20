@@ -1,6 +1,7 @@
 import {
   completionEvidenceBasis,
   completionEvidenceResults,
+  consumeKnownError,
   localGitObjectRefStore,
   resolveHarnessLayout,
   type CiRunObservationEventV3,
@@ -26,20 +27,27 @@ export function githubActionsWitnessEvidence(
 ): CompletionEvidenceV1 | null {
   if (requirement.witness.adapterId !== "github-actions" || !execution?.submission?.commitSha) return null;
   const options = requirement.witness.adapterOptions;
-  const observations = cell.projection.readCiRunObservations(2000);
-  if (!cell.projectionReady(observations))
-    throw cell.cellCodedError("content_not_ready", "CI observation projection is not ready.");
   // Newest GitHub run and attempt first; non-push runs are measurements, not delivery verdicts.
   // Never skip a red/unverified push for an older green; cancelled/skipped: no verdict.
   const submitted = execution.submission.commitSha,
     publicCut = localGitObjectRefStore.hasCommit(cell.rootDir, submitted),
-    root = publicCut ? cell.rootDir : resolveHarnessLayout(cell.rootDir).authoredRoot,
-    covers =
-      options.coverage === "descendant"
-        ? (event: CiRunObservationEventV3) =>
-            event.payload.run.sha === submitted ||
-            localGitObjectRefStore.isAncestor(root, submitted, event.payload.run.sha)
-        : (event: CiRunObservationEventV3) => event.payload.run.sha === submitted;
+    root = publicCut ? cell.rootDir : resolveHarnessLayout(cell.rootDir).authoredRoot;
+  if (publicCut && options.coverage === "descendant") {
+    const readiness = cell.projection.readCiRunObservations(1);
+    if (!cell.projectionReady(readiness))
+      throw cell.cellCodedError("content_not_ready", "CI observation projection is not ready.");
+    const targetHead = targetBranchHead(root, options.branch);
+    if (targetHead !== null && !localGitObjectRefStore.isAncestor(root, submitted, targetHead)) return null;
+  }
+  const observations = cell.projection.readCiRunObservations(2000);
+  if (!cell.projectionReady(observations))
+    throw cell.cellCodedError("content_not_ready", "CI observation projection is not ready.");
+  const covers =
+    options.coverage === "descendant"
+      ? (event: CiRunObservationEventV3) =>
+          event.payload.run.sha === submitted ||
+          localGitObjectRefStore.isAncestor(root, submitted, event.payload.run.sha)
+      : (event: CiRunObservationEventV3) => event.payload.run.sha === submitted;
   const events =
       publicCut && options.selection === "newest" ? newestGithubRuns(observations.events) : observations.events,
     workflows = publicCut ? options.workflows : [];
@@ -94,6 +102,15 @@ export function githubActionsWitnessEvidence(
     };
   }
   return null;
+}
+
+function targetBranchHead(root: string, branch: string): string | null {
+  try {
+    return localGitObjectRefStore.resolveCommit(root, `refs/remotes/origin/${branch}`);
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
 }
 
 function githubRunOrder(event: CiRunObservationEventV3): readonly [bigint, bigint] | null {
