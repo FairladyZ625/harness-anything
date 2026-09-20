@@ -1039,6 +1039,7 @@
   "views.cadence.fleetOutcome.succeeded": "成功",
   "views.cadence.fleetOutcome.failed": "失败",
   "views.cadence.fleetOutcome.cancelled": "已取消",
+  "views.cadence.fleetOutcome.unknown": "已结束",
   "views.cadence.fleetLastActive": "最后活跃: {time}",
   "views.cadence.fleetTokens": "Token {total} · 工具调用 {calls}",
   "views.cadence.fleetContribution": "Fact {facts} · Decision {decisions} · 触碰文件 {files}",

@@ -17,7 +17,10 @@ function statusTone(worker: FleetWorkerRow): string {
 function statusBadge(worker: FleetWorkerRow): string {
   if (worker.status === "live") return t("views.cadence.fleetStatus.live");
   if (worker.status === "idle") return t("views.cadence.fleetStatus.idle");
-  if (worker.outcome) return t(`views.cadence.fleetOutcome.${worker.outcome}`);
+  if (worker.outcome === "succeeded") return t("views.cadence.fleetOutcome.succeeded");
+  if (worker.outcome === "failed") return t("views.cadence.fleetOutcome.failed");
+  if (worker.outcome === "cancelled") return t("views.cadence.fleetOutcome.cancelled");
+  if (worker.outcome === "unknown") return t("views.cadence.fleetOutcome.unknown");
   return t("views.cadence.fleetStatus.exited");
 }
 
