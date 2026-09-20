@@ -21,7 +21,7 @@ export const publicReadyPackages = Object.freeze([
   Object.freeze({
     packagePath: "packages/gui/package.json",
     packageName: "@harness-anything/gui",
-    version: "0.1.0",
+    version: "0.0.1",
     repositoryDirectory: "packages/gui",
     bins: Object.freeze({}),
     required: false,

@@ -12,12 +12,11 @@ export type {
 export type * from "./daemon-protocol-gui-types.ts";
 export type * from "./daemon-protocol-task-completion.ts";
 export type * from "./daemon-settings-read-types.ts";
-export { daemonGuiInvokeFacets } from "./daemon-protocol.contract.ts";
-export { daemonGuiActionMethods, daemonGuiStreamFacets } from "./daemon-protocol-gui-actions.ts";
+export { daemonGuiActionMethods, daemonGuiInvokeFacets, daemonGuiStreamFacets } from "./daemon-protocol-gui-actions.ts";
 export { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 export { daemonGuiReadSchemas } from "./daemon-protocol-schema-registry.ts";
 export { validateDaemonTaskCompletion } from "./daemon-protocol-task-completion.ts";
-export { validateDaemonQueryPayload } from "./daemon-protocol-rpc-validation.ts";
+export { validateDaemonQueryPayload } from "./daemon-protocol-validate-relation-query.ts";
 export {
   parseScheduleDuration,
   scheduleDurationUnitMs,
