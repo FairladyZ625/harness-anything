@@ -18,11 +18,16 @@ export interface ViewHistoryStorage {
   setItem(key: string, value: string): void;
 }
 
-const VIEW_IDS: ReadonlySet<string> = new Set<ViewId>([
+// 恢复白名单必须始终覆盖整个 ViewId 联合:漏一个 id,对应视图的存储位置就会被
+// 判非法而回落 overview(freshness/tokenUsage 曾漏)。列表只写这一份,后面的条件
+// 类型让新增 ViewId 忘记登记时在编译期变红,不再靠人眼对齐。
+const VIEW_ID_LIST = [
   "home",
   "overview",
   "board",
   "decisionPool",
+  "freshness",
+  "cadence",
   "decisionDetail",
   "factDetail",
   "graph",
@@ -34,12 +39,18 @@ const VIEW_IDS: ReadonlySet<string> = new Set<ViewId>([
   "artifacts",
   "agentSquad",
   "providers",
+  "tokenUsage",
   "terminal",
   "browser",
   "system",
   "daemonObserve",
   "settings",
-]);
+] as const satisfies readonly ViewId[];
+type MissingViewId = Exclude<ViewId, (typeof VIEW_ID_LIST)[number]>;
+const _viewListExhaustive: MissingViewId extends never ? true : never = true;
+void _viewListExhaustive;
+
+const VIEW_IDS: ReadonlySet<string> = new Set<ViewId>(VIEW_ID_LIST);
 
 function isNullableString(value: unknown): boolean {
   return value === null || typeof value === "string";

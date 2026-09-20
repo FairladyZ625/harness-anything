@@ -16,6 +16,7 @@ import systemDaemonLogs from "./scenarios/system-daemon-logs.mjs";
 import sessionsGrouping from "./scenarios/sessions-grouping.mjs";
 import scheduleRunHistory from "./scenarios/schedule-run-history.mjs";
 import daemonStartupWait from "./scenarios/daemon-startup-wait.mjs";
+import cadenceView from "./scenarios/cadence-view.mjs";
 
 export const catalog = [
   shellNavigation,
@@ -36,6 +37,7 @@ export const catalog = [
   sessionsGrouping,
   scheduleRunHistory,
   daemonStartupWait,
+  cadenceView,
 ];
 
 export function selectScenarios({ lane, ids }) {

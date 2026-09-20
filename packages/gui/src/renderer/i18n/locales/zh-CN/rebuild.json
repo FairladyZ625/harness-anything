@@ -4,6 +4,7 @@
   "shell.nav.board": "看板",
   "shell.nav.decisionPool": "待办签发",
   "shell.nav.freshness": "失真预警",
+  "shell.nav.cadence": "研发态势",
   "shell.nav.graph": "关系图",
   "shell.nav.presets": "预设 / 垂直领域",
   "shell.nav.entities": "实体",

@@ -12,6 +12,7 @@ import { AttestationPoolView } from "../src/renderer/views/AttestationPoolView.t
 import { FactDetailView } from "../src/renderer/views/EntityDetailView.tsx";
 import { DecisionDetailView } from "../src/renderer/components/decisionDetail/DecisionDetailView.tsx";
 import { FreshnessView } from "../src/renderer/views/FreshnessView.tsx";
+import { CadenceView } from "../src/renderer/views/CadenceView.tsx";
 import { freshnessCandidates, inDebtScopeCoverageRows } from "../src/renderer/model/freshness.ts";
 import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import type { DecisionRow } from "../src/renderer/model/types.ts";
@@ -637,6 +638,17 @@ const VIEW_RENDERERS = {
       coverageRows: FRESHNESS_COVERAGE_ROWS,
       relationState: "ready",
       onNavigateEntity: noop,
+    }),
+  // 研发态势:事件窗口来自 mountSurface 的 observe.tail mock(done=true,只读一次);
+  // 议程不传 → 堵点卡片呈读取中,不渲染任何实体 ID。
+  cadence: () =>
+    createElement(CadenceView, {
+      repoId: REPO_ID,
+      projectName: FIXTURE_PROJECT.name,
+      tasks: FIXTURE_TASKS,
+      decisions: FIXTURE_DECISIONS,
+      onNavigateEntity: noop,
+      onOpenPool: noop,
     }),
   decisionDetail: () =>
     createElement(DecisionDetailView, {
