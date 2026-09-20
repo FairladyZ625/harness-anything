@@ -1,22 +1,30 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLineDown, Pause, Play } from "@phosphor-icons/react";
+import { ArrowLineDown, ChartLine, Funnel, Pause, Play, X } from "@phosphor-icons/react";
 import { harnessClient } from "../../api-client.ts";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import type { ObserveTailRead } from "../../../api/renderer-dto.ts";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
+import { ObserveAnomalyCluster } from "./ObserveAnomalyCluster.tsx";
+import { ObserveHudStrip, type ObserveHudWindow, type ObserveTimeSelection } from "./ObserveHudStrip.tsx";
+import { ObserveSlowOpsBoard } from "./ObserveSlowOpsBoard.tsx";
 import {
   applyObserveTailError,
   applyObserveTailPage,
   applyObserveViewing,
-  filterObserveRows,
   filterObserveRowsLog,
   initialObserveTail,
   observePaneCursor,
+  observeRowPasses,
+  observeStatsLog,
   observeTailRequest,
   type ObserveFilterCache,
+  type ObserveLensValue,
   type ObserveRow,
+  type ObserveRowFilter,
+  type ObserveStats,
+  type ObserveStatsCache,
   type ObserveTailCursor,
   type ObserveTailKind,
   type ObserveTailMode,
@@ -70,6 +78,18 @@ const PANE_JUMP_BUTTON = [
   "inline-flex items-center justify-center gap-1 border-t border-border px-2 py-1",
   "ui-micro text-accent hover:bg-surface-raised",
 ].join(" ");
+const PANE_LENS_CHIP = [
+  "inline-flex max-w-[18ch] items-center gap-1 rounded border border-accent/40",
+  "bg-accent/10 px-1.5 py-1 font-mono ui-micro text-accent",
+].join(" ");
+const PANE_LENS_PANEL = [
+  "absolute right-0 z-20 mt-1 flex max-h-64 w-80 flex-col gap-2 overflow-y-auto",
+  "rounded border border-border bg-surface p-2 shadow-lg",
+].join(" ");
+const PANE_LENS_CANDIDATE = [
+  "inline-flex max-w-full items-baseline gap-1 rounded border border-border",
+  "px-1.5 py-0.5 text-left font-mono ui-micro hover:border-accent hover:text-accent",
+].join(" ");
 const kindOptionClass = (selected: boolean) =>
   [
     "px-2.5 py-0.5 ui-micro",
@@ -112,6 +132,13 @@ function rowTone(ok: boolean | null): string {
   return "text-accent";
 }
 
+/** 窗口化消费的最小行序列:ObserveRowLog 与过滤后的普通数组都结构满足。 */
+interface ObserveRowSequence {
+  readonly length: number;
+  at(index: number): ObserveRow | undefined;
+  slice(start?: number, end?: number): readonly ObserveRow[];
+}
+
 export function DaemonTailPane({
   repoId,
   kind,
@@ -119,6 +146,8 @@ export function DaemonTailPane({
   kindOptions,
   onKindChange,
   onNavigateEntity,
+  lens,
+  onLensChange,
 }: {
   readonly repoId: string;
   readonly kind: ObserveTailKind;
@@ -127,16 +156,27 @@ export function DaemonTailPane({
   readonly kindOptions?: readonly { readonly value: ObserveLogKind; readonly label: string; readonly tip?: string }[];
   readonly onKindChange?: (kind: ObserveLogKind) => void;
   readonly onNavigateEntity: (ref: string) => void;
+  /** 双栏联动的透镜词(视图级持有):命中行才可见,点行内方法/透镜候选时由视图写入。 */
+  readonly lens?: string | null;
+  readonly onLensChange?: (lens: string | null) => void;
 }) {
   const [paused, setPaused] = useState(false),
     [query, setQuery] = useState(""),
     [following, setFollowing] = useState(true),
+    // 分析透镜模式:顶部 HUD + 慢操作/异常聚类面板(可折叠);时段来自 HUD 框选。
+    [analytics, setAnalytics] = useState(true),
+    [hudWindow, setHudWindow] = useState<ObserveHudWindow>("15m"),
+    [timeRange, setTimeRange] = useState<ObserveTimeSelection | null>(null),
+    [boardTab, setBoardTab] = useState<"ops" | "anomalies">(kind === "events" ? "anomalies" : "ops"),
+    [lensOpen, setLensOpen] = useState(false),
     // 窗口化输入:滚动体的 scrollTop 与 clientHeight,随 scroll 事件/贴底写入/尺寸变化更新。
     [scroll, setScroll] = useState({ top: 0, height: 0 }),
     bodyRef = useRef<HTMLDivElement>(null),
     selfScroll = useRef(false),
     // 增量过滤缓存:同一 query 只扫新增行(见 filterObserveRowsLog),follow 轮询不重扫全量。
     filterRef = useRef<ObserveFilterCache | null>(null),
+    // 增量统计缓存:HUD/慢操作/异常聚类的数据面(见 observeStatsLog),同版本零重算。
+    statsRef = useRef<ObserveStatsCache | null>(null),
     tail = useObserveTail(repoId, kind, paused),
     snapshot = tail.snapshot,
     rows = useMemo(() => {
@@ -144,13 +184,52 @@ export function DaemonTailPane({
       filterRef.current = next;
       return next.result;
     }, [snapshot.rows, snapshot.rows.version, query]),
+    stats = useMemo(() => {
+      // 面板折叠时不计算;重新展开时缓存按水位增量续用(丢行后自动全量重建)。
+      if (!analytics) return null;
+      const next = observeStatsLog(snapshot.rows, statsRef.current);
+      statsRef.current = next;
+      return next.stats;
+    }, [snapshot.rows, snapshot.rows.version, analytics]),
     isLogPane = kind !== "events",
+    lensNeedle = lens !== undefined && lens !== null ? lens.trim().toLowerCase() : "",
+    lensActive = lensNeedle === "" ? null : lensNeedle,
+    // 透镜与时段是行集之上的正交过滤:rows 已含 query 命中,这里只追加透镜/时段判定;
+    // 备忘在 [rows 版本, lens, 时段] 上,滚动不触发重算。
+    effective: ObserveRowSequence = useMemo(() => {
+      if (lensActive === null && timeRange === null) return rows;
+      const filter: ObserveRowFilter = {
+        needle: "",
+        lens: lensActive,
+        fromMs: timeRange?.fromMs ?? null,
+        toMs: timeRange?.toMs ?? null,
+      };
+      const hits: ObserveRow[] = [];
+      for (const row of rows) if (observeRowPasses(row, filter)) hits.push(row);
+      return hits;
+    }, [rows, rows.version, lensActive, timeRange]),
     // 尾随的触发键是「最后一行」而不是行数:加载历史只改第一行,不应把视口拉到底;
-    // 只有 live follow 改变最后一行时才触发贴底。
-    lastKey = rows.length > 0 ? rows.at(-1)!.key : null,
+    // 只有 live follow 改变最后一行时才触发贴底(时段过滤下的行外追加同样不拉视口)。
+    lastKey = effective.length > 0 ? effective.at(-1)!.key : null,
     // 只渲染视口附近的行;DOM 行数上界与累计加载行数无关(见 observeWindowRange)。
-    rowWindow = observeWindowRange({ total: rows.length, scrollTop: scroll.top, viewportHeight: scroll.height }),
-    visible = rows.slice(rowWindow.start, rowWindow.end);
+    rowWindow = observeWindowRange({
+      total: effective.length,
+      scrollTop: scroll.top,
+      viewportHeight: scroll.height,
+    }),
+    visible = effective.slice(rowWindow.start, rowWindow.end),
+    focusMethod = useCallback(
+      (method: string) => {
+        onLensChange?.(method);
+        setLensOpen(false);
+      },
+      [onLensChange],
+    ),
+    // 行内方法列的透镜出口:只在日志栏且有视图级 lens 通道时挂;事件行一律文本列。
+    methodFocusHandler = onLensChange === undefined ? undefined : focusMethod,
+    focusCluster = useCallback((matchText: string) => setQuery(matchText), []),
+    selectRange = useCallback((selection: ObserveTimeSelection | null) => setTimeRange(selection), []),
+    changeWindow = useCallback((next: ObserveHudWindow) => setHudWindow(next), []);
   useEffect(() => {
     // 用户视角进数据面:上滚回看历史期间 live 增长不裁剪,回到贴底恢复内存上限。
     tail.setViewing(following ? "follow" : "history");
@@ -213,6 +292,26 @@ export function DaemonTailPane({
           </span>
         )}
         <span className="ml-auto flex items-center gap-2">
+          {onLensChange === undefined || lensActive === null ? null : (
+            <span
+              data-testid={`observe-lens-chip-${kind}`}
+              className={PANE_LENS_CHIP}
+              title={t("views.daemonObserve.lensActive", { value: lensActive })}
+            >
+              <Funnel />
+              <span className="truncate">{lensActive}</span>
+              <button
+                type="button"
+                data-testid={`observe-lens-clear-${kind}`}
+                onClick={() => onLensChange(null)}
+                title={t("views.daemonObserve.lensClear")}
+                aria-label={t("views.daemonObserve.lensClear")}
+                className="rounded p-0.5 hover:bg-accent/20"
+              >
+                <X />
+              </button>
+            </span>
+          )}
           <input
             type="text"
             aria-label={t("views.daemonObserve.filterLabel")}
@@ -222,6 +321,17 @@ export function DaemonTailPane({
             onChange={(event) => setQuery(event.target.value)}
             className={PANE_FILTER_INPUT}
           />
+          <button
+            type="button"
+            data-testid={`observe-analytics-toggle-${kind}`}
+            aria-pressed={analytics}
+            onClick={() => setAnalytics((value) => !value)}
+            title={t("views.daemonObserve.analyticsTip")}
+            className={PANE_TOOL_BUTTON}
+          >
+            <ChartLine />
+            {t("views.daemonObserve.analytics")}
+          </button>
           <button
             type="button"
             data-testid={`observe-pause-${kind}`}
@@ -244,10 +354,10 @@ export function DaemonTailPane({
               : t("views.daemonObserve.following")}
         </span>
         <span data-testid={`observe-count-${kind}`}>
-          {rows.length === snapshot.rows.length
+          {effective.length === snapshot.rows.length
             ? t("views.daemonObserve.rowCount", { loaded: String(snapshot.rows.length) })
             : t("views.daemonObserve.rowCountFiltered", {
-                shown: String(rows.length),
+                shown: String(effective.length),
                 loaded: String(snapshot.rows.length),
               })}
           {" · "}
@@ -280,6 +390,93 @@ export function DaemonTailPane({
           {t("views.daemonObserve.errorTitle")} {snapshot.error}
         </p>
       ) : null}
+      {analytics && stats !== null ? (
+        <div data-testid={`observe-analytics-${kind}`} className="border-b border-border bg-surface-raised/30">
+          <ObserveHudStrip
+            testId={`observe-hud-${kind}`}
+            stats={stats}
+            window={hudWindow}
+            onWindowChange={changeWindow}
+            selection={timeRange}
+            onSelectRange={selectRange}
+          />
+          <div className="flex flex-wrap items-center gap-2 px-3 py-1">
+            {isLogPane ? (
+              <button
+                type="button"
+                data-testid={`observe-tab-ops-${kind}`}
+                aria-pressed={boardTab === "ops"}
+                onClick={() => setBoardTab("ops")}
+                className={kindOptionClass(boardTab === "ops")}
+              >
+                {t("views.daemonObserve.tabSlowOps")}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              data-testid={`observe-tab-anomalies-${kind}`}
+              aria-pressed={boardTab === "anomalies"}
+              onClick={() => setBoardTab("anomalies")}
+              className={kindOptionClass(boardTab === "anomalies")}
+            >
+              {t("views.daemonObserve.tabAnomalies")}
+            </button>
+            {onLensChange === undefined ? null : (
+              <span className="relative ml-auto shrink-0">
+                <button
+                  type="button"
+                  data-testid={`observe-lens-${kind}`}
+                  aria-expanded={lensOpen}
+                  onClick={() => setLensOpen((value) => !value)}
+                  className={PANE_TOOL_BUTTON}
+                >
+                  <Funnel />
+                  {t("views.daemonObserve.lensLabel")}
+                </button>
+                {lensOpen ? (
+                  <span data-testid={`observe-lens-panel-${kind}`} className={PANE_LENS_PANEL}>
+                    {lensGroupsOf(stats).map(([label, values]) => (
+                      <span key={label} className="flex flex-col gap-1">
+                        <span className="ui-micro text-text-faint">{label}</span>
+                        <span className="flex flex-wrap gap-1">
+                          {values.map((candidate) => (
+                            <button
+                              key={candidate.value}
+                              type="button"
+                              data-testid={`observe-lens-candidate-${kind}`}
+                              onClick={() => focusMethod(candidate.value)}
+                              title={t("views.daemonObserve.lensCandidateTip")}
+                              className={PANE_LENS_CANDIDATE}
+                            >
+                              <span className="truncate">{candidate.value}</span>
+                              <span className="shrink-0 text-text-faint">×{candidate.count}</span>
+                            </button>
+                          ))}
+                        </span>
+                      </span>
+                    ))}
+                    {lensGroupsOf(stats).length === 0 ? (
+                      <span className="px-1 py-0.5 font-mono ui-micro text-text-faint">
+                        {t("views.daemonObserve.lensEmpty")}
+                      </span>
+                    ) : null}
+                  </span>
+                ) : null}
+              </span>
+            )}
+          </div>
+          {boardTab === "ops" && isLogPane ? (
+            <ObserveSlowOpsBoard testId={`observe-slowops-${kind}`} stats={stats} onFocusMethod={focusMethod} />
+          ) : null}
+          {boardTab === "anomalies" ? (
+            <ObserveAnomalyCluster
+              testId={`observe-anomalies-${kind}`}
+              clusters={stats.clusters}
+              onFocusCluster={focusCluster}
+            />
+          ) : null}
+        </div>
+      ) : null}
       <div
         ref={bodyRef}
         data-testid={`observe-body-${kind}`}
@@ -297,7 +494,14 @@ export function DaemonTailPane({
                 selfScroll.current = true;
                 // 触顶翻页锚定:头部新插入的行 × 固定行高 = 视口应下移的高度
                 // (等高行下与 previousHeight/previousTop 的高度差锚定等价,但免布局回读)。
-                const delta = filterObserveRows(headRows, query).length * OBSERVE_ROW_HEIGHT;
+                // 可见行按当前全部过滤条件(query+透镜+时段)计,与锚定前的可视集一致。
+                const filter: ObserveRowFilter = {
+                  needle: query.trim().toLowerCase(),
+                  lens: lensActive,
+                  fromMs: timeRange?.fromMs ?? null,
+                  toMs: timeRange?.toMs ?? null,
+                };
+                const delta = headRows.filter((row) => observeRowPasses(row, filter)).length * OBSERVE_ROW_HEIGHT;
                 el.scrollTop = previousTop + delta;
                 setScroll({ top: el.scrollTop, height: el.clientHeight });
                 requestAnimationFrame(() => {
@@ -310,7 +514,7 @@ export function DaemonTailPane({
         // 历史页在顶部插入后由上面的行高差显式恢复视口;关闭浏览器锚定以免双重补偿。
         className="min-h-0 flex-1 overflow-y-auto py-1 font-mono ui-micro [overflow-anchor:none]"
       >
-        {rows.length === 0 ? (
+        {effective.length === 0 ? (
           snapshot.status === "live" || snapshot.status === "idle" ? (
             <p data-testid={`observe-empty-${kind}`} className="px-3 py-2 text-text-faint">
               {snapshot.status === "idle" || !snapshot.caughtUp
@@ -324,10 +528,15 @@ export function DaemonTailPane({
           <ol data-testid={`observe-rows-${kind}`}>
             {rowWindow.start === 0 ? null : <li aria-hidden style={{ height: rowWindow.start * OBSERVE_ROW_HEIGHT }} />}
             {visible.map((row) => (
-              <ObserveRowView key={row.key} row={row} onNavigateEntity={onNavigateEntity} />
+              <ObserveRowView
+                key={row.key}
+                row={row}
+                onNavigateEntity={onNavigateEntity}
+                onFocusMethod={methodFocusHandler}
+              />
             ))}
-            {rowWindow.end >= rows.length ? null : (
-              <li aria-hidden style={{ height: (rows.length - rowWindow.end) * OBSERVE_ROW_HEIGHT }} />
+            {rowWindow.end >= effective.length ? null : (
+              <li aria-hidden style={{ height: (effective.length - rowWindow.end) * OBSERVE_ROW_HEIGHT }} />
             )}
           </ol>
         )}
@@ -350,13 +559,16 @@ export function DaemonTailPane({
 /**
  * 单行渲染:memo 化后行对象在快照间保持同一引用,窗口平移只挂/卸进出窗口的行,
  * 留在窗口内的行不重渲。高度由内联 style 固定为 OBSERVE_ROW_HEIGHT(窗口化的前提)。
+ * 日志行的方法列可点(透镜收敛双栏过滤);事件行的实体 chip 仍是实体导航出口。
  */
 const ObserveRowView = memo(function ObserveRowView({
   row,
   onNavigateEntity,
+  onFocusMethod,
 }: {
   readonly row: ObserveRow;
   readonly onNavigateEntity: (ref: string) => void;
+  readonly onFocusMethod: ((method: string) => void) | undefined;
 }) {
   if (row.gapMarker !== null)
     return (
@@ -381,7 +593,19 @@ const ObserveRowView = memo(function ObserveRowView({
     >
       <span className="shrink-0 text-text-faint">{time}</span>
       {row.revision === null ? null : <span className="shrink-0 text-text-faint">#{row.revision}</span>}
-      <span className={`shrink-0 ${rowTone(row.ok)}`}>{row.type}</span>
+      {onFocusMethod !== undefined && row.durationMs !== null ? (
+        <button
+          type="button"
+          data-testid="observe-method-focus"
+          title={t("views.daemonObserve.methodFocusTip")}
+          onClick={() => onFocusMethod(row.type)}
+          className={`shrink-0 ${rowTone(row.ok)} hover:underline`}
+        >
+          {row.type}
+        </button>
+      ) : (
+        <span className={`shrink-0 ${rowTone(row.ok)}`}>{row.type}</span>
+      )}
       <span className="min-w-0 flex-1 truncate text-text-muted">{row.text}</span>
       <span className="flex shrink-0 items-baseline gap-1.5">
         {row.refs.map((chip) => (
@@ -400,6 +624,18 @@ const ObserveRowView = memo(function ObserveRowView({
     </li>
   );
 });
+
+/** 透镜候选分组:空组剔除;候选点击写入视图级 lens,双栏一起收敛。 */
+function lensGroupsOf(stats: ObserveStats): readonly (readonly [string, readonly ObserveLensValue[]])[] {
+  return (
+    [
+      [t("views.daemonObserve.lensTasks"), stats.lens.tasks],
+      [t("views.daemonObserve.lensSessions"), stats.lens.sessions],
+      [t("views.daemonObserve.lensMethods"), stats.lens.methods],
+      [t("views.daemonObserve.lensNodes"), stats.lens.nodes],
+    ] as const
+  ).filter((group) => group[1].length > 0);
+}
 
 function unavailableText(snapshot: ObserveTailSnapshot): string {
   const detail = snapshot.unavailable;

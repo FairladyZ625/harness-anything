@@ -470,29 +470,30 @@ describe("G6-B observe 模型:分页 → 行流", () => {
   });
 });
 
-describe("G6-B observe 视图:两栏实况", () => {
-  function mockTail(pages: {
-    readonly events?: readonly ObserveTailRead[];
-    readonly "repo-log"?: readonly ObserveTailRead[];
-    readonly "daemon-log"?: readonly ObserveTailRead[];
-  }) {
-    const calls: string[] = [];
-    vi.spyOn(harnessClient, "tailObservability").mockImplementation(async (payload) => {
-      const { kind, direction } = payload as {
-        readonly kind: "events" | "repo-log" | "daemon-log";
-        readonly direction: "history" | "follow";
-      };
-      calls.push(kind);
-      const script = pages[kind] ?? [];
-      const page = (script[Math.min(calls.filter((call) => call === kind).length - 1, script.length - 1)] ??
-        logPage("repo-log")) as ObserveTailRead;
-      return direction === "follow"
-        ? ({ ...page, direction, items: [], historyCursor: null, done: true } as ObserveTailRead)
-        : page;
-    });
-    return calls;
-  }
+/** 视图测试共用的 observe.tail mock:按 kind 给定首页脚本,follow 一律返回空页。 */
+function mockTail(pages: {
+  readonly events?: readonly ObserveTailRead[];
+  readonly "repo-log"?: readonly ObserveTailRead[];
+  readonly "daemon-log"?: readonly ObserveTailRead[];
+}) {
+  const calls: string[] = [];
+  vi.spyOn(harnessClient, "tailObservability").mockImplementation(async (payload) => {
+    const { kind, direction } = payload as {
+      readonly kind: "events" | "repo-log" | "daemon-log";
+      readonly direction: "history" | "follow";
+    };
+    calls.push(kind);
+    const script = pages[kind] ?? [];
+    const page = (script[Math.min(calls.filter((call) => call === kind).length - 1, script.length - 1)] ??
+      logPage("repo-log")) as ObserveTailRead;
+    return direction === "follow"
+      ? ({ ...page, direction, items: [], historyCursor: null, done: true } as ObserveTailRead)
+      : page;
+  });
+  return calls;
+}
 
+describe("G6-B observe 视图:两栏实况", () => {
   it("挂载即读三 kind 可用面:事件行与日志行渲染,实体 chip 带 repo 作用域跳转", async () => {
     const calls = mockTail({ events: [EVENT_PAGE], "repo-log": [logPage("repo-log")] }),
       navigated: string[] = [];
@@ -660,5 +661,157 @@ describe("G6-B observe 视图:两栏实况", () => {
     const gap = container.querySelector('[data-testid="observe-gap-repo-log"]');
     expect(gap?.textContent).toContain("file-rotated");
     expect(container.querySelector('[data-testid="observe-empty-repo-log"]')).toBeNull();
+  });
+});
+
+describe("G6-B observe 观察现代化:HUD / 慢操作 / 异常聚类 / 双栏透镜", () => {
+  /** 慢操作与异常混合的 repo-log 首页:2 次 4.8s 级 adjudicate + 常规快调用 + 3 次同类失败。 */
+  function slowLogPage(): ObserveTailRead {
+    const items = [
+      { schema: "daemon-request-log/v1", at: AT, method: "task.adjudicate", ok: true, durationMs: 4_859 },
+      { schema: "daemon-request-log/v1", at: AT, method: "task.adjudicate", ok: true, durationMs: 4_600 },
+      { schema: "daemon-request-log/v1", at: AT, method: "repo.tasks.list", ok: true, durationMs: 4 },
+      { schema: "daemon-request-log/v1", at: AT, method: "repo.tasks.list", ok: true, durationMs: 6 },
+      {
+        schema: "daemon-request-log/v1",
+        at: AT,
+        method: "repo.write",
+        ok: false,
+        code: "repo_locked",
+        durationMs: 1_200,
+      },
+      {
+        schema: "daemon-request-log/v1",
+        at: AT,
+        method: "repo.write",
+        ok: false,
+        code: "repo_locked",
+        durationMs: 1_180,
+      },
+      {
+        schema: "daemon-request-log/v1",
+        at: AT,
+        method: "repo.write",
+        ok: false,
+        code: "repo_locked",
+        durationMs: 1_160,
+      },
+    ];
+    return {
+      schema: "daemon.observe-tail/v3",
+      ok: true,
+      repoId: REPO_ID,
+      mode: "local",
+      kind: "repo-log",
+      direction: "history",
+      status: "ready",
+      items: items as never,
+      historyCursor: { kind: "repo-log", fileId: "file-slow", offset: 0 },
+      liveCursor: { kind: "repo-log", fileId: "file-slow", offset: 700 },
+      sourceCursor: { kind: "repo-log", fileId: "file-slow", offset: 700 },
+      done: true,
+    };
+  }
+
+  async function mountModern(): Promise<HTMLElement> {
+    mockTail({ events: [EVENT_PAGE], "repo-log": [slowLogPage()] });
+    return mountObserve({});
+  }
+
+  it("分析面板默认展开:HUD 柱面渲染,慢操作排行曝光 4.8s 级 adjudicate 与分位卡片", async () => {
+    const container = await mountModern();
+    expect(container.querySelector('[data-testid="observe-analytics-repo-log"]')).not.toBeNull();
+    const bars = container.querySelector('[data-testid="observe-hud-repo-log-bars"]');
+    expect(bars?.querySelectorAll("rect").length).toBeGreaterThan(0);
+    expect(container.querySelector('[data-testid="observe-hud-repo-log-anomalies"]')?.textContent).toContain("3");
+    const board = container.querySelector('[data-testid="observe-slowops-repo-log"]');
+    expect(board?.textContent).toContain("task.adjudicate");
+    expect(board?.textContent).toContain("4859ms");
+    expect(board?.textContent).toContain("P50");
+    expect(board?.textContent).toContain("P95");
+  });
+
+  it("异常聚类去重呈现,点击聚类把过滤框收敛到该指纹", async () => {
+    const container = await mountModern();
+    await act(async () => {
+      (container.querySelector('[data-testid="observe-tab-anomalies-repo-log"]') as HTMLButtonElement).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    const items = container.querySelectorAll('[data-testid="observe-anomalies-repo-log-item"]');
+    expect(items).toHaveLength(1);
+    expect(items[0]!.textContent).toContain("repo_locked");
+    expect(items[0]!.textContent).toContain("×3");
+    await act(async () => {
+      items[0]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const filter = container.querySelector('[data-testid="observe-filter-repo-log"]') as HTMLInputElement;
+    expect(filter.value).toBe("repo_locked");
+    const rows = container.querySelectorAll('[data-testid="observe-pane-repo-log"] [data-testid="observe-row"]');
+    expect(rows).toHaveLength(3);
+  });
+
+  it("点击日志行方法列设置双栏透镜:两栏一起收敛,清除后恢复", async () => {
+    const container = await mountModern();
+    const method = container.querySelector(
+      '[data-testid="observe-pane-repo-log"] [data-testid="observe-method-focus"]',
+    ) as HTMLButtonElement;
+    expect(method.textContent).toContain("task.adjudicate");
+    await act(async () => {
+      method.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    // 双栏联动:左右两栏都出现透镜 chip,行集都收敛到透镜词。
+    expect(container.querySelector('[data-testid="observe-lens-chip-events"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="observe-lens-chip-repo-log"]')?.textContent).toContain(
+      "task.adjudicate",
+    );
+    expect(container.querySelector('[data-testid="observe-rows-events"]')).toBeNull();
+    expect(
+      container.querySelectorAll('[data-testid="observe-pane-repo-log"] [data-testid="observe-row"]'),
+    ).toHaveLength(2);
+    await act(async () => {
+      (container.querySelector('[data-testid="observe-lens-clear-events"]') as HTMLButtonElement).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    expect(container.querySelector('[data-testid="observe-lens-chip-events"]')).toBeNull();
+    expect(container.querySelector('[data-testid="observe-lens-chip-repo-log"]')).toBeNull();
+    expect(
+      container.querySelectorAll('[data-testid="observe-pane-repo-log"] [data-testid="observe-row"]'),
+    ).toHaveLength(7);
+  });
+
+  it("透镜候选下拉按频次给活跃实体,事件栏含 task 引用", async () => {
+    const container = await mountModern();
+    await act(async () => {
+      (container.querySelector('[data-testid="observe-lens-events"]') as HTMLButtonElement).dispatchEvent(
+        new MouseEvent("click", { bubbles: true }),
+      );
+    });
+    const panel = container.querySelector('[data-testid="observe-lens-panel-events"]');
+    expect(panel?.textContent).toContain(TASK_ID);
+    const candidates = container.querySelectorAll('[data-testid="observe-lens-candidate-events"]');
+    expect(candidates.length).toBeGreaterThanOrEqual(1);
+    await act(async () => {
+      candidates[0]!.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(container.querySelector('[data-testid="observe-lens-chip-repo-log"]')).not.toBeNull();
+    expect(container.querySelectorAll('[data-testid="observe-pane-events"] [data-testid="observe-row"]')).toHaveLength(
+      1,
+    );
+  });
+
+  it("分析折叠开关收起 HUD 与看板,流行为不受影响", async () => {
+    const container = await mountModern();
+    const toggle = container.querySelector('[data-testid="observe-analytics-toggle-events"]') as HTMLButtonElement;
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    await act(async () => {
+      toggle.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(container.querySelector('[data-testid="observe-analytics-events"]')).toBeNull();
+    expect(container.querySelectorAll('[data-testid="observe-pane-events"] [data-testid="observe-row"]')).toHaveLength(
+      3,
+    );
   });
 });
