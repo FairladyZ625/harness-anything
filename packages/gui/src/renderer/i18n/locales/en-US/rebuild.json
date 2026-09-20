@@ -1,6 +1,7 @@
 {
   "shell.nav.home": "Projects",
   "shell.nav.overview": "Overview",
+  "shell.nav.overviewNext": "Overview (new)",
   "shell.nav.board": "Board",
   "shell.nav.decisionPool": "Approvals",
   "shell.nav.freshness": "Drift Alerts",

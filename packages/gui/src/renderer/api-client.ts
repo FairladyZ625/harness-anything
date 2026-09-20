@@ -89,6 +89,7 @@ export interface AgendaSuccess
     | "pinnedEntityOverflow"
     | "inFlight"
     | "awaitingDecision"
+    | "awaitingRework"
     | "waitingOnOthers"
     | "dispatchable"
     | "summary"

@@ -4,6 +4,7 @@ import type { SnapshotStatus, TaskRow } from "./model/types.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
 import { OverviewView } from "./views/OverviewView.tsx";
+import { OverviewNextView } from "./views/OverviewNextView.tsx";
 import { BoardView } from "./views/BoardView.tsx";
 import { AttestationPoolView } from "./views/AttestationPoolView.tsx";
 import { FactDetailView } from "./views/EntityDetailView.tsx";
@@ -150,16 +151,24 @@ function AppShell() {
   // 回退保真(G10):导航栈恢复应用位置;这里在它旁边恢复 DOM 层的滚动与焦点。
   useLocationRestore(location, document.body);
   const { view, selectedId, previewId, focusedEntityRef, taskFilters, drill } = location;
-  const taskWipQuery = useTaskWipQuery(activeRepoId, view === "overview" || view === "board");
+  const taskWipQuery = useTaskWipQuery(
+    activeRepoId,
+    view === "overview" || view === "overviewNext" || view === "board",
+  );
   // 总览的「PIN 在做」与研发态势的堵点计数直接消费 `ha agenda` 同一条 repo.agenda.read
   // 投影。其他视图不挂载这条读,避免把已删除的独立议程页变成后台读取。
+  // 总览(新)(S3)的「需要你处理 / 重点工作(置顶)」同一条投影,不另立读。
   const agendaQuery = useAgendaQuery(
-    activeRepoId !== null && (view === "overview" || view === "cadence") ? activeRepoId : null,
+    activeRepoId !== null && (view === "overview" || view === "overviewNext" || view === "cadence")
+      ? activeRepoId
+      : null,
   );
-  const cadenceSessionsQuery = useQuery({
+  // 运行 overview 读(cadence 与总览(新)共用同一 query key,react-query 去重):
+  // 「当前执行」的 live/active 分列只消费这一条的 sessions。
+  const runtimeSessionsQuery = useQuery({
     queryKey: [...runtimeQueryKeys.overview(projectId, "cadence"), "fleet"],
     queryFn: () => agentRuntimeClient.overview(projectId),
-    enabled: activeRepoId !== null && view === "cadence",
+    enabled: activeRepoId !== null && (view === "cadence" || view === "overviewNext"),
     staleTime: 4_000,
   });
   const setTaskFilters = useCallback((next: TaskFilters) => updateLocation({ taskFilters: next }), [updateLocation]);
@@ -543,6 +552,45 @@ function AppShell() {
                 ) : (
                   <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
                 )
+              ) : view === "overviewNext" ? (
+                workspaceSummaryQuery.data ? (
+                  <OverviewNextView
+                    repoId={projectId}
+                    project={project}
+                    tasks={projectTasks}
+                    agenda={agendaQuery.data}
+                    agendaError={agendaQuery.error instanceof Error ? agendaQuery.error.message : null}
+                    activeSessions={runtimeSessionsQuery.data?.sessions ?? []}
+                    runtimeError={
+                      runtimeSessionsQuery.error instanceof Error ? runtimeSessionsQuery.error.message : null
+                    }
+                    health={runtimeHealth}
+                    daemonReadFailed={daemonReadFailed}
+                    ledgerRevision={
+                      tasksQuery.data
+                        ? { watermark: tasksQuery.data.watermark, sourceRevision: tasksQuery.data.sourceRevision }
+                        : null
+                    }
+                    onNavigateEntity={navigateToEntity}
+                    // 组工作页下钻的单点切换位:S1(task_e3f53eb9)组工作空间未合入,
+                    // 当前落现有任务详情;S1 合入后只改这一行。
+                    onOpenGroup={navigateToTask}
+                    onSelectRuntimeEntity={selectRuntimeEntity}
+                    onOpenPool={() =>
+                      navigate({
+                        view: "decisionPool",
+                        poolTab: "decisions",
+                        focusedEntityRef: null,
+                        selectedId: null,
+                        previewId: null,
+                        drill: null,
+                      })
+                    }
+                    onOpenSessions={() => goto("sessions")}
+                  />
+                ) : (
+                  <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
+                )
               ) : view === "board" ? (
                 <BoardView
                   tasks={filteredProjectTasks}
@@ -664,7 +712,7 @@ function AppShell() {
                   tasks={projectTasks}
                   agenda={agendaQuery.data}
                   decisions={decisionSummary.decisions}
-                  activeSessions={cadenceSessionsQuery.data?.sessions ?? []}
+                  activeSessions={runtimeSessionsQuery.data?.sessions ?? []}
                   onNavigateEntity={navigateToEntity}
                   onOpenPool={() =>
                     // 堵点直达的总池出口:决策待裁域(与总览收件箱同一条可寻址路由)。

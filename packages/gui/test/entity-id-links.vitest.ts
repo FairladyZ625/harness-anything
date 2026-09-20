@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HomeView } from "../src/renderer/views/HomeView.tsx";
 import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
+import { OverviewNextView } from "../src/renderer/views/OverviewNextView.tsx";
 import { deriveRuntimeHealth } from "../src/renderer/model/runtime-health.ts";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
 import { AttestationPoolView } from "../src/renderer/views/AttestationPoolView.tsx";
@@ -582,6 +583,24 @@ const VIEW_RENDERERS = {
       onDrill: noop,
       onOpenInbox: noop,
       onOpenDecision: noop,
+    }),
+  overviewNext: () =>
+    createElement(OverviewNextView, {
+      repoId: REPO_ID,
+      project: FIXTURE_PROJECT,
+      tasks: FIXTURE_TASKS,
+      agenda: FIXTURE_AGENDA,
+      agendaError: null,
+      activeSessions: FIXTURE_RUNTIME_OVERVIEW.sessions,
+      runtimeError: null,
+      health: SYSTEM_HEALTH,
+      daemonReadFailed: false,
+      ledgerRevision: { watermark: 7, sourceRevision: 7 },
+      onNavigateEntity: noop,
+      onOpenGroup: noop,
+      onSelectRuntimeEntity: noop,
+      onOpenPool: noop,
+      onOpenSessions: noop,
     }),
   board: () =>
     createElement(BoardView, {
