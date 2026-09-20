@@ -100,11 +100,6 @@ for (const workspace of [
       record(`${workspace} must declare repository.directory ${publicContract.repositoryDirectory}`);
     for (const [name, target] of Object.entries(publicContract.bins))
       if (packageJson.bin?.[name] !== target) record(`${workspace} must declare bin ${name} as ${target}`);
-  } else if (workspace === "packages/gui/package.json") {
-    if (packageJson.private !== true) record(`${workspace} must remain private`);
-    if (packageJson.version !== harnessRuntimeReleaseReadiness.releaseBoundary.productVersion) {
-      record(`${workspace} must be ${harnessRuntimeReleaseReadiness.releaseBoundary.productVersion}`);
-    }
   } else {
     if (packageJson.private !== true) record(`${workspace} must remain private before an explicit release task`);
     if (packageJson.version !== harnessRuntimeReleaseReadiness.releaseBoundary.internalWorkspaceVersion) {

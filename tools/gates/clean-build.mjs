@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, lstatSync, mkdtempSync, readFileSync, readdirSync, symlinkSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -19,7 +19,11 @@ function run(command, args, options) {
     ...(process.platform === "win32" ? { windowsVerbatimArguments: true } : {}),
   });
   const startup = result.error ? ` [${result.error.code ?? "spawn_error"}] ${result.error.message}` : "";
-  return { ok: result.status === 0, status: result.status, output: `${result.stdout ?? ""}${result.stderr ?? ""}`.trim() + startup };
+  return {
+    ok: result.status === 0,
+    status: result.status,
+    output: `${result.stdout ?? ""}${result.stderr ?? ""}`.trim() + startup,
+  };
 }
 
 function npmInvocation(args) {
@@ -57,13 +61,15 @@ function targetStrings(value) {
 }
 
 function manifestTargets(manifest) {
-  return [...new Set([
-    ...targetStrings(manifest.exports),
-    ...targetStrings(manifest.imports),
-    ...targetStrings(manifest.bin),
-    ...targetStrings(manifest.main),
-    ...targetStrings(manifest.types)
-  ])];
+  return [
+    ...new Set([
+      ...targetStrings(manifest.exports),
+      ...targetStrings(manifest.imports),
+      ...targetStrings(manifest.bin),
+      ...targetStrings(manifest.main),
+      ...targetStrings(manifest.types),
+    ]),
+  ];
 }
 
 function inspectTargets(rootDir, manifests, stage) {
@@ -81,7 +87,8 @@ function inspectTargets(rootDir, manifests, stage) {
       if (stage === "before" && GENERATED_SEGMENT.test(normalized) && existsSync(absoluteTarget)) {
         errors.push(`${manifestPath}: generated target is present before the clean build: ${target}`);
       }
-      if (stage === "after" && !existsSync(absoluteTarget)) errors.push(`${manifestPath}: unresolved export/bin target after build: ${target}`);
+      if (stage === "after" && !existsSync(absoluteTarget))
+        errors.push(`${manifestPath}: unresolved export/bin target after build: ${target}`);
     }
   }
   return errors;
@@ -97,7 +104,9 @@ function sourceDistReferences(rootDir) {
       const fullPath = path.join(directory, entry.name);
       if (entry.isDirectory()) walk(fullPath);
       else if (/\.(?:c|m)?js$|\.(?:d\.)?tsx?$/u.test(entry.name) && sourceImport.test(readFileSync(fullPath, "utf8"))) {
-        errors.push(`${path.relative(rootDir, fullPath).split(path.sep).join("/")}: source imports a generated dist/build/out path`);
+        errors.push(
+          `${path.relative(rootDir, fullPath).split(path.sep).join("/")}: source imports a generated dist/build/out path`,
+        );
       }
     }
   };
@@ -109,10 +118,43 @@ function createArchiveTree(rootDir) {
   const tempRoot = mkdtempSync(path.join(tmpdir(), "rebuild-clean-build-"));
   const archive = spawnSync("git", ["archive", "--format=tar", "HEAD"], { cwd: rootDir, maxBuffer: 128 * 1024 * 1024 });
   if (archive.status !== 0) throw new Error(`git archive failed: ${String(archive.stderr)}`);
-  const extract = spawnSync("tar", ["-xf", "-", "-C", tempRoot], { input: archive.stdout, maxBuffer: 128 * 1024 * 1024 });
+  const extract = spawnSync("tar", ["-xf", "-", "-C", tempRoot], {
+    input: archive.stdout,
+    maxBuffer: 128 * 1024 * 1024,
+  });
   if (extract.status !== 0) throw new Error(`tar extraction failed: ${String(extract.stderr)}`);
   const dependencies = path.join(rootDir, "node_modules");
-  if (existsSync(dependencies)) symlinkSync(dependencies, path.join(tempRoot, "node_modules"), process.platform === "win32" ? "junction" : "dir");
+  if (existsSync(dependencies)) {
+    const tempNodeModules = path.join(tempRoot, "node_modules");
+    mkdirSync(tempNodeModules, { recursive: true });
+    for (const entry of readdirSync(dependencies)) {
+      if (entry === "@harness-anything") continue;
+      symlinkSync(
+        path.join(dependencies, entry),
+        path.join(tempNodeModules, entry),
+        process.platform === "win32" ? "junction" : "dir",
+      );
+    }
+    const scopeSource = path.join(dependencies, "@harness-anything");
+    if (existsSync(scopeSource)) {
+      const scopeTarget = path.join(tempNodeModules, "@harness-anything");
+      mkdirSync(scopeTarget, { recursive: true });
+      for (const entry of readdirSync(scopeSource)) {
+        const workspaceTarget = existsSync(path.join(tempRoot, "packages", entry))
+          ? path.join(tempRoot, "packages", entry)
+          : existsSync(path.join(tempRoot, "packages/adapters", entry.replace(/^adapter-/u, "")))
+            ? path.join(tempRoot, "packages/adapters", entry.replace(/^adapter-/u, ""))
+            : null;
+        if (workspaceTarget) {
+          symlinkSync(
+            workspaceTarget,
+            path.join(scopeTarget, entry),
+            process.platform === "win32" ? "junction" : "dir",
+          );
+        }
+      }
+    }
+  }
   return tempRoot;
 }
 
@@ -125,7 +167,12 @@ export function evaluateCleanBuild(rootDir) {
     errors.push(...inspectTargets(tempRoot, manifests, "before"));
     errors.push(...sourceDistReferences(tempRoot));
     const rootManifest = JSON.parse(readFileSync(path.join(tempRoot, "package.json"), "utf8"));
-    const rootBuild = rootManifest.scripts?.build !== undefined ? "build" : rootManifest.scripts?.typecheck !== undefined ? "typecheck" : null;
+    const rootBuild =
+      rootManifest.scripts?.build !== undefined
+        ? "build"
+        : rootManifest.scripts?.typecheck !== undefined
+          ? "typecheck"
+          : null;
     if (rootBuild !== null) {
       const result = run("npm", ["run", rootBuild], { cwd: tempRoot });
       commands.push(`npm run ${rootBuild}`);
@@ -134,8 +181,14 @@ export function evaluateCleanBuild(rootDir) {
     for (const manifestPath of manifests.filter((entry) => entry !== "package.json")) {
       const manifest = JSON.parse(readFileSync(path.join(tempRoot, manifestPath), "utf8"));
       if (manifest.scripts?.build === undefined) continue;
-      const unresolvedRuntimeTarget = [...targetStrings(manifest.exports), ...targetStrings(manifest.bin), ...targetStrings(manifest.main)]
-        .some((target) => !existsSync(path.join(path.dirname(path.join(tempRoot, manifestPath)), target.replace(/^\.\//u, ""))));
+      const unresolvedRuntimeTarget = [
+        ...targetStrings(manifest.exports),
+        ...targetStrings(manifest.bin),
+        ...targetStrings(manifest.main),
+      ].some(
+        (target) =>
+          !existsSync(path.join(path.dirname(path.join(tempRoot, manifestPath)), target.replace(/^\.\//u, ""))),
+      );
       if (!unresolvedRuntimeTarget) continue;
       const result = run("npm", ["run", "build", "--workspace", manifest.name], { cwd: tempRoot });
       commands.push(`npm run build --workspace ${manifest.name}`);
@@ -144,7 +197,8 @@ export function evaluateCleanBuild(rootDir) {
     errors.push(...inspectTargets(tempRoot, manifests, "after"));
     return { ok: errors.length === 0, errors, commands };
   } finally {
-    if (existsSync(tempRoot) && lstatSync(tempRoot).isDirectory()) removeTemporaryDirectorySync(tempRoot, { retryDelayMs: 20 });
+    if (existsSync(tempRoot) && lstatSync(tempRoot).isDirectory())
+      removeTemporaryDirectorySync(tempRoot, { retryDelayMs: 20 });
   }
 }
 
