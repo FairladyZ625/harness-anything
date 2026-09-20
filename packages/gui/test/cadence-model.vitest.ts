@@ -15,7 +15,7 @@ import {
   type CadenceFeedEvent,
 } from "../src/renderer/model/cadence.ts";
 import { deriveFleetPulse } from "../src/renderer/model/cadence-fleet.ts";
-import type { AgentRuntimeSessionDto } from "../../daemon/src/agent-runtime-contract.ts";
+import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
 
 /**
  * 研发态势纯聚合引擎的判据(输入是 observe.tail events item 的结构子集):
