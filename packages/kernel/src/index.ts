@@ -320,6 +320,7 @@ export {
   configureLedgerMaintenance,
   HARNESS_LEDGER_WRITER_ENV,
   installLedgerCommitGuard,
+  localGitWorktreeSettlement,
   localGitObjectRefStore,
   createEntityStore,
   ledgerGitPath,

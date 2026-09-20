@@ -461,14 +461,11 @@ test("a locally edited task plan becomes a CLI doc conflict that the conflict co
     assert.equal(amended.status, "accepted_durable", JSON.stringify(amended));
     // The dirty plan keeps worktree_visible unsatisfied; the Git cut is the follower run that writes the scratch.
     await published(fixture, amended, environment, "git_verified");
-    const scratches = readdirSync(packageRoot).filter((name) => /^task_plan\.conflict-[0-9a-f]{8}\.md$/u.test(name));
-    assert.equal(
-      scratches.length,
-      1,
-      `expected one conflict scratch, found ${JSON.stringify(readdirSync(packageRoot))}`,
-    );
-    const conflictId = /^task_plan\.conflict-([0-9a-f]{8})\.md$/u.exec(scratches[0]!)![1]!,
-      scratchPath = path.join(packageRoot, scratches[0]!);
+    const conflictRoot = path.join(fixture.root, ".harness/conflicts/doc-sync"),
+      scratches = readdirSync(conflictRoot).filter((name) => /^doc-[0-9a-f]{64}$/u.test(name));
+    assert.equal(scratches.length, 1, `expected one conflict record, found ${JSON.stringify(scratches)}`);
+    const conflictId = scratches[0]!,
+      scratchPath = path.join(conflictRoot, conflictId, "local");
     assert.equal(readFileSync(scratchPath, "utf8"), driftedBody);
     assert.match(readFileSync(planPath, "utf8"), new RegExp(`^# ${renamed}$`, "mu"));
     const conflicted = await expectApplied(fixture, ["doc", "status", "--path", planLogical], environment);
@@ -484,7 +481,11 @@ test("a locally edited task plan becomes a CLI doc conflict that the conflict co
         )?.unresolvedTouches ?? [];
     assert.notEqual(blockedSync.status, 0, blockedSync.stdout);
     assert.equal(blockedReceipt.outcome, "op_rejected", blockedSync.stdout);
-    assert.match(String(blockedReceipt.nextActions ?? ""), /ha doc conflict resolve [0-9a-f]{8}/u, blockedSync.stdout);
+    assert.match(
+      String(blockedReceipt.nextActions ?? ""),
+      /ha doc conflict resolve doc-[0-9a-f]{64}/u,
+      blockedSync.stdout,
+    );
     assert.equal(unresolved.length, 1, blockedSync.stdout);
     assert.equal(unresolved[0]?.requiredRoute, "local-conflict-resolution", blockedSync.stdout);
     assert.match(unresolved[0]?.reason ?? "", /local conflict scratch requires resolution/u, blockedSync.stdout);

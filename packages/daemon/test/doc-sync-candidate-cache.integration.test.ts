@@ -6,7 +6,14 @@ import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, makeTaskEventStore, makeTaskProjection, sha256Text } from "../../kernel/src/index.ts";
+import {
+  localGitWorktreeSettlement,
+  makeTaskEventReader,
+  makeTaskEventStore,
+  makeTaskProjection,
+  resolveHarnessLayout,
+  sha256Text,
+} from "../../kernel/src/index.ts";
 import { runDocAction } from "../src/doc-sync-command-actions.ts";
 import { scanAuthoredCandidateInventory, scanDocCandidates } from "../src/doc-sync-candidate-scanner.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -34,6 +41,13 @@ test("doc status reuses unchanged file inputs and observes accepted updates, dra
     spy = t.mock.method(fs, "readFileSync", (...args: Parameters<typeof fs.readFileSync>) => {
       if (corpus.has(String(args[0]))) reads++;
       return original(...args);
+    }),
+    originalReaddir = fs.readdirSync,
+    authoredRoot = path.join(rootDir, "harness"),
+    authoredReaddir = t.mock.method(fs, "readdirSync", (...args: Parameters<typeof fs.readdirSync>) => {
+      if (String(args[0]) === authoredRoot || String(args[0]).startsWith(`${authoredRoot}${path.sep}`))
+        throw new Error(`doc candidate scan recursively read authored directory ${String(args[0])}`);
+      return originalReaddir(...args);
     });
   syncBuiltinESMExports();
   const status = () =>
@@ -48,6 +62,16 @@ test("doc status reuses unchanged file inputs and observes accepted updates, dra
     });
   try {
     for (const [i, logical] of paths.entries()) write(rootDir, logical, `# Document ${i}\n\n${"body ".repeat(1024)}\n`);
+    const unselected = scanDocCandidates({
+      rootDir,
+      workspaceId: repoId,
+      store,
+      projection,
+      actor,
+      source: "local",
+      now: "2026-09-09T00:00:00.000Z",
+    });
+    assert.equal(unselected.rows.length, paths.length, "unselected scan still enumerates Git candidates");
     const cold = await status();
     assert.equal(reads, paths.length, "cold status must load every actual candidate");
     reads = 0;
@@ -95,7 +119,12 @@ test("doc status reuses unchanged file inputs and observes accepted updates, dra
     assert.equal(cut.rows[0].baseBlobSha256, sha256Text(updated));
     assert.equal(cut.baseLedgerSha.revision, update.revision);
 
-    write(rootDir, logical.replace(/\.md$/u, ".conflict-deadbeef.md"), "# Local conflict\n");
+    const scratch = localGitWorktreeSettlement.preserveVisibleConflict(
+      resolveHarnessLayout(rootDir),
+      target,
+      `harness/${logical}`,
+      "cache-conflict-cut",
+    );
     reads = 0;
     const conflict = await status();
     assert.equal(reads, 0, "conflict discovery must stay live without reloading unchanged bodies");
@@ -105,7 +134,9 @@ test("doc status reuses unchanged file inputs and observes accepted updates, dra
     const deleted = await status();
     assert.equal(rows(deleted.evidence)[0]?.state, "deletion");
     write(rootDir, logical, updated);
-    rmSync(target.replace(/\.md$/u, ".conflict-deadbeef.md"));
+    const conflictId = /^\.harness\/conflicts\/doc-sync\/(doc-[0-9a-f]{64})\/local$/u.exec(scratch)?.[1];
+    assert.ok(conflictId);
+    localGitWorktreeSettlement.settleDocSyncConflict(rootDir, conflictId);
     assert.equal(rows((await status()).evidence)[0]?.state, "clean");
 
     projection.close();
@@ -121,6 +152,7 @@ test("doc status reuses unchanged file inputs and observes accepted updates, dra
     t.diagnostic(`accepted receipts=2; latest revision=${update.revision}; restart file loads=${reads}`);
   } finally {
     spy.mock.restore();
+    authoredReaddir.mock.restore();
     syncBuiltinESMExports();
     projection.close();
     await store.drain();

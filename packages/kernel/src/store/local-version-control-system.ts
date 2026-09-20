@@ -25,6 +25,7 @@ import { open as openAsync } from "node:fs/promises";
 import path from "node:path";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 import { consumeKnownError } from "../error-consumption.ts";
+import { normalizeRelativeDocumentPath, resolveHarnessLayout, type HarnessLayout } from "../layout/index.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import type { VcsCommitAuthor, VersionControlSystem } from "../ports/version-control-system.ts";
 import { VcsCommandError } from "../ports/version-control-system.ts";
@@ -607,8 +608,7 @@ export const localGitWorktreeSettlement = Object.freeze({
     for (const logical of logicalPaths) {
       const target = path.join(repoRoot, ...logical.split("/"));
       try {
-        /* @gate-identity check-bypass-write-boundary/bypass-write-134 */
-        rmdirSync(target);
+        removeEmptyDirectory(target);
       } catch (error) {
         consumeKnownError(error);
         if (existsSync(target)) preserved.push(logical);
@@ -665,13 +665,28 @@ export const localGitWorktreeSettlement = Object.freeze({
     );
     return 1;
   },
-  preserveConflict: (repoRoot: string, target: string, logical: string, commit: string): string =>
-    preserveConflict(repoRoot, target, logical, commit, true),
-  preserveVisibleConflict: (repoRoot: string, target: string, logical: string, cutIdentity: string): string =>
-    preserveConflict(repoRoot, target, logical, cutIdentity, false),
+  preserveConflict: (layout: HarnessLayout, target: string, logical: string, commit: string): string =>
+    preserveConflict(layout, target, logical, commit, true),
+  preserveVisibleConflict: (layout: HarnessLayout, target: string, logical: string, cutIdentity: string): string =>
+    preserveConflict(layout, target, logical, cutIdentity, false),
+  docSyncConflicts: (layout: HarnessLayout): readonly DocSyncConflictRecord[] => docSyncConflicts(layout),
+  docSyncConflict: (rootDir: string, conflictId: string): DocSyncConflictRecord | null =>
+    docSyncConflict(rootDir, conflictId),
+  settleDocSyncConflict: (rootDir: string, conflictId: string): void => settleDocSyncConflict(rootDir, conflictId),
 });
+export interface DocSyncConflictRecord {
+  readonly schema: "doc-sync-conflict/v1";
+  readonly conflictId: string;
+  readonly logicalPath: string;
+  readonly sourceWorkspaceId: string;
+  readonly baseIdentity: string;
+  readonly operation: "durable-preservation" | "visible-preservation";
+  readonly mode: "100644" | "120000";
+  readonly contentSha256: string;
+  readonly localPath: string;
+}
 function preserveConflict(
-  repoRoot: string,
+  layout: HarnessLayout,
   target: string,
   logical: string,
   identity: string,
@@ -679,22 +694,70 @@ function preserveConflict(
 ): string {
   const node = readNode(target);
   if (!node) throw new Error(`conflicting worktree node disappeared at ${logical}`);
-  const extension = path.extname(target),
-    stem = target.slice(0, target.length - extension.length),
-    id = hashVcsBytes("sha256", `${logical}\0${identity}\0${node.mode}\0${node.sha256}`).slice(0, 8),
-    scratch = `${stem}.conflict-${id}${extension}`,
-    relative = path.relative(repoRoot, scratch).split(path.sep).join("/");
-  ensureConflictExclude(repoRoot);
-  if (!readNode(scratch)) {
-    if (node.mode === "120000")
-      /* @gate-identity check-bypass-write-boundary/bypass-write-078 */
-      symlinkSync(node.body, scratch);
-    else if (durable) durableWrite(scratch, node.bytes);
-    else
-      /* @gate-identity check-bypass-write-boundary/bypass-write-089 */
-      writeFileSync(scratch, node.bytes, { mode: 0o600 });
-  }
-  return relative;
+  const logicalPath = path.relative(layout.authoredRoot, target).split(path.sep).join("/"),
+    sourceWorkspaceId = hashVcsBytes("sha256", layout.rootDir),
+    operation = durable ? ("durable-preservation" as const) : ("visible-preservation" as const),
+    conflictId = `doc-${hashVcsBytes(
+      "sha256",
+      `${logicalPath}\0${sourceWorkspaceId}\0${identity}\0${operation}\0${node.mode}\0${node.sha256}`,
+    )}`,
+    directory = path.join(layout.localRoot, "conflicts", "doc-sync", conflictId),
+    local = path.join(directory, "local"),
+    localPath = path.relative(layout.rootDir, local).split(path.sep).join("/"),
+    record: DocSyncConflictRecord = {
+      schema: "doc-sync-conflict/v1",
+      conflictId,
+      logicalPath,
+      sourceWorkspaceId,
+      baseIdentity: identity,
+      operation,
+      mode: node.mode,
+      contentSha256: node.sha256,
+      localPath,
+    };
+  if (!existsSync(local)) durableWrite(local, node.bytes);
+  const manifest = path.join(directory, "manifest.json"),
+    body = Buffer.from(`${JSON.stringify(record, null, 2)}\n`, "utf8");
+  if (!existsSync(manifest)) durableWrite(manifest, body);
+  return localPath;
+}
+function docSyncConflicts(layout: HarnessLayout): readonly DocSyncConflictRecord[] {
+  const root = path.join(layout.localRoot, "conflicts", "doc-sync");
+  if (!existsSync(root)) return [];
+  return readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && /^doc-[0-9a-f]{64}$/u.test(entry.name))
+    .map((entry) => docSyncConflict(layout, entry.name))
+    .filter((record): record is DocSyncConflictRecord => record !== null)
+    .sort((left, right) => left.conflictId.localeCompare(right.conflictId));
+}
+function docSyncConflict(root: string | HarnessLayout, conflictId: string): DocSyncConflictRecord | null {
+  if (!/^doc-[0-9a-f]{64}$/u.test(conflictId)) return null;
+  const layout = typeof root === "string" ? resolveHarnessLayout(root) : root,
+    directory = path.join(layout.localRoot, "conflicts", "doc-sync", conflictId),
+    manifest = path.join(directory, "manifest.json");
+  if (!existsSync(manifest)) return null;
+  const record = JSON.parse(readFileSync(manifest, "utf8")) as DocSyncConflictRecord,
+    logicalPath = normalizeRelativeDocumentPath(record.logicalPath),
+    local = path.join(directory, "local"),
+    localNode = readNode(local),
+    localPath = path.relative(layout.rootDir, local).split(path.sep).join("/");
+  if (
+    record.schema !== "doc-sync-conflict/v1" ||
+    record.conflictId !== conflictId ||
+    record.logicalPath !== logicalPath ||
+    record.localPath !== localPath ||
+    localNode === null ||
+    localNode.sha256 !== record.contentSha256
+  )
+    throw new Error(`invalid doc-sync conflict record: ${conflictId}`);
+  return record;
+}
+function settleDocSyncConflict(rootDir: string, conflictId: string): void {
+  const layout = resolveHarnessLayout(rootDir),
+    directory = path.join(layout.localRoot, "conflicts", "doc-sync", conflictId);
+  removeNode(path.join(directory, "local"));
+  removeNode(path.join(directory, "manifest.json"));
+  removeEmptyDirectory(directory);
 }
 function readNode(target: string): {
   readonly mode: "100644" | "120000";
@@ -729,6 +792,10 @@ function removeNode(target: string): void {
   } catch (error) {
     consumeKnownError(error);
   }
+}
+function removeEmptyDirectory(target: string): void {
+  /* @gate-identity check-bypass-write-boundary/bypass-write-134 */
+  rmdirSync(target);
 }
 // Settlement markers sit beside their target because rename(2) is only atomic
 // within one filesystem, and "same directory" is the one placement that
@@ -784,20 +851,6 @@ function gitBlobOidBytes(bytes: Uint8Array): string {
 }
 function hashVcsBytes(algorithm: "sha256", body: string | Uint8Array): string {
   return createHash(algorithm).update(body).digest("hex");
-}
-function ensureConflictExclude(repoRoot: string): void {
-  const dotGit = path.join(repoRoot, ".git"),
-    gitDir = statSync(dotGit).isDirectory()
-      ? dotGit
-      : path.resolve(repoRoot, /^gitdir: (.+)$/mu.exec(readFileSync(dotGit, "utf8"))?.[1] ?? ""),
-    target = path.join(gitDir, "info/exclude"),
-    marker = "*.conflict-*\n";
-  /* @gate-identity check-bypass-write-boundary/bypass-write-085 */
-  mkdirSync(path.dirname(target), { recursive: true });
-  const current = existsSync(target) ? readFileSync(target, "utf8") : "";
-  if (!current.split(/\r?\n/u).includes("*.conflict-*"))
-    /* @gate-identity check-bypass-write-boundary/bypass-write-086 */
-    writeFileSync(target, `${current}${current && !current.endsWith("\n") ? "\n" : ""}${marker}`);
 }
 function durableWrite(target: string, body: Uint8Array): void {
   const directory = path.dirname(target),

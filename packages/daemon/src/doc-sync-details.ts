@@ -17,7 +17,6 @@ import {
   type WriteSource,
 } from "../../kernel/src/index.ts";
 import type { Input } from "./doc-sync-command-actions.ts";
-import { syncDirectory } from "./durable-file.ts";
 import { localProseSource } from "./doc-sync-files.ts";
 
 interface BlockedCandidate {
@@ -152,11 +151,6 @@ export function recycleClaims(rootDir: string, intent: DocWriteIntent): void {
     const target = change.candidate && claimFile(rootDir, change.candidate.ref);
     if (target) unlinkSync(target);
   }
-}
-
-export function settleConflictScratch(scratch: string): void {
-  unlinkSync(scratch);
-  syncDirectory(path.dirname(scratch));
 }
 
 export function directPaths(rootDir: string, paths: readonly string[]): boolean {

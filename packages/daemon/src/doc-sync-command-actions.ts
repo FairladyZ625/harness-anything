@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { CanonicalEventStore, TaskProjection } from "../../kernel/src/index.ts";
 import {
@@ -8,6 +8,7 @@ import {
   documentPath,
   isDocEvent,
   ledgerGitPath,
+  localGitWorktreeSettlement,
   parseDocWriteIntent,
   RAW_ARTIFACT_MAX_BYTES,
   resolveDocRoute,
@@ -25,7 +26,7 @@ import {
 import { assignmentIntent, scannerSubmit } from "./doc-sync-adjudication.ts";
 import { intentFromScan, resolveDocExecutionBinding } from "./doc-sync-candidate-scanner.ts";
 import type { AuthoredCandidateInventoryV1, DocCandidateScan } from "./doc-sync-candidate-scanner.ts";
-import { claimBytes, directPaths, settleConflictScratch } from "./doc-sync-details.ts";
+import { claimBytes, directPaths } from "./doc-sync-details.ts";
 import {
   artifactSource,
   docSyncError,
@@ -112,7 +113,7 @@ export async function runDocAction(input: Input): Promise<DocSettlementReceipt> 
       const conflictIds = scan.rows
         .filter((row) => row.state === "conflict")
         .flatMap((row) => row.conflicts)
-        .map((value) => /\.conflict-([0-9a-f]{8})\.(?:md|txt)$/u.exec(value)?.[1] ?? null)
+        .map((value) => /(?:^|\/)(doc-[0-9a-f]{64})(?:\/|$)/u.exec(value)?.[1] ?? null)
         .filter((value): value is string => value !== null);
       return {
         ...rejection,
@@ -175,11 +176,11 @@ async function runLocalDocConflictExit(input: Input): Promise<WriteReceipt> {
   if (!hasExactDocSyncActionFields(input.action, ["kind", "conflictId"]))
     throw docSyncError("invalid_command", "doc conflict exit requires one conflictId");
   const conflictId = requiredDocSyncText(input.action.conflictId, "conflictId");
-  if (!/^[0-9a-f]{8}$/u.test(conflictId))
-    throw docSyncError("invalid_command", "local doc conflictId must be eight lowercase hexadecimal characters");
+  if (!/^doc-[0-9a-f]{64}$/u.test(conflictId))
+    throw docSyncError("invalid_command", "local doc conflictId must be a doc-prefixed SHA-256 identity");
   const conflict = localDocConflict(input.rootDir, conflictId);
   if (input.action.kind === "doc-conflict-discard-local") {
-    settleConflictScratch(conflict.scratch);
+    localGitWorktreeSettlement.settleDocSyncConflict(input.rootDir, conflictId);
     const revision = input.store.readHead()?.revision ?? 0;
     return {
       outcome: "applied",
@@ -217,7 +218,8 @@ async function runLocalDocConflictExit(input: Input): Promise<WriteReceipt> {
         ],
       },
     });
-  if (["applied", "pending", "no_changes"].includes(submitted.outcome)) settleConflictScratch(conflict.scratch);
+  if (["applied", "pending", "no_changes"].includes(submitted.outcome))
+    localGitWorktreeSettlement.settleDocSyncConflict(input.rootDir, conflictId);
   return submitted;
 }
 
@@ -225,31 +227,14 @@ function localDocConflict(
   rootDir: string,
   conflictId: string,
 ): { readonly logical: string; readonly scratch: string; readonly target: string } {
-  const authoredRoot = resolveHarnessLayout(rootDir).authoredRoot,
-    marker = `.conflict-${conflictId}`,
-    matches: { readonly logical: string; readonly scratch: string; readonly target: string }[] = [];
-  const visit = (directory: string): void => {
-    if (!existsSync(directory)) return;
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const absolute = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        visit(absolute);
-        continue;
-      }
-      if (!entry.isFile()) continue;
-      const extension = path.extname(entry.name),
-        stem = entry.name.slice(0, -extension.length);
-      if (![".md", ".txt"].includes(extension) || !stem.endsWith(marker)) continue;
-      const target = path.join(directory, `${stem.slice(0, -marker.length)}${extension}`),
-        logical = path.relative(authoredRoot, target).split(path.sep).join("/");
-      if (directPaths(rootDir, [logical])) matches.push({ logical, scratch: absolute, target });
-    }
-  };
-  visit(authoredRoot);
-  if (matches.length === 0) throw docSyncError("conflict_not_found", `local doc conflict ${conflictId} was not found`);
-  if (matches.length > 1)
-    throw docSyncError("conflict_ambiguous", `local doc conflict ${conflictId} matches more than one scratch file`);
-  return matches[0]!;
+  const layout = resolveHarnessLayout(rootDir),
+    record = localGitWorktreeSettlement.docSyncConflict(rootDir, conflictId);
+  if (record === null) throw docSyncError("conflict_not_found", `local doc conflict ${conflictId} was not found`);
+  const scratch = path.join(layout.rootDir, ...record.localPath.split("/")),
+    target = path.join(layout.authoredRoot, ...record.logicalPath.split("/"));
+  if (!directPaths(rootDir, [record.logicalPath]))
+    throw docSyncError("conflict_not_found", `local doc conflict ${conflictId} has an invalid document path`);
+  return { logical: record.logicalPath, scratch, target };
 }
 
 export function runDocRetire(input: Input): DocSettlementReceipt {

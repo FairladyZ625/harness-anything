@@ -96,7 +96,7 @@ export interface MaterializationSettlement {
   /** Where the overwritten local bytes were kept; null when nothing local was kept. */
   readonly copy: string | null;
 }
-/** A worktree target whose overwritten bytes live on in a conflict copy beside it. */
+/** A worktree target whose overwritten bytes live on in local conflict storage. */
 export interface PreservedCopy {
   readonly target: string;
   readonly copy: string;

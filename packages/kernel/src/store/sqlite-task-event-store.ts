@@ -193,6 +193,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
 
   /** Returns the targets left alone: bytes that are neither baseline nor settled are a concurrent edit, and win. */
   const settleFollowerWorktree = (
+    layout: ReturnType<typeof resolveHarnessLayout>,
     currentLedger: ReturnType<typeof resolveLedgerGitLayout>,
     files: readonly (PublicationWrite | PublicationDelete)[],
     baseline: ReadonlyMap<string, string>,
@@ -205,6 +206,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       isManifest = (file: PublicationWrite | PublicationDelete) => "target" in file && file.target === manifest,
       conflicts: string[] = [...plan.conflicts],
       first = settleWorktree(
+        layout,
         currentLedger.rootDir,
         plan.eligible.filter((file) => !isManifest(file)),
         plan.permitted,
@@ -220,6 +222,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     settleWorktreeDirectories(currentLedger.rootDir, directories);
     // A restart resumes from this manifest, so it lands only after everything it vouches for.
     const second = settleWorktree(
+      layout,
       currentLedger.rootDir,
       plan.eligible.filter(isManifest),
       plan.permitted,
@@ -345,6 +348,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     };
     localGitWorktreeSettlement.index(currentLedger.rootDir, files);
     const settled = settleFollowerWorktree(
+      latestAppendLayout ?? resolveHarnessLayout(input),
       currentLedger,
       files,
       baseline,
@@ -432,6 +436,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     readContent,
     acceptedWorktree,
     worktreeConflicts,
+    layout: () => resolveHarnessLayout(input),
   });
 
   return {
