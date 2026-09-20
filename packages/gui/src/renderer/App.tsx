@@ -69,7 +69,7 @@ import { navLabel } from "./navigation/navConfig.tsx";
 import { useWorkspaceSummaryQuery } from "./workspace-summary-data.ts";
 import { WorkspaceSummaryPending } from "./components/WorkspaceSummaryPending.tsx";
 import { WorkspaceView } from "./views/WorkspaceView.tsx";
-import { useWorkspaceScopeQuery } from "./workspace-scope-data.ts";
+import { combineWorkspaceScopePages, useWorkspaceScopeQuery } from "./workspace-scope-data.ts";
 import { prewarmRuntimeInstanceCatalog } from "./runtime-instance-data.ts";
 import { FirstRunGuide } from "./components/FirstRunGuide.tsx";
 import { LocalDocLayer } from "./local-doc/LocalDocLayer.tsx";
@@ -161,6 +161,10 @@ function AppShell() {
   // 侧栏跨视图常驻，因此读面也随仓库常驻，不建立第二份 pin 状态。
   const agendaQuery = useAgendaQuery(activeRepoId);
   const workspaceScopeQuery = useWorkspaceScopeQuery(activeRepoId, location.scopeRootTaskId ?? null);
+  const workspaceScope = useMemo(
+    () => combineWorkspaceScopePages(workspaceScopeQuery.data?.pages ?? []),
+    [workspaceScopeQuery.data?.pages],
+  );
   // 运行 overview 读(cadence 与总览(新)共用同一 query key,react-query 去重):
   // 「当前执行」的 live/active 分列只消费这一条的 sessions。
   const runtimeSessionsQuery = useQuery({
@@ -602,10 +606,22 @@ function AppShell() {
                   <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
                 )
               ) : view === "workspace" ? (
-                workspaceScopeQuery.data ? (
+                workspaceScope ? (
                   <WorkspaceView
-                    scope={workspaceScopeQuery.data}
+                    scope={workspaceScope}
                     projectName={project.name}
+                    tasks={projectTasks}
+                    onAttest={(task, gateId, mode) => {
+                      void taskActions.attestGate(task, gateId, mode);
+                    }}
+                    onConsent={(task, reviewId) => {
+                      void taskActions.consentReview(task, reviewId);
+                    }}
+                    feedback={feedbackOf}
+                    onLoadMore={() => {
+                      void workspaceScopeQuery.fetchNextPage();
+                    }}
+                    loadingMore={workspaceScopeQuery.isFetchingNextPage}
                     onOpenTask={(taskId) => navigate({ selectedId: taskId, previewId: null })}
                     onOpenGroup={(taskId) =>
                       navigate({

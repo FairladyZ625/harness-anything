@@ -192,6 +192,8 @@ export function validateDaemonWorkspaceScope(value: unknown): readonly string[] 
     value.ancestors.every(row) &&
     Array.isArray(value.groups) &&
     value.groups.every(row) &&
+    Array.isArray(value.memberTaskIds) &&
+    value.memberTaskIds.every((taskId) => typeof taskId === "string") &&
     Array.isArray(value.tasks) &&
     value.tasks.every(row) &&
     isJsonObject(value.counts) &&

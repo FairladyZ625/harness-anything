@@ -54,6 +54,7 @@ test("workspace scope counts only executable leaves and keeps cancellation separ
     ["cancelled", "doing"],
   );
   assert.equal(result.page.nextCursor, "doing");
+  assert.deepEqual(result.memberTaskIds, ["cancelled", "doing", "done", "group"]);
 });
 
 test("workspace scope reports a missing ancestor instead of inventing a breadcrumb", () => {
