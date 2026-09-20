@@ -111,7 +111,7 @@ test("accepted_durable receipts affirm success, attribute the git outbox, and se
   );
 });
 
-test("guidance plane renders all seven descriptor-derived task-create messages exactly", () => {
+test("guidance plane renders all eight descriptor-derived task-create messages exactly", () => {
   const physicalRoot = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-guidance-golden-"));
   try {
     mkdirSync(path.join(physicalRoot, "harness"));
@@ -138,17 +138,21 @@ test("guidance plane renders all seven descriptor-derived task-create messages e
           "Context, Required Reading, Entry Conditions, Dependencies, Execution Surface, Constraints, Checkpoint, " +
           "CI/Gate Authority Stop Condition, Implementation Plan, Deliverable Contract, Evidence Protocol, " +
           "Verification",
+        "artifacts: persist supplementary context, research notes, design drafts, worker prompts, and review " +
+          "evidence under harness/tasks/task-a/artifacts/; consider landing any extra information or " +
+          "background materials here beyond task_plan.md",
         "agenda: pin only if very important, easy to forget, next to do, or urgent; otherwise leave it unpinned — " +
           "ha pin task/task-a.",
         "ledger: INDEX.md and closeout.md are coordinator-managed; update them through ha doc sync",
       ];
-    assert.equal(guidance.length, 7);
+    assert.equal(guidance.length, 8);
     // A dry run created nothing, so its receipt carries no agenda line.
     assert.deepEqual(renderReceiptGuidance(receipt(true, false)), [
       shared[0],
       "next: remove --dry-run to publish this exact resolved scaffold",
       shared[1],
-      shared[3],
+      shared[2],
+      shared[4],
     ]);
     assert.deepEqual(renderReceiptGuidance(receipt(false, true)), [
       shared[0],

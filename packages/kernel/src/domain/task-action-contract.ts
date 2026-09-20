@@ -942,6 +942,14 @@ export function descriptorFacets(id: string) {
               taskId: Object.freeze({ resultPath: "result.taskId" }),
             }),
           }),
+          Object.freeze({
+            capabilityRef: "task.artifacts",
+            role: "artifact" as const,
+            when: null,
+            args: Object.freeze({
+              packagePath: Object.freeze({ resultPath: "result.packagePath" }),
+            }),
+          }),
         ])
       : Object.freeze([]),
   };
