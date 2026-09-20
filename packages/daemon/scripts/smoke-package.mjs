@@ -37,14 +37,15 @@ try {
     "packing must not rewrite the daemon dist build-id mid-run",
   );
   run(npm, ["pack", "-w", "@harness-anything/cli", "--pack-destination", parent]);
+  const { version } = JSON.parse(readFileSync(path.join(repository, "packages/daemon/package.json"), "utf8"));
   run(
     npm,
     [
       "install",
       "--no-audit",
       "--no-fund",
-      path.join(parent, "harness-anything-daemon-0.1.0.tgz"),
-      path.join(parent, "harness-anything-cli-0.1.0.tgz"),
+      path.join(parent, `harness-anything-daemon-${version}.tgz`),
+      path.join(parent, `harness-anything-cli-${version}.tgz`),
     ],
     consumer,
   );
