@@ -24,6 +24,7 @@ export interface ViewHistoryStorage {
 const VIEW_ID_LIST = [
   "home",
   "overview",
+  "overviewNext",
   "board",
   "decisionPool",
   "freshness",

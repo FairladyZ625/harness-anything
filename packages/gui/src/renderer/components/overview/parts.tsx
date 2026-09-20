@@ -74,14 +74,19 @@ export function Card({
   children,
   bodyClassName = "p-3",
   className = "",
+  dataTestId,
 }: {
   title: string;
   children: React.ReactNode;
   bodyClassName?: string;
   className?: string;
+  dataTestId?: string;
 }) {
   return (
-    <section className={`${className} flex min-h-0 flex-col rounded-lg border border-border bg-surface`}>
+    <section
+      data-testid={dataTestId}
+      className={`${className} flex min-h-0 flex-col rounded-lg border border-border bg-surface`}
+    >
       <div className="border-b border-border px-3 py-2 font-mono ui-micro uppercase tracking-wide text-text-faint">
         {title}
       </div>

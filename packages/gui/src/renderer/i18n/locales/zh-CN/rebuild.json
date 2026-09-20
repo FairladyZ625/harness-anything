@@ -1,6 +1,7 @@
 {
   "shell.nav.home": "项目",
   "shell.nav.overview": "总览",
+  "shell.nav.overviewNext": "总览（新）",
   "shell.nav.board": "看板",
   "shell.nav.decisionPool": "待办签发",
   "shell.nav.freshness": "失真预警",
