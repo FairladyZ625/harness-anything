@@ -1,5 +1,5 @@
-import type { SquadRunReadResult, SquadRunsListResult } from "../../../daemon/src/squad-run-contract.ts";
-import type { DaemonGuiReadPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import type { SquadRunReadResult, SquadRunsListResult } from "@harness-anything/daemon/protocol";
+import type { DaemonGuiReadPayloadMap } from "@harness-anything/daemon/protocol";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { invoke } from "./api-client-invoke.ts";
 

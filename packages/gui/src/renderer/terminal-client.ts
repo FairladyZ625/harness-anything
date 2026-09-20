@@ -1,5 +1,5 @@
-import type { TerminalControlReceipt, TerminalSessionRow } from "../../../daemon/src/gui-s3-control.ts";
-import type { DaemonStreamPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import type { TerminalControlReceipt, TerminalSessionRow } from "@harness-anything/daemon/protocol";
+import type { DaemonStreamPayloadMap } from "@harness-anything/daemon/protocol";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import type { TerminalStreamFrame } from "./terminal-model.ts";
 import { invoke } from "./api-client-invoke.ts";

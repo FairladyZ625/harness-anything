@@ -3,7 +3,7 @@ import {
   agentRuntimeKindMatches,
   type AgentRuntimeInstanceDto,
   type AgentRuntimeTargetV1,
-} from "../../../daemon/src/agent-runtime-contract.ts";
+} from "@harness-anything/daemon/protocol";
 import type { RuntimeSpawnInput } from "./runtime-control.ts";
 
 // Dispatch flow for the runtime dispatch surface: one Agent or one Squad is selected in

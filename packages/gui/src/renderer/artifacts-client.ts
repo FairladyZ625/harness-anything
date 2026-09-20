@@ -1,4 +1,4 @@
-import type { ArtifactGuiKind, ArtifactsListResult } from "../../../daemon/src/protocol/artifacts-gui-contract.ts";
+import type { ArtifactGuiKind, ArtifactsListResult } from "@harness-anything/daemon/protocol";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { guiHostBridge } from "./gui-transport.ts";
 

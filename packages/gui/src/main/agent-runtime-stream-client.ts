@@ -1,1 +1,1 @@
-export { streamDaemonFacetAt } from "../../../daemon/src/client/local-json-rpc-stream.ts";
+export { streamDaemonFacetAt } from "@harness-anything/daemon/client";

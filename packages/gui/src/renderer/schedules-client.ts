@@ -3,11 +3,11 @@ import type {
   ScheduleGuiListRowDto,
   ScheduleGuiRowDto,
   SchedulesListResult,
-} from "../../../daemon/src/protocol/schedules-gui-contract.ts";
+} from "@harness-anything/daemon/protocol";
 import type {
   ScheduleRunOutputsDto,
   ScheduleRunsResult as DaemonScheduleRunsResult,
-} from "../../../daemon/src/protocol/schedule-runs-contract.ts";
+} from "@harness-anything/daemon/protocol";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { readUseCaseProjection } from "./use-case-projection-client.ts";
 import { invoke } from "./api-client-invoke.ts";

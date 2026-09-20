@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
-import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
+import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/client";
 import { resolveE2EProbeElectronForTest, runE2EProbeJourney } from "../../../tools/e2e-probe.mjs";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
 

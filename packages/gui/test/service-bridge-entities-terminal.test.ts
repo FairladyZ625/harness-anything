@@ -3,16 +3,9 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
-import {
-  daemonGuiInvokeFacets,
-  daemonGuiStreamFacets,
-  jsonRpcMethodContracts,
-} from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import {
-  parseDaemonGuiActionResponse,
-  parseDaemonGuiReadResult,
-} from "../../daemon/src/protocol/gui-result-validation.ts";
+import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/client";
+import { daemonGuiInvokeFacets, daemonGuiStreamFacets, jsonRpcMethodContracts } from "@harness-anything/daemon/client";
+import { parseDaemonGuiActionResponse, parseDaemonGuiReadResult } from "@harness-anything/daemon/client";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
 

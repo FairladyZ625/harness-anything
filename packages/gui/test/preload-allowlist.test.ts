@@ -6,7 +6,7 @@ import {
   daemonGuiInvokeFacets,
   daemonGuiStreamFacets,
   validateDaemonRpcCall,
-} from "../../daemon/src/protocol/daemon-protocol.contract.ts";
+} from "@harness-anything/daemon/client";
 import {
   HARNESS_PRELOAD_API,
   assertPreloadPayload,

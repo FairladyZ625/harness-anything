@@ -1,4 +1,4 @@
-import type { RuntimeInstanceSummary } from "../../../daemon/src/agent-runtime-instances.ts";
+import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
 import type { RuntimeInstanceCreateInput, RuntimeInstanceUpdateInput } from "./runtime-instance-client.ts";
 import {
   planeAllowsBaseUrl,
@@ -10,7 +10,7 @@ import {
   type RuntimeAuthMode,
   type RuntimeKindId,
 } from "./runtime-provider-planes.ts";
-import { runtimeEffortField, runtimeKindForId } from "../../../daemon/src/runtime-inventory.ts";
+import { runtimeEffortField, runtimeKindForId } from "@harness-anything/daemon/protocol";
 
 export type CreateInstanceFormState = {
   readonly instanceId: string;

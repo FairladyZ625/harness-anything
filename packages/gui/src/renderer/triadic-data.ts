@@ -9,7 +9,7 @@ import { useFactArchiveVisibility } from "./fact-archive-preferences.tsx";
 import { KIND_LABEL } from "./graph/constants.ts";
 import { agentNodeRowOf, scheduleNodeRowOf, withAgentTaskCounts } from "./graph/runtimeEntities.ts";
 import { isAvailableAgentEntityRow } from "./agent-entity-client.ts";
-import type { ScheduleGuiRowDto } from "../../../daemon/src/protocol/schedules-gui-contract.ts";
+import type { ScheduleGuiRowDto } from "@harness-anything/daemon/protocol";
 import type { DecisionClaim, DecisionRow, DecisionState, FactRef, RelationEdge } from "./model/types.ts";
 import { activeProducesFactRefs } from "./model/triadic.ts";
 

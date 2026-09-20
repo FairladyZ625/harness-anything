@@ -1,4 +1,4 @@
-import type { RuntimeInstanceSummary } from "../../../daemon/src/agent-runtime-instances.ts";
+import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
 import { t } from "./i18n/index.tsx";
 
 export type RuntimeAuthProbeState =

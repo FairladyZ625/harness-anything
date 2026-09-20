@@ -10,8 +10,8 @@ import {
   parseCronCalendar,
 } from "../src/renderer/components/ScheduleFormDialog.tsx";
 import type { ScheduleDefinitionInput } from "../src/renderer/schedules-client.ts";
-import type { ScheduleGuiOptionsDto, ScheduleGuiRowDto } from "../../daemon/src/protocol/schedules-gui-contract.ts";
-import { validateDaemonRpcCall } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
+import type { ScheduleGuiOptionsDto, ScheduleGuiRowDto } from "@harness-anything/daemon/protocol";
+import { validateDaemonRpcCall } from "@harness-anything/daemon/protocol/validation";
 import { assertPreloadPayload } from "../src/preload/allowlist.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 

@@ -1,4 +1,4 @@
-import type { DaemonRpcMethodMap, DaemonRpcResult } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import type { DaemonRpcMethodMap, DaemonRpcResult } from "@harness-anything/daemon/protocol";
 import type { FirstRunApi } from "../api/first-run-contract.ts";
 import type { ArtifactOpenApi } from "../api/artifact-open-contract.ts";
 import type { ConnectionAdminApi, RepoAdminApi } from "../api/connection-admin-contract.ts";

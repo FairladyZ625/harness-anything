@@ -7,10 +7,7 @@ import {
   type PreloadApiMethod,
 } from "./allowlist.ts";
 import { agentRuntimePreloadApi } from "./agent-runtime-preload.ts";
-import {
-  daemonGuiActionMethods,
-  daemonGuiStreamFacets,
-} from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonGuiActionMethods, daemonGuiStreamFacets } from "@harness-anything/daemon/protocol";
 import { FIRST_RUN_BOOTSTRAP_CHANNEL, FIRST_RUN_CHOOSE_CHANNEL, type FirstRunApi } from "../api/first-run-contract.ts";
 import { ARTIFACT_OPEN_EXTERNAL_CHANNEL, type ArtifactOpenApi } from "../api/artifact-open-contract.ts";
 import { LOCAL_DOC_READ_CHANNEL, LOCAL_DOC_WRITE_CHANNEL, type LocalDocApi } from "../api/local-doc-contract.ts";

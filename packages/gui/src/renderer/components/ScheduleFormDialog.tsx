@@ -5,14 +5,14 @@ import {
   scheduleDurationUnits,
   splitScheduleDuration,
   type ScheduleDurationUnit,
-} from "../../../../daemon/src/protocol/daemon-protocol-vocabulary.ts";
+} from "@harness-anything/daemon/protocol";
 import {
   compatibleScheduleInstances,
   isAvailableScheduleGuiAgentOption,
   type ScheduleGuiAgentOptionDto,
   ScheduleGuiOptionsDto,
   ScheduleGuiRowDto,
-} from "../../../../daemon/src/protocol/schedules-gui-contract.ts";
+} from "@harness-anything/daemon/protocol";
 import type { ScheduleBuiltinEditInput, ScheduleDefinitionInput, ScheduleModeWord } from "../schedules-client.ts";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import { Badge, Btn, Chip, Hint, Modal, PlannedBox, TextInput, Toggle } from "./runtime/parts.tsx";

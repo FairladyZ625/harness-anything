@@ -1,6 +1,6 @@
 import { useState, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { Gear, Plus, PlugsConnected } from "@phosphor-icons/react";
-import type { TerminalSessionRow } from "../../../../../daemon/src/gui-s3-control.ts";
+import type { TerminalSessionRow } from "@harness-anything/daemon/protocol";
 import type { TerminalPreferences } from "../../terminal-preferences.ts";
 import { t } from "../../i18n/index.tsx";
 import { isMacPlatform } from "../../platform.ts";

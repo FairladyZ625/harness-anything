@@ -4,8 +4,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
-import { readDaemonPid, startDaemon, type RunningDaemon } from "../../daemon/src/runtime.ts";
+import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/client";
+import { readDaemonPid, startDaemon, type RunningDaemon } from "@harness-anything/daemon/client";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 
 test("GUI worktree stays attach-only when absent then reuses a canonical resident", async (context) => {

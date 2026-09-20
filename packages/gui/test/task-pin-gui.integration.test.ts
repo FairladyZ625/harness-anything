@@ -1,10 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  parseDaemonGuiActionResponse,
-  parseDaemonGuiReadResult,
-} from "../../daemon/src/protocol/gui-result-validation.ts";
+import { parseDaemonGuiActionResponse, parseDaemonGuiReadResult } from "@harness-anything/daemon/client";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
 import { restoreEnv } from "./service-bridge.fixtures.ts";

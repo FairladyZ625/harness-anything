@@ -6,7 +6,7 @@ import {
   type AgentRuntimeSessionGroupStatus,
   type AgentRuntimeUnattributedGroupKey,
   type RuntimeInstallationState,
-} from "../../../daemon/src/agent-runtime-contract.ts";
+} from "@harness-anything/daemon/protocol";
 import type { TaskDispatchProjectionRow } from "../api/renderer-dto.ts";
 import type { RelationEdge } from "./model/types.ts";
 import { t } from "./i18n/index.tsx";

@@ -1,10 +1,10 @@
-import { daemonGuiInvokeFacets, daemonGuiStreamFacets } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { admitUseCaseProjectionSelector } from "../../../daemon/src/protocol/daemon-protocol-gui-types.ts";
-import { isUtcTimestamp } from "../../../daemon/src/protocol/json-rpc-types.ts";
-import { validateDaemonQueryPayload } from "../../../daemon/src/protocol/daemon-protocol-rpc-validation.ts";
-import { relationStates } from "../../../kernel/src/index.ts";
+import { daemonGuiInvokeFacets, daemonGuiStreamFacets } from "@harness-anything/daemon/protocol";
+import { admitUseCaseProjectionSelector } from "@harness-anything/daemon/protocol";
+import { isUtcTimestamp } from "@harness-anything/daemon/protocol";
+import { validateDaemonQueryPayload } from "@harness-anything/daemon/protocol";
+import { relationStates } from "@harness-anything/kernel/browser";
 import { containsSecretLikeKey } from "../api/entity-payload-hygiene.ts";
-import { isRuntimeKindId, runtimeKindForId, runtimeKindIds } from "../../../daemon/src/runtime-inventory.ts";
+import { isRuntimeKindId, runtimeKindForId, runtimeKindIds } from "@harness-anything/daemon/protocol";
 export const HARNESS_PRELOAD_API = "harness";
 export type PreloadApiMethod =
   | (typeof daemonGuiInvokeFacets)[number]["guiBridgeMethod"]

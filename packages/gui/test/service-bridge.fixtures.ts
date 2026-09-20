@@ -1,13 +1,13 @@
-import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../../daemon/src/dispatch-stream.ts";
+import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/client";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "@harness-anything/daemon/client";
 import {
   eventObjectTarget,
   makeTaskEventStore,
   makeTaskProjection,
   type AgentRuntimeEventV1,
   type FrozenWritePlan,
-} from "../../kernel/src/index.ts";
-import type { WriterEpochFenceDescriptor } from "../../daemon/src/writer-epoch.ts";
+} from "@harness-anything/kernel";
+import type { WriterEpochFenceDescriptor } from "@harness-anything/daemon/client";
 import { seedTriadicEvents } from "../test-support/triadic-ledger.mjs";
 
 export function restoreEnv(name: string, value: string | undefined): void {

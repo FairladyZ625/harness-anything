@@ -3,7 +3,7 @@ import {
   type SquadRunLeaderTurnDto,
   type SquadRunReadResult,
   type SquadRunWorkerAttemptDto,
-} from "../../../../../daemon/src/squad-run-contract.ts";
+} from "@harness-anything/daemon/protocol";
 import {
   sessionStatusDot,
   sessionStatusKey,

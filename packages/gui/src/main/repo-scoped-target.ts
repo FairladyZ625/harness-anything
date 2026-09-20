@@ -1,5 +1,5 @@
-import { readDaemonRegistry, type DaemonRegistry } from "../../../kernel/src/index.ts";
-import { daemonUserRoot } from "../../../daemon/src/client/local-daemon-target.ts";
+import { readDaemonRegistry, type DaemonRegistry } from "@harness-anything/kernel";
+import { daemonUserRoot } from "@harness-anything/daemon/client";
 
 /**
  * PLT-EdgeGUI-W3:repo 作用域请求的 daemon target 解析。

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { rmSync } from "node:fs";
-import { readDaemonRegistry, registerDaemonRepo, registerDaemonConnection } from "../../kernel/src/index.ts";
+import { readDaemonRegistry, registerDaemonRepo, registerDaemonConnection } from "@harness-anything/kernel";
 import { isRemoteProxyRepo, resolveRepoScopedTarget } from "../src/main/repo-scoped-target.ts";
 
 /**

@@ -4,14 +4,14 @@ import type {
   AgentRuntimeSessionGroupsResult,
   AgentRuntimeSessionGroupStatus,
   AgentRuntimeSessionResult,
-} from "../../../daemon/src/agent-runtime-contract.ts";
+} from "@harness-anything/daemon/protocol";
 import type {
   AgentRuntimeTokenUsageDetailResult,
   AgentRuntimeTokenUsageMemberIdentity,
   AgentRuntimeTokenUsageRange,
   AgentRuntimeTokenUsageResult,
-} from "../../../daemon/src/agent-runtime-token-usage.ts";
-import type { DaemonGuiReadPayloadMap } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+} from "@harness-anything/daemon/protocol";
+import type { DaemonGuiReadPayloadMap } from "@harness-anything/daemon/protocol";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { readUseCaseProjection } from "./use-case-projection-client.ts";
 import { invoke } from "./api-client-invoke.ts";

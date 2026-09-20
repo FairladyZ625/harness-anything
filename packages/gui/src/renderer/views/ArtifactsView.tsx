@@ -9,11 +9,7 @@ import {
   FileText,
   FileX,
 } from "@phosphor-icons/react";
-import type {
-  ArtifactGuiKind,
-  ArtifactGuiRowDto,
-  ArtifactsListResult,
-} from "../../../../daemon/src/protocol/artifacts-gui-contract.ts";
+import type { ArtifactGuiKind, ArtifactGuiRowDto, ArtifactsListResult } from "@harness-anything/daemon/protocol";
 import { BinaryArtifactPanel } from "../components/BinaryArtifactPanel.tsx";
 import { DocReader } from "../components/DocReader.tsx";
 import { HtmlArtifactPreview } from "../components/HtmlArtifactPreview.tsx";

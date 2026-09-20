@@ -2,7 +2,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import type { AgentRuntimeSessionDto } from "../../daemon/src/agent-runtime-contract.ts";
+import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
 import { sessionTranscriptTurns } from "../src/renderer/session-transcript-model.ts";
 import { SessionDetailView } from "../src/renderer/components/runtime/SessionsPanel.tsx";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";

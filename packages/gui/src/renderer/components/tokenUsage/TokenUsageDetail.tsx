@@ -5,7 +5,7 @@ import type {
   AgentRuntimeTokenUsageMemberIdentity,
   AgentRuntimeTokenUsageRange,
   AgentRuntimeTokenUsageSessionRow,
-} from "../../../../../daemon/src/agent-runtime-token-usage.ts";
+} from "@harness-anything/daemon/protocol";
 import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
 import { compactTokens, exactTokens } from "../../token-format.ts";
 import { usageIsUnreported, usageStateKey } from "../../token-usage-model.ts";

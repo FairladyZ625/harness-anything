@@ -1,6 +1,6 @@
 import type { PreloadApiMethod } from "../preload/allowlist.ts";
 import { apiRouteContracts, type ApiRouteContract } from "./api-contract-registry.ts";
-import { daemonGuiInvokeFacets } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonGuiInvokeFacets } from "@harness-anything/daemon/protocol";
 export interface GuiServiceBridge {
   readonly invoke: (method: string, payload: unknown) => Promise<unknown>;
   readonly stream: (method: string, payload: unknown, emit: (value: unknown) => void) => Promise<() => void>;

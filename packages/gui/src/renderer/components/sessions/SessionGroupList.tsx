@@ -1,7 +1,7 @@
 import { memo, useRef } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { AgentRuntimeUnattributedGroupKey } from "../../../../../daemon/src/agent-runtime-contract.ts";
-import { agentRuntimeSearchMatches } from "../../../../../daemon/src/agent-runtime-search.ts";
+import type { AgentRuntimeUnattributedGroupKey } from "@harness-anything/daemon/protocol";
+import { agentRuntimeSearchMatches } from "@harness-anything/daemon/protocol";
 import {
   relativeTime,
   sessionStatusDot,

@@ -1,4 +1,4 @@
-import type { DaemonRpcMethodMap, DaemonRpcResult } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import type { DaemonRpcMethodMap, DaemonRpcResult } from "@harness-anything/daemon/protocol";
 import type { GuiTransport } from "../renderer/gui-transport.ts";
 
 const browserTokenStorageKey = "harness.browser.access-token";

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, globSync, readFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
+import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/client";
 import {
   recordE2EProbeFailure,
   resolveE2EProbeElectronForTest,

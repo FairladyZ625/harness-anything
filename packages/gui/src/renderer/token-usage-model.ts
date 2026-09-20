@@ -2,7 +2,7 @@ import type {
   AgentRuntimeTokenUsageBucket,
   AgentRuntimeTokenUsageMemberIdentity,
   AgentRuntimeTokenUsageRange,
-} from "../../../daemon/src/agent-runtime-token-usage.ts";
+} from "@harness-anything/daemon/protocol";
 import type { MessageKey } from "./i18n/index.tsx";
 
 /** Token 消耗页的共享前端模型:范围/成员引用的编解码、排行指标与桶标签。数据形状全部来自

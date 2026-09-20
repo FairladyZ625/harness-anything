@@ -4,7 +4,12 @@ import { addLocalMainControls } from "../src/main/local-main-controls.ts";
 
 const rawRequests: string[] = [],
   invokes: Array<{ readonly method: string; readonly payload: unknown }> = [];
-vi.mock("../../daemon/src/client/local-json-rpc-client.ts", () => ({
+vi.mock("@harness-anything/daemon/client", () => ({
+  credentialPort: () => ({
+    issue: () => "credential:v1:test",
+    store: async () => undefined,
+    resolve: async () => "test-secret",
+  }),
   requestDaemonJsonRpcAt: async (_socketPath: string, method: string) => {
     rawRequests.push(method);
     return { ok: true };

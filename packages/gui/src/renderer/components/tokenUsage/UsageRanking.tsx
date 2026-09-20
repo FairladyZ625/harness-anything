@@ -1,7 +1,4 @@
-import type {
-  AgentRuntimeTokenUsageAgentRow,
-  AgentRuntimeTokenUsageSquadRow,
-} from "../../../../../daemon/src/agent-runtime-token-usage.ts";
+import type { AgentRuntimeTokenUsageAgentRow, AgentRuntimeTokenUsageSquadRow } from "@harness-anything/daemon/protocol";
 import { compactTokens, exactTokens } from "../../token-format.ts";
 import {
   rankingMetricOf,

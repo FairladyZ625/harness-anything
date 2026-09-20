@@ -16,7 +16,7 @@ import { DecisionsView } from "../src/renderer/views/DecisionsView.tsx";
 import type { DecisionJudgmentConsent, DecisionRow, EventEntry, TaskRow } from "../src/renderer/model/types.ts";
 import type { RuntimeDockRow } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
 import type { SessionRow } from "../src/renderer/sessions-model.ts";
-import type { AgentRuntimeSessionDto } from "../../daemon/src/agent-runtime-contract.ts";
+import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
 import {
   AGENT_ID,
   DECISION_ID,

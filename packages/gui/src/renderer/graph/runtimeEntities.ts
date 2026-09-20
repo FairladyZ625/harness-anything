@@ -1,6 +1,6 @@
-import type { AgentEntityGuiAvailableRow } from "../../../../daemon/src/agent-entities.ts";
-import { agentRuntimeTargetSummary } from "../../../../daemon/src/agent-runtime-contract.ts";
-import type { ScheduleGuiRowDto } from "../../../../daemon/src/protocol/schedules-gui-contract.ts";
+import type { AgentEntityGuiAvailableRow } from "@harness-anything/daemon/protocol";
+import { agentRuntimeTargetSummary } from "@harness-anything/daemon/protocol";
+import type { ScheduleGuiRowDto } from "@harness-anything/daemon/protocol";
 import type { RelationEdge } from "../model/types";
 
 /**

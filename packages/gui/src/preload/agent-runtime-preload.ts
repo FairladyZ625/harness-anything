@@ -1,7 +1,4 @@
-import {
-  daemonGuiStreamFacets,
-  type DaemonStreamPayloadMap,
-} from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonGuiStreamFacets, type DaemonStreamPayloadMap } from "@harness-anything/daemon/protocol";
 import { assertPreloadPayload } from "./allowlist.ts";
 let sequence = 0;
 export type TerminalPreloadStream = (

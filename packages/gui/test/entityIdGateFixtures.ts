@@ -5,14 +5,14 @@ import type {
   AgentRuntimeSessionDto,
   AgentRuntimeInstanceDto,
   AgentRuntimeOverviewResult,
-} from "../../daemon/src/agent-runtime-contract.ts";
-import type { AgentRuntimeTokenUsageResult } from "../../daemon/src/agent-runtime-token-usage.ts";
+} from "@harness-anything/daemon/protocol";
+import type { AgentRuntimeTokenUsageResult } from "@harness-anything/daemon/protocol";
 import type {
   AgentEntityDetail,
   AgentEntityRow,
   SquadEntityDetail,
   SquadEntityRow,
-} from "../../daemon/src/agent-entities.ts";
+} from "@harness-anything/daemon/protocol";
 import type { RuntimeDockRow } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
 

@@ -1,11 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowRight, Clock, Plus } from "@phosphor-icons/react";
-import type {
-  ScheduleGuiListRowDto,
-  ScheduleGuiRowDto,
-  SchedulesListResult,
-} from "../../../../daemon/src/protocol/schedules-gui-contract.ts";
+import type { ScheduleGuiListRowDto, ScheduleGuiRowDto, SchedulesListResult } from "@harness-anything/daemon/protocol";
 import { Badge, Btn, Chip, Empty, Hint } from "../components/runtime/parts.tsx";
 import { ScheduleFormDialog } from "../components/ScheduleFormDialog.tsx";
 import { t, type MessageKey } from "../i18n/index.tsx";

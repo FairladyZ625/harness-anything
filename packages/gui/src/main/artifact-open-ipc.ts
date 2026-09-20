@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { resolveHarnessLayout } from "../../../kernel/src/index.ts";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
 import {
   ARTIFACT_OPEN_EXTERNAL_CHANNEL,
   type ArtifactOpenExternalInput,

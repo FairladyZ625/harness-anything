@@ -14,7 +14,7 @@ import { streamTime } from "../src/renderer/components/overview/streamParts.tsx"
 import { formatTime } from "../src/renderer/model/time.ts";
 import type { WorkspaceSummaryRead } from "../src/api/renderer-dto.ts";
 import { DEFAULT_TASK_FILTERS } from "../src/renderer/model/taskFilters.ts";
-import { summarizeWorkspace } from "../../kernel/src/index.ts";
+import { summarizeWorkspace } from "@harness-anything/kernel";
 import { deriveRuntimeHealth } from "../src/renderer/model/runtime-health.ts";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
