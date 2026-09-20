@@ -53,7 +53,7 @@ for (const [relativePath, expectedName] of expectedPackages.entries()) {
   } else {
     if (packageJson.private !== true)
       record(`${relativePath} is not in the approved npm publish set and must stay private`);
-    const expectedVersion = "0.1.0";
+    const expectedVersion = "0.0.1";
     if (packageJson.version !== expectedVersion) record(`${relativePath} must use version ${expectedVersion}`);
     if (packageJson.publishConfig)
       record(`${relativePath} must not define publishConfig before the npm publish decision`);

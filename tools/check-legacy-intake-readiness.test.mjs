@@ -195,7 +195,7 @@ test("Legacy Intake readiness requires the harness-anything CLI package artifact
       path.join(root, "packages/cli/package.json"),
       JSON.stringify({
         name: "@harness-anything/cli",
-        version: "0.1.0",
+        version: "0.0.1",
         publishConfig: {
           access: "public",
         },
@@ -518,7 +518,7 @@ async function withFixtureRepo(fn) {
       path.join(root, "packages/cli/package.json"),
       JSON.stringify({
         name: "@harness-anything/cli",
-        version: "0.1.0",
+        version: "0.0.1",
         type: "module",
         publishConfig: {
           access: "public",

@@ -708,9 +708,9 @@ one rejects the flag outright and exits nonzero:
 ```
 
 **Route on whether the flag is accepted, never on the number it prints.** The
-version string is `0.1.0` and carries no generation marker, so it is the same on
+version string is `0.0.1` and carries no generation marker, so it is the same on
 a current-generation global install and on the source checkout you have been
-running all along — seeing `0.1.0` twice tells you nothing about which build is
+running all along — seeing `0.0.1` twice tells you nothing about which build is
 which. Acceptance of `--version` is the whole signal; the number is noise.
 
 **If the flag is accepted, use that installation** and skip to the `ha_serving`
@@ -1051,7 +1051,7 @@ success and failure paths.
   puts a working `ha` on `PATH`. Many machines already have exactly that. Step 9
   probes for it before assuming otherwise.
 - **The CLI version string does not identify a generation.** Both the current
-  source checkout and a current-generation global install print `0.1.0`. What
+  source checkout and a current-generation global install print `0.0.1`. What
   discriminates is whether `--version` is _accepted_ at all: the previous
   generation rejects it with `unknown_option` and a nonzero exit. Never compare
   version numbers to decide which build you are talking to.
