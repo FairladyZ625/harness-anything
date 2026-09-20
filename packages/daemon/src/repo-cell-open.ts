@@ -48,7 +48,6 @@ import { dispatchRead } from "./repo-cell-command.ts";
 import { publishTaskArtifact } from "./doc-sync-actions.ts";
 import {
   cellCodedError,
-  cellCriterionError,
   cellErrorCode,
   cellErrorMessage,
   errorOperationId,
@@ -87,6 +86,7 @@ import {
 } from "./runtime-spawn.ts";
 import { openTerminalHost } from "./terminal-host.ts";
 import { makeSquadCoordinator } from "./squad-coordinator.ts";
+import { createSquadChild, publishSquadChildDocument, reacquireSquadTaskLease } from "./repo-cell-squad-child.ts";
 import { makeAgentActionRuntime, makeSquadActionRuntime } from "./squad-action-runtime.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import { withWriterEpochFenceDescriptor } from "./writer-epoch.ts";
@@ -95,51 +95,6 @@ import { backupRepo, drillRepoBackup } from "./repo-all-purge.ts";
 
 export function publicPublication(value: Pick<CanonicalEventAppendReceipt, "commitSha" | "cut">): PublicPublication {
   return { commitSha: value.commitSha?.sha ?? null, cut: value.cut };
-}
-
-export async function reacquireSquadTaskLease(input: {
-  readonly taskId: string;
-  readonly binding: RepoCellBinding;
-  readonly snapshot: Snapshot;
-  readonly start: (executionId?: string) => Promise<{
-    readonly outcome: string;
-    readonly code?: string;
-  }>;
-}): Promise<void> {
-  const execution = input.snapshot.executions.find(
-    (candidate) => candidate.iteration === input.snapshot.task?.iteration && candidate.state === "active",
-  );
-  if (!execution) {
-    const started = await input.start();
-    if (started.outcome === "applied") return;
-    throw cellCriterionError(
-      started.code ?? "runtime_task_lease_required",
-      `Task ${input.taskId} could not acquire an execution lease for squad dispatch.`,
-      "run",
-      "squad/execution-lease-reacquisition",
-      [`Run ha task show ${input.taskId}, resolve its execution state, then retry the Squad run.`],
-    );
-  }
-  const lease = input.snapshot.lease;
-  if (lease) {
-    if (lease.executionId === execution.executionId && isSameExecution(lease.actor, input.binding.actor)) return;
-    throw cellCriterionError(
-      "lease_conflict",
-      `Task ${input.taskId} is leased by another execution or actor; the squad continuation stopped.`,
-      "run",
-      "squad/execution-lease-holder",
-      [`The current holder must run ha task release ${input.taskId}; wait for release before retrying.`],
-    );
-  }
-  const started = await input.start(execution.executionId);
-  if (started.outcome !== "applied")
-    throw cellCriterionError(
-      "runtime_task_lease_required",
-      `Squad continuation could not reacquire execution ${execution.executionId} for task ${input.taskId}.`,
-      "run",
-      "squad/execution-lease-reacquisition",
-      [`Inspect task/${input.taskId} and retry after the same actor can reacquire execution ${execution.executionId}.`],
-    );
 }
 
 export interface RepoCellOpenInput {
@@ -575,6 +530,35 @@ export async function openRepoWriterCell(
     rootDir,
     projection: () => projection,
     store: () => store,
+    createChildTask: async (child, binding) => createSquadChild(extracted, child, binding, authorizeRuntimeAction),
+    releaseTaskLease: async (taskId, binding) => {
+      const lease = projection.currentLease(taskId, now());
+      if (lease === null) return;
+      if (!isSameExecution(lease.actor, binding.actor))
+        throw cellCodedError("lease_conflict", `Squad cannot release another holder's lease for ${taskId}.`);
+      const action = { kind: "task-release", taskId, reason: "Squad workers hold independent child leases." },
+        receipt = await extracted.taskSurfaceWrite(
+          action,
+          authorizeRuntimeAction(action, binding, `squad-release:${taskId}:${lease.version}`),
+        );
+      if (receipt.outcome !== "applied")
+        throw cellCodedError(receipt.code ?? "lease_conflict", `Squad could not release ${taskId}.`);
+    },
+    recordOwnershipCheck: async (child, binding) => {
+      const packagePath = projection.read(child.taskId).packagePath;
+      if (!packagePath) throw cellCodedError("task_not_found", child.taskId);
+      publishSquadChildDocument(
+        extracted,
+        {
+          parentTaskId: child.parentTaskId,
+          taskId: child.taskId,
+          path: `${packagePath}/artifacts/reports/ownership-${child.executionId}.md`,
+          body: `# Worker ownership check\n\n${JSON.stringify(child.check, null, 2)}\n`,
+        },
+        binding,
+        authorizeRuntimeAction,
+      );
+    },
     reacquireTaskLease: async (taskId, binding) => {
       await reacquireSquadTaskLease({
         taskId,

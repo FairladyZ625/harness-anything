@@ -81,6 +81,7 @@ export interface DispatchStreamHeader extends RuntimeResumeHeader {
   readonly delegatedByAgentId?: string;
   readonly delegatedByAgentName?: string;
   readonly squadId?: string;
+  readonly publicationOwner?: "runtime" | "commander";
   readonly parentRuntimeSessionId?: string;
   readonly onExitCommand?: string;
   readonly dispatchOpId?: string;
@@ -919,6 +920,9 @@ function isHeader(value: Record<string, unknown> | null): value is Record<string
   return (
     value?.schema === streamSchema &&
     value.kind === "dispatch" &&
+    (value.publicationOwner === undefined ||
+      value.publicationOwner === "runtime" ||
+      value.publicationOwner === "commander") &&
     typeof value.dispatchId === "string" &&
     (value.taskId === null || typeof value.taskId === "string") &&
     (value.schedule === undefined ||

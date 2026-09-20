@@ -152,6 +152,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     trustedSchedule?: TrustedScheduleRuntime,
     handoffFromRuntimeSessionId?: string,
     retainCoordinatorTaskLease = false,
+    publicationOwner: ActiveRuntime["publicationOwner"] = "runtime",
   ): Promise<JsonObject> => {
     const allowed = [
         "runtimeInstanceId",
@@ -539,8 +540,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           : undefined,
       workerIdentityEnvironment =
         taskId || trustedSchedule || reviewerBinding ? await conventionalWorkerGitEnvironment(input.rootDir) : {};
-    // A squad coordinator explicitly retains one stable binding while sibling workers share the
-    // same lease generation. Direct runtime/batch dispatches still transfer ownership even when
+    // Squad leaders retain the coordinator lease; child tasks transfer their own lease to the worker.
+    // Direct runtime/batch dispatches still transfer ownership even when
     // they select a squad member through --to.
     const taskLeaseHandoff =
         taskId && !input.remote && !reviewerBinding && reviewExecution === null && !retainCoordinatorTaskLease
@@ -638,6 +639,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         ...(role ? { role } : {}),
         ...(agent ? { agentId: agent.id, agentName: agent.name } : {}),
         ...(squad ? { squadId: squad.squadId } : {}),
+        publicationOwner,
         ...(parentRuntimeSessionId ? { parentRuntimeSessionId } : {}),
         ...(delegatedBy
           ? {
@@ -788,6 +790,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       role: role ?? null,
       delegatedBy,
       squadId: squad?.squadId ?? null,
+      publicationOwner,
       parentRuntimeSessionId: parentRuntimeSessionId ?? null,
       binding: activeBinding,
       task: taskBinding,
@@ -844,7 +847,15 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   return {
     spawn: (payload: JsonObject, binding: RuntimeBinding) => spawnAttempt(payload, binding),
     spawnCoordinated: (payload: JsonObject, binding: RuntimeBinding) =>
-      spawnAttempt(payload, binding, undefined, undefined, undefined, true),
+      spawnAttempt(
+        payload,
+        binding,
+        undefined,
+        undefined,
+        undefined,
+        payload.targetAgentId === undefined,
+        payload.targetAgentId === undefined ? "runtime" : "commander",
+      ),
     spawnScheduled: (scheduled: TrustedScheduleSpawn, binding: RuntimeBinding) =>
       spawnAttempt(
         {
@@ -1048,6 +1059,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             header.schedule,
             header.runtimeSessionId,
             header.taskId !== null && binding.actor.executor?.id !== `runtime-session:${header.runtimeSessionId}`,
+            header.publicationOwner,
           );
           writer.appendFallbackState(
             {

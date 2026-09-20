@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { prepareWorkerWorktree } from "../src/squad-worker-checkout.ts";
 
-test("the same squad worker receives a distinct checkout for each attempt", () => {
+test("the same squad worker receives a distinct checkout for each attempt", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-squad-worker-checkout-"));
   try {
     execFileSync("git", ["init", "--initial-branch=main"], { cwd: rootDir });
@@ -22,13 +22,14 @@ test("the same squad worker receives a distinct checkout for each attempt", () =
     );
     const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: rootDir, encoding: "utf8" }).trim(),
       state = { squadRunId: "squad_0123456789abcdef01234567", cwd: rootDir, baseSha },
-      first = prepareWorkerWorktree(state, "worker-3", "worker-1"),
-      second = prepareWorkerWorktree(state, "worker-3", "worker-2");
+      first = await prepareWorkerWorktree(state, "worker-3", "worker-1"),
+      second = await prepareWorkerWorktree(state, "worker-3", "worker-2");
 
     assert.notEqual(first?.cwd, second?.cwd);
     assert.notEqual(first?.branch, second?.branch);
     assert.equal(first?.baseSha, baseSha);
     assert.equal(second?.baseSha, baseSha);
+    assert.deepEqual(await prepareWorkerWorktree(state, "worker-3", "worker-1"), first);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

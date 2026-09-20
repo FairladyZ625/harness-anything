@@ -338,6 +338,43 @@ test("squad leader settlement preserves its machine-readable control result", as
   assert.deepEqual(outcomeBodies, [controlResult]);
 });
 
+test("commander-owned settlement keeps its commit local and returns the delivery unchanged", async (context) => {
+  const fixture = workerGitFixture(context, "squad-child", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, {
+      agent: { id: "terra", name: "Terra" },
+      delegatedBy: { id: "fable", name: "Fable" },
+      squadId: "core-squad",
+      finalText: "worker delivery",
+      publicationOwner: "commander",
+    }),
+    outcomeBodies: string[] = [],
+    outcomes: Record<string, unknown>[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}, _opId?, _binding?, body?) => {
+      if (type === "runtime_session_outcome_observed") {
+        outcomes.push(payload);
+        outcomeBodies.push(String(body));
+      }
+      return {};
+    });
+  let credentialRequests = 0;
+  await publishExit(
+    {
+      ...settleContext,
+      prepareWorkerGitEnvironment: async () => {
+        credentialRequests += 1;
+        return {};
+      },
+    },
+    runtime,
+    0,
+  );
+  assert.equal(outcomes[0]?.outcome, "succeeded");
+  assert.deepEqual(outcomeBodies, ["worker delivery"]);
+  assert.equal(credentialRequests, 0);
+  assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", "refs/heads/codex/squad-child"), "");
+  assert.equal(git(fixture.worker, "log", "-1", "--format=%s").trim(), "feat: worker change");
+});
+
 test("terminal settlement names the branch when the worker push fails", async (context) => {
   const fixture = workerGitFixture(context, "settle-fail", { reachableRemote: false }),
     runtime = workerSettlementRuntime(fixture, { finalText: "worker delivery" }),
@@ -412,6 +449,7 @@ function active(overrides: Partial<ActiveRuntime>): ActiveRuntime {
     model: "model-a",
     cancelRequested: false,
     kindId: "codex",
+    publicationOwner: "runtime",
     fallbackAttempt: null,
     permissionMode: "bypass",
     providerFault: null,
@@ -483,6 +521,8 @@ function workerSettlementRuntime(fixture: WorkerGitFixture, overrides: Partial<A
     },
     task: { taskId: "task-owner", executionId: "execution-owner", leaseVersion: 1 },
     schedule: null,
+    squadId: null,
+    delegatedBy: null,
     cwd: fixture.worker,
     prompt: "settle this result",
     onExitCommand: null,

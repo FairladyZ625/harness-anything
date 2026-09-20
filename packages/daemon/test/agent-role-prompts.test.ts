@@ -26,10 +26,9 @@ const writeGrants = [
   "mutate only the declared execution surface",
   "stage only owned files",
   "Use the repository's configured commit identity",
-  "Stop at a local commit",
   "make code changes only in the worker repository root",
   "Park uncommitted work with a temporary WIP commit",
-  "if stashing is unavoidable",
+  "Do not use `git stash` in concurrent work",
   "Before handoff, rebase onto the latest origin/main",
   "Leave a local conventional commit",
 ];
@@ -77,4 +76,26 @@ test("unbound reviewer dispatch does not inherit implementation permissions", ()
   const prompt = assembleUnboundPrompt("Review the pinned delivery.", "reviewer");
   assert.match(prompt, /# Reviewer Role/u);
   for (const grant of writeGrants) assert.equal(prompt.includes(grant), false, grant);
+});
+
+for (const role of [undefined, "worker"] as const)
+  test(`${role ?? "undeclared"} worker stops at local delivery`, () => {
+    const prompt = assembleUnboundPrompt("Implement the assigned package.", role);
+    assert.match(prompt, /Stop at a local commit/u);
+    assert.match(prompt, /Do not push branches or open PRs/u);
+    assert.match(prompt, /Squad child branches are not published at settlement/u);
+    assert.doesNotMatch(prompt, /gh pr create/u);
+  });
+
+test("commander owns verified integration and PR delivery without merge authority", () => {
+  const prompt = assembleUnboundPrompt("Integrate the mission.", "commander");
+  assert.match(prompt, /Integrate child commits.*codex\/<mission-slug>/u);
+  assert.match(prompt, /targeted and integration regressions.*final integrated commit/u);
+  assert.match(prompt, /git push origin codex\/<mission-slug>/u);
+  assert.match(prompt, /gh pr create.*complete bilingual PR/u);
+  assert.match(prompt, /\.github\/pull_request_template\.md/u);
+  assert.match(prompt, /assign a reviewer/u);
+  assert.match(prompt, /Do not merge.*CEO/u);
+  assert.doesNotMatch(prompt, /Stop at a local commit|runtime publishes worker/u);
+  assert.doesNotMatch(prompt, /if stashing is unavoidable/u);
 });
