@@ -26,6 +26,8 @@ export interface AppSidebarProps {
   readonly onOpenProject: (repoId: string) => void;
   readonly onOpenProjectManager: () => void;
   readonly onNavigate: (view: ViewId) => void;
+  readonly pinnedWork: readonly { readonly taskId: string; readonly title: string }[];
+  readonly onOpenWorkspace: (taskId: string) => void;
   readonly ledgerStatus: LedgerStatusBarInput;
   readonly onRefreshLedger: () => void;
   readonly health: RuntimeHealth;
@@ -56,6 +58,8 @@ export function AppSidebar({
   onOpenProject,
   onOpenProjectManager,
   onNavigate,
+  pinnedWork = [],
+  onOpenWorkspace,
   ledgerStatus,
   onRefreshLedger,
   health,
@@ -128,6 +132,23 @@ export function AppSidebar({
             />
           </div>
         </div>
+
+        {pinnedWork.length ? (
+          <div className="px-2 pb-2" data-testid="sidebar-pinned-work">
+            <div className="px-1 pb-1 font-mono ui-meta uppercase tracking-wide text-text-faint">置顶工作</div>
+            {pinnedWork.map((item) => (
+              <button
+                key={item.taskId}
+                type="button"
+                onClick={() => onOpenWorkspace(item.taskId)}
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-text-muted hover:bg-surface-raised hover:text-text"
+              >
+                <span aria-hidden>◆</span>
+                <span className="truncate">{item.title}</span>
+              </button>
+            ))}
+          </div>
+        ) : null}
 
         {NAV_GROUPS.map((group, groupIndex) => (
           <div key={group.id}>

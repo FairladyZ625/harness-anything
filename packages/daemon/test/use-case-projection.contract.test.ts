@@ -76,12 +76,15 @@ test("the folded per-store reads are gone and the net read count fell", () => {
   // dispatch consumption aggregate, one daemon-side read instead of renderer-side fan-out. The
   // token page redesign then added its member-scoped companion repo.agentRuntime.tokenUsageDetail
   // (trend + per-dispatch rows for one agent or squad).
+  // The unified work experience (task_e3f53eb9, dec_E98F9EE0DE2743E7ED9D2774D2) then added
+  // repo.workspace.scope.read: one milestone's subtree with its own counts, resolved daemon-side so
+  // the workspace page does not rebuild scope membership from the whole task list.
   assert.equal(
     daemonGuiReadMethods.length,
-    38,
+    39,
     "31 array entries minus 3 folded plus 1 unified plus 3 entity reads plus 1 vertical " +
       "declaration read plus 1 artifact read plus 1 task WIP read plus 1 single-task completion read " +
-      "plus 1 token usage aggregate read plus 1 token usage member detail read",
+      "plus 1 token usage aggregate read plus 1 token usage member detail read plus 1 workspace scope read",
   );
 });
 

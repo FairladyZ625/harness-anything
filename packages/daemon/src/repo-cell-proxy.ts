@@ -40,6 +40,7 @@ import { makeTaskQueryReadModel } from "./task-query-read.ts";
 import { openWriterSupervisor } from "./writer-supervisor.ts";
 import { runtimeOutcomeSettled, runtimeSettlementGraceMs } from "./runtime-settlement.ts";
 import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
+import { workspaceScopeFromProjection } from "./workspace-scope-read.ts";
 
 const writerAttached = (cell: { readonly state: string }): boolean => cell.state === "attached";
 const writerServing = (cell: { readonly state: string }): boolean =>
@@ -315,6 +316,7 @@ export async function openRepoCellProxy(
       return query((projection) => readAtCut(projection, method, payload, binding)) as never;
     },
     workspaceSummary: () => query((projection) => workspaceSummaryFromProjection(projection as never)),
+    workspaceScope: (payload) => query((projection) => workspaceScopeFromProjection(projection as never, payload)),
     observeTail: (payload, daemon) => {
       if (payload !== null && typeof payload === "object" && (payload as { kind?: unknown }).kind === "events")
         return Promise.resolve(

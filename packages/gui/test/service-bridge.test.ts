@@ -170,54 +170,56 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
               ? { ...scope, kind: "events", direction: "history" }
               : contract.id === "tasks.document.read"
                 ? { ...scope, taskId: "task-gui-smoke", path: "notes.md" }
-                : contract.id === "tasks.documents.list" ||
-                    contract.id === "tasks.completion.read" ||
-                    contract.id === "task.dispatches"
-                  ? { ...scope, taskId: "task-gui-smoke" }
-                  : contract.id === "agentRuntime.sessions.read"
-                    ? { ...scope, runtimeSessionId: "runtime-gui" }
-                    : contract.id === "agentRuntime.events.read"
-                      ? {
-                          ...scope,
-                          runtimeSessionId: "runtime-gui",
-                          afterCursor: "lifecycle:0",
-                        }
-                      : contract.id === "agent.entity.read" || contract.id === "agentRuntime.tokenUsageDetail"
-                        ? { ...scope, agentId: "terra" }
-                        : contract.id === "squad.entity.read"
-                          ? { ...scope, squadId: "core-squad" }
-                          : contract.id === "squad.run.read"
-                            ? { ...scope, squadRunId: seededSquadRun }
-                            : contract.id === "projection.read"
-                              ? { ...scope, name: "schedule-plane" }
-                              : contract.id === "ci.observatory.read"
-                                ? { ...scope, window: 10 }
-                                : contract.id === "gui.catalog.preset.read"
-                                  ? { ...scope, presetId: catalog.defaults.presetId }
-                                  : contract.id === "entity.actions.explain"
-                                    ? {
-                                        ...scope,
-                                        schema: "entity-action-explain-request/v1",
-                                        mode: "catalog",
-                                        entityKind: "task",
-                                        refs: [],
-                                      }
-                                    : contract.id === "entity.locator.read"
+                : contract.id === "workspace.scope.read"
+                  ? { ...scope, rootTaskId: "task-gui-smoke" }
+                  : contract.id === "tasks.documents.list" ||
+                      contract.id === "tasks.completion.read" ||
+                      contract.id === "task.dispatches"
+                    ? { ...scope, taskId: "task-gui-smoke" }
+                    : contract.id === "agentRuntime.sessions.read"
+                      ? { ...scope, runtimeSessionId: "runtime-gui" }
+                      : contract.id === "agentRuntime.events.read"
+                        ? {
+                            ...scope,
+                            runtimeSessionId: "runtime-gui",
+                            afterCursor: "lifecycle:0",
+                          }
+                        : contract.id === "agent.entity.read" || contract.id === "agentRuntime.tokenUsageDetail"
+                          ? { ...scope, agentId: "terra" }
+                          : contract.id === "squad.entity.read"
+                            ? { ...scope, squadId: "core-squad" }
+                            : contract.id === "squad.run.read"
+                              ? { ...scope, squadRunId: seededSquadRun }
+                              : contract.id === "projection.read"
+                                ? { ...scope, name: "schedule-plane" }
+                                : contract.id === "ci.observatory.read"
+                                  ? { ...scope, window: 10 }
+                                  : contract.id === "gui.catalog.preset.read"
+                                    ? { ...scope, presetId: catalog.defaults.presetId }
+                                    : contract.id === "entity.actions.explain"
                                       ? {
                                           ...scope,
-                                          locatorKind: "repository-path",
-                                          locatorValue: `harness/${documentPath}`,
+                                          schema: "entity-action-explain-request/v1",
+                                          mode: "catalog",
+                                          entityKind: "task",
+                                          refs: [],
                                         }
-                                      : // 收管内容读按实体身份寻址,所以必须给一个 kind 与一个实例 id。
-                                        // 这个仓里还没有 ADR 实例,读面因此如实答 `missing`——
-                                        // 这条烟测要的是这条读真的答得出话,不是它答了什么。
-                                        contract.id === "entity.content.read"
+                                      : contract.id === "entity.locator.read"
                                         ? {
                                             ...scope,
-                                            entityKind: "architecture-decision-record",
-                                            entityId: "ADR-00000000000000000000000000000000",
+                                            locatorKind: "repository-path",
+                                            locatorValue: `harness/${documentPath}`,
                                           }
-                                        : scope;
+                                        : // 收管内容读按实体身份寻址,所以必须给一个 kind 与一个实例 id。
+                                          // 这个仓里还没有 ADR 实例,读面因此如实答 `missing`——
+                                          // 这条烟测要的是这条读真的答得出话,不是它答了什么。
+                                          contract.id === "entity.content.read"
+                                          ? {
+                                              ...scope,
+                                              entityKind: "architecture-decision-record",
+                                              entityId: "ADR-00000000000000000000000000000000",
+                                            }
+                                          : scope;
       const result = await bridge.invoke(contract.guiBridgeMethod, payload);
       const parsed =
         contract.id === "gui.control.receipt"

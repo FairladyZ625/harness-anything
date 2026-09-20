@@ -94,6 +94,7 @@ import { chainRepoCellWrite, repoCellTaskQueryJudgmentsFor } from "./repo-cell.t
 import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./vertical-script-actions.ts";
 import { deriveActionResult } from "./entity-action-catalog-executor.ts";
 import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
+import { workspaceScopeFromProjection } from "./workspace-scope-read.ts";
 import { readCiObservatory } from "./ci-observatory-read.ts";
 import type { RepoCellOperationalContext, RepoCellSettingsState } from "./repo-cell-action-context.ts";
 import type { FleetRoster } from "./fleet-center-admission.ts";
@@ -1019,6 +1020,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     read,
     [repoCellSynchronousRead]: readNow,
     workspaceSummary: () => workspaceSummaryFromProjection(context.projection),
+    workspaceScope: (payload) => workspaceScopeFromProjection(context.projection, payload),
     observeTail: (payload, daemon) => {
       if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
       return readObserveTail({

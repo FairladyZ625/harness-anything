@@ -357,6 +357,7 @@ export type DaemonGuiReadResultMap = {
   readonly "repo.settings.read": import("./daemon-settings-read-types.ts").DaemonSettingsRead;
   readonly "repo.ci.observatory.read": import("../ci-observatory-read.ts").CiObservatoryRead;
   readonly "repo.workspace.summary.read": DaemonWorkspaceSummaryResult;
+  readonly "repo.workspace.scope.read": import("../workspace-scope-read.ts").WorkspaceScopeRead;
   readonly "repo.agenda.read": DaemonAgendaResult;
   readonly "repo.triadic.relationGraph": DaemonRelationGraphResult;
   readonly "repo.decisions.list": DaemonDecisionListResult;
@@ -414,7 +415,7 @@ export type DaemonGuiReadResultMap = {
   readonly "repo.terminal.sessions.list": JsonObject;
 };
 
-export type DaemonHostOnlyGuiReadMethod = "repo.workspace.summary.read" | "observe.tail";
+export type DaemonHostOnlyGuiReadMethod = "repo.workspace.summary.read" | "repo.workspace.scope.read" | "observe.tail";
 
 /** Historical cell-routable read union. Host-owned aggregate reads use the full RPC union below. */
 export type DaemonGuiReadMethod = Exclude<keyof DaemonGuiReadResultMap, DaemonHostOnlyGuiReadMethod>;
@@ -447,6 +448,11 @@ export type DaemonGuiReadPayloadMap = {
   readonly "repo.settings.read": Readonly<Record<string, never>>;
   readonly "repo.ci.observatory.read": { readonly window?: number };
   readonly "repo.workspace.summary.read": Readonly<Record<string, never>>;
+  readonly "repo.workspace.scope.read": {
+    readonly rootTaskId: string;
+    readonly limit?: number;
+    readonly cursor?: string;
+  };
   readonly "repo.agenda.read": DaemonAgendaPayload;
   readonly "repo.triadic.relationGraph": DaemonRelationQueryPayload;
   readonly "repo.decisions.list": DaemonDecisionListPayload;

@@ -23,6 +23,7 @@ export type ViewId =
   | "home"
   | "overview"
   | "overviewNext"
+  | "workspace"
   | "board"
   | "decisionPool"
   | "freshness"
@@ -53,6 +54,7 @@ export interface DrillState {
 
 export interface AppLocation {
   view: ViewId;
+  scopeRootTaskId?: string | null;
   browserUrl?: string | null;
   selectedId: string | null;
   previewId: string | null;
@@ -98,6 +100,7 @@ export function goForward(state: ViewHistoryState): ViewHistoryState {
 export function locationsEqual(a: AppLocation, b: AppLocation): boolean {
   return (
     a.view === b.view &&
+    (a.scopeRootTaskId ?? null) === (b.scopeRootTaskId ?? null) &&
     (a.browserUrl ?? null) === (b.browserUrl ?? null) &&
     a.selectedId === b.selectedId &&
     a.previewId === b.previewId &&

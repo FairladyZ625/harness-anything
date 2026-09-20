@@ -22,6 +22,7 @@ import type {
   TaskWipRead,
   TaskCompletionRead,
   WorkspaceSummaryRead,
+  WorkspaceScopeRead,
   SettingsRead,
 } from "../api/renderer-dto.ts";
 import {
@@ -282,6 +283,14 @@ export const harnessClient = {
   },
   async getWorkspaceSummary(payload: RepoScope): Promise<WorkspaceSummarySuccess> {
     return readWorkspaceSummaryResult(await invoke("repo.workspace.summary.read", payload, "getWorkspaceSummary"));
+  },
+  async getWorkspaceScope(
+    payload: RepoScope & { readonly rootTaskId: string; readonly limit?: number; readonly cursor?: string },
+  ): Promise<WorkspaceScopeRead> {
+    const result = await invoke("repo.workspace.scope.read", payload, "getWorkspaceScope");
+    if (!result || result.schema !== "daemon.workspace-scope/v1" || result.ok !== true)
+      throw new Error(localErrorHint(result, "Workspace scope bridge returned an invalid result."));
+    return result;
   },
   async getTaskDocument(
     payload: RepoScope & { readonly taskId: string; readonly path: string },
