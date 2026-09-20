@@ -34,6 +34,8 @@ export interface WorkspaceScopeRead {
     readonly archivedCount: number;
   };
   readonly groups: readonly WorkspaceScopeTaskRow[];
+  /** Canonical membership for consumers that join an existing task projection. */
+  readonly memberTaskIds: readonly string[];
   readonly tasks: readonly WorkspaceScopeTaskRow[];
   readonly page: { readonly limit: number; readonly cursor: string | null; readonly nextCursor: string | null };
   readonly incompleteParentRefs: readonly string[];
@@ -121,6 +123,7 @@ export function workspaceScopeFromProjection(
       archivedCount: descendants.filter(({ packageDisposition }) => packageDisposition !== "active").length,
     },
     groups: groups.map(row),
+    memberTaskIds: descendants.map(({ taskId }) => taskId).sort(),
     tasks: pageRows.map(row),
     page: { limit, cursor: input.cursor ?? null, nextCursor },
     incompleteParentRefs,

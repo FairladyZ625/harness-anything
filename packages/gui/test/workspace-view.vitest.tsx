@@ -2,6 +2,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { WorkspaceView } from "../src/renderer/views/WorkspaceView.tsx";
+import { combineWorkspaceScopePages } from "../src/renderer/workspace-scope-data.ts";
 import type { WorkspaceScopeRead } from "../src/api/renderer-dto.ts";
 
 const row = {
@@ -26,6 +27,7 @@ function scope(overrides: Partial<WorkspaceScopeRead> = {}): WorkspaceScopeRead 
     counts: { done: 0, executing: 0, pending: 0, blocked: 0, planned: 0, cancelled: 0 },
     scope: { descendantCount: 0, executableLeafCount: 0, archivedCount: 0 },
     groups: [],
+    memberTaskIds: [],
     tasks: [],
     page: { limit: 100, cursor: null, nextCursor: null },
     incompleteParentRefs: [],
@@ -62,5 +64,49 @@ describe("workspace view states", () => {
     );
     expect(html).toContain("范围数据尚未完整");
     expect(html).toContain("父链不完整：task_parent");
+  });
+
+  it("keeps server-scoped pending items and exposes the next page", () => {
+    const pendingTask = {
+      taskId: "task_pending",
+      title: "待签任务",
+      canonicalStatus: "active",
+      closeoutBlocker: null,
+      gates: [{ name: "human", ok: false, status: "missing" }],
+      iteration: 1,
+      executions: [
+        {
+          schema: "execution/v1",
+          executionId: "execution-1",
+          iteration: 1,
+          submission: { completionContract: { gates: [{ gateId: "human", witness: { adapterId: "manual-attest" } }] } },
+        },
+      ],
+    } as never;
+    const html = renderToStaticMarkup(
+      <WorkspaceView
+        scope={scope({ memberTaskIds: ["task_pending"], page: { limit: 100, cursor: null, nextCursor: "next" } })}
+        projectName="Harness"
+        tasks={[pendingTask]}
+        onOpenTask={() => {}}
+        onOpenGroup={() => {}}
+        onAttest={() => {}}
+        onLoadMore={() => {}}
+      />,
+    );
+    expect(html).toContain("需要处理 · 1");
+    expect(html).toContain("待签任务");
+    expect(html).toContain("加载更多");
+  });
+
+  it("combines task pages and stops on the last page cursor", () => {
+    const first = scope({ tasks: [row], page: { limit: 1, cursor: null, nextCursor: "task_root" } });
+    const secondRow = { ...row, taskId: "task_second", title: "第二项" };
+    const combined = combineWorkspaceScopePages([
+      first,
+      scope({ tasks: [secondRow], page: { limit: 1, cursor: "task_root", nextCursor: null } }),
+    ]);
+    expect(combined?.tasks.map(({ taskId }) => taskId)).toEqual(["task_root", "task_second"]);
+    expect(combined?.page.nextCursor).toBeNull();
   });
 });
