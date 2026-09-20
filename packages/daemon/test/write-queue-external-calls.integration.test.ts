@@ -111,9 +111,10 @@ test(
       const startedAt = performance.now(),
         submitted = await cell.run({ kind: "task-submit", taskId, executionId }, binding),
         elapsedMs = performance.now() - startedAt;
+      // Elapsed time is reported, not asserted: the gh stub leaving no marker is the proof that
+      // submit made no external call, and a wall-clock bound only measured the runner's load.
       t.diagnostic(`task-submit elapsed ${elapsedMs.toFixed(1)}ms`);
       assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-      assert.ok(elapsedMs < 500, `task submit took ${elapsedMs.toFixed(1)}ms`);
       assert.equal(existsSync(invoked), false, "task submit must not invoke gh");
 
       const repeated = await cell.run({ kind: "task-submit", taskId, executionId }, binding),
