@@ -362,6 +362,7 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
         }
         if (child) {
           child.kill();
+          destroyPty(child);
           if (platform === "win32" && session.backend === "direct-pty" && exited) drains.push(exited);
         }
       }
@@ -371,6 +372,9 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
     },
   };
 
+  function destroyPty(child: pty.IPty): void {
+    (child as pty.IPty & { destroy?: () => void }).destroy?.();
+  }
   function drainDeadline(): Promise<void> {
     return new Promise((resolve) => {
       const timer = setTimeout(resolve, ptyExitDrainMs);
@@ -443,6 +447,7 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
     child.onData((utf8) => publishTerminalFrame(session, "output", utf8, null));
     child.onExit(({ exitCode }) => {
       resolveExit();
+      destroyPty(child);
       if (session.child !== child) return;
       session.child = null;
       session.childExited = null;
@@ -500,7 +505,10 @@ export function openTerminalHost(input: OpenTerminalHostInput): TerminalHost {
     const child = session.child;
     session.child = null;
     session.childExited = null;
-    child?.kill();
+    if (child) {
+      child.kill();
+      destroyPty(child);
+    }
     markSessionExited(session, 0);
   }
   function markSessionExited(session: Session, exitCode: number): void {
