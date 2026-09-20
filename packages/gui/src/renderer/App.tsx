@@ -85,6 +85,7 @@ import { agentRuntimeClient, runtimeQueryKeys } from "./agent-runtime-client.ts"
  * 看板/总览之外的普通页(presets/adapters/settings/system/…)与任务看板本身都不在其中。
  */
 const FULL_TRIADIC_PROJECTION_VIEWS: ReadonlySet<ViewId> = new Set([
+  "workspace",
   "graph",
   "decisionPool",
   "decisionDetail",
@@ -609,8 +610,13 @@ function AppShell() {
                 workspaceScope ? (
                   <WorkspaceView
                     scope={workspaceScope}
+                    repoId={projectId}
                     projectName={project.name}
                     tasks={projectTasks}
+                    decisions={decisions}
+                    facts={facts}
+                    relations={relations}
+                    onNavigateEntity={navigateToEntity}
                     onAttest={(task, gateId, mode) => {
                       void taskActions.attestGate(task, gateId, mode);
                     }}

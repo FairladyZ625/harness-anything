@@ -1,14 +1,26 @@
 import type { WorkspaceScopeRead } from "../../api/renderer-dto.ts";
-import type { TaskRow } from "../model/types.ts";
+import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "../model/types.ts";
 import { deriveAttestationLanes } from "../model/attestation-pool.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
+import { useCadenceFeed } from "../cadence-feed.ts";
+import { artifactsClient } from "../artifacts-client.ts";
+import { workspaceEvidenceOf, workspaceGraphSlice } from "../model/workspace-evidence.ts";
+import { formatTime } from "../model/time.ts";
+import { t } from "../i18n/index.tsx";
 
 export interface WorkspaceViewProps {
   readonly scope: WorkspaceScopeRead;
+  readonly repoId?: string;
   readonly projectName: string;
   readonly onOpenTask: (taskId: string) => void;
   readonly onOpenGroup: (taskId: string) => void;
   readonly tasks?: readonly TaskRow[];
+  readonly decisions?: readonly DecisionRow[];
+  readonly facts?: readonly FactRef[];
+  readonly relations?: readonly RelationEdge[];
+  readonly onNavigateEntity?: (ref: string) => void;
   readonly onAttest?: (task: Pick<TaskRow, "taskId">, gateId: string, mode: "approve" | "override") => void;
   readonly onConsent?: (task: TaskRow, reviewId: string) => void;
   readonly feedback?: (taskId: string) => TaskMutationFeedback | undefined;
@@ -27,10 +39,15 @@ const COUNT_LABELS = {
 
 export function WorkspaceView({
   scope,
+  repoId = "unselected",
   projectName,
   onOpenTask,
   onOpenGroup,
   tasks = [],
+  decisions = [],
+  facts = [],
+  relations = [],
+  onNavigateEntity,
   onAttest,
   onConsent,
   feedback,
@@ -119,12 +136,60 @@ export function WorkspaceView({
             {loadingMore ? "正在加载…" : "加载更多"}
           </button>
         ) : null}
-        <section className="grid gap-3 md:grid-cols-2">
-          <EmptyPanel title="关键经过与材料" text="本切片尚未提供范围经过读面。" />
-          <EmptyPanel title="依赖与风险" text="本切片尚未提供范围依赖读面。" />
-        </section>
+        {repoId === "unselected" ? null : (
+          <WorkspaceEvidenceSections
+            repoId={repoId}
+            memberTaskIds={scope.memberTaskIds}
+            decisions={decisions}
+            facts={facts}
+            relations={relations}
+            onNavigateEntity={onNavigateEntity}
+          />
+        )}
       </div>
     </div>
+  );
+}
+
+function WorkspaceEvidenceSections({
+  repoId,
+  memberTaskIds,
+  decisions,
+  facts,
+  relations,
+  onNavigateEntity,
+}: {
+  readonly repoId: string;
+  readonly memberTaskIds: readonly string[];
+  readonly decisions: readonly DecisionRow[];
+  readonly facts: readonly FactRef[];
+  readonly relations: readonly RelationEdge[];
+  readonly onNavigateEntity?: (ref: string) => void;
+}) {
+  const feed = useCadenceFeed(repoId),
+    artifactsQuery = useQuery({
+      queryKey: ["artifacts", repoId, "md"],
+      queryFn: () => artifactsClient.list(repoId, "md"),
+      staleTime: 10_000,
+    }),
+    evidence = useMemo(
+      () =>
+        workspaceEvidenceOf({
+          memberTaskIds,
+          events: feed.events,
+          decisions,
+          facts,
+          relations,
+          artifacts: artifactsQuery.data?.artifacts ?? [],
+        }),
+      [memberTaskIds, feed.events, decisions, facts, relations, artifactsQuery.data],
+    );
+  return (
+    <>
+      <WorkspaceHistory evidence={evidence} feed={feed} onNavigateEntity={onNavigateEntity} />
+      <WorkspaceEvidencePanel evidence={evidence} onNavigateEntity={onNavigateEntity} />
+      <WorkspaceLocalGraph memberTaskIds={memberTaskIds} relations={relations} onNavigateEntity={onNavigateEntity} />
+    </>
   );
 }
 
@@ -260,11 +325,190 @@ function WorkspaceRows({
   );
 }
 
-function EmptyPanel({ title, text }: { readonly title: string; readonly text: string }) {
+function WorkspaceHistory({
+  evidence,
+  feed,
+  onNavigateEntity,
+}: {
+  readonly evidence: ReturnType<typeof workspaceEvidenceOf>;
+  readonly feed: ReturnType<typeof useCadenceFeed>;
+  readonly onNavigateEntity?: (ref: string) => void;
+}) {
   return (
-    <section className="rounded-lg border border-dashed border-border p-4">
-      <h2 className="text-sm font-semibold text-text">{title}</h2>
-      <p className="mt-2 text-sm text-text-muted">{text}</p>
+    <section className="rounded-lg border border-border bg-surface-raised p-4" aria-labelledby="workspace-history">
+      <h2 id="workspace-history" className="text-sm font-semibold text-text">
+        {t("views.workspace.history")}
+      </h2>
+      <p className="mt-1 ui-meta text-text-muted">
+        {t("views.workspace.eventWindow", {
+          mode: feed.mode ?? t("views.workspace.sourcePending"),
+          coverage: t(feed.historyComplete ? "views.workspace.windowComplete" : "views.workspace.windowPartial"),
+        })}
+      </p>
+      {evidence.events.length === 0 ? (
+        <p className="mt-3 text-sm text-text-muted">{t("views.workspace.historyEmpty")}</p>
+      ) : (
+        <ol className="mt-3 space-y-2">
+          {evidence.events.slice(0, 40).map((event) => (
+            <li key={event.key} className="rounded border border-border bg-surface p-3">
+              <button
+                type="button"
+                className="text-left text-sm font-medium text-text"
+                onClick={() => event.taskId && onNavigateEntity?.(`task/${event.taskId}`)}
+              >
+                {event.summary ?? event.type}
+              </button>
+              <p className="mt-1 font-mono ui-meta text-text-muted">
+                {event.type} ·{" "}
+                {event.at ? formatTime(event.at, { style: "month-day-time" }) : t("views.workspace.timeMissing")} ·{" "}
+                {event.taskId ?? t("views.workspace.entityMissing")}
+              </p>
+              {event.summary === null ? (
+                <p className="mt-1 ui-meta text-warning">{t("views.workspace.payloadMissing")}</p>
+              ) : null}
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
+function WorkspaceEvidencePanel({
+  evidence,
+  onNavigateEntity,
+}: {
+  readonly evidence: ReturnType<typeof workspaceEvidenceOf>;
+  readonly onNavigateEntity?: (ref: string) => void;
+}) {
+  return (
+    <section className="rounded-lg border border-border bg-surface-raised p-4" aria-labelledby="workspace-evidence">
+      <h2 id="workspace-evidence" className="text-sm font-semibold text-text">
+        {t("views.workspace.evidence")}
+      </h2>
+      <div className="mt-3 grid gap-4 md:grid-cols-3">
+        <EvidenceList
+          title={t("views.workspace.decisions")}
+          rows={evidence.decisions.map((row) => ({
+            ref: `decision/${row.decisionId}`,
+            title: row.title,
+            meta: row.state,
+          }))}
+          onOpen={onNavigateEntity}
+        />
+        <EvidenceList
+          title={t("views.workspace.facts")}
+          rows={evidence.facts.map((row) => ({
+            ref: row.anchor,
+            title: row.text,
+            meta: row.invalidated
+              ? t("views.workspace.superseded")
+              : row.archived
+                ? t("views.workspace.archived")
+                : row.confidence,
+          }))}
+          onOpen={onNavigateEntity}
+        />
+        <EvidenceList
+          title={t("views.workspace.artifacts")}
+          rows={evidence.artifacts.map((row) => ({
+            ref: row.taskId ? `task/${row.taskId}` : row.path,
+            title: row.path,
+            meta: `${row.timeSource} · ${row.time}`,
+          }))}
+          onOpen={onNavigateEntity}
+        />
+      </div>
+      {evidence.missingRefs.length ? (
+        <p className="mt-3 text-sm text-warning">
+          {t("views.workspace.missingRefs", { refs: evidence.missingRefs.join("、") })}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function EvidenceList({
+  title,
+  rows,
+  onOpen,
+}: {
+  readonly title: string;
+  readonly rows: readonly { ref: string; title: string; meta: string }[];
+  readonly onOpen?: (ref: string) => void;
+}) {
+  return (
+    <div>
+      <h3 className="ui-meta font-semibold text-text-muted">{title}</h3>
+      {rows.length ? (
+        <ul className="mt-2 space-y-2">
+          {rows.map((row) => (
+            <li key={`${row.ref}:${row.title}`}>
+              <button
+                type="button"
+                className="text-left text-sm text-text hover:text-accent"
+                onClick={() => onOpen?.(row.ref)}
+              >
+                {row.title}
+              </button>
+              <p className="ui-meta text-text-faint">{row.meta}</p>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-2 text-sm text-text-muted">{t("views.workspace.none")}</p>
+      )}
+    </div>
+  );
+}
+
+function WorkspaceLocalGraph({
+  memberTaskIds,
+  relations,
+  onNavigateEntity,
+}: {
+  readonly memberTaskIds: readonly string[];
+  readonly relations: readonly RelationEdge[];
+  readonly onNavigateEntity?: (ref: string) => void;
+}) {
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set()),
+    graph = useMemo(
+      () => workspaceGraphSlice(memberTaskIds, relations, expanded),
+      [memberTaskIds, relations, expanded],
+    ),
+    external = new Set(graph.externalRefs);
+  return (
+    <section className="rounded-lg border border-border bg-surface-raised p-4" aria-labelledby="workspace-graph">
+      <h2 id="workspace-graph" className="text-sm font-semibold text-text">
+        {t("views.workspace.localGraph")}
+      </h2>
+      <p className="mt-1 ui-meta text-text-muted">{t("views.workspace.localGraphNote")}</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {graph.nodeRefs.map((ref) => (
+          <button
+            key={ref}
+            type="button"
+            className={`rounded border px-2 py-1 ui-meta ${external.has(ref) ? "border-warning/60 text-warning" : "border-border text-text"}`}
+            onClick={() =>
+              external.has(ref) ? setExpanded((current) => new Set([...current, ref])) : onNavigateEntity?.(ref)
+            }
+          >
+            {ref}
+            {external.has(ref) ? t("views.workspace.externalExpand") : ""}
+          </button>
+        ))}
+      </div>
+      {graph.edges.length ? (
+        <ul className="mt-3 space-y-1 font-mono ui-meta text-text-muted">
+          {graph.edges.map((edge) => (
+            <li key={edge.relationId ?? `${edge.from}:${edge.kind}:${edge.to}`}>
+              {edge.from} — {edge.kind} → {edge.to}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-3 text-sm text-text-muted">{t("views.workspace.graphEmpty")}</p>
+      )}
     </section>
   );
 }
