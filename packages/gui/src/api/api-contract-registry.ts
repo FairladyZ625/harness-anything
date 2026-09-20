@@ -6,7 +6,7 @@ import {
   daemonGuiStreamFacets,
   type DaemonGuiActionMethod,
   type DaemonGuiRpcReadMethod,
-} from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+} from "@harness-anything/daemon/protocol";
 
 export type ApiRouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "WS" | "STREAM";
 export type ApiRouteAuth = "local-session-token" | "ssh-tunnel-local-token" | "none";

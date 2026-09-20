@@ -1,4 +1,4 @@
-import { useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type QueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { harnessClient, type TaskListSuccess, type TaskQueryFacets } from "./api-client.ts";
 import { agendaQueryKeys } from "./agenda-data.ts";
 import { runtimeQueryKeys } from "./agent-runtime-client.ts";
@@ -189,7 +189,15 @@ export async function readActiveTaskSlice(repoId: string): Promise<TaskListSucce
  * 计时器:挂载期间的重读由台账 cut 前进的扇出带进来;`staleTime: 0` 让重新启用
  * (切面回退重水化)时必定重读,不拿停读前的旧切片冒充。
  */
-export function activeTasksQuery(repoId: string, hydrationPending: boolean) {
+export function activeTasksQuery(
+  repoId: string,
+  hydrationPending: boolean,
+): {
+  readonly queryKey: ReturnType<typeof taskQueryKeys.activeSlice>;
+  readonly queryFn: () => Promise<TaskListSuccess["rows"]>;
+  readonly enabled: boolean;
+  readonly staleTime: number;
+} {
   return {
     queryKey: taskQueryKeys.activeSlice(repoId),
     queryFn: () => readActiveTaskSlice(repoId),
@@ -198,7 +206,10 @@ export function activeTasksQuery(repoId: string, hydrationPending: boolean) {
   };
 }
 
-export function useActiveTasksQuery(repoId: string | null, hydrationPending: boolean) {
+export function useActiveTasksQuery(
+  repoId: string | null,
+  hydrationPending: boolean,
+): UseQueryResult<TaskListSuccess["rows"], Error> {
   return useQuery(activeTasksQuery(repoId ?? "unselected", repoId !== null && hydrationPending));
 }
 

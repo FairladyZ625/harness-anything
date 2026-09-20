@@ -8,6 +8,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./src/index.ts"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "default": "./src/browser.ts"
     }
   },
   "dependencies": {

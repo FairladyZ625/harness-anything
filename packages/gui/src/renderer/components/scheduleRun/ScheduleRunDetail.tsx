@@ -3,7 +3,7 @@ import { SessionTranscript } from "../sessions/SessionTranscript.tsx";
 import { DocReader } from "../DocReader.tsx";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
-import type { ScheduleGuiRowDto } from "../../../../../daemon/src/protocol/schedules-gui-contract.ts";
+import type { ScheduleGuiRowDto } from "@harness-anything/daemon/protocol";
 import type { ScheduleGuiRunRowDto, ScheduleRunOutcomeWord } from "../../schedules-client.ts";
 import { formatDurationMs, RUN_OUTCOME_META } from "./runMeta.ts";
 

@@ -1,8 +1,7 @@
-import type { DaemonRpcMethodMap, DaemonRpcResult } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import type { DaemonRpcMethodMap, DaemonRpcResult } from "@harness-anything/daemon/protocol";
 import { guiTransport } from "./gui-transport.ts";
 
-type GuiInvokeFacet =
-  (typeof import("../../../daemon/src/protocol/daemon-protocol.contract.ts").daemonGuiInvokeFacets)[number];
+type GuiInvokeFacet = (typeof import("@harness-anything/daemon/protocol").daemonGuiInvokeFacets)[number];
 type GuiRpcMethod = GuiInvokeFacet["method"] & keyof DaemonRpcMethodMap;
 type GuiBridgeMethodFor<Method extends GuiRpcMethod> = Extract<
   GuiInvokeFacet,

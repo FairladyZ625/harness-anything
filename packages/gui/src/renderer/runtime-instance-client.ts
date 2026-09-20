@@ -1,5 +1,5 @@
-import type { RuntimeInstanceSummary } from "../../../daemon/src/agent-runtime-instances.ts";
-import type { TerminalControlReceipt } from "../../../daemon/src/gui-s3-control.ts";
+import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
+import type { TerminalControlReceipt } from "@harness-anything/daemon/protocol";
 import { guiHostBridge } from "./gui-transport.ts";
 export interface RuntimeInstallationRow {
   readonly installationId: string;

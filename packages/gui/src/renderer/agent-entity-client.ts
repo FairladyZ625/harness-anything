@@ -1,4 +1,4 @@
-import type { AgentDeclarationV1, SquadDeclarationV1 } from "../../../daemon/src/protocol/daemon-protocol-gui-types.ts";
+import type { AgentDeclarationV1, SquadDeclarationV1 } from "@harness-anything/daemon/protocol";
 import type {
   AgentEntityGuiDetail as AgentEntityDetail,
   AgentEntityGuiAvailableRow as AgentEntityAvailableRow,
@@ -8,7 +8,7 @@ import type {
   SquadEntityGuiDetail as SquadEntityDetail,
   SquadEntityGuiAvailableRow as SquadEntityAvailableRow,
   SquadEntityGuiRow as SquadEntityRow,
-} from "../../../daemon/src/agent-entities.ts";
+} from "@harness-anything/daemon/protocol";
 import { containsSecretLikeKey, entityRecord } from "../api/entity-payload-hygiene.ts";
 import { guiHostBridge } from "./gui-transport.ts";
 import { invoke } from "./api-client-invoke.ts";

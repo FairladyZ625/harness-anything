@@ -11,7 +11,7 @@ import { ScheduleDetailView } from "../src/renderer/views/ScheduleDetailView.tsx
 import { FactInspector } from "../src/renderer/components/FactInspector.tsx";
 import { AgentCard } from "../src/renderer/components/runtime/AgentCard.tsx";
 import { schedulesClient } from "../src/renderer/schedules-client.ts";
-import type { ScheduleGuiRowDto } from "../../../daemon/src/protocol/schedules-gui-contract.ts";
+import type { ScheduleGuiRowDto } from "@harness-anything/daemon/protocol";
 import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "../src/renderer/model/types.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";

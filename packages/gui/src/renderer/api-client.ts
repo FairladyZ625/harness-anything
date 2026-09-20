@@ -1,4 +1,4 @@
-import { validateDaemonTaskCompletion } from "../../../daemon/src/protocol/daemon-protocol-task-completion.ts";
+import { validateDaemonTaskCompletion } from "@harness-anything/daemon/protocol";
 import type {
   AgendaRead,
   AgendaTaskRow,

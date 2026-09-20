@@ -2,7 +2,7 @@
 // W5:全局「执行证据」列表页撤销——本文件收窄为单 task 的投影适配与上下文拼装
 // (Task 详情「收口」页签消费的同一面);跨 task 聚合/过滤/分页随页面删除。
 import { describe, expect, it } from "vitest";
-import { REPLAY_TASK_GRAPH } from "../../kernel/src/index.ts";
+import { REPLAY_TASK_GRAPH } from "@harness-anything/kernel";
 import type { TaskSnapshotProjectionRow } from "../src/api/renderer-dto.ts";
 import { adaptTaskExecutions, buildExecutionEvidenceContext } from "../src/renderer/model/execution-evidence.ts";
 

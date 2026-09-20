@@ -3,7 +3,7 @@ import type {
   DaemonGuiReadPayloadMap,
   DaemonGuiReadResultMap,
   GuiSubmissionV1,
-} from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+} from "@harness-anything/daemon/protocol";
 export type {
   ContractVersion,
   DecisionProjectionRow,
@@ -16,7 +16,7 @@ export type {
   RelationFactRow,
   RelationGraphEdgeRow,
   FreshnessReason,
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel/browser";
 /**
  * The coverage row the daemon read actually serves: the kernel projection row plus
  * the optional uncovered-cause classification (kernel `freshnessReasonOf`) attached
@@ -47,6 +47,6 @@ export type AgentRuntimeSessionPayload = DaemonGuiReadPayloadMap["repo.agentRunt
 export type AgentRuntimeEventsPayload = DaemonGuiReadPayloadMap["repo.agentRuntime.events.read"];
 export type GuiActionResult = DaemonGuiActionResult;
 export type GuiBridgeMethod =
-  | (typeof import("../../../daemon/src/protocol/daemon-protocol.contract.ts").daemonGuiInvokeFacets)[number]["guiBridgeMethod"]
-  | (typeof import("../../../daemon/src/protocol/daemon-protocol.contract.ts").daemonGuiStreamFacets)[number]["guiBridgeMethod"];
+  | (typeof import("@harness-anything/daemon/protocol").daemonGuiInvokeFacets)[number]["guiBridgeMethod"]
+  | (typeof import("@harness-anything/daemon/protocol").daemonGuiStreamFacets)[number]["guiBridgeMethod"];
 export type { GuiSubmissionV1 };

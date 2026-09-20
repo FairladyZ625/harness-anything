@@ -1,21 +1,12 @@
 import path from "node:path";
-import {
-  daemonProtocolError,
-  isDaemonGuiActionMethod,
-  isDaemonGuiReadMethod,
-  type DaemonTaskSnapshotListResult,
-  type DaemonStreamPayloadMap,
-} from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonProtocolError, isDaemonGuiActionMethod, isDaemonGuiReadMethod } from "@harness-anything/daemon/client";
+import type { DaemonTaskSnapshotListResult, DaemonStreamPayloadMap } from "@harness-anything/daemon/protocol";
 import {
   parseDaemonGuiActionResponse,
   parseDaemonGuiReadResponse,
   parseDaemonGuiReadResult,
-} from "../../../daemon/src/protocol/gui-result-validation.ts";
-import {
-  daemonIdFromEnv,
-  daemonUserRoot,
-  resolveLocalDaemonEndpoint,
-} from "../../../daemon/src/client/local-daemon-target.ts";
+} from "@harness-anything/daemon/client";
+import { daemonIdFromEnv, daemonUserRoot, resolveLocalDaemonEndpoint } from "@harness-anything/daemon/client";
 import { validateProjectPath } from "../api/local-api.ts";
 import { createGuiServiceBridgeForDaemon, type GuiServiceBridge, type ShippedGuiRoute } from "../api/service-bridge.ts";
 import { streamDaemonFacetAt } from "./agent-runtime-stream-client.ts";
@@ -250,6 +241,6 @@ async function daemonRpc(
   }
 }
 async function loadClient(): Promise<DaemonClient> {
-  client ??= import("../../../daemon/src/client/local-json-rpc-client.ts") as Promise<DaemonClient>;
+  client ??= import("@harness-anything/daemon/client") as Promise<DaemonClient>;
   return client;
 }

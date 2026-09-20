@@ -25,7 +25,7 @@ import {
   governableWitnessAdapterIds,
   mappedWitnessAdapterIds,
   settingsUpdateInputFields,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 const REPO_ID = "settings-selectors-probe";
 const AT = "2026-08-27T00:00:00.000Z";

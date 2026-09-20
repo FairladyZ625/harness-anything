@@ -1,10 +1,7 @@
 import { useMemo } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { ArrowSquareOut, Circle, FileText } from "@phosphor-icons/react";
-import type {
-  AgentRuntimeEventsResult,
-  AgentRuntimeSessionResult,
-} from "../../../../../daemon/src/agent-runtime-contract.ts";
+import type { AgentRuntimeEventsResult, AgentRuntimeSessionResult } from "@harness-anything/daemon/protocol";
 import type { RelationFactRow, TaskDispatchProjectionRow } from "../../../api/renderer-dto.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
 import { harnessClient } from "../../api-client.ts";

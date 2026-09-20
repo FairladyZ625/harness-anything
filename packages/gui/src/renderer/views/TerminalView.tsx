@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { DockviewApi } from "dockview-react";
-import type { TerminalSessionRow } from "../../../../daemon/src/gui-s3-control.ts";
+import type { TerminalSessionRow } from "@harness-anything/daemon/protocol";
 import {
   closeTerminalTab,
   mostRecentAttachableTerminal,

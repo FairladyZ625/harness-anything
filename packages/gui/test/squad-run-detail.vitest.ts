@@ -4,7 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { SquadRunDetail } from "../src/renderer/components/sessions/SquadRunDetail.tsx";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
-import type { SquadRunReadResult } from "../../daemon/src/squad-run-contract.ts";
+import type { SquadRunReadResult } from "@harness-anything/daemon/protocol";
 
 beforeAll(() => setActiveLocale("en-US"));
 

@@ -1,10 +1,7 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, PencilSimple, Play, Power, Stop, Trash } from "@phosphor-icons/react";
-import type {
-  ScheduleGuiOptionsDto,
-  ScheduleGuiRowDto,
-} from "../../../../daemon/src/protocol/schedules-gui-contract.ts";
+import type { ScheduleGuiOptionsDto, ScheduleGuiRowDto } from "@harness-anything/daemon/protocol";
 import {
   Badge,
   Btn,

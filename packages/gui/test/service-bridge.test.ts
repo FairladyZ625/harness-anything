@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import type { WriterEpochFenceDescriptor } from "../../daemon/src/writer-epoch.ts";
+import type { WriterEpochFenceDescriptor } from "@harness-anything/daemon/client";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -7,22 +7,19 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
-import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
+import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/client";
 import {
   compileScheduleDefinitionEvent,
   createScheduleV1,
   deriveUseCaseProjectionInputs,
   makeTaskEventStore,
-} from "../../kernel/src/index.ts";
-import {
-  daemonGuiReadMethods,
-  type DaemonGuiRpcReadMethod,
-} from "../../daemon/src/protocol/daemon-protocol.contract.ts";
+} from "@harness-anything/kernel";
+import { daemonGuiReadMethods, type DaemonGuiRpcReadMethod } from "@harness-anything/daemon/client";
 import {
   parseDaemonGuiActionResponse,
   parseDaemonGuiReadResponse,
   parseDaemonGuiReadResult,
-} from "../../daemon/src/protocol/gui-result-validation.ts";
+} from "@harness-anything/daemon/client";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 import { reportInvalidTaskSnapshotRows } from "../src/main/local-composition-root.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";

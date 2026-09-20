@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, type MenuIte
 import { homedir } from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { readDaemonRegistry } from "../../../kernel/src/index.ts";
+import { readDaemonRegistry } from "@harness-anything/kernel";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
 import { registerArtifactOpenIpc } from "./artifact-open-ipc.ts";
 import { registerLocalDocIpc } from "./local-doc-ipc.ts";
@@ -18,7 +18,7 @@ import {
   daemonUserRoot,
   resolveLocalDaemonTarget,
   resolveLocalDaemonTargetFromRepos,
-} from "../../../daemon/src/client/local-daemon-target.ts";
+} from "@harness-anything/daemon/client";
 import {
   evaluateHtmlArtifactAttachment,
   evaluateHtmlArtifactRequest,

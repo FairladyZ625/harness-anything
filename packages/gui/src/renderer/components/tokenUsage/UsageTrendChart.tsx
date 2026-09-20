@@ -1,4 +1,4 @@
-import type { AgentRuntimeTokenUsageBucket } from "../../../../../daemon/src/agent-runtime-token-usage.ts";
+import type { AgentRuntimeTokenUsageBucket } from "@harness-anything/daemon/protocol";
 import { compactTokens, exactTokens } from "../../token-format.ts";
 import { bucketAxisLabel } from "../../token-usage-model.ts";
 import { t } from "../../i18n/index.tsx";

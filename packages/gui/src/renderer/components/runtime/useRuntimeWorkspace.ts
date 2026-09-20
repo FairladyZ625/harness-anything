@@ -1,11 +1,8 @@
 import { useState } from "react";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
-import type {
-  AgentDeclarationV1,
-  SquadDeclarationV1,
-} from "../../../../../daemon/src/protocol/daemon-protocol-gui-types.ts";
-import { successfulAgentRuntimeResult } from "../../../../../daemon/src/agent-runtime-contract.ts";
+import type { AgentDeclarationV1, SquadDeclarationV1 } from "@harness-anything/daemon/protocol";
+import { successfulAgentRuntimeResult } from "@harness-anything/daemon/protocol";
 import { agentEntityClient, type EntitySaveResult } from "../../agent-entity-client.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
 import { harnessClient } from "../../api-client.ts";

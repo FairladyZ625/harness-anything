@@ -11,7 +11,7 @@ import { PresetsView } from "../src/renderer/views/PresetsView.tsx";
 import { AdaptersView } from "../src/renderer/views/AdaptersView.tsx";
 import { SystemView } from "../src/renderer/views/SystemView.tsx";
 import { SettingsView } from "../src/renderer/views/SettingsView.tsx";
-import { settingsUpdateInputFields } from "../../kernel/src/index.ts";
+import { settingsUpdateInputFields } from "@harness-anything/kernel";
 import { catalogQueryKeys } from "../src/renderer/catalog-data.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { settingsQueryKeys } from "../src/renderer/settings-data.ts";

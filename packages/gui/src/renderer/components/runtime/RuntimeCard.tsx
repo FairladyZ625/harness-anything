@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
-import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
-import { runtimeIsolationState, runtimePermissionMode } from "../../../../../daemon/src/runtime-permissions.ts";
-import { runtimeKindForId } from "../../../../../daemon/src/runtime-inventory.ts";
-import { agentRuntimeKindMatches } from "../../../../../daemon/src/agent-runtime-contract.ts";
+import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
+import { runtimeIsolationState, runtimePermissionMode } from "@harness-anything/daemon/protocol";
+import { runtimeKindForId } from "@harness-anything/daemon/protocol";
+import { agentRuntimeKindMatches } from "@harness-anything/daemon/protocol";
 import type { AgentEntityAvailableRow } from "../../agent-entity-client.ts";
 import type { RuntimeInstallationRow, RuntimeInstanceUpdateInput } from "../../runtime-instance-client.ts";
 import {

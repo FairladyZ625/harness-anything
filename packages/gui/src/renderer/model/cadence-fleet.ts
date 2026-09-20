@@ -1,4 +1,4 @@
-import type { AgentRuntimeSessionDto } from "../../../../daemon/src/agent-runtime-contract.ts";
+import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
 import type { TaskRow } from "./types.ts";
 import type { CadenceFeedEvent } from "./cadence.ts";
 

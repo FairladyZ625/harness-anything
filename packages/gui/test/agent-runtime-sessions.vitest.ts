@@ -15,7 +15,7 @@ import {
   type SessionGroup,
 } from "../src/renderer/sessions-model.ts";
 import { TIME_ZONE_STORAGE_KEY } from "../src/renderer/model/time.ts";
-import type { AgentRuntimeSessionDto } from "../../daemon/src/agent-runtime-contract.ts";
+import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
 import type { RelationEdge } from "../src/renderer/model/types.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { sessionTranscriptTurns } from "../src/renderer/session-transcript-model.ts";

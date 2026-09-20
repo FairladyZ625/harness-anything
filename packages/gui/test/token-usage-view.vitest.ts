@@ -9,7 +9,7 @@ import { agentRuntimeClient } from "../src/renderer/agent-runtime-client.ts";
 import type {
   AgentRuntimeTokenUsageDetailResult,
   AgentRuntimeTokenUsageResult,
-} from "../../daemon/src/agent-runtime-token-usage.ts";
+} from "@harness-anything/daemon/protocol";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 /**

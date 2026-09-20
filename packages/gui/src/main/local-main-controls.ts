@@ -1,6 +1,6 @@
 import type { GuiServiceBridge } from "../api/service-bridge.ts";
 import { createRuntimeInstanceCredentialController } from "./secure-credential-broker.ts";
-import type { CredentialPort } from "../../../daemon/src/agent-runtime-credential-port.ts";
+import type { CredentialPort } from "@harness-anything/daemon/client";
 
 type Target = {
   readonly repoId: string;

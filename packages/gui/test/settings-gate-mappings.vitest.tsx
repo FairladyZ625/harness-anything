@@ -18,7 +18,7 @@ import {
   governableWitnessAdapterIds,
   mappedWitnessAdapterIds,
   settingsUpdateInputFields,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 const REPO_ID = "settings-gates-probe";
 const GATES = [

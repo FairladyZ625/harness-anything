@@ -14,8 +14,8 @@ import { buildEgoGraph, bfsShownFromFocus } from "../src/renderer/graph/egoCanva
 // 这些用例靠「undefined = 无上限」在小夹具上碰巧全量可达而通过。
 import { EGO_DEFAULT_HOPS } from "../src/renderer/graph/useEgoCanvas.ts";
 import { partitionAll, partitionAgents, partitionSchedules } from "../src/renderer/graph/territory.ts";
-import type { AgentEntityGuiRow } from "../../../../daemon/src/agent-entities.ts";
-import type { ScheduleGuiRowDto } from "../../../../daemon/src/protocol/schedules-gui-contract.ts";
+import type { AgentEntityGuiRow } from "@harness-anything/daemon/protocol";
+import type { ScheduleGuiRowDto } from "@harness-anything/daemon/protocol";
 import { projectedTaskFields } from "./task-projection-fields.ts";
 
 /**

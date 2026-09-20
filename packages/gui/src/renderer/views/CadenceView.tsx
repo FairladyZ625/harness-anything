@@ -24,7 +24,7 @@ import { YieldSummary } from "../components/cadence/YieldSummary.tsx";
 import { AttentionBlockers } from "../components/cadence/AttentionBlockers.tsx";
 import { FleetPulsePane } from "../components/cadence/FleetPulsePane.tsx";
 import { deriveFleetPulse, type FleetTimeWindow } from "../model/cadence-fleet.ts";
-import type { AgentRuntimeSessionDto } from "../../../../daemon/src/agent-runtime-contract.ts";
+import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
 
 /**
  * 研发态势(Cadence & Pulse)一级视图:治理域下项目研发心跳的驾驶舱。

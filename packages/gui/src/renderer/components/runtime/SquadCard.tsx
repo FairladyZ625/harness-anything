@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { SquadDeclarationV1 } from "../../../../../daemon/src/protocol/daemon-protocol-gui-types.ts";
-import { agentRuntimeTargetSummary } from "../../../../../daemon/src/agent-runtime-contract.ts";
+import type { SquadDeclarationV1 } from "@harness-anything/daemon/protocol";
+import { agentRuntimeTargetSummary } from "@harness-anything/daemon/protocol";
 import type { AgentEntityAvailableRow, SquadEntityDetail } from "../../agent-entity-client.ts";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";

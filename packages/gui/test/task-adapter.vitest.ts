@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { REPLAY_TASK_GRAPH } from "../../kernel/src/index.ts";
+import { REPLAY_TASK_GRAPH } from "@harness-anything/kernel";
 import type { TaskSnapshotProjectionRow } from "../src/api/renderer-dto.ts";
 import { adaptProjectionRows, computeRootTaskId } from "../src/renderer/task-adapter.ts";
 

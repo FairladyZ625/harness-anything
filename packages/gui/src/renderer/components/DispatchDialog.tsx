@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import type { AgentRuntimeInstanceDto } from "../../../../daemon/src/agent-runtime-contract.ts";
+import type { AgentRuntimeInstanceDto } from "@harness-anything/daemon/protocol";
 import {
   compatibleDispatchInstances,
   compatibleDispatchModels,
@@ -13,7 +13,7 @@ import { t } from "../i18n/index.tsx";
 import { DispatchPreviewModal } from "./DispatchPreviewModal.tsx";
 import { Avatar, Badge, Btn, Chip, Hint, KindDot, LiveDot, Modal, SegCtl, TextInput } from "./runtime/parts.tsx";
 import { planeAllowsEffort } from "../runtime-provider-planes.ts";
-import { runtimeKindForId } from "../../../../daemon/src/runtime-inventory.ts";
+import { runtimeKindForId } from "@harness-anything/daemon/protocol";
 
 // The dispatch modal from the Agent Runtime prototype, in the order the design argues for:
 // who → which task → what mission → where it runs. The dialog only authors the request;

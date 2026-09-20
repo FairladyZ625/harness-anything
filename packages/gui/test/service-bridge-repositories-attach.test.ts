@@ -6,11 +6,11 @@ import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
-import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
-import { parseDaemonGuiReadResult } from "../../daemon/src/protocol/gui-result-validation.ts";
+import { localUserDaemonEndpoint } from "@harness-anything/daemon/client";
+import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/client";
+import { parseDaemonGuiReadResult } from "@harness-anything/daemon/client";
 import { createLocalGuiServiceBridge } from "../src/index.ts";
-import { streamAgentRuntimeAt } from "../../daemon/src/client/local-json-rpc-stream.ts";
+import { streamAgentRuntimeAt } from "@harness-anything/daemon/client";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
 import { seedTriadicEvents, writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
 

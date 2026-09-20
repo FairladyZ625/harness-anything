@@ -1,9 +1,6 @@
 import { type ReactNode } from "react";
-import {
-  agentRuntimeTargetSummary,
-  type AgentRuntimeSessionDto,
-} from "../../../../../daemon/src/agent-runtime-contract.ts";
-import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
+import { agentRuntimeTargetSummary, type AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
+import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
 import type { AgentEntityAvailableRow, SquadEntityAvailableRow } from "../../agent-entity-client.ts";
 import { formatTime } from "../../model/time.ts";
 import { sessionStatusDot, type SessionStatus } from "../../sessions-model.ts";

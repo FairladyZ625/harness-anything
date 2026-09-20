@@ -7,7 +7,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { createElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ArtifactsWorkspace } from "../src/renderer/views/ArtifactsView.tsx";
-import type { ArtifactGuiRowDto, ArtifactsListResult } from "../../daemon/src/protocol/artifacts-gui-contract.ts";
+import type { ArtifactGuiRowDto, ArtifactsListResult } from "@harness-anything/daemon/protocol";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 beforeAll(() => {

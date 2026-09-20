@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Eye } from "@phosphor-icons/react";
-import type { AgentDeclarationV1 } from "../../../../../daemon/src/protocol/daemon-protocol-gui-types.ts";
-import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
-import { agentRuntimeKindMatches } from "../../../../../daemon/src/agent-runtime-contract.ts";
+import type { AgentDeclarationV1 } from "@harness-anything/daemon/protocol";
+import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
+import { agentRuntimeKindMatches } from "@harness-anything/daemon/protocol";
 import type {
   AgentEntityAvailableRow,
   AgentEntityDetail,

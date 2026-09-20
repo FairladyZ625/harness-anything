@@ -7,7 +7,7 @@ import {
   relationTypes,
   type EntityRefKind,
   type RelationType,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { explainEntityKind, projectedEntityKinds } from "../../../tools/generate-entity-doc-contract.mjs";
 import {
   CURATED_ENTITY_DOC_BY_KIND,

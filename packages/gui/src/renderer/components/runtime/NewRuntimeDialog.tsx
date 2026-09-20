@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { runtimeIsolationState, runtimePermissionMode } from "../../../../../daemon/src/runtime-permissions.ts";
+import { runtimeIsolationState, runtimePermissionMode } from "@harness-anything/daemon/protocol";
 import type { RuntimeInstallationRow, RuntimeInstanceCreateInput } from "../../runtime-instance-client.ts";
 import {
   applyRuntimeAuthMode,
@@ -20,7 +20,7 @@ import {
   RUNTIME_KIND_IDS,
   type RuntimeKindId,
 } from "../../runtime-provider-planes.ts";
-import { runtimeKindForId } from "../../../../../daemon/src/runtime-inventory.ts";
+import { runtimeKindForId } from "@harness-anything/daemon/protocol";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { Badge, Btn, CfgRow, Hint, KindDot, Modal, SegCtl, TextInput, Toggle, WarnBar } from "./parts.tsx";

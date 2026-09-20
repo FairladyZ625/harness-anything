@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { daemonGuiInvokeFacets, daemonGuiStreamFacets } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonGuiInvokeFacets, daemonGuiStreamFacets } from "@harness-anything/daemon/client";
 import {
   apiRouteContracts,
   assertUniqueHarnessIpcChannels,

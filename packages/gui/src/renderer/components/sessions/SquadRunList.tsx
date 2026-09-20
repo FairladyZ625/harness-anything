@@ -2,7 +2,7 @@ import {
   isAvailableSquadRunSummary,
   type SquadRunListRowDto,
   type SquadRunSummaryDto,
-} from "../../../../../daemon/src/squad-run-contract.ts";
+} from "@harness-anything/daemon/protocol";
 import { relativeTime, shortRef } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { Badge, LiveDot } from "../runtime/parts.tsx";

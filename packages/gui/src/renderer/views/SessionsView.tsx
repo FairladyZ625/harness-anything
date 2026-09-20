@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { isAvailableSquadRunSummary } from "../../../../daemon/src/squad-run-contract.ts";
+import { isAvailableSquadRunSummary } from "@harness-anything/daemon/protocol";
 import { agentEntityClient, isAvailableSquadEntityRow } from "../agent-entity-client.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts";
 import { harnessClient } from "../api-client.ts";

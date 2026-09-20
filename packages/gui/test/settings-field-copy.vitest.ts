@@ -6,7 +6,7 @@
 // (契约→渲染行的真实派生,天然容纳 EXCLUDED_FIELDS 与不可渲染类型的合法豁免)的
 // 每一行都必须有文案。双向:缺登记=红(新字段裸奔),多登记=红(死文案误导下一个登记人)。
 import { describe, expect, it } from "vitest";
-import { settingsUpdateInputFields } from "../../kernel/src/index.ts";
+import { settingsUpdateInputFields } from "@harness-anything/kernel";
 import { settingsFormRows } from "../src/renderer/settings-form.ts";
 import { FIELD_COPY } from "../src/renderer/views/settings/RepositorySettingsPanel.tsx";
 

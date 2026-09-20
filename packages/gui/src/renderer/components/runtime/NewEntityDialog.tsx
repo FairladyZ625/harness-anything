@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { AgentEntityAvailableRow, SquadEntityAvailableRow } from "../../agent-entity-client.ts";
-import { agentRuntimeTargetSummary } from "../../../../../daemon/src/agent-runtime-contract.ts";
+import { agentRuntimeTargetSummary } from "@harness-anything/daemon/protocol";
 import { t } from "../../i18n/index.tsx";
 import { Avatar, Badge, Btn, CfgRow, Hint, KindDot, Modal, TextInput, WarnBar } from "./parts.tsx";
 

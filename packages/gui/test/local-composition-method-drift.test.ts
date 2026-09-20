@@ -5,7 +5,7 @@ import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
+import { localUserDaemonEndpoint } from "@harness-anything/daemon/client";
 import { createLocalGuiServiceBridge } from "../src/main/local-composition-root.ts";
 
 test("GUI names daemon method-set drift before sending the unavailable request", async () => {

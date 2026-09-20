@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import type { RuntimeInstanceSummary } from "../../../../../daemon/src/agent-runtime-instances.ts";
+import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
 import {
   isAvailableAgentEntityRow,
   isAvailableSquadEntityRow,

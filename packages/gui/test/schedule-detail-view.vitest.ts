@@ -12,7 +12,7 @@ import {
   ScheduleRunDetail,
 } from "../src/renderer/components/scheduleRun/ScheduleRunDetail.tsx";
 import { schedulesClient, type ScheduleRunsResult } from "../src/renderer/schedules-client.ts";
-import type { ScheduleGuiRowDto, SchedulesListResult } from "../../daemon/src/protocol/schedules-gui-contract.ts";
+import type { ScheduleGuiRowDto, SchedulesListResult } from "@harness-anything/daemon/protocol";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 beforeAll(() => setActiveLocale("en-US"));

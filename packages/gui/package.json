@@ -1,9 +1,30 @@
 {
   "name": "@harness-anything/gui",
   "version": "0.0.1",
-  "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
+  "description": "Desktop GUI and visualization client for Harness Anything.",
+  "homepage": "https://github.com/FairladyZ625/harness-anything#readme",
+  "bugs": {
+    "url": "https://github.com/FairladyZ625/harness-anything/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FairladyZ625/harness-anything.git",
+    "directory": "packages/gui"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "files": [
+    "dist",
+    "dist-electron",
+    "README.md",
+    "package.json"
+  ],
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "dev:electron": "node scripts/dev-electron.mjs",
@@ -21,6 +42,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@harness-anything/daemon": "0.0.1",
+    "@harness-anything/kernel": "0.0.1",
     "@dagrejs/dagre": "^3.0.0",
     "@dnd-kit/core": "^6.3.1",
     "@fontsource-variable/geist": "^5.2.9",

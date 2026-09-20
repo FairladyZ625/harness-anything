@@ -1,8 +1,5 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import type {
-  AgentRuntimeSessionDto,
-  AgentRuntimeSessionResult,
-} from "../../../../../daemon/src/agent-runtime-contract.ts";
+import type { AgentRuntimeSessionDto, AgentRuntimeSessionResult } from "@harness-anything/daemon/protocol";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import { agentRuntimeClient } from "../../agent-runtime-client.ts";
 import { sessionInstallationBadge, type SessionRow, shortRef } from "../../sessions-model.ts";

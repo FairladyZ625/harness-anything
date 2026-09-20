@@ -2,7 +2,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { successfulAgentRuntimeResult } from "../../daemon/src/agent-runtime-contract.ts";
+import { successfulAgentRuntimeResult } from "@harness-anything/daemon/protocol";
 import { AgentCard, agentDeclarationFrom, agentDraftFrom } from "../src/renderer/components/runtime/AgentCard.tsx";
 import { NewRuntimeDialog } from "../src/renderer/components/runtime/NewRuntimeDialog.tsx";
 import { TextInput } from "../src/renderer/components/runtime/parts.tsx";

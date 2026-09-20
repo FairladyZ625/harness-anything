@@ -10,7 +10,7 @@ import type { ObserveTailRead } from "../src/api/renderer-dto.ts";
 import type { TaskRow } from "../src/renderer/model/types.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
-import type { AgentRuntimeSessionDto } from "../../daemon/src/agent-runtime-contract.ts";
+import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
 
 /**
  * 研发态势视图的装配判据(happy-dom):

@@ -4,8 +4,8 @@ import {
   type RuntimeAuthMode,
   type RuntimeEndpointAvailability,
   type RuntimeKindId,
-} from "../../../daemon/src/runtime-inventory.ts";
-export type { RuntimeAuthMode, RuntimeKindId } from "../../../daemon/src/runtime-inventory.ts";
+} from "@harness-anything/daemon/protocol";
+export type { RuntimeAuthMode, RuntimeKindId } from "@harness-anything/daemon/protocol";
 
 // The three provider planes, as adjudicated 2026-08-20. The configuration surface is
 // derived from this table so the form can never offer a combination the provider cannot

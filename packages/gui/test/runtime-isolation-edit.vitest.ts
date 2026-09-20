@@ -6,7 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { createElement } from "react";
 import { RuntimeCard } from "../src/renderer/components/runtime/RuntimeCard.tsx";
 import type { RuntimeInstanceUpdateInput } from "../src/renderer/runtime-instance-client.ts";
-import type { RuntimeInstanceSummary } from "../../daemon/src/agent-runtime-instances.ts";
+import type { RuntimeInstanceSummary } from "@harness-anything/daemon/client";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 beforeAll(() => {
