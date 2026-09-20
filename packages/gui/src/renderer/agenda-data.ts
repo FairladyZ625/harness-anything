@@ -1,6 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { harnessClient, type AgendaSuccess } from "./api-client.ts";
-import type { AgendaAwaitingRow, AgendaTaskRow } from "../api/renderer-dto.ts";
 import { QUERY_PACING_MS } from "./query-pacing.ts";
 
 /** 每个 agenda source 的一页上限(daemon 上限 500;GUI 用默认页大小,不放大读面)。 */
@@ -57,26 +56,30 @@ async function readAgendaPage(repoId: string, facets: { readonly cursor?: string
 
 /**
  * 把新读到的一页并进已有切面。每个分组各自按实体 key 去重:composite cursor 是
- * per-source 的 keyset 游标,一次续读 sweep 里同一 task 不会在同一分组出现两次,
+ * per-source 的 keyset 游标,一次续读 sweep 里同一实体不会在同一分组出现两次,
  * 去重只防跨 sweep 的重放。watermark 取 min、sourceRevision 取 max,只有读完
  * (nextCursor === null)才报告 ready。
  */
 function joinAgendaCut(previous: AgendaSuccess | undefined, read: AgendaSuccess): AgendaSuccess {
   const complete = read.page.nextCursor === null;
   if (previous === undefined) return complete ? read : { ...read, status: "pending" as const };
-  const inFlight = mergeTaskRows(previous.inFlight, read.inFlight),
-    waitingOnOthers = mergeTaskRows(previous.waitingOnOthers, read.waitingOnOthers),
-    dispatchable = mergeTaskRows(previous.dispatchable, read.dispatchable),
-    awaitingDecision = mergeAwaitingRows(previous.awaitingDecision, read.awaitingDecision);
+  const merge = mergeAgendaRows;
   return {
     ok: true,
     status: complete ? read.status : "pending",
     pinnedEntities: read.pinnedEntities,
     pinnedEntityOverflow: read.pinnedEntityOverflow,
-    inFlight,
-    awaitingDecision,
-    waitingOnOthers,
-    dispatchable,
+    inFlight: merge(previous.inFlight, read.inFlight, ({ taskId }) => taskId),
+    awaitingRework: merge(previous.awaitingRework, read.awaitingRework, ({ taskId }) => taskId),
+    awaitingAdjudication: merge(
+      previous.awaitingAdjudication,
+      read.awaitingAdjudication,
+      ({ executionId }) => executionId,
+    ),
+    underReview: merge(previous.underReview, read.underReview, ({ executionId }) => executionId),
+    awaitingDecision: merge(previous.awaitingDecision, read.awaitingDecision, ({ decisionId }) => decisionId),
+    waitingOnOthers: merge(previous.waitingOnOthers, read.waitingOnOthers, ({ taskId }) => taskId),
+    dispatchable: merge(previous.dispatchable, read.dispatchable, ({ taskId }) => taskId),
     summary: read.summary,
     page: read.page,
     watermark: Math.min(previous.watermark, read.watermark),
@@ -84,22 +87,8 @@ function joinAgendaCut(previous: AgendaSuccess | undefined, read: AgendaSuccess)
   };
 }
 
-function mergeTaskRows(base: readonly AgendaTaskRow[], added: readonly AgendaTaskRow[]): readonly AgendaTaskRow[] {
-  const rows = new Map(base.map((row) => [row.taskId, row]));
-  for (const row of added) rows.set(row.taskId, row);
+function mergeAgendaRows<T>(base: readonly T[], added: readonly T[], keyOf: (row: T) => string): readonly T[] {
+  const rows = new Map(base.map((row) => [keyOf(row), row]));
+  for (const row of added) rows.set(keyOf(row), row);
   return [...rows.values()];
-}
-
-function mergeAwaitingRows(
-  base: readonly AgendaAwaitingRow[],
-  added: readonly AgendaAwaitingRow[],
-): readonly AgendaAwaitingRow[] {
-  const rows = new Map(base.map((row) => [awaitingKey(row), row]));
-  for (const row of added) rows.set(awaitingKey(row), row);
-  return [...rows.values()];
-}
-
-/** 待裁行的实体 key:decision 与 execution 是两种不同的待裁对象,不共用键空间。 */
-export function awaitingKey(row: AgendaAwaitingRow): string {
-  return row.kind === "decision" ? `decision/${row.decisionId}` : `execution/${row.executionId}`;
 }

@@ -1,5 +1,5 @@
 import type { AgendaSuccess } from "../api-client.ts";
-import type { AgendaAwaitingRow, AgendaTaskRow } from "../../api/renderer-dto.ts";
+import type { AgendaDecisionRow, AgendaExecutionRow, AgendaTaskRow } from "../../api/renderer-dto.ts";
 import type { TaskRow } from "./types.ts";
 import type { CadenceFeedEvent } from "./cadence.ts";
 
@@ -10,8 +10,8 @@ import type { CadenceFeedEvent } from "./cadence.ts";
  * 呈现层分组与排序,不重推任何生命周期判定、不在渲染层重算全仓计数。
  */
 
-/** G2 的三个待处理分组(取数全部收在 attentionItemsOf,议程分区词表变更只动这里)。 */
-export type AttentionGroup = "reviewReturned" | "initialReview" | "decision";
+/** G2 的待处理分组(取数全部收在 attentionItemsOf,议程分组词表变更只动这里)。 */
+export type AttentionGroup = "reviewReturned" | "initialReview" | "underReview" | "decision";
 
 export interface AttentionItem {
   readonly key: string;
@@ -28,47 +28,56 @@ export interface AttentionItem {
   readonly blocking: boolean;
 }
 
-export const ATTENTION_GROUP_ORDER: readonly AttentionGroup[] = ["reviewReturned", "initialReview", "decision"];
+export const ATTENTION_GROUP_ORDER: readonly AttentionGroup[] = [
+  "reviewReturned",
+  "initialReview",
+  "underReview",
+  "decision",
+];
 
 /**
  * 议程 → 「需要你处理」行集。agenda 尚未读到时返回 null(调用方显示读取中,不冒充空)。
  *
- * 分组取数(2026-09-20 现状):待初审 = `awaitingDecision` 的 execution 行(提交待裁);
- * 评审返回 = `awaitingRework`(可选购,读面拆分 awaitingAdjudication/awaitingRework 后
- * 在此一处切换);决策待裁 = `awaitingDecision` 的 decision 行。
- * 排序:置顶优先 → 阻塞当前工作(blockingAssessment=blocked)→ 进入队列时间倒序。
+ * 分组取数(读面已按下一步动作三分):待初审 = `awaitingAdjudication`(提交待派审);
+ * 评审中/等 consent = `underReview`;决策待裁 = `awaitingDecision`(纯 decision 行);
+ * 评审返回 = `awaitingRework`。排序:置顶优先 → 阻塞当前工作(blockingAssessment=blocked)
+ * → 进入队列时间倒序。
  */
 export function attentionItemsOf(agenda: AgendaSuccess | undefined): readonly AttentionItem[] | null {
   if (agenda === undefined) return null;
   const items: AttentionItem[] = [
-    ...agenda.awaitingDecision.map(attentionOfAwaiting),
-    ...(agenda.awaitingRework ?? []).map(attentionOfRework),
+    ...agenda.awaitingAdjudication.map((row) => attentionOfExecution(row, "initialReview")),
+    ...agenda.underReview.map((row) => attentionOfExecution(row, "underReview")),
+    ...agenda.awaitingDecision.map(attentionOfDecision),
+    ...agenda.awaitingRework.map(attentionOfRework),
   ];
   return items.sort(compareAttention);
 }
 
-function attentionOfAwaiting(row: AgendaAwaitingRow): AttentionItem {
-  return row.kind === "decision"
-    ? {
-        key: `decision/${row.decisionId}`,
-        group: "decision",
-        title: row.title,
-        ref: `decision/${row.decisionId}`,
-        queuedAt: row.proposedAt,
-        pinned: false,
-        meta: `risk:${row.riskTier} urgency:${row.urgency}`,
-        blocking: false,
-      }
-    : {
-        key: `execution/${row.executionId}`,
-        group: "initialReview",
-        title: row.title,
-        ref: `task/${row.taskId}`,
-        queuedAt: row.submittedAt,
-        pinned: row.pinned,
-        meta: row.blockingAssessment.state === "blocked" ? `blocked:${row.blockingAssessment.label}` : null,
-        blocking: row.blockingAssessment.state === "blocked",
-      };
+function attentionOfExecution(row: AgendaExecutionRow, group: "initialReview" | "underReview"): AttentionItem {
+  return {
+    key: `execution/${row.executionId}`,
+    group,
+    title: row.title,
+    ref: `task/${row.taskId}`,
+    queuedAt: row.submittedAt,
+    pinned: row.pinned,
+    meta: row.blockingAssessment.state === "blocked" ? `blocked:${row.blockingAssessment.label}` : null,
+    blocking: row.blockingAssessment.state === "blocked",
+  };
+}
+
+function attentionOfDecision(row: AgendaDecisionRow): AttentionItem {
+  return {
+    key: `decision/${row.decisionId}`,
+    group: "decision",
+    title: row.title,
+    ref: `decision/${row.decisionId}`,
+    queuedAt: row.proposedAt,
+    pinned: false,
+    meta: `risk:${row.riskTier} urgency:${row.urgency}`,
+    blocking: false,
+  };
 }
 
 function attentionOfRework(row: AgendaTaskRow): AttentionItem {

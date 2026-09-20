@@ -86,6 +86,9 @@ const agenda = (patch: Partial<AgendaSuccess> = {}): AgendaSuccess => ({
   inFlight: [],
   pinnedEntities: [],
   pinnedEntityOverflow: 0,
+  awaitingRework: [],
+  awaitingAdjudication: [],
+  underReview: [],
   awaitingDecision: [],
   waitingOnOthers: [],
   dispatchable: [],
@@ -660,9 +663,8 @@ describe("overview pinned stream", () => {
         },
       ],
       pinnedEntityOverflow: 0,
-      awaitingDecision: [
+      awaitingAdjudication: [
         {
-          kind: "execution",
           taskId: "task_pin_review",
           title: "Pinned review",
           pinned: true,

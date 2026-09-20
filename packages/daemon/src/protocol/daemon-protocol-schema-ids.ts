@@ -98,6 +98,9 @@ export const DAEMON_AGENDA_SCHEMA = Object.freeze({
     "pinnedEntities",
     "pinnedEntityOverflow",
     "inFlight",
+    "awaitingRework",
+    "awaitingAdjudication",
+    "underReview",
     "awaitingDecision",
     "waitingOnOthers",
     "dispatchable",
@@ -107,8 +110,7 @@ export const DAEMON_AGENDA_SCHEMA = Object.freeze({
     "warnings",
     "summary",
   ]),
-  // awaitingRework is additive: readers on the old four-group shape keep validating.
-  optional: Object.freeze(["awaitingRework"]),
+  optional: Object.freeze([]),
 });
 
 export const DAEMON_RELATION_GRAPH_SCHEMA = Object.freeze({

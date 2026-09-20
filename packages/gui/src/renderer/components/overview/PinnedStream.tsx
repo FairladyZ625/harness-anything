@@ -122,8 +122,9 @@ const PINNED_ENTITY_STATUS: Record<
 
 /**
  * `repo.agenda.read` 的 pinned-first 四组收拢为一个 task 集。active task 可能同时
- * 出现在「在飞」和「球在别人手里」,所以按实体 ref 去重;待复核 execution 还原为
- * 其所属的 in_review task。排序只用投影携带的时间,不依赖尚未水化完的 task list。
+ * 出现在「在飞」和「球在别人手里」,所以按实体 ref 去重;待派审/评审中的 execution
+ * 还原为其所属 task,状态取各自分组的 task 状态。排序只用投影携带的时间,不依赖
+ * 尚未水化完的 task list。
  */
 export function pinnedAgendaItems(agenda: AgendaSuccess): readonly PinnedAgendaItem[] {
   const rows = new Map<string, PinnedAgendaItem>();
@@ -144,16 +145,21 @@ export function pinnedAgendaItems(agenda: AgendaSuccess): readonly PinnedAgendaI
       });
     }
   }
-  for (const row of agenda.awaitingDecision) {
-    if (row.kind !== "execution" || row.pinned !== true) continue;
-    accept({
-      ref: `task/${row.taskId}`,
-      kind: "task",
-      taskId: row.taskId,
-      title: row.title,
-      status: "in_review",
-      updatedAt: row.submittedAt,
-    });
+  for (const [group, status] of [
+    [agenda.awaitingAdjudication, "submitted"],
+    [agenda.underReview, "in_review"],
+  ] as const) {
+    for (const row of group) {
+      if (row.pinned !== true) continue;
+      accept({
+        ref: `task/${row.taskId}`,
+        kind: "task",
+        taskId: row.taskId,
+        title: row.title,
+        status,
+        updatedAt: row.submittedAt,
+      });
+    }
   }
   for (const row of agenda.pinnedEntities) {
     if (row.kind === "task") continue;

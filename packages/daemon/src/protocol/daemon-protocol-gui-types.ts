@@ -805,24 +805,26 @@ export interface AgendaTaskRow {
   readonly blockingAssessment: import("../../../kernel/src/domain/task-blocking.ts").BlockingAssessment;
 }
 
-export type AgendaAwaitingRow =
-  | {
-      readonly kind: "execution";
-      readonly taskId: string;
-      readonly title: string;
-      readonly pinned: boolean;
-      readonly executionId: string;
-      readonly submittedAt: string;
-      readonly blockingAssessment: import("../../../kernel/src/domain/task-blocking.ts").BlockingAssessment;
-    }
-  | {
-      readonly kind: "decision";
-      readonly decisionId: string;
-      readonly title: string;
-      readonly riskTier: "low" | "medium" | "high";
-      readonly urgency: "low" | "medium" | "high";
-      readonly proposedAt: string;
-    };
+/**
+ * 待派审 / 评审中的 execution 行。task 状态决定分组(submitted → awaitingAdjudication,
+ * in_review → underReview),组即类型,行内不再携带 kind 判别。
+ */
+export interface AgendaExecutionRow {
+  readonly taskId: string;
+  readonly title: string;
+  readonly pinned: boolean;
+  readonly executionId: string;
+  readonly submittedAt: string;
+  readonly blockingAssessment: import("../../../kernel/src/domain/task-blocking.ts").BlockingAssessment;
+}
+
+export interface AgendaDecisionRow {
+  readonly decisionId: string;
+  readonly title: string;
+  readonly riskTier: "low" | "medium" | "high";
+  readonly urgency: "low" | "medium" | "high";
+  readonly proposedAt: string;
+}
 export interface AgendaPinnedEntityRow {
   readonly ref: string;
   readonly kind: string;
@@ -839,9 +841,14 @@ export type DaemonAgendaResult = {
   readonly pinnedEntities: readonly AgendaPinnedEntityRow[];
   readonly pinnedEntityOverflow: number;
   readonly inFlight: readonly AgendaTaskRow[];
-  /** 评审打回、等使用者修:active 且最新 execution=changes_requested、无 lease、无 active execution。可选,旧形状可省略。 */
-  readonly awaitingRework?: readonly AgendaTaskRow[];
-  readonly awaitingDecision: readonly AgendaAwaitingRow[];
+  /** 评审打回、等使用者修:active 且最新 execution=changes_requested、无 lease、无 active execution。 */
+  readonly awaitingRework: readonly AgendaTaskRow[];
+  /** 提交待派审:task 状态 submitted、未被 approved 评审了结的 execution 行;下一步 `ha task adjudicate --forward`。 */
+  readonly awaitingAdjudication: readonly AgendaExecutionRow[];
+  /** 评审中/等 consent:task 状态 in_review、未被 approved 评审了结的 execution 行;报告就绪后 `ha task review-consent`。 */
+  readonly underReview: readonly AgendaExecutionRow[];
+  /** 待裁 decision 行;下一步 `ha decision accept|reject|defer`。 */
+  readonly awaitingDecision: readonly AgendaDecisionRow[];
   readonly waitingOnOthers: readonly AgendaTaskRow[];
   readonly dispatchable: readonly AgendaTaskRow[];
   readonly page: {

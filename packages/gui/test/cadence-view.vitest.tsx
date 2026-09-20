@@ -98,23 +98,25 @@ const AGENDA: AgendaSuccess = {
   pinnedEntities: [],
   pinnedEntityOverflow: 0,
   inFlight: [],
-  awaitingDecision: [
+  awaitingRework: [],
+  awaitingAdjudication: [
     {
-      kind: "decision",
-      decisionId: "dec_probe",
-      title: "探针决策:切换读取形态",
-      riskTier: "medium",
-      urgency: "high",
-      proposedAt: NOW,
-    },
-    {
-      kind: "execution",
       taskId: "task_live",
       title: "在飞任务",
       pinned: false,
       executionId: "exec_1",
       submittedAt: NOW,
       blockingAssessment: { state: "clear", contributors: [], warnings: [] },
+    },
+  ],
+  underReview: [],
+  awaitingDecision: [
+    {
+      decisionId: "dec_probe",
+      title: "探针决策:切换读取形态",
+      riskTier: "medium",
+      urgency: "high",
+      proposedAt: NOW,
     },
   ],
   waitingOnOthers: [],
@@ -292,7 +294,7 @@ describe("CadenceView", () => {
     expect(textOf(container, "cadence-stream")).toContain("7");
     expect(textOf(container, "cadence-stream")).toContain("本地");
     expect(textOf(container, "cadence-stream")).toContain("已覆盖全部保留事件");
-    // HUD:两行投影里在飞 1;今日收口 1;待人工 = 议程 awaitingDecision 2 条(1 决策 + 1 执行)。
+    // HUD:两行投影里在飞 1;今日收口 1;待人工 = 待裁 decision 1 + 待派审 execution 1。
     const hud = container.querySelector('[data-testid="cadence-hud"]');
     expect(hud?.textContent).toContain("在飞任务");
     expect(hud?.textContent).toContain("决策 1 · 执行裁决 1");

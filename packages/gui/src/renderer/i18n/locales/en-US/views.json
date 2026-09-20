@@ -1066,6 +1066,7 @@
   "views.overviewNext.attentionEmpty": "Nothing needs your attention; new submissions, review returns and pending decisions will appear here.",
   "views.overviewNext.attentionGroup.reviewReturned": "Review returned",
   "views.overviewNext.attentionGroup.initialReview": "Initial review",
+  "views.overviewNext.attentionGroup.underReview": "Under review",
   "views.overviewNext.attentionGroup.decision": "Decisions pending",
   "views.overviewNext.rowsOverflow": "showing {shown} of {total} rows; the rest in details and the pool",
   "views.overviewNext.attentionGoPool": "Open attestation pool",

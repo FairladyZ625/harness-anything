@@ -48,17 +48,21 @@ export function agendaTask(value: unknown): boolean {
   );
 }
 
-export function agendaAwaiting(value: unknown): boolean {
-  if (!isJsonObject(value)) return false;
-  return value.kind === "execution"
-    ? exactRecord(value, ["kind", "taskId", "title", "pinned", "executionId", "submittedAt", "blockingAssessment"]) &&
-        [value.taskId, value.title, value.executionId, value.submittedAt].every(nonEmpty) &&
-        typeof value.pinned === "boolean" &&
-        blockingAssessment(value.blockingAssessment)
-    : value.kind === "decision" &&
-        exactRecord(value, ["kind", "decisionId", "title", "riskTier", "urgency", "proposedAt"]) &&
-        [value.decisionId, value.title, value.proposedAt].every(nonEmpty) &&
-        [value.riskTier, value.urgency].every((item) => ["low", "medium", "high"].includes(String(item)));
+export function agendaExecutionRow(value: unknown): boolean {
+  return (
+    exactRecord(value, ["taskId", "title", "pinned", "executionId", "submittedAt", "blockingAssessment"]) &&
+    [value.taskId, value.title, value.executionId, value.submittedAt].every(nonEmpty) &&
+    typeof value.pinned === "boolean" &&
+    blockingAssessment(value.blockingAssessment)
+  );
+}
+
+export function agendaDecisionRow(value: unknown): boolean {
+  return (
+    exactRecord(value, ["decisionId", "title", "riskTier", "urgency", "proposedAt"]) &&
+    [value.decisionId, value.title, value.proposedAt].every(nonEmpty) &&
+    [value.riskTier, value.urgency].every((item) => ["low", "medium", "high"].includes(String(item)))
+  );
 }
 
 export function validateDaemonAgenda(value: unknown): readonly string[] {
@@ -111,8 +115,6 @@ export function validateDaemonAgenda(value: unknown): readonly string[] {
   ] as const)
     if (!valid) return [validationError(entityId, field, actual, expectation)];
   for (const field of ["inFlight", "awaitingRework", "waitingOnOthers", "dispatchable"] as const) {
-    // awaitingRework is optional on the wire; required fields already passed the shape check above.
-    if (value[field] === undefined) continue;
     if (!Array.isArray(value[field])) return [validationError(entityId, field, value[field], "must be an array")];
     const invalidIndex = value[field].findIndex((row) => !agendaTask(row));
     if (invalidIndex >= 0)
@@ -125,18 +127,23 @@ export function validateDaemonAgenda(value: unknown): readonly string[] {
         ),
       ];
   }
-  if (!Array.isArray(value.awaitingDecision))
-    return [validationError(entityId, "awaitingDecision", value.awaitingDecision, "must be an array")];
-  const awaitingIndex = value.awaitingDecision.findIndex((row) => !agendaAwaiting(row));
-  if (awaitingIndex >= 0)
-    return [
-      validationError(
-        validationEntityId(value.awaitingDecision[awaitingIndex], ["taskId", "decisionId", "executionId"], entityId),
-        `awaitingDecision[${awaitingIndex}]`,
-        value.awaitingDecision[awaitingIndex],
-        "must be a valid awaiting item",
-      ),
-    ];
+  for (const [field, row, idFields] of [
+    ["awaitingAdjudication", agendaExecutionRow, ["taskId"]],
+    ["underReview", agendaExecutionRow, ["taskId"]],
+    ["awaitingDecision", agendaDecisionRow, ["decisionId"]],
+  ] as const) {
+    if (!Array.isArray(value[field])) return [validationError(entityId, field, value[field], "must be an array")];
+    const invalidIndex = value[field].findIndex((item) => !row(item));
+    if (invalidIndex >= 0)
+      return [
+        validationError(
+          validationEntityId(value[field][invalidIndex], idFields, entityId),
+          `${field}[${invalidIndex}]`,
+          value[field][invalidIndex],
+          "must be a valid awaiting row",
+        ),
+      ];
+  }
   if (!Array.isArray(value.pinnedEntities))
     return [validationError(entityId, "pinnedEntities", value.pinnedEntities, "must be an array")];
   if (!Number.isSafeInteger(value.pinnedEntityOverflow) || Number(value.pinnedEntityOverflow) < 0)

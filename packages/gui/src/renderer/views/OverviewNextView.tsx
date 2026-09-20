@@ -185,12 +185,14 @@ function OverviewNextHeader({
 const ATTENTION_GROUP_LABEL: Record<AttentionGroup, () => string> = {
   reviewReturned: () => t("views.overviewNext.attentionGroup.reviewReturned"),
   initialReview: () => t("views.overviewNext.attentionGroup.initialReview"),
+  underReview: () => t("views.overviewNext.attentionGroup.underReview"),
   decision: () => t("views.overviewNext.attentionGroup.decision"),
 };
 
 const ATTENTION_GROUP_ICON: Record<AttentionGroup, React.ReactNode> = {
   reviewReturned: <ArrowsClockwise weight="bold" aria-hidden />,
   initialReview: <SignIn weight="bold" aria-hidden />,
+  underReview: <MagnifyingGlassPlus weight="bold" aria-hidden />,
   decision: <Scales weight="bold" aria-hidden />,
 };
 

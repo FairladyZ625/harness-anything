@@ -113,9 +113,8 @@ function agendaFixture(patch: Partial<AgendaSuccess> = {}): AgendaSuccess {
     pinnedEntities: [],
     pinnedEntityOverflow: 0,
     inFlight: [],
-    awaitingDecision: [
+    awaitingAdjudication: [
       {
-        kind: "execution",
         taskId: "task_submitted",
         title: "待初审任务",
         pinned: false,
@@ -129,8 +128,25 @@ function agendaFixture(patch: Partial<AgendaSuccess> = {}): AgendaSuccess {
           warnings: [],
         },
       },
+    ],
+    underReview: [
       {
-        kind: "decision",
+        taskId: "task_inreview",
+        title: "评审中任务",
+        pinned: false,
+        executionId: "exec_2",
+        submittedAt: NOW,
+        blockingAssessment: {
+          taskId: "task_inreview",
+          state: "clear",
+          label: "none",
+          blockers: [],
+          warnings: [],
+        },
+      },
+    ],
+    awaitingDecision: [
+      {
         decisionId: "dec_probe",
         title: "待裁决策标题",
         riskTier: "medium",
@@ -335,11 +351,12 @@ describe("overview next: navigation registration", () => {
 });
 
 describe("overview next: attention region (G2)", () => {
-  it("renders the three agenda groups and routes row clicks through entity navigation", async () => {
+  it("renders the four agenda groups and routes row clicks through entity navigation", async () => {
     const view = await mountOverviewNext({ agenda: agendaFixture() });
     const rows = textOf(view.container, "overview-next-attention-rows");
     expect(rows).toContain("评审返回");
     expect(rows).toContain("待初审");
+    expect(rows).toContain("评审中/等 consent");
     expect(rows).toContain("决策待裁");
     expect(rows).toContain("待初审任务");
     expect(rows).toContain("待裁决策标题");
@@ -356,7 +373,7 @@ describe("overview next: attention region (G2)", () => {
     const loading = await mountOverviewNext({});
     expect(textOf(loading.container, "overview-next-attention")).toContain("正在读取议程");
     const empty = await mountOverviewNext({
-      agenda: agendaFixture({ awaitingDecision: [], awaitingRework: [] }),
+      agenda: agendaFixture({ awaitingRework: [], awaitingAdjudication: [], underReview: [], awaitingDecision: [] }),
     });
     expect(textOf(empty.container, "overview-next-attention")).toContain("没有需要你处理的事项");
     const failed = await mountOverviewNext({ agendaError: "socket closed" });
@@ -369,8 +386,11 @@ describe("overview next: attention region (G2)", () => {
     expect(items).not.toBeNull();
     const rework = items!.find((item) => item.group === "reviewReturned")!;
     const initial = items!.find((item) => item.group === "initialReview")!;
+    const underReview = items!.find((item) => item.group === "underReview")!;
     const decision = items!.find((item) => item.group === "decision")!;
     expect(initial.blocking).toBe(true);
+    expect(underReview.blocking).toBe(false);
+    expect(underReview.title).toBe("评审中任务");
     expect(rework.blocking).toBe(false);
     expect(decision.blocking).toBe(false);
     const pinnedFirst = attentionItemsOf(
