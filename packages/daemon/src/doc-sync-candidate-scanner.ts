@@ -110,13 +110,13 @@ export function scanDocCandidates(input: {
     enumerationScope = taskPrefix ?? "",
     selected = input.selection?.map((value) => documentPath(normalizeSelectedPath(ledger.authoredPrefix, value))),
     inventoryByPath = new Map(input.inventory?.rows.map((row) => [row.path, row] as const) ?? []),
-    conflictsByPath = localDocConflictsByPath(input.rootDir),
+    conflictsByPath = localDocConflictsByPath(layout),
     candidates = selected?.length
       ? [...new Set(selected)]
       : [
           ...new Set(
             input.inventory?.rows.map((row) => row.path) ??
-              dirtyPaths(ledger.rootDir, ledger.authoredPrefix, taskPrefix ?? ""),
+              dirtyPaths(ledger.rootDir, ledger.authoredPrefix, conflictsByPath.keys(), taskPrefix ?? ""),
           ),
         ].filter((value) => value.startsWith(enumerationScope)),
     paths = candidates.sort(),
@@ -442,8 +442,8 @@ export function scanAuthoredCandidateInventory(input: {
 }): AuthoredCandidateInventoryV1 {
   const layout = resolveHarnessLayout(input.rootDir),
     ledger = resolveLedgerGitLayout(input.rootDir),
-    conflictsByPath = localDocConflictsByPath(input.rootDir),
-    paths = dirtyPaths(ledger.rootDir, ledger.authoredPrefix).sort(),
+    conflictsByPath = localDocConflictsByPath(layout),
+    paths = dirtyPaths(ledger.rootDir, ledger.authoredPrefix, conflictsByPath.keys()).sort(),
     baseLedgerSha = input.store.currentCut(),
     readCandidate = candidateByteReader(input.store, baseLedgerSha, layout.authoredRoot);
   return {
@@ -614,7 +614,12 @@ export function resolveDocExecutionBinding(
   return { id: lease?.executionId ?? null, candidates: [], lease, runtimeDelegatedTaskId: null };
 }
 
-function dirtyPaths(repoRoot: string, authoredPrefix: string, logicalScope = ""): string[] {
+function dirtyPaths(
+  repoRoot: string,
+  authoredPrefix: string,
+  conflictPaths: Iterable<string>,
+  logicalScope = "",
+): string[] {
   const scopePath = [authoredPrefix, logicalScope.replace(/\/$/u, "")].filter(Boolean).join("/"),
     scope = scopePath || ".",
     changed = gitStatusNames(repoRoot, scope),
@@ -630,10 +635,9 @@ function dirtyPaths(repoRoot: string, authoredPrefix: string, logicalScope = "")
         )
         .map((value) => value.slice(prefix.length))
         .concat(
-          localGitWorktreeSettlement
-            .docSyncConflicts(repoRoot)
-            .map((record) => record.logicalPath)
-            .filter((logical) => !logicalScope || logical.startsWith(`${logicalScope.replace(/\/$/u, "")}/`)),
+          [...conflictPaths].filter(
+            (logical) => !logicalScope || logical.startsWith(`${logicalScope.replace(/\/$/u, "")}/`),
+          ),
         ),
     ),
   ];
@@ -653,9 +657,11 @@ function gitStatusNames(repoRoot: string, scope: string): string[] {
   }
   return paths;
 }
-function localDocConflictsByPath(rootDir: string): ReadonlyMap<string, readonly string[]> {
+function localDocConflictsByPath(
+  layout: ReturnType<typeof resolveHarnessLayout>,
+): ReadonlyMap<string, readonly string[]> {
   const grouped = new Map<string, string[]>();
-  for (const record of localGitWorktreeSettlement.docSyncConflicts(rootDir)) {
+  for (const record of localGitWorktreeSettlement.docSyncConflicts(layout)) {
     const current = grouped.get(record.logicalPath) ?? [];
     current.push(record.localPath);
     grouped.set(record.logicalPath, current);

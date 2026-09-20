@@ -25,7 +25,7 @@ import { open as openAsync } from "node:fs/promises";
 import path from "node:path";
 import { isMainThread, parentPort, Worker, workerData } from "node:worker_threads";
 import { consumeKnownError } from "../error-consumption.ts";
-import { normalizeRelativeDocumentPath, resolveHarnessLayout } from "../layout/index.ts";
+import { normalizeRelativeDocumentPath, resolveHarnessLayout, type HarnessLayout } from "../layout/index.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import type { VcsCommitAuthor, VersionControlSystem } from "../ports/version-control-system.ts";
 import { VcsCommandError } from "../ports/version-control-system.ts";
@@ -670,7 +670,7 @@ export const localGitWorktreeSettlement = Object.freeze({
     preserveConflict(repoRoot, target, logical, commit, true),
   preserveVisibleConflict: (repoRoot: string, target: string, logical: string, cutIdentity: string): string =>
     preserveConflict(repoRoot, target, logical, cutIdentity, false),
-  docSyncConflicts: (rootDir: string): readonly DocSyncConflictRecord[] => docSyncConflicts(rootDir),
+  docSyncConflicts: (layout: HarnessLayout): readonly DocSyncConflictRecord[] => docSyncConflicts(layout),
   docSyncConflict: (rootDir: string, conflictId: string): DocSyncConflictRecord | null =>
     docSyncConflict(rootDir, conflictId),
   settleDocSyncConflict: (rootDir: string, conflictId: string): void => settleDocSyncConflict(rootDir, conflictId),
@@ -723,18 +723,18 @@ function preserveConflict(
   if (!existsSync(manifest)) durableWrite(manifest, body);
   return localPath;
 }
-function docSyncConflicts(rootDir: string): readonly DocSyncConflictRecord[] {
-  const root = path.join(resolveHarnessLayout(rootDir).localRoot, "conflicts", "doc-sync");
+function docSyncConflicts(layout: HarnessLayout): readonly DocSyncConflictRecord[] {
+  const root = path.join(layout.localRoot, "conflicts", "doc-sync");
   if (!existsSync(root)) return [];
   return readdirSync(root, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && /^doc-[0-9a-f]{64}$/u.test(entry.name))
-    .map((entry) => docSyncConflict(rootDir, entry.name))
+    .map((entry) => docSyncConflict(layout, entry.name))
     .filter((record): record is DocSyncConflictRecord => record !== null)
     .sort((left, right) => left.conflictId.localeCompare(right.conflictId));
 }
-function docSyncConflict(rootDir: string, conflictId: string): DocSyncConflictRecord | null {
+function docSyncConflict(root: string | HarnessLayout, conflictId: string): DocSyncConflictRecord | null {
   if (!/^doc-[0-9a-f]{64}$/u.test(conflictId)) return null;
-  const layout = resolveHarnessLayout(rootDir),
+  const layout = typeof root === "string" ? resolveHarnessLayout(root) : root,
     directory = path.join(layout.localRoot, "conflicts", "doc-sync", conflictId),
     manifest = path.join(directory, "manifest.json");
   if (!existsSync(manifest)) return null;
