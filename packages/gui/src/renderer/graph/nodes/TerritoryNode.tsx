@@ -61,12 +61,13 @@ export function TerritoryZoneNode({ data }: NodeProps<TerritoryZoneFlowNode>) {
             {zone.chips.length}
           </span>
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               data.onFold(zone.zoneId);
             }}
             title={data.folded ? "展开全部 chip" : "折叠(只显热点)"}
-            className="shrink-0 rounded border border-border px-1.5 py-0.5 font-mono ui-micro text-text-muted hover:border-border-strong hover:text-text"
+            className="nodrag shrink-0 cursor-pointer rounded border border-border px-1.5 py-0.5 font-mono ui-micro text-text-muted hover:border-border-strong hover:text-text"
           >
             {data.folded ? "▸" : "▾"}
           </button>
@@ -116,14 +117,19 @@ export function TerritoryChipNode({ data }: NodeProps<TerritoryChipFlowNode>) {
     const fold = data.fold;
     return (
       <button
+        type="button"
         onClick={(e) => {
           e.stopPropagation();
-          data.onFold(fold.zoneId);
+          if (fold.deferred && data.onRevealZone) {
+            data.onRevealZone(fold.zoneId);
+          } else {
+            data.onFold(fold.zoneId);
+          }
         }}
         data-testid="territory-fold"
         data-zone-id={fold.zoneId}
         data-deferred={fold.deferred ? "true" : undefined}
-        className="flex h-full w-full items-center justify-center gap-1.5 rounded-lg border border-dashed ui-micro transition-colors hover:border-border-strong hover:text-text"
+        className="nodrag flex h-full w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-dashed ui-micro transition-colors hover:border-border-strong hover:text-text"
         style={{
           borderColor: fold.deferred ? "color-mix(in oklch, var(--color-accent) 45%, var(--color-border))" : undefined,
           color: fold.deferred ? "var(--color-accent)" : undefined,
