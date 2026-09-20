@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { t } from "../../i18n/index.tsx";
-import { observePercentile, type ObserveStats } from "../../daemon-observe-model.ts";
+import { observePercentile, type ObserveStats } from "../../daemon-observe-stats.ts";
 
 /**
  * 命令与事件调用量图形化看板:

@@ -43,6 +43,10 @@ export interface ObserveRow {
   readonly nodeId: string | null;
   /** 日志行的失败码(outcome ?? code;异常聚类按 类型+失败码 去重)。 */
   readonly code: string | null;
+  /** 主体归属(Top Talkers 的提取位):事件→taskId/会话;日志→executor 调用方/连接。 */
+  readonly subject: string | null;
+  /** 读写分类(锁争用与信噪比的输入):请求日志 commandClass 权威,缺省按方法名启发。 */
+  readonly opClass: "write" | "read" | null;
   readonly searchText: string;
 }
 
@@ -415,307 +419,6 @@ export class ObserveRowLog {
   }
 }
 
-/**
- * 时序吞吐分桶:固定 10s × 360 桶的环形缓冲(覆盖近 1h;15m 视图只渲染末 90 桶)。
- * 桶下标 = floor(atMs / OBSERVE_BUCKET_MS),槽位 = 下标 mod 360;时间前进时清空被
- * 覆盖的槽位(跳跃 ≥ 一整圈则整环清零),比窗口更老的行只进总数不进桶——HUD 的
- * 每次更新代价与累计行数无关(checkpoint 的固定桶方案,不在 React render 里做归约)。
- */
-export const OBSERVE_BUCKET_MS = 10_000,
-  OBSERVE_BUCKET_COUNT = 360;
-
-/** HUD 的一个时序桶:该 10s 窗口内的行数与其中异常数(ok=false 或 gap 标记)。 */
-export interface ObserveTimeSlice {
-  readonly startMs: number;
-  readonly endMs: number;
-  readonly count: number;
-  readonly anomalies: number;
-}
-
-/** 单个 RPC 方法的耗时聚合:次数、最大值与全量耗时序列(分位点在展示层按需排序)。 */
-export interface ObserveOpStat {
-  readonly method: string;
-  readonly count: number;
-  readonly maxMs: number;
-  readonly durations: readonly number[];
-}
-
-/** 异常指纹聚类:同类失败(方法+失败码)或保留缺口去重后的计数与最近一次时间。 */
-export interface ObserveAnomalyStat {
-  readonly key: string;
-  readonly kind: "error" | "gap";
-  /** 展示标签:错误给「方法 · 失败码」;gap 给保留原因(组件层再本地化)。 */
-  readonly label: string;
-  readonly reason: string | null;
-  /** 选中该聚类的检索词(searchText 的子串;写入 pane 过滤框)。 */
-  readonly matchText: string;
-  readonly count: number;
-  readonly lastAt: string | null;
-  /** 首次出现的完整记录(悬停看根因样本)。 */
-  readonly sample: string;
-}
-
-/** 透镜候选:活跃 task/session(事件栏)、method/node(日志栏),按出现频次排序。 */
-export interface ObserveLensValue {
-  readonly kind: "task" | "session" | "method" | "node";
-  readonly value: string;
-  readonly count: number;
-}
-
-export interface ObserveVolumeStat {
-  readonly name: string;
-  readonly count: number;
-  readonly percentage: number;
-}
-
-export interface ObserveStats {
-  readonly bucketMs: number;
-  /** 旧→新的时序桶(定长 ≤ 360,含零桶作基线);窗口裁剪由展示层做。 */
-  readonly buckets: readonly ObserveTimeSlice[];
-  /** 摄入总行数与异常总行数(含比桶窗口更老的行)。 */
-  readonly total: number;
-  readonly anomalies: number;
-  /** 全部耗时记录的整体分位点与最大值(无耗时记录时为 null)。 */
-  readonly p50Ms: number | null;
-  readonly p95Ms: number | null;
-  readonly maxMs: number | null;
-  /** 按 maxMs 降序的方法耗时聚合(慢操作排行)。 */
-  readonly ops: readonly ObserveOpStat[];
-  /** 按次数降序的命令/方法/事件调用量分布(带占比)。 */
-  readonly volumes: readonly ObserveVolumeStat[];
-  /** 按次数降序的异常聚类。 */
-  readonly clusters: readonly ObserveAnomalyStat[];
-  readonly lens: {
-    readonly tasks: readonly ObserveLensValue[];
-    readonly sessions: readonly ObserveLensValue[];
-    readonly methods: readonly ObserveLensValue[];
-    readonly nodes: readonly ObserveLensValue[];
-  };
-}
-
-/** 分位点(0<q≤1):最近邻上取整秩,空序列返回 null;调用方传排序副本亦可。 */
-export function observePercentile(durations: readonly number[], q: number): number | null {
-  if (durations.length === 0) return null;
-  const sorted = [...durations].sort((left, right) => left - right);
-  return sorted[percentileRank(sorted.length, q)]!;
-}
-
-function percentileRank(size: number, q: number): number {
-  return Math.min(size - 1, Math.max(0, Math.ceil(q * size) - 1));
-}
-
-interface ObserveOpMutable {
-  count: number;
-  maxMs: number;
-  durations: number[];
-}
-
-interface ObserveAnomalyMutable {
-  key: string;
-  kind: "error" | "gap";
-  label: string;
-  reason: string | null;
-  matchText: string;
-  count: number;
-  lastAt: string | null;
-  lastAtMs: number;
-  sample: string;
-}
-
-/**
- * 统计累积器:逐行摄入(observeStatsLog 只喂 growth 新增行),内部全是固定桶环 + Map
- * 计数,快照(ObserveStats)按需生成。不做 IO、不碰 React;测试直接驱动同一入口。
- */
-export class ObserveStatsState {
-  private total = 0;
-  private anomalies = 0;
-  private latestBucket = -1;
-  private readonly bucketCounts = new Array<number>(OBSERVE_BUCKET_COUNT).fill(0);
-  private readonly bucketAnomalies = new Array<number>(OBSERVE_BUCKET_COUNT).fill(0);
-  private readonly ops = new Map<string, ObserveOpMutable>();
-  private readonly types = new Map<string, number>();
-  private readonly clusters = new Map<string, ObserveAnomalyMutable>();
-  private readonly tasks = new Map<string, number>();
-  private readonly sessions = new Map<string, number>();
-  private readonly nodes = new Map<string, number>();
-  /** 全量耗时序列随摄入追加(与各 op 的序列同源);快照只排序一次。 */
-  private readonly durations: number[] = [];
-  private overallMaxMs: number | null = null;
-
-  ingest(row: ObserveRow): void {
-    this.total += 1;
-    bump(this.types, row.type);
-    const failed = row.ok === false,
-      gapped = row.gapMarker !== null;
-    if (failed || gapped) this.anomalies += 1;
-    if (row.atMs !== null) this.bucketRow(row.atMs, failed || gapped);
-    if (row.durationMs !== null) this.ingestOp(row.type, row.durationMs);
-    if (failed) this.ingestCluster(row);
-    else if (gapped) this.ingestGapCluster(row);
-    for (const chip of row.refs) {
-      if (chip.kind === "task") bump(this.tasks, chip.label);
-      else if (chip.kind === "session") bump(this.sessions, chip.label);
-    }
-    if (row.nodeId !== null) bump(this.nodes, row.nodeId);
-  }
-
-  snapshot(): ObserveStats {
-    const buckets: ObserveTimeSlice[] = [],
-      first = Math.max(0, this.latestBucket - (OBSERVE_BUCKET_COUNT - 1));
-    for (let index = first; index <= this.latestBucket; index += 1) {
-      const slot = index % OBSERVE_BUCKET_COUNT;
-      buckets.push({
-        startMs: index * OBSERVE_BUCKET_MS,
-        endMs: (index + 1) * OBSERVE_BUCKET_MS,
-        count: this.bucketCounts[slot]!,
-        anomalies: this.bucketAnomalies[slot]!,
-      });
-    }
-    const ops: ObserveOpStat[] = [];
-    for (const [method, op] of this.ops)
-      ops.push({ method, count: op.count, maxMs: op.maxMs, durations: op.durations });
-    ops.sort((left, right) => right.maxMs - left.maxMs || right.count - left.count);
-    const volumes: ObserveVolumeStat[] = [...this.types.entries()]
-      .map(([name, count]) => ({
-        name,
-        count,
-        percentage: this.total > 0 ? (count / this.total) * 100 : 0,
-      }))
-      .sort((left, right) => right.count - left.count || left.name.localeCompare(right.name));
-    const clusters = [...this.clusters.values()]
-      .map((cluster): ObserveAnomalyStat => {
-        const { key, kind, label, reason, matchText, count, lastAt, sample } = cluster;
-        return { key, kind, label, reason, matchText, count, lastAt, sample };
-      })
-      .sort((left, right) => right.count - left.count);
-    // 整体分位点只排序一次:P50/P95 共用同一有序副本(5000 行滚动下的热点路径)。
-    const sorted = this.durations.length === 0 ? null : [...this.durations].sort((left, right) => left - right),
-      p50Ms = sorted === null ? null : sorted[percentileRank(sorted.length, 0.5)]!,
-      p95Ms = sorted === null ? null : sorted[percentileRank(sorted.length, 0.95)]!;
-    return {
-      bucketMs: OBSERVE_BUCKET_MS,
-      buckets,
-      total: this.total,
-      anomalies: this.anomalies,
-      p50Ms,
-      p95Ms,
-      maxMs: this.overallMaxMs,
-      ops,
-      volumes,
-      clusters,
-      lens: {
-        tasks: topLens(this.tasks, "task"),
-        sessions: topLens(this.sessions, "session"),
-        methods: topLens(new Map([...this.ops].map(([method, op]) => [method, op.count])), "method"),
-        nodes: topLens(this.nodes, "node"),
-      },
-    };
-  }
-
-  private bucketRow(atMs: number, anomaly: boolean): void {
-    const index = Math.floor(atMs / OBSERVE_BUCKET_MS);
-    if (this.latestBucket < 0) this.latestBucket = index;
-    if (index > this.latestBucket) {
-      const jump = index - this.latestBucket;
-      if (jump >= OBSERVE_BUCKET_COUNT) {
-        this.bucketCounts.fill(0);
-        this.bucketAnomalies.fill(0);
-      } else
-        for (let cleared = this.latestBucket + 1; cleared <= index; cleared += 1) {
-          this.bucketCounts[cleared % OBSERVE_BUCKET_COUNT] = 0;
-          this.bucketAnomalies[cleared % OBSERVE_BUCKET_COUNT] = 0;
-        }
-      this.latestBucket = index;
-    }
-    if (index < this.latestBucket - (OBSERVE_BUCKET_COUNT - 1)) return;
-    const slot = index % OBSERVE_BUCKET_COUNT;
-    this.bucketCounts[slot]! += 1;
-    if (anomaly) this.bucketAnomalies[slot]! += 1;
-  }
-
-  private ingestOp(method: string, durationMs: number): void {
-    let op = this.ops.get(method);
-    if (op === undefined) {
-      op = { count: 0, maxMs: 0, durations: [] };
-      this.ops.set(method, op);
-    }
-    op.count += 1;
-    op.durations.push(durationMs);
-    this.durations.push(durationMs);
-    if (durationMs > op.maxMs) op.maxMs = durationMs;
-    if (this.overallMaxMs === null || durationMs > this.overallMaxMs) this.overallMaxMs = durationMs;
-  }
-
-  private ingestCluster(row: ObserveRow): void {
-    const code = row.code ?? "",
-      key = `err|${row.type}|${code}`,
-      matchText = (code !== "" ? code : row.type).toLowerCase();
-    this.bumpCluster(key, {
-      kind: "error",
-      label: code !== "" ? `${row.type} · ${code}` : row.type,
-      reason: null,
-      matchText,
-      lastAt: row.at,
-      lastAtMs: row.atMs ?? Number.NEGATIVE_INFINITY,
-      sample: row.detail,
-    });
-  }
-
-  private ingestGapCluster(row: ObserveRow): void {
-    const gap = row.gapMarker!;
-    this.bumpCluster(`gap|${gap.reason}`, {
-      kind: "gap",
-      label: gap.reason,
-      reason: gap.reason,
-      matchText: `gap ${gap.reason}`.toLowerCase(),
-      lastAt: row.at,
-      lastAtMs: Number.NEGATIVE_INFINITY,
-      sample: row.detail,
-    });
-  }
-
-  private bumpCluster(key: string, fresh: Omit<ObserveAnomalyMutable, "key" | "count">): void {
-    const prior = this.clusters.get(key);
-    if (prior === undefined) {
-      this.clusters.set(key, { ...fresh, key, count: 1 });
-      return;
-    }
-    prior.count += 1;
-    if (fresh.lastAtMs > prior.lastAtMs) {
-      prior.lastAt = fresh.lastAt;
-      prior.lastAtMs = fresh.lastAtMs;
-    }
-  }
-}
-
-/** 观察页统计的增量缓存:与 ObserveFilterCache 同构,水位标记驱动「只喂新增行」。 */
-export interface ObserveStatsCache {
-  readonly source: ObserveRowLog;
-  readonly version: number;
-  readonly mark: ObserveRowMark;
-  readonly state: ObserveStatsState;
-  readonly stats: ObserveStats;
-}
-
-/**
- * 行存储上的增量统计:同一行集版本直接复用缓存;行集只增长(两端前插/追加)时只把
- * growth 新增行喂进累积器;丢行/整表替换(growth 为 null,贴底封顶会触发)时全量重建。
- * 统计全部在数据面完成且按版本记忆,React render 阶段零归约(任务 checkpoint 要求)。
- */
-export function observeStatsLog(source: ObserveRowLog, cache: ObserveStatsCache | null): ObserveStatsCache {
-  if (cache !== null && cache.source === source && cache.version === source.version) return cache;
-  const prior = cache !== null && cache.source === source ? cache : null,
-    growth = prior === null ? null : source.growth(prior.mark);
-  if (prior !== null && growth !== null) {
-    for (const row of growth.prepended) prior.state.ingest(row);
-    for (const row of growth.appended) prior.state.ingest(row);
-    return { source, version: source.version, mark: growth.mark, state: prior.state, stats: prior.state.snapshot() };
-  }
-  const state = new ObserveStatsState();
-  for (const row of source) state.ingest(row);
-  return { source, version: source.version, mark: source.mark(), state, stats: state.snapshot() };
-}
-
 /** 组合过滤(文本 + 透镜 + 时段):HUD 框选时段与双栏透镜共用的行级判定。 */
 export interface ObserveRowFilter {
   readonly needle: string;
@@ -733,17 +436,6 @@ export function observeRowPasses(row: ObserveRow, filter: ObserveRowFilter): boo
     if (filter.toMs !== null && row.atMs >= filter.toMs) return false;
   }
   return true;
-}
-
-function bump(counts: Map<string, number>, key: string): void {
-  counts.set(key, (counts.get(key) ?? 0) + 1);
-}
-
-function topLens(counts: Map<string, number>, kind: ObserveLensValue["kind"]): readonly ObserveLensValue[] {
-  return [...counts]
-    .sort((left, right) => right[1] - left[1] || (left[0] < right[0] ? -1 : 1))
-    .slice(0, 8)
-    .map(([value, count]) => ({ kind, value, count }));
 }
 
 /**
@@ -808,6 +500,8 @@ function gapMarkerRow(gap: { readonly reason: string; readonly requestedFileId: 
     durationMs: null,
     nodeId: null,
     code: null,
+    subject: null,
+    opClass: null,
     searchText: `gap ${gap.reason} ${gap.requestedFileId}`.toLowerCase(),
   };
 }
@@ -833,6 +527,7 @@ export function observeEventRow(event: ObserveTailRead["items"][number]): Observ
     factId = stringOf(source.factId),
     type = stringOf(source.type) ?? stringOf(source.schema) ?? "event",
     at = stringOf(source.occurredAt),
+    runtimeSessionId = stringOf(payload.runtimeSessionId),
     base = {
       key: stringOf(source.eventId) ?? `${type}:${stringOf(source.workspaceRevision)}`,
       at,
@@ -847,6 +542,9 @@ export function observeEventRow(event: ObserveTailRead["items"][number]): Observ
       durationMs: null as number | null,
       nodeId: null as string | null,
       code: null as string | null,
+      // 主体归属:taskId 优先,无 taskId 的事件退到运行时会话(Top Talkers 的提取位)。
+      subject: (taskId ?? runtimeSessionId) as string | null,
+      opClass: null as "write" | "read" | null,
     };
   return { ...base, searchText: searchTextOf(base) };
 }
@@ -874,9 +572,49 @@ export function observeLogRow(record: Readonly<Record<string, unknown>>, seq: nu
         typeof record.durationMs === "number" && Number.isFinite(record.durationMs) ? record.durationMs : null,
       nodeId: stringOf(record.daemonId) ?? stringOf(record.nodeId),
       code: outcome,
+      // 主体归属:executor 调用方(代理/运行时身份)优先,无执行者退到连接标识。
+      subject: (stringOf(recordOf(record.executor)?.id) ?? stringOf(record.connectionId) ?? stringOf(record.conn)) as
+        | string
+        | null,
+      opClass: observeLogOpClass(method ?? event ?? command ?? "", stringOf(record.commandClass)),
     };
   return { ...base, searchText: searchTextOf(base) };
 }
+
+/**
+ * 日志行的读写分类:请求日志自带的 commandClass(repo-read/repo-write/arbiter/admin,
+ * 见 daemon 端 commandClassForAction)是权威;conn-log 等无该字段的记录退化为方法名
+ * 分段启发(run/write/sync/amend…→写,read/list/tail/status…→读),识别不了返回
+ * null(不计入读写比与争用分母)。
+ */
+export function observeLogOpClass(method: string, commandClass: string | null): "write" | "read" | null {
+  if (commandClass === "repo-read") return "read";
+  if (commandClass === "repo-write" || commandClass === "arbiter" || commandClass === "admin") return "write";
+  if (commandClass !== null) return null;
+  const segments = method.toLowerCase().split(".");
+  if (segments.some((segment) => READ_METHOD_SEGMENTS.has(segment))) return "read";
+  if (segments.some((segment) => WRITE_METHOD_SEGMENTS.has(segment))) return "write";
+  return null;
+}
+
+const READ_METHOD_SEGMENTS = new Set(["read", "list", "tail", "status", "snapshot", "dispatches", "hello", "catalog"]),
+  WRITE_METHOD_SEGMENTS = new Set([
+    "run",
+    "write",
+    "sync",
+    "register",
+    "bootstrap",
+    "backup",
+    "retire",
+    "exit",
+    "stop",
+    "amend",
+    "record",
+    "confirm",
+    "adjudicate",
+    "pin",
+    "control",
+  ]);
 
 function eventRefs(input: {
   readonly payload: Readonly<Record<string, unknown>>;
@@ -925,6 +663,7 @@ function searchTextOf(row: Omit<ObserveRow, "searchText">): string {
     row.text,
     ...row.refs.flatMap((chip) => [chip.kind, chip.ref, chip.label]),
     row.nodeId ?? "",
+    row.subject ?? "",
     row.detail,
   ]
     .join(" ")

@@ -2,7 +2,12 @@ import { memo, useRef, useState } from "react";
 import { X } from "@phosphor-icons/react";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
-import type { ObserveStats, ObserveTimeSlice } from "../../daemon-observe-model.ts";
+import {
+  OBSERVE_WINDOW_15M_BUCKETS,
+  type ObserveStats,
+  type ObserveTimeSlice,
+  type ObserveWindowSpan,
+} from "../../daemon-observe-stats.ts";
 
 /**
  * 观察页顶部时序吞吐 HUD:轻量 SVG 柱状吞吐条(普通行用强调色、异常脉冲叠红),
@@ -11,12 +16,10 @@ import type { ObserveStats, ObserveTimeSlice } from "../../daemon-observe-model.
  * 柱数 ≤ 360 且只在行集版本变化时重算(统计在数据面增量完成,见 observeStatsLog)。
  */
 
-export type ObserveHudWindow = "15m" | "1h";
+export type ObserveHudWindow = ObserveWindowSpan;
 
 const VIEW_WIDTH = 720,
-  VIEW_HEIGHT = 40,
-  /** 15m 窗口渲染的桶数(10s/桶);1h 渲染全部 ≤360 桶。 */
-  WINDOW_15M_BUCKETS = 90;
+  VIEW_HEIGHT = 40;
 
 export interface ObserveTimeSelection {
   readonly fromMs: number;
@@ -54,7 +57,7 @@ export const ObserveHudStrip = memo(function ObserveHudStrip({
   readonly selection: ObserveTimeSelection | null;
   readonly onSelectRange: (selection: ObserveTimeSelection | null) => void;
 }) {
-  const buckets = window === "15m" ? stats.buckets.slice(-WINDOW_15M_BUCKETS) : stats.buckets,
+  const buckets = window === "15m" ? stats.buckets.slice(-OBSERVE_WINDOW_15M_BUCKETS) : stats.buckets,
     [drag, setDrag] = useState<{ anchor: number; current: number } | null>(null),
     svgRef = useRef<SVGSVGElement>(null),
     totals = buckets.reduce(

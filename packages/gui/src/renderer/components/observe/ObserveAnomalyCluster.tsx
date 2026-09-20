@@ -1,7 +1,7 @@
 import { memo } from "react";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
-import type { ObserveAnomalyStat } from "../../daemon-observe-model.ts";
+import type { ObserveAnomalyStat } from "../../daemon-observe-stats.ts";
 
 /**
  * 异常与缺口指纹聚类:同类失败(方法+失败码)与保留缺口去重后的计数、最近一次

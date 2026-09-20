@@ -3,19 +3,22 @@ import { describe, expect, it } from "vitest";
 import {
   applyObserveTailPage,
   initialObserveTail,
-  observePercentile,
   observeRowPasses,
+  OBSERVE_FOLLOW_ROW_LIMIT,
+  type ObserveRow,
+} from "../src/renderer/daemon-observe-model.ts";
+import {
+  observePercentile,
   observeStatsLog,
   OBSERVE_BUCKET_COUNT,
   OBSERVE_BUCKET_MS,
-  OBSERVE_FOLLOW_ROW_LIMIT,
-  type ObserveRow,
   type ObserveStatsCache,
-} from "../src/renderer/daemon-observe-model.ts";
+} from "../src/renderer/daemon-observe-stats.ts";
 import type { ObserveTailRead } from "../src/api/renderer-dto.ts";
 
 /**
- * 观察页分析面的纯数据判据(时序分桶 / 慢操作聚合 / 异常聚类 / 透镜候选 / 组合过滤):
+ * 观察页分析面的纯数据判据(时序分桶 / 慢操作聚合 / 异常聚类 / 透镜候选 / 组合过滤,
+ * 以及第二轮增补的异味嗅探 / 锁争用 / Top Talkers / 信噪比):
  *  - 分桶是固定 10s × 360 桶环形缓冲:更老的行只进总数、时间跳跃覆盖旧槽位;
  *  - 统计与查询过滤同构:同版本零重算(缓存复用),growth 只喂新增行,丢行后全量重建,
  *    且「增量路径」与「从零重建路径」产出可观察相同的统计(等价性判据);
@@ -34,6 +37,9 @@ function logItem(input: {
   code?: string | null;
   atMs?: number;
   nodeId?: string;
+  commandClass?: string;
+  executorId?: string;
+  connectionId?: string;
 }): Record<string, unknown> {
   return {
     schema: "daemon-request-log/v1",
@@ -44,6 +50,9 @@ function logItem(input: {
     code: input.code ?? null,
     durationMs: input.durationMs,
     ...(input.nodeId === undefined ? {} : { daemonId: input.nodeId }),
+    ...(input.commandClass === undefined ? {} : { commandClass: input.commandClass }),
+    ...(input.executorId === undefined ? {} : { executor: { kind: "agent", id: input.executorId } }),
+    ...(input.connectionId === undefined ? {} : { connectionId: input.connectionId }),
   };
 }
 
@@ -392,6 +401,244 @@ describe("统计缓存:增量续用与等价性", () => {
       count: 1,
       percentage: (1 / 6) * 100,
     });
+  });
+});
+
+describe("读写分类与单写锁争用", () => {
+  it("commandClass 权威、方法分段启发兜底;窗口读写计数、占比与 Mild 判级", () => {
+    let state = initialObserveTail();
+    state = applyObserveTailPage(
+      state,
+      logPage(
+        [
+          // 权威分类:repo-write / repo-read。
+          logItem({ method: "doc.sync", durationMs: 900, atMs: T0 + 10_000, commandClass: "repo-write" }),
+          logItem({ method: "observe.tail", durationMs: 5, commandClass: "repo-read" }),
+          // 启发兜底:run 段→写、list 段→读、无法识别→null(不计入分母)。
+          logItem({ method: "repo.task.run", durationMs: 12 }),
+          logItem({ method: "repo.tasks.list", durationMs: 8 }),
+          logItem({ method: "mystery.op", durationMs: 3 }),
+        ],
+        "history",
+        0,
+      ),
+    );
+    const contention = observeStatsLog(state.rows, null).stats.windows["1h"]!.contention;
+    expect(contention.writeOps).toBe(2);
+    expect(contention.readOps).toBe(2);
+    expect(contention.writePct).toBe(50);
+    // 唯一慢写(doc.sync 900ms > 800ms)无重叠 → 轻度争用。
+    expect(contention.slowWrites).toBe(1);
+    expect(contention.overlap).toBe(1);
+    expect(contention.level).toBe("mild");
+  });
+
+  it("慢写区间 [at-duration, at] 重叠 → Contended;纯读窗口 → Smooth", () => {
+    let state = initialObserveTail();
+    state = applyObserveTailPage(
+      state,
+      logPage(
+        [
+          // doc.sync 完成于 T0+10s(占用 [T0+9.1s, T0+10s]),task.adjudicate 完成于
+          // T0+10.5s(占用 [T0+9.3s, T0+10.5s]):两段区间在 [9.3s, 10s) 并存。
+          logItem({ method: "doc.sync", durationMs: 900, atMs: T0 + 10_000, commandClass: "repo-write" }),
+          logItem({ method: "task.adjudicate", durationMs: 1_200, atMs: T0 + 10_500, commandClass: "repo-write" }),
+          logItem({ method: "repo.tasks.list", durationMs: 4, commandClass: "repo-read" }),
+        ],
+        "history",
+        0,
+      ),
+    );
+    const contended = observeStatsLog(state.rows, null).stats.windows["1h"]!.contention;
+    expect(contended.overlap).toBe(2);
+    expect(contended.level).toBe("contended");
+    expect(contended.writePct).toBeCloseTo((2 / 3) * 100, 10);
+    let calm = initialObserveTail();
+    calm = applyObserveTailPage(
+      calm,
+      logPage(
+        [logItem({ method: "repo.tasks.list", durationMs: 4 }), logItem({ method: "observe.tail", durationMs: 2 })],
+        "history",
+        0,
+      ),
+    );
+    const smooth = observeStatsLog(calm.rows, null).stats.windows["1h"]!.contention;
+    expect(smooth.level).toBe("smooth");
+    expect(smooth.writeOps).toBe(0);
+    expect(smooth.writePct).toBe(0);
+  });
+});
+
+describe("智能异味嗅探(慢锁 / 频密轮询 / 失败毛刺)", () => {
+  it("慢锁:窗口内最重慢写曝光方法与耗时;15m/1h 窗口口径生效", () => {
+    let state = initialObserveTail();
+    state = applyObserveTailPage(
+      state,
+      logPage(
+        [
+          logItem({ method: "doc.sync", durationMs: 1_200, atMs: T0, commandClass: "repo-write" }),
+          // 把最新数据时间推到 T0+16min:15m 窗口不再覆盖 T0,1h 窗口仍覆盖。
+          logItem({ method: "repo.tasks.list", durationMs: 2, atMs: T0 + 16 * 60_000 }),
+        ],
+        "history",
+        0,
+      ),
+    );
+    const stats = observeStatsLog(state.rows, null).stats;
+    expect(stats.windows["1h"]!.smells).toEqual([
+      { kind: "slow_lock_holder", label: "doc.sync", value: 1_200, matchText: "doc.sync" },
+    ]);
+    expect(stats.windows["15m"]!.smells).toEqual([]);
+  });
+
+  it("频密轮询:单方法单桶 >50 次(>5 req/s)触发,50 次整不触发", () => {
+    let state = initialObserveTail();
+    state = applyObserveTailPage(
+      state,
+      logPage(
+        Array.from({ length: 51 }, (_, index) =>
+          logItem({ method: "agent.status", durationMs: 1, atMs: T0 + index * 190 }),
+        ),
+        "history",
+        0,
+      ),
+    );
+    const smells = observeStatsLog(state.rows, null).stats.windows["15m"]!.smells;
+    expect(smells).toEqual([
+      { kind: "spinloop_polling", label: "agent.status", value: 5.1, matchText: "agent.status" },
+    ]);
+    let quiet = initialObserveTail();
+    quiet = applyObserveTailPage(
+      quiet,
+      logPage(
+        Array.from({ length: 50 }, (_, index) =>
+          logItem({ method: "agent.status", durationMs: 1, atMs: T0 + index * 190 }),
+        ),
+        "history",
+        0,
+      ),
+    );
+    expect(observeStatsLog(quiet.rows, null).stats.windows["15m"]!.smells).toEqual([]);
+  });
+
+  it("失败毛刺:窗口失败率 >15% 触发并归因到最重失败方法;健康窗口无异味", () => {
+    let state = initialObserveTail();
+    state = applyObserveTailPage(
+      state,
+      logPage(
+        [
+          ...Array.from({ length: 16 }, () =>
+            logItem({ method: "repo.write", durationMs: 5, ok: false, code: "repo_locked" }),
+          ),
+          ...Array.from({ length: 84 }, (_, index) => logItem({ method: `op.ok${index % 4}`, durationMs: 3 })),
+        ],
+        "history",
+        0,
+      ),
+    );
+    const smells = observeStatsLog(state.rows, null).stats.windows["1h"]!.smells;
+    expect(smells).toEqual([{ kind: "spike_failures", label: "repo.write", value: 16, matchText: "repo.write" }]);
+    let healthy = initialObserveTail();
+    healthy = applyObserveTailPage(
+      healthy,
+      logPage(
+        [
+          ...Array.from({ length: 10 }, () => logItem({ method: "repo.write", durationMs: 5, ok: false, code: "x" })),
+          ...Array.from({ length: 90 }, (_, index) => logItem({ method: `op.ok${index % 4}`, durationMs: 3 })),
+        ],
+        "history",
+        0,
+      ),
+    );
+    const healthyStats = observeStatsLog(healthy.rows, null).stats;
+    expect(healthyStats.windows["1h"]!.smells).toEqual([]);
+    expect(healthyStats.windows["15m"]!.smells).toEqual([]);
+  });
+});
+
+describe("热点主体 Top Talkers", () => {
+  it("事件行按 taskId 归属,次数降序并给出窗口占比", () => {
+    let state = initialObserveTail();
+    state = applyObserveTailPage(
+      state,
+      eventPage(
+        [
+          eventItem({ revision: 1, taskId: "task_a" }),
+          eventItem({ revision: 2, taskId: "task_a" }),
+          eventItem({ revision: 3, taskId: "task_a" }),
+          eventItem({ revision: 4, taskId: "task_b" }),
+        ],
+        "history",
+      ),
+    );
+    expect(observeStatsLog(state.rows, null).stats.windows["1h"]!.talkers).toEqual([
+      { subject: "task_a", count: 3, percentage: 75 },
+      { subject: "task_b", count: 1, percentage: 25 },
+    ]);
+  });
+
+  it("日志行按 executor 调用方归属,无执行者退到连接标识;并列按字典序", () => {
+    let state = initialObserveTail();
+    state = applyObserveTailPage(
+      state,
+      logPage(
+        [
+          logItem({ method: "repo.task.run", durationMs: 20, executorId: "agent_x" }),
+          logItem({ method: "repo.tasks.list", durationMs: 3, executorId: "agent_x" }),
+          logItem({ method: "observe.tail", durationMs: 2, connectionId: "conn-9" }),
+          logItem({ method: "repo.agenda.read", durationMs: 4, connectionId: "conn-9" }),
+          logItem({ method: "repo.doc.read", durationMs: 1 }),
+        ],
+        "history",
+        0,
+      ),
+    );
+    expect(observeStatsLog(state.rows, null).stats.windows["1h"]!.talkers).toEqual([
+      { subject: "agent_x", count: 2, percentage: 40 },
+      { subject: "conn-9", count: 2, percentage: 40 },
+    ]);
+  });
+});
+
+describe("研发信噪比(产出驱动 vs 机械巡检)", () => {
+  it("写操作计产出、status/tail 计机械、普通读中性不计入分母", () => {
+    let state = initialObserveTail();
+    state = applyObserveTailPage(
+      state,
+      logPage(
+        [
+          ...Array.from({ length: 8 }, () => logItem({ method: "repo.task.run", durationMs: 30 })),
+          logItem({ method: "observe.tail", durationMs: 2 }),
+          logItem({ method: "daemon.status", durationMs: 1 }),
+          ...Array.from({ length: 2 }, () => logItem({ method: "repo.tasks.list", durationMs: 3 })),
+        ],
+        "history",
+        0,
+      ),
+    );
+    const signal = observeStatsLog(state.rows, null).stats.windows["1h"]!.signal;
+    expect(signal.progress).toBe(8);
+    expect(signal.overhead).toBe(2);
+    expect(signal.progressPct).toBe(80);
+  });
+
+  it("事件流的 task_* 业务事件计产出,未知形状中性", () => {
+    let state = initialObserveTail();
+    state = applyObserveTailPage(
+      state,
+      eventPage(
+        [
+          eventItem({ revision: 1, taskId: "task_a" }),
+          eventItem({ revision: 2, taskId: "task_a" }),
+          { schema: "entity-event/v1", eventId: "ev-an-3", workspaceRevision: 3, type: "entity-event/v1" },
+        ],
+        "history",
+      ),
+    );
+    const signal = observeStatsLog(state.rows, null).stats.windows["1h"]!.signal;
+    expect(signal.progress).toBe(2);
+    expect(signal.overhead).toBe(0);
+    expect(signal.progressPct).toBe(100);
   });
 });
 

@@ -10,6 +10,8 @@ import { ObserveAnomalyCluster } from "./ObserveAnomalyCluster.tsx";
 import { ObserveCallVolumeBoard } from "./ObserveCallVolumeBoard.tsx";
 import { ObserveHudStrip, type ObserveHudWindow, type ObserveTimeSelection } from "./ObserveHudStrip.tsx";
 import { ObserveSlowOpsBoard } from "./ObserveSlowOpsBoard.tsx";
+import { ObserveSnifferStrip } from "./ObserveSnifferStrip.tsx";
+import { ObserveTopTalkersBoard } from "./ObserveTopTalkersBoard.tsx";
 import {
   applyObserveTailError,
   applyObserveTailPage,
@@ -18,19 +20,21 @@ import {
   initialObserveTail,
   observePaneCursor,
   observeRowPasses,
-  observeStatsLog,
   observeTailRequest,
   type ObserveFilterCache,
-  type ObserveLensValue,
   type ObserveRow,
   type ObserveRowFilter,
-  type ObserveStats,
-  type ObserveStatsCache,
   type ObserveTailCursor,
   type ObserveTailKind,
   type ObserveTailMode,
   type ObserveTailSnapshot,
 } from "../../daemon-observe-model.ts";
+import {
+  observeStatsLog,
+  type ObserveLensValue,
+  type ObserveStats,
+  type ObserveStatsCache,
+} from "../../daemon-observe-stats.ts";
 
 /**
  * One `observe.tail` pane: a self-following, pausable, filterable log/event stream.
@@ -168,7 +172,9 @@ export function DaemonTailPane({
     [analytics, setAnalytics] = useState(true),
     [hudWindow, setHudWindow] = useState<ObserveHudWindow>("15m"),
     [timeRange, setTimeRange] = useState<ObserveTimeSelection | null>(null),
-    [boardTab, setBoardTab] = useState<"ops" | "volume" | "anomalies">(kind === "events" ? "volume" : "ops"),
+    [boardTab, setBoardTab] = useState<"ops" | "volume" | "anomalies" | "talkers">(
+      kind === "events" ? "volume" : "ops",
+    ),
     [lensOpen, setLensOpen] = useState(false),
     // 窗口化输入:滚动体的 scrollTop 与 clientHeight,随 scroll 事件/贴底写入/尺寸变化更新。
     [scroll, setScroll] = useState({ top: 0, height: 0 }),
@@ -229,6 +235,14 @@ export function DaemonTailPane({
     // 行内方法列的透镜出口:只在日志栏且有视图级 lens 通道时挂;事件行一律文本列。
     methodFocusHandler = onLensChange === undefined ? undefined : focusMethod,
     focusCluster = useCallback((matchText: string) => setQuery(matchText), []),
+    // 异味 Tag / Top Talker 的一键下钻:有视图级透镜通道时收敛双栏,否则退到本栏过滤框。
+    focusLensOrQuery = useCallback(
+      (text: string) => {
+        if (onLensChange === undefined) setQuery(text);
+        else focusMethod(text);
+      },
+      [focusMethod, onLensChange],
+    ),
     selectRange = useCallback((selection: ObserveTimeSelection | null) => setTimeRange(selection), []),
     changeWindow = useCallback((next: ObserveHudWindow) => setHudWindow(next), []);
   useEffect(() => {
@@ -401,6 +415,13 @@ export function DaemonTailPane({
             selection={timeRange}
             onSelectRange={selectRange}
           />
+          <ObserveSnifferStrip
+            testId={`observe-sniffer-${kind}`}
+            stats={stats}
+            window={hudWindow}
+            isLogPane={isLogPane}
+            onFocusSmell={focusLensOrQuery}
+          />
           <div className="flex flex-wrap items-center gap-2 px-3 py-1">
             {isLogPane ? (
               <button
@@ -430,6 +451,15 @@ export function DaemonTailPane({
               className={kindOptionClass(boardTab === "anomalies")}
             >
               {t("views.daemonObserve.tabAnomalies")}
+            </button>
+            <button
+              type="button"
+              data-testid={`observe-tab-talkers-${kind}`}
+              aria-pressed={boardTab === "talkers"}
+              onClick={() => setBoardTab("talkers")}
+              className={kindOptionClass(boardTab === "talkers")}
+            >
+              {t("views.daemonObserve.tabTalkers")}
             </button>
             {onLensChange === undefined ? null : (
               <span className="relative ml-auto shrink-0">
@@ -491,6 +521,14 @@ export function DaemonTailPane({
               testId={`observe-anomalies-${kind}`}
               clusters={stats.clusters}
               onFocusCluster={focusCluster}
+            />
+          ) : null}
+          {boardTab === "talkers" ? (
+            <ObserveTopTalkersBoard
+              testId={`observe-talkers-${kind}`}
+              stats={stats}
+              window={hudWindow}
+              onFocusSubject={focusLensOrQuery}
             />
           ) : null}
         </div>

@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { t } from "../../i18n/index.tsx";
-import { observePercentile, type ObserveStats } from "../../daemon-observe-model.ts";
+import { observePercentile, type ObserveStats } from "../../daemon-observe-stats.ts";
 
 /**
  * 慢操作排行榜:整体 P50/P95/Max 分位卡片 + Top 5 慢 RPC 列表(按单次最大耗时排序,
