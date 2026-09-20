@@ -118,7 +118,25 @@ test("milestone-closeout uses the normal completion facade, review, and gates ex
       ).outcome,
       "applied",
     );
-    const missingCi = await cell.run({ kind: "task-complete", taskId, executionId }, binding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: missingCi.outcome, code: missingCi.code, steps: missingCi.steps }, { outcome: "op_rejected", code: "ci_missing", steps: [] }); await publishCiObservation("completion-facade", rootDir, executionId, commitSha, "run-completion-facade");
+    const beforeMissingCi = store().read().revision,
+      missingCi = (await cell.run({ kind: "task-complete", taskId, executionId }, binding)) as unknown as Record<
+        string,
+        unknown
+      >;
+    assert.deepEqual(
+      { outcome: missingCi.outcome, code: missingCi.code, steps: missingCi.steps },
+      { outcome: "op_rejected", code: "ci_missing", steps: [] },
+    );
+    assert.equal((missingCi.next as readonly { readonly action: string }[])[0]?.action, "ha ci observe pull");
+    assert.equal(store().read().revision, beforeMissingCi, "ci_missing must not append a lifecycle event");
+    assert.equal(
+      store()
+        .read()
+        .events.some((event) => event.type === "task_completed" && event.taskId === taskId),
+      false,
+      "ci_missing must leave the task outside done",
+    );
+    await publishCiObservation("completion-facade", rootDir, executionId, commitSha, "run-completion-facade");
     const beforeReviewBlock = store().read().revision,
       missingReview = await cell.run({ kind: "task-complete", taskId, executionId }, binding) as unknown as Record<string, unknown>;
     assert.deepEqual({ outcome: missingReview.outcome, code: missingReview.code }, { outcome: "op_rejected", code: "review_missing" });
