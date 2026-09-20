@@ -130,7 +130,9 @@ test("bounded child protocol classifies every failure without a silent phase", a
       service = createPresetProcessService({
         rootDir: fixture.rootDir,
         userRoot: fixture.userRoot,
-        timeoutMs: 300,
+        // Only the timeout case races the clock on purpose. Every other case must be classified
+        // by what the child does, so a slow child start cannot turn it into a timeout.
+        timeoutMs: code === "timeout" ? 300 : 30_000,
         maxResultBytes: 128,
         publish: async () => {
           throw new Error("not reached");
