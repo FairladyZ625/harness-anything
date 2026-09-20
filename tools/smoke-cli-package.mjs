@@ -29,7 +29,7 @@ export function runCliPackageSmoke(root = process.cwd()) {
         execNpmFileSync(["pack", "--workspace", workspace, "--pack-destination", packDir, "--json"], {
           cwd: root,
           encoding: "utf8",
-          env: { ...process.env, NPM_CONFIG_IGNORE_SCRIPTS: "true" },
+          env: sanitizedChildEnvironment({ NPM_CONFIG_IGNORE_SCRIPTS: "true" }),
         }),
       )[0];
       const tarball = path.join(packDir, packed?.filename ?? "");
@@ -313,7 +313,7 @@ export function buildCliPackageArtifact(root, options = {}) {
   const exec = options.execFileSync ?? execFileSync,
     exists = options.existsSync ?? existsSync,
     platform = options.platform ?? process.platform,
-    environment = { ...process.env, ...(options.environment ?? {}) },
+    environment = sanitizedChildEnvironment(options.environment ?? {}),
     invocation = npmInvocation(["run", "build", "--workspace", "@harness-anything/cli"], platform, environment);
   exec(invocation.command, invocation.args, {
     cwd: root,
@@ -327,9 +327,11 @@ export function buildCliPackageArtifact(root, options = {}) {
 }
 
 function execNpmFileSync(args, options = {}) {
-  const invocation = npmInvocation(args, process.platform, process.env);
+  const environment = options.env ?? sanitizedChildEnvironment();
+  const invocation = npmInvocation(args, process.platform, environment);
   return execFileSync(invocation.command, invocation.args, {
     ...options,
+    env: environment,
     windowsHide: process.platform === "win32",
     ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
   });
@@ -373,8 +375,20 @@ function expectOk(result, label) {
     throw new Error(`${label} failed: ${JSON.stringify(result)}`);
   return result.receipt;
 }
-function env(userRoot, home) {
-  return { ...process.env, HOME: home, GIT_CONFIG_GLOBAL: "/dev/null", HARNESS_DAEMON_USER_ROOT: userRoot };
+// A worker session injects HARNESS_* routing, identity and repo bindings for its own daemon; the
+// smoke's children must resolve their temp consumer daemon instead, and a leaked
+// HARNESS_DAEMON_ENDPOINT fails that resolution with daemon_target_conflict. Explicit overrides
+// re-add only smoke-owned values (packages/daemon/scripts/smoke-package.mjs strips the same prefix).
+function sanitizedChildEnvironment(overrides = {}) {
+  const environment = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("HARNESS_")));
+  return { ...environment, ...overrides };
+}
+export function env(userRoot, home) {
+  return sanitizedChildEnvironment({
+    HOME: home,
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    HARNESS_DAEMON_USER_ROOT: userRoot,
+  });
 }
 function resolveBinCommand(consumerDir, name) {
   const packageEntry = path.join(consumerDir, "node_modules/@harness-anything/cli/dist/cli/src/index.js");
