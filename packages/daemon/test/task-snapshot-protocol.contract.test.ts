@@ -101,3 +101,60 @@ test("task snapshot protocol isolates a malformed field with its source row iden
   assert.match(isolated.invalidRows[0]!.message, /^actual=.*Task snapshot field is invalid\.$/u);
   assert.deepEqual(validateDaemonTaskSnapshotList(result), []);
 });
+
+test("task snapshot protocol accepts tasks with archiveOnComplete boolean flag", () => {
+  const lightweightTask = {
+    schema: "task/v2",
+    taskId: "task-light",
+    title: "Lightweight task with auto-archive",
+    taskClass: "standard",
+    status: "active",
+    graph: {},
+    currentNode: "implementation",
+    iteration: 0,
+    createdBy: actor,
+    completionGateIds: [],
+    presetSnapshotDigest: null,
+    pinned: false,
+    archiveOnComplete: true,
+  } as const;
+  const lightRow = {
+    ...row,
+    taskId: "task-light",
+    snapshot: { ...row.snapshot, task: lightweightTask },
+  };
+
+  const isolated = isolateDaemonTaskSnapshotRows([lightRow]);
+  assert.equal(isolated.invalidRows.length, 0);
+  assert.deepEqual(isolated.rows, [lightRow]);
+  assert.deepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [lightRow] }), []);
+});
+
+test("task snapshot protocol isolates tasks with non-boolean archiveOnComplete", () => {
+  const invalidTask = {
+    schema: "task/v2",
+    taskId: "task-bad-archive",
+    title: "Task with malformed archiveOnComplete",
+    taskClass: "standard",
+    status: "active",
+    graph: {},
+    currentNode: "implementation",
+    iteration: 0,
+    createdBy: actor,
+    completionGateIds: [],
+    presetSnapshotDigest: null,
+    pinned: false,
+    archiveOnComplete: "true", // invalid: string instead of boolean
+  };
+  const badRow = {
+    ...row,
+    taskId: "task-bad-archive",
+    snapshot: { ...row.snapshot, task: invalidTask as never },
+  };
+
+  const isolated = isolateDaemonTaskSnapshotRows([badRow]);
+  assert.equal(isolated.rows.length, 0);
+  assert.equal(isolated.invalidRows.length, 1);
+  assert.equal(isolated.invalidRows[0]?.taskId, "task-bad-archive");
+  assert.equal(isolated.invalidRows[0]?.field, "rows[0].snapshot.task");
+});

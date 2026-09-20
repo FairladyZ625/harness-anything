@@ -238,6 +238,7 @@ export function task(value: unknown): boolean {
       "contractVersion",
       "reviewReturnBudget",
       "closeoutOverrides",
+      "archiveOnComplete",
     ];
   return (
     recordWith(value, required) &&
@@ -261,7 +262,8 @@ export function task(value: unknown): boolean {
     (value.contractVersion === undefined || (integer(value.contractVersion) && Number(value.contractVersion) > 0)) &&
     (value.reviewReturnBudget === undefined ||
       (integer(value.reviewReturnBudget) && Number(value.reviewReturnBudget) > 0)) &&
-    (value.closeoutOverrides === undefined || closeoutOverridesEnvelope(value.closeoutOverrides))
+    (value.closeoutOverrides === undefined || closeoutOverridesEnvelope(value.closeoutOverrides)) &&
+    (value.archiveOnComplete === undefined || typeof value.archiveOnComplete === "boolean")
   );
 }
 
