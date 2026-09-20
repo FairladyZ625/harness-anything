@@ -84,8 +84,8 @@ function checkPackageSurface(root, violations) {
   if (cliPackage.private === true) {
     violations.push("packages/cli/package.json: CLI package must be public-ready for npm publish dry-run preflight");
   }
-  if (cliPackage.version !== "0.1.0") {
-    violations.push("packages/cli/package.json: version must be 0.1.0 for npm publish dry-run preflight");
+  if (cliPackage.version !== "0.0.1") {
+    violations.push("packages/cli/package.json: version must be 0.0.1 for npm publish dry-run preflight");
   }
   if (cliPackage.publishConfig?.access !== "public") {
     violations.push("packages/cli/package.json: publishConfig.access must be public for npm publish dry-run preflight");

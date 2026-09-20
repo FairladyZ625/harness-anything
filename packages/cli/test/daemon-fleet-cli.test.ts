@@ -545,7 +545,7 @@ test("CLI resident modes resolve the installed daemon manifest and launch its ab
   const manifestPath = createRequire(import.meta.url).resolve("@harness-anything/daemon/package.json");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   const entry = path.resolve(path.dirname(manifestPath), manifest.bin["harness-anything-daemon"]);
-  assert.equal(manifest.version, "0.1.0");
+  assert.equal(manifest.version, "0.0.1");
   assert.equal(daemonServeEntry(), entry);
   for (const mode of ["serve", "--service"] as const) {
     const launch = cliDaemonServeLaunch("/daemon-user", "blue", process.execPath, undefined, mode);

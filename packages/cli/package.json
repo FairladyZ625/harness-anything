@@ -1,6 +1,6 @@
 {
   "name": "@harness-anything/cli",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "CLI for the Harness Anything accountability layer for AI agents.",
   "license": "AGPL-3.0-or-later",
   "type": "module",
@@ -38,7 +38,7 @@
   "dependencies": {
     "@effect/experimental": "0.60.0",
     "@effect/platform": "0.96.2",
-    "@harness-anything/daemon": "0.1.0",
+    "@harness-anything/daemon": "0.0.1",
     "effect": "3.21.4"
   }
 }

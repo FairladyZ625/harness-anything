@@ -213,7 +213,7 @@ export function runAcpProviderSession(
       const initialize = (await request("initialize", {
         protocolVersion: 1,
         clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
-        clientInfo: { name: "harness-anything", title: "Harness Anything", version: "0.1.0" },
+        clientInfo: { name: "harness-anything", title: "Harness Anything", version: "0.0.1" },
       })) as Record<string, unknown>;
       const authMethods = Array.isArray(initialize.authMethods)
         ? (initialize.authMethods as Record<string, unknown>[])

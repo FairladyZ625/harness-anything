@@ -57,8 +57,8 @@ export function daemonServeEntry(): string {
   const manifestPath = createRequire(import.meta.url).resolve("@harness-anything/daemon/package.json");
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
   const bin = manifest.bin?.["harness-anything-daemon"];
-  if (manifest.version !== "0.1.0" || typeof bin !== "string")
-    throw new Error("The installed daemon must provide the 0.1.0 harness-anything-daemon bin.");
+  if (manifest.version !== "0.0.1" || typeof bin !== "string")
+    throw new Error("The installed daemon must provide the 0.0.1 harness-anything-daemon bin.");
   return path.resolve(path.dirname(manifestPath), bin);
 }
 export function cliDaemonServeLaunch(
