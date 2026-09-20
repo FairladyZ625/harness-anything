@@ -1,0 +1,16 @@
+{
+  "schema": "daemon.workspace-scope/v1",
+  "ok": true,
+  "status": "ready",
+  "root": null,
+  "ancestors": [],
+  "counts": {},
+  "scope": {},
+  "groups": [],
+  "tasks": [],
+  "page": {},
+  "incompleteParentRefs": [],
+  "watermark": 0,
+  "sourceRevision": 0,
+  "warnings": []
+}

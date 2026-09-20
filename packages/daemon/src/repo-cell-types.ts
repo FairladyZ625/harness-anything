@@ -22,6 +22,7 @@ import { openGuiCatalog } from "./gui-catalog.ts";
 import {
   type DaemonRepoAttachProgress,
   type DaemonGuiReadMethod,
+  type DaemonGuiReadPayloadMap,
   type DaemonGuiReadResultMap,
   type ObserveTailResult,
 } from "./protocol/daemon-protocol.contract.ts";
@@ -169,6 +170,9 @@ export interface RepoCell {
     binding?: RepoCellBinding,
   ) => Promise<DaemonGuiReadResultMap[M]>;
   readonly workspaceSummary: () => DaemonGuiReadResultMap["repo.workspace.summary.read"];
+  readonly workspaceScope: (
+    payload: DaemonGuiReadPayloadMap["repo.workspace.scope.read"],
+  ) => DaemonGuiReadResultMap["repo.workspace.scope.read"];
   readonly observeTail: (
     payload: unknown,
     daemon: { readonly userRoot: string; readonly daemonId: string },

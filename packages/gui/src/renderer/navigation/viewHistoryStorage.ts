@@ -25,6 +25,7 @@ const VIEW_ID_LIST = [
   "home",
   "overview",
   "overviewNext",
+  "workspace",
   "board",
   "decisionPool",
   "freshness",
@@ -88,6 +89,7 @@ function isAppLocation(value: unknown): value is AppLocation {
     !isNullableString(value.previewId) ||
     !isNullableString(value.focusedEntityRef) ||
     !(value.browserUrl === undefined || isNullableString(value.browserUrl)) ||
+    !(value.scopeRootTaskId === undefined || isNullableString(value.scopeRootTaskId)) ||
     !isCanonicalFocusedRef(value.focusedEntityRef) ||
     !isTaskFilters(value.taskFilters)
   )
@@ -124,6 +126,7 @@ function storageKey(projectId: string): string {
 export function initialLocation(filters?: TaskFilters): AppLocation {
   return {
     view: "overview",
+    scopeRootTaskId: null,
     browserUrl: null,
     selectedId: null,
     previewId: null,

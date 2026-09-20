@@ -143,6 +143,7 @@ const resultValidators = {
   "repo.settings.read": validateDaemonSettingsRead,
   "repo.ci.observatory.read": validateCiObservatoryRead,
   "repo.workspace.summary.read": validateDaemonWorkspaceSummary,
+  "repo.workspace.scope.read": validateDaemonWorkspaceScope,
   "repo.agenda.read": validateDaemonAgenda,
   "repo.triadic.relationGraph": validateDaemonRelationGraph,
   "repo.decisions.list": validateDaemonDecisionList,
@@ -166,6 +167,38 @@ const resultValidators = {
   "repo.gui.catalog.preset.read": validateCatalogPreset,
   "repo.terminal.sessions.list": validateTerminalSessionList,
 } satisfies Record<DaemonGuiRpcReadMethod, ResultValidator>;
+
+export function validateDaemonWorkspaceScope(value: unknown): readonly string[] {
+  if (!isJsonObject(value)) return [validationError("workspace-scope", "result", value, "must be an object")];
+  const row = (item: unknown) =>
+    isJsonObject(item) &&
+    typeof item.taskId === "string" &&
+    typeof item.title === "string" &&
+    typeof item.status === "string" &&
+    typeof item.taskClass === "string" &&
+    (item.parentTaskId === null || typeof item.parentTaskId === "string") &&
+    typeof item.hasChildren === "boolean";
+  const valid =
+    value.schema === "daemon.workspace-scope/v1" &&
+    value.ok === true &&
+    (value.status === "ready" || value.status === "pending") &&
+    row(value.root) &&
+    Array.isArray(value.ancestors) &&
+    value.ancestors.every(row) &&
+    Array.isArray(value.groups) &&
+    value.groups.every(row) &&
+    Array.isArray(value.tasks) &&
+    value.tasks.every(row) &&
+    isJsonObject(value.counts) &&
+    isJsonObject(value.scope) &&
+    isJsonObject(value.page) &&
+    Array.isArray(value.incompleteParentRefs) &&
+    value.incompleteParentRefs.every((ref) => typeof ref === "string") &&
+    Number.isSafeInteger(value.watermark) &&
+    Number.isSafeInteger(value.sourceRevision) &&
+    Array.isArray(value.warnings);
+  return valid ? [] : [validationError("workspace-scope", "result", value, "must be a valid workspace scope")];
+}
 
 export function validateDaemonTaskWip(value: unknown): readonly string[] {
   if (!isJsonObject(value)) return [validationError("task-wip", "result", value, "must be an object")];

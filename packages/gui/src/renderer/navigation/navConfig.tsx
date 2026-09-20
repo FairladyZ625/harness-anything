@@ -39,6 +39,7 @@ const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
   home: "shell.nav.home",
   overview: "shell.nav.overview",
   overviewNext: "shell.nav.overviewNext",
+  workspace: "shell.nav.workspaceScope",
   board: "shell.nav.board",
   decisionPool: "shell.nav.decisionPool",
   freshness: "shell.nav.freshness",

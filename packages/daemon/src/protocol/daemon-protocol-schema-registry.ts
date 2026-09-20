@@ -40,6 +40,7 @@ import {
   DAEMON_TASK_WIP_SCHEMA,
   DAEMON_USE_CASE_PROJECTION_SCHEMA,
   DAEMON_WORKSPACE_SUMMARY_SCHEMA,
+  DAEMON_WORKSPACE_SCOPE_SCHEMA,
   GUI_CATALOG_PRESET_SCHEMA,
   GUI_CATALOG_SNAPSHOT_SCHEMA,
   GUI_SYSTEM_STATUS_SCHEMA,
@@ -197,6 +198,14 @@ export const daemonGuiReadSchemas = Object.freeze([
     writer: "packages/daemon/src/protocol/daemon-protocol.contract.ts#serializeDaemonWorkspaceSummary",
     error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
     negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-workspace-summary-invalid.json"]),
+  },
+  {
+    id: DAEMON_WORKSPACE_SCOPE_SCHEMA.id,
+    schema: "packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#DAEMON_WORKSPACE_SCOPE_SCHEMA",
+    parser: "packages/daemon/src/protocol/gui-result-validation.ts#validateDaemonWorkspaceScope",
+    writer: "packages/daemon/src/workspace-scope-read.ts#workspaceScopeFromProjection",
+    error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
+    negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-workspace-scope-invalid.json"]),
   },
   {
     id: DAEMON_AGENDA_SCHEMA.id,

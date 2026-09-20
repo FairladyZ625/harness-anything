@@ -690,6 +690,7 @@ export function createDaemonHostRepositoryApi(
           daemonId: context.input.daemonId,
         });
       else if (method === "repo.workspace.summary.read") result = cell.workspaceSummary();
+      else if (method === "repo.workspace.scope.read") result = cell.workspaceScope(payload as never);
       else if (method === "repo.gui.catalog.snapshot") result = await cell.catalog.snapshot();
       else if (method === "repo.gui.catalog.preset.read") {
         if (!isJsonObject(payload))

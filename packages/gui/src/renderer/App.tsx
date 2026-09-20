@@ -68,6 +68,8 @@ import type { ViewId } from "./navigation/viewHistory.ts";
 import { navLabel } from "./navigation/navConfig.tsx";
 import { useWorkspaceSummaryQuery } from "./workspace-summary-data.ts";
 import { WorkspaceSummaryPending } from "./components/WorkspaceSummaryPending.tsx";
+import { WorkspaceView } from "./views/WorkspaceView.tsx";
+import { useWorkspaceScopeQuery } from "./workspace-scope-data.ts";
 import { prewarmRuntimeInstanceCatalog } from "./runtime-instance-data.ts";
 import { FirstRunGuide } from "./components/FirstRunGuide.tsx";
 import { LocalDocLayer } from "./local-doc/LocalDocLayer.tsx";
@@ -155,14 +157,10 @@ function AppShell() {
     activeRepoId,
     view === "overview" || view === "overviewNext" || view === "board",
   );
-  // 总览的「PIN 在做」与研发态势的堵点计数直接消费 `ha agenda` 同一条 repo.agenda.read
-  // 投影。其他视图不挂载这条读,避免把已删除的独立议程页变成后台读取。
-  // 总览(新)(S3)的「需要你处理 / 重点工作(置顶)」同一条投影,不另立读。
-  const agendaQuery = useAgendaQuery(
-    activeRepoId !== null && (view === "overview" || view === "overviewNext" || view === "cadence")
-      ? activeRepoId
-      : null,
-  );
+  // 侧栏置顶工作、总览、总览(新)和研发态势消费 `ha agenda` 同一条 repo.agenda.read 投影；
+  // 侧栏跨视图常驻，因此读面也随仓库常驻，不建立第二份 pin 状态。
+  const agendaQuery = useAgendaQuery(activeRepoId);
+  const workspaceScopeQuery = useWorkspaceScopeQuery(activeRepoId, location.scopeRootTaskId ?? null);
   // 运行 overview 读(cadence 与总览(新)共用同一 query key,react-query 去重):
   // 「当前执行」的 live/active 分列只消费这一条的 sessions。
   const runtimeSessionsQuery = useQuery({
@@ -456,6 +454,18 @@ function AppShell() {
             goto("home");
           }}
           onNavigate={goto}
+          pinnedWork={(agendaQuery.data?.pinnedEntities ?? []).flatMap((item) =>
+            item.kind === "task" ? [{ taskId: item.ref.replace(/^task\//u, ""), title: item.title }] : [],
+          )}
+          onOpenWorkspace={(taskId) =>
+            navigate({
+              view: "workspace",
+              scopeRootTaskId: taskId,
+              selectedId: null,
+              previewId: null,
+              focusedEntityRef: null,
+            })
+          }
           ledgerStatus={ledgerStatusBar}
           onRefreshLedger={refreshLedger}
           health={runtimeHealth}
@@ -572,9 +582,9 @@ function AppShell() {
                         : null
                     }
                     onNavigateEntity={navigateToEntity}
-                    // 组工作页下钻的单点切换位:S1(task_e3f53eb9)组工作空间未合入,
-                    // 当前落现有任务详情;S1 合入后只改这一行。
-                    onOpenGroup={navigateToTask}
+                    onOpenGroup={(taskId) =>
+                      navigate({ view: "workspace", scopeRootTaskId: taskId, selectedId: null, previewId: null })
+                    }
                     onSelectRuntimeEntity={selectRuntimeEntity}
                     onOpenPool={() =>
                       navigate({
@@ -590,6 +600,24 @@ function AppShell() {
                   />
                 ) : (
                   <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
+                )
+              ) : view === "workspace" ? (
+                workspaceScopeQuery.data ? (
+                  <WorkspaceView
+                    scope={workspaceScopeQuery.data}
+                    projectName={project.name}
+                    onOpenTask={(taskId) => navigate({ selectedId: taskId, previewId: null })}
+                    onOpenGroup={(taskId) =>
+                      navigate({
+                        view: "workspace",
+                        scopeRootTaskId: taskId,
+                        selectedId: null,
+                        previewId: null,
+                      })
+                    }
+                  />
+                ) : (
+                  <WorkspaceSummaryPending error={workspaceScopeQuery.error} />
                 )
               ) : view === "board" ? (
                 <BoardView

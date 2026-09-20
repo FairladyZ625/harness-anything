@@ -68,6 +68,26 @@ export const DAEMON_WORKSPACE_SUMMARY_SCHEMA = Object.freeze({
   required: Object.freeze(["schema", "ok", "status", "tasks", "decisions", "watermark", "sourceRevision", "warnings"]),
 });
 
+export const DAEMON_WORKSPACE_SCOPE_SCHEMA = Object.freeze({
+  id: "daemon.workspace-scope/v1",
+  required: Object.freeze([
+    "schema",
+    "ok",
+    "status",
+    "root",
+    "ancestors",
+    "counts",
+    "scope",
+    "groups",
+    "tasks",
+    "page",
+    "incompleteParentRefs",
+    "watermark",
+    "sourceRevision",
+    "warnings",
+  ]),
+});
+
 export const DAEMON_AGENDA_SCHEMA = Object.freeze({
   id: "daemon.agenda/v1",
   required: Object.freeze([
