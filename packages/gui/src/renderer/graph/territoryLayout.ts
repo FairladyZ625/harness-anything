@@ -170,8 +170,6 @@ export function layoutTerritory(input: TerritoryLayoutInput): TerritoryLayout {
           style: { width: ZONE_W - ZONE_BODY_PAD_X * 2, height: CHIP_H },
           data: { chip, onOpen, onSetPin },
           zIndex: 2,
-          selectable: false,
-          draggable: false,
         });
         chipY += CHIP_H + CHIP_GAP;
       }
@@ -194,8 +192,6 @@ export function layoutTerritory(input: TerritoryLayoutInput): TerritoryLayout {
           style: { width: ZONE_W - ZONE_BODY_PAD_X * 2, height: CHIP_H },
           data: { chip: null, fold, onFold, onRevealZone },
           zIndex: 2,
-          selectable: false,
-          draggable: false,
         });
       }
 
