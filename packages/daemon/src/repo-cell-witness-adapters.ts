@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import path from "node:path";
 import {
   completionEvidenceBasis,
@@ -27,6 +27,8 @@ import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { runProcessExitAsync, runProcessTextAsync } from "./process-port.ts";
 
 type Execution = Snapshot["executions"][number];
+
+const isolatedGitConfig = { GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull } as const;
 
 /**
  * Observations collected outside the write queue ride on the action under this symbol; inside the
@@ -205,7 +207,7 @@ async function collectLocalCommand(
       "sh",
       ["-c", `git -C ${shellQuote(root)} archive --format=tar ${cutSha} | tar -x -C ${shellQuote(workdir)}`],
       cell.rootDir,
-      { PATH: process.env.PATH },
+      { PATH: process.env.PATH, ...isolatedGitConfig },
     );
     // A nonzero exit is the command's verdict — returned as a result, not thrown. Spawn failure,
     // signal, and timeout still reject as unavailable evidence, never a verdict.
@@ -215,6 +217,7 @@ async function collectLocalCommand(
       workdir,
       {
         PATH: process.env.PATH,
+        ...isolatedGitConfig,
         HARNESS_WITNESS_CUT: cutSha,
         HARNESS_WITNESS_GATE: requirement.gateId,
         // Repository-scoped observations (e.g. merged-to ancestry) read the source repo through
