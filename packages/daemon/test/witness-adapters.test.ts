@@ -150,7 +150,7 @@ test("local-command collects evidence at the frozen cut and nonzero exit is fail
       collected = await witnessAdapters["local-command"].collect!(cell, requirement, execution);
     // The command ran on the archived submitted commit, not the amended working tree.
     const evidence = witnessAdapters["local-command"].evaluate(cell, requirement, execution, collected);
-    assert.equal(evidence?.result, "pass");
+    assert.equal(evidence?.result, "pass", evidence?.provenance.rawResult);
     assert.equal(evidence?.provenance.adapterId, "local-command");
     assert.equal(evidence?.basis.codeCommit, cutSha);
     assert.match(evidence?.provenance.rawResult ?? "", /exit 0/u);
@@ -265,7 +265,7 @@ test("a merged-to ancestry observation fails until the target branch contains th
     git(root, "merge", "-qm", "merge delivery", cutSha);
     const after = await witnessAdapters["local-command"].collect!(cell, requirement, execution),
       afterEvidence = witnessAdapters["local-command"].evaluate(cell, requirement, execution, after);
-    assert.equal(afterEvidence?.result, "pass");
+    assert.equal(afterEvidence?.result, "pass", afterEvidence?.provenance.rawResult);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
