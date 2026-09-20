@@ -90,7 +90,8 @@ export function workspaceGraphSlice(
   return { nodeRefs, edges, externalRefs: [...boundary] };
 }
 
-function normalizedRef(ref: string): string {
+/** 关系端点 → 与 `nodeRefs` 对齐的归一引用(task 端点保留 `task/` 前缀)。 */
+export function normalizedRef(ref: string): string {
   const nodeId = endpointToNodeId(ref);
   return ref.startsWith("task/") ? `task/${nodeId}` : nodeId;
 }

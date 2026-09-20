@@ -6,7 +6,14 @@ import { deriveAttestationLanes } from "../model/attestation-pool.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
 import { useCadenceFeed } from "../cadence-feed.ts";
 import { artifactsClient } from "../artifacts-client.ts";
-import { workspaceEvidenceOf, workspaceGraphSlice } from "../model/workspace-evidence.ts";
+import { normalizedRef, workspaceEvidenceOf, workspaceGraphSlice } from "../model/workspace-evidence.ts";
+import {
+  eventTypeLabel,
+  relationKindLabel,
+  workspaceNodeLabel,
+  workspaceNodeText,
+  workspaceTitleIndex,
+} from "../model/workspace-readable.ts";
 import { formatTime } from "../model/time.ts";
 import { t } from "../i18n/index.tsx";
 
@@ -56,7 +63,17 @@ export function WorkspaceView({
 }: WorkspaceViewProps) {
   const members = new Set(scope.memberTaskIds),
     scopedTasks = tasks.filter(({ taskId }) => members.has(taskId)),
-    lanes = deriveAttestationLanes(scopedTasks);
+    lanes = deriveAttestationLanes(scopedTasks),
+    // 标题只从本视图已经拿到的投影行里查,不为了可读性多开一个读面。
+    titles = useMemo(
+      () =>
+        workspaceTitleIndex({
+          tasks: [scope.root, ...scope.ancestors, ...scope.groups, ...scope.tasks, ...tasks],
+          facts,
+          decisions,
+        }),
+      [scope, tasks, facts, decisions],
+    );
   return (
     <div data-testid="workspace-view" className="min-h-0 flex-1 overflow-y-auto p-5 md:p-7">
       <div className="mx-auto max-w-6xl space-y-6">
@@ -143,6 +160,7 @@ export function WorkspaceView({
             decisions={decisions}
             facts={facts}
             relations={relations}
+            titles={titles}
             onNavigateEntity={onNavigateEntity}
           />
         )}
@@ -157,6 +175,7 @@ function WorkspaceEvidenceSections({
   decisions,
   facts,
   relations,
+  titles,
   onNavigateEntity,
 }: {
   readonly repoId: string;
@@ -164,6 +183,7 @@ function WorkspaceEvidenceSections({
   readonly decisions: readonly DecisionRow[];
   readonly facts: readonly FactRef[];
   readonly relations: readonly RelationEdge[];
+  readonly titles: ReadonlyMap<string, string>;
   readonly onNavigateEntity?: (ref: string) => void;
 }) {
   const feed = useCadenceFeed(repoId),
@@ -186,9 +206,14 @@ function WorkspaceEvidenceSections({
     );
   return (
     <>
-      <WorkspaceHistory evidence={evidence} feed={feed} onNavigateEntity={onNavigateEntity} />
+      <WorkspaceHistory evidence={evidence} feed={feed} titles={titles} onNavigateEntity={onNavigateEntity} />
       <WorkspaceEvidencePanel evidence={evidence} onNavigateEntity={onNavigateEntity} />
-      <WorkspaceLocalGraph memberTaskIds={memberTaskIds} relations={relations} onNavigateEntity={onNavigateEntity} />
+      <WorkspaceLocalGraph
+        memberTaskIds={memberTaskIds}
+        relations={relations}
+        titles={titles}
+        onNavigateEntity={onNavigateEntity}
+      />
     </>
   );
 }
@@ -325,15 +350,22 @@ function WorkspaceRows({
   );
 }
 
+const WORKSPACE_HISTORY_ROWS = 40;
+
 function WorkspaceHistory({
   evidence,
   feed,
+  titles,
   onNavigateEntity,
 }: {
   readonly evidence: ReturnType<typeof workspaceEvidenceOf>;
   readonly feed: ReturnType<typeof useCadenceFeed>;
+  readonly titles: ReadonlyMap<string, string>;
   readonly onNavigateEntity?: (ref: string) => void;
 }) {
+  const rows = evidence.events.slice(0, WORKSPACE_HISTORY_ROWS),
+    // 「只有索引、没有正文」是整个窗口的一个性质,不是每一行各自的新闻:整段至多说一次。
+    anyPayloadLess = rows.some(({ summary }) => summary === null);
   return (
     <section className="rounded-lg border border-border bg-surface-raised p-4" aria-labelledby="workspace-history">
       <h2 id="workspace-history" className="text-sm font-semibold text-text">
@@ -345,29 +377,38 @@ function WorkspaceHistory({
           coverage: t(feed.historyComplete ? "views.workspace.windowComplete" : "views.workspace.windowPartial"),
         })}
       </p>
-      {evidence.events.length === 0 ? (
+      {anyPayloadLess ? <p className="mt-1 ui-meta text-text-muted">{t("views.workspace.payloadMissing")}</p> : null}
+      {rows.length === 0 ? (
         <p className="mt-3 text-sm text-text-muted">{t("views.workspace.historyEmpty")}</p>
       ) : (
         <ol className="mt-3 space-y-2">
-          {evidence.events.slice(0, 40).map((event) => (
-            <li key={event.key} className="rounded border border-border bg-surface p-3">
-              <button
-                type="button"
-                className="text-left text-sm font-medium text-text"
-                onClick={() => event.taskId && onNavigateEntity?.(`task/${event.taskId}`)}
-              >
-                {event.summary ?? event.type}
-              </button>
-              <p className="mt-1 font-mono ui-meta text-text-muted">
-                {event.type} ·{" "}
-                {event.at ? formatTime(event.at, { style: "month-day-time" }) : t("views.workspace.timeMissing")} ·{" "}
-                {event.taskId ?? t("views.workspace.entityMissing")}
-              </p>
-              {event.summary === null ? (
-                <p className="mt-1 ui-meta text-warning">{t("views.workspace.payloadMissing")}</p>
-              ) : null}
-            </li>
-          ))}
+          {rows.map((event) => {
+            const taskRef = event.taskId === null ? null : `task/${event.taskId}`,
+              // 标题在读面里就用标题,没有就如实退回原始 task id——不猜。
+              taskName = (taskRef === null ? undefined : titles.get(taskRef)) ?? event.taskId;
+            return (
+              <li key={event.key} className="rounded border border-border bg-surface p-3">
+                <button
+                  type="button"
+                  title={`${event.type}${event.taskId === null ? "" : ` · ${event.taskId}`}`}
+                  className="block w-full break-words text-left text-sm text-text"
+                  onClick={() => taskRef !== null && onNavigateEntity?.(taskRef)}
+                >
+                  <span className="font-medium">{eventTypeLabel(event.type)}</span>
+                  <span className="text-text-muted">
+                    {" · "}
+                    {taskName ?? t("views.workspace.entityMissing")}
+                  </span>
+                </button>
+                {event.summary === null ? null : (
+                  <p className="mt-1 break-words text-sm text-text-muted">{event.summary}</p>
+                )}
+                <p className="mt-1 ui-meta text-text-faint">
+                  {event.at ? formatTime(event.at, { style: "month-day-time" }) : t("views.workspace.timeMissing")}
+                </p>
+              </li>
+            );
+          })}
         </ol>
       )}
     </section>
@@ -386,7 +427,7 @@ function WorkspaceEvidencePanel({
       <h2 id="workspace-evidence" className="text-sm font-semibold text-text">
         {t("views.workspace.evidence")}
       </h2>
-      <div className="mt-3 grid gap-4 md:grid-cols-3">
+      <div className="mt-3 grid min-w-0 gap-4 md:grid-cols-3">
         <EvidenceList
           title={t("views.workspace.decisions")}
           rows={evidence.decisions.map((row) => ({
@@ -420,7 +461,7 @@ function WorkspaceEvidencePanel({
         />
       </div>
       {evidence.missingRefs.length ? (
-        <p className="mt-3 text-sm text-warning">
+        <p className="mt-3 break-words text-sm text-warning">
           {t("views.workspace.missingRefs", { refs: evidence.missingRefs.join("、") })}
         </p>
       ) : null}
@@ -437,21 +478,23 @@ function EvidenceList({
   readonly rows: readonly { ref: string; title: string; meta: string }[];
   readonly onOpen?: (ref: string) => void;
 }) {
+  // 正文里的长无空格串(`start/progress.append/submit/…`、产物路径)曾把自己的列撑宽、
+  // 压到右边那列上。min-w-0 让列不被 min-content 顶开,块级按钮 + break-words 让串在本列内断行。
   return (
-    <div>
+    <div className="min-w-0">
       <h3 className="ui-meta font-semibold text-text-muted">{title}</h3>
       {rows.length ? (
         <ul className="mt-2 space-y-2">
           {rows.map((row) => (
-            <li key={`${row.ref}:${row.title}`}>
+            <li key={`${row.ref}:${row.title}`} className="min-w-0">
               <button
                 type="button"
-                className="text-left text-sm text-text hover:text-accent"
+                className="block w-full break-words text-left text-sm text-text hover:text-accent"
                 onClick={() => onOpen?.(row.ref)}
               >
                 {row.title}
               </button>
-              <p className="ui-meta text-text-faint">{row.meta}</p>
+              <p className="break-words ui-meta text-text-faint">{row.meta}</p>
             </li>
           ))}
         </ul>
@@ -465,10 +508,12 @@ function EvidenceList({
 function WorkspaceLocalGraph({
   memberTaskIds,
   relations,
+  titles,
   onNavigateEntity,
 }: {
   readonly memberTaskIds: readonly string[];
   readonly relations: readonly RelationEdge[];
+  readonly titles: ReadonlyMap<string, string>;
   readonly onNavigateEntity?: (ref: string) => void;
 }) {
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set()),
@@ -484,27 +529,43 @@ function WorkspaceLocalGraph({
       </h2>
       <p className="mt-1 ui-meta text-text-muted">{t("views.workspace.localGraphNote")}</p>
       <div className="mt-3 flex flex-wrap gap-2">
-        {graph.nodeRefs.map((ref) => (
-          <button
-            key={ref}
-            type="button"
-            className={`rounded border px-2 py-1 ui-meta ${external.has(ref) ? "border-warning/60 text-warning" : "border-border text-text"}`}
-            onClick={() =>
-              external.has(ref) ? setExpanded((current) => new Set([...current, ref])) : onNavigateEntity?.(ref)
-            }
-          >
-            {ref}
-            {external.has(ref) ? t("views.workspace.externalExpand") : ""}
-          </button>
-        ))}
+        {graph.nodeRefs.map((ref) => {
+          const node = workspaceNodeLabel(ref, titles);
+          return (
+            <button
+              key={ref}
+              // 原始引用退为悬停,不占版面;标题缺位时正文里就是原始 id,不补造。
+              title={ref}
+              type="button"
+              className={`max-w-full break-words rounded border px-2 py-1 text-left ui-meta ${external.has(ref) ? "border-warning/60 text-warning" : "border-border text-text"}`}
+              onClick={() =>
+                external.has(ref) ? setExpanded((current) => new Set([...current, ref])) : onNavigateEntity?.(ref)
+              }
+            >
+              <span className="text-text-faint">{node.kindLabel}</span>
+              {" · "}
+              {workspaceNodeText(node)}
+              {external.has(ref) ? t("views.workspace.externalExpand") : ""}
+            </button>
+          );
+        })}
       </div>
       {graph.edges.length ? (
-        <ul className="mt-3 space-y-1 font-mono ui-meta text-text-muted">
-          {graph.edges.map((edge) => (
-            <li key={edge.relationId ?? `${edge.from}:${edge.kind}:${edge.to}`}>
-              {edge.from} — {edge.kind} → {edge.to}
-            </li>
-          ))}
+        <ul className="mt-3 space-y-1 ui-meta text-text-muted">
+          {graph.edges.map((edge) => {
+            const from = workspaceNodeLabel(normalizedRef(edge.from), titles),
+              to = workspaceNodeLabel(normalizedRef(edge.to), titles);
+            return (
+              <li
+                key={edge.relationId ?? `${edge.from}:${edge.kind}:${edge.to}`}
+                title={`${edge.from} — ${edge.kind} → ${edge.to}`}
+                className="break-words"
+              >
+                {workspaceNodeText(from)} <span className="text-text-faint">{relationKindLabel(edge.kind)}</span> →{" "}
+                {workspaceNodeText(to)}
+              </li>
+            );
+          })}
         </ul>
       ) : (
         <p className="mt-3 text-sm text-text-muted">{t("views.workspace.graphEmpty")}</p>
