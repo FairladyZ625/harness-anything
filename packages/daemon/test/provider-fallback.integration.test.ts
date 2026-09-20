@@ -333,7 +333,11 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
   }
 });
 
-test("repeated adoption dispatches one durable fallback continuation", async () => {
+for (const coordinated of [false, true])
+  test(`repeated adoption preserves publication owner in one fallback (coordinated=${coordinated})`, () =>
+    verifyFallbackAdoption(coordinated));
+
+async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
   const root = mkdtempSync(path.join(tmpdir(), "ha-provider-fallback-adopt-twice-")),
     now = () => new Date().toISOString(),
     receipts = new Map<string, Record<string, unknown>>(),
@@ -416,6 +420,11 @@ test("repeated adoption dispatches one durable fallback continuation", async () 
           prompt: request.prompt,
         }),
         resolveAgent: () => agent,
+        resolveSquadDispatch: () => ({
+          squadId: "same-squad",
+          leader: { ...agent, id: "leader" },
+          worker: agent,
+        }),
         launch: (prepared) => {
           const isNext = prepared.definition.instanceId === "provider-adopt-next";
           if (isNext) nextLaunches += 1;
@@ -425,9 +434,10 @@ test("repeated adoption dispatches one durable fallback continuation", async () 
       });
   let spawner = open();
   try {
-    await spawner.spawn(
+    await spawner[coordinated ? "spawnCoordinated" : "spawn"](
       {
-        agentId: agent.id,
+        agentId: "leader",
+        targetAgentId: agent.id,
         cwd: { scope: "repo-root" },
         prompt: "Schedule one durable fallback.",
         taskId: null,
@@ -475,6 +485,10 @@ test("repeated adoption dispatches one durable fallback continuation", async () 
       continuations = published.filter(
         (event) => event.type === "runtime_dispatch_requested" && event.payload.instanceId === "provider-adopt-next",
       );
+    assert.equal(original?.header.squadId, "same-squad");
+    assert.equal(continuation?.header.squadId, "same-squad");
+    assert.equal(original?.header.publicationOwner, coordinated ? "commander" : "runtime");
+    assert.equal(continuation?.header.publicationOwner, original?.header.publicationOwner);
     assert.equal(nextLaunches, 1);
     assert.equal(continuations.length, 1);
     assert.equal(original?.nextDispatchId, continuation?.header.dispatchId);
@@ -482,7 +496,7 @@ test("repeated adoption dispatches one durable fallback continuation", async () 
     spawner.close();
     rmSync(root, { recursive: true, force: true });
   }
-});
+}
 
 async function installAgent(
   cell: Awaited<ReturnType<typeof openRepoCell>>,

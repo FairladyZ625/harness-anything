@@ -25,7 +25,8 @@ export async function publishExit(
   context.exiting.add(active.runtimeSessionId);
   const cancelled = active.cancelRequested,
     cancelBinding = cancelled && active.cancelBinding ? active.cancelBinding : active.binding,
-    terminalBinding = runtimeSessionBinding(active.binding, active.runtimeSessionId);
+    terminalBinding = runtimeSessionBinding(active.binding, active.runtimeSessionId),
+    squadLeaderControl = active.squadId !== null && active.delegatedBy === null;
   try {
     if (!cancelled && code === null)
       context.input.stream.publish(active.runtimeSessionId, {
@@ -71,7 +72,7 @@ export async function publishExit(
     let body = context.runtimeResultText(active, code, outcome);
     // Squad children deliver local commits for Commander integration; leaders own publication.
     // Keep leader control JSON and child delivery text intact. Direct dispatches retain auto-push.
-    if (active.task && outcome === "succeeded" && active.squadId === null) {
+    if (active.task && outcome === "succeeded" && active.publicationOwner !== "commander" && !squadLeaderControl) {
       try {
         const env = await context.prepareWorkerGitEnvironment(active.instanceId),
           push = await pushWorkerBranch({ cwd: active.cwd, canonicalRoot: context.input.rootDir, env });

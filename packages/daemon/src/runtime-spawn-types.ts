@@ -157,6 +157,7 @@ export type ActiveRuntime = {
   readonly role: string | null;
   readonly delegatedBy: Pick<RuntimeAgent, "id" | "name"> | null;
   readonly squadId: string | null;
+  readonly publicationOwner: "runtime" | "commander";
   readonly parentRuntimeSessionId: string | null;
   readonly binding: RuntimeBinding;
   readonly task: RuntimeLeaseScope | null;

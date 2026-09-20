@@ -152,6 +152,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     trustedSchedule?: TrustedScheduleRuntime,
     handoffFromRuntimeSessionId?: string,
     retainCoordinatorTaskLease = false,
+    publicationOwner: ActiveRuntime["publicationOwner"] = "runtime",
   ): Promise<JsonObject> => {
     const allowed = [
         "runtimeInstanceId",
@@ -638,6 +639,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         ...(role ? { role } : {}),
         ...(agent ? { agentId: agent.id, agentName: agent.name } : {}),
         ...(squad ? { squadId: squad.squadId } : {}),
+        publicationOwner,
         ...(parentRuntimeSessionId ? { parentRuntimeSessionId } : {}),
         ...(delegatedBy
           ? {
@@ -788,6 +790,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       role: role ?? null,
       delegatedBy,
       squadId: squad?.squadId ?? null,
+      publicationOwner,
       parentRuntimeSessionId: parentRuntimeSessionId ?? null,
       binding: activeBinding,
       task: taskBinding,
@@ -844,7 +847,15 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   return {
     spawn: (payload: JsonObject, binding: RuntimeBinding) => spawnAttempt(payload, binding),
     spawnCoordinated: (payload: JsonObject, binding: RuntimeBinding) =>
-      spawnAttempt(payload, binding, undefined, undefined, undefined, payload.targetAgentId === undefined),
+      spawnAttempt(
+        payload,
+        binding,
+        undefined,
+        undefined,
+        undefined,
+        payload.targetAgentId === undefined,
+        payload.targetAgentId === undefined ? "runtime" : "commander",
+      ),
     spawnScheduled: (scheduled: TrustedScheduleSpawn, binding: RuntimeBinding) =>
       spawnAttempt(
         {
@@ -1048,6 +1059,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             header.schedule,
             header.runtimeSessionId,
             header.taskId !== null && binding.actor.executor?.id !== `runtime-session:${header.runtimeSessionId}`,
+            header.publicationOwner,
           );
           writer.appendFallbackState(
             {

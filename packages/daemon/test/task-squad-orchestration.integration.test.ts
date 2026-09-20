@@ -9,7 +9,7 @@ import { makeTaskEventReader, makeTaskProjection } from "../../kernel/src/index.
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RuntimeLauncher } from "../src/runtime-spawn-types.ts";
 import type { WorkerAttempt } from "../src/squad-leader-decision.ts";
-import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, readDispatchStreamHeader } from "../src/dispatch-stream.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { evidence, git, initRepo } from "./task-surface.fixtures.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
@@ -133,6 +133,83 @@ test(
     assert.equal(fixture.providers.length, launches, "reopening the center must not dispatch another leader");
   },
 );
+
+for (const restart of [false, true])
+  test(
+    `targeted task publishes while same-squad child stays local (restart=${restart})`,
+    { timeout: 30_000 },
+    async (t) => {
+      const fixture = await openFixture(t, "publication-owner");
+      await fixture.plan(["a.txt"], ["b.txt"]);
+      const running = await fixture.waitStatus(
+        (state) => state.workers.length === 2 && state.workers.every((w) => w.runtimeSessionId),
+      );
+      const child = running.workers[0],
+        taskId = "task-direct-targeted",
+        created = await fixture.cell.run(
+          {
+            kind: "task-create",
+            taskId,
+            title: "Direct targeted",
+            presetId: "docs-task",
+          },
+          binding,
+        );
+      assert.equal(created.outcome, "applied");
+      await waitForFixturePublication(fixture.cell, created.opId, binding);
+      await realizeTaskPlanFixture(fixture.root, String((created as Record<string, unknown>).packagePath), (planPath) =>
+        fixture.cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+      );
+      assert.equal((await fixture.cell.run({ kind: "task-start", taskId }, binding)).outcome, "applied");
+      const cwd = path.join(fixture.root, ".worktrees", "direct-targeted");
+      await bounded(fixture.cell.settlePendingMaterialization("before direct branch"), "direct branch base");
+      git(fixture.root, "update-ref", "refs/remotes/origin/main", "HEAD");
+      git(fixture.root, "worktree", "add", "-b", "codex/direct-targeted", cwd);
+      const direct = await fixture.cell.spawnRuntime(
+        {
+          runtimeInstanceId: "stub",
+          agentId: "leader",
+          targetAgentId: "one",
+          taskId,
+          cwd: { scope: "repo-relative", path: ".worktrees/direct-targeted" },
+          prompt: "Deliver the directly targeted task.",
+          idempotencyKey: "direct-targeted",
+        },
+        binding,
+      );
+      const childHeader = readDispatchStreamHeader(fixture.root, child.dispatchId!)!,
+        directHeader = readDispatchStreamHeader(fixture.root, String(direct.dispatchId))!;
+      assert.equal(childHeader.squadId, "squad");
+      assert.equal(directHeader.squadId, childHeader.squadId);
+      assert.equal(childHeader.publicationOwner, "commander");
+      assert.equal(directHeader.publicationOwner, "runtime");
+      for (const directory of [child.worktree!.cwd, cwd]) {
+        writeFileSync(path.join(directory, "a.txt"), "delivery\n");
+        git(directory, "add", "a.txt");
+        git(directory, "commit", "-qm", "feat: targeted delivery");
+      }
+      fixture.finish(child.dispatchId!, "child delivery", 0, restart);
+      fixture.finish(String(direct.dispatchId), "direct delivery", 0, restart);
+      if (restart) await fixture.reopen();
+      await fixture.waitStatus((state) => state.workerCallbackCount >= 1);
+      await bounded(fixture.cell.settlePendingMaterialization("publication owner"), "publication owner settlement");
+      const rows = (await fixture.cell.read("repo.task.dispatches", { taskId })).dispatches;
+      assert.equal(rows[0]?.outcome, "succeeded");
+      const childRows = (await fixture.cell.read("repo.task.dispatches", { taskId: child.taskId! })).dispatches;
+      assert.equal(childRows[0]?.outcome, "succeeded");
+      assert.equal(
+        readFileSync(path.join(fixture.root, "harness", childRows[0].reportPath!), "utf8").trim(),
+        "child delivery",
+      );
+      const report = readFileSync(path.join(fixture.root, "harness", rows[0].reportPath!), "utf8");
+      assert.match(report, /Worker branch pushed at settlement: codex\/direct-targeted/u);
+      assert.equal(
+        git(fixture.bare, "for-each-ref", "--format=%(objectname)", "refs/heads/codex/direct-targeted"),
+        git(cwd, "rev-parse", "HEAD"),
+      );
+      assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", "refs/heads/codex/squad-"), "");
+    },
+  );
 
 test("failed child wakes the leader with the failure after its sibling settles", { timeout: 30_000 }, async (t) => {
   const fixture = await openFixture(t, "failure");
@@ -405,9 +482,16 @@ async function openFixture(t: { after(fn: () => Promise<void>): void }, slug: st
       projection.close();
     }
   };
-  const finish = (dispatchId: string, text: string, code = 0) => {
+  const finish = (dispatchId: string, text: string, code = 0, offline = false) => {
     const provider = providers.find((row) => row.dispatchId === dispatchId)!;
+    if (offline)
+      appendRuntimeWorkerRecord(root, dispatchId, {
+        kind: "process_started",
+        occurredAt: new Date().toISOString(),
+        pid: process.pid,
+      });
     for (const event of [
+      { type: "thread.started", thread_id: provider.sessionId },
       {
         type: "item.completed",
         item: {
@@ -417,17 +501,27 @@ async function openFixture(t: { after(fn: () => Promise<void>): void }, slug: st
           status: "completed",
         },
       },
-      { type: "item.completed", item: { id: "result", type: "agent_message", text } },
+      {
+        type: "item.completed",
+        item: { id: "result", type: "agent_message", text },
+      },
       { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } },
-    ])
-      provider.output!(JSON.stringify(event) + "\n");
+    ]) {
+      if (offline)
+        appendRuntimeWorkerRecord(root, dispatchId, {
+          kind: "provider_event",
+          occurredAt: new Date().toISOString(),
+          event,
+        });
+      else provider.output!(JSON.stringify(event) + "\n");
+    }
     appendRuntimeWorkerRecord(root, dispatchId, {
       kind: "process_exit",
       occurredAt: new Date().toISOString(),
       exitCode: code,
       signal: null,
     });
-    provider.exit!(code);
+    if (!offline) provider.exit!(code);
   };
   const waitStatus = async (predicate: (state: Status) => unknown) => {
     let last: Status | undefined;

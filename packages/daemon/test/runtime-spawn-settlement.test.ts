@@ -338,13 +338,14 @@ test("squad leader settlement preserves its machine-readable control result", as
   assert.deepEqual(outcomeBodies, [controlResult]);
 });
 
-test("squad child settlement keeps its commit local and returns the delivery unchanged", async (context) => {
+test("commander-owned settlement keeps its commit local and returns the delivery unchanged", async (context) => {
   const fixture = workerGitFixture(context, "squad-child", { reachableRemote: true }),
     runtime = workerSettlementRuntime(fixture, {
       agent: { id: "terra", name: "Terra" },
       delegatedBy: { id: "fable", name: "Fable" },
       squadId: "core-squad",
       finalText: "worker delivery",
+      publicationOwner: "commander",
     }),
     outcomeBodies: string[] = [],
     outcomes: Record<string, unknown>[] = [],
@@ -448,6 +449,7 @@ function active(overrides: Partial<ActiveRuntime>): ActiveRuntime {
     model: "model-a",
     cancelRequested: false,
     kindId: "codex",
+    publicationOwner: "runtime",
     fallbackAttempt: null,
     permissionMode: "bypass",
     providerFault: null,
