@@ -1,6 +1,5 @@
-import { isNonEmptyString } from "./contract-validation.ts";
+import { hasOnlyFields, hasRequiredFields, isRecord, isNonEmptyString } from "./contract-validation.ts";
 import type { ContractValidationIssue } from "./task.ts";
-import { hasOnlyFields, hasRequiredFields, isRecord } from "./write-chain.contract.ts";
 
 /**
  * The completion contract a submission freezes (dec_59FA45A407F850E2B167A192D7 CH2): the task's declared

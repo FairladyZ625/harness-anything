@@ -71,7 +71,7 @@ const nodeGlobals = Object.fromEntries(
 );
 
 const kernelDeepImportPattern = {
-  group: ["**/kernel/src/**/*", "!**/kernel/src/index.ts"],
+  group: ["**/kernel/src/**/*", "!**/kernel/src/index.ts", "!**/kernel/src/browser.ts"],
   message: "Import kernel through its public barrel instead of deep src paths.",
 };
 
@@ -134,6 +134,7 @@ function escapeRegExp(value) {
 function kernelDeepImportSyntaxRestrictions(allowedTargets = []) {
   const allowedTails = [
     "index\\.ts",
+    "browser\\.ts",
     ...allowedTargets.map((target) => escapeRegExp(target.replace(/^packages\/kernel\/src\//u, ""))),
   ];
   const sourcePattern = `kernel\\/src\\/(?!(?:${allowedTails.join("|")})$)`;

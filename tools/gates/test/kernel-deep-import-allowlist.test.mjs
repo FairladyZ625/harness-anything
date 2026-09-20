@@ -11,6 +11,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".."
 const daemonFilesPattern = "packages/daemon/src/**/*.{ts,tsx,js,mjs}";
 const restrictedKernelPattern = "**/kernel/src/**/*";
 const publicBarrelException = "!**/kernel/src/index.ts";
+const browserBarrelException = "!**/kernel/src/browser.ts";
 const domainParentException = "!**/kernel/src/domain";
 const contractVersionException = "!**/kernel/src/domain/contract-version.ts";
 const daemonParentException = "!**/kernel/src/daemon";
@@ -35,6 +36,7 @@ test("daemon kernel deep-import allowlist contains only the approved narrow modu
   assert.deepEqual(group, [
     restrictedKernelPattern,
     publicBarrelException,
+    browserBarrelException,
     domainParentException,
     contractVersionException,
     daemonParentException,
@@ -44,7 +46,9 @@ test("daemon kernel deep-import allowlist contains only the approved narrow modu
     .filter(
       (pattern) =>
         pattern.startsWith("!") &&
-        ![publicBarrelException, domainParentException, daemonParentException].includes(pattern),
+        ![publicBarrelException, browserBarrelException, domainParentException, daemonParentException].includes(
+          pattern,
+        ),
     )
     .map((pattern) => pattern.slice(1));
   assert.deepEqual(daemonDeepImportAllowlist, [
@@ -84,4 +88,24 @@ test("ESLint allows the approved daemon kernel deep imports but rejects another 
   const restrictedMessages = rejected.messages.filter(({ ruleId }) => ruleId === "no-restricted-imports");
   assert.equal(restrictedMessages.length, 1);
   assert.match(restrictedMessages[0].message, /public barrel instead of deep src paths/u);
+});
+
+test("browser public contracts are allowed while deep static and dynamic imports remain rejected", async () => {
+  const eslint = new ESLint({ cwd: repoRoot });
+  const messages = async (source) =>
+    (await eslint.lintText(source, { filePath: "packages/daemon/src/browser-contract-probe.ts" }))[0].messages.filter(
+      ({ ruleId }) => ruleId === "no-restricted-imports" || ruleId === "no-restricted-syntax",
+    );
+  assert.deepEqual(
+    await messages(
+      'import { validateFrozenCompletionContract } from "../../../kernel/src/browser.ts"; void validateFrozenCompletionContract;',
+    ),
+    [],
+  );
+  for (const source of [
+    'import { validateFrozenCompletionContract } from "../../../kernel/src/domain/completion-contract.ts"; void validateFrozenCompletionContract;',
+    'export { validateFrozenCompletionContract } from "../../../kernel/src/domain/completion-contract.ts";',
+    'void import("../../../kernel/src/domain/completion-contract.ts");',
+  ])
+    assert.ok((await messages(source)).length > 0, source);
 });
