@@ -594,6 +594,62 @@ function assertUnavailable(result, mode, kind, reason, centerRevision) {
   assert.deepEqual(validateObserveTailResult(result), []);
 }
 
+test("observe.tail respects scan budget on large JSONL files and pages backward safely", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-observe-budget-"));
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-observe-budget-user-"));
+  const repoId = workspaceId("observe-budget");
+  const daemonId = "observe-budget-daemon";
+  let cell;
+  try {
+    initRepo(rootDir);
+    const logPath = daemonRequestLogPath(rootDir),
+      // 20,000 lines at ~80 bytes each = ~1.6MB, exceeding the 512KB scanBudgetBytes
+      lines = Array.from({ length: 20_000 }, (_, index) =>
+        JSON.stringify({
+          schema: "daemon-request-log/v1",
+          at: `entry-${index + 1}`,
+          seq: index + 1,
+          payload: "x".repeat(30),
+        }),
+      );
+    mkdirSync(path.dirname(logPath), { recursive: true });
+    writeFileSync(logPath, `${lines.join("\n")}\n`);
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "observe-budget" });
+
+    const started = performance.now();
+    const firstPage = await cell.observeTail({ kind: "repo-log", direction: "history" }, { userRoot, daemonId });
+    const elapsedMs = performance.now() - started;
+
+    assertAvailable(firstPage, "local", "repo-log");
+    // Must return within reasonable time, avoiding event loop starvation
+    assert.ok(elapsedMs < 500, `First page on 1.6MB file took ${elapsedMs.toFixed(1)}ms`);
+    assert.equal(firstPage.items.length, 64);
+    assert.equal(firstPage.done, false);
+    assert.ok(firstPage.historyCursor !== null);
+
+    // Follow pages backward using historyCursor
+    let page = firstPage;
+    let iterations = 0;
+    const allItems = [...firstPage.items];
+    while (!page.done && iterations < 500) {
+      iterations += 1;
+      page = await cell.observeTail(
+        { kind: "repo-log", direction: "history", cursor: page.historyCursor },
+        { userRoot, daemonId },
+      );
+      allItems.unshift(...page.items);
+    }
+    assert.equal(page.done, true);
+    assert.equal(allItems.length, 20_000);
+    assert.equal(allItems[0].seq, 1);
+    assert.equal(allItems.at(-1).seq, 20_000);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
 function seedEdgeView(rootDir, repoId, revision) {
   const viewRoot = path.join(rootDir, ".fleet-view");
   const viewDir = path.join(viewRoot, "repos", repoId, "views", "observe-view");

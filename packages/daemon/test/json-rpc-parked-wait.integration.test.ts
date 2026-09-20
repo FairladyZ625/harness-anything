@@ -16,6 +16,20 @@ interface ParkedWaitServerInput {
 function parkedAwaitServer(input: ParkedWaitServerInput) {
   const host = {
     awaitRuntimeSessions: () => new Promise<never>(() => undefined),
+    read: async () => ({
+      schema: "daemon-observe-tail/v1",
+      ok: true,
+      repoId: "parked-wait",
+      mode: "local",
+      kind: "lifecycle",
+      direction: "history",
+      status: "ready",
+      items: [],
+      historyCursor: null,
+      liveCursor: null,
+      sourceCursor: null,
+      done: true,
+    }),
     status: () => ({ daemonId: "parked-wait", pid: process.pid, repos: [] }),
   } as never as DaemonHost;
   return createJsonRpcProtocolServer({
@@ -91,6 +105,34 @@ test(
       connection.abort();
       assert.equal(await parked, undefined, "a closed connection settles the parked wait without a reply");
       assert.deepEqual(started, ["protocol.hello"]);
+    } finally {
+      server.close();
+    }
+  },
+);
+
+test(
+  "observe.tail is treated as an observation and does not count toward active request work",
+  { timeout: 5_000 },
+  async () => {
+    const started: string[] = [],
+      settled: string[] = [],
+      server = parkedAwaitServer({
+        started: (method) => started.push(method),
+        settled: (method) => settled.push(method),
+      });
+    try {
+      await server.handle(helloRequest);
+      const tailResponse = await server.handle({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "observe.tail",
+        params: { repo: { repoId: "parked-wait" }, payload: { kind: "lifecycle", direction: "history" } },
+      });
+      assert.ok(tailResponse?.result?.ok);
+      // Only hello was counted as active work; observe.tail bypassed onRequestStarted/onRequestSettled.
+      assert.deepEqual(started, ["protocol.hello"]);
+      assert.deepEqual(settled, ["protocol.hello"]);
     } finally {
       server.close();
     }

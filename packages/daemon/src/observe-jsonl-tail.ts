@@ -12,6 +12,7 @@ import type {
 
 const pageSize = 64;
 const readChunkBytes = 64 * 1024;
+const scanBudgetBytes = 512 * 1024;
 
 export type JsonlTailKind = Exclude<ObserveTailKind, "events">;
 export interface JsonlTailFile {
@@ -92,13 +93,15 @@ async function readJsonlHistory(
       const items: Readonly<Record<string, unknown>>[] = [];
       let historyCursor: Extract<ObserveTailCursor, { readonly kind: typeof kind }> | null = null;
       const sourceCursor = await retainedEndCursor(kind, files);
+      let remainingBudget = scanBudgetBytes;
       for (let index = start; index >= 0; index -= 1) {
         const file = files[index]!,
           initialOffset = index === start && requested ? requested.offset : await completeEndOffset(file),
-          scanned = await scanFileBackward(file, initialOffset, pageSize - items.length, select);
+          scanned = await scanFileBackward(file, initialOffset, pageSize - items.length, remainingBudget, select);
         if (scanned.outOfRange) return gap(kind, "cursor-offset-out-of-range", requested?.fileId ?? file.fileId);
         items.unshift(...scanned.items);
         if (scanned.items.length > 0) historyCursor = { kind, fileId: file.fileId, offset: scanned.offset };
+        remainingBudget = Math.max(0, remainingBudget - scanned.bytesScanned);
         if (items.length === pageSize)
           return {
             status: "ready",
@@ -108,6 +111,16 @@ async function readJsonlHistory(
             sourceCursor,
             done: index === 0 && scanned.offset === 0,
           };
+        if (remainingBudget <= 0) {
+          return {
+            status: "ready",
+            items,
+            historyCursor: historyCursor ?? { kind, fileId: file.fileId, offset: scanned.offset },
+            liveCursor: requested ?? sourceCursor,
+            sourceCursor,
+            done: index === 0 && scanned.offset === 0,
+          };
+        }
       }
       return {
         status: "ready",
@@ -143,14 +156,16 @@ async function readJsonlFollow(
     try {
       const items: Readonly<Record<string, unknown>>[] = [];
       let liveCursor: Extract<ObserveTailCursor, { readonly kind: typeof kind }> = requested;
+      let remainingBudget = scanBudgetBytes;
       for (let index = start; index < files.length; index += 1) {
         const file = files[index]!,
           initialOffset = index === start ? requested.offset : 0,
-          scanned = await scanFileForward(file, initialOffset, pageSize - items.length, select);
+          scanned = await scanFileForward(file, initialOffset, pageSize - items.length, remainingBudget, select);
         if (scanned.outOfRange) return gap(kind, "cursor-offset-out-of-range", requested.fileId);
         items.push(...scanned.items);
         liveCursor = { kind, fileId: file.fileId, offset: scanned.offset };
-        if (items.length === pageSize) {
+        remainingBudget = Math.max(0, remainingBudget - scanned.bytesScanned);
+        if (items.length === pageSize || (remainingBudget <= 0 && scanned.offset > initialOffset)) {
           const sourceCursor = await retainedEndCursor(kind, files);
           return {
             status: "ready",
@@ -213,26 +228,31 @@ async function scanFileBackward(
   file: JsonlTailFile,
   initialOffset: number,
   limit: number,
+  budgetBytes: number,
   select: JsonlRecordSelector,
 ): Promise<{
   readonly items: readonly Readonly<Record<string, unknown>>[];
   readonly offset: number;
   readonly outOfRange: boolean;
+  readonly bytesScanned: number;
 }> {
   const opened = await openStableFile(file);
   try {
     if (initialOffset > opened.size || !(await isLineBoundary(opened.handle, initialOffset)))
-      return { items: [], offset: initialOffset, outOfRange: true };
-    if (initialOffset === 0 || limit === 0) return { items: [], offset: initialOffset, outOfRange: false };
+      return { items: [], offset: initialOffset, outOfRange: true, bytesScanned: 0 };
+    if (initialOffset === 0 || limit === 0 || budgetBytes <= 0)
+      return { items: [], offset: initialOffset, outOfRange: false, bytesScanned: 0 };
     const reversed: Readonly<Record<string, unknown>>[] = [];
     let position = initialOffset,
       carry = Buffer.alloc(0),
-      offset = initialOffset;
-    while (position > 0 && reversed.length < limit) {
+      offset = initialOffset,
+      bytesScanned = 0;
+    while (position > 0 && reversed.length < limit && bytesScanned < budgetBytes) {
       const chunkStart = Math.max(0, position - readChunkBytes),
         length = position - chunkStart,
         chunk = Buffer.allocUnsafe(length);
       await readExactAt(opened.handle, chunk, length, chunkStart);
+      bytesScanned += length;
       const window = carry.length === 0 ? chunk : Buffer.concat([chunk, carry]);
       let boundary = window.length;
       while (boundary > 0 && reversed.length < limit) {
@@ -250,7 +270,13 @@ async function scanFileBackward(
       carry = boundary === 0 ? Buffer.alloc(0) : window.subarray(0, boundary);
       position = chunkStart;
     }
-    return { items: reversed.reverse(), offset: reversed.length === limit ? offset : 0, outOfRange: false };
+    const hitBoundary = position === 0 && carry.length === 0;
+    return {
+      items: reversed.reverse(),
+      offset: hitBoundary && reversed.length < limit ? 0 : offset,
+      outOfRange: false,
+      bytesScanned,
+    };
   } finally {
     await opened.handle.close();
   }
@@ -267,24 +293,29 @@ async function scanFileForward(
   file: JsonlTailFile,
   initialOffset: number,
   limit: number,
+  budgetBytes: number,
   select: JsonlRecordSelector,
 ): Promise<{
   readonly items: readonly Readonly<Record<string, unknown>>[];
   readonly offset: number;
   readonly partial: boolean;
   readonly outOfRange: boolean;
+  readonly bytesScanned: number;
 }> {
   const opened = await openStableFile(file);
   try {
-    if (initialOffset > opened.size) return { items: [], offset: initialOffset, partial: false, outOfRange: true };
+    if (initialOffset > opened.size)
+      return { items: [], offset: initialOffset, partial: false, outOfRange: true, bytesScanned: 0 };
     const buffer = Buffer.allocUnsafe(Math.min(readChunkBytes, Math.max(opened.size - initialOffset, 1))),
       items: Readonly<Record<string, unknown>>[] = [];
     let position = initialOffset,
       completeOffset = initialOffset,
-      pending = Buffer.alloc(0);
-    while (position < opened.size) {
+      pending = Buffer.alloc(0),
+      bytesScanned = 0;
+    while (position < opened.size && items.length < limit && bytesScanned < budgetBytes) {
       const length = Math.min(buffer.length, opened.size - position);
       await readExactAt(opened.handle, buffer, length, position);
+      bytesScanned += length;
       let lineStart = 0;
       for (;;) {
         const newline = buffer.indexOf(0x0a, lineStart);
@@ -296,12 +327,13 @@ async function scanFileForward(
         lineStart = newline + 1;
         const selected = line.length === 0 ? null : select(parseJsonlRecord(file.path, line));
         if (selected !== null) items.push(selected);
-        if (items.length === limit) return { items, offset: completeOffset, partial: false, outOfRange: false };
+        if (items.length === limit)
+          return { items, offset: completeOffset, partial: false, outOfRange: false, bytesScanned };
       }
       if (lineStart < length) pending = Buffer.concat([pending, buffer.subarray(lineStart, length)]);
       position += length;
     }
-    return { items, offset: completeOffset, partial: pending.length > 0, outOfRange: false };
+    return { items, offset: completeOffset, partial: pending.length > 0, outOfRange: false, bytesScanned };
   } finally {
     await opened.handle.close();
   }
