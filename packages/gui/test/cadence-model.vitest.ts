@@ -176,6 +176,148 @@ describe("deriveFleetPulse", () => {
     });
     expect(snapshot.flow).toEqual({ claimed: 1, inFlight: 1, settled: 1 });
     expect(snapshot.collisions).toEqual([{ taskId: "task_flight", workerCount: 2 }]);
+    expect(snapshot.activeCount).toBe(2);
+  });
+
+  it("filters workers by time window and computes active count accurately", () => {
+    const makeSession = (
+      id: string,
+      liveness: "live" | "exited",
+      observedAt: string,
+      outcome: "succeeded" | "failed" | null = null,
+      tokens?: { input: number; output: number; tools: number },
+    ): AgentRuntimeSessionDto =>
+      ({
+        runtimeSessionId: id,
+        instanceId: id,
+        kindId: "codex",
+        liveness,
+        definitionSnapshot: { kindId: "codex", model: "claude-3-5-sonnet" },
+        associations: [{ taskId: "t1", executionId: `exe_${id}`, holder: null, lease: null }],
+        activity: {
+          lastObservedAt: observedAt,
+          outcome,
+          exitCode: outcome === "failed" ? 1 : 0,
+          resultRef: null,
+          missingEvidence: null,
+        },
+        ...(tokens
+          ? {
+              metrics: {
+                inputTokens: tokens.input,
+                cacheReadTokens: 0,
+                outputTokens: tokens.output,
+                totalTokens: tokens.input + tokens.output,
+                toolCallCount: tokens.tools,
+                compacted: false,
+                usageUnavailable: false,
+              },
+            }
+          : {}),
+      }) as AgentRuntimeSessionDto;
+
+    const baseNow = "2026-09-20T12:00:00.000Z";
+    const halfHourAgo = "2026-09-20T11:30:00.000Z";
+    const fiveHoursAgo = "2026-09-20T07:00:00.000Z";
+    const twoDaysAgo = "2026-09-18T12:00:00.000Z";
+    const eightDaysAgo = "2026-09-12T12:00:00.000Z";
+
+    const sessions = [
+      makeSession("live_1", "live", halfHourAgo),
+      makeSession("exited_1h", "exited", halfHourAgo, "succeeded", { input: 1000, output: 200, tools: 5 }),
+      makeSession("exited_5h", "exited", fiveHoursAgo, "failed"),
+      makeSession("exited_2d", "exited", twoDaysAgo, "succeeded"),
+      makeSession("exited_8d", "exited", eightDaysAgo, "cancelled"),
+    ];
+
+    const activeSnap = deriveFleetPulse({
+      sessions,
+      tasks: [],
+      events: [],
+      window: "active",
+      now: baseNow,
+    });
+    expect(activeSnap.activeCount).toBe(1);
+    expect(activeSnap.workers.map((w) => w.runtimeSessionId)).toEqual(["live_1"]);
+
+    const snap1h = deriveFleetPulse({
+      sessions,
+      tasks: [],
+      events: [],
+      window: "1h",
+      now: baseNow,
+    });
+    expect(snap1h.workers.map((w) => w.runtimeSessionId)).toEqual(["live_1", "exited_1h"]);
+    expect(snap1h.workers[1]!.metrics?.totalTokens).toBe(1200);
+    expect(snap1h.workers[1]!.metrics?.toolCalls).toBe(5);
+    expect(snap1h.workers[1]!.outcome).toBe("succeeded");
+
+    const snap24h = deriveFleetPulse({
+      sessions,
+      tasks: [],
+      events: [],
+      window: "24h",
+      now: baseNow,
+    });
+    expect(snap24h.workers.map((w) => w.runtimeSessionId)).toEqual(["live_1", "exited_1h", "exited_5h"]);
+
+    const snap7d = deriveFleetPulse({
+      sessions,
+      tasks: [],
+      events: [],
+      window: "7d",
+      now: baseNow,
+    });
+    expect(snap7d.workers.map((w) => w.runtimeSessionId)).toEqual(["live_1", "exited_1h", "exited_5h", "exited_2d"]);
+
+    const snapAll = deriveFleetPulse({
+      sessions,
+      tasks: [],
+      events: [],
+      window: "all",
+      now: baseNow,
+    });
+    expect(snapAll.workers).toHaveLength(5);
+  });
+
+  it("sorts workers by status priority (live > idle > exited) and descending lastActiveAt", () => {
+    const makeSession = (
+      id: string,
+      liveness: "live" | "stale" | "exited",
+      observedAt: string,
+    ): AgentRuntimeSessionDto =>
+      ({
+        runtimeSessionId: id,
+        instanceId: id,
+        kindId: "codex",
+        liveness: liveness === "stale" ? "stale" : liveness,
+        definitionSnapshot: null,
+        associations: [],
+        activity: { lastObservedAt: observedAt, outcome: null, exitCode: null, resultRef: null, missingEvidence: null },
+      }) as AgentRuntimeSessionDto;
+
+    const baseNow = "2026-09-20T12:00:00.000Z";
+    const sessions = [
+      makeSession("exited_recent", "exited", "2026-09-20T11:50:00.000Z"),
+      makeSession("live_older", "live", "2026-09-20T10:00:00.000Z"),
+      makeSession("live_newer", "live", "2026-09-20T11:55:00.000Z"),
+      makeSession("exited_older", "exited", "2026-09-20T08:00:00.000Z"),
+    ];
+
+    const snapshot = deriveFleetPulse({
+      sessions,
+      tasks: [],
+      events: [],
+      window: "24h",
+      now: baseNow,
+    });
+
+    expect(snapshot.workers.map((w) => w.runtimeSessionId)).toEqual([
+      "live_newer",
+      "live_older",
+      "exited_recent",
+      "exited_older",
+    ]);
   });
 });
 

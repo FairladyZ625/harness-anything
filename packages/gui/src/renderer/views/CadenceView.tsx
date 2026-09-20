@@ -23,7 +23,7 @@ import { FrictionRadar } from "../components/cadence/FrictionRadar.tsx";
 import { YieldSummary } from "../components/cadence/YieldSummary.tsx";
 import { AttentionBlockers } from "../components/cadence/AttentionBlockers.tsx";
 import { FleetPulsePane } from "../components/cadence/FleetPulsePane.tsx";
-import { deriveFleetPulse } from "../model/cadence-fleet.ts";
+import { deriveFleetPulse, type FleetTimeWindow } from "../model/cadence-fleet.ts";
 import type { AgentRuntimeSessionDto } from "../../../../daemon/src/agent-runtime-contract.ts";
 
 /**
@@ -198,6 +198,7 @@ export function CadenceView({
   readonly activeSessions?: readonly AgentRuntimeSessionDto[];
 }) {
   const [tab, setTab] = useState<"tasks" | "fleet">("tasks"),
+    [fleetWindow, setFleetWindow] = useState<FleetTimeWindow>("24h"),
     feed = useCadenceFeed(repoId),
     // 议程未读完(pending)时 awaiting 为 null:HUD 与堵点卡片如实显示读取中,不冒充。
     awaiting = useMemo(
@@ -224,8 +225,15 @@ export function CadenceView({
       [feed.events, feed.now, tasks, decisions, awaiting],
     ),
     fleet = useMemo(
-      () => deriveFleetPulse({ sessions: activeSessions, tasks, events: feed.events }),
-      [activeSessions, tasks, feed.events],
+      () =>
+        deriveFleetPulse({
+          sessions: activeSessions,
+          tasks,
+          events: feed.events,
+          window: fleetWindow,
+          now: feed.now,
+        }),
+      [activeSessions, tasks, feed.events, fleetWindow, feed.now],
     ),
     openTask = (taskId: string): void => {
       onNavigateEntity(`task/${taskId}`);
@@ -280,7 +288,12 @@ export function CadenceView({
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4">
         {tab === "fleet" ? (
-          <FleetPulsePane snapshot={fleet} onNavigateEntity={onNavigateEntity} />
+          <FleetPulsePane
+            snapshot={fleet}
+            selectedWindow={fleetWindow}
+            onSelectWindow={setFleetWindow}
+            onNavigateEntity={onNavigateEntity}
+          />
         ) : (
           <>
             <CadenceHud hud={snapshot.hud} awaitingDetail={awaitingDetail} />

@@ -142,6 +142,7 @@ async function mountCadence(options: {
   readonly page: ObserveTailRead;
   readonly agenda?: AgendaSuccess;
   readonly sessions?: readonly AgentRuntimeSessionDto[];
+  readonly tasks?: readonly TaskRow[];
 }): Promise<Mounted> {
   const navigate = vi.fn();
   vi.spyOn(harnessClient, "tailObservability").mockImplementation(async () => options.page);
@@ -154,7 +155,7 @@ async function mountCadence(options: {
       createElement(CadenceView, {
         repoId: REPO_ID,
         projectName: "cadence-probe",
-        tasks: [
+        tasks: options.tasks ?? [
           cadenceTask({ taskId: "task_live", title: "在飞任务" }),
           cadenceTask({ taskId: "task_done", title: "已收口任务", coordinationStatus: "done" }),
         ],
@@ -321,10 +322,57 @@ describe("CadenceView", () => {
     expect(textOf(container, "cadence-friction")).toContain("门禁失败 1");
     expect(textOf(container, "cadence-yield-facts")).toContain("1");
     expect(container.querySelector('[data-testid="cadence-yield-modules"]')?.textContent).toContain("gui");
-    // 堵点卡片:待裁决策与待裁决执行两组都在。
+    // 堵点卡片:待裁决策与待裁决执行两组都在,且容器受 max-h-48 滚动保护。
     const blockers = container.querySelector('[data-testid="cadence-blockers-groups"]');
     expect(blockers?.textContent).toContain("探针决策:切换读取形态");
     expect(blockers?.textContent).toContain("待裁决执行 1");
+    expect(blockers?.className).toContain("max-h-48");
+    expect(blockers?.className).toContain("overflow-y-auto");
+  });
+
+  it("supports fleet time window switching and quick switch when active window is empty", async () => {
+    const exitedSession = {
+      runtimeSessionId: "runtime_historical",
+      instanceId: "codex-secondary",
+      kindId: "codex",
+      liveness: "exited",
+      definitionSnapshot: {
+        kindId: "codex",
+        model: "gpt-5.6-sol",
+      },
+      associations: [{ taskId: "task_historical", executionId: "exe_2", holder: null, lease: null }],
+      activity: {
+        lastObservedAt: "2026-09-20T10:00:00.000Z",
+        outcome: "succeeded",
+        exitCode: 0,
+        resultRef: null,
+        missingEvidence: null,
+      },
+    } as AgentRuntimeSessionDto;
+
+    const { container } = await mountCadence({
+      page: historyPage([]),
+      sessions: [exitedSession],
+    });
+
+    const fleetTab = [...container.querySelectorAll('[role="tab"]')].find((row) => row.textContent?.includes("舰队"))!;
+    await act(async () => fleetTab.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+
+    // 默认 24h: 能看到该历史 session
+    expect(textOf(container, "cadence-fleet")).toContain("codex · gpt-5.6-sol");
+
+    // 切到 active 窗口: 没有活跃 session,显示空态与快捷按钮
+    const activeBtn = container.querySelector('[data-testid="cadence-fleet-window-active"]')!;
+    await act(async () => activeBtn.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(textOf(container, "cadence-fleet")).toContain("当前没有活跃运行的 Worker");
+
+    // 点击快捷切换到 24h
+    const switch24hBtn = container.querySelector('[data-testid="cadence-fleet-switch-24h"]')!;
+    expect(switch24hBtn).not.toBeNull();
+    await act(async () => switch24hBtn.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+
+    // 切换后历史 worker 重新可见
+    expect(textOf(container, "cadence-fleet")).toContain("codex · gpt-5.6-sol");
   });
 
   it("expands a rhythm row in place with the funnel and micro chain; the detail link navigates", async () => {
