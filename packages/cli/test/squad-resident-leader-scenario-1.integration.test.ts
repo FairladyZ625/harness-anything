@@ -32,7 +32,7 @@ const {
   writeCredentialTool,
 } = shared;
 
-test("each worker outcome calls back into a new leader turn and a failed worker can be reassigned", () => {
+test("each terminal worker batch calls back into one leader turn and a failed worker can be reassigned", () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-squad-resident-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -158,8 +158,8 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
   assert.equal(current.workerCallbackCount, 3, JSON.stringify(current));
   assert.equal(Array.isArray(current.leaders), true);
   const leaderRuntimeSessionIds = current.leaderRuntimeSessionIds as string[];
-  assert.equal(leaderRuntimeSessionIds.length, 4, JSON.stringify(current));
-  assert.equal(new Set(leaderRuntimeSessionIds).size, 4);
+  assert.equal(leaderRuntimeSessionIds.length, 3, JSON.stringify(current));
+  assert.equal(new Set(leaderRuntimeSessionIds).size, 3);
 
   const workers = current.workers as Array<Record<string, unknown>>;
   assert.equal(workers.length, 3, JSON.stringify(current));
@@ -197,7 +197,7 @@ test("each worker outcome calls back into a new leader turn and a failed worker 
   assert.equal(acceptedAtLaunch.runtimeSessionId, started.leaderRuntimeSessionId);
   assert.equal(acceptedAtLaunch.taskBinding.taskId, "resident-task");
   assert.match(acceptedAtLaunch.taskBinding.executionId, /^exe_/u);
-  assert.equal(callbackLeaders.length, 3, JSON.stringify(calls));
+  assert.equal(callbackLeaders.length, 2, JSON.stringify(calls));
   assert.equal(
     calls.every((call) => String(call.cwd).endsWith(`${path.sep}squadwork`)),
     true,
@@ -380,14 +380,17 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
       root,
       env,
       String(positive.squadRunId),
-      (status) => status.status === "workers_running" && (status.workers as unknown[] | undefined)?.length === 3,
+      (status) =>
+        status.status === "workers_running" &&
+        (status.workers as Array<Record<string, unknown>> | undefined)?.length === 3 &&
+        (status.workers as Array<Record<string, unknown>>).every((worker) => worker.runtimeSessionId !== null),
     ),
     positiveWorkers = positiveStatus.workers as Array<Record<string, unknown>>;
   assert.deepEqual(
     positiveWorkers.map(({ workerId, instanceId, provider, rejection }) => ({
       workerId,
       instanceId,
-      model: (provider as Record<string, unknown>).model,
+      model: (provider as Record<string, unknown> | undefined)?.model,
       rejection,
     })),
     [

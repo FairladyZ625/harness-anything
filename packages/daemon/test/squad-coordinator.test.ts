@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActorIdentity, LeaseV1, TaskLifecycleSnapshot, TaskV2 } from "../../kernel/src/index.ts";
-import { reacquireSquadTaskLease } from "../src/repo-cell-open.ts";
+import { reacquireSquadTaskLease } from "../src/repo-cell-squad-child.ts";
 import { callbackLeaderPrompt, initialLeaderPrompt, parseLeaderDecision } from "../src/squad-leader-decision.ts";
 
 const squadActor: ActorIdentity = {
@@ -139,6 +139,10 @@ test("an unavailable immutable worker result explicitly fails callback synthesis
           workerAttempts: [
             {
               attemptId: "attempt-1",
+              taskId: "task-child",
+              executionId: "execution-child",
+              ownedPaths: [],
+              ownershipCheck: null,
               workerId: "terra",
               leaderTurnId: "turn-1",
               dispatchId: "dispatch-1",
@@ -166,4 +170,27 @@ test("an unavailable immutable worker result explicitly fails callback synthesis
       ),
     /Runtime result artifact:runtime-result\/sha256\/[0-9a-f]{64} is unavailable\./u,
   );
+});
+
+test("leader protocol preserves finite child ownership and rejects glob or parent-relative scopes", () => {
+  const parse = (ownedPaths: readonly string[]) =>
+    parseLeaderDecision(
+      JSON.stringify({
+        schema: "runtime-batch/v1",
+        dispatches: [{ to: "terra", prompt: "Complete this child task.", ownedPaths }],
+      }),
+      ["terra"],
+    );
+  assert.deepEqual(parse(["src/parser/", "README.md"]), {
+    kind: "plan",
+    dispatches: [
+      {
+        workerId: "terra",
+        prompt: "Complete this child task.",
+        ownedPaths: ["src/parser/", "README.md"],
+      },
+    ],
+  });
+  for (const scope of ["src/**", "../outside", "/absolute", "src/{a,b}/", "src/../other"])
+    assert.throws(() => parse([scope]), Error, `invalid ownership scope was accepted: ${scope}`);
 });

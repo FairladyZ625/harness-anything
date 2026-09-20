@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type {
+  ActorIdentity,
   AgentRuntimeEventV1,
   CanonicalEventStore,
   RuntimeSession,
@@ -46,10 +47,18 @@ type RecoveryFixture = {
     readonly binding: unknown;
   }>;
   readonly reacquired: () => number;
+  readonly children: Map<string, string>;
+  readonly released: string[];
+  readonly childLeaseActors: Map<string, ActorIdentity>;
+  readonly persistState: (patch: Readonly<Record<string, unknown>>) => void;
   readonly state: () => Readonly<Record<string, unknown>>;
   readonly resetProjection: () => void;
   readonly completeLeader: (runtimeSessionId: string, result: string) => void;
-  readonly completeWorker: (runtimeSessionId: string, result?: string) => void;
+  readonly completeWorker: (
+    runtimeSessionId: string,
+    result?: string,
+    outcome?: "succeeded" | "failed" | "cancelled",
+  ) => void;
 };
 
 function makeRecoveryFixture(
@@ -62,6 +71,7 @@ function makeRecoveryFixture(
     readonly currentLeaderRuntimeSessionId?: string | null;
     readonly pendingLeaderTriggers?: readonly Readonly<Record<string, unknown>>[];
     readonly rejectWorkerOnce?: string;
+    readonly pendingChildLeaseActor?: ActorIdentity;
     readonly observedWorkerRuntimeSessionIds?: readonly string[];
     readonly permissionMode?: "bypass" | "workspace-write" | "read-only";
   },
@@ -86,18 +96,31 @@ function makeRecoveryFixture(
     spawns: JsonObject[] = [],
     cancellations: JsonObject[] = [],
     publications: RecoveryFixture["publications"] = [],
-    resultBodies = new Map<string, Uint8Array>();
+    resultBodies = new Map<string, Uint8Array>(),
+    children = new Map<string, string>(),
+    released: string[] = [],
+    childLeaseActors = new Map<string, ActorIdentity>(),
+    sessionTasks = new Map<string, string>([
+      [LEADER_SESSION_ID, TASK_ID],
+      ...workers.map((worker, index) => [worker.runtimeSessionId, `task-seed-child-${index + 1}`] as const),
+    ]),
+    receipts = new Map<string, JsonObject>();
   let reacquired = 0,
     nextSpawn = 0,
     nextResult = 2,
     rejectedWorker = false;
 
+  for (const [index, session] of sessions.entries()) {
+    const taskId = sessionTasks.get(session.runtimeSessionId)!;
+    sessions[index] = { ...session, taskBindings: [{ taskId, executionId: `execution-${taskId}` }] };
+  }
   if (options.leaderResult !== undefined) resultBodies.set(RESULT_SHA, new TextEncoder().encode(options.leaderResult));
   for (const [runtimeSessionId, dispatchId] of dispatchBySession)
     openDispatchStream(rootDir, {
       dispatchId,
-      taskId: TASK_ID,
-      executionId: "execution-squad",
+      taskId: sessionTasks.get(runtimeSessionId)!,
+      executionId: `execution-${sessionTasks.get(runtimeSessionId)!}`,
+      agentId: workers.find((worker) => worker.runtimeSessionId === runtimeSessionId)?.workerId ?? "leader",
       runtimeSessionId,
       instanceId: INSTANCE_ID,
       startedAt: "2026-08-27T00:00:00.000Z",
@@ -136,6 +159,11 @@ function makeRecoveryFixture(
     workerAttempts: workers.map((worker, index) => ({
       attemptId: `worker-${index + 1}`,
       workerId: worker.workerId,
+      leaderTurnId: "leader-previous",
+      taskId: sessionTasks.get(worker.runtimeSessionId)!,
+      executionId: `execution-${sessionTasks.get(worker.runtimeSessionId)!}`,
+      ownedPaths: [],
+      ownershipCheck: null,
       dispatchId: worker.dispatchId,
       runtimeSessionId: worker.runtimeSessionId,
       worktree: null,
@@ -156,7 +184,19 @@ function makeRecoveryFixture(
   });
 
   const projection = {
-      read: (taskId: string) => ({ watermark: 1, sourceRevision: 1, snapshot: { task: { taskId } } }),
+      read: (taskId: string) => ({
+        watermark: 1,
+        sourceRevision: 1,
+        snapshot: {
+          task: { taskId },
+          lease: {
+            taskId,
+            executionId: `execution-${taskId}`,
+            phase: "held",
+            actor: childLeaseActors.get(taskId) ?? state.binding.actor,
+          },
+        },
+      }),
       readTaskStatuses: () => ({ status: "ready", rows: [], watermark: 1, sourceRevision: 1 }),
       readTaskRuntimeBatch: (query: { readonly taskIds: readonly string[] }) => ({
         status: "ready",
@@ -165,7 +205,7 @@ function makeRecoveryFixture(
           taskId,
           title: "Squad recovery",
           packagePath: `tasks/${taskId}`,
-          sessions,
+          sessions: sessions.filter((session) => sessionTasks.get(session.runtimeSessionId) === taskId),
         })),
         page: { nextTaskId: null, remainingCount: 0 },
         watermark: 1,
@@ -207,17 +247,49 @@ function makeRecoveryFixture(
       rootDir,
       projection: () => projection,
       store: () => store,
-      reacquireTaskLease: () => {
+      reacquireTaskLease: (taskId) => {
+        assert.deepEqual(
+          childLeaseActors.get(taskId) ?? state.binding.actor,
+          state.binding.actor,
+          "coordinator cannot reacquire a foreign lease",
+        );
         reacquired += 1;
         return Promise.resolve();
       },
+      releaseTaskLease: async (taskId) => {
+        assert.deepEqual(
+          childLeaseActors.get(taskId) ?? state.binding.actor,
+          state.binding.actor,
+          "coordinator cannot release a foreign lease",
+        );
+        released.push(taskId);
+      },
+      createChildTask: async (child) => {
+        assert.equal(child.parentTaskId, TASK_ID);
+        const taskId = children.get(child.key) ?? `task-created-child-${children.size + 1}`;
+        children.set(child.key, taskId);
+        if (options.pendingChildLeaseActor && !childLeaseActors.has(taskId))
+          childLeaseActors.set(taskId, options.pendingChildLeaseActor);
+        return taskId;
+      },
+      recordOwnershipCheck: async () => undefined,
       publishSynthesisReport: (report, binding) => {
         publications.push({ report, binding });
         return Promise.resolve();
       },
       runtimeSpawner: () => ({
         spawn: (payload) => {
+          const key = String(payload.idempotencyKey),
+            existing = receipts.get(key);
+          if (existing) return Promise.resolve(existing);
           spawns.push(payload);
+          const holder = childLeaseActors.get(String(payload.taskId));
+          if (
+            holder &&
+            (holder.principal.personId !== state.binding.actor.principal.personId ||
+              holder.executor?.id !== `runtime-session:runtime-spawn-${nextSpawn + 1}`)
+          )
+            return Promise.reject(new Error("runtime_task_lease_required: unrelated runtime holder"));
           if (
             options.rejectWorkerOnce !== undefined &&
             payload.targetAgentId === options.rejectWorkerOnce &&
@@ -230,16 +302,24 @@ function makeRecoveryFixture(
           const dispatchId = `dispatch_${(100 + nextSpawn).toString(16).padStart(24, "0")}`,
             runtimeSessionId = `runtime-spawn-${nextSpawn}`;
           dispatchBySession.set(runtimeSessionId, dispatchId);
+          const taskId = String(payload.taskId);
+          sessionTasks.set(runtimeSessionId, taskId);
           openDispatchStream(rootDir, {
             dispatchId,
-            taskId: TASK_ID,
-            executionId: "execution-squad",
+            taskId,
+            executionId: `execution-${taskId}`,
+            agentId: String(payload.targetAgentId ?? "leader"),
             runtimeSessionId,
             instanceId: INSTANCE_ID,
             startedAt: "2026-08-27T00:00:00.000Z",
           });
-          sessions.push(runtimeSession(runtimeSessionId, null, null, "provider-leader"));
-          return Promise.resolve({ ok: true, dispatchId, runtimeSessionId });
+          sessions.push({
+            ...runtimeSession(runtimeSessionId, null, null, "provider-leader"),
+            taskBindings: [{ taskId, executionId: `execution-${taskId}` }],
+          });
+          const receipt = { ok: true, dispatchId, runtimeSessionId };
+          receipts.set(key, receipt);
+          return Promise.resolve(receipt);
         },
         cancel: (payload) => {
           cancellations.push(payload);
@@ -251,6 +331,20 @@ function makeRecoveryFixture(
     cancellations,
     publications,
     reacquired: () => reacquired,
+    children,
+    released,
+    childLeaseActors,
+    persistState: (patch) => {
+      const current = rows.find((row) => row.squadRunId === SQUAD_RUN_ID)!;
+      const next = { ...current.state, ...patch, revision: current.revision + 1 };
+      appendRuntimeWorkerRecord(rootDir, LEADER_DISPATCH_ID, {
+        kind: "squad_run_state",
+        squadRunId: SQUAD_RUN_ID,
+        revision: next.revision,
+        state: next,
+      });
+      rows.length = 0;
+    },
     state: () => {
       const state = rows.find((row) => row.squadRunId === SQUAD_RUN_ID)?.state;
       assert.ok(state);
@@ -265,14 +359,12 @@ function makeRecoveryFixture(
       const sha256 = nextResult.toString(16).padStart(64, "0");
       nextResult += 1;
       resultBodies.set(sha256, new TextEncoder().encode(result));
-      sessions[index] = runtimeSession(
-        runtimeSessionId,
-        "succeeded",
-        `artifact:runtime-result/sha256/${sha256}`,
-        "provider-leader",
-      );
+      sessions[index] = {
+        ...runtimeSession(runtimeSessionId, "succeeded", `artifact:runtime-result/sha256/${sha256}`, "provider-leader"),
+        taskBindings: sessions[index]!.taskBindings,
+      };
     },
-    completeWorker: (runtimeSessionId, result) => {
+    completeWorker: (runtimeSessionId, result, outcome = "succeeded") => {
       const index = sessions.findIndex((session) => session.runtimeSessionId === runtimeSessionId);
       assert.notEqual(index, -1);
       const sha256 = nextResult.toString(16).padStart(64, "0");
@@ -281,8 +373,8 @@ function makeRecoveryFixture(
       sessions[index] = {
         ...sessions[index]!,
         liveness: "exited",
-        outcome: "succeeded",
-        exitCode: 0,
+        outcome,
+        exitCode: outcome === "succeeded" ? 0 : 1,
         resultRef: result === undefined ? null : `artifact:runtime-result/sha256/${sha256}`,
       };
     },
@@ -340,7 +432,7 @@ test("a malformed leader result re-asks the same leader session instead of faili
     await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
 
     assert.equal(fixture.spawns.length, 1);
-    assert.equal(fixture.reacquired(), 1);
+    assert.equal(fixture.reacquired(), 2);
     assert.equal(fixture.spawns[0]?.squadId, "core-squad");
     assert.equal(fixture.spawns[0]?.providerSessionId, "provider-leader");
     assert.equal(fixture.spawns[0]?.idempotencyKey, `${SQUAD_RUN_ID}:leader:retry:leader-1`);
@@ -557,6 +649,9 @@ test("redispatch of an active worker waits while non-overlapping work still star
 
     fixture.completeWorker(active.runtimeSessionId);
     await fixture.coordinator.observeOutcome(outcomeEvent(active.runtimeSessionId));
+    assert.equal(fixture.spawns.length, 1, "the other child must finish before the callback");
+    fixture.completeWorker("runtime-spawn-1");
+    await fixture.coordinator.observeOutcome(outcomeEvent("runtime-spawn-1"));
     const resumed = fixture.coordinator.status(SQUAD_RUN_ID);
     assert.deepEqual((resumed.leaders as { readonly trigger: unknown }[])[1]?.trigger, {
       kind: "worker_wait",
@@ -630,6 +725,7 @@ test("malformed leader results exhaust the declared budget after exactly that ma
       });
     let runtimeSessionId = LEADER_SESSION_ID;
     for (let completedTurns = 1; completedTurns <= leaderTurnBudget; completedTurns += 1) {
+      const previousReacquired = fixture.reacquired();
       await fixture.coordinator.observeOutcome(outcomeEvent(runtimeSessionId));
       const status = fixture.coordinator.status(SQUAD_RUN_ID);
       assert.equal(
@@ -637,6 +733,7 @@ test("malformed leader results exhaust the declared budget after exactly that ma
         completedTurns === leaderTurnBudget ? leaderTurnBudget : completedTurns + 1,
       );
       if (completedTurns === leaderTurnBudget) {
+        assert.equal(fixture.reacquired(), previousReacquired, "exhausted budget must not acquire a lease");
         assert.equal(status.status, "failed");
         assert.equal(status.error, `leader turn budget ${leaderTurnBudget} exhausted`);
       } else {
@@ -817,3 +914,191 @@ test("leader callback includes both immutable worker results without report file
     assert.doesNotMatch(prompt, /\[truncated\]/u);
   });
 });
+
+const independentPlan = {
+  kind: "plan" as const,
+  dispatches: [
+    { workerId: "sol", prompt: "Implement the parser.", ownedPaths: ["src/parser/"] },
+    { workerId: "terra", prompt: "Implement the renderer.", ownedPaths: ["src/renderer/"] },
+  ],
+};
+
+function workerPlanResult(): string {
+  return JSON.stringify({
+    schema: "runtime-batch/v1",
+    dispatches: independentPlan.dispatches.map(({ workerId, ...plan }) => ({ to: workerId, ...plan })),
+  });
+}
+
+test("independent child dispatches coalesce duplicate outcomes and projection restart into one leader turn", async () => {
+  await withRootDir(async (rootDir) => {
+    const fixture = makeRecoveryFixture(rootDir, {
+      leaderOutcome: "succeeded",
+      leaderResult: workerPlanResult(),
+      leaderTurnBudget: 3,
+    });
+    await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
+    assert.equal(fixture.children.size, 2);
+    assert.deepEqual(
+      fixture.spawns.map((spawn) => spawn.taskId),
+      [...fixture.children.values()],
+    );
+    assert.ok(fixture.spawns.every((spawn) => spawn.taskId !== TASK_ID));
+    const attempts = fixture.state().workerAttempts as Array<{
+      taskId: string;
+      executionId: string;
+      runtimeSessionId: string;
+    }>;
+    assert.equal(new Set(attempts.map((attempt) => attempt.executionId)).size, 2);
+    for (const attempt of attempts) assert.equal(attempt.executionId, `execution-${attempt.taskId}`);
+    assert.ok(fixture.released.includes(TASK_ID), "fanout must release the parent lease");
+
+    fixture.completeWorker(attempts[0]!.runtimeSessionId);
+    await fixture.coordinator.observeOutcome(outcomeEvent(attempts[0]!.runtimeSessionId));
+    await fixture.coordinator.observeOutcome(outcomeEvent(attempts[0]!.runtimeSessionId));
+    assert.equal(fixture.spawns.length, 2, "first outcome cannot wake the leader while its sibling runs");
+    fixture.resetProjection();
+    await fixture.coordinator.reconcile();
+    assert.equal(fixture.spawns.length, 2);
+
+    fixture.completeWorker(attempts[1]!.runtimeSessionId);
+    fixture.resetProjection();
+    await fixture.coordinator.reconcile();
+    assert.equal(fixture.spawns.length, 3);
+    assert.equal(fixture.spawns[2]!.taskId, TASK_ID);
+    assert.match(String(fixture.spawns[2]!.prompt), /sources=worker_outcome:2/u);
+    for (const attempt of attempts) {
+      await fixture.coordinator.observeOutcome(outcomeEvent(attempt.runtimeSessionId));
+    }
+    fixture.resetProjection();
+    await fixture.coordinator.reconcile();
+    assert.equal(fixture.spawns.length, 3, "duplicate events and projection rebuild must not add a leader turn");
+  });
+});
+
+test("one outcome callback drains every child terminal already visible in the same cut", async () => {
+  await withRootDir(async (rootDir) => {
+    const fixture = makeRecoveryFixture(rootDir, {
+      leaderOutcome: "succeeded",
+      leaderResult: workerPlanResult(),
+      leaderTurnBudget: 3,
+    });
+    await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
+    const attempts = fixture.state().workerAttempts as Array<{ runtimeSessionId: string }>;
+    for (const attempt of attempts) fixture.completeWorker(attempt.runtimeSessionId);
+    for (const attempt of attempts) await fixture.coordinator.observeOutcome(outcomeEvent(attempt.runtimeSessionId));
+    assert.equal(fixture.spawns.length, 3);
+    assert.match(String(fixture.spawns[2]!.prompt), /sources=worker_outcome:2/u);
+    assert.equal(fixture.coordinator.status(SQUAD_RUN_ID).pendingLeaderCallbackCount, 0);
+  });
+});
+
+test("reconcile replays a persisted leader plan before any child attempt was recorded", async () => {
+  await withRootDir(async (rootDir) => {
+    const fixture = makeRecoveryFixture(rootDir, { leaderOutcome: "succeeded", leaderTurnBudget: 3 });
+    fixture.coordinator.status(SQUAD_RUN_ID);
+    const turns = fixture.state().leaderTurns as Readonly<Record<string, unknown>>[];
+    fixture.persistState({
+      currentLeaderRuntimeSessionId: null,
+      leaderTurns: [{ ...turns[0], decision: independentPlan }],
+      phase: "planning",
+    });
+    await fixture.coordinator.reconcile();
+    assert.equal(fixture.children.size, 2);
+    assert.equal(fixture.spawns.length, 2);
+    fixture.resetProjection();
+    await fixture.coordinator.reconcile();
+    assert.equal(fixture.children.size, 2);
+    assert.equal(fixture.spawns.length, 2);
+  });
+});
+
+test("accepted child dispatch survives a missing attempt receipt without reacquiring its handed-off lease", async () => {
+  await withRootDir(async (rootDir) => {
+    const fixture = makeRecoveryFixture(rootDir, {
+      leaderOutcome: "succeeded",
+      leaderResult: workerPlanResult(),
+      leaderTurnBudget: 3,
+    });
+    await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
+    const attempts = fixture.state().workerAttempts as Readonly<Record<string, unknown>>[],
+      pending = { ...attempts[1], dispatchId: null, runtimeSessionId: null, executionId: null };
+    fixture.persistState({ workerAttempts: [attempts[0], pending] });
+    const beforeReacquire = fixture.reacquired();
+    await fixture.coordinator.reconcile();
+    assert.equal(fixture.children.size, 2, "the same attempt key must reuse its child");
+    assert.equal(fixture.spawns.length, 2, "canonical dispatch evidence must restore the missing receipt");
+    assert.equal(fixture.reacquired() - beforeReacquire, 1, "only the parent is reacquired for child preparation");
+    assert.deepEqual(fixture.state().workerAttempts, attempts);
+    fixture.resetProjection();
+    await fixture.coordinator.reconcile();
+    assert.equal(fixture.spawns.length, 2);
+  });
+});
+
+test("failed and cancelled child outcomes wake the leader once after the complete batch settles", async () => {
+  await withRootDir(async (rootDir) => {
+    const fixture = makeRecoveryFixture(rootDir, {
+      leaderOutcome: "succeeded",
+      leaderResult: workerPlanResult(),
+      leaderTurnBudget: 3,
+    });
+    await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
+    fixture.completeWorker("runtime-spawn-1", "Parser could not complete.", "failed");
+    await fixture.coordinator.observeOutcome(outcomeEvent("runtime-spawn-1"));
+    assert.equal(fixture.spawns.length, 2);
+    fixture.completeWorker("runtime-spawn-2", "Renderer cancelled.", "cancelled");
+    await fixture.coordinator.observeOutcome(outcomeEvent("runtime-spawn-2"));
+    assert.equal(fixture.spawns.length, 3);
+    assert.match(String(fixture.spawns[2]!.prompt), /status=failed/u);
+    assert.match(String(fixture.spawns[2]!.prompt), /status=cancelled/u);
+    fixture.resetProjection();
+    await fixture.coordinator.reconcile();
+    assert.equal(fixture.spawns.length, 3);
+  });
+});
+
+for (const matchingRuntime of [true, false]) {
+  test(`pending child handoff ${matchingRuntime ? "resumes its runtime" : "preserves an unrelated holder"}`, async () => {
+    await withRootDir(async (rootDir) => {
+      const actor: ActorIdentity = {
+          principal: { personId: "person-squad" },
+          executor: {
+            kind: "agent",
+            id: `runtime-session:${matchingRuntime ? "runtime-spawn-1" : "other-runtime"}`,
+          },
+        },
+        fixture = makeRecoveryFixture(rootDir, {
+          leaderOutcome: "succeeded",
+          leaderTurnBudget: 3,
+          pendingChildLeaseActor: actor,
+        });
+      fixture.coordinator.status(SQUAD_RUN_ID);
+      const turns = fixture.state().leaderTurns as Readonly<Record<string, unknown>>[];
+      fixture.persistState({
+        currentLeaderRuntimeSessionId: null,
+        leaderTurns: [{ ...turns[0], decision: { ...independentPlan, dispatches: [independentPlan.dispatches[0]] } }],
+        phase: "planning",
+      });
+      await fixture.coordinator.reconcile();
+      const taskId = [...fixture.children.values()][0]!,
+        attempt = (fixture.state().workerAttempts as Readonly<Record<string, unknown>>[])[0]!;
+      assert.equal(fixture.children.size, 1);
+      assert.equal(fixture.spawns[0]!.taskId, taskId, "existing lease must reach runtime admission");
+      assert.deepEqual(fixture.childLeaseActors.get(taskId), actor);
+      assert.ok(!fixture.released.includes(taskId), "coordinator must not release a handed-off child lease");
+      if (matchingRuntime) {
+        assert.equal(attempt.runtimeSessionId, "runtime-spawn-1");
+        assert.equal(attempt.rejection, null);
+        assert.equal(fixture.reacquired(), 1, "only parent preparation can reacquire here");
+        fixture.resetProjection();
+        await fixture.coordinator.reconcile();
+        assert.equal(fixture.spawns.length, 1, "resumed child is dispatched exactly once");
+      } else {
+        assert.equal(attempt.runtimeSessionId, null);
+        assert.match(String(attempt.rejection), /runtime_task_lease_required: unrelated runtime holder/u);
+        assert.equal(fixture.spawns[1]!.taskId, TASK_ID, "leader receives the rejection");
+      }
+    });
+  });
+}

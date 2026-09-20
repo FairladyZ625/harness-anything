@@ -395,7 +395,18 @@ function leaderArchive(): Record<string, unknown> {
 function detailProjectionWith(archives: ReadonlyMap<string, Record<string, unknown>>): TaskProjection {
   const rows: { squadRunId: string; revision: number; state: unknown }[] = [];
   return {
-    read: (taskId: string) => ({ watermark: 1, sourceRevision: 1, snapshot: { task: { taskId } } }),
+    read: (taskId: string) => ({
+      watermark: 1,
+      sourceRevision: 1,
+      snapshot: {
+        task: { taskId },
+        lease: {
+          executionId: `execution-${taskId}`,
+          phase: "held",
+          actor: { principal: { personId: "person-squad" }, executor: null },
+        },
+      },
+    }),
     readTaskStatuses: () => ({ status: "ready", rows: [], watermark: 1, sourceRevision: 1 }),
     readTaskRuntimeBatch: (query: { readonly taskIds: readonly string[] }) => ({
       status: "ready" as const,
@@ -478,6 +489,9 @@ function detailCoordinator(
         readContentBlob: (sha256: string) => (sha256 === LEADER_RESULT_SHA ? options.receiptBlob : null),
       }) as unknown as CanonicalEventStore,
     reacquireTaskLease: async () => undefined,
+    releaseTaskLease: async () => undefined,
+    createChildTask: async () => "task-squad-child",
+    recordOwnershipCheck: async () => undefined,
     publishSynthesisReport: async () => undefined,
     runtimeSpawner: () => ({
       spawn: async (): Promise<JsonObject> => ({
@@ -746,6 +760,11 @@ function coordinator(
         throw new Error("store is not exercised by the list window");
       },
       reacquireTaskLease: async () => undefined,
+      releaseTaskLease: async () => undefined,
+      createChildTask: async () => {
+        throw new Error("list must not create children");
+      },
+      recordOwnershipCheck: async () => undefined,
       publishSynthesisReport: async () => undefined,
       runtimeSpawner: () => {
         throw new Error("runtime spawner is not exercised by the list window");

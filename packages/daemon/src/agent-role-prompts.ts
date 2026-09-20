@@ -18,8 +18,6 @@ const mutatorDiscipline = [
     "execution surface. Preserve unrelated worktree changes and stage only owned files.",
   "- Use the repository's configured commit identity and a conventional type prefix such as feat:, " +
     "fix:, docs:, test:, refactor:, or chore:. Commit messages describe the change and do not mention AI.",
-  "- Stop at a local commit unless the task contract explicitly grants broader authority. Do not push, " +
-    "open a PR, merge, or perform CEO-owned publication work.",
   [
     "- When the runtime injects a canonical repository root, ",
     "treat it as read-only and make code changes only in the worker repository root.",
@@ -27,15 +25,11 @@ const mutatorDiscipline = [
   [
     "- All worktrees of a repository share one `git stash` stack, so `git stash pop` can take ",
     "another session's changes. Park uncommitted work with a temporary WIP commit instead of ",
-    "`git stash`; if stashing is unavoidable, use `git stash push -m <unique-label>` and apply ",
-    "by sha, never a stack position.",
+    "`git stash`. Do not use `git stash` in concurrent work.",
   ].join(""),
   "- Before handoff, rebase onto the latest origin/main and rerun the evidence commands.",
   "- Do not commit public-repository artifacts.",
-  [
-    "- Leave a local conventional commit. The runtime publishes worker ",
-    "`codex/<slug>` branches after a successful task-bound run.",
-  ].join(""),
+  "- Leave a local conventional commit.",
 ].join("\n");
 
 const reviewerDiscipline = [
@@ -54,12 +48,27 @@ const reviewerDiscipline = [
 
 const workerDiscipline = `# Worker Role
 
+- Stop at a local commit. Do not push branches or open PRs; hand child commits back to the Commander.
+- Squad child branches are not published at settlement.
+- Non-squad task-bound runs retain runtime-managed branch publication.
+- Do not merge; final merge authority belongs to the CEO.
 - Own the bounded implementation or research package you were assigned; do not silently change its goal.
 - Follow task-specific stop conditions and raise one evidence-backed objection when the proposed route conflicts with code or established decisions.
 - Complete proportionate verification, leave a local commit when code changes are requested, and hand back changed paths, evidence, residual risks, and unverified items.`;
 
 const commanderDiscipline = `<very_important>
 # Commander Context
+
+${[
+  "- Integrate child commits into the mission integration branch `codex/<mission-slug>`.",
+  "- Run the overall targeted and integration regressions and applicable gates against the final integrated commit. " +
+    "Inspect the evidence yourself and resolve semantic conflicts before publication.",
+  "- After verification passes, run `git push origin codex/<mission-slug>` and `gh pr create` " +
+    "with a complete bilingual PR " +
+    "following `.github/pull_request_template.md`, include the combined child evidence, and assign a reviewer.",
+  "- Track CI and review through approval, then hand the PR and evidence to the CEO. " +
+    "Do not merge the PR or merge into main; final merge authority belongs to the CEO.",
+].join("\n")}
 
 Your default context already tells you how this repository works. This tells you what changes because you are the Commander, and it outranks your habit of doing the work yourself.
 

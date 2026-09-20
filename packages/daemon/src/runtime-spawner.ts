@@ -539,8 +539,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           : undefined,
       workerIdentityEnvironment =
         taskId || trustedSchedule || reviewerBinding ? await conventionalWorkerGitEnvironment(input.rootDir) : {};
-    // A squad coordinator explicitly retains one stable binding while sibling workers share the
-    // same lease generation. Direct runtime/batch dispatches still transfer ownership even when
+    // Squad leaders retain the coordinator lease; child tasks transfer their own lease to the worker.
+    // Direct runtime/batch dispatches still transfer ownership even when
     // they select a squad member through --to.
     const taskLeaseHandoff =
         taskId && !input.remote && !reviewerBinding && reviewExecution === null && !retainCoordinatorTaskLease
@@ -844,7 +844,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   return {
     spawn: (payload: JsonObject, binding: RuntimeBinding) => spawnAttempt(payload, binding),
     spawnCoordinated: (payload: JsonObject, binding: RuntimeBinding) =>
-      spawnAttempt(payload, binding, undefined, undefined, undefined, true),
+      spawnAttempt(payload, binding, undefined, undefined, undefined, payload.targetAgentId === undefined),
     spawnScheduled: (scheduled: TrustedScheduleSpawn, binding: RuntimeBinding) =>
       spawnAttempt(
         {

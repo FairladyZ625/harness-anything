@@ -127,11 +127,11 @@ if (callback) setInterval(() => undefined, 1000);
 else {
   const negative = prompt.includes("negative mixed mission");
   const dispatches = negative
-    ? [{ to: "mixed-missing", prompt: "Missing runtime mission" }]
+    ? [{ to: "mixed-missing", prompt: ${JSON.stringify(realizedPlan("Missing runtime mission"))} }]
     : [
-        { to: "mixed-reconcile", prompt: "Reconcile mission" },
-        { to: "mixed-discrimination", prompt: "Discrimination mission" },
-        { to: "mixed-errorexit", prompt: "Error exit mission" },
+        { to: "mixed-reconcile", prompt: ${JSON.stringify(realizedPlan("Reconcile mission"))} },
+        { to: "mixed-discrimination", prompt: ${JSON.stringify(realizedPlan("Discrimination mission"))} },
+        { to: "mixed-errorexit", prompt: ${JSON.stringify(realizedPlan("Error exit mission"))} },
       ];
   console.log(JSON.stringify({ type: "result", subtype: "success", is_error: false, session_id: sessionId, result: JSON.stringify({ schema: "runtime-batch/v1", dispatches }), permission_denials: [] }));
 }
@@ -213,11 +213,11 @@ if (initialLeader) {
         dispatches: [
           {
             to: "terra",
-            prompt: "Terra first mission",
+            prompt: ${JSON.stringify(realizedPlan("Terra first mission"))},
           },
           {
             to: "luna",
-            prompt: "Luna mission",
+            prompt: ${JSON.stringify(realizedPlan("Luna mission"))},
           },
         ],
       }),
@@ -232,7 +232,7 @@ if (initialLeader) {
         schema: "runtime-batch/v1",
         dispatches: [{
           to: "terra",
-          prompt: "Terra retry mission",
+          prompt: ${JSON.stringify(realizedPlan("Terra retry mission"))},
         }],
       }),
     },
@@ -299,7 +299,7 @@ const terra = prompt.includes("# Agent Identity: Terra (terra)");
 const luna = prompt.includes("# Agent Identity: Luna (luna)");
 frame({ type: "thread.started", thread_id: leader ? "leader-api-session" : terra ? "terra-api-session" : "luna-api-session" });
 if (prompt.includes("# Squad dispatch protocol")) {
-  frame({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify({ schema: "runtime-batch/v1", dispatches: [{ to: "terra", prompt: "terra API mission" }, { to: "luna", prompt: "luna API mission" }] }) } });
+  frame({ type: "item.completed", item: { type: "agent_message", text: JSON.stringify({ schema: "runtime-batch/v1", dispatches: [{ to: "terra", prompt: ${JSON.stringify(realizedPlan("terra API mission"))} }, { to: "luna", prompt: ${JSON.stringify(realizedPlan("luna API mission"))} }] }) } });
 } else if (callback) {
   const running = /^worker .*status=running/mu.test(prompt);
   if (running) {

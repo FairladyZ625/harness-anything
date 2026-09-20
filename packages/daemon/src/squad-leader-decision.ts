@@ -1,4 +1,5 @@
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
+import { parseWorkerOwnedPaths, type WorkerOwnershipCheck } from "./squad-worker-ownership.ts";
 
 export type LeaderDecision =
   | { readonly kind: "converged"; readonly report: string | null }
@@ -61,6 +62,10 @@ export type LeaderTurn = {
 
 export type WorkerAttempt = {
   readonly attemptId: string;
+  readonly taskId: string | null;
+  readonly executionId: string | null;
+  readonly ownedPaths: readonly string[];
+  readonly ownershipCheck: WorkerOwnershipCheck | null;
   readonly workerId: string;
   /** 派发该 attempt 的 leader 轮次(扇出树父子边)。 */
   readonly leaderTurnId: string;
@@ -77,6 +82,7 @@ export type WorkerAttempt = {
 export type WorkerPlan = {
   readonly workerId: string;
   readonly prompt: string;
+  readonly ownedPaths?: readonly string[];
 };
 
 type LeaderPromptState = {
@@ -94,6 +100,7 @@ export function initialLeaderPrompt(state: LeaderPromptState): string {
       {
         to: "worker-id",
         prompt: "worker mission",
+        ownedPaths: ["packages/example/src/"],
       },
     ],
   });
@@ -102,6 +109,11 @@ export function initialLeaderPrompt(state: LeaderPromptState): string {
     "Return exactly one JSON object and no Markdown:",
     example,
     "Choose only declared workers. Harness owns agent identity, task, cwd, and spawning.",
+    "Each prompt must be a complete, substantive task_plan.md for an independent child task, " +
+      "with the repository's required plan sections, evidence and stopping conditions. " +
+      "Declare ownedPaths as canonical repository-relative files or directories ending in /. No globs. " +
+      "Overlapping concurrent declarations are rejected. These declarations are checked against the delivered diff; " +
+      "they do not restrict filesystem access.",
     synthesisReportInstruction(state),
     `# Squad roster\n${state.roster}`,
     `# User mission\n${state.mission}`,
@@ -151,6 +163,9 @@ function statusRowsForPrompt(
     return [
       `worker ${attempt.workerId}`,
       `attempt=${attempt.attemptId}`,
+      `task=${attempt.taskId ?? "none"}`,
+      `execution=${attempt.executionId ?? "none"}`,
+      `ownership=${JSON.stringify(attempt.ownershipCheck)}`,
       `dispatch=${attempt.dispatchId ?? "none"}`,
       `session=${attempt.runtimeSessionId ?? "none"}`,
       `status=${attempt.rejection ? "rejected" : (row?.status ?? "running")}`,
@@ -185,11 +200,15 @@ export function parseLeaderDecision(text: string, workers: readonly string[]): L
         prompt = requiredLeaderText(item.prompt, "worker prompt");
       if (!workers.includes(workerId) || seen.has(workerId))
         throw new Error(`Leader selected invalid or duplicate worker ${workerId}.`);
-      const allowed = new Set(["to", "prompt"]);
+      const allowed = new Set(["to", "prompt", "ownedPaths"]);
       if (Object.keys(item).some((key) => !allowed.has(key)))
         throw new Error("Leader dispatch contains harness-owned fields.");
       seen.add(workerId);
-      return { workerId, prompt };
+      return {
+        workerId,
+        prompt,
+        ...(item.ownedPaths === undefined ? {} : { ownedPaths: parseWorkerOwnedPaths(item.ownedPaths) }),
+      };
     });
   return { kind: "plan", dispatches };
 }
