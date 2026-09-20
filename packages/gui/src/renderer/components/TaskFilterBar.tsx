@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
-import { CaretDown, Check, MagnifyingGlass, Star, X } from "@phosphor-icons/react";
+import { useMemo } from "react";
+import { MagnifyingGlass, Star, X } from "@phosphor-icons/react";
 import type { CloseoutReadiness, EngineId, Freshness, SnapshotStatus, TaskRow } from "../model/types";
-import { BOARD_COLUMNS } from "../model/types";
+import { BOARD_COLUMNS, boardColumnOf } from "../model/types";
 import { STATUS_META } from "./badges";
 import {
   DEFAULT_TASK_FILTERS,
@@ -52,93 +52,63 @@ function Select<T extends string>({
   );
 }
 
-const STATUS_OPTIONS: SnapshotStatus[] = BOARD_COLUMNS;
-
-function StatusMultiSelect({
+/**
+ * 状态筛选平铺 Pill 组(task_8928cf1e,对齐会话页的紧凑设计):每个按钮 = 状态图标 +
+ * 名称 + 该列桶的行数,点击切换选中;空选 = 全部列。选中集同时是看板的
+ * visibleColumns——未选中的列组件整列不渲染,不再有空列占宽。
+ */
+function StatusPillGroup({
+  tasks,
   selected,
   onChange,
 }: {
+  tasks: readonly TaskRow[];
   selected: SnapshotStatus[];
   onChange: (next: SnapshotStatus[]) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const containerRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (!containerRef.current) return;
-      if (!containerRef.current.contains(event.target as Node)) setOpen(false);
-    };
-    window.addEventListener("mousedown", onPointerDown);
-    return () => window.removeEventListener("mousedown", onPointerDown);
-  }, [open]);
+  const counts = useMemo(() => {
+    const byColumn = new Map<SnapshotStatus, number>(BOARD_COLUMNS.map((status) => [status, 0]));
+    for (const task of tasks) {
+      const bucket = boardColumnOf(task);
+      byColumn.set(bucket, (byColumn.get(bucket) ?? 0) + 1);
+    }
+    return byColumn;
+  }, [tasks]);
 
   const toggle = (status: SnapshotStatus) => {
     if (selected.includes(status)) onChange(selected.filter((s) => s !== status));
     else onChange([...selected, status]);
   };
 
-  const label =
-    selected.length === 0
-      ? t("components.taskFilterBar.all")
-      : selected.length === 1
-        ? (STATUS_META[selected[0]]?.label ?? selected[0])
-        : t("components.taskFilterBar.countItems", { count: selected.length });
-
   return (
-    <div ref={containerRef} className="relative">
-      <label className="flex items-center gap-1.5 ui-body text-text-faint">
-        {t("components.taskFilterBar.status")}
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className={`inline-flex items-center gap-1 rounded-md border border-border bg-surface-raised px-2 py-1.5 ui-body text-text outline-none hover:border-border-strong ${
-            selected.length > 0 ? "border-border-strong" : ""
-          }`}
-        >
-          <span>{label}</span>
-          <CaretDown weight="bold" className="ui-micro text-text-faint" />
-        </button>
-      </label>
-      {open && (
-        <div className="absolute left-16 top-full z-30 mt-1 min-w-[200px] rounded-md border border-border-strong bg-surface-raised p-1 shadow-lg">
-          {STATUS_OPTIONS.map((status) => {
-            const meta = STATUS_META[status];
-            const checked = selected.includes(status);
-            return (
-              <button
-                key={status}
-                type="button"
-                onClick={() => toggle(status)}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left ui-body hover:bg-surface"
-              >
-                <span
-                  className={`grid size-4 shrink-0 place-items-center rounded border ${
-                    checked ? "border-accent bg-accent text-accent-fg" : "border-border"
-                  }`}
-                >
-                  {checked && <Check weight="bold" className="ui-micro" />}
-                </span>
-                <span style={{ color: meta?.color }} className="ui-body">
-                  {meta?.icon}
-                </span>
-                <span className="text-text">{meta?.label ?? status}</span>
-              </button>
-            );
-          })}
-          {selected.length > 0 && (
-            <button
-              type="button"
-              onClick={() => onChange([])}
-              className="mt-1 w-full rounded border border-border px-2 py-1 ui-meta text-text-muted hover:bg-surface hover:text-text"
-            >
-              {t("components.taskFilterBar.clearStatusFilter")}
-            </button>
-          )}
-        </div>
-      )}
-    </div>
+    <span
+      role="group"
+      aria-label={t("components.taskFilterBar.status")}
+      data-testid="board-status-filter"
+      className="inline-flex min-w-0 shrink overflow-x-auto rounded border border-border-strong"
+    >
+      {BOARD_COLUMNS.map((status) => {
+        const meta = STATUS_META[status];
+        const active = selected.includes(status);
+        return (
+          <button
+            key={status}
+            type="button"
+            data-testid={`board-status-pill-${status}`}
+            aria-pressed={active}
+            onClick={() => toggle(status)}
+            title={meta.label}
+            className={`inline-flex items-center gap-1 whitespace-nowrap px-2.5 py-0.5 ui-micro ${
+              active ? "bg-accent font-semibold text-accent-fg" : "text-text-muted hover:bg-surface"
+            }`}
+          >
+            <span style={active ? undefined : { color: meta.color }}>{meta.icon}</span>
+            {meta.label}
+            <span className="font-mono tabular-nums opacity-80">{counts.get(status) ?? 0}</span>
+          </button>
+        );
+      })}
+    </span>
   );
 }
 
@@ -173,7 +143,12 @@ export function TaskFilterBar({
   return (
     <section className="border-b border-border bg-surface/35 px-4 py-3">
       <div className="flex flex-wrap items-center gap-2">
-        <label className="flex min-w-[260px] flex-1 items-center gap-2 rounded-md border border-border bg-surface-raised px-2.5 py-1.5 focus-within:border-border-strong">
+        <label
+          className={
+            "flex w-[240px] shrink-0 items-center gap-2 rounded-md border border-border bg-surface-raised " +
+            "px-2.5 py-1.5 focus-within:border-border-strong"
+          }
+        >
           <MagnifyingGlass weight="bold" className="shrink-0 text-text-faint" />
           <input
             value={filters.query}
@@ -195,7 +170,7 @@ export function TaskFilterBar({
           values={engines}
           onChange={(engine) => patch({ engine })}
         />
-        <StatusMultiSelect selected={filters.status} onChange={(status) => patch({ status })} />
+        <StatusPillGroup tasks={tasks} selected={filters.status} onChange={(status) => patch({ status })} />
         <Select
           label={t("components.taskFilterBar.closeout")}
           value={filters.closeout}
@@ -208,20 +183,6 @@ export function TaskFilterBar({
           values={FRESHNESS}
           onChange={(freshness) => patch({ freshness })}
         />
-
-        <button
-          type="button"
-          role="switch"
-          aria-checked={filters.includeArchived}
-          onClick={() => patch({ includeArchived: !filters.includeArchived })}
-          className={`rounded-md border px-3 py-1.5 ui-body transition-colors duration-100 ${
-            filters.includeArchived
-              ? "border-border-strong bg-surface-raised text-text"
-              : "border-border text-text-muted hover:bg-surface-raised"
-          }`}
-        >
-          {t("components.taskFilterBar.archive")}
-        </button>
 
         {typeof coldTerminalCount === "number" && coldTerminalCount > 0 && (
           <button
@@ -283,7 +244,7 @@ export function TaskFilterBar({
             </span>
           ))
         ) : (
-          <span>{t("components.taskFilterBar.archivedCancelledHiddenByDefaultReduceNoise")}</span>
+          <span>{t("components.taskFilterBar.defaultHint")}</span>
         )}
       </div>
     </section>

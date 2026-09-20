@@ -13,7 +13,7 @@ import { DecisionPreviewDrawer } from "../src/renderer/components/DecisionPrevie
 import { streamTime } from "../src/renderer/components/overview/streamParts.tsx";
 import { formatTime } from "../src/renderer/model/time.ts";
 import type { WorkspaceSummaryRead } from "../src/api/renderer-dto.ts";
-import { DEFAULT_TASK_FILTERS, matchesTask } from "../src/renderer/model/taskFilters.ts";
+import { DEFAULT_TASK_FILTERS } from "../src/renderer/model/taskFilters.ts";
 import { summarizeWorkspace } from "../../kernel/src/index.ts";
 import { deriveRuntimeHealth } from "../src/renderer/model/runtime-health.ts";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
@@ -263,10 +263,13 @@ describe("overview decision stream: main row set renders in full", () => {
 });
 
 describe("overview task stream", () => {
-  // The overview renders the daemon aggregate and the board counts the rows it draws.
-  // They are the same number only while the backend classifies exactly what the board's
-  // default filter keeps, so the same fixture has to reach both sides and agree.
-  it("counts the same rows in the daemon aggregate and in the board columns it draws", () => {
+  // The overview renders the daemon aggregate and the board counts the rows it draws
+  // into column buckets (task_8928cf1e): lifecycle columns follow the census's
+  // active-package scope, archived rows flow into the first-class archived column,
+  // and the overview's archived tab counts them from the row set (the census has no
+  // archived cell). Cancelled rows stay cold-collapsed by default (W8 noise), so the
+  // same fixture has to reach all three surfaces and agree.
+  it("buckets board rows by column while the census counts active-package lifecycle rows", () => {
     const rows = [
       task({ taskId: "task_a1", title: "Active one", coordinationStatus: "active" }),
       task({ taskId: "task_a2", title: "Active two", coordinationStatus: "active" }),
@@ -283,13 +286,12 @@ describe("overview task stream", () => {
       rows.map(({ coordinationStatus, packageDisposition }) => ({ coordinationStatus, packageDisposition })),
       [],
     ).tasks;
-    const visible = rows.filter((row) => matchesTask(row, DEFAULT_TASK_FILTERS));
     const overview = renderToStaticMarkup(
-      createElement(TaskStream, { tasks: visible, summary, onOpenPreview: noop, onGoBoard: noop }),
+      createElement(TaskStream, { tasks: rows, summary, onOpenPreview: noop, onGoBoard: noop }),
     );
     const board = renderToStaticMarkup(
       createElement(BoardView, {
-        tasks: visible,
+        tasks: rows,
         allTasks: rows,
         filters: DEFAULT_TASK_FILTERS,
         onFiltersChange: noop,
@@ -299,14 +301,22 @@ describe("overview task stream", () => {
       }),
     );
 
-    for (const status of ["active", "blocked", "cancelled"] as const) {
-      const drawn = visible.filter((row) => row.coordinationStatus === status).length;
+    for (const status of ["active", "blocked"] as const) {
+      const drawn = rows.filter((row) => !row.visibility.archived && row.coordinationStatus === status).length;
       expect(summary.byStatus[status]).toBe(drawn);
       expect(board).toContain(`data-testid="board-status-${status}-count">${drawn}</span>`);
     }
-    expect(summary.total).toBe(visible.length);
+    // census 按设计不含 cancelled(0);看板 cancelled 列桶画出该行,但 W8 冷折叠
+    // 默认只显形计数(cancelled 是 noise,永不是 seed)。
+    expect(summary.byStatus.cancelled).toBe(0);
+    expect(board).toContain('data-testid="board-status-cancelled-count">0</span>');
+    // 归档行进一等 archived 列(非终态归档行默认可见)。
+    expect(board).toContain('data-testid="board-status-archived-count">1</span>');
+    expect(summary.total).toBe(3);
     expect(tabText(overview, "overview-status-active")).toBe("活跃 2");
     expect(tabText(overview, "overview-status-blocked")).toBe("已阻塞 1");
+    // archived 页签的计数从行集本地数出:daemon census 没有这一格。
+    expect(tabText(overview, "overview-status-archived")).toBe("已归档 1");
   });
 
   // 「无 reveal 按钮 + 窗口有界」的看板/泳道断言在 test/taskFilters.vitest.ts 的
@@ -452,8 +462,8 @@ describe("overview task stream", () => {
   });
 });
 
-describe("overview task stream: clean status filtering", () => {
-  it("filters out non-active packages from stream rows to align with workspace census", () => {
+describe("overview task stream: archived tab alignment (task_8928cf1e)", () => {
+  it("keeps lifecycle tabs active-package only while the archived tab counts every archived row", () => {
     const mixed = [
       task({
         taskId: "task_active_live",
@@ -486,9 +496,12 @@ describe("overview task stream: clean status filtering", () => {
         onGoBoard: noop,
       }),
     );
+    // 生命周期页签仍是活跃包口径(census 同源)。
     expect(markup).toContain("Live active task");
     expect(markup).not.toContain("Archived active task");
     expect(markup).not.toContain("Archived planned task");
+    // archived 页签的计数不再丢弃归档行,从行集本地数出(census 无此格)。
+    expect(tabText(markup, "overview-status-archived")).toBe("已归档 2");
   });
 
   it("carries selected status tasks through the overview page", () => {

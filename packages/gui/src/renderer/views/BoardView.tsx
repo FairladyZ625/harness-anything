@@ -13,7 +13,7 @@ import {
 } from "@dnd-kit/core";
 import { Lock, Archive, PushPin, Star } from "@phosphor-icons/react";
 import type { TaskRow, SnapshotStatus } from "../model/types";
-import { BOARD_COLUMNS, isExternal, taskCan } from "../model/types";
+import { BOARD_COLUMNS, boardColumnOf, isExternal, taskCan } from "../model/types";
 import {
   STATUS_META,
   CloseoutBadge,
@@ -446,12 +446,22 @@ export const BoardView = memo(function BoardView({
   const boardTasks = filters.expandColdTerminal ? tasks : coldPartition.visible;
 
   // 列模式单遍分组(W9):一次遍历产出 status→rows,替代每列一次的 filter 链;
-  // boardTasks 引用未变时(useMemo 命中)各列数组引用也稳定。
+  // 分组键是看板列桶 boardColumnOf——归档行进 archived 列,活跃行进生命周期列
+  // (task_8928cf1e)。boardTasks 引用未变时(useMemo 命中)各列数组引用也稳定。
   const columnsByStatus = useMemo(() => {
     const grouped = new Map<SnapshotStatus, TaskRow[]>(BOARD_COLUMNS.map((status) => [status, []]));
-    for (const task of boardTasks) grouped.get(task.coordinationStatus)!.push(task);
+    for (const task of boardTasks) grouped.get(boardColumnOf(task))!.push(task);
     return grouped;
   }, [boardTasks]);
+
+  // 列动态渲染(task_8928cf1e):状态 Pill 选中了哪几列就只渲染哪几列,未选中的
+  // 列组件整列不进 DOM(不是掏空卡片占宽);空选 = 全部列。列序恒按
+  // BOARD_COLUMNS,与 Pill 组一致。
+  const visibleColumns = useMemo(
+    () =>
+      filters.status.length > 0 ? BOARD_COLUMNS.filter((status) => filters.status.includes(status)) : BOARD_COLUMNS,
+    [filters.status],
+  );
 
   // 徽章是行内 placement 的派生标量(spawningDecisionBadge),卡片/行组件按行自取,
   // 这里不再有跨行的派生索引,也不读任何关系切面。
@@ -588,6 +598,7 @@ export const BoardView = memo(function BoardView({
         <SwimlaneBoard
           key={groupBy}
           tasks={boardTasks}
+          columns={visibleColumns}
           groupBy={groupBy}
           onSelect={onSelect}
           drill={drill ?? null}
@@ -598,7 +609,7 @@ export const BoardView = memo(function BoardView({
       ) : (
         <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
           <div className="flex flex-1 gap-3 overflow-x-auto p-4">
-            {BOARD_COLUMNS.map((status) => (
+            {visibleColumns.map((status) => (
               <Column
                 key={status}
                 status={status}

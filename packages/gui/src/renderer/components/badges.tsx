@@ -83,6 +83,11 @@ export const STATUS_META: Record<SnapshotStatus, { label: string; color: string;
     color: "var(--color-status-unknown)",
     icon: <Question weight="bold" />,
   },
+  archived: {
+    ...localizedLabel("components.badges.archived"),
+    color: "var(--color-status-archived)",
+    icon: <Archive weight="duotone" />,
+  },
 };
 
 export function StatusBadge({ status }: { status: SnapshotStatus }) {

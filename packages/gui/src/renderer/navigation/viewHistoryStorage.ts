@@ -64,7 +64,6 @@ function isTaskFilters(value: unknown): value is TaskFilters {
     value.status.every((status) => typeof status === "string") &&
     typeof value.closeout === "string" &&
     typeof value.freshness === "string" &&
-    typeof value.includeArchived === "boolean" &&
     typeof value.favoritesOnly === "boolean" &&
     typeof value.expandColdTerminal === "boolean"
   );

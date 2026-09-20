@@ -2,7 +2,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { CaretRight, Lock, PushPin, Star } from "@phosphor-icons/react";
 import type { TaskRow, SnapshotStatus } from "../model/types";
-import { BOARD_COLUMNS, isExternal } from "../model/types";
+import { boardColumnOf, isExternal } from "../model/types";
 import { STATUS_META, CloseoutBadge, DecisionSourceBadge, FreshnessTag, freshnessBorder } from "../components/badges";
 import { ColumnResizeHandle } from "../components/ColumnResizeHandle.tsx";
 import {
@@ -19,7 +19,7 @@ import { sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
 
 export type LaneGroupBy = "module" | "engine" | "root" | "productLine";
 
-/** 泳道列宽默认值 = 原 GRID_COLS(180px 泳道标签 + 7×230px 状态列);可调区间各自独立。 */
+/** 泳道列宽默认值 = 原 GRID_COLS(180px 泳道标签 + N×230px 状态列);可调区间各自独立。 */
 const LANE_COLUMN_KEY = "lane";
 const LANE_WIDTH_DEFAULT = 180;
 const LANE_WIDTH_RANGE = { min: 120, max: 480 } as const;
@@ -53,8 +53,9 @@ function laneLabelOf(key: string, groupBy: LaneGroupBy, representative: TaskRow)
 }
 
 /** 单遍分组模型(W9):一次遍历产出 lane→status→rows、列头计数与泳道标签,
- * 替代「每次渲染 7×O(n) 列头 filter + lanes×7 单元格 filter + 每泳道一次
- * O(n) 标签 find」。lane 行序与单元格内序保持 W8 语义:组内 lastKnownAt 倒序。 */
+ * 替代「每次渲染 N×O(n) 列头 filter + lanes×N 单元格 filter + 每泳道一次
+ * O(n) 标签 find」。分组键是看板列桶 boardColumnOf——归档行进 archived 列
+ * (task_8928cf1e)。lane 行序与单元格内序保持 W8 语义:组内 lastKnownAt 倒序。 */
 interface SwimlaneModel {
   readonly lanes: string[];
   readonly labels: ReadonlyMap<string, string>;
@@ -69,10 +70,14 @@ function cellOf(model: SwimlaneModel, lane: string, status: SnapshotStatus): rea
   return model.cells.get(lane)?.get(status) ?? EMPTY_CELL;
 }
 
-function buildSwimlaneModel(tasks: ReadonlyArray<TaskRow>, groupBy: LaneGroupBy): SwimlaneModel {
+function buildSwimlaneModel(
+  tasks: ReadonlyArray<TaskRow>,
+  groupBy: LaneGroupBy,
+  columns: readonly SnapshotStatus[],
+): SwimlaneModel {
   const groups = new Map<string, TaskRow[]>();
   const labels = new Map<string, string>();
-  const totals = new Map<SnapshotStatus, number>(BOARD_COLUMNS.map((status) => [status, 0]));
+  const totals = new Map<SnapshotStatus, number>(columns.map((status) => [status, 0]));
   for (const task of tasks) {
     const key = groupKeyOf(task, groupBy);
     let group = groups.get(key);
@@ -83,7 +88,8 @@ function buildSwimlaneModel(tasks: ReadonlyArray<TaskRow>, groupBy: LaneGroupBy)
       labels.set(key, laneLabelOf(key, groupBy, task));
     }
     group.push(task);
-    totals.set(task.coordinationStatus, (totals.get(task.coordinationStatus) ?? 0) + 1);
+    const bucket = boardColumnOf(task);
+    totals.set(bucket, (totals.get(bucket) ?? 0) + 1);
   }
   const cells = new Map<string, ReadonlyMap<SnapshotStatus, readonly TaskRow[]>>();
   const laneSizes = new Map<string, number>();
@@ -91,8 +97,8 @@ function buildSwimlaneModel(tasks: ReadonlyArray<TaskRow>, groupBy: LaneGroupBy)
     .map(([lane, group]) => {
       // 组内按 lastKnownAt 倒序(W8):组首即组内最新活动,泳道行序与单元格序都取它。
       group.sort((a, b) => b.lastKnownAt.localeCompare(a.lastKnownAt));
-      const byStatus = new Map<SnapshotStatus, TaskRow[]>(BOARD_COLUMNS.map((status) => [status, []]));
-      for (const task of group) byStatus.get(task.coordinationStatus)!.push(task);
+      const byStatus = new Map<SnapshotStatus, TaskRow[]>(columns.map((status) => [status, []]));
+      for (const task of group) byStatus.get(boardColumnOf(task))!.push(task);
       cells.set(lane, byStatus);
       laneSizes.set(lane, group.length);
       return [lane, group[0]?.lastKnownAt ?? ""] as const;
@@ -183,16 +189,18 @@ const LaneCard = memo(function LaneCard({
 });
 
 /**
- * 单条泳道行(windowing 后的挂载单元):结构不变——lane 标签 + 7 个状态格;
- * 外层由 windowing 定位(absolute + translateY),data-index 供 virtualizer
- * 的 measureElement 反查行号,行高实测收敛(标签换行时行会高于估算)。
- * 列模板跟随表头的 gridTemplateColumns(W11):表头/行同一份宽度偏好。
+ * 单条泳道行(windowing 后的挂载单元):结构不变——lane 标签 + 状态格(列集
+ * 跟随筛选,task_8928cf1e 起含 archived 桶);外层由 windowing 定位(absolute +
+ * translateY),data-index 供 virtualizer 的 measureElement 反查行号,行高实测
+ * 收敛(标签换行时行会高于估算)。列模板跟随表头的 gridTemplateColumns(W11):
+ * 表头/行同一份宽度偏好。
  */
 function LaneRow({
   lane,
   index,
   offset,
   gridTemplate,
+  columns,
   measureRef,
   model,
   groupBy,
@@ -204,6 +212,7 @@ function LaneRow({
   index: number;
   offset: number;
   gridTemplate: string;
+  columns: readonly SnapshotStatus[];
   measureRef: (element: Element | null) => void;
   model: SwimlaneModel;
   groupBy: LaneGroupBy;
@@ -225,7 +234,7 @@ function LaneRow({
         </span>
         <span className="font-mono ui-body text-text-faint">{model.laneSizes.get(lane) ?? 0}</span>
       </div>
-      {BOARD_COLUMNS.map((status) => {
+      {columns.map((status) => {
         const key = cellKey(lane, status);
         const selected = activeCell?.lane === lane && activeCell.status === status;
         return (
@@ -371,6 +380,7 @@ function DrilldownPanel({
 
 export function SwimlaneBoard({
   tasks,
+  columns,
   groupBy,
   onSelect,
   drill,
@@ -379,6 +389,8 @@ export function SwimlaneBoard({
   onSetPin,
 }: {
   tasks: readonly TaskRow[];
+  /** 可见状态列(= 看板筛选选中集,空选时由上层传全量);未选中的列连表头带格都不渲染。 */
+  columns: readonly SnapshotStatus[];
   groupBy: LaneGroupBy;
   onSelect: (id: string) => void;
   drill: { lane: string; status: SnapshotStatus; groupBy: LaneGroupBy } | null;
@@ -399,7 +411,7 @@ export function SwimlaneBoard({
     }
   }, [drillMatches, drillLane, drillStatus]);
 
-  const model = useMemo(() => buildSwimlaneModel(tasks, groupBy), [groupBy, tasks]);
+  const model = useMemo(() => buildSwimlaneModel(tasks, groupBy, columns), [groupBy, tasks, columns]);
   const lanes = model.lanes;
 
   // 泳道行 windowing(W10):基线 canonical 928 行全挂载、切到首行 4.8s;只挂
@@ -445,7 +457,7 @@ export function SwimlaneBoard({
   );
   const laneWidth = widths.swimlane[LANE_COLUMN_KEY] ?? LANE_WIDTH_DEFAULT;
   const gridStyle = {
-    gridTemplateColumns: [laneWidth, ...BOARD_COLUMNS.map((status) => widths.swimlane[status] ?? STATUS_WIDTH_DEFAULT)]
+    gridTemplateColumns: [laneWidth, ...columns.map((status) => widths.swimlane[status] ?? STATUS_WIDTH_DEFAULT)]
       .map((px) => `${Math.round(px)}px`)
       .join(" "),
   };
@@ -483,7 +495,7 @@ export function SwimlaneBoard({
                 className="inset-y-0 -right-1"
               />
             </div>
-            {BOARD_COLUMNS.map((status) => {
+            {columns.map((status) => {
               const meta = STATUS_META[status];
               return (
                 <div key={status} className="relative flex items-center gap-1.5 px-1.5">
@@ -521,6 +533,7 @@ export function SwimlaneBoard({
                   index={row.index}
                   offset={row.start}
                   gridTemplate={gridStyle.gridTemplateColumns}
+                  columns={columns}
                   measureRef={laneVirtualizer.measureElement}
                   model={model}
                   groupBy={groupBy}
