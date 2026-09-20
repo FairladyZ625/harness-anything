@@ -58,6 +58,7 @@ export interface TerritoryLayoutInput {
   containerWidth?: number;
   onOpen: (navRef: string) => void;
   onFold: (zoneId: string) => void;
+  onRevealZone?: (zoneId: string) => void;
   onSetPin?: (navRef: string, pinned: boolean) => void;
 }
 
@@ -79,6 +80,7 @@ export type TerritoryFoldNodeData = Record<string, unknown> & {
   /** `deferred: true` = 重点模式折叠的重点外 chip(区别于 chip 数封顶的 fold)。 */
   readonly fold: { readonly zoneId: string; readonly hidden: number; readonly deferred?: boolean };
   readonly onFold: (zoneId: string) => void;
+  readonly onRevealZone?: (zoneId: string) => void;
 };
 
 export type TerritoryZoneFlowNode = Node<TerritoryZoneNodeData, "territoryZone">;
@@ -115,7 +117,7 @@ function landingZone(chips: ReadonlyArray<TerritoryChip>): TerritoryZone {
 }
 
 export function layoutTerritory(input: TerritoryLayoutInput): TerritoryLayout {
-  const { partition, expandedZones, onOpen, onFold, onSetPin } = input;
+  const { partition, expandedZones, onOpen, onFold, onRevealZone, onSetPin } = input;
   const gridCols = deriveGridCols((input.containerWidth ?? 0) - LEFT_PAD * 2);
 
   const zones: TerritoryZone[] = [...partition.zones];
@@ -168,6 +170,8 @@ export function layoutTerritory(input: TerritoryLayoutInput): TerritoryLayout {
           style: { width: ZONE_W - ZONE_BODY_PAD_X * 2, height: CHIP_H },
           data: { chip, onOpen, onSetPin },
           zIndex: 2,
+          selectable: false,
+          draggable: false,
         });
         chipY += CHIP_H + CHIP_GAP;
       }
@@ -188,8 +192,10 @@ export function layoutTerritory(input: TerritoryLayoutInput): TerritoryLayout {
           width: ZONE_W - ZONE_BODY_PAD_X * 2,
           height: CHIP_H,
           style: { width: ZONE_W - ZONE_BODY_PAD_X * 2, height: CHIP_H },
-          data: { chip: null, fold, onFold },
+          data: { chip: null, fold, onFold, onRevealZone },
           zIndex: 2,
+          selectable: false,
+          draggable: false,
         });
       }
 

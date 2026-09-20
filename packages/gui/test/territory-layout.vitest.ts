@@ -185,4 +185,28 @@ describe("layoutTerritory (two-level zone + chip)", () => {
     }
     expect(zoneNodes.length).toBeGreaterThanOrEqual(1);
   });
+
+  it("carries onRevealZone into deferred fold nodes and disables dragging on chip/fold nodes", () => {
+    const onRevealZone = vi.fn();
+    const partition = partitionForSkel("task", [task()], [], [], [], []);
+    const zoneWithDeferred = {
+      ...partition.zones[0]!,
+      chips: [],
+      deferred: 2,
+    };
+    const { nodes } = layoutTerritory({
+      partition: { ...partition, zones: [zoneWithDeferred] },
+      expandedZones: new Set(),
+      containerWidth: 360,
+      onOpen: noop,
+      onFold: noop,
+      onRevealZone,
+    });
+    const foldNode = nodes.find(isTerritoryFoldNode)!;
+    expect(foldNode).toBeDefined();
+    expect(foldNode.data.fold.deferred).toBe(true);
+    expect(foldNode.data.onRevealZone).toBe(onRevealZone);
+    expect(foldNode.draggable).toBe(false);
+    expect(foldNode.selectable).toBe(false);
+  });
 });

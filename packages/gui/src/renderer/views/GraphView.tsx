@@ -357,11 +357,31 @@ function GraphViewInner({
     revealedZones,
   ]);
 
+  const revealZone = useCallback((zoneId: string) => {
+    setRevealedZones((prev) => {
+      const next = new Set(prev);
+      next.add(zoneId);
+      return next;
+    });
+    setExpandedZones((prev) => {
+      const next = new Set(prev);
+      next.add(zoneId);
+      return next;
+    });
+  }, []);
+
   const toggleZone = useCallback((zoneId: string) => {
     setExpandedZones((prev) => {
       const next = new Set(prev);
       if (next.has(zoneId)) next.delete(zoneId);
       else next.add(zoneId);
+      return next;
+    });
+    // 块若已被展开(进过 revealedZones),再次折叠时同步退出回到只显热点
+    setRevealedZones((prev) => {
+      if (!prev.has(zoneId)) return prev;
+      const next = new Set(prev);
+      next.delete(zoneId);
       return next;
     });
   }, []);
@@ -376,12 +396,13 @@ function GraphViewInner({
       containerWidth,
       onOpen: enterSpotlight,
       onFold: toggleZone,
+      onRevealZone: revealZone,
       onSetPin: (navRef, pinned) => {
         const task = tasks.find((candidate) => `task/${candidate.taskId}` === navRef);
         if (task) onSetTaskPin?.(task, pinned);
       },
     }).nodes;
-  }, [territory, expandedZones, containerWidth, enterSpotlight, toggleZone, tasks, onSetTaskPin]);
+  }, [territory, expandedZones, containerWidth, enterSpotlight, toggleZone, revealZone, tasks, onSetTaskPin]);
 
   // 视口策略(与老版同源):聚光灯 fitView 在 EgoNeighborhood 内;领地**不 fitView** ——
   // 上千块 fit 进一屏正是「块被压成几像素细横条」的成因,领地以默认视口(zoom 1,
