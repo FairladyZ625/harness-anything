@@ -320,6 +320,7 @@ export {
   configureLedgerMaintenance,
   HARNESS_LEDGER_WRITER_ENV,
   installLedgerCommitGuard,
+  localGitWorktreeSettlement,
   localGitObjectRefStore,
   createEntityStore,
   ledgerGitPath,
@@ -342,6 +343,7 @@ export {
   canonicalEventEntityRefs,
   readVerifiedLedgerBackup,
 } from "./composition/index.ts";
+export type { DocSyncConflictRecord } from "./store/local-version-control-system.ts";
 export type { LedgerBackupRetentionPolicyV1 } from "./composition/index.ts";
 export type {
   CanonicalContentBlob,

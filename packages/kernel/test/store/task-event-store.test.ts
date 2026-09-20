@@ -587,8 +587,8 @@ test("a path-scoped materialization restores the named document and keeps its lo
     );
     assert.equal(readFileSync(named, "utf8"), "named canonical\n");
     const copy = restored.settlements[0]!.copy!;
-    assert.equal(readFileSync(path.join(rootDir, "harness", copy), "utf8"), "operator draft\n");
-    assert.match(copy, /^context\/named\.conflict-[0-9a-f]{8}\.md$/u);
+    assert.equal(readFileSync(path.join(rootDir, copy), "utf8"), "operator draft\n");
+    assert.match(copy, /^\.harness\/conflicts\/doc-sync\/doc-[0-9a-f]{64}\/local$/u);
     assert.equal(existsSync(untouched), false, "a named restore must not touch other documents");
   } finally {
     await store.drain();

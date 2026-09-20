@@ -2,7 +2,7 @@ import {
   /* @gate-identity check-sync-subprocess/sync-subprocess-006 */
   execFileSync,
 } from "node:child_process";
-import { existsSync, lstatSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   classifyOpaqueTextualArtifactPath,
@@ -23,6 +23,7 @@ import {
   runtimeSessionIdFromActor,
   isSameExecution,
   isTaskBoundRuntimeWriter,
+  localGitWorktreeSettlement,
   sameWriteSource,
   sha256Bytes,
   stableStringify,
@@ -109,6 +110,7 @@ export function scanDocCandidates(input: {
     enumerationScope = taskPrefix ?? "",
     selected = input.selection?.map((value) => documentPath(normalizeSelectedPath(ledger.authoredPrefix, value))),
     inventoryByPath = new Map(input.inventory?.rows.map((row) => [row.path, row] as const) ?? []),
+    conflictsByPath = localDocConflictsByPath(input.rootDir),
     candidates = selected?.length
       ? [...new Set(selected)]
       : [
@@ -158,7 +160,7 @@ export function scanDocCandidates(input: {
       route = resolveDocRoute(document),
       target = path.join(layout.authoredRoot, ...logical.split("/")),
       projected = input.projection.readDocument(document),
-      conflicts = inventoried?.conflicts ?? candidateConflicts(input.rootDir, layout.authoredRoot, logical),
+      conflicts = inventoried?.conflicts ?? conflictsByPath.get(logical) ?? [],
       safe = inventoried?.safe ?? directFile(layout.authoredRoot, logical),
       fileSize = inventoried ? inventoried.size : safe && existsSync(target) ? lstatSync(target).size : null,
       classification = classifyTextualArtifactPath(logical),
@@ -440,6 +442,7 @@ export function scanAuthoredCandidateInventory(input: {
 }): AuthoredCandidateInventoryV1 {
   const layout = resolveHarnessLayout(input.rootDir),
     ledger = resolveLedgerGitLayout(input.rootDir),
+    conflictsByPath = localDocConflictsByPath(input.rootDir),
     paths = dirtyPaths(ledger.rootDir, ledger.authoredPrefix).sort(),
     baseLedgerSha = input.store.currentCut(),
     readCandidate = candidateByteReader(input.store, baseLedgerSha, layout.authoredRoot);
@@ -458,7 +461,7 @@ export function scanAuthoredCandidateInventory(input: {
         safe,
         size,
         bytes,
-        conflicts: candidateConflicts(input.rootDir, layout.authoredRoot, logical),
+        conflicts: conflictsByPath.get(logical) ?? [],
       };
     }),
   };
@@ -627,7 +630,10 @@ function dirtyPaths(repoRoot: string, authoredPrefix: string, logicalScope = "")
         )
         .map((value) => value.slice(prefix.length))
         .concat(
-          conflictLogicalPaths(path.join(repoRoot, scopePath || authoredPrefix), logicalScope.replace(/\/$/u, "")),
+          localGitWorktreeSettlement
+            .docSyncConflicts(repoRoot)
+            .map((record) => record.logicalPath)
+            .filter((logical) => !logicalScope || logical.startsWith(`${logicalScope.replace(/\/$/u, "")}/`)),
         ),
     ),
   ];
@@ -647,37 +653,14 @@ function gitStatusNames(repoRoot: string, scope: string): string[] {
   }
   return paths;
 }
-function candidateConflicts(rootDir: string, authoredRoot: string, logical: string): string[] {
-  const target = path.join(authoredRoot, ...logical.split("/")),
-    extension = path.extname(target),
-    stem = path.basename(target, extension),
-    directory = path.dirname(target);
-  if (!existsSync(directory)) return [];
-  return readdirSync(directory)
-    .filter(
-      (name) =>
-        name.startsWith(`${stem}.conflict-`) &&
-        name.endsWith(extension) &&
-        /^[0-9a-f]{8}$/u.test(name.slice(`${stem}.conflict-`.length, -extension.length)),
-    )
-    .map((name) => relative(rootDir, path.join(directory, name)))
-    .sort();
-}
-function conflictLogicalPaths(authoredRoot: string, logicalScope = ""): string[] {
-  const found: string[] = [];
-  const visit = (directory: string) => {
-    if (!existsSync(directory)) return;
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      const target = path.join(directory, entry.name);
-      if (entry.isDirectory()) visit(target);
-      else if (entry.isFile() && /\.conflict-[0-9a-f]{8}\.(?:md|txt)$/u.test(entry.name)) {
-        const logical = relative(authoredRoot, target).replace(/\.conflict-[0-9a-f]{8}(?=\.(?:md|txt)$)/u, "");
-        found.push(logicalScope ? `${logicalScope}/${logical}` : logical);
-      }
-    }
-  };
-  visit(authoredRoot);
-  return found;
+function localDocConflictsByPath(rootDir: string): ReadonlyMap<string, readonly string[]> {
+  const grouped = new Map<string, string[]>();
+  for (const record of localGitWorktreeSettlement.docSyncConflicts(rootDir)) {
+    const current = grouped.get(record.logicalPath) ?? [];
+    current.push(record.localPath);
+    grouped.set(record.logicalPath, current);
+  }
+  return grouped;
 }
 function gitNames(repoRoot: string, args: readonly string[]): string[] {
   return (

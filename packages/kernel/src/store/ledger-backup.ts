@@ -216,7 +216,7 @@ function existingBackupSources(rootDir: string, authoredRoot: string): readonly 
         drafts: readonly { preservedPath: string | null }[];
       };
       for (const draft of manifest.drafts)
-        if (draft.preservedPath !== null) candidates.push(path.join(authoredRoot, draft.preservedPath));
+        if (draft.preservedPath !== null) candidates.push(path.join(rootDir, draft.preservedPath));
     }
   }
   return candidates.filter((candidate) => fileSystem.exists(candidate));

@@ -516,7 +516,11 @@ export function captureConversionBaseline(
     const preservedPath = node
       ? localGitWorktreeSettlement.preserveConflict(repoRoot, `${repoRoot}/${target}`, target, parent)
       : null;
-    if (node && localGitWorktreeSettlement.readNode(`${repoRoot}/${preservedPath}`)?.sha256 !== node.sha256)
+    if (
+      node &&
+      localGitWorktreeSettlement.readNode(`${resolveHarnessLayout(rootInput).rootDir}/${preservedPath}`)?.sha256 !==
+        node.sha256
+    )
       throw new TaskEventStoreError("publication_indeterminate", `draft preservation differs: ${target}`);
     drafts.push({ path: target, mode: node?.mode ?? null, sha256: node?.sha256 ?? null, preservedPath });
     baseline.set(target, current);

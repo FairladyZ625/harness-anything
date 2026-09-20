@@ -516,14 +516,13 @@ test("a no-op title amend heals a plan whose canonical base still holds the pre-
       `no-op amend must retitle the plan: ${JSON.stringify(noop.changedPaths)}`,
     );
     await waitForFixturePublication(cell, noop.opId, binding);
-    // The typed settle preserves the unmerged worker edit as conflict scratch and lays down the
-    // retitled base; merging the scratch back by hand restores the worker body on the fresh base.
-    const scratches = readdirSync(path.dirname(target)).filter((name) =>
-      /^task_plan\.conflict-[0-9a-f]{8}\.md$/u.test(name),
-    );
-    assert.equal(scratches.length, 1, `expected one conflict scratch, found ${JSON.stringify(scratches)}`);
+    // The typed settle preserves the unmerged worker edit in bounded local conflict storage and lays down the
+    // retitled base; merging the stored bytes back by hand restores the worker body on the fresh base.
+    const conflictRoot = path.join(rootDir, ".harness/conflicts/doc-sync"),
+      scratches = readdirSync(conflictRoot).filter((name) => /^doc-[0-9a-f]{64}$/u.test(name));
+    assert.equal(scratches.length, 1, `expected one conflict record, found ${JSON.stringify(scratches)}`);
     writeFileSync(target, workerBody);
-    rmSync(path.join(path.dirname(target), scratches[0]!));
+    rmSync(path.join(conflictRoot, scratches[0]!), { recursive: true });
     const healed = await cell.run({ kind: "doc-status", paths: [plan] }, binding);
     assert.equal(rows(healed.evidence)[0]?.state, "eligible", JSON.stringify(healed));
     assert.equal((await cell.run({ kind: "doc-submit", paths: [plan] }, binding)).outcome, "applied");
