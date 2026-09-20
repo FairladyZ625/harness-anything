@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { setting, settingBlockValue } from "../../src/layout/index.ts";
-import { readSettingsFacet, writeRepositorySettingsFacet } from "../../src/index.ts";
+import { readSettingsFacet, repositorySettings, writeRepositorySettingsFacet } from "../../src/index.ts";
 
 const body = [
   "schema: harness-anything/v1",
@@ -65,4 +65,15 @@ test("the repository facet writer inserts, replaces, and leaves default CI workf
   const replaced = writeRepositorySettingsFacet(`${body}\n  ci:\n    workflows: [legacy]\n`, readSettingsFacet(body));
   assert.doesNotMatch(replaced, /legacy/u);
   assert.deepEqual(readSettingsFacet(replaced).ci.workflows, []);
+});
+
+test("a reviewer authored at the pre-roles root key survives the first read and moves under roles on write", () => {
+  const legacy = `${body}  defaultReviewer: closeout-reviewer\n`,
+    read = readSettingsFacet(legacy);
+  assert.deepEqual(read.roles, { defaultReviewer: "closeout-reviewer" });
+  const rewritten = writeRepositorySettingsFacet(legacy, repositorySettings(read));
+  assert.doesNotMatch(rewritten, /^  defaultReviewer:/mu);
+  assert.deepEqual(readSettingsFacet(rewritten).roles, { defaultReviewer: "closeout-reviewer" });
+  const both = `${legacy}  roles:\n    defaultReviewer: arch-reviewer\n`;
+  assert.deepEqual(readSettingsFacet(both).roles, { defaultReviewer: "arch-reviewer" });
 });

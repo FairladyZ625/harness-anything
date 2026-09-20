@@ -365,7 +365,11 @@ export function readSettingsFacet(body: string): SettingsV1 {
     defaultProfile: setting(body, "defaultProfile") ?? INITIAL_SETTINGS_V1.defaultProfile,
     roles: Object.fromEntries(
       rolePreferenceFields.flatMap((key) => {
-        const value = settingBlockValue(body, "roles", key);
+        // An authored document written before `settings.roles` keeps its reviewer at the root key;
+        // writeRoleSettings drops that key on the next write, so this read is the only carrier.
+        const value =
+          settingBlockValue(body, "roles", key) ??
+          (key === "defaultReviewer" ? setting(body, "defaultReviewer") : undefined);
         return value === undefined ? [] : [[key, value]];
       }),
     ),
