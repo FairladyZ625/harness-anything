@@ -93,7 +93,14 @@ test("ha explain and Task help overlay share one typed read, renderer, cut, and 
     assert.equal(retired.value.code, "unsupported_command");
 
     assert.deepEqual(store.read(), beforeStream);
-    assert.equal(git(root, "status", "--porcelain=v1"), beforeGit);
+    // The background WAL flush may commit already-dirty ledger paths between the two samples, so
+    // the reads are held to adding no dirty path rather than to an identical status.
+    const dirtyPaths = (status: string) => status.split("\n").flatMap((line) => (line ? [line.slice(3)] : [])),
+      dirtyBefore = new Set(dirtyPaths(beforeGit));
+    assert.deepEqual(
+      dirtyPaths(git(root, "status", "--porcelain=v1")).filter((dirty) => !dirtyBefore.has(dirty)),
+      [],
+    );
   } finally {
     if (existsSync(userRoot)) runText(root, userRoot, ["daemon", "stop"]);
     rmSync(parent, { recursive: true, force: true });
