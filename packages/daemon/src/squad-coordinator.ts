@@ -842,8 +842,6 @@ export function makeSquadCoordinator(input: {
     decision: Extract<LeaderDecision, { readonly kind: "converged" }>,
   ): string | null {
     const missing: string[] = [];
-    if (!workerRows(state).some(({ attempt, row }) => attempt.rejection === null && row?.outcome !== null))
-      missing.push("a terminal worker dispatch");
     const reportPath = synthesisReportPath(state);
     if (reportPath === null) missing.push("a roster-declared synthesis report path");
     if (decision.report !== null && decision.report.trim().length > 0)

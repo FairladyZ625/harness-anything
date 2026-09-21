@@ -60,12 +60,14 @@ const commanderDiscipline = `<very_important>
 # Commander Context
 
 ${[
-  "- Integrate child commits into the mission integration branch `codex/<mission-slug>`.",
+  "- Integrate each child branch into `codex/<mission-slug>` with a Git merge that preserves the child commit SHA. " +
+    "Do not cherry-pick or rebase child commits.",
   "- Run the overall targeted and integration regressions and applicable gates against the final integrated commit. " +
     "Inspect the evidence yourself and resolve semantic conflicts before publication.",
   "- After verification passes, run `git push origin codex/<mission-slug>` and `gh pr create` " +
     "with a complete bilingual PR " +
-    "following `.github/pull_request_template.md`, include the combined child evidence, and assign a reviewer.",
+    "following `.github/pull_request_template.md`, include the combined child evidence, then dispatch the ledger " +
+    "reviewer with `ha task adjudicate --forward`.",
   "- Track CI and review through approval, then hand the PR and evidence to the CEO. " +
     "Do not merge the PR or merge into main; final merge authority belongs to the CEO.",
 ].join("\n")}

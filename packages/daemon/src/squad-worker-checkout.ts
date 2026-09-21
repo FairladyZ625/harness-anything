@@ -28,8 +28,13 @@ export async function prepareWorkerWorktree(
   attemptId: string,
 ): Promise<WorkerCheckout | null> {
   if (state.baseSha === null) return null;
+  const commanderBranch = (await runProcessTextAsync("git", ["branch", "--show-current"], state.cwd)).trim();
+  if (!/^codex\/[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(commanderBranch))
+    throw new Error("Squad workers require a checked-out codex/<mission-slug> Commander branch.");
   const slug = `squad-${state.squadRunId.slice("squad_".length)}-${workerId}-${attemptId}`,
-    branch = `codex/${slug}`,
+    // Git cannot create refs/heads/codex/mission/worker while refs/heads/codex/mission exists.
+    // A sibling ref retains the visible mission owner without colliding with the Commander ref.
+    branch = `${commanderBranch}--${slug}`,
     cwd = path.join(state.cwd, ".worktrees", slug);
   if (existsSync(cwd)) {
     const currentBranch = (await runProcessTextAsync("git", ["branch", "--show-current"], cwd)).trim();

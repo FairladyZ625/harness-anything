@@ -358,7 +358,7 @@ test("Codex sidecar launch materializes the complete non-secret provider config 
     if (process.platform !== "win32") assert.equal(statSync(codexConfig).mode & 0o777, 0o600);
     assert.equal(
       text,
-      `model_provider = "codex_local_access"\nmodel_reasoning_effort = "xhigh"\n\n[model_providers."codex_local_access"]\nname = "codex_local_access"\nbase_url = "http://127.0.0.1:1/v1"\nwire_api = "responses"\nrequires_openai_auth = true\nhttp_headers = { "X-Harness-Probe" = "present", "X-Static-Route" = "sidecar" }\nexperimental_bearer_token = "instance-secret"\n`,
+      `model_provider = "codex_local_access"\nmodel_reasoning_effort = "xhigh"\nallow_login_shell = false\n\n[model_providers."codex_local_access"]\nname = "codex_local_access"\nbase_url = "http://127.0.0.1:1/v1"\nwire_api = "responses"\nrequires_openai_auth = true\nhttp_headers = { "X-Harness-Probe" = "present", "X-Static-Route" = "sidecar" }\nexperimental_bearer_token = "instance-secret"\n`,
     );
     assert.match(text, /experimental_bearer_token = "instance-secret"/u);
     assert.doesNotMatch(JSON.stringify(launch), /instance-secret/u);

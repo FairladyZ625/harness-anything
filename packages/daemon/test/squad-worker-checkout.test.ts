@@ -20,6 +20,9 @@ test("the same squad worker receives a distinct checkout for each attempt", asyn
         cwd: rootDir,
       },
     );
+    execFileSync("git", ["config", "user.name", "Fixture"], { cwd: rootDir });
+    execFileSync("git", ["config", "user.email", "fixture@example.com"], { cwd: rootDir });
+    execFileSync("git", ["branch", "-m", "codex/mission"], { cwd: rootDir });
     const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: rootDir, encoding: "utf8" }).trim(),
       state = { squadRunId: "squad_0123456789abcdef01234567", cwd: rootDir, baseSha },
       first = await prepareWorkerWorktree(state, "worker-3", "worker-1"),
@@ -27,9 +30,34 @@ test("the same squad worker receives a distinct checkout for each attempt", asyn
 
     assert.notEqual(first?.cwd, second?.cwd);
     assert.notEqual(first?.branch, second?.branch);
+    assert.match(first?.branch ?? "", /^codex\/mission--squad-/u);
     assert.equal(first?.baseSha, baseSha);
     assert.equal(second?.baseSha, baseSha);
     assert.deepEqual(await prepareWorkerWorktree(state, "worker-3", "worker-1"), first);
+
+    writeFileSync(path.join(first!.cwd, "worker.txt"), "worker\n");
+    execFileSync("git", ["add", "worker.txt"], { cwd: first!.cwd });
+    execFileSync("git", ["commit", "-m", "worker change"], {
+      cwd: first!.cwd,
+      env: {
+        ...process.env,
+        GIT_AUTHOR_DATE: "2000-01-01T00:00:00Z",
+        GIT_COMMITTER_DATE: "2000-01-01T00:00:00Z",
+      },
+    });
+    const childSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: first!.cwd, encoding: "utf8" }).trim();
+
+    execFileSync("git", ["switch", "-c", "comparison/cherry-pick", baseSha], { cwd: rootDir });
+    execFileSync("git", ["cherry-pick", childSha], {
+      cwd: rootDir,
+      env: { ...process.env, GIT_COMMITTER_DATE: "2001-01-01T00:00:00Z" },
+    });
+    const cherryPickedSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: rootDir, encoding: "utf8" }).trim();
+    assert.notEqual(cherryPickedSha, childSha, "cherry-pick recreates the child commit");
+
+    execFileSync("git", ["switch", "codex/mission"], { cwd: rootDir });
+    execFileSync("git", ["merge", "--no-ff", "--no-edit", first!.branch], { cwd: rootDir });
+    execFileSync("git", ["merge-base", "--is-ancestor", childSha, "HEAD"], { cwd: rootDir });
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
