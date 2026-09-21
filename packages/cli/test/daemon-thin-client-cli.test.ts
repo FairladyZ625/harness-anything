@@ -189,6 +189,7 @@ test("GUI launch reports a missing renderer bundle before daemon acquisition", a
     assert.equal(receipt.error.code, "gui_build_failed");
     assert.equal(receipt.diagnostic.kind, "validation");
     assert.match(receipt.diagnostic.expectation, /dist\/index\.html/u);
+    assert.match(receipt.diagnostic.expectation, /reinstall @harness-anything\/gui/u);
     assert.equal(daemonAcquisitions, 0, "a missing GUI bundle must not start the daemon");
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
@@ -444,7 +445,7 @@ test("ha gui --help documents repository context and attach-only daemon ownershi
   });
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /ha gui \[--root <path>\]/u);
-  assert.match(result.stdout, /canonical CLI installation/u);
+  assert.match(result.stdout, /optional @harness-anything\/gui package/u);
   assert.match(result.stdout, /never stops the daemon/u);
 });
 

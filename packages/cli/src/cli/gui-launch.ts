@@ -50,8 +50,8 @@ export async function runGuiLaunch(
   if (!guiPackageRoot)
     return reject(
       "gui_unavailable",
-      "The @harness-anything/gui package could not be resolved from this CLI installation. " +
-        "Reinstall @harness-anything/cli, then retry `ha gui`.",
+      "The desktop GUI is an optional shell and is not installed beside this CLI. " +
+        "Install it with `npm install -g @harness-anything/gui`, then retry `ha gui`.",
     );
   const browser = launch.browser,
     rendererBundle = path.join(guiPackageRoot, "dist/index.html"),
@@ -118,7 +118,7 @@ async function prepareGuiDaemon(invokingRoot: string): Promise<DaemonAutostartRe
 function missingBundleHint(bundle: string): string {
   return (
     `The GUI bundle ${bundle} is missing. In a source checkout build it with ` +
-    "`npm run build:all -w @harness-anything/gui`; in an npm installation reinstall @harness-anything/cli."
+    "`npm run build:all -w @harness-anything/gui`; in an npm installation reinstall @harness-anything/gui."
   );
 }
 // The Electron runtime is downloaded by electron's postinstall, which package managers
@@ -135,7 +135,7 @@ function guiElectronRuntime(guiPackageRoot: string): GuiElectronRuntime {
     return {
       remedy:
         "The Electron runtime package is not installed beside the GUI. " +
-        "Reinstall @harness-anything/cli, then retry `ha gui`.",
+        "Reinstall @harness-anything/gui, then retry `ha gui`.",
     };
   }
   const installScript = path.join(electronRoot, "install.js"),
