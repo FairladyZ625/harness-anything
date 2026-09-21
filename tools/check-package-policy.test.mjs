@@ -32,7 +32,7 @@ test("package policy accepts a daemon that remains private", async () => {
   });
 });
 
-test("package policy accepts GUI as an approved npm package", async () => {
+test("package policy rejects GUI as an npm package", async () => {
   await withFixtureRepo((root) => {
     writeValidFixture(root);
     writeJson(root, "packages/gui/package.json", {
@@ -45,8 +45,8 @@ test("package policy accepts GUI as an approved npm package", async () => {
 
     const result = runCheck(root);
 
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /Package policy check passed/u);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /not in the approved npm publish set/u);
   });
 });
 
@@ -68,8 +68,8 @@ test("package policy rejects a public daemon without its independent bin", async
 test("package policy rejects an internal library made public", async () => {
   await withFixtureRepo((root) => {
     writeValidFixture(root);
-    writeJson(root, "packages/kernel/package.json", {
-      name: "@harness-anything/kernel",
+    writeJson(root, "packages/application/package.json", {
+      name: "@harness-anything/application",
       version: "0.0.1",
     });
 
@@ -100,8 +100,14 @@ function writeValidFixture(root) {
     private: true,
     workspaces: ["packages/*", "packages/adapters/*"],
   });
+  writeJson(root, "packages/kernel/package.json", {
+    name: "@harness-anything/kernel",
+    version: "0.0.1",
+    publishConfig: { access: "public" },
+    repository: { directory: "packages/kernel" },
+    engines: { node: ">=24" },
+  });
   const packages = new Map([
-    ["packages/kernel/package.json", "@harness-anything/kernel"],
     ["packages/application/package.json", "@harness-anything/application"],
     ["packages/daemon/package.json", "@harness-anything/daemon"],
     ["packages/gui/package.json", "@harness-anything/gui"],

@@ -154,19 +154,21 @@ tests.
 
 Current release boundaries are intentionally conservative:
 
-- The approved public npm set is `@harness-anything/cli` and
-  `@harness-anything/daemon`, both under the `@harness-anything` organization
-  owned by `lizeyu990625`. The daemon package is not public-ready until its
-  independent executable and package metadata land.
+- The approved public npm set is `@harness-anything/cli`,
+  `@harness-anything/daemon`, and `@harness-anything/kernel`, all under the
+  `@harness-anything` organization owned by `lizeyu990625`. The daemon package
+  is not public-ready until its independent executable and package metadata
+  land. Kernel publishes compiled `dist` output with declarations; it is a
+  dependency-tree member, not a stabilized API surface.
 - `@harness-anything/daemon` owns the resident server, service process, runtime
   worker host, and the `harness-anything-daemon` bin. The CLI owns the `ha daemon
   start --service` control UX and autostart orchestration, which must resolve and
   spawn that installed daemon executable instead of hosting the daemon itself.
 - The root product, CLI, daemon release candidate, and Electron GUI use one
-  lockstep version. The current candidate is `0.1.0`; internal workspace
-  libraries remain private at `0.1.0`.
-- `@harness-anything/gui`, kernel, application, and adapter workspaces are not in
-  the approved npm publish set and remain private.
+  lockstep version. The current candidate is `0.1.0`; the remaining internal
+  workspace libraries stay private at `0.1.0`.
+- `@harness-anything/gui`, preset, application, and adapter workspaces are not
+  in the approved npm publish set and remain private.
 - Every client must complete `protocol.hello` with the daemon's exact protocol
   major and minor version before any other command. A mismatched edge CLI or GUI
   is rejected with `incompatible_protocol_version`; an edge must not replace or

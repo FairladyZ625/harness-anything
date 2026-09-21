@@ -159,19 +159,28 @@ function writeValidRuntimeReleaseFixture(root, options = {}) {
     "packages/adapters/multica/package.json",
   ]) {
     const packageJson =
-      packagePath === "packages/cli/package.json"
+      packagePath === "packages/kernel/package.json"
         ? {
-            name: "@harness-anything/cli",
+            name: "@harness-anything/kernel",
             version: "0.0.1",
             publishConfig: { access: "public" },
-            repository: { directory: "packages/cli" },
-            bin: { "harness-anything": "dist/cli/src/index.js", ha: "dist/cli/src/index.js" },
+            repository: { directory: "packages/kernel" },
+            engines: { node: ">=24" },
+            files: ["dist", "schemas", "README.md", "package.json"],
           }
-        : {
-            name: packagePath,
-            version: "0.0.1",
-            private: true,
-          };
+        : packagePath === "packages/cli/package.json"
+          ? {
+              name: "@harness-anything/cli",
+              version: "0.0.1",
+              publishConfig: { access: "public" },
+              repository: { directory: "packages/cli" },
+              bin: { "harness-anything": "dist/cli/src/index.js", ha: "dist/cli/src/index.js" },
+            }
+          : {
+              name: packagePath,
+              version: "0.0.1",
+              private: true,
+            };
     writeJson(root, packagePath, packageJson);
   }
 

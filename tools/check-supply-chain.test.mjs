@@ -309,6 +309,16 @@ function writeValidSupplyChainFixture(root, options = {}) {
     files: ["dist", "README.md", "package.json"],
   };
   workspacePackages["packages/gui/package.json"].version = "0.0.1";
+  workspacePackages["packages/kernel/package.json"] = {
+    ...workspacePackages["packages/kernel/package.json"],
+    name: "@harness-anything/kernel",
+    version: "0.0.1",
+    private: false,
+    publishConfig: { access: "public" },
+    repository: { directory: "packages/kernel" },
+    engines: { node: ">=24" },
+    files: ["dist", "schemas", "README.md", "package.json"],
+  };
   options.packageMutator?.(workspacePackages);
   for (const [packagePath, packageJson] of Object.entries(workspacePackages)) {
     writeJson(root, packagePath, packageJson);

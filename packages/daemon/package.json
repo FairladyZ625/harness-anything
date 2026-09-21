@@ -6,12 +6,17 @@
   "exports": {
     ".": "./dist/daemon/src/index.js",
     "./client": {
-      "default": "./src/client/index.ts"
+      "types": "./dist/daemon/src/client/index.d.ts",
+      "default": "./dist/daemon/src/client/index.js"
     },
     "./protocol": {
-      "default": "./src/protocol/index.ts"
+      "types": "./dist/daemon/src/protocol/index.d.ts",
+      "default": "./dist/daemon/src/protocol/index.js"
     },
-    "./protocol/validation": "./src/protocol/daemon-protocol-rpc-validation.ts",
+    "./protocol/validation": {
+      "types": "./dist/daemon/src/protocol/daemon-protocol-rpc-validation.d.ts",
+      "default": "./dist/daemon/src/protocol/daemon-protocol-rpc-validation.js"
+    },
     "./package.json": "./package.json"
   },
   "dependencies": {

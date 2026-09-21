@@ -19,10 +19,10 @@ export const publicReadyPackages = Object.freeze([
     required: false,
   }),
   Object.freeze({
-    packagePath: "packages/gui/package.json",
-    packageName: "@harness-anything/gui",
+    packagePath: "packages/kernel/package.json",
+    packageName: "@harness-anything/kernel",
     version: "0.0.1",
-    repositoryDirectory: "packages/gui",
+    repositoryDirectory: "packages/kernel",
     bins: Object.freeze({}),
     required: false,
   }),

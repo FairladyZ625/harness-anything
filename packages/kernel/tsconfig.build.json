@@ -8,11 +8,10 @@
     "target": "ES2024",
     "strict": true,
     "skipLibCheck": true,
-    "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true,
     "erasableSyntaxOnly": true,
-    "rootDir": "..",
-    "outDir": "dist"
+    "rootDir": "./src",
+    "outDir": "./dist"
   },
   "include": ["src/**/*.ts"]
 }

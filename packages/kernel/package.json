@@ -1,20 +1,48 @@
 {
   "name": "@harness-anything/kernel",
   "version": "0.0.1",
-  "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
+  "description": "Domain kernel for the Harness Anything accountability layer for AI agents.",
+  "homepage": "https://github.com/FairladyZ625/harness-anything#readme",
+  "bugs": {
+    "url": "https://github.com/FairladyZ625/harness-anything/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FairladyZ625/harness-anything.git",
+    "directory": "packages/kernel"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "npm run build",
+    "prepack": "npm run build"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "default": "./src/index.ts"
+      "default": "./dist/index.js"
     },
     "./browser": {
       "types": "./dist/browser.d.ts",
-      "default": "./src/browser.ts"
-    }
+      "default": "./dist/browser.js"
+    },
+    "./package.json": "./package.json"
   },
+  "files": [
+    "dist",
+    "schemas",
+    "README.md",
+    "package.json"
+  ],
   "dependencies": {
-    "cron-parser": "5.10.0"
+    "cron-parser": "5.10.0",
+    "effect": "3.21.4"
   }
 }
