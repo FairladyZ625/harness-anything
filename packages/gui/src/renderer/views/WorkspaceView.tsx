@@ -1,15 +1,16 @@
 import type { WorkspaceScopeRead } from "../../api/renderer-dto.ts";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "../model/types.ts";
 import { deriveAttestationLanes } from "../model/attestation-pool.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
 import { useCadenceFeed } from "../cadence-feed.ts";
 import { artifactsClient } from "../artifacts-client.ts";
-import { workspaceEvidenceOf } from "../model/workspace-evidence.ts";
+import { workspaceGraphSlice, workspaceEvidenceOf } from "../model/workspace-evidence.ts";
 import { eventTypeLabel, workspaceTitleIndex } from "../model/workspace-readable.ts";
 import { formatTime } from "../model/time.ts";
-import { WorkspaceLocalGraph } from "../components/WorkspaceLocalGraph.tsx";
+import { EgoNeighborhood } from "../graph/EgoNeighborhood.tsx";
+import { egoFactRefOf } from "../graph/egoCanvas.ts";
 import { WorkspaceGoal } from "../components/WorkspaceGoal.tsx";
 import { t } from "../i18n/index.tsx";
 
@@ -58,6 +59,25 @@ export function WorkspaceView({
   loadingMore = false,
 }: WorkspaceViewProps) {
   const [tab, setTab] = useState("overview");
+  const [focusRef, setFocusRef] = useState(`task/${scope.root.taskId}`);
+  const [graphStats, setGraphStats] = useState({ nodes: 0, edges: 0, focusLabel: null as string | null });
+  const onGraphStats = useCallback((next: typeof graphStats) => {
+    setGraphStats((current) =>
+      current.nodes === next.nodes && current.edges === next.edges && current.focusLabel === next.focusLabel
+        ? current
+        : next,
+    );
+  }, []);
+  const graph = useMemo(() => {
+    const slice = workspaceGraphSlice([scope.root.taskId, ...scope.memberTaskIds], relations);
+    const refs = new Set(slice.nodeRefs);
+    return {
+      tasks: tasks.filter(({ taskId }) => refs.has(`task/${taskId}`)),
+      decisions: decisions.filter(({ decisionId }) => refs.has(`decision/${decisionId}`)),
+      facts: facts.filter((fact) => refs.has(egoFactRefOf(fact))),
+      relations: [...slice.edges],
+    };
+  }, [scope.root.taskId, scope.memberTaskIds, tasks, decisions, facts, relations]);
   const members = new Set(scope.memberTaskIds),
     scopedTasks = tasks.filter(({ taskId }) => members.has(taskId)),
     lanes = deriveAttestationLanes(scopedTasks),
@@ -217,14 +237,31 @@ export function WorkspaceView({
                 onNavigateEntity={onNavigateEntity}
               />
             ) : null}
-            {tab === "relations" ? (
-              <WorkspaceLocalGraph
-                memberTaskIds={[scope.root.taskId, ...scope.memberTaskIds]}
-                relations={relations}
-                titles={titles}
-                onNavigateEntity={onNavigateEntity}
-              />
-            ) : null}
+            <section hidden={tab !== "relations"} className="space-y-3" aria-labelledby="workspace-graph">
+              <h2 id="workspace-graph" className="text-sm font-semibold text-text">
+                {t("views.workspace.localGraph")}
+              </h2>
+              <p className="text-sm text-text-muted">
+                {t("views.workspace.localGraphNote")} · {graphStats.nodes} 节点 / {graphStats.edges} 关系。
+                单击展开，双击设为画布中心；详情打开实体。
+              </p>
+              <div
+                data-testid="workspace-graph-scroll"
+                className="max-w-full overflow-x-auto rounded-lg border border-border"
+              >
+                <div data-testid="workspace-graph-canvas" className="h-[calc(100vh-380px)] min-h-[600px] min-w-[52rem]">
+                  <EgoNeighborhood
+                    {...graph}
+                    focusRef={focusRef}
+                    factAnchors={[]}
+                    onNavigateEntity={onNavigateEntity}
+                    onRefocus={setFocusRef}
+                    onLayoutStats={onGraphStats}
+                    active={tab === "relations"}
+                  />
+                </div>
+              </div>
+            </section>
           </div>
           {tab === "overview" ? (
             <aside data-testid="workspace-sidebar" className="min-w-0 space-y-8">
