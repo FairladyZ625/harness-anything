@@ -118,7 +118,7 @@ async function prepareGuiDaemon(invokingRoot: string): Promise<DaemonAutostartRe
 function missingBundleHint(bundle: string): string {
   return (
     `The GUI bundle ${bundle} is missing. In a source checkout build it with ` +
-    "`npm run build:all -w @harness-anything/gui`; in an npm installation reinstall @harness-anything/gui."
+    "`npm run build -w @harness-anything/gui`; in an npm installation reinstall @harness-anything/gui."
   );
 }
 // The Electron runtime is downloaded by electron's postinstall, which package managers
