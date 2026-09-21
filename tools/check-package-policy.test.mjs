@@ -32,13 +32,24 @@ test("package policy accepts a daemon that remains private", async () => {
   });
 });
 
-test("package policy rejects GUI as an npm package", async () => {
+test("package policy accepts GUI in the approved npm publish set", async () => {
+  await withFixtureRepo((root) => {
+    writeValidFixture(root);
+    makeGuiPublicReady(root);
+
+    const result = runCheck(root);
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /Package policy check passed/u);
+  });
+});
+
+test("package policy rejects a public GUI without publish metadata", async () => {
   await withFixtureRepo((root) => {
     writeValidFixture(root);
     writeJson(root, "packages/gui/package.json", {
       name: "@harness-anything/gui",
       version: "0.0.1",
-      publishConfig: { access: "public" },
       repository: { directory: "packages/gui" },
       engines: { node: ">=24" },
     });
@@ -46,7 +57,7 @@ test("package policy rejects GUI as an npm package", async () => {
     const result = runCheck(root);
 
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /is not in the approved npm publish set and must stay private/u);
+    assert.match(result.stderr, /must define publishConfig\.access public/u);
   });
 });
 
@@ -147,6 +158,16 @@ function makeDaemonPublicReady(root) {
     repository: { directory: "packages/daemon" },
     engines: { node: ">=24" },
     bin: { "harness-anything-daemon": "dist/index.js" },
+  });
+}
+
+function makeGuiPublicReady(root) {
+  writeJson(root, "packages/gui/package.json", {
+    name: "@harness-anything/gui",
+    version: "0.0.1",
+    publishConfig: { access: "public" },
+    repository: { directory: "packages/gui" },
+    engines: { node: ">=24" },
   });
 }
 

@@ -19,16 +19,20 @@ import {
 } from "./release-cli-acceptance.fixture.ts";
 
 test("browser GUI broker opens on exact loopback and rejects cross-origin RPC", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-browser-broker-"));
-  mkdirSync(path.join(root, "packages/gui/dist"), { recursive: true });
-  writeFileSync(path.join(root, "packages/gui/dist/index.html"), "<!doctype html><title>GUI</title>");
-  const broker = await startBrowserGuiBroker(root, root);
+  const root = mkdtempSync(path.join(tmpdir(), "ha-browser-broker-")),
+    guiPackageRoot = path.join(root, "packages/gui");
+  mkdirSync(path.join(guiPackageRoot, "dist"), { recursive: true });
+  writeFileSync(path.join(guiPackageRoot, "dist/index.html"), "<!doctype html><title>GUI</title>");
+  const broker = await startBrowserGuiBroker(guiPackageRoot, root);
   try {
     const url = new URL(broker.url),
       token = new URLSearchParams(url.hash.slice(1)).get("access_token");
     assert.equal(url.hostname, "127.0.0.1");
     assert.equal(Buffer.from(token!, "base64url").length, 32);
-    assert.equal((await call(url, "/")).headers["content-security-policy"]?.includes("default-src 'self'"), true);
+    const index = await call(url, "/");
+    assert.equal(index.headers["content-security-policy"]?.includes("default-src 'self'"), true);
+    assert.equal(index.status, 200, "GET / must serve the fixture index.html, not a 404 that still carries headers");
+    assert.equal(index.body, "<!doctype html><title>GUI</title>");
     assert.equal((await call(url, "/rpc", { method: "POST" })).status, 403);
     const writeBody = JSON.stringify({
       method: "repo.settings.update",
@@ -107,7 +111,7 @@ test("ordinary Chromium reaches the task shell through authenticated browser RPC
     });
     process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
     process.env.HARNESS_DAEMON_ID = daemonId;
-    broker = await startBrowserGuiBroker(path.resolve("."), root);
+    broker = await startBrowserGuiBroker(path.resolve("packages/gui"), root);
     const executablePath = chromiumExecutable(parent);
     const browser = await chromium.launch({ executablePath, headless: true, args: ["--no-sandbox"] });
     try {
@@ -197,7 +201,7 @@ test("browser writes preserve RepoCell idempotency, revision fences, and reposit
     ]);
     process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
     process.env.HARNESS_DAEMON_ID = daemonId;
-    broker = await startBrowserGuiBroker(path.resolve("."), firstRoot);
+    broker = await startBrowserGuiBroker(path.resolve("packages/gui"), firstRoot);
     const url = new URL(broker.url),
       token = new URLSearchParams(url.hash.slice(1)).get("access_token")!;
     const sameWrite = settingsWrite("browser-write-first", "same-key", undefined, 1024),

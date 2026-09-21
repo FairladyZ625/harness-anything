@@ -1,4 +1,7 @@
-import { daemonProtocolCommands, thinCliCommands } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import {
+  daemonProtocolCommands,
+  thinCliCommands,
+} from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { generationMigrationCommand } from "@harness-anything/daemon/internal/offline-storage-command";
 import { renderCliGuidance } from "./guidance-plane.ts";
 
@@ -23,9 +26,9 @@ export const clientLocalCommands = [
     id: "gui",
     path: ["gui"],
     usage: "ha gui [--root <path>]",
-    summary: "Build and launch the attach-only Electron GUI.",
+    summary: "Launch the attach-only Electron GUI.",
     help: [
-      "    Uses the canonical CLI installation for GUI code and daemon autostart.",
+      "    GUI code comes from the optional @harness-anything/gui package; the CLI handles daemon autostart.",
       "    --root selects the repository context; it defaults to the current directory.",
       "    Closing the GUI never stops the daemon, and the GUI never respawns a stopped daemon.",
     ].join("\n"),

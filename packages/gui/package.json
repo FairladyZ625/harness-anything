@@ -1,10 +1,10 @@
 {
   "name": "@harness-anything/gui",
   "version": "0.0.1",
-  "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "description": "Desktop GUI and visualization client for Harness Anything.",
+  "main": "./dist-electron/electron-main.js",
   "homepage": "https://github.com/FairladyZ625/harness-anything#readme",
   "bugs": {
     "url": "https://github.com/FairladyZ625/harness-anything/issues"
@@ -26,18 +26,27 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "dev:electron": "node scripts/dev-electron.mjs",
-    "build": "vite build",
-    "build:preload": "vite build --config vite.preload.config.ts",
-    "package:prepare": "npm run build && npm run build:preload && npm run build -w @harness-anything/cli && node scripts/prepare-desktop-runtime.mjs",
+    "build": "vite build && vite build --config vite.preload.config.ts && vite build --config vite.main.config.ts",
+    "prepack": "vite build --logLevel error && vite build --config vite.preload.config.ts --logLevel error && vite build --config vite.main.config.ts --logLevel error && node ../../tools/package-exports-lifecycle.mjs prepare",
+    "postpack": "node ../../tools/package-exports-lifecycle.mjs restore",
+    "package:prepare": "npm run build && npm run build -w @harness-anything/cli && node scripts/prepare-desktop-runtime.mjs",
     "package:mac:arm64": "npm run package:prepare && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --config electron-builder.config.mjs --mac --arm64",
     "package:win:x64": "npm run package:prepare && electron-builder --config electron-builder.config.mjs --win --x64",
     "package:linux:x64": "npm run package:prepare && electron-builder --config electron-builder.config.mjs --linux AppImage deb --x64",
     "preview": "vite preview --host 127.0.0.1",
     "test:gui": "vitest run --config vitest.config.ts",
-    "test:e2e": "npm run build && npm run build:preload && node --test e2e/*.e2e.mjs"
+    "test:e2e": "npm run build && node --test e2e/*.e2e.mjs"
   },
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./package.json": "./package.json"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": "./dist-electron/electron-main.js",
+      "./package.json": "./package.json"
+    }
   },
   "dependencies": {
     "@harness-anything/application": "0.0.1",
@@ -62,14 +71,14 @@
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "electron": "42.5.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.2",
     "@types/react": "19.2.17",
     "@types/react-dom": "19.2.3",
     "@vitejs/plugin-react": "6.0.5",
-    "electron": "42.5.1",
     "electron-builder": "^26.15.3",
     "happy-dom": "^20.11.6",
     "playwright-core": "1.62.1",
