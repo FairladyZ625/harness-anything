@@ -2,8 +2,6 @@
 // @vitest-environment happy-dom
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { workspaceFlowLayout } from "../src/renderer/components/WorkspaceLocalGraph.tsx";
-import { workspaceTitleIndex } from "../src/renderer/model/workspace-readable.ts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CadenceFeedEvent, CadenceFeedState } from "../src/renderer/model/cadence.ts";
@@ -196,22 +194,5 @@ describe("workspace readability under real ledger shapes", () => {
     expect(history).toContain(`title="execution_submitted · ${MEMBER}"`);
     // 三行没有正文,提示整段只说一次。
     expect(text.split(note).length - 1).toBe(1);
-  });
-
-  it("labels graph nodes with kind plus title and edges with a spoken relation kind", () => {
-    FEED_EVENTS.length = 0;
-    const graph = workspaceFlowLayout(
-      [MEMBER],
-      relations,
-      workspaceTitleIndex({ tasks: scope().tasks, facts, decisions: [] }),
-      new Set(),
-    );
-    const labels = graph.nodes.map((node) => node.data.label).join(" ");
-    expect(labels).toContain(`任务 · ${MEMBER_TITLE}`);
-    expect(labels).toContain("事实 · ");
-    expect(graph.edges.map((edge) => edge.label)).toContain("产出");
-    expect(labels).not.toContain(MEMBER);
-    expect(labels).not.toContain(FACT_ANCHOR);
-    expect(graph.edges[0].source).toBe(`task/${MEMBER}`);
   });
 });

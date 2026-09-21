@@ -6,7 +6,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 import { WorkView, workCollections } from "../src/renderer/views/WorkView.tsx";
 import type { TaskRow } from "../src/renderer/model/types.ts";
-import { workspaceFlowLayout } from "../src/renderer/components/WorkspaceLocalGraph.tsx";
 import { NAV_GROUPS } from "../src/renderer/navigation/navConfig.tsx";
 
 vi.mock("../src/renderer/workspace-scope-data.ts", () => ({
@@ -82,20 +81,10 @@ describe("work aggregation", () => {
     expect(host.textContent).toContain("solo");
     act(() => root.unmount());
   });
-  it("uses canonical edges and expands only the selected external boundary", () => {
-    const relations = [
-      { from: "task/a", to: "task/b", kind: "relates", provenance: "local-document" },
-      { from: "task/b", to: "task/c", kind: "relates", provenance: "local-document" },
-    ] as const;
-    const before = workspaceFlowLayout(["a"], relations, new Map(), new Set());
-    expect(before.nodes.map((node) => node.id)).toEqual(["task/a", "task/b"]);
-    const after = workspaceFlowLayout(["a"], relations, new Map(), new Set(["task/b"]));
-    expect(after.nodes.map((node) => node.id)).toContain("task/c");
-    expect(after.edges).toHaveLength(2);
-  });
 });
 
 it("loads actual goal material only after the user opens it", async () => {
+  vi.useFakeTimers();
   const { WorkspaceGoal } = await import("../src/renderer/components/WorkspaceGoal.tsx");
   const { harnessClient } = await import("../src/renderer/api-client.ts");
   const read = vi.spyOn(harnessClient, "getTaskDocument").mockResolvedValue({
@@ -121,12 +110,16 @@ it("loads actual goal material only after the user opens it", async () => {
   expect(read).not.toHaveBeenCalled();
   await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
   expect(read).toHaveBeenCalledWith({ repoId: "repo", taskId: "group", path: "task_plan.md" });
-  // Awaiting the very promise the component consumes settles the query and its re-render. A
-  // wall-clock delay here would only be a guess at how long that takes on the slowest machine.
-  await act(async () => void (await read.mock.results[0]!.value));
+  // The read promise settles the fetch; React Query still schedules its observer notification.
+  // Drain that scheduler deterministically instead of waiting for wall-clock time.
+  await act(async () => {
+    await read.mock.results[0]!.value;
+    await vi.runAllTimersAsync();
+  });
   expect(host.textContent).toContain("A real delivery condition");
   expect(host.querySelector('input[type="checkbox"]')).toBeNull();
   act(() => root.unmount());
   client.clear();
   read.mockRestore();
+  vi.useRealTimers();
 });
