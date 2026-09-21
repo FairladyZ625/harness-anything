@@ -463,6 +463,7 @@ function AppShell() {
           pinnedWork={(agendaQuery.data?.pinnedEntities ?? []).flatMap((item) =>
             item.kind === "task" ? [{ taskId: item.ref.replace(/^task\//u, ""), title: item.title }] : [],
           )}
+          onUnpinWork={(taskId) => handleSetPin({ taskId }, false)}
           onOpenWorkspace={(taskId) =>
             navigate({
               view: "workspace",
