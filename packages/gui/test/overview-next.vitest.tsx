@@ -351,7 +351,7 @@ function clickRow(container: HTMLElement, testId: string, title: string): void {
 describe("overview next: navigation registration", () => {
   it("registers the new primary nav item next to the untouched old overview", () => {
     const workspace = NAV_GROUPS.find((group) => group.id === "workspace");
-    expect(workspace?.items.map((item) => item.id)).toEqual(["overview", "overviewNext", "board", "graph"]);
+    expect(workspace?.items.map((item) => item.id)).toEqual(["overview", "overviewNext", "work", "board", "graph"]);
     expect(navLabel("overview")).toBe("总览");
     expect(navLabel("overviewNext")).toBe("总览（新）");
     // 恢复白名单对新 ViewId 的覆盖由 viewHistoryStorage 的编译期穷举检查把守

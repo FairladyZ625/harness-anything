@@ -22,6 +22,7 @@ import type { LaneGroupBy } from "../views/SwimlaneBoard.tsx";
 export type ViewId =
   | "home"
   | "overview"
+  | "work"
   | "overviewNext"
   | "workspace"
   | "board"

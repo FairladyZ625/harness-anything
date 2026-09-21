@@ -1,7 +1,11 @@
 // harness-test-tier: fast
-import { renderToStaticMarkup } from "react-dom/server";
+// @vitest-environment happy-dom
+import { act } from "react";
+import { createRoot } from "react-dom/client";
+import { workspaceFlowLayout } from "../src/renderer/components/WorkspaceLocalGraph.tsx";
+import { workspaceTitleIndex } from "../src/renderer/model/workspace-readable.ts";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CadenceFeedEvent, CadenceFeedState } from "../src/renderer/model/cadence.ts";
 import type { WorkspaceScopeRead } from "../src/api/renderer-dto.ts";
 import type { FactRef, RelationEdge } from "../src/renderer/model/types.ts";
@@ -14,6 +18,9 @@ import type { FactRef, RelationEdge } from "../src/renderer/model/types.ts";
  *  - 局部关系图:节点是实体类型 + 标题,边的 kind 说人话,原始引用退到悬停。
  * 事件窗口用固定 feed 替身注入(视图侧的 observe.tail follow 循环不在本判据内)。
  */
+
+import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+beforeEach(() => setActiveLocale("zh-CN"));
 
 const FEED_EVENTS: CadenceFeedEvent[] = [];
 
@@ -108,19 +115,27 @@ const relations: RelationEdge[] = [
 ];
 
 function render(): string {
-  return renderToStaticMarkup(
-    <QueryClientProvider client={new QueryClient()}>
-      <WorkspaceView
-        scope={scope()}
-        repoId="harness-anything"
-        projectName="harness-anything"
-        facts={facts}
-        relations={relations}
-        onOpenTask={() => {}}
-        onOpenGroup={() => {}}
-      />
-    </QueryClientProvider>,
+  const host = document.createElement("div"),
+    root = createRoot(host);
+  act(() =>
+    root.render(
+      <QueryClientProvider client={new QueryClient()}>
+        <WorkspaceView
+          scope={scope()}
+          repoId="harness-anything"
+          projectName="harness-anything"
+          facts={facts}
+          relations={relations}
+          onOpenTask={() => {}}
+          onOpenGroup={() => {}}
+        />
+      </QueryClientProvider>,
+    ),
   );
+  act(() => (host.querySelector("#workspace-tab-evidence") as HTMLButtonElement).click());
+  const html = host.innerHTML;
+  act(() => root.unmount());
+  return html;
 }
 
 /** 取出某个区块的 html(区块之间互不干扰地断言)。 */
@@ -185,16 +200,18 @@ describe("workspace readability under real ledger shapes", () => {
 
   it("labels graph nodes with kind plus title and edges with a spoken relation kind", () => {
     FEED_EVENTS.length = 0;
-    const graph = sectionOf(render(), "workspace-graph"),
-      text = visibleText(graph);
-    expect(text).toContain(`任务 · ${MEMBER_TITLE}`);
-    expect(text).toContain("事实 · ");
-    expect(text).toContain("产出");
-    // 原始引用退为悬停,不再占正文。
-    expect(text).not.toContain(MEMBER);
-    expect(text).not.toContain(FACT_ANCHOR);
-    expect(text).not.toContain("produces");
-    expect(graph).toContain(`title="task/${MEMBER}"`);
-    expect(graph).toContain(`title="task/${MEMBER} — produces → ${FACT_ANCHOR}"`);
+    const graph = workspaceFlowLayout(
+      [MEMBER],
+      relations,
+      workspaceTitleIndex({ tasks: scope().tasks, facts, decisions: [] }),
+      new Set(),
+    );
+    const labels = graph.nodes.map((node) => node.data.label).join(" ");
+    expect(labels).toContain(`任务 · ${MEMBER_TITLE}`);
+    expect(labels).toContain("事实 · ");
+    expect(graph.edges.map((edge) => edge.label)).toContain("产出");
+    expect(labels).not.toContain(MEMBER);
+    expect(labels).not.toContain(FACT_ANCHOR);
+    expect(graph.edges[0].source).toBe(`task/${MEMBER}`);
   });
 });

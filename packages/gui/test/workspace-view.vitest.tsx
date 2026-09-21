@@ -1,4 +1,7 @@
 // harness-test-tier: fast
+// @vitest-environment happy-dom
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { WorkspaceView } from "../src/renderer/views/WorkspaceView.tsx";
@@ -43,8 +46,10 @@ describe("workspace view states", () => {
     const html = renderToStaticMarkup(
       <WorkspaceView scope={scope()} projectName="Harness" onOpenTask={() => {}} onOpenGroup={() => {}} />,
     );
-    expect(html).toContain("暂无子组");
-    expect(html).toContain("暂无任务");
+    expect(html).toContain("暂无正在推进");
+    expect(html).toContain("workspace-sidebar");
+    expect(html).not.toContain("max-w-6xl");
+    expect(html).toContain("min-[1750px]:grid-cols-[minmax(0,1fr)_370px]");
     expect(html).toContain("取消单列");
   });
 
@@ -96,7 +101,33 @@ describe("workspace view states", () => {
     );
     expect(html).toContain("需要处理 · 1");
     expect(html).toContain("待签任务");
-    expect(html).toContain("加载更多");
+    expect(html).not.toContain("加载更多");
+  });
+
+  it("switches to full-width task and relation panels, keeping pagination actionable", () => {
+    const host = document.createElement("div"),
+      root = createRoot(host);
+    let loaded = 0;
+    act(() =>
+      root.render(
+        <WorkspaceView
+          scope={scope({ page: { limit: 100, cursor: null, nextCursor: "next" } })}
+          projectName="Harness"
+          onOpenTask={() => {}}
+          onOpenGroup={() => {}}
+          onLoadMore={() => loaded++}
+        />,
+      ),
+    );
+    act(() => (host.querySelector("#workspace-tab-tasks") as HTMLButtonElement).click());
+    expect(host.textContent).toContain("暂无子组");
+    expect(host.querySelector('[data-testid="workspace-sidebar"]')).toBeNull();
+    act(() => (host.querySelector('[data-testid="workspace-load-more"]') as HTMLButtonElement).click());
+    expect(loaded).toBe(1);
+    act(() => (host.querySelector("#workspace-tab-relations") as HTMLButtonElement).click());
+    expect(host.querySelector(".react-flow")).not.toBeNull();
+    expect(host.querySelector('[data-testid="workspace-load-more"]')).toBeNull();
+    act(() => root.unmount());
   });
 
   it("combines task pages and stops on the last page cursor", () => {

@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HomeView } from "../src/renderer/views/HomeView.tsx";
 import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
+import { WorkView } from "../src/renderer/views/WorkView.tsx";
 import { OverviewNextView } from "../src/renderer/views/OverviewNextView.tsx";
 import { deriveRuntimeHealth } from "../src/renderer/model/runtime-health.ts";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
@@ -609,6 +610,15 @@ const VIEW_RENDERERS = {
       onSwitchRepo: noop,
       onSearchActiveChange: noop,
       onRefreshLedger: noop,
+      onOpenTask: noop,
+    }),
+  work: () =>
+    createElement(WorkView, {
+      tasks: FIXTURE_TASKS,
+      repoId: REPO_ID,
+      projectName: FIXTURE_PROJECT.name,
+      ready: true,
+      onOpenGroup: noop,
       onOpenTask: noop,
     }),
   board: () =>
