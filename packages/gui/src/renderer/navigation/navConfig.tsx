@@ -40,6 +40,7 @@ const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
   overview: "shell.nav.overview",
   overviewNext: "shell.nav.overviewNext",
   workspace: "shell.nav.workspaceScope",
+  work: "shell.nav.work",
   board: "shell.nav.board",
   decisionPool: "shell.nav.decisionPool",
   freshness: "shell.nav.freshness",
@@ -78,6 +79,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     items: [
       { id: "overview", icon: <SquaresFour weight="duotone" /> },
       { id: "overviewNext", icon: <GridNine weight="duotone" /> },
+      { id: "work", icon: <Stack weight="duotone" /> },
       { id: "board", icon: <Kanban weight="duotone" /> },
       { id: "graph", icon: <Graph weight="duotone" /> },
     ],

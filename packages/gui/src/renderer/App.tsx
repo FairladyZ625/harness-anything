@@ -68,6 +68,7 @@ import type { ViewId } from "./navigation/viewHistory.ts";
 import { navLabel } from "./navigation/navConfig.tsx";
 import { useWorkspaceSummaryQuery } from "./workspace-summary-data.ts";
 import { WorkspaceSummaryPending } from "./components/WorkspaceSummaryPending.tsx";
+import { WorkView } from "./views/WorkView.tsx";
 import { WorkspaceView } from "./views/WorkspaceView.tsx";
 import { combineWorkspaceScopePages, useWorkspaceScopeQuery } from "./workspace-scope-data.ts";
 import { prewarmRuntimeInstanceCatalog } from "./runtime-instance-data.ts";
@@ -613,9 +614,21 @@ function AppShell() {
                 ) : (
                   <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
                 )
+              ) : view === "work" ? (
+                <WorkView
+                  tasks={tasks}
+                  repoId={projectId}
+                  projectName={project.name}
+                  ready={tasksQuery.data?.status === "ready"}
+                  onOpenTask={(taskId) => navigate({ selectedId: taskId, previewId: null })}
+                  onOpenGroup={(taskId) =>
+                    navigate({ view: "workspace", scopeRootTaskId: taskId, selectedId: null, previewId: null })
+                  }
+                />
               ) : view === "workspace" ? (
                 workspaceScope ? (
                   <WorkspaceView
+                    key={workspaceScope.root.taskId}
                     scope={workspaceScope}
                     repoId={projectId}
                     projectName={project.name}

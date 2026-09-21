@@ -6,15 +6,11 @@ import { deriveAttestationLanes } from "../model/attestation-pool.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
 import { useCadenceFeed } from "../cadence-feed.ts";
 import { artifactsClient } from "../artifacts-client.ts";
-import { normalizedRef, workspaceEvidenceOf, workspaceGraphSlice } from "../model/workspace-evidence.ts";
-import {
-  eventTypeLabel,
-  relationKindLabel,
-  workspaceNodeLabel,
-  workspaceNodeText,
-  workspaceTitleIndex,
-} from "../model/workspace-readable.ts";
+import { workspaceEvidenceOf } from "../model/workspace-evidence.ts";
+import { eventTypeLabel, workspaceTitleIndex } from "../model/workspace-readable.ts";
 import { formatTime } from "../model/time.ts";
+import { WorkspaceLocalGraph } from "../components/WorkspaceLocalGraph.tsx";
+import { WorkspaceGoal } from "../components/WorkspaceGoal.tsx";
 import { t } from "../i18n/index.tsx";
 
 export interface WorkspaceViewProps {
@@ -61,6 +57,7 @@ export function WorkspaceView({
   onLoadMore,
   loadingMore = false,
 }: WorkspaceViewProps) {
+  const [tab, setTab] = useState("overview");
   const members = new Set(scope.memberTaskIds),
     scopedTasks = tasks.filter(({ taskId }) => members.has(taskId)),
     lanes = deriveAttestationLanes(scopedTasks),
@@ -76,7 +73,7 @@ export function WorkspaceView({
     );
   return (
     <div data-testid="workspace-view" className="min-h-0 flex-1 overflow-y-auto p-5 md:p-7">
-      <div className="mx-auto max-w-6xl space-y-6">
+      <div className="min-w-0 space-y-6">
         <nav className="ui-meta text-text-muted" aria-label="工作范围">
           {[projectName, ...scope.ancestors.map(({ title }) => title), scope.root.title].join(" / ")}
         </nav>
@@ -94,11 +91,18 @@ export function WorkspaceView({
             统计范围：{scope.scope.descendantCount} 个后代，{scope.scope.executableLeafCount} 个可执行叶子任务。
             父组与子组不重复计入；取消单列；归档 {scope.scope.archivedCount} 项。
           </p>
-          {scope.goalMaterial ? (
-            <p className="font-mono ui-meta text-accent">目标与完成条件 · {scope.goalMaterial.path}</p>
-          ) : (
-            <p className="ui-meta text-text-faint">目标材料未投影</p>
-          )}
+          <div className="flex flex-wrap items-center gap-6 border-y border-border py-4 text-sm text-text-muted">
+            <span>
+              任务完成{" "}
+              <strong className="text-text">
+                {scope.counts.done} / {scope.scope.executableLeafCount}
+              </strong>
+            </span>
+            <span>等待处理 {lanes.gates.length + lanes.breakGlass.length + lanes.consents.length}</span>
+            <button type="button" className="ml-auto text-accent" onClick={() => setTab("relations")}>
+              查看关系 →
+            </button>
+          </div>
         </header>
 
         {scope.status === "pending" || scope.warnings.length ? (
@@ -108,68 +112,167 @@ export function WorkspaceView({
           </div>
         ) : null}
 
-        <section
-          aria-labelledby="workspace-situation"
-          className="rounded-lg border border-border bg-surface-raised p-4"
-        >
-          <h2 id="workspace-situation" className="mb-3 text-sm font-semibold text-text">
-            本组现在的局面
-          </h2>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-            {Object.entries(COUNT_LABELS).map(([key, label]) => (
-              <div key={key} className="rounded border border-border bg-surface px-3 py-2">
-                <div className="text-xl font-semibold text-text">{scope.counts[key as keyof typeof scope.counts]}</div>
-                <div className="ui-meta text-text-muted">{label}</div>
-              </div>
-            ))}
-          </div>
-        </section>
-
         {scope.incompleteParentRefs.length ? (
           <div className="rounded border border-warning/50 bg-warning/10 p-3 text-sm text-text">
             父链不完整：{scope.incompleteParentRefs.join("、")}
           </div>
         ) : null}
 
-        <WorkspacePending
-          tasks={scopedTasks}
-          lanes={lanes}
-          onOpenTask={onOpenTask}
-          onAttest={onAttest}
-          onConsent={onConsent}
-          feedback={feedback}
-        />
+        <div role="tablist" aria-label="工作分区" className="flex gap-6 overflow-x-auto border-b border-border">
+          {[
+            ["overview", "概览"],
+            ["tasks", `任务 ${scope.scope.executableLeafCount}`],
+            ["evidence", "经过与证据"],
+            ["relations", "关系"],
+          ].map(([id, label]) => (
+            <button
+              key={id}
+              id={`workspace-tab-${id}`}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              aria-controls="workspace-panel"
+              onClick={() => setTab(id)}
+              className={`shrink-0 border-b-2 pb-3 text-sm ${tab === id ? "border-accent text-accent" : "border-transparent text-text-muted"}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div
+          id="workspace-panel"
+          role="tabpanel"
+          aria-labelledby={`workspace-tab-${tab}`}
+          className={
+            tab === "overview"
+              ? "grid min-w-0 gap-9 min-[1101px]:grid-cols-[minmax(0,1fr)_314px] min-[1750px]:grid-cols-[minmax(0,1fr)_370px]"
+              : "min-w-0"
+          }
+        >
+          <div className="min-w-0 space-y-6">
+            {tab === "overview" ? (
+              <>
+                <section
+                  aria-labelledby="workspace-situation"
+                  className="rounded-lg border border-border bg-surface-raised p-4"
+                >
+                  <h2 id="workspace-situation" className="mb-3 text-sm font-semibold text-text">
+                    本组现在的局面
+                  </h2>
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                    {Object.entries(COUNT_LABELS).map(([key, label]) => (
+                      <div key={key} className="rounded border border-border bg-surface px-3 py-2">
+                        <div className="text-xl font-semibold text-text">
+                          {scope.counts[key as keyof typeof scope.counts]}
+                        </div>
+                        <div className="ui-meta text-text-muted">{label}</div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
 
-        <WorkspaceRows title="子组" rows={scope.groups} onOpen={onOpenGroup} />
-        <WorkspaceRows title="任务" rows={scope.tasks} onOpen={onOpenTask} />
-        {scope.page.nextCursor ? (
-          <button
-            type="button"
-            data-testid="workspace-load-more"
-            disabled={loadingMore}
-            onClick={onLoadMore}
-            className="rounded border border-border bg-surface-raised px-3 py-2 text-sm text-text disabled:opacity-60"
-          >
-            {loadingMore ? "正在加载…" : "加载更多"}
-          </button>
-        ) : null}
-        {repoId === "unselected" ? null : (
-          <WorkspaceEvidenceSections
-            repoId={repoId}
-            memberTaskIds={scope.memberTaskIds}
-            decisions={decisions}
-            facts={facts}
-            relations={relations}
-            titles={titles}
-            onNavigateEntity={onNavigateEntity}
-          />
-        )}
+                <WorkspacePending
+                  tasks={scopedTasks}
+                  lanes={lanes}
+                  onOpenTask={onOpenTask}
+                  onAttest={onAttest}
+                  onConsent={onConsent}
+                  feedback={feedback}
+                />
+                <WorkspaceRows
+                  title="正在推进"
+                  rows={scope.tasks.filter(({ status }) => status === "active" || status === "blocked")}
+                  onOpen={onOpenTask}
+                />
+                <button type="button" className="text-sm text-accent" onClick={() => setTab("tasks")}>
+                  查看全部任务 →
+                </button>
+              </>
+            ) : null}
+            {tab === "tasks" ? (
+              <>
+                <WorkspaceRows title="子组" rows={scope.groups} onOpen={onOpenGroup} />
+                <WorkspaceRows title="任务" rows={scope.tasks} onOpen={onOpenTask} />
+                {scope.page.nextCursor ? (
+                  <button
+                    type="button"
+                    data-testid="workspace-load-more"
+                    disabled={loadingMore}
+                    onClick={onLoadMore}
+                    className="rounded border border-border bg-surface-raised px-3 py-2 text-sm text-text disabled:opacity-60"
+                  >
+                    {loadingMore ? "正在加载…" : "加载更多"}
+                  </button>
+                ) : null}
+              </>
+            ) : null}
+            {tab === "evidence" && repoId !== "unselected" ? (
+              <WorkspaceEvidenceSections
+                repoId={repoId}
+                memberTaskIds={scope.memberTaskIds}
+                decisions={decisions}
+                facts={facts}
+                relations={relations}
+                titles={titles}
+                onNavigateEntity={onNavigateEntity}
+              />
+            ) : null}
+            {tab === "relations" ? (
+              <WorkspaceLocalGraph
+                memberTaskIds={[scope.root.taskId, ...scope.memberTaskIds]}
+                relations={relations}
+                titles={titles}
+                onNavigateEntity={onNavigateEntity}
+              />
+            ) : null}
+          </div>
+          {tab === "overview" ? (
+            <aside data-testid="workspace-sidebar" className="min-w-0 space-y-8">
+              <WorkspaceGoal scope={scope} repoId={repoId} onOpenTask={onOpenTask} />
+              <section className="space-y-3">
+                <h2 className="text-sm font-semibold text-text">参与执行</h2>
+                {scopedTasks.filter((task) => task.canonicalStatus === "active").length ? (
+                  scopedTasks
+                    .filter((task) => task.canonicalStatus === "active")
+                    .map((task) => (
+                      <button
+                        key={task.taskId}
+                        type="button"
+                        onClick={() => onOpenTask(task.taskId)}
+                        className="block w-full break-words border-b border-border pb-3 text-left text-sm text-text"
+                      >
+                        {task.title}
+                        <span className="mt-1 block text-text-muted">
+                          任务执行中 · {task.leaseHolder ?? "执行者未投影"}
+                        </span>
+                      </button>
+                    ))
+                ) : (
+                  <p className="text-sm text-text-muted">当前没有执行中的任务。</p>
+                )}
+              </section>
+              {repoId !== "unselected" ? (
+                <WorkspaceEvidenceSections
+                  historyOnly
+                  repoId={repoId}
+                  memberTaskIds={scope.memberTaskIds}
+                  decisions={decisions}
+                  facts={facts}
+                  relations={relations}
+                  titles={titles}
+                  onNavigateEntity={onNavigateEntity}
+                />
+              ) : null}
+            </aside>
+          ) : null}
+        </div>
       </div>
     </div>
   );
 }
 
 function WorkspaceEvidenceSections({
+  historyOnly = false,
   repoId,
   memberTaskIds,
   decisions,
@@ -178,6 +281,7 @@ function WorkspaceEvidenceSections({
   titles,
   onNavigateEntity,
 }: {
+  readonly historyOnly?: boolean;
   readonly repoId: string;
   readonly memberTaskIds: readonly string[];
   readonly decisions: readonly DecisionRow[];
@@ -191,6 +295,7 @@ function WorkspaceEvidenceSections({
       queryKey: ["artifacts", repoId, "md"],
       queryFn: () => artifactsClient.list(repoId, "md"),
       staleTime: 10_000,
+      enabled: !historyOnly,
     }),
     evidence = useMemo(
       () =>
@@ -206,14 +311,13 @@ function WorkspaceEvidenceSections({
     );
   return (
     <>
-      <WorkspaceHistory evidence={evidence} feed={feed} titles={titles} onNavigateEntity={onNavigateEntity} />
-      <WorkspaceEvidencePanel evidence={evidence} onNavigateEntity={onNavigateEntity} />
-      <WorkspaceLocalGraph
-        memberTaskIds={memberTaskIds}
-        relations={relations}
+      <WorkspaceHistory
+        evidence={historyOnly ? { ...evidence, events: evidence.events.slice(0, 3) } : evidence}
+        feed={feed}
         titles={titles}
         onNavigateEntity={onNavigateEntity}
       />
+      {historyOnly ? null : <WorkspaceEvidencePanel evidence={evidence} onNavigateEntity={onNavigateEntity} />}
     </>
   );
 }
@@ -502,74 +606,5 @@ function EvidenceList({
         <p className="mt-2 text-sm text-text-muted">{t("views.workspace.none")}</p>
       )}
     </div>
-  );
-}
-
-function WorkspaceLocalGraph({
-  memberTaskIds,
-  relations,
-  titles,
-  onNavigateEntity,
-}: {
-  readonly memberTaskIds: readonly string[];
-  readonly relations: readonly RelationEdge[];
-  readonly titles: ReadonlyMap<string, string>;
-  readonly onNavigateEntity?: (ref: string) => void;
-}) {
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set()),
-    graph = useMemo(
-      () => workspaceGraphSlice(memberTaskIds, relations, expanded),
-      [memberTaskIds, relations, expanded],
-    ),
-    external = new Set(graph.externalRefs);
-  return (
-    <section className="rounded-lg border border-border bg-surface-raised p-4" aria-labelledby="workspace-graph">
-      <h2 id="workspace-graph" className="text-sm font-semibold text-text">
-        {t("views.workspace.localGraph")}
-      </h2>
-      <p className="mt-1 ui-meta text-text-muted">{t("views.workspace.localGraphNote")}</p>
-      <div className="mt-3 flex flex-wrap gap-2">
-        {graph.nodeRefs.map((ref) => {
-          const node = workspaceNodeLabel(ref, titles);
-          return (
-            <button
-              key={ref}
-              // 原始引用退为悬停,不占版面;标题缺位时正文里就是原始 id,不补造。
-              title={ref}
-              type="button"
-              className={`max-w-full break-words rounded border px-2 py-1 text-left ui-meta ${external.has(ref) ? "border-warning/60 text-warning" : "border-border text-text"}`}
-              onClick={() =>
-                external.has(ref) ? setExpanded((current) => new Set([...current, ref])) : onNavigateEntity?.(ref)
-              }
-            >
-              <span className="text-text-faint">{node.kindLabel}</span>
-              {" · "}
-              {workspaceNodeText(node)}
-              {external.has(ref) ? t("views.workspace.externalExpand") : ""}
-            </button>
-          );
-        })}
-      </div>
-      {graph.edges.length ? (
-        <ul className="mt-3 space-y-1 ui-meta text-text-muted">
-          {graph.edges.map((edge) => {
-            const from = workspaceNodeLabel(normalizedRef(edge.from), titles),
-              to = workspaceNodeLabel(normalizedRef(edge.to), titles);
-            return (
-              <li
-                key={edge.relationId ?? `${edge.from}:${edge.kind}:${edge.to}`}
-                title={`${edge.from} — ${edge.kind} → ${edge.to}`}
-                className="break-words"
-              >
-                {workspaceNodeText(from)} <span className="text-text-faint">{relationKindLabel(edge.kind)}</span> →{" "}
-                {workspaceNodeText(to)}
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <p className="mt-3 text-sm text-text-muted">{t("views.workspace.graphEmpty")}</p>
-      )}
-    </section>
   );
 }
