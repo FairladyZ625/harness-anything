@@ -803,9 +803,12 @@ test(
     assert.equal(fixture.center.status().leases.queue.length, 1, "the command parked through the proxy");
     const queuedOpId = fixture.center.status().leases.queue[0]!.opId;
     closeProxy();
+    // 3s, not the 10s default: "promptly" is defined against the 8s business
+    // deadline above, so a bound that outlives it would invert this assertion.
     await waitUntil(
       () => proxyConnections >= 2,
       "the product edge path reconnects promptly instead of waiting for the business deadline",
+      15,
     );
     assert.ok(
       proxyConnections >= 2,
@@ -900,8 +903,8 @@ test("an in-flight opId is deduplicated and the wait default is thirty minutes",
   assert.deepEqual(codes, ["applied:null", "op_rejected:op_in_flight"]);
 });
 
-async function waitUntil(predicate: () => boolean, message: string): Promise<void> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+async function waitUntil(predicate: () => boolean, message: string, attempts = 50): Promise<void> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
