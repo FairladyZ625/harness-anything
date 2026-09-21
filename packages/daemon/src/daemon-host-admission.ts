@@ -1,6 +1,6 @@
 /** @daemon-transport-authority Transport-bound repository-mode admission. */
-import { readDaemonRegistry, type WriteSource } from "../../kernel/src/index.ts";
-import type { CommandTopology } from "../../preset/src/preset-command-contract.ts";
+import { readDaemonRegistry, type WriteSource } from "@harness-anything/kernel";
+import type { CommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
 import { admitRepoMode, repoModeAdmission, type RepoModeAdmission } from "./repo-mode.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";

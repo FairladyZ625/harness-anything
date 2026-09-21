@@ -4,7 +4,7 @@ import {
   readDaemonRegistry,
   disableDaemonRepo,
   type DaemonRepoMode,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { revokedAttachError } from "./daemon-host-errors.ts";
 import { canonicalRoot, workspaceId } from "./protocol/daemon-protocol.contract.ts";
 import type { RepoCell } from "./repo-cell-types.ts";

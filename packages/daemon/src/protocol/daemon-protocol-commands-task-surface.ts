@@ -4,7 +4,7 @@ import {
   cliInput,
   defineLedgerWriteCommand,
   defineRepoReadCommand,
-} from "../../../preset/src/preset-command-contract.ts";
+} from "@harness-anything/preset/internal/preset-command-contract";
 import { AGENDA_PIN_CRITERIA } from "./daemon-protocol-vocabulary.ts";
 
 export const taskSurfaceProtocolCommands = Object.freeze([

@@ -16,7 +16,7 @@ import {
   reduceTaskEvent,
   serializeCanonicalEvent,
   sha256Text,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 
@@ -473,7 +473,7 @@ test("a no-op title amend heals a plan whose canonical base still holds the pre-
         },
         documentClaims: [],
       },
-    } as unknown as import("../../kernel/src/index.ts").TaskEventV1;
+    } as unknown as import("@harness-anything/kernel").TaskEventV1;
     const compiled = compileTaskLifecycleWrite({
       event: seedEvent,
       snapshot: reduceTaskEvent(read.snapshot, seedEvent),

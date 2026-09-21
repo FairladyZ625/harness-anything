@@ -18,8 +18,8 @@ import {
   activateEmptyCanonicalGeneration,
   type AgentRuntimeEventV1,
   type FrozenWritePlan,
-} from "../../kernel/src/index.ts";
-import { WRITE_RECEIPT_SCHEMA } from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
+import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel";
 import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 import {
   canonicalRoot,

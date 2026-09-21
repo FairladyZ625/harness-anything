@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { PassThrough, Writable } from "node:stream";
-import { actionDeclarations, getEntityKindContract } from "../../kernel/src/index.ts";
+import { actionDeclarations, getEntityKindContract } from "@harness-anything/kernel";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { connectSocket, JsonRpcLineClient, requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import {

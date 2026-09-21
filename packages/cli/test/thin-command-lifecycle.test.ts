@@ -2,8 +2,8 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { parseRuntimeBatchEntry, runtimeBatchSpawnPayload } from "../../daemon/src/runtime-orchestration.ts";
-import { parseDaemonRpcParams } from "../../daemon/src/protocol/daemon-protocol-rpc-validation.ts";
+import { parseRuntimeBatchEntry, runtimeBatchSpawnPayload } from "@harness-anything/daemon/internal/runtime-orchestration";
+import { parseDaemonRpcParams } from "@harness-anything/daemon/internal/protocol/daemon-protocol-rpc-validation";
 import { firstCliCommand, firstCliCommandIndex, parseThinCommand } from "../src/cli/thin-command.ts";
 
 test("settings CLI and RPC accept role deltas and reject the retired root reviewer input", () => {

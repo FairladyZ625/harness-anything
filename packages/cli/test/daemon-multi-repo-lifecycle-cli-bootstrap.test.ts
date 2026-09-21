@@ -4,9 +4,9 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { requestLocalDaemonJsonRpc } from "../../daemon/src/client/local-json-rpc-client.ts";
-import { canonicalRoot, workspaceId } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { readDaemonPid } from "../../daemon/src/runtime.ts";
+import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
+import { canonicalRoot, workspaceId } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { readDaemonPid } from "@harness-anything/daemon/internal/runtime";
 import { openBootstrappedRepoCell as openRepoCell } from "../../daemon/test/repo-settings.fixture.ts";
 import {
   activateEmptyCanonicalGeneration,
@@ -15,7 +15,7 @@ import {
   makeTaskEventStore,
   readSettingsFacet,
   repositorySettings,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 import {
   cli,

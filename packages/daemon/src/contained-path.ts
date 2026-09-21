@@ -1,6 +1,6 @@
 import { realpathSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 
 export function resolveContainedPath(rootDir: string, requestedPath: string): string | null {
   let root: string, candidate: string;

@@ -1,5 +1,5 @@
-import { presetMethods } from "../../../preset/src/preset-command-contract.ts";
-import type { ContractVersion } from "../../../kernel/src/domain/contract-version.ts";
+import { presetMethods } from "@harness-anything/preset/internal/preset-command-contract";
+import type { ContractVersion } from "@harness-anything/kernel/contract-version";
 import type { FleetTaskAction } from "../fleet/contract.ts";
 import { daemonOwnedProtocolCommands } from "./daemon-protocol-commands.ts";
 import {

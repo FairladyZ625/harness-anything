@@ -14,8 +14,8 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { connect, type TLSSocket } from "node:tls";
-import { consumeKnownError, type LedgerCutIdentity } from "../../../kernel/src/index.ts";
-import { sha256Bytes } from "../../../kernel/src/index.ts";
+import { consumeKnownError, type LedgerCutIdentity } from "@harness-anything/kernel";
+import { sha256Bytes } from "@harness-anything/kernel";
 import { readFileWindow, writeFileDurably } from "../durable-file.ts";
 import {
   FLEET_CHUNK_BYTES,

@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { promisify } from "node:util";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 
 const execFileAsync = promisify(execFile),

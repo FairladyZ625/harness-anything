@@ -44,8 +44,8 @@ import {
 } from "./gui-result-validation.ts";
 import { isJsonObject, type JsonObject, type JsonRpcRequest, type JsonRpcResponse } from "./json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./version.ts";
-import { isContractVersionCompatible } from "../../../kernel/src/domain/contract-version.ts";
-import { consumeKnownError, type CoreDomainError } from "../../../kernel/src/index.ts";
+import { isContractVersionCompatible } from "@harness-anything/kernel/contract-version";
+import { consumeKnownError, type CoreDomainError } from "@harness-anything/kernel";
 import type { DaemonBuildObserver, DaemonBuildStamp } from "../build-identity.ts";
 import { diagnosticForError } from "../receipt-guidance.ts";
 import { remoteProxyEventMethod } from "../remote-proxy.ts";

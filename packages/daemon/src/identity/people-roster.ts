@@ -1,7 +1,7 @@
 // @slice-activation PLT-Daemon W4 identity/RBAC roster exported for daemon composition and W7 team server wiring.
 import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { parsePeopleRosterDocument, resolveHarnessLayout, type HarnessLayoutInput } from "../../../kernel/src/index.ts";
+import { parsePeopleRosterDocument, resolveHarnessLayout, type HarnessLayoutInput } from "@harness-anything/kernel";
 import {
   credentialKey,
   type CredentialRef,

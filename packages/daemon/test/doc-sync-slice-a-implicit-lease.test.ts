@@ -9,7 +9,7 @@ import {
   makeTaskEventStore,
   makeTaskProjection,
   type TaskProjection,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { runDocAction } from "../src/doc-sync-actions.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { authorizeRepoCellAction } from "../src/repo-cell-authorization.ts";

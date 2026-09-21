@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { buildEntityKindCatalog, validateEntityKindCatalog } from "../../kernel/src/index.ts";
+import { buildEntityKindCatalog, validateEntityKindCatalog } from "@harness-anything/kernel";
 import {
   compiledArtifactKinds,
   relationDirectionRegistry,
@@ -16,7 +16,7 @@ import { readDeclaredEntityRows, validateEntityRowList } from "../src/entity-row
 import { readEntityLocator, validateEntityLocatorRead } from "../src/entity-locator-read.ts";
 import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
+import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 
 const ADR_KIND = "entity-kind/KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
   ISSUE_KIND = "entity-kind/KND-2a6d1b8f0c4e5d7b9f3a1c2e4d6b8f05",

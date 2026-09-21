@@ -5,8 +5,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader } from "../../kernel/src/index.ts";
-import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
+import { makeTaskEventReader } from "@harness-anything/kernel";
+import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";

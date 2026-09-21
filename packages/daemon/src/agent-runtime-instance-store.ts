@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { userInfo } from "node:os";
 import path from "node:path";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import { credentialPort } from "./agent-runtime-credential-port.ts";
 import type { FlatRuntimeInstanceConfig, LegacyRuntimeInstanceConfig } from "./agent-runtime-instance-config.ts";
 import {

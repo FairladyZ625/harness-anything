@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { hostname } from "node:os";
-import { registerDaemonRepo, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
+import { registerDaemonRepo, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { canonicalRoot } from "../src/protocol/daemon-protocol.contract.ts";

@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { CanonicalEventStore, CanonicalEventV1 } from "../../kernel/src/index.ts";
+import type { CanonicalEventStore, CanonicalEventV1 } from "@harness-anything/kernel";
 import {
   eventEntityRefs,
   eventMatches,

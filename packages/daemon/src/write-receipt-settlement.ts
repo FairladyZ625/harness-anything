@@ -5,7 +5,7 @@ import {
   type CanonicalEventStore,
   type TaskProjection,
   type WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 
 const canonicalSettlementActions = new Set(

@@ -19,7 +19,7 @@ import {
   resolveHarnessLayout,
   type ActorIdentity,
   type WriteSource,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { RuntimePermissionMode } from "./runtime-permissions.ts";
 import type { RuntimeMetrics } from "./runtime-metrics.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";

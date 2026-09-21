@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import type { RepoCellOpenInput } from "./repo-cell-open.ts";
 import type { RepoCellAttachProgress, RepoCellBinding, RepoCellStatus } from "./repo-cell-types.ts";
 import {

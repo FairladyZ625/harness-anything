@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AgentRuntimeEventV1, RuntimeSession, TaskProjection } from "../../kernel/src/index.ts";
+import type { AgentRuntimeEventV1, RuntimeSession, TaskProjection } from "@harness-anything/kernel";
 import {
   serializeAgentRuntimeSessionGroups,
   validateAgentRuntimeSessionGroups,
@@ -13,7 +13,7 @@ import {
   type TaskDispatchRow,
 } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import { deriveUseCaseProjectionInputs } from "../../kernel/src/index.ts";
+import { deriveUseCaseProjectionInputs } from "@harness-anything/kernel";
 import type { AgentRuntimeSessionGroupsResult } from "../src/agent-runtime-contract.ts";
 
 /** Parse a session-groups read the way the GUI now receives it: inside the projection envelope. */

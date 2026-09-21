@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, type CanonicalEventStore } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, type CanonicalEventStore } from "@harness-anything/kernel";
 import { compiledArtifactKinds, readCurrentArtifact, resolveSourceBinding } from "../src/artifact-entity-action.ts";
 import type { VerticalDeclarationReader } from "../src/vertical-declaration-action.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";

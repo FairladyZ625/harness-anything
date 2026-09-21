@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { DaemonRegistryRepo } from "../../../kernel/src/index.ts";
+import type { DaemonRegistryRepo } from "@harness-anything/kernel";
 import {
   canonicalRoot as bindCanonicalRoot,
   endpointIdentity,
@@ -145,7 +145,7 @@ export async function readRegisteredRepos(
   userRoot: string,
 ): Promise<ReadonlyArray<DaemonRegistryRepo & { readonly canonicalRoot: string }>> {
   if (!existsSync(path.join(userRoot, "registry.json"))) return [];
-  const { readDaemonRegistry } = await import("../../../kernel/src/daemon/registry.ts");
+  const { readDaemonRegistry } = await import("@harness-anything/kernel/daemon-registry");
   return readDaemonRegistry({ userRoot }).repos.filter(
     (repo): repo is DaemonRegistryRepo & { readonly canonicalRoot: string } => repo.canonicalRoot !== null,
   );

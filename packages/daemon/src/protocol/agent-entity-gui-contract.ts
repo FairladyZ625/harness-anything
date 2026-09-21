@@ -1,6 +1,6 @@
-import { entityNonEmpty, entitySlug } from "../../../kernel/src/index.ts";
-import { EntitySchemaContractError } from "../../../kernel/src/index.ts";
-import type { AgentRuntimeTargetV1, AgentSkillDeclarationV1 } from "../../../kernel/src/index.ts";
+import { entityNonEmpty, entitySlug } from "@harness-anything/kernel";
+import { EntitySchemaContractError } from "@harness-anything/kernel";
+import type { AgentRuntimeTargetV1, AgentSkillDeclarationV1 } from "@harness-anything/kernel";
 
 function isEntityRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);

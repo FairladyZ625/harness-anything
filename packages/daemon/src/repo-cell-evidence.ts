@@ -1,4 +1,4 @@
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import { renderTaskIndexPayload } from "./task-index-query.ts";
 
 export function decodeEvidencePayload(evidence: string): unknown {

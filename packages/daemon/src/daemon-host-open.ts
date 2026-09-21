@@ -5,8 +5,8 @@ import {
   readDaemonRegistry,
   registerDaemonRepo,
   type DaemonRepoMode,
-} from "../../kernel/src/index.ts";
-import type { CommandTopology } from "../../preset/src/preset-command-contract.ts";
+} from "@harness-anything/kernel";
+import type { CommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
 import {
   discoverRuntimeInstallations,
   openRuntimeInstanceStore,

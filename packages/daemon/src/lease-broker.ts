@@ -13,7 +13,7 @@
 // asynchronous domain probe can never act on a stale mirror snapshot and a
 // concurrent first-grab queues instead of racing the winner.
 import path from "node:path";
-import { consumeKnownError, getExecutableEntityAction, sha256Text, stableStringify } from "../../kernel/src/index.ts";
+import { consumeKnownError, getExecutableEntityAction, sha256Text, stableStringify } from "@harness-anything/kernel";
 import type { DaemonHost } from "./daemon-host.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { FLEET_TASK_COMMAND_KINDS, type FleetFrameV1, type FleetTaskAction } from "./fleet/contract.ts";

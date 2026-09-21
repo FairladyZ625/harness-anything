@@ -16,7 +16,7 @@ import {
   parseDocWriteIntent,
   sha256Bytes,
   sqliteLedgerPath,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { preflightConvertedGenerationActivation } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -28,7 +28,7 @@ import {
   DOC_SYNC_INLINE_MAX_BYTES,
   RAW_ARTIFACT_MAX_BYTES,
   RAW_ARTIFACT_POLICY_ID,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 const PROSE_POLICY_ID = "markdown-body-replaceable/v1",
   OPAQUE_POLICY_ID = "opaque-textual-whole-file/v1";

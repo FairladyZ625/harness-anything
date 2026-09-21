@@ -2,7 +2,7 @@ import {
   approvedReviewHistoryForExecution,
   currentSubmittedExecutions,
   submissionDigest,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";
 import type { RepoTaskAction, Snapshot } from "./repo-cell-types.ts";

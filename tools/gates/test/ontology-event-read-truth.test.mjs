@@ -16,7 +16,7 @@ test("G0-3 reports the base advisory and points to an L1 read injected into a na
     rootDir,
     "packages/daemon/src/task-query-read.ts",
     [
-      'import { readMarkdown } from "../../kernel/src/index.ts";',
+      'import { readMarkdown } from "@harness-anything/kernel";',
       "function relationGraphPage() {",
       '  return readMarkdown("harness/tasks/task_x/INDEX.md");',
       "}",

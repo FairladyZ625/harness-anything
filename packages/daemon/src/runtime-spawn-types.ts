@@ -12,7 +12,7 @@ import type {
   RuntimeSession,
   SessionIdentity,
   WriteSource,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type {
   AgentFallbackDeclarationV1,
   AgentPermissionMode,
@@ -20,7 +20,7 @@ import type {
   AgentRuntimeTargetV1,
   AgentSkillDeclarationV1,
   ScheduleRunOutcome,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type {
   PreparedRuntimeLaunch,
   RuntimeInstallationWitness,

@@ -5,10 +5,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { deriveRelationId, makeTaskEventReader } from "../../kernel/src/index.ts";
-// Cold-rebuild internals are intentionally not part of the public kernel barrel.
-// eslint-disable-next-line no-restricted-imports
-import { readColdRebuildSource } from "../../kernel/src/projection/cold-rebuild-source.ts";
+import { deriveRelationId, makeTaskEventReader } from "@harness-anything/kernel";
+import { readColdRebuildSource } from "@harness-anything/kernel/internal/projection/cold-rebuild-source";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";

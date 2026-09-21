@@ -1,4 +1,4 @@
-import { cliInput, defineCliCommand, workspacePathFormat } from "../../../preset/src/preset-command-contract.ts";
+import { cliInput, defineCliCommand, workspacePathFormat } from "@harness-anything/preset/internal/preset-command-contract";
 import { credentialKindWords, peopleCommandClassWords } from "./daemon-protocol-vocabulary.ts";
 
 export const peopleAddJsonFields = Object.freeze(["personId", "displayName", "role", "commandClass"] as const),

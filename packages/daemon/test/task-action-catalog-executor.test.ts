@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getExecutableEntityAction } from "../../kernel/src/index.ts";
+import { getExecutableEntityAction } from "@harness-anything/kernel";
 import { makeEntityActionCatalogExecutor, deriveActionResult } from "../src/entity-action-catalog-executor.ts";
 import { rejectExecutionSelection } from "../src/repo-cell-execution-selection.ts";
 import { cellCriterionError } from "../src/repo-cell-errors.ts";

@@ -4,15 +4,15 @@ import test from "node:test";
 import { mkdtempSync, mkdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { readWorkspaceText } from "../../daemon/src/workspace-text-port.ts";
+import { readWorkspaceText } from "@harness-anything/daemon/internal/workspace-text-port";
 import {
   diagnosticForError,
   receiptLayoutRoots,
   taskCreateGuidance,
   workspaceRelativePath,
-} from "../../daemon/src/receipt-guidance.ts";
-import { completionGuidance, resolveHarnessLayout, type CanonicalEventStore } from "../../kernel/src/index.ts";
-import { workspacePathResolutionRule } from "../../preset/src/preset-command-contract.ts";
+} from "@harness-anything/daemon/internal/receipt-guidance";
+import { completionGuidance, resolveHarnessLayout, type CanonicalEventStore } from "@harness-anything/kernel";
+import { workspacePathResolutionRule } from "@harness-anything/preset/internal/preset-command-contract";
 import { humanError, renderReceiptGuidance } from "../src/cli/guidance-plane.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { daemonFailure } from "../src/daemon/control-support.ts";

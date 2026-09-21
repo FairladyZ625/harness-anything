@@ -1,4 +1,4 @@
-import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { accepted, globalOption, nonEmpty, rejected, stripGlobals } from "./thin-command-flags.ts";
 import { renderCliGuidance } from "./guidance-plane.ts";
 import type { ThinHelpOverlayRoute, ThinParseResult } from "./thin-command-types.ts";

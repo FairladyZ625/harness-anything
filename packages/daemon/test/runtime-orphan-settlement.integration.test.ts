@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { consumeKnownError, makeTaskEventReader, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
+import { consumeKnownError, makeTaskEventReader, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";

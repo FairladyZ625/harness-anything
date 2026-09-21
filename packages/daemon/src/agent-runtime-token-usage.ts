@@ -1,4 +1,4 @@
-import type { TaskProjection } from "../../kernel/src/index.ts";
+import type { TaskProjection } from "@harness-anything/kernel";
 import { agentRuntimeTokenUsageRangeWords } from "./protocol/daemon-protocol-schema-ids.ts";
 import { readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import type { DispatchStreamHeader, DispatchStreamSummary } from "./dispatch-stream.ts";

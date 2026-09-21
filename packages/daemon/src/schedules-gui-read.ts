@@ -5,10 +5,10 @@ import {
   type CanonicalEventV1,
   type DaemonRepoMode,
   type ScheduleV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { AgentRuntimeInstanceDto } from "./agent-runtime-contract.ts";
 import { storedAgentDeclarationOutcome } from "./agent-entities.ts";
-import { parseAgentDeclarationV1 } from "../../kernel/src/index.ts";
+import { parseAgentDeclarationV1 } from "@harness-anything/kernel";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { parseFleetRoster, type FleetRoster } from "./fleet-center-admission.ts";
 import { scheduleReasoningEfforts } from "./protocol/daemon-protocol-commands-runtime-fleet.ts";

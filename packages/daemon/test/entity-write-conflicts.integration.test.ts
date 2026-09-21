@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, openSqliteEventStore } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, openSqliteEventStore } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { connectSocket, JsonRpcLineClient } from "../src/client/local-json-rpc-client.ts";

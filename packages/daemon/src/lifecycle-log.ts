@@ -10,7 +10,7 @@ import {
   statSync,
 } from "node:fs";
 import path from "node:path";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import type { DaemonEntry } from "./build-identity.ts";
 
 export const DAEMON_LIFECYCLE_LOG_SCHEMA = Object.freeze({ id: "daemon-lifecycle/v1" });

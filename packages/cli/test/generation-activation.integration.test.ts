@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { docSyncWritePlan, makeTaskEventReader, makeTaskEventStore } from "../../kernel/src/index.ts";
+import { docSyncWritePlan, makeTaskEventReader, makeTaskEventStore } from "@harness-anything/kernel";
 import {
   createLedgerBackup,
   generationTwoActivationPath,

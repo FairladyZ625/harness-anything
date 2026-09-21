@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { INITIAL_SETTINGS_V1 } from "../../kernel/src/index.ts";
+import { INITIAL_SETTINGS_V1 } from "@harness-anything/kernel";
 import { makeRepoCellSettingsState } from "../src/repo-cell-settings-state.ts";
 
 test("locale state stays local and does not append a settings event", () => {

@@ -16,7 +16,7 @@ import {
   type DocEventChange,
   type TaskEventV1,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { adjudicateDocIntent, claimBytes, recycleClaims, rejectDocSyncAction } from "./doc-sync-actions.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { readCompletionContext } from "./task-completion-read.ts";

@@ -9,7 +9,7 @@ import type {
   RepositorySettingsV1,
   SettingsV1,
   TaskProjection,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   annotateExecution as annotateExecutionImpl,
   declareExecutionExecutor as declareExecutionExecutorImpl,

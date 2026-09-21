@@ -2,7 +2,7 @@ import { chmodSync, realpathSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 
 /**
  * node-pty 1.1.0 ships `prebuilds/<platform>-<arch>/spawn-helper` in its npm

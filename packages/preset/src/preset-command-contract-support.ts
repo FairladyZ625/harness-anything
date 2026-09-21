@@ -1,4 +1,4 @@
-import type { EntityActionContract, EntityActionInputField } from "../../kernel/src/index.ts";
+import type { EntityActionContract, EntityActionInputField } from "@harness-anything/kernel";
 
 export interface CliInputError {
   readonly code: string;

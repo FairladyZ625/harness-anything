@@ -6,7 +6,7 @@ import {
   createScheduleV1,
   type CanonicalEventV1,
   type ScheduleV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { readScheduleRuns, validateScheduleRuns } from "../src/schedule-runs-read.ts";
 
 const actor = { principal: { personId: "schedule-runs-test" }, executor: null } as const;

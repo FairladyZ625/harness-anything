@@ -13,7 +13,7 @@ import {
   resolveHarnessLayout,
   type DaemonRepoMode,
   type TaskProjectionQueries,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import {
   readRuntimeAttemptChain,

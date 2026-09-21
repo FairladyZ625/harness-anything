@@ -1,5 +1,5 @@
-import { commandDescriptorForAction } from "../../../daemon/src/protocol/daemon-protocol-commands.ts";
-import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { commandDescriptorForAction } from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands";
+import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import type { ThinCliInput, ThinCliInputDirectory, ThinCommand, ThinParseResult } from "./thin-command-types.ts";
 import { renderCliGuidance } from "./guidance-plane.ts";
 

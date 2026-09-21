@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { makeTaskActionExplanationService } from "../../application/src/task-action-explanation-service.ts";
-import { taskActionCommandUsage, thinCliCommands } from "../../daemon/src/protocol/daemon-protocol-commands.ts";
+import { taskActionCommandUsage, thinCliCommands } from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands";
 import { renderThinHelp } from "../src/cli/thin-command.ts";
 
 test("help, explain, and the router describe one Task Action catalog", () => {

@@ -1,10 +1,10 @@
-import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
-import type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autostart.ts";
+import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
+import type { DaemonLaunchSpec } from "@harness-anything/daemon/internal/client/daemon-autostart";
 import {
   daemonIdFromEnv,
   daemonUserRoot,
   resolveLocalDaemonEndpoint,
-} from "../../../daemon/src/client/local-daemon-target.ts";
+} from "@harness-anything/daemon/internal/client/local-daemon-target";
 import type { ThinCommand } from "../cli/thin-command.ts";
 import { withAutostart } from "./with-autostart.ts";
 

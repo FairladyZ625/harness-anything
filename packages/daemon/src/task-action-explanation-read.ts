@@ -27,7 +27,7 @@ import {
   type EntityRef,
   type PeopleRosterDocumentV1,
   type TaskProjection,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import { taskActionCommandUsage } from "./protocol/daemon-protocol-commands.ts";
 import { compiledArtifactKinds } from "./artifact-entity-action.ts";

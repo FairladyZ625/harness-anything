@@ -11,7 +11,7 @@ import {
   makeTaskProjection,
   validateReceiptAcceptance,
   WRITE_RECEIPT_SCHEMA,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { validateWriteReceipt } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { settingsLastChanged } from "../src/repo-cell-settings-state.ts";

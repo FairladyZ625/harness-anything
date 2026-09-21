@@ -35,7 +35,7 @@ import {
   type CanonicalEventV1,
   type CanonicalEventStore,
   type TaskEventV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { preflightCanonicalGeneration } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import {
   assertNoPendingHistoricalRewrites,

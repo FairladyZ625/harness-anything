@@ -1,6 +1,6 @@
 import path from "node:path";
 import { existsSync } from "node:fs";
-import { localGitObjectRefStore } from "../../kernel/src/index.ts";
+import { localGitObjectRefStore } from "@harness-anything/kernel";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 

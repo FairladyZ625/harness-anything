@@ -9,7 +9,7 @@ import {
   makeTaskEventReader,
   type AgentDefinitionSnapshot,
   type RuntimeInstallationWitness,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
 import { readDispatchStream } from "../src/dispatch-stream.ts";
 import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";

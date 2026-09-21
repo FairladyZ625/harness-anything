@@ -20,7 +20,7 @@ import {
   type ReceiptJsonValue,
   type ReceiptDiagnostic,
   type TaskProjection,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { authorizeAction } from "./authorization.ts";
 import { declaredRoleBindingsFromRoster } from "./identity/declared-role-binding-projection.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";

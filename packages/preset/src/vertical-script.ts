@@ -7,7 +7,7 @@ import {
   resolveHarnessLayout,
   type VerticalScriptActionV1,
   type VerticalScriptPlanV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { loadCanonicalAssets } from "./preset-assets.ts";
 
 export interface PreparedBuiltinVerticalScript {

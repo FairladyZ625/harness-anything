@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import test from "node:test";
-import { type RuntimeProtocolFamily, type SessionIdentity } from "../../kernel/src/index.ts";
+import { type RuntimeProtocolFamily, type SessionIdentity } from "@harness-anything/kernel";
 import { runtimeProtocolFamilies } from "../src/runtime-inventory.ts";
 import {
   resolveSessionIdentity,

@@ -11,7 +11,7 @@ import {
   type EntityActionCompileInput,
   type PersonActionId,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   peopleAddJsonAllowedFields,
   peopleAddJsonFields,

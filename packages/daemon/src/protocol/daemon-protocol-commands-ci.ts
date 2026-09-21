@@ -1,4 +1,4 @@
-import { cliInput, defineCliCommand } from "../../../preset/src/preset-command-contract.ts";
+import { cliInput, defineCliCommand } from "@harness-anything/preset/internal/preset-command-contract";
 
 const ciWriteTopology = {
   commandClass: "repo-write" as const,

@@ -9,7 +9,7 @@ import {
   createScheduleV1,
   type CanonicalEventV1,
   type ScheduleV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   daemonGuiActionMethods,
   daemonGuiReadMethods,
@@ -29,7 +29,7 @@ import {
   scheduleDurationUnitMs,
   scheduleDurationUnits,
 } from "../src/protocol/daemon-protocol-vocabulary.ts";
-import { deriveUseCaseProjectionInputs } from "../../kernel/src/index.ts";
+import { deriveUseCaseProjectionInputs } from "@harness-anything/kernel";
 import {
   deriveScheduleExecutionAvailability,
   readSchedulesGui,

@@ -1,4 +1,4 @@
-import type { TaskIndexProjectionRow, TaskProjection } from "../../kernel/src/index.ts";
+import type { TaskIndexProjectionRow, TaskProjection } from "@harness-anything/kernel";
 import { requireSameProjectionCut, type ProjectionCut } from "./task-query-read.ts";
 
 /**

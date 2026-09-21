@@ -8,7 +8,7 @@ import {
   type EntityActionUnmetCriterionV1,
   type TaskLifecycleCommand,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { actionCriterionFailure, attributeCellCriterion } from "./repo-cell-errors.ts";
 import { actorHint, runtimeSessionDispatchRole } from "./repo-cell-proof.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";

@@ -11,7 +11,7 @@ import {
   makeTaskProjection,
   parseDocWriteIntent,
   sha256Text,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { readDocReceipt } from "../src/doc-sync-actions.ts";
 import { detail, touch } from "../src/doc-sync-details.ts";

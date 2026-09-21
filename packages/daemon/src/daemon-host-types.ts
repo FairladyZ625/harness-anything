@@ -1,5 +1,5 @@
 import type { SquadControlResult } from "./squad-control-result.ts";
-import { type DaemonRepoMode, type WriteReceiptDraft as WriteReceipt } from "../../kernel/src/index.ts";
+import { type DaemonRepoMode, type WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
 import type {
   AgentRuntimeAttachEvent,
   AgentRuntimeAttachSubscription,

@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import { createServer, type Server } from "node:tls";
-import { resolveHarnessLayout, sha256Bytes } from "../../../kernel/src/index.ts";
+import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
 import { readFileWindow, syncDirectory, syncFile } from "../durable-file.ts";
 import { openFleetLeaseBroker } from "../lease-broker.ts";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch, type PersistentWriterEpoch } from "../writer-epoch.ts";
@@ -535,7 +535,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           a.repoId,
           {
             kind: "event",
-            type: frame.eventType as import("../../../kernel/src/index.ts").AgentRuntimeEventV1["type"],
+            type: frame.eventType as import("@harness-anything/kernel").AgentRuntimeEventV1["type"],
             payload: frame.payload,
             opId: frame.opId,
             ...(resultBody === undefined ? {} : { resultBody }),

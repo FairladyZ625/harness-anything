@@ -29,7 +29,7 @@ import {
   type TaskLifecycleCommand,
   type TaskProjection,
   type WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { cellCodedError, cellCriterionError } from "./repo-cell-errors.ts";
 import { makeGitReadinessSource } from "./process-port.ts";
 import { readDispatchStream } from "./dispatch-stream.ts";

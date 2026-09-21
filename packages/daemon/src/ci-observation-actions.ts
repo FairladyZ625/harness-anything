@@ -11,10 +11,10 @@ import {
   type CiRunObservationEventV3,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { runProcessTextAsync } from "./process-port.ts";
-import { localGitObjectRefStore, resolveHarnessLayout } from "../../kernel/src/index.ts";
+import { localGitObjectRefStore, resolveHarnessLayout } from "@harness-anything/kernel";
 import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
 type CiRunArtifactGate =

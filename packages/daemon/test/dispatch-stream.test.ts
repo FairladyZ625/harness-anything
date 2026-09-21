@@ -22,7 +22,7 @@ import { adoptNativeProcess } from "../src/runtime-spawn-process.ts";
 import { readRuntimeSessionActivityEvidence } from "../src/dispatch-read.ts";
 import { runtimeBindingForDispatch } from "../src/runtime-spawn-types.ts";
 import { runtimeSessionActionPreparer } from "../src/runtime-session-action-runtime.ts";
-import { getExecutableEntityAction } from "../../kernel/src/index.ts";
+import { getExecutableEntityAction } from "@harness-anything/kernel";
 
 test("runtime dispatch persistence excludes RepoCell writer transport fields", () => {
   const actor = { principal: { personId: "runtime-owner" }, executor: null },

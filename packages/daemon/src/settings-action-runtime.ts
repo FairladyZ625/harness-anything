@@ -14,8 +14,8 @@ import {
   type SettingsActionDraft,
   type SettingsV1,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
-import { runPresetAction } from "../../preset/src/index.ts";
+} from "@harness-anything/kernel";
+import { runPresetAction } from "@harness-anything/preset";
 import { settingsLastChanged } from "./repo-cell-settings-state.ts";
 import type { RepoCellRuntimeContext, RepoCellSettingsState } from "./repo-cell-action-context.ts";
 import type { EntityActionCatalogRunner } from "./entity-action-catalog-executor.ts";

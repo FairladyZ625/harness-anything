@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError, type TaskProjection } from "../../kernel/src/index.ts";
+import { consumeKnownError, type TaskProjection } from "@harness-anything/kernel";
 import {
   canonicalEventCut,
   classifyRawArtifactPath,
@@ -15,7 +15,7 @@ import {
   type DocEventV1,
   type DocSyncReceiptDetail,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { scannerRead } from "./doc-sync-adjudication.ts";
 import type { DocSettlementReceipt, Input } from "./doc-sync-command-actions.ts";
 import { directPaths, holder, observe, readDetail } from "./doc-sync-details.ts";

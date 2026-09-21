@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { AgentDeclarationV1, EntityStore } from "../../kernel/src/index.ts";
+import type { AgentDeclarationV1, EntityStore } from "@harness-anything/kernel";
 import { readAgentDeclaration, readAgentDeclarationResolution } from "../src/agent-declaration-resolution.ts";
 
 const installed: AgentDeclarationV1 = {

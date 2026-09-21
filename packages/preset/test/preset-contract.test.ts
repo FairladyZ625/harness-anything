@@ -9,7 +9,7 @@ import presetContract, {
   validatePresetRunReceiptV1,
   validatePresetSnapshotV1,
 } from "../src/preset.contract.ts";
-import { DEFAULT_CLOSEOUT_SETTINGS, effectiveCloseoutGates } from "../../kernel/src/index.ts";
+import { DEFAULT_CLOSEOUT_SETTINGS, effectiveCloseoutGates } from "@harness-anything/kernel";
 import { parameterRelationHint, regexLength } from "../src/preset-command-contract.ts";
 import { decodePresetPackageV3, validateVerticalSource } from "../src/preset-resolver.ts";
 

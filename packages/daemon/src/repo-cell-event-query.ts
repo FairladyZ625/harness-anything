@@ -3,8 +3,8 @@ import type {
   CanonicalEventV1,
   ReceiptDiagnostic,
   WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
-import { canonicalEventEntityRefs } from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
+import { canonicalEventEntityRefs } from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 export const DEFAULT_EVENT_LIST_LIMIT = 50;

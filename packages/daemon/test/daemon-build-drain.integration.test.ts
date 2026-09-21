@@ -10,7 +10,7 @@ import {
   makeTaskEventReader,
   makeTaskProjection,
   type AgentDefinitionSnapshot,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { ensureLocalDaemonRunning, type DaemonLaunchSpec } from "../src/client/daemon-autostart.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";

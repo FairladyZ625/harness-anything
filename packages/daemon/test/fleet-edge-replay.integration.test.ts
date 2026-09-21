@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { sha256Bytes } from "../../kernel/src/index.ts";
+import { sha256Bytes } from "@harness-anything/kernel";
 import { openFleetEdgeView } from "../src/fleet/edge.ts";
 import { fleetManifestDigest, type FleetCut, type FleetEntry, type FleetFrameV1 } from "../src/fleet/contract.ts";
 

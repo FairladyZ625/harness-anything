@@ -1,4 +1,4 @@
-import { cliInput, defineRepoReadCommand } from "../../../preset/src/preset-command-contract.ts";
+import { cliInput, defineRepoReadCommand } from "@harness-anything/preset/internal/preset-command-contract";
 
 const isoTimestamp = "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+(?:Z|[+-][0-9]{2}:[0-9]{2})$",
   eventListLimit = "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$";

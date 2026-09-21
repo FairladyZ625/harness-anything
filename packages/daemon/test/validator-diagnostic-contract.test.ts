@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { validateDaemonSettingsRead } from "../src/protocol/gui-result-validation.ts";
 import { daemonSettingsRead } from "../src/protocol/daemon-settings-read-types.ts";
-import { INITIAL_SETTINGS_V1 } from "../../kernel/src/index.ts";
+import { INITIAL_SETTINGS_V1 } from "@harness-anything/kernel";
 import {
   makeDaemonCommandReceipt,
   daemonProtocolError,

@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createScheduleV1, type DaemonRepoMode, type ScheduleV1 } from "../../kernel/src/index.ts";
+import { createScheduleV1, type DaemonRepoMode, type ScheduleV1 } from "@harness-anything/kernel";
 import { makeScheduleScheduler } from "../src/schedule-scheduler.ts";
 import type { RepoCell } from "../src/repo-cell.ts";
 

@@ -1,5 +1,5 @@
-import type { AgentRuntimeSessionResult } from "../../daemon/src/agent-runtime-contract.ts";
-import type { JsonObject } from "../../daemon/src/protocol/json-rpc-types.ts";
+import type { AgentRuntimeSessionResult } from "@harness-anything/daemon/internal/agent-runtime-contract";
+import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import { cliErrorMessage } from "./cli-error.ts";
 import type { ThinCommand } from "./cli/thin-command.ts";
 import {
@@ -97,8 +97,8 @@ export async function waitForRuntimeSessions(
  * daemon is not coming back until the operator says so, and reconnecting would only burn the
  * budget before saying the same thing. */
 async function operatorStoppedAt(): Promise<string | null> {
-  const { readDaemonStoppedAt } = await import("../../daemon/src/client/daemon-autostart.ts"),
-    { daemonIdFromEnv, daemonUserRoot } = await import("../../daemon/src/client/local-daemon-target.ts");
+  const { readDaemonStoppedAt } = await import("@harness-anything/daemon/internal/client/daemon-autostart"),
+    { daemonIdFromEnv, daemonUserRoot } = await import("@harness-anything/daemon/internal/client/local-daemon-target");
   return readDaemonStoppedAt(daemonUserRoot(), daemonIdFromEnv());
 }
 

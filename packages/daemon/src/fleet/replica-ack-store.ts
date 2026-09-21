@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { consumeKnownError } from "../../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import type { FleetCut } from "./contract.ts";
 
 export interface ReplicaDeliveryKey {

@@ -1,4 +1,4 @@
-import type { taskCompletionNext } from "../../../kernel/src/index.ts";
+import type { taskCompletionNext } from "@harness-anything/kernel";
 import { isJsonObject } from "./json-rpc-types.ts";
 
 /** One read-only completion next step for a single task, as `ha task complete` would judge it. */

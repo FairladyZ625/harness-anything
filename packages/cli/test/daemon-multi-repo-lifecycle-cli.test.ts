@@ -5,8 +5,8 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { availableParallelism, loadavg } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { requestLocalDaemonJsonRpc } from "../../daemon/src/client/local-json-rpc-client.ts";
-import { makeTaskEventReader } from "../../kernel/src/index.ts";
+import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
+import { makeTaskEventReader } from "@harness-anything/kernel";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 // Windows teardown: rmSync below cannot remove a ledger file while one of this process's readers

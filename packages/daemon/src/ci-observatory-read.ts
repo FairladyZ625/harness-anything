@@ -4,7 +4,7 @@ import { nonEmpty } from "./migration-import-report.ts";
 /** Test outcome labels are observation data, not lifecycle state. */
 const outcomeIs = (entry: { readonly status: string }, outcome: string): boolean => entry.status === outcome;
 import path from "node:path";
-import type { CiRunObservationEventV3, TaskProjection } from "../../kernel/src/index.ts";
+import type { CiRunObservationEventV3, TaskProjection } from "@harness-anything/kernel";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
 
 export interface CiObservatoryRead {

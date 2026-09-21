@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { lstatSync, readFileSync, readlinkSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError, type ArchivedExecutionV0 } from "../../kernel/src/index.ts";
+import { consumeKnownError, type ArchivedExecutionV0 } from "@harness-anything/kernel";
 import {
   hasExactMigrationFields,
   hasNonEmptyMigrationStrings,

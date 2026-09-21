@@ -1,4 +1,4 @@
-import type { JsonObject } from "../../daemon/src/protocol/json-rpc-types.ts";
+import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import { runAgentCreate } from "./cli-agent-create.ts";
 import { renderRuntimeStatus, runRuntimeAuthCommand } from "./cli-runtime-auth.ts";
 import { runRuntimeBatch } from "./cli-runtime-batch.ts";

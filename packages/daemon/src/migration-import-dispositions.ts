@@ -1,4 +1,4 @@
-import type { MigrationArchivedEntityKind } from "../../kernel/src/index.ts";
+import type { MigrationArchivedEntityKind } from "@harness-anything/kernel";
 import type { MigrationImportContext } from "./migration-import-run.ts";
 
 export function scheduleArchivedEntity(

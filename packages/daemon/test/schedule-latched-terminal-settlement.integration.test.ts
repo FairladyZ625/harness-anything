@@ -5,7 +5,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
+import { makeTaskEventStore, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { operationId } from "../src/repo-cell-proof.ts";

@@ -1,5 +1,5 @@
 import path from "node:path";
-import { resolveLedgerGitLayout } from "../../kernel/src/index.ts";
+import { resolveLedgerGitLayout } from "@harness-anything/kernel";
 import { makeGitReadinessSource } from "./process-port.ts";
 
 type GitSource = ReturnType<typeof makeGitReadinessSource>;

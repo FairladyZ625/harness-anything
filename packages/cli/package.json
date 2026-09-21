@@ -14,7 +14,11 @@
     "directory": "packages/cli"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "exports": {
+      ".": "./dist/cli/src/index.js",
+      "./internal/*": "./dist/cli/src/*.js"
+    }
   },
   "engines": {
     "node": ">=24"
@@ -28,7 +32,8 @@
     "ha": "dist/cli/src/index.js"
   },
   "exports": {
-    ".": "./dist/cli/src/index.js"
+    ".": "./src/index.ts",
+    "./internal/*": "./src/*.ts"
   },
   "files": [
     "dist",
@@ -39,6 +44,8 @@
     "@effect/experimental": "0.60.0",
     "@effect/platform": "0.96.2",
     "@harness-anything/daemon": "0.0.1",
+    "@harness-anything/kernel": "0.0.1",
+    "@harness-anything/preset": "0.0.1",
     "effect": "3.21.4"
   }
 }

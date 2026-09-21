@@ -1,6 +1,6 @@
-import type { CommandTopology } from "../../preset/src/preset-command-contract.ts";
-import type { DaemonRepoMode, InvalidDaemonRegistryRepo } from "../../kernel/src/index.ts";
-import type { registerDaemonRepo } from "../../kernel/src/index.ts";
+import type { CommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
+import type { DaemonRepoMode, InvalidDaemonRegistryRepo } from "@harness-anything/kernel";
+import type { registerDaemonRepo } from "@harness-anything/kernel";
 import type { RuntimeInstanceSummary, openRuntimeInstanceStore } from "./agent-runtime-instances.ts";
 import type { DaemonBuildObserver } from "./build-identity.ts";
 import type { DaemonHostOpenInput } from "./daemon-host-open.ts";

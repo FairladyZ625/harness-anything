@@ -1,6 +1,6 @@
 import { realpathSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError, sha256Text } from "../../kernel/src/index.ts";
+import { consumeKnownError, sha256Text } from "@harness-anything/kernel";
 import { migrationImportError } from "./migration-import-report.ts";
 import type {
   AuthoredCoverage,

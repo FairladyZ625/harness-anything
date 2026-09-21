@@ -3,15 +3,15 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { makeTaskActionExplanationService } from "../../application/src/task-action-explanation-service.ts";
 import { lifecycleHarness, owner } from "../../application/test/task-lifecycle-test-harness.ts";
-import { deriveActionResult } from "../../daemon/src/entity-action-catalog-executor.ts";
-import { taskActionCommandUsage } from "../../daemon/src/protocol/daemon-protocol-commands.ts";
-import { taskActionHelpRows } from "../../daemon/src/protocol/daemon-protocol-commands-task.ts";
+import { deriveActionResult } from "@harness-anything/daemon/internal/entity-action-catalog-executor";
+import { taskActionCommandUsage } from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands";
+import { taskActionHelpRows } from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands-task";
 import {
   getExecutableEntityAction,
   projectBaseEntityAtCut,
   requireEntityTypeContract,
   type BaseEntity,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { renderEntityActionExplanation } from "../src/cli/entity-action-explain-render.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";

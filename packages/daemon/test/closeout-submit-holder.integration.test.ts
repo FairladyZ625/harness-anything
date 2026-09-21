@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { HARNESS_LEDGER_WRITER_ENV, isTaskEvent, makeTaskEventReader } from "../../kernel/src/index.ts";
+import { HARNESS_LEDGER_WRITER_ENV, isTaskEvent, makeTaskEventReader } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";

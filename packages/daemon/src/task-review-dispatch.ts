@@ -8,7 +8,7 @@ import {
   submissionDigest,
   type ExecutionV1,
   type WriteReceiptDraft,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { readSubmissionArtifact } from "./submission-artifacts.ts";
 import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./agent-entities.ts";
 import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";

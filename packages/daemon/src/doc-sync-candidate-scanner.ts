@@ -34,7 +34,7 @@ import {
   type LedgerCutIdentity,
   type TaskProjection,
   type WriteSource,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { blockedCandidateNextAction, formatShellCommand } from "./doc-sync-details.ts";
 import { docSyncError } from "./doc-sync-files.ts";
 

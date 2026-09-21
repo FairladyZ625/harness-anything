@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { validateReceiptAcceptance } from "../../kernel/src/index.ts";
+import { validateReceiptAcceptance } from "@harness-anything/kernel";
 import { validateReceiptAcceptanceWire } from "../src/protocol/daemon-protocol-validate-entities.ts";
 import { validateDaemonGuiCommandReceipt } from "../src/protocol/daemon-protocol-validate-results.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";

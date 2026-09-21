@@ -14,7 +14,7 @@ import {
   type CanonicalContentBlob,
   type RuntimeSession,
   type ScheduleV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { MigrationImportContext } from "./migration-import-run.ts";
 import type { Prepared } from "./migration-import-types.ts";
 

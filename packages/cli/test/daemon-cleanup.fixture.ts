@@ -4,7 +4,7 @@ import { spawnSync } from "node:child_process";
 import { rmSync } from "node:fs";
 import path from "node:path";
 import { after } from "node:test";
-import { daemonProcessAlive, readDaemonPid } from "../../daemon/src/daemon-singleton.ts";
+import { daemonProcessAlive, readDaemonPid } from "@harness-anything/daemon/internal/daemon-singleton";
 
 /** Register ownership before launching: test failures must not skip daemon teardown. */
 export function ownDaemonFixture(input: {

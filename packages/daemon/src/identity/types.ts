@@ -8,7 +8,7 @@ import type {
   DelegatedExecutionToken,
   RoleBinding,
   RolePolicy as KernelRolePolicy,
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export type PersonId = string;
 export type RoleId = string;

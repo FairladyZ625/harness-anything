@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { type RuntimeSession, type TaskProjection } from "../../kernel/src/index.ts";
+import { type RuntimeSession, type TaskProjection } from "@harness-anything/kernel";
 import { appendRuntimeWorkerRecord, openDispatchStream, readDispatchLiveIndex } from "../src/dispatch-stream.ts";
 import { readTaskDispatches, readTaskDispatchSession } from "../src/dispatch-read.ts";
 

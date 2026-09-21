@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { assessTransitionDocument, transitionDocumentContract } from "../../kernel/src/index.ts";
+import { assessTransitionDocument, transitionDocumentContract } from "@harness-anything/kernel";
 import { transitionDocumentReadinessContract } from "../src/transition-document-access.ts";
 
 const planHeadings = [

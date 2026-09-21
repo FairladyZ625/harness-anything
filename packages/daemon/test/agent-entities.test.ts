@@ -13,7 +13,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { getEntityKindContract, makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
+import { getEntityKindContract, makeTaskEventStore, makeTaskProjection } from "@harness-anything/kernel";
 import {
   prepareAgentEntityInstall,
   readAgentDeclaration,
@@ -34,7 +34,7 @@ import {
 } from "../src/agent-runtime-contract.ts";
 import { resolveRuntimeInstanceCandidates } from "../src/runtime-spawn-mission.ts";
 import type { RuntimeAgent } from "../src/runtime-spawn-types.ts";
-import { validateAgentDeclarationV1, validateSquadDeclarationV1 } from "../../kernel/src/index.ts";
+import { validateAgentDeclarationV1, validateSquadDeclarationV1 } from "@harness-anything/kernel";
 import { agent, appendLegacyAgentDeclaration, install, run, squad, writeEntity } from "./agent-entities.fixtures.ts";
 
 test("Agent and Squad entities prepare, list, inspect, and replace declarations in the authored store", async () => {

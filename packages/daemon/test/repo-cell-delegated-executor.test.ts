@@ -6,7 +6,7 @@ import {
   type DelegatedExecutionToken,
   type LeaseV1,
   type RuntimeSession,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { createRepoCellApi, type RepoCellApiContext } from "../src/repo-cell-api.ts";
 import { failed } from "../src/repo-cell-settlement.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";

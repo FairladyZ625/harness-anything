@@ -12,7 +12,7 @@ import {
   type MigrationImportEventV1,
   type RelationGraphEdgeRow,
   type TaskProjection,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type {
   Draft,
   IdRemapping,

@@ -7,7 +7,7 @@ import {
   type ScheduleBuiltinParamsV1,
   type ScheduleV1,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { backupRepo, drillRepoBackup } from "./repo-all-purge.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 

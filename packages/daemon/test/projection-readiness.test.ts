@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { tmpdir } from "node:os";
 import test from "node:test";
-import type { TaskProjection } from "../../kernel/src/index.ts";
+import type { TaskProjection } from "@harness-anything/kernel";
 import { listProjectedTaskDocuments, readProjectedDocument } from "../src/doc-sync-reads.ts";
 import { requireCurrentTaskProjection } from "../src/projection-readiness.ts";
 import { readTaskCompletion } from "../src/task-completion-read.ts";

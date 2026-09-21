@@ -1,7 +1,7 @@
 import { existsSync, globSync } from "node:fs";
 import path from "node:path";
-import type { AgentRole, TaskProjection } from "../../kernel/src/index.ts";
-import { resolveHarnessLayout } from "../../kernel/src/index.ts";
+import type { AgentRole, TaskProjection } from "@harness-anything/kernel";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { agentRolePrompt } from "./agent-role-prompts.ts";
 import { agentRuntimeTargetSummary, agentRuntimeKindMatches } from "./agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";

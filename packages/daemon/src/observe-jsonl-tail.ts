@@ -1,7 +1,7 @@
 import { readdirSync, statSync, type BigIntStats } from "node:fs";
 import { open, type FileHandle } from "node:fs/promises";
 import path from "node:path";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
 import type {
   ObserveTailCursor,

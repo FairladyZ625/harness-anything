@@ -1,4 +1,4 @@
-import { safePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { safePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { cliFailure } from "../cli-meta.ts";
 import { cliDispatchError } from "../cli-render.ts";
 import {

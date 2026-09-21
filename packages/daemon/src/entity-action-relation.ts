@@ -22,7 +22,7 @@ import {
   type SessionIdentity,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { relationDirectionRegistry } from "./artifact-entity-action.ts";
 import { decisionRelationLinkResolver } from "./entity-document-links.ts";
 import { noChanges, reject } from "./entity-action-write-helpers.ts";

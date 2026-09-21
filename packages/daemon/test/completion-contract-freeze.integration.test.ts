@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, type FrozenCompletionContract } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, type FrozenCompletionContract } from "@harness-anything/kernel";
 import {
   canonicalRoot,
   validateDaemonTaskSnapshotList,

@@ -11,7 +11,7 @@ import {
   activateEmptyCanonicalGeneration,
   type AgentRuntimeEventV1,
   type SessionProvenanceV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 

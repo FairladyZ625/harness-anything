@@ -13,7 +13,7 @@ import {
   makeTaskProjection,
   resolveHarnessLayout,
   sha256Text,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { runDocAction } from "../src/doc-sync-command-actions.ts";
 import { scanAuthoredCandidateInventory, scanDocCandidates } from "../src/doc-sync-candidate-scanner.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";

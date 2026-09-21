@@ -1,4 +1,4 @@
-import { repositorySettingsActionValues, type SettingsV1 } from "../../../kernel/src/index.ts";
+import { repositorySettingsActionValues, type SettingsV1 } from "@harness-anything/kernel";
 
 /** `repo.settings.read` 返回的最近一条 `settings_changed` 归因:`actor` 是紧凑的
  * `<executor-kind>:<executor-id>` 或 `person:<personId>`;`revision` 是该事件的 workspace 修订。 */

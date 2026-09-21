@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { type CanonicalEventStore, type RuntimeSession, type TaskProjection } from "../../kernel/src/index.ts";
+import { type CanonicalEventStore, type RuntimeSession, type TaskProjection } from "@harness-anything/kernel";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";

@@ -29,7 +29,7 @@ test("kernel dead-export check catches new unused value and type exports as bypa
         "export interface UnusedType { readonly ok: boolean; }",
       ],
     );
-    writeConsumer(root, "import { usedValue } from '../../kernel/src/index.ts';\nexport const value = usedValue;\n");
+    writeConsumer(root, "import { usedValue } from '@harness-anything/kernel';\nexport const value = usedValue;\n");
     writeAllowlist(policyRoot, ["NotARealExport"]);
 
     const result = runChecker(root, { env: { HARNESS_GATE_ALLOWLIST_DIR: policyRoot } });
@@ -53,7 +53,7 @@ test("kernel dead-export check treats aliased named imports as real consumers", 
     );
     writeConsumer(
       root,
-      "import { usedValue as liveValue } from '../../kernel/src/index.ts';\nexport const value = liveValue;\n",
+      "import { usedValue as liveValue } from '@harness-anything/kernel';\nexport const value = liveValue;\n",
     );
     writeAllowlist(policyRoot, ["unusedValue"]);
 

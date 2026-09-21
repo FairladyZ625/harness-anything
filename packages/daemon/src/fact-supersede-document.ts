@@ -6,8 +6,8 @@ import type {
   FrozenWritePlan,
   SupersededFactDocumentSource,
   TaskProjection,
-} from "../../kernel/src/index.ts";
-import { factWritePlan } from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
+import { factWritePlan } from "@harness-anything/kernel";
 import { reject } from "./entity-action-write-helpers.ts";
 
 export function supersededFactDocumentSource(

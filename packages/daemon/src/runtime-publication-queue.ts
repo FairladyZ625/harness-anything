@@ -1,4 +1,4 @@
-import { assertCurrentWriter, attachReceiptAcceptance, type WriteReceipt } from "../../kernel/src/index.ts";
+import { assertCurrentWriter, attachReceiptAcceptance, type WriteReceipt } from "@harness-anything/kernel";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { authorizeRepoCellAction, bindVerifiedExecutorClaim } from "./repo-cell-authorization.ts";

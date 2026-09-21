@@ -1,5 +1,5 @@
-import { consumeKnownError, nextScheduleOccurrence, type ScheduleMissedReason } from "../../kernel/src/index.ts";
-import type { ScheduleTriggerV1 } from "../../kernel/src/index.ts";
+import { consumeKnownError, nextScheduleOccurrence, type ScheduleMissedReason } from "@harness-anything/kernel";
+import type { ScheduleTriggerV1 } from "@harness-anything/kernel";
 import type { DaemonCommandClass } from "./identity/types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import {

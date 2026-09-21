@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import { classifyAuthored } from "./migration-import-authored-classification.ts";
 import { portableMigrationPath, resolveAuthoredConflict } from "./migration-import-conflicts.ts";
 import { migrationImportError } from "./migration-import-report.ts";

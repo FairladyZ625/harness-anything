@@ -14,8 +14,8 @@ import {
   type CiRunObservationEventV3,
   type CompletionEvidenceV1,
   type FrozenGateRequirement,
-} from "../../kernel/src/index.ts";
-import { compileRepoTaskPackage } from "../../preset/src/index.ts";
+} from "@harness-anything/kernel";
+import { compileRepoTaskPackage } from "@harness-anything/preset";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import type { RepoCellBinding, Snapshot } from "../src/repo-cell-types.ts";
 import { completeTask, prepareSubmissionEvidence } from "../src/repo-cell-task-progress.ts";

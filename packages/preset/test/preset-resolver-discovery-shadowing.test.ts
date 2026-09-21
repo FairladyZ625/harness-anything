@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { INITIAL_SETTINGS_V1 } from "../../kernel/src/index.ts";
+import { INITIAL_SETTINGS_V1 } from "@harness-anything/kernel";
 import {
   compileRepoTaskPackage,
   installPresetPackage,

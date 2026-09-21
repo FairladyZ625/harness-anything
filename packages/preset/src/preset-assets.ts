@@ -4,8 +4,8 @@ import {
   validateTemplateCatalogBodies,
   validateVerticalDefinition,
 } from "./preset-extension-model.ts";
-import { compileVerticalContract, decodeVerticalDefinition, TemplateCatalogSchema } from "../../kernel/src/index.ts";
-import type { CompiledVerticalContract, TemplateCatalog } from "../../kernel/src/index.ts";
+import { compileVerticalContract, decodeVerticalDefinition, TemplateCatalogSchema } from "@harness-anything/kernel";
+import type { CompiledVerticalContract, TemplateCatalog } from "@harness-anything/kernel";
 import { requiredRegularFile, safeTemplatePath } from "./preset-materialization.ts";
 import { parsePresetJson } from "./preset-package.ts";
 import {

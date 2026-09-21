@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import type { SettingsV1 } from "../../kernel/src/index.ts";
+import type { SettingsV1 } from "@harness-anything/kernel";
 import {
   canonicalPresetBytes,
   consumeKnownError,

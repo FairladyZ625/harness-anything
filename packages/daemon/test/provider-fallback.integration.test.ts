@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, type AgentDefinitionSnapshot, type AgentRuntimeEventV1 } from "../../kernel/src/index.ts";
+import { makeTaskEventStore, type AgentDefinitionSnapshot, type AgentRuntimeEventV1 } from "@harness-anything/kernel";
 import type { RuntimeInstanceSummary, RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { dispatchStreamPath, readDispatchStream, readDispatchStreamHeaders } from "../src/dispatch-stream.ts";
 import type { TaskDispatchRow } from "../src/protocol/daemon-protocol.contract.ts";

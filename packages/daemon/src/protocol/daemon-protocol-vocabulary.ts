@@ -12,7 +12,7 @@ import type {
   TaskPhaseReason,
   UseCaseProjectionName,
   taskPhaseSteps,
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export const AGENDA_PIN_CRITERIA = "blocking the active milestone or awaiting owner decision; otherwise leave unpinned";
 

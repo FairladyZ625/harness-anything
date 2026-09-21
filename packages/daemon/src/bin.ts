@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import path from "node:path";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 
 async function main(argv: readonly string[]): Promise<number> {
   if (argv[0] === "--runtime-worker-host") {

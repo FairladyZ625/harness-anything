@@ -1,4 +1,4 @@
-import type { TaskProjection } from "../../kernel/src/index.ts";
+import type { TaskProjection } from "@harness-anything/kernel";
 
 // Task-gated commands (fact record, runtime.run) execute inside the RepoCell write queue. Every writer
 // applies its projection in the same synchronous turn as its SQLite append, and nothing else advances

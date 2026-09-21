@@ -1,4 +1,4 @@
-import type { CanonicalEventStore, TaskProjection } from "../../kernel/src/index.ts";
+import type { CanonicalEventStore, TaskProjection } from "@harness-anything/kernel";
 import type { RepoCellStatus } from "./repo-cell-types.ts";
 
 export function repoCellStatus(context: {

@@ -4,7 +4,7 @@ import {
   restoreLedgerBackup,
   resolveActiveGeneration,
   runGenerationTwoConversion,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { generationMigrationCommand } from "./offline-storage-command.ts";
 
 export function runOfflineStorageCommand(argv: readonly string[]): number {
@@ -83,7 +83,7 @@ function emitReceipt(receipt: Record<string, unknown>): void {
 }
 export function backupReceipt(
   backupDir: string,
-  manifest: ReturnType<typeof import("../../kernel/src/index.ts").createLedgerBackup>,
+  manifest: ReturnType<typeof import("@harness-anything/kernel").createLedgerBackup>,
 ): Record<string, unknown> {
   return {
     backupDir,

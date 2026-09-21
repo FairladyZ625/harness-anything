@@ -10,7 +10,7 @@ import type {
   CanonicalEventStore,
   RuntimeSession,
   TaskProjection,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { makeSquadCoordinator } from "../src/squad-coordinator.ts";
 import { appendRuntimeWorkerRecord, dispatchStreamPath, openDispatchStream } from "../src/dispatch-stream.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";

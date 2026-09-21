@@ -6,7 +6,7 @@ import {
   resolveHarnessLayout,
   restoreDrillRetentionFor,
   type DaemonRegistryRepo,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { removeHarnessIgnoreRules } from "./repo-bootstrap.ts";
 import { removeRepoHarnessRoots } from "./repo-cache-purge.ts";
 

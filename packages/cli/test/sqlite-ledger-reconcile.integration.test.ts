@@ -6,10 +6,10 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import type { DaemonHost } from "../../daemon/src/daemon-host.ts";
-import { listenFleetTls } from "../../daemon/src/fleet/center.ts";
-import { daemonStdioLogPath } from "../../daemon/src/lifecycle-log.ts";
-import { openPersistentWriterEpoch } from "../../daemon/src/writer-epoch.ts";
+import type { DaemonHost } from "@harness-anything/daemon/internal/daemon-host";
+import { listenFleetTls } from "@harness-anything/daemon/internal/fleet/center";
+import { daemonStdioLogPath } from "@harness-anything/daemon/internal/lifecycle-log";
+import { openPersistentWriterEpoch } from "@harness-anything/daemon/internal/writer-epoch";
 import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");

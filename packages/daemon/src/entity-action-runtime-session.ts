@@ -9,7 +9,7 @@ import {
   type RuntimeSessionActionDraft,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 
 export type RuntimeSessionEvent = RuntimeSessionActionDraft["event"];

@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { settingValuePattern } from "../../kernel/src/index.ts";
+import { settingValuePattern } from "@harness-anything/kernel";
 import {
   listBundledAgentDeclarationIds,
   listRepositoryWorkflowNames,

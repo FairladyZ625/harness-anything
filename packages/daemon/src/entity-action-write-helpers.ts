@@ -1,4 +1,4 @@
-import type { AuthorizationDecision, WriteReceiptDraft } from "../../kernel/src/index.ts";
+import type { AuthorizationDecision, WriteReceiptDraft } from "@harness-anything/kernel";
 
 export function noChanges(input: {
   readonly opId: string;

@@ -8,7 +8,7 @@ import {
   normalizeDomainError,
   type EntityActionCriterionFailure,
   type ReceiptDiagnostic,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export type CellActionCriterionFailure = EntityActionCriterionFailure;
 

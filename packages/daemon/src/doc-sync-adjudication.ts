@@ -1,4 +1,4 @@
-import type { TaskProjection } from "../../kernel/src/index.ts";
+import type { TaskProjection } from "@harness-anything/kernel";
 import {
   decideDocWrite,
   docSyncWritePlan,
@@ -12,7 +12,7 @@ import {
   type DocWriteIntent,
   type AuthorizationDecision,
   type RuntimeArchiveWriteScope,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { scanDocCandidates, type DocCandidateScan, validateSelectedDocPaths } from "./doc-sync-candidate-scanner.ts";
 import type { Input } from "./doc-sync-command-actions.ts";
 import { detail, directPaths } from "./doc-sync-details.ts";

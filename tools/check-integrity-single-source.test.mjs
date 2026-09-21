@@ -57,7 +57,7 @@ test("integrity single-source check accepts imports and unrelated byte hashes", 
   );
   writeFileSync(
     path.join(root, "packages/cli/src/commands/good.ts"),
-    "import { createHash } from 'node:crypto';\nimport { stablePayloadHash } from '../../../kernel/src/integrity/stable-hash.ts';\nexport const ok = [stablePayloadHash({ a: 1 }), createHash('sha256').update('bytes').digest('hex')];\n",
+    "import { createHash } from 'node:crypto';\nimport { stablePayloadHash } from '@harness-anything/kernel/internal/integrity/stable-hash';\nexport const ok = [stablePayloadHash({ a: 1 }), createHash('sha256').update('bytes').digest('hex')];\n",
     "utf8"
   );
 

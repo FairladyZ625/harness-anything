@@ -7,7 +7,7 @@ import {
   openEntityStore,
   type EntityStore,
   type TaskProjection,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   agentDeclarationInvalidError,
   readAgentDeclaration,
@@ -38,7 +38,7 @@ import {
   type AgentRole,
   type AgentRuntimeTargetV1,
   type SquadDeclarationV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export interface AgentEntityGuiAvailableRow {
   readonly id: string;

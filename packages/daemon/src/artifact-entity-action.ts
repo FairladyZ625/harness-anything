@@ -47,7 +47,7 @@ import {
   type EntityStoreKindContract,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { requireCanonicalVerticalDeclaration, type VerticalDeclarationReader } from "./vertical-declaration-action.ts";
 

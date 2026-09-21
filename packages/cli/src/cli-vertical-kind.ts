@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import type { JsonObject } from "../../daemon/src/protocol/json-rpc-types.ts";
+import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import type { ThinCommand } from "./cli/thin-command.ts";
 import { runCommandThroughDaemon } from "./daemon/client.ts";
 

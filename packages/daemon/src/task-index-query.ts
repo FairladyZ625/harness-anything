@@ -1,4 +1,4 @@
-import { consumeKnownError, type TaskIndexProjectionRow } from "../../kernel/src/index.ts";
+import { consumeKnownError, type TaskIndexProjectionRow } from "@harness-anything/kernel";
 
 export interface TaskIndexFilters {
   readonly status?: string;

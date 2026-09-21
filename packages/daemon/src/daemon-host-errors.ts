@@ -2,7 +2,7 @@ import {
   normalizeDomainError,
   type ReceiptDiagnostic,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 export { diagnosticForError } from "./receipt-guidance.ts";
 import { type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { type RepoTaskAction } from "./repo-cell.ts";

@@ -15,7 +15,7 @@ import {
   type TaskRelationQuery,
   type TaskWipSnapshotEntryV1,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { readTaskReadSet } from "../../application/src/index.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";

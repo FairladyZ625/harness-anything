@@ -26,19 +26,12 @@ import {
   taskLifecycleWritePlan,
   type DocEventV1,
   type TaskEventV1,
-} from "../../../kernel/src/index.ts";
-// These four are internal-only shapes with no public-barrel re-export (kernel/src/index.ts); the
-// fixture still needs their exact structural types to hand-build canonically-valid events, so it
-// reaches past the barrel the same way packages/daemon/test/decision-surface.test.ts already does
-// for readColdRebuildSource.
-// eslint-disable-next-line no-restricted-imports
-import { DOC_CODEC_ID } from "../../../kernel/src/domain/doc-sync.contract.ts";
-// eslint-disable-next-line no-restricted-imports
-import type { DecisionEventDraftV1 } from "../../../kernel/src/domain/decision-event.ts";
-// eslint-disable-next-line no-restricted-imports
-import type { FactEventDraftV1 } from "../../../kernel/src/domain/fact-event.ts";
-// eslint-disable-next-line no-restricted-imports
-import type { TaskCreatedEvent } from "../../../kernel/src/domain/task-lifecycle.contract.ts";
+} from "@harness-anything/kernel";
+// These four internal exports provide exact structural types for canonically valid fixture events.
+import { DOC_CODEC_ID } from "@harness-anything/kernel/internal/domain/doc-sync.contract";
+import type { DecisionEventDraftV1 } from "@harness-anything/kernel/internal/domain/decision-event";
+import type { FactEventDraftV1 } from "@harness-anything/kernel/internal/domain/fact-event";
+import type { TaskCreatedEvent } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract";
 import { canonicalRoot, workspaceId } from "../../src/protocol/daemon-protocol.contract.ts";
 import { openPersistentWriterEpoch, type WriterEpochFenceDescriptor } from "../../src/writer-epoch.ts";
 import { openWriterSupervisor } from "../../src/writer-supervisor.ts";

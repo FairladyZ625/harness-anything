@@ -19,7 +19,7 @@ import {
   consumeKnownError,
   DOC_POLICY_ID,
   resolveHarnessLayout,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   FleetRemoteError,
   runFleetReplicaPullClient,

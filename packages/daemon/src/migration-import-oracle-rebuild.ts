@@ -38,7 +38,7 @@ import {
   type CanonicalWriteBundle,
   type MigrationImportEventV1,
   type PersistedCanonicalEventV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { readMigrationProjectionOracleAtPath, type MigrationProjectionOracle } from "./migration-import-oracle.ts";
 import { isMigrationImportRecord, migrationImportError, timestamp } from "./migration-import-report.ts";
 import { restateTaskContract } from "./migration-import-task-restatement.ts";

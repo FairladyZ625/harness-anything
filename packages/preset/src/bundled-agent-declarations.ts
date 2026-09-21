@@ -1,7 +1,7 @@
 import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { entitySlug, parseAgentDeclarationV1, type AgentDeclarationV1 } from "../../kernel/src/index.ts";
+import { entitySlug, parseAgentDeclarationV1, type AgentDeclarationV1 } from "@harness-anything/kernel";
 
 const bundledAgentRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../assets/software-coding/agents");
 

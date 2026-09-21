@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { parseDecision } from "./thin-command-decision.ts";
 import { parseDoc } from "./thin-command-doc.ts";
 import { parseFact } from "./thin-command-fact.ts";

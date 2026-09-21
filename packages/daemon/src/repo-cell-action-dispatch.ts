@@ -14,8 +14,8 @@ import {
   requireEntityTypeContract,
   type ExecutionAnnotationKind,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
-import { runPresetAction } from "../../preset/src/index.ts";
+} from "@harness-anything/kernel";
+import { runPresetAction } from "@harness-anything/preset";
 import { compiledArtifactKinds, resolveEntityReadKind } from "./artifact-entity-action.ts";
 import { distillPromotionAction, prepareDistillCandidate, readDistillEntity } from "./distill-actions.ts";
 import { runEntityDocumentRematerialize } from "./entity-document-rematerialize.ts";

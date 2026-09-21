@@ -40,7 +40,7 @@ test("W3 write authority rejects an additional coordinated-commit primitive call
 }));
 
 function withFixture(run) { const root = mkdtempSync(path.join(tmpdir(), "w3-write-authority-")); try {
-  write(root, "packages/daemon/src/repo-cell.ts", `import { makeTaskEventStore } from "../../kernel/src/index.ts";\nimport { makeTaskLifecycleService } from "../../application/src/task-lifecycle-service.ts";\nconst store = makeTaskEventStore({ rootDir });\nconst service = makeTaskLifecycleService({ eventStore: store, projection });\nlet tail = Promise.resolve();\ntail = tail.then(() => service.execute(command));\n`);
+  write(root, "packages/daemon/src/repo-cell.ts", `import { makeTaskEventStore } from "@harness-anything/kernel";\nimport { makeTaskLifecycleService } from "../../application/src/task-lifecycle-service.ts";\nconst store = makeTaskEventStore({ rootDir });\nconst service = makeTaskLifecycleService({ eventStore: store, projection });\nlet tail = Promise.resolve();\ntail = tail.then(() => service.execute(command));\n`);
   write(root, "packages/kernel/src/store/task-event-store.ts", `export const CANONICAL_EVENT_REF = "refs/ha/canonical";\nexport function makeTaskEventStore() {}\n`);
   write(root, "packages/kernel/src/store/task-event-store-git-refs.ts", publisherFixture());
   write(root, "packages/application/src/task-lifecycle-service.ts", `export function makeTaskLifecycleService(options) { options.eventStore.append(event); }\n`);

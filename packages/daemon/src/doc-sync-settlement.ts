@@ -1,4 +1,4 @@
-import type { TaskProjection } from "../../kernel/src/index.ts";
+import type { TaskProjection } from "@harness-anything/kernel";
 import {
   documentPath,
   resolveDocRoute,
@@ -6,7 +6,7 @@ import {
   type DocSyncReceiptDetail,
   type DocWriteIntent,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { DocIntentChannel } from "./doc-sync-adjudication.ts";
 import { publicScan, type DocCandidateScan } from "./doc-sync-candidate-scanner.ts";
 import type { DocSettlementReceipt, Input } from "./doc-sync-command-actions.ts";

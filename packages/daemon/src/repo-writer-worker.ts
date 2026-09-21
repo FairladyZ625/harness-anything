@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { isMainThread, parentPort, workerData } from "node:worker_threads";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import type { RepoCellOpenInput } from "./repo-cell-open.ts";
 import { openRepoWriterCell } from "./repo-cell-open.ts";
 import type { RepoCellAttachProgress, RepoCellBinding, RepoCellStatus } from "./repo-cell-types.ts";

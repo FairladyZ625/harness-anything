@@ -5,7 +5,7 @@ import {
   defineLedgerWriteCommand,
   defineRepoReadCommand,
   defineRuntimeLocalWriteCommand,
-} from "../../../preset/src/preset-command-contract.ts";
+} from "@harness-anything/preset/internal/preset-command-contract";
 import { agentRunProtocolCommand } from "./daemon-protocol-commands-runtime-fleet.ts";
 
 export const agentProtocolCommands = Object.freeze([

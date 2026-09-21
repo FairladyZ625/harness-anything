@@ -10,7 +10,7 @@ import {
   type AgentRuntimeEventV1,
   type CanonicalEventStore,
   type TaskProjection,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { appendRuntimeWorkerRecord, readDispatchStreamSummaries } from "./dispatch-stream.ts";
 import { storedAgentDeclarationOutcome } from "./agent-declaration-resolution.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";

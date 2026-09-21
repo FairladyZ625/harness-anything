@@ -3,7 +3,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import path from "node:path";
-import { type AgentDefinitionSnapshot } from "../../../kernel/src/index.ts";
+import { type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { type RuntimeInstallationWitness } from "../../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../../src/daemon-host.ts";
 import { createJsonRpcProtocolServer } from "../../src/protocol/json-rpc-server.ts";

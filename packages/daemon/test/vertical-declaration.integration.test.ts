@@ -4,7 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { buildEntityKindCatalog, makeTaskEventStore, makeTaskProjection } from "../../kernel/src/index.ts";
+import { buildEntityKindCatalog, makeTaskEventStore, makeTaskProjection } from "@harness-anything/kernel";
 import { canonicalVertical, compiledArtifactKinds } from "../src/artifact-entity-action.ts";
 import { runVerticalDeclarationAction } from "../src/vertical-declaration-action.ts";
 import { resolveVerticalKindCommandAction } from "../src/vertical-kind-command-action.ts";

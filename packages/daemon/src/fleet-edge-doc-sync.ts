@@ -13,7 +13,7 @@
 // mirrorOutcome so a blocked pull can never masquerade as synced.
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError, sha256Bytes } from "../../kernel/src/index.ts";
+import { consumeKnownError, sha256Bytes } from "@harness-anything/kernel";
 import { runFleetReplicaPullClient, runFleetWriteClient } from "./fleet/edge.ts";
 import { fleetEdgeCredential, fleetEdgeScopePaths, FleetEdgeTaskError } from "./fleet-edge-task.ts";
 import {

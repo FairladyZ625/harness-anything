@@ -4,7 +4,7 @@ import {
   runtimeSessionIsRunning,
   runtimeSessionSemanticState,
   type RuntimeSession,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   agentRuntimeUnattributedGroupKeys,
   type AgentRuntimeSessionGroupBy,

@@ -1,6 +1,6 @@
 import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { settingValuePattern } from "../../kernel/src/index.ts";
+import { settingValuePattern } from "@harness-anything/kernel";
 
 /** Enumerate the CI workflow names a repository can point `settings.ci.workflows`
  * at: `*.yml` basenames under `.github/workflows`, without the extension. The

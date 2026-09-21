@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { consumeKnownError } from "../../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import {
   canonicalDocumentClaims,
   serializeEventHead,
@@ -12,7 +12,7 @@ import {
   type CanonicalEventV1,
   type LedgerCutIdentity,
   type ReplicaProjectionBasis,
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   fleetManifestDigest,
   type FleetBlob,

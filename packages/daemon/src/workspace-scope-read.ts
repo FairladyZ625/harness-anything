@@ -1,4 +1,4 @@
-import type { TaskProjection, TaskIndexProjectionRow } from "../../kernel/src/index.ts";
+import type { TaskProjection, TaskIndexProjectionRow } from "@harness-anything/kernel";
 
 export interface WorkspaceScopeStatusCounts {
   readonly done: number;

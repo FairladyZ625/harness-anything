@@ -4,7 +4,7 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "exports": {
-    ".": "./dist/daemon/src/index.js",
+    ".": "./src/index.ts",
     "./client": {
       "default": "./src/client/index.ts"
     },
@@ -12,6 +12,7 @@
       "default": "./src/protocol/index.ts"
     },
     "./protocol/validation": "./src/protocol/daemon-protocol-rpc-validation.ts",
+    "./internal/*": "./src/*.ts",
     "./package.json": "./package.json"
   },
   "dependencies": {
@@ -19,6 +20,8 @@
     "@effect/platform": "0.96.2",
     "@effect/sql": "0.51.1",
     "@effect/sql-sqlite-node": "0.52.0",
+    "@harness-anything/kernel": "0.0.1",
+    "@harness-anything/preset": "0.0.1",
     "cron-parser": "5.10.0",
     "effect": "3.21.4",
     "node-pty": "1.1.0"
@@ -33,7 +36,15 @@
     "directory": "packages/daemon"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "exports": {
+      ".": "./dist/daemon/src/index.js",
+      "./client": "./dist/daemon/src/client/index.js",
+      "./protocol": "./dist/daemon/src/protocol/index.js",
+      "./protocol/validation": "./dist/daemon/src/protocol/daemon-protocol-rpc-validation.js",
+      "./internal/*": "./dist/daemon/src/*.js",
+      "./package.json": "./package.json"
+    }
   },
   "engines": {
     "node": ">=24"

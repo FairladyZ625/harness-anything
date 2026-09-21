@@ -12,7 +12,7 @@ import {
   type TaskProjectionQueries,
   type CompletionEvidenceV1,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { RepoCellBinding, Snapshot } from "./repo-cell-types.ts";
 import { resolveTaskRootThreshold } from "./task-wip-settings.ts";
 import { readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";

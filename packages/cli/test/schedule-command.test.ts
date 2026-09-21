@@ -2,9 +2,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { materializePacketStdin } from "../src/index.ts";
-import { createScheduleV1 } from "../../kernel/src/index.ts";
+import { createScheduleV1 } from "@harness-anything/kernel";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
-import { parseScheduleDuration } from "../../daemon/src/protocol/daemon-protocol-vocabulary.ts";
+import { parseScheduleDuration } from "@harness-anything/daemon/internal/protocol/daemon-protocol-vocabulary";
 import {
   renderScheduleList,
   renderScheduleReckon,

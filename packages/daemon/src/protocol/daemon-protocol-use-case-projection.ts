@@ -1,4 +1,4 @@
-import { deriveUseCaseProjectionInputs, type UseCaseProjectionName } from "../../../kernel/src/index.ts";
+import { deriveUseCaseProjectionInputs, type UseCaseProjectionName } from "@harness-anything/kernel";
 import { validateAgentRuntimeSessionGroups } from "../agent-runtime-contract.ts";
 import { validateScheduleRuns } from "../schedule-runs-read.ts";
 import { isJsonObject } from "./json-rpc-types.ts";

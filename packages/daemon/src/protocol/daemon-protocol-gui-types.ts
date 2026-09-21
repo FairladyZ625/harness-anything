@@ -17,9 +17,9 @@ import type {
   EntityActionExplanationSetV1,
   EntityKindCatalogV1,
   VerticalDefinition,
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { AgentEntityGuiRead, AgentSkillGuiRead } from "../agent-entities.ts";
-export type { AgentDeclarationV1, SquadDeclarationV1 } from "../../../kernel/src/index.ts";
+export type { AgentDeclarationV1, SquadDeclarationV1 } from "@harness-anything/kernel";
 import type {
   AgentRuntimeEventsResult,
   AgentRuntimeOverviewResult,
@@ -693,7 +693,7 @@ export interface ExecutionEvidenceProjection {
   }[];
 }
 
-export type GuiSubmissionV1 = import("../../../kernel/src/index.ts").SubmissionV1;
+export type GuiSubmissionV1 = import("@harness-anything/kernel").SubmissionV1;
 
 /** One projected document under a task package (paths relative to the package root, e.g. artifacts/report.md). */
 export interface TaskDocumentListEntryRow {
@@ -740,21 +740,21 @@ export type DaemonTaskSnapshotListResult = {
   readonly ok: true;
   readonly status: "ready" | "pending";
   readonly rows: readonly (TaskProjectionListRow & {
-    readonly coordinationStatus: import("../../../kernel/src/domain/lifecycle-status.ts").DomainStatus | "unknown";
+    readonly coordinationStatus: import("@harness-anything/kernel/internal/domain/lifecycle-status").DomainStatus | "unknown";
     readonly snapshotAvailability: {
       readonly consents: "known" | "unknown";
       readonly codeDocWitnesses: "known" | "unknown";
       readonly gateWitnesses: "known" | "unknown";
     };
-    readonly closeoutAssessment: import("../../../kernel/src/domain/closeout-readiness.ts").CloseoutAssessment;
-    readonly blockingAssessment: import("../../../kernel/src/domain/task-blocking.ts").BlockingAssessment;
+    readonly closeoutAssessment: import("@harness-anything/kernel/internal/domain/closeout-readiness").CloseoutAssessment;
+    readonly blockingAssessment: import("@harness-anything/kernel/internal/domain/task-blocking").BlockingAssessment;
     readonly placement: TaskPlacementSupplement;
     readonly executionEvidence: readonly ExecutionEvidenceProjection[];
-    readonly board: import("../../../kernel/src/domain/task-board-projection.ts").TaskBoardPlacement;
-    readonly visibility: import("../../../kernel/src/domain/task-board-projection.ts").TaskVisibility;
-    readonly capabilities: readonly import("../../../kernel/src/domain/task-board-projection.ts").TaskCapability[];
-    readonly phase: import("../../../kernel/src/domain/task-board-projection.ts").TaskPhase;
-    readonly risk: import("../../../kernel/src/domain/task-board-projection.ts").TaskRisk;
+    readonly board: import("@harness-anything/kernel/internal/domain/task-board-projection").TaskBoardPlacement;
+    readonly visibility: import("@harness-anything/kernel/internal/domain/task-board-projection").TaskVisibility;
+    readonly capabilities: readonly import("@harness-anything/kernel/internal/domain/task-board-projection").TaskCapability[];
+    readonly phase: import("@harness-anything/kernel/internal/domain/task-board-projection").TaskPhase;
+    readonly risk: import("@harness-anything/kernel/internal/domain/task-board-projection").TaskRisk;
   })[];
   readonly invalidRows: readonly DaemonTaskSnapshotInvalidRow[];
   readonly watermark: number;
@@ -769,7 +769,7 @@ export type DaemonTaskWipResult = {
   readonly limitLabel: string;
   readonly counted: readonly {
     readonly taskId: string;
-    readonly status: import("../../../kernel/src/domain/task-wip-policy.ts").TaskWipOccupyingStatus;
+    readonly status: import("@harness-anything/kernel/internal/domain/task-wip-policy").TaskWipOccupyingStatus;
     readonly title: string;
   }[];
   readonly roots: readonly TaskWipRootRow[];
@@ -787,8 +787,8 @@ export type DaemonWorkspaceSummaryResult = {
   readonly schema: "daemon.workspace-summary/v1";
   readonly ok: true;
   readonly status: "ready" | "pending";
-  readonly tasks: import("../../../kernel/src/domain/workspace-summary.ts").WorkspaceTaskSummary;
-  readonly decisions: import("../../../kernel/src/domain/workspace-summary.ts").WorkspaceDecisionSummary;
+  readonly tasks: import("@harness-anything/kernel/internal/domain/workspace-summary").WorkspaceTaskSummary;
+  readonly decisions: import("@harness-anything/kernel/internal/domain/workspace-summary").WorkspaceDecisionSummary;
   readonly watermark: number;
   readonly sourceRevision: number;
   readonly warnings: readonly ProjectionWarning[];
@@ -802,7 +802,7 @@ export interface AgendaTaskRow {
   readonly updatedAt: string;
   readonly leaseExecutionId: string | null;
   readonly activeExecutionIds: readonly string[];
-  readonly blockingAssessment: import("../../../kernel/src/domain/task-blocking.ts").BlockingAssessment;
+  readonly blockingAssessment: import("@harness-anything/kernel/internal/domain/task-blocking").BlockingAssessment;
 }
 
 /**
@@ -815,7 +815,7 @@ export interface AgendaExecutionRow {
   readonly pinned: boolean;
   readonly executionId: string;
   readonly submittedAt: string;
-  readonly blockingAssessment: import("../../../kernel/src/domain/task-blocking.ts").BlockingAssessment;
+  readonly blockingAssessment: import("@harness-anything/kernel/internal/domain/task-blocking").BlockingAssessment;
 }
 
 export interface AgendaDecisionRow {

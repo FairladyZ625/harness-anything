@@ -10,11 +10,11 @@ import {
   daemonProtocolCommands,
   thinCliCommands,
   validateDaemonRpcCall,
-} from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { unknownFieldViolation } from "../../daemon/src/protocol/json-rpc-types.ts";
-import { taskCreateGuidance } from "../../daemon/src/receipt-guidance.ts";
-import { resolveHarnessLayout } from "../../kernel/src/index.ts";
-import { workspacePathFormat } from "../../preset/src/preset-command-contract.ts";
+} from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { unknownFieldViolation } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
+import { taskCreateGuidance } from "@harness-anything/daemon/internal/receipt-guidance";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
+import { workspacePathFormat } from "@harness-anything/preset/internal/preset-command-contract";
 import { cliCapabilities, deriveThinCliInputs, parseThinCommand, renderThinHelp } from "../src/cli/thin-command.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { emit, main, resolveCliVersion } from "../src/index.ts";

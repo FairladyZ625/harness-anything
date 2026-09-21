@@ -1,4 +1,4 @@
-import type { AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
+import type { AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import type { AgentRuntimeInstanceDto } from "./agent-runtime-contract.ts";
 import { type RuntimeIsolationState, type RuntimePermissionMode } from "./runtime-permissions.ts";
 import type { RuntimeKindId } from "./runtime-inventory.ts";

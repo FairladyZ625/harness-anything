@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { selectReviewAgent } from "../src/task-review-dispatch.ts";
-import { renderCliReceipt } from "../../cli/src/cli/receipt-render-registry.ts";
+import { renderCliReceipt } from "@harness-anything/cli/internal/cli/receipt-render-registry";
 
 for (const [frozen, argument, setting, reviewerId, reviewerSource] of [
   ["frozen-reviewer", "argument-reviewer", "setting-reviewer", "argument-reviewer", "argument"],

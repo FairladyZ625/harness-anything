@@ -22,7 +22,7 @@ import {
   type TaskMetadataV1,
   type OpaqueTextualMediaType,
   type WriteSource,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { canonicalPresetBytes, serializePresetSnapshotV1, type PresetSnapshotV1 } from "./preset.contract.ts";
 import { createRuntime, type PresetResolverOptions } from "./preset-resolver.ts";
 import { resolverContentHash } from "./preset-resolver-common.ts";

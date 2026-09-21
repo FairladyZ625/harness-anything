@@ -1,8 +1,8 @@
 import path from "node:path";
-import { localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
-import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rpc-client.ts";
-import { readDaemonStoppedAt } from "../../../daemon/src/client/daemon-autostart.ts";
-import { readDaemonLifecycleRecords } from "../../../daemon/src/lifecycle-log.ts";
+import { localUserDaemonEndpoint, resolveLocalDaemonTarget } from "@harness-anything/daemon/internal/client/local-daemon-target";
+import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
+import { readDaemonStoppedAt } from "@harness-anything/daemon/internal/client/daemon-autostart";
+import { readDaemonLifecycleRecords } from "@harness-anything/daemon/internal/lifecycle-log";
 import { consumeKnownError } from "./client.ts";
 import { daemonFailure, daemonOption } from "./control-support.ts";
 

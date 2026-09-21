@@ -5,7 +5,7 @@ import {
   contractForDeclarationEvent,
   type TaskProgressEventV1,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { readDocReceipt } from "./doc-sync-actions.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { receiptLayoutRoots, workspaceRelativePath } from "./receipt-guidance.ts";

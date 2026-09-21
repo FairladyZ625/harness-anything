@@ -3,7 +3,7 @@ import {
   type AuthorizationContext,
   type AuthorizationDecision,
   type ReceiptJsonValue,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { authorizeAction } from "./authorization.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 

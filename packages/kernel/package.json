@@ -6,12 +6,30 @@
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
     "./browser": {
-      "types": "./dist/browser.d.ts",
+      "types": "./src/browser.ts",
       "default": "./src/browser.ts"
+    },
+    "./contract-version": "./src/domain/contract-version.ts",
+    "./daemon-registry": "./src/daemon/registry.ts",
+    "./internal/*": "./src/*.ts"
+  },
+  "publishConfig": {
+    "exports": {
+      ".": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "./browser": {
+        "types": "./dist/browser.d.ts",
+        "default": "./dist/browser.js"
+      },
+      "./contract-version": "./dist/domain/contract-version.js",
+      "./daemon-registry": "./dist/daemon/registry.js",
+      "./internal/*": "./dist/*.js"
     }
   },
   "dependencies": {

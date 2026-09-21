@@ -1,4 +1,4 @@
-import type { ActorIdentity, RoleBinding } from "../../kernel/src/index.ts";
+import type { ActorIdentity, RoleBinding } from "@harness-anything/kernel";
 
 export function withRoleBinding<
   T extends {

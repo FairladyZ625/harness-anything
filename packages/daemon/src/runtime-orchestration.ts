@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import type { AgentRuntimeSessionResult, AgentRuntimeSettlement } from "./agent-runtime-contract.ts";
 import { taskDispatchRowSettled, taskDispatchRowsSettled } from "./dispatch-read.ts";
 import { daemonProtocolCommands } from "./protocol/daemon-protocol-commands.ts";

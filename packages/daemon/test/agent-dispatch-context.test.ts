@@ -8,7 +8,7 @@ import {
   makeTaskEventReader,
   type AgentDefinitionSnapshot,
   type RuntimeInstallationWitness,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
 import { CAUSAL_CONTEXT_MAX_BYTES } from "../src/dispatch-causal-context.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";

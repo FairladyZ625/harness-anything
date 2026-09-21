@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { TaskIndexProjectionRow } from "../../kernel/src/index.ts";
+import type { TaskIndexProjectionRow } from "@harness-anything/kernel";
 import { renderTaskIndexPayload, selectTaskIndex } from "../src/task-index-query.ts";
 
 test("task index expands bounded and full-depth subtrees with search context and pins", () => {

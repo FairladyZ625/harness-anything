@@ -11,7 +11,7 @@ import {
   taskVisibility,
   type TaskProjection,
   type TaskProjectionListQuery,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 type TaskBoardRowInput = Parameters<typeof taskBoardPlacement>[0];
 import { canonicalRoot, validateDaemonTaskSnapshotList } from "../src/protocol/daemon-protocol.contract.ts";
 import { makeTaskQueryReadModel } from "../src/task-query-read.ts";

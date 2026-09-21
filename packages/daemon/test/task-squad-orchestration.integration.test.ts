@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, makeTaskProjection } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RuntimeLauncher } from "../src/runtime-spawn-types.ts";
 import type { WorkerAttempt } from "../src/squad-leader-decision.ts";

@@ -10,7 +10,7 @@ import {
   type FactEventDraftV1,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { factDocumentRecord } from "./entity-document-rematerialize.ts";
 import { publicationKillpoints, reject } from "./entity-action-relation.ts";
 import { workspaceText } from "./repo-cell-packets.ts";

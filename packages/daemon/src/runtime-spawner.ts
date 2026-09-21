@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
-import type { AgentRuntimeEventV1, CanonicalEventStore, SessionIdentity } from "../../kernel/src/index.ts";
+import type { AgentRuntimeEventV1, CanonicalEventStore, SessionIdentity } from "@harness-anything/kernel";
 import {
   consumeKnownError,
   currentSubmittedExecutions,
@@ -10,9 +10,9 @@ import {
   runtimeDefinitionSnapshotArtifact,
   runtimeSessionIdFromActor,
   type AuthorizationDecision,
-} from "../../kernel/src/index.ts";
-import { presetDocumentBody } from "../../preset/src/preset-resolver.ts";
-import { presetRuntimeDefaults, presetUserRoot } from "../../preset/src/preset-system.ts";
+} from "@harness-anything/kernel";
+import { presetDocumentBody } from "@harness-anything/preset/internal/preset-resolver";
+import { presetRuntimeDefaults, presetUserRoot } from "@harness-anything/preset/internal/preset-system";
 import {
   agentRuntimeTargetForKind,
   agentRuntimeKindMismatchDetail,

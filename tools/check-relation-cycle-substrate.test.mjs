@@ -22,7 +22,7 @@ test("relation cycle substrate check rejects a second relation-edge DFS implemen
     writeCanonicalDetector(root);
     mkdirSync(path.join(root, "packages/cli/src/commands"), { recursive: true });
     writeFileSync(path.join(root, "packages/cli/src/commands/relation-cycle.ts"), [
-      "import type { RelationGraphEdgeRow } from '../../../../kernel/src/index.ts';",
+      "import type { RelationGraphEdgeRow } from '@harness-anything/kernel';",
       "export function detectRelationCycleAgain(edges: ReadonlyArray<RelationGraphEdgeRow>) {",
       "  const visiting = new Set<string>();",
       "  const visited = new Set<string>();",
@@ -54,7 +54,7 @@ test("relation cycle substrate check allows wrappers that delegate to the canoni
     writeCanonicalDetector(root);
     mkdirSync(path.join(root, "packages/cli/src/commands"), { recursive: true });
     writeFileSync(path.join(root, "packages/cli/src/commands/relation-cycle.ts"), [
-      "import { detectRelationGraphCycles, type RelationGraphEdgeRow } from '../../../../kernel/src/index.ts';",
+      "import { detectRelationGraphCycles, type RelationGraphEdgeRow } from '@harness-anything/kernel';",
       "export function detectPendingRelationCycle(edges: ReadonlyArray<RelationGraphEdgeRow>) {",
       "  return detectRelationGraphCycles(edges)[0] ?? null;",
       "}"

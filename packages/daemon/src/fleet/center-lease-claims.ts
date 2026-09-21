@@ -1,6 +1,6 @@
 import { existsSync, unlinkSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError } from "../../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 
 import { FleetFault, type FleetCenterOptions, type State, type Upload } from "./center-types.ts";
 

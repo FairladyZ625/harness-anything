@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { sha256Bytes, submissionDigest } from "../../kernel/src/index.ts";
+import { sha256Bytes, submissionDigest } from "@harness-anything/kernel";
 import { validateGuiSubmission } from "../src/protocol/daemon-protocol-validate-entities.ts";
 import { artifactAnchors, readSubmissionArtifact } from "../src/submission-artifacts.ts";
 import { deriveCloseoutSubmission } from "../src/repo-cell-submit.ts";

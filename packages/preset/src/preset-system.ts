@@ -7,7 +7,7 @@ import {
   type SettingsV1,
   type TaskClass,
   type WriteSource,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { taskCreateEnum } from "./preset-command-contract.ts";
 import {
   compilePresetSnapshotUpgrade,

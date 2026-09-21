@@ -75,6 +75,13 @@ const kernelDeepImportPattern = {
   message: "Import kernel through its public barrel instead of deep src paths.",
 };
 
+const crossPackageRelativeSourcePattern = {
+  group: ["kernel", "daemon", "preset", "cli"].flatMap((packageName) =>
+    Array.from({ length: 6 }, (_, index) => `${"../".repeat(index + 1)}${packageName}/src/**`),
+  ),
+  message: "Import sibling workspaces through their package names instead of relative source paths.",
+};
+
 function noRestrictedKernelImportOptions(allowedPatterns = []) {
   return {
     patterns: [
@@ -203,6 +210,13 @@ const packageSyntaxRestrictions = [
   {
     selector: "ImportExpression[source.type='Literal'][source.value=/kernel\\/src\\/(?!index\\.ts$)/u]",
     message: "Dynamic imports must not bypass the kernel public barrel.",
+  },
+];
+
+const crossPackageRelativeSourceSyntaxRestrictions = [
+  {
+    selector: String.raw`ImportExpression[source.type='Literal'][source.value=/^(?:\.\.\/)+(?:kernel|daemon|preset|cli)\/src(?:\/|$)/u]`,
+    message: crossPackageRelativeSourcePattern.message,
   },
 ];
 
@@ -367,12 +381,22 @@ export default tseslint.config(
   },
   ...kernelImportKnownDebtOverrides,
   {
-    // tools/*.mjs are gate/tooling scripts and are intentionally exempted in the
-    // first boundary pass; this task only closes the packages/** consumer graph.
+    files: [
+      "packages/cli/**/*.{ts,tsx,js,mjs}",
+      "packages/daemon/**/*.{ts,tsx,js,mjs}",
+      "packages/preset/**/*.{ts,tsx,js,mjs}",
+    ],
+    rules: {
+      "no-restricted-imports": ["error", { patterns: [crossPackageRelativeSourcePattern] }],
+      "no-restricted-syntax": ["error", ...packageSyntaxRestrictions, ...crossPackageRelativeSourceSyntaxRestrictions],
+    },
+  },
+  {
+    // Tooling may depend on workspaces, but it must resolve them through package exports.
     files: ["tools/**/*.mjs"],
     rules: {
-      "no-restricted-imports": "off",
-      "no-restricted-syntax": "off",
+      "no-restricted-imports": ["error", { patterns: [crossPackageRelativeSourcePattern] }],
+      "no-restricted-syntax": ["error", ...crossPackageRelativeSourceSyntaxRestrictions],
     },
   },
 );

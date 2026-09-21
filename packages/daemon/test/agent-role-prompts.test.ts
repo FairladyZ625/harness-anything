@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readBundledAgentDeclaration } from "../../preset/src/index.ts";
+import { readBundledAgentDeclaration } from "@harness-anything/preset";
 import { assembleAgentPrompt, assembleUnboundPrompt } from "../src/runtime-spawn-mission.ts";
 
 for (const role of ["worker", "commander", "reviewer"] as const)

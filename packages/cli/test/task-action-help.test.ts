@@ -2,11 +2,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { makeTaskActionExplanationService } from "../../application/src/task-action-explanation-service.ts";
-import { taskActionCommandUsage } from "../../daemon/src/protocol/daemon-protocol-commands.ts";
+import { taskActionCommandUsage } from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands";
 import {
   generatedTaskActionProtocolDeclarations,
   taskActionHelpRows,
-} from "../../daemon/src/protocol/daemon-protocol-commands-task.ts";
+} from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands-task";
 import { renderEntityActionExplanation } from "../src/cli/entity-action-explain-render.ts";
 import { renderThinHelp } from "../src/cli/thin-command.ts";
 

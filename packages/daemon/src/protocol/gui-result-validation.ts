@@ -15,7 +15,7 @@ import {
   validateEntityKindCatalog,
   validateSettingsV1,
   validateVerticalDeclarationRead,
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   validateAgentEntityCatalog,
   validateAgentEntityDetail,

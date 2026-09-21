@@ -13,8 +13,8 @@ import {
   makeTaskEventStore,
   registerDaemonRepo,
   taskLifecycleWritePlan,
-} from "../../kernel/src/index.ts";
-import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "../../daemon/src/writer-epoch.ts";
+} from "@harness-anything/kernel";
+import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "@harness-anything/daemon/internal/writer-epoch";
 
 const cli = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 

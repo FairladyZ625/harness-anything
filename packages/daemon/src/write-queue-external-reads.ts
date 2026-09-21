@@ -3,7 +3,7 @@ import {
   inferLegacyGateRequirements,
   type MappedWitnessAdapterId,
   type WriteReceiptDraft,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { artifactImportSourceResolution, prepareArtifactEntityImportSource } from "./artifact-entity-action.ts";
 import { fetchCiObservations, ingestCiObservations } from "./ci-observation-actions.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";

@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { projectDeclaredRoleBindings, mergePeopleRosterDocuments } from "../../kernel/src/index.ts";
+import { projectDeclaredRoleBindings, mergePeopleRosterDocuments } from "@harness-anything/kernel";
 import { peopleRosterFromDocument } from "../src/identity/people-roster.ts";
 
 const legacyRoster = `schema: harness-people/v1

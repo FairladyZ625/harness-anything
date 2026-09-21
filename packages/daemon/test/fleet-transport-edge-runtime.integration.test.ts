@@ -8,7 +8,7 @@ import test, { type TestContext } from "node:test";
 import { fleetHostWriterOptions, fleetLedgerRevision, waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import { connect, type TLSSocket } from "node:tls";
-import { makeTaskEventReader, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import type { AgentRuntimeSessionDto } from "../src/agent-runtime-contract.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { readDispatchStream } from "../src/dispatch-stream.ts";

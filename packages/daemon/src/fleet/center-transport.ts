@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { type TLSSocket } from "node:tls";
-import { consumeKnownError, isContractVersionCompatible } from "../../../kernel/src/index.ts";
+import { consumeKnownError, isContractVersionCompatible } from "@harness-anything/kernel";
 import { writeFileDurably } from "../durable-file.ts";
 import type { Delivery, FleetCenterOptions, SessionWindow, State, Upload } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";

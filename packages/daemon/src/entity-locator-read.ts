@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
-import { normalizeRelativeDocumentPath } from "../../kernel/src/index.ts";
+import { normalizeRelativeDocumentPath } from "@harness-anything/kernel";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
 
 /**

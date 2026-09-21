@@ -18,7 +18,7 @@ import {
   type FrozenGateRequirement,
   type MappedWitnessAdapterId,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { fetchCiObservations, ingestCiObservations } from "./ci-observation-actions.ts";

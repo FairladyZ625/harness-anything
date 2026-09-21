@@ -5,6 +5,10 @@
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./internal/*": "./src/*.ts"
+  },
+  "dependencies": {
+    "@harness-anything/kernel": "0.0.1"
   }
 }

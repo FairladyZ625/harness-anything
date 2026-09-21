@@ -10,8 +10,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import type { AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import type { AgentDefinitionSnapshot } from "@harness-anything/kernel";
+import { consumeKnownError } from "@harness-anything/kernel";
 import { identifier, runtimeInstanceError, unavailable } from "./agent-runtime-instance-config.ts";
 import type {
   RuntimeAuthReadiness,

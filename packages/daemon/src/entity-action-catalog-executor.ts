@@ -30,7 +30,7 @@ import {
   type SessionIdentity,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { prepareDecisionAmend, validateDecisionPackages } from "./decision-surface-actions.ts";
 import { factReplayBundle, supersededFactDocumentSource } from "./fact-supersede-document.ts";
 import {

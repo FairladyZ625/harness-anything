@@ -1,9 +1,9 @@
 // harness-test-tier: integration
 import test from "node:test";
 import type { Socket } from "node:net";
-import { daemonStoppedMarkerPath } from "../../daemon/src/client/daemon-autostart.ts";
-import { createRuntimeCallbackRelay } from "../../daemon/src/runtime-callback-relay.ts";
-import { startDaemon } from "../../daemon/src/runtime.ts";
+import { daemonStoppedMarkerPath } from "@harness-anything/daemon/internal/client/daemon-autostart";
+import { createRuntimeCallbackRelay } from "@harness-anything/daemon/internal/runtime-callback-relay";
+import { startDaemon } from "@harness-anything/daemon/internal/runtime";
 import * as shared from "./daemon-autostart-cli.fixture.ts";
 
 const {

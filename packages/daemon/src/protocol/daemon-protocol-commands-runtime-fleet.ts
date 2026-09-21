@@ -6,7 +6,7 @@ import {
   defineRepoReadCommand,
   defineRuntimeLocalWriteCommand,
   workspacePathFormat,
-} from "../../../preset/src/preset-command-contract.ts";
+} from "@harness-anything/preset/internal/preset-command-contract";
 
 export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
   id: "agent-run",

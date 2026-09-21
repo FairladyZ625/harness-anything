@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { makeTaskEventReader, makeTaskProjection, canStartExecution } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, makeTaskProjection, canStartExecution } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { actor, initRepo } from "./migration-import.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import type { DaemonHost } from "./daemon-host.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
-import { readDaemonRegistry } from "../../kernel/src/index.ts";
+import { readDaemonRegistry } from "@harness-anything/kernel";
 
 export function createDaemonHostLifecycleApi(
   context: DaemonHostApiContext,

@@ -1,14 +1,14 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getEntityKindContract } from "../../kernel/src/index.ts";
+import { getEntityKindContract } from "@harness-anything/kernel";
 import {
   derivedTaskActionProtocolCommands,
   generatedTaskActionProtocolDeclarations,
   reviewJsonFields,
-} from "../../daemon/src/protocol/daemon-protocol-commands-task.ts";
-import { validateDaemonRpcCall } from "../../daemon/src/protocol/daemon-protocol-rpc-validation.ts";
-import { workspacePathFormat } from "../../preset/src/preset-command-contract.ts";
+} from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands-task";
+import { validateDaemonRpcCall } from "@harness-anything/daemon/internal/protocol/daemon-protocol-rpc-validation";
+import { workspacePathFormat } from "@harness-anything/preset/internal/preset-command-contract";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 
 test("daemon lifecycle command inputs and thin CLI parameters are projections of Task Actions", () => {

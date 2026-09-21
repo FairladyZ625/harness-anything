@@ -1,4 +1,4 @@
-import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { accepted, nonEmpty, readFlags, rejected } from "./thin-command-flags.ts";
 import { parseRuntimeInstanceCreate } from "./thin-command-runtime-instance-create.ts";
 import { parseRuntimeInstanceUpdate } from "./thin-command-runtime-instance-update.ts";

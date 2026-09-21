@@ -13,7 +13,7 @@ import {
   openSqliteEventStore,
   sha256Bytes,
 } from "../../kernel/test/store/canonical-generation.fixtures.ts";
-import { makeTaskEventReader, serializePersistedCanonicalEvent, sha256Text } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, serializePersistedCanonicalEvent, sha256Text } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
@@ -88,7 +88,7 @@ test("real Entity import survives gen2 CLI conversion, Git recovery and a fresh 
     const run = spawnSync(
       process.execPath,
       [
-        fileURLToPath(new URL("../../cli/src/index.ts", import.meta.url)),
+        fileURLToPath(new URL("@harness-anything/cli", import.meta.url)),
         "migrate",
         "ledger",
         "--source",

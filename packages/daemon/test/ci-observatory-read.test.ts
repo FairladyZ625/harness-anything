@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { runProcessTextAsync } from "../src/process-port.ts";
 import { readCiObservatory } from "../src/ci-observatory-read.ts";
 import { fetchCiObservations, ingestCiObservations, selectCiObservationRuns } from "../src/ci-observation-actions.ts";
-import type { CiRunObservationEventV3 } from "../../kernel/src/index.ts";
+import type { CiRunObservationEventV3 } from "@harness-anything/kernel";
 
 const actor = { principal: { personId: "person-observatory" }, executor: null } as const;
 const ciSettings = (workflows: readonly string[] = ["rewrite-ci", "rebuild-gates"]) => ({

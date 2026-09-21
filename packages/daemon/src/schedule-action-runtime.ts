@@ -6,7 +6,7 @@ import {
   type ScheduleActionDraft,
   type ScheduleV1,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { executeBuiltinScheduleOccurrence } from "./schedule-builtin-executor.ts";
 import {
   scheduleDeleteJsonAllowedFields,

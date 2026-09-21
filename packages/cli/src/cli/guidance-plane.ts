@@ -1,4 +1,4 @@
-import { AGENDA_PIN_CRITERIA } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { AGENDA_PIN_CRITERIA } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 
 type GuidanceArgs = Readonly<Record<string, unknown>>;
 type GuidanceTemplate = (args: GuidanceArgs) => string;

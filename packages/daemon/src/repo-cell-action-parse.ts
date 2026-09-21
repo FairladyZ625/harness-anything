@@ -2,8 +2,8 @@ import {
   decisionProposalJsonFields,
   decisionProposalRequiredJsonFields,
   taskCreateJsonFields,
-} from "../../preset/src/index.ts";
-import { consumeKnownError, type SettingsV1 } from "../../kernel/src/index.ts";
+} from "@harness-anything/preset";
+import { consumeKnownError, type SettingsV1 } from "@harness-anything/kernel";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { packetRecord, readPacketSource, workspaceText } from "./repo-cell-packets.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";

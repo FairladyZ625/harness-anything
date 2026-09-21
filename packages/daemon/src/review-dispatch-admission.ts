@@ -1,4 +1,4 @@
-import { currentSubmittedExecutions, type ExecutionV1 } from "../../kernel/src/index.ts";
+import { currentSubmittedExecutions, type ExecutionV1 } from "@harness-anything/kernel";
 import type { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 

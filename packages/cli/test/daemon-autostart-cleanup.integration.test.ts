@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { daemonProcessAlive } from "../../daemon/src/daemon-singleton.ts";
+import { daemonProcessAlive } from "@harness-anything/daemon/internal/daemon-singleton";
 import { stop, waitForProcessExit } from "./daemon-autostart-cli.fixture.ts";
 
 test("autostart fixture stops its daemon even when the owning test throws", async () => {

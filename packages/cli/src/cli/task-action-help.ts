@@ -1,4 +1,4 @@
-import { taskActionHelpRows } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { taskActionHelpRows } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 
 export interface TaskActionHelpRow {
   readonly usage: string;

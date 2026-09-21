@@ -1,4 +1,4 @@
-import type { ScheduleMissedReason, ScheduleRunOutcome } from "../../../kernel/src/index.ts";
+import type { ScheduleMissedReason, ScheduleRunOutcome } from "@harness-anything/kernel";
 import { isJsonObject, rejectSecretKeys } from "./json-rpc-types.ts";
 
 export type ScheduleOccurrenceOutcome = ScheduleRunOutcome | "running" | "missed";

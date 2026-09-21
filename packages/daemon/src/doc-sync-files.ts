@@ -13,7 +13,7 @@ import {
   type EventPublicationKillpoint,
   type WriteReceiptDraft as WriteReceipt,
   type WriteSource,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { Action, Input } from "./doc-sync-command-actions.ts";
 import type { RuntimeDispatchArchive } from "./doc-sync-publication.ts";
 

@@ -20,7 +20,7 @@ import {
   makeTaskEventStore,
   serializeCanonicalEvent,
   sha256Text,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openFencedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
@@ -44,7 +44,7 @@ import {
   makeTaskProjection,
   serializeEventHead,
   serializePersistedCanonicalEvent,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { eventObjectRelativePath } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import {
   attributionFixture,

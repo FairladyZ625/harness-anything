@@ -6,7 +6,7 @@ import {
   type ExecutionV1,
   type TaskLifecycleSnapshot,
   type TaskV2,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { buildCommand } from "../src/repo-cell-command.ts";
 
 const taskId = "task-code-doc-source",

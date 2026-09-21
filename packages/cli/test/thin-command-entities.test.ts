@@ -4,10 +4,10 @@ import test from "node:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { daemonProtocolCommands } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { packetJson } from "../../daemon/src/repo-cell-packets.ts";
-import { readWorkspaceText } from "../../daemon/src/workspace-text-port.ts";
-import { workspacePathFormat, workspacePathResolutionRule } from "../../preset/src/preset-command-contract.ts";
+import { daemonProtocolCommands } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { packetJson } from "@harness-anything/daemon/internal/repo-cell-packets";
+import { readWorkspaceText } from "@harness-anything/daemon/internal/workspace-text-port";
+import { workspacePathFormat, workspacePathResolutionRule } from "@harness-anything/preset/internal/preset-command-contract";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 import { materializePacketStdin, rawDocumentBody, rawTemplateBody } from "../src/index.ts";
 

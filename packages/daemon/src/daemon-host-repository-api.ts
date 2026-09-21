@@ -12,14 +12,14 @@ import {
   unbindDaemonRepo,
   updateDaemonConnection,
   updateDaemonRepo,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   compileRepoRepositoryScaffold,
   compileRepoTaskPackage,
   presetUserRoot,
   recoverPresetRunStatus,
-} from "../../preset/src/index.ts";
-import { repoReadCommandTopology } from "../../preset/src/preset-command-contract.ts";
+} from "@harness-anything/preset";
+import { repoReadCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
 import type { DaemonHost } from "./daemon-host.ts";
 import {
   canonicalRoot,

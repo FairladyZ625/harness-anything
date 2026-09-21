@@ -1,4 +1,4 @@
-import type { TemplateCatalog, TemplateSelection, VerticalDefinition } from "../../kernel/src/index.ts";
+import type { TemplateCatalog, TemplateSelection, VerticalDefinition } from "@harness-anything/kernel";
 
 export interface ExtensionValidationIssue {
   readonly code:

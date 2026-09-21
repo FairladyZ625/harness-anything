@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import {
   assertCurrentWriter,
   applyPeopleRosterAction,
@@ -17,12 +17,12 @@ import {
   type ActorIdentity,
   type WriterGeneration,
   type WriterGenerationToken,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   assertRepositoryScaffoldPlanCurrent,
   compileRepoRepositoryScaffold,
   type RepositoryScaffoldPlan,
-} from "../../preset/src/index.ts";
+} from "@harness-anything/preset";
 import {
   canonicalRoot,
   workspaceId,

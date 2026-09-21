@@ -13,7 +13,7 @@ import {
   deriveArtifactContentVersion,
   makeTaskEventReader,
   makeTaskProjection,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";

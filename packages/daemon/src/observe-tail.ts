@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { CanonicalEventV1, DaemonRepoMode, TaskProjection } from "../../kernel/src/index.ts";
+import type { CanonicalEventV1, DaemonRepoMode, TaskProjection } from "@harness-anything/kernel";
 import { daemonConnLogFileStem } from "./conn-log.ts";
 import { daemonLifecycleLogPath } from "./lifecycle-log.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";

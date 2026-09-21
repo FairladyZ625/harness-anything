@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { readDaemonRegistry } from "../../kernel/src/index.ts";
+import { readDaemonRegistry } from "@harness-anything/kernel";
 import { doctorHealth } from "../src/repo-cell-doctor.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";

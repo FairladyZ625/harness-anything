@@ -4,16 +4,16 @@ import {
   daemonUserRoot,
   localUserDaemonEndpoint,
   resolveLocalDaemonTarget,
-} from "../../../daemon/src/client/local-daemon-target.ts";
-import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rpc-client.ts";
-import type { DaemonShutdownExchange } from "../../../daemon/src/client/local-json-rpc-shutdown.ts";
-import { terminateProcess } from "../../../daemon/src/process-port.ts";
-import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
+} from "@harness-anything/daemon/internal/client/local-daemon-target";
+import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
+import type { DaemonShutdownExchange } from "@harness-anything/daemon/internal/client/local-json-rpc-shutdown";
+import { terminateProcess } from "@harness-anything/daemon/internal/process-port";
+import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import {
   clearDaemonStoppedMarker,
   runtimeDaemonStartRefusal,
   writeDaemonStoppedMarker,
-} from "../../../daemon/src/client/daemon-autostart.ts";
+} from "@harness-anything/daemon/internal/client/daemon-autostart";
 import {
   daemonProcessAlive,
   daemonSocketProbe,
@@ -21,8 +21,8 @@ import {
   readDaemonSingletonLockPid,
   releaseDaemonPidFile,
   releaseDaemonSingletonLock,
-} from "../../../daemon/src/daemon-singleton.ts";
-import { daemonBuildStamp } from "../../../daemon/src/build-identity.ts";
+} from "@harness-anything/daemon/internal/daemon-singleton";
+import { daemonBuildStamp } from "@harness-anything/daemon/internal/build-identity";
 import { cliErrorMessage } from "../cli-error.ts";
 import { consumeKnownError } from "./client.ts";
 import { ensureCliDaemonRunning } from "./autostart.ts";
@@ -243,7 +243,7 @@ async function requestCooperativeStop(
 ): Promise<DaemonShutdownExchange | null> {
   let exchange: DaemonShutdownExchange | null = null;
   try {
-    const { requestDaemonShutdownAt } = await import("../../../daemon/src/client/local-json-rpc-shutdown.ts");
+    const { requestDaemonShutdownAt } = await import("@harness-anything/daemon/internal/client/local-json-rpc-shutdown");
     exchange = await requestDaemonShutdownAt(localUserDaemonEndpoint(userRoot, daemonId), 75);
   } catch (error) {
     consumeKnownError(error);

@@ -1,4 +1,4 @@
-import type { ScheduleRunOutcome } from "../../kernel/src/index.ts";
+import type { ScheduleRunOutcome } from "@harness-anything/kernel";
 import type { RuntimeExitOutcome } from "./runtime-provider-fault.ts";
 
 const outcomeProtocol = [

@@ -1,6 +1,6 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { INITIAL_SETTINGS_V1 } from "../../kernel/src/index.ts";
+import { INITIAL_SETTINGS_V1 } from "@harness-anything/kernel";
 import {
   createPresetProcessService as createProjectedPresetProcessService,
   type PresetProcessServiceOptions,

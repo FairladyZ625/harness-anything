@@ -1,5 +1,5 @@
-import type { EntityResidencyFacets } from "../../../kernel/src/index.ts";
-import { repoReadCommandTopology } from "../../../preset/src/preset-command-contract.ts";
+import type { EntityResidencyFacets } from "@harness-anything/kernel";
+import { repoReadCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
 import { observeTailKinds, shape } from "./daemon-protocol-gui-types.ts";
 import { DAEMON_OBSERVE_TAIL_SCHEMA, DAEMON_PROTOCOL_ERROR_SCHEMA } from "./daemon-protocol-schema-ids.ts";
 

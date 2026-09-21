@@ -12,8 +12,8 @@ import {
   type WriteReceipt,
   type WriteReceiptDraft,
   type WriteSource,
-} from "../../kernel/src/index.ts";
-import { type PresetRunReceiptV1 } from "../../preset/src/index.ts";
+} from "@harness-anything/kernel";
+import { type PresetRunReceiptV1 } from "@harness-anything/preset";
 import { type AgentRuntimeAttachSubscription, type AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import type { FleetAssignmentScope, FleetRuntimeDispatchContext } from "./fleet/contract.ts";
@@ -30,7 +30,7 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { type TerminalHost, type TrustedTerminalLaunch } from "./terminal-host.ts";
 import type { WriterEpochFenceDescriptor } from "./writer-epoch.ts";
-import { createLedgerBackup, type DaemonRegistryRepo } from "../../kernel/src/index.ts";
+import { createLedgerBackup, type DaemonRegistryRepo } from "@harness-anything/kernel";
 
 export type RepoTaskAction = Readonly<Record<string, unknown>> & {
   readonly kind: string;

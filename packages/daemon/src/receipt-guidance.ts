@@ -8,7 +8,7 @@ import {
   type ReceiptGuidanceArgument,
   type ReceiptGuidanceContractEntry,
   type ReceiptDiagnostic,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 /** The two layout roots receipt prose needs: where the workspace starts and where the ledger lives. */
 export interface WorkspaceLayoutRoots {

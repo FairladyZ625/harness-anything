@@ -1,5 +1,5 @@
-import { readDaemonRegistry } from "../../kernel/src/index.ts";
-import { ledgerWriteCommandTopology, repoReadCommandTopology } from "../../preset/src/preset-command-contract.ts";
+import { readDaemonRegistry } from "@harness-anything/kernel";
+import { ledgerWriteCommandTopology, repoReadCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
 import type { DaemonHost } from "./daemon-host.ts";
 import {
   startFleetCenterAdmission,

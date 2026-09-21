@@ -6,7 +6,7 @@ import {
   stableStringify,
   type ContractVersion,
   type LedgerCutIdentity,
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { isUtcTimestamp } from "../protocol/json-rpc-types.ts";
 
 export const currentFleetProtocolVersion = CONTRACT_VERSION_1_0;

@@ -6,7 +6,7 @@ import {
   makeTaskEventStore,
   reviewDigest,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { validateGuiSubmission, type GuiSubmissionV1 } from "./protocol/daemon-protocol.contract.ts";
 import { reviewJsonFields } from "./protocol/daemon-protocol-commands-task.ts";
 import { validationDiagnostic } from "./protocol/daemon-protocol-validate-entities.ts";
