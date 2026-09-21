@@ -638,6 +638,7 @@ function AppShell() {
                     facts={facts}
                     relations={relations}
                     onNavigateEntity={navigateToEntity}
+                    onSetTaskPin={handleSetPin}
                     onAttest={(task, gateId, mode) => {
                       void taskActions.attestGate(task, gateId, mode);
                     }}
