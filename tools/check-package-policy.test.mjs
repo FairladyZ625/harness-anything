@@ -32,7 +32,7 @@ test("package policy accepts a daemon that remains private", async () => {
   });
 });
 
-test("package policy accepts GUI as an approved npm package", async () => {
+test("package policy rejects GUI as an npm package", async () => {
   await withFixtureRepo((root) => {
     writeValidFixture(root);
     writeJson(root, "packages/gui/package.json", {
@@ -45,8 +45,8 @@ test("package policy accepts GUI as an approved npm package", async () => {
 
     const result = runCheck(root);
 
-    assert.equal(result.status, 0, result.stderr);
-    assert.match(result.stdout, /Package policy check passed/u);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /is not in the approved npm publish set and must stay private/u);
   });
 });
 

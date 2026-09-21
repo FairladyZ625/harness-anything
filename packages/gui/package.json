@@ -1,6 +1,7 @@
 {
   "name": "@harness-anything/gui",
   "version": "0.0.1",
+  "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
   "description": "Desktop GUI and visualization client for Harness Anything.",
@@ -12,9 +13,6 @@
     "type": "git",
     "url": "git+https://github.com/FairladyZ625/harness-anything.git",
     "directory": "packages/gui"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "engines": {
     "node": ">=24"

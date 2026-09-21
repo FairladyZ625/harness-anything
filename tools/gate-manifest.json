@@ -89,6 +89,7 @@
         "check-catalog-schema",
         "check-runtime-release-readiness",
         "check-package-policy",
+        "check-package-tarball-exports",
         "check-implementation-contracts",
         "check-service-mappability",
         "check-api-contract-registry",
@@ -139,6 +140,7 @@
         "check-catalog-schema",
         "check-runtime-release-readiness",
         "check-package-policy",
+        "check-package-tarball-exports",
         "check-implementation-contracts",
         "check-service-mappability",
         "check-api-contract-registry",
@@ -147,7 +149,7 @@
         "check-legacy-intake-readiness",
         "check-supply-chain"
       ],
-      "harnessLeafGateCount": 42
+      "harnessLeafGateCount": 43
     },
     "rewriteCi": {
       "pullRequestGateJobs": [
@@ -2819,6 +2821,58 @@
       "positiveControl": {
         "status": "documented-gap",
         "evidence": ["No dedicated positive-control fixture is registered for check-package-policy."]
+      }
+    },
+    {
+      "id": "check-package-tarball-exports",
+      "command": "npm run harness:check-package-tarball-exports",
+      "category": "release-policy",
+      "tier": "pr-required",
+      "tierReason": null,
+      "authoritySource": ["decision/dec_22C3C58447E7520DA3E6FACD5E#CH1"],
+      "consumerScope": ["published workspace package exports and executable targets"],
+      "githubContext": {
+        "requiredContexts": ["package-policy"],
+        "workflowJobs": ["package-policy"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Every declared target must be present in the generated npm tarball."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/check-package-tarball-exports.mjs",
+          "tools/check-package-tarball-exports.test.mjs",
+          "package.json:scripts.harness:check-package-tarball-exports",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": true,
+      "executionSurfaces": {
+        "packageJson": {
+          "check": true,
+          "checkPr": true,
+          "script": "harness:check-package-tarball-exports"
+        },
+        "rewriteCi": {
+          "pullRequestJobs": ["package-policy"],
+          "nonPullRequestJobs": ["full-check", "package-policy"]
+        },
+        "branchProtection": {
+          "required": true,
+          "contexts": ["package-policy"]
+        },
+        "classes": ["local", "pr", "main-full"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/check-package-tarball-exports.test.mjs"]
       }
     },
     {
