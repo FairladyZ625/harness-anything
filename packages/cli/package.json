@@ -34,7 +34,7 @@
     "ha": "dist/cli/src/index.js"
   },
   "exports": {
-    ".": "./src/index.ts",
+    ".": "./dist/cli/src/index.js",
     "./internal/cli/receipt-render-registry": "./src/cli/receipt-render-registry.ts",
     "./internal/cli/thin-command": "./src/cli/thin-command.ts",
     "./internal/daemon/control": "./src/daemon/control.ts"

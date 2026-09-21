@@ -30,34 +30,6 @@
     "./internal/integrity/stable-hash": "./src/integrity/stable-hash.ts",
     "./internal/projection/cold-rebuild-source": "./src/projection/cold-rebuild-source.ts"
   },
-  "publishConfig": {
-    "exports": {
-      ".": {
-        "types": "./dist/index.d.ts",
-        "default": "./dist/index.js"
-      },
-      "./browser": {
-        "types": "./dist/browser.d.ts",
-        "default": "./dist/browser.js"
-      },
-      "./contract-version": "./dist/domain/contract-version.js",
-      "./daemon-registry": "./dist/daemon/registry.js",
-      "./internal/domain/closeout-readiness": "./dist/domain/closeout-readiness.js",
-      "./internal/domain/decision-event": "./dist/domain/decision-event.js",
-      "./internal/domain/doc-sync-canonical-events": "./dist/domain/doc-sync-canonical-events.js",
-      "./internal/domain/doc-sync.contract": "./dist/domain/doc-sync.contract.js",
-      "./internal/domain/fact-event": "./dist/domain/fact-event.js",
-      "./internal/domain/lifecycle-status": "./dist/domain/lifecycle-status.js",
-      "./internal/domain/task-blocking": "./dist/domain/task-blocking.js",
-      "./internal/domain/task-board-projection": "./dist/domain/task-board-projection.js",
-      "./internal/domain/task-lifecycle.contract": "./dist/domain/task-lifecycle.contract.js",
-      "./internal/domain/task-wip-policy": "./dist/domain/task-wip-policy.js",
-      "./internal/domain/workspace-summary": "./dist/domain/workspace-summary.js",
-      "./internal/error-consumption": "./dist/error-consumption.js",
-      "./internal/integrity/stable-hash": "./dist/integrity/stable-hash.js",
-      "./internal/projection/cold-rebuild-source": "./dist/projection/cold-rebuild-source.js"
-    }
-  },
   "dependencies": {
     "cron-parser": "5.10.0"
   }
