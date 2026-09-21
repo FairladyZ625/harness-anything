@@ -158,7 +158,7 @@ function collectRuntimeAuthorityGraph(root, entryPath, violations) {
     const file = ts.createSourceFile(relativePath, source, ts.ScriptTarget.Latest, true, scriptKind(relativePath));
     for (const statement of file.statements) {
       const specifier = runtimeModuleSpecifier(statement);
-      if (!specifier?.startsWith(".")) continue;
+      if (!specifier) continue;
       const resolved = resolveRuntimeModule(root, authorityRoot, relativePath, specifier);
       if (resolved === undefined) continue;
       if (resolved) pending.push(resolved);
@@ -197,7 +197,10 @@ function runtimeModuleSpecifier(statement) {
 
 function resolveRuntimeModule(root, authorityRoot, importerPath, specifier) {
   const importer = path.join(root, importerPath),
-    requested = path.resolve(path.dirname(importer), specifier);
+    requested = specifier.startsWith(".")
+      ? path.resolve(path.dirname(importer), specifier)
+      : resolveAuthorityPackageImport(authorityRoot, specifier);
+  if (requested === undefined) return undefined;
   if (requested !== authorityRoot && !requested.startsWith(`${authorityRoot}${path.sep}`)) return undefined;
   const extension = path.extname(requested),
     candidates = extension
@@ -216,6 +219,29 @@ function resolveRuntimeModule(root, authorityRoot, importerPath, specifier) {
         ];
   const resolved = candidates.find((candidate) => existsSync(candidate));
   return resolved ? path.relative(root, resolved).split(path.sep).join("/") : null;
+}
+
+function resolveAuthorityPackageImport(authorityRoot, specifier) {
+  const packageRoot = path.dirname(authorityRoot),
+    match = /^(@[^/]+\/[^/]+|[^/]+)(?:\/(.+))?$/u.exec(specifier);
+  if (!match) return undefined;
+  const manifestPath = path.join(packageRoot, "package.json");
+  if (!existsSync(manifestPath)) return undefined;
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  if (manifest.name !== match[1]) return undefined;
+  const exportKey = match[2] ? `./${match[2]}` : ".";
+  const target = exportTarget(manifest.exports?.[exportKey]);
+  return target?.startsWith("./") ? path.resolve(packageRoot, target) : undefined;
+}
+
+function exportTarget(entry) {
+  if (typeof entry === "string") return entry;
+  if (!entry || typeof entry !== "object" || Array.isArray(entry)) return undefined;
+  for (const condition of ["default", "import", "node"]) {
+    const target = exportTarget(entry[condition]);
+    if (target !== undefined) return target;
+  }
+  return undefined;
 }
 
 function scriptKind(file) {
