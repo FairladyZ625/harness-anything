@@ -25,6 +25,8 @@ export interface WorkspaceViewProps {
   readonly facts?: readonly FactRef[];
   readonly relations?: readonly RelationEdge[];
   readonly onNavigateEntity?: (ref: string) => void;
+  /** 图抽屉里的置顶开关。关系图页早已传它;不传,工作页的同一个抽屉就静默少一个动作。 */
+  readonly onSetTaskPin?: (task: TaskRow, pinned: boolean) => void;
   readonly onAttest?: (task: Pick<TaskRow, "taskId">, gateId: string, mode: "approve" | "override") => void;
   readonly onConsent?: (task: TaskRow, reviewId: string) => void;
   readonly feedback?: (taskId: string) => TaskMutationFeedback | undefined;
@@ -52,6 +54,7 @@ export function WorkspaceView({
   facts = [],
   relations = [],
   onNavigateEntity,
+  onSetTaskPin,
   onAttest,
   onConsent,
   feedback,
@@ -255,6 +258,7 @@ export function WorkspaceView({
                     focusRef={focusRef}
                     factAnchors={[]}
                     onNavigateEntity={onNavigateEntity}
+                    onSetTaskPin={onSetTaskPin}
                     onRefocus={setFocusRef}
                     onLayoutStats={onGraphStats}
                     active={tab === "relations"}
