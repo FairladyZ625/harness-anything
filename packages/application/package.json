@@ -1,9 +1,32 @@
 {
   "name": "@harness-anything/application",
   "version": "0.0.1",
-  "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
+  "homepage": "https://github.com/FairladyZ625/harness-anything#readme",
+  "bugs": { "url": "https://github.com/FairladyZ625/harness-anything/issues" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FairladyZ625/harness-anything.git",
+    "directory": "packages/application"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": "./dist/index.js",
+      "./internal/artifact-entity-service": "./dist/artifact-entity-service.js",
+      "./internal/durable-action-envelope": "./dist/durable-action-envelope.js",
+      "./internal/task-action-explanation-service": "./dist/task-action-explanation-service.js",
+      "./internal/task-lifecycle-service": "./dist/task-lifecycle-service.js"
+    }
+  },
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "build:publish": "tsc -p tsconfig.publish.json",
+    "prepack": "npm run build:publish && node ../../tools/package-exports-lifecycle.mjs prepare",
+    "postpack": "node ../../tools/package-exports-lifecycle.mjs restore"
+  },
+  "files": ["dist", "README.md", "package.json"],
   "exports": {
     ".": "./src/index.ts",
     "./internal/artifact-entity-service": "./src/artifact-entity-service.ts",

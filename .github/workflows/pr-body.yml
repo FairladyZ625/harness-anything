@@ -24,6 +24,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24
+      - run: npm ci
       - name: Run PR body manifest gates
         env:
           PR_BODY: ${{ github.event.pull_request.body || '' }}

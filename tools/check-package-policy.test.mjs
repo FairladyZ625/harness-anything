@@ -65,7 +65,7 @@ test("package policy rejects a public daemon without its independent bin", async
   });
 });
 
-test("package policy rejects an internal library made public", async () => {
+test("package policy rejects an approved library without publish metadata", async () => {
   await withFixtureRepo((root) => {
     writeValidFixture(root);
     writeJson(root, "packages/kernel/package.json", {
@@ -76,7 +76,19 @@ test("package policy rejects an internal library made public", async () => {
     const result = runCheck(root);
 
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /not in the approved npm publish set/u);
+    assert.match(result.stderr, /must define publishConfig\.access public/u);
+  });
+});
+
+test("package policy rejects a package left in exports rewrite state", async () => {
+  await withFixtureRepo((root) => {
+    writeValidFixture(root);
+    writeFileSync(path.join(root, "packages/cli/.package.json.pack-backup"), "{}");
+
+    const result = runCheck(root);
+
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /left in package exports rewrite state/u);
   });
 });
 

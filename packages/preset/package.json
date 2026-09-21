@@ -1,9 +1,35 @@
 {
   "name": "@harness-anything/preset",
   "version": "0.0.1",
-  "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
+  "homepage": "https://github.com/FairladyZ625/harness-anything#readme",
+  "bugs": { "url": "https://github.com/FairladyZ625/harness-anything/issues" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FairladyZ625/harness-anything.git",
+    "directory": "packages/preset"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": "./dist/index.js",
+      "./internal/preset-assets": "./dist/preset-assets.js",
+      "./internal/preset-command-contract": "./dist/preset-command-contract.js",
+      "./internal/preset-materialization": "./dist/preset-materialization.js",
+      "./internal/preset-resolver": "./dist/preset-resolver.js",
+      "./internal/preset-resolver-common": "./dist/preset-resolver-common.js",
+      "./internal/preset-resolver-types": "./dist/preset-resolver-types.js",
+      "./internal/preset-system": "./dist/preset-system.js"
+    }
+  },
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "build:publish": "tsc -p tsconfig.publish.json && node scripts/copy-assets.mjs",
+    "prepack": "npm run build:publish && node ../../tools/package-exports-lifecycle.mjs prepare",
+    "postpack": "node ../../tools/package-exports-lifecycle.mjs restore"
+  },
+  "files": ["dist", "assets", "README.md", "package.json"],
   "exports": {
     ".": "./src/index.ts",
     "./internal/preset-assets": "./src/preset-assets.ts",
