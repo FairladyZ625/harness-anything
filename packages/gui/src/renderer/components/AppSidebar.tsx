@@ -1,5 +1,5 @@
 import { useRef } from "react";
-import { FolderSimple, CaretUpDown, CloudSlash } from "@phosphor-icons/react";
+import { FolderSimple, CaretUpDown, CloudSlash, PushPinSlash } from "@phosphor-icons/react";
 import type { SystemRepoRow } from "../api-client.ts";
 import type { Project } from "../model/types.ts";
 import type { RuntimeHealth } from "../model/runtime-health.ts";
@@ -28,6 +28,8 @@ export interface AppSidebarProps {
   readonly onNavigate: (view: ViewId) => void;
   readonly pinnedWork: readonly { readonly taskId: string; readonly title: string }[];
   readonly onOpenWorkspace: (taskId: string) => void;
+  /** 解除置顶。这一段是唯一展示置顶集的地方,所以取消它的入口也只能在这里。 */
+  readonly onUnpinWork: (taskId: string) => void;
   readonly ledgerStatus: LedgerStatusBarInput;
   readonly onRefreshLedger: () => void;
   readonly health: RuntimeHealth;
@@ -60,6 +62,7 @@ export function AppSidebar({
   onNavigate,
   pinnedWork = [],
   onOpenWorkspace,
+  onUnpinWork,
   ledgerStatus,
   onRefreshLedger,
   health,
@@ -137,15 +140,29 @@ export function AppSidebar({
           <div className="px-2 pb-2" data-testid="sidebar-pinned-work">
             <div className="px-1 pb-1 font-mono ui-meta uppercase tracking-wide text-text-faint">置顶工作</div>
             {pinnedWork.map((item) => (
-              <button
+              <div
                 key={item.taskId}
-                type="button"
-                onClick={() => onOpenWorkspace(item.taskId)}
-                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-sm text-text-muted hover:bg-surface-raised hover:text-text"
+                className="group flex w-full items-center gap-1 rounded pr-1 text-text-muted hover:bg-surface-raised hover:text-text"
               >
-                <span aria-hidden>◆</span>
-                <span className="truncate">{item.title}</span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => onOpenWorkspace(item.taskId)}
+                  className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-sm"
+                >
+                  <span aria-hidden>◆</span>
+                  <span className="truncate">{item.title}</span>
+                </button>
+                <button
+                  type="button"
+                  data-testid={`sidebar-unpin-${item.taskId}`}
+                  onClick={() => onUnpinWork(item.taskId)}
+                  title="解除置顶"
+                  aria-label={`解除置顶:${item.title}`}
+                  className="grid size-6 shrink-0 cursor-pointer place-items-center rounded text-text-faint transition-colors hover:bg-surface-sunken hover:text-text"
+                >
+                  <PushPinSlash weight="bold" />
+                </button>
+              </div>
             ))}
           </div>
         ) : null}
