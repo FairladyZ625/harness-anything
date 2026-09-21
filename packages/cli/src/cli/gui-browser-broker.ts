@@ -21,9 +21,9 @@ export interface BrowserGuiBroker {
   readonly close: () => Promise<void>;
 }
 
-export async function startBrowserGuiBroker(workspaceRoot: string, rootDir: string): Promise<BrowserGuiBroker> {
+export async function startBrowserGuiBroker(guiPackageRoot: string, rootDir: string): Promise<BrowserGuiBroker> {
   const token = randomBytes(32).toString("base64url"),
-    buildRoot = path.join(workspaceRoot, "packages/gui/dist"),
+    buildRoot = path.join(guiPackageRoot, "dist"),
     server = createServer((request, response) => void handleRequest(request, response, buildRoot, rootDir, token));
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);

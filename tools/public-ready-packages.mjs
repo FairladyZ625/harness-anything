@@ -42,6 +42,17 @@ export const publicReadyPackages = Object.freeze([
     bins: Object.freeze({ "harness-anything-daemon": "dist/index.js" }),
     required: false,
   }),
+  // GUI re-enters the approved npm publish set per dec_A36285F75C28B6BBA041F281CA CH1
+  // (npm is the distribution channel while the .app path is deferred); the same entry
+  // was removed by PR #2948 under the since-overturned .app-only assumption.
+  Object.freeze({
+    packagePath: "packages/gui/package.json",
+    packageName: "@harness-anything/gui",
+    version: "0.0.1",
+    repositoryDirectory: "packages/gui",
+    bins: Object.freeze({}),
+    required: false,
+  }),
 ]);
 
 export const publicReadyPackagesByPath = new Map(publicReadyPackages.map((entry) => [entry.packagePath, entry]));

@@ -2,7 +2,6 @@ import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process"
 import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import type { DaemonAutostartResult } from "@harness-anything/daemon/internal/client/daemon-autostart";
 import { detachedProcessOptions } from "@harness-anything/daemon/internal/process-port";
 import { cliErrorMessage } from "../cli-error.ts";
@@ -12,17 +11,17 @@ import { ensureCliDaemonRunning } from "../daemon/autostart.ts";
 import { startBrowserGuiBroker, type BrowserGuiBroker } from "./gui-browser-broker.ts";
 
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
-interface GuiBundlePreparation {
-  readonly ok: boolean;
-  readonly hint?: string;
+export interface GuiElectronRuntime {
+  readonly binary?: string;
+  readonly installScript?: string;
+  readonly remedy: string;
 }
 export interface GuiLaunchDependencies {
-  readonly resolveElectronBinary?: (workspaceRoot: string) => string | undefined;
+  readonly resolveElectronRuntime?: (guiPackageRoot: string) => GuiElectronRuntime;
   readonly spawnProcess?: (command: string, args: string[], options: SpawnOptions) => ChildProcess;
-  readonly prepareBundles?: (workspaceRoot: string) => Promise<GuiBundlePreparation>;
   readonly ensureDaemon?: (invokingRoot: string) => Promise<DaemonAutostartResult>;
-  readonly workspaceRoot?: string;
-  readonly startBrowserBroker?: (workspaceRoot: string, rootDir: string) => Promise<BrowserGuiBroker>;
+  readonly guiPackageRoot?: string;
+  readonly startBrowserBroker?: (guiPackageRoot: string, rootDir: string) => Promise<BrowserGuiBroker>;
   readonly waitForBrowserClose?: (broker: BrowserGuiBroker) => Promise<void>;
 }
 
@@ -47,43 +46,35 @@ export async function runGuiLaunch(
     reject = (errorCode: string, hint: string, exitCode = 1) => finish(cliFailure("gui", errorCode, hint), exitCode),
     launch = parseGuiLaunch(argv);
   if (!launch.ok) return reject(launch.code, launch.hint, 2);
-  const workspaceRoot = dependencies.workspaceRoot ?? guiWorkspaceRoot();
-  if (!workspaceRoot)
+  const guiPackageRoot = dependencies.guiPackageRoot ?? resolveGuiPackageRoot();
+  if (!guiPackageRoot)
     return reject(
       "gui_unavailable",
-      "Run `ha gui` from a harness-anything source workspace that contains the GUI package.",
+      "The @harness-anything/gui package could not be resolved from this CLI installation. " +
+        "Reinstall @harness-anything/cli, then retry `ha gui`.",
     );
-  const browser = launch.browser;
-  const electronBinary = browser ? undefined : (dependencies.resolveElectronBinary ?? guiElectronBinary)(workspaceRoot);
-  if (!browser && !electronBinary)
-    return reject(
-      "electron_unavailable",
-      "Run `node node_modules/electron/install.js` in the harness-anything workspace, then retry `ha gui`.",
-    );
+  const browser = launch.browser,
+    rendererBundle = path.join(guiPackageRoot, "dist/index.html"),
+    preloadBundle = path.join(guiPackageRoot, "dist-electron/electron-preload.cjs"),
+    mainBundle = path.join(guiPackageRoot, "dist-electron/electron-main.js");
+  if (!existsSync(rendererBundle)) return reject("gui_build_failed", missingBundleHint(rendererBundle));
+  if (!browser) {
+    if (!existsSync(preloadBundle)) return reject("gui_build_failed", missingBundleHint(preloadBundle));
+    if (!existsSync(mainBundle)) return reject("gui_build_failed", missingBundleHint(mainBundle));
+  }
+  const electronRuntime = browser
+    ? undefined
+    : (dependencies.resolveElectronRuntime ?? guiElectronRuntime)(guiPackageRoot);
+  if (!browser && !electronRuntime!.binary) return reject("electron_unavailable", electronRuntime!.remedy);
   try {
-    const prepared = dependencies.prepareBundles
-      ? await dependencies.prepareBundles(workspaceRoot)
-      : await prepareGuiBundles(workspaceRoot, browser);
-    if (!prepared.ok)
-      return reject(
-        "gui_build_failed",
-        prepared.hint ?? "The GUI renderer or preload bundle could not be built. Inspect the build output and retry.",
-      );
-    if (!existsSync(path.join(workspaceRoot, "packages/gui/dist/index.html")))
-      return reject("gui_build_failed", "The GUI renderer build completed without producing dist/index.html.");
-    if (!browser && !existsSync(path.join(workspaceRoot, "packages/gui/dist-electron/electron-preload.cjs")))
-      return reject(
-        "gui_build_failed",
-        "The GUI preload build completed without producing dist-electron/electron-preload.cjs.",
-      );
-    const daemon = await (dependencies.ensureDaemon ?? prepareGuiDaemon)(workspaceRoot);
+    const daemon = await (dependencies.ensureDaemon ?? prepareGuiDaemon)(launch.rootDir);
     if (!daemon.ok)
       return reject(
         daemon.code ?? "daemon_start_failed",
         daemon.hint || "The default daemon could not be acquired through the CLI autostart path.",
       );
     if (browser) {
-      const broker = await (dependencies.startBrowserBroker ?? startBrowserGuiBroker)(workspaceRoot, launch.rootDir);
+      const broker = await (dependencies.startBrowserBroker ?? startBrowserGuiBroker)(guiPackageRoot, launch.rootDir);
       finish(
         { ok: true, command: "gui", url: broker.url, summary: `Harness Anything GUI available at ${broker.url}` },
         0,
@@ -91,17 +82,17 @@ export async function runGuiLaunch(
       await (dependencies.waitForBrowserClose ?? waitForBrowserClose)(broker);
       return 0;
     }
-    const child = (dependencies.spawnProcess ?? spawn)(
-      electronBinary!,
-      [path.join(workspaceRoot, "packages/gui/src/main/electron-main.ts")],
-      { cwd: workspaceRoot, ...detachedProcessOptions, env: guiLaunchEnvironment(launch.rootDir) },
-    );
+    const child = (dependencies.spawnProcess ?? spawn)(electronRuntime!.binary!, [mainBundle], {
+      cwd: guiPackageRoot,
+      ...detachedProcessOptions,
+      env: guiLaunchEnvironment(launch.rootDir),
+    });
     child.on?.("error", consumeKnownError);
     if (child.pid === undefined)
       return reject(
         "gui_launch_failed",
-        `Electron at ${electronBinary} could not be started. ` +
-          "Reinstall it with `node node_modules/electron/install.js`, then retry `ha gui`.",
+        `Electron at ${electronRuntime!.binary} could not be started. Re-run its installer ` +
+          `(\`node ${electronRuntime!.installScript}\`), then retry \`ha gui\`.`,
       );
     child.unref();
     return finish(
@@ -121,104 +112,55 @@ export async function runGuiLaunch(
 async function prepareGuiDaemon(invokingRoot: string): Promise<DaemonAutostartResult> {
   return ensureCliDaemonRunning({
     invokingRoot,
-    launchEntry: guiCliEntry(invokingRoot),
     onProgress: (progress) => process.stderr.write(`${progress.message}\n`),
   });
 }
-async function prepareGuiBundles(workspaceRoot: string, browser = false): Promise<GuiBundlePreparation> {
-  let viteBin: string;
+function missingBundleHint(bundle: string): string {
+  return (
+    `The GUI bundle ${bundle} is missing. In a source checkout build it with ` +
+    "`npm run build:all -w @harness-anything/gui`; in an npm installation reinstall @harness-anything/cli."
+  );
+}
+// The Electron runtime is downloaded by electron's postinstall, which package managers
+// increasingly block by default (dec_A36285F75C28B6BBA041F281CA CH5): diagnose the missing
+// runtime with its one-line remedy instead of assuming postinstall ran or downloading it here.
+function guiElectronRuntime(guiPackageRoot: string): GuiElectronRuntime {
+  let electronRoot: string;
   try {
-    const guiRequire = createRequire(path.join(workspaceRoot, "packages/gui/package.json")),
-      vitePackage = guiRequire("vite/package.json") as { readonly bin?: { readonly vite?: string } | string },
-      relativeBin = typeof vitePackage.bin === "string" ? vitePackage.bin : vitePackage.bin?.vite;
-    if (!relativeBin) return { ok: false, hint: "The installed Vite package does not declare its CLI entry." };
-    viteBin = path.join(path.dirname(guiRequire.resolve("vite/package.json")), relativeBin);
+    electronRoot = path.dirname(
+      createRequire(path.join(guiPackageRoot, "package.json")).resolve("electron/package.json"),
+    );
   } catch (error) {
-    return { ok: false, hint: `The GUI build tool is unavailable. Cause: ${cliErrorMessage(error)}` };
+    consumeKnownError(error);
+    return {
+      remedy:
+        "The Electron runtime package is not installed beside the GUI. " +
+        "Reinstall @harness-anything/cli, then retry `ha gui`.",
+    };
   }
-  const guiRoot = path.join(workspaceRoot, "packages/gui");
-  for (const args of [
-    [viteBin, "build"],
-    ...(browser ? [] : [[viteBin, "build", "--config", "vite.preload.config.ts"]]),
-  ]) {
-    const result = await runGuiBuild(process.execPath, args, guiRoot);
-    if (!result.ok) return result;
-  }
-  return { ok: true };
-}
-function runGuiBuild(command: string, args: string[], cwd: string): Promise<GuiBundlePreparation> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (result: GuiBundlePreparation) => {
-        if (settled) return;
-        settled = true;
-        resolve(result);
-      },
-      child = spawn(command, args, {
-        cwd,
-        env: process.env,
-        stdio: ["ignore", process.stderr, process.stderr],
-        windowsHide: true,
-      });
-    child.once("error", (error) =>
-      finish({ ok: false, hint: `The GUI build could not start. Cause: ${cliErrorMessage(error)}` }),
-    );
-    child.once("close", (code) =>
-      finish(
-        code === 0 ? { ok: true } : { ok: false, hint: `The GUI build exited with code ${String(code ?? "unknown")}.` },
-      ),
-    );
-  });
-}
-function guiElectronBinary(workspaceRoot: string): string | undefined {
+  const installScript = path.join(electronRoot, "install.js"),
+    remedy =
+      `The Electron runtime was not downloaded (its install script did not run). ` +
+      `Run \`node ${installScript}\`, then retry \`ha gui\`.`;
   try {
-    const guiRequire = createRequire(path.join(workspaceRoot, "packages/gui/package.json")),
-      packageRoot = path.dirname(guiRequire.resolve("electron/package.json")),
-      relativeBinary = readFileSync(path.join(packageRoot, "path.txt"), "utf8").trim();
-    if (!relativeBinary) return undefined;
-    const candidate = path.resolve(packageRoot, "dist", relativeBinary);
+    const relativeBinary = readFileSync(path.join(electronRoot, "path.txt"), "utf8").trim();
+    if (!relativeBinary) return { installScript, remedy };
+    const candidate = path.resolve(electronRoot, "dist", relativeBinary);
     accessSync(candidate, constants.F_OK | constants.X_OK);
-    return candidate;
+    return { binary: candidate, installScript, remedy };
+  } catch (error) {
+    consumeKnownError(error);
+    return { installScript, remedy };
+  }
+}
+function resolveGuiPackageRoot(): string | undefined {
+  try {
+    const manifest = createRequire(import.meta.url).resolve("@harness-anything/gui/package.json");
+    return path.dirname(manifest);
   } catch (error) {
     consumeKnownError(error);
     return undefined;
   }
-}
-function guiWorkspaceRoot(): string | undefined {
-  let current = path.dirname(fileURLToPath(import.meta.url));
-  for (;;) {
-    if (
-      existsSync(path.join(current, "package.json")) &&
-      existsSync(path.join(current, "packages/gui/src/main/electron-main.ts"))
-    )
-      return canonicalGuiInstallation(current);
-    const parent = path.dirname(current);
-    if (parent === current) return undefined;
-    current = parent;
-  }
-}
-function canonicalGuiInstallation(workspaceRoot: string): string {
-  const marker = path.join(workspaceRoot, ".git");
-  try {
-    const gitdir = /^gitdir:\s*(.+)$/u.exec(readFileSync(marker, "utf8").trim())?.[1];
-    if (!gitdir) return workspaceRoot;
-    const administrativeRoot = path.resolve(workspaceRoot, gitdir),
-      commonPath = path.join(administrativeRoot, "commondir"),
-      commonRoot = existsSync(commonPath)
-        ? path.resolve(administrativeRoot, readFileSync(commonPath, "utf8").trim())
-        : administrativeRoot,
-      canonicalRoot = path.basename(commonRoot) === ".git" ? path.dirname(commonRoot) : workspaceRoot;
-    return existsSync(path.join(canonicalRoot, "packages/gui/src/main/electron-main.ts"))
-      ? canonicalRoot
-      : workspaceRoot;
-  } catch (error) {
-    consumeKnownError(error);
-    return workspaceRoot;
-  }
-}
-function guiCliEntry(workspaceRoot: string): string {
-  const dist = path.join(workspaceRoot, "packages/cli/dist/cli/src/index.js");
-  return existsSync(dist) ? dist : path.join(workspaceRoot, "packages/cli/src/index.ts");
 }
 function parseGuiLaunch(
   argv: readonly string[],

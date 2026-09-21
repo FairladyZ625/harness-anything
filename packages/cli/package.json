@@ -50,6 +50,7 @@
     "@effect/platform": "0.96.2",
     "@harness-anything/application": "0.0.1",
     "@harness-anything/daemon": "0.0.1",
+    "@harness-anything/gui": "0.0.1",
     "@harness-anything/kernel": "0.0.1",
     "@harness-anything/preset": "0.0.1",
     "effect": "3.21.4"
