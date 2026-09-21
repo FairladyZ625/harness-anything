@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import type { AgentRuntimeEventV1, CanonicalEventStore, RuntimeResultClaim } from "../../kernel/src/index.ts";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import type { AgentRuntimeEventV1, CanonicalEventStore, RuntimeResultClaim } from "@harness-anything/kernel";
+import { consumeKnownError } from "@harness-anything/kernel";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import { runtimeDescendantsAlive } from "./runtime-spawn-process.ts";

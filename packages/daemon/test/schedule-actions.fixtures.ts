@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
+import { type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
 import type { FleetAssignmentRecord } from "../src/fleet/center.ts";

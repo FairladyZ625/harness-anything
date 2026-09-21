@@ -4,7 +4,7 @@ import {
   normalizeRelativeDocumentPath,
   sha256Bytes,
   type ArtifactDelivery,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
 export const artifactAnchorGuidance =

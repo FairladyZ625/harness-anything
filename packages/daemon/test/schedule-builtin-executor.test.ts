@@ -9,7 +9,7 @@ import {
   readVerifiedLedgerBackup,
   type ScheduleV1,
   registerDaemonRepo,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";

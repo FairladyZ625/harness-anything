@@ -4,8 +4,8 @@ import {
   defineRepoReadCommand,
   presetCommands,
   presetMethods,
-} from "../../../preset/src/preset-command-contract.ts";
-import type { EntityActionContract } from "../../../kernel/src/index.ts";
+} from "@harness-anything/preset/internal/preset-command-contract";
+import type { EntityActionContract } from "@harness-anything/kernel";
 import { agentProtocolCommands } from "./daemon-protocol-commands-agent.ts";
 import { decisionLifecycleProtocolCommands } from "./daemon-protocol-commands-decision-lifecycle.ts";
 import { decisionRelationProtocolCommands } from "./daemon-protocol-commands-decision-relations.ts";

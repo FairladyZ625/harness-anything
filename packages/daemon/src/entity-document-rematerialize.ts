@@ -19,7 +19,7 @@ import {
   type LifecycleDocumentState,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { reject } from "./entity-action-write-helpers.ts";
 import { decisionRelationLinkResolver } from "./entity-document-links.ts";
 import { publicationKillpoints } from "./entity-action-relation.ts";

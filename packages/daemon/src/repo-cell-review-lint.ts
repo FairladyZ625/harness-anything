@@ -1,4 +1,4 @@
-import { reviewVerdicts } from "../../kernel/src/index.ts";
+import { reviewVerdicts } from "@harness-anything/kernel";
 import { cellCodedError } from "./repo-cell-errors.ts";
 
 export function legacyReviewLint(body: string, taskId: string, reviewerId: string, verifiedAt: string) {

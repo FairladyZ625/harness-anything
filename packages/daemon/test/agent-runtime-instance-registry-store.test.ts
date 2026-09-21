@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync 
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { parseThinCommand } from "../../cli/src/cli/thin-command.ts";
+import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
 import {
   daemonProtocolCommands,

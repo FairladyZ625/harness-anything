@@ -7,7 +7,7 @@ import {
   type AgentRuntimeEventV1,
   type RuntimeSession,
   type TaskProjection,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   readDispatchLiveIndex,
   readDispatchStream,

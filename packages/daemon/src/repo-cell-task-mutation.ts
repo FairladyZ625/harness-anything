@@ -12,7 +12,7 @@ import {
   type TaskBoundRuntimeBinding,
   type TaskEventV1,
   type TaskV2,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { readDispatchLiveIndex, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";

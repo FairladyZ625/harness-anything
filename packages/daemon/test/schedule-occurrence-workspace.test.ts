@@ -14,7 +14,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createScheduleV1, type ScheduleV1 } from "../../kernel/src/index.ts";
+import { createScheduleV1, type ScheduleV1 } from "@harness-anything/kernel";
 import { dispatchClaimedSchedule } from "../src/schedule-action-runtime.ts";
 import { launchArgs } from "../src/agent-runtime-launch-config.ts";
 import {

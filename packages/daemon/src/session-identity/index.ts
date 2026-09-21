@@ -6,7 +6,7 @@ import {
   type SessionIdentityResolver,
   type SessionIdentityResolverInput,
   type TaskProjection,
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { runtimeKinds, runtimeProtocolFamilies } from "../runtime-inventory.ts";
 
 export function sessionIdentityResolverFor(protocolFamily: RuntimeProtocolFamily): SessionIdentityResolver {

@@ -5,7 +5,7 @@ import {
   sha256Text,
   consumeKnownError,
   type DecisionDocumentState,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { MigrationImportContext } from "./migration-import-run.ts";
 import type { ProjectionOracleDecision, ProjectionOracleFact } from "./migration-import-oracle.ts";
 import { isMigrationImportRecord, nonEmpty } from "./migration-import-report.ts";

@@ -13,7 +13,7 @@ import {
   openSqliteEventStore,
   serializePersistedCanonicalEvent,
   sha256Text,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   contentClaims,
   preflightConvertedGenerationActivation,

@@ -6,8 +6,8 @@ import {
   requireEntityStoreKindContract,
   type TaskProjectionListQuery,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
-import { compileRepoPresetSnapshotUpgrade } from "../../preset/src/index.ts";
+} from "@harness-anything/kernel";
+import { compileRepoPresetSnapshotUpgrade } from "@harness-anything/preset";
 import {
   compileRestatedTaskContract,
   restateTaskContractBody,

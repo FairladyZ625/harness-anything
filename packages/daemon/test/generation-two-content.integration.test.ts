@@ -4,7 +4,6 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   createLedgerBackup,
@@ -13,7 +12,7 @@ import {
   openSqliteEventStore,
   sha256Bytes,
 } from "../../kernel/test/store/canonical-generation.fixtures.ts";
-import { makeTaskEventReader, serializePersistedCanonicalEvent, sha256Text } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, serializePersistedCanonicalEvent, sha256Text } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
@@ -88,7 +87,7 @@ test("real Entity import survives gen2 CLI conversion, Git recovery and a fresh 
     const run = spawnSync(
       process.execPath,
       [
-        fileURLToPath(new URL("../../cli/src/index.ts", import.meta.url)),
+        path.resolve("packages/cli/src/index.ts"),
         "migrate",
         "ledger",
         "--source",

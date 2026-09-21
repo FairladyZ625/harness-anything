@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { TaskProjection } from "../../kernel/src/index.ts";
+import type { TaskProjection } from "@harness-anything/kernel";
 import { CAUSAL_CONTEXT_MAX_BYTES, assembleTaskCausalContext } from "../src/dispatch-causal-context.ts";
 
 const cut = (revision = 1) => ({ status: "ready" as const, watermark: revision, sourceRevision: revision });

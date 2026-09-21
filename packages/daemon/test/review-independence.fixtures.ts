@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { makeTaskEventReader } from "../../kernel/src/index.ts";
+import { makeTaskEventReader } from "@harness-anything/kernel";
 import type { RepoCell } from "../src/repo-cell.ts";
 
 export const git = (rootDir: string, ...args: readonly string[]): string =>

@@ -1,7 +1,7 @@
 import net from "node:net";
 import { mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 
 // The daemon singleton is one process per (userRoot, daemonId). The claim is a
 // pidfile created with O_EXCL (atomic test-and-set): the second serve reads the

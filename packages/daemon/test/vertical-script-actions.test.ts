@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, parseVerticalScriptResult } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, parseVerticalScriptResult } from "@harness-anything/kernel";
 import {
   actionForDaemonMethod,
   canonicalRoot,

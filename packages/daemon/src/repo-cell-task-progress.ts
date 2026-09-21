@@ -28,8 +28,8 @@ import {
   type FrozenGateRequirement,
   type MappedWitnessAdapterId,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
-import { compileRepoTaskPackage } from "../../preset/src/index.ts";
+} from "@harness-anything/kernel";
+import { compileRepoTaskPackage } from "@harness-anything/preset";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { scanDocCandidates } from "./doc-sync-candidate-scanner.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
@@ -151,7 +151,7 @@ export function appendProgress(
   action: RepoTaskAction,
   binding: RepoCellBinding,
   carried: {
-    readonly changes: readonly import("../../kernel/src/index.ts").DocEventChange[];
+    readonly changes: readonly import("@harness-anything/kernel").DocEventChange[];
     readonly blobs: readonly {
       readonly sha256: string;
       readonly size: number;

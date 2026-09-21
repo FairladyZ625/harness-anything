@@ -4,8 +4,8 @@ import { mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } fro
 import path from "node:path";
 import test from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
-import { taskQueryGuidance } from "../../daemon/src/runtime-spawn-mission.ts";
-import { safePath } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { taskQueryGuidance } from "@harness-anything/daemon/internal/runtime-spawn-mission";
+import { safePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { runCommandThroughDaemon } from "../src/daemon/client.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 import {

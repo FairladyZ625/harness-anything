@@ -1,14 +1,26 @@
 #!/usr/bin/env node
 import { execFileSync, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { realizedTaskPlan } from "./fixtures/task-plan.mjs";
 
 export function runCliPackageSmoke(root = process.cwd()) {
+  const workspaces = workspaceDependencyClosure(root, "@harness-anything/cli");
   buildCliPackageArtifact(root);
   execNpmFileSync(["run", "build", "--workspace", "@harness-anything/daemon"], { cwd: root, stdio: "inherit" });
+  for (const workspace of ["@harness-anything/kernel", "@harness-anything/application", "@harness-anything/preset"])
+    execNpmFileSync(["run", "build:publish", "--workspace", workspace], { cwd: root, stdio: "inherit" });
   const tempRoot = mkdtempSync(path.join(tmpdir(), "ha-cli-pack-")),
     packDir = path.join(tempRoot, "pack"),
     consumerDir = path.join(tempRoot, "consumer");
@@ -24,12 +36,12 @@ export function runCliPackageSmoke(root = process.cwd()) {
     mkdirSync(consumerDir, { recursive: true });
     mkdirSync(projectDir);
     mkdirSync(home);
-    const tarballs = ["@harness-anything/cli", "@harness-anything/daemon"].map((workspace) => {
+    const tarballs = workspaces.map((workspace) => {
       const packed = JSON.parse(
         execNpmFileSync(["pack", "--workspace", workspace, "--pack-destination", packDir, "--json"], {
           cwd: root,
           encoding: "utf8",
-          env: sanitizedChildEnvironment({ NPM_CONFIG_IGNORE_SCRIPTS: "true" }),
+          env: sanitizedChildEnvironment({ NPM_CONFIG_IGNORE_SCRIPTS: "false" }),
         }),
       )[0];
       const tarball = path.join(packDir, packed?.filename ?? "");
@@ -305,8 +317,47 @@ export function runCliPackageSmoke(root = process.cwd()) {
   } finally {
     if (started && binPath)
       run(binPath, ["--root", projectDir, "--json", "daemon", "stop"], projectDir, env(userRoot, home));
-    rmSync(tempRoot, { recursive: true, force: true });
+    rmSync(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
+}
+
+export function workspaceDependencyClosure(root, entryPackageName) {
+  const rootManifest = readPackageManifest(path.join(root, "package.json"));
+  const workspacePatterns = Array.isArray(rootManifest.workspaces)
+    ? rootManifest.workspaces
+    : rootManifest.workspaces?.packages;
+  if (!Array.isArray(workspacePatterns)) throw new Error("root package.json must declare npm workspaces");
+  const manifestsByName = new Map();
+  for (const pattern of workspacePatterns) {
+    const packageJsonPaths = pattern.endsWith("/*")
+      ? readdirSync(path.join(root, pattern.slice(0, -2)), { withFileTypes: true })
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => path.join(root, pattern.slice(0, -1), entry.name, "package.json"))
+      : [path.join(root, pattern, "package.json")];
+    for (const packageJsonPath of packageJsonPaths) {
+      if (!existsSync(packageJsonPath)) continue;
+      const manifest = readPackageManifest(packageJsonPath);
+      if (typeof manifest.name === "string") manifestsByName.set(manifest.name, manifest);
+    }
+  }
+  if (!manifestsByName.has(entryPackageName)) throw new Error(`workspace package ${entryPackageName} was not found`);
+  const closure = [],
+    pending = [entryPackageName],
+    visited = new Set();
+  while (pending.length > 0) {
+    const packageName = pending.shift();
+    if (visited.has(packageName)) continue;
+    visited.add(packageName);
+    closure.push(packageName);
+    const dependencies = manifestsByName.get(packageName)?.dependencies ?? {};
+    for (const dependencyName of Object.keys(dependencies).sort())
+      if (manifestsByName.has(dependencyName) && !visited.has(dependencyName)) pending.push(dependencyName);
+  }
+  return closure;
+}
+
+function readPackageManifest(packageJsonPath) {
+  return JSON.parse(readFileSync(packageJsonPath, "utf8"));
 }
 
 export function buildCliPackageArtifact(root, options = {}) {

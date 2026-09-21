@@ -1,4 +1,4 @@
-import { consumeKnownError, readDaemonRegistry } from "../../kernel/src/index.ts";
+import { consumeKnownError, readDaemonRegistry } from "@harness-anything/kernel";
 import { yieldToEventLoop } from "./process-port.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
 import { latchReprobeThrottleMs } from "./repo-cell.ts";

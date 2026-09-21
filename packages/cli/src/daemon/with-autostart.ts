@@ -1,5 +1,5 @@
-import type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autostart.ts";
-import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
+import type { DaemonLaunchSpec } from "@harness-anything/daemon/internal/client/daemon-autostart";
+import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import { renderCliGuidance } from "../cli/guidance-plane.ts";
 
 // The autostart seam is imported lazily so the thin dist static import graph stays
@@ -24,7 +24,7 @@ export async function withAutostart(
   // handoff answers a parked request and its successor rewrites the pid file within milliseconds,
   // so the post-answer read can already name the new generation and the generation wait below would
   // never observe a change.
-  const { readDaemonPid } = await import("../../../daemon/src/daemon-singleton.ts"),
+  const { readDaemonPid } = await import("@harness-anything/daemon/internal/daemon-singleton"),
     outgoingPid = options.userRoot && options.daemonId ? readDaemonPid(options.userRoot, options.daemonId) : null;
   try {
     const result = await request();
@@ -36,7 +36,7 @@ export async function withAutostart(
     )
       return result;
     const { DaemonAutostartError, ensureLocalDaemonRunning, waitForDaemonGenerationChange } = await import(
-        "../../../daemon/src/client/daemon-autostart.ts"
+        "@harness-anything/daemon/internal/client/daemon-autostart"
       ),
       budgetMs = options.restartBudgetMs ?? 30_000,
       changed = await waitForDaemonGenerationChange({
@@ -71,7 +71,7 @@ export async function withAutostart(
       if (isDaemonStopping(retried)) return daemonRestartingReceipt(Date.now() - startedAt, 1);
       return { ...retried, daemonRestart: { waitedMs: Date.now() - startedAt, retries: 1 } };
     } catch (error) {
-      const { isDaemonUnreachable } = await import("../../../daemon/src/client/daemon-autostart.ts");
+      const { isDaemonUnreachable } = await import("@harness-anything/daemon/internal/client/daemon-autostart");
       if (isDaemonUnreachable(error)) return daemonRestartingReceipt(Date.now() - startedAt, 1);
       throw error;
     }
@@ -83,7 +83,7 @@ export async function withAutostart(
       isDaemonUnreachable,
       readDaemonStoppedAt,
       runtimeDaemonStartRefusal,
-    } = await import("../../../daemon/src/client/daemon-autostart.ts");
+    } = await import("@harness-anything/daemon/internal/client/daemon-autostart");
     if (!isDaemonUnreachable(error)) throw error;
     // The failed connection already proves this socket unavailable. A second socket probe can
     // consume its full timeout without adding evidence.

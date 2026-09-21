@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { accessSync, constants, realpathSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import type { RuntimeInstallationWitness, RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 import { runtimeKindForId, runtimeKinds, type RuntimeProviderDeclaration } from "./runtime-inventory.ts";

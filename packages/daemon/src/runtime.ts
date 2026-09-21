@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
 import { acquireDaemonSingleton, daemonPidPath } from "./daemon-singleton.ts";
 import { openDaemonHost } from "./daemon-host.ts";

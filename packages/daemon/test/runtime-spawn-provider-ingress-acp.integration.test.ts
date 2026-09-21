@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader } from "../../kernel/src/index.ts";
+import { makeTaskEventReader } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { initIngressRepo, rpc, eventuallyValue } from "./fixtures/runtime-ingress.ts";

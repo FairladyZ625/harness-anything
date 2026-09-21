@@ -12,8 +12,8 @@ import {
   type VerticalDeclarationDocumentV1,
   type VerticalKindCommandResult,
   type WriteReceiptDraft,
-} from "../../kernel/src/index.ts";
-import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
+} from "@harness-anything/kernel";
+import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { noChanges, reject } from "./entity-action-write-helpers.ts";
 

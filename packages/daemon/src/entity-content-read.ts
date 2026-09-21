@@ -7,7 +7,7 @@ import {
   resolveHarnessLayout,
   type EntityOwnedContentV1,
   type EntityStoreKindContract,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
 
 /**

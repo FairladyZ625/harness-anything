@@ -1,5 +1,5 @@
-import { localUserDaemonEndpoint } from "../../../daemon/src/client/local-daemon-target.ts";
-import { requestDaemonJsonRpcAt } from "../../../daemon/src/client/local-json-rpc-client.ts";
+import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
+import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 import { daemonFailure, daemonOption } from "./control-support.ts";
 
 type ControlFinisher = (receipt: Record<string, unknown>, exitCode: number) => number;

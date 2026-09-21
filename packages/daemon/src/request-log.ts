@@ -1,6 +1,6 @@
 import { mkdir, open, rename, rm, type FileHandle } from "node:fs/promises";
 import path from "node:path";
-import { consumeKnownError, resolveHarnessLayout } from "../../kernel/src/index.ts";
+import { consumeKnownError, resolveHarnessLayout } from "@harness-anything/kernel";
 // Classification lives here rather than at the dispatch point: the schema registry names the
 // protocol server as a writer, so schema-closure imports it without node_modules and it must stay
 // clear of anything that reaches into the kernel.

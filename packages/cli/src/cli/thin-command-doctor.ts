@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
-import { daemonProtocolCommands } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonProtocolCommands } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { globalOption, stripGlobals } from "./thin-command-flags.ts";
 import { cliCommandDomains, clientLocalCommands, firstCliCommandIndex } from "./thin-command-help.ts";
 import { parseThinCommand } from "./thin-command.ts";

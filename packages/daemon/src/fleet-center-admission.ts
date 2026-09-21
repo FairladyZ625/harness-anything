@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { timestamp } from "../../kernel/src/index.ts";
+import { timestamp } from "@harness-anything/kernel";
 import type { DaemonHost } from "./daemon-host.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "./fleet/center.ts";
 import { FleetRemoteError, runFleetReplicaPullClient } from "./fleet/edge.ts";

@@ -8,7 +8,7 @@ import {
   readArtifactDescriptor,
   type ArtifactEntityCurrent,
   type ArtifactSourceResolution,
-} from "../../application/src/index.ts";
+} from "@harness-anything/application";
 import {
   compiledRelationDirections,
   artifactEntityContractSnapshot,
@@ -47,7 +47,7 @@ import {
   type EntityStoreKindContract,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { requireCanonicalVerticalDeclaration, type VerticalDeclarationReader } from "./vertical-declaration-action.ts";
 

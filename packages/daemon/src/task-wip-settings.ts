@@ -6,7 +6,7 @@ import {
   parseTaskWipLimit,
   resolveHarnessLayout,
   settingBlockValue,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export const TASK_WIP_LIMIT_ENV = "HARNESS_TASK_WIP_LIMIT";
 export const TASK_WIP_LIMIT_SETTING = "settings.tasks.wipLimit";

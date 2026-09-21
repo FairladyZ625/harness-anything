@@ -10,14 +10,14 @@ import {
   mappedWitnessAdapterIds,
   settingsUpdateInputFields,
   type SettingsV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   listBundledAgentDeclarationIds,
   listGovernanceScaffoldOverlays,
   listRepositoryWorkflowNames,
   runPresetAction,
-} from "../../preset/src/index.ts";
-import { presetRuntimeDefaults } from "../../preset/src/preset-system.ts";
+} from "@harness-anything/preset";
+import { presetRuntimeDefaults } from "@harness-anything/preset/internal/preset-system";
 import {
   writeCatalogPreset,
   writeCatalogRereadReceipt,

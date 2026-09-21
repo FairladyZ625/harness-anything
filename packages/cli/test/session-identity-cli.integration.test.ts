@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { readDaemonPid } from "../../daemon/src/runtime.ts";
+import { readDaemonPid } from "@harness-anything/daemon/internal/runtime";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");

@@ -9,7 +9,7 @@ import { hostname, tmpdir } from "node:os";
 
 import path from "node:path";
 
-import { makeTaskEventReader, sha256Bytes } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, sha256Bytes } from "@harness-anything/kernel";
 
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 

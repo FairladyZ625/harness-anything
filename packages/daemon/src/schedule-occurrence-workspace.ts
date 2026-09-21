@@ -1,7 +1,7 @@
 import { /* @gate-identity check-sync-subprocess/sync-subprocess-018 */ execFileSync } from "node:child_process";
 import { existsSync, lstatSync, symlinkSync, unlinkSync } from "node:fs";
 import path from "node:path";
-import type { ScheduleV1 } from "../../kernel/src/index.ts";
+import type { ScheduleV1 } from "@harness-anything/kernel";
 import type { TrustedScheduleRuntime } from "./runtime-spawn-types.ts";
 
 export interface ScheduleOccurrenceWorkspace {

@@ -8,12 +8,12 @@ import {
   type VerticalScriptResultV1,
   type WriteReceiptDraft as WriteReceipt,
   type WriteSource,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   acceptBuiltinVerticalScriptPlan,
   prepareBuiltinVerticalScriptExecution,
   type PreparedBuiltinVerticalScript,
-} from "../../preset/src/index.ts";
+} from "@harness-anything/preset";
 import { publishVerticalScriptChanges } from "./doc-sync-actions.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 

@@ -1,4 +1,4 @@
-import type { CanonicalEventStore, CanonicalEventV1, RuntimeSession, TaskProjection } from "../../kernel/src/index.ts";
+import type { CanonicalEventStore, CanonicalEventV1, RuntimeSession, TaskProjection } from "@harness-anything/kernel";
 
 const DAY_MS = 86_400_000,
   SHORT_LIVED_DECISION_MS = 7 * DAY_MS;

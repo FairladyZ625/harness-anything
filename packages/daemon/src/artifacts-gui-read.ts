@@ -6,7 +6,7 @@ import {
   normalizeRelativeDocumentPath,
   RAW_ARTIFACT_MEDIA_TYPE,
   resolveHarnessLayout,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { statFileSync, statLinkSync } from "./doc-sync-reads.ts";
 import type { ArtifactGuiKind, ArtifactGuiRowDto, ArtifactsListResult } from "./protocol/artifacts-gui-contract.ts";
 

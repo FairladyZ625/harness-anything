@@ -1,18 +1,72 @@
 {
   "name": "@harness-anything/kernel",
   "version": "0.0.1",
-  "private": true,
   "license": "AGPL-3.0-or-later",
   "type": "module",
+  "homepage": "https://github.com/FairladyZ625/harness-anything#readme",
+  "bugs": {
+    "url": "https://github.com/FairladyZ625/harness-anything/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FairladyZ625/harness-anything.git",
+    "directory": "packages/kernel"
+  },
+  "publishConfig": {
+    "access": "public",
+    "exports": {
+      ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
+      "./browser": { "types": "./dist/browser.d.ts", "default": "./dist/browser.js" },
+      "./contract-version": "./dist/domain/contract-version.js",
+      "./daemon-registry": "./dist/daemon/registry.js",
+      "./internal/domain/closeout-readiness": "./dist/domain/closeout-readiness.js",
+      "./internal/domain/decision-event": "./dist/domain/decision-event.js",
+      "./internal/domain/doc-sync-canonical-events": "./dist/domain/doc-sync-canonical-events.js",
+      "./internal/domain/doc-sync.contract": "./dist/domain/doc-sync.contract.js",
+      "./internal/domain/fact-event": "./dist/domain/fact-event.js",
+      "./internal/domain/lifecycle-status": "./dist/domain/lifecycle-status.js",
+      "./internal/domain/task-blocking": "./dist/domain/task-blocking.js",
+      "./internal/domain/task-board-projection": "./dist/domain/task-board-projection.js",
+      "./internal/domain/task-lifecycle.contract": "./dist/domain/task-lifecycle.contract.js",
+      "./internal/domain/task-wip-policy": "./dist/domain/task-wip-policy.js",
+      "./internal/domain/workspace-summary": "./dist/domain/workspace-summary.js",
+      "./internal/error-consumption": "./dist/error-consumption.js",
+      "./internal/integrity/stable-hash": "./dist/integrity/stable-hash.js",
+      "./internal/projection/cold-rebuild-source": "./dist/projection/cold-rebuild-source.js"
+    }
+  },
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "build:publish": "tsc -p tsconfig.publish.json",
+    "prepack": "npm run build:publish && node ../../tools/package-exports-lifecycle.mjs prepare",
+    "postpack": "node ../../tools/package-exports-lifecycle.mjs restore"
+  },
+  "files": ["dist", "schemas", "README.md", "package.json"],
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
+      "types": "./src/index.ts",
       "default": "./src/index.ts"
     },
     "./browser": {
-      "types": "./dist/browser.d.ts",
+      "types": "./src/browser.ts",
       "default": "./src/browser.ts"
-    }
+    },
+    "./contract-version": "./src/domain/contract-version.ts",
+    "./daemon-registry": "./src/daemon/registry.ts",
+    "./internal/domain/closeout-readiness": "./src/domain/closeout-readiness.ts",
+    "./internal/domain/decision-event": "./src/domain/decision-event.ts",
+    "./internal/domain/doc-sync-canonical-events": "./src/domain/doc-sync-canonical-events.ts",
+    "./internal/domain/doc-sync.contract": "./src/domain/doc-sync.contract.ts",
+    "./internal/domain/fact-event": "./src/domain/fact-event.ts",
+    "./internal/domain/lifecycle-status": "./src/domain/lifecycle-status.ts",
+    "./internal/domain/task-blocking": "./src/domain/task-blocking.ts",
+    "./internal/domain/task-board-projection": "./src/domain/task-board-projection.ts",
+    "./internal/domain/task-lifecycle.contract": "./src/domain/task-lifecycle.contract.ts",
+    "./internal/domain/task-wip-policy": "./src/domain/task-wip-policy.ts",
+    "./internal/domain/workspace-summary": "./src/domain/workspace-summary.ts",
+    "./internal/error-consumption": "./src/error-consumption.ts",
+    "./internal/integrity/stable-hash": "./src/integrity/stable-hash.ts",
+    "./internal/projection/cold-rebuild-source": "./src/projection/cold-rebuild-source.ts"
   },
   "dependencies": {
     "cron-parser": "5.10.0"

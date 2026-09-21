@@ -10,7 +10,7 @@ import {
   type FactStillHoldsAttestation,
   type TaskLifecycleSnapshot,
   type TaskProjectionQueries,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";

@@ -1,6 +1,6 @@
 // Type-only: a value import would pull the effectful kernel barrel (stable-hash → node:crypto)
 // into the GUI renderer bundle. runtimeKindIds is derived from the runtimeKinds catalog below.
-import type { RuntimeInstallation, RuntimeKind, RuntimeKindId } from "../../kernel/src/index.ts";
+import type { RuntimeInstallation, RuntimeKind, RuntimeKindId } from "@harness-anything/kernel";
 
 export type RuntimeCapabilitySupport = "supported" | "unsupported" | "unverified";
 export type RuntimeAuthMode = "subscription" | "api-key";

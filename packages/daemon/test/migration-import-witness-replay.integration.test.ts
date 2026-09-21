@@ -12,8 +12,8 @@ import {
   makeTaskEventStore,
   readSettingsFacet,
   sha256Text,
-} from "../../kernel/src/index.ts";
-import { compileRepoTaskPackage } from "../../preset/src/index.ts";
+} from "@harness-anything/kernel";
+import { compileRepoTaskPackage } from "@harness-anything/preset";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { blob, claim, prepare } from "../src/migration-import-events.ts";
 import { reboundRef, type MigrationRelationsContext } from "../src/migration-import-relations.ts";

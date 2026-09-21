@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { makeTaskLifecycleService } from "../../application/src/task-lifecycle-service.ts";
+import { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
 import {
   blockingOf,
   closeoutReadiness,
@@ -13,7 +13,7 @@ import {
   resolveHarnessLayout,
   type DaemonRepoMode,
   type TaskProjectionQueries,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import {
   readRuntimeAttemptChain,

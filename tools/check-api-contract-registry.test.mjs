@@ -89,9 +89,37 @@ test("W3 API registry follows a renamed transport-authority module", () =>
     assert.deepEqual(evaluateApiContractRegistry(root), []);
   }));
 
+for (const [label, specifier] of [
+  ["relative source path", "./unsafe-authority.ts"],
+  ["workspace package identity", "@harness-anything/daemon/internal/unsafe-authority"],
+]) {
+  test(`W3 API registry follows ${label} to reject payload-derived authority`, () =>
+    withFixture((root) => {
+      write(
+        root,
+        "packages/daemon/src/unsafe-authority.ts",
+        "/** @daemon-transport-authority */\nexport const unsafe = payload.root;\n",
+      );
+      write(
+        root,
+        "packages/daemon/src/daemon-host.ts",
+        `import { unsafe } from "${specifier}";\nexport { openDaemonHost } from "./transport-composition.ts";\nexport { unsafe };\n`,
+      );
+      assert.match(evaluateApiContractRegistry(root).join("\n"), /must bind actor\/root\/source/u);
+    }));
+}
+
 function withFixture(run) {
   const root = mkdtempSync(path.join(tmpdir(), "w3-api-registry-"));
   try {
+    write(
+      root,
+      "packages/daemon/package.json",
+      JSON.stringify({
+        name: "@harness-anything/daemon",
+        exports: { "./internal/unsafe-authority": "./src/unsafe-authority.ts" },
+      }),
+    );
     write(root, "packages/daemon/src/protocol/daemon-protocol.contract.ts", validRegistry());
     write(root, "packages/daemon/src/protocol/json-rpc-server.ts", validServer());
     write(root, "packages/daemon/src/daemon-host.ts", 'export { openDaemonHost } from "./transport-composition.ts";\n');

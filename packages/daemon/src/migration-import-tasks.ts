@@ -11,7 +11,7 @@ import {
   validateTaskV2,
   type CanonicalContentBlob,
   type TaskSourceEntry,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { ProjectionOracleTask } from "./migration-import-oracle.ts";
 import { scheduleArchivedEntity } from "./migration-import-dispositions.ts";
 import { portableMigrationPath } from "./migration-import-conflicts.ts";

@@ -3,7 +3,7 @@ import {
   getExecutableEntityAction,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { deriveActionResult, type EntityActionCatalogPreparer } from "./entity-action-catalog-executor.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RuntimeIngressAction } from "./repo-cell-types.ts";

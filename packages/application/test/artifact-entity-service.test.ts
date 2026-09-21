@@ -7,7 +7,7 @@ import {
   compileVerticalContract,
   type ArtifactDescriptor,
   type EntityEventV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { makeArtifactEntityService } from "../src/artifact-entity-service.ts";
 
 const sourceVertical = JSON.parse(

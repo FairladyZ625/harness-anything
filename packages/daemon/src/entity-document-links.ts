@@ -1,4 +1,4 @@
-import { parseEntityRef, type DecisionRelationLinkResolver, type TaskProjection } from "../../kernel/src/index.ts";
+import { parseEntityRef, type DecisionRelationLinkResolver, type TaskProjection } from "@harness-anything/kernel";
 
 /** Resolves one relation endpoint to the current canonical document path and a one-line label. */
 export function decisionRelationLinkResolver(

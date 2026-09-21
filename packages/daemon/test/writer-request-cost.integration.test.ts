@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Worker } from "node:worker_threads";
-import { makeTaskEventReader } from "../../kernel/src/index.ts";
+import { makeTaskEventReader } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { openWriterSupervisor } from "../src/writer-supervisor.ts";

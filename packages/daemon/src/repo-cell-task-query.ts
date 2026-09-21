@@ -15,8 +15,8 @@ import {
   type TaskRelationQuery,
   type TaskWipSnapshotEntryV1,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
-import { readTaskReadSet } from "../../application/src/index.ts";
+} from "@harness-anything/kernel";
+import { readTaskReadSet } from "@harness-anything/application";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { requiredPackageDisposition, type TaskQueryReadModel } from "./task-query-read.ts";

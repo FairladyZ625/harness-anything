@@ -3,7 +3,7 @@ import {
   relationOriginWords as relationOrigins,
   relationTypeWords as relationTypes,
 } from "./daemon-protocol-vocabulary.ts";
-import { cliInput, defineCenterForwardWriteCommand } from "../../../preset/src/preset-command-contract.ts";
+import { cliInput, defineCenterForwardWriteCommand } from "@harness-anything/preset/internal/preset-command-contract";
 
 const invalid = () => ({ code: "invalid_field" });
 const expectedVersion = cliInput("--expected-version", "single", true, invalid(), {

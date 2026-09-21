@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
-import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
+import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import {
   canonicalRoot,
   commandClassForAction,
@@ -9,15 +9,15 @@ import {
   daemonMethodAcceptsPayloadExecutor,
   workspaceId,
   type DaemonSessionEnvironment,
-} from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+} from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import {
   daemonIdFromEnv,
   daemonUserRoot,
   localUserDaemonEndpoint,
   resolveLocalDaemonEndpoint,
   resolveLocalDaemonTarget,
-} from "../../../daemon/src/client/local-daemon-target.ts";
-import type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autostart.ts";
+} from "@harness-anything/daemon/internal/client/local-daemon-target";
+import type { DaemonLaunchSpec } from "@harness-anything/daemon/internal/client/daemon-autostart";
 import { materializePromptFile } from "../cli-runtime-prompt-file.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 import { fleetDocRoute, fleetRuntimeRoute, fleetScheduleRoute, fleetTaskRoute } from "./fleet-command-route.ts";
@@ -31,8 +31,8 @@ export {
   localUserDaemonEndpoint,
   resolveLocalDaemonTarget,
   type LocalDaemonTarget,
-} from "../../../daemon/src/client/local-daemon-target.ts";
-export type { DaemonLaunchSpec } from "../../../daemon/src/client/daemon-autostart.ts";
+} from "@harness-anything/daemon/internal/client/local-daemon-target";
+export type { DaemonLaunchSpec } from "@harness-anything/daemon/internal/client/daemon-autostart";
 
 // These values belong to the invoking runtime worker or its provider launch,
 // not to the resident daemon that owns the shared socket.
@@ -131,7 +131,7 @@ export async function runCommandThroughDaemon(
   command = materializePromptFile(inlineAdjudicationNote(materializeScheduleMission(command)));
   const env = options.env ?? process.env;
   assertCanonicalCliEntry();
-  const rpc = await import("../../../daemon/src/client/local-json-rpc-client.ts"),
+  const rpc = await import("@harness-anything/daemon/internal/client/local-json-rpc-client"),
     requestLocalDaemonJsonRpcForTarget = (timeRequest ?? ((f) => f))(((target, ...rest) =>
       rpc.requestLocalDaemonJsonRpcForTarget(
         {
@@ -391,7 +391,7 @@ async function settleRepoWarming(
   daemonId: string,
 ): Promise<JsonObject> {
   if (!isRepoWarming(initial)) return initial;
-  const { readDaemonStartProgress } = await import("../../../daemon/src/client/daemon-autostart.ts"),
+  const { readDaemonStartProgress } = await import("@harness-anything/daemon/internal/client/daemon-autostart"),
     launch = cliDaemonServeLaunch(userRoot, daemonId),
     startedAt = Date.now(),
     deadline = startedAt + 60_000;
@@ -428,10 +428,10 @@ export async function streamRuntimeThroughDaemon(
   command: ThinCommand,
   runtimeSessionId: string,
   onValue: (value: unknown) => void,
-  onClosed?: (failure: import("../../../daemon/src/client/local-json-rpc-stream.ts").DaemonStreamLost) => void,
+  onClosed?: (failure: import("@harness-anything/daemon/internal/client/local-json-rpc-stream").DaemonStreamLost) => void,
 ): Promise<() => void> {
   const target = await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId }),
-    { streamAgentRuntimeAt } = await import("../../../daemon/src/client/local-json-rpc-stream.ts");
+    { streamAgentRuntimeAt } = await import("@harness-anything/daemon/internal/client/local-json-rpc-stream");
   return streamAgentRuntimeAt({
     socketPath: target.socketPath,
     repoId: target.repoId,
@@ -465,7 +465,7 @@ async function openLocalDaemonReader(
   connectTimeoutMs = 75,
   responseTimeoutMs?: number,
 ): Promise<{ readonly read: () => Promise<JsonObject>; readonly close: () => void }> {
-  const { openDaemonJsonRpcReaderAt } = await import("../../../daemon/src/client/local-json-rpc-client.ts");
+  const { openDaemonJsonRpcReaderAt } = await import("@harness-anything/daemon/internal/client/local-json-rpc-client");
   return openDaemonJsonRpcReaderAt(
     target.socketPath,
     method,
@@ -484,7 +484,7 @@ export async function relayRuntimeAuthTerminal(
   onOutput: (text: string) => void,
 ): Promise<number> {
   const target = await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId }),
-    { relayDaemonTerminal } = await import("../../../daemon/src/client/terminal-relay.ts");
+    { relayDaemonTerminal } = await import("@harness-anything/daemon/internal/client/terminal-relay");
   return relayDaemonTerminal({ socketPath: target.socketPath, repoId: target.repoId, sessionId, write: onOutput });
 }
 // Reads never mutate and every measured read answers in well under a second, so a read that is still unanswered after

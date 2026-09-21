@@ -1,7 +1,7 @@
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
 import { isSquadControlResult } from "./protocol/daemon-protocol-validate-results.ts";
 export { isSquadControlResult };
-import type { WriteReceiptDraft } from "../../kernel/src/index.ts";
+import type { WriteReceiptDraft } from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { RepoCellRuntimeContext } from "./repo-cell-action-context.ts";
 

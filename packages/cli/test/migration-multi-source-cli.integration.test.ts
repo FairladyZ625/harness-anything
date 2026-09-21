@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, makeTaskProjection, sha256Text, stableStringify } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, makeTaskProjection, sha256Text, stableStringify } from "@harness-anything/kernel";
 import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");

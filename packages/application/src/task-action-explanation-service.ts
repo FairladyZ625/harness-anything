@@ -14,7 +14,7 @@ import {
   type EntityActionExplanationV1,
   type EntityRef,
   type TaskLifecycleSnapshot,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export interface TaskActionExplanationAuthorizationInput {
   readonly action: EntityActionContract;

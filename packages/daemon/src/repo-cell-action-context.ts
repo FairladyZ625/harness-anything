@@ -1,5 +1,5 @@
 import type { RepoCellCore } from "./repo-cell.ts";
-import type { makeTaskLifecycleService } from "../../application/src/task-lifecycle-service.ts";
+import type { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
 import type {
   CanonicalEventAppendReceipt,
   CanonicalEventStore,
@@ -9,7 +9,7 @@ import type {
   RepositorySettingsV1,
   SettingsV1,
   TaskProjection,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   annotateExecution as annotateExecutionImpl,
   declareExecutionExecutor as declareExecutionExecutorImpl,

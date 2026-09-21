@@ -17,8 +17,8 @@ import {
   waivableAutomatedFail,
   type CompletionEvidenceV1,
   type FrozenGateRequirement,
-} from "../../kernel/src/index.ts";
-import type { TaskLifecycleSnapshot } from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
+import type { TaskLifecycleSnapshot } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { gate as validateGateWitnessWire } from "../src/protocol/daemon-protocol-validate-entities.ts";
 import { attestGateWitness, witnessAdapters } from "../src/repo-cell-witness-adapters.ts";

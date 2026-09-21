@@ -5,7 +5,7 @@ import {
   latestRuntimeActivityAt,
   runtimeSessionSemanticState,
   type TaskProjection,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   isAvailableSquadRunSummary,
   type SquadRunInvalidSummaryDto,

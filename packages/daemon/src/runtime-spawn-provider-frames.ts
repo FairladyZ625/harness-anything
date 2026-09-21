@@ -1,5 +1,5 @@
-import { consumeKnownError } from "../../kernel/src/index.ts";
-import { validateAgentDeclarationV1 } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
+import { validateAgentDeclarationV1 } from "@harness-anything/kernel";
 import type { RuntimeInstanceKind } from "./agent-runtime-instances.ts";
 import type { AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
 import { runtimeKindForId, runtimeKindIds, runtimeKinds } from "./runtime-inventory.ts";

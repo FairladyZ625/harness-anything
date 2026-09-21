@@ -9,7 +9,7 @@ import {
   type SquadControlResult,
 } from "./squad-control-result.ts";
 import type { RepoCellCore } from "./repo-cell.ts";
-import { readAcceptedCommandOutcome } from "../../kernel/src/index.ts";
+import { readAcceptedCommandOutcome } from "@harness-anything/kernel";
 import { daemonSettingsRead } from "./protocol/daemon-settings-read-types.ts";
 import { settingsLastChanged } from "./repo-cell-settings-state.ts";
 import { settleWriteReceipt } from "./write-receipt-settlement.ts";
@@ -38,8 +38,8 @@ import {
   type TaskProjectionListQuery,
   type WriteReceipt,
   type WriteReceiptDraft,
-} from "../../kernel/src/index.ts";
-import { type PresetRunReceiptV1, type createPresetProcessService } from "../../preset/src/index.ts";
+} from "@harness-anything/kernel";
+import { type PresetRunReceiptV1, type createPresetProcessService } from "@harness-anything/preset";
 import { readAgentEntityGuiProjection } from "./agent-entities.ts";
 import {
   canonicalVertical,

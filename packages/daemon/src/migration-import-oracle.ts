@@ -9,7 +9,7 @@ import {
   type RuntimeResultClaim,
   type RuntimeSession,
   type ScheduleV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { isMigrationImportRecord, migrationImportError, nonEmpty } from "./migration-import-report.ts";
 import { inspectMigrationSourceEvents, rebuildMigrationProjectionOracle } from "./migration-import-oracle-rebuild.ts";
 import type { MigrationFormatObservation } from "./migration-import-types.ts";

@@ -6,7 +6,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { makeTaskEventReader, type AgentDefinitionSnapshot } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";

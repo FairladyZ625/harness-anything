@@ -1,4 +1,4 @@
-import { normalizeRelativeDocumentPath, resolveHarnessLayout } from "../../kernel/src/index.ts";
+import { normalizeRelativeDocumentPath, resolveHarnessLayout } from "@harness-anything/kernel";
 import { assertCanonicalVertical, loadCanonicalAssets } from "./preset-assets.ts";
 import { catalogAnchors, materializeSelections } from "./preset-materialization.ts";
 import {

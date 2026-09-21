@@ -1,10 +1,10 @@
 import path from "node:path";
-import type { DaemonAutostartResult, DaemonStartProgress } from "../../../daemon/src/client/daemon-autostart.ts";
+import type { DaemonAutostartResult, DaemonStartProgress } from "@harness-anything/daemon/internal/client/daemon-autostart";
 import {
   daemonIdFromEnv,
   daemonUserRoot,
   localUserDaemonEndpoint,
-} from "../../../daemon/src/client/local-daemon-target.ts";
+} from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { cliDaemonServeLaunch } from "./client.ts";
 
 export async function ensureCliDaemonRunning(input: {
@@ -17,7 +17,7 @@ export async function ensureCliDaemonRunning(input: {
   readonly onProgress?: (progress: DaemonStartProgress) => void;
 }): Promise<DaemonAutostartResult> {
   const { ensureLocalDaemonRunning, runtimeDaemonStartRefusal } = await import(
-      "../../../daemon/src/client/daemon-autostart.ts"
+      "@harness-anything/daemon/internal/client/daemon-autostart"
     ),
     refusal = runtimeDaemonStartRefusal();
   if (refusal) return { ok: false, ...refusal, attempts: 0 };

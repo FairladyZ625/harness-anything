@@ -1,5 +1,5 @@
-import { getExecutableEntityAction, type DaemonRepoMode, type WriteSource } from "../../kernel/src/index.ts";
-import type { CommandTopology } from "../../preset/src/preset-command-contract.ts";
+import { getExecutableEntityAction, type DaemonRepoMode, type WriteSource } from "@harness-anything/kernel";
+import type { CommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
 
 export interface RepoModeAdmission {
   readonly ok: boolean;

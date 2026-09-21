@@ -13,7 +13,7 @@ import {
   type AgentRuntimeEventV1,
   type FrozenWritePlan,
   type RuntimeSession,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts";
 import { validateAgentRuntimeOverview } from "../src/agent-runtime-contract.ts";
 import { makeAgentRuntimeStreamHub } from "../src/agent-runtime-stream.ts";

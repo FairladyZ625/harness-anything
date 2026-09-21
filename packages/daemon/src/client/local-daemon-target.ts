@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { existsSync, lstatSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import type { DaemonRegistryRepo } from "../../../kernel/src/index.ts";
+import type { DaemonRegistryRepo } from "@harness-anything/kernel";
 import {
   canonicalRoot as bindCanonicalRoot,
   endpointIdentity,
@@ -145,7 +145,7 @@ export async function readRegisteredRepos(
   userRoot: string,
 ): Promise<ReadonlyArray<DaemonRegistryRepo & { readonly canonicalRoot: string }>> {
   if (!existsSync(path.join(userRoot, "registry.json"))) return [];
-  const { readDaemonRegistry } = await import("../../../kernel/src/daemon/registry.ts");
+  const { readDaemonRegistry } = await import("@harness-anything/kernel/daemon-registry");
   return readDaemonRegistry({ userRoot }).repos.filter(
     (repo): repo is DaemonRegistryRepo & { readonly canonicalRoot: string } => repo.canonicalRoot !== null,
   );
@@ -161,7 +161,9 @@ function isWorkspaceRelayEndpoint(endpoint: string, rootDir: string): boolean {
   let current = root;
   for (const part of parts) {
     current = path.join(current, part);
-    const info = lstatSync(current, { throwIfNoEntry: false });
+    // Node 24 realpath's cache reads the shared numeric stat buffer. A socket there
+    // can stop later workspace symlink resolution early; BigInt stats use a separate buffer.
+    const info = lstatSync(current, { throwIfNoEntry: false, bigint: true });
     if (info?.isSymbolicLink()) return false;
   }
   return true;

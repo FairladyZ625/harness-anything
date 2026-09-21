@@ -5,7 +5,7 @@ import {
   parseDocWriteIntent,
   sha256Text,
   runtimeSessionIdFromActor,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { cellCriterionError } from "./repo-cell-errors.ts";

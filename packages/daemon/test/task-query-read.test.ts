@@ -10,7 +10,7 @@ import {
   type TaskProjectionListQuery,
   type TaskRelationProjectionRead,
   type TaskRelationQuery,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { seedRelationProjection } from "../../kernel/test/store/relation-graph-projection.fixtures.ts";
 import {
   canonicalRoot,
@@ -20,7 +20,7 @@ import {
 import { readTaskWipSnapshot, wipSnapshotEntries, type TaskQueryCell } from "../src/repo-cell-task-query.ts";
 import { readTaskCompletion } from "../src/task-completion-read.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import { reduceTaskEvent, taskCompletionNext } from "../../kernel/src/index.ts";
+import { reduceTaskEvent, taskCompletionNext } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { makeTaskQueryReadModel } from "../src/task-query-read.ts";
 

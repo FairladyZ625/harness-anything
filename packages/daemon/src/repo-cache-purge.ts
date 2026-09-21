@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import path from "node:path";
-import { resolveHarnessLayout } from "../../kernel/src/index.ts";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
 
 const derivedDirectories = [
   "cache",

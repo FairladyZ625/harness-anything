@@ -1,4 +1,4 @@
-import type { CompiledVerticalContract, TemplateCatalog } from "../../kernel/src/index.ts";
+import type { CompiledVerticalContract, TemplateCatalog } from "@harness-anything/kernel";
 import type {
   CapabilityRefV1,
   PresetDocumentV1,

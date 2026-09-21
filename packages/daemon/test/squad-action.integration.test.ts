@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { getEntityKindContract, makeTaskEventStore, openSqliteEventStore } from "../../kernel/src/index.ts";
+import { getEntityKindContract, makeTaskEventStore, openSqliteEventStore } from "@harness-anything/kernel";
 import {
   makeDaemonCommandReceipt,
   validateDaemonGuiCommandReceipt,

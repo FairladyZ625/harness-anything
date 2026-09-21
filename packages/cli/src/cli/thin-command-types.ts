@@ -1,5 +1,5 @@
-import { daemonProtocolCommands } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonProtocolCommands } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 
 export interface ThinCommand {
   readonly rootDir: SafePath;

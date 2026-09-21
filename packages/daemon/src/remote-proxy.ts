@@ -1,5 +1,5 @@
 import type net from "node:net";
-import { readDaemonRegistry, type DaemonRegistryConnection } from "../../kernel/src/index.ts";
+import { readDaemonRegistry, type DaemonRegistryConnection } from "@harness-anything/kernel";
 import { connectSocket, JsonRpcLineClient } from "./client/local-json-rpc-client.ts";
 import { streamDaemonFacetAt } from "./client/local-json-rpc-stream.ts";
 import { daemonStreamFacetByMethod } from "./protocol/daemon-protocol-gui-actions.ts";

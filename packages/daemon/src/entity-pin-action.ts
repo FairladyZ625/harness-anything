@@ -3,7 +3,7 @@ import {
   compileEntityPinEvent,
   parseEntityRef,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { resolveAgendaPinLimit } from "./task-wip-settings.ts";

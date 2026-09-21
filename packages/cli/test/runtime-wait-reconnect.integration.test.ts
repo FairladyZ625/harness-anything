@@ -6,9 +6,9 @@ import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { daemonPidPath } from "../../daemon/src/daemon-singleton.ts";
-import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
-import { writeDaemonStoppedMarker } from "../../daemon/src/client/daemon-autostart.ts";
+import { daemonPidPath } from "@harness-anything/daemon/internal/daemon-singleton";
+import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
+import { writeDaemonStoppedMarker } from "@harness-anything/daemon/internal/client/daemon-autostart";
 
 const cli = path.resolve("packages/cli/src/index.ts"),
   runtimeSessionId = "runtime-wait-reconnect";

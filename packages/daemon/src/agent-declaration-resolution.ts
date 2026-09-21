@@ -1,4 +1,4 @@
-import { readBundledAgentDeclaration } from "../../preset/src/index.ts";
+import { readBundledAgentDeclaration } from "@harness-anything/preset";
 import {
   consumeKnownError,
   entitySlug,
@@ -6,7 +6,7 @@ import {
   parseAgentDeclarationV1,
   type AgentDeclarationV1,
   type EntityStore,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export interface AgentDeclarationResolution {
   readonly declaration: AgentDeclarationV1;

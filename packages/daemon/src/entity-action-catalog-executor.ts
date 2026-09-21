@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { makeDecisionService, makeFactService, type ArtifactSourceResolution } from "../../application/src/index.ts";
+import { makeDecisionService, makeFactService, type ArtifactSourceResolution } from "@harness-anything/application";
 import {
   compileEntityUpsert,
   compileEntityDeleted,
@@ -30,7 +30,7 @@ import {
   type SessionIdentity,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { prepareDecisionAmend, validateDecisionPackages } from "./decision-surface-actions.ts";
 import { factReplayBundle, supersededFactDocumentSource } from "./fact-supersede-document.ts";
 import {

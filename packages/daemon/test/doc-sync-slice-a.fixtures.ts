@@ -9,7 +9,7 @@ import {
   sha256Text,
   type CanonicalWriteBundle,
   type MigrationImportEventV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export const actor = {
   principal: { personId: "person-owner" },

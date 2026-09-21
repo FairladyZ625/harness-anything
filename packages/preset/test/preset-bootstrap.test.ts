@@ -10,7 +10,7 @@ import {
   makeTaskEventStore,
   makeTaskProjection,
   type TaskEventV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { compilePresetSnapshotUpgrade, compileTaskBootstrap, compileTaskPackage } from "../src/index.ts";
 
 test("standard and milestone bootstrap compile one exact canonical birth and rebuild from L1", async () => {

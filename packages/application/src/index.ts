@@ -1,5 +1,5 @@
-import type { ArtifactStore, ProjectionWarning, TaskProjectionRow } from "../../kernel/src/index.ts";
-import type { HarnessLayoutOverrides } from "../../kernel/src/index.ts";
+import type { ArtifactStore, ProjectionWarning, TaskProjectionRow } from "@harness-anything/kernel";
+import type { HarnessLayoutOverrides } from "@harness-anything/kernel";
 export { makeTaskLifecycleService, TaskLifecycleOperationConflict } from "./task-lifecycle-service.ts";
 export type {
   TaskLifecycleKillpoint,

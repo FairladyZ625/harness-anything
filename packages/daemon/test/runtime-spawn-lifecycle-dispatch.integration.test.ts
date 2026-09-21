@@ -11,7 +11,7 @@ import {
   makeTaskProjection,
   runtimeDefinitionSnapshotArtifact,
   type AgentDefinitionSnapshot,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";

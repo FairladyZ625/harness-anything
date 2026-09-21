@@ -16,7 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import { makeTaskEventStore } from "@harness-anything/kernel";
 import { compileTaskBootstrap } from "../src/index.ts";
 
 const actor = { principal: { personId: "person-1" }, executor: null } as const;

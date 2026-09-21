@@ -1,6 +1,6 @@
 import { isJsonObject, rejectSecretKeys, type JsonObject } from "./protocol/json-rpc-types.ts";
-import { validateReceiptAcceptance } from "../../kernel/src/index.ts";
-import { isContractVersion } from "../../kernel/src/domain/contract-version.ts";
+import { validateReceiptAcceptance } from "@harness-anything/kernel";
+import { isContractVersion } from "@harness-anything/kernel/contract-version";
 
 export interface DaemonControlReceipt extends JsonObject {
   readonly schema: "daemon-control-receipt/v1";

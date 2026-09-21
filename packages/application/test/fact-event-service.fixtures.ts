@@ -18,7 +18,7 @@ import {
   type FactEventDraftV1,
   type FactEventV1,
   type TaskProjection,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { makeDecisionService, makeFactService } from "../src/index.ts";
 import { realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
 

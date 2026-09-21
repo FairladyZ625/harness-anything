@@ -8,7 +8,7 @@ import test, { type TestContext } from "node:test";
 import { fleetHostWriterOptions, fleetLedgerRevision, waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import { connect, createServer, type TLSSocket } from "node:tls";
-import { sha256Bytes, type LedgerCutIdentity } from "../../kernel/src/index.ts";
+import { sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
 import {

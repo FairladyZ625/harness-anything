@@ -11,7 +11,7 @@ import {
   makeTaskProjection,
   type AgentRuntimeEventV1,
   type FrozenWritePlan,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts";
 
 test("runtime lifecycle cursors stay at the projection cut while the canonical stream is ahead", async (t) => {

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { projectDecisionReadiness, settingsUpdateInputFields } from "../../kernel/src/index.ts";
+import { projectDecisionReadiness, settingsUpdateInputFields } from "@harness-anything/kernel";
 import {
   actionForDaemonMethod,
   daemonGuiActionMethods,

@@ -1,4 +1,4 @@
-import { composeDurableActionEnvelope } from "../../application/src/durable-action-envelope.ts";
+import { composeDurableActionEnvelope } from "@harness-anything/application/internal/durable-action-envelope";
 import path from "node:path";
 import {
   durablePolicyActions,
@@ -20,7 +20,7 @@ import {
   type ReceiptJsonValue,
   type ReceiptDiagnostic,
   type TaskProjection,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { authorizeAction } from "./authorization.ts";
 import { declaredRoleBindingsFromRoster } from "./identity/declared-role-binding-projection.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";

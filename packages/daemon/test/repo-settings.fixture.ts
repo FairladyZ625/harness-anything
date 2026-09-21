@@ -12,9 +12,9 @@ import {
   registerDaemonRepo as registerProductDaemonRepo,
   resolveHarnessLayout,
   writeRepositorySettingsFacet,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { daemonRegistryPaths } from "../../kernel/test/store/canonical-generation.fixtures.ts";
-import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
+import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell as openProductRepoCell, type RepoCell, type RepoCellBinding } from "../src/repo-cell.ts";
 import {

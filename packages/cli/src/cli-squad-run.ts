@@ -1,4 +1,4 @@
-import type { JsonObject } from "../../daemon/src/protocol/json-rpc-types.ts";
+import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import type { SquadRunAction } from "./cli-types.ts";
 import type { ThinCommand } from "./cli/thin-command.ts";
 import { runCommandThroughDaemon } from "./daemon/client.ts";

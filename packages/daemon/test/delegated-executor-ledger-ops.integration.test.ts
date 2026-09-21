@@ -10,7 +10,7 @@ import {
   makeTaskEventReader,
   makeTaskEventStore,
   type AgentRuntimeEventV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { initRepo } from "./migration-import.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";

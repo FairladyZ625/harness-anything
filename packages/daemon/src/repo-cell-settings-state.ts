@@ -25,7 +25,7 @@ import {
   type SettingsLocale,
   type SettingsV1,
   type TaskProjectionQueries,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { writeFileDurably } from "./durable-file.ts";
 import type { RepoCellActionContext, RepoCellSettingsState } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";

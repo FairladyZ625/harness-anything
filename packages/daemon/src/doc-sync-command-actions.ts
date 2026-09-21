@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
-import type { CanonicalEventStore, TaskProjection } from "../../kernel/src/index.ts";
+import type { CanonicalEventStore, TaskProjection } from "@harness-anything/kernel";
 import {
   classifyRawArtifactPath,
   classifyTextualArtifactPath,
@@ -22,7 +22,7 @@ import {
   type RuntimeArchiveWriteScope,
   type WriteReceiptDraft as WriteReceipt,
   type WriteSource,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { assignmentIntent, scannerSubmit } from "./doc-sync-adjudication.ts";
 import { intentFromScan, resolveDocExecutionBinding } from "./doc-sync-candidate-scanner.ts";
 import type { AuthoredCandidateInventoryV1, DocCandidateScan } from "./doc-sync-candidate-scanner.ts";

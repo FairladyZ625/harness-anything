@@ -1,8 +1,8 @@
 import { existsSync, lstatSync, readdirSync, realpathSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
-import { resolveHarnessLayout } from "../../kernel/src/index.ts";
-import type { AgentSkillDeclarationV1 } from "../../kernel/src/index.ts";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
+import type { AgentSkillDeclarationV1 } from "@harness-anything/kernel";
 
 export interface ResolvedAgentSkill {
   readonly id: string;

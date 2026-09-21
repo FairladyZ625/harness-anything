@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { daemonMethodAcceptsPayload } from "../../daemon/src/protocol/daemon-protocol.contract.ts";
+import { daemonMethodAcceptsPayload } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 
 test("Settings CLI projects read and owned update flags to the closed daemon actions", () => {

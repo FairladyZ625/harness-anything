@@ -1,4 +1,4 @@
-import { renderDecisionDocument, type ColdDecisionProjectionRow } from "../../kernel/src/index.ts";
+import { renderDecisionDocument, type ColdDecisionProjectionRow } from "@harness-anything/kernel";
 import type { MigrationImportContext } from "./migration-import-run.ts";
 
 export function addDecision(context: MigrationImportContext, row: ColdDecisionProjectionRow): void {

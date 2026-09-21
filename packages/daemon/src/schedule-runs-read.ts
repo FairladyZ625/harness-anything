@@ -8,7 +8,7 @@ import {
   type ScheduleLastRunV1,
   type ScheduleMissedReason,
   type ScheduleTriggerV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   validateScheduleRuns,
   type ScheduleRunOutputsDto,

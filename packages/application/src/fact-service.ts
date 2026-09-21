@@ -8,7 +8,7 @@ import {
   type FactSearchFilters,
   type FrozenWritePlan,
   type TaskProjection,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export class FactServiceError extends Error {
   readonly code: "content_not_ready" | "entity_not_found" | "ambiguous_selector" | "invalid_command";
@@ -32,10 +32,19 @@ export type FactWriteBundle = CanonicalWriteBundle & {
   readonly plan: FrozenWritePlan<"FactRecord">;
 };
 
+export interface FactService {
+  readonly record: (bundle: FactWriteBundle) => FactRecordResult;
+  readonly show: (factId: string) => ReturnType<TaskProjection["readFact"]> & {
+    readonly fact: FactProjectionRow;
+  };
+  readonly search: (filters: FactSearchFilters) => ReturnType<TaskProjection["searchFacts"]>;
+  readonly listDomainTypes: () => ReturnType<TaskProjection["listFactDomainTypes"]>;
+}
+
 export function makeFactService(options: {
   readonly eventStore: Pick<CanonicalEventStore, "append" | "readEvent">;
   readonly projection: Pick<TaskProjection, "admitFact" | "apply" | "readFact" | "searchFacts" | "listFactDomainTypes">;
-}) {
+}): FactService {
   const record = (bundle: FactWriteBundle): FactRecordResult => {
     const { event } = bundle;
     try {

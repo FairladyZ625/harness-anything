@@ -1,5 +1,5 @@
-import { daemonProtocolCommands, thinCliCommands } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { generationMigrationCommand } from "../../../daemon/src/offline-storage-command.ts";
+import { daemonProtocolCommands, thinCliCommands } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { generationMigrationCommand } from "@harness-anything/daemon/internal/offline-storage-command";
 import { renderCliGuidance } from "./guidance-plane.ts";
 
 export type ThinHelpCatalogEntry = {

@@ -27,7 +27,7 @@ test("thin CLI structure rejects a kernel public barrel reachable from the dist 
     root,
     "packages/daemon/src/client/local-daemon-target.ts",
     [
-      "import { readDaemonRegistry } from '../../../kernel/src/index.ts';",
+      "import { readDaemonRegistry } from '@harness-anything/kernel';",
       "export const resolveLocalDaemonTarget = readDaemonRegistry;",
       "",
     ].join("\n"),
@@ -51,7 +51,7 @@ test("thin CLI structure rejects a kernel runtime import from any CLI production
   write(
     root,
     "packages/cli/src/commands/task-read.ts",
-    ["import { readTask } from '../../../kernel/src/index.ts';", "export const taskRead = readTask;", ""].join("\n"),
+    ["import { readTask } from '@harness-anything/kernel';", "export const taskRead = readTask;", ""].join("\n"),
   );
   write(root, "packages/kernel/src/index.ts", "export const readTask = () => ({});\n");
 
@@ -59,6 +59,25 @@ test("thin CLI structure rejects a kernel runtime import from any CLI production
   assert.notEqual(result.status, 0);
   assert.ok(
     result.stderr.includes("dist static import graph reached kernel public barrel: packages/kernel/src/index.ts"),
+  );
+});
+
+test("thin CLI structure rejects an unlisted daemon file reached through a package export", async () => {
+  const root = await fixture();
+  write(
+    root,
+    "packages/cli/src/index.ts",
+    entrySource(["import { hidden } from '@harness-anything/daemon/internal/hidden';", "void hidden;"]),
+  );
+  write(root, "packages/daemon/src/hidden.ts", "export const hidden = true;\n");
+
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.ok(
+    result.stderr.includes(
+      "dist static import graph reached module is outside the thin CLI cross-package graph boundary: " +
+        "packages/daemon/src/hidden.ts",
+    ),
   );
 });
 
@@ -81,7 +100,7 @@ test("thin CLI structure rejects a static kernel edge", async () => {
     root,
     "packages/cli/src/commands/task-read.ts",
     [
-      "import { parseCanonicalEvent } from '../../../kernel/src/domain/doc-sync-canonical-events.ts';",
+      "import { parseCanonicalEvent } from '@harness-anything/kernel/internal/domain/doc-sync-canonical-events';",
       "export const parse = parseCanonicalEvent;",
       "",
     ].join("\\n"),
@@ -164,7 +183,7 @@ test("daemon transport graph rejects a kernel barrel reachable from the line cli
     root,
     "packages/daemon/src/client/local-json-rpc-client.ts",
     [
-      "import { consumeKnownError } from '../../../kernel/src/index.ts';",
+      "import { consumeKnownError } from '@harness-anything/kernel';",
       "export function transport(): void { void consumeKnownError; }",
       "",
     ].join("\n"),
@@ -183,7 +202,7 @@ test("daemon transport graph rejects even a kernel leaf import reachable from th
     root,
     "packages/daemon/src/client/local-json-rpc-client.ts",
     [
-      "import { consumeKnownError } from '../../../kernel/src/error-consumption.ts';",
+      "import { consumeKnownError } from '@harness-anything/kernel/internal/error-consumption';",
       "export function transport(): void { void consumeKnownError; }",
       "",
     ].join("\n"),
@@ -207,12 +226,37 @@ async function fixture() {
       bin: { "harness-anything": "dist/cli/src/index.js", ha: "dist/cli/src/index.js" },
     }),
   );
+  write(
+    root,
+    "packages/daemon/package.json",
+    JSON.stringify({
+      name: "@harness-anything/daemon",
+      exports: {
+        "./internal/client/local-daemon-target": "./src/client/local-daemon-target.ts",
+        "./internal/hidden": "./src/hidden.ts",
+        "./internal/protocol/daemon-protocol.contract": "./src/protocol/daemon-protocol.contract.ts",
+      },
+    }),
+  );
+  write(
+    root,
+    "packages/kernel/package.json",
+    JSON.stringify({
+      name: "@harness-anything/kernel",
+      exports: { ".": "./src/index.ts", "./internal/*": "./src/*.ts" },
+    }),
+  );
+  write(
+    root,
+    "packages/preset/package.json",
+    JSON.stringify({ name: "@harness-anything/preset", exports: { "./internal/*": "./src/*.ts" } }),
+  );
   write(root, "packages/cli/src/index.ts", entrySource());
   write(
     root,
     "packages/cli/src/cli/thin-command.ts",
     [
-      "import { resolveThinCliCommand } from '../../../daemon/src/protocol/daemon-protocol.contract.ts';",
+      "import { resolveThinCliCommand } from '@harness-anything/daemon/internal/protocol/daemon-protocol.contract';",
       "export function parseThinCommand(): void { void resolveThinCliCommand; }",
       "",
     ].join("\n"),
@@ -221,7 +265,7 @@ async function fixture() {
     root,
     "packages/cli/src/daemon/client.ts",
     [
-      "import { resolveLocalDaemonTarget } from '../../../daemon/src/client/local-daemon-target.ts';",
+      "import { resolveLocalDaemonTarget } from '@harness-anything/daemon/internal/client/local-daemon-target';",
       "export function runCommandThroughDaemon(): void { void resolveLocalDaemonTarget; }",
       "",
     ].join("\n"),
@@ -236,7 +280,7 @@ async function fixture() {
     root,
     "packages/daemon/src/protocol/daemon-protocol.contract.ts",
     [
-      "import { presetCommands } from '../../../preset/src/preset-command-contract.ts';",
+      "import { presetCommands } from '@harness-anything/preset/internal/preset-command-contract';",
       "export function resolveThinCliCommand(): void { void presetCommands; }",
       "",
     ].join("\n"),

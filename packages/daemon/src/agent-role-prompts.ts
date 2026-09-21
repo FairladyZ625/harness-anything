@@ -1,4 +1,4 @@
-import type { AgentRole } from "../../kernel/src/index.ts";
+import type { AgentRole } from "@harness-anything/kernel";
 
 export const sharedExecutionDiscipline = `# Harness Execution Discipline
 

@@ -21,7 +21,7 @@ import {
   type RuntimeSession,
   type TaskProjection,
   type TaskSourceEntry,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { auditAuthoredCoverage, authoredPaths, parseResolutions } from "./migration-import-authored-audit.ts";
 import { classifyAuthored, referencedContent } from "./migration-import-authored-classification.ts";
 import {

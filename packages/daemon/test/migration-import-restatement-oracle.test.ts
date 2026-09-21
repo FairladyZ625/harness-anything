@@ -11,7 +11,7 @@ import {
   makeTaskProjection,
   serializeEventHead,
   sha256Text,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { readMigrationProjectionOracle } from "../src/migration-import-oracle.ts";
 import {
   compileRestatedTaskContract,

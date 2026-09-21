@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { sha256Bytes } from "../../kernel/src/index.ts";
+import { sha256Bytes } from "@harness-anything/kernel";
 import { deriveCloseoutSubmission, submissionAnchorDriftWarnings, submissionStopped } from "../src/repo-cell-submit.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "../src/repo-cell-types.ts";

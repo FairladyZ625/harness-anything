@@ -5,7 +5,7 @@ import {
   runtimeEventContentClaims,
   stableStringify,
   type AgentRuntimeEventV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { archiveRuntimeDispatch } from "./doc-sync-actions.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RepoCellBinding, RuntimeIngressAction } from "./repo-cell-types.ts";

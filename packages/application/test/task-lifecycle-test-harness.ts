@@ -8,8 +8,8 @@ import {
   submissionDigest,
   type EventPublicationKillpoint,
   type FrozenGateRequirement,
-} from "../../kernel/src/index.ts";
-import { reviewDigest } from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
+import { reviewDigest } from "@harness-anything/kernel";
 import { makeTaskEventStore, makeTaskProjection } from "../../kernel/test/store/task-lifecycle-runtime.ts";
 import { makeTaskLifecycleService } from "../src/task-lifecycle-service.ts";
 

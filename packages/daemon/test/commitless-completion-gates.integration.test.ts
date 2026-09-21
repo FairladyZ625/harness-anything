@@ -6,7 +6,7 @@ import {
   completionBlockers,
   requiredGateWitnessCount,
   type TaskLifecycleSnapshot,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 const actor = { principal: { personId: "owner" }, executor: { kind: "agent" as const, id: "worker" } };
 

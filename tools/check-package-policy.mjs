@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { publicReadyPackagesByPath } from "./public-ready-packages.mjs";
+import { backupName, ownerName } from "./package-exports-lifecycle.mjs";
 
 const root = process.cwd();
 const expectedPackages = new Map([
@@ -40,6 +41,10 @@ for (const [relativePath, expectedName] of expectedPackages.entries()) {
     record(`${relativePath} expected name ${expectedName}, got ${packageJson.name}`);
   const publicContract = publicReadyPackagesByPath.get(relativePath);
   if (publicContract && (publicContract.required || packageJson.private !== true)) {
+    const packageRoot = path.dirname(path.join(root, relativePath));
+    for (const lifecycleFile of [backupName, ownerName])
+      if (existsSync(path.join(packageRoot, lifecycleFile)))
+        record(`${relativePath} was left in package exports rewrite state (${lifecycleFile} exists)`);
     if (packageJson.private === true) record(`${relativePath} must be public-ready for npm publish dry-run preflight`);
     if (packageJson.version !== publicContract.version)
       record(`${relativePath} must use version ${publicContract.version} for npm publish dry-run preflight`);

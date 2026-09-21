@@ -5,7 +5,7 @@ import {
   type ActorIdentity,
   type PeopleRosterDocumentV1,
   type RoleBinding,
-} from "../../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { loadPeopleRosterIfPresent } from "./people-roster.ts";
 
 /** Read-only projection of authored Person/Role declarations for AuthorizationPort input. */

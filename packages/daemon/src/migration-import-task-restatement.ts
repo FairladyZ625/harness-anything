@@ -15,8 +15,8 @@ import {
   type PersistedCanonicalEventV1,
   type TaskClass,
   type TaskV2,
-} from "../../kernel/src/index.ts";
-import { compileRepoTaskPackage } from "../../preset/src/index.ts";
+} from "@harness-anything/kernel";
+import { compileRepoTaskPackage } from "@harness-anything/preset";
 
 export interface LegacyTaskRestatement {
   readonly taskId: string;

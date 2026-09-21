@@ -1,4 +1,4 @@
-import type { DaemonRepoMode, EventPublicationKillpoint, ReceiptDiagnostic } from "../../kernel/src/index.ts";
+import type { DaemonRepoMode, EventPublicationKillpoint, ReceiptDiagnostic } from "@harness-anything/kernel";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
 import type { FleetRoster } from "./fleet-center-admission.ts";

@@ -14,21 +14,31 @@
     "directory": "packages/cli"
   },
   "publishConfig": {
-    "access": "public"
+    "access": "public",
+    "exports": {
+      ".": "./dist/cli/src/index.js",
+      "./internal/cli/receipt-render-registry": "./dist/cli/src/cli/receipt-render-registry.js",
+      "./internal/cli/thin-command": "./dist/cli/src/cli/thin-command.js",
+      "./internal/daemon/control": "./dist/cli/src/daemon/control.js"
+    }
   },
   "engines": {
     "node": ">=24"
   },
   "scripts": {
     "build": "tsc -p tsconfig.build.json && node scripts/copy-assets.mjs",
-    "prepack": "npm run build"
+    "prepack": "npm run build && node ../../tools/package-exports-lifecycle.mjs prepare",
+    "postpack": "node ../../tools/package-exports-lifecycle.mjs restore"
   },
   "bin": {
     "harness-anything": "dist/cli/src/index.js",
     "ha": "dist/cli/src/index.js"
   },
   "exports": {
-    ".": "./dist/cli/src/index.js"
+    ".": "./dist/cli/src/index.js",
+    "./internal/cli/receipt-render-registry": "./src/cli/receipt-render-registry.ts",
+    "./internal/cli/thin-command": "./src/cli/thin-command.ts",
+    "./internal/daemon/control": "./src/daemon/control.ts"
   },
   "files": [
     "dist",
@@ -38,7 +48,10 @@
   "dependencies": {
     "@effect/experimental": "0.60.0",
     "@effect/platform": "0.96.2",
+    "@harness-anything/application": "0.0.1",
     "@harness-anything/daemon": "0.0.1",
+    "@harness-anything/kernel": "0.0.1",
+    "@harness-anything/preset": "0.0.1",
     "effect": "3.21.4"
   }
 }

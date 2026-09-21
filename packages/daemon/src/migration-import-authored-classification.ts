@@ -1,6 +1,6 @@
 import { lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError, sha256Text } from "../../kernel/src/index.ts";
+import { consumeKnownError, sha256Text } from "@harness-anything/kernel";
 import {
   appleDesktopMetadata,
   installedDependencyTree,

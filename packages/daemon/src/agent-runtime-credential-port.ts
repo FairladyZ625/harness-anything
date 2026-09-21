@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import { runProcessTextAsync } from "./process-port.ts";
 
 // Backend-agnostic credential port for runtime instances. Callers hand out and

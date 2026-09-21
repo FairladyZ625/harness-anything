@@ -6,7 +6,7 @@ import {
   resolveHarnessLayout,
   restoreDrillRetentionFor,
   type DaemonRegistryRepo,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { removeHarnessIgnoreRules } from "./repo-bootstrap.ts";
 import { removeRepoHarnessRoots } from "./repo-cache-purge.ts";
 
@@ -67,7 +67,7 @@ export function drillRepoBackup(input: {
   readonly backupDir: string;
   readonly manifest?: LedgerBackupManifest;
   readonly shadowParent?: string;
-}) {
+}): ReturnType<typeof drillLedgerBackup> {
   const layout = resolveHarnessLayout(input.rootDir);
   return drillLedgerBackup({
     backupDir: input.backupDir,

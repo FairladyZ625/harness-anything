@@ -1,5 +1,5 @@
 import { isJsonObject } from "./protocol/json-rpc-types.ts";
-import { consumeKnownError, type EntityKindCatalogV1, type TaskProjection } from "../../kernel/src/index.ts";
+import { consumeKnownError, type EntityKindCatalogV1, type TaskProjection } from "@harness-anything/kernel";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 
 /**

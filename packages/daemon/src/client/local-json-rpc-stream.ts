@@ -1,6 +1,6 @@
 import net from "node:net";
 import { createInterface } from "node:readline";
-import { consumeKnownError } from "../../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import { type AgentRuntimeAttachEvent, type AgentRuntimeAttachResult } from "../agent-runtime-stream.ts";
 import { daemonStreamFacetByMethod } from "../protocol/daemon-protocol-gui-actions.ts";
 import type { DaemonStreamPayloadMap } from "../protocol/daemon-protocol.contract.ts";

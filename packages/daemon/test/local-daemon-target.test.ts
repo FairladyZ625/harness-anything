@@ -4,9 +4,9 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { parseThinCommand } from "../../cli/src/cli/thin-command.ts";
-import { INITIAL_SETTINGS_V1, resolveHarnessLayout } from "../../kernel/src/index.ts";
-import { createPresetProcessService } from "../../preset/src/index.ts";
+import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
+import { INITIAL_SETTINGS_V1, resolveHarnessLayout } from "@harness-anything/kernel";
+import { createPresetProcessService } from "@harness-anything/preset";
 import { localUserDaemonEndpoint, resolveLocalDaemonTarget } from "../src/client/local-daemon-target.ts";
 import { daemonRequestLogPath } from "../src/request-log.ts";
 

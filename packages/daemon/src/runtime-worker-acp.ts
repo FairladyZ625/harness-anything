@@ -17,7 +17,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { ChildProcess } from "node:child_process";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import type { RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";

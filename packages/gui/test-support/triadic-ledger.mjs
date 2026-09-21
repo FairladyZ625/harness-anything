@@ -1,13 +1,13 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { makeDecisionService, makeFactService } from "../../application/src/index.ts";
+import { makeDecisionService, makeFactService } from "@harness-anything/application";
 import {
   compileDecisionWrite,
   compileFactWrite,
   deriveRelationId,
   makeTaskEventStore,
   makeTaskProjection,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export function writeTriadicLedger(rootDir) {
   const taskDir = path.join(rootDir, "harness/tasks/task-gui-smoke");

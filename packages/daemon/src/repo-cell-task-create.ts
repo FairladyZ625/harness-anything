@@ -3,8 +3,8 @@ import {
   sessionProvenance,
   taskBootstrapWritePlan,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
-import { compileRepoPresetSnapshotUpgrade, compileRepoTaskBootstrap } from "../../preset/src/index.ts";
+} from "@harness-anything/kernel";
+import { compileRepoPresetSnapshotUpgrade, compileRepoTaskBootstrap } from "@harness-anything/preset";
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, TaskCreateReceipt } from "./repo-cell-types.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";

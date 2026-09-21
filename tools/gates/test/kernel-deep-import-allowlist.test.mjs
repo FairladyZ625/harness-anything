@@ -62,10 +62,20 @@ test("the effect-free daemon deep-import exception targets an import-free kernel
   assert.doesNotMatch(source, /(?:^\s*import\s|(?:\bimport|\brequire)\s*\()/mu);
 });
 
-test("ESLint allows the approved daemon kernel deep imports but rejects another one", async () => {
+test("kernel exports admit enumerated subpaths and reject unenumerated source modules", () => {
+  assert.match(
+    import.meta.resolve("@harness-anything/kernel/internal/domain/task-blocking"),
+    /packages\/kernel\/src\/domain\/task-blocking\.ts$/u,
+  );
+  assert.throws(() => import.meta.resolve("@harness-anything/kernel/internal/domain/completion-contract"), {
+    code: "ERR_PACKAGE_PATH_NOT_EXPORTED",
+  });
+});
+
+test("ESLint preserves daemon kernel exceptions while rejecting relative sibling source imports", async () => {
   const eslint = new ESLint({ cwd: repoRoot });
   const [allowed] = await eslint.lintText(
-    'import { contractVersion } from "../../../kernel/src/domain/contract-version.ts";\nvoid contractVersion;\n',
+    'import { contractVersion } from "@harness-anything/kernel/contract-version";\nvoid contractVersion;\n',
     { filePath: "packages/daemon/src/kernel-contract-version-probe.ts" },
   );
   assert.deepEqual(
@@ -74,7 +84,7 @@ test("ESLint allows the approved daemon kernel deep imports but rejects another 
   );
 
   const [registry] = await eslint.lintText(
-    'import { readDaemonRegistry } from "../../../kernel/src/daemon/registry.ts";\nvoid readDaemonRegistry;\n',
+    'import { readDaemonRegistry } from "@harness-anything/kernel/daemon-registry";\nvoid readDaemonRegistry;\n',
     { filePath: "packages/daemon/src/kernel-registry-probe.ts" },
   );
   assert.deepEqual(
@@ -82,15 +92,14 @@ test("ESLint allows the approved daemon kernel deep imports but rejects another 
     [],
   );
 
-  const [rejected] = await eslint.lintText('import "../../../kernel/src/domain/index.ts";\n', {
+  const [rejected] = await eslint.lintText('import "../../../' + 'kernel/src/domain/index.ts";\n', {
     filePath: "packages/daemon/src/kernel-domain-index-probe.ts",
   });
   const restrictedMessages = rejected.messages.filter(({ ruleId }) => ruleId === "no-restricted-imports");
-  assert.equal(restrictedMessages.length, 1);
-  assert.match(restrictedMessages[0].message, /public barrel instead of deep src paths/u);
+  assert.ok(restrictedMessages.some(({ message }) => /package names instead of relative source paths/u.test(message)));
 });
 
-test("browser public contracts are allowed while deep static and dynamic imports remain rejected", async () => {
+test("browser public contracts are allowed while relative static and dynamic imports remain rejected", async () => {
   const eslint = new ESLint({ cwd: repoRoot });
   const messages = async (source) =>
     (await eslint.lintText(source, { filePath: "packages/daemon/src/browser-contract-probe.ts" }))[0].messages.filter(
@@ -98,14 +107,15 @@ test("browser public contracts are allowed while deep static and dynamic imports
     );
   assert.deepEqual(
     await messages(
-      'import { validateFrozenCompletionContract } from "../../../kernel/src/browser.ts"; void validateFrozenCompletionContract;',
+      'import { validateFrozenCompletionContract } from "@harness-anything/kernel/browser"; void validateFrozenCompletionContract;',
     ),
     [],
   );
   for (const source of [
-    'import { validateFrozenCompletionContract } from "../../../kernel/src/domain/completion-contract.ts"; void validateFrozenCompletionContract;',
-    'export { validateFrozenCompletionContract } from "../../../kernel/src/domain/completion-contract.ts";',
-    'void import("../../../kernel/src/domain/completion-contract.ts");',
+    'import { validateFrozenCompletionContract } from "../../../' +
+      'kernel/src/domain/completion-contract.ts"; void validateFrozenCompletionContract;',
+    'export { validateFrozenCompletionContract } from "../../../' + 'kernel/src/domain/completion-contract.ts";',
+    'void import("../../../' + 'kernel/src/domain/completion-contract.ts");',
   ])
     assert.ok((await messages(source)).length > 0, source);
 });

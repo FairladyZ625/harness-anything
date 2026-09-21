@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { ArtifactEntityServiceError } from "../../application/src/artifact-entity-service.ts";
+import { ArtifactEntityServiceError } from "@harness-anything/application/internal/artifact-entity-service";
 import {
   VcsCommandError,
   attributeEntityActionCriterion,
@@ -8,7 +8,7 @@ import {
   normalizeDomainError,
   type EntityActionCriterionFailure,
   type ReceiptDiagnostic,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export type CellActionCriterionFailure = EntityActionCriterionFailure;
 

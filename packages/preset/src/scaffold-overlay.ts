@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { normalizeRelativeDocumentPath, resolveHarnessLayout } from "../../kernel/src/index.ts";
+import { normalizeRelativeDocumentPath, resolveHarnessLayout } from "@harness-anything/kernel";
 import { canonicalPresetBytes, consumeKnownError, type TemplateSelectionV1 } from "./preset.contract.ts";
 
 export interface ProjectTemplate {

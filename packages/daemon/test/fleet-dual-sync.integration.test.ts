@@ -13,7 +13,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, sha256Bytes } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, sha256Bytes } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";

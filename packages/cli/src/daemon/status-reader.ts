@@ -1,5 +1,5 @@
-import type { JsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
-import { resolveLocalDaemonTarget } from "../../../daemon/src/client/local-daemon-target.ts";
+import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
+import { resolveLocalDaemonTarget } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import type { ThinCommand } from "../cli/thin-command.ts";
 
 export async function openDaemonStatusReader(
@@ -8,7 +8,7 @@ export async function openDaemonStatusReader(
   payload: JsonObject,
 ): Promise<{ readonly read: () => Promise<JsonObject>; readonly close: () => void }> {
   const target = await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId }),
-    { openDaemonJsonRpcReaderAt } = await import("../../../daemon/src/client/local-json-rpc-client.ts");
+    { openDaemonJsonRpcReaderAt } = await import("@harness-anything/daemon/internal/client/local-json-rpc-client");
   return openDaemonJsonRpcReaderAt(
     target.socketPath,
     method,

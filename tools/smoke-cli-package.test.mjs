@@ -2,7 +2,50 @@
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
-import { assertUnstartableDaemonFailedClosed, buildCliPackageArtifact, env } from "./smoke-cli-package.mjs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import {
+  assertUnstartableDaemonFailedClosed,
+  buildCliPackageArtifact,
+  env,
+  workspaceDependencyClosure,
+} from "./smoke-cli-package.mjs";
+
+test("CLI package smoke derives the transitive workspace dependency closure", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-cli-closure-"));
+  try {
+    writeManifest(root, "package.json", { workspaces: ["packages/*"] });
+    writeManifest(root, "packages/cli/package.json", {
+      name: "@harness-anything/cli",
+      dependencies: {
+        "@harness-anything/daemon": "0.0.1",
+        "@harness-anything/kernel": "0.0.1",
+        external: "1.0.0",
+      },
+      devDependencies: { "@harness-anything/gui": "0.0.1" },
+    });
+    writeManifest(root, "packages/daemon/package.json", {
+      name: "@harness-anything/daemon",
+      dependencies: { "@harness-anything/application": "0.0.1" },
+      optionalDependencies: { "@harness-anything/gui": "0.0.1" },
+    });
+    writeManifest(root, "packages/application/package.json", {
+      name: "@harness-anything/application",
+      dependencies: { "@harness-anything/kernel": "0.0.1" },
+    });
+    writeManifest(root, "packages/kernel/package.json", { name: "@harness-anything/kernel" });
+    writeManifest(root, "packages/gui/package.json", { name: "@harness-anything/gui" });
+
+    assert.deepEqual(workspaceDependencyClosure(root, "@harness-anything/cli"), [
+      "@harness-anything/cli",
+      "@harness-anything/daemon",
+      "@harness-anything/kernel",
+      "@harness-anything/application",
+    ]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("CLI package smoke explicitly builds the CLI artifact even when npm lifecycle scripts are ignored", () => {
   const calls = [];
@@ -150,4 +193,10 @@ function withHostHarnessPollution(run) {
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+function writeManifest(root, relativePath, value) {
+  const absolutePath = path.join(root, relativePath);
+  mkdirSync(path.dirname(absolutePath), { recursive: true });
+  writeFileSync(absolutePath, `${JSON.stringify(value)}\n`, "utf8");
 }

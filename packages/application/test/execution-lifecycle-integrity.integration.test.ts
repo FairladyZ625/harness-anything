@@ -14,7 +14,7 @@ import {
   normalizeTaskLifecycleCommand,
   openSqliteEventStore,
   submissionDigest,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { makeTaskEventStore, makeTaskProjection } from "../../kernel/test/store/task-lifecycle-runtime.ts";
 import { commitSha, lifecycleHarness, owner, reviewer } from "./task-lifecycle-test-harness.ts";
 

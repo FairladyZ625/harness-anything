@@ -1,4 +1,4 @@
-import { type WriteReceiptDraft as WriteReceipt } from "../../../kernel/src/index.ts";
+import { type WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
 import type { DaemonHost } from "../daemon-host.ts";
 import { type FleetLeaseBroker } from "../lease-broker.ts";
 import type { WriterEpochLease } from "../writer-epoch.ts";

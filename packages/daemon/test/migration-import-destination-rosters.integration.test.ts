@@ -16,7 +16,7 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, makeTaskProjection, sha256Text, stableStringify } from "../../kernel/src/index.ts";
+import { makeTaskEventReader, makeTaskProjection, sha256Text, stableStringify } from "@harness-anything/kernel";
 import { peopleRosterFromDocument } from "../src/identity/people-roster.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell, openFencedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";

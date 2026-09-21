@@ -4,7 +4,7 @@ import {
   type AuthorizationContext,
   type AuthorizationDecision,
   type AuthorizationPort,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 const daemonAuthorizationPort: AuthorizationPort = authorizationPort;
 

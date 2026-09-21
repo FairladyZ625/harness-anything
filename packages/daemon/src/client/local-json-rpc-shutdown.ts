@@ -1,4 +1,4 @@
-import { consumeKnownError } from "../../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import type { JsonRpcRequest, JsonRpcResponse } from "../protocol/json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "../protocol/version.ts";
 import { connectSocket, jsonRpcRecord } from "./local-json-rpc-client.ts";

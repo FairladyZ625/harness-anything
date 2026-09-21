@@ -12,7 +12,7 @@ import {
   type EntityActionExplanationV1,
   type EntityRef,
   type SquadDeclarationV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export interface SquadActionExplanationAuthorizationInput {
   readonly action: EntityActionContract;

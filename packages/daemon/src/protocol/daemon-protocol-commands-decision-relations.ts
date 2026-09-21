@@ -2,7 +2,7 @@ import {
   cliInput,
   defineLedgerWriteCommand,
   defineRepoReadCommand,
-} from "../../../preset/src/preset-command-contract.ts";
+} from "@harness-anything/preset/internal/preset-command-contract";
 
 export const decisionRelationProtocolCommands = Object.freeze([
   defineLedgerWriteCommand({

@@ -4,7 +4,7 @@ import {
   parseSquadDeclarationV1,
   type SquadDeclarationV1,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   agentDeclarationInvalidError,
   storedAgentDeclarationOutcome,

@@ -1,6 +1,6 @@
 import { mkdir, open, readdir, rename, rm, type FileHandle } from "node:fs/promises";
 import path from "node:path";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 
 // Connection- and request-level observability for the daemon transport surface. The 2026-08-20
 // connection-flood postmortem (fact F-A4858645) could not recover open/close events, active

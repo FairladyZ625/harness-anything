@@ -89,12 +89,20 @@ export function findW3WriteAuthorityViolations(rootDir = process.cwd()) {
     (candidate) => candidate.startsWith("packages/cli/src/") && candidate.endsWith(".ts"),
   )) {
     const body = readFileSync(path.join(rootDir, file), "utf8");
-    if (/from\s+["'][^"']*(?:kernel|application)\/src/u.test(body))
+    const importedSpecifiers = [...body.matchAll(/\bfrom\s+["']([^"']+)["']/gu)].map((match) => match[1]);
+    if (importedSpecifiers.some(isDomainModuleImport))
       violations.push(`${file}: thin CLI must not import kernel/application domain modules`);
     if (/\b(?:writeFile|writeFileSync|appendFile|appendFileSync|renameSync|mkdirSync)\s*\(/u.test(body))
       violations.push(`${file}: thin CLI must not perform local writes`);
   }
   return violations;
+}
+
+function isDomainModuleImport(specifier) {
+  return (
+    /^@harness-anything\/(?:kernel|application)(?:\/|$)/u.test(specifier) ||
+    /(?:^|\/)(?:kernel|application)\/src(?:\/|$)/u.test(specifier)
+  );
 }
 
 function declaresFunction(body, functionName) {

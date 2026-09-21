@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { createHash } from "node:crypto";
-import { DOC_SYNC_INLINE_MAX_BYTES, makeTaskEventReader } from "../../kernel/src/index.ts";
+import { DOC_SYNC_INLINE_MAX_BYTES, makeTaskEventReader } from "@harness-anything/kernel";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import { type RuntimeIsolationState, type RuntimePermissionMode } from "./runtime-permissions.ts";
 import type {
   RuntimeInstanceKind,

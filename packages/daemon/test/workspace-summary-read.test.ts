@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { TaskProjection } from "../../kernel/src/index.ts";
+import type { TaskProjection } from "@harness-anything/kernel";
 import { workspaceSummaryFromProjection } from "../src/workspace-summary-read.ts";
 
 test("workspace summary uses the native projection aggregate without listing task or decision entities", () => {

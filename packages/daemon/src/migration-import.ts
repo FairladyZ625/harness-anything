@@ -10,7 +10,7 @@ import {
   type CanonicalWriteBundle,
   type MigrationImportEventV1,
   type RelationFactRow,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   runSingleMigrationImport,
   type MigrationImportContext,

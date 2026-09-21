@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { classifyTextualArtifactPath, documentPath, makeTaskEventReader } from "../../kernel/src/index.ts";
+import { classifyTextualArtifactPath, documentPath, makeTaskEventReader } from "@harness-anything/kernel";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { DOC_COMMAND_FRAME_MAX_BYTES } from "../src/doc-sync-actions.ts";

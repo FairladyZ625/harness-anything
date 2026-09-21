@@ -7,7 +7,7 @@ import {
   type CloseoutSettingsV1,
   type TaskLifecycleSnapshot,
   type TaskProjectionQueries,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { repoCellTaskQueryJudgmentsFor } from "../src/repo-cell.ts";
 import { readCompletionContext } from "../src/task-completion-read.ts";

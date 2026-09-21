@@ -15,7 +15,7 @@ import {
   sha256Text,
   type DocEventV1,
   type ReplicaProjectionBasis,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import type { FleetAssignmentRecord } from "../src/fleet/center.ts";

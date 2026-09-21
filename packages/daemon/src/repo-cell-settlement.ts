@@ -5,7 +5,7 @@ import {
   type EntityActionContract,
   type TaskProgressEvidence,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   actionCriterionFailure,
   cellCodedError,

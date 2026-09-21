@@ -1,9 +1,9 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { requestDaemonJsonRpcAt } from "../../daemon/src/client/local-json-rpc-client.ts";
-import { startDaemon } from "../../daemon/src/runtime.ts";
-import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "../../daemon/src/writer-epoch.ts";
+import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
+import { startDaemon } from "@harness-anything/daemon/internal/runtime";
+import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "@harness-anything/daemon/internal/writer-epoch";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 export async function startGuiResidentDaemonFixture({

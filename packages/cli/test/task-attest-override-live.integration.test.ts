@@ -6,7 +6,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test, { before, after } from "node:test";
 import { daemonServeEntry } from "../src/daemon/client.ts";
-import { readDaemonPid } from "../../daemon/src/runtime.ts";
+import { readDaemonPid } from "@harness-anything/daemon/internal/runtime";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";

@@ -1,11 +1,11 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { daemonUserRoot, readRegisteredRepos } from "../../../daemon/src/client/local-daemon-target.ts";
+import { daemonUserRoot, readRegisteredRepos } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import {
   canonicalRoot,
   commandDescriptorForAction,
   daemonProtocolCommands,
-} from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+} from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { cliErrorMessage } from "../cli-error.ts";
 import type { ThinCommand } from "../cli/thin-command.ts";
 
@@ -44,12 +44,12 @@ export async function fleetScheduleRoute(
 // The registry-mode gate behind every fleet reroute: a workspace only takes a
 // fleet channel when fleet-edge.json names it AND its canonical root is
 // registered in remote-edge mode.
-type FleetEdgeConfigModule = import("../../../daemon/src/client/fleet-edge-config.ts").FleetEdgeConfig;
+type FleetEdgeConfigModule = import("@harness-anything/daemon/internal/client/fleet-edge-config").FleetEdgeConfig;
 export async function fleetEdgeRegistration(
   command: ThinCommand,
   env: NodeJS.ProcessEnv,
 ): Promise<(FleetEdgeConfigModule & { readonly workspaceRoot: string }) | null> {
-  const { readFleetEdgeConfig } = await import("../../../daemon/src/client/fleet-edge-config.ts");
+  const { readFleetEdgeConfig } = await import("@harness-anything/daemon/internal/client/fleet-edge-config");
   const commandRoot = canonicalRoot(command.rootDir),
     registered = (await readRegisteredRepos(daemonUserRoot(env)))
       // 只解析 enabled 条目,且解析不了根目录的(已删除的 e2e 残留登记)直接丢弃:
@@ -129,7 +129,7 @@ export async function fleetTaskRoute(
   if (!fleetTaskMethods.includes(command.method)) return null;
   const config = await fleetEdgeRegistration(command, env);
   if (!config) return null;
-  const { FLEET_TASK_COMMAND_KINDS } = await import("../../../daemon/src/fleet/contract.ts");
+  const { FLEET_TASK_COMMAND_KINDS } = await import("@harness-anything/daemon/internal/fleet/contract");
   if (!(FLEET_TASK_COMMAND_KINDS as readonly string[]).includes(command.action.kind)) return null;
   const actionKind = command.action.kind,
     descriptor = commandDescriptorForAction(actionKind);

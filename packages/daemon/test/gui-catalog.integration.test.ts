@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { INITIAL_SETTINGS_V1, settingsUpdateInputFields } from "../../kernel/src/index.ts";
+import { INITIAL_SETTINGS_V1, settingsUpdateInputFields } from "@harness-anything/kernel";
 import { openGuiCatalog } from "../src/gui-catalog.ts";
 import { validateCatalogPreset, validateCatalogRereadReceipt, validateCatalogSnapshot } from "../src/gui-s3-control.ts";
 

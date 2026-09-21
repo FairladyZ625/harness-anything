@@ -1,4 +1,4 @@
-import type { AgentRuntimeEventV1, CanonicalEventStore, SessionIdentity } from "../../kernel/src/index.ts";
+import type { AgentRuntimeEventV1, CanonicalEventStore, SessionIdentity } from "@harness-anything/kernel";
 import type { readDispatchStream } from "./dispatch-stream.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RuntimeAttemptOutcome } from "./runtime-fallback-contract.ts";

@@ -11,7 +11,7 @@ import {
   REPLAY_TASK_GRAPH,
   taskLifecycleWritePlan,
   type TaskEventV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {
   openBootstrappedRepoCell as openRepoCell,

@@ -1,5 +1,5 @@
 import fs from "node:fs";
-import { convertLegacyGeneration } from "../../../../kernel/src/index.ts";
+import { convertLegacyGeneration } from "@harness-anything/kernel";
 
 const [rootDir, snapshotPath, databasePath] = process.argv.slice(2);
 if (!rootDir || !snapshotPath || !databasePath)

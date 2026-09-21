@@ -5,8 +5,8 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFi
 import path from "node:path";
 import test from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
-import { taskQueryGuidance } from "../../daemon/src/runtime-spawn-mission.ts";
-import { makeTaskEventReader } from "../../kernel/src/index.ts";
+import { taskQueryGuidance } from "@harness-anything/daemon/internal/runtime-spawn-mission";
+import { makeTaskEventReader } from "@harness-anything/kernel";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
 import {
   assertTaskMissionPrompt,

@@ -1,5 +1,5 @@
 import process from "node:process";
-import { consumeKnownError } from "../../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import { openDaemonJsonRpcClientAt, type JsonRpcLineClient } from "./local-json-rpc-client.ts";
 import { streamDaemonFacetAt } from "./local-json-rpc-stream.ts";

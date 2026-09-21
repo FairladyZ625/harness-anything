@@ -1,4 +1,4 @@
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import {
   decisionDocumentProse,
   decisionMachineDigest,
@@ -10,7 +10,7 @@ import {
   type DecisionListFilters,
   type DecisionProjectionRow,
   type TaskProjection,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 interface DecisionReadService {
   readonly show: (selector: string) => {

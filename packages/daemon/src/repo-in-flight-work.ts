@@ -1,4 +1,4 @@
-import type { TaskProjection } from "../../kernel/src/index.ts";
+import type { TaskProjection } from "@harness-anything/kernel";
 import type { FleetRoster } from "./fleet-center-admission.ts";
 import { inspectScheduleProjection } from "./schedule-projection.ts";
 import type { RepoInFlightWork } from "./repo-cell-types.ts";

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import type { TaskProjection } from "../../kernel/src/index.ts";
+import type { TaskProjection } from "@harness-anything/kernel";
 import {
   DOC_POLICY_ID,
   classifyTextualArtifactPath,
@@ -16,7 +16,7 @@ import {
   type DocWriteIntent,
   type VerticalScriptActionV1,
   type VerticalScriptChangeV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { adjudicateDocIntent } from "./doc-sync-adjudication.ts";
 import type { DocSettlementReceipt, Input } from "./doc-sync-command-actions.ts";
 import type { DispatchExitClassification } from "./runtime-fallback-contract.ts";

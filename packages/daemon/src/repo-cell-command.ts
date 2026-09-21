@@ -11,7 +11,7 @@ import {
   reviewDigest,
   submissionDigest,
   type TaskLifecycleCommand,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { type DaemonGuiReadResultMap } from "./protocol/daemon-protocol.contract.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import {

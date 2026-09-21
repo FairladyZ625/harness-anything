@@ -10,7 +10,7 @@ import {
   type CompletionEvidenceResult,
   type CompletionEvidenceV1,
   type FrozenGateRequirement,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { Snapshot } from "./repo-cell-types.ts";
 

@@ -29,7 +29,7 @@ import {
   resolveDocRoute,
   resolveHarnessLayout,
   sha256Bytes,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { writeFileDurably } from "./durable-file.ts";
 
 export interface FleetMirrorBlob {

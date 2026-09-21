@@ -7,8 +7,8 @@ import {
   type TaskProjection,
   type TaskProjectionListQuery,
   type TaskProjectionQueries,
-} from "../../kernel/src/index.ts";
-import { ledgerWriteCommandTopology } from "../../preset/src/preset-command-contract.ts";
+} from "@harness-anything/kernel";
+import { ledgerWriteCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import {

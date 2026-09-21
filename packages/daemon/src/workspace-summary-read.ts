@@ -1,4 +1,4 @@
-import { summarizeWorkspace, type TaskProjection } from "../../kernel/src/index.ts";
+import { summarizeWorkspace, type TaskProjection } from "@harness-anything/kernel";
 import type { DaemonGuiReadResultMap, DaemonWorkspaceSummaryResult } from "./protocol/daemon-protocol.contract.ts";
 
 export function workspaceSummaryFromProjection(projection: TaskProjection): DaemonWorkspaceSummaryResult {

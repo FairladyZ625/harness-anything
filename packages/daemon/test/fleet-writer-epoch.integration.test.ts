@@ -16,7 +16,7 @@ import {
   serializePersistedCanonicalEvent,
   sha256Text,
   type TaskEventV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import {

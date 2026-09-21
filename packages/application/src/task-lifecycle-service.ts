@@ -19,7 +19,7 @@ import {
   type TaskLifecycleSnapshot,
   type WriteOperationReceipt,
   type WriteTarget,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export class TaskLifecycleOperationConflict extends Error {
   readonly code: string;

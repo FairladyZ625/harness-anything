@@ -39,8 +39,8 @@ import {
   resolveThinCliCommand,
   safePath,
   thinCliCommands,
-} from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+} from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { accepted, globalOption, nonEmpty, rejected, stripGlobals } from "./thin-command-flags.ts";
 import { clientLocalCommands, commandDomains, unsupportedCommandHint } from "./thin-command-help.ts";
 import type { ThinHelpCatalogEntry } from "./thin-command-help.ts";

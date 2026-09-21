@@ -11,7 +11,7 @@ import {
   resolveHarnessLayout,
   sha256Text,
   taskEntryToRow,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
 export const actor = {

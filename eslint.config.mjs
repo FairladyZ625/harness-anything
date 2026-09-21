@@ -75,6 +75,13 @@ const kernelDeepImportPattern = {
   message: "Import kernel through its public barrel instead of deep src paths.",
 };
 
+const crossPackageRelativeSourcePattern = {
+  group: ["application", "kernel", "daemon", "preset", "cli"].flatMap((packageName) =>
+    Array.from({ length: 6 }, (_, index) => `${"../".repeat(index + 1)}${packageName}/src/**`),
+  ),
+  message: "Import sibling workspaces through their package names instead of relative source paths.",
+};
+
 function noRestrictedKernelImportOptions(allowedPatterns = []) {
   return {
     patterns: [
@@ -88,6 +95,11 @@ function noRestrictedKernelImportOptions(allowedPatterns = []) {
 
 function noRestrictedKernelImports(allowedPatterns = []) {
   return ["error", noRestrictedKernelImportOptions(allowedPatterns)];
+}
+
+function noRestrictedKernelAndCrossPackageImports(allowedPatterns = []) {
+  const kernelOptions = noRestrictedKernelImportOptions(allowedPatterns);
+  return ["error", { patterns: [...kernelOptions.patterns, crossPackageRelativeSourcePattern] }];
 }
 
 const physicalIoBoundaryMessage =
@@ -122,7 +134,7 @@ function noRestrictedKernelAndPhysicalIoImports() {
     "error",
     {
       paths: physicalIoRestrictedImportPaths,
-      patterns: kernelOptions.patterns,
+      patterns: [...kernelOptions.patterns, crossPackageRelativeSourcePattern],
     },
   ];
 }
@@ -203,6 +215,13 @@ const packageSyntaxRestrictions = [
   {
     selector: "ImportExpression[source.type='Literal'][source.value=/kernel\\/src\\/(?!index\\.ts$)/u]",
     message: "Dynamic imports must not bypass the kernel public barrel.",
+  },
+];
+
+const crossPackageRelativeSourceSyntaxRestrictions = [
+  {
+    selector: String.raw`ImportExpression[source.type='Literal'][source.value=/^(?:\.\.\/)+(?:application|kernel|daemon|preset|cli)\/src(?:\/|$)/u]`,
+    message: crossPackageRelativeSourcePattern.message,
   },
 ];
 
@@ -293,7 +312,7 @@ export default tseslint.config(
     rules: {
       // schema-closure/derived-contracts 门在无依赖上下文加载 daemon parser 图，不得触到 effect；根 barrel 经 disposition→sqlite-task-projection→session 触到 effect，故此纯模块单独放行。
       "no-restricted-imports": [
-        ...noRestrictedKernelImports([
+        ...noRestrictedKernelAndCrossPackageImports([
           "!**/kernel/src/domain",
           "!**/kernel/src/domain/contract-version.ts",
           "!**/kernel/src/daemon",
@@ -367,12 +386,30 @@ export default tseslint.config(
   },
   ...kernelImportKnownDebtOverrides,
   {
-    // tools/*.mjs are gate/tooling scripts and are intentionally exempted in the
-    // first boundary pass; this task only closes the packages/** consumer graph.
+    files: [
+      "packages/cli/**/*.{ts,tsx,js,mjs}",
+      "packages/daemon/test/**/*.{ts,tsx,js,mjs}",
+      "packages/preset/**/*.{ts,tsx,js,mjs}",
+      "packages/application/test/**/*.{ts,tsx,js,mjs}",
+    ],
+    rules: {
+      "no-restricted-imports": [...noRestrictedKernelAndCrossPackageImports()],
+      "no-restricted-syntax": ["error", ...packageSyntaxRestrictions, ...crossPackageRelativeSourceSyntaxRestrictions],
+    },
+  },
+  {
+    files: ["packages/gui/test-support/**/*.{ts,tsx,js,mjs}"],
+    rules: {
+      "no-restricted-imports": [...noRestrictedKernelAndCrossPackageImports()],
+      "no-restricted-syntax": ["error", ...packageSyntaxRestrictions, ...crossPackageRelativeSourceSyntaxRestrictions],
+    },
+  },
+  {
+    // Tooling may depend on workspaces, but it must resolve them through package exports.
     files: ["tools/**/*.mjs"],
     rules: {
-      "no-restricted-imports": "off",
-      "no-restricted-syntax": "off",
+      "no-restricted-imports": ["error", { patterns: [crossPackageRelativeSourcePattern] }],
+      "no-restricted-syntax": ["error", ...crossPackageRelativeSourceSyntaxRestrictions],
     },
   },
 );

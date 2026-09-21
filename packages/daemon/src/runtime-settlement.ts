@@ -1,4 +1,4 @@
-import { runtimeSessionOutcomeFromEvidence, type RuntimeSession } from "../../kernel/src/index.ts";
+import { runtimeSessionOutcomeFromEvidence, type RuntimeSession } from "@harness-anything/kernel";
 import type { AgentRuntimeSessionDto, AgentRuntimeSettlement } from "./agent-runtime-contract.ts";
 
 /** Grace window after a process exit during which the daemon still expects the outcome event to project. */

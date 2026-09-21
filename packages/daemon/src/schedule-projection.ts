@@ -6,7 +6,7 @@ import {
   type ScheduleRunOutcome,
   type ScheduleTriggerV1,
   type ScheduleV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 type ProjectedScheduleRow = {
   readonly id: string;

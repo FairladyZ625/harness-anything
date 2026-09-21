@@ -14,9 +14,9 @@ import {
   type EventPublicationKillpoint,
   type SettingsV1,
   type WriterGeneration,
-} from "../../kernel/src/index.ts";
-import { createPresetProcessService, presetUserRoot } from "../../preset/src/index.ts";
-import { ledgerWriteCommandTopology } from "../../preset/src/preset-command-contract.ts";
+} from "@harness-anything/kernel";
+import { createPresetProcessService, presetUserRoot } from "@harness-anything/preset";
+import { ledgerWriteCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
 import {
   prepareAgentEntityDelete,
   prepareAgentEntityInstall,
@@ -122,7 +122,7 @@ export interface RepoCellOpenInput {
   readonly onBootstrap?: (receipt: RepoBootstrapReceipt) => void;
   readonly onRuntimeOutcome?: (
     event: Extract<
-      import("../../kernel/src/index.ts").AgentRuntimeEventV1,
+      import("@harness-anything/kernel").AgentRuntimeEventV1,
       { readonly type: "runtime_session_outcome_observed" }
     >,
   ) => void;

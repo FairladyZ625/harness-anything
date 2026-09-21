@@ -1,4 +1,4 @@
-import type { JsonObject } from "../../daemon/src/protocol/json-rpc-types.ts";
+import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
 import { cliErrorMessage } from "./cli-error.ts";
 import { runtimeRejected } from "./cli-runtime-auth.ts";
 import { readRuntimeBatchFile } from "./cli-runtime-batch-input.ts";

@@ -1,4 +1,4 @@
-import type { WriteReceiptDraft as WriteReceipt } from "../../kernel/src/index.ts";
+import type { WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 

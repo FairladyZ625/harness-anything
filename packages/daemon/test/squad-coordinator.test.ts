@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ActorIdentity, LeaseV1, TaskLifecycleSnapshot, TaskV2 } from "../../kernel/src/index.ts";
+import type { ActorIdentity, LeaseV1, TaskLifecycleSnapshot, TaskV2 } from "@harness-anything/kernel";
 import { reacquireSquadTaskLease } from "../src/repo-cell-squad-child.ts";
 import { callbackLeaderPrompt, initialLeaderPrompt, parseLeaderDecision } from "../src/squad-leader-decision.ts";
 

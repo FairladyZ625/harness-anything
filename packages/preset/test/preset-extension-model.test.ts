@@ -10,7 +10,7 @@ import {
   TemplateCatalogSchema,
   type TemplateCatalog,
   type VerticalDefinition,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 /** Mirrors the preset boundary: decode at the edge, then compile the pure value. */
 const compileVerticalSource = (source: unknown) => compileVerticalContract(decodeVerticalDefinition(source));

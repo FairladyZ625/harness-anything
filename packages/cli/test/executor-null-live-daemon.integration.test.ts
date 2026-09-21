@@ -6,8 +6,8 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test, { before, after } from "node:test";
 import { daemonServeEntry } from "../src/daemon/client.ts";
-import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
-import { readDaemonPid } from "../../daemon/src/runtime.ts";
+import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
+import { readDaemonPid } from "@harness-anything/daemon/internal/runtime";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 

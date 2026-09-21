@@ -1,10 +1,10 @@
-import type { SafePath } from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
+import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import {
   parseScheduleListReceipt,
   type ScheduleListRow,
-} from "../../../daemon/src/protocol/daemon-protocol-validate-results.ts";
-import { parseScheduleDuration } from "../../../daemon/src/protocol/daemon-protocol-vocabulary.ts";
-import { validateScheduleRuns, type ScheduleRunsResult } from "../../../daemon/src/protocol/schedule-runs-contract.ts";
+} from "@harness-anything/daemon/internal/protocol/daemon-protocol-validate-results";
+import { parseScheduleDuration } from "@harness-anything/daemon/internal/protocol/daemon-protocol-vocabulary";
+import { validateScheduleRuns, type ScheduleRunsResult } from "@harness-anything/daemon/internal/protocol/schedule-runs-contract";
 import { consumeKnownError } from "../daemon/client.ts";
 import { accepted, nonEmpty, optionalFlags, readFlags, rejected } from "./thin-command-flags.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";

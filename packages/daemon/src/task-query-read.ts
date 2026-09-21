@@ -25,7 +25,7 @@ import {
   type TaskRelationProjectionRead,
   type TaskRelationNeighborhoodQuery,
   type TaskRelationQuery,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { readDispatchStreamHeaders, type DispatchStreamHeader } from "./dispatch-stream.ts";
 import {
   isolateDaemonTaskSnapshotRows,

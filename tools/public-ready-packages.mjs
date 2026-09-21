@@ -1,5 +1,29 @@
 export const publicReadyPackages = Object.freeze([
   Object.freeze({
+    packagePath: "packages/kernel/package.json",
+    packageName: "@harness-anything/kernel",
+    version: "0.0.1",
+    repositoryDirectory: "packages/kernel",
+    bins: Object.freeze({}),
+    required: false,
+  }),
+  Object.freeze({
+    packagePath: "packages/application/package.json",
+    packageName: "@harness-anything/application",
+    version: "0.0.1",
+    repositoryDirectory: "packages/application",
+    bins: Object.freeze({}),
+    required: false,
+  }),
+  Object.freeze({
+    packagePath: "packages/preset/package.json",
+    packageName: "@harness-anything/preset",
+    version: "0.0.1",
+    repositoryDirectory: "packages/preset",
+    bins: Object.freeze({}),
+    required: false,
+  }),
+  Object.freeze({
     packagePath: "packages/cli/package.json",
     packageName: "@harness-anything/cli",
     version: "0.0.1",

@@ -29,7 +29,7 @@ test("kernel dead-export check catches new unused value and type exports as bypa
         "export interface UnusedType { readonly ok: boolean; }",
       ],
     );
-    writeConsumer(root, "import { usedValue } from '../../kernel/src/index.ts';\nexport const value = usedValue;\n");
+    writeConsumer(root, "import { usedValue } from '@harness-anything/kernel';\nexport const value = usedValue;\n");
     writeAllowlist(policyRoot, ["NotARealExport"]);
 
     const result = runChecker(root, { env: { HARNESS_GATE_ALLOWLIST_DIR: policyRoot } });
@@ -53,13 +53,34 @@ test("kernel dead-export check treats aliased named imports as real consumers", 
     );
     writeConsumer(
       root,
-      "import { usedValue as liveValue } from '../../kernel/src/index.ts';\nexport const value = liveValue;\n",
+      "import { usedValue as liveValue } from '@harness-anything/kernel';\nexport const value = liveValue;\n",
     );
     writeAllowlist(policyRoot, ["unusedValue"]);
 
     const result = runChecker(root, { env: { HARNESS_GATE_ALLOWLIST_DIR: policyRoot } });
     assert.equal(result.status, 0, result.stderr);
     assert.match(result.stdout, /Kernel dead-export check passed/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(policyRoot, { recursive: true, force: true });
+  }
+});
+
+test("kernel dead-export check treats relative source imports as real consumers", () => {
+  const root = makeFixtureRoot();
+  const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-f8a-policy-"));
+  try {
+    writeKernel(
+      root,
+      ["export { usedValue, unusedValue } from './symbols.ts';"],
+      ["export const usedValue = true;", "export const unusedValue = false;"],
+    );
+    writeConsumer(root, "import { usedValue } from '../../kernel/src/index.ts';\nexport const value = usedValue;\n");
+    writeAllowlist(policyRoot, ["unusedValue"]);
+
+    const result = runChecker(root, { env: { HARNESS_GATE_ALLOWLIST_DIR: policyRoot } });
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, /1 consumed export\(s\)/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
     rmSync(policyRoot, { recursive: true, force: true });

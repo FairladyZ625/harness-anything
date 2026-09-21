@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { bindWriterGenerationToken } from "../../kernel/src/index.ts";
+import { bindWriterGenerationToken } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {
   bootstrapRepo,

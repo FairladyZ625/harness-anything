@@ -7,10 +7,10 @@ import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
-import { detachedProcessOptions } from "../../daemon/src/process-port.ts";
+import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
+import { detachedProcessOptions } from "@harness-anything/daemon/internal/process-port";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
-import { registerDaemonRepo } from "../../kernel/src/index.ts";
+import { registerDaemonRepo } from "@harness-anything/kernel";
 import { runGuiLaunch, type GuiLaunchDependencies } from "../src/cli/gui-launch.ts";
 import { emit } from "../src/index.ts";
 

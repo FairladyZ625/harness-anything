@@ -1,4 +1,4 @@
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import { runProcessText } from "./process-port.ts";
 
 const loginShellSnapshotTimeoutMs = 4_000;

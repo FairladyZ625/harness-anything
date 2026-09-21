@@ -7,7 +7,7 @@ import {
   openSqliteEventStore,
   resolveActiveGeneration,
   sqliteLedgerPath,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export interface WriterEpochLease {
   readonly repoId: string;

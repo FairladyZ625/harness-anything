@@ -2,7 +2,7 @@ import {
   generatedTaskActionProtocolDeclarations,
   type GeneratedTaskActionProtocolDeclaration,
 } from "./daemon-protocol-commands-task.ts";
-import type { artifactEntityImportActionInput } from "../../../kernel/src/index.ts";
+import type { artifactEntityImportActionInput } from "@harness-anything/kernel";
 import { DAEMON_TASK_SNAPSHOT_LIST_SCHEMA } from "./daemon-protocol-schema-ids.ts";
 import {
   codeDocRecord,

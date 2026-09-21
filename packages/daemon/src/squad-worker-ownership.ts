@@ -1,4 +1,4 @@
-import { normalizeRelativeDocumentPath } from "../../kernel/src/index.ts";
+import { normalizeRelativeDocumentPath } from "@harness-anything/kernel";
 import { runProcessTextAsync } from "./process-port.ts";
 import type { WorkerCheckout } from "./squad-worker-checkout.ts";
 

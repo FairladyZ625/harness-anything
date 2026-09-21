@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 
 import path from "node:path";
 
-import { makeTaskEventStore } from "../../kernel/src/index.ts";
+import { makeTaskEventStore } from "@harness-anything/kernel";
 
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
 

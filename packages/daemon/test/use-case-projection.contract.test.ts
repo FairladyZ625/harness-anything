@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { deriveUseCaseProjectionInputs, type UseCaseProjectionName } from "../../kernel/src/index.ts";
+import { deriveUseCaseProjectionInputs, type UseCaseProjectionName } from "@harness-anything/kernel";
 import { admitUseCaseProjectionSelector, useCaseProjectionFacets } from "../src/protocol/daemon-protocol-gui-types.ts";
 import {
   rowDeliveredUseCaseProjections,

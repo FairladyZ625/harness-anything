@@ -1,4 +1,4 @@
-import { stableStringify } from "../../kernel/src/index.ts";
+import { stableStringify } from "@harness-anything/kernel";
 import { touch } from "./doc-sync-details.ts";
 import { docSyncError, hasExactDocSyncActionFields, proof, rejectDocSyncAction } from "./doc-sync-files.ts";
 import type { Action, DocSettlementReceipt, Input } from "./doc-sync-command-actions.ts";

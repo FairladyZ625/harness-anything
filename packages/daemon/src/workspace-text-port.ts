@@ -1,6 +1,6 @@
 import { readFileSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { workspacePathResolutionRule } from "../../preset/src/preset-command-contract.ts";
+import { workspacePathResolutionRule } from "@harness-anything/preset/internal/preset-command-contract";
 
 /** Physical workspace text reads stay in the daemon adapter layer. */
 export function readWorkspaceText(rootDir: string, requested: string, field: string): string {

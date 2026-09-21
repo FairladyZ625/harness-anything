@@ -25,21 +25,21 @@ import {
   JsonRpcLineClient,
   connectSocket,
   requestDaemonJsonRpcAt,
-} from "../../daemon/src/client/local-json-rpc-client.ts";
+} from "@harness-anything/daemon/internal/client/local-json-rpc-client";
 
-import { streamAgentRuntimeAt } from "../../daemon/src/client/local-json-rpc-stream.ts";
+import { streamAgentRuntimeAt } from "@harness-anything/daemon/internal/client/local-json-rpc-stream";
 
-import { localUserDaemonEndpoint } from "../../daemon/src/client/local-daemon-target.ts";
+import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
 
-import { clearDaemonStoppedMarker } from "../../daemon/src/client/daemon-autostart.ts";
+import { clearDaemonStoppedMarker } from "@harness-anything/daemon/internal/client/daemon-autostart";
 
-import { openDaemonLifecycleLog, readDaemonLifecycleRecords } from "../../daemon/src/lifecycle-log.ts";
+import { openDaemonLifecycleLog, readDaemonLifecycleRecords } from "@harness-anything/daemon/internal/lifecycle-log";
 
-import { currentDaemonProtocolVersion } from "../../daemon/src/protocol/version.ts";
+import { currentDaemonProtocolVersion } from "@harness-anything/daemon/internal/protocol/version";
 
-import { readDaemonPid } from "../../daemon/src/runtime.ts";
+import { readDaemonPid } from "@harness-anything/daemon/internal/runtime";
 
-import { openPersistentWriterEpoch } from "../../daemon/src/writer-epoch.ts";
+import { openPersistentWriterEpoch } from "@harness-anything/daemon/internal/writer-epoch";
 
 import { cliDaemonServeLaunch } from "../src/daemon/client.ts";
 
@@ -55,9 +55,9 @@ import {
   type AgentDefinitionSnapshot,
   type AgentRuntimeEventV1,
   type TaskEventV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
-import { WRITE_RECEIPT_SCHEMA } from "../../kernel/src/index.ts";
+import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel";
 
 import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 

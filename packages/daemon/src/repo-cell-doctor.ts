@@ -3,7 +3,7 @@ import {
   resolveLedgerGitLayout,
   taskWipOccupyingStatuses,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { DaemonBuildStatus } from "./build-identity.ts";
 import { scanDocCandidates } from "./doc-sync-candidate-scanner.ts";
 import { runProcessTextAsync } from "./process-port.ts";

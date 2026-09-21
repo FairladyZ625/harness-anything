@@ -5,10 +5,10 @@ import path from "node:path";
 import {
   isDaemonGuiActionMethod,
   isDaemonGuiReadMethod,
-} from "../../../daemon/src/protocol/daemon-protocol.contract.ts";
-import { requestLocalDaemonJsonRpc } from "../../../daemon/src/client/local-json-rpc-client.ts";
-import { isJsonObject } from "../../../daemon/src/protocol/json-rpc-types.ts";
-import { parseDaemonGuiActionResponse } from "../../../daemon/src/protocol/gui-result-validation.ts";
+} from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
+import { isJsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
+import { parseDaemonGuiActionResponse } from "@harness-anything/daemon/internal/protocol/gui-result-validation";
 
 const MAX_BODY_BYTES = 1024 * 1024;
 const CSP =

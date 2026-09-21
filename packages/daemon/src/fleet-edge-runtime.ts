@@ -10,9 +10,9 @@ import {
   type AgentRuntimeEventV1,
   type EntityStore,
   type ScheduleV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { readAgentDeclaration, resolveSquadDispatch } from "./agent-entities.ts";
-import { parseAgentDeclarationV1 } from "../../kernel/src/index.ts";
+import { parseAgentDeclarationV1 } from "@harness-anything/kernel";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import {
   readFleetAssignmentClient,

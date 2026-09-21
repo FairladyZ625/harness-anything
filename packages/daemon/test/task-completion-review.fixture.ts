@@ -14,7 +14,7 @@ import {
   sha256Text,
   type AgentDefinitionSnapshot,
   type EntityUpsertEventV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";

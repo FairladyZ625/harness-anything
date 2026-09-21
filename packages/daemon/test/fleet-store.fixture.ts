@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import path from "node:path";
-import { openSqliteEventStore } from "../../kernel/src/index.ts";
+import { openSqliteEventStore } from "@harness-anything/kernel";
 import type { DaemonHost } from "../src/daemon-host.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 

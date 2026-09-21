@@ -10,7 +10,7 @@ import {
   generatedWriteReceiptFields,
   workspacePathFormat,
   type GeneratedTaskActionProtocolDeclaration,
-} from "../../../preset/src/preset-command-contract.ts";
+} from "@harness-anything/preset/internal/preset-command-contract";
 export { generatedTaskActionProtocolDeclarations, generatedTaskCreateResultFields, generatedWriteReceiptFields };
 export type { GeneratedTaskActionProtocolDeclaration };
 

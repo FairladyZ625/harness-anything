@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { consumeKnownError } from "../../kernel/src/index.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
 import { dispatchStreamPath, openDispatchStreamAppender, scrubProviderValue } from "./dispatch-stream.ts";
 import { createRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { runAcpProviderSession } from "./runtime-worker-acp.ts";

@@ -10,7 +10,7 @@ import {
   type RuntimeInstallation,
   type RuntimeSession,
   type TaskProjection,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 import {
   agentRuntimeSessionGroupStatusWords,

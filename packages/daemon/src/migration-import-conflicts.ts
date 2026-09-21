@@ -1,5 +1,5 @@
 import path from "node:path";
-import { mergePeopleRosterDocuments, PEOPLE_ROSTER_PATH, sha256Text } from "../../kernel/src/index.ts";
+import { mergePeopleRosterDocuments, PEOPLE_ROSTER_PATH, sha256Text } from "@harness-anything/kernel";
 import { authoredNode, destinationNode, nodeSummary, symlinkTarget, utf8File } from "./migration-import-legacy.ts";
 import { migrationImportError } from "./migration-import-report.ts";
 import type { AuthoredClassification, AuthoredNode, ResolutionChoice } from "./migration-import-types.ts";

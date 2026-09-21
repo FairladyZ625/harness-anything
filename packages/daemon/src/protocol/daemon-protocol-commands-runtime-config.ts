@@ -4,7 +4,7 @@ import {
   defineHostAdminCommand,
   defineLedgerWriteCommand,
   defineRepoReadCommand,
-} from "../../../preset/src/preset-command-contract.ts";
+} from "@harness-anything/preset/internal/preset-command-contract";
 import { daemonRepoModeWords } from "./daemon-protocol-vocabulary.ts";
 
 const credentialReferenceRegex =

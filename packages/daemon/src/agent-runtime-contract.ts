@@ -4,10 +4,10 @@ import {
   type AgentRuntimeEventV1,
   type RuntimeInstallationState,
   type RuntimeSessionSemanticState,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { validAgentRuntimeAttemptChain, type AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
 export type { AgentRuntimeAttemptChainDto } from "./runtime-attempt-contract.ts";
-export type { AgentRuntimeTargetV1, RuntimeInstallationState } from "../../kernel/src/index.ts";
+export type { AgentRuntimeTargetV1, RuntimeInstallationState } from "@harness-anything/kernel";
 export interface AgentRuntimeInstallationDto {
   readonly installationId: string;
   readonly kindId: string;

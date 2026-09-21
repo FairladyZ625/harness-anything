@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { CiRunObservationEventV3, FrozenGateRequirement } from "../../kernel/src/index.ts";
+import type { CiRunObservationEventV3, FrozenGateRequirement } from "@harness-anything/kernel";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import { fetchCiObservations, ingestCiObservations } from "../src/ci-observation-actions.ts";
 import { githubActionsWitnessEvidence } from "../src/repo-cell-ci-evidence.ts";

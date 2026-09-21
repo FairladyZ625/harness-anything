@@ -1,6 +1,6 @@
 import { existsSync, lstatSync, readFileSync, unlinkSync } from "node:fs";
 import path from "node:path";
-import type { TaskProjection } from "../../kernel/src/index.ts";
+import type { TaskProjection } from "@harness-anything/kernel";
 import {
   DOC_POLICY_ID,
   documentPath,
@@ -15,7 +15,7 @@ import {
   type DocWriteIntent,
   type LedgerCutIdentity,
   type WriteSource,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { Input } from "./doc-sync-command-actions.ts";
 import { localProseSource } from "./doc-sync-files.ts";
 

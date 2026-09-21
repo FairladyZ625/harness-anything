@@ -7,7 +7,7 @@ import {
   type ArtifactDescriptor,
   type RelationType,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { exactFields } from "./protocol/schedule-runs-contract.ts";
 
 interface ProjectionCut {

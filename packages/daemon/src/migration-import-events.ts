@@ -14,7 +14,7 @@ import {
   type MigrationDocumentClaim,
   type MigrationImportEventV1,
   type RelationFactRow,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { isMigrationImportRecord, nonEmpty, timestamp } from "./migration-import-report.ts";
 import { migrationOperationId } from "./migration-import-source.ts";
 import type { ImportedTask, Prepared } from "./migration-import-types.ts";

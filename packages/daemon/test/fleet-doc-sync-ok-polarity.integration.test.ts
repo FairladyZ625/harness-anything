@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { registerDaemonRepo, sha256Bytes } from "../../kernel/src/index.ts";
+import { registerDaemonRepo, sha256Bytes } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { runFleetEdgeDocSync } from "../src/fleet-edge-doc-sync.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";

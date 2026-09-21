@@ -7,7 +7,7 @@ import {
   currentActionEnvelopeVersion,
   isIndependentFrom,
   type DecisionEventDraftV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 import {
   actor,

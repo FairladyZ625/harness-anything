@@ -10,7 +10,7 @@ import {
   requireEntityStoreKindContract,
   sha256Text,
   type EntityUpsertEventV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   prepareAgentEntityInstall,
   readAgentDeclaration,

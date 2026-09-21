@@ -1,5 +1,5 @@
 import { closeSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
-import { VcsCommandError, consumeKnownError } from "../../kernel/src/index.ts";
+import { VcsCommandError, consumeKnownError } from "@harness-anything/kernel";
 import { type CanonicalRoot } from "./protocol/daemon-protocol.contract.ts";
 import { cellCodedError, cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
 

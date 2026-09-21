@@ -12,11 +12,11 @@ import {
   type TaskProjection,
   type TaskProjectionQueries,
   type TransitionDocumentMissingSection,
-} from "../../kernel/src/index.ts";
-import { loadCanonicalAssets } from "../../preset/src/preset-assets.ts";
-import { safeTemplatePath } from "../../preset/src/preset-materialization.ts";
-import { defaultAssets } from "../../preset/src/preset-resolver-common.ts";
-import type { CatalogSource } from "../../preset/src/preset-resolver-types.ts";
+} from "@harness-anything/kernel";
+import { loadCanonicalAssets } from "@harness-anything/preset/internal/preset-assets";
+import { safeTemplatePath } from "@harness-anything/preset/internal/preset-materialization";
+import { defaultAssets } from "@harness-anything/preset/internal/preset-resolver-common";
+import type { CatalogSource } from "@harness-anything/preset/internal/preset-resolver-types";
 
 export type TaskTransitionDocumentSlot = "task.plan" | "task.closeout";
 

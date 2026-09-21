@@ -3,7 +3,7 @@ import {
   type MigrationDestinationPreimage,
   type MigrationImportEventV1,
   type WriteReceiptDraft as WriteReceipt,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import type { TaskContractRestatementCounts } from "./migration-import-task-restatement.ts";
 import type { MigrationOracleKind } from "./migration-import-oracle.ts";
 

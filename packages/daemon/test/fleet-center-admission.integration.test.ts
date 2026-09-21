@@ -6,7 +6,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { connect, type TLSSocket } from "node:tls";
-import { sha256Bytes } from "../../kernel/src/index.ts";
+import { sha256Bytes } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
 import {

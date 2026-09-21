@@ -1,6 +1,6 @@
 import { readdirSync, statSync } from "node:fs";
 import path from "node:path";
-import { normalizePersistedTimestamp, type ColdRebuildIssue } from "../../kernel/src/index.ts";
+import { normalizePersistedTimestamp, type ColdRebuildIssue } from "@harness-anything/kernel";
 import type {
   AuthoredCoverage,
   Draft,

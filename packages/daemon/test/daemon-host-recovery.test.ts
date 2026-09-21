@@ -23,8 +23,8 @@ import {
   registerDaemonRepo as registerProductDaemonRepo,
   restoreLedgerBackup,
   taskLifecycleWritePlan,
-} from "../../kernel/src/index.ts";
-import { WRITE_RECEIPT_SCHEMA } from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
+import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel";
 import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";

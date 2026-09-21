@@ -7,7 +7,7 @@ import {
   runtimeSessionIdFromActor,
   sha256Text,
   type DocEventChange,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";

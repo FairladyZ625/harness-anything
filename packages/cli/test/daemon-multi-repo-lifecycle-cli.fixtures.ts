@@ -3,9 +3,9 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
-import { requestLocalDaemonJsonRpc } from "../../daemon/src/client/local-json-rpc-client.ts";
-import { openPersistentWriterEpoch } from "../../daemon/src/writer-epoch.ts";
-import { HARNESS_LEDGER_WRITER_ENV } from "../../kernel/src/index.ts";
+import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
+import { openPersistentWriterEpoch } from "@harness-anything/daemon/internal/writer-epoch";
+import { HARNESS_LEDGER_WRITER_ENV } from "@harness-anything/kernel";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 
 const canonicalRoot = (() => {

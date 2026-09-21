@@ -1,4 +1,4 @@
-import type { AuthorizationDecision } from "../../kernel/src/index.ts";
+import type { AuthorizationDecision } from "@harness-anything/kernel";
 
 export type PresetRunPhaseV1 =
   | "admitted"
