@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { workspaceDependencyClosure } from "../../../tools/smoke-cli-package.mjs";
+import { preparePackageExports, restorePackageExports } from "../../../tools/package-exports-lifecycle.mjs";
 
 const repository = path.resolve(import.meta.dirname, "../../..");
 const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-package-"));
@@ -23,32 +25,35 @@ function run(command, args, cwd = repository) {
 try {
   mkdirSync(consumer);
   writeFileSync(path.join(consumer, "package.json"), '{"private":true,"type":"module"}\n');
-  // pack's prepare rebuilds the daemon workspace dist and writes a fresh random build-id, which
-  // drifts every resident daemon serving that dist in a parallel test file out from under its
-  // socket (they exit build_superseded mid-test). npm ci's prepare already built this exact
-  // commit's daemon dist, so its tarball packs without running scripts. The CLI keeps its pack
-  // scripts: it has no prepare, so its dist only exists once prepack builds it, and no daemon
-  // serves from packages/cli/dist.
+  // Reuse npm ci's daemon build: rebuilding it would stop other tests' resident daemons.
+  // Pack staged copies so published exports never replace the workspace's source exports.
   const daemonDistBuildId = readFileSync(path.join(repository, "packages/daemon/dist/build-id.txt"), "utf8");
-  run(npm, ["pack", "--ignore-scripts", "-w", "@harness-anything/daemon", "--pack-destination", parent]);
+  const tarballs = workspaceDependencyClosure(repository, "@harness-anything/cli").map((name) => {
+    const directory = name.slice("@harness-anything/".length),
+      source = path.join(repository, "packages", directory),
+      stage = path.join(parent, directory),
+      manifest = JSON.parse(readFileSync(path.join(source, "package.json"), "utf8"));
+    if (name !== "@harness-anything/daemon")
+      run(npm, ["run", manifest.scripts["build:publish"] ? "build:publish" : "build", "-w", name]);
+    mkdirSync(stage);
+    for (const file of new Set(["package.json", ...manifest.files]))
+      cpSync(path.join(source, file), path.join(stage, file), { recursive: true });
+    preparePackageExports(stage, process.pid);
+    try {
+      const [packed] = JSON.parse(
+        run(npm, ["pack", "--ignore-scripts", "--json", "--pack-destination", parent], stage),
+      );
+      return path.join(parent, packed.filename);
+    } finally {
+      restorePackageExports(stage);
+    }
+  });
   assert.equal(
     readFileSync(path.join(repository, "packages/daemon/dist/build-id.txt"), "utf8"),
     daemonDistBuildId,
     "packing must not rewrite the daemon dist build-id mid-run",
   );
-  run(npm, ["pack", "-w", "@harness-anything/cli", "--pack-destination", parent]);
-  const { version } = JSON.parse(readFileSync(path.join(repository, "packages/daemon/package.json"), "utf8"));
-  run(
-    npm,
-    [
-      "install",
-      "--no-audit",
-      "--no-fund",
-      path.join(parent, `harness-anything-daemon-${version}.tgz`),
-      path.join(parent, `harness-anything-cli-${version}.tgz`),
-    ],
-    consumer,
-  );
+  run(npm, ["install", "--no-audit", "--no-fund", ...tarballs], consumer);
   const cli = path.join(consumer, "node_modules/@harness-anything/cli/dist/cli/src/index.js");
   const cliArgs = ["--user-root", path.join(parent, "cli-user"), "--daemon-id", "cli-smoke", "--json"];
   run(process.execPath, [cli, "daemon", "start", "--service", ...cliArgs], consumer);

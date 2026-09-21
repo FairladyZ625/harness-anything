@@ -161,7 +161,9 @@ function isWorkspaceRelayEndpoint(endpoint: string, rootDir: string): boolean {
   let current = root;
   for (const part of parts) {
     current = path.join(current, part);
-    const info = lstatSync(current, { throwIfNoEntry: false });
+    // Node 24 realpath's cache reads the shared numeric stat buffer. A socket there
+    // can stop later workspace symlink resolution early; BigInt stats use a separate buffer.
+    const info = lstatSync(current, { throwIfNoEntry: false, bigint: true });
     if (info?.isSymbolicLink()) return false;
   }
   return true;

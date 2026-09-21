@@ -4,7 +4,6 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   createLedgerBackup,
@@ -88,7 +87,7 @@ test("real Entity import survives gen2 CLI conversion, Git recovery and a fresh 
     const run = spawnSync(
       process.execPath,
       [
-        fileURLToPath(new URL("@harness-anything/cli", import.meta.url)),
+        path.resolve("packages/cli/src/index.ts"),
         "migrate",
         "ledger",
         "--source",
