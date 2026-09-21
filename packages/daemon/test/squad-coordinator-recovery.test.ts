@@ -527,7 +527,7 @@ test("an empty runtime batch is rejected with an error visible to the leader", a
   });
 });
 
-test("convergence fails when no worker dispatch reached a terminal state", async () => {
+test("convergence without a worker publishes the synthesis report", async () => {
   await withRootDir(async (rootDir) => {
     const fixture = makeRecoveryFixture(rootDir, {
       leaderOutcome: "succeeded",
@@ -537,8 +537,10 @@ test("convergence fails when no worker dispatch reached a terminal state", async
     await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
 
     const status = fixture.coordinator.status(SQUAD_RUN_ID);
-    assert.equal(status.status, "failed");
-    assert.equal(status.error, "Leader declared convergence without a terminal worker dispatch.");
+    assert.equal(status.status, "converged", String(status.error));
+    assert.equal(status.error, null);
+    assert.equal(fixture.publications.length, 1);
+    assert.equal(fixture.publications[0]?.report.body, SYNTHESIS_BODY);
   });
 });
 

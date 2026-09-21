@@ -293,6 +293,7 @@ export function writeCodexConfig(target: string, config: RuntimeInstanceConfig, 
     lines = [
       `model_provider = ${tomlString(config.providerId)}`,
       ...(provider.reasoningEffort ? [`model_reasoning_effort = ${tomlString(provider.reasoningEffort)}`] : []),
+      "allow_login_shell = false",
     ];
   if (config.providerId !== "openai" || bearerToken)
     lines.push(

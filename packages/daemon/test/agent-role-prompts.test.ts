@@ -89,12 +89,13 @@ for (const role of [undefined, "worker"] as const)
 
 test("commander owns verified integration and PR delivery without merge authority", () => {
   const prompt = assembleUnboundPrompt("Integrate the mission.", "commander");
-  assert.match(prompt, /Integrate child commits.*codex\/<mission-slug>/u);
+  assert.match(prompt, /Integrate each child branch.*codex\/<mission-slug>.*preserves the child commit SHA/su);
+  assert.match(prompt, /Do not cherry-pick or rebase child commits/u);
   assert.match(prompt, /targeted and integration regressions.*final integrated commit/u);
   assert.match(prompt, /git push origin codex\/<mission-slug>/u);
   assert.match(prompt, /gh pr create.*complete bilingual PR/u);
   assert.match(prompt, /\.github\/pull_request_template\.md/u);
-  assert.match(prompt, /assign a reviewer/u);
+  assert.match(prompt, /ha task adjudicate --forward/u);
   assert.match(prompt, /Do not merge.*CEO/u);
   assert.doesNotMatch(prompt, /Stop at a local commit|runtime publishes worker/u);
   assert.doesNotMatch(prompt, /if stashing is unavoidable/u);
