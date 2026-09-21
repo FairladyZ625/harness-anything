@@ -38,7 +38,11 @@ export function validateRuntimeCallbackRelayPath(
   if (path.resolve(relayPath) !== expected) throw new Error("runtime callback relay path is invalid");
   if (platform === "win32") return;
   for (const component of pathComponents(root, expected)) {
-    const info = lstatSync(component, { throwIfNoEntry: false });
+    // The last component is the relay socket. BigInt stats keep its type out of
+    // the shared numeric stat buffer, which Node's realpath cache reads to stop
+    // ancestor resolution early — a later module resolution would see an
+    // unexpanded path. Only the read form changes; the checks are the same.
+    const info = lstatSync(component, { throwIfNoEntry: false, bigint: true });
     if (info?.isSymbolicLink()) throw new Error("runtime callback relay path contains a symbolic link");
   }
 }
@@ -105,7 +109,9 @@ export function removeRuntimeCallbackRelay(rootDir: string, dispatchId: string):
     directory = path.join(root, relayDirectory),
     target = path.join(directory, `r-${dispatchId.slice("dispatch_".length)}.sock`);
   for (const component of pathComponents(root, target)) {
-    const info = lstatSync(component, { throwIfNoEntry: false });
+    // BigInt stats: the last component is the relay socket, and a numeric stat
+    // of it would poison the shared buffer Node's realpath cache reads.
+    const info = lstatSync(component, { throwIfNoEntry: false, bigint: true });
     if (info?.isSymbolicLink()) return;
   }
   rmSync(target, { force: true });
@@ -161,7 +167,9 @@ function mkdirSecurely(root: string, target: string): void {
 }
 
 function removeStaleRelay(target: string): void {
-  const info = lstatSync(target, { throwIfNoEntry: false });
+  // BigInt stats: target is the relay socket, and a numeric stat of it would
+  // poison the shared buffer Node's realpath cache reads.
+  const info = lstatSync(target, { throwIfNoEntry: false, bigint: true });
   if (!info) return;
   if (info.isSymbolicLink()) throw new Error("runtime callback relay socket must not be a symbolic link");
   unlinkSync(target);
