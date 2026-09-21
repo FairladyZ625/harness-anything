@@ -1,5 +1,6 @@
+import { PinButton } from "./PinButton.tsx";
 import { useRef } from "react";
-import { FolderSimple, CaretUpDown, CloudSlash, PushPinSlash } from "@phosphor-icons/react";
+import { FolderSimple, CaretUpDown, CloudSlash } from "@phosphor-icons/react";
 import type { SystemRepoRow } from "../api-client.ts";
 import type { Project } from "../model/types.ts";
 import type { RuntimeHealth } from "../model/runtime-health.ts";
@@ -152,16 +153,12 @@ export function AppSidebar({
                   <span aria-hidden>◆</span>
                   <span className="truncate">{item.title}</span>
                 </button>
-                <button
-                  type="button"
-                  data-testid={`sidebar-unpin-${item.taskId}`}
+                <PinButton
+                  testId={`sidebar-unpin-${item.taskId}`}
                   onClick={() => onUnpinWork(item.taskId)}
-                  title="解除置顶"
-                  aria-label={`解除置顶:${item.title}`}
-                  className="grid size-6 shrink-0 cursor-pointer place-items-center rounded text-text-faint transition-colors hover:bg-surface-sunken hover:text-text"
-                >
-                  <PushPinSlash weight="bold" />
-                </button>
+                  pinned
+                  label={`解除置顶:${item.title}`}
+                />
               </div>
             ))}
           </div>

@@ -1,3 +1,4 @@
+import { ResultPagination } from "../components/ResultPagination.tsx";
 import type { WorkspaceScopeRead } from "../../api/renderer-dto.ts";
 import { useCallback, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -95,37 +96,34 @@ export function WorkspaceView({
       [scope, tasks, facts, decisions],
     );
   return (
-    <div data-testid="workspace-view" className="min-h-0 flex-1 overflow-y-auto p-5 md:p-7">
-      <div className="min-w-0 space-y-6">
+    <div data-testid="workspace-view" className="min-h-0 flex-1 overflow-y-auto p-4 md:p-5">
+      <div className="min-w-0 space-y-3">
         <nav className="ui-meta text-text-muted" aria-label="工作范围">
           {[projectName, ...scope.ancestors.map(({ title }) => title), scope.root.title].join(" / ")}
         </nav>
         <header className="space-y-2">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="rounded border border-border px-2 py-0.5 ui-meta text-text-muted">
-              {scope.root.taskClass}
+          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h1 className="min-w-0 break-words text-xl font-semibold text-text">{scope.root.title}</h1>
+            <span className="ui-meta text-text-muted">
+              {scope.root.taskClass} · {scope.root.status}
             </span>
-            <span className="rounded border border-border px-2 py-0.5 ui-meta text-text-muted">
-              {scope.root.status}
-            </span>
-          </div>
-          <h1 className="text-2xl font-semibold text-text">{scope.root.title}</h1>
-          <p className="text-sm text-text-muted">
-            统计范围：{scope.scope.descendantCount} 个后代，{scope.scope.executableLeafCount} 个可执行叶子任务。
-            父组与子组不重复计入；取消单列；归档 {scope.scope.archivedCount} 项。
-          </p>
-          <div className="flex flex-wrap items-center gap-6 border-y border-border py-4 text-sm text-text-muted">
-            <span>
+            <span className="text-sm text-text-muted">
               任务完成{" "}
               <strong className="text-text">
                 {scope.counts.done} / {scope.scope.executableLeafCount}
               </strong>
             </span>
-            <span>等待处理 {lanes.gates.length + lanes.breakGlass.length + lanes.consents.length}</span>
-            <button type="button" className="ml-auto text-accent" onClick={() => setTab("relations")}>
-              查看关系 →
-            </button>
+            <span className="text-sm text-text-muted">
+              等待处理 {lanes.gates.length + lanes.breakGlass.length + lanes.consents.length}
+            </span>
           </div>
+          <details key={tab} open={tab === "overview"} className="ui-meta text-text-muted">
+            <summary className="cursor-pointer">统计口径与范围</summary>
+            <p>
+              统计范围：{scope.scope.descendantCount} 个后代，{scope.scope.executableLeafCount} 个可执行叶子任务。
+              父组与子组不重复计入；取消单列；归档 {scope.scope.archivedCount} 项。
+            </p>
+          </details>
         </header>
 
         {scope.status === "pending" || scope.warnings.length ? (
@@ -156,7 +154,7 @@ export function WorkspaceView({
               aria-selected={tab === id}
               aria-controls="workspace-panel"
               onClick={() => setTab(id)}
-              className={`shrink-0 border-b-2 pb-3 text-sm ${tab === id ? "border-accent text-accent" : "border-transparent text-text-muted"}`}
+              className={`shrink-0 border-b-2 pb-2 text-sm ${tab === id ? "border-accent text-accent" : "border-transparent text-text-muted"}`}
             >
               {label}
             </button>
@@ -240,8 +238,8 @@ export function WorkspaceView({
                 onNavigateEntity={onNavigateEntity}
               />
             ) : null}
-            <section hidden={tab !== "relations"} className="space-y-3" aria-labelledby="workspace-graph">
-              <h2 id="workspace-graph" className="text-sm font-semibold text-text">
+            <section hidden={tab !== "relations"} className="space-y-2" aria-labelledby="workspace-graph">
+              <h2 id="workspace-graph" className="sr-only">
                 {t("views.workspace.localGraph")}
               </h2>
               <p className="text-sm text-text-muted">
@@ -252,7 +250,7 @@ export function WorkspaceView({
                 data-testid="workspace-graph-scroll"
                 className="max-w-full overflow-x-auto rounded-lg border border-border"
               >
-                <div data-testid="workspace-graph-canvas" className="h-[calc(100vh-380px)] min-h-[600px] min-w-[52rem]">
+                <div data-testid="workspace-graph-canvas" className="h-[calc(100vh-240px)] min-h-[420px] min-w-[52rem]">
                   <EgoNeighborhood
                     {...graph}
                     focusRef={focusRef}
@@ -508,7 +506,9 @@ function WorkspaceHistory({
   readonly titles: ReadonlyMap<string, string>;
   readonly onNavigateEntity?: (ref: string) => void;
 }) {
-  const rows = evidence.events.slice(0, WORKSPACE_HISTORY_ROWS),
+  const [page, setPage] = useState(0);
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(evidence.events.length / WORKSPACE_HISTORY_ROWS) - 1));
+  const rows = evidence.events.slice(currentPage * WORKSPACE_HISTORY_ROWS, (currentPage + 1) * WORKSPACE_HISTORY_ROWS),
     // 「只有索引、没有正文」是整个窗口的一个性质,不是每一行各自的新闻:整段至多说一次。
     anyPayloadLess = rows.some(({ summary }) => summary === null);
   return (
@@ -526,36 +526,52 @@ function WorkspaceHistory({
       {rows.length === 0 ? (
         <p className="mt-3 text-sm text-text-muted">{t("views.workspace.historyEmpty")}</p>
       ) : (
-        <ol className="mt-3 space-y-2">
-          {rows.map((event) => {
+        <ol className="mt-3">
+          {rows.map((event, index) => {
             const taskRef = event.taskId === null ? null : `task/${event.taskId}`,
               // 标题在读面里就用标题,没有就如实退回原始 task id——不猜。
               taskName = (taskRef === null ? undefined : titles.get(taskRef)) ?? event.taskId;
             return (
-              <li key={event.key} className="rounded border border-border bg-surface p-3">
-                <button
-                  type="button"
-                  title={`${event.type}${event.taskId === null ? "" : ` · ${event.taskId}`}`}
-                  className="block w-full break-words text-left text-sm text-text"
-                  onClick={() => taskRef !== null && onNavigateEntity?.(taskRef)}
-                >
-                  <span className="font-medium">{eventTypeLabel(event.type)}</span>
-                  <span className="text-text-muted">
-                    {" · "}
-                    {taskName ?? t("views.workspace.entityMissing")}
-                  </span>
-                </button>
-                {event.summary === null ? null : (
-                  <p className="mt-1 break-words text-sm text-text-muted">{event.summary}</p>
-                )}
-                <p className="mt-1 ui-meta text-text-faint">
-                  {event.at ? formatTime(event.at, { style: "month-day-time" }) : t("views.workspace.timeMissing")}
-                </p>
+              <li key={event.key} className="min-w-0">
+                {index === 0 || event.at?.slice(0, 10) !== rows[index - 1]?.at?.slice(0, 10) ? (
+                  <p className="border-b border-border py-2 ui-meta font-semibold text-text-muted">
+                    {event.at?.slice(0, 10) ?? t("views.workspace.timeMissing")}
+                  </p>
+                ) : null}
+                <div className="flex items-baseline gap-3 border-b border-border/50 py-1.5">
+                  <time className="shrink-0 font-mono ui-meta text-text-muted">
+                    {event.at ? formatTime(event.at, { style: "month-day-time" }) : "—"}
+                  </time>
+                  <div className="min-w-0 flex-1">
+                    <button
+                      type="button"
+                      title={`${event.type} · ${event.taskId ?? ""}`}
+                      className="block w-full break-words text-left text-sm text-text"
+                      onClick={() => taskRef !== null && onNavigateEntity?.(taskRef)}
+                    >
+                      <span className="font-medium">{eventTypeLabel(event.type)}</span>
+                      <span className="text-text-muted"> · {taskName ?? t("views.workspace.entityMissing")}</span>
+                    </button>
+                    {event.summary === null ? null : (
+                      <details className="ui-meta text-text-muted">
+                        <summary className="cursor-pointer">查看记录摘要</summary>
+                        <p className="break-words py-1 text-sm">{event.summary}</p>
+                      </details>
+                    )}
+                  </div>
+                </div>
               </li>
             );
           })}
         </ol>
       )}
+      <ResultPagination
+        label="经过"
+        page={currentPage}
+        total={evidence.events.length}
+        size={WORKSPACE_HISTORY_ROWS}
+        onChange={setPage}
+      />
     </section>
   );
 }
@@ -572,7 +588,7 @@ function WorkspaceEvidencePanel({
       <h2 id="workspace-evidence" className="text-sm font-semibold text-text">
         {t("views.workspace.evidence")}
       </h2>
-      <div className="mt-3 grid min-w-0 gap-4 md:grid-cols-3">
+      <div className="mt-3 min-w-0 space-y-2">
         <EvidenceList
           title={t("views.workspace.decisions")}
           rows={evidence.decisions.map((row) => ({
@@ -623,29 +639,34 @@ function EvidenceList({
   readonly rows: readonly { ref: string; title: string; meta: string }[];
   readonly onOpen?: (ref: string) => void;
 }) {
-  // 正文里的长无空格串(`start/progress.append/submit/…`、产物路径)曾把自己的列撑宽、
-  // 压到右边那列上。min-w-0 让列不被 min-content 顶开,块级按钮 + break-words 让串在本列内断行。
+  const [page, setPage] = useState(0);
+  const currentPage = Math.min(page, Math.max(0, Math.ceil(rows.length / 20) - 1));
   return (
-    <div className="min-w-0">
-      <h3 className="ui-meta font-semibold text-text-muted">{title}</h3>
+    <details className="min-w-0 border-b border-border pb-2">
+      <summary className="cursor-pointer text-sm font-semibold text-text">
+        {title} · {rows.length}
+      </summary>
       {rows.length ? (
-        <ul className="mt-2 space-y-2">
-          {rows.map((row) => (
-            <li key={`${row.ref}:${row.title}`} className="min-w-0">
-              <button
-                type="button"
-                className="block w-full break-words text-left text-sm text-text hover:text-accent"
-                onClick={() => onOpen?.(row.ref)}
-              >
-                {row.title}
-              </button>
-              <p className="break-words ui-meta text-text-faint">{row.meta}</p>
+        <ul className="mt-2">
+          {rows.slice(currentPage * 20, (currentPage + 1) * 20).map((row) => (
+            <li key={`${row.ref}:${row.title}`} className="min-w-0 border-t border-border/50 py-2">
+              <details className="min-w-0">
+                <summary className="cursor-pointer break-words text-sm text-text">
+                  {row.title.length > 100 ? `${row.title.slice(0, 100)}…` : row.title}
+                </summary>
+                <p className="my-2 break-words text-sm text-text-muted">{row.title}</p>
+                <button type="button" className="text-sm text-accent" onClick={() => onOpen?.(row.ref)}>
+                  打开来源 →
+                </button>
+              </details>
+              <p className="break-words ui-meta text-text-muted">{row.meta}</p>
             </li>
           ))}
         </ul>
       ) : (
         <p className="mt-2 text-sm text-text-muted">{t("views.workspace.none")}</p>
       )}
-    </div>
+      <ResultPagination label={title} page={currentPage} total={rows.length} size={20} onChange={setPage} />
+    </details>
   );
 }

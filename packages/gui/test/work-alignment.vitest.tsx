@@ -4,24 +4,11 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
-import { WorkView, workCollections } from "../src/renderer/views/WorkView.tsx";
+import { WorkView } from "../src/renderer/views/WorkView.tsx";
+import { collectWork } from "../src/renderer/model/work-collections.ts";
 import type { TaskRow } from "../src/renderer/model/types.ts";
 import { NAV_GROUPS } from "../src/renderer/navigation/navConfig.tsx";
 
-vi.mock("../src/renderer/workspace-scope-data.ts", () => ({
-  useWorkspaceScopeQuery: () => ({
-    data: {
-      pages: [
-        {
-          status: "ready",
-          counts: { done: 3, cancelled: 1, pending: 1, blocked: 0, executing: 0 },
-          scope: { executableLeafCount: 5 },
-        },
-      ],
-    },
-  }),
-  combineWorkspaceScopePages: (pages: unknown[]) => pages[0],
-}));
 const task = (taskId: string, parentTaskId?: string, taskClass = "standard") =>
   ({
     taskId,
@@ -41,8 +28,8 @@ const rows = [
 
 describe("work aggregation", () => {
   it("retains nested groups and puts only ungrouped top-level tasks in independent work", () => {
-    const result = workCollections(rows);
-    expect(result.groups.map((row) => row.taskId)).toEqual(["group", "nested", "milestone"]);
+    const result = collectWork(rows);
+    expect(result.groups.map(({ task }) => task.taskId)).toEqual(["group", "milestone", "nested"]);
     expect(result.isolated.map((row) => row.taskId)).toEqual(["solo"]);
     const ids = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.id));
     expect(ids).toEqual(
@@ -67,10 +54,11 @@ describe("work aggregation", () => {
         </QueryClientProvider>,
       ),
     );
-    expect(host.querySelector("progress")?.value).toBe(3);
-    expect(host.querySelector("progress")?.max).toBe(5);
+    expect(host.querySelector("progress")?.value).toBe(0);
+    expect(host.querySelector("progress")?.max).toBe(1);
     act(() => [...host.querySelectorAll("button")].find((button) => button.textContent?.startsWith("group"))!.click());
     act(() => host.querySelector<HTMLButtonElement>('[data-testid="isolated-work"] button')!.click());
+    act(() => host.querySelector<HTMLButtonElement>('[data-testid="isolated-work"] button:nth-of-type(2)')!.click());
     expect(opened).toEqual(["group", "solo"]);
     const input = host.querySelector("input")!;
     act(() => {

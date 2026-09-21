@@ -60,6 +60,8 @@ it("每个置顶项都带解除置顶入口,点击用该 task 调 onUnpinWork", 
 
   const unpins = host.querySelectorAll<HTMLButtonElement>('[data-testid^="sidebar-unpin-"]');
   expect(unpins).toHaveLength(2);
+  expect(unpins[0]!.textContent).toBe("解除置顶");
+  expect(unpins[0]!.querySelector("svg")).not.toBeNull();
   // 入口不靠 hover 才出现:业主的抱怨就是找不到它。
   expect(unpins[0]!.className).not.toContain("opacity-0");
   expect(unpins[0]!.getAttribute("aria-label")).toBe("解除置顶:第一条置顶");
