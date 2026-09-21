@@ -120,8 +120,10 @@ it("loads actual goal material only after the user opens it", async () => {
   );
   expect(read).not.toHaveBeenCalled();
   await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
   expect(read).toHaveBeenCalledWith({ repoId: "repo", taskId: "group", path: "task_plan.md" });
+  // Awaiting the very promise the component consumes settles the query and its re-render. A
+  // wall-clock delay here would only be a guess at how long that takes on the slowest machine.
+  await act(async () => void (await read.mock.results[0]!.value));
   expect(host.textContent).toContain("A real delivery condition");
   expect(host.querySelector('input[type="checkbox"]')).toBeNull();
   act(() => root.unmount());
