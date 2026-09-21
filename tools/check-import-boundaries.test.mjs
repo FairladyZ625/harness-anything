@@ -184,7 +184,7 @@ test("import boundary check rejects every CLI kernel store import", () => {
     writeFileSync(path.join(root, "packages/kernel/src/store/ledger-backup.ts"), "export const backup = true;\n");
     writeFileSync(
       path.join(root, "packages/cli/src/not-a-composition-root.ts"),
-      "import { backup } from '@harness-anything/kernel/internal/store/ledger-backup';\nexport { backup };\n",
+      "import { backup } from '../../" + "kernel/src/store/ledger-backup.ts';\nexport { backup };\n",
     );
     writeFileSync(
       path.join(policyRoot, "check-import-boundaries.json"),

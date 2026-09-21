@@ -5,6 +5,7 @@ import ts from "typescript";
 const root = process.cwd();
 const violations = [];
 const cliFiles = listTsFilesRecursive("packages/cli/src");
+const workspacePackages = readWorkspacePackages();
 const allowedStaticGraph = new Set([
   "packages/daemon/src/offline-storage-command.ts",
   "packages/daemon/src/client/local-daemon-target.ts",
@@ -102,7 +103,7 @@ function checkDistStaticImportGraph() {
     }
     for (const candidate of runtimeImports(parseTypeScript(file)).static) {
       if (candidate.specifier.startsWith("node:")) continue;
-      if (!candidate.specifier.startsWith(".")) {
+      if (!candidate.specifier.startsWith(".") && !workspacePackageName(candidate.specifier)) {
         violations.push(`dist static import graph reached external package ${candidate.specifier} from ${file}`);
         continue;
       }
@@ -187,7 +188,7 @@ function checkDaemonTransportImportGraph() {
     }
     for (const candidate of runtimeImports(parseTypeScript(file)).static) {
       if (candidate.specifier.startsWith("node:")) continue;
-      if (!candidate.specifier.startsWith(".")) {
+      if (!candidate.specifier.startsWith(".") && !workspacePackageName(candidate.specifier)) {
         violations.push(`daemon transport import graph reached external package ${candidate.specifier} from ${file}`);
         continue;
       }
@@ -235,10 +236,75 @@ function runtimeImportDeclaration(statement) {
 }
 
 function resolveSourceImport(fromFile, specifier) {
-  const absolute = path.resolve(root, path.dirname(fromFile), specifier);
+  const packageName = workspacePackageName(specifier);
+  const absolute = packageName
+    ? resolveWorkspaceExport(packageName, specifier.slice(packageName.length))
+    : path.resolve(root, path.dirname(fromFile), specifier);
+  if (absolute === null) return null;
   const candidates = [absolute, absolute.replace(/\.js$/u, ".ts"), absolute.replace(/\.mjs$/u, ".mts")];
   const match = candidates.find((candidate) => existsSync(candidate));
   return match ? relative(match) : null;
+}
+
+function readWorkspacePackages(relativeDir = "packages") {
+  const result = new Map();
+  for (const directory of listDirectoriesRecursive(relativeDir)) {
+    const manifestPath = path.join(root, directory, "package.json");
+    if (!existsSync(manifestPath)) continue;
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    if (typeof manifest.name === "string") result.set(manifest.name, { directory, exports: manifest.exports });
+  }
+  return result;
+}
+
+function listDirectoriesRecursive(relativeDir) {
+  const absolute = path.join(root, relativeDir);
+  if (!existsSync(absolute)) return [];
+  return [
+    relativeDir,
+    ...readdirSync(absolute, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .flatMap((entry) => listDirectoriesRecursive(`${relativeDir}/${entry.name}`)),
+  ];
+}
+
+function workspacePackageName(specifier) {
+  const match = /^(@[^/]+\/[^/]+)(?:\/|$)/u.exec(specifier);
+  return match && workspacePackages.has(match[1]) ? match[1] : null;
+}
+
+function resolveWorkspaceExport(packageName, suffix) {
+  const workspacePackage = workspacePackages.get(packageName);
+  if (!workspacePackage) return null;
+  const subpath = suffix === "" ? "." : `.${suffix}`;
+  const exports = workspacePackage.exports;
+  const target =
+    typeof exports === "string" || !exports || !Object.keys(exports).some((key) => key.startsWith("."))
+      ? subpath === "."
+        ? exportTarget(exports)
+        : null
+      : exportMapTarget(exports, subpath);
+  return target?.startsWith("./") ? path.resolve(root, workspacePackage.directory, target) : null;
+}
+
+function exportMapTarget(exports, subpath) {
+  if (Object.hasOwn(exports, subpath)) return exportTarget(exports[subpath]);
+  for (const [key, value] of Object.entries(exports)) {
+    const wildcard = key.indexOf("*");
+    if (wildcard === -1 || !subpath.startsWith(key.slice(0, wildcard)) || !subpath.endsWith(key.slice(wildcard + 1))) {
+      continue;
+    }
+    const replacement = subpath.slice(wildcard, subpath.length - (key.length - wildcard - 1));
+    const target = exportTarget(value);
+    if (target) return target.replace("*", replacement);
+  }
+  return null;
+}
+
+function exportTarget(value) {
+  if (typeof value === "string") return value;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return exportTarget(value.default ?? value.import ?? value.types);
 }
 
 function listTsFilesRecursive(relativeDir) {

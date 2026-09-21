@@ -62,6 +62,25 @@ test("thin CLI structure rejects a kernel runtime import from any CLI production
   );
 });
 
+test("thin CLI structure rejects an unlisted daemon file reached through a package export", async () => {
+  const root = await fixture();
+  write(
+    root,
+    "packages/cli/src/index.ts",
+    entrySource(["import { hidden } from '@harness-anything/daemon/internal/hidden';", "void hidden;"]),
+  );
+  write(root, "packages/daemon/src/hidden.ts", "export const hidden = true;\n");
+
+  const result = run(root);
+  assert.notEqual(result.status, 0);
+  assert.ok(
+    result.stderr.includes(
+      "dist static import graph reached module is outside the thin CLI cross-package graph boundary: " +
+        "packages/daemon/src/hidden.ts",
+    ),
+  );
+});
+
 test("thin CLI structure accepts daemon control as the only dynamic entry", async () => {
   const root = await fixture();
 
@@ -206,6 +225,24 @@ async function fixture() {
     JSON.stringify({
       bin: { "harness-anything": "dist/cli/src/index.js", ha: "dist/cli/src/index.js" },
     }),
+  );
+  write(
+    root,
+    "packages/daemon/package.json",
+    JSON.stringify({ name: "@harness-anything/daemon", exports: { "./internal/*": "./src/*.ts" } }),
+  );
+  write(
+    root,
+    "packages/kernel/package.json",
+    JSON.stringify({
+      name: "@harness-anything/kernel",
+      exports: { ".": "./src/index.ts", "./internal/*": "./src/*.ts" },
+    }),
+  );
+  write(
+    root,
+    "packages/preset/package.json",
+    JSON.stringify({ name: "@harness-anything/preset", exports: { "./internal/*": "./src/*.ts" } }),
   );
   write(root, "packages/cli/src/index.ts", entrySource());
   write(
