@@ -250,7 +250,10 @@ test(
       secondStarted = true;
       return result;
     });
-    await new Promise((resolve) => setTimeout(resolve, 600));
+    await waitUntil(
+      () => fixture.center.status().leases.queue.length === 1,
+      "the second start must park behind the holder",
+    );
     assert.equal(secondStarted, false, "the second start must still be parked");
     assert.equal(fixture.center.status().leases.queue.length, 1);
     // The holder releases; the queue head is woken and executes server-side.
@@ -334,7 +337,10 @@ test("center restart preserves the grant mirror, the domain lease, and FIFO orde
     secondDone = true;
     return result;
   });
-  await new Promise((resolve) => setTimeout(resolve, 600));
+  await waitUntil(
+    () => reopened.status().leases.queue.length === 1,
+    "the survived grant must still queue the second node",
+  );
   assert.equal(secondDone, false, "the survived grant must still queue the second node");
   assert.equal((await fixture.commandOn(reopened, "node-one", { kind: "task-release", taskId })).outcome, "applied");
   const granted = await waiting;
@@ -556,7 +562,10 @@ test(
       secondResolved = true;
       return result;
     });
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    await waitUntil(
+      () => reopened.status().leases.leases.length === 1 && reopened.status().leases.queue.length === 1,
+      "the second start must rebuild the mirror row and park behind it",
+    );
     assert.equal(secondResolved, false, "the second start parks behind the reconciled lease");
     const reconciled = reopened.status().leases.leases;
     assert.equal(reconciled.length, 1);
@@ -590,8 +599,7 @@ test("a failed orphan release keeps the mirror row and the reaper retries it", {
   assert.equal(retained.length, 1, "a failed release must keep the mirror row for the next sweep");
   assert.equal(retained[0]?.assignmentId, "assignment-node-one");
   releaseFails = false;
-  for (let index = 0; index < 20 && fixture.center.status().leases.leases.length > 0; index += 1)
-    await new Promise((resolve) => setTimeout(resolve, 200));
+  await waitUntil(() => fixture.center.status().leases.leases.length === 0, "the retried release clears the row");
   assert.equal(fixture.center.status().leases.leases.length, 0, "the retried release clears the row");
   const claimed = await fixture.command("node-two", { kind: "task-start", taskId });
   assert.equal(claimed.outcome, "applied");
@@ -625,8 +633,10 @@ test("a rejected domain probe cannot erase the mirror or wake a waiter", { timeo
     "an unavailable canonical read preserves the coordination mirror",
   );
   rejectProbe = false;
-  for (let index = 0; index < 20 && fixture.center.status().leases.leases.length > 0; index += 1)
-    await new Promise((resolve) => setTimeout(resolve, 200));
+  await waitUntil(
+    () => fixture.center.status().leases.leases.length === 0,
+    "a later successful probe lets the reaper complete",
+  );
   assert.equal(fixture.center.status().leases.leases.length, 0, "a later successful probe lets the reaper complete");
   assert.equal((await fixture.command("node-two", { kind: "task-start", taskId })).outcome, "applied");
 });
@@ -703,7 +713,10 @@ test("a failed queue head drains and latecomers cannot jump the FIFO", { timeout
     marks.push(`late:${result.outcome}`);
     return result;
   });
-  await new Promise((resolve) => setTimeout(resolve, 800));
+  await waitUntil(
+    () => fixture.center.status().leases.queue.length === 3,
+    "all three late commands must park behind the holder",
+  );
   assert.equal(marks.length, 0, "nobody jumps the queue while the holder holds");
   assert.equal(fixture.center.status().leases.queue.length, 3);
   assert.equal((await fixture.command("node-one", { kind: "task-release", taskId })).outcome, "applied");
@@ -721,7 +734,10 @@ test("a failed queue head drains and latecomers cannot jump the FIFO", { timeout
   latecomer.then(() => {
     lateDone = true;
   });
-  await new Promise((resolve) => setTimeout(resolve, 600));
+  await waitUntil(
+    () => fixture.center.status().leases.queue.length === 1,
+    "the latecomer must stay queued behind the new holder",
+  );
   assert.equal(lateDone, false, "the latecomer stays queued behind the new holder");
   assert.equal((await fixture.command("node-two", { kind: "task-release", taskId })).outcome, "applied");
   const late = await latecomer;
@@ -783,12 +799,17 @@ test(
         action: { kind: "task-start", taskId },
       },
     });
-    await new Promise((resolve) => setTimeout(resolve, 700));
+    await waitUntil(() => fixture.center.status().leases.queue.length === 1, "the command parked through the proxy");
     assert.equal(fixture.center.status().leases.queue.length, 1, "the command parked through the proxy");
     const queuedOpId = fixture.center.status().leases.queue[0]!.opId;
     closeProxy();
-    for (let attempt = 0; attempt < 30 && proxyConnections < 2; attempt += 1)
-      await new Promise((resolve) => setTimeout(resolve, 100));
+    // 3s, not the 10s default: "promptly" is defined against the 8s business
+    // deadline above, so a bound that outlives it would invert this assertion.
+    await waitUntil(
+      () => proxyConnections >= 2,
+      "the product edge path reconnects promptly instead of waiting for the business deadline",
+      15,
+    );
     assert.ok(
       proxyConnections >= 2,
       "the product edge path reconnects promptly instead of waiting for the business deadline",
@@ -834,8 +855,10 @@ test("a queued product command re-attaches after a center restart on the same po
         action: { kind: "task-start", taskId },
       },
     });
-  for (let attempt = 0; attempt < 30 && fixture.center.status().leases.queue.length !== 1; attempt += 1)
-    await new Promise((resolve) => setTimeout(resolve, 100));
+  await waitUntil(
+    () => fixture.center.status().leases.queue.length === 1,
+    "the queued command must park before the center restart",
+  );
   const queuedOpId = fixture.center.status().leases.queue[0]?.opId;
   assert.ok(queuedOpId);
   await fixture.center.close();
@@ -880,8 +903,8 @@ test("an in-flight opId is deduplicated and the wait default is thirty minutes",
   assert.deepEqual(codes, ["applied:null", "op_rejected:op_in_flight"]);
 });
 
-async function waitUntil(predicate: () => boolean, message: string): Promise<void> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
+async function waitUntil(predicate: () => boolean, message: string, attempts = 50): Promise<void> {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     if (predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
