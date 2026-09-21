@@ -62,3 +62,25 @@ test("the same squad worker receives a distinct checkout for each attempt", asyn
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+test("workers branch off the Commander's checked-out branch whatever it is named, and a detached HEAD is refused", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "squad-checkout-branch-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  execFileSync("git", ["init", "-q", rootDir]);
+  execFileSync("git", ["config", "user.name", "Fixture"], { cwd: rootDir });
+  execFileSync("git", ["config", "user.email", "fixture@example.com"], { cwd: rootDir });
+  writeFileSync(path.join(rootDir, "seed.txt"), "seed\n");
+  execFileSync("git", ["add", "seed.txt"], { cwd: rootDir });
+  execFileSync("git", ["commit", "-qm", "seed"], { cwd: rootDir });
+  execFileSync("git", ["branch", "-m", "delivery/mission"], { cwd: rootDir });
+  const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: rootDir, encoding: "utf8" }).trim(),
+    state = { squadRunId: "squad_89abcdef0123456789abcdef", cwd: rootDir, baseSha },
+    named = await prepareWorkerWorktree(state, "worker-1", "attempt-1");
+  assert.match(named?.branch ?? "", /^delivery\/mission--squad-/u);
+
+  execFileSync("git", ["checkout", "-q", "--detach"], { cwd: rootDir });
+  await assert.rejects(
+    prepareWorkerWorktree({ ...state, squadRunId: "squad_fedcba9876543210fedcba98" }, "worker-2", "attempt-1"),
+    /checked-out branch/u,
+  );
+});

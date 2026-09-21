@@ -28,9 +28,10 @@ export async function prepareWorkerWorktree(
   attemptId: string,
 ): Promise<WorkerCheckout | null> {
   if (state.baseSha === null) return null;
+  // Workers branch off whatever the Commander has checked out, so the Commander can merge them back
+  // with the child SHAs intact. A detached HEAD owns no ref to hang siblings from.
   const commanderBranch = (await runProcessTextAsync("git", ["branch", "--show-current"], state.cwd)).trim();
-  if (!/^codex\/[A-Za-z0-9][A-Za-z0-9._/-]*$/u.test(commanderBranch))
-    throw new Error("Squad workers require a checked-out codex/<mission-slug> Commander branch.");
+  if (!commanderBranch) throw new Error("Squad workers require the Commander to run on a checked-out branch.");
   const slug = `squad-${state.squadRunId.slice("squad_".length)}-${workerId}-${attemptId}`,
     // Git cannot create refs/heads/codex/mission/worker while refs/heads/codex/mission exists.
     // A sibling ref retains the visible mission owner without colliding with the Commander ref.
