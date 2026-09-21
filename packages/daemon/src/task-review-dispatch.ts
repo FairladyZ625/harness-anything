@@ -17,10 +17,13 @@ import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
-/** A frozen cut owns its reviewer; preferences only select for an unfrozen cut. */
+/**
+ * The owner's explicit reviewer argument overrides the cut's frozen claim (owner ruling 2026-09-21);
+ * without one, the frozen claim still beats repository settings, which only select an unfrozen cut.
+ */
 export function selectReviewAgent(frozen?: string, argument?: string, setting?: string) {
-  if (frozen) return { reviewerId: frozen, reviewerSource: "frozen" as const };
   if (argument) return { reviewerId: argument, reviewerSource: "argument" as const };
+  if (frozen) return { reviewerId: frozen, reviewerSource: "frozen" as const };
   if (setting) return { reviewerId: setting, reviewerSource: "settings" as const };
   return { reviewerId: "closeout-reviewer", reviewerSource: "bundled" as const };
 }

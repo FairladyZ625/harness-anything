@@ -5,7 +5,8 @@ import { selectReviewAgent } from "../src/task-review-dispatch.ts";
 import { renderCliReceipt } from "../../cli/src/cli/receipt-render-registry.ts";
 
 for (const [frozen, argument, setting, reviewerId, reviewerSource] of [
-  ["frozen-reviewer", "argument-reviewer", "setting-reviewer", "frozen-reviewer", "frozen"],
+  ["frozen-reviewer", "argument-reviewer", "setting-reviewer", "argument-reviewer", "argument"],
+  ["frozen-reviewer", undefined, "setting-reviewer", "frozen-reviewer", "frozen"],
   [undefined, "argument-reviewer", "setting-reviewer", "argument-reviewer", "argument"],
   [undefined, undefined, "setting-reviewer", "setting-reviewer", "settings"],
   [undefined, undefined, undefined, "closeout-reviewer", "bundled"],

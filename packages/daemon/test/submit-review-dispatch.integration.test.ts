@@ -330,7 +330,42 @@ test(
 );
 
 test(
-  "forward honors the frozen reviewer over arguments and settings and recovers dispatch without adjudication",
+  "forward's explicit reviewer overrides the cut's frozen claim and reports the argument source",
+  {
+    timeout: 30_000,
+  },
+  async () => {
+    const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
+    try {
+      await f.install();
+      const settings = await f.runPrincipal({
+        kind: "settings-update",
+        roles: { defaultReviewer: "missing-reviewer" },
+        idempotencyKey: "freeze-missing",
+      });
+      assert.equal(settings.outcome, "applied", JSON.stringify(settings));
+      assert.equal((await f.submit()).outcome, "applied");
+      const forwarded = (await f.run({
+        kind: "task-adjudicate",
+        taskId,
+        forward: true,
+        reviewer: "closeout-reviewer",
+        reason: "Review frozen cut.",
+      })) as unknown as Record<string, unknown>;
+      assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
+      assert.equal(forwarded.reviewerId, "closeout-reviewer");
+      assert.equal(forwarded.reviewerSource, "argument");
+      const state = (await f.cell().read("repo.tasks.list")).rows.find((row) => row.taskId === taskId);
+      assert.equal(state?.snapshot.task?.status, "in_review");
+      assert.equal(f.launches.length, 1);
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
+  "forward without an explicit reviewer keeps frozen over settings and recovers dispatch without adjudication",
   {
     timeout: 30_000,
   },
@@ -359,7 +394,6 @@ test(
         kind: "task-adjudicate",
         taskId,
         forward: true,
-        reviewer: "closeout-reviewer",
         reason: "Review frozen cut.",
       })) as unknown as Record<string, unknown>;
       assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
