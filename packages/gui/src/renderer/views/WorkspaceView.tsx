@@ -530,12 +530,15 @@ function WorkspaceHistory({
           {rows.map((event, index) => {
             const taskRef = event.taskId === null ? null : `task/${event.taskId}`,
               // 标题在读面里就用标题,没有就如实退回原始 task id——不猜。
-              taskName = (taskRef === null ? undefined : titles.get(taskRef)) ?? event.taskId;
+              taskName = (taskRef === null ? undefined : titles.get(taskRef)) ?? event.taskId,
+              day = event.at ? formatTime(event.at, { style: "date" }) : null,
+              previousAt = rows[index - 1]?.at,
+              previousDay = previousAt ? formatTime(previousAt, { style: "date" }) : null;
             return (
               <li key={event.key} className="min-w-0">
-                {index === 0 || event.at?.slice(0, 10) !== rows[index - 1]?.at?.slice(0, 10) ? (
+                {index === 0 || day !== previousDay ? (
                   <p className="border-b border-border py-2 ui-meta font-semibold text-text-muted">
-                    {event.at?.slice(0, 10) ?? t("views.workspace.timeMissing")}
+                    {day ?? t("views.workspace.timeMissing")}
                   </p>
                 ) : null}
                 <div className="flex items-baseline gap-3 border-b border-border/50 py-1.5">

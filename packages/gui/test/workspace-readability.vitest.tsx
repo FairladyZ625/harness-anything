@@ -161,6 +161,23 @@ function classesAround(html: string, text: string): string {
 }
 
 describe("workspace readability under real ledger shapes", () => {
+  it("groups dates in the same selected time zone as event times", () => {
+    localStorage.setItem("harness:gui:time-zone", "Asia/Taipei");
+    try {
+      FEED_EVENTS.length = 0;
+      FEED_EVENTS.push(
+        { ...event("execution_submitted", null), key: "a", at: "2026-09-20T23:00:00.000Z" },
+        { ...event("execution_submitted", null), key: "b", at: "2026-09-21T01:00:00.000Z" },
+      );
+      render((host) => {
+        const days = host.querySelectorAll('section[aria-labelledby="workspace-history"] li > p');
+        expect(days).toHaveLength(1);
+        expect(days[0]!.textContent).toBe("2026-09-21");
+      });
+    } finally {
+      localStorage.removeItem("harness:gui:time-zone");
+    }
+  });
   it("keeps all window events reachable in bounded pages", () => {
     FEED_EVENTS.length = 0;
     FEED_EVENTS.push(
