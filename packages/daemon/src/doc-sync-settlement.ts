@@ -268,7 +268,10 @@ export function admissionRejection(
   };
 }
 
-export function scopeTouches(input: Pick<Input, "binding" | "workspaceId">, paths: readonly string[]) {
+export function scopeTouches(
+  input: Pick<Input, "binding" | "workspaceId">,
+  paths: readonly string[],
+): readonly ReturnType<typeof touch>[] {
   if (localProseSource(input.binding.source)) return [];
   const scope = input.binding.assignmentScope,
     assignmentId =

@@ -1,4 +1,4 @@
-import { composeDurableActionEnvelope } from "../../application/src/durable-action-envelope.ts";
+import { composeDurableActionEnvelope } from "@harness-anything/application/internal/durable-action-envelope";
 import path from "node:path";
 import {
   durablePolicyActions,

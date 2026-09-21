@@ -9,7 +9,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { connectSocket, JsonRpcLineClient } from "../src/client/local-json-rpc-client.ts";
 import { fatalCellError } from "../src/repo-cell-errors.ts";
-import { ArtifactEntityServiceError } from "../../application/src/artifact-entity-service.ts";
+import { ArtifactEntityServiceError } from "@harness-anything/application/internal/artifact-entity-service";
 import { startDaemon, type RunningDaemon } from "../src/runtime.ts";
 import {
   openBootstrappedRepoCell,

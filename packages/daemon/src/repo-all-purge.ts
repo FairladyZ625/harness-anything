@@ -67,7 +67,7 @@ export function drillRepoBackup(input: {
   readonly backupDir: string;
   readonly manifest?: LedgerBackupManifest;
   readonly shadowParent?: string;
-}) {
+}): ReturnType<typeof drillLedgerBackup> {
   const layout = resolveHarnessLayout(input.rootDir);
   return drillLedgerBackup({
     backupDir: input.backupDir,

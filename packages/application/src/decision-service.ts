@@ -8,20 +8,37 @@ import {
   type DecisionProjectionRow,
   type FrozenWritePlan,
   type TaskProjection,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { FactServiceError } from "./fact-service.ts";
 
 export type DecisionWriteBundle = CanonicalWriteBundle & {
   readonly event: DecisionEventV1;
   readonly plan: FrozenWritePlan<"DecisionWrite">;
 };
+export interface DecisionService {
+  readonly record: (bundle: DecisionWriteBundle) => {
+    readonly status: "ready";
+    readonly decision: DecisionProjectionRow;
+    readonly revision: number;
+    readonly watermark: number;
+    readonly commitSha: string | null;
+    readonly cut: CanonicalEventCut;
+    readonly path: string;
+    readonly documentSha256: string;
+  };
+  readonly show: (selector: string) => ReturnType<TaskProjection["readDecision"]> & {
+    readonly decision: DecisionProjectionRow;
+  };
+  readonly list: (filters: DecisionListFilters) => ReturnType<TaskProjection["listDecisions"]>;
+  readonly coverage: (decisionId: string) => ReturnType<TaskProjection["readDecisionCoverage"]>;
+}
 export function makeDecisionService(options: {
   readonly eventStore: Pick<CanonicalEventStore, "append" | "readEvent">;
   readonly projection: Pick<
     TaskProjection,
     "admitDecision" | "apply" | "readDecision" | "listDecisions" | "readDecisionCoverage"
   >;
-}) {
+}): DecisionService {
   const record = (
     bundle: DecisionWriteBundle,
   ): {

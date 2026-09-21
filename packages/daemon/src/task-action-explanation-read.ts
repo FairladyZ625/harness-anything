@@ -4,7 +4,7 @@ import {
   makePersonActionExplanationService,
   makeSquadActionExplanationService,
   makeTaskActionExplanationService,
-} from "../../application/src/index.ts";
+} from "@harness-anything/application";
 import {
   ENTITY_ACTION_EXPLANATION_SCHEMA,
   consumeKnownError,

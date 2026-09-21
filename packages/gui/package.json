@@ -42,6 +42,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@harness-anything/application": "0.0.1",
     "@harness-anything/daemon": "0.0.1",
     "@harness-anything/kernel": "0.0.1",
     "@dagrejs/dagre": "^3.0.0",

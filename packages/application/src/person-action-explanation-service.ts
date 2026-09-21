@@ -13,7 +13,7 @@ import {
   type EntityActionExplanationV1,
   type EntityRef,
   type PeopleRosterDocumentV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export interface PersonActionExplanationServiceDependencies {
   readonly actor: ActorIdentity;

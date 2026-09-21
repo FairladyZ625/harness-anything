@@ -10,7 +10,7 @@ import {
   type CompletionReadinessContext,
   type EntityActionExplanationSetV1,
   type TaskLifecycleSnapshot,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { makeTaskActionExplanationService } from "../src/task-action-explanation-service.ts";
 import { lifecycleHarness, owner, reviewer } from "./task-lifecycle-test-harness.ts";
 

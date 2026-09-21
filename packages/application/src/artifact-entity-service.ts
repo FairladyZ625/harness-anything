@@ -25,7 +25,7 @@ import {
   type EntityEventV1,
   type EntityTargetMissingBundle,
   type WriteSource,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 export interface ArtifactSourceObserved {
   readonly status: "observed";

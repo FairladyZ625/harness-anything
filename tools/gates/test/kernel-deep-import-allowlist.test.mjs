@@ -62,7 +62,17 @@ test("the effect-free daemon deep-import exception targets an import-free kernel
   assert.doesNotMatch(source, /(?:^\s*import\s|(?:\bimport|\brequire)\s*\()/mu);
 });
 
-test("ESLint allows exported daemon kernel subpaths but rejects relative sibling source imports", async () => {
+test("kernel exports admit enumerated subpaths and reject unenumerated source modules", () => {
+  assert.match(
+    import.meta.resolve("@harness-anything/kernel/internal/domain/task-blocking"),
+    /packages\/kernel\/src\/domain\/task-blocking\.ts$/u,
+  );
+  assert.throws(() => import.meta.resolve("@harness-anything/kernel/internal/domain/completion-contract"), {
+    code: "ERR_PACKAGE_PATH_NOT_EXPORTED",
+  });
+});
+
+test("ESLint preserves daemon kernel exceptions while rejecting relative sibling source imports", async () => {
   const eslint = new ESLint({ cwd: repoRoot });
   const [allowed] = await eslint.lintText(
     'import { contractVersion } from "@harness-anything/kernel/contract-version";\nvoid contractVersion;\n',
@@ -86,9 +96,7 @@ test("ESLint allows exported daemon kernel subpaths but rejects relative sibling
     filePath: "packages/daemon/src/kernel-domain-index-probe.ts",
   });
   const restrictedMessages = rejected.messages.filter(({ ruleId }) => ruleId === "no-restricted-imports");
-  assert.ok(
-    restrictedMessages.some(({ message }) => /package names instead of relative source paths/u.test(message)),
-  );
+  assert.ok(restrictedMessages.some(({ message }) => /package names instead of relative source paths/u.test(message)));
 });
 
 test("browser public contracts are allowed while relative static and dynamic imports remain rejected", async () => {
@@ -106,8 +114,7 @@ test("browser public contracts are allowed while relative static and dynamic imp
   for (const source of [
     'import { validateFrozenCompletionContract } from "../../../' +
       'kernel/src/domain/completion-contract.ts"; void validateFrozenCompletionContract;',
-    'export { validateFrozenCompletionContract } from "../../../' +
-      'kernel/src/domain/completion-contract.ts";',
+    'export { validateFrozenCompletionContract } from "../../../' + 'kernel/src/domain/completion-contract.ts";',
     'void import("../../../' + 'kernel/src/domain/completion-contract.ts");',
   ])
     assert.ok((await messages(source)).length > 0, source);

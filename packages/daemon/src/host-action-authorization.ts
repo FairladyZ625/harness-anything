@@ -1,9 +1,5 @@
-import { composeDurableActionEnvelope } from "../../application/src/durable-action-envelope.ts";
-import {
-  type AuthorizationContext,
-  type AuthorizationDecision,
-  type ReceiptJsonValue,
-} from "@harness-anything/kernel";
+import { composeDurableActionEnvelope } from "@harness-anything/application/internal/durable-action-envelope";
+import { type AuthorizationContext, type AuthorizationDecision, type ReceiptJsonValue } from "@harness-anything/kernel";
 import { authorizeAction } from "./authorization.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 

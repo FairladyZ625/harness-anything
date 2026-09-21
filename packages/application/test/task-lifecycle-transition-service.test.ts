@@ -18,7 +18,7 @@ import {
   sha256Text,
   submissionDigest,
   type TaskEventV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import {
   makeTaskEventStore,
   makeTaskProjection,

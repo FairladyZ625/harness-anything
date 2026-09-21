@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { makeTaskLifecycleService } from "../../application/src/task-lifecycle-service.ts";
+import { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
 import {
   blockingOf,
   closeoutReadiness,

@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { makeTaskActionExplanationService } from "../../application/src/task-action-explanation-service.ts";
+import { makeTaskActionExplanationService } from "@harness-anything/application/internal/task-action-explanation-service";
 import { lifecycleHarness, owner } from "../../application/test/task-lifecycle-test-harness.ts";
 import { deriveActionResult } from "@harness-anything/daemon/internal/entity-action-catalog-executor";
 import { taskActionCommandUsage } from "@harness-anything/daemon/internal/protocol/daemon-protocol-commands";

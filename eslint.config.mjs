@@ -76,7 +76,7 @@ const kernelDeepImportPattern = {
 };
 
 const crossPackageRelativeSourcePattern = {
-  group: ["kernel", "daemon", "preset", "cli"].flatMap((packageName) =>
+  group: ["application", "kernel", "daemon", "preset", "cli"].flatMap((packageName) =>
     Array.from({ length: 6 }, (_, index) => `${"../".repeat(index + 1)}${packageName}/src/**`),
   ),
   message: "Import sibling workspaces through their package names instead of relative source paths.",
@@ -95,6 +95,11 @@ function noRestrictedKernelImportOptions(allowedPatterns = []) {
 
 function noRestrictedKernelImports(allowedPatterns = []) {
   return ["error", noRestrictedKernelImportOptions(allowedPatterns)];
+}
+
+function noRestrictedKernelAndCrossPackageImports(allowedPatterns = []) {
+  const kernelOptions = noRestrictedKernelImportOptions(allowedPatterns);
+  return ["error", { patterns: [...kernelOptions.patterns, crossPackageRelativeSourcePattern] }];
 }
 
 const physicalIoBoundaryMessage =
@@ -129,7 +134,7 @@ function noRestrictedKernelAndPhysicalIoImports() {
     "error",
     {
       paths: physicalIoRestrictedImportPaths,
-      patterns: kernelOptions.patterns,
+      patterns: [...kernelOptions.patterns, crossPackageRelativeSourcePattern],
     },
   ];
 }
@@ -215,7 +220,7 @@ const packageSyntaxRestrictions = [
 
 const crossPackageRelativeSourceSyntaxRestrictions = [
   {
-    selector: String.raw`ImportExpression[source.type='Literal'][source.value=/^(?:\.\.\/)+(?:kernel|daemon|preset|cli)\/src(?:\/|$)/u]`,
+    selector: String.raw`ImportExpression[source.type='Literal'][source.value=/^(?:\.\.\/)+(?:application|kernel|daemon|preset|cli)\/src(?:\/|$)/u]`,
     message: crossPackageRelativeSourcePattern.message,
   },
 ];
@@ -307,7 +312,7 @@ export default tseslint.config(
     rules: {
       // schema-closure/derived-contracts 门在无依赖上下文加载 daemon parser 图，不得触到 effect；根 barrel 经 disposition→sqlite-task-projection→session 触到 effect，故此纯模块单独放行。
       "no-restricted-imports": [
-        ...noRestrictedKernelImports([
+        ...noRestrictedKernelAndCrossPackageImports([
           "!**/kernel/src/domain",
           "!**/kernel/src/domain/contract-version.ts",
           "!**/kernel/src/daemon",
@@ -383,11 +388,19 @@ export default tseslint.config(
   {
     files: [
       "packages/cli/**/*.{ts,tsx,js,mjs}",
-      "packages/daemon/**/*.{ts,tsx,js,mjs}",
+      "packages/daemon/test/**/*.{ts,tsx,js,mjs}",
       "packages/preset/**/*.{ts,tsx,js,mjs}",
+      "packages/application/test/**/*.{ts,tsx,js,mjs}",
     ],
     rules: {
-      "no-restricted-imports": ["error", { patterns: [crossPackageRelativeSourcePattern] }],
+      "no-restricted-imports": [...noRestrictedKernelAndCrossPackageImports()],
+      "no-restricted-syntax": ["error", ...packageSyntaxRestrictions, ...crossPackageRelativeSourceSyntaxRestrictions],
+    },
+  },
+  {
+    files: ["packages/gui/test-support/**/*.{ts,tsx,js,mjs}"],
+    rules: {
+      "no-restricted-imports": [...noRestrictedKernelAndCrossPackageImports()],
       "no-restricted-syntax": ["error", ...packageSyntaxRestrictions, ...crossPackageRelativeSourceSyntaxRestrictions],
     },
   },

@@ -6,7 +6,13 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./internal/*": "./src/*.ts"
+    "./internal/preset-assets": "./src/preset-assets.ts",
+    "./internal/preset-command-contract": "./src/preset-command-contract.ts",
+    "./internal/preset-materialization": "./src/preset-materialization.ts",
+    "./internal/preset-resolver": "./src/preset-resolver.ts",
+    "./internal/preset-resolver-common": "./src/preset-resolver-common.ts",
+    "./internal/preset-resolver-types": "./src/preset-resolver-types.ts",
+    "./internal/preset-system": "./src/preset-system.ts"
   },
   "dependencies": {
     "@harness-anything/kernel": "0.0.1"

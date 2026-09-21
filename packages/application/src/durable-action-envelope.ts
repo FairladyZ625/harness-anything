@@ -5,7 +5,7 @@ import {
   type ActionEnvelope,
   type ActorIdentity,
   type EntityRef,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 /** Canonical composition used by every durable adapter after transport has bound the actor. */
 export function composeDurableActionEnvelope(input: {

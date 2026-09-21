@@ -4,7 +4,7 @@ import {
   type TaskProjection,
   type TaskReadSet,
   type TaskReadSetCounterpart,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 
 /** The read side this assembler needs; it writes nothing and takes no lease. */
 export type TaskReadSetProjection = Pick<TaskProjection, "read" | "readRelationQuery" | "readEntityVersionWitness">;

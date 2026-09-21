@@ -9,7 +9,7 @@ import {
   makeTaskEventStore,
   makeTaskProjection,
   type DecisionEventDraftV1,
-} from "../../kernel/src/index.ts";
+} from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { makeDecisionService, makeFactService } from "../src/index.ts";
 import { realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";

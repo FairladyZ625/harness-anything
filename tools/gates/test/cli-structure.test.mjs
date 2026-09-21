@@ -229,7 +229,14 @@ async function fixture() {
   write(
     root,
     "packages/daemon/package.json",
-    JSON.stringify({ name: "@harness-anything/daemon", exports: { "./internal/*": "./src/*.ts" } }),
+    JSON.stringify({
+      name: "@harness-anything/daemon",
+      exports: {
+        "./internal/client/local-daemon-target": "./src/client/local-daemon-target.ts",
+        "./internal/hidden": "./src/hidden.ts",
+        "./internal/protocol/daemon-protocol.contract": "./src/protocol/daemon-protocol.contract.ts",
+      },
+    }),
   );
   write(
     root,

@@ -17,7 +17,9 @@
     "access": "public",
     "exports": {
       ".": "./dist/cli/src/index.js",
-      "./internal/*": "./dist/cli/src/*.js"
+      "./internal/cli/receipt-render-registry": "./dist/cli/src/cli/receipt-render-registry.js",
+      "./internal/cli/thin-command": "./dist/cli/src/cli/thin-command.js",
+      "./internal/daemon/control": "./dist/cli/src/daemon/control.js"
     }
   },
   "engines": {
@@ -33,7 +35,9 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./internal/*": "./src/*.ts"
+    "./internal/cli/receipt-render-registry": "./src/cli/receipt-render-registry.ts",
+    "./internal/cli/thin-command": "./src/cli/thin-command.ts",
+    "./internal/daemon/control": "./src/daemon/control.ts"
   },
   "files": [
     "dist",
@@ -43,6 +47,7 @@
   "dependencies": {
     "@effect/experimental": "0.60.0",
     "@effect/platform": "0.96.2",
+    "@harness-anything/application": "0.0.1",
     "@harness-anything/daemon": "0.0.1",
     "@harness-anything/kernel": "0.0.1",
     "@harness-anything/preset": "0.0.1",

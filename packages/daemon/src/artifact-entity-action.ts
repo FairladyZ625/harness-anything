@@ -8,7 +8,7 @@ import {
   readArtifactDescriptor,
   type ArtifactEntityCurrent,
   type ArtifactSourceResolution,
-} from "../../application/src/index.ts";
+} from "@harness-anything/application";
 import {
   compiledRelationDirections,
   artifactEntityContractSnapshot,

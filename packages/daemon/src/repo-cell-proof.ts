@@ -1,4 +1,4 @@
-import { type TaskLifecycleServiceProof } from "../../application/src/task-lifecycle-service.ts";
+import { type TaskLifecycleServiceProof } from "@harness-anything/application/internal/task-lifecycle-service";
 import {
   canonicalGateReceipts,
   codeDocRecordId,

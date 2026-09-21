@@ -3,5 +3,15 @@
   "version": "0.0.1",
   "private": true,
   "license": "AGPL-3.0-or-later",
-  "type": "module"
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./internal/artifact-entity-service": "./src/artifact-entity-service.ts",
+    "./internal/durable-action-envelope": "./src/durable-action-envelope.ts",
+    "./internal/task-action-explanation-service": "./src/task-action-explanation-service.ts",
+    "./internal/task-lifecycle-service": "./src/task-lifecycle-service.ts"
+  },
+  "dependencies": {
+    "@harness-anything/kernel": "0.0.1"
+  }
 }

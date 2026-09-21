@@ -1,5 +1,5 @@
 import type { SquadControlResult } from "./squad-control-result.ts";
-import { makeTaskLifecycleService } from "../../application/src/task-lifecycle-service.ts";
+import { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
 import {
   type ActorIdentity,
   type AgentRuntimeEventV1,

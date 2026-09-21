@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { makeDecisionService, makeFactService, type ArtifactSourceResolution } from "../../application/src/index.ts";
+import { makeDecisionService, makeFactService, type ArtifactSourceResolution } from "@harness-anything/application";
 import {
   compileEntityUpsert,
   compileEntityDeleted,
