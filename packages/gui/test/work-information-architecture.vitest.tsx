@@ -152,6 +152,14 @@ describe("work information architecture", () => {
       act(() => button.click());
     }
     expect(calls).toBe(2);
+    // compact 供侧栏那种窄容器用:去掉文字,但边框与正文对比度保留——找不到它的原因
+    // 是淡色无边框,不是没有文字。
+    act(() => root.render(<PinButton pinned compact testId="pin" onClick={() => calls++} />));
+    const compact = host.querySelector("button")!;
+    expect(compact.textContent).toBe("");
+    expect(compact.getAttribute("aria-label")).toBe("解除置顶");
+    expect(compact.className).toContain("border-border");
+    expect(compact.className).not.toContain("text-text-faint");
     act(() => root.unmount());
   });
 });

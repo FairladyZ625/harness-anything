@@ -157,6 +157,7 @@ export function AppSidebar({
                   testId={`sidebar-unpin-${item.taskId}`}
                   onClick={() => onUnpinWork(item.taskId)}
                   pinned
+                  compact
                   label={`解除置顶:${item.title}`}
                 />
               </div>
