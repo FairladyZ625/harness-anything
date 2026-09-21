@@ -37,7 +37,11 @@ export function createUnixSocketTransportServer(options: UnixSocketTransportOpti
     // Windows endpoints are named pipes, which have no filesystem owner to
     // stat: statSync raises EBUSY on \\.\pipe\*. Fall back to the process uid,
     // the convention defaultUnixSocketPath already uses where getuid is absent.
-    const ownerUid = process.platform === "win32" ? (process.getuid?.() ?? 0) : statSync(endpoint).uid;
+    // BigInt stats keep the socket's type out of the shared numeric stat buffer,
+    // which Node's realpath cache reads to stop ancestor resolution early. The
+    // boundary stays a number: only the read form changes, not the uid's type.
+    const ownerUid =
+      process.platform === "win32" ? (process.getuid?.() ?? 0) : Number(statSync(endpoint, { bigint: true }).uid);
     const authContext: DaemonAuthenticationContext = {
       transportKind: "unix-socket",
       endpoint,
