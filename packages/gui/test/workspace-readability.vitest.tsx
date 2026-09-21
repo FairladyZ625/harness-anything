@@ -112,7 +112,7 @@ const relations: RelationEdge[] = [
   },
 ];
 
-function render(): string {
+function render(inspect?: (host: HTMLDivElement) => void): string {
   const host = document.createElement("div"),
     root = createRoot(host);
   act(() =>
@@ -131,6 +131,7 @@ function render(): string {
     ),
   );
   act(() => (host.querySelector("#workspace-tab-evidence") as HTMLButtonElement).click());
+  inspect?.(host);
   const html = host.innerHTML;
   act(() => root.unmount());
   return html;
@@ -160,14 +161,50 @@ function classesAround(html: string, text: string): string {
 }
 
 describe("workspace readability under real ledger shapes", () => {
-  it("keeps a long unbroken run inside its own evidence column", () => {
+  it("groups dates in the same selected time zone as event times", () => {
+    localStorage.setItem("harness:gui:time-zone", "Asia/Taipei");
+    try {
+      FEED_EVENTS.length = 0;
+      FEED_EVENTS.push(
+        { ...event("execution_submitted", null), key: "a", at: "2026-09-20T23:00:00.000Z" },
+        { ...event("execution_submitted", null), key: "b", at: "2026-09-21T01:00:00.000Z" },
+      );
+      render((host) => {
+        const days = host.querySelectorAll('section[aria-labelledby="workspace-history"] li > p');
+        expect(days).toHaveLength(1);
+        expect(days[0]!.textContent).toBe("2026-09-21");
+      });
+    } finally {
+      localStorage.removeItem("harness:gui:time-zone");
+    }
+  });
+  it("keeps all window events reachable in bounded pages", () => {
+    FEED_EVENTS.length = 0;
+    FEED_EVENTS.push(
+      ...Array.from({ length: 85 }, (_, i) => ({ ...event("execution_submitted", `record-${i}`), key: `event-${i}` })),
+    );
+    render((host) => {
+      const history = host.querySelector('section[aria-labelledby="workspace-history"]')!;
+      expect(history.querySelectorAll("li")).toHaveLength(40);
+      expect(history.textContent).toContain("record-84");
+      const next = history.querySelector<HTMLButtonElement>("nav button:last-child")!;
+      act(() => next.click());
+      expect(history.querySelectorAll("li")).toHaveLength(40);
+      expect(history.textContent).toContain("record-44");
+      act(() => next.click());
+      expect(history.querySelectorAll("li")).toHaveLength(5);
+      expect(history.textContent).toContain("record-0");
+      expect(next.disabled).toBe(true);
+    });
+  });
+
+  it("keeps full evidence readable on demand without three long columns", () => {
     FEED_EVENTS.length = 0;
     const html = render(),
       factClasses = classesAround(html, LONG_RUN);
-    // 三列容器与列本身都收窄,长串所在的按钮是块级满宽 + 可断行。
-    expect(html).toContain('class="mt-3 grid min-w-0 gap-4 md:grid-cols-3"');
-    expect(factClasses).toContain("block");
-    expect(factClasses).toContain("w-full");
+    expect(html).toContain('class="mt-3 min-w-0 space-y-2"');
+    expect(html).toContain("事实 · 1");
+    expect(html).toContain("打开来源");
     expect(factClasses).toContain("break-words");
   });
 

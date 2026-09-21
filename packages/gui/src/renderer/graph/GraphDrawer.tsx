@@ -1,4 +1,5 @@
-import { X, GitBranch, ArrowSquareOut, ArrowsOutSimple, PushPin } from "@phosphor-icons/react";
+import { PinButton } from "../components/PinButton.tsx";
+import { X, GitBranch, ArrowSquareOut, ArrowsOutSimple } from "@phosphor-icons/react";
 import type { RelationEdge, TaskRow } from "../model/types";
 import { StatusBadge, CloseoutBadge, EngineBadge, FreshnessTag } from "../components/badges";
 import { isExternal } from "../model/types";
@@ -44,7 +45,7 @@ export function GraphDrawer({
         data-testid="graph-detail-drawer"
         className="flex w-[26rem] shrink-0 flex-col overflow-y-auto border-l border-border bg-surface"
       >
-        <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2.5">
           <GitBranch weight="duotone" className="shrink-0 text-text-muted" />
           <span className="font-mono text-xs text-text-muted">{t("graph.graphDrawer.edgeRelation")}</span>
           <span className="rounded bg-surface-raised px-1.5 py-0.5 ui-micro text-text-faint">{focusEdge.kind}</span>
@@ -119,7 +120,7 @@ export function GraphDrawer({
       data-testid="graph-detail-drawer"
       className="flex w-[26rem] shrink-0 flex-col overflow-y-auto border-l border-border bg-surface"
     >
-      <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
+      <div className="flex flex-wrap items-center gap-2 border-b border-border px-3 py-2.5">
         <GitBranch weight="duotone" className="shrink-0 text-text-muted" />
         <EntityRefLink
           entityRef={focusNode.entity === "task" ? `task/${focusNode.id}` : focusNode.id}
@@ -139,18 +140,11 @@ export function GraphDrawer({
           </button>
         )}
         {focusTask && onSetTaskPin && (
-          <button
-            type="button"
-            data-testid={`graph-drawer-pin-toggle-${focusTask.taskId}`}
+          <PinButton
+            testId={`graph-drawer-pin-toggle-${focusTask.taskId}`}
             onClick={() => onSetTaskPin(focusTask, focusTask.pinned !== true)}
-            aria-pressed={focusTask.pinned === true}
-            title={focusTask.pinned === true ? "解除 pin" : "Pin(今天当前在做)"}
-            className={`grid size-6 place-items-center rounded hover:bg-surface-raised ${
-              focusTask.pinned === true ? "text-accent" : "text-text-faint hover:text-text"
-            }`}
-          >
-            <PushPin weight={focusTask.pinned === true ? "fill" : "bold"} />
-          </button>
+            pinned={focusTask.pinned === true}
+          />
         )}
         <button
           onClick={onClose}

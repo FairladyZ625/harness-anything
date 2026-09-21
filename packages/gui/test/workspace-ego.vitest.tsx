@@ -166,6 +166,8 @@ it("hands the shared drawer its pin toggle, so the workspace canvas offers the s
   await act(async () => host.querySelector<HTMLButtonElement>("#workspace-tab-relations")!.click());
   const toggle = host.querySelector<HTMLButtonElement>('[data-testid="graph-drawer-pin-toggle-root"]');
   expect(toggle).not.toBeNull();
+  expect(toggle!.textContent).toBe("置顶");
+  expect(toggle!.querySelector("svg")).not.toBeNull();
   await act(async () => toggle!.click());
   expect(setPin).toHaveBeenCalledWith(expect.objectContaining({ taskId: "root" }), true);
   await act(async () => root.unmount());
