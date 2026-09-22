@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { execFileSync, spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { devNull, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { classifyRuntimeExit } from "../src/runtime-provider-fault.ts";
@@ -577,8 +577,12 @@ function workerSettlementContext(
 }
 
 function git(root: string, ...args: string[]): string {
-  // Fixture pushes to main are harness-side git, not a task-bound worker push the wrapper refuses.
-  const env = { ...process.env };
+  // Fixture pushes to main are harness-side git, not a task-bound worker push the wrapper
+  // refuses. A task-bound host injects GIT_AUTHOR_*/GIT_COMMITTER_* and its own git config;
+  // env beats both repo config and -c flags, so the fixture must not inherit either.
+  const env = { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull };
+  for (const name of ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"])
+    delete env[name];
   delete env.HARNESS_TASK_BOUND;
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", env });
 }
