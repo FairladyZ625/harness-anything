@@ -236,7 +236,7 @@ test("GUI launch refuses a GUI package whose preload bundle is missing", async (
         {
           guiPackageRoot: fixture.root,
           resolveElectronRuntime: () => ({ binary: "/electron", remedy: "unused" }),
-          spawnProcess: () => {
+          startDetached: () => {
             throw new Error("a GUI without its preload bridge must never be launched");
           },
         },
@@ -269,7 +269,7 @@ test("GUI launch refuses a GUI package whose bundled main process is missing", a
         {
           guiPackageRoot: fixture.root,
           resolveElectronRuntime: () => ({ binary: "/electron", remedy: "unused" }),
-          spawnProcess: () => {
+          startDetached: () => {
             throw new Error("a GUI without its packaged main process must never be launched");
           },
         },
@@ -287,11 +287,18 @@ test("GUI launch refuses a GUI package whose bundled main process is missing", a
 
 test("GUI launch acquires the daemon then starts Electron detached without a dev renderer", async () => {
   const fixture = makeGuiFixture(),
-    calls: Array<{ args: string[]; options: Record<string, unknown> }> = [];
+    userRoot = mkdtempSync(path.join(tmpdir(), "ha-gui-launch-user-")),
+    calls: Array<{
+      command: string;
+      args: readonly string[];
+      env: NodeJS.ProcessEnv;
+      outputPath?: string;
+      cwd?: string;
+    }> = [];
   try {
     process.env.ELECTRON_RENDERER_URL = "http://127.0.0.1:5173";
     process.env.ELECTRON_RUN_AS_NODE = "1";
-    let unrefs = 0;
+    process.env.HARNESS_DAEMON_USER_ROOT = userRoot;
     const output = await captureGuiOutput(() =>
       runGuiLaunch(
         ["gui", "--json"],
@@ -302,16 +309,9 @@ test("GUI launch acquires the daemon then starts Electron detached without a dev
             assert.equal(invokingRoot, process.cwd(), "daemon autostart must be rooted at the workspace being opened");
             return { ok: true, hint: "daemon is reachable", attempts: 0 };
           },
-          spawnProcess: (command, args, options) => {
-            void command;
-            calls.push({ args, options: options as Record<string, unknown> });
-            return {
-              pid: 42,
-              on() {},
-              unref() {
-                unrefs += 1;
-              },
-            } as unknown as ReturnType<NonNullable<GuiLaunchDependencies["spawnProcess"]>>;
+          startDetached: (command, args, env, outputPath, cwd) => {
+            calls.push({ command, args, env, outputPath, cwd });
+            return { pid: 42, on() {} } as unknown as ReturnType<NonNullable<GuiLaunchDependencies["startDetached"]>>;
           },
         },
         emit,
@@ -323,6 +323,8 @@ test("GUI launch acquires the daemon then starts Electron detached without a dev
       outcome: string;
       ok: boolean;
       pid: number;
+      log: string;
+      summary: string;
     };
     assert.equal(output.status, 0);
     assert.equal(receipt.schema, "command-receipt/v2");
@@ -330,13 +332,21 @@ test("GUI launch acquires the daemon then starts Electron detached without a dev
     assert.equal(receipt.outcome, "applied");
     assert.equal(receipt.ok, true);
     assert.equal(receipt.pid, 42);
+    assert.equal(calls[0]?.command, "/electron");
     assert.deepEqual(calls[0]?.args, [path.join(fixture.root, "dist-electron/electron-main.js")]);
-    assert.equal(calls[0]?.options.detached, true);
-    assert.equal(calls[0]?.options.stdio, "ignore");
-    assert.equal(calls[0]?.options.windowsHide, true);
-    assert.equal(calls[0]?.options.cwd, fixture.root, "the shell must run from the GUI package it resolved");
-    assert.equal(unrefs, 1, "a detached launch must be unreferenced or the CLI never exits");
-    const spawnedEnv = calls[0]?.options.env as NodeJS.ProcessEnv;
+    const logPath = path.join(userRoot, "logs", "gui-default.log");
+    assert.equal(
+      calls[0]?.outputPath,
+      logPath,
+      "the shell's stdout/stderr must be wired to a log file instead of being discarded",
+    );
+    assert.equal(calls[0]?.cwd, fixture.root, "the shell must run from the GUI package it resolved");
+    assert.equal(receipt.log, logPath, "the receipt must point the user at the startup log");
+    assert.ok(
+      receipt.summary.includes(logPath),
+      "the human-readable summary must name the log path so startup failures are diagnosable",
+    );
+    const spawnedEnv = calls[0]?.env as NodeJS.ProcessEnv;
     assert.equal(
       spawnedEnv.ELECTRON_RENDERER_URL,
       undefined,
@@ -347,7 +357,9 @@ test("GUI launch acquires the daemon then starts Electron detached without a dev
   } finally {
     delete process.env.ELECTRON_RENDERER_URL;
     delete process.env.ELECTRON_RUN_AS_NODE;
+    delete process.env.HARNESS_DAEMON_USER_ROOT;
     rmSync(fixture.root, { recursive: true, force: true });
+    rmSync(userRoot, { recursive: true, force: true });
   }
 });
 
@@ -363,10 +375,8 @@ test("GUI launch rejects when the spawned Electron never yields a pid", async ()
           guiPackageRoot: fixture.root,
           resolveElectronRuntime: () => ({ binary: "/nonexistent-electron", remedy: "unused" }),
           ensureDaemon: async () => ({ ok: true, hint: "daemon is reachable", attempts: 0 }),
-          spawnProcess: () =>
-            ({ pid: undefined, on() {}, unref() {} }) as unknown as ReturnType<
-              NonNullable<GuiLaunchDependencies["spawnProcess"]>
-            >,
+          startDetached: () =>
+            ({ pid: undefined, on() {} }) as unknown as ReturnType<NonNullable<GuiLaunchDependencies["startDetached"]>>,
         },
         emit,
       ),
@@ -396,7 +406,7 @@ test("GUI launch does not spawn Electron when CLI daemon acquisition is refused"
             hint: "fixture canonical-only refusal",
             attempts: 0,
           }),
-          spawnProcess: () => {
+          startDetached: () => {
             electronSpawns += 1;
             throw new Error("daemon refusal must prevent Electron launch");
           },

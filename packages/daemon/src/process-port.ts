@@ -3,6 +3,7 @@ import {
   /* @gate-identity check-sync-subprocess/sync-subprocess-008 */
   execFileSync,
   spawn,
+  type ChildProcess,
 } from "node:child_process";
 import { closeDaemonOutputFd, openDaemonOutputFd } from "./lifecycle-log.ts";
 
@@ -10,13 +11,15 @@ import { closeDaemonOutputFd, openDaemonOutputFd } from "./lifecycle-log.ts";
 export const posixShellFallback = "/bin/sh";
 
 export const detachedProcessOptions = Object.freeze({ detached: true, stdio: "ignore" as const, windowsHide: true });
+// The child is returned (not awaited) because fire-and-forget callers such as the `ha gui`
+// launcher read its pid synchronously to fill their launch receipt.
 export function startDetachedProcess(
   command: string,
   args: readonly string[],
   env: NodeJS.ProcessEnv,
   outputPath?: string,
   cwd?: string,
-): void {
+): ChildProcess {
   const outputFd = outputPath ? openDaemonOutputFd(outputPath) : null;
   try {
     const child = spawn(command, [...args], {
@@ -32,6 +35,7 @@ export function startDetachedProcess(
       if (outputFd !== null) closeDaemonOutputFd(outputFd);
     });
     child.unref();
+    return child;
   } catch (error) {
     if (outputFd !== null) closeDaemonOutputFd(outputFd);
     throw error;

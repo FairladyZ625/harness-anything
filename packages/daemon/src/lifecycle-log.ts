@@ -83,6 +83,11 @@ export function daemonStdioLogPath(userRoot: string, daemonId: string): string {
   return path.join(userRoot, "logs", `daemon-${safeLifecycleRuntimeId(daemonId)}.log`);
 }
 
+/** Raw stdout/stderr of a `ha gui`-launched desktop shell; same sink convention as the daemon's. */
+export function guiStdioLogPath(userRoot: string, daemonId: string): string {
+  return path.join(userRoot, "logs", `gui-${safeLifecycleRuntimeId(daemonId)}.log`);
+}
+
 export function openDaemonLifecycleLog(input: {
   readonly userRoot: string;
   readonly daemonId: string;
