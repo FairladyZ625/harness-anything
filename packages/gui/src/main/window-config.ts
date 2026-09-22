@@ -115,6 +115,16 @@ export function packagedRendererIndexPath(fromUrl: string = import.meta.url): st
   return path.join(resolveGuiPackageRoot(fromUrl), "dist/index.html");
 }
 
+/**
+ * 应用图标(icons/icon.png)与渲染层入口同源:都是随 npm 包发出的成品文件,定位一律
+ * 走 resolveGuiPackageRoot,对 dev 与打包两个入口深度同时成立。macOS 侧 Dock 瓦片
+ * 属通用 Electron bundle(task_e07b30fd 阶段一实测),运行期唯一通路是
+ * app.dock.setIcon;同一文件兼作 Windows/Linux 的窗口图标(BrowserWindow icon)。
+ */
+export function appIconPath(fromUrl: string = import.meta.url): string {
+  return path.join(resolveGuiPackageRoot(fromUrl), "icons/icon.png");
+}
+
 export function createPackagedRendererUrl(fromUrl: string = import.meta.url): string {
   return pathToFileURL(packagedRendererIndexPath(fromUrl)).href;
 }

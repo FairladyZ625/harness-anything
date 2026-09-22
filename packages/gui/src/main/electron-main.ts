@@ -30,6 +30,7 @@ import {
   type IpcWebContentsTrustPolicy,
 } from "./security-policy.ts";
 import {
+  appIconPath,
   assertDevRendererUrl,
   createGuiContentSecurityPolicy,
   createPackagedRendererUrl,
@@ -50,6 +51,8 @@ export function createMainWindow(): BrowserWindow {
   const packagedRendererUrl = createPackagedRendererUrl();
   const mainWindow = new BrowserWindow({
     title: "Harness Anything",
+    // 只作用于 Windows/Linux 的窗口与任务栏图标;macOS Dock 走上面的 app.dock.setIcon。
+    icon: appIconPath(),
     width: 1440,
     height: 920,
     minWidth: 1120,
@@ -177,6 +180,9 @@ function installHtmlArtifactWebviewPolicy(mainWindow: BrowserWindow): void {
 export async function startGuiApp(): Promise<void> {
   await app.whenReady();
   if (process.platform === "darwin") {
+    // npm 通路跑的是通用 Electron bundle,Dock 瓦片默认是它的 electron.icns;
+    // 运行期只有 app.dock.setIcon 换得动(task_e07b30fd 阶段一三探针实测)。
+    app.dock?.setIcon(appIconPath());
     const template: MenuItemConstructorOptions[] = [
       { role: "appMenu" },
       { role: "editMenu" },
