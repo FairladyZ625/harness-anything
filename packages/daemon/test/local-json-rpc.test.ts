@@ -113,9 +113,25 @@ test("a reused connection keeps its socket listener counts flat across read roun
 });
 
 test("a round whose deadline expired does not poison the next round on the same connection", async () => {
-  const server = await lineServer((request, reply) =>
-    setTimeout(() => reply({ ok: true, echo: request.method }), request.method === "stalled" ? 120 : 1),
-  );
+  // The stalled reply is parked server-side until the next request arrives, then written ahead of
+  // that request's own reply on the same ordered socket — so once "prompt" resolves, the late
+  // response has provably arrived and been dropped. A fixed sleep only made that likely: on a slow
+  // machine the assertion could pass before the stale line ever landed, which is a false green.
+  let releaseStalled: (() => void) | null = null,
+    staleWritten = false;
+  const server = await lineServer((request, reply) => {
+    if (request.method === "stalled") {
+      releaseStalled = () => {
+        staleWritten = true;
+        reply({ ok: true, echo: "stalled" });
+      };
+      return;
+    }
+    const release = releaseStalled;
+    releaseStalled = null;
+    release?.();
+    reply({ ok: true, echo: request.method });
+  });
   try {
     const socket = await connectSocket(server.socketPath, 2_000),
       client = new JsonRpcLineClient(socket, socket);
@@ -125,8 +141,12 @@ test("a round whose deadline expired does not poison the next round on the same 
         () => client.request("stalled", {}, 25),
         (error: unknown) => (error as { readonly code?: string }).code === "daemon_response_timeout",
       );
-      await new Promise((resolve) => setTimeout(resolve, 200)); // the late response lands and must be dropped
       const next = await client.request("prompt", { round: 2 }, 5_000);
+      assert.equal(
+        staleWritten,
+        true,
+        "the late response must have been written ahead of the next reply on the same socket",
+      );
       assert.deepEqual(
         next,
         { ok: true, echo: "prompt" },
