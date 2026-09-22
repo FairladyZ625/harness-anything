@@ -731,7 +731,8 @@ function decisionAuthorization(
   )
     reject(
       "actor_unauthorized",
-      "An agent cannot judge its own Decision proposal; use an independent reviewer " +
+      "An agent cannot judge its own Decision proposal; use decision-arbiter-primary or " +
+        "decision-arbiter-secondary as an independent reviewer, " +
         "or record explicit human approval with decision accept --consent-by, --consent-at, and --consent-channel.",
     );
   return authorizationDecision;

@@ -57,6 +57,7 @@ test("Decision outcomes reject self-judgment and accept an independent reviewer"
       { outcome: denied.outcome, code: denied.code },
       { outcome: "op_rejected", code: "actor_unauthorized" },
     );
+    assert.match(String(denied.rejectionExplanation), /decision-arbiter-primary or decision-arbiter-secondary/u);
     const accepted = await cell.run(
       {
         kind: "decision-accept",
