@@ -20,6 +20,7 @@
   "files": [
     "dist",
     "dist-electron",
+    "icons",
     "README.md",
     "package.json"
   ],
