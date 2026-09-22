@@ -1,3 +1,7 @@
+import { createRequire } from "node:module";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+
 export interface GuiWebPreferences {
   readonly nodeIntegration: false;
   readonly contextIsolation: true;
@@ -93,8 +97,26 @@ export function assertDevRendererUrl(url: string): true {
   return true;
 }
 
-export function createPackagedRendererUrl(): string {
-  return new URL("../renderer/index.html", import.meta.url).href;
+/**
+ * 包根由包自身的清单身份决定,**不由入口文件的目录深度决定**。主进程有两个深度不同
+ * 的支持入口 —— dev 态是 `<pkg>/src/main/electron-main.ts`,npm 通路是打包出的
+ * `<pkg>/dist-electron/electron-main.js` —— 所以任何写死的 `../..` 只能对其中一个
+ * 成立。写死的那一版让 npm 通路把 preload 与渲染层双双解析到 `packages/` 下不存在的
+ * 路径,窗口开得出来、标题还是对的,内容全白(task_7e816153)。Node 自己的包作用域
+ * 解析对两个位置都成立,这里因此不再数目录层级。
+ *
+ * `fromUrl` 只为可测性存在:生产调用一律用缺省值,测试注入两个入口位置各验一次。
+ */
+export function resolveGuiPackageRoot(fromUrl: string = import.meta.url): string {
+  return path.dirname(createRequire(fromUrl).resolve("@harness-anything/gui/package.json"));
+}
+
+export function packagedRendererIndexPath(fromUrl: string = import.meta.url): string {
+  return path.join(resolveGuiPackageRoot(fromUrl), "dist/index.html");
+}
+
+export function createPackagedRendererUrl(fromUrl: string = import.meta.url): string {
+  return pathToFileURL(packagedRendererIndexPath(fromUrl)).href;
 }
 
 export function isTrustedRendererUrl(url: string, options: TrustedRendererUrlOptions = {}): boolean {
