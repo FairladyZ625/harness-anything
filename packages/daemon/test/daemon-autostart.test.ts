@@ -16,7 +16,7 @@ import {
   type DaemonLaunchSpec,
 } from "../src/client/daemon-autostart.ts";
 import { daemonStdioLogPath, openDaemonLifecycleLog } from "../src/lifecycle-log.ts";
-import { startDetachedProcessChecked } from "../src/process-port.ts";
+import { startDetachedProcess, startDetachedProcessChecked } from "../src/process-port.ts";
 import { daemonSingletonLockPath } from "../src/daemon-singleton.ts";
 import { canonicalPath } from "../src/runtime-worker-push.ts";
 
@@ -404,6 +404,30 @@ test("detached stdout, stderr, and a fatal stack land in the daemon output log",
     assert.match(output, /stderr witness/u);
     assert.match(output, /Error: fatal witness/u);
     assert.match(output, new RegExp(`cwd witness ${escapeRegExp(realpathSync.native(root))}`, "u"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+// Fire-and-forget callers (the `ha gui` shell launcher) read the pid from the returned child to
+// fill their launch receipt, so the unchecked variant must hand the child back, not just void.
+test("startDetachedProcess returns the child whose output lands in the output log", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-detached-return-")),
+    outputPath = path.join(root, "gui.log");
+  try {
+    const child = startDetachedProcess(
+      process.execPath,
+      ["-e", "console.error('stderr witness'); throw new Error('fatal witness')"],
+      process.env,
+      outputPath,
+      root,
+    );
+    assert.ok(Number.isInteger(child.pid), "the launcher receipt reads the pid synchronously after spawn");
+    for (let attempt = 0; attempt < 100 && !readFileSync(outputPath, "utf8").includes("fatal witness"); attempt += 1)
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    const output = readFileSync(outputPath, "utf8");
+    assert.match(output, /stderr witness/u);
+    assert.match(output, /Error: fatal witness/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

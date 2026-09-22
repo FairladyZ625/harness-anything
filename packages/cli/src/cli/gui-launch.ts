@@ -1,9 +1,10 @@
-import { spawn, type ChildProcess, type SpawnOptions } from "node:child_process";
 import { accessSync, constants, existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import type { DaemonAutostartResult } from "@harness-anything/daemon/internal/client/daemon-autostart";
-import { detachedProcessOptions } from "@harness-anything/daemon/internal/process-port";
+import { daemonIdFromEnv, daemonUserRoot } from "@harness-anything/daemon/internal/client/local-daemon-target";
+import { guiStdioLogPath } from "@harness-anything/daemon/internal/lifecycle-log";
+import { startDetachedProcess } from "@harness-anything/daemon/internal/process-port";
 import { cliErrorMessage } from "../cli-error.ts";
 import { cliFailure } from "../cli-meta.ts";
 import { consumeKnownError } from "../daemon/client.ts";
@@ -18,7 +19,7 @@ export interface GuiElectronRuntime {
 }
 export interface GuiLaunchDependencies {
   readonly resolveElectronRuntime?: (guiPackageRoot: string) => GuiElectronRuntime;
-  readonly spawnProcess?: (command: string, args: string[], options: SpawnOptions) => ChildProcess;
+  readonly startDetached?: typeof startDetachedProcess;
   readonly ensureDaemon?: (invokingRoot: string) => Promise<DaemonAutostartResult>;
   readonly guiPackageRoot?: string;
   readonly startBrowserBroker?: (guiPackageRoot: string, rootDir: string) => Promise<BrowserGuiBroker>;
@@ -82,11 +83,14 @@ export async function runGuiLaunch(
       await (dependencies.waitForBrowserClose ?? waitForBrowserClose)(broker);
       return 0;
     }
-    const child = (dependencies.spawnProcess ?? spawn)(electronRuntime!.binary!, [mainBundle], {
-      cwd: guiPackageRoot,
-      ...detachedProcessOptions,
-      env: guiLaunchEnvironment(launch.rootDir),
-    });
+    const logPath = guiStdioLogPath(daemonUserRoot(), daemonIdFromEnv());
+    const child = (dependencies.startDetached ?? startDetachedProcess)(
+      electronRuntime!.binary!,
+      [mainBundle],
+      guiLaunchEnvironment(launch.rootDir),
+      logPath,
+      guiPackageRoot,
+    );
     child.on?.("error", consumeKnownError);
     if (child.pid === undefined)
       return reject(
@@ -94,13 +98,13 @@ export async function runGuiLaunch(
         `Electron at ${electronRuntime!.binary} could not be started. Re-run its installer ` +
           `(\`node ${electronRuntime!.installScript}\`), then retry \`ha gui\`.`,
       );
-    child.unref();
     return finish(
       {
         ok: true,
         command: "gui",
         pid: child.pid,
-        summary: `Harness Anything GUI launched (pid ${child.pid}) for ${launch.rootDir}.`,
+        log: logPath,
+        summary: `Harness Anything GUI launched (pid ${child.pid}) for ${launch.rootDir}; logs: ${logPath}`,
       },
       0,
     );
