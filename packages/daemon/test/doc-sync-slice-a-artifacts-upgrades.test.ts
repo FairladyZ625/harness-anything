@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -419,7 +419,7 @@ test("amending the title retitles the published plan through the typed route and
   }
 });
 
-test("a no-op title amend heals a plan whose canonical base still holds the pre-amend H1", async () => {
+test("a legacy-drifted plan heals via doc sync and a title amend refuses until the body is synced", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-amend-noop-"));
   initRepo(rootDir);
   const repoId = workspaceId("amend-noop"),
@@ -502,6 +502,23 @@ test("a no-op title amend heals a plan whose canonical base still holds the pre-
     writeFileSync(target, workerBody);
     const authored = await cell.run({ kind: "doc-status", paths: [plan] }, binding);
     assert.equal(rows(authored.evidence)[0]?.state, "eligible", JSON.stringify(authored));
+    // The fail-closed amend contract: an unsynced plan body is never displaced by a title amend,
+    // so the drift heals through doc sync first — the eligible body becomes the canonical base.
+    const refused = (await cell.run(
+      {
+        kind: "task-amend",
+        taskId,
+        patches: [{ field: "title", value: secondTitle }],
+      },
+      binding,
+    )) as { outcome?: string; code?: string; rejectionExplanation?: string };
+    assert.equal(refused.outcome, "op_rejected", JSON.stringify(refused));
+    assert.equal(refused.code, "plan_local_modified");
+    assert.match(String(refused.rejectionExplanation), /ha doc sync --submit/u);
+    assert.equal(readFileSync(target, "utf8"), workerBody);
+    assert.equal(existsSync(path.join(rootDir, ".harness/conflicts/doc-sync")), false);
+    const synced = await cell.run({ kind: "doc-submit", paths: [plan] }, binding);
+    assert.equal(synced.outcome, "applied", JSON.stringify(synced));
     const noop = (await cell.run(
       {
         kind: "task-amend",
@@ -509,23 +526,12 @@ test("a no-op title amend heals a plan whose canonical base still holds the pre-
         patches: [{ field: "title", value: secondTitle }],
       },
       binding,
-    )) as { outcome?: string; opId: string; changedPaths?: readonly string[] };
+    )) as { outcome?: string; opId: string };
     assert.equal(noop.outcome, "applied", JSON.stringify(noop));
-    assert.ok(
-      noop.changedPaths?.includes(plan),
-      `no-op amend must retitle the plan: ${JSON.stringify(noop.changedPaths)}`,
-    );
     await waitForFixturePublication(cell, noop.opId, binding);
-    // The typed settle preserves the unmerged worker edit in bounded local conflict storage and lays down the
-    // retitled base; merging the stored bytes back by hand restores the worker body on the fresh base.
-    const conflictRoot = path.join(rootDir, ".harness/conflicts/doc-sync"),
-      scratches = readdirSync(conflictRoot).filter((name) => /^doc-[0-9a-f]{64}$/u.test(name));
-    assert.equal(scratches.length, 1, `expected one conflict record, found ${JSON.stringify(scratches)}`);
-    writeFileSync(target, workerBody);
-    rmSync(path.join(conflictRoot, scratches[0]!), { recursive: true });
+    assert.equal(readFileSync(target, "utf8"), workerBody);
     const healed = await cell.run({ kind: "doc-status", paths: [plan] }, binding);
-    assert.equal(rows(healed.evidence)[0]?.state, "eligible", JSON.stringify(healed));
-    assert.equal((await cell.run({ kind: "doc-submit", paths: [plan] }, binding)).outcome, "applied");
+    assert.equal(rows(healed.evidence)[0]?.state, "clean", JSON.stringify(healed));
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

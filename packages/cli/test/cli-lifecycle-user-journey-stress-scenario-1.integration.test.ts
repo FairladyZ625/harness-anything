@@ -7,7 +7,6 @@ const {
   existsSync,
   mkdirSync,
   readFileSync,
-  readdirSync,
   rmSync,
   writeFileSync,
   path,
@@ -430,7 +429,7 @@ test("CLI writes stay accepted while a stale authored ref lock keeps Git publica
   }
 });
 
-test("a locally edited task plan becomes a CLI doc conflict that the conflict command recovers", async (context) => {
+test("a locally edited task plan blocks a CLI retitle until doc sync submits the drift", async (context) => {
   const fixture = setup(12),
     taskId = "task-cli-doc-conflict",
     title = "CLI doc conflict recovery",
@@ -451,80 +450,47 @@ test("a locally edited task plan becomes a CLI doc conflict that the conflict co
       environment,
     );
     // Unsubmitted local worker prose: the authored copy now diverges from the published cut.
-    const drift = "## Drift\n\nUnsubmitted worker prose written before the center retitled the plan.\n",
+    const drift = "## Drift\n\nUnsubmitted worker prose written before the center retitles the plan.\n",
       driftedBody = `${readFileSync(planPath, "utf8")}\n${drift}`;
     writeFileSync(planPath, driftedBody);
     const eligible = await expectApplied(fixture, ["doc", "status", "--path", planLogical], environment);
     assert.equal(docScanRows(eligible.evidence)[0]?.state, "eligible", String(eligible.evidence));
-    // The center rewrites the same authored document while the local copy is dirty.
-    const amended = await expectApplied(fixture, ["task", "amend", taskId, "--set", `title:${renamed}`], environment);
-    assert.equal(amended.status, "accepted_durable", JSON.stringify(amended));
-    // The dirty plan keeps worktree_visible unsatisfied; the Git cut is the follower run that writes the scratch.
-    await published(fixture, amended, environment, "git_verified");
-    const conflictRoot = path.join(fixture.root, ".harness/conflicts/doc-sync"),
-      scratches = readdirSync(conflictRoot).filter((name) => /^doc-[0-9a-f]{64}$/u.test(name));
-    assert.equal(scratches.length, 1, `expected one conflict record, found ${JSON.stringify(scratches)}`);
-    const conflictId = scratches[0]!,
-      scratchPath = path.join(conflictRoot, conflictId, "local");
-    assert.equal(readFileSync(scratchPath, "utf8"), driftedBody);
-    assert.match(readFileSync(planPath, "utf8"), new RegExp(`^# ${renamed}$`, "mu"));
-    const conflicted = await expectApplied(fixture, ["doc", "status", "--path", planLogical], environment);
-    assert.equal(docScanRows(conflicted.evidence)[0]?.state, "conflict", String(conflicted.evidence));
-    // An explicit --path submit of the conflicted document is rejected with a recovery route.
-    const blockedSync = await runResult(fixture, ["doc", "sync", "--submit", "--path", planLogical], environment),
-      blockedReceipt = JSON.parse(blockedSync.stdout) as Record<string, unknown>,
-      unresolved =
-        (
-          blockedReceipt.detail as
-            | { readonly unresolvedTouches?: readonly { readonly reason?: string; readonly requiredRoute?: string }[] }
-            | undefined
-        )?.unresolvedTouches ?? [];
-    assert.notEqual(blockedSync.status, 0, blockedSync.stdout);
-    assert.equal(blockedReceipt.outcome, "op_rejected", blockedSync.stdout);
-    assert.match(
-      String(blockedReceipt.nextActions ?? ""),
-      /ha doc conflict resolve doc-[0-9a-f]{64}/u,
-      blockedSync.stdout,
-    );
-    assert.equal(unresolved.length, 1, blockedSync.stdout);
-    assert.equal(unresolved[0]?.requiredRoute, "local-conflict-resolution", blockedSync.stdout);
-    assert.match(unresolved[0]?.reason ?? "", /local conflict scratch requires resolution/u, blockedSync.stdout);
-    assert.match(String(blockedReceipt.summary ?? ""), /\tconflict\t/u, blockedSync.stdout);
-    const siblingPath = path.join(packageRoot, "closeout.md"),
-      siblingLogical = packagePathFor(packagePath, "closeout.md"),
-      siblingBefore = readFileSync(siblingPath, "utf8");
-    writeFileSync(siblingPath, `${siblingBefore}\nLocal sibling change must not hide a selected conflict.\n`);
-    const mixed = await runResult(
+    // The center must not retitle over unsubmitted prose: the amend is refused with the sync route,
+    // the dirty plan keeps its exact bytes, and nothing moves into a hidden conflict scratch.
+    const refused = await runResult(fixture, ["task", "amend", taskId, "--set", `title:${renamed}`], environment),
+      refusedReceipt = parseCliReceipt(refused, "task amend");
+    assert.notEqual(refused.status, 0, refused.stdout);
+    assert.equal(refusedReceipt.outcome, "op_rejected", refused.stdout);
+    assert.equal(refusedReceipt.code, "plan_local_modified", refused.stdout);
+    assert.match(String(refusedReceipt.rejectionExplanation ?? ""), /ha doc sync --submit/u, refused.stdout);
+    assert.equal(readFileSync(planPath, "utf8"), driftedBody);
+    assert.equal(existsSync(path.join(fixture.root, ".harness", "conflicts", "doc-sync")), false);
+    // The shorter recovery: submit the drift first, then the same retitle applies over the published body.
+    await published(
       fixture,
-      ["doc", "sync", "--submit", "--path", planLogical, "--path", siblingLogical],
+      await expectApplied(fixture, ["doc", "sync", "--submit", "--path", planLogical], environment),
       environment,
     );
-    const mixedReceipt = JSON.parse(mixed.stdout) as Record<string, unknown>;
-    assert.notEqual(mixed.status, 0, mixed.stdout);
-    assert.equal(mixedReceipt.outcome, "op_rejected", mixed.stdout);
-    const siblingCanonical = await expectApplied(fixture, ["doc", "show", "--path", siblingLogical], environment);
-    assert.equal(siblingCanonical.evidence, siblingBefore);
-    writeFileSync(siblingPath, siblingBefore);
-    // Recovery: merge the preserved prose onto the retitled base, then close the conflict by hand.
-    writeFileSync(planPath, `${readFileSync(planPath, "utf8")}\n${drift}`);
-    const resolved = await expectApplied(fixture, ["doc", "conflict", "resolve", conflictId], environment);
-    assert.equal(existsSync(scratchPath), false, scratchPath);
-    const healed = await expectApplied(fixture, ["doc", "status", "--path", planLogical], environment);
-    assert.equal(docScanRows(healed.evidence)[0]?.state, "clean", String(healed.evidence));
+    const amended = await expectApplied(fixture, ["task", "amend", taskId, "--set", `title:${renamed}`], environment);
+    await published(fixture, amended, environment);
+    // The end state matches the journey this guard replaced: canonical holds the new title and the drift.
+    const onDisk = readFileSync(planPath, "utf8");
+    assert.match(onDisk, new RegExp(`^# ${renamed}$`, "mu"));
+    assert.match(onDisk, /Unsubmitted worker prose/u);
     const canonical = await expectApplied(fixture, ["doc", "show", "--path", planLogical], environment),
       canonicalBody = String(canonical.evidence ?? "");
     assert.match(canonicalBody, new RegExp(`# ${renamed}`, "u"), canonicalBody.slice(0, 400));
     assert.match(canonicalBody, /Unsubmitted worker prose/u, canonicalBody.slice(0, 400));
+    const healed = await expectApplied(fixture, ["doc", "status", "--path", planLogical], environment);
+    assert.equal(docScanRows(healed.evidence)[0]?.state, "clean", String(healed.evidence));
     context.diagnostic(
       JSON.stringify({
-        schema: "cli-lifecycle-doc-conflict/v1",
+        schema: "cli-lifecycle-plan-local-modified/v1",
         taskId,
-        conflictId,
-        resolvedVia: "doc conflict resolve",
-        resolveOpId: String(resolved.opId ?? ""),
-        blockedSyncExit: blockedSync.status,
-        blockedSyncOutcome: String(blockedReceipt.outcome ?? ""),
-        blockedSyncStatus: String(blockedReceipt.status ?? ""),
+        refusedExit: refused.status,
+        refusedCode: String(refusedReceipt.code ?? ""),
+        recoveredVia: "doc sync submit then amend",
+        amendOpId: String(amended.opId ?? ""),
       }),
     );
   } finally {

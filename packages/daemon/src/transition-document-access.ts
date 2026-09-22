@@ -219,7 +219,7 @@ export function assertTaskTransitionDocumentReady(input: {
   return document;
 }
 
-function readOnDiskBody(rootDir: string, documentPath: string): string | null {
+export function readOnDiskBody(rootDir: string, documentPath: string): string | null {
   const target = path.join(resolveHarnessLayout(rootDir).authoredRoot, ...documentPath.split("/"));
   return existsSync(target) && !lstatSync(target).isSymbolicLink() && lstatSync(target).isFile()
     ? readFileSync(target, "utf8")

@@ -20,7 +20,7 @@ import {
 import { adjudicateDocIntent, claimBytes, recycleClaims, rejectDocSyncAction } from "./doc-sync-actions.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
-import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
+import { assertTaskTransitionDocumentReady, readOnDiskBody } from "./transition-document-access.ts";
 import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
 
@@ -477,6 +477,22 @@ export function prepareTaskSurfaceWriteAt(
           "content_not_ready",
           `Retry ${action.kind} after document projection ${target} catches up.`,
         );
+      // A title amend re-renders the plan heading from the canonical body, so unsynced local
+      // edits at that path would be replaced on the worktree — preserved only into a hidden
+      // conflict scratch. Refuse first: sync (or restore), then amend.
+      if (target === `${current.packagePath}/task_plan.md` && read.document !== null) {
+        const onDisk = readOnDiskBody(cell.rootDir, target),
+          canonical = onDisk === null ? null : sha256Text(onDisk.replace(/\r\n?/gu, "\n"));
+        if (canonical === null || canonical !== read.document.blobSha256)
+          throw cell.cellCodedError(
+            "plan_local_modified",
+            [
+              `Task ${taskId} plan ${target} has local changes that ha doc sync has not submitted; `,
+              "run ha doc sync --submit (or restore the published body) before ha task amend, ",
+              "because a title amend rewrites the plan from the canonical body.",
+            ].join(""),
+          );
+      }
       const repairBody =
         target === `${current.packagePath}/task-contract.json` && typeof action.repairTaskContractBody === "string"
           ? action.repairTaskContractBody

@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
@@ -963,6 +963,67 @@ test("contract migration keeps incomplete legacy L1 tasks in the manual queue", 
       revisionBeforeDryRun,
     );
     assert.match(String(receipt.evidence), /"status":"manual"[\s\S]*"reason":"contract_metadata_incomplete"/u);
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("task amend refuses to retitle a plan with unsynced local edits, then retitles once synced", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-amend-prose-"));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({
+      repoId: workspaceId("task-amend-prose"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "task-amend-prose",
+      now: () => "2026-09-22T00:00:00.000Z",
+    });
+    const binding = { actor, source: "local" as const };
+    const created = await cell.run(
+      { kind: "task-create", taskId: "task_amendprose", title: "Delete the module", profileId: "baseline" },
+      binding,
+    );
+    assert.equal(created.outcome, "applied");
+    await waitForFixturePublication(cell, created.opId, binding);
+    const packagePath = String((created as Record<string, unknown>).packagePath);
+    await realizeTaskPlanFixture(rootDir, packagePath, (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, binding),
+    );
+    const authoredPlan = path.join(rootDir, "harness", packagePath, "task_plan.md");
+    // Rewrite the plan body on disk WITHOUT doc sync — the silent-clobber incident shape.
+    const unsyncedBody = `${readFileSync(authoredPlan, "utf8")}\nDIRECTION FLIPPED: repair, not delete. This rewrite must survive any title amend.\n`;
+    writeFileSync(authoredPlan, unsyncedBody);
+    const refused = await cell.run(
+      { kind: "task-amend", taskId: "task_amendprose", patches: [{ field: "title", value: "Repair the module" }] },
+      binding,
+    );
+    assert.equal(refused.outcome, "op_rejected");
+    assert.equal(refused.code, "plan_local_modified");
+    assert.match(String((refused as Record<string, unknown>).rejectionExplanation), /ha doc sync --submit/u);
+    assert.equal(readFileSync(authoredPlan, "utf8"), unsyncedBody);
+    assert.equal(existsSync(path.join(rootDir, ".harness", "conflicts", "doc-sync")), false);
+    // A metadata-only amend never re-projects the plan, so the guard must not block it.
+    const metadataAmend = await cell.run(
+      { kind: "task-amend", taskId: "task_amendprose", patches: [{ field: "riskTier", value: "high" }] },
+      binding,
+    );
+    assert.equal(metadataAmend.outcome, "applied", JSON.stringify(metadataAmend));
+    assert.equal(readFileSync(authoredPlan, "utf8"), unsyncedBody);
+    // Negative control: once the rewrite is synced, the same title amend applies and retitles only the H1.
+    const synced = await cell.run({ kind: "doc-submit", paths: [`${packagePath}/task_plan.md`] }, binding);
+    assert.equal(synced.outcome, "applied", JSON.stringify(synced));
+    const amended = await cell.run(
+      { kind: "task-amend", taskId: "task_amendprose", patches: [{ field: "title", value: "Repair the module" }] },
+      binding,
+    );
+    assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+    await waitForFixturePublication(cell, amended.opId, binding);
+    const retitled = readFileSync(authoredPlan, "utf8");
+    assert.match(retitled.split(/\r?\n/u)[0]!, /^# Repair the module$/u);
+    assert.equal(retitled.replace(/^# .*$/mu, ""), unsyncedBody.replace(/^# .*$/mu, ""));
+    assert.equal(existsSync(path.join(rootDir, ".harness", "conflicts", "doc-sync")), false);
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });
