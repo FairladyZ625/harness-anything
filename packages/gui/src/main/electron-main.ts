@@ -1,7 +1,6 @@
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, type MenuItemConstructorOptions } from "electron";
 import { homedir } from "node:os";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
 import { readDaemonRegistry } from "@harness-anything/kernel";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
 import { registerArtifactOpenIpc } from "./artifact-open-ipc.ts";
@@ -30,10 +29,15 @@ import {
   IN_APP_BROWSER_PARTITION,
   type IpcWebContentsTrustPolicy,
 } from "./security-policy.ts";
-import { assertDevRendererUrl, createGuiContentSecurityPolicy, isNavigableAppDocumentUrl } from "./window-config.ts";
+import {
+  assertDevRendererUrl,
+  createGuiContentSecurityPolicy,
+  createPackagedRendererUrl,
+  isNavigableAppDocumentUrl,
+  packagedRendererIndexPath,
+  resolveGuiPackageRoot,
+} from "./window-config.ts";
 import { registerFirstRunIpcHandlers } from "./first-run-ipc.ts";
-
-const dirname = path.dirname(fileURLToPath(import.meta.url));
 
 process.on("uncaughtException", (err) => console.error("[FATAL] uncaughtException:", err));
 process.on("unhandledRejection", (err) => console.error("[FATAL] unhandledRejection:", err));
@@ -41,9 +45,9 @@ process.on("unhandledRejection", (err) => console.error("[FATAL] unhandledReject
 let _globalMainWindow: BrowserWindow | null = null;
 
 export function createMainWindow(): BrowserWindow {
-  const preloadPath = path.join(guiPackageRoot(), "dist-electron/electron-preload.cjs");
+  const preloadPath = path.join(resolveGuiPackageRoot(), "dist-electron/electron-preload.cjs");
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
-  const packagedRendererUrl = createLocalPackagedRendererUrl();
+  const packagedRendererUrl = createPackagedRendererUrl();
   const mainWindow = new BrowserWindow({
     title: "Harness Anything",
     width: 1440,
@@ -192,7 +196,7 @@ export async function startGuiApp(): Promise<void> {
     trustPolicy: IpcWebContentsTrustPolicy = {
       isTrustedWebContentsId: (id) => trustedWebContentsIds.has(id),
       rendererUrl: {
-        packagedRendererUrl: createLocalPackagedRendererUrl(),
+        packagedRendererUrl: createPackagedRendererUrl(),
         allowDevRenderer: Boolean(process.env.ELECTRON_RENDERER_URL),
       },
     };
@@ -287,18 +291,6 @@ function createTrustedMainWindow(trustedWebContentsIds: Set<number>): BrowserWin
 
 export function resolveGuiProjectRoot(): string {
   return path.resolve(process.env.HARNESS_GUI_ROOT ?? process.cwd());
-}
-
-function guiPackageRoot(): string {
-  return path.resolve(dirname, "../..");
-}
-
-function packagedRendererIndexPath(): string {
-  return path.join(guiPackageRoot(), "dist/index.html");
-}
-
-function createLocalPackagedRendererUrl(): string {
-  return pathToFileURL(packagedRendererIndexPath()).href;
 }
 
 app.on("window-all-closed", () => {
