@@ -1,6 +1,6 @@
 import type { ExecutionV1 } from "./execution.ts";
 import { approvedReviewsForExecution, consentedApprovedReviewForExecution, reviewsForExecution } from "./review.ts";
-import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
+import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1 } from "./review.ts";
 import type { LifecycleDocumentClaim, TaskEventV1 } from "./task-lifecycle-event.ts";
 import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
 import {
@@ -44,7 +44,11 @@ export function lifecycleDocumentPaths(event: TaskEventV1, packagePath: string):
   if (event.type === "execution_annotated")
     return [`${packagePath}/executions/${event.payload.execution.executionId}.md`];
   const paths = [`${packagePath}/INDEX.md`, `${packagePath}/executions/${event.payload.execution.executionId}.md`];
-  if (event.type === "review_recorded" || event.type === "review_consent_recorded")
+  if (
+    event.type === "review_recorded" ||
+    event.type === "review_consent_recorded" ||
+    event.type === "review_consent_overridden"
+  )
     paths.push(`${packagePath}/reviews/${event.payload.review.reviewId}.md`);
   if (event.type === "submission_returned")
     paths.push(`${packagePath}/returns/iteration-${String(event.payload.execution.iteration)}.md`);
@@ -241,7 +245,11 @@ export function rematerializeTaskDocuments(input: {
       if (!review) throw new Error(`task rematerialization found no review for ${path}`);
       rendered.push({
         path,
-        body: renderReview(review, input.snapshot.consents.find((value) => value.reviewId === review.reviewId) ?? null),
+        body: renderReview(
+          review,
+          input.snapshot.consents.findLast((value) => value.reviewId === review.reviewId) ?? null,
+          input.snapshot.reviewDispositions ?? [],
+        ),
       });
     }
   }
@@ -280,12 +288,15 @@ export function renderLifecycleDocument(
   }
   if (path.includes("/reviews/")) {
     const review =
-      event.type === "review_recorded" || event.type === "review_consent_recorded"
+      event.type === "review_recorded" ||
+      event.type === "review_consent_recorded" ||
+      event.type === "review_consent_overridden"
         ? event.payload.review
         : snapshot.reviews.find((value) => path.endsWith(`/${value.reviewId}.md`));
     return renderReview(
       review as ReviewV1,
-      snapshot.consents.find((value) => value.reviewId === review?.reviewId) ?? null,
+      snapshot.consents.findLast((value) => value.reviewId === review?.reviewId) ?? null,
+      snapshot.reviewDispositions ?? [],
     );
   }
   if (path.includes("/returns/") && event.type === "submission_returned")
@@ -324,7 +335,7 @@ function renderIndex(
     executionId = current?.executionId ?? "",
     approved = current?.submission ? approvedReviewsForExecution(snapshot.reviews, current) : [],
     selected = current?.submission
-      ? consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, current)
+      ? consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, current, snapshot.reviewDispositions)
       : undefined,
     gateStatus = (gateId: string) => {
       if (!current?.submission) return false;
@@ -442,7 +453,9 @@ function renderExecution(value: ExecutionV1, snapshot: TaskLifecycleSnapshot): s
   const packet = value.submission,
     reviews = snapshot.reviews.filter((candidate) => candidate.executionId === value.executionId),
     currentReviews = packet ? reviewsForExecution(snapshot.reviews, value) : [],
-    selected = packet ? consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, value) : undefined,
+    selected = packet
+      ? consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, value, snapshot.reviewDispositions)
+      : undefined,
     results = gateResults(snapshot, undefined, value.executionId, packet ?? null, value.iteration),
     checkerGateIds = results.filter(({ gateId }) => gateId !== "code-doc-reconciliation").map(({ gateId }) => gateId),
     gates = snapshot.gateWitnesses.filter(
@@ -522,7 +535,14 @@ function renderExecution(value: ExecutionV1, snapshot: TaskLifecycleSnapshot): s
     "\n",
   ].join("");
 }
-function renderReview(value: ReviewV1, consent: ReviewConsentV1 | null): string {
+function renderReview(
+  value: ReviewV1,
+  consent: ReviewConsentV1 | null,
+  dispositions: readonly ReviewDispositionV1[],
+): string {
+  const disposition = consent
+    ? dispositions.findLast((candidate) => candidate.dispositionId === `disposition-${consent.consentId}`)
+    : undefined;
   return [
     `# Review ${value.reviewId}\n\n`,
     "Managed by `ha task review-execution`; legacy `review.md` is not authoritative.\n\n",
@@ -537,6 +557,8 @@ function renderReview(value: ReviewV1, consent: ReviewConsentV1 | null): string 
     `- Consent: ${consent ? consent.consentId : "pending"}\n`,
     `- Consent actor: ${consent?.actor.principal.personId ?? "pending"}\n`,
     `- Consent source: ${consent ? stableStringify(consent.source) : "pending"}\n`,
+    `- Disposed reviews: ${disposition?.disposedReviewIds.join(", ") ?? "none"}\n`,
+    `- Disposition rationale: ${disposition?.rationale ?? "none"}\n`,
     `\n## Reason\n\n${value.reason}\n`,
     "\n## Evidence checked\n\n",
     list(value.evidenceChecked),

@@ -223,7 +223,16 @@ export function buildCommand(
     });
   }
   if (action.kind === "task-review-consent") {
-    const allowed = ["kind", "taskId", "executionId", "reviewId", "expectedVersion", "commandType"];
+    const allowed = [
+      "kind",
+      "taskId",
+      "executionId",
+      "reviewId",
+      "dispose",
+      "rationale",
+      "expectedVersion",
+      "commandType",
+    ];
     if (Object.keys(action).some((name) => !allowed.includes(name)))
       throw cellCodedError("invalid_command", "Consent derives its identity and digests from the recorded Review.");
     const selected = reviewConsentSelection(action, snapshot, taskId),
@@ -274,12 +283,18 @@ export function buildCommand(
             String(current.iteration),
             submissionDigest(current.submission),
             reviewDigest(recorded),
+            ...(Array.isArray(action.dispose) ? [...action.dispose].sort().map(String) : []),
+            typeof action.rationale === "string" ? action.rationale : "",
           ].join("\0"),
         )
         .digest("hex")
         .slice(0, 24)}`,
       reviewDigest: reviewDigest(recorded),
       contentDigest: recorded.contentDigest,
+      ...(Array.isArray(action.dispose) && action.dispose.every((value) => typeof value === "string")
+        ? { disposedReviewIds: action.dispose }
+        : {}),
+      ...(typeof action.rationale === "string" ? { rationale: action.rationale } : {}),
     });
   }
   if (action.kind === "task-code-doc-reconcile") {

@@ -187,7 +187,7 @@ export function lifecycleReceipt(
     approved = reviews,
     approvedHistory = execution?.submission ? approvedReviewHistoryForExecution(snapshot.reviews, execution) : [],
     selected = execution?.submission
-      ? consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, execution)
+      ? consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, execution, snapshot.reviewDispositions)
       : undefined,
     eventReview =
       event.type === "review_recorded" || event.type === "review_consent_recorded" ? event.payload.review : undefined,

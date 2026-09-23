@@ -48,7 +48,16 @@ export {
   approvedReviewsForExecution,
   consentedApprovedReviewForExecution,
   reviewVerdicts,
+  validateReviewDispositionV1,
 } from "./review.ts";
+export type { ReviewDispositionV1 } from "./review.ts";
+export { describeReviewConsentConflicts, reviewConsentConflicts } from "./review-consent-validity.ts";
+export type {
+  ReviewConsentConflict,
+  ReviewConsentValidityInput,
+  ReviewDispositionRecord,
+  ReviewValidityRecord,
+} from "./review-consent-validity.ts";
 
 export { isPriorityTier, isTaskWorkKind, priorityTiers, taskWorkKinds } from "./task-metadata.ts";
 export type { PriorityTier, TaskWorkKind } from "./task-metadata.ts";

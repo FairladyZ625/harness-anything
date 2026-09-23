@@ -644,6 +644,7 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
 export function selectedReviewId(snapshot: Snapshot, executionId: string): string | null {
   const execution = snapshot.executions.find((value) => value.executionId === executionId);
   return execution?.submission
-    ? (consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, execution)?.review.reviewId ?? null)
+    ? (consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, execution, snapshot.reviewDispositions)
+        ?.review.reviewId ?? null)
     : null;
 }

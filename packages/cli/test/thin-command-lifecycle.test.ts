@@ -2,7 +2,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { parseRuntimeBatchEntry, runtimeBatchSpawnPayload } from "@harness-anything/daemon/internal/runtime-orchestration";
+import {
+  parseRuntimeBatchEntry,
+  runtimeBatchSpawnPayload,
+} from "@harness-anything/daemon/internal/runtime-orchestration";
 import { parseDaemonRpcParams } from "@harness-anything/daemon/internal/protocol/daemon-protocol-rpc-validation";
 import { firstCliCommand, firstCliCommandIndex, parseThinCommand } from "../src/cli/thin-command.ts";
 
@@ -190,6 +193,17 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       '{"verdict":"approved","reason":"ok","evidenceChecked":[]}',
     ]),
     derivedPairConsent = parseThinCommand(["task", "review-consent", "task-1"]),
+    overrideConsent = parseThinCommand([
+      "task",
+      "review-consent",
+      "task-1",
+      "--dispose",
+      "review-a",
+      "--dispose",
+      "review-b",
+      "--rationale",
+      "owner adjudicated both reports",
+    ]),
     derivedComplete = parseThinCommand(["task", "complete", "task-1"]);
   for (const parsed of [
     derivedDeclare,
@@ -197,6 +211,7 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
     derivedReview,
     inlineReview,
     derivedPairConsent,
+    overrideConsent,
     derivedComplete,
   ])
     assert.equal(parsed.ok, true, JSON.stringify(parsed));
@@ -234,6 +249,14 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       kind: "task-review-consent",
       taskId: "task-1",
       commandType: "RecordReviewConsent",
+    });
+  if (overrideConsent.ok)
+    assert.deepEqual(overrideConsent.command.action, {
+      kind: "task-review-consent",
+      taskId: "task-1",
+      commandType: "RecordReviewConsent",
+      dispose: ["review-a", "review-b"],
+      rationale: "owner adjudicated both reports",
     });
   if (derivedComplete.ok)
     assert.deepEqual(derivedComplete.command.action, {

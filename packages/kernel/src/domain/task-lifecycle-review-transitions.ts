@@ -3,7 +3,8 @@ import { digest } from "./digest.ts";
 import { sameCodeDocPaths } from "./code-doc-witness.ts";
 import type { ExecutionV1 } from "./execution.ts";
 import { reviewDigest } from "./review.ts";
-import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
+import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1 } from "./review.ts";
+import { describeReviewConsentConflicts, reviewConsentConflicts } from "./review-consent-validity.ts";
 import type { CodeDocWitnessV1 } from "./code-doc-witness.ts";
 import type { ContractValidationIssue, TaskV2 } from "./task.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
@@ -11,6 +12,7 @@ import { stableStringify } from "../integrity/stable-hash.ts";
 import type {
   CodeDocReconciledEvent,
   ReviewConsentRecordedEvent,
+  ReviewConsentOverrideRecordedEvent,
   ReviewRecordedEvent,
   TaskCompletedEvent,
 } from "./task-lifecycle-event.ts";
@@ -143,6 +145,7 @@ export const consent: Transition = {
       ),
       currentSubmissionDigest = current?.submission ? submissionDigest(current.submission) : undefined,
       consentAlreadyCurrent =
+        !command.disposedReviewIds?.length &&
         currentSubmissionDigest !== undefined &&
         snapshot.consents.some(
           (value) =>
@@ -151,7 +154,47 @@ export const consent: Transition = {
             (value.submissionDigest === currentSubmissionDigest ||
               (value.submissionDigest === undefined &&
                 Date.parse(value.consentedAt) >= Date.parse(current?.submittedAt ?? ""))),
-        );
+        ),
+      proposedDisposition: ReviewDispositionV1 | undefined =
+        current?.submission && command.disposedReviewIds?.length
+          ? {
+              schema: "review-disposition/v1",
+              dispositionId: `disposition-${command.consentId}`,
+              taskId: command.taskId,
+              executionId: command.executionId,
+              iteration: current.iteration,
+              submissionDigest: submissionDigest(current.submission),
+              disposedReviewIds: command.disposedReviewIds,
+              rationale: command.rationale ?? "",
+              actor: command.actor,
+              source: command.source,
+              disposedAt: command.occurredAt,
+            }
+          : undefined,
+      conflicts = current?.submission
+        ? reviewConsentConflicts({
+            selectedReview: recorded,
+            reviews: snapshot.reviews.filter(
+              (value) => value.executionId === command.executionId && value.iteration === current.iteration,
+            ),
+            dispositions: [
+              ...(snapshot.reviewDispositions ?? []),
+              ...(proposedDisposition ? [proposedDisposition] : []),
+            ],
+            currentSubmissionDigest: currentSubmissionDigest!,
+          })
+        : [],
+      currentChanges = new Set(
+        snapshot.reviews
+          .filter(
+            (value) =>
+              value.executionId === command.executionId &&
+              value.iteration === current?.iteration &&
+              value.verdict === "changes_requested" &&
+              value.submissionDigest === currentSubmissionDigest,
+          )
+          .map((value) => value.reviewId),
+      );
     if (
       snapshot.task?.status !== "in_review" ||
       current?.state !== "submitted" ||
@@ -161,6 +204,31 @@ export const consent: Transition = {
     )
       issues.push(
         lifecycleContractIssue("invalid_transition", "consent must select an unconsented approved current Review"),
+      );
+    if (
+      (command.disposedReviewIds !== undefined && command.disposedReviewIds.length === 0) ||
+      (command.disposedReviewIds?.length && !isNonEmptyString(command.rationale))
+    )
+      issues.push(
+        lifecycleContractIssue("invalid_proof", "review disposition requires named review ids and rationale"),
+      );
+    if (
+      command.disposedReviewIds?.length &&
+      (new Set(command.disposedReviewIds).size !== command.disposedReviewIds.length ||
+        command.disposedReviewIds.some((reviewId) => !currentChanges.has(reviewId)))
+    )
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_proof",
+          "review disposition may name each current changes_requested review exactly once",
+        ),
+      );
+    if (conflicts.length)
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_proof",
+          `review consent conflicts: ${describeReviewConsentConflicts(conflicts)}`,
+        ),
       );
     if (
       !recorded ||
@@ -194,19 +262,43 @@ export const consent: Transition = {
         actor: command.actor,
         source: command.source,
         consentedAt: command.occurredAt,
-      };
+      },
+      disposition: ReviewDispositionV1 | undefined = command.disposedReviewIds?.length
+        ? {
+            schema: "review-disposition/v1",
+            dispositionId: `disposition-${command.consentId}`,
+            taskId: command.taskId,
+            executionId: command.executionId,
+            iteration: current.iteration,
+            submissionDigest: submissionDigest(current.submission!),
+            disposedReviewIds: [...command.disposedReviewIds],
+            rationale: command.rationale!,
+            actor: command.actor,
+            source: command.source,
+            disposedAt: command.occurredAt,
+          }
+        : undefined;
     return {
       snapshot: {
         ...snapshot,
         revision: command.workspaceRevision,
         consents: [...snapshot.consents, value],
+        reviewDispositions: [...(snapshot.reviewDispositions ?? []), ...(disposition ? [disposition] : [])],
       },
-      event: envelope<ReviewConsentRecordedEvent>(command, "review_consent_recorded", {
-        task: snapshot.task as TaskV2,
-        execution: current,
-        review: recorded,
-        consent: value,
-      }),
+      event: disposition
+        ? envelope<ReviewConsentOverrideRecordedEvent>(command, "review_consent_overridden", {
+            task: snapshot.task as TaskV2,
+            execution: current,
+            review: recorded,
+            consent: value,
+            disposition,
+          })
+        : envelope<ReviewConsentRecordedEvent>(command, "review_consent_recorded", {
+            task: snapshot.task as TaskV2,
+            execution: current,
+            review: recorded,
+            consent: value,
+          }),
     };
   },
 };
@@ -290,7 +382,23 @@ export const complete: Transition = {
       task = snapshot.task,
       current = execution(snapshot, command.executionId),
       gatesValid = isValidCloseoutGateRecord(proof.closeoutGates),
-      assessment = closeoutReadiness(snapshot, undefined, gatesValid ? proof.closeoutGates : undefined);
+      assessment = closeoutReadiness(snapshot, undefined, gatesValid ? proof.closeoutGates : undefined),
+      currentDigest = current?.submission ? submissionDigest(current.submission) : undefined,
+      selectedConsent =
+        current && [...snapshot.consents].reverse().find((value) => value.executionId === current.executionId),
+      selectedReview = selectedConsent
+        ? snapshot.reviews.find((value) => value.reviewId === selectedConsent.reviewId)
+        : undefined,
+      conflicts = currentDigest
+        ? reviewConsentConflicts({
+            selectedReview,
+            reviews: snapshot.reviews.filter(
+              (value) => value.executionId === command.executionId && value.iteration === current?.iteration,
+            ),
+            dispositions: snapshot.reviewDispositions ?? [],
+            currentSubmissionDigest: currentDigest,
+          })
+        : [];
     if (!gatesValid)
       issues.push(lifecycleContractIssue("invalid_proof", "CompleteTask requires the effective closeout gate set"));
     if (
@@ -314,7 +422,9 @@ export const complete: Transition = {
             ? `CompleteTask for a ${task.taskClass} task requires an active decision derives edge; ` +
                 "run ha decision relate <decision-id> --anchor <claim-id> --type derives " +
                 `--target task/${task.taskId} --rationale <why this decision authorises the task>`
-            : "CompleteTask requires a consent-selected approved Review",
+            : conflicts.length
+              ? `CompleteTask review consent conflicts: ${describeReviewConsentConflicts(conflicts)}`
+              : "CompleteTask requires a consent-selected approved Review",
         ),
       );
     if (

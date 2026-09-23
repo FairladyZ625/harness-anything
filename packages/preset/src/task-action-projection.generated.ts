@@ -321,6 +321,18 @@ export const taskActionDescriptorProjection = {
             required: false,
             cli: { name: "--review-id", kind: "single", error: "invalid_field" },
           },
+          {
+            field: "dispose",
+            type: "string-array",
+            required: false,
+            cli: { name: "--dispose", kind: "repeated", error: "invalid_field" },
+          },
+          {
+            field: "rationale",
+            type: "string",
+            required: false,
+            cli: { name: "--rationale", kind: "single", error: "invalid_field" },
+          },
           { field: "commandType", type: "string", required: false, enum: ["RecordReviewConsent"] },
         ],
         exactlyOneOf: [],

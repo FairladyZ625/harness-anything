@@ -8,6 +8,7 @@ import {
   currentTaskForWrite,
   lifecycleDocumentPaths,
   reduceTaskEvent,
+  reviewDigest,
   type TaskEventV1,
   type TaskLifecycleSnapshot,
 } from "../../src/index.ts";
@@ -228,8 +229,17 @@ function legacyCompletion() {
   });
   let snapshot = fixture.events.reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
   const current = snapshot.executions[0]!;
+  const historicalReviews = snapshot.reviews.map((review) => ({
+    ...review,
+    submissionDigest: `sha256:${"9".repeat(64)}` as const,
+  }));
   snapshot = {
     ...snapshot,
+    reviews: historicalReviews,
+    consents: snapshot.consents.map((consent) => ({
+      ...consent,
+      reviewDigest: reviewDigest(historicalReviews.find((review) => review.reviewId === consent.reviewId)!),
+    })),
     gateWitnesses: [
       {
         schema: "completion-gate-witness/v1",
@@ -281,7 +291,7 @@ test("accepted completion keeps legacy receipts without admitting a new unbound 
   assert.equal(replayed.gateWitnesses[0]?.basis, undefined);
   // dec_D23B9787: an accepted historical verdict stays accepted on read — it reports its preserved
   // result with the original evidence gap disclosed, instead of reading back as a missing gate.
-  assert.equal(closeoutReadiness(snapshot).readiness, "ready");
+  assert.equal(closeoutReadiness(snapshot).readiness, "incomplete");
   const command = normalizeTaskLifecycleCommand(
     { workspaceId: "workspace-1", actor: implementer, source: "local", expectedRevision: snapshot.revision },
     { type: "CompleteTask", taskId: current.taskId, executionId: current.executionId },

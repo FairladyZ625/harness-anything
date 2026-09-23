@@ -1,6 +1,6 @@
 import { executionAnnotationKinds, isNativeExecution, submissionDigest, submissionId } from "./execution.ts";
 import type { ExecutionAnnotationKind, ExecutionAnnotationV1, ExecutionV1, LeaseV1 } from "./execution.ts";
-import { reviewDigest, consentedApprovedReviewForExecution } from "./review.ts";
+import { reviewDigest } from "./review.ts";
 import { currentTaskForWrite, type ActorAxes, type ContractValidationIssue } from "./task.ts";
 import { validateTaskGraph } from "./task-graph.ts";
 import { isNonEmptyString } from "./write-chain.contract.ts";
@@ -385,11 +385,15 @@ export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEven
       edgesTaken: event.payload.edge ? [...snapshot.edgesTaken, event.payload.edge] : snapshot.edgesTaken,
       lease: null,
     };
-  else if (event.type === "review_consent_recorded")
+  else if (event.type === "review_consent_recorded" || event.type === "review_consent_overridden")
     next = {
       ...snapshot,
       revision: event.workspaceRevision,
       consents: [...snapshot.consents, event.payload.consent],
+      reviewDispositions: [
+        ...(snapshot.reviewDispositions ?? []),
+        ...(event.type === "review_consent_overridden" ? [event.payload.disposition] : []),
+      ],
     };
   else if (event.type === "code_doc_reconciled")
     next = {
@@ -674,7 +678,7 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
       ]);
   }
   if (
-    event.type === "review_consent_recorded" &&
+    (event.type === "review_consent_recorded" || event.type === "review_consent_overridden") &&
     (event.payload.consent.reviewDigest !== reviewDigest(event.payload.review) ||
       event.payload.consent.contentDigest !== event.payload.review.contentDigest ||
       !event.payload.execution.submission ||
@@ -683,6 +687,26 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
   )
     throw new TaskLifecycleContractError("invalid_proof", [
       lifecycleContractIssue("invalid_proof", "replayed consent is not content pinned"),
+    ]);
+  if (
+    event.type === "review_consent_overridden" &&
+    event.payload.disposition.disposedReviewIds.some(
+      (reviewId) =>
+        !snapshot.reviews.some(
+          (review) =>
+            review.reviewId === reviewId &&
+            review.executionId === event.payload.execution.executionId &&
+            review.iteration === event.payload.execution.iteration &&
+            review.submissionDigest === event.payload.disposition.submissionDigest &&
+            review.verdict === "changes_requested",
+        ),
+    )
+  )
+    throw new TaskLifecycleContractError("invalid_proof", [
+      lifecycleContractIssue(
+        "invalid_proof",
+        "replayed review disposition is not bound to current changes_requested reviews",
+      ),
     ]);
   if (
     event.type === "completion_gate_verified" &&
@@ -743,7 +767,17 @@ function acceptedCompletionWitnesses(
     current.iteration !== snapshot.task.iteration ||
     !current.submission ||
     (closeoutGates?.consent !== false &&
-      !consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, current))
+      !snapshot.consents.some(
+        (consent) =>
+          consent.executionId === current.executionId &&
+          snapshot.reviews.some(
+            (review) =>
+              review.reviewId === consent.reviewId &&
+              review.verdict === "approved" &&
+              consent.reviewDigest === reviewDigest(review) &&
+              consent.contentDigest === review.contentDigest,
+          ),
+      ))
   )
     return false;
   return completionGateIds(snapshot.task.completionGateIds, current.submission).every((gateId) => {

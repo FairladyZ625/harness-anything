@@ -157,7 +157,7 @@ test("a submission amendment supersedes the bad packet and makes code-doc reconc
   }
 });
 
-test("an amendment makes prior Review and consent pins stale until explicit consent is renewed", async () => {
+test("an amendment requires a Review of the new submission before consent and completion", async () => {
   const harness = lifecycleHarness();
   try {
     await harness.create();
@@ -179,9 +179,21 @@ test("an amendment makes prior Review and consent pins stale until explicit cons
       undefined,
       "the old consent stays stale even when the amendment shares its millisecond",
     );
-    await assert.rejects(harness.complete("execution-1", "op-complete-stale"), /approved Review/u);
+    await assert.rejects(
+      harness.complete("execution-1", "op-complete-stale"),
+      /reviewId=review-op-review-original.*reviewSubmissionDigest=.*currentSubmissionDigest=/u,
+    );
 
-    await harness.consent("execution-1", "op-consent-amended", "review-op-review-original");
+    await assert.rejects(
+      harness.consent("execution-1", "op-consent-amended", "review-op-review-original"),
+      /reviewId=review-op-review-original.*reviewSubmissionDigest=.*currentSubmissionDigest=/u,
+    );
+    await assert.rejects(
+      harness.complete("execution-1", "op-complete-stale-again"),
+      /reviewId=review-op-review-original.*reviewSubmissionDigest=.*currentSubmissionDigest=/u,
+    );
+    await harness.review("execution-1", "acceptance", "approved", "op-review-amended");
+    await harness.consent("execution-1", "op-consent-current", "review-op-review-amended");
     const consented = (await harness.service.read("task-1")).snapshot.consents.at(-1);
     assert.equal(consented?.submissionDigest, submissionDigest(execution.submission!));
     const completed = await harness.complete("execution-1", "op-complete-amended");
@@ -190,6 +202,38 @@ test("an amendment makes prior Review and consent pins stale until explicit cons
 
     await assert.rejects(harness.amend("execution-1", "op-amend-completed"), /current submitted execution/u);
     await assert.rejects(harness.amend("execution-other", "op-amend-other"), /current submitted execution/u);
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test("a late changes_requested review blocks completion until a named rationale disposition", async () => {
+  const harness = lifecycleHarness();
+  try {
+    await harness.create();
+    await harness.start("execution-1");
+    await harness.submit("execution-1");
+    await harness.adjudicate("execution-1", "forward");
+    await harness.review("execution-1", "acceptance", "approved", "op-review-approved");
+    await harness.consent("execution-1", "op-consent-approved", "review-op-review-approved");
+    await harness.review("execution-1", "correctness", "changes_requested", "op-review-late");
+    await assert.rejects(
+      harness.complete("execution-1", "op-complete-late"),
+      /reviewId=review-op-review-late.*verdict=changes_requested/u,
+    );
+    await assert.rejects(
+      harness.consent("execution-1", "op-consent-no-rationale", "review-op-review-approved", {
+        reviewIds: ["review-op-review-late"],
+      }),
+      /requires named review ids and rationale/u,
+    );
+    const overridden = await harness.consent("execution-1", "op-consent-disposed", "review-op-review-approved", {
+      reviewIds: ["review-op-review-late"],
+      rationale: "owner accepts the approved assessment",
+    });
+    assert.equal(overridden.event?.type, "review_consent_overridden");
+    assert.deepEqual(overridden.snapshot.reviewDispositions?.at(-1)?.disposedReviewIds, ["review-op-review-late"]);
+    assert.equal((await harness.complete("execution-1", "op-complete-disposed")).outcome, "applied");
   } finally {
     await harness.cleanup();
   }

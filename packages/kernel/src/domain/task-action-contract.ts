@@ -309,7 +309,7 @@ const lifecycleSpecs = Object.freeze({
     implementation: "task-lifecycle",
     topology: "ledger-write",
     coordination: "execute",
-    eventType: "review_consent_recorded",
+    eventType: "review_consent_recorded" as "review_consent_recorded" | "review_consent_overridden",
     proof: ["ownerActor", "execution-consent@v1", "reviewDigest", "contentDigest", "submissionDigest"],
   },
   reconcile: {
