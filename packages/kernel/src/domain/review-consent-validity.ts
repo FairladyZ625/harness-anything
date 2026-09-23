@@ -1,6 +1,8 @@
+import type { ReviewVerdict } from "./review.ts";
+
 export interface ReviewValidityRecord {
   readonly reviewId: string;
-  readonly verdict: "approved" | "changes_requested" | "dismissed";
+  readonly verdict: ReviewVerdict;
   readonly submissionDigest?: `sha256:${string}`;
 }
 export interface ReviewDispositionRecord {
