@@ -571,12 +571,14 @@ export const declarations: readonly Declaration[] = Object.freeze([
       expectedVersion,
       cli("executionId", "string", false, "--execution-id"),
       cli("reviewId", "string", false, "--review-id"),
+      cli("dispose", "string-array", false, "--dispose", "repeated"),
+      cli("rationale", "string", false, "--rationale"),
     ]),
     criteria: Object.freeze([
       criterion(
         "task-lifecycle-review-transitions/consent.validate",
         "invalid_proof",
-        "Owner consent selects the current approved review and pins review, content, and submission digests.",
+        "Owner consent selects an approved review of the current submission and pins review, content, and submission digests; every changes_requested review of that submission must be named in --dispose with a --rationale.",
       ),
     ]),
     concurrency: taskConcurrency(
