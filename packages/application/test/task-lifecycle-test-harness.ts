@@ -321,7 +321,12 @@ export function lifecycleHarness() {
         },
       );
     },
-    consent: async (executionId: string, opId = `op-consent-${revision() + 1}`, reviewId?: string) => {
+    consent: async (
+      executionId: string,
+      opId = `op-consent-${revision() + 1}`,
+      reviewId?: string,
+      disposition?: { readonly reviewIds: readonly string[]; readonly rationale?: string },
+    ) => {
       const next = revision() + 1,
         snapshot = (await service.read("task-1")).snapshot,
         reviews = snapshot.reviews.filter((value) => value.executionId === executionId && value.verdict === "approved"),
@@ -348,6 +353,7 @@ export function lifecycleHarness() {
             consentId: `consent-${opId}`,
             reviewDigest: reviewDigest(review),
             contentDigest: review.contentDigest,
+            ...(disposition ? { disposedReviewIds: disposition.reviewIds, rationale: disposition.rationale } : {}),
           },
           opId,
         ),

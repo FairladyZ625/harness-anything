@@ -16,6 +16,7 @@ import {
   nonEmpty,
   recordWith,
   review,
+  reviewDisposition,
   sha,
   statusWord,
   stringArray,
@@ -483,7 +484,16 @@ function snapshotFailurePaths(value: unknown, availability: unknown): readonly s
   if (!isJsonObject(value)) return ["snapshot"];
   const known = availabilityFields.filter((field) => availability[field] === "known"),
     paths: string[] = [];
-  if (!exactRecord(value, [...snapshotBaseFields, ...known])) paths.push("snapshot");
+  if (
+    !exactRecord(value, [...snapshotBaseFields, ...known]) &&
+    !exactRecord(value, [...snapshotBaseFields, ...known, "reviewDispositions"])
+  )
+    paths.push("snapshot");
+  if (
+    value.reviewDispositions !== undefined &&
+    (!Array.isArray(value.reviewDispositions) || !value.reviewDispositions.every(reviewDisposition))
+  )
+    paths.push("snapshot.reviewDispositions");
   if (!integer(value.revision)) paths.push("snapshot.revision");
   if (value.task !== null && !task(value.task)) paths.push("snapshot.task");
   for (const [field, validate] of [

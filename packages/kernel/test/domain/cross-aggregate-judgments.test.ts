@@ -47,6 +47,7 @@ function closeout(gateResult: "pass" | "fail" = "pass"): CloseoutSnapshot {
     commitSha,
     iteration: 0,
     contentDigest: `sha256:${"b".repeat(64)}`,
+    submissionDigest: submissionDigest(execution.submission!),
     reviewedAt: "2026-08-18T00:02:00.000Z",
   } as const;
   return {
@@ -62,6 +63,7 @@ function closeout(gateResult: "pass" | "fail" = "pass"): CloseoutSnapshot {
         reviewId: "review-1",
         reviewDigest: reviewDigest(review),
         contentDigest: review.contentDigest,
+        submissionDigest: review.submissionDigest,
         actor,
         source: "local",
         consentedAt: "2026-08-18T00:03:00.000Z",
@@ -136,14 +138,27 @@ test("a done projection without an execution cut is not passed", () => {
 
 test("code-doc reconciliation depends only on an explicit witness, never deliverable prose", () => {
   const base = closeout("pass"),
-    withDeliverables = (deliverables: readonly string[]) => ({
-      ...base,
-      task: { ...base.task!, completionGateIds: ["code-doc-reconciliation"] },
-      executions: base.executions.map((execution) => ({
+    withDeliverables = (deliverables: readonly string[]) => {
+      const executions = base.executions.map((execution) => ({
         ...execution,
         submission: execution.submission ? { ...execution.submission, deliverables } : null,
-      })),
-    });
+      }));
+      const reviews = base.reviews.map((review) => ({
+        ...review,
+        submissionDigest: submissionDigest(executions[0]!.submission!),
+      }));
+      return {
+        ...base,
+        task: { ...base.task!, completionGateIds: ["code-doc-reconciliation"] },
+        executions,
+        reviews,
+        consents: base.consents.map((consent) => ({
+          ...consent,
+          reviewDigest: reviewDigest(reviews[0]!),
+          submissionDigest: reviews[0]!.submissionDigest,
+        })),
+      };
+    };
   assert.equal(closeoutReadiness(withDeliverables(["artifacts/reports/audit.md"])).blocker, "gate");
   assert.equal(closeoutReadiness(withDeliverables(["packages/kernel/src/domain/task.ts"])).blocker, "gate");
   const explicit = withDeliverables(["README.md (documented outcome)"]);

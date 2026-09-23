@@ -553,6 +553,8 @@ function operationIdentityFromCommand<C extends TaskLifecycleCommand>(command: C
       consentId: command.consentId,
       reviewDigest: command.reviewDigest,
       contentDigest: command.contentDigest,
+      ...(command.disposedReviewIds === undefined ? {} : { disposedReviewIds: command.disposedReviewIds }),
+      ...(command.rationale === undefined ? {} : { rationale: command.rationale }),
     };
   if (command.type === "AdjudicateSubmission")
     return {
@@ -596,7 +598,7 @@ function operationIdentityFromEvent(event: TaskEventV1): unknown {
                 ? "AdjudicateSubmission"
                 : event.type === "review_recorded"
                   ? "RecordReview"
-                  : event.type === "review_consent_recorded"
+                  : event.type === "review_consent_recorded" || event.type === "review_consent_overridden"
                     ? "RecordReviewConsent"
                     : event.type === "code_doc_reconciled"
                       ? "ReconcileCodeDoc"
@@ -670,7 +672,7 @@ function operationIdentityFromEvent(event: TaskEventV1): unknown {
       capabilityRef: review.capabilityRef,
     };
   }
-  if (event.type === "review_consent_recorded") {
+  if (event.type === "review_consent_recorded" || event.type === "review_consent_overridden") {
     const consent = event.payload.consent;
     return {
       ...common,
@@ -679,6 +681,12 @@ function operationIdentityFromEvent(event: TaskEventV1): unknown {
       consentId: consent.consentId,
       reviewDigest: consent.reviewDigest,
       contentDigest: consent.contentDigest,
+      ...(event.type === "review_consent_overridden"
+        ? {
+            disposedReviewIds: event.payload.disposition.disposedReviewIds,
+            rationale: event.payload.disposition.rationale,
+          }
+        : {}),
     };
   }
   if (event.type === "code_doc_reconciled") {

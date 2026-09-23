@@ -433,6 +433,8 @@ const taskActionShapes: Readonly<Record<FleetTaskCommandKind, Check>> = {
       taskId: id,
       executionId: id,
       reviewId: id,
+      dispose: array(id),
+      rationale: text,
       commandType: one("RecordReviewConsent"),
     },
     ["kind", "taskId"],

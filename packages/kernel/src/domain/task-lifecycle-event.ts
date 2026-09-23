@@ -1,14 +1,15 @@
 import {
   isNativeCommitSha,
   isSubmissionId,
+  submissionDigest,
   validateExecutionAnnotationV1s,
   validateExecutionV1,
   validateLeaseHolder,
   validateLeaseV1,
 } from "./execution.ts";
-import type { ExecutionAnnotationV1, ExecutionV1, LeaseHolder, LeaseV1 } from "./execution.ts";
-import { validateReviewConsentV1, validateReviewV1 } from "./review.ts";
-import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
+import type { ExecutionAnnotationV1, ExecutionV1, LeaseHolder, LeaseV1, SubmissionV1 } from "./execution.ts";
+import { validateReviewConsentV1, validateReviewDispositionV1, validateReviewV1 } from "./review.ts";
+import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1 } from "./review.ts";
 import { validateActorAxes, validateTaskV2 } from "./task.ts";
 import type { ActorAxes, ContractValidationIssue, TaskV2 } from "./task.ts";
 import { validateTaskGraph } from "./task-graph.ts";
@@ -48,6 +49,7 @@ export const taskEventTypes = [
   "execution_annotated",
   "review_recorded",
   "review_consent_recorded",
+  "review_consent_overridden",
   "code_doc_reconciled",
   "code_doc_repointed",
   "completion_gate_verified",
@@ -185,6 +187,16 @@ export type ReviewConsentRecordedEvent = TaskEventEnvelope<
     readonly consent: ReviewConsentV1;
   }
 >;
+export type ReviewConsentOverrideRecordedEvent = TaskEventEnvelope<
+  "review_consent_overridden",
+  {
+    readonly task: TaskV2;
+    readonly execution: ExecutionV1;
+    readonly review: ReviewV1;
+    readonly consent: ReviewConsentV1;
+    readonly disposition: ReviewDispositionV1;
+  }
+>;
 export type CodeDocReconciledEvent = TaskEventEnvelope<
   "code_doc_reconciled",
   {
@@ -253,6 +265,7 @@ export type TaskMutationEventType = Exclude<
   | "execution_annotated"
   | "review_recorded"
   | "review_consent_recorded"
+  | "review_consent_overridden"
   | "code_doc_reconciled"
   | "code_doc_repointed"
   | "completion_gate_verified"
@@ -274,6 +287,7 @@ export type TaskEventV1 =
   | ExecutionAnnotatedEvent
   | ReviewRecordedEvent
   | ReviewConsentRecordedEvent
+  | ReviewConsentOverrideRecordedEvent
   | CodeDocReconciledEvent
   | CodeDocRepointedEvent
   | CompletionGateVerifiedEvent
@@ -398,6 +412,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       "execution_annotated",
       "review_recorded",
       "review_consent_recorded",
+      "review_consent_overridden",
       "code_doc_reconciled",
       "code_doc_repointed",
       "completion_gate_verified",
@@ -460,11 +475,28 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       issues.push(invalidEventPayloadIssue("execution annotation must be pinned to its canonical event envelope"));
   }
   if (value.type === "review_recorded") issues.push(...validateReviewV1(payload.review, allowUnknownFields));
-  if (value.type === "review_consent_recorded")
+  if (value.type === "review_consent_recorded" || value.type === "review_consent_overridden")
     issues.push(
       ...validateReviewV1(payload.review, allowUnknownFields),
       ...validateReviewConsentV1(payload.consent, allowUnknownFields),
+      ...(payload.disposition === undefined
+        ? []
+        : validateReviewDispositionV1(payload.disposition, allowUnknownFields)),
     );
+  if (
+    value.type === "review_consent_overridden" &&
+    isRecord(payload.disposition) &&
+    isRecord(payload.execution) &&
+    (payload.disposition.taskId !== value.taskId ||
+      payload.disposition.executionId !== payload.execution.executionId ||
+      payload.disposition.iteration !== payload.execution.iteration ||
+      !payload.execution.submission ||
+      payload.disposition.submissionDigest !== submissionDigest(payload.execution.submission as SubmissionV1) ||
+      !sameActorIdentity(payload.disposition.actor, value.actor) ||
+      !sameWriteSource(payload.disposition.source, value.source) ||
+      payload.disposition.disposedAt !== value.occurredAt)
+  )
+    issues.push(invalidEventPayloadIssue("review disposition must be pinned to its event and execution cut"));
   if (value.type === "code_doc_reconciled")
     issues.push(...validateCodeDocWitnessV1(payload.witness, allowUnknownFields));
   if (value.type === "code_doc_repointed") issues.push(...validateCodeDocRepointV1(payload.record, allowUnknownFields));
@@ -556,6 +588,7 @@ function lifecyclePayloadFields(
   if (type === "execution_annotated") return [...common, "annotation"];
   if (type === "review_recorded") return [...common, "review", ...(edge ? ["edge"] : [])];
   if (type === "review_consent_recorded") return [...common, "review", "consent"];
+  if (type === "review_consent_overridden") return [...common, "review", "consent", "disposition"];
   if (type === "code_doc_reconciled" || type === "completion_gate_verified") return [...common, "witness"];
   if (type === "code_doc_repointed") return [...common, "record"];
   if (type === "task_completed")

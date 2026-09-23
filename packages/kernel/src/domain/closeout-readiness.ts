@@ -5,7 +5,7 @@ export type CloseoutReadiness = (typeof closeoutReadinesses)[number];
 import { approvedReviewsForExecution, consentedApprovedReviewForExecution } from "./review.ts";
 import { isNativeExecution } from "./execution.ts";
 import type { ExecutionV1, ProjectedExecution, SubmissionV1 } from "./execution.ts";
-import type { ReviewConsentV1, ReviewV1 } from "./review.ts";
+import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1 } from "./review.ts";
 import { currentCodeDocWitness } from "./code-doc-witness.ts";
 import type { CodeDocWitnessRecord } from "./code-doc-witness.ts";
 import { isHumanAttestationWitness, isPreservedVerdictWitness } from "./completion-gate-witness.ts";
@@ -48,6 +48,7 @@ export interface CloseoutSnapshot {
   readonly executions: readonly ProjectedExecution[];
   readonly reviews: readonly ReviewV1[];
   readonly consents: readonly ReviewConsentV1[];
+  readonly reviewDispositions?: readonly ReviewDispositionV1[];
   readonly codeDocWitnesses: readonly CodeDocWitnessRecord[];
   readonly gateWitnesses: readonly CompletionGateWitnessV1[];
   readonly decisionRelations?: readonly CoverageRelation[];
@@ -96,8 +97,12 @@ export function closeoutReadiness(
   )
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "projection_unknown", gates };
   const approved = approvedReviewsForExecution(snapshot.reviews, execution),
-    consented = consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, execution);
-  // An amended cut needs a fresh approval, unless the owner explicitly consented to a review for this cut.
+    consented = consentedApprovedReviewForExecution(
+      snapshot.reviews,
+      snapshot.consents,
+      execution,
+      snapshot.reviewDispositions ?? [],
+    );
   if (effectiveGates?.review !== false && !approved.length && !consented)
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "review", gates };
   if (effectiveGates?.consent !== false && !consented)

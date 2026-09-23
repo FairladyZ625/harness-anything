@@ -7,6 +7,7 @@ import type { WriteSource } from "./write-chain.contract.ts";
 import { hasRequiredFields, validateWriteSource } from "./write-chain.contract.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { timestamp } from "./timestamp.ts";
+import { reviewConsentConflicts } from "./review-consent-validity.ts";
 export const reviewVerdicts = ["approved", "changes_requested", "dismissed"] as const;
 export type ReviewVerdict = (typeof reviewVerdicts)[number];
 export interface ReviewV1 {
@@ -37,6 +38,55 @@ export interface ReviewConsentV1 {
   readonly actor: ActorAxes;
   readonly source: WriteSource;
   readonly consentedAt: string;
+}
+export interface ReviewDispositionV1 {
+  readonly schema: "review-disposition/v1";
+  readonly dispositionId: string;
+  readonly taskId: string;
+  readonly executionId: string;
+  readonly iteration: number;
+  readonly submissionDigest: SubmissionDigest;
+  readonly disposedReviewIds: readonly string[];
+  readonly rationale: string;
+  readonly actor: ActorAxes;
+  readonly source: WriteSource;
+  readonly disposedAt: string;
+}
+export function validateReviewDispositionV1(
+  value: unknown,
+  allowUnknownFields = false,
+): readonly ContractValidationIssue[] {
+  const fields = [
+    "schema",
+    "dispositionId",
+    "taskId",
+    "executionId",
+    "iteration",
+    "submissionDigest",
+    "disposedReviewIds",
+    "rationale",
+    "actor",
+    "source",
+    "disposedAt",
+  ] as const;
+  if (!isRecord(value) || !(allowUnknownFields ? hasRequiredFields(value, fields) : hasOnlyFields(value, fields)))
+    return [invalidReviewIssue("ReviewDisposition/v1 fields are incomplete or unknown")];
+  const valid =
+    value.schema === "review-disposition/v1" &&
+    [value.dispositionId, value.taskId, value.executionId, value.rationale].every(isNonEmptyString) &&
+    Number.isSafeInteger(value.iteration) &&
+    Number(value.iteration) >= 0 &&
+    digest(value.submissionDigest) &&
+    Array.isArray(value.disposedReviewIds) &&
+    value.disposedReviewIds.length > 0 &&
+    new Set(value.disposedReviewIds).size === value.disposedReviewIds.length &&
+    value.disposedReviewIds.every(isNonEmptyString) &&
+    timestamp(value.disposedAt) &&
+    validateActorAxes(value.actor, allowUnknownFields).length === 0 &&
+    validateWriteSource(value.source, allowUnknownFields).length === 0;
+  return valid
+    ? []
+    : [invalidReviewIssue("review disposition must bind named reviews, rationale, content cut, actor, and source")];
 }
 export interface ConsentedApprovedReview {
   readonly review: ReviewV1;
@@ -168,26 +218,27 @@ export function consentedApprovedReviewForExecution(
   reviews: readonly ReviewV1[],
   consents: readonly ReviewConsentV1[],
   execution: ExecutionV1,
+  dispositions: readonly ReviewDispositionV1[] = [],
 ): ConsentedApprovedReview | undefined {
   if (!execution.submission || !execution.submittedAt) return undefined;
-  const approved = new Map(
-      approvedReviewHistoryForExecution(reviews, execution).map((review) => [review.reviewId, review]),
-    ),
-    currentReviewIds = new Set(approvedReviewsForExecution(reviews, execution).map((review) => review.reviewId)),
+  const approved = new Map(approvedReviewsForExecution(reviews, execution).map((review) => [review.reviewId, review])),
     currentSubmissionDigest = submissionDigest(execution.submission),
     submittedAt = Date.parse(execution.submittedAt);
   for (let index = consents.length - 1; index >= 0; index -= 1) {
     const consent = consents[index]!;
     if (consent.executionId !== execution.executionId || Date.parse(consent.consentedAt) < submittedAt) continue;
     const review = approved.get(consent.reviewId);
-    const pinsCurrentSubmission =
-      consent.submissionDigest === currentSubmissionDigest ||
-      (consent.submissionDigest === undefined && currentReviewIds.has(consent.reviewId));
     if (
       review &&
-      pinsCurrentSubmission &&
+      (consent.submissionDigest === currentSubmissionDigest || consent.submissionDigest === undefined) &&
       consent.reviewDigest === reviewDigest(review) &&
-      consent.contentDigest === review.contentDigest
+      consent.contentDigest === review.contentDigest &&
+      reviewConsentConflicts({
+        selectedReview: review,
+        reviews: reviewsForExecution(reviews, execution),
+        dispositions,
+        currentSubmissionDigest,
+      }).length === 0
     )
       return { review, consent };
   }

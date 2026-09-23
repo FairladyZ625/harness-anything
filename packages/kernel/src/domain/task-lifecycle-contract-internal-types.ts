@@ -1,7 +1,7 @@
 import { EXECUTION_V1_SCHEMA, LEASE_V1_SCHEMA } from "./execution.ts";
 import type { ExecutionDeliveryBaseline, LeaseHolder, LeaseV1, ProjectedExecution, SubmissionV1 } from "./execution.ts";
 import { REVIEW_CONSENT_V1_SCHEMA, REVIEW_V1_SCHEMA } from "./review.ts";
-import type { ReviewConsentV1, ReviewV1, ReviewVerdict } from "./review.ts";
+import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1, ReviewVerdict } from "./review.ts";
 import type { CodeDocWitnessRecord } from "./code-doc-witness.ts";
 import type { CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import type { CoverageRelation } from "./decision-coverage.ts";
@@ -22,6 +22,7 @@ export interface TaskLifecycleSnapshot {
   readonly executions: readonly ProjectedExecution[];
   readonly reviews: readonly ReviewV1[];
   readonly consents: readonly ReviewConsentV1[];
+  readonly reviewDispositions?: readonly ReviewDispositionV1[];
   readonly codeDocWitnesses: readonly CodeDocWitnessRecord[];
   readonly gateWitnesses: readonly CompletionGateWitnessV1[];
   readonly edgesTaken: readonly TaskEdgeTaken[];
@@ -92,6 +93,8 @@ export interface RecordReviewConsentIntent extends Intent<"RecordReviewConsent">
   readonly consentId: string;
   readonly reviewDigest: `sha256:${string}`;
   readonly contentDigest: `sha256:${string}`;
+  readonly disposedReviewIds?: readonly string[];
+  readonly rationale?: string;
 }
 export interface ReconcileCodeDocIntent extends Intent<"ReconcileCodeDoc"> {
   readonly executionId: string;
