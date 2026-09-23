@@ -390,10 +390,9 @@ export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEven
       ...snapshot,
       revision: event.workspaceRevision,
       consents: [...snapshot.consents, event.payload.consent],
-      reviewDispositions: [
-        ...(snapshot.reviewDispositions ?? []),
-        ...(event.type === "review_consent_overridden" ? [event.payload.disposition] : []),
-      ],
+      ...(event.type === "review_consent_overridden"
+        ? { reviewDispositions: [...(snapshot.reviewDispositions ?? []), event.payload.disposition] }
+        : {}),
     };
   else if (event.type === "code_doc_reconciled")
     next = {

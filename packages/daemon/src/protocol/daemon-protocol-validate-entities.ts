@@ -385,6 +385,32 @@ export function review(value: unknown): boolean {
   );
 }
 
+export function reviewDisposition(value: unknown): boolean {
+  return (
+    exactRecord(value, [
+      "schema",
+      "dispositionId",
+      "taskId",
+      "executionId",
+      "iteration",
+      "submissionDigest",
+      "disposedReviewIds",
+      "rationale",
+      "actor",
+      "source",
+      "disposedAt",
+    ]) &&
+    value.schema === "review-disposition/v1" &&
+    [value.dispositionId, value.taskId, value.executionId, value.rationale, value.disposedAt].every(nonEmpty) &&
+    iteration(value.iteration) &&
+    digest(value.submissionDigest) &&
+    stringArray(value.disposedReviewIds) &&
+    value.disposedReviewIds.length > 0 &&
+    actor(value.actor) &&
+    source(value.source)
+  );
+}
+
 export function consent(value: unknown): boolean {
   const fields = [
     "schema",

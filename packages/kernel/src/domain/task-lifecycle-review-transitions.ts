@@ -283,7 +283,7 @@ export const consent: Transition = {
         ...snapshot,
         revision: command.workspaceRevision,
         consents: [...snapshot.consents, value],
-        reviewDispositions: [...(snapshot.reviewDispositions ?? []), ...(disposition ? [disposition] : [])],
+        ...(disposition ? { reviewDispositions: [...(snapshot.reviewDispositions ?? []), disposition] } : {}),
       },
       event: disposition
         ? envelope<ReviewConsentOverrideRecordedEvent>(command, "review_consent_overridden", {

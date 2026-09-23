@@ -102,6 +102,35 @@ test("task snapshot protocol isolates a malformed field with its source row iden
   assert.deepEqual(validateDaemonTaskSnapshotList(result), []);
 });
 
+test("task snapshot protocol accepts a named review disposition and isolates a malformed one", () => {
+  const disposition = {
+      schema: "review-disposition/v1",
+      dispositionId: "disposition-0123456789abcdef",
+      taskId: "task-repoint",
+      executionId: "execution-repoint",
+      iteration: 0,
+      submissionDigest: `sha256:${"b".repeat(64)}`,
+      disposedReviewIds: ["review-changes-requested"],
+      rationale: "The requested change is out of this cut's scope.",
+      actor,
+      source: "local",
+      disposedAt: "2026-08-25T00:00:00.000Z",
+    } as const,
+    disposed = { ...row, snapshot: { ...row.snapshot, reviewDispositions: [disposition] } },
+    unnamed = {
+      ...row,
+      taskId: "task-unnamed-disposition",
+      snapshot: { ...row.snapshot, reviewDispositions: [{ ...disposition, disposedReviewIds: [] }] },
+    },
+    isolated = isolateDaemonTaskSnapshotRows([row, disposed, unnamed]);
+
+  assert.deepEqual(isolated.rows, [row, disposed]);
+  assert.deepEqual(
+    isolated.invalidRows.map(({ field }) => field),
+    ["rows[2].snapshot.reviewDispositions"],
+  );
+});
+
 test("task snapshot protocol accepts tasks with archiveOnComplete boolean flag", () => {
   const lightweightTask = {
     schema: "task/v2",
