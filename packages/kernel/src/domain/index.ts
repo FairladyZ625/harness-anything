@@ -48,6 +48,7 @@ export {
   approvedReviewsForExecution,
   consentedApprovedReviewForExecution,
   reviewVerdicts,
+  settledApprovedReviewsForExecution,
 } from "./review.ts";
 
 export { isPriorityTier, isTaskWorkKind, priorityTiers, taskWorkKinds } from "./task-metadata.ts";

@@ -15,6 +15,7 @@ import {
   taskVisibility,
   workspaceTaskStatus,
   resolveHarnessLayout,
+  settledApprovedReviewsForExecution,
   type FreshnessReason,
   type FreshnessReasonInput,
   type ProjectionPage,
@@ -725,20 +726,15 @@ function latestExecution(executions: readonly ProjectedExecution[]): ProjectedEx
     if (latest === undefined || execution.iteration >= latest.iteration) latest = execution;
   return latest;
 }
-/** 一页 task 行 → 未被同轮 approved 评审了结的 submitted execution 行;待派审/评审中两组共用这一谓词。 */
+/** 一页 task 行 → 当前切面尚无 settled approved 评审的 submitted execution 行;待派审/评审中两组共用这一谓词。 */
 function awaitingExecutionRows(rows: readonly AgendaSourceRow[]): AgendaExecutionRow[] {
   return rows.flatMap((row) =>
     row.snapshot.executions
       .filter(
         (execution) =>
           execution.state === "submitted" &&
-          !row.snapshot.reviews.some(
-            (review) =>
-              review.executionId === execution.executionId &&
-              review.verdict === "approved" &&
-              review.commitSha === execution.submission?.commitSha &&
-              review.iteration === execution.iteration,
-          ),
+          settledApprovedReviewsForExecution(row.snapshot.reviews, execution, row.snapshot.reviewDispositions)
+            .length === 0,
       )
       .map((execution) => ({
         taskId: row.taskId,
