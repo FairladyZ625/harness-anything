@@ -1,5 +1,5 @@
 import { isNativeCommitSha, submissionDigest } from "./execution.ts";
-import type { ExecutionV1, SubmissionDigest } from "./execution.ts";
+import type { ExecutionV1, ProjectedExecution, SubmissionDigest } from "./execution.ts";
 import { digest } from "./digest.ts";
 import { hasOnlyFields, isNonEmptyString, isRecord, validateActorAxes } from "./task.ts";
 import type { ActorAxes, ContractValidationIssue } from "./task.ts";
@@ -214,6 +214,23 @@ export function reviewsForExecution(reviews: readonly ReviewV1[], execution: Exe
   );
 }
 
+/** Approved Reviews of the current submission that no undisposed changes_requested on that cut contradicts. */
+export function settledApprovedReviewsForExecution(
+  reviews: readonly ReviewV1[],
+  execution: ProjectedExecution,
+  dispositions: readonly ReviewDispositionV1[] = [],
+): readonly ReviewV1[] {
+  if (execution.schema !== "execution/v1" || !execution.submission) return [];
+  const current = reviewsForExecution(reviews, execution),
+    currentSubmissionDigest = submissionDigest(execution.submission);
+  return current.filter(
+    (review) =>
+      review.verdict === "approved" &&
+      reviewConsentConflicts({ selectedReview: review, reviews: current, dispositions, currentSubmissionDigest })
+        .length === 0,
+  );
+}
+
 export function consentedApprovedReviewForExecution(
   reviews: readonly ReviewV1[],
   consents: readonly ReviewConsentV1[],
@@ -221,7 +238,9 @@ export function consentedApprovedReviewForExecution(
   dispositions: readonly ReviewDispositionV1[] = [],
 ): ConsentedApprovedReview | undefined {
   if (!execution.submission || !execution.submittedAt) return undefined;
-  const approved = new Map(approvedReviewsForExecution(reviews, execution).map((review) => [review.reviewId, review])),
+  const approved = new Map(
+      settledApprovedReviewsForExecution(reviews, execution, dispositions).map((review) => [review.reviewId, review]),
+    ),
     currentSubmissionDigest = submissionDigest(execution.submission),
     submittedAt = Date.parse(execution.submittedAt);
   for (let index = consents.length - 1; index >= 0; index -= 1) {
@@ -232,13 +251,7 @@ export function consentedApprovedReviewForExecution(
       review &&
       (consent.submissionDigest === currentSubmissionDigest || consent.submissionDigest === undefined) &&
       consent.reviewDigest === reviewDigest(review) &&
-      consent.contentDigest === review.contentDigest &&
-      reviewConsentConflicts({
-        selectedReview: review,
-        reviews: reviewsForExecution(reviews, execution),
-        dispositions,
-        currentSubmissionDigest,
-      }).length === 0
+      consent.contentDigest === review.contentDigest
     )
       return { review, consent };
   }

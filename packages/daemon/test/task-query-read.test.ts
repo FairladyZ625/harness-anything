@@ -20,7 +20,7 @@ import {
 import { readTaskWipSnapshot, wipSnapshotEntries, type TaskQueryCell } from "../src/repo-cell-task-query.ts";
 import { readTaskCompletion } from "../src/task-completion-read.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import { reduceTaskEvent, taskCompletionNext } from "@harness-anything/kernel";
+import { reduceTaskEvent, submissionDigest, taskCompletionNext } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { makeTaskQueryReadModel } from "../src/task-query-read.ts";
 
@@ -373,6 +373,88 @@ test("agenda splits awaiting work by next action and keeps every row in exactly 
   assert.match(result.summary, /评审中 \(1\)[\s\S]*task_under_review/u);
   assert.match(result.summary, /待裁 Decision \(1\)[\s\S]*dec_split/u);
   // The produced result passes the same wire validator the GUI-side parser uses.
+  assert.deepEqual(validateDaemonAgenda(result), []);
+});
+
+test("agenda counts a cut as reviewed only by an approval of its current submission with no undisposed disagreement", () => {
+  const commitSha = "c".repeat(40),
+    submission = (claim: string) => ({
+      commitSha,
+      completionClaim: claim,
+      deliverables: [],
+      outputs: [],
+      verificationNotes: [],
+      knownGaps: [],
+      residualRisks: [],
+      completionContract: { gates: [] },
+    }),
+    submitted = (taskId: string, claim: string) => ({
+      ...executionRow(`exe_${taskId}`, 0, "submitted", taskId),
+      submittedAt: "2026-08-30T01:00:00.000Z",
+      submission: submission(claim),
+    }),
+    review = (taskId: string, reviewId: string, verdict: string, claim: string) => ({
+      schema: "review/v1",
+      reviewId,
+      taskId,
+      executionId: `exe_${taskId}`,
+      verdict,
+      commitSha,
+      iteration: 0,
+      submissionDigest: submissionDigest(submission(claim) as never),
+      reviewedAt: "2026-08-30T01:30:00.000Z",
+    }),
+    reviewedRow = (taskId: string, claim: string, reviews: readonly unknown[], reviewDispositions?: unknown[]) => {
+      const row = statusTaskRow(taskId, "in_review", [submitted(taskId, claim)]);
+      return {
+        ...row,
+        snapshot: { ...row.snapshot, reviews: [...reviews], ...(reviewDispositions ? { reviewDispositions } : {}) },
+      };
+    },
+    disposition = (taskId: string, reviewIds: readonly string[]) => ({
+      schema: "review-disposition/v1",
+      dispositionId: `disposition_${taskId}`,
+      taskId,
+      executionId: `exe_${taskId}`,
+      iteration: 0,
+      submissionDigest: submissionDigest(submission("current") as never),
+      disposedReviewIds: [...reviewIds],
+      rationale: "Out of this cut's scope.",
+    }),
+    result = makeTaskQueryReadModel({
+      rootDir: canonicalRoot(process.cwd()),
+      projection: projectionStub({
+        taskRows: [
+          reviewedRow("task_settled", "current", [review("task_settled", "r_ok", "approved", "current")]),
+          // Approved before an amendment that kept the commit: the approval is of the old submission.
+          reviewedRow("task_amended", "current", [review("task_amended", "r_old", "approved", "before amend")]),
+          reviewedRow("task_disagreed", "current", [
+            review("task_disagreed", "r_yes", "approved", "current"),
+            review("task_disagreed", "r_no", "changes_requested", "current"),
+          ]),
+          reviewedRow(
+            "task_disposed",
+            "current",
+            [
+              review("task_disposed", "r_yes", "approved", "current"),
+              review("task_disposed", "r_no", "changes_requested", "current"),
+            ],
+            [disposition("task_disposed", ["r_no"])],
+          ),
+        ],
+      }),
+      readPinnedEntities: () => [],
+      judgments: {
+        closeout: (() => ({ readiness: "missing", blocker: "execution", gates: [] })) as never,
+        blocking: ((tasks: readonly { taskId: string }[]) =>
+          tasks.map(({ taskId }) => ({ taskId, state: "clear", label: "none", blockers: [], warnings: [] }))) as never,
+      },
+    }).agenda();
+
+  assert.deepEqual(
+    result.underReview.map(({ taskId }) => taskId),
+    ["task_amended", "task_disagreed"],
+  );
   assert.deepEqual(validateDaemonAgenda(result), []);
 });
 
