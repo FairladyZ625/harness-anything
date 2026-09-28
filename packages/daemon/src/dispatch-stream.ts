@@ -68,7 +68,7 @@ export interface DispatchStreamHeader extends RuntimeResumeHeader {
     readonly worktree?: {
       readonly cwd: string;
       readonly branch: string;
-      readonly baseRef: "origin/main";
+      readonly baseRef: string;
     };
   };
   readonly runtimeSessionId: string;

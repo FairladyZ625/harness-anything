@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   assertTransitionDocumentReady,
   openEntityStore,
+  readSettingsFacet,
   requireTransitionDocumentKind,
   resolveHarnessLayout,
   validateScheduleV1,
@@ -468,7 +469,12 @@ export function openFleetEdgeRuntime(input: {
     trustedScheduleAgents.set(trustedAgent.id, trustedAgent);
     const dispatched = await dispatchClaimedSchedule({
       schedule: scheduleValueV1,
-      workspace: await prepareScheduleOccurrenceWorkspace(request.workspaceRoot, scheduleValueV1),
+      // Every node reads the same Settings: the edge's materialized harness.yaml is the center's facet.
+      workspace: await prepareScheduleOccurrenceWorkspace(
+        request.workspaceRoot,
+        scheduleValueV1,
+        readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8")).worktree.setup,
+      ),
       idempotencyKey: operationKey,
       now,
       spawn: async (scheduled) => {

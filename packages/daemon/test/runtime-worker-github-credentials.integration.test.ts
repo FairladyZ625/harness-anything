@@ -34,7 +34,8 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
     git(root, "remote", "add", "origin", remote);
     git(root, "push", "--quiet", "origin", "HEAD:main");
     const baseHead = gitText(root, "rev-parse", "HEAD").trim();
-    git(root, "worktree", "add", "--quiet", workerRoot, "-b", "codex/github-worker");
+    // Settlement publishes the branch named after the dispatched task.
+    git(root, "worktree", "add", "--quiet", workerRoot, "-b", taskId);
     writeFileSync(path.join(workerRoot, "worker-change.txt"), "task-bound worker change\n");
     git(workerRoot, "add", "worker-change.txt");
     git(workerRoot, "commit", "--quiet", "-m", "feat: add worker change");
@@ -154,9 +155,9 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
     await runtimeOutcome(root, repoId, String(spawned.runtimeSessionId));
 
     assert.equal(taskBoundLaunches, 1);
-    assert.match(String(mainPush?.stderr), /outside refs\/heads\/codex/u);
+    assert.match(String(mainPush?.stderr), /outside a task branch refs\/heads\/task_/u);
     assert.notEqual(mainPush?.status, 0, mainPush?.stderr);
-    assert.match(gitText(remote, "show-ref", "--verify", "refs/heads/codex/github-worker"), /codex\/github-worker/u);
+    assert.match(gitText(remote, "show-ref", "--verify", `refs/heads/${taskId}`), new RegExp(taskId, "u"));
     // The worker change never lands on main: the remote baseline stands exactly where the
     // fixture published it before the worker branch existed.
     assert.equal(gitText(remote, "rev-parse", "refs/heads/main").trim(), baseHead);

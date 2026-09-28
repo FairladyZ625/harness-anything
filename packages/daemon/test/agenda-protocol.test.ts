@@ -22,10 +22,10 @@ test("agenda result schema rejects mistyped pin state and misgrouped awaiting ro
       activeExecutionIds: [],
       blockingAssessment: { taskId: "task-current", state: "clear", label: "none", blockers: [], warnings: [] },
       work: { taskId: "task-work", title: "Release 2" },
-      worktree: {
-        branch: "codex/current-task-12345678",
-        path: ".worktrees/current-task-12345678",
-        baseRef: "origin/main",
+      workspace: {
+        kind: "worktree",
+        branch: "task-current",
+        path: ".worktrees/task-current",
         state: "materialized",
       },
     },

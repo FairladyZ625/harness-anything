@@ -5,25 +5,32 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 import { addManagedWorktree, reclaimManagedWorktree, type WorktreeReclaim } from "./schedule-occurrence-workspace.ts";
 import { materializeTaskWorktree, presetSnapshotReader } from "./task-worktree.ts";
+import { runWorktreeSetup, worktreeSetupFailure } from "./worktree-setup.ts";
 
 /** Where a squad worker runs: the run cwd, or its own worktree and branch cut at the run baseline. */
 export type WorkerCheckout = { readonly cwd: string; readonly branch: string; readonly baseSha: string };
 
 const workerBranchSeparator = "--";
 
-/** Without a requested cwd a Squad run works in its task's own worktree, checked out here on first use. */
+/** Without a requested cwd a Squad run works in its task's own worktree, checked out and prepared on first use. */
 export async function resolveSquadCwd(
   rootDir: string,
   value: unknown,
   projection: () => TaskProjection,
   taskId: string,
+  setup: readonly string[],
 ): Promise<string> {
   if (value !== undefined) return resolveCwd(rootDir, value);
-  const read = projection();
-  return (
-    (await materializeTaskWorktree(rootDir, read.read(taskId).snapshot.task, presetSnapshotReader(read)))?.cwd ??
-    rootDir
-  );
+  const read = projection(),
+    checkout = await materializeTaskWorktree(
+      rootDir,
+      read.read(taskId).snapshot.task,
+      presetSnapshotReader(read),
+      setup,
+    );
+  if (checkout && !checkout.setup.ok)
+    throw new Error(worktreeSetupFailure(checkout.cwd, checkout.setup, `start the Squad run for ${taskId} again`));
+  return checkout?.cwd ?? rootDir;
 }
 
 function resolveCwd(rootDir: string, value: unknown): string {
@@ -45,6 +52,7 @@ export async function prepareWorkerWorktree(
   state: { readonly squadRunId: string; readonly cwd: string; readonly baseSha: string | null },
   workerId: string,
   attemptId: string,
+  setup: { readonly rootDir: string; readonly taskId: string; readonly steps: readonly string[] },
 ): Promise<WorkerCheckout | null> {
   if (state.baseSha === null) return null;
   // Workers branch off whatever the Commander has checked out, so the Commander can merge them back
@@ -52,7 +60,7 @@ export async function prepareWorkerWorktree(
   const commanderBranch = (await runProcessTextAsync("git", ["branch", "--show-current"], state.cwd)).trim();
   if (!commanderBranch) throw new Error("Squad workers require the Commander to run on a checked-out branch.");
   const slug = `squad-${state.squadRunId.slice("squad_".length)}-${workerId}-${attemptId}`,
-    // Git cannot create refs/heads/codex/mission/worker while refs/heads/codex/mission exists.
+    // Git cannot create refs/heads/<mission>/worker while refs/heads/<mission> exists.
     // A sibling ref retains the visible mission owner without colliding with the Commander ref.
     branch = `${commanderBranch}${workerBranchSeparator}${slug}`,
     cwd = path.join(state.cwd, ".worktrees", slug);
@@ -63,6 +71,8 @@ export async function prepareWorkerWorktree(
   } else {
     await addManagedWorktree(state.cwd, { cwd, branch, baseRef: state.baseSha });
   }
+  const prepared = await runWorktreeSetup({ rootDir: setup.rootDir, cwd, taskId: setup.taskId, steps: setup.steps });
+  if (!prepared.ok) throw new Error(worktreeSetupFailure(cwd, prepared, "let the Commander dispatch the worker again"));
   return { cwd, branch, baseSha: state.baseSha };
 }
 

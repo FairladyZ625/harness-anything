@@ -95,6 +95,8 @@ type RuntimeOutcomeEvent = Extract<AgentRuntimeEventV1, { readonly type: "runtim
 
 export function makeSquadCoordinator(input: {
   readonly rootDir: string;
+  /** Settings `worktree.setup`: what the Squad's task worktree and each worker worktree run once. */
+  readonly readWorktreeSetup: () => readonly string[];
   readonly projection: () => TaskProjection;
   readonly store: () => CanonicalEventStore;
   readonly reacquireTaskLease: (taskId: string, binding: RuntimeBinding) => Promise<void>;
@@ -146,7 +148,7 @@ export function makeSquadCoordinator(input: {
       );
     const squadId = requiredSquadText(action.squadId, "squadId"),
       runtimeInstanceId = requiredSquadText(action.runtimeInstanceId, "runtimeInstanceId"),
-      cwd = await resolveSquadCwd(input.rootDir, action.cwd, input.projection, taskId),
+      cwd = await resolveSquadCwd(input.rootDir, action.cwd, input.projection, taskId, input.readWorktreeSetup()),
       squad = squadForRun(squadId),
       baseSha = localGitObjectRefStore.headCommit(cwd);
     let mission: string;
@@ -670,7 +672,11 @@ export function makeSquadCoordinator(input: {
       const worktree =
         dispatchState.permissionMode === "read-only"
           ? null
-          : await prepareWorkerWorktree(dispatchState, plan.workerId, attemptId);
+          : await prepareWorkerWorktree(dispatchState, plan.workerId, attemptId, {
+              rootDir: input.rootDir,
+              taskId,
+              steps: input.readWorktreeSetup(),
+            });
       attempt = { ...attempt, worktree, executionId };
       state = save(dispatchState);
       const receipt = await input.runtimeSpawner().spawn(

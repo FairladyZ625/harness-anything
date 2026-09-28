@@ -315,6 +315,8 @@ export function assembleTaskMission(input: {
   readonly repoId: string;
   readonly canonicalRoot: string;
   readonly workerRoot: string;
+  /** How the task worktree was checked out and prepared for this dispatch; null when it runs elsewhere. */
+  readonly worktreeNote?: string | null;
   readonly taskId: string;
   readonly taskPackageRoot: string;
   readonly daemonRoute: RuntimeDaemonRoute;
@@ -326,6 +328,7 @@ export function assembleTaskMission(input: {
     "Repository registration: enabled",
     `Canonical repository root: ${input.canonicalRoot}`,
     `Worker repository root: ${input.workerRoot}`,
+    ...(input.worktreeNote ? [input.worktreeNote] : []),
     `Canonical Task ID: ${input.taskId}`,
     `Task package root: ${input.taskPackageRoot}`,
     ...(input.daemonRoute.userRoot

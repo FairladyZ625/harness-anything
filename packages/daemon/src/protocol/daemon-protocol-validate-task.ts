@@ -21,7 +21,7 @@ import {
   statusWord,
   stringArray,
   task,
-  taskWorktreeView,
+  taskWorkspaceView,
   validationEntityId,
   validationError,
   validationValueAtPath,
@@ -415,7 +415,7 @@ const taskSnapshotListRowFields = [
   "capabilities",
   "phase",
   "risk",
-  "worktree",
+  "workspace",
 ] as const;
 
 function taskSnapshotRowErrors(value: unknown, index: number): readonly DaemonTaskSnapshotInvalidRow[] {
@@ -456,7 +456,7 @@ function taskSnapshotRowErrors(value: unknown, index: number): readonly DaemonTa
   if (!capabilityList(value.capabilities)) errors.push(error("capabilities"));
   if (!taskPhase(value.phase)) errors.push(error("phase"));
   if (!exactRecord(value.risk, ["flagged"]) || typeof value.risk.flagged !== "boolean") errors.push(error("risk"));
-  if (!taskWorktreeView(value.worktree)) errors.push(error("worktree"));
+  if (!taskWorkspaceView(value.workspace)) errors.push(error("workspace"));
   if (!Array.isArray(value.executionEvidence)) errors.push(error("executionEvidence"));
   else
     value.executionEvidence.forEach((item, evidenceIndex) => {

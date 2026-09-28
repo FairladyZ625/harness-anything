@@ -123,6 +123,21 @@ ha --root "<目标仓库绝对路径>" task start <任务标识>
 
 从回执取得真实任务路径，不能手拼派生的 slug。按当前生命周期要求执行，重复启动前先回读已有执行。若启动回执未带执行标识，查询 `task show`；部分版本将其放在 `evidence.lease.executionId`，需先解析 `evidence` 字符串，再读取 `["lease"]["executionId"]`。
 
+### 任务工作树与准备步骤
+
+输出为仓库变更的任务，在本节点第一次 `task start` 或派工时由 Harness 建立工作树：分支 `<任务标识>`，目录 `.worktrees/<任务标识>`，基线为 `origin/HEAD` 指向的远端默认分支，无远端时取主检出的当前分支。回执写明路径与基线，不需要也不应手动 `git worktree add`。不改仓库文件的任务没有工作树，`task show` 的工作区行指向任务包目录。
+
+新工作树需要的准备写在仓库 Settings 的 `worktree.setup`，按顺序在工作树内只运行一次，环境带 `HARNESS_TASK_ID`、`HARNESS_WORKTREE`、`HARNESS_REPO_ROOT`。`init` 检测到 npm workspaces 时已写入 `node-modules`，回执会说明；其他项目按实际需要声明：
+
+```bash
+ha --root "<目标仓库绝对路径>" settings update --worktree-setup node-modules           # Node：镜像根目录 node_modules
+ha --root "<目标仓库绝对路径>" settings update --worktree-setup "run: uv sync"         # Python，或 "run: pip install -e ."
+ha --root "<目标仓库绝对路径>" settings update --worktree-setup "run: make bootstrap"  # 单条命令
+ha --root "<目标仓库绝对路径>" settings update --worktree-setup none                   # 清空
+```
+
+重复 `--worktree-setup` 表示多步，顺序即执行顺序；`settings read` 回读。某步失败时工作树保留、启动或派工被拒，提示写明步骤编号和日志（工作树 Git 目录下 `harness-setup/step-<n>.log`）。读日志修复原因后重跑同一条 `task start` 或派工，只重跑尚未成功的步骤；不要删工作树重来。旧命名 `codex/<slug>-<id8>` 的工作树用 `task contract migrate --apply` 一次性改名，有未提交改动或在飞执行者的会被列出、不强行移动。
+
 做实际工作并取得证据。交付日志和报告归本次执行；会支撑后续判断的可复核观察按当前事实入口记录，不为凑数量编造事实。仓库规定的事实与关系要求仍然有效。
 
 ### 确有承重选择时记录决策

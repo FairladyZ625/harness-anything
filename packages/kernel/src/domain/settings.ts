@@ -31,6 +31,12 @@ export const reviewIndependenceLevels = ["execution", "principal"] as const;
 export type ReviewIndependence = (typeof reviewIndependenceLevels)[number];
 export const DEFAULT_RESTORE_DRILL_RETENTION = 3;
 export const DEFAULT_CI_WORKFLOWS = Object.freeze([] as const);
+/**
+ * dec_8B3FCCD256CAC5B0BF3CCEDE58 CH3: the built-in worktree setup adapters. Every other preparation is a
+ * `run: <command>` step; there is no adapter registry beyond this list.
+ */
+export const worktreeSetupAdapters = ["node-modules"] as const;
+export const worktreeSetupStepPattern = `^(?:${worktreeSetupAdapters.join("|")}|run: \\S.*)$`;
 
 export interface WalFlushSettingsV1 {
   readonly adaptive: boolean;
@@ -65,6 +71,7 @@ export const SETTINGS_FIELD_OWNERSHIP = Object.freeze({
   closeout: "repository",
   agenda: "repository",
   restoreDrillRetention: "repository",
+  worktree: "repository",
 } as const);
 
 type SettingsOwnedField = keyof typeof SETTINGS_FIELD_OWNERSHIP;
@@ -95,6 +102,8 @@ export interface RepositorySettingsV1 {
   readonly closeout: CloseoutSettingsV1;
   readonly agenda: { readonly pinLimit: number };
   readonly restoreDrillRetention: number;
+  /** Ordered steps every new task worktree runs once on the node that checks it out. */
+  readonly worktree: { readonly setup: readonly string[] };
 }
 
 export interface LocalSettingsV1 {
@@ -122,6 +131,8 @@ export interface SettingsV1 {
   readonly closeout: CloseoutSettingsV1;
   readonly agenda: { readonly pinLimit: number };
   readonly restoreDrillRetention: number;
+  /** Ordered steps every new task worktree runs once on the node that checks it out. */
+  readonly worktree: { readonly setup: readonly string[] };
 }
 
 export const SETTINGS_LOCAL_V1_SCHEMA: EntityDocumentJsonSchema<LocalSettingsV1> = {
@@ -155,6 +166,7 @@ export const INITIAL_SETTINGS_V1: SettingsV1 = Object.freeze({
   closeout: DEFAULT_CLOSEOUT_SETTINGS,
   agenda: Object.freeze({ pinLimit: 30 }),
   restoreDrillRetention: DEFAULT_RESTORE_DRILL_RETENTION,
+  worktree: Object.freeze({ setup: Object.freeze([]) }),
 });
 
 export const settingValuePattern = "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$";
@@ -245,6 +257,7 @@ export const SETTINGS_V1_SCHEMA: EntityDocumentJsonSchema<SettingsV1> = {
       additionalProperties: false,
     }),
     restoreDrillRetention: ownedSchema("restoreDrillRetention", { type: "integer", minimum: 1 }),
+    worktree: worktreeSettingsSchema(),
   },
   required: [
     "schema",
@@ -312,6 +325,7 @@ export const SETTINGS_REPOSITORY_V1_SCHEMA: EntityDocumentJsonSchema<RepositoryS
       additionalProperties: false,
     }),
     restoreDrillRetention: ownedSchema("restoreDrillRetention", { type: "integer", minimum: 1 }),
+    worktree: worktreeSettingsSchema(),
   },
   required: ["schema", "settingsId", "defaultVertical", "defaultPreset", "defaultProfile", "scaffolds", "walFlush"],
   additionalProperties: false,
@@ -338,6 +352,7 @@ export function repositorySettings(settings: SettingsV1 | RepositorySettingsV1):
     closeout: settings.closeout ?? INITIAL_SETTINGS_V1.closeout,
     agenda: settings.agenda ?? INITIAL_SETTINGS_V1.agenda,
     restoreDrillRetention: settings.restoreDrillRetention ?? DEFAULT_RESTORE_DRILL_RETENTION,
+    worktree: settings.worktree ?? INITIAL_SETTINGS_V1.worktree,
   };
 }
 
@@ -389,6 +404,7 @@ export function readSettingsFacet(body: string): SettingsV1 {
       pinLimit: Number(settingBlockValue(body, "agenda", "pinLimit") ?? INITIAL_SETTINGS_V1.agenda.pinLimit),
     },
     restoreDrillRetention: readRestoreDrillRetention(body),
+    worktree: readWorktreeSettings(body),
   };
   const errors = validateSettingsV1(settings);
   if (errors.length) throw new Error(errors.join("; "));
@@ -469,6 +485,7 @@ export function writeRepositorySettingsFacet(body: string, settings: RepositoryS
     repository.scaffolds.repository,
     INITIAL_SETTINGS_V1.scaffolds.repository,
   );
+  next = writeWorktreeFacet(next, repository.worktree);
   next = removeLegacyLocale(next);
   if (stableStringify(repositorySettings(readSettingsFacet(next))) !== stableStringify(repository))
     throw new Error("repository settings facet replacement did not round-trip exactly");
@@ -502,6 +519,22 @@ function ciSettingsSchema() {
       }),
     },
     required: ["workflows"],
+    additionalProperties: false,
+  };
+}
+
+function worktreeSettingsSchema() {
+  return {
+    ...ownedSchema("worktree", {}),
+    type: "object" as const,
+    properties: {
+      setup: ownedSchema("worktree", {
+        type: "array" as const,
+        items: { type: "string" as const, pattern: worktreeSetupStepPattern },
+        uniqueItems: true,
+      }),
+    },
+    required: ["setup"],
     additionalProperties: false,
   };
 }
@@ -701,6 +734,40 @@ export function writeGatesFacet(body: string, gates: readonly GateWitnessMapping
       )
       .join("\n") +
     "\n";
+  if (section.test(body)) return body.replace(section, rendered);
+  const header = /^settings:[^\r\n]*(?:\r?\n|$)/mu;
+  if (!header.test(body)) throw new Error("Missing settings block in harness.yaml.");
+  return body.replace(header, (match) => `${match}${rendered}`);
+}
+
+/**
+ * `settings.worktree.setup` is a block list, one step per line, because a `run:` command may hold any
+ * character an inline array would split on:
+ *
+ *   worktree:
+ *     setup:
+ *       - node-modules
+ *       - run: pip install -e .
+ */
+function readWorktreeSettings(body: string): SettingsV1["worktree"] {
+  const section = /^  worktree:[^\S\r\n]*(?:\r?\n)((?:    [^\r\n]*(?:\r?\n|$))*)/mu.exec(body)?.[1];
+  if (section === undefined) return INITIAL_SETTINGS_V1.worktree;
+  const [header, ...items] = section.split(/\r?\n/u).filter((line) => line.trim() && !line.trim().startsWith("#"));
+  if (header?.trim() === "setup: []" && items.length === 0) return { setup: [] };
+  if (header?.trim() !== "setup:") throw new Error("settings.worktree must hold a setup: block list");
+  return {
+    setup: items.map((line) => {
+      const step = /^      - (\S.*?)[^\S\r\n]*$/u.exec(line)?.[1];
+      if (step === undefined) throw new Error(`settings.worktree.setup cannot read line: ${line.trim()}`);
+      return step;
+    }),
+  };
+}
+
+function writeWorktreeFacet(body: string, worktree: RepositorySettingsV1["worktree"]): string {
+  const section = /^  worktree:[^\r\n]*(?:\r?\n)(?:    [^\r\n]*(?:\r?\n|$))*/mu;
+  if (worktree.setup.length === 0) return section.test(body) ? body.replace(section, "") : body;
+  const rendered = ["  worktree:", "    setup:", ...worktree.setup.map((step) => `      - ${step}`), ""].join("\n");
   if (section.test(body)) return body.replace(section, rendered);
   const header = /^settings:[^\r\n]*(?:\r?\n|$)/mu;
   if (!header.test(body)) throw new Error("Missing settings block in harness.yaml.");

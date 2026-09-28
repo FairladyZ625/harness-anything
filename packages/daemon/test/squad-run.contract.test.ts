@@ -483,6 +483,7 @@ function detailCoordinator(
   const projection = detailProjectionWith(new Map([["dispatch_00000000000000000000a1b2", leaderArchive()]]));
   return makeSquadCoordinator({
     rootDir,
+    readWorktreeSetup: () => [],
     projection: () => projection,
     store: () =>
       ({
@@ -755,6 +756,7 @@ function coordinator(
   return {
     coordinator: makeSquadCoordinator({
       rootDir,
+      readWorktreeSetup: () => [],
       projection: () => projection,
       store: () => {
         throw new Error("store is not exercised by the list window");

@@ -96,8 +96,7 @@ export interface TrustedScheduleRuntime {
   readonly worktree?: {
     readonly cwd: string;
     readonly branch: string;
-    readonly baseRef: "origin/main";
-    readonly note?: string;
+    readonly baseRef: string;
   };
 }
 

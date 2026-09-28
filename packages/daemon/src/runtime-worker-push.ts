@@ -3,9 +3,9 @@ import { realpathSync } from "node:fs";
 import { promisify } from "node:util";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { scrubProviderValue } from "./dispatch-stream.ts";
+import { repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
 
 const execFileAsync = promisify(execFile),
-  workerBranchPattern = /^codex\/[A-Za-z0-9][A-Za-z0-9._-]*$/u,
   detailLimit = 512,
   // One formatted line per commit; a rebased worker branch carries every recreated commit again.
   workerHistoryLimit = 1 << 20,
@@ -18,7 +18,7 @@ const execFileAsync = promisify(execFile),
   workerPushTimeoutMs = 60_000;
 
 export type WorkerPushResult =
-  | { readonly attempted: false; readonly reason: "not-a-worker-worktree" | "not-codex-branch" | "detached" }
+  | { readonly attempted: false; readonly reason: "not-a-worker-worktree" | "not-task-branch" | "detached" }
   | { readonly attempted: true; readonly ok: true; readonly branch: string; readonly head: string }
   | {
       readonly attempted: true;
@@ -93,9 +93,14 @@ export async function workerWorktreeDirty(input: {
   }
 }
 
+/**
+ * Settlement publishes the branch Harness named after the dispatched task (dec_8B3FCCD256CAC5B0BF3CCEDE58 CH1):
+ * a checkout on any other branch is somebody's own and stays local.
+ */
 export async function pushWorkerBranch(input: {
   readonly cwd: string;
   readonly canonicalRoot: string;
+  readonly taskId: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly timeoutMs?: number;
 }): Promise<WorkerPushResult> {
@@ -109,7 +114,7 @@ export async function pushWorkerBranch(input: {
     return { attempted: true, ok: false, branch: null, head: null, detail: errorDetail(error) };
   }
   if (!branch) return { attempted: false, reason: "detached" };
-  if (!workerBranchPattern.test(branch)) return { attempted: false, reason: "not-codex-branch" };
+  if (branch !== input.taskId) return { attempted: false, reason: "not-task-branch" };
 
   let head: string;
   try {
@@ -119,7 +124,7 @@ export async function pushWorkerBranch(input: {
   }
 
   // Settlement is the publication boundary: the push runs only when the conventional identity
-  // is readable and every commit the worker added on top of origin/main carries it. Rewriting
+  // is readable and every commit the worker added on top of the default branch carries it. Rewriting
   // authorship is a human decision, so a mismatch refuses the push instead of repairing it.
   const identity = await readWorkerGitIdentity({ cwd: input.canonicalRoot, env });
   if (!identity)
@@ -132,7 +137,12 @@ export async function pushWorkerBranch(input: {
         `canonical repository ${input.canonicalRoot} resolves no git user.name/user.email, ` +
         "so the conventional worker identity cannot be verified",
     };
-  const mismatch = await firstCommitOutsideConventionalIdentity(input.cwd, identity, env);
+  const mismatch = await firstCommitOutsideConventionalIdentity(
+    input.cwd,
+    await repositoryBaseRef(input.canonicalRoot),
+    identity,
+    env,
+  );
   if (mismatch) return { attempted: true, ok: false, branch, head, detail: mismatch };
 
   const timeoutMs = input.timeoutMs ?? workerPushTimeoutMs;
@@ -159,21 +169,23 @@ export async function pushWorkerBranch(input: {
   }
 }
 
-// The first commit in `origin/main..HEAD` whose author or committer email is not the
+// The first commit in `<default branch>..HEAD` whose author or committer email is not the
 // conventional identity, named with both of its emails; null when the whole range matches.
-// Without origin/main the worker's own commits cannot be bounded, so that also refuses.
+// Without a default branch the worker's own commits cannot be bounded, so that also refuses.
 async function firstCommitOutsideConventionalIdentity(
   cwd: string,
+  baseRef: string | null,
   identity: WorkerGitIdentity,
   env: NodeJS.ProcessEnv,
 ): Promise<string | null> {
+  if (!baseRef) return "worker commits cannot be bounded: the repository has no default branch";
   let log: string;
   try {
     // Newline-separated fields: git itself refuses newline characters inside an ident, so the
     // three-line records cannot fold into each other.
-    log = await readGitText(cwd, ["log", "--format=%H%n%ae%n%ce", "origin/main..HEAD"], env, workerHistoryLimit);
+    log = await readGitText(cwd, ["log", "--format=%H%n%ae%n%ce", `${baseRef}..HEAD`], env, workerHistoryLimit);
   } catch (error) {
-    return `worker commits cannot be bounded against origin/main: ${errorDetail(error)}`;
+    return `worker commits cannot be bounded against ${baseRef}: ${errorDetail(error)}`;
   }
   const fields = log.split("\n");
   for (let index = 0; index + 2 < fields.length; index += 3) {

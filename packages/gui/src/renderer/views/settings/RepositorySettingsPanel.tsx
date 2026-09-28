@@ -104,6 +104,10 @@ export const FIELD_COPY: Readonly<Record<string, { readonly labelKey: MessageKey
     labelKey: "views.settingsView.restoreDrillRetentionLabel",
     descKey: "views.settingsView.restoreDrillRetentionDescription",
   },
+  worktreeSetup: {
+    labelKey: "views.settingsView.worktreeSetupLabel",
+    descKey: "views.settingsView.worktreeSetupDescription",
+  },
 };
 
 /** 仓库设置面板:字段面由 settings 动作契约派生,本文件只承担渲染、目录联动与提交。 */
@@ -440,6 +444,15 @@ function renderFieldControl(
           onChange={(value) => updateDraft(row.field, value)}
         />
       );
+    case "string-list":
+      return (
+        <SettingLinesInput
+          label={row.field}
+          testId={testId ?? `settings-${row.field}-input`}
+          value={Array.isArray(draft[row.field]) ? (draft[row.field] as readonly string[]) : []}
+          onChange={(next) => updateDraft(row.field, next)}
+        />
+      );
     case "toggle":
       return <Toggle checked={draft[row.field] === true} onChange={(enabled) => updateDraft(row.field, enabled)} />;
     case "number": {
@@ -533,6 +546,48 @@ function SettingNumberInput({
       }}
     />
   );
+}
+
+/** 有序自由清单:一行一项,顺序即执行顺序;空行不计,全空 = 空清单。取值合法性归中心
+ * 编译器判定(不在这里复制一份步骤语法),被拒时整条错误照实显示在表单底部。 */
+function SettingLinesInput({
+  label,
+  testId,
+  value,
+  onChange,
+}: {
+  readonly label: string;
+  readonly testId: string;
+  readonly value: readonly string[];
+  readonly onChange: (next: readonly string[]) => void;
+}) {
+  const [text, setText] = useState(value.join("\n")),
+    joined = value.join("\n");
+  // 草稿从外部换值(读到新设置)时才改写文本;自己敲出的空行与行尾换行不被回写吞掉。
+  useEffect(() => {
+    if (lines(text).join("\n") !== joined) setText(joined);
+  }, [joined]);
+  return (
+    <textarea
+      aria-label={label}
+      data-testid={testId}
+      rows={Math.max(2, value.length + 1)}
+      placeholder={t("views.settingsView.worktreeSetupPlaceholder")}
+      className="w-80 rounded border border-border bg-surface-raised px-2 py-1 font-mono ui-meta text-text"
+      value={text}
+      onChange={(event) => {
+        setText(event.currentTarget.value);
+        onChange(lines(event.currentTarget.value));
+      }}
+    />
+  );
+}
+
+function lines(text: string): readonly string[] {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 /** string-array 的目录多选:每个取值一个 checkbox,全不勾 = 空集合(合法且有意义:

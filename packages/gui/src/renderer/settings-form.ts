@@ -41,6 +41,7 @@ export type SettingsFieldWidget =
   | "enum-select"
   | "catalog-select"
   | "catalog-multi-select"
+  | "string-list"
   | "toggle"
   | "number"
   | "text";
@@ -93,6 +94,9 @@ export function settingsFormRows(fields: readonly SettingsFieldDescriptor[]): re
         return [{ field: descriptor.field, widget: "number", options: null }];
       case "string":
         return [{ field: descriptor.field, widget: "text", options: null }];
+      // 自由有序清单(worktreeSetup):一行一项,空清单合法。
+      case "string-array":
+        return [{ field: descriptor.field, widget: "string-list", options: null }];
       default:
         return [];
     }

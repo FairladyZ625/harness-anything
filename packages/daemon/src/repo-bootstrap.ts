@@ -128,6 +128,9 @@ export function resolveRepoBootstrap(
       "  scaffolds:",
       `    task: ${INITIAL_SETTINGS_V1.scaffolds.task}`,
       `    repository: ${INITIAL_SETTINGS_V1.scaffolds.repository}`,
+      // dec_8B3FCCD256CAC5B0BF3CCEDE58: init is the one place the ecosystem is detected, and the answer is written
+      // as a visible setting; nothing guesses again when a worktree is checked out.
+      ...(npmWorkspaces(rootDir) ? ["  worktree:", "    setup:", "      - node-modules"] : []),
       "",
     ].join("\n"),
     people = applyPeopleRosterAction(null, {
@@ -322,7 +325,10 @@ export function bootstrapRepo(
     authoredBranch: boundBranch,
     outcome: verified ? (writtenDocuments.length || commit ? "applied" : "noop") : "indeterminate",
     summary: verified
-      ? `initialized harness at ${machineDocumentRoot(rootDir, layout)}/harness.yaml`
+      ? [
+          `initialized harness at ${machineDocumentRoot(rootDir, layout)}/harness.yaml`,
+          ...worktreeSetupNote(input),
+        ].join("\n")
       : "init publication readback failed",
     created,
     updated,
@@ -341,6 +347,33 @@ export function bootstrapRepo(
         }),
   };
 }
+/** An npm workspaces repository shares its root dependency store with each task worktree. */
+function npmWorkspaces(rootDir: string): boolean {
+  const manifest = path.join(rootDir, "package.json");
+  if (!existsSync(manifest)) return false;
+  try {
+    return (JSON.parse(readFileSync(manifest, "utf8")) as { workspaces?: unknown }).workspaces !== undefined;
+  } catch (error) {
+    consumeKnownError(error);
+    return false;
+  }
+}
+
+/** The receipt names the setup init wrote and how to change it. */
+function worktreeSetupNote(input: RepoBootstrapInput): readonly string[] {
+  const setup = input.settingsBootstrap[0].worktree.setup,
+    created = input.machineDocuments.some(
+      (document) => document.path.endsWith("harness.yaml") && document.disposition === "created",
+    );
+  return created && setup.length
+    ? [
+        `worktree setup: ${setup.join("; ")} (npm workspaces detected). Every new task worktree runs it once. ` +
+          "Change it with ha settings update --worktree-setup <step> (repeat per step, run: <command> for any " +
+          "command) or clear it with --worktree-setup none.",
+      ]
+    : [];
+}
+
 /** Reapplies the ledger's machine-level Git configuration to an already-initialized workspace. Everything the full bootstrap does past that point — scaffold documents, the identity commit — is skipped, so the receipt reports no writes and no commit. */
 function configureLedgerOnly(input: RepoBootstrapInput, authoredBranch?: string): RepoBootstrapReceipt {
   const ledgerRoot = resolveHarnessLayout(input.rootDir).authoredRoot,

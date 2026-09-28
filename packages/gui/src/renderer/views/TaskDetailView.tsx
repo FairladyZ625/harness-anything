@@ -260,9 +260,13 @@ export function TaskDetailView({
                 <IdentityItem label="WORK KIND" value={task.workKind ?? "—"} />
                 <IdentityItem label="PACKAGE PATH" value={task.packagePath ?? "未物化"} wide />
                 <IdentityItem
-                  label="WORKTREE"
+                  label={t("views.taskDetailView.workspace")}
                   value={
-                    task.worktree ? `${task.worktree.path} · ${task.worktree.branch} · ${task.worktree.state}` : "—"
+                    task.workspace?.kind === "worktree"
+                      ? `${task.workspace.path} · ${task.workspace.branch} · ${task.workspace.state}`
+                      : task.workspace
+                        ? t("views.taskDetailView.taskPackageWorkspace", { path: task.workspace.path })
+                        : "—"
                   }
                   wide
                 />

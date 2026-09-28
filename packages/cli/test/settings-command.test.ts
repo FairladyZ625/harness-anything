@@ -76,6 +76,28 @@ test("Settings CLI forwards CI workflow names and the none opt-out to the settin
   }
 });
 
+test("Settings CLI forwards ordered worktree setup steps and the none clear", () => {
+  const parsed = parseThinCommand([
+    "settings",
+    "update",
+    "--worktree-setup",
+    "node-modules",
+    "--worktree-setup",
+    "run: pip install -e .",
+  ]);
+  assert.equal(parsed.ok, true);
+  if (parsed.ok)
+    assert.deepEqual(parsed.command.action, {
+      kind: "settings-update",
+      worktreeSetup: ["node-modules", "run: pip install -e ."],
+    });
+  const cleared = parseThinCommand(["settings", "update", "--worktree-setup", "none"]);
+  if (cleared.ok) assert.deepEqual(cleared.command.action, { kind: "settings-update", worktreeSetup: ["none"] });
+  assert.equal(cleared.ok, true);
+  // A bare command is not a step: it has to say run: so the setting reads the same everywhere.
+  assert.equal(parseThinCommand(["settings", "update", "--worktree-setup", "pip install -e ."]).ok, false);
+});
+
 test("Settings CLI forwards --gates-from-document as a boolean action field", () => {
   const parsed = parseThinCommand(["settings", "update", "--gates-from-document"]);
   assert.equal(parsed.ok, true);

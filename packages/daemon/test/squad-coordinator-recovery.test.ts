@@ -245,6 +245,7 @@ function makeRecoveryFixture(
   return {
     coordinator: makeSquadCoordinator({
       rootDir,
+      readWorktreeSetup: () => [],
       projection: () => projection,
       store: () => store,
       reacquireTaskLease: (taskId) => {

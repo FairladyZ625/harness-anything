@@ -12,7 +12,7 @@ import {
   sha,
   statusWord,
   stringArray,
-  taskWorktreeView,
+  taskWorkspaceView,
   validationEntityId,
   validationError,
   warningArray,
@@ -41,7 +41,7 @@ export function agendaTask(value: unknown): boolean {
       "leaseExecutionId",
       "activeExecutionIds",
       "blockingAssessment",
-      "worktree",
+      "workspace",
     ]) &&
     [value.taskId, value.title, value.updatedAt].every(nonEmpty) &&
     agendaWorkRef(value.work) &&
@@ -50,7 +50,7 @@ export function agendaTask(value: unknown): boolean {
     (value.leaseExecutionId === null || nonEmpty(value.leaseExecutionId)) &&
     stringArray(value.activeExecutionIds) &&
     blockingAssessment(value.blockingAssessment) &&
-    taskWorktreeView(value.worktree)
+    taskWorkspaceView(value.workspace)
   );
 }
 

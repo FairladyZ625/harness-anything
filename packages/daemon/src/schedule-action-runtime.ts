@@ -45,7 +45,10 @@ const packetContracts: Readonly<Record<string, PacketActionContract>> = Object.f
   "schedule-delete": packetContract(scheduleDeleteJsonFields, scheduleDeleteJsonAllowedFields),
 });
 
-export function makeScheduleActionRuntime(cell: RepoCellRuntimeContext): EntityActionCatalogRunner {
+export function makeScheduleActionRuntime(
+  cell: RepoCellRuntimeContext,
+  readWorktreeSetup: () => readonly string[],
+): EntityActionCatalogRunner {
   const replay = (action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt | null => {
     const opId = cell.operationId(action, binding, cell.input.repoId, 0),
       existing = cell.store.readEvent(opId);
@@ -93,7 +96,7 @@ export function makeScheduleActionRuntime(cell: RepoCellRuntimeContext): EntityA
       replayed = replay(operationAction, binding);
     if (replayed)
       return contract.id === "run-now"
-        ? dispatchClaimedReceipt(cell, replayed, idempotencyKey, binding, runInternal)
+        ? dispatchClaimedReceipt(cell, readWorktreeSetup, replayed, idempotencyKey, binding, runInternal)
         : replayed;
     const row = cell.projection.getEntity("schedule", scheduleId),
       document = row ? cell.projection.readDocument(`schedules/${scheduleId}.json`).document : null,
@@ -116,7 +119,7 @@ export function makeScheduleActionRuntime(cell: RepoCellRuntimeContext): EntityA
       throw cell.cellCodedError("invalid_store", `${action.kind} compiled a non-Schedule action draft.`);
     const receipt = publishScheduleDraft(cell, operationAction, compiled.result, binding);
     return contract.id === "run-now"
-      ? dispatchClaimedReceipt(cell, receipt, idempotencyKey, binding, runInternal)
+      ? dispatchClaimedReceipt(cell, readWorktreeSetup, receipt, idempotencyKey, binding, runInternal)
       : receipt;
   };
   return runtime;
@@ -124,6 +127,7 @@ export function makeScheduleActionRuntime(cell: RepoCellRuntimeContext): EntityA
 
 async function dispatchClaimedReceipt(
   cell: RepoCellRuntimeContext,
+  readWorktreeSetup: () => readonly string[],
   claimed: WriteReceipt,
   idempotencyKey: string,
   binding: RepoCellBinding,
@@ -141,7 +145,7 @@ async function dispatchClaimedReceipt(
   if (active.dispatchId && active.runtimeSessionId) return claimed;
   let workspace: ScheduleOccurrenceWorkspace;
   try {
-    workspace = await prepareScheduleOccurrenceWorkspace(cell.rootDir, schedule);
+    workspace = await prepareScheduleOccurrenceWorkspace(cell.rootDir, schedule, readWorktreeSetup());
   } catch (error) {
     const settled = await runInternal(
       {
@@ -404,13 +408,7 @@ export async function dispatchClaimedSchedule<
       claimFence: active.claimFence,
       outcome: "failed",
       endedAt: input.now(),
-      detail: [
-        input.workspace.runtime.worktree?.note,
-        error instanceof Error ? error.message : String(error),
-        cleanup.detail,
-      ]
-        .filter(Boolean)
-        .join(" "),
+      detail: [error instanceof Error ? error.message : String(error), cleanup.detail].filter(Boolean).join(" "),
       idempotencyKey: `${input.idempotencyKey}:dispatch-failed`,
     });
     return { kind: "spawn-failed", error, receipt } as const;

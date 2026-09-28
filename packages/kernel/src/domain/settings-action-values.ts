@@ -30,5 +30,6 @@ export function repositorySettingsActionValues(read: SettingsV1 | RepositorySett
     closeoutFactDisposition: closeoutGate("factDisposition"),
     closeoutCodeDoc: closeoutGate("codeDoc"),
     restoreDrillRetention: settings.restoreDrillRetention,
+    worktreeSetup: settings.worktree.setup,
   };
 }

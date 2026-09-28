@@ -67,6 +67,19 @@ test("the repository facet writer inserts, replaces, and leaves default CI workf
   assert.deepEqual(readSettingsFacet(replaced).ci.workflows, []);
 });
 
+test("worktree setup steps round-trip as a block list and default to none", () => {
+  assert.deepEqual(readSettingsFacet(body).worktree.setup, []);
+  const steps = ["node-modules", "run: uv sync --frozen, then more"],
+    written = writeRepositorySettingsFacet(body, { ...readSettingsFacet(body), worktree: { setup: steps } });
+  assert.match(written, /^  worktree:\n    setup:\n      - node-modules\n      - run: uv sync --frozen, then more$/mu);
+  assert.deepEqual(readSettingsFacet(written).worktree.setup, steps);
+  assert.deepEqual(readSettingsFacet(`${body}  worktree:\n    setup: []\n`).worktree.setup, []);
+  assert.throws(() => readSettingsFacet(`${body}  worktree:\n    setup: [node-modules]\n`), /setup: block list/u);
+  assert.throws(() => readSettingsFacet(`${body}  worktree:\n    setup:\n      - pip install\n`), /worktree/u);
+  const cleared = writeRepositorySettingsFacet(written, { ...readSettingsFacet(written), worktree: { setup: [] } });
+  assert.doesNotMatch(cleared, /worktree:/u);
+});
+
 test("a reviewer authored at the pre-roles root key survives the first read and moves under roles on write", () => {
   const legacy = `${body}  defaultReviewer: closeout-reviewer\n`,
     read = readSettingsFacet(legacy);
