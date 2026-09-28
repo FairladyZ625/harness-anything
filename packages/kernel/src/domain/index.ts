@@ -158,8 +158,6 @@ export type { DelegatedExecutionToken, DelegatedExecutionTokenReasonCode } from 
 export {
   decisionEntityId,
   decisionIdFromEntityId,
-  moduleEntityId,
-  moduleKeyFromEntityId,
   parseWriteEntityId,
   taskEntityId,
   taskIdFromEntityId,
