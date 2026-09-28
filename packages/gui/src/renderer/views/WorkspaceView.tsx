@@ -19,8 +19,8 @@ export interface WorkspaceViewProps {
   readonly scope: WorkspaceScopeRead;
   readonly repoId?: string;
   readonly projectName: string;
+  /** 任务行与子组共用:经共享路由判定,子组是工作就进工作页,不是就进任务详情。 */
   readonly onOpenTask: (taskId: string) => void;
-  readonly onOpenGroup: (taskId: string) => void;
   readonly tasks?: readonly TaskRow[];
   readonly decisions?: readonly DecisionRow[];
   readonly facts?: readonly FactRef[];
@@ -51,7 +51,6 @@ export function WorkspaceView({
   repoId = "unselected",
   projectName,
   onOpenTask,
-  onOpenGroup,
   tasks = [],
   decisions = [],
   facts = [],
@@ -222,7 +221,7 @@ export function WorkspaceView({
             ) : null}
             {tab === "tasks" ? (
               <>
-                <WorkspaceRows title="子组" rows={scope.groups} onOpen={onOpenGroup} />
+                <WorkspaceRows title="子组" rows={scope.groups} onOpen={openTask} />
                 <WorkspaceRows title="任务" rows={scope.tasks} onOpen={openTask} />
                 {scope.page.nextCursor ? (
                   <button

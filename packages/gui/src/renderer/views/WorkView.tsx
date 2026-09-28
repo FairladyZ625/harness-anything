@@ -8,14 +8,12 @@ export function WorkView({
   tasks,
   projectName,
   ready,
-  onOpenGroup,
   onOpenTask,
 }: {
   readonly tasks: readonly TaskRow[];
   readonly repoId: string;
   readonly projectName: string;
   readonly ready: boolean;
-  readonly onOpenGroup: (id: string) => void;
   readonly onOpenTask: (id: string) => void;
 }) {
   const [search, setSearch] = useState("");
@@ -112,7 +110,7 @@ export function WorkView({
         </h2>
         <div className="grid min-w-0 gap-2 min-[1101px]:grid-cols-2 min-[1750px]:grid-cols-3">
           {groups.slice(gp * 24, (gp + 1) * 24).map((group) => (
-            <WorkGroupCard key={group.task.taskId} group={group} ready={ready} onOpen={onOpenGroup} />
+            <WorkGroupCard key={group.task.taskId} group={group} ready={ready} onOpen={onOpenTask} />
           ))}
         </div>
         {ready && !groups.length ? <p className="text-sm text-text-muted">没有匹配的工作。</p> : null}

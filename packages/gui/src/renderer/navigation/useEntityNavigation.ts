@@ -67,7 +67,7 @@ export function useEntityNavigation({
     [isWorkRoot, openTaskDetail, updateLocation],
   );
 
-  // 显式按某任务的子树开工作页:工作页内的子组、工作列表的组卡片、任务详情的「属于工作」。
+  // 显式开某个已知工作的工作页:任务详情的「属于工作」。
   const openWork = useCallback(
     (taskId: string) => navigate({ ...workTargetOf(taskId), selectedId: null, previewId: null }),
     [navigate],

@@ -61,13 +61,13 @@ function taskRow(patch: Partial<TaskRow> & { readonly taskId: string }): TaskRow
 }
 
 const TASKS = [
-  taskRow({ taskId: "task_root", title: "统一工作体验", rootTaskId: "task_root" }),
+  taskRow({ taskId: "task_root", title: "统一工作体验", workId: "task_root" }),
   taskRow({
     taskId: "task_child",
     title: "首次工作与入口",
     parentTaskId: "task_root",
-    rootTaskId: "task_root",
-    rootTitle: "统一工作体验",
+    workId: "task_root",
+    workTitle: "统一工作体验",
   }),
 ];
 
@@ -248,7 +248,6 @@ async function mountOverviewNext(
             catalog: options.catalog === undefined ? CATALOG : (options.catalog ?? undefined),
             catalogError: null,
             onNavigateEntity: navigateEntity,
-            onOpenGroup: () => undefined,
             onSelectRuntimeEntity: () => undefined,
             onOpenPool: () => undefined,
             onOpenSessions: () => undefined,
@@ -516,7 +515,7 @@ describe("G1 开始一项工作:向导走到真实创建命令", () => {
     expect(dialogTestId("start-work-dialog").textContent).toContain("还没有「新建的工作」");
     expect(queryTestId(document.body, "start-work-open")).toBeNull();
     // 台账下一切面带回这条任务:核对转为找到,并能直达任务。
-    await view.rerender([...TASKS, taskRow({ taskId: "task_new", title: "新建的工作", rootTaskId: "task_new" })]);
+    await view.rerender([...TASKS, taskRow({ taskId: "task_new", title: "新建的工作", workId: "task_new" })]);
     expect(dialogTestId("start-work-dialog").textContent).toContain("task_new");
     await click(dialogTestId("start-work-open"));
     expect(view.openTask).toHaveBeenCalledWith("task_new");

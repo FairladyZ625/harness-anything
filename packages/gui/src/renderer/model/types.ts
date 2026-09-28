@@ -189,12 +189,12 @@ interface TaskRowFields {
    */
   parentTaskId?: string;
   /**
-   * 任务树的根 taskId(沿 parentTaskId 上溯到顶层)。根任务的 rootTaskId=自身。
-   * 用于「按工作分组」(工作 = 一个根 task 加它的 parentTaskId 子树)。
+   * 所属工作的根 taskId(dec_5F7E74F1),来自 daemon 工作索引 `repo.works.index`;工作根的
+   * workId=自身。不属于任何工作(独立任务)时缺省。renderer 不沿父链自己判定。
    */
-  rootTaskId?: string;
-  /** root task 的标题(查表填入,便于分组标签展示) */
-  rootTitle?: string;
+  workId?: string;
+  /** 所属工作根的标题(同一索引给出,便于分组标签展示) */
+  workTitle?: string;
   /** daemon WIP snapshot 的 root 判定；renderer 只展示，不重算门规则。 */
   rootAssessment?: {
     readonly reason: "declared" | "derived";

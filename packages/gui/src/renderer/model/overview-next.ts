@@ -157,6 +157,8 @@ function compareAttention(left: AttentionItem, right: AttentionItem): number {
   return byTime !== 0 ? byTime : left.key.localeCompare(right.key);
 }
 
+const TERMINAL_WORK_STATUSES: ReadonlySet<string> = new Set(["done", "cancelled"]);
+
 /** G3 的重点工作行:置顶(共享 pin 语义)与工作两段分列。 */
 export interface KeyWorkRow {
   readonly key: string;
@@ -166,15 +168,15 @@ export interface KeyWorkRow {
   readonly title: string;
   /** 状态原词(投影行的 canonical/raw 状态),呈现层不重判。 */
   readonly status: string | null;
-  /** 组行 = wip 读面给的 directChildCount(不自行重算);置顶行 = 实体 kind。 */
+  /** 组行 = 声明工作标 work;置顶行 = 实体 kind。 */
   readonly note: string | null;
   readonly updatedAt: string | null;
 }
 
 /**
  * 「重点工作」行集:置顶段直接取 agenda.pinnedEntities(共享 pin,不改归属语义);
- * 工作段 = 任务树根任务(rootTaskId 自指)且 wip root 判定在场的行,taskClass=work
- * 的根即使暂无子任务也列出。排序按工作内最新活动时间倒序(呈现层排序,允许)。
+ * 工作段 = 未结束的工作根(daemon 工作索引给的 workId 自指,与 `ha work list` 同一份)。
+ * 排序按工作内最新活动时间倒序(呈现层排序,允许)。
  */
 export function keyWorkRowsOf(
   agenda: AgendaSuccess | undefined,
@@ -193,9 +195,7 @@ export function keyWorkRowsOf(
     }),
   );
   const groups = tasks
-    .filter(
-      (task) => task.taskId === task.rootTaskId && (task.rootAssessment !== undefined || task.taskClass === "work"),
-    )
+    .filter((task) => task.taskId === task.workId && !TERMINAL_WORK_STATUSES.has(task.canonicalStatus ?? ""))
     .map(
       (task): KeyWorkRow => ({
         key: `group/${task.taskId}`,
@@ -204,10 +204,7 @@ export function keyWorkRowsOf(
         taskId: task.taskId,
         title: task.title,
         status: task.canonicalStatus ?? task.rawStatus,
-        note:
-          task.rootAssessment !== undefined
-            ? `children:${task.rootAssessment.directChildCount}`
-            : (task.taskClass ?? null),
+        note: task.taskClass === "work" ? "work" : null,
         updatedAt: task.lastKnownAt,
       }),
     )

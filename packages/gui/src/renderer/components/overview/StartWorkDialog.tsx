@@ -103,8 +103,8 @@ export function StartWorkDialog({
   const blockers = startWorkBlockers(effectiveDraft);
   const command = startWorkCommand(effectiveDraft);
   const created = lookupRequested ? locateCreatedTask(tasks, effectiveDraft.title) : null;
-  // 工作候选 = 当前投影里的根任务(`--work <id>`);归入工作是可选项,不归入就是独立任务。
-  const groupOptions = tasks.filter((task) => (task.rootTaskId ?? task.taskId) === task.taskId);
+  // 工作候选 = 工作根与尚不属于任何工作的任务(`--work <id>`);归入工作是可选项,不归入就是独立任务。
+  const groupOptions = tasks.filter((task) => (task.workId ?? task.taskId) === task.taskId);
   const stepIndex = STEPS.indexOf(step);
 
   return (

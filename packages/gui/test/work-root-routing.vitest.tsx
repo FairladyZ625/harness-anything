@@ -8,6 +8,7 @@ import { entityDetailTargetOf } from "../src/renderer/navigation/entityRoutes.ts
 import { useEntityNavigation } from "../src/renderer/navigation/useEntityNavigation.ts";
 import { workIndexOf } from "../src/renderer/model/work-collections.ts";
 import { partitionTasks } from "../src/renderer/graph/territory.ts";
+import { NO_WORK } from "../src/renderer/graph/territoryProgress.ts";
 import { layoutTerritory, isTerritoryZoneNode } from "../src/renderer/graph/territoryLayout.ts";
 import { TerritoryChipNode, TerritoryZoneNode } from "../src/renderer/graph/nodes/TerritoryNode.tsx";
 import { GraphDrawer } from "../src/renderer/graph/GraphDrawer.tsx";
@@ -27,8 +28,8 @@ import {
 
 /**
  * 根任务即工作(dec_5F7E74F1,task_7897f56a):任何指向工作根的入口都落工作页,
- * 子任务落任务详情并显示所属工作。判定只有一处(entityDetailTargetOf + workIndexOf),
- * 这里按入口逐个证明它们都走到那一处。
+ * 子任务落任务详情并显示所属工作。判定只有一处(entityDetailTargetOf + daemon 工作索引
+ * `repo.works.index` 经 workIndexOf),这里按入口逐个证明它们都走到那一处。
  */
 
 const row = (taskId: string, patch: Partial<TaskRow> = {}): TaskRow =>
@@ -45,16 +46,42 @@ const row = (taskId: string, patch: Partial<TaskRow> = {}): TaskRow =>
   }) as TaskRow;
 
 // root(派生:顶层且有子任务)→ child → grandchild;root 下还挂一个声明工作 declared → declaredChild;
-// solo 是没有子任务的顶层任务,不是工作。
+// solo 是没有子任务的顶层任务,不是工作。工作与归属是 daemon 工作索引给的(规则见 daemon work-read 测试),
+// 行上的 workId 是 task-adapter 按同一索引盖上的。
+const WORK_INDEX_READ = {
+  schema: "daemon.work-index/v1" as const,
+  ok: true as const,
+  status: "ready" as const,
+  works: [
+    { taskId: "root", title: "T root", root: "derived" as const, parentTaskId: null, members: ["child", "grandchild"] },
+    {
+      taskId: "declared",
+      title: "T declared",
+      root: "declared" as const,
+      parentTaskId: "root",
+      members: ["declaredChild"],
+    },
+  ].map(({ members, ...work }) => ({
+    ...work,
+    status: "active" as const,
+    taskCount: members.length,
+    counts: { done: 0, executing: members.length, pending: 0, blocked: 0, planned: 0, cancelled: 0 },
+    lastActivityAt: "2026-09-28T00:00:00.000Z",
+    memberTaskIds: members,
+  })),
+  watermark: 1,
+  sourceRevision: 1,
+  warnings: [],
+};
+const works = workIndexOf(WORK_INDEX_READ);
 const TASKS = [
-  row("root"),
-  row("child", { parentTaskId: "root", rootTaskId: "root" }),
-  row("grandchild", { parentTaskId: "child", rootTaskId: "root" }),
-  row("declared", { parentTaskId: "root", taskClass: "work", rootTaskId: "root" }),
-  row("declaredChild", { parentTaskId: "declared", rootTaskId: "root" }),
-  row("solo", { rootTaskId: "solo" }),
+  row("root", { workId: "root", workTitle: "T root" }),
+  row("child", { parentTaskId: "root", workId: "root", workTitle: "T root" }),
+  row("grandchild", { parentTaskId: "child", workId: "root", workTitle: "T root" }),
+  row("declared", { parentTaskId: "root", taskClass: "work", workId: "declared", workTitle: "T declared" }),
+  row("declaredChild", { parentTaskId: "declared", workId: "declared", workTitle: "T declared" }),
+  row("solo"),
 ];
-const works = workIndexOf(TASKS);
 
 const mounted: Root[] = [];
 beforeAll(() => {
@@ -107,18 +134,19 @@ const WORK_PAGE = {
   previewId: null,
 };
 
-describe("work root judgement mirrors the daemon rules", () => {
-  it("treats declared works and top-level parents as roots, nothing else", () => {
+describe("the GUI reads works from the daemon work index", () => {
+  it("treats exactly the indexed roots as work roots", () => {
     expect(["root", "declared"].every(works.isWorkRoot)).toBe(true);
     expect(["child", "grandchild", "declaredChild", "solo", "missing"].some(works.isWorkRoot)).toBe(false);
+    expect(workIndexOf(undefined).isWorkRoot("root")).toBe(false);
   });
 
-  it("files a child under its nearest declared work, else its topmost ancestor", () => {
-    expect(works.workOf("child")?.taskId).toBe("root");
+  it("files each task under the work the index names; a root belongs to its own work", () => {
+    expect(works.workOf("child")).toEqual({ taskId: "root", title: "T root" });
     expect(works.workOf("grandchild")?.taskId).toBe("root");
     expect(works.workOf("declaredChild")?.taskId).toBe("declared");
-    expect(works.workOf("declared")?.taskId).toBe("root");
-    expect(works.workOf("root")).toBeNull();
+    expect(works.workOf("declared")?.taskId).toBe("declared");
+    expect(works.workOf("root")?.taskId).toBe("root");
     expect(works.workOf("solo")).toBeNull();
   });
 });
@@ -162,7 +190,7 @@ describe("every task exit goes through the shared judgement", () => {
       onOpen = vi.fn(),
       onFold = vi.fn();
     const nodes = layoutTerritory({
-      partition: { zones: partitionTasks(TASKS), landing: [], unknownWorkCount: 0 },
+      partition: { zones: partitionTasks(TASKS), landing: [], noWorkCount: 0 },
       expandedZones: new Set(),
       onOpen,
       onFold,
@@ -185,6 +213,35 @@ describe("every task exit goes through the shared judgement", () => {
     );
     act(() => chipEl.querySelector<HTMLElement>('[data-testid="territory-chip"]')!.click());
     expect(onOpen).toHaveBeenCalledWith("task/child");
+  });
+
+  it("gives a nested declared work its own territory zone that opens its own work page", async () => {
+    const nav = await mountNavigation();
+    const zones = partitionTasks(TASKS);
+    expect(Object.fromEntries(zones.map((zone) => [zone.groupId, zone.chips.map((chip) => chip.navRef)]))).toEqual({
+      root: ["task/child", "task/grandchild", "task/root"],
+      declared: ["task/declared", "task/declaredChild"],
+      [NO_WORK]: ["task/solo"],
+    });
+    const nodes = layoutTerritory({
+      partition: { zones, landing: [], noWorkCount: 1 },
+      expandedZones: new Set(),
+      onOpen: () => undefined,
+      onFold: () => undefined,
+      onOpenWork: nav.api().navigateToEntity,
+    }).nodes;
+    const zone = nodes.filter(isTerritoryZoneNode).find((node) => node.data.zone.groupId === "declared")!;
+    const zoneEl = await render(createElement(TerritoryZoneNode, { ...zone, selected: false, dragging: false }));
+    const title = zoneEl.querySelector<HTMLButtonElement>('[data-testid="territory-zone-title"]')!;
+    expect(title.textContent).toBe("T declared");
+    act(() => title.click());
+    expect(nav.navigate).toHaveBeenCalledWith({ ...WORK_PAGE, scopeRootTaskId: "declared" });
+    // 独立任务块不是工作,标题不可点。
+    const standalone = nodes.filter(isTerritoryZoneNode).find((node) => node.data.zone.groupId === NO_WORK)!;
+    const standaloneEl = await render(
+      createElement(TerritoryZoneNode, { ...standalone, selected: false, dragging: false }),
+    );
+    expect(standaloneEl.querySelector('[data-testid="territory-zone-title"]')?.tagName).not.toBe("BUTTON");
   });
 
   it("opens the root node from the graph drawer into the work page", async () => {
@@ -256,7 +313,6 @@ describe("the work page absorbs the root task", () => {
         scope,
         projectName: "P",
         onOpenTask,
-        onOpenGroup: () => undefined,
         renderRootTask,
       }),
     );
@@ -278,13 +334,43 @@ describe("the work page absorbs the root task", () => {
     expect(onOpenTask).toHaveBeenCalledWith("child");
   });
 
+  it("opens a sub-group that is a work into its work page and any other sub-group into task detail", async () => {
+    const nav = await mountNavigation();
+    const group = (taskId: string, taskClass: "standard" | "work") => ({
+      ...scope.tasks[0]!,
+      taskId,
+      title: `T ${taskId}`,
+      taskClass,
+      hasChildren: true,
+    });
+    const page = await render(
+      createElement(WorkspaceView, {
+        scope: { ...scope, groups: [group("declared", "work"), group("child", "standard")] },
+        projectName: "P",
+        onOpenTask: nav.api().openTaskDetail,
+      }),
+    );
+    act(() =>
+      [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) => b.textContent === "任务 1")!.click(),
+    );
+    const open = (title: string) =>
+      act(() =>
+        [...page.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.includes(title))!.click(),
+      );
+    open("T declared");
+    open("T child");
+    expect(nav.navigate.mock.calls).toEqual([
+      [{ ...WORK_PAGE, scopeRootTaskId: "declared" }],
+      [{ selectedId: "child", previewId: null, focusedEntityRef: "task/child" }],
+    ]);
+  });
+
   it("has no root section when the caller cannot render the root task", () => {
     const html = renderToStaticMarkup(
       createElement(WorkspaceView, {
         scope,
         projectName: "P",
         onOpenTask: () => undefined,
-        onOpenGroup: () => undefined,
       }),
     );
     expect(html).not.toContain("根任务");

@@ -125,7 +125,6 @@ function render(inspect?: (host: HTMLDivElement) => void): string {
           facts={facts}
           relations={relations}
           onOpenTask={() => {}}
-          onOpenGroup={() => {}}
         />
       </QueryClientProvider>,
     ),

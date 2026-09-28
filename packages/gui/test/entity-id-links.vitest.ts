@@ -619,7 +619,6 @@ const VIEW_RENDERERS = {
       repoId: REPO_ID,
       projectName: FIXTURE_PROJECT.name,
       ready: true,
-      onOpenGroup: noop,
       onOpenTask: noop,
     }),
   board: () =>

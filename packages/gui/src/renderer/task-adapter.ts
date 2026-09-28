@@ -1,5 +1,6 @@
 import type { TaskSnapshotProjectionRow } from "../api/renderer-dto.ts";
 import type { TaskRow } from "./model/types.ts";
+import { NO_WORKS, type WorkIndex } from "./model/work-collections.ts";
 
 /**
  * Maps the rebuild L2 task snapshot onto the renderer view model. UI-only
@@ -163,28 +164,11 @@ function lifecycleEvents(row: TaskSnapshotProjectionRow, projectId: string): Tas
 }
 
 /**
- * 沿 parentTaskId 链上溯到根任务 id。投影行以 Map 形式提供(taskId→parentTaskId)。
- * 根任务的 rootTaskId=自身。链中检测到环或指向不存在的 task 时,以当前 task 为根
- * (防御:不无限循环,投影数据不应有环,但前端不能信任输入)。
- */
-export function computeRootTaskId(taskId: string, parentById: ReadonlyMap<string, string | undefined>): string {
-  let current = taskId;
-  const visited = new Set<string>();
-  while (true) {
-    if (visited.has(current)) return taskId; // 环防御
-    visited.add(current);
-    const parent = parentById.get(current);
-    if (!parent || !parentById.has(parent)) return current;
-    current = parent;
-  }
-}
-
-/**
  * 行级 keyed 重建(W9):上游 `joinLedgerCut` 对未出现在增量页里的行保留
  * previous 的行对象引用,react-query structuralSharing 让零变更轮询连 `data`
  * 引用都不换。adapter 在这里兑现同一不变量:输入行引用未变的行直接复用上一份
  * TaskRow,只有真正变化的行产生新对象——下游 memo 的比较键因此就是行对象引用,
- * 不需要任何深比较。输出语义(字段、root 派生、行序随输入)不变。
+ * 不需要任何深比较。输出语义(字段、所属工作、行序随输入)不变。
  */
 interface TaskRowCacheEntry {
   readonly row: TaskSnapshotProjectionRow;
@@ -195,6 +179,7 @@ interface TaskRowsCache {
   readonly projectId: string;
   readonly projectionStatus: "ready" | "pending";
   readonly rows: ReadonlyArray<TaskSnapshotProjectionRow> | null;
+  readonly works: WorkIndex | null;
   readonly output: readonly TaskRow[] | null;
   readonly entries: ReadonlyMap<string, TaskRowCacheEntry>;
 }
@@ -202,15 +187,15 @@ interface TaskRowsCache {
 let taskRowsCache: TaskRowsCache | null = null;
 
 /**
- * 在 adaptProjectionRow 之上补齐 rootTaskId / rootTitle。root 派生依赖整份
- * parentById/titleById(任一行的 parent 或标题变化都可能改变别的行的根),
- * 所以查找表每次全量重建(纯读);行引用未变的行只有在派生结果真的变了时
+ * 在 adaptProjectionRow 之上盖上所属工作(workId / workTitle)。所属工作由 daemon 工作索引
+ * (`repo.works.index`)给出,renderer 不沿父链自己判定;索引换代时只有所属工作真的变了的行
  * 才换新对象——比较是两个短字符串的等值比较,不是深比较。
  */
 export function adaptProjectionRows(
   rows: ReadonlyArray<TaskSnapshotProjectionRow>,
   projectId: string,
   projectionStatus: "ready" | "pending" = "ready",
+  works: WorkIndex = NO_WORKS,
 ): readonly TaskRow[] {
   const prev: TaskRowsCache | null =
     taskRowsCache !== null &&
@@ -218,35 +203,21 @@ export function adaptProjectionRows(
     taskRowsCache.projectionStatus === projectionStatus
       ? taskRowsCache
       : null;
-  if (prev !== null && prev.rows === rows && prev.output !== null) return prev.output;
-
-  const parentById = new Map<string, string | undefined>();
-  const titleById = new Map<string, string>();
-  for (const row of rows) {
-    parentById.set(row.taskId, row.placement.parentTaskId ?? undefined);
-    titleById.set(row.taskId, row.snapshot.task?.title ?? "");
-  }
+  if (prev !== null && prev.rows === rows && prev.works === works && prev.output !== null) return prev.output;
 
   const entries = new Map<string, TaskRowCacheEntry>();
   const output: TaskRow[] = [];
   for (const row of rows) {
     const cached = prev?.entries.get(row.taskId);
-    if (cached !== undefined && cached.row === row) {
-      const rootTaskId = computeRootTaskId(row.taskId, parentById);
-      const rootTitle = titleById.get(rootTaskId) ?? cached.task.title;
-      const task =
-        cached.task.rootTaskId === rootTaskId && cached.task.rootTitle === rootTitle
-          ? cached.task
-          : { ...cached.task, rootTaskId, rootTitle };
-      output.push(task);
-      entries.set(row.taskId, { row, task });
-    } else {
-      const base = adaptProjectionRow(row, projectId, projectionStatus);
-      const rootTaskId = computeRootTaskId(base.taskId, parentById);
-      const task = { ...base, rootTaskId, rootTitle: titleById.get(rootTaskId) ?? base.title };
-      output.push(task);
-      entries.set(row.taskId, { row, task });
-    }
+    const base =
+      cached !== undefined && cached.row === row ? cached.task : adaptProjectionRow(row, projectId, projectionStatus);
+    const work = works.workOf(base.taskId);
+    const task =
+      base.workId === work?.taskId && base.workTitle === work?.title
+        ? base
+        : { ...base, workId: work?.taskId, workTitle: work?.title };
+    output.push(task);
+    entries.set(row.taskId, { row, task });
   }
 
   // 全部行引用未变且输出逐位同引用(行序也未变)→ 上一份输出数组原样复用,
@@ -257,9 +228,9 @@ export function adaptProjectionRows(
     prev.output.length === output.length &&
     prev.output.every((task, index) => task === output[index])
   ) {
-    taskRowsCache = { projectId, projectionStatus, rows, output: prev.output, entries };
+    taskRowsCache = { projectId, projectionStatus, rows, works, output: prev.output, entries };
     return prev.output;
   }
-  taskRowsCache = { projectId, projectionStatus, rows, output, entries };
+  taskRowsCache = { projectId, projectionStatus, rows, works, output, entries };
   return output;
 }

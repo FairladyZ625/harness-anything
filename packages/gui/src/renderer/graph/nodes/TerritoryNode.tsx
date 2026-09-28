@@ -1,6 +1,6 @@
 import type { NodeProps } from "@xyflow/react";
 import { ArrowsOutSimple, PushPin } from "@phosphor-icons/react";
-import { UNKNOWN_WORK, type ZoneProgress } from "../territoryProgress";
+import { NO_WORK, type ZoneProgress } from "../territoryProgress";
 import { entityKindAxisVar } from "../kindVisuals";
 import {
   zoneHeaderH,
@@ -36,7 +36,7 @@ export function TerritoryZoneNode({ data }: NodeProps<TerritoryZoneFlowNode>) {
   const axis = entityKindAxisVar(zone.entity);
   const headerH = zoneHeaderH(zone);
   const landing = data.variant === "landing";
-  const onOpenWork = zone.entity === "task" && zone.groupId !== UNKNOWN_WORK ? data.onOpenWork : undefined;
+  const onOpenWork = zone.entity === "task" && zone.groupId !== NO_WORK ? data.onOpenWork : undefined;
 
   return (
     <div
@@ -46,7 +46,7 @@ export function TerritoryZoneNode({ data }: NodeProps<TerritoryZoneFlowNode>) {
         landing ? "border-dashed" : ""
       }`}
       style={{
-        borderColor: zone.progress?.unknownWork
+        borderColor: zone.progress?.noWork
           ? "color-mix(in oklch, var(--color-stale) 45%, var(--color-border))"
           : "var(--color-border)",
       }}

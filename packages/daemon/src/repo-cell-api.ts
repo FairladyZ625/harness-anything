@@ -95,6 +95,7 @@ import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./ve
 import { deriveActionResult } from "./entity-action-catalog-executor.ts";
 import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
 import { workspaceScopeFromProjection } from "./workspace-scope-read.ts";
+import { workIndexFromProjection } from "./work-read.ts";
 import { readCiObservatory } from "./ci-observatory-read.ts";
 import type { RepoCellOperationalContext, RepoCellSettingsState } from "./repo-cell-action-context.ts";
 import type { FleetRoster } from "./fleet-center-admission.ts";
@@ -555,6 +556,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     "repo.tasks.list": (payload: Readonly<Record<string, unknown>>) =>
       queryRead().guiTasks(taskListQueryFromPayload(payload)),
     "repo.tasks.wip": () => readTaskWipSnapshot(context as unknown as TaskQueryCell),
+    "repo.works.index": () => workIndexFromProjection(context.projection),
     "repo.projection.read": (payload: Readonly<Record<string, unknown>>) => useCaseProjection(payload),
     "repo.entity.actions.explain": explainAuthenticationRequired,
     "repo.vertical.declaration.read": () =>

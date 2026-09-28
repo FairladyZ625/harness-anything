@@ -3,18 +3,20 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vitest";
-import { collectWork } from "../src/renderer/model/work-collections.ts";
+import { collectWork, workIndexOf } from "../src/renderer/model/work-collections.ts";
 import { WorkView } from "../src/renderer/views/WorkView.tsx";
 import { adaptProjectionRows } from "../src/renderer/task-adapter.ts";
 import type { TaskRow } from "../src/renderer/model/types.ts";
 import { PinButton } from "../src/renderer/components/PinButton.tsx";
 
+// 默认每个 fixture 是声明工作根(workId 自指,daemon 工作索引的落点);子任务在 patch 里给所属工作。
 const task = (taskId: string, patch: Partial<TaskRow> = {}): TaskRow =>
   ({
     taskId,
     title: taskId,
     canonicalStatus: "planned",
     taskClass: "work",
+    workId: taskId,
     lastKnownAt: "2099-01-01",
     createdAt: "2026-01-01",
     events: [],
@@ -30,6 +32,7 @@ describe("work information architecture", () => {
       task("nested", { parentTaskId: "root", canonicalStatus: "done" }),
       task("leaf", {
         parentTaskId: "nested",
+        workId: "nested",
         taskClass: "standard",
         canonicalStatus: "cancelled",
         events: [{ at: "2026-02-01", taskId: "leaf", projectId: "p", summary: "Gate" }],
@@ -87,6 +90,28 @@ describe("work information architecture", () => {
           },
         ] as never,
         "p",
+        "ready",
+        workIndexOf({
+          schema: "daemon.work-index/v1",
+          ok: true,
+          status: "ready",
+          works: [
+            {
+              taskId: field,
+              title: field,
+              status: "planned",
+              root: "declared",
+              parentTaskId: null,
+              taskCount: 0,
+              counts: { done: 0, executing: 0, pending: 0, blocked: 0, planned: 0, cancelled: 0 },
+              lastActivityAt: "2099-01-01",
+              memberTaskIds: [],
+            },
+          ],
+          watermark: 1,
+          sourceRevision: 1,
+          warnings: [],
+        }),
       );
       expect(collectWork(adapted).groups[0]?.activity?.at).toBe("2026-02-01");
     }
@@ -100,20 +125,11 @@ describe("work information architecture", () => {
       ...Array.from({ length: 30 }, (_, i) => task(`group-${String(i).padStart(2, "0")}`)),
       task("done-group", { canonicalStatus: "done" }),
       task("cancel-group", { canonicalStatus: "cancelled" }),
-      task("child", { parentTaskId: "group-29", taskClass: "standard" }),
-      task("historic-solo", { taskClass: "standard", canonicalStatus: "done" }),
+      task("child", { parentTaskId: "group-29", taskClass: "standard", workId: "group-29" }),
+      task("historic-solo", { taskClass: "standard", canonicalStatus: "done", workId: undefined }),
     ];
     act(() =>
-      root.render(
-        <WorkView
-          tasks={rows}
-          repoId="p"
-          projectName="P"
-          ready
-          onOpenGroup={(id) => opened.push(id)}
-          onOpenTask={(id) => opened.push(id)}
-        />,
-      ),
+      root.render(<WorkView tasks={rows} repoId="p" projectName="P" ready onOpenTask={(id) => opened.push(id)} />),
     );
     const cards = () => [...host.querySelectorAll('[data-testid="work-group-card"]')];
     expect(cards()).toHaveLength(24);

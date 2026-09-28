@@ -36,6 +36,7 @@ import {
   useActiveTasksQuery,
   useTasksQuery,
   useTaskWipQuery,
+  useWorkIndexQuery,
 } from "./task-data.ts";
 import { useAgendaQuery } from "./agenda-data.ts";
 import {
@@ -164,6 +165,10 @@ function AppShell() {
   // 侧栏置顶工作、总览、总览(新)和研发态势消费 `ha agenda` 同一条 repo.agenda.read 投影；
   // 侧栏跨视图常驻，因此读面也随仓库常驻，不建立第二份 pin 状态。
   const agendaQuery = useAgendaQuery(activeRepoId);
+  // 工作根与任务所属工作只读 daemon 工作索引(dec_5F7E74F1):关系图领地、看板泳道、工作列表、
+  // 重点工作、面包屑与「根任务即工作」的跳转判定都从这一份来,renderer 不另立规则。
+  const workIndexQuery = useWorkIndexQuery(activeRepoId);
+  const works = useMemo(() => workIndexOf(workIndexQuery.data), [workIndexQuery.data]);
   const workspaceScopeQuery = useWorkspaceScopeQuery(activeRepoId, location.scopeRootTaskId ?? null);
   const workspaceScope = useMemo(
     () => combineWorkspaceScopePages(workspaceScopeQuery.data?.pages ?? []),
@@ -208,11 +213,12 @@ function AppShell() {
       mergeTaskRows(tasksQuery.data?.rows, activeTasksQuery.data),
       projectId,
       tasksQuery.data?.status ?? "pending",
+      works,
     ).map((task) => {
       const rootAssessment = roots.get(task.taskId);
       return rootAssessment ? { ...task, rootAssessment } : task;
     });
-  }, [projectId, taskWipQuery.data, tasksQuery.data, activeTasksQuery.data]);
+  }, [projectId, taskWipQuery.data, tasksQuery.data, activeTasksQuery.data, works]);
   const activeRepo = systemQuery.data?.repos.find((repo) => repo.repoId === activeRepoId);
   const project = adaptRepoProject(
     projectId,
@@ -228,7 +234,6 @@ function AppShell() {
   const projectTasks = useMemo(() => tasks.filter((t) => t.projectId === projectId), [tasks, projectId]);
   /** task 详情「打开终端」→ 终端页进页即建绑定会话;requestId 让同一请求只消费一次。 */
   const [terminalLaunch, setTerminalLaunch] = useState<TerminalLaunchTask | null>(null);
-  const works = useMemo(() => workIndexOf(projectTasks), [projectTasks]);
   const selected = useMemo(() => tasks.find((t) => t.taskId === selectedId) ?? null, [tasks, selectedId]);
   // 根任务即工作:选中位落在工作根(跨仓深链、历史恢复时任务行尚未到)就原地换成工作页。
   const selectedWorkRootId = selected !== null && works.isWorkRoot(selected.taskId) ? selected.taskId : null;
@@ -414,7 +419,10 @@ function AppShell() {
     task: TaskRow,
     framing: { readonly onBack: () => void; readonly fromViewLabel: string; readonly embedded?: boolean },
   ) => {
-    const work = framing.embedded ? null : works.workOf(task.taskId);
+    const work =
+      framing.embedded || task.workId === undefined || task.workId === task.taskId
+        ? null
+        : { taskId: task.workId, title: task.workTitle ?? task.workId };
     return (
       <TaskDetailView
         repoId={projectId}
@@ -426,7 +434,7 @@ function AppShell() {
         onSelect={openTaskDetail}
         projectName={project.name}
         fromViewLabel={framing.fromViewLabel}
-        work={work === null ? null : { taskId: work.taskId, title: work.title }}
+        work={work}
         onOpenWork={openWork}
         onNavigateDecision={navigateToDecision}
         onNavigateEntity={navigateToEntity}
@@ -636,7 +644,6 @@ function AppShell() {
                   projectName={project.name}
                   ready={tasksQuery.data?.status === "ready"}
                   onOpenTask={openTaskDetail}
-                  onOpenGroup={openWork}
                 />
               ) : view === "workspace" ? (
                 workspaceScope ? (
@@ -663,7 +670,6 @@ function AppShell() {
                     }}
                     loadingMore={workspaceScopeQuery.isFetchingNextPage}
                     onOpenTask={openTaskDetail}
-                    onOpenGroup={openWork}
                     renderRootTask={(onBack) => {
                       const root = tasks.find(({ taskId }) => taskId === workspaceScope.root.taskId);
                       return root

@@ -1,3 +1,4 @@
+import type { WorkIndexRead } from "../../api/renderer-dto.ts";
 import type { EventEntry, TaskRow } from "./types.ts";
 
 export interface WorkGroup {
@@ -16,13 +17,16 @@ function latestActivity(task: TaskRow): WorkGroup["activity"] {
   );
 }
 
-/** One cut, one parent index: root activity participates; only descendant leaves count. */
+/**
+ * One cut, one parent index: the works are the daemon's (`TaskRow.workId` names the task itself);
+ * root activity participates; only descendant leaves count.
+ */
 export function collectWork(tasks: readonly TaskRow[]): { groups: WorkGroup[]; isolated: TaskRow[] } {
   const byId = new Map(tasks.map((task) => [task.taskId, task]));
   const parents = new Set(tasks.flatMap((task) => (task.parentTaskId ? [task.parentTaskId] : [])));
   const groups = new Map<string, WorkGroup>();
   for (const task of tasks) {
-    if (parents.has(task.taskId) || task.taskClass === "work") {
+    if (task.workId === task.taskId) {
       groups.set(task.taskId, { task, descendants: 0, leaves: 0, counts: {}, activity: null });
     }
   }
@@ -61,36 +65,30 @@ export function collectWork(tasks: readonly TaskRow[]): { groups: WorkGroup[]; i
   };
 }
 
-export interface WorkIndex {
-  /** Declared (taskClass=work) or a top-level task with children: `ha work list`'s root rule. */
-  readonly isWorkRoot: (taskId: string) => boolean;
-  /** The work a child belongs to: nearest declared-work ancestor, else topmost ancestor; null for a top-level task. */
-  readonly workOf: (taskId: string) => TaskRow | null;
+export interface WorkRef {
+  readonly taskId: string;
+  readonly title: string;
 }
 
-/**
- * The daemon's two work rules (work-read.ts, workspace-scope-read.ts#workRootOf) over the same-cut task
- * rows the GUI already holds. The incremental task read cannot carry them per row: both depend on other rows.
- */
-export function workIndexOf(tasks: readonly TaskRow[]): WorkIndex {
-  const byId = new Map(tasks.map((task) => [task.taskId, task]));
-  const parents = new Set(tasks.flatMap((task) => (task.parentTaskId ? [task.parentTaskId] : [])));
-  return {
-    isWorkRoot: (taskId) => {
-      const task = byId.get(taskId);
-      return task !== undefined && (task.taskClass === "work" || (!task.parentTaskId && parents.has(taskId)));
-    },
-    workOf: (taskId) => {
-      let work: TaskRow | null = null;
-      const seen = new Set<string>();
-      for (let id = byId.get(taskId)?.parentTaskId; id && !seen.has(id); ) {
-        seen.add(id);
-        const task = byId.get(id);
-        if (!task) break;
-        work = task;
-        id = task.taskClass === "work" ? undefined : task.parentTaskId;
-      }
-      return work;
-    },
-  };
+export interface WorkIndex {
+  /** A root `ha work list --all` names: declared work, or a top-level task with children. */
+  readonly isWorkRoot: (taskId: string) => boolean;
+  /** The work a task belongs to (a root belongs to its own work); null for a task in no work. */
+  readonly workOf: (taskId: string) => WorkRef | null;
+}
+
+export const NO_WORKS: WorkIndex = { isWorkRoot: () => false, workOf: () => null };
+
+/** Lookups over the daemon work index (`repo.works.index`); the GUI holds no work rule of its own. */
+export function workIndexOf(read: WorkIndexRead | undefined): WorkIndex {
+  if (read === undefined) return NO_WORKS;
+  const roots = new Set<string>();
+  const owner = new Map<string, WorkRef>();
+  for (const work of read.works) {
+    const ref = { taskId: work.taskId, title: work.title };
+    roots.add(work.taskId);
+    owner.set(work.taskId, ref);
+    for (const taskId of work.memberTaskIds) owner.set(taskId, ref);
+  }
+  return { isWorkRoot: (taskId) => roots.has(taskId), workOf: (taskId) => owner.get(taskId) ?? null };
 }

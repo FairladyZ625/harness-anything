@@ -98,7 +98,6 @@ it("reuses the ego canvas with scoped full rows, navigates entities and preserve
           edge("decision/unrelated", "fact/F-OUTSIDE"),
         ]}
         onOpenTask={() => {}}
-        onOpenGroup={() => {}}
         onNavigateEntity={navigate}
       />,
     ),
@@ -157,7 +156,6 @@ it("hands the shared drawer its pin toggle, so the workspace canvas offers the s
         facts={[]}
         relations={[edge("task/root", "task/member")]}
         onOpenTask={() => {}}
-        onOpenGroup={() => {}}
         onNavigateEntity={() => {}}
         onSetTaskPin={setPin}
       />,

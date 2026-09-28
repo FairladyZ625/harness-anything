@@ -27,7 +27,7 @@ import { EgoNeighborhood } from "../graph/EgoNeighborhood";
 import { EgoHopsControl } from "../graph/EgoHopsControl";
 import type { EgoHopBudget } from "../graph/egoCanvas";
 import { applyTerritoryDensity, isFactVisibleWithHost, partitionForSkel } from "../graph/territory";
-import { UNKNOWN_WORK_TITLE } from "../graph/territoryProgress";
+import { NO_WORK_TITLE } from "../graph/territoryProgress";
 import { layoutTerritory } from "../graph/territoryLayout";
 import { defaultKindFilter, defaultAxisFilter, type FlowAnimMode } from "../graph/relationVisual";
 import {
@@ -507,12 +507,12 @@ function GraphViewInner({
             {focusSelection ? ` · 重点 ${focusSelection.seedCount} task` : ""}
           </span>
         )}
-        {territory && territory.unknownWorkCount > 0 && (
+        {territory && territory.noWorkCount > 0 && (
           <span
             className="inline-flex items-center gap-1 rounded bg-stale/10 px-1.5 py-0.5 font-mono text-stale"
-            title="所属工作无法确定(父任务不在可见集合,或 fact 无宿主 task)的实体归入「工作未知」块 —— 沉底,但绝不隐藏"
+            title="不属于任何工作的实体(独立任务,或 fact 无宿主 task、宿主不属于工作)归入「独立任务」块 —— 沉底,但绝不隐藏"
           >
-            {UNKNOWN_WORK_TITLE} · {territory.unknownWorkCount}
+            {NO_WORK_TITLE} · {territory.noWorkCount}
           </span>
         )}
         <span className="ml-auto text-text-faint">

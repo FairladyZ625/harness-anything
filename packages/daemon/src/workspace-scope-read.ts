@@ -143,6 +143,14 @@ export function scopeStatus(status: TaskIndexProjectionRow["status"]): keyof Wor
   return status;
 }
 
+/** The fields the work rule reads from a task, whichever read supplies it. */
+export interface WorkRuleTask {
+  readonly taskId: string;
+  readonly title: string;
+  readonly taskClass: TaskIndexProjectionRow["taskClass"];
+  readonly parentTaskId: string | null;
+}
+
 /**
  * The work a task filed under `taskId` belongs to: the nearest declared work (taskClass=work) walking up
  * from `taskId` itself, else the topmost ancestor — the dispatch causal context's rule.
@@ -151,14 +159,33 @@ export function workRootOf(
   projection: Pick<TaskProjection, "read">,
   taskId: string,
 ): { readonly taskId: string; readonly title: string } | null {
-  let work: { readonly taskId: string; readonly title: string } | null = null;
+  const work = workRootWalk(taskId, (id) => {
+    const task: TaskV2 | null | undefined = projection.read(id).snapshot.task;
+    return task
+      ? {
+          taskId: task.taskId,
+          title: task.title,
+          taskClass: task.taskClass,
+          parentTaskId: task.metadata?.parentTaskId ?? null,
+        }
+      : undefined;
+  });
+  return work === null ? null : { taskId: work.taskId, title: work.title };
+}
+
+/** `workRootOf`'s walk over any task lookup; the one implementation of the rule. */
+export function workRootWalk<Task extends WorkRuleTask>(
+  taskId: string,
+  lookup: (taskId: string) => Task | undefined,
+): Task | null {
+  let work: Task | null = null;
   const seen = new Set<string>();
   for (let id: string | null = taskId; id !== null && !seen.has(id); ) {
     seen.add(id);
-    const task: TaskV2 | null | undefined = projection.read(id).snapshot.task;
+    const task = lookup(id);
     if (!task) break;
-    work = { taskId: task.taskId, title: task.title };
-    id = task.taskClass === "work" ? null : (task.metadata?.parentTaskId ?? null);
+    work = task;
+    id = task.taskClass === "work" ? null : task.parentTaskId;
   }
   return work;
 }

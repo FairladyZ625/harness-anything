@@ -16,6 +16,11 @@ export const DAEMON_TASK_WIP_SCHEMA = Object.freeze({
   required: Object.freeze(["ok", "limit", "limitLabel", "counted", "roots", "threshold"]),
 });
 
+export const DAEMON_WORK_INDEX_SCHEMA = Object.freeze({
+  id: "daemon.work-index/v1",
+  required: Object.freeze(["schema", "ok", "status", "works", "watermark", "sourceRevision", "warnings"]),
+});
+
 export const DAEMON_SETTINGS_READ_SCHEMA = Object.freeze({
   id: "daemon.settings-read/v1",
   required: Object.freeze(["schema", "ok", "settings"]),

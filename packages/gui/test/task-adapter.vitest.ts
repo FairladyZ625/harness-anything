@@ -1,7 +1,29 @@
 import { describe, expect, it } from "vitest";
 import { REPLAY_TASK_GRAPH } from "@harness-anything/kernel";
 import type { TaskSnapshotProjectionRow } from "../src/api/renderer-dto.ts";
-import { adaptProjectionRows, computeRootTaskId } from "../src/renderer/task-adapter.ts";
+import { adaptProjectionRows } from "../src/renderer/task-adapter.ts";
+import { workIndexOf } from "../src/renderer/model/work-collections.ts";
+
+/** A daemon work index read with the given works (`repo.works.index`). */
+function workIndex(works: ReadonlyArray<{ taskId: string; title: string; memberTaskIds: string[] }>) {
+  return workIndexOf({
+    schema: "daemon.work-index/v1",
+    ok: true,
+    status: "ready",
+    works: works.map((work) => ({
+      ...work,
+      status: "active",
+      root: "derived",
+      parentTaskId: null,
+      taskCount: work.memberTaskIds.length,
+      counts: { done: 0, executing: 0, pending: 0, blocked: 0, planned: 0, cancelled: 0 },
+      lastActivityAt: "2026-08-12T00:00:00.000Z",
+    })),
+    watermark: 1,
+    sourceRevision: 1,
+    warnings: [],
+  });
+}
 
 function row(overrides: Partial<TaskSnapshotProjectionRow> = {}): TaskSnapshotProjectionRow {
   const taskId = overrides.taskId ?? "task-x";
@@ -72,29 +94,6 @@ function row(overrides: Partial<TaskSnapshotProjectionRow> = {}): TaskSnapshotPr
   };
 }
 
-describe("computeRootTaskId", () => {
-  it("walks a parent chain and terminates cycles", () => {
-    expect(
-      computeRootTaskId(
-        "child",
-        new Map([
-          ["child", "root"],
-          ["root", undefined],
-        ]),
-      ),
-    ).toBe("root");
-    expect(
-      computeRootTaskId(
-        "left",
-        new Map([
-          ["left", "right"],
-          ["right", "left"],
-        ]),
-      ),
-    ).toBe("left");
-  });
-});
-
 describe("adaptProjectionRows", () => {
   it("derives renderer state from the canonical lifecycle snapshot", () => {
     const [task] = adaptProjectionRows([row()], "repo-test");
@@ -108,8 +107,6 @@ describe("adaptProjectionRows", () => {
       blockingLabel: "none",
       freshness: "fresh",
       createdAt: "2026-08-11T23:59:00.000Z",
-      rootTaskId: "task-x",
-      rootTitle: "X",
       productLines: ["harness"],
       origin: "native",
       engine: "kernel/task-lifecycle/v1",
@@ -287,13 +284,18 @@ describe("adaptProjectionRows", () => {
         parentTaskId: "task-parent",
       },
     });
-    const tasks = adaptProjectionRows([parent, child], "repo-test", "ready");
+    const tasks = adaptProjectionRows(
+      [parent, child],
+      "repo-test",
+      "ready",
+      workIndex([{ taskId: "task-parent", title: "Parent work", memberTaskIds: ["task-child"] }]),
+    );
 
     expect(tasks.find((task) => task.taskId === "task-child")).toMatchObject({
       productLines: ["desktop"],
       parentTaskId: "task-parent",
-      rootTaskId: "task-parent",
-      rootTitle: "X",
+      workId: "task-parent",
+      workTitle: "Parent work",
       spawningDecisionIds: ["dec-scope"],
     });
     expect(tasks.find((task) => task.taskId === "task-parent")).toMatchObject({
@@ -315,8 +317,8 @@ describe("adaptProjectionRows", () => {
 /**
  * 行级引用保持(W9):`joinLedgerCut` 对未变化的行保留上游行对象引用,adapter
  * 的输出必须兑现同一不变量——未变行复用上一份 TaskRow(下游 memo 的比较键),
- * 变行换新引用;root 派生仍随整份 parent/title 表走(标题或 parent 变了,
- * 受影响行的 rootTaskId/rootTitle 必须换新对象)。行序与字段语义不变。
+ * 变行换新引用;所属工作来自 daemon 工作索引(索引换代时只有所属工作变了的行
+ * 换新对象)。行序与字段语义不变。
  */
 describe("adaptProjectionRows reference stability (W9)", () => {
   it("reuses the previous output array when the input array reference is unchanged", () => {
@@ -348,34 +350,42 @@ describe("adaptProjectionRows reference stability (W9)", () => {
     expect(adaptProjectionRows([...rows], "repo-test")).toBe(first);
   });
 
-  it("re-derives rootTaskId/rootTitle when an ancestor's parent or title changes", () => {
-    const root = row({ taskId: "task-root", updatedAt: "2026-08-12T00:00:00.000Z" });
-    const child = row({
-      taskId: "task-child",
-      placement: { ...row().placement, parentTaskId: "task-root" },
-    });
-    const first = adaptProjectionRows([root, child], "repo-test");
-    expect(first[1]).toMatchObject({ rootTaskId: "task-root", rootTitle: "X" });
+  it("stamps the daemon work index and swaps only rows whose work changed when the index changes", () => {
+    const root = row({ taskId: "task-root" });
+    const child = row({ taskId: "task-child", placement: { ...row().placement, parentTaskId: "task-root" } });
+    const solo = row({ taskId: "task-solo" });
+    const rows = [root, child, solo];
+    const first = adaptProjectionRows(
+      rows,
+      "repo-test",
+      "ready",
+      workIndex([{ taskId: "task-root", title: "Work", memberTaskIds: ["task-child"] }]),
+    );
+    expect(first[0]).toMatchObject({ workId: "task-root", workTitle: "Work" });
+    expect(first[1]).toMatchObject({ workId: "task-root", workTitle: "Work" });
+    // 不属于任何工作的行不盖字段;renderer 不沿父链自己补。
+    expect(first[2]?.workId).toBeUndefined();
 
-    // 根标题变化:child 的行引用未变,但 rootTitle 派生变了,必须换新对象。
-    const retitledRoot = row({
-      taskId: "task-root",
-      updatedAt: "2026-08-12T01:00:00.000Z",
-      snapshot: { ...root.snapshot, task: { ...root.snapshot.task!, title: "Retitled" } },
-    });
-    const afterRetitle = adaptProjectionRows([retitledRoot, child], "repo-test");
-    expect(afterRetitle[1]).not.toBe(first[1]);
-    expect(afterRetitle[1]).toMatchObject({ rootTaskId: "task-root", rootTitle: "Retitled" });
+    // 同一份行、索引换代(工作改名):工作内的行换新对象,独立任务行保持引用。
+    const renamed = adaptProjectionRows(
+      rows,
+      "repo-test",
+      "ready",
+      workIndex([{ taskId: "task-root", title: "Renamed", memberTaskIds: ["task-child"] }]),
+    );
+    expect(renamed).not.toBe(first);
+    expect(renamed[1]).toMatchObject({ workId: "task-root", workTitle: "Renamed" });
+    expect(renamed[2]).toBe(first[2]);
 
-    // parent 变化:child 改挂新根,rootTaskId 派生跟着走。
-    const regraftedChild = row({
-      taskId: "task-child",
-      placement: { ...row().placement, parentTaskId: "task-other" },
-    });
-    const afterRegraft = adaptProjectionRows([retitledRoot, regraftedChild], "repo-test");
-    // task-other 不在集合里,链断在自身:child 以自己为根(computeRootTaskId 语义)。
-    expect(afterRegraft[1]?.rootTaskId).toBe("task-child");
-    expect(afterRegraft[1]?.rootTitle).toBe("X");
+    // 索引把 child 移出工作:字段随索引清空。
+    const detached = adaptProjectionRows(
+      rows,
+      "repo-test",
+      "ready",
+      workIndex([{ taskId: "task-root", title: "Renamed", memberTaskIds: [] }]),
+    );
+    expect(detached[1]?.workId).toBeUndefined();
+    expect(detached[0]).toBe(renamed[0]);
   });
 
   it("rebuilds fully when projectId or projectionStatus changes", () => {

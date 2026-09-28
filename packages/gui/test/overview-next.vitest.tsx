@@ -217,21 +217,17 @@ const HEALTH = {
 } as Parameters<typeof OverviewNextView>[0]["health"];
 
 const TASKS = [
-  nextTask({ taskId: "task_root", title: "根任务组", rootTaskId: "task_root", canonicalStatus: "active" }),
-  nextTask({ taskId: "task_child", title: "子任务", rootTaskId: "task_root", parentTaskId: "task_root" }),
-  nextTask({ taskId: "task_submitted", title: "待初审任务", rootTaskId: "task_root", activeExecutionId: "exec_1" }),
+  nextTask({ taskId: "task_root", title: "根任务组", workId: "task_root", canonicalStatus: "active" }),
+  nextTask({ taskId: "task_child", title: "子任务", workId: "task_root", parentTaskId: "task_root" }),
+  nextTask({ taskId: "task_submitted", title: "待初审任务", workId: "task_root", activeExecutionId: "exec_1" }),
   nextTask({
     taskId: "task_declared_work",
     title: "无子任务的工作",
-    rootTaskId: "task_declared_work",
+    workId: "task_declared_work",
     taskClass: "work",
   }),
-  nextTask({ taskId: "task_leaf", title: "独立任务", rootTaskId: "task_root" }),
-].map((task) =>
-  task.taskId === "task_root"
-    ? { ...task, rootAssessment: { reason: "declared" as const, directChildCount: 3, threshold: 6 } }
-    : task,
-);
+  nextTask({ taskId: "task_leaf", title: "独立任务", workId: "task_root" }),
+];
 
 setActiveLocale("zh-CN");
 
@@ -561,7 +557,7 @@ describe("overview next: key work region (G3)", () => {
 
   it("keeps an honest empty state when no groups exist", async () => {
     const view = await mountOverviewNext({
-      tasks: [nextTask({ taskId: "task_leaf", title: "独立任务", rootTaskId: "task_root" })],
+      tasks: [nextTask({ taskId: "task_leaf", title: "独立任务", workId: "task_root" })],
     });
     expect(textOf(view.container, "overview-next-keywork-rows")).toContain("暂无重点工作");
   });
@@ -656,18 +652,27 @@ describe("overview next: changes region (G5)", () => {
 });
 
 describe("overview next: pure derivations", () => {
-  it("keyWorkRowsOf separates pinned entities from root groups without recomputing counts", () => {
+  it("keyWorkRowsOf separates pinned entities from the daemon's unfinished work roots", () => {
     const { pinned, groups } = keyWorkRowsOf(
       agendaFixture({
         pinnedEntities: [
           { ref: "decision/dec_probe", kind: "decision", title: "置顶决策", status: "proposed", pinnedAt: NOW },
         ],
       }),
-      TASKS,
+      [
+        ...TASKS,
+        nextTask({
+          taskId: "task_done_work",
+          title: "已结束的工作",
+          workId: "task_done_work",
+          canonicalStatus: "done",
+        }),
+      ],
     );
     expect(pinned.map((row) => row.ref)).toEqual(["decision/dec_probe"]);
+    // 工作段 = daemon 工作索引给的未结束工作根(workId 自指),不借 WIP 阈值。
     expect(groups.map((row) => row.taskId)).toEqual(["task_root", "task_declared_work"]);
-    expect(groups.find((row) => row.taskId === "task_root")?.note).toBe("children:3");
+    expect(groups.find((row) => row.taskId === "task_root")?.note).toBeNull();
     expect(groups.find((row) => row.taskId === "task_declared_work")?.note).toBe("work");
   });
 

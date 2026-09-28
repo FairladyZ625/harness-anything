@@ -138,6 +138,7 @@ const resultValidators = {
   "repo.tasks.completion.read": validateDaemonTaskCompletion,
   "repo.tasks.causalContext.read": validateTaskCausalContextRead,
   "repo.tasks.wip": validateDaemonTaskWip,
+  "repo.works.index": validateDaemonWorkIndex,
   "repo.projection.read": validateDaemonUseCaseProjection,
   "repo.entity.actions.explain": validateEntityActionExplanationSet,
   "repo.entity.kinds.read": validateEntityKindCatalog,
@@ -205,6 +206,28 @@ export function validateDaemonWorkspaceScope(value: unknown): readonly string[] 
     Number.isSafeInteger(value.sourceRevision) &&
     Array.isArray(value.warnings);
   return valid ? [] : [validationError("workspace-scope", "result", value, "must be a valid workspace scope")];
+}
+
+export function validateDaemonWorkIndex(value: unknown): readonly string[] {
+  if (!isJsonObject(value)) return [validationError("work-index", "result", value, "must be an object")];
+  const strings = (items: unknown) => Array.isArray(items) && items.every((item) => typeof item === "string");
+  const work = (item: unknown) =>
+    isJsonObject(item) &&
+    typeof item.taskId === "string" &&
+    typeof item.title === "string" &&
+    (item.root === "declared" || item.root === "derived") &&
+    (item.parentTaskId === null || typeof item.parentTaskId === "string") &&
+    strings(item.memberTaskIds);
+  const valid =
+    value.schema === "daemon.work-index/v1" &&
+    value.ok === true &&
+    (value.status === "ready" || value.status === "pending") &&
+    Array.isArray(value.works) &&
+    value.works.every(work) &&
+    Number.isSafeInteger(value.watermark) &&
+    Number.isSafeInteger(value.sourceRevision) &&
+    Array.isArray(value.warnings);
+  return valid ? [] : [validationError("work-index", "result", value, "must be a valid work index")];
 }
 
 export function validateDaemonTaskWip(value: unknown): readonly string[] {

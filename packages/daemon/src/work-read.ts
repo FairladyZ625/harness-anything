@@ -9,6 +9,7 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import {
   emptyScopeCounts,
   scopeStatus,
+  workRootWalk,
   workspaceScopeFromProjection,
   type WorkspaceScopeStatusCounts,
   type WorkspaceScopeTaskRow,
@@ -37,12 +38,53 @@ export function workListFromProjection(
   input: { readonly all?: boolean; readonly limit?: number },
 ) {
   const read = projection.readTaskIndex({ activePackagesOnly: true }),
-    children = new Map<string, TaskIndexProjectionRow[]>();
-  for (const row of read.rows)
+    rows = workRows(read.rows).filter((row) => input.all === true || !terminal.has(row.status));
+  return {
+    schema: "work-list/v1" as const,
+    rows: rows.slice(0, input.limit ?? 50),
+    count: rows.length,
+    status: read.status,
+    watermark: read.watermark,
+    sourceRevision: read.sourceRevision,
+  };
+}
+
+export interface WorkIndexRow extends WorkListRow {
+  /** Tasks this work owns by `workRootOf`, the root excluded; a nested declared work owns its own subtree. */
+  readonly memberTaskIds: readonly string[];
+}
+
+/**
+ * Every work at one cut with the tasks that belong to it, for a reader that holds the whole task list but must
+ * not re-derive the rule (the GUI): `ha work list --all`'s roots, each task assigned by `workRootOf`'s walk.
+ */
+export function workIndexFromProjection(projection: TaskProjection) {
+  const read = projection.readTaskIndex({ activePackagesOnly: true }),
+    byId = new Map(read.rows.map((row) => [row.taskId, row])),
+    works = workRows(read.rows),
+    members = new Map(works.map(({ taskId }) => [taskId, [] as string[]]));
+  for (const row of read.rows) {
+    const work = workRootWalk(row.taskId, (id) => byId.get(id));
+    if (work !== null && work.taskId !== row.taskId) members.get(work.taskId)?.push(row.taskId);
+  }
+  return {
+    schema: "daemon.work-index/v1" as const,
+    ok: true as const,
+    status: read.status,
+    works: works.map((work): WorkIndexRow => ({ ...work, memberTaskIds: members.get(work.taskId)!.sort() })),
+    watermark: read.watermark,
+    sourceRevision: read.sourceRevision,
+    warnings: read.warnings,
+  };
+}
+
+/** The roots (declared, or a top-level task with children) with their subtree counts, newest activity first. */
+function workRows(rows: readonly TaskIndexProjectionRow[]): WorkListRow[] {
+  const children = new Map<string, TaskIndexProjectionRow[]>();
+  for (const row of rows)
     if (row.parentTaskId !== null) children.set(row.parentTaskId, [...(children.get(row.parentTaskId) ?? []), row]);
-  const rows = read.rows
+  return rows
     .filter((row) => row.taskClass === "work" || (row.parentTaskId === null && children.has(row.taskId)))
-    .filter((row) => input.all === true || !terminal.has(row.status))
     .map((row): WorkListRow => {
       const counts = emptyScopeCounts(),
         seen = new Set([row.taskId]),
@@ -74,15 +116,6 @@ export function workListFromProjection(
       (left, right) =>
         right.lastActivityAt.localeCompare(left.lastActivityAt) || left.taskId.localeCompare(right.taskId),
     );
-  const limit = input.limit ?? 50;
-  return {
-    schema: "work-list/v1" as const,
-    rows: rows.slice(0, limit),
-    count: rows.length,
-    status: read.status,
-    watermark: read.watermark,
-    sourceRevision: read.sourceRevision,
-  };
 }
 
 export function workShowFromProjection(projection: TaskProjection, input: { readonly taskId: string }) {

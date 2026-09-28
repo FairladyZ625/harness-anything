@@ -38,7 +38,7 @@ export function workTargetOf(taskId: string): WorkTarget {
  * 实体页的该 kind 详情(与 entitydoc/<kind> 同一落点),整条 ref 原样下发,由那一页
  * 选中对应实体。本函数不持有 kind 清单——不传就只认代码里有专页的那些。
  *
- * `isWorkRoot` 是工作根判定(model/work-collections#workIndexOf,与 daemon 同规则);
+ * `isWorkRoot` 是工作根判定(daemon 工作索引 `repo.works.index`,经 model/work-collections#workIndexOf);
  * 本函数同样不持有任务集——不传就把每个 task 都当普通任务。
  */
 export function entityDetailTargetOf(
