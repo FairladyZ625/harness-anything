@@ -688,6 +688,7 @@ export function runtimeDispatchEdges(
     if (rows.has(relationId)) continue;
     rows.set(relationId, {
       relationId,
+      workspaceRevision: null,
       sourceRef,
       targetRef,
       relationType: "dispatches",
@@ -943,7 +944,7 @@ function renderAgendaSummary(
         `  答（${row.answeredBy} @ ${row.answeredAt}）: ${row.answer}\n` +
         `  下一步: ha ${kind} show ${id}，据答复在源上继续（进度、状态或裁决）；源上一有写入即出列\n` +
         `  再次提问: ha relation relate --source-ref ${row.sourceRef} --target-ref person/${row.personId} ` +
-        `--type awaits --rationale "<kind>: <新问题>" --expected-version <这条边答复时的 revision；填错时报错会给出>`
+        `--type awaits --rationale "<kind>: <新问题>" --expected-version <这条边的 revision：ha relation list 行里 id 后那一列>`
       );
     },
     executionLine = (row: AgendaExecutionRow) =>

@@ -518,6 +518,7 @@ function readDecisions(database: DatabaseSync): ReadonlyMap<string, ProjectionOr
 function relationRow(row: SqlRow, original: Readonly<Record<string, unknown>>): RelationGraphEdgeRow {
   return {
     relationId: text(original.relationId ?? row.relation_id, "relation id"),
+    workspaceRevision: number(row.workspace_revision, "relation workspace revision"),
     sourceRef: text(original.sourceRef ?? row.source_ref, "relation source"),
     targetRef: text(original.targetRef ?? row.target_ref, "relation target"),
     relationType: text(

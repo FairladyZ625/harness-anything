@@ -357,6 +357,7 @@ function relationEdgeInvalid(edge: unknown): boolean {
   return (
     !recordWith(edge, [
       "relationId",
+      "workspaceRevision",
       "sourceRef",
       "targetRef",
       "relationType",
@@ -375,6 +376,7 @@ function relationEdgeInvalid(edge: unknown): boolean {
     ]) ||
     typeof edge.current !== "boolean" ||
     !integer(edge.recordIndex) ||
+    (edge.workspaceRevision !== null && !integer(edge.workspaceRevision)) ||
     (edge.targetObservedVersion !== null &&
       typeof edge.targetObservedVersion !== "string" &&
       !integer(edge.targetObservedVersion)) ||

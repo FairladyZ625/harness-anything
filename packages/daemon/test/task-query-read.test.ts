@@ -33,6 +33,7 @@ type ProjectionCut = {
 const readyCut: ProjectionCut = { status: "ready", watermark: 7, sourceRevision: 7 };
 const eventEdge = {
   relationId: "rel_event_truth",
+  workspaceRevision: 7,
   sourceRef: "decision/dec_event/CH1",
   targetRef: "task/task_event",
   relationType: "derives" as const,

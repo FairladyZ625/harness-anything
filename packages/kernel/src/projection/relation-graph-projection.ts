@@ -5,6 +5,8 @@ import type { HarnessLayoutInput } from "../layout/index.ts";
 
 export interface RelationGraphEdgeRow {
   readonly relationId: string;
+  /** The Relation aggregate's own revision, the fence `relation unrelate|reconfirm --expected-version` checks; null for a task-snapshot row that has no aggregate. */
+  readonly workspaceRevision: number | null;
   readonly sourceRef: string;
   readonly targetRef: string;
   readonly relationType: EntityRelationRecord["type"];

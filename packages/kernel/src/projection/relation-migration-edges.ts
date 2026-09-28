@@ -72,6 +72,7 @@ export function readMigrationRelationEdges(
     seen.add(entry.record.relation_id);
     rows.push({
       relationId: entry.record.relation_id,
+      workspaceRevision: null,
       sourceRef: entry.record.source,
       targetRef: entry.record.target,
       relationType: entry.record.type,

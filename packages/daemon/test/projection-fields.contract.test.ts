@@ -112,6 +112,7 @@ test("relation and coverage booleans equal the kernel judgments and reject malfo
 function edge(overrides: Readonly<Record<string, unknown>>) {
   return {
     relationId: "rel_current",
+    workspaceRevision: 1,
     sourceRef: "decision/dec_contract/C1",
     targetRef: "fact/F-CONTRACT",
     relationType: "evidenced-by" as const,

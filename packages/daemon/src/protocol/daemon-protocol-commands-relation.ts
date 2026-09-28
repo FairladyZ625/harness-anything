@@ -22,7 +22,8 @@ export const relationProtocolCommands = Object.freeze([
       '--rationale "<question|acceptance|consent|reopen>: <what you ask>"; it lists in their ha agenda ',
       "等你处理 and holds the task out of the dispatch queue until answered — ask there, not in markdown or chat. ",
       "To ask again after an answer, relate the same endpoints with --expected-version set to the retired ",
-      "Relation's revision; the relation reactivates with the new rationale and keeps its history.",
+      "Relation's revision (the column after its id in ha relation list, workspaceRevision in --json); ",
+      "the relation reactivates with the new rationale and keeps its history.",
     ].join(""),
     method: "repo.task.run",
     inputs: [
@@ -43,7 +44,9 @@ export const relationProtocolCommands = Object.freeze([
     phase: "Governed-Entity-W1-D",
     path: ["relation", "unrelate", "<relation-id>"],
     summary:
-      "Retire a Relation aggregate under its revision fence. Answering an awaits Relation retires it " +
+      "Retire a Relation aggregate under its revision fence: --expected-version is the Relation's own " +
+      "revision, the column after its id in ha relation list (workspaceRevision in --json). " +
+      "Answering an awaits Relation retires it " +
       "with the answer as --reason; the person can instead answer it in place from the GUI overview " +
       "(等你答复), which writes the same retire.",
     method: "repo.task.run",
