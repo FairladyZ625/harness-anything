@@ -935,15 +935,19 @@ export async function openRepoWriterCell(
     terminalBinding: RuntimeAttemptTerminal["binding"],
   ): Promise<void> => {
     const lease = extracted.projection.currentLease(task.taskId, leaseAt);
-    if (!lease || lease.phase === "released" || lease.executionId !== task.executionId) return;
-    // executionId survives release and reacquisition, so it cannot tell one lease generation from
-    // the next: a sibling dispatch that settles late would otherwise release the lease its own
-    // batch just reacquired. The version is the generation, so settle only against that one.
-    if (task.leaseVersion !== null && lease.version !== task.leaseVersion) return;
+    // The terminal runtime can release only its own current lease. Its dispatch execution/version
+    // is historical: release/start may have advanced both while this same runtime was running.
+    if (
+      !lease ||
+      lease.phase === "released" ||
+      lease.actor.executor?.id !== `runtime-session:${runtimeSessionId}` ||
+      !isSameExecution(lease.actor, terminalBinding.actor)
+    )
+      return;
     const action = {
         kind: "task-release",
         taskId: task.taskId,
-        terminalExecutionId: task.executionId,
+        terminalExecutionId: lease.executionId,
         terminalRuntimeSessionId: runtimeSessionId,
         reason: `Runtime session ${runtimeSessionId} reached a terminal dispatch state.`,
       },

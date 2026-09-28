@@ -5,6 +5,7 @@ import {
   isTerminalStatus,
   resolveTaskBoundRuntimeBinding,
   runtimeSessionSemanticState,
+  runtimeSessionIdFromActor,
   taskClasses,
   type AuthorizationDecision,
   type LeaseV1,
@@ -333,7 +334,7 @@ function terminalExecutionRuntimeBinding(
       ? new Set(
           readDispatchLiveIndex(cell.rootDir, [lease.taskId])
             .entries.map((entry) => readDispatchStreamSummary(cell.rootDir, entry.dispatchId))
-            .filter((stream) => stream?.header.executionId === lease.executionId)
+            .filter((stream) => stream?.header.runtimeSessionId === runtimeSessionIdFromActor(lease.actor))
             .filter(
               (stream) =>
                 stream !== null && (dispatchReachedTerminalAttempt(stream) || dispatchProcessIsOrphaned(stream)),
@@ -346,6 +347,7 @@ function terminalExecutionRuntimeBinding(
     compareRuntimeActivity(right.lastObservedAt, left.lastObservedAt),
   );
   for (const session of sessions) {
+    if (session.runtimeSessionId !== runtimeSessionIdFromActor(lease.actor)) continue;
     if (runtimeSessionId !== null && session.runtimeSessionId !== runtimeSessionId) continue;
     if (inferredTerminalSessionIds !== null && !inferredTerminalSessionIds.has(session.runtimeSessionId)) continue;
     if (

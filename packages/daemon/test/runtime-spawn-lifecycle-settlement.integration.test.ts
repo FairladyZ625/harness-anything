@@ -118,7 +118,10 @@ test("attached task runtime settlement releases its execution lease before publi
           actor: { principal: { personId: "person-attached-tail" }, executor: null },
           source: "local" as const,
         };
-      const created = await cell.run({ kind: "task-create", taskId, title: "Attached tail lease" }, binding);
+      const created = await cell.run(
+        { kind: "task-create", taskId, title: "Attached tail lease", presetId: "docs-task" },
+        binding,
+      );
       assert.equal(created.outcome, "applied");
       await waitForFixturePublication(cell, created.opId, binding);
       await realizeTaskPlanFixture(
@@ -162,6 +165,36 @@ test("attached task runtime settlement releases its execution lease before publi
       } finally {
         claimedProjection.close();
       }
+      const executor = { kind: "agent", id: `runtime-session:${receipt.runtimeSessionId}` } as const;
+      const released = await cell.run({ kind: "task-release", taskId, executor }, binding);
+      assert.equal(released.outcome, "applied", JSON.stringify(released));
+      // A plain release/start rejoins the same round; returning to planned opens the next one.
+      const rejoined = await cell.run({ kind: "task-start", taskId, executor }, binding);
+      assert.equal(rejoined.outcome, "applied", JSON.stringify(rejoined));
+      assert.equal(rejoined.executionId, executionId);
+      assert.equal((await cell.run({ kind: "task-release", taskId, executor }, binding)).outcome, "applied");
+      const returned = await cell.run(
+        { kind: "task-transition", taskId, status: "planned", reason: "New iteration" },
+        binding,
+      );
+      assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+      const restarted = await cell.run({ kind: "task-start", taskId, executor }, binding);
+      assert.equal(restarted.outcome, "applied", JSON.stringify(restarted));
+      const nextExecutionId = String(restarted.executionId);
+      assert.notEqual(nextExecutionId, executionId);
+      await waitForFixturePublication(cell, restarted.opId, binding);
+      const reportPath = `${String((created as Record<string, unknown>).packagePath)}/artifacts/report.md`;
+      mkdirSync(path.dirname(path.join(root, "harness", reportPath)), { recursive: true });
+      writeFileSync(path.join(root, "harness", reportPath), "# Current lease report\n");
+      const synced = await cell.run({ kind: "doc-submit", taskId, executor }, binding);
+      assert.equal(synced.outcome, "applied", JSON.stringify(synced));
+      const progress = await cell.run(
+        { kind: "task-progress-append", taskId, text: "New iteration writer", executor },
+        binding,
+      );
+      assert.equal(progress.outcome, "applied", JSON.stringify(progress));
+      const rebuilt = await cell.run({ kind: "projection-rebuild" }, binding);
+      assert.equal(rebuilt.outcome, "applied", JSON.stringify(rebuilt));
       const records = [
         { type: "thread.started", thread_id: "provider-attached-tail" },
         {
@@ -213,7 +246,7 @@ test("attached task runtime settlement releases its execution lease before publi
           (event) =>
             event.type === "lease_released" &&
             event.taskId === taskId &&
-            event.payload.execution.executionId === executionId,
+            event.payload.execution.executionId === nextExecutionId,
         ),
         projection = makeTaskProjection({
           rootDir: root,
@@ -246,8 +279,65 @@ test("attached task runtime settlement releases its execution lease before publi
         ],
         "terminal Runtime events must use the daemon-derived RuntimeSession claim",
       );
-      assert.ok(releaseIndex < outcomeIndex, "terminal outcome must not become visible before lease release");
+      assert.ok(
+        releaseIndex >= 0 && releaseIndex < outcomeIndex,
+        "terminal outcome must not become visible before current lease release",
+      );
       assert.equal(taskSnapshot.lease, null, "terminal RuntimeSession settlement must release the execution lease");
+
+      const redispatched = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          cwd: { scope: "repo-root" },
+          prompt: "Complete the next iteration",
+          taskId,
+          idempotencyKey: "attached-tail-redispatch",
+        },
+        binding,
+      );
+      const nextExecutor = { kind: "agent", id: `runtime-session:${redispatched.runtimeSessionId}` } as const;
+      assert.notEqual(nextExecutor.id, executor.id);
+      const stale = await cell.run({ kind: "task-progress-append", taskId, text: "Old runtime", executor }, binding);
+      assert.equal(stale.code, "executor_binding_invalid");
+      assert.equal(
+        (await cell.run({ kind: "task-release", taskId, executor: nextExecutor }, binding)).outcome,
+        "applied",
+      );
+      assert.equal(
+        (
+          await cell.run(
+            { kind: "task-transition", taskId, status: "planned", reason: "Final delivery round" },
+            binding,
+          )
+        ).outcome,
+        "applied",
+      );
+      const deliveryStart = await cell.run({ kind: "task-start", taskId, executor: nextExecutor }, binding);
+      assert.equal(deliveryStart.outcome, "applied", JSON.stringify(deliveryStart));
+      assert.notEqual(deliveryStart.executionId, nextExecutionId);
+      await waitForFixturePublication(cell, deliveryStart.opId, binding);
+      writeFileSync(
+        path.join(root, "harness", String((created as Record<string, unknown>).packagePath), "closeout.md"),
+        "## Summary\nVerified runtime lease handoff and delivery: artifact:artifacts/report.md.\n## Verification\nIsolated lifecycle assertions.\n" +
+          "## Residual Risk\nNo external provider integration exercised.\n## Same Mechanism Elsewhere\nReplay checked.\n",
+      );
+      const closeout = await cell.run({ kind: "doc-submit", taskId, executor: nextExecutor }, binding);
+      assert.equal(closeout.outcome, "applied", JSON.stringify(closeout));
+      const submitted = await cell.run(
+        { kind: "task-submit", taskId, executionId: deliveryStart.executionId, executor: nextExecutor },
+        binding,
+      );
+      assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+      const deliveryProjection = makeTaskProjection({
+        rootDir: root,
+        eventStore: makeTaskEventReader({ repoId: "runtime-attached-tail", rootDir: root }),
+      });
+      try {
+        assert.equal(deliveryProjection.read(taskId).snapshot.lease, null, "submit releases the current lease");
+        assert.equal(deliveryProjection.read(taskId).snapshot.executions.at(-1)?.actor.executor?.id, nextExecutor.id);
+      } finally {
+        deliveryProjection.close();
+      }
 
       const failedTaskId = "task-runtime-settlement-failed",
         failedExecutionId = "execution-runtime-settlement-failed";

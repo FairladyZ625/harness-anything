@@ -1,6 +1,6 @@
 import { stableStringify } from "../integrity/stable-hash.ts";
 import type { RuntimeSession } from "./agent-runtime.ts";
-import { isSamePerson } from "./actor-domain-services.ts";
+import { isSameExecution } from "./actor-domain-services.ts";
 import type { LeaseV1 } from "./execution.ts";
 import type { ActorIdentity, WriteSource } from "./write-chain.contract.ts";
 
@@ -16,14 +16,13 @@ export function runtimeSessionIdFromActor(actor: ActorIdentity): string | null {
   return id.startsWith(prefix) && id.length > prefix.length ? id.slice(prefix.length) : null;
 }
 
-/** Resolves the canonical runtime-session handoff; callers pair it with the current execution lease. */
+/** Task membership is historical; the caller supplies the execution from the current lease. */
 export function resolveTaskBoundRuntimeBinding(
   session: RuntimeSession | null,
   taskId: string,
   executionId: string,
 ): TaskBoundRuntimeBinding | null {
-  if (!session?.taskBindings.some((binding) => binding.taskId === taskId && binding.executionId === executionId))
-    return null;
+  if (!session?.taskBindings.some((binding) => binding.taskId === taskId)) return null;
   return { runtimeSessionId: session.runtimeSessionId, taskId, executionId };
 }
 
@@ -50,9 +49,10 @@ export function isTaskBoundRuntimeWriter(
   binding: TaskBoundRuntimeBinding,
 ): boolean {
   return (
+    lease.phase === "held" &&
     lease.taskId === binding.taskId &&
     lease.executionId === binding.executionId &&
-    isSamePerson(lease.actor, actor) &&
+    isSameExecution(lease.actor, actor) &&
     stableStringify(lease.source) === stableStringify(source) &&
     runtimeSessionIdFromActor(actor) === binding.runtimeSessionId
   );

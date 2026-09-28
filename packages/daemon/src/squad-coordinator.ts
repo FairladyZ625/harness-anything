@@ -519,13 +519,6 @@ export function makeSquadCoordinator(input: {
       if (error === null) {
         try {
           await input.reacquireTaskLease(updated.taskId, updated.binding);
-          const leaderBinding: RuntimeBinding = {
-            ...updated.binding,
-            actor: {
-              principal: updated.binding.actor.principal,
-              executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` },
-            },
-          };
           await input.publishSynthesisReport(
             {
               taskId: updated.taskId,
@@ -534,7 +527,7 @@ export function makeSquadCoordinator(input: {
               body: decision.report!,
               leaderRuntimeSessionId: runtimeSessionId,
             },
-            leaderBinding,
+            updated.binding,
           );
         } catch (cause) {
           consumeKnownError(cause);

@@ -19,7 +19,7 @@ import {
   opaqueClaim,
   state,
 } from "./doc-sync.fixtures.ts";
-test("a task-bound runtime may write only its assigned task artifacts subtree while its execution lease is held", () => {
+test("a task-bound runtime writes its task and descendants only as the actual lease holder", () => {
   const runtimeActor = {
       principal: actor.principal,
       executor: { kind: "agent", id: "runtime-session:runtime-doc" },
@@ -52,7 +52,7 @@ test("a task-bound runtime may write only its assigned task artifacts subtree wh
       source: "local",
       occurredAt: "2026-08-12T11:00:00.000Z",
       currentLedgerSha,
-      lease,
+      lease: { ...lease, actor: runtimeActor },
       authorizationDecision: authorizeDocWrite(runtimeActor, runtimeBinding),
       runtimeBinding,
       documents: [null],
@@ -68,15 +68,13 @@ test("a task-bound runtime may write only its assigned task artifacts subtree wh
   assert.equal(delegated.accepted, true, JSON.stringify(delegated));
   for (const [name, result, code] of [
     [
-      "canonical binding required",
+      "same-person coordinator lease is not delegated",
       run("tasks/task-owner-docs/artifacts/unbound.md", lease.taskId, {
-        runtimeBinding: undefined,
-        authorizationDecision: authorizeDocWrite(runtimeActor),
+        lease,
       }),
       "lease_conflict",
     ],
     ["assigned task required", run("tasks/task-other-docs/artifacts/report.md", "task-other"), "unresolved_touch"],
-    ["artifacts subtree required", run("tasks/task-owner-docs/task_plan.md", lease.taskId), "unresolved_touch"],
     [
       "delegation remains task specific",
       run("tasks/task-other-docs/task_plan.md", "task-other", { runtimeDelegatedTaskId: "task-child" }),
@@ -117,7 +115,10 @@ test("a task-bound runtime may write only its assigned task artifacts subtree wh
     resolveTaskBoundRuntimeBinding({ ...session, liveness: "unknown" }, lease.taskId, lease.executionId),
     runtimeBinding,
   );
-  assert.equal(resolveTaskBoundRuntimeBinding(session, lease.taskId, "another-execution"), null);
+  assert.deepEqual(resolveTaskBoundRuntimeBinding(session, lease.taskId, "another-execution"), {
+    ...runtimeBinding,
+    executionId: "another-execution",
+  });
   const parents = new Map([
     ["task-child", lease.taskId],
     ["task-grandchild", "task-child"],

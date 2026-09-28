@@ -123,7 +123,7 @@ function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorizati
       input.lease !== null &&
       input.runtimeBinding !== undefined &&
       isTaskBoundRuntimeWriter(input.lease, input.actor, input.source, input.runtimeBinding);
-  if (input.intent.executionId !== null && !directHolder && !runtimeWorker) return reject("lease_conflict");
+  if (input.intent.executionId !== null && !directHolder) return reject("lease_conflict");
   if (stableStringify(input.intent.baseLedgerSha) !== stableStringify(input.currentLedgerSha))
     return reject("base_ledger_changed");
   for (const [index, change] of input.intent.changes.entries()) {
@@ -131,22 +131,6 @@ function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorizati
       route = resolveDocRoute(change.path),
       task = input.resolvedTaskIds === undefined ? taskFromPath(change.path) : (input.resolvedTaskIds[index] ?? null),
       delegatedRuntimeTask = runtimeWorker && task === input.runtimeDelegatedTaskId;
-    if (
-      runtimeWorker &&
-      !directHolder &&
-      !delegatedRuntimeTask &&
-      (task !== input.runtimeBinding!.taskId || !taskArtifactPath(change.path))
-    )
-      unresolvedTouches.push(
-        touch(
-          change.path,
-          null,
-          task !== input.runtimeBinding!.taskId
-            ? "target task does not match the live runtime binding"
-            : "task-bound runtime writes are limited to the assigned task artifacts subtree",
-          "task-bound-runtime-artifacts",
-        ),
-      );
     if (task !== null && input.lease !== null && task !== input.lease.taskId && !delegatedRuntimeTask)
       unresolvedTouches.push(
         touch(change.path, null, "target task does not match the execution lease", "matching-task-lease"),

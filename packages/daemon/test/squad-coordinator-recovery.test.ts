@@ -603,7 +603,7 @@ test("convergence publishes the decision report for the terminal leader runtime 
         binding: {
           actor: {
             principal: { personId: "person-squad" },
-            executor: { kind: "agent", id: `runtime-session:${LEADER_SESSION_ID}` },
+            executor: null,
           },
           source: "local",
         },
