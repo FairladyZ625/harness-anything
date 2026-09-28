@@ -12,7 +12,6 @@ const fixtureSections = Object.freeze([
   ["Execution Surface", "Keep every write inside the fixture repository and its task package."],
   ["Constraints", "Use public task and document commands without bypassing readiness checks."],
   ["Checkpoint", "Stop if task start does not return an applied receipt."],
-  ["CI/Gate Authority Stop Condition", "Do not modify CI policy or gate authority for this fixture."],
   ["Implementation Plan", "Start the task and drive the lifecycle transitions exercised by the fixture."],
   ["Deliverable Contract", "Deliver the receipts, events, projections, and documents asserted by the fixture."],
   ["Evidence Protocol", "Inspect canonical receipts and persisted state after each relevant transition."],

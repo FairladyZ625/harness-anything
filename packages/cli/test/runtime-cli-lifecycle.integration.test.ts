@@ -45,10 +45,7 @@ test("Task dispatch rejects an incomplete plan then automatically acquires its l
   ]);
   const automaticPackagePath = String(automaticTask.packagePath),
     automaticPlanPath = `${automaticPackagePath}/task_plan.md`,
-    oneSectionMissing = realizedPlan("Automatic lease").replace(
-      /\n\n## CI\/Gate Authority Stop Condition\n\n[^\n]+/u,
-      "",
-    );
+    oneSectionMissing = realizedPlan("Automatic lease").replace(/\n\n## Checkpoint\n\n[^\n]+/u, "");
   published(root, env, automaticTask);
   writeFileSync(path.join(root, "harness", automaticPlanPath), oneSectionMissing);
   const automaticArgs = [
@@ -68,7 +65,7 @@ test("Task dispatch rejects an incomplete plan then automatically acquires its l
     kind: "missing-sections",
     documentPath: automaticPlanPath,
     diskDiffers: true,
-    missingSections: [{ section: "CI/Gate Authority Stop Condition", reason: "empty" }],
+    missingSections: [{ section: "Checkpoint", reason: "empty" }],
   });
   writeFileSync(path.join(root, "harness", automaticPackagePath, "task_plan.md"), realizedPlan("Automatic lease"));
   const automaticPlanSync = run(root, env, ["doc", "sync", "--submit", "--path", automaticPlanPath]);

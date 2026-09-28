@@ -15,7 +15,6 @@ const planHeadings = [
   "Execution Surface",
   "Constraints",
   "Checkpoint",
-  "CI/Gate Authority Stop Condition",
   "Implementation Plan",
   "Deliverable Contract",
   "Evidence Protocol",
@@ -41,7 +40,7 @@ test("transition-document readiness reports scaffold and empty sections as struc
           reason: "scaffold",
           retainedScaffold: "One-line statement of the task objective and scope.",
         },
-        expectedEntries: 14,
+        expectedEntries: 13,
       },
       {
         name: "partially realized plan",

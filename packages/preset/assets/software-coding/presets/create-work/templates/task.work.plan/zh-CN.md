@@ -69,10 +69,6 @@ Task Contract: harness-task v1
 - 每批波次完成时，对齐子任务树、本地图、`ha work show` 与 evidence。
 - 进入 closeout 前，必须补齐 done 四层制与 gate-retro 双镜头证据。
 
-## CI/Gate Authority Stop Condition
-
-如果本工作不是 CI/gate/governance 工作，却需要修改 CI/gate 权威面才能通过，停止实现，记录 blocker，并请求或创建治理任务。唯一例外是任务明确授权 CI/gate/governance 改动，或紧急修复 main 的 break-glass；break-glass 必须记录原因、范围和后续治理任务。
-
 ## Implementation Plan
 
 - 创建或确认 charter decision，并让它的 `dec_*` 锚出现在本工作地图中。
