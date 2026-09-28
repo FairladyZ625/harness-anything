@@ -68,6 +68,7 @@ export interface TaskRelationNeighborhoodQuery {
 }
 export interface TaskRelationProjectionRow {
   readonly relationId: string;
+  readonly workspaceRevision: number | null;
   readonly sourceRef: string;
   readonly targetRef: string;
   readonly relationType: EntityRelationRecord["type"];
@@ -356,7 +357,8 @@ export function readTaskRelationRows(db: DatabaseSync): readonly TaskRelationPro
         "SELECT task_relation.relation_id, task_relation.source_ref, task_relation.target_ref,",
         "task_relation.relation_type, task_relation.direction, task_relation.strength, task_relation.origin,",
         "task_relation.state, relation_edge.target_observed_version, task_relation.rationale,",
-        "task_relation.owner_ref, task_relation.source_path, task_relation.record_index",
+        "task_relation.owner_ref, task_relation.source_path, task_relation.record_index,",
+        "relation_edge.workspace_revision AS relation_revision",
         "FROM task_relation LEFT JOIN relation_edge USING(relation_id) ORDER BY task_relation.relation_id",
       ].join(" "),
     ),
@@ -395,7 +397,7 @@ function readTaskRelationsByEndpoint(
       SELECT requested_refs.ref_order, task_relation.relation_id, task_relation.source_ref,
         task_relation.target_ref, task_relation.relation_type, task_relation.direction, task_relation.strength,
         task_relation.origin, task_relation.state, NULL AS target_observed_version, task_relation.rationale,
-        task_relation.owner_ref, task_relation.source_path, task_relation.record_index
+        task_relation.owner_ref, task_relation.source_path, task_relation.record_index, NULL AS relation_revision
       FROM requested_refs CROSS JOIN task_relation INDEXED BY task_relation_${endpoint}
       WHERE task_relation.${endpoint}_ref = requested_refs.ref AND task_relation.relation_type = ? AND NOT EXISTS (SELECT 1 FROM relation_edge WHERE relation_edge.relation_id = task_relation.relation_id)
       UNION ALL
@@ -406,12 +408,12 @@ function readTaskRelationsByEndpoint(
         relation_edge.state, relation_edge.target_observed_version,
         json_extract(relation_edge.row_json, '$.rationale'), relation_edge.owner_ref,
         json_extract(relation_edge.row_json, '$.sourcePath'),
-        json_extract(relation_edge.row_json, '$.recordIndex')
+        json_extract(relation_edge.row_json, '$.recordIndex'), relation_edge.workspace_revision
       FROM requested_refs CROSS JOIN relation_edge INDEXED BY relation_edge_${endpoint}
       WHERE relation_edge.${endpoint}_ref = requested_refs.ref AND relation_edge.relation_type = ?
     )
     SELECT relation_id, source_ref, target_ref, relation_type, direction, strength, origin, state,
-      target_observed_version, rationale, owner_ref, source_path, record_index
+      target_observed_version, rationale, owner_ref, source_path, record_index, relation_revision
     FROM matching_rows ORDER BY ref_order, relation_id`;
   return taskRelationRowsAtCut(db, queryRows(db, sql, JSON.stringify(refs), relationType, relationType));
 }
@@ -721,7 +723,7 @@ export function readTaskRelationPage(
   const taskRows = [
     "SELECT relation_id, source_ref, target_ref, relation_type, direction, strength, origin, state,",
     "NULL AS target_observed_version, rationale, owner_ref, source_path, record_index,",
-    "workspace_revision, updated_at FROM task_relation",
+    "workspace_revision, NULL AS relation_revision, updated_at FROM task_relation",
     "WHERE NOT EXISTS (SELECT 1 FROM relation_edge",
     "WHERE relation_edge.relation_id = task_relation.relation_id)",
   ].join(" ");
@@ -733,6 +735,7 @@ export function readTaskRelationPage(
     "json_extract(row_json, '$.rationale') AS rationale, owner_ref,",
     "json_extract(row_json, '$.sourcePath') AS source_path,",
     "json_extract(row_json, '$.recordIndex') AS record_index, workspace_revision,",
+    "workspace_revision AS relation_revision,",
     "(SELECT json_extract(event_json, '$.occurredAt') FROM event_index",
     "WHERE event_index.workspace_revision = relation_edge.workspace_revision) AS updated_at",
     "FROM relation_edge",
@@ -871,6 +874,7 @@ function taskRelationRow(
         : null;
   return {
     relationId,
+    workspaceRevision: typeof row.relation_revision === "number" ? row.relation_revision : null,
     sourceRef: String(row.source_ref),
     targetRef,
     relationType,

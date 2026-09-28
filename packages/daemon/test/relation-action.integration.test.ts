@@ -660,12 +660,17 @@ test("Relation actions serialize aggregate revisions and reject cycles and stale
     assert.equal(relationRows(await cell.run({ kind: "relation-list", freshness: "current" }, binding)).length, 2);
     assert.equal(relationRows(await cell.run({ kind: "relation-list", freshness: "suspect" }, binding)).length, 0);
 
+    // The listed row carries the Relation's own revision, which is the unrelate fence.
+    const beforeRetire = await cell.run({ kind: "relation-list", entity: identity.source }, binding),
+      listed = relationRows(beforeRetire).find((row) => row.relationId === relationId);
+    assert.equal(listed?.workspaceRevision, created.revision, JSON.stringify(listed));
+    assert.match(String(beforeRetire.summary), new RegExp(`^${relationId}\\t${String(created.revision)}\\t`, "mu"));
     const retired = await cell.run(
       {
         kind: "relation-unrelate",
         relationId,
         reason: "B completed independently.",
-        expectedVersion: created.revision,
+        expectedVersion: listed?.workspaceRevision,
       },
       binding,
     );
@@ -734,6 +739,7 @@ test("a depends-on cycle at the end of a long chain is rejected, and converging 
 
 function relationRows(receipt: { readonly evidence?: unknown }): readonly {
   readonly relationId: string;
+  readonly workspaceRevision: number | null;
   readonly strength: string;
   readonly targetObservedVersion: string | number | null;
   readonly currentTargetVersion: string | number | null;
@@ -742,6 +748,7 @@ function relationRows(receipt: { readonly evidence?: unknown }): readonly {
     JSON.parse(String(receipt.evidence)) as {
       readonly rows: readonly {
         readonly relationId: string;
+        readonly workspaceRevision: number | null;
         readonly strength: string;
         readonly targetObservedVersion: string | number | null;
         readonly currentTargetVersion: string | number | null;
