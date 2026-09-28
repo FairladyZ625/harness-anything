@@ -4068,6 +4068,61 @@
         "status": "covered",
         "evidence": ["tools/gates/test/ontology-action-concurrency.test.mjs"]
       }
+    },
+    {
+      "id": "entity-id-links",
+      "command": "node tools/gates/entity-id-links.mjs",
+      "category": "local-consistency",
+      "tier": "pr-advisory",
+      "tierReason": "G37 is not a branch-protection required context; its blocking signal stays the rebuild-gates.yml entity-id-links job, and this entry lets the changed-path local runner select it for GUI renderer changes. Promotion to a required context remains a CEO-controlled switch.",
+      "localPathGlobs": [
+        "packages/gui/src/renderer/**",
+        "packages/gui/test/entity-id-links.vitest.ts",
+        "tools/gates/entity-id-links.mjs"
+      ],
+      "authoritySource": [
+        "decision/dec_FB488BE3EF6B107814A7E3C2FD#CH1",
+        "tools/gates/contracts/gates.contract.mjs:G37",
+        "task_c0acc7af3f6bf1d067df4dfc58"
+      ],
+      "consumerScope": [
+        "canonical entity references rendered as non-activatable JSX text under packages/gui/src/renderer",
+        "the EntityRefLink primitive rendering its ID inside an activatable button or anchor",
+        "presence of the behavioral half packages/gui/test/entity-id-links.vitest.ts"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": ["ontology-advisory"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "A rendered canonical entity reference must go through EntityRefLink; there is no allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/entity-id-links.mjs",
+          "tools/gates/test/entity-id-links.test.mjs",
+          "package.json:scripts.harness:check-entity-id-links",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": "harness:check-entity-id-links" },
+        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["local", "pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/entity-id-links.test.mjs"]
+      }
     }
   ]
 }

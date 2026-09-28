@@ -95,6 +95,7 @@
     "harness:check-status-vocabulary": "node tools/check-status-vocabulary.mjs",
     "harness:check-sync-subprocess": "node tools/check-sync-subprocess.mjs",
     "harness:check-enforcement-debt-sunset": "node tools/check-enforcement-debt-sunset.mjs",
+    "harness:check-entity-id-links": "node tools/gates/entity-id-links.mjs",
     "pr:doctor": "node tools/pr-doctor.mjs"
   },
   "engines": {

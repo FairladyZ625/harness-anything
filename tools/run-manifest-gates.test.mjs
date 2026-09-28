@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -161,6 +161,24 @@ test("standalone changed mode derives its local PR gates from manifest path glob
     { id: "check-docs", command: "node check-docs.mjs" },
     { id: "check-release", command: "node check-release.mjs" },
   ]);
+});
+
+test("standalone changed mode selects G37 entity-id-links for GUI renderer changes", () => {
+  const manifest = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "gate-manifest.json"), "utf8"));
+  const renderer = parseManifestGateArgs(["--changed", "origin/main"]);
+  renderer.changedPaths = ["packages/gui/src/renderer/views/DecisionJudgeTab.tsx"];
+  const docs = parseManifestGateArgs(["--changed", "origin/main"]);
+  docs.changedPaths = ["docs-release/guide.md"];
+
+  assert.ok(
+    buildManifestGatePlan(manifest, renderer).some(
+      (entry) => entry.id === "entity-id-links" && entry.command === "node tools/gates/entity-id-links.mjs",
+    ),
+  );
+  assert.equal(
+    buildManifestGatePlan(manifest, docs).some((entry) => entry.id === "entity-id-links"),
+    false,
+  );
 });
 
 test("manifest gate runner resumes only the failed run and removes its checkpoint after success", async () => {
