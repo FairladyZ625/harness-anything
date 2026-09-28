@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "../error-consumption.ts";
-import type { CloseoutReadiness } from "../domain/index.ts";
-import { closeoutReadiness as domainCloseoutReadiness, isPriorityTier, isTaskWorkKind } from "../domain/index.ts";
+import type { CloseoutReadiness } from "../domain/closeout-readiness.ts";
+import { closeoutReadiness as domainCloseoutReadiness } from "../domain/index.ts";
+import { isPriorityTier, isTaskWorkKind } from "../domain/task-metadata.ts";
 import { isDomainStatus } from "../domain/lifecycle-status.ts";
 import { taskBoardColumnOf } from "../domain/task-board-projection.ts";
 import { isPackageDisposition } from "../domain/package-disposition.ts";

@@ -4,10 +4,5 @@ export { authorizationPort } from "./authorization-port.ts";
 export type { AuthorizationContext, AuthorizationPort } from "./authorization-port.ts";
 
 export { ArtifactStore } from "./artifact-store.ts";
-export type { ArtifactDocument, TaskPackageRead } from "./artifact-store.ts";
-
-export { TemplateLibrary } from "./template-library.ts";
-export type { Locale, TemplateRef, TemplateDocument } from "./template-library.ts";
 
 export { VcsCommandError } from "./version-control-system.ts";
-export type { VcsCommitAuthor, VersionControlSystem as VersionControlSystemPort } from "./version-control-system.ts";

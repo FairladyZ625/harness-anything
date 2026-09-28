@@ -80,7 +80,6 @@ export {
 export { compileCompletionGateWitness } from "./domain/completion-gate-publication.ts";
 export { reduceTaskEvent } from "./domain/task-lifecycle.contract.ts";
 export type {
-  CompleteTaskProof,
   ProofFor,
   TaskEventV1,
   TaskLifecycleCommand,
@@ -95,19 +94,11 @@ export {
 } from "./domain/task.ts";
 export type { TaskClass, TaskMetadataV1, TaskV2 } from "./domain/task.ts";
 export {
-  assertTaskBootstrapWritePlan,
   isTaskBootstrapEvent,
-  taskBootstrapClaims,
   taskBootstrapWritePlan,
   validateTaskBootstrapEvent,
 } from "./domain/task-bootstrap-event.ts";
-export type {
-  InitialDocumentClaim,
-  PresetSnapshotClaim,
-  TaskBootstrapBlob,
-  TaskBootstrapEventV1,
-  TaskDocumentOwner,
-} from "./domain/task-bootstrap-event.ts";
+export type { TaskBootstrapBlob, TaskBootstrapEventV1, TaskDocumentOwner } from "./domain/task-bootstrap-event.ts";
 export {
   presetSnapshotUpgradeWritePlan,
   validatePresetSnapshotUpgradeEvent,
@@ -242,41 +233,24 @@ export type {
   MappedWitnessAdapterId,
 } from "./domain/completion-contract.ts";
 export { isHumanAttestationWitness } from "./domain/completion-gate-witness.ts";
-export { sha256Bytes, sha256Text, stablePayloadHash, stableStringify } from "./integrity/stable-hash.ts";
+export { sha256Bytes, sha256Text, stableStringify } from "./integrity/stable-hash.ts";
 export { eventObjectTarget } from "./layout/ledger-object-layout.ts";
 export {
-  assertNoPortablePathCollisions,
-  createHarnessRuntimeContext,
-  findPortablePathCollisions,
-  findTaskIdByExternalRef,
-  findTaskPackagePath,
-  generateTaskId,
-  harnessRuntimeRoot,
-  listTaskIndexPaths,
   normalizeRelativeDocumentPath,
   readFrontmatter,
   readScalar,
   resolveHarnessLayout,
   settingBlockValue,
   slugifyTaskTitle,
-  taskDocumentPath,
-  taskPackagePath,
   validateTaskIdSyntax,
 } from "./layout/index.ts";
-export type {
-  HarnessLayout,
-  HarnessLayoutInput,
-  HarnessLayoutOverrides,
-  HarnessRuntimeContext,
-} from "./layout/index.ts";
-export * from "./markdown/frontmatter.ts";
+export type { HarnessLayoutInput, HarnessLayoutOverrides } from "./layout/index.ts";
 export * from "./ports/index.ts";
 export type {
   FactAnchorRow,
   RelationCoverageRow,
   RelationFactRow,
   RelationGraphEdgeRow,
-  RelationGraphProjection,
 } from "./projection/relation-graph-projection.ts";
 export { projectDecisionReadiness } from "./projection/decision-readiness-projection.ts";
 export type { DecisionListFilters, DecisionProjectionRow } from "./projection/decision-event-projection.ts";
@@ -295,22 +269,9 @@ export { readMarkdownSource, taskEntryToRow } from "./projection/sqlite-task-sou
 export type { TaskSourceEntry } from "./projection/sqlite-task-source.ts";
 export { renderDecisionDocument } from "./domain/decision-event.ts";
 export { renderFactsDocument } from "./domain/fact-event.ts";
-export type {
-  CoordinationStatus,
-  ProjectionCanonicalStatus,
-  ProjectionFreshness,
-  ProjectionReadResult,
-  ProjectionSource,
-  ProjectionWarning,
-  ProjectionWarningCode,
-  ProjectionWarningSeverity,
-  ProjectionWarningSource,
-  TaskFieldExtensionProjection,
-  TaskProjectionOptions,
-  TaskProjectionRow,
-} from "./projection/types.ts";
-export * from "./schemas/registry.ts";
-export * from "./schemas/common.ts";
+export type { ProjectionWarning, TaskProjectionRow } from "./projection/types.ts";
+export { schemaRegistry, TemplateCatalogSchema } from "./schemas/registry.ts";
+export type { TemplateCatalog, TemplateSelection } from "./schemas/registry.ts";
 export {
   decodeVerticalDefinition,
   parseVerticalDeclarationDocument,
@@ -374,7 +335,6 @@ export type {
 export {
   readDaemonRegistry,
   registerDaemonConnection,
-  resolveDaemonRepoByRoot,
   removeDaemonConnection,
   disableDaemonRepo,
   unbindDaemonRepo,

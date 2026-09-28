@@ -1,9 +1,9 @@
-import type { CanonicalStatus, CloseoutReadiness, PriorityTier, TaskWorkKind } from "../domain/index.ts";
+import type { CloseoutReadiness } from "../domain/closeout-readiness.ts";
+import type { CanonicalStatus } from "../domain/lifecycle-status.ts";
+import type { PriorityTier, TaskWorkKind } from "../domain/task-metadata.ts";
 import type { ContractVersion } from "../domain/contract-version.ts";
 import type { TaskBoardColumnId } from "../domain/task-board-projection.ts";
 import type { PackageDisposition } from "../domain/package-disposition.ts";
-import type { HarnessLayoutOverrides } from "../layout/index.ts";
-import type { EventBackedRelationTruth } from "./relation-graph-projection.ts";
 
 export type ProjectionFreshness = "fresh" | "stale-but-usable" | "unavailable-no-cache";
 export type ProjectionSource = "local-document" | "external-engine" | "snapshot-cache";
@@ -80,20 +80,6 @@ export interface ProjectionWarning {
   readonly severity: ProjectionWarningSeverity;
   readonly message: string;
   readonly repairHint?: string;
-}
-
-export interface ProjectionReadResult {
-  readonly rows: ReadonlyArray<TaskProjectionRow>;
-  readonly warnings: ReadonlyArray<ProjectionWarning>;
-}
-
-export interface TaskProjectionOptions {
-  readonly rootDir: string;
-  readonly layoutOverrides?: HarnessLayoutOverrides;
-  readonly projectionPath?: string;
-  readonly postMerge?: boolean;
-  readonly eventRelationTruth?: EventBackedRelationTruth;
-  readonly taskFieldExtensions?: ReadonlyArray<TaskFieldExtensionProjection>;
 }
 
 export interface ProjectionMeta {

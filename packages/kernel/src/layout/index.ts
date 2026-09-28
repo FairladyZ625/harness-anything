@@ -1,6 +1,5 @@
-import { randomBytes } from "node:crypto";
 import path from "node:path";
-import type { TaskId } from "../domain/index.ts";
+import type { TaskId } from "../domain/task.ts";
 import { localLayoutFileSystem } from "../local/local-layout-file-system.ts";
 import { readFrontmatter, readScalar } from "../markdown/frontmatter.ts";
 import { normalizeRelativeDocumentPath } from "./portable-path.ts";
@@ -42,7 +41,6 @@ export interface HarnessLayout {
   readonly sessionDocumentPath: (sessionId: string) => string;
 }
 
-const crockfordBase32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 const defaultAuthoredRoot = "harness";
 const defaultLocalRoot = ".harness";
 const layoutFileSystem = localLayoutFileSystem;
@@ -84,17 +82,7 @@ interface HarnessLayoutSettings {
   readonly generatedRootSetting?: string;
 }
 
-export function createHarnessRuntimeContext(
-  rootDir: string,
-  layoutOverrides?: HarnessLayoutOverrides,
-): HarnessRuntimeContext {
-  return {
-    rootDir: path.resolve(rootDir),
-    ...(layoutOverrides && layoutOverrides.authoredRoot ? { layoutOverrides } : {}),
-  };
-}
-
-export function harnessRuntimeRoot(input: HarnessLayoutInput): string {
+function harnessRuntimeRoot(input: HarnessLayoutInput): string {
   return typeof input === "string" ? path.resolve(input) : input.rootDir;
 }
 
@@ -313,12 +301,6 @@ function unquoteScalar(value: string): string {
   return trimmed;
 }
 
-export function generateTaskId(now: Date = new Date()): TaskId {
-  const timestamp = encodeBase32(now.getTime(), 10);
-  const entropy = encodeRandomBase32(16);
-  return `task_${timestamp}${entropy}`;
-}
-
 export function slugifyTaskTitle(title: string): string {
   const slug = title
     .normalize("NFKD")
@@ -347,10 +329,6 @@ export function taskDocumentPath(input: HarnessLayoutInput, taskId: TaskId, docu
   return resolveHarnessLayout(input).taskDocumentPath(taskId, documentPath);
 }
 
-export function listTaskIndexPaths(input: HarnessLayoutInput): ReadonlyArray<string> {
-  return listTaskIndexPathsInTasksRoot(resolveHarnessLayout(input).tasksRoot);
-}
-
 function listTaskIndexPathsInTasksRoot(tasksRoot: string): ReadonlyArray<string> {
   if (!layoutFileSystem.exists(tasksRoot)) return [];
   return layoutFileSystem
@@ -361,10 +339,6 @@ function listTaskIndexPathsInTasksRoot(tasksRoot: string): ReadonlyArray<string>
     .sort();
 }
 
-export function findTaskPackagePath(input: HarnessLayoutInput, taskId: TaskId): string | null {
-  return findTaskPackagePathInTasksRoot(resolveHarnessLayout(input).tasksRoot, taskId);
-}
-
 function findTaskPackagePathInTasksRoot(tasksRoot: string, taskId: TaskId): string | null {
   validateTaskIdSyntax(taskId);
   const exact = path.join(tasksRoot, taskId, "INDEX.md");
@@ -372,16 +346,6 @@ function findTaskPackagePathInTasksRoot(tasksRoot: string, taskId: TaskId): stri
   for (const indexPath of listTaskIndexPathsInTasksRoot(tasksRoot)) {
     const frontmatter = readFrontmatter(layoutFileSystem.readText(indexPath)) ?? "";
     if (readScalar(frontmatter, "task_id") === taskId) return path.dirname(indexPath);
-  }
-  return null;
-}
-
-export function findTaskIdByExternalRef(input: HarnessLayoutInput, engine: string, ref: string): TaskId | null {
-  for (const indexPath of listTaskIndexPaths(input)) {
-    const frontmatter = readFrontmatter(layoutFileSystem.readText(indexPath)) ?? "";
-    if (readScalar(frontmatter, "  engine") === engine && readScalar(frontmatter, "  ref") === ref) {
-      return (readScalar(frontmatter, "task_id") || path.basename(path.dirname(indexPath))) as TaskId;
-    }
   }
   return null;
 }
@@ -400,23 +364,4 @@ function normalizeEntityRootSegment(value: string, label: string): string {
     throw new Error(`${label} must be a portable single path segment: ${value}`);
   }
   return normalized;
-}
-
-function encodeRandomBase32(length: number): string {
-  const bytes = randomBytes(length);
-  let output = "";
-  for (const byte of bytes) {
-    output += crockfordBase32[byte & 31];
-  }
-  return output;
-}
-
-function encodeBase32(value: number, width: number): string {
-  let remaining = Math.max(0, Math.floor(value));
-  let output = "";
-  do {
-    output = `${crockfordBase32[remaining % 32]}${output}`;
-    remaining = Math.floor(remaining / 32);
-  } while (remaining > 0);
-  return output.padStart(width, "0").slice(-width);
 }

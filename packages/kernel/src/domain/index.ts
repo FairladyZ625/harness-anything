@@ -1,4 +1,3 @@
-export { createTaskIdentity } from "./task.ts";
 export { currentActionEnvelopeVersion, validateActionEnvelope } from "./action-envelope.ts";
 export type { ActionEnvelope } from "./action-envelope.ts";
 export type { ReceiptJsonValue } from "./receipt-frame.ts";
@@ -23,25 +22,9 @@ export type { ReceiptGuidanceArgument, ReceiptGuidanceContractEntry } from "./en
 export { evaluateTaskActionCapability } from "./task-action-capability.ts";
 export { actionDeclarations } from "./action-declaration.ts";
 export { DEFAULT_POLICY, durablePolicyActions } from "./default-policy.ts";
-export type {
-  ActorAxes,
-  Task,
-  TaskIdentity,
-  TaskId,
-  EngineId,
-  ExternalRef,
-  IsoTimestamp,
-  Sha256Fingerprint,
-} from "./task.ts";
 export { REPLAY_TASK_GRAPH } from "./task-graph.ts";
-export { TASK_LIFECYCLE_COMMAND_CATALOG, TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle.contract.ts";
-export type {
-  CompleteTaskCommand,
-  CreateReplayTaskCommand,
-  RecordReviewCommand,
-  StartExecutionCommand,
-  SubmitExecutionCommand,
-} from "./task-lifecycle.contract.ts";
+export { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle.contract.ts";
+export type { CompleteTaskCommand } from "./task-lifecycle.contract.ts";
 
 export {
   approvedReviewHistoryForExecution,
@@ -51,33 +34,18 @@ export {
   settledApprovedReviewsForExecution,
 } from "./review.ts";
 
-export { isPriorityTier, isTaskWorkKind, priorityTiers, taskWorkKinds } from "./task-metadata.ts";
-export type { PriorityTier, TaskWorkKind } from "./task-metadata.ts";
-
 export { explainStatusTransition, isDomainStatus, isTerminalStatus } from "./lifecycle-status.ts";
-export type {
-  CanonicalStatus,
-  DomainStatus,
-  StatusCoarseClass,
-  StatusTransitionExplanation,
-  StatusTransitionRejectionReason,
-} from "./lifecycle-status.ts";
-
-export { immutableBindingFields, validateLifecycleBindingInvariant } from "./lifecycle-binding.ts";
-export type { LifecycleBinding, BindingInvariantResult, ImmutableBindingField } from "./lifecycle-binding.ts";
+export type { DomainStatus } from "./lifecycle-status.ts";
 
 export {
   closeoutReadiness,
-  closeoutReadinesses,
   completionGateIds,
   currentExecutionCuts,
   gateResults,
   judgeGateWitnesses,
   waivableAutomatedFail,
   currentSubmittedExecutions,
-  isCloseoutReadiness,
 } from "./closeout-readiness.ts";
-export type { CloseoutReadiness } from "./closeout-readiness.ts";
 export {
   completionEvidenceBasis,
   completionEvidenceResults,
@@ -144,7 +112,7 @@ export { deriveTaskWorktreeBinding } from "./task-worktree.ts";
 export type { TaskWorktreeBindingV1 } from "./task-worktree.ts";
 
 export { parseEntityRef } from "./entity-ref.ts";
-export type { EntityRef, EntityRefKind, ParsedEntityRef } from "./entity-ref.ts";
+export type { EntityRef, EntityRefKind } from "./entity-ref.ts";
 export { compileEntityPinEvent } from "./entity-pin-event.ts";
 
 export { buildCausalGraphView } from "./causal-graph-view.ts";
@@ -154,15 +122,6 @@ export { projectDeclaredRoleBindings, roleBindingActorMatches, roleBindingExpire
 export type { RoleBinding } from "./role-binding.ts";
 export { verifyDelegatedExecutionToken } from "./delegated-execution-token.ts";
 export type { DelegatedExecutionToken, DelegatedExecutionTokenReasonCode } from "./delegated-execution-token.ts";
-
-export {
-  decisionEntityId,
-  decisionIdFromEntityId,
-  parseWriteEntityId,
-  taskEntityId,
-  taskIdFromEntityId,
-} from "./entity-id.ts";
-export type { EntityId, ParsedWriteEntityId } from "./entity-id.ts";
 
 export {
   compileDecisionWrite,
@@ -184,10 +143,7 @@ export {
   compileFactUnarchiveWrite,
   compileFactWrite,
   FACT_DOCUMENT_POLICY_ID,
-  factConfidenceLevels,
-  factMemoryClasses,
   factWritePlan,
-  isFactId,
 } from "./fact-event.ts";
 export type {
   CompiledFactWrite,
@@ -253,10 +209,8 @@ export {
   parseAwaitsRequest,
   normalizeLegacyRelationState,
   relationDirections,
-  relationOrigins,
   relationIsCurrent,
   relationStates,
-  relationStrengths,
   relationStrengthForType,
   relationTypes,
 } from "./entity-relation.ts";
@@ -271,28 +225,14 @@ export type { RelationDocumentUpdate, RelationEventV1 } from "./relation-event.t
 export { compileEntityDocumentRematerialization } from "./entity-document-event.ts";
 export type { EntityDocumentUpdate } from "./entity-document-event.ts";
 export { factLiveness } from "./fact-liveness.ts";
-export type {
-  EntityRelationValidationIssue,
-  EntityRelationValidationIssueCode,
-  RelationDirection,
-  RelationOrigin,
-  RelationState,
-  RelationStrength,
-  RelationType,
-} from "./entity-relation.ts";
+export type { RelationDirection, RelationState, RelationType } from "./entity-relation.ts";
 export {} from "./entity-freshness.ts";
 export type {} from "./entity-freshness.ts";
 export { deriveTaskReadSet } from "./task-read-set.ts";
 export type { TaskReadSet, TaskReadSetCounterpart } from "./task-read-set.ts";
 
 export { normalizeDomainError } from "./errors.ts";
-export type {
-  ArtifactStoreError,
-  BindingInvariantError,
-  CoreDomainError,
-  EngineError,
-  TemplateLibraryError,
-} from "./errors.ts";
+export type { CoreDomainError } from "./errors.ts";
 
 export { createScheduleV1, nextScheduleOccurrence, validateScheduleV1 } from "./schedule.ts";
 export type {

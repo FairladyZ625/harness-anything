@@ -1,6 +1,7 @@
 // harness-test-tier: contract
 import type { FactEventDraftV1 } from "../../src/domain/fact-event.ts";
 import type { DecisionEventDraftV1 } from "../../src/domain/decision-event-types.ts";
+import { FactEventSchema } from "../../src/schemas/fact-event.ts";
 import assert from "node:assert/strict";
 import { Schema } from "effect";
 import test from "node:test";
@@ -8,7 +9,6 @@ import {
   compileDecisionWrite,
   compileFactWrite,
   deriveRelationId,
-  FactEventSchema,
   parseCanonicalEvent,
   serializeCanonicalEvent,
 } from "../../src/index.ts";
