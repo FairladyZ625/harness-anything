@@ -14,7 +14,10 @@ beforeAll(() => {
   setActiveLocale("en-US");
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 });
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 const mounted: { root: Root; container: HTMLElement }[] = [];
 
@@ -139,6 +142,9 @@ function stubBinaryDocumentBridge(): ReturnType<typeof vi.fn> {
 
 describe("artifacts timeline — list, preview, and task jump", () => {
   it("renders the daemon DTO as a time-desc timeline with the time source labeled", async () => {
+    // 相对时间只在 30 天内主显;把时钟钉在夹具时间两天后,断言不随系统时钟过期。
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-08-30T10:00:00.000Z"));
     const container = await renderSurface(
       createElement(ArtifactsWorkspace, {
         repoId: "repo-a",
@@ -159,6 +165,7 @@ describe("artifacts timeline — list, preview, and task jump", () => {
         ?.getAttribute("title"),
     ).toBe("tasks/task_weathering-slug/artifacts/reports/weathering.html");
     // 相对时间是主显;绝对时间与时间来源(ledger)进 tooltip。
+    expect(text).toContain("2 d ago");
     expect(text).not.toMatch(/2026-08-28 \d{2}:\d{2}/u);
     const rowTime = container.querySelector<HTMLElement>(
       '[data-testid="artifact-row-task_weathering-artifacts/reports/weathering.html"] [title*="2026-08-28"]',
