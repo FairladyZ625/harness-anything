@@ -410,9 +410,9 @@ test("a released active task returns to planned while held leases and stale writ
       binding,
     );
     assert.equal(released.outcome, "applied");
-    assert.match(
-      String((released.next as readonly { readonly command?: string }[] | undefined)?.[0]?.command),
-      new RegExp(`ha task transition ${taskId} planned --reason`, "u"),
+    assert.equal(
+      (released.next as readonly { readonly command?: string }[] | undefined)?.[0]?.command,
+      `ha task start ${taskId}`,
     );
 
     const expectedVersion = released.revision,

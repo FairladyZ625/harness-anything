@@ -80,6 +80,7 @@ test("Task execution rejects with the exact Action criterion and performs no rej
       actual: "held by personId=person-failure-owner, executor=agent:failure-owner",
       expectation:
         "The actor owns the active lease or the submitted execution being amended, or owns the task with --as-owner. " +
+        "When no lease is held, ha task start reconnects to the active execution first. " +
         "Then retry " +
         `ha task submit ${taskId} [--execution-id <execution-id>] [--commit <commit>] [--amend] [--as-owner].`,
     });
