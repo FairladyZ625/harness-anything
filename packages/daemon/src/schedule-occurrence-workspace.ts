@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, symlinkSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import type { ScheduleV1 } from "@harness-anything/kernel";
 import { runProcessTextAsync } from "./process-port.ts";
@@ -47,7 +47,7 @@ export async function addManagedWorktree(rootDir: string, worktree: ManagedWorkt
 export async function reclaimManagedWorktree(rootDir: string, worktree: ManagedWorktree): Promise<WorktreeReclaim> {
   if (!existsSync(worktree.cwd)) return { outcome: "absent" };
   try {
-    // The linked node_modules is this module's own doing, not the work in the worktree.
+    // The mirrored node_modules is this module's own doing, not the work in the worktree.
     if ((await git(worktree.cwd, "status", "--porcelain", "--", ".", ":(exclude)node_modules")).length > 0)
       return { outcome: "retained", reason: "uncommitted changes" };
     const unmergedCommits = (await git(worktree.cwd, "cherry", worktree.baseRef, "HEAD"))
@@ -55,8 +55,8 @@ export async function reclaimManagedWorktree(rootDir: string, worktree: ManagedW
         .filter((line) => line.startsWith("+")).length,
       archiveTag = unmergedCommits > 0 ? `archive/wt-${path.basename(worktree.cwd)}` : null;
     if (archiveTag) await git(worktree.cwd, "tag", archiveTag, "HEAD");
-    const linked = path.join(worktree.cwd, "node_modules");
-    if (lstatSync(linked, { throwIfNoEntry: false })?.isSymbolicLink()) unlinkSync(linked);
+    if (!(await git(worktree.cwd, "ls-files", "--", "node_modules")))
+      rmSync(path.join(worktree.cwd, "node_modules"), { recursive: true, force: true });
     await git(rootDir, "worktree", "remove", worktree.cwd);
     await git(rootDir, "branch", "-D", worktree.branch);
     return { outcome: "removed", archiveTag, unmergedCommits };
@@ -100,18 +100,40 @@ export async function prepareScheduleOccurrenceWorkspace(
   };
 }
 
-// npm workspaces hoist every package's dependencies to the repository root store, so one
-// junction gives the fresh worktree the whole dependency surface without an install. This is
-// best-effort: a repo without node_modules (non-node) or a filesystem that refuses the link
-// must not fail the worktree — the note is reported to the caller instead of being swallowed.
+// npm workspaces hoist every package's dependencies to the repository root store, so the fresh worktree
+// shares that store entry by entry instead of installing. Linking the whole store would also share its
+// workspace links, and every workspace import would resolve to the canonical checkout's source
+// (F-81A23176); npm writes those links relative (@scope/pkg -> ../../packages/pkg), so a copy of the link
+// lands in the worktree's own packages. This is best-effort: a repo without node_modules (non-node) or a
+// filesystem that refuses the links must not fail the worktree — the note is reported to the caller instead.
 export function linkSharedNodeModules(rootDir: string, worktreeDir: string): string | null {
   try {
-    const target = path.join(rootDir, "node_modules");
-    if (!existsSync(target) || existsSync(path.join(worktreeDir, "node_modules"))) return null;
-    symlinkSync(target, path.join(worktreeDir, "node_modules"), "junction");
+    if (!existsSync(path.join(rootDir, "node_modules")) || existsSync(path.join(worktreeDir, "node_modules")))
+      return null;
+    mirrorStore(rootDir, worktreeDir, "node_modules");
     return null;
   } catch (error) {
     return `Worktree has no linked node_modules (${error instanceof Error ? error.message : String(error)}).`;
+  }
+}
+
+/** Scope directories and .bin hold links of their own, so they are mirrored rather than linked. */
+function mirrorStore(rootDir: string, worktreeDir: string, relative: string): void {
+  mkdirSync(path.join(worktreeDir, relative));
+  for (const entry of readdirSync(path.join(rootDir, relative), { withFileTypes: true })) {
+    const name = path.join(relative, entry.name),
+      source = path.join(rootDir, name);
+    if (entry.isDirectory() && (entry.name.startsWith("@") || entry.name === ".bin")) {
+      mirrorStore(rootDir, worktreeDir, name);
+      continue;
+    }
+    const link = entry.isSymbolicLink() ? readlinkSync(source) : null,
+      inRepository =
+        link !== null &&
+        !path.isAbsolute(link) &&
+        !path.relative(rootDir, path.resolve(path.dirname(source), link)).startsWith(".."),
+      type = statSync(source, { throwIfNoEntry: false })?.isDirectory() ? "junction" : "file";
+    symlinkSync(inRepository ? link : source, path.join(worktreeDir, name), type);
   }
 }
 
