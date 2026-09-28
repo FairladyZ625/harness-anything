@@ -263,15 +263,6 @@ test("rename cut anchors the surviving target path", (t) => {
   assert.deepEqual(packet.outputs, []);
 });
 
-test("bound dispatch HEAD is the delivery commit even when Summary names an older commit", (t) => {
-  const { root } = fixture(t);
-  const old = git(root, "rev-parse", "HEAD");
-  put(root, "src/live.ts", "export const liveValue = 3;\n");
-  const sha = commit(root);
-  dispatch(root, root);
-  assert.equal(derive(root, `Completed the live path; prior cut was ${old}.`).commitSha, sha);
-});
-
 test("task worktree HEAD is the delivery commit without a runtime dispatch", (t) => {
   const { root } = fixture(t),
     worktree = path.join(root, ".worktrees/task-1");
@@ -306,12 +297,30 @@ test("missing dispatch requires an explicit structured delivery commit", (t) => 
   );
 });
 
+test("an old dispatch cwd in another checkout never stands in for the bound worktree HEAD", (t) => {
+  const { root } = fixture(t),
+    canonical = path.join(root, "canonical");
+  // An earlier dispatch ran with --cwd pointed at another checkout; its HEAD is not this task's delivery.
+  git(root, "worktree", "add", "-qb", "canonical", canonical);
+  put(canonical, "src/foreign.ts", "foreign\n");
+  commit(canonical);
+  dispatch(root, canonical);
+  assert.throws(() => derive(root, "Completed the live path."), {
+    code: "invalid_submission",
+    message: /No readable bound worktree HEAD exists; rerun with --commit/u,
+  });
+  put(root, "src/live.ts", "export const liveValue = 5;\n");
+  const sha = commit(root);
+  assert.equal(derive(root, "Completed.", undefined, ["ci"], undefined, undefined, sha).commitSha, sha);
+});
+
 test("explicit delivery commit must match a bound worktree HEAD and reports both values", (t) => {
-  const { root, base } = fixture(t);
-  put(root, "src/live.ts", "export const liveValue = 3;\n");
-  const head = commit(root);
-  dispatch(root, root);
-  assert.throws(() => derive(root, "Complete.", undefined, ["ci"], undefined, undefined, base), {
+  const { root, base } = fixture(t),
+    worktree = path.join(root, ".worktrees/task-1");
+  git(root, "worktree", "add", "-qb", "task-1", worktree);
+  put(worktree, "src/live.ts", "export const liveValue = 3;\n");
+  const head = commit(worktree);
+  assert.throws(() => derive(root, "Complete.", undefined, ["ci"], undefined, undefined, base, true), {
     code: "invalid_submission",
     message: new RegExp(`${base}.*${head}`, "u"),
   });
@@ -348,15 +357,15 @@ test("unpublished bound worktree HEAD preserves every branch commit before main"
   const { root } = fixture(t);
   // The main checkout leaves the default branch below, so only origin/HEAD, as a clone records it, names main.
   git(root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
-  git(root, "checkout", "-qb", "worker");
-  put(root, "src/first.ts", "first\n");
-  commit(root);
-  put(root, "src/second.ts", "second\n");
-  commit(root);
-  const head = git(root, "rev-parse", "HEAD");
-  dispatch(root, root);
-  assert.deepEqual(derive(root, "Worktree delivery.").deliverables, ["src/first.ts", "src/second.ts"]);
-  assert.equal(derive(root, "Worktree delivery.").commitSha, head);
+  const worktree = path.join(root, ".worktrees/task-1");
+  git(root, "worktree", "add", "-qb", "task-1", worktree);
+  put(worktree, "src/first.ts", "first\n");
+  commit(worktree);
+  put(worktree, "src/second.ts", "second\n");
+  const head = commit(worktree),
+    packet = derive(root, "Worktree delivery.", undefined, ["ci"], undefined, undefined, undefined, true);
+  assert.deepEqual(packet.deliverables, ["src/first.ts", "src/second.ts"]);
+  assert.equal(packet.commitSha, head);
 });
 
 test("removed dispatch worktree resolves an explicit delivery cut in the canonical repository", (t) => {
@@ -387,7 +396,7 @@ test("removed dispatch worktree resolves an explicit delivery cut in the canonic
   );
 });
 
-test("one execution with two dispatch directories uses a bound HEAD, not Summary prose", (t) => {
+test("one execution with two dispatch directories and no bound worktree names no delivery from Summary prose", (t) => {
   const { root } = fixture(t),
     worker = path.join(root, "worker");
   git(root, "worktree", "add", "-qb", "worker", worker);
@@ -398,26 +407,24 @@ test("one execution with two dispatch directories uses a bound HEAD, not Summary
   git(root, "update-ref", "refs/remotes/origin/main", merged);
   dispatch(root, worker);
   dispatch(root, root, "dispatch_222222222222222222222222");
-  const packet = derive(root, `Unrelated published merge ${merged}.`);
-  assert.notEqual(packet.commitSha, merged);
+  assert.throws(() => derive(root, `Unrelated published merge ${merged}.`), /No readable bound worktree HEAD/u);
 });
 
 test("a structured commit differing from the bound HEAD is rejected", (t) => {
   const { root } = fixture(t),
-    worker = path.join(root, "worker");
-  git(root, "worktree", "add", "-qb", "worker", worker);
+    worker = path.join(root, ".worktrees/task-1");
+  git(root, "worktree", "add", "-qb", "task-1", worker);
   put(worker, "src/delivery.ts", "delivery\n");
   commit(worker);
-  git(root, "merge", "--no-ff", "-qm", "test: merge delivery", "worker");
+  git(root, "merge", "--no-ff", "-qm", "test: merge delivery", "task-1");
   const merged = git(root, "rev-parse", "HEAD");
   git(root, "update-ref", "refs/remotes/origin/main", merged);
   // The worker moved on to an unrelated commit after the merge: its HEAD is neither the named
   // cut nor an ancestor of it.
   put(worker, "src/unrelated.ts", "unrelated\n");
   commit(worker);
-  dispatch(root, worker);
   assert.throws(
-    () => derive(root, "Delivery complete.", undefined, ["ci"], undefined, undefined, merged),
+    () => derive(root, "Delivery complete.", undefined, ["ci"], undefined, undefined, merged, true),
     /does not match bound worktree HEAD/u,
   );
 });
@@ -513,8 +520,7 @@ test("a root-commit delivery on an unborn repository diffs against the empty tre
   git(root, "config", "user.email", "harness@example.test");
   put(root, "src/first.ts", "export const first = 1;\n");
   const sha = commit(root);
-  dispatch(root, root);
-  const packet = derive(root, `Delivered ${sha}.`, undefined, ["ci"], undefined, { kind: "empty-tree" });
+  const packet = derive(root, `Delivered ${sha}.`, undefined, ["ci"], undefined, { kind: "empty-tree" }, sha);
   assert.equal(packet.commitSha, sha);
   assert.deepEqual(packet.deliverables, ["src/first.ts"]);
 });
@@ -525,8 +531,7 @@ test("a multi-commit delivery lists every path changed since the frozen baseline
   commit(root);
   put(root, "src/second.ts", "second\n");
   const sha = commit(root);
-  dispatch(root, root);
-  const packet = derive(root, `Delivered ${sha}.`);
+  const packet = derive(root, `Delivered ${sha}.`, undefined, ["ci"], undefined, undefined, sha);
   assert.equal(packet.commitSha, sha);
   assert.deepEqual(packet.deliverables, ["src/first.ts", "src/second.ts"]);
 });
@@ -537,9 +542,8 @@ test("an execution started before the baseline froze keeps the comparison cut in
   commit(root);
   put(root, "src/live.ts", "export const liveValue = 9;\n");
   const sha = commit(root);
-  dispatch(root, root);
   // The pre-freeze rule compares against the merge base with origin/main, so both commits are delivered.
-  const packet = derive(root, `Delivered ${sha}.`, undefined, ["ci"], undefined, null);
+  const packet = derive(root, `Delivered ${sha}.`, undefined, ["ci"], undefined, null, sha);
   assert.equal(packet.commitSha, sha);
   assert.deepEqual(packet.deliverables, ["src/earlier.ts", "src/live.ts"]);
 });
@@ -552,13 +556,17 @@ test("a frozen baseline unreadable in an unanchored repository fails closed", (t
   git(root, "checkout", "-q", "--detach");
   put(root, "src/live.ts", "export const liveValue = 10;\n");
   const sha = commit(root);
-  dispatch(root, root);
   assert.throws(
     () =>
-      derive(root, `Delivered ${sha}.`, undefined, ["ci"], undefined, {
-        kind: "commit",
-        commitSha: "f".repeat(40),
-      }),
+      derive(
+        root,
+        `Delivered ${sha}.`,
+        undefined,
+        ["ci"],
+        undefined,
+        { kind: "commit", commitSha: "f".repeat(40) },
+        sha,
+      ),
     { code: "invalid_submission", message: /not readable/u },
   );
 });
@@ -572,14 +580,14 @@ test("a repository without a remote anchors its cut on the local default branch,
   const worker = path.join(root, "worker");
   git(root, "worktree", "add", "-qb", "codex/delivery", worker);
   put(worker, "src/delivery.ts", "delivery\n");
-  commit(worker);
+  const delivery = commit(worker);
   put(root, "ledger/INDEX.md", "published again\n");
   commit(root);
-  dispatch(root, worker);
   const started = { kind: "commit" as const, commitSha: base };
-  assert.deepEqual(derive(root, "Delivered the bound cut.", undefined, ["ci"], undefined, started).deliverables, [
-    "src/delivery.ts",
-  ]);
+  assert.deepEqual(
+    derive(root, "Delivered the worker cut.", undefined, ["ci"], undefined, started, delivery).deliverables,
+    ["src/delivery.ts"],
+  );
   // Delivered straight onto main after more ledger writes: the cut is that commit's own change.
   put(root, "ledger/INDEX.md", "published a third time\n");
   commit(root);
@@ -596,12 +604,16 @@ test("the comparison cut follows the delivery fork point, not the project HEAD a
   const { root, base } = fixture(t);
   put(root, "src/delivery.ts", "delivery\n");
   const sha = commit(root);
-  dispatch(root, root);
   // The execution's start observation (base) predates the delivery; only the fork point counts.
-  const packet = derive(root, `Delivered ${sha}.`, undefined, ["ci"], undefined, {
-    kind: "commit",
-    commitSha: base,
-  });
+  const packet = derive(
+    root,
+    `Delivered ${sha}.`,
+    undefined,
+    ["ci"],
+    undefined,
+    { kind: "commit", commitSha: base },
+    sha,
+  );
   assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
 });
 

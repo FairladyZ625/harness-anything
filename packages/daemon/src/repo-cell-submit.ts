@@ -185,27 +185,22 @@ export function deriveCloseoutSubmission(
     ),
     binding = taskWorktreeBinding(snapshot.task, presetSnapshotReader(cell.projection)),
     taskRoot = binding ? path.join(cell.rootDir, binding.path) : null,
-    directories = [
-      ...(taskRoot ? [taskRoot] : []),
-      ...[...dispatches]
-        .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
-        .map((dispatch) => dispatch.cwd!),
-    ],
-    uniqueDirectories = [...new Set(directories)],
     git = makeGitReadinessSource(),
-    bound = uniqueDirectories
-      .map((root) => ({ root, head: git.run(root, ["rev-parse", "HEAD"]) }))
-      .find(({ head }) => head.ok && head.stdout),
-    namedCommit = requestedCommit ?? bound?.head.stdout;
+    // Only the bound task worktree names a delivery implicitly: a dispatch cwd may be any checkout,
+    // canonical included, so it only locates an explicitly requested commit below.
+    boundHead = taskRoot ? git.run(taskRoot, ["rev-parse", "HEAD"]) : null,
+    bound = boundHead?.ok && boundHead.stdout ? boundHead.stdout : undefined,
+    uniqueDirectories = [...new Set([...(taskRoot ? [taskRoot] : []), ...dispatches.map((dispatch) => dispatch.cwd!)])],
+    namedCommit = requestedCommit ?? bound;
   if (!namedCommit)
     throw cell.cellCodedError(
       "invalid_submission",
       "No readable bound worktree HEAD exists; rerun with --commit <40-character-sha>.",
     );
-  if (requestedCommit && bound && requestedCommit !== bound.head.stdout)
+  if (requestedCommit && bound && requestedCommit !== bound)
     throw cell.cellCodedError(
       "invalid_submission",
-      `Requested delivery commit ${requestedCommit} does not match bound worktree HEAD ${bound.head.stdout}.`,
+      `Requested delivery commit ${requestedCommit} does not match bound worktree HEAD ${bound}.`,
     );
   const publishedRoot = [...new Set([...uniqueDirectories, cell.rootDir])].find(
     (candidate) => git.run(candidate, ["cat-file", "-e", `${namedCommit}^{commit}`]).ok,
