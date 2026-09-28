@@ -117,7 +117,7 @@ export function deriveCloseoutSubmission(
   if (!publishedRoot)
     throw cell.cellCodedError(
       "invalid_submission",
-      `Delivery commit ${named[0]!} is not published in any bound or canonical repository.`,
+      `Delivery commit ${named[0]!} is not in any local clone of the bound or canonical repository; if it was just merged or pushed, run git fetch origin in the canonical checkout and rerun this command.`,
     );
   const root = publishedRoot,
     commitSha = git.run(root, ["rev-parse", `${named[0]!}^{commit}`]).stdout;

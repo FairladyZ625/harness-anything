@@ -200,7 +200,12 @@ export function buildCommand(
         "invalid_command",
         `Adjudicate ${taskId} with exactly one of --forward (send to independent review) or --return (rework order).`,
       );
-    const reason = requiredCellText(action.reason, "reason");
+    if (typeof action.reason !== "string" || !action.reason.trim())
+      throw cellCodedError(
+        "invalid_command",
+        `Adjudicate ${taskId} with --note <text> or --note-file <path> saying why the cut goes to review or back to rework.`,
+      );
+    const reason = action.reason;
     const executionId =
       typeof action.executionId === "string" && action.executionId
         ? action.executionId

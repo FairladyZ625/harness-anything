@@ -184,6 +184,12 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
       ).outcome,
       "applied",
     );
+    const noteless = await cell.run(
+      { kind: "task-adjudicate", taskId: "task_review", executionId: "exe_review", forward: true },
+      binding,
+    );
+    assert.equal(noteless.outcome, "op_rejected", JSON.stringify(noteless));
+    assert.match(JSON.stringify(noteless), /--note <text> or --note-file <path>/u);
     assert.equal(
       (
         await cell.run(
