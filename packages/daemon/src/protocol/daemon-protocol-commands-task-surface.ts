@@ -4,10 +4,20 @@ import {
   cliInput,
   defineLedgerWriteCommand,
   defineRepoReadCommand,
+  defineRuntimeLocalWriteCommand,
 } from "@harness-anything/preset/internal/preset-command-contract";
 import { AGENDA_PIN_CRITERIA } from "./daemon-protocol-vocabulary.ts";
 
 export const taskSurfaceProtocolCommands = Object.freeze([
+  defineRuntimeLocalWriteCommand({
+    id: "task-evidence-run",
+    phase: "W3",
+    path: ["task", "evidence", "run", "<task-id>", "--", "<command>", "[args...]"],
+    summary:
+      "Run a command locally and publish its argv, cwd, exit status, stdout, and stderr as frozen task evidence.",
+    method: "repo.task.run",
+    inputs: [],
+  }),
   defineRepoReadCommand({
     id: "task-dispatches",
     phase: "Runtime-B",

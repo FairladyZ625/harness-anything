@@ -16,13 +16,6 @@ export type ThinHelpCatalogEntry = {
 export const clientLocalCommands = [
   generationMigrationCommand,
   {
-    id: "task-evidence-run",
-    path: ["task"],
-    usage: "ha task evidence run <task-id> -- <command> [args...]",
-    summary: "Run a command and publish its argv, cwd, exit status, stdout, and stderr as frozen task evidence.",
-    help: "    The command runs directly without a shell. Its exit status is returned after the evidence artifact is published.",
-  },
-  {
     id: "ledger-restore-offline",
     path: ["restore"],
     usage: "ha restore <backup-directory> --to <absolute-directory>",

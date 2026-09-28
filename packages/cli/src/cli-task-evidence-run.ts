@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
-import { safePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { resolveThinCliCommand, safePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { runCommandThroughDaemon } from "./daemon/client.ts";
 
 const MAX_OUTPUT_BYTES = 128 * 1024;
@@ -39,15 +39,8 @@ export function parseTaskEvidenceInvocation(
     } else if (token === "--json") json = true;
     else positional.push(token!);
   }
-  if (
-    positional.length !== 4 ||
-    positional[0] !== "task" ||
-    positional[1] !== "evidence" ||
-    positional[2] !== "run" ||
-    !positional[3] ||
-    !command[0]
-  )
-    return null;
+  const route = resolveThinCliCommand(positional);
+  if (positional.length !== 4 || route?.id !== "task-evidence-run" || !positional[3] || !command[0]) return null;
   return {
     taskId: positional[3],
     command: command as [string, ...string[]],
