@@ -9,7 +9,6 @@ import {
   readdirSync,
   readFileSync,
   statSync,
-  renameSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -24,6 +23,7 @@ import type { RuntimePermissionMode } from "./runtime-permissions.ts";
 import type { RuntimeMetrics } from "./runtime-metrics.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import type { RuntimeResumeHeader } from "./runtime-resume-contract.ts";
+import { writeFileDurably } from "./durable-file.ts";
 
 const streamSchema = "runtime-dispatch-stream/v1" as const;
 const dispatchStreamReadLimitBytes = 200 * 1024 * 1024;
@@ -611,16 +611,12 @@ function upsertDispatchLiveIndex(rootDir: string, entry: DispatchLiveIndexEntry)
   entries.set(entry.dispatchId, entry);
   writeDispatchLiveIndex(rootDir, entry.taskId, dispatchLiveIndex([...entries.values()]));
 }
+// The repository writer's worker thread and the main thread's read path both rewrite this index;
+// threads share process.pid, so the shared durable write gives each write its own temporary.
 function writeDispatchLiveIndex(rootDir: string, taskId: string, index: DispatchLiveIndex): void {
-  const target = dispatchLiveIndexPath(rootDir, taskId),
-    temporary = `${target}.${process.pid}.tmp`;
+  const target = dispatchLiveIndexPath(rootDir, taskId);
   mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
-  try {
-    writeFileSync(temporary, `${JSON.stringify(index, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-    renameSync(temporary, target);
-  } finally {
-    if (existsSync(temporary)) unlinkSync(temporary);
-  }
+  writeFileDurably(target, `${JSON.stringify(index, null, 2)}\n`, 0o600);
 }
 function readStoredDispatchLiveIndex(target: string, taskId: string): DispatchLiveIndex | null {
   if (!existsSync(target) || !statSync(target).isFile()) return null;
