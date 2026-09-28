@@ -38,6 +38,9 @@ test("completion next is one pure judgment across lifecycle and unavailable-inpu
       "not_in_review",
       "ha task submit task-1",
     ],
+    // A settled worker releases its lease and leaves the execution active; start reconnects to that execution
+    // (dec_E5103E62F80728C06AFCFCD133), so completion resumes rather than abandoning the round.
+    ["active released lease", { ...active, lease: null }, context, "not_in_review", "ha task start task-1"],
     [
       "returned review without a current execution",
       { ...active, task: { ...active.task!, iteration: active.task!.iteration + 1 } },

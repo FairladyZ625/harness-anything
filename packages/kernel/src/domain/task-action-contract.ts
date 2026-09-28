@@ -475,7 +475,8 @@ export const declarations: readonly Declaration[] = Object.freeze([
       criterion(
         "repo-cell-proof/proofFor.SubmitExecution",
         "lease_required",
-        "The actor owns the active lease or the submitted execution being amended, or owns the task with --as-owner.",
+        "The actor owns the active lease or the submitted execution being amended, or owns the task with --as-owner. " +
+          "When no lease is held, ha task start reconnects to the active execution first.",
       ),
     ]),
     concurrency: taskConcurrency(

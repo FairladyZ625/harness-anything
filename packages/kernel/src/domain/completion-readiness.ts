@@ -182,8 +182,9 @@ function evaluateCompletion(
     return one(
       "not_in_review",
       "lifecycle",
-      `ha task transition ${task.taskId} planned --reason <why-work-is-returning-to-planning>`,
-      "The execution lease was released; return the unowned round to planning before starting again.",
+      `ha task start ${task.taskId}`,
+      "The execution lease was released and the execution is still active; start reconnects to that execution. " +
+        `To abandon the round instead, run ha task transition ${task.taskId} planned --reason <why>.`,
     );
   if (!task || task.currentNode !== "review" || execution?.state !== "submitted" || !execution.submission)
     return one(
