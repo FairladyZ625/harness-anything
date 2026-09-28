@@ -24,15 +24,15 @@ import {
 import { emptyTaskLifecycleSnapshot } from "../../src/domain/task-lifecycle.contract.ts";
 import type { CanonicalWriteBundle } from "../../src/store/task-event-store.ts";
 
+import { withDatabase } from "../../src/projection/rebuildable-task-projection-database.ts";
+import { projectProgress } from "../../src/projection/rebuildable-task-projection-write-model.ts";
+
 const actor = {
     principal: { personId: "person-progress" },
     executor: { kind: "agent", id: "codex" },
   } as const,
   source = "local" as const,
   packagePath = "tasks/task-progress-progress";
-
-import { withDatabase } from "../../src/projection/rebuildable-task-projection-database.ts";
-import { projectProgress } from "../../src/projection/rebuildable-task-projection-write-model.ts";
 
 test("historically accepted delegated progress remains replayable", async () => {
   const rootDir = workspace(),
@@ -69,7 +69,7 @@ test("historically accepted delegated progress remains replayable", async () => 
           return blob ? new TextEncoder().encode(blob.body) : null;
         };
         const replay = (event: typeof compiled.event) => projectProgress(db, event, JSON.stringify(event), readBlob);
-        assert.deepEqual(parseCanonicalEvent(JSON.stringify(compiled.event)), compiled.event);
+        assert.deepEqual(parseCanonicalEvent(`${stableStringify(compiled.event)}\n`), compiled.event);
         assert.throws(
           () =>
             parseCanonicalEvent(
