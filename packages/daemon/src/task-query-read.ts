@@ -220,6 +220,7 @@ export function makeTaskQueryReadModel(input: {
   function guiTasks(query: TaskProjectionListQuery = {}): DaemonTaskSnapshotListResult {
     const lifecycle = projection.list({ ...query, limit: query.limit ?? 500 }),
       readPresetSnapshot = presetSnapshotReader(projection),
+      { authoredRoot } = resolveHarnessLayout(rootDir),
       { dependencies, derives, awaits, taskStatuses, blockingByTaskId } = readBlockingAssessments(
         lifecycle.rows.map(({ taskId }) => taskId),
       ),
@@ -314,7 +315,7 @@ export function makeTaskQueryReadModel(input: {
           capabilities: taskCapabilities(boardRow),
           phase: taskPhase(boardRow),
           risk: taskRisk(boardRow),
-          workspace: taskWorkspaceView(rootDir, row.snapshot.task, row.packagePath, readPresetSnapshot),
+          workspace: taskWorkspaceView(rootDir, row.snapshot.task, row.packagePath, readPresetSnapshot, null),
         };
       }),
       ...cut,
@@ -349,7 +350,7 @@ export function makeTaskQueryReadModel(input: {
       page: lifecycle.page ?? null,
       rows: rows.map((row) => ({
         ...row,
-        workspace: taskWorkspaceView(rootDir, row.snapshot.task, row.packagePath, readPresetSnapshot),
+        workspace: taskWorkspaceView(rootDir, row.snapshot.task, row.packagePath, readPresetSnapshot, null),
         work: scope.workOf(row.snapshot.task?.metadata?.parentTaskId ?? null),
         blockingAssessment: graph.blockingByTaskId.get(row.taskId) ?? {
           taskId: row.taskId,

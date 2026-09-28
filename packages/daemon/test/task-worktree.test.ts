@@ -42,7 +42,7 @@ test("the first start checks the bound worktree out once, from the default branc
       String((started as { summary?: unknown }).summary),
       new RegExp(`checked out on ${taskId} from origin/main\\. Harness manages this worktree; no command`, "u"),
     );
-    assert.deepEqual(taskWorkspaceView(fixture.root, task, "tasks/x", repositoryDiff), {
+    assert.deepEqual(taskWorkspaceView(fixture.root, task, "tasks/x", repositoryDiff, null), {
       kind: "worktree",
       ...binding,
       state: "materialized",
@@ -55,7 +55,7 @@ test("the first start checks the bound worktree out once, from the default branc
       setup: { ok: true, ran: [] },
     });
     task = boundTask("cancelled");
-    assert.equal(taskWorkspaceView(fixture.root, task, "tasks/x", repositoryDiff)?.kind, "worktree");
+    assert.equal(taskWorkspaceView(fixture.root, task, "tasks/x", repositoryDiff, null)?.kind, "worktree");
   } finally {
     rmSync(fixture.base, { recursive: true, force: true });
   }
@@ -215,7 +215,7 @@ test("a node without a default branch has no worktree to give, and forwarded wri
       String((gitlessStart as { summary?: unknown }).summary),
       /No worktree on this node: no default branch/u,
     );
-    assert.equal(taskWorkspaceView(gitless, boundTask("planned"), "tasks/x", repositoryDiff)?.kind, "worktree");
+    assert.equal(taskWorkspaceView(gitless, boundTask("planned"), "tasks/x", repositoryDiff, null)?.kind, "worktree");
     const receipt = applied(),
       task = boundTask("active");
     for (const source of ["remote_direct", { kind: "assignment", nodeId: "edge", assignmentId: "a" }])
@@ -234,10 +234,29 @@ test("a task that does not change repository files works in its own task package
   const fixture = repositoryFixture();
   try {
     assert.deepEqual(
-      taskWorkspaceView(fixture.root, boundTask("active"), "tasks/task_12345678-lifecycle", () => ({
-        profile: { outputShape: "task-package-artifact" },
-      })),
+      taskWorkspaceView(
+        fixture.root,
+        boundTask("active"),
+        "tasks/task_12345678-lifecycle",
+        () => ({
+          profile: { outputShape: "task-package-artifact" },
+        }),
+        path.join(fixture.root, "harness"),
+      ),
       { kind: "task-package", path: "harness/tasks/task_12345678-lifecycle" },
+    );
+    // The agenda passes no authored root and so reads no files: a task-package workspace is simply not shown there.
+    assert.equal(
+      taskWorkspaceView(
+        fixture.root,
+        boundTask("active"),
+        "tasks/task_12345678-lifecycle",
+        () => ({
+          profile: { outputShape: "task-package-artifact" },
+        }),
+        null,
+      ),
+      null,
     );
   } finally {
     rmSync(fixture.base, { recursive: true, force: true });
@@ -294,7 +313,7 @@ test("closing a task reclaims its worktree by the managed-worktree rule", async 
         else assert.equal(summary, null);
         if (scenario.expect.warning) assert.match(String(closed.warnings?.[0]), scenario.expect.warning);
         else assert.equal(closed.warnings, undefined);
-        const view = taskWorkspaceView(fixture.root, task, "tasks/x", repositoryDiff);
+        const view = taskWorkspaceView(fixture.root, task, "tasks/x", repositoryDiff, null);
         assert.equal(view?.kind === "worktree" && view.state, scenario.expect.present ? "retained" : "reclaimed");
       } finally {
         rmSync(fixture.base, { recursive: true, force: true });

@@ -9,6 +9,7 @@ import {
   hasCloseoutEvidence,
   isTaskEvent,
   repositorySettings,
+  resolveHarnessLayout,
   SETTINGS_ID,
   type EventPublicationKillpoint,
   type RepositorySettingsV1,
@@ -177,7 +178,13 @@ export function taskShowFromProjection(
         )
       : null,
     completion = readTaskCompletion(projection, taskId),
-    workspace = taskWorkspaceView(rootDir, task, read.packagePath, presetSnapshotReader(projection)),
+    workspace = taskWorkspaceView(
+      rootDir,
+      task,
+      read.packagePath,
+      presetSnapshotReader(projection),
+      resolveHarnessLayout(rootDir).authoredRoot,
+    ),
     payload = {
       ...read.snapshot,
       task: task

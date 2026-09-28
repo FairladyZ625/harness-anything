@@ -3,7 +3,6 @@ import path from "node:path";
 import {
   deriveTaskWorktreeBinding,
   isTerminalStatus,
-  resolveHarnessLayout,
   type TaskProjection,
   type TaskV2,
   type TaskWorktreeBindingV1,
@@ -63,6 +62,8 @@ export function taskWorkspaceView(
   task: TaskV2 | null | undefined,
   packagePath: string | null,
   readPresetSnapshot: PresetSnapshotRead,
+  /** The authored root, resolved once by the caller; null where only a worktree is shown (the agenda reads no files). */
+  authoredRoot: string | null,
 ): TaskWorkspaceView | null {
   const binding = taskWorktreeBinding(task, readPresetSnapshot);
   if (task && binding) {
@@ -73,8 +74,8 @@ export function taskWorkspaceView(
       state: present ? (taskClosed(task) ? "retained" : "materialized") : taskClosed(task) ? "reclaimed" : "bound",
     };
   }
-  if (!task || !packagePath) return null;
-  const packageRoot = path.join(resolveHarnessLayout(rootDir).authoredRoot, ...packagePath.split("/"));
+  if (!task || !packagePath || authoredRoot === null) return null;
+  const packageRoot = path.join(authoredRoot, ...packagePath.split("/"));
   return { kind: "task-package", path: path.relative(rootDir, packageRoot).split(path.sep).join("/") };
 }
 
