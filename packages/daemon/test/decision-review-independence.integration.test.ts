@@ -534,6 +534,18 @@ test("Decision judgment and review disposition stay with the proposal owner or e
       [`decision/${decisionId}`],
       "historical unanswered findings remain visible through the awaits row after a new content cut",
     );
+    const requirementUpdated = await cell.run(
+      {
+        kind: "settings-update",
+        decisionReviewRequirement: "high",
+        idempotencyKey: "require-review-before-responses",
+      },
+      withRoleBinding(
+        { actor: { principal: proposer.actor.principal, executor: null }, source: "local" as const },
+        "repo-write",
+      ),
+    );
+    assert.equal(requirementUpdated.outcome, "applied", JSON.stringify(requirementUpdated));
     const responded = await cell.run(
       {
         kind: "decision-respond-review",
@@ -570,20 +582,9 @@ test("Decision judgment and review disposition stay with the proposal owner or e
         ({ relationId }) => relationId === awaitsRelationId,
       )?.state,
       "retired",
+      "under a high requirement the answered cut now awaits review, which is not an owner-response blocker",
     );
     assert.deepEqual((await cell.read("repo.agenda.read", { limit: 50 }, proposer)).awaitingYou, []);
-    const requirementUpdated = await cell.run(
-      {
-        kind: "settings-update",
-        decisionReviewRequirement: "high",
-        idempotencyKey: "require-review-after-responses",
-      },
-      withRoleBinding(
-        { actor: { principal: proposer.actor.principal, executor: null }, source: "local" as const },
-        "repo-write",
-      ),
-    );
-    assert.equal(requirementUpdated.outcome, "applied", JSON.stringify(requirementUpdated));
     const reviewRequiredAgenda = await cell.read("repo.agenda.read", { limit: 50 }, proposer);
     assert.deepEqual(
       reviewRequiredAgenda.awaitingDecisionReview.map(
