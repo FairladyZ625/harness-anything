@@ -4,8 +4,7 @@ import {
   consentedApprovedReviewForExecution,
   makeTaskEventStore,
   reviewDigest,
-  completionGuidance,
-  taskCompletionNext,
+  taskCompletionAction,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { validateGuiSubmission, type GuiSubmissionV1 } from "./protocol/daemon-protocol.contract.ts";
@@ -205,25 +204,12 @@ export function lifecycleReceipt(
             ? to
             : "in_review/review",
     checks = gateChecks(snapshot, executionId ?? ""),
-    completionJudgment = taskCompletionNext(
-      snapshot,
-      {
-        ...readCompletionContext(cell.projection, event.taskId, snapshot, "ready"),
-        hasDispatchLineage,
-      },
-      executionId ?? undefined,
-    ),
-    completion =
-      completionJudgment.next ??
-      (snapshot.task?.status === "done"
-        ? null
-        : completionGuidance(
-            snapshot,
-            completionJudgment.executionId ?? "",
-            `ha task complete ${event.taskId}`,
-            "The completion chain has no remaining blocker.",
-          )),
-    nextCommand = completion?.action ?? null,
+    nextCommand =
+      taskCompletionAction(
+        snapshot,
+        { ...readCompletionContext(cell.projection, event.taskId, snapshot, "ready"), hasDispatchLineage },
+        executionId ?? undefined,
+      )?.action ?? null,
     next = nextCommand
       ? [
           {

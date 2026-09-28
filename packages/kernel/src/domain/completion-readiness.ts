@@ -187,7 +187,15 @@ function evaluateCompletion(
             `the execution is held by ${snapshot.lease.actor.executor?.id ?? snapshot.lease.actor.principal.personId}.`
         : "The current execution has not been submitted.",
     );
-  if (task.status === "in_review" && execution.actor.executor === null)
+  // The executor only matters for judging reviewer independence, so it is restored only while an
+  // independent review is still owed: the review gate applies and nobody has reviewed this cut yet
+  // (a recorded review already judged independence; an adverse one routes to the owner's return).
+  if (
+    task.status === "in_review" &&
+    execution.actor.executor === null &&
+    context.closeoutGates?.review !== false &&
+    reviewsForExecution(snapshot.reviews, execution).length === 0
+  )
     return one(
       "executor_missing",
       "lifecycle",

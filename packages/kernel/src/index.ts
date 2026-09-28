@@ -74,6 +74,7 @@ export {
   completionBlockers,
   completionPreparationBlockers,
   taskCompletionNext,
+  taskCompletionAction,
   completionGuidance,
   type CompletionReadinessContext,
 } from "./domain/completion-readiness.ts";

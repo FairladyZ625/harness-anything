@@ -273,6 +273,24 @@ test("an executorless review without dispatch lineage names an executable indepe
   assert.doesNotMatch(result.next!.action, /declare-executor/u);
 });
 
+test("a missing executor blocks only while an independent review is still owed", () => {
+  const withoutExecutor = (snapshot: ReturnType<typeof at>) => ({
+      ...snapshot,
+      executions: snapshot.executions.map((execution) => ({
+        ...execution,
+        actor: { ...execution.actor, executor: null },
+      })),
+    }),
+    reviewLifted = { review: false, consent: false, fact: true, factDisposition: false, codeDoc: false };
+  // A recorded review already judged independence, so the chain moves on to the remaining gates.
+  assert.notEqual(taskCompletionNext(withoutExecutor(at(6)), context).blocker?.code, "executor_missing");
+  // With the review gate lifted no reviewer independence is judged at all.
+  assert.notEqual(
+    taskCompletionNext(withoutExecutor(at(4)), { ...context, closeoutGates: reviewLifted }).blocker?.code,
+    "executor_missing",
+  );
+});
+
 test("INDEX next uses the same completion judgment for strict and lightweight profiles", () => {
   const submitted = at(3),
     index = (
