@@ -992,7 +992,7 @@ test("semantic sources and agent execution cross the daemon before transport-bou
     "--title",
     "Executor Axis",
     "--preset",
-    "docs-task",
+    "standard-task",
   ]);
   assert.equal(created.outcome, "applied", JSON.stringify(created));
   assert.equal(
@@ -1031,10 +1031,11 @@ test("semantic sources and agent execution cross the daemon before transport-bou
   );
   assert.equal(closeoutSync.outcome, "applied");
   published(fixture.root, fixture.userRoot, closeoutSync);
-  writeFileSync(path.join(fixture.root, "executor-axis.mjs"), "export const executorAxis = true;\n");
-  git(fixture.root, "add", "executor-axis.mjs");
-  git(fixture.root, "commit", "--quiet", "-m", "executor axis implementation");
-  const deliveryCommit = git(fixture.root, "rev-parse", "HEAD");
+  const deliveryRoot = path.join(fixture.root, ".worktrees", taskId);
+  writeFileSync(path.join(deliveryRoot, "README.md"), "# Executor axis implementation\n");
+  git(deliveryRoot, "add", "README.md");
+  git(deliveryRoot, "commit", "--quiet", "-m", "executor axis implementation");
+  const deliveryCommit = git(deliveryRoot, "rev-parse", "HEAD");
   writeFileSync(
     path.join(fixture.root, "harness", closeoutPath),
     `# Closeout\n\n## Summary\n\nExecutor attribution restored at ${deliveryCommit}.\n\n` +
@@ -1059,7 +1060,7 @@ test("semantic sources and agent execution cross the daemon before transport-bou
     run(
       fixture.root,
       fixture.userRoot,
-      ["task", "code-doc", "reconcile", taskId, "--path", "executor-axis.mjs"],
+      ["task", "code-doc", "reconcile", taskId, "--path", "README.md"],
       "agent:claude-code",
     ).outcome,
     "applied",

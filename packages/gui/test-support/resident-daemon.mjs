@@ -79,7 +79,7 @@ export async function startGuiResidentDaemonFixture({
       const created = await requestDaemonJsonRpcAt(
         daemon.endpoint,
         "repo.task.create",
-        { repo: { repoId }, payload: { taskId: task.taskId, title: task.title } },
+        { repo: { repoId }, payload: task },
         1_000,
       );
       if (created.ok !== true) throw new Error(`GUI daemon task fixture failed: ${JSON.stringify(created)}`);
