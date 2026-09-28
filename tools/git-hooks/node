@@ -1,0 +1,29 @@
+#!/usr/bin/env sh
+set -eu
+
+# Dispatched workers run with this directory first on PATH. `node --test` without an explicit
+# concurrency starts one child per core minus one, and parallel workers on one machine drove the
+# load to 260 (2026-09-28). Node accepts no test concurrency through NODE_OPTIONS or an
+# environment variable, so the limit is added here, on the one path every worker's node takes.
+guard_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)
+# Delegate only downstream, as the git wrapper beside this file does: an entry upstream of this
+# directory can lead back here.
+filtered_path=
+old_ifs=$IFS
+IFS=:
+for entry in ${PATH:-}; do
+  if [ "$entry" -ef "$guard_dir" ]; then filtered_path=; continue; fi
+  if [ -n "$filtered_path" ]; then filtered_path="$filtered_path:$entry"; else filtered_path=$entry; fi
+done
+IFS=$old_ifs
+real_node=$(PATH=$filtered_path command -v node 2>/dev/null) || { printf 'node: not found\n' >&2; exit 127; }
+
+run_tests=false
+for arg in "$@"; do
+  case $arg in
+    --test) run_tests=true ;;
+    --test-concurrency | --test-concurrency=*) exec "$real_node" "$@" ;;
+  esac
+done
+if $run_tests; then exec "$real_node" --test-concurrency=2 "$@"; fi
+exec "$real_node" "$@"
