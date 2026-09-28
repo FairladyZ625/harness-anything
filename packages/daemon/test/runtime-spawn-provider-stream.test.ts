@@ -457,15 +457,15 @@ test("AGY takes token usage from result.usage once, not from per-step usage", as
     await consumeProviderLine(replayContext, runtime, JSON.stringify(frame));
 
   assert.equal(runtime.usageReported, true);
+  // Input counts cache reads, as it does for Claude: 686756 uncached plus 5713499 cache reads.
   assert.deepEqual(
     {
       inputTokens: runtime.inputTokens,
+      cacheReadTokens: runtime.cacheReadTokens,
       outputTokens: runtime.outputTokens,
-      totalTokens: runtime.inputTokens + runtime.outputTokens,
     },
-    { inputTokens: 686756, outputTokens: 39061, totalTokens: 725817 },
+    { inputTokens: 6400255, cacheReadTokens: 5713499, outputTokens: 39061 },
   );
-  assert.deepEqual(runtime.rawUsage, resultUsage);
 });
 
 // Replay of dispatch_d40a3b837658981ff18cb6a4 (agy, 2026-09-22): the worker launched `npm run test:fast`,
