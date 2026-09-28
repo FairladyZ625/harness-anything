@@ -393,7 +393,13 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
     actionDeclarations.find(({ kind }) => kind === "fact-record")?.receiptSettlement,
     "canonical-acceptance",
   );
-  for (const kind of ["agent-run", "ci-observe-pull", "doc-materialize", "projection-rebuild"])
+  for (const kind of [
+    "agent-run",
+    "ci-observe-pull",
+    "doc-conflict-discard-local",
+    "doc-materialize",
+    "projection-rebuild",
+  ])
     assert.equal(actionDeclarations.find((candidate) => candidate.kind === kind)?.receiptSettlement, "none", kind);
 });
 

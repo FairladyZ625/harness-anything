@@ -91,7 +91,7 @@ export const actionDeclarations = Object.freeze([
   canonical("decision-transition", "decision/transition", "repo-write"),
   canonical("distill-candidate", null, "repo-write"),
   canonical("distill-promote", null, "repo-write"),
-  canonical("doc-conflict-discard-local", null, "repo-write"),
+  canonical("doc-conflict-discard-local", null, "repo-write", "none"),
   canonical("doc-conflict-overwrite-center", null, "repo-write"),
   canonical("doc-conflict-resolve", null, "repo-write"),
   canonical("doc-materialize", null, "repo-write", "none"),
