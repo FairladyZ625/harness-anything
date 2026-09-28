@@ -562,7 +562,10 @@ function factRetirementBlocker(snapshot: Snapshot, executionId: string, assessme
           "superseded → record a task Fact with a supersedes-fact relation to it",
       )
       .join("\n"),
-    holdsFlags = assessment.undischarged.map(({ factRef }) => `--fact-holds "${factRef}:<rationale>"`).join(" ");
+    // One Fact can reach the task through several claims, but complete takes one disposition per Fact.
+    holdsFlags = [...new Set(assessment.undischarged.map(({ factRef }) => factRef))]
+      .map((factRef) => `--fact-holds "${factRef}:<rationale>"`)
+      .join(" ");
   return {
     code: assessment.code,
     gate: "fact-retirement",
