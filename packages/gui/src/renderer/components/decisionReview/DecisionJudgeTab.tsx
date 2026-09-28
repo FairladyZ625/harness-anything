@@ -8,6 +8,7 @@ import { decisionReviewRef } from "../../navigation/decisionReviewRoutes.ts";
 import { RiskTierBadge } from "../badges.tsx";
 import { DecisionJudgmentPanel } from "../DecisionJudgmentPanel.tsx";
 import { DecisionMutationFeedback } from "../DecisionMutationFeedback.tsx";
+import { EntityRefLink } from "../EntityRefLink.tsx";
 import { ReadinessBanner } from "./DecisionReviewTab.tsx";
 import { cardClass, primaryButtonClass, secondaryButtonClass } from "./parts.tsx";
 
@@ -80,8 +81,8 @@ export function DecisionJudgeTab({
             </p>
             <h3 className="mt-1 ui-body font-semibold text-text">{decision.title}</h3>
             <p className="mt-1 flex items-center gap-1.5 font-mono ui-micro text-text-faint">
-              decision/{decision.decisionId} · {shortDigest(review?.currentDigest ?? null)} ·{" "}
-              <RiskTierBadge tier={decision.riskTier} />
+              <EntityRefLink entityRef={`decision/${decision.decisionId}`} onNavigate={onNavigateEntity} /> ·{" "}
+              {shortDigest(review?.currentDigest ?? null)} · <RiskTierBadge tier={decision.riskTier} />
             </p>
             <div className="mt-2">
               <ReadinessBanner decision={decision} />

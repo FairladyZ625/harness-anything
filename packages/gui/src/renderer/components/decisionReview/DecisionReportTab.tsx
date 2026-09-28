@@ -3,6 +3,7 @@ import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { harnessClient } from "../../api-client.ts";
 import { t } from "../../i18n/index.tsx";
+import { EntityRefLink } from "../EntityRefLink.tsx";
 import { MarkdownAnchor } from "../../local-doc/MarkdownAnchor.tsx";
 import { markdownUrlTransform } from "../../local-doc/markdown-links.ts";
 import { dispatchOfReview, reviewById, shortDigest } from "../../model/decision-review.ts";
@@ -109,7 +110,8 @@ export function DecisionReportTab({
           <VerdictBadge verdict={row.verdict} />
         </div>
         <p className="mt-1 font-mono ui-micro text-text-faint">
-          decision/{decision.decisionId} · {shortDigest(row.reviewContentDigest)}
+          <EntityRefLink entityRef={`decision/${decision.decisionId}`} onNavigate={onNavigateEntity} /> ·{" "}
+          {shortDigest(row.reviewContentDigest)}
           {dispatch ? ` · ${dispatch.dispatchId} · ${dispatch.runtimeSessionId}` : ""} · {atText(row.reviewedAt)}
         </p>
         <p className="mt-2 ui-micro font-semibold text-text-muted">{t("views.decisionReview.reportConclusion")}</p>
