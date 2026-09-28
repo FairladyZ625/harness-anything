@@ -216,12 +216,18 @@ test("each terminal worker batch calls back into one leader turn and a failed wo
       );
   assert.equal(readFileSync(path.join(root, "harness", synthesisPath), "utf8"), synthesisBody);
   assert.equal(synthesisEvent?.schema, "doc-event/v1");
-  assert.equal(synthesisEvent?.actor.executor?.id, `runtime-session:${leaderRuntimeSessionIds.at(-1)}`);
+  assert.deepEqual(synthesisEvent?.actor.executor, {
+    kind: "agent",
+    id: String(env.HARNESS_ACTOR).slice("agent:".length),
+  });
   rmSync(path.join(root, ".harness", "cache", "task.sqlite"), { force: true });
   run(root, env, ["daemon", "start", "--service"]);
   const afterRestart = run(root, env, ["squad", "status", String(started.squadRunId)]);
   assert.equal(afterRestart.status, "converged", JSON.stringify(afterRestart));
   assert.equal(afterRestart.workerCallbackCount, 3);
+  const synthesisLeader = (afterRestart.leaders as Array<Record<string, unknown>>).at(-1);
+  assert.equal(synthesisLeader?.runtimeSessionId, leaderRuntimeSessionIds.at(-1));
+  assert.deepEqual(synthesisLeader?.decision, { kind: "converged", report: synthesisBody });
   process.stdout.write(
     `squad-event-flow ${JSON.stringify({
       squadRunId: current.squadRunId,
