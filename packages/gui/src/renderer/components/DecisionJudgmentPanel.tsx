@@ -31,8 +31,11 @@ export function DecisionJudgmentPanel({
   openRequest,
   onSubmit,
   onCheckReceipt,
+  acceptBlockedReason = null,
 }: {
   decision: DecisionRow;
+  /** 读面 accept 就绪判定未就绪时的原因:accept 停用并说明,reject/defer 不受影响。 */
+  acceptBlockedReason?: string | null;
   relations: ReadonlyArray<RelationEdge>;
   feedback?: DecisionMutationFeedback;
   openRequest?: JudgmentOpenRequest;
@@ -54,6 +57,10 @@ export function DecisionJudgmentPanel({
   }, [openRequest]);
 
   const submit = async () => {
+    if (action === "accept" && acceptBlockedReason !== null) {
+      setError(acceptBlockedReason);
+      return;
+    }
     if (!action || !validRationale(rationale)) {
       setError(t("views.decisionsVerdict.rationaleValidation"));
       return;
@@ -84,7 +91,9 @@ export function DecisionJudgmentPanel({
               setAction(item);
               setError(null);
             }}
-            disabled={pending}
+            disabled={pending || (item === "accept" && acceptBlockedReason !== null)}
+            title={item === "accept" && acceptBlockedReason !== null ? acceptBlockedReason : undefined}
+            data-testid={`decision-judge-${item}`}
             className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 ui-meta font-semibold transition-colors duration-100 disabled:opacity-50 ${item === "accept" ? "bg-accent text-accent-fg hover:bg-accent/85" : "border border-border text-text hover:border-border-strong hover:bg-surface-raised"}`}
           >
             {item === "accept" ? (
@@ -98,6 +107,11 @@ export function DecisionJudgmentPanel({
           </button>
         ))}
       </div>
+      {acceptBlockedReason !== null && (
+        <p data-testid="decision-judge-accept-blocked" className="mt-1.5 ui-micro text-stale">
+          {acceptBlockedReason}
+        </p>
+      )}
       {action && (
         <div className="mt-2 rounded-md border border-border bg-surface-raised/50 p-2.5">
           <label className="block ui-micro font-semibold text-text-muted">

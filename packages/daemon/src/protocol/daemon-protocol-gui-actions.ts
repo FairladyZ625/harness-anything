@@ -214,6 +214,44 @@ export const daemonGuiActionMethods = Object.freeze([
     "/api/decision-control/:decisionId/defer",
     "repo-write",
   ),
+  // Decision 评审的 GUI 通道:与 `ha decision respond-review / override-review / dispatch-review`
+  // 同一条 daemon 动作,授权与切面判据全在中心;报告正文按 reportRef 经 `ha doc show` 同一读。
+  guiAction(
+    "decision.respondReview",
+    "repo.decision.respondReview",
+    "decision-respond-review",
+    shape({ decisionId: "string", responses: "array" }),
+    "respondDecisionReview",
+    "/api/decision-control/:decisionId/respond-review",
+    "repo-write",
+  ),
+  guiAction(
+    "decision.overrideReview",
+    "repo.decision.overrideReview",
+    "decision-override-review",
+    shape({ decisionId: "string", reviewContentDigest: "string", reviewIds: "array", reason: "string" }),
+    "overrideDecisionReview",
+    "/api/decision-control/:decisionId/override-review",
+    "arbiter",
+  ),
+  guiAction(
+    "decision.dispatchReview",
+    "repo.decision.dispatchReview",
+    "decision-dispatch-review",
+    shape({ decisionId: "string", expectedDigest: "string" }),
+    "dispatchDecisionReview",
+    "/api/decision-control/:decisionId/dispatch-review",
+    "repo-write",
+  ),
+  guiAction(
+    "doc.show",
+    "repo.doc.show",
+    "doc-show",
+    shape({ path: "string" }),
+    "showDocument",
+    "/api/docs",
+    "repo-read",
+  ),
   ...entityImportGuiActions,
   // `waitFor`/`timeoutMs` are the receipt-acceptance predicates the cell already runs
   // (repo-cell-api → waitForReceiptAcceptance); `ha` settles every write through them.

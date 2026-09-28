@@ -9,6 +9,7 @@ import { BoardView } from "./views/BoardView.tsx";
 import { AttestationPoolView } from "./views/AttestationPoolView.tsx";
 import { FactDetailView } from "./views/EntityDetailView.tsx";
 import { DecisionDetailView } from "./components/decisionDetail/DecisionDetailView.tsx";
+import { decisionDetailLocation } from "./navigation/decisionReviewRoutes.ts";
 import { FreshnessView } from "./views/FreshnessView.tsx";
 import { CadenceView } from "./views/CadenceView.tsx";
 import { EntityWorkspace } from "./components/EntityWorkspace.tsx";
@@ -724,7 +725,8 @@ function AppShell() {
               ) : view === "decisionDetail" ? (
                 <DecisionDetailView
                   repoId={projectId}
-                  decisionId={focusedEntityRef?.startsWith("decision/") ? focusedEntityRef.split("/")[1] : null}
+                  decisionId={decisionDetailLocation(focusedEntityRef)?.decisionId ?? null}
+                  reviewLocation={decisionDetailLocation(focusedEntityRef)}
                   decisions={decisions}
                   tasks={projectTasks}
                   relations={relations}
@@ -737,6 +739,16 @@ function AppShell() {
                   onNavigateEntity={navigateToEntity}
                   onFocusGraph={focusEntityInGraph}
                   onOpenPool={openDecisionInPool}
+                  onLocate={(ref) => updateLocation({ focusedEntityRef: ref })}
+                  onJudge={decisionActions.judge}
+                  judgeFeedback={(() => {
+                    const id = decisionDetailLocation(focusedEntityRef)?.decisionId;
+                    return id ? decisionActions.feedback.get(id) : undefined;
+                  })()}
+                  onCheckReceipt={() => {
+                    const id = decisionDetailLocation(focusedEntityRef)?.decisionId;
+                    if (id) void decisionActions.checkReceipt(id);
+                  }}
                 />
               ) : view === "factDetail" ? (
                 <FactDetailView

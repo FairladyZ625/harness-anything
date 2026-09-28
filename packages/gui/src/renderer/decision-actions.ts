@@ -5,6 +5,7 @@ import { consumeKnownError } from "../api/error-consumption.ts";
 import { harnessClient, type DecisionProposalInput } from "./api-client.ts";
 import type { DecisionRow, RelationEdge } from "./model/types.ts";
 import { triadicQueryKeys } from "./triadic-data.ts";
+import { decisionShowQueryKeys } from "./decision-show-data.ts";
 import { workspaceSummaryQueryKeys } from "./workspace-summary-data.ts";
 
 type ReceiptRecord = GuiActionResult & {
@@ -137,6 +138,7 @@ export function useDecisionActions(repoId: string) {
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: triadicQueryKeys.all(repoId) }),
       queryClient.invalidateQueries({ queryKey: workspaceSummaryQueryKeys.read(repoId) }),
+      queryClient.invalidateQueries({ queryKey: decisionShowQueryKeys.repo(repoId) }),
     ]);
   };
   const failure = (key: string, kind: DecisionMutationFeedback["kind"], settlement: DecisionSettlement) =>
@@ -227,6 +229,8 @@ export function useDecisionActions(repoId: string) {
               decisionId: decision.decisionId,
               rationale: input.rationale,
               ...(input.judgmentOnlyRationale ? { judgmentOnlyRationale: input.judgmentOnlyRationale } : {}),
+              // 裁决的是读面给出的当前评审切面:中心内容此后变了就拒收,不替调用者接受没看过的新版本。
+              ...(decision.review?.currentDigest ? { expectedDigest: decision.review.currentDigest } : {}),
             })
           : action === "reject"
             ? await harnessClient.rejectDecision({ repoId, decisionId: decision.decisionId, reason: input.rationale })

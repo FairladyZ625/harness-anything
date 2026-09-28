@@ -1,4 +1,5 @@
 import type { ViewId } from "./viewHistory.ts";
+import { decisionDetailLocation, decisionSessionsLocation } from "./decisionReviewRoutes.ts";
 
 /**
  * 实体引用 → 详情路由(W4):Fact 与 Decision 有自己的可寻址详情页,
@@ -55,6 +56,14 @@ export function entityDetailTargetOf(
     const decisionId = ref.split("/")[1];
     if (!decisionId) return null;
     return { view: "decisionDetail", focusedEntityRef: `decision/${decisionId}` };
+  }
+  // Decision 评审落点(评审/回应/报告/裁决)是 decisionDetail 的页签别名,整段 ref 原样下发。
+  if (ref.startsWith("decisionreview/")) {
+    return decisionDetailLocation(ref) ? { view: "decisionDetail", focusedEntityRef: ref } : null;
+  }
+  // 会话页按被评审 Decision 归组的落点:展开该 Decision 组,可选精确选中其中一个会话。
+  if (ref.startsWith("decisionsessions/")) {
+    return decisionSessionsLocation(ref) ? { view: "sessions", focusedEntityRef: ref } : null;
   }
   if (ref.startsWith("fact/")) {
     return { view: "factDetail", focusedEntityRef: ref };

@@ -540,5 +540,18 @@
   "agentRuntime.filterInSquad": "in a squad",
   "agentRuntime.filterClear": "Clear filters",
   "agentRuntime.filterNoMatches": "No matches.",
-  "agentRuntime.filterSelectionHidden": "The selected entry is hidden by the current filters."
+  "agentRuntime.filterSelectionHidden": "The selected entry is hidden by the current filters.",
+  "agentRuntime.reviewSessionTarget": "Review target",
+  "agentRuntime.reviewSessionCut": "Bound content",
+  "agentRuntime.reviewSessionDispatch": "Dispatch",
+  "agentRuntime.reviewSessionLease": "Task lease: not applicable",
+  "agentRuntime.reviewSessionRun": "Run",
+  "agentRuntime.reviewSessionVerdict": "Review",
+  "agentRuntime.reviewSessionUnregistered": "Run ended without a recorded review",
+  "agentRuntime.reviewSessionNote": "A successful run is not an approval; changes_requested does not reject the proposal.",
+  "agentRuntime.reviewSessionOpenDecision": "Open the reviewed Decision",
+  "agentRuntime.reviewSessionOpenReport": "Read the center report",
+  "agentRuntime.sessionsDecisionTag": "Decision review",
+  "agentRuntime.sessionsDecisionDetail": "Decision review detail",
+  "agentRuntime.sessionsDecisionRowsUnavailable": "This Decision's review dispatches are not in the current read."
 }

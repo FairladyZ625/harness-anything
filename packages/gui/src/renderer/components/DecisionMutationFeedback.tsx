@@ -4,7 +4,8 @@ export function DecisionMutationFeedback({
   feedback,
   onCheckReceipt,
 }: {
-  feedback?: Feedback;
+  /** 评审写(回应/处置/派审)复用同一回执展示,kind 按调用方词表原样显示。 */
+  feedback?: Omit<Feedback, "kind"> & { readonly kind: string };
   onCheckReceipt?: () => void;
 }) {
   if (!feedback) return null;

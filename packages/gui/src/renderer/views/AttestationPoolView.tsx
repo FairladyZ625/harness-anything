@@ -160,6 +160,7 @@ export function AttestationPoolView({
   if (inDecisionDomain && focusMode && onJudge) {
     return (
       <DecisionsView
+        repoId={repoId}
         decisions={decisions}
         tasks={tasks}
         relations={relations}
