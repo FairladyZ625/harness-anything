@@ -450,7 +450,10 @@ export const agentProtocolCommands = Object.freeze([
     id: "squad-run",
     phase: "Runtime-B",
     path: ["squad", "run", "<id>"],
-    summary: "Start a durable task-derived Squad run; the selected instance and model apply only to its leader.",
+    summary: [
+      "Start a durable task-derived Squad run; the selected instance and model apply only to its leader. ",
+      "Without --cwd the run uses the task's worktree; Harness creates and reclaims worker worktrees itself.",
+    ].join(""),
     method: "repo.task.run",
     positional: "squadId",
     inputs: [

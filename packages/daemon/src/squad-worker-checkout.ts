@@ -1,13 +1,28 @@
 import path from "node:path";
 import { existsSync } from "node:fs";
-import { localGitObjectRefStore } from "@harness-anything/kernel";
+import type { TaskV2 } from "@harness-anything/kernel";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { runProcessTextAsync } from "./process-port.ts";
+import { addManagedWorktree, reclaimManagedWorktree, type WorktreeReclaim } from "./schedule-occurrence-workspace.ts";
+import { materializeTaskWorktree } from "./task-worktree.ts";
 
 /** Where a squad worker runs: the run cwd, or its own worktree and branch cut at the run baseline. */
 export type WorkerCheckout = { readonly cwd: string; readonly branch: string; readonly baseSha: string };
 
-export function resolveCwd(rootDir: string, value: unknown): string {
+const workerBranchSeparator = "--";
+
+/** Without a requested cwd a Squad run works in its task's own worktree, checked out here on first use. */
+export async function resolveSquadCwd(
+  rootDir: string,
+  value: unknown,
+  task: () => TaskV2 | null | undefined,
+): Promise<string> {
+  return value === undefined
+    ? ((await materializeTaskWorktree(rootDir, task()))?.cwd ?? rootDir)
+    : resolveCwd(rootDir, value);
+}
+
+function resolveCwd(rootDir: string, value: unknown): string {
   if (!value || typeof value !== "object" || Array.isArray(value)) return rootDir;
   const row = value as Record<string, unknown>;
   if (row.scope === "repo-root") return rootDir;
@@ -35,16 +50,42 @@ export async function prepareWorkerWorktree(
   const slug = `squad-${state.squadRunId.slice("squad_".length)}-${workerId}-${attemptId}`,
     // Git cannot create refs/heads/codex/mission/worker while refs/heads/codex/mission exists.
     // A sibling ref retains the visible mission owner without colliding with the Commander ref.
-    branch = `${commanderBranch}--${slug}`,
+    branch = `${commanderBranch}${workerBranchSeparator}${slug}`,
     cwd = path.join(state.cwd, ".worktrees", slug);
   if (existsSync(cwd)) {
     const currentBranch = (await runProcessTextAsync("git", ["branch", "--show-current"], cwd)).trim();
     if (currentBranch !== branch) throw new Error(`Squad checkout ${cwd} does not hold ${branch}.`);
     await runProcessTextAsync("git", ["merge-base", "--is-ancestor", state.baseSha, "HEAD"], cwd);
   } else {
-    localGitObjectRefStore.addWorktree(state.cwd, cwd, branch, state.baseSha);
+    await addManagedWorktree(state.cwd, { cwd, branch, baseRef: state.baseSha });
   }
   return { cwd, branch, baseSha: state.baseSha };
+}
+
+/** A finished run's worker checkout is reclaimed against the Commander branch its work merges into. */
+export function reclaimWorkerWorktree(commanderCwd: string, worktree: WorkerCheckout): Promise<WorktreeReclaim> {
+  return reclaimManagedWorktree(commanderCwd, {
+    cwd: worktree.cwd,
+    branch: worktree.branch,
+    baseRef: worktree.branch.slice(0, worktree.branch.lastIndexOf(`${workerBranchSeparator}squad-`)),
+  });
+}
+
+/**
+ * A finished run's worker checkouts end by the managed-worktree rule (dec_BBA713052997C3EF5F5D3DD952 CH3): merged or
+ * archived ones go; one with uncommitted changes stays at the path the run's status still lists, and is named here.
+ */
+export async function reclaimWorkerCheckouts(
+  commanderCwd: string,
+  attempts: readonly { readonly worktree: WorkerCheckout | null }[],
+): Promise<readonly string[]> {
+  const retained: string[] = [];
+  for (const { worktree } of attempts) {
+    if (!worktree) continue;
+    const result = await reclaimWorkerWorktree(commanderCwd, worktree);
+    if (result.outcome === "retained") retained.push(`Worker worktree retained at ${worktree.cwd} (${result.reason}).`);
+  }
+  return retained;
 }
 
 export function workerPrompt(prompt: string, worktree: WorkerCheckout | null, ownedPaths: readonly string[]): string {

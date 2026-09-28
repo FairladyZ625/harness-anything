@@ -32,10 +32,15 @@ export function parsePreset(
         ...(f.one.get("--effort") ? { effort: f.one.get("--effort") } : {}),
         ...(f.one.get("--model") ? { model: f.one.get("--model") } : {}),
         ...(f.one.get("--permission-mode") ? { permissionMode: f.one.get("--permission-mode") } : {}),
-        cwd:
-          f.one.get("--cwd") && f.one.get("--cwd") !== "."
-            ? { scope: "repo-relative", path: f.one.get("--cwd") }
-            : { scope: "repo-root" },
+        // Without --cwd the Squad runs in the task's own worktree.
+        ...(f.one.get("--cwd")
+          ? {
+              cwd:
+                f.one.get("--cwd") !== "."
+                  ? { scope: "repo-relative", path: f.one.get("--cwd") }
+                  : { scope: "repo-root" },
+            }
+          : {}),
         taskId: f.one.get("--task"),
         ...(f.booleans.has("--detach") ? { detach: true } : {}),
       },

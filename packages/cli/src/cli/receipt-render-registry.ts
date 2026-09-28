@@ -159,6 +159,12 @@ function renderTaskShow(receipt: Record<string, unknown>): string {
       ) || "none"
     }`,
     `packageDisposition: ${String(payload.task.packageDisposition ?? "active")}`,
+    ...(isRecord(payload.worktree)
+      ? [
+          `worktree: ${String(payload.worktree.path)} (${String(payload.worktree.branch)}, ` +
+            `${String(payload.worktree.state)}; managed by Harness, no command needed)`,
+        ]
+      : []),
     ...(typeof payload.returnBudget === "number"
       ? [`returnBudget=${String(payload.returnBudget)} (${String(payload.returnBudgetSource)})`]
       : []),

@@ -141,7 +141,7 @@ async function dispatchClaimedReceipt(
   if (active.dispatchId && active.runtimeSessionId) return claimed;
   let workspace: ScheduleOccurrenceWorkspace;
   try {
-    workspace = prepareScheduleOccurrenceWorkspace(cell.rootDir, schedule);
+    workspace = await prepareScheduleOccurrenceWorkspace(cell.rootDir, schedule);
   } catch (error) {
     const settled = await runInternal(
       {
@@ -398,7 +398,7 @@ export async function dispatchClaimedSchedule<
       ...(input.workspace.runtime.worktree ? { worktree: input.workspace.runtime.worktree } : {}),
     });
   } catch (error) {
-    const cleanup = settleScheduleOccurrenceWorkspace(input.workspace.rootDir, input.workspace.runtime);
+    const cleanup = await settleScheduleOccurrenceWorkspace(input.workspace.rootDir, input.workspace.runtime);
     const receipt = await input.settleFailure({
       scheduleId: input.schedule.scheduleId,
       claimFence: active.claimFence,
@@ -407,7 +407,7 @@ export async function dispatchClaimedSchedule<
       detail: [
         input.workspace.runtime.worktree?.note,
         error instanceof Error ? error.message : String(error),
-        cleanup.retainedDetail,
+        cleanup.detail,
       ]
         .filter(Boolean)
         .join(" "),
@@ -416,7 +416,7 @@ export async function dispatchClaimedSchedule<
     return { kind: "spawn-failed", error, receipt } as const;
   }
   if (spawned.outcome !== "applied") {
-    settleScheduleOccurrenceWorkspace(input.workspace.rootDir, input.workspace.runtime);
+    await settleScheduleOccurrenceWorkspace(input.workspace.rootDir, input.workspace.runtime);
     return { kind: "spawn-unapplied", receipt: spawned } as const;
   }
   const dispatchId = String(spawned.dispatchId),

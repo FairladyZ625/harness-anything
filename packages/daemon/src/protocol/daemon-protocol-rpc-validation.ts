@@ -362,7 +362,8 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       (value.prompt !== undefined && !nonEmpty(value.prompt)) ||
       (value.prompt === undefined && value.dispatchId === undefined && !nonEmpty(value.taskId)) ||
       (value.onExitCommand !== undefined && !nonEmpty(value.onExitCommand)) ||
-      (value.cwd === undefined ? value.dispatchId === undefined : !exactCwd(value.cwd)) ||
+      // Without a cwd a resumed dispatch inherits its own and a task dispatch runs in the task's worktree.
+      (value.cwd === undefined ? value.dispatchId === undefined && !nonEmpty(value.taskId) : !exactCwd(value.cwd)) ||
       (value.taskId !== undefined && value.taskId !== null && !nonEmpty(value.taskId)) ||
       (value.providerSessionId !== undefined && !nonEmpty(value.providerSessionId)) ||
       (value.dryRun !== undefined && typeof value.dryRun !== "boolean"))

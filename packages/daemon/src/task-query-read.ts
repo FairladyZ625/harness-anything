@@ -28,6 +28,7 @@ import {
   type TaskRelationQuery,
 } from "@harness-anything/kernel";
 import { readDispatchStreamHeaders, type DispatchStreamHeader } from "./dispatch-stream.ts";
+import { taskWorktreeView } from "./task-worktree.ts";
 import {
   isolateDaemonTaskSnapshotRows,
   type AgendaDecisionRow,
@@ -303,6 +304,7 @@ export function makeTaskQueryReadModel(input: {
           capabilities: taskCapabilities(boardRow),
           phase: taskPhase(boardRow),
           risk: taskRisk(boardRow),
+          worktree: taskWorktreeView(rootDir, row.snapshot.task),
         };
       }),
       ...cut,
@@ -333,6 +335,7 @@ export function makeTaskQueryReadModel(input: {
       page: lifecycle.page ?? null,
       rows: lifecycle.rows.map((row) => ({
         ...row,
+        worktree: taskWorktreeView(rootDir, row.snapshot.task),
         blockingAssessment: graph.blockingByTaskId.get(row.taskId) ?? {
           taskId: row.taskId,
           state: "unknown" as const,
@@ -694,6 +697,7 @@ function projectExecutionEvidence(
 }
 type AgendaSourceRow = ReturnType<TaskProjection["list"]>["rows"][number] & {
   readonly blockingAssessment: DaemonTaskSnapshotListResult["rows"][number]["blockingAssessment"];
+  readonly worktree: AgendaTaskRow["worktree"];
 };
 type AgendaSourcePage = {
   readonly page: ProjectionPage | null;
@@ -717,6 +721,7 @@ function agendaTaskRow(row: AgendaSourceRow): AgendaTaskRow {
       .map(({ executionId }) => executionId)
       .sort(),
     blockingAssessment: row.blockingAssessment,
+    worktree: row.worktree,
   };
 }
 /** 最新一轮 execution:按 iteration 取最大者的 state,不回看更早历史(同一轮内后到者胜出)。 */
@@ -793,7 +798,8 @@ function renderAgendaSummary(
   >,
 ): string {
   const taskLine = (row: AgendaTaskRow) =>
-      `- ${row.pinned ? "📌 " : ""}${row.taskId} ${row.title}${row.blockingAssessment.blockers.length ? `（阻塞: ${row.blockingAssessment.blockers.map(({ targetTaskId }) => targetTaskId).join(", ")}）` : ""}`,
+      `- ${row.pinned ? "📌 " : ""}${row.taskId} ${row.title}${row.blockingAssessment.blockers.length ? `（阻塞: ${row.blockingAssessment.blockers.map(({ targetTaskId }) => targetTaskId).join(", ")}）` : ""}` +
+      (row.worktree ? `（worktree: ${row.worktree.path} ${row.worktree.state}）` : ""),
     executionLine = (row: AgendaExecutionRow) =>
       `- ${row.pinned ? "📌 " : ""}execution ${row.executionId} / ${row.taskId} ${row.title}`,
     decisionLine = (row: AgendaDecisionRow) => `- decision ${row.decisionId} ${row.title}`,

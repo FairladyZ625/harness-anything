@@ -7,7 +7,10 @@ import path from "node:path";
 import { daemonProtocolCommands } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { packetJson } from "@harness-anything/daemon/internal/repo-cell-packets";
 import { readWorkspaceText } from "@harness-anything/daemon/internal/workspace-text-port";
-import { workspacePathFormat, workspacePathResolutionRule } from "@harness-anything/preset/internal/preset-command-contract";
+import {
+  workspacePathFormat,
+  workspacePathResolutionRule,
+} from "@harness-anything/preset/internal/preset-command-contract";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 import { materializePacketStdin, rawDocumentBody, rawTemplateBody } from "../src/index.ts";
 
@@ -984,7 +987,8 @@ test("squad run derives its mission from task unless prompt overrides it", () =>
   }
   assert.equal(both.ok, false);
   assert.equal(taskOnly.ok, true);
-  if (taskOnly.ok) assert.deepEqual(taskOnly.command.action.cwd, { scope: "repo-root" });
+  // Without --cwd the daemon runs the Squad in the task's own worktree.
+  if (taskOnly.ok) assert.equal(taskOnly.command.action.cwd, undefined);
 });
 
 test("Agent and Squad declaration commands route reads directly and writes through the daemon entity lifecycle", () => {

@@ -12,6 +12,7 @@ import {
   sha,
   statusWord,
   stringArray,
+  taskWorktreeView,
   validationEntityId,
   validationError,
   warningArray,
@@ -38,13 +39,15 @@ export function agendaTask(value: unknown): boolean {
       "leaseExecutionId",
       "activeExecutionIds",
       "blockingAssessment",
+      "worktree",
     ]) &&
     [value.taskId, value.title, value.updatedAt].every(nonEmpty) &&
     statusWord(taskStatusWords, value.status) &&
     typeof value.pinned === "boolean" &&
     (value.leaseExecutionId === null || nonEmpty(value.leaseExecutionId)) &&
     stringArray(value.activeExecutionIds) &&
-    blockingAssessment(value.blockingAssessment)
+    blockingAssessment(value.blockingAssessment) &&
+    taskWorktreeView(value.worktree)
   );
 }
 

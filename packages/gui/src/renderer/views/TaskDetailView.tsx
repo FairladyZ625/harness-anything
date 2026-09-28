@@ -259,6 +259,13 @@ export function TaskDetailView({
                 <IdentityItem label="OWNER / CLASS" value={`${task.createdBy ?? "—"} · ${task.taskClass ?? "—"}`} />
                 <IdentityItem label="WORK KIND" value={task.workKind ?? "—"} />
                 <IdentityItem label="PACKAGE PATH" value={task.packagePath ?? "未物化"} wide />
+                <IdentityItem
+                  label="WORKTREE"
+                  value={
+                    task.worktree ? `${task.worktree.path} · ${task.worktree.branch} · ${task.worktree.state}` : "—"
+                  }
+                  wide
+                />
               </dl>
             </details>
             {/* 会话页重构(任务 task_1994d52c):Task 详情反向入口,落 sessions 页该任务的

@@ -445,7 +445,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
       { authority: "task-lease/v1", mode: "reserve", sameActorActiveLease: "idempotent-reuse" },
       { authority: "operation-id", sameActorActiveLease: "applied-no-op" },
     ),
-    explain: "Acquire or idempotently reuse the authenticated actor's execution lease.",
+    explain: "Acquire or idempotently reuse the actor's execution lease; checks out its Harness-managed worktree.",
   }),
   lifecycle("transition", {
     input: input([

@@ -1,8 +1,24 @@
-import { /* @gate-identity check-sync-subprocess/sync-subprocess-018 */ execFileSync } from "node:child_process";
 import { existsSync, lstatSync, symlinkSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import type { ScheduleV1 } from "@harness-anything/kernel";
+import { runProcessTextAsync } from "./process-port.ts";
 import type { TrustedScheduleRuntime } from "./runtime-spawn-types.ts";
+
+/**
+ * A git worktree Harness creates and reclaims itself — schedule occurrences, task checkouts and squad
+ * workers all go through these two functions, so every managed worktree ends by the same rule.
+ */
+export interface ManagedWorktree {
+  readonly cwd: string;
+  readonly branch: string;
+  /** Where a new branch starts, and what "already upstream" is judged against at reclaim. */
+  readonly baseRef: string;
+}
+
+export type WorktreeReclaim =
+  | { readonly outcome: "absent" }
+  | { readonly outcome: "removed"; readonly archiveTag: string | null; readonly unmergedCommits: number }
+  | { readonly outcome: "retained"; readonly reason: string };
 
 export interface ScheduleOccurrenceWorkspace {
   readonly rootDir: string;
@@ -10,7 +26,60 @@ export interface ScheduleOccurrenceWorkspace {
   readonly runtime: TrustedScheduleRuntime;
 }
 
-export function prepareScheduleOccurrenceWorkspace(rootDir: string, schedule: ScheduleV1): ScheduleOccurrenceWorkspace {
+/** Checks the worktree out (onto its existing branch when one survived a removed checkout); returns a link note. */
+export async function addManagedWorktree(rootDir: string, worktree: ManagedWorktree): Promise<string | null> {
+  const branchExists = await git(rootDir, "branch", "--list", worktree.branch);
+  await git(
+    rootDir,
+    "worktree",
+    "add",
+    worktree.cwd,
+    ...(branchExists ? [worktree.branch] : ["-b", worktree.branch, worktree.baseRef]),
+  );
+  return linkSharedNodeModules(rootDir, worktree.cwd);
+}
+
+/**
+ * dec_BBA713052997C3EF5F5D3DD952 CH2: uncommitted changes keep the worktree; otherwise it is removed with its
+ * branch, and commits whose patches are not upstream yet (`git cherry` "+", so merge, rebase and squash
+ * merges all count as upstream) first stay reachable from an archive/wt-<name> tag. Nothing is forced.
+ */
+export async function reclaimManagedWorktree(rootDir: string, worktree: ManagedWorktree): Promise<WorktreeReclaim> {
+  if (!existsSync(worktree.cwd)) return { outcome: "absent" };
+  try {
+    // The linked node_modules is this module's own doing, not the work in the worktree.
+    if ((await git(worktree.cwd, "status", "--porcelain", "--", ".", ":(exclude)node_modules")).length > 0)
+      return { outcome: "retained", reason: "uncommitted changes" };
+    const unmergedCommits = (await git(worktree.cwd, "cherry", worktree.baseRef, "HEAD"))
+        .split("\n")
+        .filter((line) => line.startsWith("+")).length,
+      archiveTag = unmergedCommits > 0 ? `archive/wt-${path.basename(worktree.cwd)}` : null;
+    if (archiveTag) await git(worktree.cwd, "tag", archiveTag, "HEAD");
+    const linked = path.join(worktree.cwd, "node_modules");
+    if (lstatSync(linked, { throwIfNoEntry: false })?.isSymbolicLink()) unlinkSync(linked);
+    await git(rootDir, "worktree", "remove", worktree.cwd);
+    await git(rootDir, "branch", "-D", worktree.branch);
+    return { outcome: "removed", archiveTag, unmergedCommits };
+  } catch (error) {
+    return { outcome: "retained", reason: `cleanup failed: ${error instanceof Error ? error.message : String(error)}` };
+  }
+}
+
+/** What a reclaim left for a person to know about; a plain removal says nothing. */
+export function reclaimDetail(label: string, worktree: ManagedWorktree, result: WorktreeReclaim): string | null {
+  if (result.outcome === "retained") return `${label} retained at ${worktree.cwd} (${result.reason}).`;
+  if (result.outcome === "removed" && result.archiveTag)
+    return (
+      `${label} ${worktree.cwd} removed; ${result.unmergedCommits} unmerged commit` +
+      `${result.unmergedCommits === 1 ? "" : "s"} kept at tag ${result.archiveTag}.`
+    );
+  return null;
+}
+
+export async function prepareScheduleOccurrenceWorkspace(
+  rootDir: string,
+  schedule: ScheduleV1,
+): Promise<ScheduleOccurrenceWorkspace> {
   const active = schedule.status.activeRun;
   if (!active) throw new Error(`Schedule ${schedule.scheduleId} has no claimed occurrence workspace.`);
   const base = {
@@ -22,16 +91,8 @@ export function prepareScheduleOccurrenceWorkspace(rootDir: string, schedule: Sc
   if (schedule.mode === "detect") return { rootDir, cwd: rootDir, runtime: base };
 
   const branch = `occ-${active.occurrenceId}`,
-    cwd = path.join(rootDir, ".worktrees", branch);
-  /* @gate-identity check-sync-subprocess/sync-subprocess-019 */ execFileSync(
-    "git",
-    ["-C", rootDir, "worktree", "add", cwd, "-b", branch, "origin/main"],
-    {
-      encoding: "utf8",
-      windowsHide: true,
-    },
-  );
-  const note = linkSharedNodeModules(rootDir, cwd);
+    cwd = path.join(rootDir, ".worktrees", branch),
+    note = await addManagedWorktree(rootDir, { cwd, branch, baseRef: "origin/main" });
   return {
     rootDir,
     cwd,
@@ -42,8 +103,7 @@ export function prepareScheduleOccurrenceWorkspace(rootDir: string, schedule: Sc
 // npm workspaces hoist every package's dependencies to the repository root store, so one
 // junction gives the fresh worktree the whole dependency surface without an install. This is
 // best-effort: a repo without node_modules (non-node) or a filesystem that refuses the link
-// must not fail the occurrence — the note lands on the worktree record and surfaces in the
-// settlement detail instead of being swallowed.
+// must not fail the worktree — the note is reported to the caller instead of being swallowed.
 export function linkSharedNodeModules(rootDir: string, worktreeDir: string): string | null {
   try {
     const target = path.join(rootDir, "node_modules");
@@ -51,72 +111,28 @@ export function linkSharedNodeModules(rootDir: string, worktreeDir: string): str
     symlinkSync(target, path.join(worktreeDir, "node_modules"), "junction");
     return null;
   } catch (error) {
-    return `Occurrence worktree has no linked node_modules (${
-      error instanceof Error ? error.message : String(error)
-    }).`;
+    return `Worktree has no linked node_modules (${error instanceof Error ? error.message : String(error)}).`;
   }
 }
 
-export function settleScheduleOccurrenceWorkspace(
+export async function settleScheduleOccurrenceWorkspace(
   rootDir: string,
   schedule: TrustedScheduleRuntime,
-): { readonly retainedDetail: string | null } {
+): Promise<{ readonly detail: string | null }> {
   const worktree = schedule.worktree;
-  if (!worktree) return { retainedDetail: null };
-  if (!existsSync(worktree.cwd)) return { retainedDetail: null };
-  try {
-    // The linked node_modules is this module's own doing, not the occurrence's work.
-    const dirty = git(worktree.cwd, "status", "--porcelain", "--", ".", ":(exclude)node_modules").length > 0,
-      commits = Number(git(worktree.cwd, "rev-list", "--count", `${worktree.baseRef}..HEAD`));
-    if (dirty || commits > 0)
-      return {
-        retainedDetail: `Occurrence worktree retained at ${worktree.cwd} (${[
-          dirty ? "uncommitted changes" : null,
-          commits > 0 ? `${commits} commit${commits === 1 ? "" : "s"}` : null,
-        ]
-          .filter(Boolean)
-          .join(", ")}).`,
-      };
-    const linked = path.join(worktree.cwd, "node_modules");
-    if (lstatSync(linked, { throwIfNoEntry: false })?.isSymbolicLink()) unlinkSync(linked);
-    /* @gate-identity check-sync-subprocess/sync-subprocess-020 */ execFileSync(
-      "git",
-      ["-C", rootDir, "worktree", "remove", worktree.cwd],
-      {
-        encoding: "utf8",
-        windowsHide: true,
-      },
-    );
-    /* @gate-identity check-sync-subprocess/sync-subprocess-021 */ execFileSync(
-      "git",
-      ["-C", rootDir, "branch", "-D", worktree.branch],
-      {
-        encoding: "utf8",
-        windowsHide: true,
-      },
-    );
-    return { retainedDetail: null };
-  } catch (error) {
-    return {
-      retainedDetail: `Occurrence worktree retained at ${worktree.cwd} (cleanup failed: ${
-        error instanceof Error ? error.message : String(error)
-      }).`,
-    };
-  }
+  if (!worktree) return { detail: null };
+  return { detail: reclaimDetail("Occurrence worktree", worktree, await reclaimManagedWorktree(rootDir, worktree)) };
 }
 
-export function scheduleSettlementDetail(
+export async function scheduleSettlementDetail(
   rootDir: string,
   schedule: TrustedScheduleRuntime,
   detail: string | null,
-): string | null {
-  const retained = settleScheduleOccurrenceWorkspace(rootDir, schedule).retainedDetail;
-  return [schedule.worktree?.note, detail, retained].filter(Boolean).join(" ") || null;
+): Promise<string | null> {
+  const reclaimed = (await settleScheduleOccurrenceWorkspace(rootDir, schedule)).detail;
+  return [schedule.worktree?.note, detail, reclaimed].filter(Boolean).join(" ") || null;
 }
 
-function git(cwd: string, ...args: string[]): string {
-  return /* @gate-identity check-sync-subprocess/sync-subprocess-022 */ execFileSync("git", ["-C", cwd, ...args], {
-    encoding: "utf8",
-    windowsHide: true,
-  }).trim();
+function git(cwd: string, ...args: string[]): Promise<string> {
+  return runProcessTextAsync("git", ["-C", cwd, ...args]).then((output) => output.trim());
 }

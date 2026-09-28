@@ -51,6 +51,16 @@ export interface ActorAxes {
   readonly executor: { readonly kind: "agent"; readonly id: string } | null;
 }
 export type TaskPackageDisposition = "active" | "archived" | "tombstoned";
+/**
+ * The git worktree a repository-diff task works in (dec_BBA713052997C3EF5F5D3DD952). The center records
+ * only this binding; the node that executes the task materializes and reclaims the checkout itself.
+ */
+export interface TaskWorktreeBindingV1 {
+  readonly branch: string;
+  /** Repository-relative checkout directory. */
+  readonly path: string;
+  readonly baseRef: string;
+}
 export interface TaskMetadataV1 {
   readonly idempotencyKey: string | null;
   readonly parentTaskId: string | null;
@@ -86,6 +96,7 @@ export interface TaskV2 extends BaseEntityPinState {
   readonly closeoutOverrides?: CloseoutOverridesV1;
   /** Set from the preset profile; a successful completion archives the package. */
   readonly archiveOnComplete?: boolean;
+  readonly worktree?: TaskWorktreeBindingV1;
 }
 export interface ContractValidationIssue {
   readonly code: string;
@@ -125,6 +136,7 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
       "reviewReturnBudget",
       "closeoutOverrides",
       "archiveOnComplete",
+      "worktree",
     ];
   if (
     !isRecord(value) ||
@@ -187,11 +199,25 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
     });
   if (value.archiveOnComplete !== undefined && typeof value.archiveOnComplete !== "boolean")
     issues.push({ code: "invalid_task", message: "archiveOnComplete must be a boolean" });
+  if (value.worktree !== undefined && !isTaskWorktreeBinding(value.worktree))
+    issues.push({ code: "invalid_task", message: "worktree must bind a branch, a relative path and a base ref" });
   issues.push(
     ...validateActorAxes(value.createdBy, allowUnknownFields),
     ...validateTaskGraph(value.graph, allowUnknownFields),
   );
   return issues;
+}
+
+function isTaskWorktreeBinding(value: unknown): value is TaskWorktreeBindingV1 {
+  return (
+    isRecord(value) &&
+    Object.keys(value).length === 3 &&
+    isNonEmptyString(value.branch) &&
+    isNonEmptyString(value.baseRef) &&
+    isNonEmptyString(value.path) &&
+    !value.path.startsWith("/") &&
+    !value.path.split("/").includes("..")
+  );
 }
 
 const taskMetadataFields = [

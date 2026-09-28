@@ -740,7 +740,9 @@ export type DaemonTaskSnapshotListResult = {
   readonly ok: true;
   readonly status: "ready" | "pending";
   readonly rows: readonly (TaskProjectionListRow & {
-    readonly coordinationStatus: import("@harness-anything/kernel/internal/domain/lifecycle-status").DomainStatus | "unknown";
+    readonly coordinationStatus:
+      | import("@harness-anything/kernel/internal/domain/lifecycle-status").DomainStatus
+      | "unknown";
     readonly snapshotAvailability: {
       readonly consents: "known" | "unknown";
       readonly codeDocWitnesses: "known" | "unknown";
@@ -755,6 +757,7 @@ export type DaemonTaskSnapshotListResult = {
     readonly capabilities: readonly import("@harness-anything/kernel/internal/domain/task-board-projection").TaskCapability[];
     readonly phase: import("@harness-anything/kernel/internal/domain/task-board-projection").TaskPhase;
     readonly risk: import("@harness-anything/kernel/internal/domain/task-board-projection").TaskRisk;
+    readonly worktree: TaskWorktreeView | null;
   })[];
   readonly invalidRows: readonly DaemonTaskSnapshotInvalidRow[];
   readonly watermark: number;
@@ -794,6 +797,17 @@ export type DaemonWorkspaceSummaryResult = {
   readonly warnings: readonly ProjectionWarning[];
 };
 
+/**
+ * A task's worktree binding with what the answering node's filesystem shows of it
+ * (dec_BBA713052997C3EF5F5D3DD952); a node that never ran the task reads "bound".
+ */
+export interface TaskWorktreeView {
+  readonly branch: string;
+  readonly path: string;
+  readonly baseRef: string;
+  readonly state: "bound" | "materialized" | "reclaimed" | "retained";
+}
+
 export interface AgendaTaskRow {
   readonly taskId: string;
   readonly title: string;
@@ -803,6 +817,7 @@ export interface AgendaTaskRow {
   readonly leaseExecutionId: string | null;
   readonly activeExecutionIds: readonly string[];
   readonly blockingAssessment: import("@harness-anything/kernel/internal/domain/task-blocking").BlockingAssessment;
+  readonly worktree: TaskWorktreeView | null;
 }
 
 /**

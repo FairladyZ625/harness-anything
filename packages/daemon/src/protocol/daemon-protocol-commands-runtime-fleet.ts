@@ -12,7 +12,10 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
   id: "agent-run",
   phase: "Runtime-B",
   path: ["agent", "run", "<id>"],
-  summary: "Dispatch task-bound work or resume its dispatch with the same Agent identity and working directory.",
+  summary: [
+    "Dispatch task-bound work or resume its dispatch with the same Agent identity and working directory. ",
+    "Without --cwd a task bound to a worktree runs in it; Harness manages the worktree, no command is needed.",
+  ].join(""),
   method: "repo.agentRuntime.spawn",
   positional: "agentId",
   inputs: [

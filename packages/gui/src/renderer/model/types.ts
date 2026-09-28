@@ -103,6 +103,8 @@ interface TaskRowFields {
     readonly ref: string;
   }>;
   packagePath?: string | null;
+  /** dec_BBA713052997C3EF5F5D3DD952: the Harness-managed worktree bound at create, with its state on this node. */
+  worktree?: NonNullable<TaskSnapshotProjectionRow["worktree"]>;
   taskClass?: NonNullable<TaskSnapshotProjectionRow["snapshot"]["task"]>["taskClass"];
   workKind?: NonNullable<NonNullable<TaskSnapshotProjectionRow["snapshot"]["task"]>["metadata"]>["workKind"];
   vertical?: string;

@@ -239,6 +239,7 @@ export function task(value: unknown): boolean {
       "reviewReturnBudget",
       "closeoutOverrides",
       "archiveOnComplete",
+      "worktree",
     ];
   return (
     recordWith(value, required) &&
@@ -263,8 +264,20 @@ export function task(value: unknown): boolean {
     (value.reviewReturnBudget === undefined ||
       (integer(value.reviewReturnBudget) && Number(value.reviewReturnBudget) > 0)) &&
     (value.closeoutOverrides === undefined || closeoutOverridesEnvelope(value.closeoutOverrides)) &&
-    (value.archiveOnComplete === undefined || typeof value.archiveOnComplete === "boolean")
+    (value.archiveOnComplete === undefined || typeof value.archiveOnComplete === "boolean") &&
+    (value.worktree === undefined || taskWorktreeBinding(value.worktree))
   );
+}
+
+export function taskWorktreeBinding(value: unknown): boolean {
+  return exactRecord(value, ["branch", "path", "baseRef"]) && [value.branch, value.path, value.baseRef].every(nonEmpty);
+}
+
+export function taskWorktreeView(value: unknown): boolean {
+  if (value === null) return true;
+  if (!exactRecord(value, ["branch", "path", "baseRef", "state"])) return false;
+  const { state, ...binding } = value;
+  return taskWorktreeBinding(binding) && ["bound", "materialized", "reclaimed", "retained"].includes(String(state));
 }
 
 export function execution(value: unknown): boolean {

@@ -342,7 +342,11 @@ export function openFleetEdgeRuntime(input: {
       }
       const scheduled = terminal.schedule;
       if (!scheduled) return;
-      const detail = scheduleSettlementDetail(request.workspaceRoot, scheduled, terminal.resultRef ?? terminal.reason);
+      const detail = await scheduleSettlementDetail(
+        request.workspaceRoot,
+        scheduled,
+        terminal.resultRef ?? terminal.reason,
+      );
       schedule(async () => {
         const response = await runFleetScheduleCommandClient({
           ...peer,
@@ -464,7 +468,7 @@ export function openFleetEdgeRuntime(input: {
     trustedScheduleAgents.set(trustedAgent.id, trustedAgent);
     const dispatched = await dispatchClaimedSchedule({
       schedule: scheduleValueV1,
-      workspace: prepareScheduleOccurrenceWorkspace(request.workspaceRoot, scheduleValueV1),
+      workspace: await prepareScheduleOccurrenceWorkspace(request.workspaceRoot, scheduleValueV1),
       idempotencyKey: operationKey,
       now,
       spawn: async (scheduled) => {

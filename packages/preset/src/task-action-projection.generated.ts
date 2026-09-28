@@ -62,7 +62,7 @@ export const taskActionDescriptorProjection = {
         ],
         exactlyOneOf: [],
       },
-      explain: "Acquire or idempotently reuse the authenticated actor's execution lease.",
+      explain: "Acquire or idempotently reuse the actor's execution lease; checks out its Harness-managed worktree.",
       execution: {
         ingress: "task-start",
         topology: "center-forward-write",
