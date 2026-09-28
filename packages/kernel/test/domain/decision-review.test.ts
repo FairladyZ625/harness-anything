@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   assertDecisionAcceptReview,
+  decisionAcceptReviewReadiness,
   decisionReviewContentDigest,
   type DecisionDocumentState,
   type DecisionEventDraftV1,
@@ -137,4 +138,43 @@ test("changes_requested remains blocking until a named override with a reason", 
       accept(),
     ),
   );
+});
+
+test("Decision accept readiness exposes the same current-cut judgment used by writes", () => {
+  const current = decision(),
+    digest = decisionReviewContentDigest(current, document());
+  assert.deepEqual(decisionAcceptReviewReadiness(current, document()), {
+    ready: true,
+    currentDigest: digest,
+    basis: "policy_unreviewed",
+    blocker: null,
+    next: { action: "accept", reason: "No current-content review blocks acceptance." },
+  });
+  const blocked = {
+    ...current,
+    reviews: [
+      {
+        reviewId: "review-blocked",
+        reviewContentDigest: digest,
+        verdict: "changes_requested" as const,
+        reason: "Needs work.",
+        findings: [{ findingId: "F1", text: "Fix it." }],
+        evidenceChecked: [],
+        reportRef: null,
+        actor: { ...proposer, executor: { kind: "agent" as const, id: "reviewer" } },
+        reviewedAt: "2026-09-29T00:00:00.000Z",
+      },
+    ],
+  };
+  assert.deepEqual(decisionAcceptReviewReadiness(blocked, document()), {
+    ready: false,
+    currentDigest: digest,
+    basis: null,
+    blocker: {
+      code: "changes_requested",
+      reviewIds: ["review-blocked"],
+      reason: "Current content has unresolved changes_requested reviews.",
+    },
+    next: { action: "override-review", reason: "The proposal owner must resolve the named blocking reviews." },
+  });
 });

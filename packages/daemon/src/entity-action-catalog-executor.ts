@@ -57,6 +57,7 @@ import { executeRelationAction, publicationKillpoints, reject } from "./entity-a
 import { decisionRelationLinkResolver } from "./entity-document-links.ts";
 import { actionReceiptGuidance } from "./receipt-guidance.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
+import { attachDecisionReviewerArtifact } from "./reviewer-artifact-publication.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 type FactBundle = ReturnType<typeof compileFactWrite>;
@@ -310,9 +311,17 @@ export function makeEntityActionCatalogExecutor(input: {
       );
     if (contract.target.kind === "decision" && !timestamp(occurredAt))
       reject("invalid_command", "decidedAt must be an ISO-8601 UTC timestamp ending in Z.");
-    const bundle =
+    let bundle =
       matchingReplayBundle(input.store, contract, action, existing) ??
       compileAction(contract, action, binding, opId, occurredAt);
+    if (existing === null && action.kind === "decision-review" && isDecisionBundle(bundle)) {
+      bundle = attachDecisionReviewerArtifact(bundle, {
+        rootDir: input.rootDir ?? "",
+        projection: input.projection,
+        action,
+        binding,
+      });
+    }
     if (isRuntimeSessionBundle(bundle)) {
       if (dryRun) reject("invalid_command", `${contract.execution.ingress} does not support --dry-run.`);
       return deriveActionResult(
@@ -562,6 +571,10 @@ function executableAction(ingress: string): ExecutableAction {
 
 function isFactBundle(bundle: CatalogBundle): bundle is FactBundle {
   return bundle.event.schema === "fact-event/v1";
+}
+
+function isDecisionBundle(bundle: CatalogBundle): bundle is DecisionBundle {
+  return bundle.event.schema === "decision-event/v1";
 }
 
 function isEntityBundle(bundle: CatalogBundle): bundle is EntityCatalogBundle {

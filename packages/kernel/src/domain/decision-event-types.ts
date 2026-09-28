@@ -310,7 +310,7 @@ export interface DecisionContentBlob {
 export interface CompiledDecisionWrite {
   readonly event: DecisionEventV1;
   readonly plan: FrozenWritePlan<"DecisionWrite">;
-  readonly blobs: readonly [DecisionContentBlob];
+  readonly blobs: readonly DecisionContentBlob[];
   readonly path: string;
   readonly body: string;
 }

@@ -8,10 +8,12 @@ import type {
   DecisionReviewOverrideV1,
   DecisionReviewResponseV1,
   DecisionReviewV1,
+  DecisionDocumentState,
   DecisionState,
 } from "../domain/decision-event.ts";
 import type { ActorIdentity } from "../domain/write-chain.contract.ts";
 import { decisionCapabilities, decisionClaimsOpen } from "../domain/decision-board-projection.ts";
+import { decisionAcceptReviewReadiness, decisionReviewContentDigest } from "../domain/decision-event-document.ts";
 import { decisionCoverage } from "./decision-projection-coverage.ts";
 import { decisionBodyFromDocument } from "./decision-projection-documents.ts";
 import type {
@@ -128,6 +130,12 @@ export function readDecisionRows(
           WHERE decision_id = decision.decision_id AND kind = 'override' ORDER BY workspace_revision
         )
       ), '[]') AS review_overrides_json
+      , COALESCE((
+        SELECT json_group_array(row_json) FROM (
+          SELECT row_json FROM relation_edge
+          WHERE owner_ref = 'decision/' || decision.decision_id ORDER BY relation_id
+        )
+      ), '[]') AS relations_json
     FROM requested_decisions JOIN decision ON decision.decision_id = requested_decisions.decision_id ${bodyJoin}
     ORDER BY requested_decisions.request_order`;
   return queryRows<DecisionCollectionRecord>(db, sql, JSON.stringify(decisionIds)).map(decisionCollectionRow);
@@ -159,6 +167,7 @@ interface DecisionCollectionRecord extends ProjectionSqlRow {
   readonly reviews_json: string;
   readonly review_responses_json: string;
   readonly review_overrides_json: string;
+  readonly relations_json: string;
 }
 
 function decisionCollectionRow(row: DecisionCollectionRecord): DecisionProjectionRow {
@@ -182,8 +191,70 @@ function decisionCollectionRow(row: DecisionCollectionRecord): DecisionProjectio
     ),
     amendments = (JSON.parse(row.amendments_json) as string[]).map((value) => JSON.parse(value) as DecisionAmendmentV1),
     pins = (JSON.parse(row.pins_json) as string[]).map((value) => JSON.parse(value) as DecisionContentPinV1),
-    body = row.body_document_json === null ? null : decisionBodyFromDocument(decisionId, row.body_document_json);
-  return {
+    body = row.body_document_json === null ? null : decisionBodyFromDocument(decisionId, row.body_document_json),
+    reviews = (JSON.parse(row.reviews_json) as string[]).map((value) => JSON.parse(value) as DecisionReviewV1),
+    reviewResponses = (JSON.parse(row.review_responses_json) as string[]).flatMap(
+      (value) => JSON.parse(value) as DecisionReviewResponseV1[],
+    ),
+    reviewOverrides = (JSON.parse(row.review_overrides_json) as string[]).map(
+      (value) => JSON.parse(value) as DecisionReviewOverrideV1,
+    ),
+    reviewState = { reviews, reviewResponses, reviewOverrides },
+    relations = (JSON.parse(row.relations_json) as string[]).map((value) => {
+      const edge = JSON.parse(value) as DecisionRelationEdgeRow;
+      return {
+        relation_id: edge.relationId,
+        source: edge.sourceRef,
+        target: edge.targetRef,
+        type: edge.relationType,
+        direction: edge.direction,
+        strength: edge.strength,
+        origin: edge.origin,
+        rationale: edge.rationale,
+        state: edge.state,
+      };
+    });
+  const semantic: DecisionDocumentState = {
+    decisionId,
+    state,
+    title: row.title,
+    question: row.question,
+    riskTier: row.risk_tier as DecisionProjectionRow["riskTier"],
+    urgency: row.urgency as DecisionProjectionRow["urgency"],
+    vertical: row.vertical,
+    preset: row.preset,
+    decisionClass: row.decision_class as DecisionProjectionRow["decisionClass"],
+    appliesTo: JSON.parse(row.applies_json) as DecisionProjectionRow["appliesTo"],
+    proposer: JSON.parse(row.proposer_json) as ActorIdentity,
+    arbiter: row.arbiter_json === null ? null : (JSON.parse(row.arbiter_json) as ActorIdentity),
+    proposedAt: row.proposed_at,
+    decidedAt: row.decided_at,
+    workspaceRevision: Number(row.workspace_revision),
+    chosen: options
+      .filter((option) => option.kind === "chosen")
+      .map((option) => ({
+        id: option.option_id,
+        text: option.text,
+        ...(option.rationale ? { rationale: option.rationale } : {}),
+      })),
+    rejected: options
+      .filter((option) => option.kind === "rejected")
+      .map((option) => ({ id: option.option_id, text: option.text, whyNot: option.rationale! })),
+    claims: claims.map((claim) => ({
+      id: claim.claim_id,
+      text: claim.text,
+      loadBearing: Boolean(claim.load_bearing),
+      fulfillment: claim.fulfillment,
+    })),
+    relations,
+    provenance: JSON.parse(row.provenance_json) as readonly SessionProvenanceV1[],
+    judgmentConsents: consents,
+    ...reviewState,
+    ...(amendments.length ? { amendments } : {}),
+    ...(pins.length ? { contentPins: pins } : {}),
+  };
+  const currentReviewContentDigest = body ? decisionReviewContentDigest(semantic, body.body) : null;
+  const result: DecisionProjectionRow = {
     schema: "decision-row/v1",
     decisionId,
     ...(legacyId ? { legacyId } : {}),
@@ -224,19 +295,18 @@ function decisionCollectionRow(row: DecisionCollectionRecord): DecisionProjectio
       fulfillment: claim.fulfillment,
     })),
     judgmentConsents: consents,
-    reviews: (JSON.parse(row.reviews_json) as string[]).map((value) => JSON.parse(value) as DecisionReviewV1),
-    reviewResponses: (JSON.parse(row.review_responses_json) as string[]).flatMap(
-      (value) => JSON.parse(value) as DecisionReviewResponseV1[],
-    ),
-    reviewOverrides: (JSON.parse(row.review_overrides_json) as string[]).map(
-      (value) => JSON.parse(value) as DecisionReviewOverrideV1,
-    ),
+    ...reviewState,
+    currentReviewContentDigest,
+    acceptReviewReadiness: null,
     ...(amendments.length ? { amendments } : {}),
     ...(pins.length ? { contentPins: pins } : {}),
     body,
     capabilities: decisionCapabilities(state),
     claimsOpen: decisionClaimsOpen(state),
   };
+  return currentReviewContentDigest && body
+    ? { ...result, acceptReviewReadiness: decisionAcceptReviewReadiness(semantic, body.body) }
+    : result;
 }
 
 /**

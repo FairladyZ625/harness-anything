@@ -40,15 +40,15 @@ test("an independent approved review lets the proposal owner accept the current 
     const proposed = await cell.run(decisionProposal(), proposer),
       decisionId = receiptJson(proposed).decisionId as string,
       owner = withRoleBinding(proposer, "repo-write"),
-      independentAgent = withRoleBinding(
+      independentReviewer = withRoleBinding(
         {
           actor: {
-            principal: proposer.actor.principal,
-            executor: { kind: "agent" as const, id: "independent-reviewer" },
+            principal: { personId: "person-reviewer" },
+            executor: null,
           },
           source: "local" as const,
         },
-        "arbiter",
+        "repo-write",
       );
     const shown = receiptJson(await cell.run({ kind: "decision-show", decisionId, includeBody: true }, owner))
         .decision as DecisionDocumentState & { readonly body: { readonly body: string } },
@@ -69,6 +69,8 @@ test("an independent approved review lets the proposal owner accept the current 
       { outcome: unreviewed.outcome, code: unreviewed.code },
       { outcome: "op_rejected", code: "invalid_transition" },
     );
+    const reportRef = `decisions/decision-${decisionId}/artifacts/reports/review-independent.md`;
+    await publishReport(rootDir, cell, reportRef, independentReviewer);
     const reviewed = await cell.run(
       {
         kind: "decision-review",
@@ -79,9 +81,9 @@ test("an independent approved review lets the proposal owner accept the current 
         reason: "The current content and evidence support acceptance.",
         findings: [],
         evidenceChecked: [],
-        reportRef: null,
+        reportRef,
       },
-      independentAgent,
+      independentReviewer,
     );
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
     const accepted = await cell.run(
@@ -192,6 +194,15 @@ test("Decision judgment and review disposition stay with the proposal owner or e
       { outcome: unqualifiedApproval.outcome, code: unqualifiedApproval.code },
       { outcome: "op_rejected", code: "actor_unauthorized" },
     );
+    const reviewer = withRoleBinding(
+      {
+        actor: { principal: { personId: "person-reviewer" }, executor: null },
+        source: "local" as const,
+      },
+      "repo-write",
+    );
+    const reportRef = `decisions/decision-${decisionId}/artifacts/reports/review-changes-requested.md`;
+    await publishReport(rootDir, cell, reportRef, reviewer);
     const reviewed = await cell.run(
       {
         kind: "decision-review",
@@ -202,18 +213,9 @@ test("Decision judgment and review disposition stay with the proposal owner or e
         reason: "The proposal needs a named correction.",
         findings: [{ findingId: "finding-1", text: "Name the correction before acceptance." }],
         evidenceChecked: [],
-        reportRef: null,
+        reportRef,
       },
-      withRoleBinding(
-        {
-          actor: {
-            principal: proposer.actor.principal,
-            executor: { kind: "agent" as const, id: "independent-reviewer" },
-          },
-          source: "local" as const,
-        },
-        "arbiter",
-      ),
+      reviewer,
     );
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
     const override = {
@@ -433,6 +435,19 @@ function decisionProposal() {
 
 function receiptJson(receipt: { readonly evidence?: string }): Record<string, unknown> {
   return JSON.parse(String(receipt.evidence)) as Record<string, unknown>;
+}
+
+async function publishReport(
+  rootDir: string,
+  cell: Awaited<ReturnType<typeof openRepoCell>>,
+  reportRef: string,
+  binding: Parameters<Awaited<ReturnType<typeof openRepoCell>>["run"]>[1],
+): Promise<void> {
+  const target = path.join(rootDir, "harness", ...reportRef.split("/"));
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, "# Independent review\n\nThe current Decision cut was reviewed.\n");
+  const submitted = await cell.run({ kind: "doc-submit", paths: [reportRef] }, binding);
+  assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
 }
 
 function initRepo(rootDir: string): void {

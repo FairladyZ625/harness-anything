@@ -522,7 +522,15 @@ export function validateDaemonDecisionList(value: unknown): readonly string[] {
       return [validationError(entityId, "decisions", value.decisions, "must be an array")];
     const invalidIndex = value.decisions.findIndex(
       (row) =>
-        !exactRecord(row, ["decisionId", "title", "state", "riskTier", "urgency", "proposedAt"]) ||
+        !exactRecord(row, [
+          "decisionId",
+          "title",
+          "state",
+          "riskTier",
+          "urgency",
+          "proposedAt",
+          "currentReviewContentDigest",
+        ]) ||
         !nonEmpty(row.decisionId) ||
         !nonEmpty(row.title) ||
         !statusWord(decisionStateWords, row.state) ||
@@ -566,11 +574,13 @@ export function validateDaemonDecisionList(value: unknown): readonly string[] {
       "reviews",
       "reviewResponses",
       "reviewOverrides",
+      "currentReviewContentDigest",
+      "acceptReviewReadiness",
       "body",
       "capabilities",
       "claimsOpen",
     ],
-    allowed = [...fields, "provenance", "legacyId", "readiness", "amendments", "contentPins"],
+    allowed = [...fields, "provenance", "legacyId", "readiness", "amendments", "contentPins", "reviewDispatches"],
     history = (row: JsonObject) =>
       (row.amendments !== undefined &&
         (!Array.isArray(row.amendments) ||
@@ -648,6 +658,7 @@ export function validateDaemonDecisionList(value: unknown): readonly string[] {
       !Array.isArray(row.judgmentConsents) ||
       !Array.isArray(row.reviews) ||
       !Array.isArray(row.reviewResponses) ||
+      (row.reviewDispatches !== undefined && !Array.isArray(row.reviewDispatches)) ||
       !Array.isArray(row.reviewOverrides) ||
       !isJsonObject(row.appliesTo) ||
       !isJsonObject(row.proposer) ||

@@ -192,6 +192,40 @@ export function decisionWritePlan(event: DecisionEventV1): FrozenWritePlan<"Deci
     });
   return freezeDeclaredWritePlan({ commandType: "DecisionWrite", targets }, ["DecisionWrite"]);
 }
+export function extendDecisionWriteWithArtifact(
+  bundle: CompiledDecisionWrite,
+  artifact: {
+    readonly path: string;
+    readonly sha256: string;
+    readonly size: number;
+    readonly mediaType: "text/markdown";
+    readonly body: string;
+  },
+): CompiledDecisionWrite {
+  return {
+    ...bundle,
+    plan: freezeDeclaredWritePlan(
+      {
+        commandType: "DecisionWrite",
+        targets: [
+          ...bundle.plan.targets,
+          {
+            kind: "authored_file",
+            path: artifact.path,
+            operation: "replace",
+            sha256: artifact.sha256,
+            size: artifact.size,
+            mediaType: artifact.mediaType,
+          },
+          { kind: "content_blob", sha256: artifact.sha256, size: artifact.size, mediaType: artifact.mediaType },
+          { kind: "projection_invalidation", projection: "document/v1", key: artifact.path },
+        ],
+      },
+      ["DecisionWrite"],
+    ),
+    blobs: [...bundle.blobs, artifact],
+  };
+}
 export function assertDecisionWritePlan(event: DecisionEventV1, plan: FrozenWritePlan | undefined): void {
   if (!plan || !isFrozenWritePlan(plan))
     throw new Error("decision write plan must exactly declare event, document, blob, and projections");
@@ -513,12 +547,68 @@ export function decisionReviewContentDigest(value: DecisionDocumentState, docume
     }),
   )}`;
 }
+export interface DecisionAcceptReviewReadiness {
+  readonly ready: boolean;
+  readonly currentDigest: `sha256:${string}`;
+  readonly basis: "review" | "policy_unreviewed" | null;
+  readonly blocker: {
+    readonly code: "changes_requested";
+    readonly reviewIds: readonly string[];
+    readonly reason: string;
+  } | null;
+  readonly next: { readonly action: "accept" | "override-review"; readonly reason: string };
+}
+
+export function decisionAcceptReviewReadiness(
+  current: DecisionDocumentState,
+  documentBody: string,
+): DecisionAcceptReviewReadiness {
+  const currentDigest = decisionReviewContentDigest(current, documentBody),
+    blocking = current.reviews
+      .filter((review) => review.reviewContentDigest === currentDigest && review.verdict === "changes_requested")
+      .filter(
+        (review) =>
+          !current.reviewOverrides.some(
+            (override) =>
+              override.reviewContentDigest === currentDigest &&
+              override.reason.trim().length > 0 &&
+              override.reviewIds.includes(review.reviewId),
+          ),
+      );
+  if (blocking.length > 0)
+    return {
+      ready: false,
+      currentDigest,
+      basis: null,
+      blocker: {
+        code: "changes_requested",
+        reviewIds: blocking.map(({ reviewId }) => reviewId),
+        reason: "Current content has unresolved changes_requested reviews.",
+      },
+      next: {
+        action: "override-review",
+        reason: "The proposal owner must resolve the named blocking reviews.",
+      },
+    };
+  return {
+    ready: true,
+    currentDigest,
+    basis: current.reviews.some(
+      (review) => review.reviewContentDigest === currentDigest && review.verdict === "approved",
+    )
+      ? "review"
+      : "policy_unreviewed",
+    blocker: null,
+    next: { action: "accept", reason: "No current-content review blocks acceptance." },
+  };
+}
 export function assertDecisionAcceptReview(
   current: DecisionDocumentState,
   documentBody: string,
   event: Extract<DecisionEventDraftV1, { readonly type: "decision_accepted" }>,
 ): void {
-  const currentDigest = decisionReviewContentDigest(current, documentBody);
+  const readiness = decisionAcceptReviewReadiness(current, documentBody),
+    currentDigest = readiness.currentDigest;
   if (event.payload.expectedDigest !== undefined && event.payload.expectedDigest !== currentDigest)
     invalidDecision(
       `Decision review content changed: expected=${event.payload.expectedDigest} current=${currentDigest}.`,
@@ -554,21 +644,8 @@ export function assertDecisionAcceptReview(
       );
     return;
   }
-  const unresolved = reviews
-    .filter((review) => review.verdict === "changes_requested")
-    .filter((review) => {
-      if (review.submissionDigest !== currentDigest) return false;
-      return !dispositions.some(
-        (disposition) =>
-          disposition.submissionDigest === currentDigest &&
-          disposition.rationale.trim().length > 0 &&
-          disposition.disposedReviewIds.includes(review.reviewId),
-      );
-    });
-  if (unresolved.length > 0)
-    invalidDecision(
-      `Decision has unresolved changes_requested reviews: ${unresolved.map((v) => v.reviewId).join(", ")}.`,
-    );
+  if (!readiness.ready)
+    invalidDecision(`Decision has unresolved changes_requested reviews: ${readiness.blocker!.reviewIds.join(", ")}.`);
 }
 export function assertDecisionReviewMutation(
   current: DecisionDocumentState,

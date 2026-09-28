@@ -59,6 +59,9 @@ export interface DispatchStreamHeader extends RuntimeResumeHeader {
   readonly dispatchId: string;
   readonly taskId: string | null;
   readonly executionId: string | null;
+  readonly reviewTarget?:
+    | { readonly kind: "task"; readonly taskId: string; readonly executionId: string; readonly digest: string }
+    | { readonly kind: "decision"; readonly decisionId: string; readonly digest: string };
   readonly leaseVersion?: number;
   readonly schedule?: {
     readonly scheduleId: string;

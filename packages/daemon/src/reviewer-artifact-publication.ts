@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   classifyTextualArtifactPath,
+  compileDecisionWrite,
   documentPath,
   resolveHarnessLayout,
   runtimeSessionIdFromActor,
@@ -12,6 +13,8 @@ import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { readWorkspaceText } from "./workspace-text-port.ts";
+import { readDispatchStream } from "./dispatch-stream.ts";
+import { extendDecisionWriteWithArtifact } from "@harness-anything/kernel/internal/domain/decision-event";
 
 /**
  * The reviewer-authored Markdown report is the physical credential behind every recorded Review.
@@ -127,4 +130,82 @@ export function reviewerArtifactsForReview(
     };
   });
   return { changes: rows.map(({ change }) => change), blobs: rows.map(({ blob }) => blob) };
+}
+
+export function decisionReviewerArtifact(input: {
+  readonly rootDir: string;
+  readonly projection: RepoCellOperationalContext["projection"];
+  readonly action: RepoTaskAction;
+  readonly binding: RepoCellBinding;
+}): {
+  readonly change: DocEventChange;
+  readonly blob: {
+    readonly sha256: string;
+    readonly size: number;
+    readonly mediaType: "text/markdown";
+    readonly body: string;
+  };
+} | null {
+  const decisionId = String(input.action.decisionId ?? ""),
+    reviewId = String(input.action.reviewId ?? ""),
+    digest = String(input.action.reviewContentDigest ?? ""),
+    reportRef = typeof input.action.reportRef === "string" ? input.action.reportRef.replace(/^harness\//u, "") : null,
+    runtimeSessionId = runtimeSessionIdFromActor(input.binding.actor);
+  if (runtimeSessionId === null) {
+    if (input.binding.actor.executor !== null)
+      throw cellCodedError(
+        "actor_unauthorized",
+        "Decision reviews require a bound reviewer dispatch or a direct human actor.",
+      );
+    if (!reportRef || input.projection.readDocument(reportRef).document === null)
+      throw cellCodedError(
+        "review_report_missing",
+        "A human Decision review must reference a report already published to the center.",
+      );
+    return null;
+  }
+  const session = input.projection.readRuntimeSession(runtimeSessionId),
+    dispatch = session && input.projection.readRuntimeDispatch(runtimeSessionId, session.definitionSnapshotRef),
+    dispatchId = dispatch?.payload.dispatchId ?? "",
+    stream = dispatchId ? readDispatchStream(input.rootDir, dispatchId) : null,
+    target = stream?.header.reviewTarget;
+  if (
+    target?.kind !== "decision" ||
+    target.decisionId !== decisionId ||
+    target.digest !== digest ||
+    reviewId !== `review-${dispatchId}`
+  )
+    throw cellCodedError(
+      "actor_unauthorized",
+      "Decision review does not match the dispatch's persisted review target.",
+    );
+  const expected = `decisions/decision-${decisionId}/artifacts/reports/${dispatchId}.md`;
+  if (reportRef !== expected)
+    throw cellCodedError("review_report_invalid", `Decision review reportRef must be ${expected}.`);
+  const classification = classifyTextualArtifactPath(expected);
+  if (!classification)
+    throw cellCodedError("review_report_invalid", `Decision review report is not textual: ${expected}.`);
+  const body = readWorkspaceText(input.rootDir, `harness/${expected}`, "reviewArtifact");
+  if (!body.trim() || !/^ {0,3}#{1,6}\s+\S/mu.test(body))
+    throw cellCodedError("review_report_invalid", "Decision review report must contain substantive Markdown.");
+  const sha256 = sha256Text(body),
+    size = Buffer.byteLength(body) as DocEventChange["candidate"]["size"];
+  return {
+    change: {
+      path: documentPath(expected),
+      baseBlobSha256: input.projection.readDocument(expected).document?.blobSha256 ?? null,
+      candidate: { sha256, size, mediaType: classification.mediaType },
+      policyId: classification.policyId,
+      regionProofs: [],
+    },
+    blob: { sha256, size, mediaType: "text/markdown", body },
+  };
+}
+
+export function attachDecisionReviewerArtifact(
+  bundle: ReturnType<typeof compileDecisionWrite>,
+  input: Parameters<typeof decisionReviewerArtifact>[0],
+): ReturnType<typeof compileDecisionWrite> {
+  const artifact = decisionReviewerArtifact(input);
+  return artifact ? extendDecisionWriteWithArtifact(bundle, { path: artifact.change.path, ...artifact.blob }) : bundle;
 }

@@ -31,6 +31,9 @@ test("decision full rows carry kernel capabilities while summary rows stay narro
     reviews: [],
     reviewResponses: [],
     reviewOverrides: [],
+    currentReviewContentDigest: null,
+    acceptReviewReadiness: null,
+    reviewDispatches: [],
     body: null,
     capabilities: [
       { id: "accept", available: true, reason: null },
@@ -62,6 +65,7 @@ test("decision full rows carry kernel capabilities while summary rows stay narro
           riskTier: row.riskTier,
           urgency: row.urgency,
           proposedAt: row.proposedAt,
+          currentReviewContentDigest: null,
         },
       ],
       warnings: [],

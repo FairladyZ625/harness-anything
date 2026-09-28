@@ -279,6 +279,11 @@ test("adoption skips a stream above Node's string limit while runtime cancel sti
       dispatchId,
       taskId: "task-oversized",
       executionId: "execution-oversized",
+      reviewTarget: {
+        kind: "decision",
+        decisionId: "dec_PERSISTED_TARGET",
+        digest: `sha256:${"a".repeat(64)}`,
+      },
       runtimeSessionId: "runtime_777777777777777777777777",
       instanceId: "instance-1",
       startedAt: "2026-08-29T00:00:00.000Z",
@@ -290,7 +295,7 @@ test("adoption skips a stream above Node's string limit while runtime cancel sti
         source: "local",
       },
       cwd: rootDir,
-      prompt: "oversized adoption",
+      prompt: "prompt intentionally contains no review target",
       model: "gpt-5.6-sol",
       reasoningEffort: null,
       fast: false,
@@ -322,6 +327,10 @@ test("adoption skips a stream above Node's string limit while runtime cancel sti
     const runtimeSessionId = "runtime_777777777777777777777777",
       active = adopted.get(runtimeSessionId);
     assert.ok(active);
+    assert.deepEqual(active.decisionReviewTarget, {
+      decisionId: "dec_PERSISTED_TARGET",
+      digest: `sha256:${"a".repeat(64)}`,
+    });
     active.process.terminateTree = async () => {
       terminated = true;
     };

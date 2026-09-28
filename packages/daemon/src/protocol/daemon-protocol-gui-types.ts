@@ -635,7 +635,20 @@ export interface DaemonDecisionSummaryRow {
   readonly riskTier: DecisionProjectionRow["riskTier"];
   readonly urgency: DecisionProjectionRow["urgency"];
   readonly proposedAt: DecisionProjectionRow["proposedAt"];
+  readonly currentReviewContentDigest: DecisionProjectionRow["currentReviewContentDigest"];
 }
+
+export interface DaemonDecisionReviewDispatchRow {
+  readonly dispatchId: string;
+  readonly runtimeSessionId: string;
+  readonly status: "running" | "succeeded" | "failed" | "unknown";
+  readonly reviewContentDigest: string;
+  readonly reportRef: string | null;
+}
+
+export type DaemonDecisionFullRow = DecisionProjectionRow & {
+  readonly reviewDispatches: readonly DaemonDecisionReviewDispatchRow[];
+};
 
 export interface DaemonDecisionListPayload {
   readonly projection?: "summary" | "full";
@@ -645,7 +658,7 @@ export type DaemonDecisionListResult =
   | {
       readonly ok: true;
       readonly projection?: "full";
-      readonly decisions: readonly DecisionProjectionRow[];
+      readonly decisions: readonly DaemonDecisionFullRow[];
       readonly warnings: readonly ProjectionWarning[];
     }
   | {
