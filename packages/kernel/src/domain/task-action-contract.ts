@@ -190,12 +190,14 @@ const createInput = input([
     regex: "^[1-9][0-9]*$",
     projection: "number",
   }),
+  cli("planFile", "string", false, "--plan-file", "single"),
   cli("dryRun", "boolean", false, "--dry-run", "boolean"),
   cli("locale", "string", false, "--locale", "single", { enum: settingsLocales }),
   cli("migration", "boolean", false, "--migration", "boolean"),
   cli("import", "boolean", false, "--import", "boolean"),
   cli("admin", "boolean", false, "--admin", "boolean"),
   field("createMode", "string", false, ["migration", "import", "admin"]),
+  field("plan", "string"),
 ]);
 
 const taskConcurrency = (

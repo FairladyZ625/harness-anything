@@ -263,7 +263,15 @@ function taskPackageFields(
   action: Action,
 ): Pick<
   Parameters<typeof compileTaskPackage>[0],
-  "idempotencyKey" | "parentTaskId" | "workKind" | "riskTier" | "urgency" | "slug" | "surfaces" | "reviewReturnBudget"
+  | "idempotencyKey"
+  | "parentTaskId"
+  | "workKind"
+  | "riskTier"
+  | "urgency"
+  | "slug"
+  | "surfaces"
+  | "reviewReturnBudget"
+  | "plan"
 > {
   const reviewReturnBudget = optionalReviewReturnBudget(action.reviewReturnBudget);
   return {
@@ -277,6 +285,7 @@ function taskPackageFields(
     ...(optionalActionText(action.slug) ? { slug: optionalActionText(action.slug)! } : {}),
     ...(Array.isArray(action.surfaces) ? { surfaces: action.surfaces.map((value) => required(value, "surface")) } : {}),
     ...(reviewReturnBudget === undefined ? {} : { reviewReturnBudget }),
+    ...(optionalActionText(action.plan) ? { plan: optionalActionText(action.plan)! } : {}),
   };
 }
 function optionalReviewReturnBudget(value: unknown): number | undefined {

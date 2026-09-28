@@ -134,8 +134,8 @@ test("guidance plane renders all eight descriptor-derived task-create messages e
       }),
       shared = [
         "contract: repository-diff requires a committable public-repository diff, real CI, and a code-doc reconciliation witness. For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
-        "plan: write the concrete plan at harness/tasks/task-a/task_plan.md; keep every section heading the " +
-          "preset template ships",
+        "plan: ha task create --plan-file <markdown> lands the plan in the same create write; or hand-edit " +
+          "harness/tasks/task-a/task_plan.md; keep every section heading the preset template ships",
         "artifacts: persist supplementary context, research notes, design drafts, worker prompts, and review " +
           "evidence under harness/tasks/task-a/artifacts/; consider landing any extra information or " +
           "background materials here beyond task_plan.md",
@@ -154,8 +154,9 @@ test("guidance plane renders all eight descriptor-derived task-create messages e
     ]);
     assert.deepEqual(renderReceiptGuidance(receipt(false, true)), [
       shared[0],
-      "next: edit harness/tasks/task-a/task_plan.md, then run ha doc sync --submit --path " +
-        "tasks/task-a/task_plan.md, then run ha task start task-a",
+      "next: run ha task start task-a once the plan is canonical — a plan passed as --plan-file is already in " +
+        "this write; a hand-edited task_plan.md still needs ha doc sync --submit from the task's executor or " +
+        "a human principal first",
       ...shared.slice(1),
     ]);
     assert.deepEqual(renderReceiptGuidance(receipt(false, false)), [
@@ -188,14 +189,11 @@ test("task-create receipt points next and plan at one workspace-openable package
         proof: { canonicalVisible: true },
         guidance: taskCreateGuidance(resolveHarnessLayout(physicalRoot), values),
       }),
-      nextPath = /next: edit (\S+)\/task_plan\.md/u.exec(lines.find((line) => line.startsWith("next: edit ")) ?? ""),
-      planPath = /plan: write the concrete plan at (\S+)\/task_plan\.md/u.exec(
-        lines.find((line) => line.startsWith("plan: ")) ?? "",
-      );
-    assert.ok(nextPath, lines.join("\n"));
+      startNext = lines.find((line) => line.startsWith("next: run ha task start ")),
+      planPath = /plan: .*hand-edit (\S+)\/task_plan\.md/u.exec(lines.find((line) => line.startsWith("plan: ")) ?? "");
+    assert.ok(startNext?.includes("ha task start task-a"), lines.join("\n"));
     assert.ok(planPath, lines.join("\n"));
-    assert.equal(nextPath[1], planPath[1]);
-    assert.equal(nextPath[1], "harness/tasks/task-a");
+    assert.equal(planPath[1], "harness/tasks/task-a");
     // A configured layout.authoredRoot reaches the receipt paths instead of the default harness/.
     writeFileSync(path.join(physicalRoot, "harness/harness.yaml"), "layout:\n  authoredRoot: workbench\n");
     const customLines = renderReceiptGuidance({
@@ -209,8 +207,8 @@ test("task-create receipt points next and plan at one workspace-openable package
       customLines.some(
         (line) =>
           line ===
-          "next: edit workbench/tasks/task-a/task_plan.md, then run ha doc sync --submit --path " +
-            "tasks/task-a/task_plan.md, then run ha task start task-a",
+          "plan: ha task create --plan-file <markdown> lands the plan in the same create write; or hand-edit " +
+            "workbench/tasks/task-a/task_plan.md; keep every section heading the preset template ships",
       ),
       customLines.join("\n"),
     );

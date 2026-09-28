@@ -798,10 +798,11 @@ test("human preset and task receipts print resolved completion contracts byte-fo
         "outputShape: repository-diff",
         'completionGates: ["ci","code-doc-reconciliation"]',
         expectedContract,
-        "next: edit harness/tasks/task-one/task_plan.md, then run ha doc sync --submit --path " +
-          "tasks/task-one/task_plan.md, then run ha task start task-one",
-        "plan: write the concrete plan at harness/tasks/task-one/task_plan.md; keep every section heading the " +
-          "preset template ships",
+        "next: run ha task start task-one once the plan is canonical — a plan passed as --plan-file is " +
+          "already in this write; a hand-edited task_plan.md still needs ha doc sync --submit from the " +
+          "task's executor or a human principal first",
+        "plan: ha task create --plan-file <markdown> lands the plan in the same create write; or hand-edit " +
+          "harness/tasks/task-one/task_plan.md; keep every section heading the preset template ships",
         "artifacts: persist supplementary context, research notes, design drafts, worker prompts, and review " +
           "evidence under harness/tasks/task-one/artifacts/; consider landing any extra information or " +
           "background materials here beyond task_plan.md",
@@ -864,6 +865,14 @@ test("thin parser derives closed preset and task-create payloads from descriptor
       dryRun: true,
     });
   }
+  const withPlan = parseThinCommand(["task", "create", "--title", "Bound", "--plan-file", "plans/authored.md"]);
+  assert.equal(withPlan.ok, true);
+  if (withPlan.ok)
+    assert.deepEqual(withPlan.command.action, {
+      kind: "task-create",
+      title: "Bound",
+      planFile: "plans/authored.md",
+    });
   if (tree.ok)
     assert.deepEqual(tree.command.action, {
       kind: "task-list",

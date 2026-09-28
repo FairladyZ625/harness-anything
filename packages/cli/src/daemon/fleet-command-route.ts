@@ -140,6 +140,7 @@ export async function fleetTaskRoute(
     commandType: _commandType,
     fromFile,
     jsonInput,
+    planFile,
     ...action
   } = command.action as Record<string, unknown> & {
     executor?: unknown;
@@ -148,12 +149,31 @@ export async function fleetTaskRoute(
     commandType?: unknown;
     fromFile?: unknown;
     jsonInput?: unknown;
+    planFile?: unknown;
   };
   // Migration/import/admin creation is intentionally
   // outside the remote-edge surface. Falling through produces the existing,
   // explicit repo_mode_read_only receipt instead of silently dropping their
   // authority-bearing fields on the fleet route.
   if (actionKind === "task-create" && createMode !== undefined) return null;
+  // The plan file is edge-local like --from-file: only its resolved body crosses the wire, so the
+  // center never re-reads a path against its own workspace root.
+  if (actionKind === "task-create" && planFile !== undefined) {
+    if (typeof planFile !== "string")
+      throw Object.assign(new Error("--plan-file must name one markdown file on this edge."), {
+        code: "invalid_field",
+      });
+    try {
+      action.plan = readFileSync(path.isAbsolute(planFile) ? planFile : path.join(command.rootDir, planFile), "utf8");
+    } catch (error) {
+      throw Object.assign(
+        new Error(`--plan-file ${planFile} could not be read on this edge: ${cliErrorMessage(error)}`),
+        {
+          code: "invalid_field",
+        },
+      );
+    }
+  }
   const payload: Record<string, unknown> = {
     host: config.host,
     port: config.port,

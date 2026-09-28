@@ -414,7 +414,7 @@ export function bindVerifiedExecutorClaim(input: {
     throw invalidExecutorBindingFor(input, raw, "Executor claims must use runtime-session:<runtime-id>.");
   const runtimeSessionId = match[1]!,
     session = input.projection.readRuntimeSession(runtimeSessionId),
-    taskId = typeof action.taskId === "string" ? action.taskId : null,
+    taskId = executorBindingTaskId(action),
     executionId = typeof action.executionId === "string" ? action.executionId : null;
   if (session === null)
     throw invalidExecutorBindingFor(
@@ -613,7 +613,7 @@ function invalidExecutorBindingFor(
   message: string,
   delegationExpectation?: string,
 ): Error & { readonly code: "executor_binding_invalid" } {
-  const taskId = typeof input.action.taskId === "string" ? input.action.taskId : null,
+  const taskId = executorBindingTaskId(input.action),
     requestedExecutionId = typeof input.action.executionId === "string" ? input.action.executionId : null,
     lease = taskId === null ? null : input.projection.currentLease(taskId, input.now),
     executionId = requestedExecutionId ?? lease?.executionId ?? null,
@@ -682,6 +682,11 @@ function invalidExecutorBindingFor(
       expectation,
     };
   return Object.assign(new Error(message), { code: "executor_binding_invalid" as const, diagnostic });
+}
+
+function executorBindingTaskId(action: RepoTaskAction): string | null {
+  if (action.kind === "task-create" && typeof action.parentTaskId === "string") return action.parentTaskId;
+  return typeof action.taskId === "string" ? action.taskId : null;
 }
 
 function executorRetryCommand(action: RepoTaskAction, taskId: string | null, executionId: string | null): string {

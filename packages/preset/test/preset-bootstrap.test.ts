@@ -6,9 +6,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  assessTransitionDocument,
   compileTaskLifecycleWrite,
   makeTaskEventStore,
   makeTaskProjection,
+  sha256Text,
   type TaskEventV1,
 } from "@harness-anything/kernel";
 import { compilePresetSnapshotUpgrade, compileTaskBootstrap, compileTaskPackage } from "../src/index.ts";
@@ -374,6 +376,107 @@ test("reopen recovers bootstrap machine views while preserving bootstrap prose a
     assert.equal(JSON.parse(readFileSync(manifestPath, "utf8")).cut.revision, 3);
   } finally {
     await reopened.drain();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("an authored plan rides the bootstrap write while readiness keeps deriving from the scaffold", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-plan-")),
+    userRoot = path.join(rootDir, ".harness/presets");
+  try {
+    git(rootDir, "init", "-q");
+    git(rootDir, "config", "user.name", "Preset Test");
+    git(rootDir, "config", "user.email", "preset@example.invalid");
+    git(rootDir, "commit", "--allow-empty", "-qm", "base");
+    const common = {
+      userRoot,
+      verticalId: "software/coding",
+      profileId: "baseline",
+      locale: "en-US",
+      actor: { principal: { personId: "person-1" }, executor: null },
+      source: "local",
+      occurredAt: "2026-08-13T00:00:00.000Z",
+    } as const;
+    const sections = [
+      "Brief",
+      "Goal",
+      "Context",
+      "Required Reading",
+      "Entry Conditions",
+      "Dependencies",
+      "Execution Surface",
+      "Constraints",
+      "Checkpoint",
+      "Implementation Plan",
+      "Deliverable Contract",
+      "Evidence Protocol",
+      "Verification",
+    ];
+    const authoredPlan = `# Authored at create\n\n${sections
+      .map((heading) => `## ${heading}\n\nAuthored content for ${heading}.`)
+      .join("\n\n")}\n`;
+    const compiled = compileTaskBootstrap({
+      ...common,
+      taskId: "task-authored-plan",
+      title: "Authored",
+      presetId: "standard-task",
+      plan: authoredPlan,
+      workspaceRevision: 1,
+      eventId: "event-authored-plan",
+      opId: "op-authored-plan",
+    });
+    assert.equal(compiled.documents.find((document) => document.relativePath === "task_plan.md")!.body, authoredPlan);
+    const closeout = compiled.documents.find((document) => document.relativePath === "closeout.md")!;
+    assert.match(closeout.body, /Replace this file's placeholder content before closeout/u);
+    const contract = JSON.parse(
+        compiled.documents.find((document) => document.relativePath === "task-contract.json")!.body,
+      ),
+      planDescriptor = contract.documents.find(
+        (descriptor: { readonly slot: string }) => descriptor.slot === "task.plan",
+      );
+    assert.ok(planDescriptor.readiness, "task.plan descriptor keeps a readiness contract");
+    assert.ok(
+      planDescriptor.readiness.Brief?.includes("One-line statement of the task objective and scope."),
+      "readiness phrases stay the scaffold's, not the authored body's",
+    );
+    const readiness = assessTransitionDocument("task.plan", authoredPlan, {
+      requiredSections: Object.keys(planDescriptor.readiness),
+      scaffoldBySection: planDescriptor.readiness,
+    });
+    assert.equal(readiness.ready, true, JSON.stringify(readiness.missingSections));
+    const incomplete = assessTransitionDocument(
+      "task.plan",
+      authoredPlan.replace("## Verification\n\nAuthored content for Verification.", ""),
+      {
+        requiredSections: Object.keys(planDescriptor.readiness),
+        scaffoldBySection: planDescriptor.readiness,
+      },
+    );
+    assert.equal(incomplete.ready, false);
+    assert.deepEqual(
+      incomplete.missingSections.map(({ section }) => section),
+      ["Verification"],
+    );
+    const bootstrapClaim = compiled.event.payload.initialDocumentClaims.find(({ path }) =>
+      path.endsWith("/task_plan.md"),
+    )!;
+    assert.equal(bootstrapClaim.sha256, sha256Text(authoredPlan));
+    const blank = compileTaskBootstrap({
+      ...common,
+      taskId: "task-blank-plan",
+      title: "Blank",
+      presetId: "standard-task",
+      plan: "   \n",
+      workspaceRevision: 2,
+      eventId: "event-blank-plan",
+      opId: "op-blank-plan",
+    });
+    assert.match(
+      blank.documents.find((document) => document.relativePath === "task_plan.md")!.body,
+      /^# Blank$/mu,
+      "a whitespace-only plan falls back to the scaffold body",
+    );
+  } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
