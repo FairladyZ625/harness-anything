@@ -47,7 +47,17 @@ async function runChildSlice(
       ).outcome,
       "applied",
     );
-  const delivery = execFileSync("git", ["-C", f.root, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
+  const deliveryRoot =
+      created.outputShape === "repository-diff" ? path.join(f.root, ".worktrees", childTaskId) : f.root,
+    delivery =
+      created.outputShape === "repository-diff"
+        ? (() => {
+            writeFileSync(path.join(deliveryRoot, "README.md"), `# ${childTaskId} delivery\n`);
+            execFileSync("git", ["-C", deliveryRoot, "add", "README.md"]);
+            execFileSync("git", ["-C", deliveryRoot, "commit", "-qm", "test: child task delivery"]);
+            return execFileSync("git", ["-C", deliveryRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
+          })()
+        : execFileSync("git", ["-C", deliveryRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
     closeoutBody = options.factless
       ? `# Closeout\n\n## Summary\n\nReviewed delivery ${delivery}\n\n## Verification\n\nnode tools/x.test.mjs — exit 0.\n\n`
       : `# Closeout\n\n## Summary\n\nReviewed delivery ${delivery}\n\n## Verification\n\nREADME bytes checked.\n\n` +
