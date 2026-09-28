@@ -7,6 +7,7 @@ const {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
   path,
@@ -25,9 +26,12 @@ const {
   waitForMaterializationFailure,
   parseCliReceipt,
   expectApplied,
+  expectNoop,
   published,
   runResult,
   git,
+  cli,
+  spawn,
 } = shared;
 
 test("eight CLI clients share one center while completing each task", async (context) => {
@@ -498,3 +502,101 @@ test("a locally edited task plan blocks a CLI retitle until doc sync submits the
     rmSync(fixture.parent, { recursive: true, force: true });
   }
 });
+
+test("a restored task plan preserves local prose that CLI discard-local and resolve both clear", async (context) => {
+  const fixture = setup(13),
+    taskId = "task-cli-plan-restore-conflict",
+    title = "CLI plan restore conflict",
+    environment = actorEnvironment(fixture, 0, "agent:plan-restore-worker");
+  try {
+    await startClient(fixture);
+    const created = await expectApplied(fixture, createArgs(taskId, title), environment),
+      packagePath = String(created.packagePath),
+      planPath = path.join(fixture.root, "harness", packagePath, "task_plan.md"),
+      planLogical = packagePathFor(packagePath, "task_plan.md"),
+      conflictRoot = path.join(fixture.root, ".harness/conflicts/doc-sync");
+    await published(fixture, created, environment);
+    writeFileSync(planPath, realizedTaskPlan(title));
+    await published(
+      fixture,
+      await expectApplied(fixture, ["doc", "sync", "--submit", "--path", planLogical], environment),
+      environment,
+    );
+    const centerBody = readFileSync(planPath, "utf8"),
+      drift = "## Drift\n\nUnsubmitted worker prose restored over by doc materialize.\n";
+    // Restoring a dirty plan keeps the local prose in a scratch and leaves the worktree equal to the center:
+    // base, current, and candidate agree, yet the scratch holds the path in conflict until an exit clears it.
+    const stage = async (): Promise<string> => {
+      writeFileSync(planPath, `${centerBody}\n${drift}`);
+      await expectApplied(fixture, ["doc", "materialize", "--path", planLogical], environment);
+      assert.equal(readFileSync(planPath, "utf8"), centerBody);
+      const scratches = readdirSync(conflictRoot).filter((name) => /^doc-[0-9a-f]{64}$/u.test(name));
+      assert.equal(scratches.length, 1, `expected one conflict record, found ${JSON.stringify(scratches)}`);
+      assert.equal(readFileSync(path.join(conflictRoot, scratches[0]!, "local"), "utf8"), `${centerBody}\n${drift}`);
+      const conflicted = await expectApplied(fixture, ["doc", "status", "--path", planLogical], environment);
+      assert.equal(docScanRows(conflicted.evidence)[0]?.state, "conflict", String(conflicted.evidence));
+      return scratches[0]!;
+    };
+    // discard-local in its default (non-JSON) form must report the discard it performed.
+    const discardedId = await stage(),
+      discarded = await runPlain(fixture, ["doc", "conflict", "discard-local", discardedId], environment);
+    assert.equal(discarded.status, 0, `${discarded.stderr}\n${discarded.stdout}`);
+    assert.doesNotMatch(discarded.stdout, /acceptance_unknown|indeterminate/u, discarded.stdout);
+    assert.equal(existsSync(path.join(conflictRoot, discardedId)), false);
+    const repeated = await runResult(fixture, ["doc", "conflict", "discard-local", discardedId], environment),
+      repeatedReceipt = parseCliReceipt(repeated, "doc conflict discard-local");
+    assert.notEqual(repeated.status, 0, repeated.stdout);
+    assert.equal(repeatedReceipt.code, "conflict_not_found", repeated.stdout);
+    const cleared = await expectApplied(fixture, ["doc", "status", "--path", planLogical], environment);
+    assert.equal(docScanRows(cleared.evidence)[0]?.state, "clean", String(cleared.evidence));
+    // resolve without merging accepts the center bytes already on disk: nothing to submit, the scratch still closes.
+    const acceptedId = await stage();
+    await expectNoop(fixture, ["doc", "conflict", "resolve", acceptedId], environment);
+    assert.equal(existsSync(path.join(conflictRoot, acceptedId)), false);
+    // resolve: merge the preserved prose back by hand, then submit it and close the scratch in one exit.
+    const resolvedId = await stage();
+    writeFileSync(planPath, `${centerBody}\n${drift}`);
+    const resolved = await expectApplied(fixture, ["doc", "conflict", "resolve", resolvedId], environment);
+    await published(fixture, resolved, environment);
+    assert.equal(existsSync(path.join(conflictRoot, resolvedId)), false);
+    const canonical = await expectApplied(fixture, ["doc", "show", "--path", planLogical], environment);
+    assert.match(String(canonical.evidence ?? ""), /restored over by doc materialize/u);
+    const healed = await expectApplied(fixture, ["doc", "status", "--path", planLogical], environment);
+    assert.equal(docScanRows(healed.evidence)[0]?.state, "clean", String(healed.evidence));
+    context.diagnostic(
+      JSON.stringify({
+        schema: "cli-lifecycle-plan-restore-conflict/v1",
+        taskId,
+        discardedId,
+        discardExit: discarded.status,
+        discardStdout: discarded.stdout,
+        repeatCode: String(repeatedReceipt.code ?? ""),
+        resolvedId,
+        resolveOpId: String(resolved.opId ?? ""),
+      }),
+    );
+  } finally {
+    await stopClient(fixture);
+    rmSync(fixture.parent, { recursive: true, force: true });
+  }
+});
+
+function runPlain(
+  fixture: ReturnType<typeof setup>,
+  args: readonly string[],
+  environment: NodeJS.ProcessEnv,
+): Promise<{ readonly status: number | null; readonly stdout: string; readonly stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [cli, "--root", fixture.root, ...args], {
+      cwd: fixture.root,
+      env: environment,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "",
+      stderr = "";
+    child.stdout.on("data", (chunk) => (stdout += chunk));
+    child.stderr.on("data", (chunk) => (stderr += chunk));
+    child.once("error", reject);
+    child.once("close", (status) => resolve({ status, stdout: stdout.trim(), stderr: stderr.trim() }));
+  });
+}
