@@ -61,6 +61,10 @@ export interface DocCandidateScan {
   readonly executionId: string | null;
   readonly executionCandidates: readonly string[];
   readonly lease: ReturnType<TaskProjection["currentLeaseForExecution"]>;
+  // Tasks owning the scanned paths whose current cut is past submit (submitted or in_review):
+  // the package is frozen there, so a lease_conflict recovery must name the before-submit
+  // order instead of a lease the submitter can no longer acquire.
+  readonly frozenTaskIds: readonly string[];
   readonly rows: readonly ScannedDocCandidate[];
 }
 
@@ -139,14 +143,25 @@ export function scanDocCandidates(input: {
       execution.lease === null
         ? null
         : resolveTaskBoundRuntimeBinding(runtimeSession, execution.lease.taskId, execution.lease.executionId),
+    frozenTaskIds = frozenTaskIdsFor(paths),
     rows = paths.map((logical) => scanOne(logical));
   return {
     baseLedgerSha,
     executionId: execution.id,
     executionCandidates: execution.candidates,
     lease: execution.lease,
+    frozenTaskIds,
     rows,
   };
+  function frozenTaskIdsFor(scanned: readonly string[]): readonly string[] {
+    const ids = [...new Set(scanned.flatMap((value) => input.projection.taskIdForDocumentPath(value) ?? []))];
+    if (ids.length === 0) return [];
+    const statuses = input.projection.readTaskStatuses(ids).rows;
+    return ids.filter((id) => {
+      const status = statuses.find((row) => row.taskId === id)?.status;
+      return status === "submitted" || status === "in_review";
+    });
+  }
   function scanOne(logical: string): ScannedDocCandidate {
     const inventoried = inventoryByPath.get(logical),
       document = documentPath(logical),
