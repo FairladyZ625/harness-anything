@@ -58,8 +58,18 @@ export async function fetchCiObservations(
     readonly projection?: Pick<TaskProjection, "read">;
   },
   action: RepoTaskAction,
-  runGh: RunGh = (command, args, options) => runProcessTextAsync(command, args, options.cwd),
+  ghRunner: RunGh = (command, args, options) => runProcessTextAsync(command, args, options.cwd),
 ): Promise<CiObservationFetch> {
+  // GitHub rate limits surface as gh 403 stderr; classifying them here reports rate_limited with
+  // the reset hint, so callers wait instead of retrying a raw service_rejected dump that deepens
+  // the limit.
+  const runGh: RunGh = async (command, args, options) => {
+    try {
+      return await ghRunner(command, args, options);
+    } catch (error) {
+      throw rethrowGhFailureAsRateLimit(cell, error);
+    }
+  };
   const limit = Number(action.limit ?? 20),
     namedRuns = Array.isArray(action.runs) ? action.runs.map(Number) : null,
     taskId = typeof action.taskId === "string" ? action.taskId : null,
@@ -395,6 +405,27 @@ async function coversCommit(runGh: RunGh, cwd: string, base: string, head: strin
     readonly status?: string;
   };
   return compare.status === "ahead" || compare.status === "identical";
+}
+
+const ghRateLimitText = /rate limit/iu;
+const ghRateLimitResetText = /(?:reset in|try again in) ((?:[0-9]+[a-z]+)+)/iu;
+
+// Non-rate-limit gh failures pass through untouched; rate limits rethrow as rate_limited with
+// the reset hint parsed out of gh's stderr so the receipt names a wait, not a retry.
+function rethrowGhFailureAsRateLimit(cell: Pick<RepoCellOperationalContext, "cellCodedError">, error: unknown): never {
+  const message = error instanceof Error ? error.message : String(error),
+    stderr =
+      typeof error === "object" && error !== null && typeof (error as { stderr?: unknown }).stderr === "string"
+        ? (error as { stderr: string }).stderr
+        : "";
+  const detail = `${message}\n${stderr}`;
+  if (!ghRateLimitText.test(detail)) throw error;
+  const reset = ghRateLimitResetText.exec(detail)?.[1];
+  throw cell.cellCodedError(
+    "rate_limited",
+    `GitHub rate-limited the gh call while observing CI.${reset ? ` Rate limit resets in ${reset}.` : ""} ` +
+      "next: wait for the reset, then retry ha ci observe pull; nothing was imported.",
+  );
 }
 
 function readArtifacts(root: string): readonly CiRunArtifact[] {

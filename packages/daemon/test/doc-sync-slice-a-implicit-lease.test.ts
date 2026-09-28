@@ -210,6 +210,10 @@ test("a runtime session with multiple matching held executions rejects with exac
           sourceRevision: 0,
           document: null,
         }),
+        readTaskStatuses: (taskIds?: readonly string[]) => ({
+          status: "ready",
+          rows: (taskIds ?? []).map((id) => ({ taskId: id, status: "active" })),
+        }),
       } as unknown as TaskProjection,
       store = makeTaskEventStore({ repoId: "runtime-routes", rootDir });
     const rejected = await runDocAction({
@@ -518,6 +522,94 @@ async function waitForReceipt(
   return shown;
 }
 
+// Submit atomically releases the implementation lease (the kernel submit-atomicity contract),
+// so the package freeze is intentional: a runtime submitter's post-submit doc sync must name the
+// before-submit order, not a lease they can no longer acquire.
+test("a runtime actor's post-submit doc sync names the before-submit order, not a lease rerun", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-post-submit-order-"));
+  initRepo(rootDir);
+  const repoId = workspaceId("post-submit-order"),
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "post-submit-order-daemon",
+    });
+  const person = withRoleBinding(
+      {
+        actor: {
+          principal: { personId: "person-owner" },
+          executor: { kind: "agent", id: "codex" },
+        },
+        source: "local" as const,
+      },
+      "owner",
+    ),
+    worker = withRoleBinding(
+      {
+        actor: {
+          principal: { personId: "person-owner" },
+          executor: { kind: "agent", id: "runtime-session:post-submit-worker" },
+        },
+        source: "local" as const,
+      },
+      "owner",
+    ),
+    taskId = "task_PRBODY0000000000000000AAAAA";
+  try {
+    const created = (await cell.run({ kind: "task-create", taskId, title: "post-submit order fixture" }, person)) as {
+        packagePath?: string;
+        opId?: string;
+      },
+      packagePath = created.packagePath!;
+    await waitForWorktree(cell, { opId: String(created.opId) }, person);
+    await realizeTaskPlanFixture(rootDir, packagePath, (planPath) =>
+      cell.run({ kind: "doc-submit", paths: [planPath] }, person),
+    );
+    assert.equal(
+      (await cell.run({ kind: "task-start", taskId, executionId: "exec-prbody" }, person)).outcome,
+      "applied",
+    );
+    const prBody = `${packagePath}/artifacts/pr-body.md`;
+    write(rootDir, prBody, "# PR body\n\nv1\n");
+    const firstSync = (await cell.run({ kind: "doc-submit", paths: [prBody] }, person)) as {
+      opId?: string;
+      outcome?: string;
+      revision?: number;
+    };
+    assert.equal(firstSync.outcome, "applied", JSON.stringify(firstSync));
+    await waitForWorktree(cell, { opId: String(firstSync.opId) }, person);
+    write(
+      rootDir,
+      `${packagePath}/closeout.md`,
+      `# Closeout\n\n## Summary\n\nDelivered artifact:${prBody}@${firstSync.revision}\n\n` +
+        "## Verification\n\nIntegration assertions exercise the post-submit order.\n\n" +
+        "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n",
+    );
+    assert.equal(
+      (await cell.run({ kind: "doc-submit", paths: [`${packagePath}/closeout.md`] }, person)).outcome,
+      "applied",
+    );
+    const submitted = (await cell.run({ kind: "task-submit", taskId }, person)) as { outcome?: string };
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    // The friction: the worker's runtime session tries to land an updated pr-body.md after
+    // submit released the lease; the recovery must name the before-submit order.
+    write(rootDir, prBody, "# PR body\n\nv2\n");
+    const rejected = (await cell.run({ kind: "doc-submit", paths: [prBody] }, worker)) as {
+      outcome?: string;
+      code?: string;
+      rejectionExplanation?: string;
+    };
+    assert.equal(rejected.outcome, "op_rejected");
+    assert.equal(rejected.code, "lease_conflict");
+    assert.match(rejected.rejectionExplanation ?? "", new RegExp(`${taskId}.*frozen`, "u"));
+    assert.match(rejected.rejectionExplanation ?? "", /BEFORE ha task submit/u);
+    assert.doesNotMatch(rejected.rejectionExplanation ?? "", /acquire the task lease/u);
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 // …and the named recovery terminates for a session that is actually bound:
 // flipping the same lease back to held (what release+start does) makes the
 // identical submit apply.
@@ -566,6 +658,10 @@ test("the named release-and-re-enter recovery terminates for a bound runtime ses
           watermark,
           sourceRevision: watermark,
           document: documents.get(target) ?? null,
+        }),
+        readTaskStatuses: (taskIds?: readonly string[]) => ({
+          status: "ready",
+          rows: (taskIds ?? []).map((id) => ({ taskId: id, status: "active" })),
         }),
         apply: (event: {
           readonly workspaceRevision: number;

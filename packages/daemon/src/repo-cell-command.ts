@@ -187,6 +187,8 @@ export function buildCommand(
       "forward",
       "return",
       "reviewer",
+      "runtimeInstanceId",
+      "model",
       "reviewId",
       "reason",
       "noteFile",

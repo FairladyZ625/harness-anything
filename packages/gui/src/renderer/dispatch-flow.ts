@@ -57,28 +57,17 @@ export function dispatchTargetModel(
 ): string | undefined {
   return agentRuntimeTargetForKind(runtimes, instance.kindId)?.model;
 }
-export function requireCompatibleDispatchInstance(
-  request: Pick<DispatchRequest, "subject" | "runtimeInstanceId">,
-  instances: readonly AgentRuntimeInstanceDto[],
-): AgentRuntimeInstanceDto {
-  const executor = dispatchExecutorRef(request),
-    instance = instances.find((row) => row.instanceId === request.runtimeInstanceId);
-  if (!executor) throw new Error("dispatch_executor_missing");
-  if (!instance || !instance.enabled || !agentRuntimeKindMatches(executor.runtimes, instance.kindId))
-    throw new Error("dispatch_runtime_type_mismatch");
-  return instance;
-}
 export function buildDispatchSpawnInput(
   request: DispatchRequest,
-  instances: readonly AgentRuntimeInstanceDto[],
+  _instances: readonly AgentRuntimeInstanceDto[],
 ): RuntimeSpawnInput {
+  // Runtime type is a default-instance selection hint (compatibleDispatchInstances), never an
+  // admission condition: an operator-named instance is passed through for the daemon to validate.
   const executor = dispatchExecutorRef(request);
   if (!executor) throw new Error("dispatch_executor_missing");
-  if (request.runtimeInstanceId)
-    requireCompatibleDispatchInstance(request as DispatchRequest & { readonly runtimeInstanceId: string }, instances);
   // Squad dispatch is leader-only: agentId names the Commander, squadId carries the squad
   // attribution the daemon stamps onto the dispatch, and no targetAgentId is ever set —
-  // subordinates are the Commander's own decisions, recorded under its parent session edge.
+  // subordinates are the Commander's own decisions, recorded under their parent session edge.
   const squadRouting =
     request.subject.kind === "squad"
       ? { agentId: request.subject.leader.agentId, squadId: request.subject.squadId }

@@ -164,7 +164,10 @@ test("Delegated dispatches archive identity, mission and separate reports and re
   ]);
   assert.equal(outsider.status, 1);
   assert.equal(outsider.receipt.code, "squad_member_not_found");
-  const mismatch = runMaybe(root, env, [
+  // Runtime type is a default-instance selection hint, not an admission condition: an
+  // opencode-typed agent dispatches on a codex instance when the operator names it.
+  run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
+  const crossKind = run(root, env, [
     "agent",
     "run",
     "fable",
@@ -173,13 +176,13 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     "--instance",
     "cli-worker",
     "--prompt",
-    "reject mismatch",
+    "cross-kind dispatch",
     "--task",
     taskId,
     "--no-stream",
   ]);
-  assert.equal(mismatch.status, 1);
-  assert.equal(mismatch.receipt.code, "agent_runtime_type_mismatch");
+  const crossKindDispatchId = String((crossKind.spawn as Record<string, unknown>).dispatchId);
+  assert.match(crossKindDispatchId, /^dispatch_/u, JSON.stringify(crossKind));
 });
 
 test("Runtime report is archived after the worker submits its execution", async (context) => {
@@ -415,7 +418,7 @@ test("CLI discovers instances, runs direct prompts, resumes and streams with sta
   );
   assert.equal(streamed.status, 0, streamed.stderr);
   assert.equal(streamed.stdout.trim(), "final:stream prompt");
-  const listed = run(root, env, ["runtime", "status"]),
+  const listed = run(root, env, ["runtime", "status", "--limit", "10"]),
     sessions = listed.sessions as Array<Record<string, unknown>>;
   assert.equal(sessions.length, 3);
   assert.match(streamed.stderr, /\[message\] live:stream prompt/u, JSON.stringify(sessions));

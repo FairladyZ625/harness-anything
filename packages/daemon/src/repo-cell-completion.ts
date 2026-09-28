@@ -24,6 +24,7 @@ import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 import { renderEvidencePayload } from "./repo-cell-evidence.ts";
 import { failed } from "./repo-cell-settlement.ts";
 import { projectedTaskNotFound } from "./projection-readiness.ts";
+import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
 import { presetSnapshotReader, taskWorkspaceView } from "./task-worktree.ts";
 
 /**
@@ -151,8 +152,27 @@ export function taskShowFromProjection(
     notFound = projectedTaskNotFound(read, taskId);
   // task-show answers with receipts on every path — the fleet lease probe reads outcome/code
   // off the receipt — so settle the shared judgment instead of throwing past the attached
-  // fast path, which has no write-queue settlement.
-  if (notFound !== null) return failed(`read:${taskId}`, notFound);
+  // fast path, which has no write-queue settlement. A missing exact id still resolves as a
+  // unique short-id prefix (git-style); ambiguity lists the candidates.
+  if (notFound !== null) {
+    const prefixed = resolveUniquePrefix(
+      taskId,
+      projection.readTaskIndex().rows.map(({ taskId: candidate }) => candidate),
+    );
+    if (prefixed.matched) return taskShowFromProjection(rootDir, projection, prefixed.id);
+    if (prefixed.candidates.length > 1)
+      return failed(
+        `read:${taskId}`,
+        Object.assign(
+          new Error(
+            `Task id ${taskId} is a prefix of ${String(prefixed.candidates.length)} task ids ` +
+              `(${candidateSample(prefixed.candidates)}). Use a longer prefix or the full id.`,
+          ),
+          { code: "task_ambiguous_id" } as const,
+        ),
+      );
+    return failed(`read:${taskId}`, notFound);
+  }
   const task = read.snapshot.task,
     execution = read.snapshot.executions.find(
       (candidate) => candidate.iteration === task?.iteration && candidate.submission !== null,

@@ -497,6 +497,8 @@ export const declarations: readonly Declaration[] = Object.freeze([
         cli("forward", "boolean", false, "--forward", "boolean"),
         cli("return", "boolean", false, "--return", "boolean"),
         cli("reviewer", "string", false, "--reviewer"),
+        cli("runtimeInstanceId", "string", false, "--instance"),
+        cli("model", "string", false, "--model"),
         cli("reviewId", "string", false, "--review-id"),
         cli("reason", "string", false, "--note"),
         cli("noteFile", "string", false, "--note-file", "single", {

@@ -134,6 +134,42 @@ export function initRepo(rootDir: string): void {
   git(rootDir, "add", "harness");
   git(rootDir, "commit", "-qm", "base");
 }
+// The dogfood layout: the product repository hosts harness/ as its own nested ledger Git
+// repository, so the ledger authored prefix is empty and repo-relative selections keep the
+// product-visible harness/ segment.
+export function initNestedLedgerRepo(rootDir: string): void {
+  const ledger = path.join(rootDir, "harness");
+  git(rootDir, "init", "-q");
+  git(rootDir, "config", "user.name", "Doc A Test");
+  git(rootDir, "config", "user.email", "doc-a@example.invalid");
+  mkdirSync(ledger, { recursive: true });
+  git(ledger, "init", "-q");
+  git(ledger, "config", "user.name", "Doc A Test");
+  git(ledger, "config", "user.email", "doc-a@example.invalid");
+  write(
+    rootDir,
+    "harness.yaml",
+    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+  );
+  write(
+    rootDir,
+    "people.yaml",
+    `${JSON.stringify({
+      schema: "harness-people/v1",
+      people: [
+        {
+          personId: actor.principal.personId,
+          displayName: "Doc A Owner",
+          roles: ["owner"],
+          credentials: [],
+        },
+      ],
+      roles: [{ roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] }],
+    })}\n`,
+  );
+  git(ledger, "add", ".");
+  git(ledger, "commit", "-qm", "base");
+}
 export function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], {
     encoding: "utf8",

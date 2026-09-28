@@ -740,6 +740,35 @@ test("task pin and unpin route through entity pin events and update agenda order
   });
 });
 
+test("task show resolves unique short-id prefixes and lists ambiguous candidates", async () => {
+  await withCell("agenda-short-id", async (cell) => {
+    for (const taskId of ["task_short_alpha", "task_short_amber", "task_other"]) {
+      const created = await cell.run({ kind: "task-create", taskId, title: "Short id fixture" }, binding);
+      assert.equal(created.outcome, "applied", JSON.stringify(created));
+      await waitForFixturePublication(cell, created.opId, binding);
+    }
+    // A unique prefix resolves (git-style); the receipt carries the resolved task.
+    const resolved = await cell.run({ kind: "task-show", taskId: "task_short_al" }, binding);
+    assert.equal(
+      (JSON.parse(String(resolved.evidence)) as { readonly task: { readonly taskId: string } }).task.taskId,
+      "task_short_alpha",
+    );
+    // An ambiguous prefix lists the candidates instead of guessing.
+    const ambiguous = (await cell.run({ kind: "task-show", taskId: "task_short" }, binding)) as Record<string, unknown>;
+    assert.equal(ambiguous.outcome, "op_rejected");
+    assert.equal(ambiguous.code, "task_ambiguous_id");
+    assert.match(String(ambiguous.rejectionExplanation), /task_short_alpha/u);
+    assert.match(String(ambiguous.rejectionExplanation), /task_short_amber/u);
+    // A non-matching id keeps the plain not-found answer.
+    const missing = (await cell.run({ kind: "task-show", taskId: "task_nonexistent" }, binding)) as Record<
+      string,
+      unknown
+    >;
+    assert.equal(missing.outcome, "op_rejected");
+    assert.equal(missing.code, "task_not_found");
+  });
+});
+
 test("entity pins cover task, decision, and schedule with bounded rendering and ordered idempotency", async () => {
   await withCell(
     "agenda-entity-pins",

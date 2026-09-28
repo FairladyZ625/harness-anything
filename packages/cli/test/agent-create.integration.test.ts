@@ -115,6 +115,47 @@ test("agent create runs and ontology-squad reinstall stays on the canonical Enti
       (JSON.parse(String(ontologyReinstalled.evidence)) as { report: { changed: boolean } }).report.changed,
       false,
     );
+    // --expected-version turns a reinstall into a guarded in-place update: no delete while
+    // in-flight runs still reference the identity, and a concurrent edit cannot be overwritten.
+    const staleInstall = runMaybe(root, env, [
+      "agent",
+      "install",
+      "--source",
+      designerRoot,
+      "--expected-version",
+      "99",
+    ]);
+    assert.equal(staleInstall.status, 1);
+    assert.equal(staleInstall.receipt.code, "revision_conflict");
+    const currentRevision = Number(
+      /current revision is (?<revision>[0-9]+)/u.exec(String(staleInstall.receipt.rejectionExplanation))?.groups
+        ?.revision,
+    );
+    assert.ok(Number.isSafeInteger(currentRevision) && currentRevision >= 1, String(staleInstall.receipt));
+    writeAgent(designerRoot, {
+      schema: "agent-declaration/v1",
+      id: "meta-designer",
+      name: "Meta Designer",
+      instructions: "Design and revise in place.",
+      runtimes: [{ type: "codex" }],
+      instance: "agent-create-codex",
+    });
+    const updated = run(root, env, [
+      "agent",
+      "install",
+      "--source",
+      designerRoot,
+      "--expected-version",
+      String(currentRevision),
+    ]);
+    assert.equal(updated.outcome, "applied");
+    assert.equal((JSON.parse(String(updated.evidence)) as { report: { changed: boolean } }).report.changed, true);
+    // A mismatched version is rejected on the updated entity too. (Re-running the identical
+    // command above would idempotently replay its accepted event — content drift never enters
+    // the operation id — so this arm uses a different, still-wrong version to reach the check.)
+    const staleAgain = runMaybe(root, env, ["agent", "install", "--source", designerRoot, "--expected-version", "0"]);
+    assert.equal(staleAgain.status, 1, JSON.stringify(staleAgain.receipt));
+    assert.equal(staleAgain.receipt.code, "revision_conflict", JSON.stringify(staleAgain.receipt));
     const replayedInstall = run(root, env, ["receipt", "show", String(installed.opId)]);
     assert.deepEqual(replayedInstall.detail, installed.detail);
     assert.equal(existsSync(path.join(root, "harness", "agents", "meta-designer.json")), true);

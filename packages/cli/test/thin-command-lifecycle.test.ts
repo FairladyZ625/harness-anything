@@ -103,6 +103,32 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
       reason: "Forward the submitted cut.",
       commandType: "AdjudicateSubmission",
     });
+  const pinned = parseThinCommand([
+    "task",
+    "adjudicate",
+    "task-1",
+    "--forward",
+    "--reviewer",
+    "specialist",
+    "--instance",
+    "instance-1",
+    "--model",
+    "model-1",
+    "--note",
+    "Forward the submitted cut.",
+  ]);
+  assert.equal(pinned.ok, true, JSON.stringify(pinned));
+  if (pinned.ok)
+    assert.deepEqual(pinned.command.action, {
+      kind: "task-adjudicate",
+      taskId: "task-1",
+      forward: true,
+      reviewer: "specialist",
+      runtimeInstanceId: "instance-1",
+      model: "model-1",
+      reason: "Forward the submitted cut.",
+      commandType: "AdjudicateSubmission",
+    });
   if (declare.ok)
     assert.deepEqual(declare.command.action, {
       kind: "task-declare-executor",

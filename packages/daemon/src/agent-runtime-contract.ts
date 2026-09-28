@@ -62,24 +62,6 @@ export const agentRuntimeTargetForKind = <T extends { readonly type: string }>(
 ): T | undefined => runtimes.find((target) => target.type === kindId);
 export const agentRuntimeTargetSummary = (runtimes: readonly { readonly type: string }[]): string =>
   runtimes.length === 0 ? "any" : runtimes.map((target) => target.type).join(", ");
-/** Verbatim mismatch text for the dispatch guard, naming the whole declared set and the actual kind. */
-export const agentRuntimeKindMismatchDetail = (
-  agentId: string,
-  runtimes: readonly { readonly type: string }[],
-  instanceId: string,
-  kindId: string,
-): string =>
-  [
-    "Agent ",
-    `${agentId}`,
-    " requires ",
-    agentRuntimeTargetSummary(runtimes),
-    ", but instance ",
-    `${instanceId}`,
-    " is ",
-    `${kindId}`,
-    ".",
-  ].join("");
 /** Every declared runtime row pins a model, so no dispatch can land on an instance default. */
 export const agentDeclaresExplicitModels = (
   runtimes: readonly { readonly type: string; readonly model?: string }[],

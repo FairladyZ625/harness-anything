@@ -416,11 +416,13 @@ export const agentProtocolCommands = Object.freeze([
     id: "agent-install",
     phase: "Runtime-B",
     path: ["agent", "install"],
-    summary: "Install an Agent declaration into the repository entity store.",
+    summary:
+      "Install an Agent declaration, or update an existing one in place; --expected-version guards the update against concurrent edits.",
     method: "repo.task.run",
     inputs: [
       cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" }),
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
+      cliInput("--expected-version", "single", false, { code: "invalid_field" }, { projection: "number" }),
     ],
   }),
   defineLedgerWriteCommand({
@@ -511,11 +513,13 @@ export const agentProtocolCommands = Object.freeze([
     id: "squad-install",
     phase: "Runtime-B",
     path: ["squad", "install"],
-    summary: "Install a Squad declaration into the repository entity store.",
+    summary:
+      "Install a Squad declaration, or update an existing one in place; --expected-version guards the update against concurrent edits.",
     method: "repo.task.run",
     inputs: [
       cliInput("--source", "single", true, { code: "missing_field" }, { field: "packageSource" }),
       cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
+      cliInput("--expected-version", "single", false, { code: "invalid_field" }, { projection: "number" }),
     ],
   }),
   defineLedgerWriteCommand({

@@ -61,6 +61,10 @@ export interface DocCandidateScan {
   readonly executionId: string | null;
   readonly executionCandidates: readonly string[];
   readonly lease: ReturnType<TaskProjection["currentLeaseForExecution"]>;
+  // Tasks owning the scanned paths whose current cut is past submit (submitted or in_review):
+  // the package is frozen there, so a lease_conflict recovery must name the before-submit
+  // order instead of a lease the submitter can no longer acquire.
+  readonly frozenTaskIds: readonly string[];
   readonly rows: readonly ScannedDocCandidate[];
 }
 
@@ -108,7 +112,9 @@ export function scanDocCandidates(input: {
     // enumerated on purpose so scanOne blocks them with an actionable reason
     // instead of the submit silently dropping them.
     enumerationScope = taskPrefix ?? "",
-    selected = input.selection?.map((value) => documentPath(normalizeSelectedPath(ledger.authoredPrefix, value))),
+    selected = input.selection?.map((value) =>
+      documentPath(normalizeSelectedPath(ledger.authoredPrefix, sourcePrefix, value)),
+    ),
     inventoryByPath = new Map(input.inventory?.rows.map((row) => [row.path, row] as const) ?? []),
     conflictsByPath = localDocConflictsByPath(layout),
     candidates = selected?.length
@@ -137,14 +143,25 @@ export function scanDocCandidates(input: {
       execution.lease === null
         ? null
         : resolveTaskBoundRuntimeBinding(runtimeSession, execution.lease.taskId, execution.lease.executionId),
+    frozenTaskIds = frozenTaskIdsFor(paths),
     rows = paths.map((logical) => scanOne(logical));
   return {
     baseLedgerSha,
     executionId: execution.id,
     executionCandidates: execution.candidates,
     lease: execution.lease,
+    frozenTaskIds,
     rows,
   };
+  function frozenTaskIdsFor(scanned: readonly string[]): readonly string[] {
+    const ids = [...new Set(scanned.flatMap((value) => input.projection.taskIdForDocumentPath(value) ?? []))];
+    if (ids.length === 0) return [];
+    const statuses = input.projection.readTaskStatuses(ids).rows;
+    return ids.filter((id) => {
+      const status = statuses.find((row) => row.taskId === id)?.status;
+      return status === "submitted" || status === "in_review";
+    });
+  }
   function scanOne(logical: string): ScannedDocCandidate {
     const inventoried = inventoryByPath.get(logical),
       document = documentPath(logical),
@@ -478,8 +495,13 @@ export function validateSelectedDocPaths(selected: readonly string[], scan: DocC
   if (missing[0]) throw docSyncError("document_not_found", blockedCandidateNextAction(missing[0]));
 }
 
-function normalizeSelectedPath(authoredPrefix: string, value: string): string {
-  return authoredPrefix && value.startsWith(`${authoredPrefix}/`) ? value.slice(authoredPrefix.length + 1) : value;
+// Both the ledger Git prefix and the product-visible authored-root prefix are accepted: the
+// authored root is its own Git repository in the nested layout, so the ledger prefix is empty
+// there while users still spell selection paths relative to the product root.
+function normalizeSelectedPath(authoredPrefix: string, sourcePrefix: string, value: string): string {
+  for (const prefix of [authoredPrefix, sourcePrefix])
+    if (prefix && value.startsWith(`${prefix}/`)) return value.slice(prefix.length + 1);
+  return value;
 }
 
 export function intentFromScan(

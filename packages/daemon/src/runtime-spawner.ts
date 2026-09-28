@@ -13,11 +13,7 @@ import {
 } from "@harness-anything/kernel";
 import { presetDocumentBody } from "@harness-anything/preset/internal/preset-resolver";
 import { presetRuntimeDefaults, presetUserRoot } from "@harness-anything/preset/internal/preset-system";
-import {
-  agentRuntimeTargetForKind,
-  agentRuntimeKindMismatchDetail,
-  agentRuntimeKindMatches,
-} from "./agent-runtime-contract.ts";
+import { agentRuntimeTargetForKind } from "./agent-runtime-contract.ts";
 import { resolveAgentSkills } from "./agent-skills.ts";
 import {
   openDispatchStream,
@@ -484,11 +480,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           "ZCode edit and plan modes require an interactive permission client and cannot run unattended. ",
           `Set permissionMode to bypass in Agent ${agent?.id ?? "declaration"}.`,
         ].join(""),
-      );
-    if (agent && !agentRuntimeKindMatches(agent.runtimes, declaredKindId))
-      throw runtimeSpawnError(
-        "agent_runtime_type_mismatch",
-        agentRuntimeKindMismatchDetail(agent.id, agent.runtimes, runtimeInstanceId, definition.kindId),
       );
     if (
       definition.instanceId !== runtimeInstanceId ||

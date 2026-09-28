@@ -131,6 +131,82 @@ test("historical runtime sessions with no snapshot event degrade without failing
     assert.deepEqual(validateAgentRuntimeOverview(overview), []);
   }));
 
+test("unscoped overview hides exited history and short session ids resolve or list candidates", () =>
+  withRuntime(({ store, projection, stream }) => {
+    // The shared event() builder stamps seconds from the revision digit, which breaks past 9;
+    // this fixture appends past that, so it stamps its own occurredAt.
+    const paddedEvent = (
+      type: Parameters<typeof event>[0],
+      payload: Parameters<typeof event>[1],
+      revision: number,
+    ): AgentRuntimeEventV1 => ({
+      ...event(type, payload, revision),
+      occurredAt: `2026-08-13T00:01:${String(revision).padStart(2, "0")}.000Z`,
+    });
+    let revision = store.read().revision;
+    const append = (appended: AgentRuntimeEventV1) => {
+      store.append({ event: appended, plan: runtimeWritePlan(appended), blobs: [] });
+      projection.apply(appended);
+    };
+    for (const runtimeSessionId of ["runtime-live-second", "runtime-live-third", "runtime-exited-old"]) {
+      append(
+        paddedEvent(
+          "runtime_dispatch_requested",
+          {
+            dispatchId: `dispatch-${runtimeSessionId}`,
+            runtimeSessionId,
+            instanceId: definition.instanceId,
+            installationId: definition.installationId,
+            kindId: definition.kindId,
+            idempotencyKey: `idem-${runtimeSessionId}`,
+            definitionSnapshotRef: "artifact:runtime-definition/test",
+            definitionSnapshot: definition,
+          },
+          (revision += 1),
+        ),
+      );
+      append(
+        paddedEvent(
+          "runtime_session_started",
+          {
+            runtimeSessionId,
+            instanceId: definition.instanceId,
+            installationId: definition.installationId,
+            kindId: definition.kindId,
+            definitionSnapshotRef: "artifact:runtime-definition/test",
+            launchGeneration: 1,
+            attachable: true,
+          },
+          (revision += 1),
+        ),
+      );
+    }
+    revision += 1;
+    append(paddedEvent("runtime_session_exited", { runtimeSessionId: "runtime-exited-old" }, revision));
+    const reads = makeAgentRuntimeReadModel({ store, projection, stream });
+    // The unscoped overview is the `ha runtime status` default: exited history stays out;
+    // live, stale, and unknown sessions all stay in.
+    assert.deepEqual(
+      reads
+        .overview({})
+        .sessions.map(({ runtimeSessionId }) => runtimeSessionId)
+        .sort(),
+      ["runtime-live-second", "runtime-live-third", "runtime-session"],
+    );
+    // A unique short-id prefix reads that session (git-style).
+    assert.equal(reads.session({ runtimeSessionId: "runtime-live-s" }).session.runtimeSessionId, "runtime-live-second");
+    // An ambiguous prefix lists the candidates instead of guessing.
+    assert.throws(
+      () => reads.session({ runtimeSessionId: "runtime-live" }),
+      (error: Error & { readonly code?: string }) =>
+        error.code === "runtime_session_ambiguous_id" && /runtime-live-second.*runtime-live-third/u.test(error.message),
+    );
+    assert.throws(
+      () => reads.session({ runtimeSessionId: "runtime-missing" }),
+      (error: Error & { readonly code?: string }) => error.code === "runtime_session_not_found",
+    );
+  }));
+
 test("one stream parser validates agent-runtime and terminal facets by method", () => {
   const agentInitial = {
       ok: true,

@@ -19,7 +19,15 @@ import { scanAuthoredCandidateInventory, scanDocCandidates } from "../src/doc-sy
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
-import { actor, git, initRepo, materializeReport, rows, write } from "./doc-sync-slice-a.fixtures.ts";
+import {
+  actor,
+  git,
+  initNestedLedgerRepo,
+  initRepo,
+  materializeReport,
+  rows,
+  write,
+} from "./doc-sync-slice-a.fixtures.ts";
 
 test("HTML research documents are eligible, submit as opaque text, and become clean", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-html-research-"));
@@ -493,6 +501,30 @@ test("selected doc-sync paths are authored-relative candidates and zero-write su
     assert.equal(clean.proof, undefined);
     assert.equal(clean.code, "no_changes");
     assert.match(String((clean as Record<string, unknown>).summary), /applied count: 0/u);
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("repo-relative doc-sync selection works when the authored root is its own ledger repository", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-nested-ledger-"));
+  initNestedLedgerRepo(rootDir);
+  const cell = await openRepoCell({
+      repoId: workspaceId("nested-ledger"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "nested-ledger-daemon",
+    }),
+    binding = { actor, source: "local" as const };
+  try {
+    write(rootDir, "context/selected.md", "# Selected\n");
+    const authored = await cell.run({ kind: "doc-submit", paths: ["context/selected.md"] }, binding);
+    assert.equal(authored.outcome, "applied", JSON.stringify(authored));
+    await waitForWorktree(cell, authored);
+    // The ledger authored prefix is empty here, so the repo-relative form carries the
+    // product-visible harness/ segment; it must resolve to the same authored document.
+    const repoRelative = await cell.run({ kind: "doc-submit", paths: ["harness/context/selected.md"] }, binding);
+    assert.equal(repoRelative.outcome, "no_changes", JSON.stringify(repoRelative));
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
