@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { parseTaskEvidenceInvocation, runTaskEvidence } from "../src/cli-task-evidence-run.ts";
+import { parseTaskArtifactRunInvocation, runTaskArtifactCommand } from "../src/cli-task-artifact-run.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 
 test("progress append remains text-only and cannot execute or freeze a command", () => {
@@ -19,16 +19,17 @@ test("progress append remains text-only and cannot execute or freeze a command",
     });
 });
 
-test("task evidence run publishes the same-run command transcript and preserves child exit", async () => {
+test("task artifact add --run publishes the same-run transcript and preserves child exit", async () => {
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-task-evidence-")),
-    invocation = parseTaskEvidenceInvocation(
+    invocation = parseTaskArtifactRunInvocation(
       [
         "--root",
         root,
         "task",
-        "evidence",
-        "run",
+        "artifact",
+        "add",
         "task-proof",
+        "--run",
         "--",
         process.execPath,
         "-e",
@@ -38,14 +39,10 @@ test("task evidence run publishes the same-run command transcript and preserves 
     );
   assert.ok(invocation);
   let transcript: Record<string, unknown> | undefined;
-  const receipt = await runTaskEvidence(invocation, undefined, async (command) => {
+  const receipt = await runTaskArtifactCommand(invocation, undefined, async (command) => {
     transcript = JSON.parse(String(command.action.content));
     assert.equal(command.action.source, undefined);
-    return {
-      ok: true,
-      outcome: "applied",
-      destination: command.action.destination,
-    };
+    return { ok: true, outcome: "applied", destination: command.action.destination };
   });
   assert.equal(receipt.exitCode, 7);
   assert.equal(receipt.childExitCode, 7);
@@ -57,7 +54,41 @@ test("task evidence run publishes the same-run command transcript and preserves 
   assert.match(String(receipt.evidencePath), /^artifacts\/evidence\/command-.*\.json$/u);
 });
 
-test("task evidence run requires the separator and a command", () => {
-  assert.equal(parseTaskEvidenceInvocation(["task", "evidence", "run", "task-proof"]), null);
-  assert.equal(parseTaskEvidenceInvocation(["task", "evidence", "run", "task-proof", "--"]), null);
+test("task artifact add selects exactly one input source", () => {
+  assert.equal(parseTaskArtifactRunInvocation(["task", "artifact", "add", "task-proof", "--run"]), null);
+  assert.equal(parseTaskArtifactRunInvocation(["task", "artifact", "add", "task-proof", "--run", "--"]), null);
+  assert.equal(
+    parseTaskArtifactRunInvocation([
+      "task",
+      "artifact",
+      "add",
+      "task-proof",
+      "--source",
+      "proof.txt",
+      "--run",
+      "--",
+      "true",
+    ]),
+    null,
+  );
+  assert.equal(parseThinCommand(["task", "artifact", "add", "task-proof", "--run"]).ok, false);
+  assert.equal(parseThinCommand(["task", "artifact", "add", "task-proof", "--source", "proof.txt"]).ok, false);
+  assert.equal(
+    parseThinCommand(["task", "artifact", "add", "task-proof", "--source", "proof.txt", "--destination", "proof.txt"])
+      .ok,
+    true,
+  );
+  assert.equal(
+    parseTaskArtifactRunInvocation([
+      "task",
+      "artifact",
+      "add",
+      "task-proof",
+      "--run",
+      "--destination=evidence/proof.json",
+      "--",
+      "true",
+    ])?.destination,
+    "evidence/proof.json",
+  );
 });

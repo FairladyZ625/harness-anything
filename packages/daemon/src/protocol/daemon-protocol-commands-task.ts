@@ -144,16 +144,37 @@ export const taskExecutionProtocolCommands = Object.freeze([
     id: "task-artifact-add",
     phase: "W3",
     path: ["task", "artifact", "add", "<task-id>"],
-    summary: "Publish an untracked task artifact through canonical doc sync.",
+    summary: "Publish a file or locally executed command transcript through canonical doc sync.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--source", "single", true, {
-        code: "missing_field",
-      }),
-      cliInput("--destination", "single", true, {
-        code: "missing_field",
-      }),
+      cliInput(
+        "--source",
+        "single",
+        false,
+        { code: "missing_field" },
+        { conflictsWith: ["--run"], description: "Read artifact bytes from a local file" },
+      ),
+      cliInput(
+        "--run",
+        "boolean",
+        false,
+        { code: "invalid_field" },
+        {
+          conflictsWith: ["--source"],
+          description: "Run argv after -- locally without a shell and publish its command transcript",
+        },
+      ),
+      cliInput(
+        "--destination",
+        "single",
+        false,
+        { code: "missing_field" },
+        {
+          description: "Required with --source; with --run defaults to a unique artifacts/evidence path",
+        },
+      ),
     ],
+    actionConstraints: [["source", "run"]],
   }),
   defineLedgerWriteCommand({
     id: "task-rematerialize",
