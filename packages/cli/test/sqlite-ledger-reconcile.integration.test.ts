@@ -61,7 +61,11 @@ test("local CLI initializes and accepts the native generation-2 SQLite ledger", 
       authoredBody = "# Explicitly submitted\n\nThe daemon accepts this document through doc submit.\n";
     mkdirSync(path.join(root, "harness", "context"), { recursive: true });
     writeFileSync(path.join(root, "harness", authoredPath), authoredBody);
-    waitForAcceptedReceipt(root, userRoot, run(root, userRoot, ["doc", "sync", "--submit", "--path", authoredPath]));
+    const lastAccepted = waitForAcceptedReceipt(
+      root,
+      userRoot,
+      run(root, userRoot, ["doc", "sync", "--submit", "--path", authoredPath]),
+    );
 
     const counts = sqliteCounts(root),
       authoredRoot = path.join(root, "harness"),
@@ -116,9 +120,24 @@ test("local CLI initializes and accepts the native generation-2 SQLite ledger", 
       assert.ok(centerLease.epoch > localLease.epoch, JSON.stringify({ localLease, centerLease }));
       assert.equal(existsSync(path.join(transportStateRoot, "writer-epochs.json")), false);
 
+      // Take no baseline of HEAD until the ledger's own settle signal has run: the wait re-reads the
+      // last accepted write through the daemon (a receipt wait is the follower's settle trigger), and
+      // the manifest check pins Git to the current SQLite cut. Center takeover has fenced local
+      // appends, so nothing can invalidate this precondition afterward — "HEAD is unchanged" then
+      // asserts exactly what the test means: a rejected write publishes nothing, whatever the async
+      // follower's timing.
+      waitForAcceptedReceipt(root, userRoot, lastAccepted);
       const sqliteBeforeStaleWrite = sqliteCounts(root),
         gitBeforeStaleWrite = git(authoredRoot, "rev-parse", "HEAD"),
-        stale = invoke(root, userRoot, ["task", "create", "--title", "Rejected stale local write"]);
+        baselineManifest = JSON.parse(git(authoredRoot, "show", "HEAD:events/segments/manifest.json")) as {
+          readonly cut: { readonly revision: number };
+        };
+      assert.equal(
+        baselineManifest.cut.revision,
+        sqliteBeforeStaleWrite.events,
+        "the Git follower must certify the current SQLite cut before the stale-write baseline",
+      );
+      const stale = invoke(root, userRoot, ["task", "create", "--title", "Rejected stale local write"]);
       assert.notEqual(stale.status, 0, `${stale.stderr}\n${JSON.stringify(stale.receipt)}`);
       assert.equal(stale.receipt.outcome, "op_rejected", JSON.stringify(stale.receipt));
       assert.equal(stale.receipt.code, "writer_epoch_stale", JSON.stringify(stale.receipt));
