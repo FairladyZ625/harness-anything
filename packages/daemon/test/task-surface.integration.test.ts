@@ -202,10 +202,6 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
-    writeFileSync(path.join(rootDir, "README.md"), "# Task lifecycle fixture delivery\n");
-    git(rootDir, "add", "README.md");
-    git(rootDir, "commit", "-qm", "fixture delivery");
-    const deliveryCommit = git(rootDir, "rev-parse", "HEAD");
     cell = await openRepoCell({
       repoId: workspaceId("task-lifecycle-surface"),
       rootDir: canonicalRoot(rootDir),
@@ -292,9 +288,13 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
       ).outcome,
       "applied",
     );
+    const deliveryRoot = path.join(rootDir, ".worktrees", "task_reviewing");
+    writeFileSync(path.join(deliveryRoot, "README.md"), "# Task lifecycle fixture delivery\n");
+    git(deliveryRoot, "add", "README.md");
+    git(deliveryRoot, "commit", "-qm", "fixture delivery");
     writeFileSync(
       path.join(rootDir, "harness/tasks/task_reviewing-reviewing/closeout.md"),
-      `# Closeout\n\n## Summary\n\nStatus routing delivery ${deliveryCommit} is ready for review.\n\n## Verification\n\nDaemon integration assertions exercise lifecycle events and dispositions.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nAll task status routes consume the canonical projection.\n`,
+      "# Closeout\n\n## Summary\n\nStatus routing delivery is ready for review.\n\n## Verification\n\nDaemon integration assertions exercise lifecycle events and dispositions.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nAll task status routes consume the canonical projection.\n",
     );
     assert.equal(
       (

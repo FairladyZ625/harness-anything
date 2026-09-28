@@ -159,6 +159,7 @@ test("GUI and CLI submit derive the same canonical event from closeout", async (
       await writeCloseout(
         () => cells[index]!.settlePendingMaterialization("closeout git commit"),
         rootDir,
+        path.join(rootDir, ".worktrees", taskId),
         "tasks/task-submit-ab-submit-a-b",
         "Typed GUI submit is equivalent.",
       );
@@ -197,6 +198,7 @@ test("lifecycle commands publish typed events, machine files, rebuildable L2, an
     const commitSha = await writeCloseout(
       () => cell!.settlePendingMaterialization("closeout git commit"),
       rootDir,
+      path.join(rootDir, ".worktrees", taskId),
       packagePath,
       "Lifecycle output is ready.",
     );
@@ -412,6 +414,7 @@ test("unrelated workspace lock collision does not block either workspace", async
 async function writeCloseout(
   drain: () => Promise<unknown>,
   rootDir: string,
+  deliveryRoot: string,
   packagePath: string,
   summary: string,
   verification = "Verified.",
@@ -419,13 +422,13 @@ async function writeCloseout(
   // The cell publishes ledger cuts to the same repo Git; drain its writer queue before this fixture
   // commit, or the two HEAD writers race and git dies with `cannot lock ref 'HEAD'`.
   await drain();
-  writeFileSync(path.join(rootDir, "README.md"), "# Verified delivery\n");
-  git(rootDir, "add", "README.md");
-  execFileSync("git", ["-C", rootDir, "commit", "--quiet", "-m", "test: verified delivery"], {
+  writeFileSync(path.join(deliveryRoot, "README.md"), "# Verified delivery\n");
+  git(deliveryRoot, "add", "README.md");
+  execFileSync("git", ["-C", deliveryRoot, "commit", "--quiet", "-m", "test: verified delivery"], {
     env: { ...process.env, GIT_AUTHOR_DATE: "2026-08-14T00:01:00Z", GIT_COMMITTER_DATE: "2026-08-14T00:01:00Z" },
     stdio: ["ignore", "pipe", "pipe"],
   });
-  const commitSha = git(rootDir, "rev-parse", "HEAD");
+  const commitSha = git(deliveryRoot, "rev-parse", "HEAD");
   writeFileSync(
     path.join(rootDir, "harness", packagePath, "closeout.md"),
     `# Closeout\n\n## Summary\n\n${summary} Commit ${commitSha}.\n\n## Verification\n\n${verification}\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n`,
@@ -492,6 +495,7 @@ async function prepareReadyCompletion(
   const commitSha = await writeCloseout(
     () => cell.settlePendingMaterialization("closeout git commit"),
     rootDir,
+    path.join(rootDir, ".worktrees", taskId),
     packagePath,
     "Ready.",
   );

@@ -265,7 +265,7 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
       witnessId: event.payload.witness.witnessId,
       taskId,
       executionId,
-      commitSha,
+      commitSha: ownerAmendedPacket.commitSha,
       iteration: 0,
       paths: ["README.md"],
       actor: holder.actor,
@@ -377,7 +377,7 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
     const repointEvent = makeTaskEventReader({ repoId, rootDir }).readEvent(String(repointed.opId));
     assert.equal(repointEvent?.type, "code_doc_repointed");
     if (repointEvent?.type === "code_doc_repointed") {
-      assert.equal(repointEvent.payload.record.commitSha, commitSha);
+      assert.equal(repointEvent.payload.record.commitSha, ownerAmendedPacket.commitSha);
       assert.deepEqual(repointEvent.payload.record.paths, event.payload.witness.paths);
     }
   } finally {

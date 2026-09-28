@@ -132,6 +132,13 @@ export const taskActionDescriptorProjection = {
             cli: { name: "--execution-id", kind: "single", error: "invalid_field" },
           },
           {
+            field: "commitSha",
+            type: "string",
+            required: false,
+            regex: "^[0-9a-f]{40}$",
+            cli: { name: "--commit", kind: "single", error: "invalid_field" },
+          },
+          {
             field: "amend",
             type: "boolean",
             required: false,

@@ -81,6 +81,7 @@ test("agenda and task list keep a pinned submitted task visible for owner adjudi
       cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied");
+    commitTaskDelivery(rootDir, taskId);
     assert.equal((await cell.run({ kind: "entity-pin", entityRef: `task/${taskId}` }, binding)).outcome, "applied");
     writeFileSync(
       path.join(rootDir, "harness", packagePath, "closeout.md"),
@@ -167,6 +168,7 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
       (await cell.run({ kind: "task-start", taskId: "task_review", executionId: "exe_review" }, binding)).outcome,
       "applied",
     );
+    commitTaskDelivery(rootDir, "task_review");
     writeFileSync(
       path.join(rootDir, "harness", createdTasks.get("task_review")!, "closeout.md"),
       `# Closeout\n\n## Summary\n\nAgenda fixture delivery ${git(rootDir, "rev-parse", "fixture-delivery")} is ready.\n\n## Verification\n\nIntegration assertions exercise agenda grouping and review visibility.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nTask lifecycle projections share the review cut.\n`,
@@ -212,6 +214,7 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
       ["task_returned", "exe_returned"],
     ] as const) {
       assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied");
+      commitTaskDelivery(rootDir, taskId);
       writeFileSync(
         path.join(rootDir, "harness", createdTasks.get(taskId)!, "closeout.md"),
         `# Closeout\n\n## Summary\n\nAgenda fixture delivery ${git(rootDir, "rev-parse", "fixture-delivery")} is ready.\n\n## Verification\n\nIntegration assertions exercise agenda grouping and review visibility.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nTask lifecycle projections share the review cut.\n`,
@@ -434,6 +437,7 @@ test("agenda surfaces a changes_requested task in the rework group and nowhere e
       (await cell.run({ kind: "task-start", taskId: "task_rework", executionId: "exe_rework" }, binding)).outcome,
       "applied",
     );
+    commitTaskDelivery(rootDir, "task_rework");
     writeFileSync(
       path.join(rootDir, "harness", packagePath, "closeout.md"),
       `# Closeout\n\n## Summary\n\nRework fixture delivery ${git(rootDir, "rev-parse", "fixture-delivery")} is ready.\n\n## Verification\n\nIntegration assertions exercise agenda rework grouping.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nTask lifecycle projections share the review cut.\n`,
@@ -567,6 +571,7 @@ test("agenda excludes archived rework tasks without consuming a page", async () 
         (await cell.run({ kind: "task-start", taskId, executionId: `exe_${taskId}` }, binding)).outcome,
         "applied",
       );
+      commitTaskDelivery(rootDir, taskId);
       writeFileSync(
         path.join(rootDir, "harness", packagePath, "closeout.md"),
         `# Closeout\n\n## Summary\n\nAgenda fixture delivery ${git(rootDir, "rev-parse", "fixture-delivery")} is ready.\n\n## Verification\n\nIntegration assertions exercise agenda grouping.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nTask lifecycle projections share the review cut.\n`,
@@ -1354,4 +1359,11 @@ function initRepo(rootDir: string): void {
 }
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
+}
+function commitTaskDelivery(rootDir: string, taskId: string): string {
+  const worktree = path.join(rootDir, ".worktrees", taskId);
+  writeFileSync(path.join(worktree, "README.md"), `# ${taskId} delivery\n`);
+  git(worktree, "add", "README.md");
+  git(worktree, "commit", "-qm", "test: task delivery");
+  return git(worktree, "rev-parse", "HEAD");
 }

@@ -1,3 +1,4 @@
+import path from "node:path";
 import {
   completionGuidance,
   currentExecutionCuts,
@@ -21,7 +22,6 @@ import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection
 import {
   artifactAnchorGuidance,
   artifactAnchors,
-  removeArtifactAnchors,
   readSubmissionArtifact,
   submissionArtifactDirectoryFiles,
   submissionArtifactPath,
@@ -38,17 +38,19 @@ import {
   upgradeDriftedPresetSnapshot,
 } from "./repo-cell-task-progress.ts";
 import { actionWitnessCollections } from "./repo-cell-witness-adapters.ts";
+import { presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
 
 /** Git resolves the empty-tree object id virtually; it exists in every repository. */
 const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
-/** Summary selects one public delivery commit, center-accepted artifacts, or both. */
+/** Structured execution binding selects the public delivery commit; Summary only selects artifacts. */
 export function deriveCloseoutSubmission(
   cell: Pick<RepoCellOperationalContext, "rootDir" | "projection" | "store" | "cellCodedError" | "settings">,
   taskId: string,
   executionId: string,
   snapshot: Snapshot,
   bodyOverrides?: ReadonlyMap<string, string>,
+  requestedCommit?: string,
 ): SubmissionV1 {
   const document = readTaskTransitionDocument({
       projection: cell.projection,
@@ -71,20 +73,11 @@ export function deriveCloseoutSubmission(
     // The execution's first submission freezes the gate requirements; resumes and amendments keep them.
     prose = { ...parsed, completionContract: frozen?.completionContract ?? freezeCompletionContract(cell, snapshot) },
     anchors = artifactAnchors(prose.completionClaim),
-    named = [...new Set(removeArtifactAnchors(prose.completionClaim).match(/\b[0-9a-f]{40}\b/gu) ?? [])],
     unparsed = unparsedArtifactAnchorText(prose.completionClaim);
-  if (named.length > 1)
+  if (unparsed.length !== 0)
     throw cell.cellCodedError(
       "invalid_submission",
-      `Summary names ${named.length} delivery commits; one execution has exactly one delivery cut, ` +
-        "so name only the commit being delivered.",
-    );
-  if ((named.length === 0 && anchors.length === 0) || unparsed.length !== 0)
-    throw cell.cellCodedError(
-      "invalid_submission",
-      (unparsed.length === 0
-        ? "Summary must name one delivery commit or at least one artifact:path@revision anchor. "
-        : `Summary contains artifact: text that is not a parsable anchor: ${unparsed.join(", ")}. `) +
+      `Summary contains artifact: text that is not a parsable anchor: ${unparsed.join(", ")}. ` +
         artifactAnchorGuidance,
     );
   const artifacts = anchors.flatMap(({ path, revision }) => {
@@ -135,8 +128,54 @@ export function deriveCloseoutSubmission(
       "invalid_submission",
       `Summary must name each artifact path once. ${artifactAnchorGuidance}`,
     );
-  if (named.length === 0)
-    return { ...prose, commitSha: null, artifacts, deliverables: artifacts.map((anchor) => anchor.path), outputs: [] };
+  const privateDelivery = !(snapshot.task?.completionGateIds ?? []).some(
+    (gate) => gate === "ci" || gate === "code-doc-reconciliation",
+  );
+  if (privateDelivery) {
+    if (artifacts.length)
+      return {
+        ...prose,
+        commitSha: null,
+        artifacts,
+        deliverables: artifacts.map((anchor) => anchor.path),
+        outputs: [],
+      };
+    let ledger: ReturnType<typeof resolveLedgerGitLayout>;
+    try {
+      ledger = resolveLedgerGitLayout(cell.rootDir);
+    } catch {
+      throw cell.cellCodedError(
+        "invalid_submission",
+        `No accepted task artifacts were found. ${artifactAnchorGuidance}`,
+      );
+    }
+    const git = makeGitReadinessSource(),
+      ledgerArtifacts = git.run(ledger.rootDir, [
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "HEAD",
+        "--",
+        ledgerGitPath(ledger, `${document.packagePath}/artifacts/`),
+      ]);
+    if (!ledgerArtifacts.ok || (!ledgerArtifacts.stdout && artifacts.length === 0))
+      throw cell.cellCodedError(
+        "invalid_submission",
+        `No accepted task artifacts were found under harness/${document.packagePath}/artifacts/. ` +
+          artifactAnchorGuidance,
+      );
+    return {
+      ...prose,
+      // A retry must retain the already submitted ledger cut: materializing the submission itself
+      // advances ledger HEAD, but does not change the documentation delivery.
+      commitSha: frozen?.commitSha ?? git.run(ledger.rootDir, ["rev-parse", "HEAD"]).stdout,
+      ...(artifacts.length ? { artifacts } : {}),
+      deliverables: ledgerArtifacts.stdout
+        ? ledgerArtifacts.stdout.split("\n")
+        : artifacts.map((anchor) => anchor.path),
+      outputs: artifacts.map((anchor) => `Artifact-Anchor: ${anchor.path}@${anchor.revision}`),
+    };
+  }
   const dispatches = readDispatchStreamHeaders(cell.rootDir).filter(
       (dispatch) =>
         dispatch.taskId === taskId &&
@@ -144,18 +183,41 @@ export function deriveCloseoutSubmission(
         dispatch.role !== "reviewer" &&
         dispatch.cwd,
     ),
-    directories = [...new Set(dispatches.map((dispatch) => dispatch.cwd!))],
+    binding = taskWorktreeBinding(snapshot.task, presetSnapshotReader(cell.projection)),
+    taskRoot = binding ? path.join(cell.rootDir, binding.path) : null,
+    directories = [
+      ...(taskRoot ? [taskRoot] : []),
+      ...[...dispatches]
+        .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+        .map((dispatch) => dispatch.cwd!),
+    ],
+    uniqueDirectories = [...new Set(directories)],
     git = makeGitReadinessSource(),
-    publishedRoot = [...new Set([...directories, cell.rootDir])].find(
-      (candidate) => git.run(candidate, ["cat-file", "-e", `${named[0]!}^{commit}`]).ok,
+    bound = uniqueDirectories
+      .map((root) => ({ root, head: git.run(root, ["rev-parse", "HEAD"]) }))
+      .find(({ head }) => head.ok && head.stdout),
+    namedCommit = requestedCommit ?? bound?.head.stdout;
+  if (!namedCommit)
+    throw cell.cellCodedError(
+      "invalid_submission",
+      "No readable bound worktree HEAD exists; rerun with --commit <40-character-sha>.",
     );
+  if (requestedCommit && bound && requestedCommit !== bound.head.stdout)
+    throw cell.cellCodedError(
+      "invalid_submission",
+      `Requested delivery commit ${requestedCommit} does not match bound worktree HEAD ${bound.head.stdout}.`,
+    );
+  const publishedRoot = [...new Set([...uniqueDirectories, cell.rootDir])].find(
+    (candidate) => git.run(candidate, ["cat-file", "-e", `${namedCommit}^{commit}`]).ok,
+  );
   if (!publishedRoot)
     throw cell.cellCodedError(
       "invalid_submission",
-      `Delivery commit ${named[0]!} is not in any local clone of the bound or canonical repository; if it was just merged or pushed, run git fetch origin in the canonical checkout and rerun this command.`,
+      `Delivery commit ${namedCommit} is not in any local clone of the bound or canonical repository; ` +
+        "if it was just merged or pushed, run git fetch origin in the canonical checkout and rerun this command.",
     );
   const root = publishedRoot,
-    commitSha = git.run(root, ["rev-parse", `${named[0]!}^{commit}`]).stdout;
+    commitSha = git.run(root, ["rev-parse", `${namedCommit}^{commit}`]).stdout;
   // Task delivery is not a Git publication state: a resolvable commit may be reviewed before it
   // becomes a bound worktree HEAD or reaches the default branch. The merge base below derives the cut's
   // file manifest only; it is not submission admission.
@@ -213,33 +275,7 @@ export function deriveCloseoutSubmission(
   // artifacts field and outputs lines so commit-based gates never verify ledger paths against
   // the public cut.
   if (!deliverables.length && !commitOutputs.length && !artifacts.length) {
-    // A task without CI or code-doc gates delivers authored documents: its cut is the private
-    // ledger HEAD plus this package's accepted artifacts, never a public code diff.
-    const privateDelivery = !(snapshot.task?.completionGateIds ?? []).some(
-      (gate) => gate === "ci" || gate === "code-doc-reconciliation",
-    );
-    if (!privateDelivery) throw cell.cellCodedError("invalid_submission", "Delivery cut contains no changed paths.");
-    const ledger = resolveLedgerGitLayout(cell.rootDir),
-      ledgerArtifacts = git.run(ledger.rootDir, [
-        "ls-tree",
-        "-r",
-        "--name-only",
-        "HEAD",
-        "--",
-        ledgerGitPath(ledger, `${document.packagePath}/artifacts/`),
-      ]);
-    if (!ledgerArtifacts.ok || !ledgerArtifacts.stdout)
-      throw cell.cellCodedError(
-        "invalid_submission",
-        `Delivery cut contains no changed paths; publish harness/${document.packagePath}/artifacts/ ` +
-          `or name artifact:path@revision anchors in Summary. ${artifactAnchorGuidance}`,
-      );
-    return {
-      ...prose,
-      commitSha: git.run(ledger.rootDir, ["rev-parse", "HEAD"]).stdout,
-      deliverables: ledgerArtifacts.stdout.split("\n"),
-      outputs: [],
-    };
+    throw cell.cellCodedError("invalid_submission", "Delivery cut contains no changed paths.");
   }
   return {
     ...prose,
@@ -410,7 +446,14 @@ export async function submitTask(
       ],
     } as WriteReceiptDraft;
   const fresh = await cell.service.read(taskId),
-    derived = readCloseoutSubmission(cell, taskId, executionId, fresh.snapshot);
+    derived = readCloseoutSubmission(
+      cell,
+      taskId,
+      executionId,
+      fresh.snapshot,
+      undefined,
+      typeof action.commitSha === "string" ? action.commitSha : undefined,
+    );
   if (!derived.ok)
     return submissionStopped(
       cell,

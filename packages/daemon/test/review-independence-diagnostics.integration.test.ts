@@ -652,8 +652,9 @@ test("a lightweight reviewed child closes without declaring a review executor", 
     );
     const packagePath = "tasks/task-bare-reviewed-bare-reviewed";
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, bare)).outcome, "applied");
-    await commitDelivery(cell, rootDir);
-    const commitSha = git(rootDir, "rev-parse", "HEAD");
+    const deliveryRoot = path.join(rootDir, ".worktrees", taskId);
+    await commitDelivery(cell, deliveryRoot);
+    const commitSha = git(deliveryRoot, "rev-parse", "HEAD");
     git(rootDir, "update-ref", "refs/remotes/origin/main", commitSha);
     writeCloseout(rootDir, packagePath);
     const submitted = (await cell.run({ kind: "task-submit", taskId, executionId }, bare)) as Record<string, unknown>;

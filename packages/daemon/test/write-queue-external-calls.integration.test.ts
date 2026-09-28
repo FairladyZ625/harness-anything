@@ -95,13 +95,14 @@ test(
         "Submit without CI read",
       );
       assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied");
-      writeFileSync(path.join(rootDir, "README.md"), "# Submit without CI read\n");
-      git(rootDir, "add", "README.md");
-      git(rootDir, "commit", "-qm", "test: add submit delivery");
+      const deliveryRoot = path.join(rootDir, ".worktrees", taskId);
+      writeFileSync(path.join(deliveryRoot, "README.md"), "# Submit without CI read\n");
+      git(deliveryRoot, "add", "README.md");
+      git(deliveryRoot, "commit", "-qm", "test: add submit delivery");
       const closeoutPath = `${packagePath}/closeout.md`,
-        commitSha = git(rootDir, "rev-parse", "HEAD"),
+        commitSha = git(deliveryRoot, "rev-parse", "HEAD"),
         closeout = (claim: string) =>
-          `# Closeout\n\n## Summary\n\n${claim} Commit ${commitSha}.\n\n` +
+          `# Closeout\n\n## Summary\n\n${claim}\n\n` +
           "## Verification\n\nThe isolated integration test verifies submit latency and event identity.\n\n" +
           "## Residual Risk\n\nNone.\n\n" +
           "## Same Mechanism Elsewhere\n\nGitHub observations remain an independent write path.\n";

@@ -93,6 +93,8 @@ function derive(
     | { readonly kind: "empty-tree" }
     | null
     | undefined = rootDir === "/nonexistent" ? { kind: "empty-tree" } : baseline(rootDir),
+  commitSha?: string,
+  taskWorktree = false,
 ) {
   const snapshot = {
       executions: [
@@ -111,10 +113,14 @@ function derive(
           ...(deliveryBaseline == null ? {} : { deliveryBaseline }),
         },
       ],
-      task: { completionGateIds: gates },
+      task: {
+        completionGateIds: gates,
+        ...(taskWorktree ? { taskId: "task-1", taskClass: "standard", presetSnapshotDigest: "snapshot-task-1" } : {}),
+      },
     } as unknown as Parameters<typeof deriveCloseoutSubmission>[3],
     body = closeout(summary),
     projection = {
+      readPresetSnapshot: () => ({ snapshot: { profile: { outputShape: "repository-diff" } } }),
       read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { ...snapshot, task: {} }, packagePath }),
       readDocument: (target: string) => ({
         watermark: 1,
@@ -166,6 +172,8 @@ function derive(
     "task-1",
     "execution-1",
     snapshot,
+    undefined,
+    commitSha,
   );
 }
 
@@ -181,19 +189,19 @@ function dispatch(root: string, cwd: string, dispatchId = "dispatch_111111111111
   });
 }
 
-test("explicit Summary commit derives mixed deletion evidence without a dispatch", (t) => {
+test("explicit structured commit derives mixed deletion evidence without a dispatch", (t) => {
   const { root } = fixture(t);
   rmSync(path.join(root, "src/old.ts"));
   put(root, "src/live.ts", "export const liveValue = 2;\n");
   const sha = commit(root),
-    packet = derive(root, `Delivered ${sha}.`);
+    packet = derive(root, "Delivered the implementation.", undefined, ["ci"], undefined, undefined, sha);
   assert.equal(packet.commitSha, sha);
   assert.deepEqual(packet.deliverables, ["src/live.ts"]);
   assert.deepEqual(packet.outputs, ["Deleted-Production-Paths: src/old.ts"]);
   assert.deepEqual(packet.knownGaps, ["已知缺口：publication pending.", "Sibling delivery remains unverified."]);
 });
 
-test("Summary commit plus artifact anchor derives one cut carrying both", (t) => {
+test("structured commit plus artifact anchor derives one cut carrying both", (t) => {
   const { root } = fixture(t),
     { store, blobSha256 } = artifactStore(),
     anchor = `artifact:${packagePath}/artifacts/report.md@7`;
@@ -205,6 +213,8 @@ test("Summary commit plus artifact anchor derives one cut carrying both", (t) =>
       undefined,
       ["ci", "code-doc-reconciliation"],
       store,
+      undefined,
+      sha,
     );
   assert.equal(packet.commitSha, sha);
   assert.deepEqual(packet.artifacts, [{ path: `${packagePath}/artifacts/report.md`, revision: 7, blobSha256 }]);
@@ -215,10 +225,10 @@ test("Summary commit plus artifact anchor derives one cut carrying both", (t) =>
 
 test("artifact anchors alone still deliver without a commit and reject duplicate paths", () => {
   const { store, blobSha256 } = artifactStore();
-  const guided = derive("/nonexistent", "artifact:artifacts/report.md@7", undefined, ["ci"], store);
+  const guided = derive("/nonexistent", "artifact:artifacts/report.md@7", undefined, [], store);
   assert.deepEqual(guided.artifacts, [{ path: `${packagePath}/artifacts/report.md`, revision: 7, blobSha256 }]);
   assert.deepEqual(guided.deliverables, [`${packagePath}/artifacts/report.md`]);
-  const packet = derive("/nonexistent", `artifact:${packagePath}/artifacts/report.md@7`, undefined, ["ci"], store);
+  const packet = derive("/nonexistent", `artifact:${packagePath}/artifacts/report.md@7`, undefined, [], store);
   assert.equal(packet.commitSha, null);
   assert.deepEqual(packet.deliverables, [`${packagePath}/artifacts/report.md`]);
   assert.throws(
@@ -227,7 +237,7 @@ test("artifact anchors alone still deliver without a commit and reject duplicate
         "/nonexistent",
         `artifact:${packagePath}/artifacts/report.md@7 artifact:${packagePath}/artifacts/report.md@7`,
         undefined,
-        ["ci"],
+        [],
         store,
       ),
     /name each artifact path once/u,
@@ -238,7 +248,7 @@ test("pure deletion cut has no surviving anchor paths and keeps the deletion lis
   const { root } = fixture(t);
   rmSync(path.join(root, "src/old.ts"));
   const sha = commit(root),
-    packet = derive(root, `Delivered ${sha}.`);
+    packet = derive(root, "Delivered the deletion.", undefined, ["ci"], undefined, undefined, sha);
   assert.deepEqual(packet.deliverables, []);
   assert.deepEqual(packet.outputs, ["Deleted-Production-Paths: src/old.ts"]);
 });
@@ -248,27 +258,63 @@ test("rename cut anchors the surviving target path", (t) => {
   git(root, "config", "diff.renames", "true");
   renameSync(path.join(root, "src/old.ts"), path.join(root, "src/renamed.ts"));
   const sha = commit(root),
-    packet = derive(root, `Delivered ${sha}.`);
+    packet = derive(root, "Delivered the rename.", undefined, ["ci"], undefined, undefined, sha);
   assert.deepEqual(packet.deliverables, ["src/renamed.ts"]);
   assert.deepEqual(packet.outputs, []);
 });
 
-test("bound dispatch cannot substitute HEAD for an explicit Summary anchor", (t) => {
+test("bound dispatch HEAD is the delivery commit even when Summary names an older commit", (t) => {
   const { root } = fixture(t);
+  const old = git(root, "rev-parse", "HEAD");
   put(root, "src/live.ts", "export const liveValue = 3;\n");
   const sha = commit(root);
   dispatch(root, root);
-  assert.throws(() => derive(root, "Completed the live path."), { code: "invalid_submission" });
-  assert.equal(derive(root, `Delivered ${sha}`).commitSha, sha);
+  assert.equal(derive(root, `Completed the live path; prior cut was ${old}.`).commitSha, sha);
 });
 
-test("missing dispatch requires an explicit Summary cut and rejects ambiguous commits", (t) => {
+test("task worktree HEAD is the delivery commit without a runtime dispatch", (t) => {
+  const { root } = fixture(t),
+    worktree = path.join(root, ".worktrees/task-1");
+  git(root, "worktree", "add", "-qb", "task-1", worktree);
+  put(worktree, "src/live.ts", "export const liveValue = 4;\n");
+  const sha = commit(worktree),
+    old = git(root, "rev-parse", "HEAD");
+  assert.equal(
+    derive(
+      root,
+      `Completed the bound task worktree; prior cut was ${old}.`,
+      undefined,
+      ["ci"],
+      undefined,
+      undefined,
+      undefined,
+      true,
+    ).commitSha,
+    sha,
+  );
+});
+
+test("missing dispatch requires an explicit structured delivery commit", (t) => {
   const { root, base } = fixture(t);
   put(root, "src/live.ts", "export const liveValue = 3;\n");
   const sha = commit(root);
   assert.throws(() => derive(root, "Completed the live path."), { code: "invalid_submission" });
-  assert.throws(() => derive(root, `Delivered ${base} and ${sha}.`), /names 2 delivery commits/u);
-  assert.throws(() => derive(root, `Delivered ${"f".repeat(40)}.`), { code: "invalid_submission" });
+  assert.equal(
+    derive(root, `Earlier cuts: ${base} and ${"f".repeat(40)}.`, undefined, ["ci"], undefined, undefined, sha)
+      .commitSha,
+    sha,
+  );
+});
+
+test("explicit delivery commit must match a bound worktree HEAD and reports both values", (t) => {
+  const { root, base } = fixture(t);
+  put(root, "src/live.ts", "export const liveValue = 3;\n");
+  const head = commit(root);
+  dispatch(root, root);
+  assert.throws(() => derive(root, "Complete.", undefined, ["ci"], undefined, undefined, base), {
+    code: "invalid_submission",
+    message: new RegExp(`${base}.*${head}`, "u"),
+  });
 });
 
 test("a private Git commit cannot substitute for an artifact acceptance revision", (t) => {
@@ -293,13 +339,13 @@ test("shared public and authored Git root keeps a code delivery on its public cu
   const { root } = fixture(t, true);
   put(root, "src/live.ts", "export const liveValue = 4;\n");
   const sha = commit(root),
-    packet = derive(root, `Delivered ${sha}.`);
+    packet = derive(root, "Delivered the implementation.", undefined, ["ci"], undefined, undefined, sha);
   assert.equal(packet.commitSha, sha);
   assert.deepEqual(packet.deliverables, ["src/live.ts"]);
 });
 
-test("already merged dispatch preserves earlier branch changes and rejects unrelated Summary cut", (t) => {
-  const { root, base } = fixture(t);
+test("unpublished bound worktree HEAD preserves every branch commit before main", (t) => {
+  const { root } = fixture(t);
   // The main checkout leaves the default branch below, so only origin/HEAD, as a clone records it, names main.
   git(root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
   git(root, "checkout", "-qb", "worker");
@@ -307,19 +353,10 @@ test("already merged dispatch preserves earlier branch changes and rejects unrel
   commit(root);
   put(root, "src/second.ts", "second\n");
   commit(root);
-  git(root, "checkout", "-q", "main");
-  git(root, "merge", "--no-ff", "-qm", "test: merge delivery", "worker");
-  const merged = git(root, "rev-parse", "HEAD");
-  git(root, "update-ref", "refs/remotes/origin/main", merged);
-  git(root, "checkout", "-q", "worker");
+  const head = git(root, "rev-parse", "HEAD");
   dispatch(root, root);
-  assert.deepEqual(derive(root, `Delivery ${merged}`).deliverables, ["src/first.ts", "src/second.ts"]);
-  assert.equal(derive(root, `Delivery ${merged}`).commitSha, merged);
-  // Naming an older published commit is still rejected, by the comparison-cut check rather than
-  // by any relationship to the dispatch HEAD: a published root commit owns no first parent to
-  // diff against, so it has no verifiable comparison cut.
-  assert.throws(() => derive(root, `Delivery ${base}`), /no verifiable comparison cut/u);
-  assert.throws(() => derive(root, "Worktree delivery."), { code: "invalid_submission" });
+  assert.deepEqual(derive(root, "Worktree delivery.").deliverables, ["src/first.ts", "src/second.ts"]);
+  assert.equal(derive(root, "Worktree delivery.").commitSha, head);
 });
 
 test("removed dispatch worktree resolves an explicit delivery cut in the canonical repository", (t) => {
@@ -333,16 +370,24 @@ test("removed dispatch worktree resolves an explicit delivery cut in the canonic
   const merged = git(root, "rev-parse", "HEAD");
   git(root, "update-ref", "refs/remotes/origin/main", merged);
   git(root, "worktree", "remove", cwd);
-  assert.equal(derive(root, `Delivery ${merged}`).commitSha, merged);
-  assert.deepEqual(derive(root, `Delivery ${merged}`).deliverables, ["src/delivery.ts"]);
-  assert.throws(() => derive(root, "Delivery complete."), /one delivery commit or at least one artifact/u);
-  assert.throws(() => derive(root, `Delivery ${"f".repeat(40)}`), /not in any local clone/u);
+  assert.equal(derive(root, "Delivery complete.", undefined, ["ci"], undefined, undefined, merged).commitSha, merged);
+  assert.deepEqual(derive(root, "Delivery complete.", undefined, ["ci"], undefined, undefined, merged).deliverables, [
+    "src/delivery.ts",
+  ]);
+  assert.throws(() => derive(root, "Delivery complete."), /No readable bound worktree HEAD/u);
+  assert.throws(
+    () => derive(root, "Delivery complete.", undefined, ["ci"], undefined, undefined, "f".repeat(40)),
+    /not in any local clone/u,
+  );
   put(root, "src/unpublished.ts", "unpublished\n");
   const unpublished = commit(root);
-  assert.equal(derive(root, `Delivery ${unpublished}`).commitSha, unpublished);
+  assert.equal(
+    derive(root, "Delivery complete.", undefined, ["ci"], undefined, undefined, unpublished).commitSha,
+    unpublished,
+  );
 });
 
-test("one execution with two dispatch directories accepts its published merge cut", (t) => {
+test("one execution with two dispatch directories uses a bound HEAD, not Summary prose", (t) => {
   const { root } = fixture(t),
     worker = path.join(root, "worker");
   git(root, "worktree", "add", "-qb", "worker", worker);
@@ -353,12 +398,11 @@ test("one execution with two dispatch directories accepts its published merge cu
   git(root, "update-ref", "refs/remotes/origin/main", merged);
   dispatch(root, worker);
   dispatch(root, root, "dispatch_222222222222222222222222");
-  const packet = derive(root, `Delivery ${merged}.`);
-  assert.equal(packet.commitSha, merged);
-  assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
+  const packet = derive(root, `Unrelated published merge ${merged}.`);
+  assert.notEqual(packet.commitSha, merged);
 });
 
-test("a published cut is accepted even when no dispatch HEAD explains it", (t) => {
+test("a structured commit differing from the bound HEAD is rejected", (t) => {
   const { root } = fixture(t),
     worker = path.join(root, "worker");
   git(root, "worktree", "add", "-qb", "worker", worker);
@@ -372,19 +416,17 @@ test("a published cut is accepted even when no dispatch HEAD explains it", (t) =
   put(worker, "src/unrelated.ts", "unrelated\n");
   commit(worker);
   dispatch(root, worker);
-  const packet = derive(root, `Delivery ${merged}.`);
-  assert.equal(packet.commitSha, merged);
-  assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
+  assert.throws(
+    () => derive(root, "Delivery complete.", undefined, ["ci"], undefined, undefined, merged),
+    /does not match bound worktree HEAD/u,
+  );
 });
 
-test("dispatch-bound documentation task with an empty product cut falls back to ledger artifacts", (t) => {
+test("documentation task ignores unrelated Summary SHA and delivers ledger artifacts", (t) => {
   const { root, ledger } = fixture(t);
   put(ledger, `${packagePath}/artifacts/report.md`, "Evidence.\n");
   commit(ledger);
-  git(root, "commit", "-q", "--allow-empty", "-m", "test: empty product cut");
-  const empty = git(root, "rev-parse", "HEAD");
-  dispatch(root, root);
-  const packet = derive(root, `Delivered ${empty}.`, undefined, []);
+  const packet = derive(root, `Audited unrelated PR ${"f".repeat(40)}.`, undefined, []);
   assert.equal(packet.commitSha, git(ledger, "rev-parse", "HEAD"));
   assert.deepEqual(packet.deliverables, [`${packagePath}/artifacts/report.md`]);
   assert.deepEqual(packet.outputs, []);
@@ -530,12 +572,12 @@ test("a repository without a remote anchors its cut on the local default branch,
   const worker = path.join(root, "worker");
   git(root, "worktree", "add", "-qb", "codex/delivery", worker);
   put(worker, "src/delivery.ts", "delivery\n");
-  const forked = commit(worker);
+  commit(worker);
   put(root, "ledger/INDEX.md", "published again\n");
   commit(root);
   dispatch(root, worker);
   const started = { kind: "commit" as const, commitSha: base };
-  assert.deepEqual(derive(worker, `Delivered ${forked}.`, undefined, ["ci"], undefined, started).deliverables, [
+  assert.deepEqual(derive(root, "Delivered the bound cut.", undefined, ["ci"], undefined, started).deliverables, [
     "src/delivery.ts",
   ]);
   // Delivered straight onto main after more ledger writes: the cut is that commit's own change.
@@ -543,9 +585,11 @@ test("a repository without a remote anchors its cut on the local default branch,
   commit(root);
   put(root, "src/direct.ts", "direct\n");
   const direct = commit(root);
-  assert.deepEqual(derive(root, `Delivered ${direct}.`, undefined, ["ci"], undefined, started).deliverables, [
-    "src/direct.ts",
-  ]);
+  git(root, "worktree", "remove", worker);
+  assert.deepEqual(
+    derive(root, "Delivered the direct cut.", undefined, ["ci"], undefined, started, direct).deliverables,
+    ["src/direct.ts"],
+  );
 });
 
 test("the comparison cut follows the delivery fork point, not the project HEAD at start", (t) => {
@@ -580,7 +624,6 @@ function movingMain(t: TestContext) {
   put(root, "src/later-pr.ts", "later\n");
   const later = commit(root);
   git(root, "update-ref", "refs/remotes/origin/main", later);
-  dispatch(root, worker);
   return { root, base, merged, later };
 }
 
@@ -588,10 +631,15 @@ test("a cut merged after sibling PRs reports only its own files, never the start
   const { root, base, merged } = movingMain(t);
   // The execution started when the project HEAD sat at `base`; the sibling PR's file lies between
   // that observation and the merge commit, so the frozen-start diff would claim it (F-70FB11C4).
-  const packet = derive(root, `Delivery ${merged}.`, undefined, ["ci"], undefined, {
-    kind: "commit",
-    commitSha: base,
-  });
+  const packet = derive(
+    root,
+    "Delivery complete.",
+    undefined,
+    ["ci"],
+    undefined,
+    { kind: "commit", commitSha: base },
+    merged,
+  );
   assert.equal(packet.commitSha, merged);
   assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
 });
@@ -600,10 +648,15 @@ test("a cut named after main passed it reports its own files, never a reverse di
   const { root, merged, later } = movingMain(t);
   // A restarted execution observed the project HEAD at `later`, a descendant of the named cut;
   // diffing from that observation reverses the comparison and credits the later PR's file.
-  const packet = derive(root, `Delivery ${merged}.`, undefined, ["ci"], undefined, {
-    kind: "commit",
-    commitSha: later,
-  });
+  const packet = derive(
+    root,
+    "Delivery complete.",
+    undefined,
+    ["ci"],
+    undefined,
+    { kind: "commit", commitSha: later },
+    merged,
+  );
   assert.equal(packet.commitSha, merged);
   assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
 });
@@ -618,7 +671,7 @@ test("one commit derives one manifest whatever start observation the execution f
     null, // legacy execution started before the baseline field froze
   ])
     assert.deepEqual(
-      derive(root, `Delivery ${merged}.`, undefined, ["ci"], undefined, deliveryBaseline).deliverables,
+      derive(root, "Delivery complete.", undefined, ["ci"], undefined, deliveryBaseline, merged).deliverables,
       ["src/delivery.ts"],
       `start observation ${JSON.stringify(deliveryBaseline)}`,
     );
