@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { submissionDigest } from "../../src/domain/execution.ts";
+import { stateTransition } from "../../src/domain/task-action-state-transition.ts";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import {
   TASK_LIFECYCLE_TRANSITIONS,
@@ -225,6 +226,11 @@ function coordinate(snapshot: TaskLifecycleSnapshot): string {
 }
 
 test("every registry-reachable non-terminal task coordinate can reach done without cancellation", () => {
+  assert.equal(
+    stateTransition("transition"),
+    null,
+    "the action catalog must not publish a lossy TransitionTask state projection",
+  );
   const root = emptyTaskLifecycleSnapshot(),
     rootKey = coordinate(root),
     snapshots = new Map([[rootKey, root]]),

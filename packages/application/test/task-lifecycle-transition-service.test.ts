@@ -585,7 +585,7 @@ test("a blocked task returns to planned in one step when it holds no lease", asy
   }
 });
 
-test("reinstate rolls a cancelled task back to planned, active, or in_review with an audited reason", async () => {
+test("reinstate rolls a cancelled task back to planned and rejects other targets", async () => {
   const harness = lifecycleHarness();
   try {
     const transition = (status: "planned" | "active" | "in_review" | "cancelled", reason: string, force = false) => {
@@ -623,23 +623,20 @@ test("reinstate rolls a cancelled task back to planned, active, or in_review wit
     assert.equal(planned.event?.type, "task_transitioned");
     assert.equal(planned.event?.payload.mutation.reason, "Owner adjudicated rollback of the batch cancellation");
 
-    // active: the owner adjudicates the recorded executing state as the restore point.
+    // Restoring directly to a later phase manufactures coordinates that normal execution does not.
     await transition("cancelled", "Second erroneous cancellation", true);
-    const active = await transition("active", "Restore the recorded executing state");
-    assert.equal(active.outcome, "applied");
-    assert.equal(active.snapshot.task?.status, "active");
-    assert.equal(harness.projection.read("task-1").snapshot.task?.status, "active");
-
-    // in_review: a task cancelled mid-review returns to the review position it held.
-    await harness.start("execution-1");
-    await harness.submit("execution-1");
-    await transition("cancelled", "Cancelled while awaiting review", true);
-    const reviewed = await transition("in_review", "Resume the interrupted review");
-    assert.equal(reviewed.outcome, "applied");
-    assert.equal(reviewed.snapshot.task?.status, "in_review");
-    assert.equal(harness.projection.read("task-1").snapshot.task?.status, "in_review");
+    for (const status of ["active", "in_review"] as const)
+      await assert.rejects(
+        transition(status, `Attempted direct restore to ${status}`),
+        (error) => error instanceof Error && "code" in error && error.code === "invalid_transition",
+      );
+    assert.equal(harness.projection.read("task-1").snapshot.task?.status, "cancelled");
 
     // done keeps its terminal integrity: completion, not compensation, owns its reversal.
+    await transition("planned", "Restart the cancelled task through its canonical entry");
+    await harness.start("execution-1");
+    await harness.submit("execution-1");
+    await harness.adjudicate("execution-1", "forward");
     await harness.review("execution-1", "acceptance", "approved");
     await harness.consent("execution-1");
     await harness.complete("execution-1");
@@ -648,6 +645,41 @@ test("reinstate rolls a cancelled task back to planned, active, or in_review wit
       transition("planned", "Attempted done rollback"),
       /no lifecycle transition accepts TransitionTask/u,
     );
+  } finally {
+    await harness.cleanup();
+  }
+});
+
+test("review coordinates reject block and return-to-planned transitions", async () => {
+  const harness = lifecycleHarness();
+  try {
+    const transition = (status: "planned" | "blocked", reason: string) => {
+      const revision = harness.eventStore.read().revision + 1;
+      return harness.service.execute(
+        command(
+          harness.rootDir,
+          { type: "TransitionTask" as const, taskId: "task-1", status, reason, force: false },
+          {
+            eventId: `event-review-transition-${revision}`,
+            workspaceRevision: revision,
+            occurredAt: `2026-08-11T00:${String(revision).padStart(2, "0")}:00.000Z`,
+          },
+        ),
+        {},
+      );
+    };
+
+    await harness.create();
+    await harness.start("execution-1");
+    await harness.submit("execution-1");
+    await harness.adjudicate("execution-1", "forward");
+    for (const status of ["blocked", "planned"] as const)
+      await assert.rejects(
+        transition(status, `Attempted review to ${status}`),
+        (error) => error instanceof Error && "code" in error && error.code === "invalid_transition",
+      );
+    assert.equal(harness.projection.read("task-1").snapshot.task?.status, "in_review");
+    assert.equal(harness.projection.read("task-1").snapshot.task?.currentNode, "review");
   } finally {
     await harness.cleanup();
   }

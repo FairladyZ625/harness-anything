@@ -61,14 +61,11 @@ test("domain owns canonical lifecycle status transition semantics", () => {
     "blocked->cancelled",
     "in_review->in_review",
     "in_review->active",
-    "in_review->blocked",
     "in_review->done",
     "in_review->cancelled",
     "done->done",
     "cancelled->cancelled",
     "cancelled->planned",
-    "cancelled->active",
-    "cancelled->in_review",
   ]);
 
   for (const from of domainStatuses) {
