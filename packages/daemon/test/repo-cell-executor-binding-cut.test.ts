@@ -63,6 +63,37 @@ const action = {
   executor: runtimeActor.executor,
 } as const;
 
+test("runtime write authority follows its current lease after a new iteration", async (t) => {
+  const nextExecutionId = "exec-runtime-next-iteration";
+  for (const nextAction of [
+    { kind: "doc-submit", taskId },
+    { kind: "task-submit", taskId, executionId: nextExecutionId },
+    { kind: "task-release", taskId, reason: "finished" },
+  ] as const) {
+    await t.test(nextAction.kind, async () => {
+      const receipt = await createRepoCellApi(
+        contextFor(
+          Promise.resolve(),
+          () => runtimeSession,
+          () => ({ ...lease, executionId: nextExecutionId }),
+        ),
+      ).run({ ...nextAction, executor: runtimeActor.executor }, binding);
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    });
+  }
+});
+
+test("existing task binding permits a runtime under the coordinator lease", async () => {
+  const receipt = await createRepoCellApi(
+    contextFor(
+      Promise.resolve(),
+      () => runtimeSession,
+      () => ({ ...lease, actor: { principal: runtimeActor.principal, executor: null } }),
+    ),
+  ).run(action, binding);
+  assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+});
+
 test("executor binding waits for the preceding writer cut that binds the runtime session", async () => {
   let projectedSession: RuntimeSession | null = null,
     projectedLease: LeaseV1 | null = null;
