@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import {
   deriveTaskWorktreeBinding,
@@ -190,7 +190,9 @@ export function prepareTaskStartWorktree(
 
 /**
  * An applied write that closes a task (done, cancelled, archived) reclaims its worktree on this node. A reclaim
- * failure never undoes the lifecycle write: it comes back as a warning.
+ * failure never undoes the lifecycle write: it comes back as a warning. The same close retries every other closed
+ * task's worktree still on this node, so one retained for uncommitted changes goes once it is clean; only its
+ * removal is reported, since the write did not name it.
  */
 export async function applyTaskWorktreeLifecycle(
   input: TaskWorktreeLifecycleInput,
@@ -208,7 +210,7 @@ export async function applyTaskWorktreeLifecycle(
         ? action.taskIds.filter((id): id is string => typeof id === "string")
         : [];
   let settled = receipt;
-  for (const taskId of taskIds) {
+  for (const taskId of new Set([...taskIds, ...worktreeDirectories(input.rootDir)])) {
     const task = input.readTask(taskId),
       binding = taskWorktreeBinding(task, input.readPresetSnapshot),
       cwd = binding && task && taskClosed(task) ? path.join(input.rootDir, binding.path) : null,
@@ -217,11 +219,21 @@ export async function applyTaskWorktreeLifecycle(
     const worktree: ManagedWorktree = { cwd, branch: binding.branch, baseRef },
       result = await reclaimManagedWorktree(input.rootDir, worktree),
       detail = reclaimDetail("Worktree", worktree, result);
-    if (result.outcome === "retained") settled = withNotes(settled, [], [detail!]);
+    if (result.outcome === "retained" && taskIds.includes(taskId)) settled = withNotes(settled, [], [detail!]);
     else if (result.outcome === "removed")
       settled = withNotes(settled, [detail ?? `Worktree ${worktree.cwd} and branch ${worktree.branch} removed.`], []);
   }
   return settled;
+}
+
+/** The directories under this node's `.worktrees/`; each task-bound one is named by its task id. */
+function worktreeDirectories(rootDir: string): readonly string[] {
+  const directory = path.join(rootDir, ".worktrees");
+  return existsSync(directory)
+    ? readdirSync(directory, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name)
+    : [];
 }
 
 async function checkoutOnStart(

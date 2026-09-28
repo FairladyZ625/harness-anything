@@ -27,7 +27,7 @@ const repositoryDiff = () => ({ profile: { outputShape: "repository-diff" } });
  */
 async function lifecycle(
   root: string,
-  task: () => TaskV2,
+  task: (id: string) => TaskV2 | null,
   action: { readonly kind: string; readonly taskId?: string },
   options: { readonly source?: unknown; readonly setup?: readonly string[]; readonly write?: () => WriteReceiptDraft },
 ) {
@@ -357,6 +357,43 @@ test("closing a task reclaims its worktree by the managed-worktree rule", async 
         else assert.equal(closed.warnings, undefined);
         const view = taskWorkspaceView(fixture.root, task, "tasks/x", repositoryDiff, null);
         assert.equal(view?.kind === "worktree" && view.state, scenario.expect.present ? "retained" : "reclaimed");
+      } finally {
+        rmSync(fixture.base, { recursive: true, force: true });
+      }
+    });
+});
+
+test("a worktree retained at close is reclaimed by a later close on this node once it is clean", async (t) => {
+  for (const clean of [true, false])
+    await t.test(clean ? "cleaned: reclaimed" : "still dirty: retained", async () => {
+      const fixture = repositoryFixture(),
+        otherId = "task_87654321",
+        tasks = new Map<string, TaskV2>([
+          [taskId, boundTask("active")],
+          [otherId, { ...boundTask("active"), taskId: otherId }],
+        ]),
+        readTask = (id: string) => tasks.get(id) ?? null,
+        close = (id: string) => {
+          tasks.set(id, { ...tasks.get(id)!, status: "cancelled" });
+          return lifecycle(fixture.root, readTask, { kind: "task-transition", taskId: id }, {});
+        };
+      try {
+        const cwd = (await materializeTaskWorktree(fixture.root, readTask(taskId), repositoryDiff, []))!.cwd,
+          otherCwd = (await materializeTaskWorktree(fixture.root, readTask(otherId), repositoryDiff, []))!.cwd,
+          // A worktree no task is bound to (a schedule occurrence, a Squad worker) is not this rule's to reclaim.
+          unbound = path.join(fixture.root, ".worktrees", "occ-unbound");
+        mkdirSync(unbound);
+        writeFileSync(path.join(cwd, "draft.txt"), "draft\n");
+        assert.match(String((await close(taskId)).warnings?.[0]), /retained .*uncommitted changes/u);
+        if (clean) rmSync(path.join(cwd, "draft.txt"));
+        const later = await close(otherId);
+        assert.equal(existsSync(otherCwd), false);
+        assert.equal(existsSync(cwd), !clean);
+        assert.equal(git(fixture.root, "branch", "--list", taskId).length > 0, !clean);
+        assert.equal(existsSync(unbound), true);
+        if (clean)
+          assert.match(String((later as { summary?: string }).summary), new RegExp(`${taskId} and branch`, "u"));
+        assert.equal(later.warnings, undefined);
       } finally {
         rmSync(fixture.base, { recursive: true, force: true });
       }
