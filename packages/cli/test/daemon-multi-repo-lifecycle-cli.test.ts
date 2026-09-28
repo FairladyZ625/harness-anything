@@ -110,10 +110,8 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
           "real CI, and a code-doc reconciliation witness. For a task-package-only " +
           "report or decision, use the task-package-artifact preset docs-task.",
         "next: remove --dry-run to publish this exact resolved scaffold",
-        "plan: write the concrete plan at harness/tasks/task-alpha-alpha/task_plan.md; required sections: Brief, " +
-          "Goal, Context, Required Reading, Entry Conditions, Dependencies, Execution Surface, Constraints, " +
-          "Checkpoint, CI/Gate Authority Stop Condition, Implementation Plan, Deliverable Contract, Evidence " +
-          "Protocol, Verification",
+        "plan: write the concrete plan at harness/tasks/task-alpha-alpha/task_plan.md; keep every section heading " +
+          "the preset template ships",
         "artifacts: persist supplementary context, research notes, design drafts, worker prompts, and review " +
           "evidence under harness/tasks/task-alpha-alpha/artifacts/; consider landing any extra information or " +
           "background materials here beyond task_plan.md",
@@ -140,7 +138,11 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     ]);
     assert.equal(alpha.outcome, "applied", JSON.stringify(alpha));
     assert.equal(beta.outcome, "applied", JSON.stringify(beta));
-    assert.equal(alpha.summary, "created task task-alpha at harness/tasks/task-alpha-alpha");
+    // No open work exists in this repository, so the receipt names the task standalone without a --work hint.
+    assert.equal(
+      alpha.summary,
+      "created task task-alpha at harness/tasks/task-alpha-alpha\nwork: none (standalone task)",
+    );
     settleFollower(fixture.alpha, fixture.userRoot, alpha);
     const alphaPlan = `${String(alpha.packagePath)}/task_plan.md`;
     writeFileSync(path.join(fixture.alpha, "harness", alphaPlan), realizedTaskPlan("Alpha"));
