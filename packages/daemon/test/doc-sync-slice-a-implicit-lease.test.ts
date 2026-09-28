@@ -18,7 +18,7 @@ import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 
 import { initRepo, ownerBinding, rows, write } from "./doc-sync-slice-a.fixtures.ts";
-test("confirmed full submit accepts two authored paths with identical content", async () => {
+test("a selection submit accepts two authored paths with identical content", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-identical-content-"));
   initRepo(rootDir);
   const repoId = workspaceId("identical-content"),
@@ -32,10 +32,10 @@ test("confirmed full submit accepts two authored paths with identical content", 
   try {
     write(rootDir, "context/one.md", body);
     write(rootDir, "context/two.md", body);
-    const submitted = (await cell.run({ kind: "doc-submit", paths: [], all: true }, binding)) as Record<
-      string,
-      unknown
-    >;
+    const submitted = (await cell.run(
+      { kind: "doc-submit", paths: ["context/one.md", "context/two.md"] },
+      binding,
+    )) as Record<string, unknown>;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     await waitForWorktree(cell, submitted, binding);
     assert.doesNotMatch(JSON.stringify(submitted), /duplicate write target/u);
@@ -54,7 +54,7 @@ test("confirmed full submit accepts two authored paths with identical content", 
   }
 });
 
-test("confirmed full submit applies prose after its heading is rewritten", async () => {
+test("a selection submit applies prose after its heading is rewritten", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-partial-blocked-"));
   initRepo(rootDir);
   const repoId = workspaceId("partial-blocked"),
@@ -71,10 +71,10 @@ test("confirmed full submit applies prose after its heading is rewritten", async
     await waitForWorktree(cell, initial, binding);
     write(rootDir, "context/blocked.md", "# Renamed\n\nbase\n");
     write(rootDir, "context/eligible.md", "# Eligible\n\nship me\n");
-    const submitted = (await cell.run({ kind: "doc-submit", paths: [], all: true }, binding)) as Record<
-      string,
-      unknown
-    >;
+    const submitted = (await cell.run(
+      { kind: "doc-submit", paths: ["context/blocked.md", "context/eligible.md"] },
+      binding,
+    )) as Record<string, unknown>;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     await waitForWorktree(cell, submitted, binding);
     const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(submitted.opId));
@@ -87,7 +87,10 @@ test("confirmed full submit applies prose after its heading is rewritten", async
     assert.equal(readFileSync(path.join(rootDir, "harness/context/eligible.md"), "utf8"), "# Eligible\n\nship me\n");
     assert.equal(readFileSync(path.join(rootDir, "harness/context/blocked.md"), "utf8"), "# Renamed\n\nbase\n");
     write(rootDir, "events/segments/manifest.json", "{}\n");
-    const unconfirmed = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as Record<string, unknown>;
+    const unconfirmed = (await cell.run(
+      { kind: "doc-submit", paths: ["events/segments/manifest.json"] },
+      binding,
+    )) as Record<string, unknown>;
     assert.equal(unconfirmed.outcome, "op_rejected", JSON.stringify(unconfirmed));
     assert.equal(unconfirmed.code, "preview_blocked");
     assert.equal(unconfirmed.acceptance, null);
@@ -103,7 +106,7 @@ test("confirmed full submit applies prose after its heading is rewritten", async
   }
 });
 
-test("confirmed full submit applies eligible prose and reports an unrelated deletion as skipped", async () => {
+test("a selection submit applies eligible prose and reports an unrelated deletion as skipped", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-partial-deletion-"));
   initRepo(rootDir);
   const repoId = workspaceId("partial-deletion"),
@@ -120,10 +123,10 @@ test("confirmed full submit applies eligible prose and reports an unrelated dele
     await waitForWorktree(cell, initial, binding);
     rmSync(path.join(rootDir, "harness/context/deleted.md"));
     write(rootDir, "context/eligible.md", "# Eligible\n");
-    const submitted = (await cell.run({ kind: "doc-submit", paths: [], all: true }, binding)) as Record<
-      string,
-      unknown
-    >;
+    const submitted = (await cell.run(
+      { kind: "doc-submit", paths: ["context/deleted.md", "context/eligible.md"] },
+      binding,
+    )) as Record<string, unknown>;
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     const settled = await waitForWorktree(cell, submitted, binding);
     assert.equal(settled.worktree.state, "verified");
@@ -217,7 +220,7 @@ test("a runtime session with multiple matching held executions rejects with exac
       } as unknown as TaskProjection,
       store = makeTaskEventStore({ repoId: "runtime-routes", rootDir });
     const rejected = await runDocAction({
-      action: { kind: "doc-submit", paths: [] },
+      action: { kind: "doc-submit", paths: [...paths] },
       binding: { actor: runtimeActor, source },
       workspaceId: workspaceId("runtime-routes"),
       rootDir,
@@ -365,10 +368,13 @@ test("path and confirmed full submits ride the repository prose channel when ano
     // A daemon-managed task file in the same batch must surface as blocked with its owning task and
     // required route, without making the clean submission read as a failure.
     write(rootDir, `${packagePath}/progress.md`, "# Progress\n");
-    const fullSubmit = (await cell.run({ kind: "doc-submit", paths: [], all: true }, person)) as Record<
-      string,
-      unknown
-    >;
+    const fullSubmit = (await cell.run(
+      {
+        kind: "doc-submit",
+        paths: [`${packagePath}/artifacts/reports/second.md`, `${packagePath}/progress.md`],
+      },
+      person,
+    )) as Record<string, unknown>;
     assert.equal(fullSubmit.outcome, "applied", JSON.stringify(fullSubmit));
     assert.match(
       String(fullSubmit.summary),

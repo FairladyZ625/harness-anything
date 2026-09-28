@@ -27,7 +27,7 @@ interface BlockedCandidate {
 
 export function blockedCandidateNextAction(
   candidate: BlockedCandidate,
-  nextStep = "rerun ha doc sync --submit",
+  nextStep = "rerun ha doc sync --submit with --task <task-id> or --path <path>",
 ): string {
   const route = candidate.requiredRoute ?? resolveDocRoute(documentPath(candidate.path)).requiredRoute;
   return (

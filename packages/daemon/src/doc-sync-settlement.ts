@@ -11,7 +11,7 @@ import type { DocIntentChannel } from "./doc-sync-adjudication.ts";
 import { publicScan, type DocCandidateScan } from "./doc-sync-candidate-scanner.ts";
 import type { DocSettlementReceipt, Input } from "./doc-sync-command-actions.ts";
 import { detail, holder, isTaskPackagePath, touch } from "./doc-sync-details.ts";
-import { localProseSource, proof } from "./doc-sync-files.ts";
+import { localProseSource, proof, rejectDocSyncAction } from "./doc-sync-files.ts";
 
 export function scanReceipt(input: Input, scan: DocCandidateScan): DocSettlementReceipt {
   const revision = input.store.readHead()?.revision ?? 0,
@@ -108,6 +108,46 @@ export function scanDetail(input: Input, scan: DocCandidateScan, code: string): 
   };
 }
 
+// Submit-all is a deleted semantics (dec_5D2A53976DA1EF7A78F0094BAB CH1): a local submit that
+// names neither --task nor --path is refused before anything is published, and the receipt lists
+// the candidates it would have carried grouped by owning task, so another session's half-written
+// files are never swept into someone else's commit. `all: true` rides the same refusal — locally
+// it only spelled the same whole-tree sweep; the fleet edge channel keeps its own confirmation
+// gate and never reaches this scanner.
+export function scopeRequiredRejection(input: Input, scan: DocCandidateScan): DocSettlementReceipt {
+  const summary = scopeRequiredSummary(scan, (candidate) => input.projection.taskIdForDocumentPath(candidate));
+  return Object.assign(
+    rejectDocSyncAction(
+      `scan:${scan.baseLedgerSha.headDigest}`,
+      "doc_submit_scope_required",
+      scanDetail(input, scan, "doc_submit_scope_required"),
+    ),
+    // rejectionExplanation is the field the CLI's human hint chain promotes, so the candidate
+    // grouping itself — not just the code — reaches the operator.
+    { summary, rejectionExplanation: summary },
+  );
+}
+
+export function scopeRequiredSummary(scan: DocCandidateScan, taskOwner: (path: string) => string | null): string {
+  const candidates = scan.rows.filter((row) => row.state !== "clean" && row.state !== "inapplicable"),
+    groups = new Map<string, string[]>();
+  for (const row of candidates) {
+    const owner = taskOwner(row.path);
+    groups.set(owner ?? "", [...(groups.get(owner ?? "") ?? []), `${row.path}\t${row.state}`]);
+  }
+  return [
+    "doc-submit: op_rejected (doc_submit_scope_required)",
+    ...(candidates.length ? ["candidates by task:"] : ["candidates: (none)"]),
+    ...[...groups.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .flatMap(([owner, rows]) => [
+        owner ? `task ${owner}:` : "shared surface (no owning task):",
+        ...rows.sort().map((row) => `  ${row}`),
+      ]),
+    "next: rerun ha doc sync --submit with --task <task-id> or --path <path>...",
+  ].join("\n");
+}
+
 export function noOp(input: Input, scan: DocCandidateScan): DocSettlementReceipt {
   const revision = input.store.readHead()?.revision ?? 0;
   return {
@@ -189,7 +229,7 @@ export function scanRejectionSummary(code: string, scan: DocCandidateScan): stri
             "submit through the lease holder or use the repository prose channel"
           : "next: submit through the repository prose channel or acquire the task lease"
       : "next: use the required route shown for each blocked path; these documents are daemon-managed. Then rerun " +
-        "ha doc sync --submit";
+        "ha doc sync --submit with --task <task-id> or --path <path>";
   return [
     `doc-submit: op_rejected (${code})`,
     "blocked:",
