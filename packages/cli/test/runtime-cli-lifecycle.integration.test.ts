@@ -281,7 +281,7 @@ test("Detached runtime results are retrieved from another CLI process over a reu
   assert.equal(detachedReceipt.nextAction, `ha runtime status ${detachedRuntimeSessionId} --wait`);
   assert.match(
     String(detachedReceipt.summary),
-    new RegExp(`next: ha runtime status ${detachedRuntimeSessionId} --wait$`, "u"),
+    new RegExp(`^wait: ha runtime status ${detachedRuntimeSessionId} --wait blocks until settlement`, "mu"),
   );
   const retrievalProcess = runMaybe(root, env, [
       "runtime",
