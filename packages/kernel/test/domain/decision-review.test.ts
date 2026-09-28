@@ -4,10 +4,10 @@ import test from "node:test";
 import {
   assertDecisionAcceptReview,
   decisionReviewContentDigest,
-  type ActorIdentity,
   type DecisionDocumentState,
   type DecisionEventDraftV1,
-} from "../../src/index.ts";
+} from "../../src/domain/decision-event.ts";
+import type { ActorIdentity } from "../../src/index.ts";
 
 const proposer: ActorIdentity = {
   principal: { personId: "person-owner" },

@@ -353,6 +353,9 @@ test("Decision outcome embeds an independently verifiable machine-content consen
     rejected: decisionDraft.payload.rejected,
     claims: [],
     judgmentConsents: [],
+    reviews: [],
+    reviewResponses: [],
+    reviewOverrides: [],
   } satisfies Omit<DecisionDocumentState, "relations">;
   const outcome = {
     ...decisionDraft,

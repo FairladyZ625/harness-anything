@@ -426,6 +426,9 @@ test("SQLite Decision append refuses a stale canonical document base before reco
         claims: [],
         provenance: proposal.payload.provenance,
         judgmentConsents: [],
+        reviews: [],
+        reviewResponses: [],
+        reviewOverrides: [],
       },
       acceptedDraft: DecisionEventDraftV1 = {
         ...proposal,
