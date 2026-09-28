@@ -91,7 +91,6 @@ import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { assertReviewerTarget, selectReviewTarget } from "./review-dispatch-admission.ts";
 import { continuationMission, initialFallbackAttempt, requiredRuntimeFast } from "./runtime-spawn-fallback.ts";
-import { rateLimitRetryPlan, scheduleProviderRateLimitRetry } from "./runtime-spawn-rate-retry.ts";
 import { admitRuntimeResume, assertResumeAgent, resolveDispatchCwd } from "./runtime-resume-admission.ts";
 import { taskWorktreeCheckoutNote } from "./task-worktree.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const,
@@ -919,19 +918,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     outcome: RuntimeAttemptOutcome,
     terminal: RuntimeAttemptTerminal,
   ): Promise<void> {
-    const fallback = active.fallbackAttempt,
-      rateRetry = rateLimitRetryPlan(outcome);
-    if (rateRetry) {
-      scheduleProviderRateLimitRetry(
-        { ...input, fallbackClosed: () => fallbackClosed, spawnAttempt },
-        active,
-        outcome,
-        terminal,
-        rateRetry,
-        fallback,
-      );
-      return;
-    }
+    const fallback = active.fallbackAttempt;
     if (!isProviderFailureClassification(outcome.classification) || !fallback) {
       await input.onAttemptTerminal?.(terminal);
       return;

@@ -540,9 +540,11 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
 }
 
 // The single-instance incident shape: no fallback chain exists, and a burst of concurrent
-// workers sees HTTP 429 with a retry-after of seconds. The reset window is waited out and the
-// same provider retried instead of settling the whole run provider_quota.
-test("a short provider rate-limit reset is waited out and retried on the same provider", async () => {
+// workers sees HTTP 429 with a retry-after of seconds. The rate-limit retry layer that waited
+// these out was removed by CEO ruling (root cause is dispatch fan-out discipline, not runtime
+// retry), so a 429 settles provider_quota and the run fails — asserted here to pin the
+// pre-retry settlement semantics.
+test("a short provider rate-limit reset settles provider_quota without a runtime retry", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-provider-rate-retry-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -576,7 +578,7 @@ test("a short provider rate-limit reset is waited out and retried on the same pr
       }),
       runtimeLaunch: () => {
         launches += 1;
-        return rateLimitedThenSuccessProcess(++pid, launches === 1);
+        return rateLimitedProcess(++pid);
       },
     });
   const cell = await open();
@@ -587,29 +589,36 @@ test("a short provider rate-limit reset is waited out and retried on the same pr
       {
         agentId: "retry-success",
         cwd: { scope: "repo-root" },
-        prompt: "Finish despite a momentary rate limit.",
+        prompt: "Fail on a momentary rate limit.",
         taskId: "task_provider_rate_retry",
         idempotencyKey: "provider-rate-retry",
       },
       binding,
     );
-    const rows = await eventually(async () => {
-      const dispatches = (await cell.read("repo.task.dispatches", { taskId: "task_provider_rate_retry" })).dispatches;
-      return dispatches.length === 2 && dispatches[1]?.status === "succeeded" ? dispatches : null;
+    const settled = await eventually(async () => {
+      const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_rate_retry" })).dispatches,
+        task = (await cell.read("repo.tasks.list")).rows.find((row) => row.taskId === "task_provider_rate_retry");
+      // The terminal no-retry shape: one failed dispatch, no scheduled fallback state, and the
+      // task lease released by settlement. A parked retry would hold the lease and mark the
+      // dispatch row "scheduled" instead, so this condition never holds while a retry exists.
+      return rows.length === 1 &&
+        rows[0]?.status === "failed" &&
+        rows[0]?.fallbackState === null &&
+        task?.snapshot.lease === null
+        ? { rows, task }
+        : null;
     });
-    assert.deepEqual(
-      rows.map(({ provider }) => provider.instance),
-      ["provider-retry-single", "provider-retry-single"],
-    );
-    assert.match(rows[0]?.reason ?? "", /HTTP 429/u);
-    assert.equal(launches, 2);
+    assert.equal(settled.rows[0]?.classification, "provider_quota");
+    assert.match(settled.rows[0]?.reason ?? "", /HTTP 429/u);
+    assert.equal(settled.task?.snapshot.task?.status, "active");
+    assert.equal(launches, 1);
   } finally {
     await cell.close();
     rmSync(parent, { recursive: true, force: true });
   }
 });
 
-function rateLimitedThenSuccessProcess(pid: number, rateLimited: boolean): RuntimeProcess {
+function rateLimitedProcess(pid: number): RuntimeProcess {
   let output: ((chunk: string) => void) | null = null,
     exit: ((code: number | null) => void) | null = null;
   return {
@@ -623,25 +632,18 @@ function rateLimitedThenSuccessProcess(pid: number, rateLimited: boolean): Runti
       setImmediate(() => {
         const frames = [
           { type: "thread.started", thread_id: `provider-retry-${pid}` },
-          ...(rateLimited
-            ? [
-                {
-                  type: "turn.failed",
-                  error: {
-                    http_status: 429,
-                    code: "rate_limit",
-                    message: "rate limited; retry shortly",
-                    retry_after: 1,
-                  },
-                },
-              ]
-            : [
-                { type: "item.completed", item: { id: "message", type: "agent_message", text: "done" } },
-                { type: "turn.completed" },
-              ]),
+          {
+            type: "turn.failed",
+            error: {
+              http_status: 429,
+              code: "rate_limit",
+              message: "rate limited; retry shortly",
+              retry_after: 1,
+            },
+          },
         ];
         output?.(`${frames.map((frame) => JSON.stringify(frame)).join("\n")}\n`);
-        exit?.(rateLimited ? 1 : 0);
+        exit?.(1);
       });
     },
     terminate: () => undefined,
