@@ -116,7 +116,7 @@ export function deriveCloseoutSubmission(
         "invalid_submission",
         `Artifact ${path}: ${String(unfiled.length)} of ${String(files.length)} file(s) have no center-accepted ` +
           `revision (${unfiled.slice(0, 8).join(", ")}${unfiled.length > 8 ? ", …" : ""}). File every deliverable ` +
-          "with ha doc sync --submit or ha task artifact add before ha task submit. " +
+          "with ha doc sync --submit --task <task-id> or ha task artifact add before ha task submit. " +
           artifactAnchorGuidance,
       );
     return files.map((file) => {

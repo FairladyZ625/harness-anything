@@ -17,6 +17,7 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
     (args) =>
       `next: run ha task start ${textArg(args, "taskId")} once the plan is canonical — a plan passed as ` +
       "--plan-file is already in this write; a hand-edited task_plan.md still needs ha doc sync --submit " +
+      "--task <task-id> " +
       "from the task's executor or a human principal first",
   ],
   ["task-create:receipt-query", (args) => `next: ha receipt show ${textArg(args, "opId")}`],

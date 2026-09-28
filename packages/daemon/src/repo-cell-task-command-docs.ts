@@ -489,7 +489,7 @@ export function prepareTaskSurfaceWriteAt(
             "plan_local_modified",
             [
               `Task ${taskId} plan ${target} has local changes that ha doc sync has not submitted; `,
-              "run ha doc sync --submit (or restore the published body) before ha task amend, ",
+              "run ha doc sync --submit --task <task-id> (or restore the published body) before ha task amend, ",
               "because a title amend rewrites the plan from the canonical body.",
             ].join(""),
           );

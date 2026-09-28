@@ -171,8 +171,8 @@ test("guidance plane renders all eight descriptor-derived task-create messages e
     assert.deepEqual(renderReceiptGuidance(receipt(false, true)), [
       shared[0],
       "next: run ha task start task-a once the plan is canonical — a plan passed as --plan-file is already in " +
-        "this write; a hand-edited task_plan.md still needs ha doc sync --submit from the task's executor or " +
-        "a human principal first",
+        "this write; a hand-edited task_plan.md still needs ha doc sync --submit --task <task-id> from the " +
+        "task's executor or a human principal first",
       ...shared.slice(1),
     ]);
     assert.deepEqual(renderReceiptGuidance(receipt(false, false)), [
