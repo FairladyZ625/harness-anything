@@ -14,6 +14,7 @@ import {
 import { ensureLocalDaemonRunning, type DaemonLaunchSpec } from "../src/client/daemon-autostart.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
+import { observeDaemonBuild } from "../src/build-identity.ts";
 import { readDaemonLifecycleRecords } from "../src/lifecycle-log.ts";
 import { daemonSingletonLockPath } from "../src/daemon-singleton.ts";
 import { daemonPidPath, readDaemonPid, startDaemon, type RunningDaemon } from "../src/runtime.ts";
@@ -268,6 +269,155 @@ test("a drained superseded daemon exits and the next autostart loads the disk bu
     });
   } finally {
     await replacement?.stop();
+    await daemon?.stop();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("a superseded stop clears its deadline before waiting for successor readiness", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-superseded-deadline-")),
+    userRoot = path.join(parent, "user"),
+    runtimeRoot = path.join(parent, "runtime"),
+    runtimeFile = builtRuntime(runtimeRoot, "build-a"),
+    buildIdPath = path.join(runtimeRoot, "packages/cli/dist/build-id.txt"),
+    daemonId = "superseded-deadline",
+    successorReady = deferred<void>(),
+    handoffStarted = deferred<void>();
+  let deadlineExceeded = false;
+  let daemon: RunningDaemon | undefined;
+  try {
+    daemon = runningDaemon(
+      await startDaemon({
+        daemonId,
+        userRoot,
+        runtimeFile,
+        endpoint: localUserDaemonEndpoint(userRoot, daemonId),
+        shutdownDeadlineMs: 25,
+        shutdownDeadlineExceeded: () => {
+          deadlineExceeded = true;
+        },
+        onSupersededExit: async () => {
+          handoffStarted.resolve();
+          await successorReady.promise;
+        },
+      }),
+    );
+    writeFileSync(buildIdPath, "build-b\n", "utf8");
+    await requestDaemonJsonRpcAt(daemon.endpoint, "daemon.status", {}, 2_000, 2_000, undefined, true);
+    await handoffStarted.promise;
+    let stopSettled = false;
+    const stopped = daemon.stop().then(() => {
+      stopSettled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    assert.equal(deadlineExceeded, false, "successor readiness must not remain under the shutdown deadline");
+    assert.equal(stopSettled, false, "the outgoing daemon must not finish before successor readiness");
+    successorReady.resolve();
+    await stopped;
+  } finally {
+    successorReady.resolve();
+    await daemon?.stop();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("a stop whose repository drain stalls still exceeds its shutdown deadline", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-stalled-stop-deadline-")),
+    rootDir = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    daemonId = "stalled-stop-deadline",
+    attachmentStarted = deferred<void>(),
+    attachmentGate = deferred<void>(),
+    deadlineExceeded = deferred<void>();
+  let daemon: RunningDaemon | undefined;
+  rosterRepo(rootDir, daemonId);
+  registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId: daemonId, userRoot, createConvenienceLinks: false });
+  try {
+    daemon = runningDaemon(
+      await startDaemon({
+        daemonId,
+        userRoot,
+        endpoint: localUserDaemonEndpoint(userRoot, daemonId),
+        shutdownDeadlineMs: 25,
+        shutdownDeadlineExceeded: () => deadlineExceeded.resolve(),
+        openCell: async (input) => {
+          attachmentStarted.resolve();
+          await attachmentGate.promise;
+          return openBootstrappedRepoCell(input);
+        },
+      }),
+    );
+    await attachmentStarted.promise;
+    let stopSettled = false;
+    const stopped = daemon.stop().then(() => {
+      stopSettled = true;
+    });
+    await deadlineExceeded.promise;
+    assert.equal(stopSettled, false, "the shutdown deadline must fire while repository drain is stalled");
+    attachmentGate.resolve();
+    await stopped;
+  } finally {
+    attachmentGate.resolve();
+    await daemon?.stop();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("an immediately exiting successor leaves the incumbent pid serving the unavailable disk build", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-successor-exits-")),
+    userRoot = path.join(parent, "user"),
+    runtimeRoot = path.join(parent, "runtime"),
+    runtimeFile = builtRuntime(runtimeRoot, "build-a"),
+    buildIdPath = path.join(runtimeRoot, "packages/cli/dist/build-id.txt"),
+    successor = path.join(parent, "successor.mjs"),
+    daemonId = "successor-exits",
+    endpoint = localUserDaemonEndpoint(userRoot, daemonId),
+    buildObserver = observeDaemonBuild(runtimeFile),
+    originalPid = process.pid;
+  let daemon: RunningDaemon | undefined, recovered: RunningDaemon | undefined;
+  writeFileSync(successor, "process.exit(23);\n", "utf8");
+  try {
+    daemon = runningDaemon(
+      await startDaemon({
+        daemonId,
+        userRoot,
+        runtimeFile,
+        buildObserver,
+        endpoint,
+        onSupersededExit: async () => {
+          const exited = spawn(process.execPath, [successor], { stdio: "ignore" });
+          assert.equal(await new Promise<number | null>((resolve) => exited.once("close", resolve)), 23);
+          recovered = runningDaemon(
+            await startDaemon({
+              daemonId,
+              userRoot,
+              runtimeFile,
+              buildObserver,
+              endpoint,
+              buildSupersessionEnabled: false,
+            }),
+          );
+        },
+      }),
+    );
+    writeFileSync(buildIdPath, "build-b\n", "utf8");
+    await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2_000, 2_000, undefined, true);
+    await waitUntil(() => recovered !== undefined && readDaemonPid(userRoot, daemonId) === originalPid, 5_000);
+
+    const status = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 2_000, 2_000, undefined, true);
+    console.log(JSON.stringify({ recoveredDaemonStatus: status }));
+    assert.equal(status.ok, true, JSON.stringify(status));
+    assert.equal(status.pid, originalPid, JSON.stringify(status));
+    assert.deepEqual(
+      {
+        code: (status.daemonBuild as Record<string, unknown>).code,
+        loadedBuildId: (status.daemonBuild as Record<string, unknown>).loadedBuildId,
+        diskBuildId: (status.daemonBuild as Record<string, unknown>).diskBuildId,
+      },
+      { code: "daemon_build_stale", loadedBuildId: "build-a", diskBuildId: "build-b" },
+    );
+  } finally {
+    await recovered?.stop();
     await daemon?.stop();
     rmSync(parent, { recursive: true, force: true });
   }

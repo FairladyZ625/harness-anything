@@ -44,8 +44,8 @@ async function runResidentDaemon(
   finish: (receipt: Record<string, unknown>, exitCode: number) => number,
 ): Promise<number> {
   const { startDaemon } = await import("./runtime.ts"),
-    { startDetachedProcess } = await import("./process-port.ts"),
-    { daemonStdioLogPath } = await import("./lifecycle-log.ts");
+    { ensureLocalDaemonRunning } = await import("./client/daemon-autostart.ts"),
+    { localUserDaemonEndpoint } = await import("./client/local-daemon-target.ts");
   // The signal latch registers before startup: a TERM that lands during the
   // startup replay parks here and drains at the next yield instead of being
   // swallowed by synchronous work. stop() is idempotent, so a second signal
@@ -67,26 +67,28 @@ async function runResidentDaemon(
   process.once("SIGTERM", requestStop);
   process.once("SIGINT", requestStop);
   try {
-    daemon = await startDaemon({
-      userRoot,
-      daemonId,
-      shutdownRequested: () => stopping !== null,
-      requestShutdown: requestStop,
-      // A superseded exit has no guaranteed successor starter: task-bound runtimes and worktree
-      // callers are refused autostart by design, and no service manager supervises this process,
-      // so the outgoing daemon hands the slot to the disk build itself. The entry path on disk is
-      // the new build — that is what drift means — and the singleton arbitrates any race with a
-      // concurrent autostart.
-      onSupersededExit: () => {
-        startDetachedProcess(
-          process.execPath,
-          process.argv.slice(1),
-          process.env,
-          daemonStdioLogPath(userRoot, daemonId),
-          process.cwd(),
-        );
-      },
-    });
+    const startResident = async (buildSupersessionEnabled: boolean) =>
+      startDaemon({
+        userRoot,
+        daemonId,
+        buildSupersessionEnabled,
+        shutdownRequested: () => stopping !== null,
+        requestShutdown: requestStop,
+        onSupersededExit: buildSupersessionEnabled
+          ? async () => {
+              const endpoint = localUserDaemonEndpoint(userRoot, daemonId),
+                successor = await ensureLocalDaemonRunning({
+                  socketPath: endpoint,
+                  invokingRoot: process.cwd(),
+                  launch: () => ({ command: process.execPath, args: process.argv.slice(1), env: process.env }),
+                });
+              if (successor.ok) return;
+              process.stderr.write(`daemon successor failed readiness: ${successor.hint}\n`);
+              daemon = await startResident(false);
+            }
+          : undefined,
+      });
+    daemon = await startResident(true);
     if (!("stop" in daemon)) return finish(deferredServeReceipt(daemon, userRoot), 0);
     if (ownerPid !== null)
       ownerLivenessTimer = setInterval(() => {
