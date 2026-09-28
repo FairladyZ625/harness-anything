@@ -197,8 +197,14 @@ async function dualSyncFixture() {
     nodeId: NodeId,
     taskId: string,
     title: string,
+    presetId?: string,
   ): Promise<{ readonly taskId: string; readonly packagePath: string }> => {
-    const receipt = await edgeTask(nodeId, { kind: "task-create", taskId, title });
+    const receipt = await edgeTask(nodeId, {
+      kind: "task-create",
+      taskId,
+      title,
+      ...(presetId ? { presetId } : {}),
+    });
     assert.equal(receipt.ok, true, `task create failed: ${JSON.stringify(receipt).slice(0, 400)}`);
     const publication = await host.run(
       "dual-repo",
@@ -1019,6 +1025,7 @@ for (const commandKind of ["task-submit", "task-settle"] as const)
         "node-one",
         "task_HHHH000000000000000000000H",
         "Closing docs ride submit",
+        "docs-task",
       );
       const started = await fixture.edgeTask("node-one", {
         kind: "task-start",
@@ -1026,23 +1033,27 @@ for (const commandKind of ["task-submit", "task-settle"] as const)
         executionId: "exe-a-submit",
       });
       assert.equal(started.ok, true, JSON.stringify(started).slice(0, 400));
-      // The delivery commit below writes repo Git directly, so the center must finish publishing the
-      // task-start cut first; otherwise the two HEAD writers race and git dies with
-      // `cannot lock ref 'HEAD'`.
+      writeFileSync(path.join(fixture.repo, "verification.md"), "Verified fleet documentation delivery.\n");
+      const artifactSync = await fixture.centerRun({
+        kind: "task-artifact-add",
+        taskId: created.taskId,
+        source: "verification.md",
+        destination: "verification.md",
+      });
+      assert.equal(artifactSync.outcome, "applied", JSON.stringify(artifactSync).slice(0, 500));
+      await fixture.waitPublished(String(artifactSync.opId));
+      const artifactPull = await fixture.edgeDocSync("node-one");
+      assert.equal(artifactPull.ok, true, JSON.stringify(artifactPull).slice(0, 500));
+      // Closing documents start from the published task-start cut; wait before editing the edge copy.
       await fixture.waitPublished(String(started.opId));
       const planPath = `${created.packagePath}/task_plan.md`,
         closeoutPath = `${created.packagePath}/closeout.md`,
         original = readFileSync(fixture.worktree("node-one", planPath), "utf8");
-      fixture.git("update-ref", "refs/remotes/origin/main", "HEAD");
-      writeFileSync(path.join(fixture.repo, "delivery.md"), "# Fleet delivery\n");
-      fixture.git("add", "delivery.md");
-      fixture.git("commit", "-qm", "test: deliver fleet submission cut");
-      const commitSha = fixture.git("rev-parse", "HEAD");
       fixture.writeWorktree("node-one", planPath, `${original}\n## Closing note\n\nRides the submit.\n`);
       fixture.writeWorktree(
         "node-one",
         closeoutPath,
-        `# Closeout\n\n## Summary\n\nFleet delivery commit ${commitSha}.\n\n` +
+        "# Closeout\n\n## Summary\n\nFleet documentation delivery is ready.\n\n" +
           "## Verification\n\nVerified by the dual-sync integration fixture.\n\n" +
           "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNo other path in this fixture.\n",
       );

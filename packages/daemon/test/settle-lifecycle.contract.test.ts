@@ -91,11 +91,12 @@ async function reachDeliverable(
   await waitForFixturePublication(cell, artifactSync.opId, workerBinding);
   let summary = `Done: artifact:${artifactPath}@${artifactSync.revision}`;
   if (options.publicDelivery) {
-    writeFileSync(path.join(rootDir, "delivery.md"), "# Delivered documentation\n");
-    const git = (...args: string[]) => execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
+    const deliveryRoot = path.join(rootDir, ".worktrees", taskId);
+    writeFileSync(path.join(deliveryRoot, "delivery.md"), "# Delivered documentation\n");
+    const git = (...args: string[]) => execFileSync("git", ["-C", deliveryRoot, ...args], { encoding: "utf8" }).trim();
     git("add", "delivery.md");
     git("commit", "-qm", "docs: fixture delivery");
-    summary = `Delivered ${git("rev-parse", "HEAD")}`;
+    summary = "Delivered the bound worktree commit.";
   }
   writeFileSync(
     path.join(rootDir, "harness", `${packagePath}/closeout.md`),
@@ -503,17 +504,19 @@ test("settle preserves the submitted file manifest after main merges the deliver
     cell = undefined;
     const closeout = path.join(rootDir, "harness", `tasks/${taskId}-settle-lifecycle/closeout.md`),
       original = readFileSync(closeout, "utf8"),
-      firstDelivery = original.match(/\b[0-9a-f]{40}\b/u)?.[0];
-    assert.ok(firstDelivery);
+      deliveryRoot = path.join(rootDir, ".worktrees", taskId),
+      worktreeGit = (...args: string[]) =>
+        execFileSync("git", ["-C", deliveryRoot, ...args], { encoding: "utf8" }).trim(),
+      firstDelivery = worktreeGit("rev-parse", "HEAD");
     const base = git("rev-parse", `${firstDelivery}^1`);
     git("update-ref", "refs/remotes/origin/main", base);
-    git("rm", "retired.txt");
-    git("commit", "-qm", "test: remove an earlier delivery path");
-    writeFileSync(path.join(rootDir, "later.md"), "# Later delivery\n");
-    git("add", "later.md");
-    git("commit", "-qm", "test: finish multi-commit delivery");
-    const delivery = git("rev-parse", "HEAD");
-    writeFileSync(closeout, original.replace(firstDelivery, delivery));
+    worktreeGit("rm", "retired.txt");
+    worktreeGit("commit", "-qm", "test: remove an earlier delivery path");
+    writeFileSync(path.join(deliveryRoot, "later.md"), "# Later delivery\n");
+    worktreeGit("add", "later.md");
+    worktreeGit("commit", "-qm", "test: finish multi-commit delivery");
+    const delivery = worktreeGit("rev-parse", "HEAD");
+    writeFileSync(closeout, original);
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "settle-merged" });
     const first = await cell.run({ kind: "task-settle", taskId }, workerBinding);
     assert.equal(first.outcome, "applied", JSON.stringify(first));

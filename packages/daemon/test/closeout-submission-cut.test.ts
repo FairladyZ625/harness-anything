@@ -572,12 +572,12 @@ test("a repository without a remote anchors its cut on the local default branch,
   const worker = path.join(root, "worker");
   git(root, "worktree", "add", "-qb", "codex/delivery", worker);
   put(worker, "src/delivery.ts", "delivery\n");
-  const forked = commit(worker);
+  commit(worker);
   put(root, "ledger/INDEX.md", "published again\n");
   commit(root);
   dispatch(root, worker);
   const started = { kind: "commit" as const, commitSha: base };
-  assert.deepEqual(derive(worker, `Delivered ${forked}.`, undefined, ["ci"], undefined, started).deliverables, [
+  assert.deepEqual(derive(root, "Delivered the bound cut.", undefined, ["ci"], undefined, started).deliverables, [
     "src/delivery.ts",
   ]);
   // Delivered straight onto main after more ledger writes: the cut is that commit's own change.
@@ -585,9 +585,11 @@ test("a repository without a remote anchors its cut on the local default branch,
   commit(root);
   put(root, "src/direct.ts", "direct\n");
   const direct = commit(root);
-  assert.deepEqual(derive(root, `Delivered ${direct}.`, undefined, ["ci"], undefined, started).deliverables, [
-    "src/direct.ts",
-  ]);
+  git(root, "worktree", "remove", worker);
+  assert.deepEqual(
+    derive(root, "Delivered the direct cut.", undefined, ["ci"], undefined, started, direct).deliverables,
+    ["src/direct.ts"],
+  );
 });
 
 test("the comparison cut follows the delivery fork point, not the project HEAD at start", (t) => {
