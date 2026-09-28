@@ -3,7 +3,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { notifyManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { harnessClient } from "../src/renderer/api-client.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import type { DecisionReviewState, DecisionRow } from "../src/renderer/model/types.ts";
@@ -167,6 +167,10 @@ afterEach(async () => {
   document.body.innerHTML = "";
 });
 
+// React Query batches observer notifications on a zero-delay timer by default; run them as microtasks so a
+// settled query has also re-rendered by the time the wait below observes it.
+notifyManager.setScheduler(queueMicrotask);
+
 async function mount(element: ReactElement): Promise<HTMLElement> {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
     container = document.createElement("div"),
@@ -176,10 +180,9 @@ async function mount(element: ReactElement): Promise<HTMLElement> {
   await act(async () => {
     root.render(createElement(QueryClientProvider, { client }, element));
   });
-  for (let index = 0; index < 10; index++)
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+  // Settle on a condition, not a count of timer ticks: every query this mount started has resolved and rendered.
+  await vi.waitFor(() => expect(client.isFetching()).toBe(0));
+  await act(async () => undefined);
   return container;
 }
 
