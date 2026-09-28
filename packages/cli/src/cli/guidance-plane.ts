@@ -15,15 +15,16 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
   [
     "task-create:task-create-start",
     (args) =>
-      `next: edit ${textArg(args, "packagePath")}/task_plan.md, then run ha doc sync --submit --path ` +
-      `${textArg(args, "ledgerPackagePath")}/task_plan.md, then run ha task start ${textArg(args, "taskId")}`,
+      `next: run ha task start ${textArg(args, "taskId")} once the plan is canonical — a plan passed as ` +
+      "--plan-file is already in this write; a hand-edited task_plan.md still needs ha doc sync --submit " +
+      "from the task's executor or a human principal first",
   ],
   ["task-create:receipt-query", (args) => `next: ha receipt show ${textArg(args, "opId")}`],
   [
     "task-create:edit-plan",
     (args) =>
-      `plan: write the concrete plan at ${textArg(args, "packagePath")}/task_plan.md; ` +
-      "keep every section heading the preset template ships",
+      `plan: ha task create --plan-file <markdown> lands the plan in the same create write; or hand-edit ` +
+      `${textArg(args, "packagePath")}/task_plan.md; keep every section heading the preset template ships`,
   ],
   [
     "task-create:task-artifacts",

@@ -374,6 +374,8 @@ const taskActionShapes: Readonly<Record<FleetTaskCommandKind, Check>> = {
       surfaces: array(text),
       taskClass: one("standard", "work", "long_running"),
       reviewReturnBudget: positiveInt,
+      // The resolved plan body crosses the wire; --plan-file itself stays center-local like --from-file.
+      plan: text,
       locale: one("zh-CN", "en-US"),
       dryRun: boolean,
     },

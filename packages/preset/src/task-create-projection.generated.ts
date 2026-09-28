@@ -215,6 +215,12 @@ export const taskCreateDescriptorProjection = {
           cli: { projection: "number", name: "--review-return-budget", kind: "single", error: "invalid_field" },
         },
         {
+          field: "planFile",
+          type: "string",
+          required: false,
+          cli: { name: "--plan-file", kind: "single", error: "invalid_field" },
+        },
+        {
           field: "dryRun",
           type: "boolean",
           required: false,
@@ -246,6 +252,7 @@ export const taskCreateDescriptorProjection = {
           cli: { name: "--admin", kind: "boolean", error: "invalid_field" },
         },
         { field: "createMode", type: "string", required: false, enum: ["migration", "import", "admin"] },
+        { field: "plan", type: "string", required: false },
         { field: "commandType", type: "string", required: false, enum: ["CreateReplayTask"] },
       ],
       exactlyOneOf: [],

@@ -145,6 +145,16 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     env,
   );
   assert.deepEqual(inline?.action, { title: "Inline edge task", kind: "task-create" });
+  writeFileSync(path.join(root, "edge-plan.md"), "# Edge plan\n\n## Brief\n\nAuthored on the edge.\n");
+  const withPlan = await fleetTaskRoute(
+    command("repo.task.create", { kind: "task-create", title: "Edge plan task", planFile: "edge-plan.md" }),
+    env,
+  );
+  assert.deepEqual(withPlan?.action, {
+    kind: "task-create",
+    title: "Edge plan task",
+    plan: "# Edge plan\n\n## Brief\n\nAuthored on the edge.\n",
+  });
   assert.equal(
     await fleetTaskRoute(
       command("repo.task.create", { kind: "task-create", taskId: "task_admin", createMode: "admin", title: "Admin" }),

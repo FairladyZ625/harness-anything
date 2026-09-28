@@ -65,28 +65,44 @@ export function taskCreateAction(rootDir: string, action: RepoTaskAction): RepoT
   const fromFile = typeof action.fromFile === "string",
     jsonInput = typeof action.jsonInput === "string";
   const unsupported = Object.keys(action).filter(
-    (field) => !["kind", "fromFile", "jsonInput", "dryRun", ...taskCreateFields].includes(field),
+    (field) => !["kind", "fromFile", "jsonInput", "dryRun", "planFile", "plan", ...taskCreateFields].includes(field),
   );
   if (unsupported.length)
     throw cellCodedError("invalid_command", `Remove unsupported task create fields: ${unsupported.join(", ")}.`);
-  if (!fromFile && !jsonInput) return action;
+  if (!fromFile && !jsonInput) return withCreatePlanBody(rootDir, action);
   if (fromFile === jsonInput)
     throw cellCodedError("invalid_command", "Choose exactly one structured task source: --from-file or --json-input.");
-  return resolvePacketAction(rootDir, action, {
-    required: [],
-    allowed: taskCreateFields,
-    invalid: (message) => cellCodedError("invalid_command", message),
-    messages: {
-      parse: "Task create input must be one UTF-8 JSON object; repair the JSON and retry.",
-      object: "Task create input must be one JSON object.",
-      unsupportedAction: (fields) => `Remove unsupported task create fields: ${fields.join(", ")}.`,
-      unsupportedInput: (fields) => `Remove unsupported task create fields: ${fields.join(", ")}.`,
-    },
-    merge: (source, packet) => {
-      const { fromFile: _fromFile, jsonInput: _jsonInput, kind: _kind, ...direct } = source;
-      return { kind: "task-create", ...packet, ...direct };
-    },
-  });
+  return withCreatePlanBody(
+    rootDir,
+    resolvePacketAction(rootDir, action, {
+      required: [],
+      allowed: taskCreateFields,
+      invalid: (message) => cellCodedError("invalid_command", message),
+      messages: {
+        parse: "Task create input must be one UTF-8 JSON object; repair the JSON and retry.",
+        object: "Task create input must be one JSON object.",
+        unsupportedAction: (fields) => `Remove unsupported task create fields: ${fields.join(", ")}.`,
+        unsupportedInput: (fields) => `Remove unsupported task create fields: ${fields.join(", ")}.`,
+      },
+      merge: (source, packet) => {
+        const { fromFile: _fromFile, jsonInput: _jsonInput, kind: _kind, ...direct } = source;
+        return { kind: "task-create", ...packet, ...direct };
+      },
+    }),
+  );
+}
+
+/** The plan body rides the create write itself (one transaction, no separate doc-submit authority):
+ * `--plan-file` resolves against the workspace root here, exactly like a decision --body-file. */
+function withCreatePlanBody(rootDir: string, action: RepoTaskAction): RepoTaskAction {
+  if (action.planFile === undefined) return action;
+  if (typeof action.planFile !== "string" || typeof action.plan === "string")
+    throw cellCodedError(
+      "invalid_command",
+      "Use --plan-file <workspace-relative markdown path> as the only plan source.",
+    );
+  const { planFile: _planFile, ...rest } = action;
+  return { ...rest, plan: workspaceText(rootDir, action.planFile, "planFile") };
 }
 
 export function decisionProposalAction(

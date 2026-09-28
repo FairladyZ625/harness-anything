@@ -43,6 +43,8 @@ export interface CompileTaskPackageInput extends PresetResolverOptions {
   readonly slug?: string;
   readonly surfaces?: readonly string[];
   readonly reviewReturnBudget?: number;
+  /** Authored task_plan.md body written in the same create transaction, replacing the scaffold body. */
+  readonly plan?: string;
 }
 export interface CompileTaskBootstrapInput extends CompileTaskPackageInput {
   readonly actor: ActorIdentity;
@@ -130,8 +132,15 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       surfaces: [...(input.surfaces ?? [])],
       fromLegacyId: null,
     },
+    planBody = typeof input.plan === "string" && input.plan.trim() ? input.plan : null,
+    planScaffoldBody =
+      planBody === null
+        ? null
+        : (resolved.documents.find(({ slot }) => slot === "task.plan")?.body.replaceAll("{{title}}", input.title) ??
+          null),
     prose = resolved.documents.map((document): CompiledTaskDocument => {
-      const body = document.body.replaceAll("{{title}}", input.title);
+      const scaffoldBody = document.body.replaceAll("{{title}}", input.title),
+        body = document.slot === "task.plan" && planBody !== null ? planBody : scaffoldBody;
       return {
         slot: document.slot,
         relativePath: document.path,
@@ -177,14 +186,19 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
     additions = prose
       .filter((document) => !orderedProse.includes(document))
       .sort((left, right) => left.relativePath.localeCompare(right.relativePath)),
+    // With an authored plan body, the task.plan descriptor's readiness contract must still derive
+    // from the preset scaffold, never from the authored body: a contract frozen from the authored
+    // body would flag that body's own text as retained scaffold and make the task unstartable.
+    // Template sections stay required, exactly like the hand-edit-then-doc-sync path.
+    withPlanScaffold = (document: CompiledTaskDocument) => descriptor(document, planScaffoldBody),
     descriptors = [
       descriptorStub("task.index", "INDEX.md", "machine"),
       descriptorStub("task.contract", "task-contract.json", "machine"),
-      descriptor(orderedProse[0]!),
+      withPlanScaffold(orderedProse[0]!),
       descriptor(orderedProse[1]!),
       descriptor(orderedProse[2]!),
-      ...additions.map(descriptor),
-      ...presetScripts.map(descriptor),
+      ...additions.map((document) => descriptor(document)),
+      ...presetScripts.map((document) => descriptor(document)),
     ],
     index = machine("task.index", "INDEX.md", renderIndex(input, packagePath, metadata, descriptors)),
     contract = machine(
@@ -479,7 +493,7 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
     ],
   };
 }
-function descriptor(document: CompiledTaskDocument) {
+function descriptor(document: CompiledTaskDocument, planScaffold: string | null = null) {
   return {
     slot: document.slot,
     path: document.relativePath,
@@ -492,7 +506,7 @@ function descriptor(document: CompiledTaskDocument) {
     // transition document never needs the scaffold blob or the bundled catalog. Only the
     // readiness-judged slots carry it; the map's ordered keys are the required sections.
     ...(document.slot === "task.plan" || document.slot === "task.closeout"
-      ? { readiness: transitionDocumentContract(document.body).scaffoldBySection }
+      ? { readiness: transitionDocumentContract(planScaffold ?? document.body).scaffoldBySection }
       : {}),
   };
 }

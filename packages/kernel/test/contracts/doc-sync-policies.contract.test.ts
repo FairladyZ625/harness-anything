@@ -554,3 +554,56 @@ test("receipt detail registry rejects unregistered or open-ended detail shapes",
     /registered receipt domain/u,
   );
 });
+
+test("a runtime-session actor with no lease still cannot submit a planned task's plan", () => {
+  const scaffold = "# Planned\n\n## Brief\n\nScaffold.\n",
+    authored = "# Planned\n\n## Brief\n\nAuthored.\n",
+    document = { ...state(scaffold), path: "tasks/task-planned-planned/task_plan.md" },
+    change = {
+      path: document.path,
+      baseBlobSha256: sha256Text(scaffold),
+      policyId: DOC_POLICY_ID,
+      candidate: claim(authored),
+    } as const,
+    creatorRuntimeActor = {
+      principal: { personId: "person-owner" },
+      executor: { kind: "agent", id: "runtime-session:runtime-creator" },
+    } as const,
+    plannedIntent = {
+      schema: "doc-write-intent/v1",
+      executionId: null,
+      baseLedgerSha,
+      changes: [change],
+    } as const;
+  const rejected = decideDocWrite({
+    intent: plannedIntent,
+    opId: "doc-plan-op",
+    eventId: "doc-plan-event",
+    workspaceRevision: 3,
+    actor: creatorRuntimeActor,
+    source: "local",
+    occurredAt: "2026-08-12T11:00:00.000Z",
+    currentLedgerSha,
+    lease: null,
+    authorizationDecision: null,
+    documents: [document],
+    claims: [Buffer.from(authored)],
+  });
+  assert.equal(rejected.accepted, false, "creating the task grants no doc-write authority");
+  if (!rejected.accepted) assert.equal(rejected.code, "lease_conflict");
+  const humanPrincipal = decideDocWrite({
+    intent: plannedIntent,
+    opId: "doc-plan-op-human",
+    eventId: "doc-plan-event-human",
+    workspaceRevision: 3,
+    actor: { principal: { personId: "person-owner" }, executor: null },
+    source: "local",
+    occurredAt: "2026-08-12T11:00:00.000Z",
+    currentLedgerSha,
+    lease: null,
+    authorizationDecision: null,
+    documents: [document],
+    claims: [Buffer.from(authored)],
+  });
+  assert.equal(humanPrincipal.accepted, true, "the repository prose channel is unchanged");
+});
