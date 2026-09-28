@@ -83,7 +83,7 @@ test("Execution receipts distinguish undeclared gates from required missing witn
   assert.match(codeDoc, /- Code-doc witness: pending/u);
 });
 
-test("owner consent and return are mutually exclusive for the current cut", () => {
+test("owner consent excludes a return unless the consented delivery is stranded", () => {
   const { snapshot } = lifecycleFixture({ complete: false }),
     command = {
       ...normalizeTaskLifecycleCommand(
@@ -110,6 +110,15 @@ test("owner consent and return are mutually exclusive for the current cut", () =
       }),
     /already has owner consent/u,
   );
+  const returned = applyTransition(snapshot, command, {
+    actorBinding: implementer,
+    capability: "task-adjudicate@v1",
+    capabilityRef: "cap-adjudicate",
+    strandedDelivery: true,
+  });
+  assert.equal(returned.event.type, "submission_returned");
+  assert.equal(returned.snapshot.task?.status, "active");
+  assert.equal(returned.snapshot.executions[0]?.state, "changes_requested");
 });
 
 test("an owner return publishes its instruction as a managed task document", () => {
