@@ -719,7 +719,7 @@ test("CI provenance comes from the completed matching GitHub run, not workflow p
   }
 });
 
-test("CI observation pull --task imports the first covering successful main run", async () => {
+test("CI observation pull --task imports the run the frozen contract judges: the newest covering push, red included", async () => {
   const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observation-task-")),
     delivery = "d".repeat(40),
     events: CiRunObservationEventV3[] = [];
@@ -741,7 +741,8 @@ test("CI observation pull --task imports the first covering successful main run"
       readCiRunObservations: () => ({ watermark: events.length }),
       read: () => ({
         snapshot: {
-          task: { iteration: 2 },
+          // A cut frozen before the contract: its ci gate is inferred as github-actions on main push runs.
+          task: { iteration: 2, completionGateIds: ["ci"] },
           executions: [
             { iteration: 1, submission: { commitSha: "a".repeat(40) } },
             { iteration: 2, submission: { commitSha: delivery } },
@@ -754,12 +755,25 @@ test("CI observation pull --task imports the first covering successful main run"
   // stub accepts any base, so a delivery-resolution regression (an older iteration's commit)
   // still reads as covered. Unknown ranges answer "diverged" and fail the pull closed.
   const coverage: Readonly<Record<string, string>> = {
+      [`${delivery}...sha-906`]: "ahead",
       [`${delivery}...sha-905`]: "diverged",
       [`${delivery}...sha-904`]: "ahead",
       [`${delivery}...sha-903`]: "ahead",
       [`${delivery}...sha-902`]: "ahead",
     },
+    // Newest first as the contract orders them: 906 is a manual dispatch (not the frozen push
+    // event), 905 does not cover, 904 was cancelled (no verdict), so 903's failure is the verdict
+    // and the older green 902 never shadows it.
     runs = [
+      {
+        databaseId: 906,
+        headBranch: "main",
+        headSha: "sha-906",
+        createdAt: "2026-09-15T06:00:00Z",
+        status: "completed",
+        conclusion: "success",
+        event: "workflow_dispatch",
+      },
       {
         databaseId: 905,
         headBranch: "main",
@@ -767,6 +781,7 @@ test("CI observation pull --task imports the first covering successful main run"
         createdAt: "2026-09-15T05:00:00Z",
         status: "completed",
         conclusion: "success",
+        event: "push",
       },
       {
         databaseId: 904,
@@ -775,6 +790,7 @@ test("CI observation pull --task imports the first covering successful main run"
         createdAt: "2026-09-15T04:00:00Z",
         status: "completed",
         conclusion: "cancelled",
+        event: "push",
       },
       {
         databaseId: 903,
@@ -783,6 +799,7 @@ test("CI observation pull --task imports the first covering successful main run"
         createdAt: "2026-09-15T03:00:00Z",
         status: "completed",
         conclusion: "failure",
+        event: "push",
       },
       {
         databaseId: 902,
@@ -791,6 +808,7 @@ test("CI observation pull --task imports the first covering successful main run"
         createdAt: "2026-09-15T02:00:00Z",
         status: "completed",
         conclusion: "success",
+        event: "push",
       },
       {
         databaseId: 901,
@@ -799,6 +817,7 @@ test("CI observation pull --task imports the first covering successful main run"
         createdAt: "2026-09-15T01:00:00Z",
         status: "completed",
         conclusion: "success",
+        event: "push",
       },
     ];
   const runGh = async (_command: string, args: readonly string[]) => {
@@ -829,7 +848,7 @@ test("CI observation pull --task imports the first covering successful main run"
         headSha: `sha-${args[2]}`,
         headBranch: "main",
         status: "completed",
-        conclusion: "success",
+        conclusion: runs.find((run) => String(run.databaseId) === args[2])?.conclusion,
         attempt: 1,
         event: "push",
       });
@@ -863,15 +882,17 @@ test("CI observation pull --task imports the first covering successful main run"
       runGh,
     );
     assert.equal(events.length, 1);
-    assert.equal(events[0]?.payload.verification?.runId, "902");
-    assert.equal(events[0]?.payload.verification?.headSha, "sha-902");
+    assert.equal(events[0]?.payload.verification?.runId, "903");
+    assert.equal(events[0]?.payload.verification?.headSha, "sha-903");
+    assert.equal(events[0]?.payload.verification?.conclusion, "failure");
     assert.equal(JSON.parse(receipt.evidence).requestedRuns, 1);
+    assert.match(receipt.summary, /task-witness CI witness: run 903 \(rewrite-ci\) concluded failure/u);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
 
-test("CI observation pull --task fails closed when no completed success covers the delivery", async () => {
+test("CI observation pull --task fails closed when no completed run covers the delivery", async () => {
   const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observation-task-none-")),
     delivery = "d".repeat(40);
   const cell = {
@@ -881,7 +902,7 @@ test("CI observation pull --task fails closed when no completed success covers t
     projection: {
       read: () => ({
         snapshot: {
-          task: { iteration: 1 },
+          task: { iteration: 1, completionGateIds: ["ci"] },
           executions: [{ iteration: 1, submission: { commitSha: delivery } }],
         },
       }),
@@ -895,6 +916,7 @@ test("CI observation pull --task fails closed when no completed success covers t
       createdAt: "2026-09-15T06:00:00Z",
       status: "in_progress",
       conclusion: null,
+      event: "push",
     },
     {
       databaseId: 905,
@@ -903,6 +925,7 @@ test("CI observation pull --task fails closed when no completed success covers t
       createdAt: "2026-09-15T05:00:00Z",
       status: "completed",
       conclusion: "success",
+      event: "push",
     },
   ];
   const coverage: Readonly<Record<string, string>> = {
@@ -916,7 +939,7 @@ test("CI observation pull --task fails closed when no completed success covers t
     throw new Error(`unexpected gh call: ${args.join(" ")}`);
   }) as never;
   try {
-    // The completed success does not cover; the in_progress run does, so next names the pending run.
+    // The completed run does not cover; the in_progress run does, so next names the pending run.
     await assert.rejects(
       fetchCiObservations(cell as never, { kind: "ci-observe-pull", taskId: "task-witness" }, runGh),
       (error: Error & { code?: string }) => {
@@ -957,7 +980,7 @@ test("CI observation pull reports rate_limited with the reset hint instead of a 
     projection: {
       read: () => ({
         snapshot: {
-          task: { iteration: 1 },
+          task: { iteration: 1, completionGateIds: ["ci"] },
           executions: [{ iteration: 1, submission: { commitSha: delivery } }],
         },
       }),
@@ -971,6 +994,7 @@ test("CI observation pull reports rate_limited with the reset hint instead of a 
       createdAt: "2026-09-15T05:00:00Z",
       status: "completed",
       conclusion: "success",
+      event: "push",
     },
   ];
   // execFile-shaped failure: message embeds the gh stderr, stderr rides alongside, code is numeric.

@@ -79,7 +79,8 @@ export function readBeforeWriteQueue(
         gateAppliesToSubmission(requirement, execution.submission!) &&
         !acceptedGateWitness(snapshot, execution, requirement.gateId) &&
         !gateWaived(snapshot, execution, requirement) &&
-        adapter.evaluate(context.extracted, requirement, execution, undefined) === null
+        // A recorded red verdict still collects: a newer run or rerun attempt may supersede it.
+        adapter.evaluate(context.extracted, requirement, execution, undefined)?.result !== "pass"
         ? [{ requirement, adapter }]
         : [];
     });

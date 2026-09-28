@@ -5,10 +5,12 @@ import path from "node:path";
 import {
   ciRunObservationWritePlan,
   consumeKnownError,
+  inferLegacyGateRequirements,
   isNativeCommitSha,
   validateCurrentCiRunObservationEvent,
   type CiRunObservationEventV2,
   type CiRunObservationEventV3,
+  type FrozenGateRequirement,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
@@ -30,6 +32,7 @@ type CiRunListEntry = CiWorkflowRun & {
   readonly headSha: string;
   readonly status: string;
   readonly conclusion: string | null;
+  readonly event: string;
 };
 type CiRunSummary = {
   readonly workflowName: string;
@@ -49,7 +52,13 @@ type FetchedCiRun = {
 type CiObservationFetch = {
   readonly requestedRuns: number;
   readonly runs: readonly FetchedCiRun[];
+  /** --task: the delivery and the run its frozen contract judges, reported with the run's conclusion. */
+  readonly witness?: { readonly taskId: string; readonly delivery: string; readonly databaseId: number };
 };
+type GithubActionsOptions = Extract<
+  FrozenGateRequirement["witness"],
+  { readonly adapterId: "github-actions" }
+>["adapterOptions"];
 
 // Every gh call finishes before the pull enters the repository write queue: GitHub can stall
 // without bound, and the queue waits only on the event appends in ingestCiObservations.
@@ -82,13 +91,14 @@ export async function fetchCiObservations(
     throw cell.cellCodedError("invalid_command", "Use --run <run-id> or --task <task-id>, not both.");
   if (namedRuns && (namedRuns.length > 100 || namedRuns.some((id) => !Number.isSafeInteger(id) || id < 1)))
     throw cell.cellCodedError("invalid_command", "CI observation pull accepts 1..100 positive --run ids.");
+  const witness = taskId === null ? null : taskWitnessContract(cell, taskId, workflows);
   const temporaryRoot = mkdtempSync(path.join(tmpdir(), "ha-ci-observe-"));
   try {
     const listed =
         namedRuns === null
           ? (
               await Promise.all(
-                workflows.map(
+                (witness?.options.workflows ?? workflows).map(
                   async (workflow) =>
                     JSON.parse(
                       await runGh(
@@ -98,11 +108,11 @@ export async function fetchCiObservations(
                           "list",
                           "--workflow",
                           `${workflow}.yml`,
-                          ...(taskId === null ? [] : ["--branch", "main"]),
+                          ...(witness === null ? [] : ["--branch", "main"]),
                           "--limit",
                           String(limit),
                           "--json",
-                          "databaseId,headBranch,headSha,createdAt,status,conclusion",
+                          "databaseId,headBranch,headSha,createdAt,status,conclusion,event",
                         ],
                         { cwd: cell.rootDir },
                       ),
@@ -111,9 +121,10 @@ export async function fetchCiObservations(
               )
             ).flat()
           : [],
-      witnessRuns = taskId === null ? null : await selectTaskWitnessRun(cell, taskId, listed, runGh),
+      witnessRun = witness === null ? null : await selectTaskWitnessRun(cell, witness, listed, runGh),
       runs: readonly Pick<CiWorkflowRun, "databaseId">[] =
-        namedRuns?.map((databaseId) => ({ databaseId })) ?? witnessRuns ?? selectCiObservationRuns(listed, limit);
+        namedRuns?.map((databaseId) => ({ databaseId })) ??
+        (witnessRun ? [witnessRun] : selectCiObservationRuns(listed, limit));
     const fetchResults = await Promise.all(
       runs.map(async (run): Promise<{ fetched: FetchedCiRun | null } | { failure: unknown }> => {
         try {
@@ -230,7 +241,13 @@ export async function fetchCiObservations(
           });
       }
     }
-    return { requestedRuns: namedRuns?.length ?? witnessRuns?.length ?? limit, runs: fetched };
+    return {
+      requestedRuns: namedRuns?.length ?? (witnessRun ? 1 : limit),
+      runs: fetched,
+      ...(witness && witnessRun
+        ? { witness: { taskId: witness.taskId, delivery: witness.delivery, databaseId: witnessRun.databaseId } }
+        : {}),
+    };
   } finally {
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
@@ -326,7 +343,10 @@ export function ingestCiObservations(
       canonicalVisible: visible,
       worktreeVisible: false,
     },
-    summary: `Imported ${imported} CI observation(s); ${duplicate} already existed.\n` + eventRefs.join("\n"),
+    summary:
+      taskWitnessSummary(fetched) +
+      `Imported ${imported} CI observation(s); ${duplicate} already existed.\n` +
+      eventRefs.join("\n"),
   } as WriteReceipt;
 }
 
@@ -343,19 +363,19 @@ export function selectCiObservationRuns(runs: readonly CiWorkflowRun[], limit: n
     .slice(0, limit);
 }
 
-// --task resolves the submitted execution's delivery commit, then walks completed main runs
-// newest-first and takes the first covering run whose conclusion is success; covering
-// cancelled/failure runs are skipped so callers never retry the same mechanical step.
-async function selectTaskWitnessRun(
+type TaskWitness = { readonly taskId: string; readonly delivery: string; readonly options: GithubActionsOptions };
+
+// --task resolves the submitted execution's delivery commit and the github-actions options its
+// completion contract froze (cuts frozen before the contract infer them as completion does).
+function taskWitnessContract(
   cell: {
     readonly rootDir: string;
     readonly cellCodedError: RepoCellOperationalContext["cellCodedError"];
     readonly projection?: Pick<TaskProjection, "read">;
   },
   taskId: string,
-  listed: readonly CiRunListEntry[],
-  runGh: RunGh,
-): Promise<readonly Pick<CiWorkflowRun, "databaseId">[]> {
+  workflows: readonly string[],
+): TaskWitness {
   const snapshot = cell.projection?.read(taskId).snapshot,
     submission = snapshot?.executions.find(
       (candidate) => candidate.iteration === snapshot.task?.iteration && candidate.submission !== null,
@@ -374,26 +394,58 @@ async function selectTaskWitnessRun(
         "landed under another commit. next: the task owner returns the cut with " +
         `ha task adjudicate ${taskId} --return --review-id <review-id> --note <reason>, then resubmits the landed commit.`,
     );
-  const mainRuns = listed
-      .filter((run) => run.headBranch === "main")
-      .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.databaseId - left.databaseId),
-    completed = mainRuns.filter((run) => run.status === "completed"),
+  const witness = (
+    submission?.completionContract?.gates ??
+    inferLegacyGateRequirements(snapshot?.task?.completionGateIds ?? [], workflows)
+  ).find((requirement) => requirement.witness.adapterId === "github-actions")?.witness;
+  if (witness?.adapterId !== "github-actions")
+    throw cell.cellCodedError(
+      "invalid_command",
+      `Task ${taskId} has no github-actions gate in its completion contract; no CI run witnesses it.`,
+    );
+  return { taskId, delivery, options: witness.adapterOptions };
+}
+
+// Selects the run the frozen contract judges, exactly as completion does: completed main runs of
+// the frozen event, newest run first, the first covering run whose conclusion is a verdict
+// (cancelled/skipped carry none). A red verdict is imported and reported, never skipped for an
+// older green.
+async function selectTaskWitnessRun(
+  cell: { readonly rootDir: string; readonly cellCodedError: RepoCellOperationalContext["cellCodedError"] },
+  { taskId, delivery, options }: TaskWitness,
+  listed: readonly CiRunListEntry[],
+  runGh: RunGh,
+): Promise<Pick<CiWorkflowRun, "databaseId">> {
+  const covers = async (head: string) =>
+      options.coverage === "exact" ? head === delivery : coversCommit(runGh, cell.rootDir, delivery, head),
+    mainRuns = listed
+      .filter((run) => run.headBranch === "main" && run.event === options.event)
+      .sort((left, right) => right.databaseId - left.databaseId),
+    completed = mainRuns.filter(
+      (run) => run.status === "completed" && run.conclusion !== "cancelled" && run.conclusion !== "skipped",
+    ),
     pending = mainRuns.filter((run) => run.status !== "completed");
-  for (const run of completed)
-    if (run.conclusion === "success" && (await coversCommit(runGh, cell.rootDir, delivery, run.headSha)))
-      return [{ databaseId: run.databaseId }];
+  for (const run of completed) if (await covers(run.headSha)) return { databaseId: run.databaseId };
   for (const run of pending)
-    if (await coversCommit(runGh, cell.rootDir, delivery, run.headSha))
+    if (await covers(run.headSha))
       throw cell.cellCodedError(
         "ci_witness_not_found",
-        `No completed successful main CI run covers delivery ${delivery} of ${taskId}. ` +
+        `No completed main CI run covers delivery ${delivery} of ${taskId}. ` +
           `next: run ${run.databaseId} is ${run.status}; retry after it concludes.`,
       );
   throw cell.cellCodedError(
     "ci_witness_not_found",
-    `No completed successful main CI run covers delivery ${delivery} of ${taskId}. ` +
+    `No completed main CI run covers delivery ${delivery} of ${taskId}. ` +
       "next: no covering run exists yet; retry after the next main run completes.",
   );
+}
+
+function taskWitnessSummary({ witness, runs }: CiObservationFetch): string {
+  const run = witness && runs.find((candidate) => candidate.databaseId === witness.databaseId);
+  return run
+    ? `${witness.taskId} CI witness: run ${run.databaseId} (${run.summary.workflowName}) concluded ` +
+        `${run.summary.conclusion} on ${run.summary.headSha}, covering delivery ${witness.delivery}.\n`
+    : "";
 }
 
 // A main run covers the delivery when the delivery commit is an ancestor of the run head:

@@ -748,7 +748,7 @@ test("task complete accepts a verified main run on a commit that contains the su
   }
 });
 test(
-  "task complete collecting a failed covering main run rejects and never borrows the observation's acceptance",
+  "task complete collecting a failed covering main run rejects without borrowing its acceptance, then passes on the rerun attempt",
   { skip: process.platform === "win32" ? "requires POSIX shell-script executables resolved through PATH" : false },
   async () => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-complete-ci-red-")),
@@ -773,12 +773,13 @@ test(
         "#!/usr/bin/env node\nconst fs = require('fs'), path = require('path');\n" +
           "const [group, verb] = process.argv.slice(2), marker = path.join(__dirname, 'delivery');\n" +
           "const sha = fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8') : null;\n" +
+          "const rerun = fs.existsSync(path.join(__dirname, 'rerun')), conclusion = rerun ? 'success' : 'failure';\n" +
           "const run = { databaseId: 36464979857, headBranch: 'main', headSha: sha, status: 'completed' };\n" +
           "if (sha && group === 'run' && verb === 'list')\n" +
-          "  process.stdout.write(JSON.stringify([{ ...run, createdAt: '2026-09-29T00:00:00Z', conclusion: 'failure' }]));\n" +
+          "  process.stdout.write(JSON.stringify([{ ...run, createdAt: '2026-09-29T00:00:00Z', conclusion }]));\n" +
           "else if (sha && group === 'run' && verb === 'view')\n" +
           "  process.stdout.write(JSON.stringify({ workflowName: 'rewrite-ci', headSha: sha, headBranch: 'main',\n" +
-          "    status: 'completed', conclusion: 'failure', attempt: 1, event: 'push' }));\n" +
+          "    status: 'completed', conclusion, attempt: rerun ? 2 : 1, event: 'push' }));\n" +
           "else if (group === 'run' && verb === 'download') process.exit(1);\n" +
           "else process.stdout.write('[]');\n",
         { mode: 0o755 },
@@ -813,6 +814,18 @@ test(
       assert.equal(
         (JSON.parse(String(shown.evidence)) as { readonly task: { readonly status: string } }).task.status,
         "in_review",
+      );
+      // The same run is rerun and its second attempt passes. The recorded failure must not stop
+      // complete from collecting again: the newest attempt is the contract's verdict.
+      writeFileSync(path.join(ghBin, "rerun"), "");
+      const rerun = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding);
+      assert.equal(rerun.outcome, "applied", JSON.stringify(rerun));
+      assert.equal(
+        reader
+          .read()
+          .events.some((event) => event.type === "ci_run_observed" && event.payload.run.runId === "36464979857.2"),
+        true,
+        "the rerun attempt is recorded as its own observation",
       );
     } finally {
       process.env.PATH = filePath;
