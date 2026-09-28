@@ -119,6 +119,10 @@ test("Decision judgment and review disposition stay with the proposal owner or e
       },
       "arbiter",
     ),
+    humanOwner = withRoleBinding(
+      { actor: { principal: other.actor.principal, executor: null }, source: "local" as const },
+      "arbiter",
+    ),
     approval = {
       consentBy: other.actor.principal.personId,
       consentAt: "2026-09-28T01:02:03.000Z",
@@ -188,7 +192,12 @@ test("Decision judgment and review disposition stay with the proposal owner or e
       { outcome: agentOverride.outcome, code: agentOverride.code },
       { outcome: "op_rejected", code: "actor_unauthorized" },
     );
-    const approvedOverride = await cell.run({ ...override, ...approval }, other);
+    const humanOverride = await cell.run(override, humanOwner);
+    assert.equal(humanOverride.outcome, "applied", JSON.stringify(humanOverride));
+    const approvedOverride = await cell.run(
+      { ...override, reviewIds: ["review-changes-requested"], ...approval },
+      other,
+    );
     assert.equal(approvedOverride.outcome, "applied", JSON.stringify(approvedOverride));
   } finally {
     await cell.close();
@@ -295,6 +304,69 @@ test("Human approval preserves the proposing executor and survives a cold read",
       assert.deepEqual(event.payload.judgmentConsent.recordedBy, proposer.actor.executor);
       assert.equal(event.payload.judgmentConsent.at, consentAt);
       assert.doesNotThrow(() => serializeCanonicalEvent(event));
+    }
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a direct human can adjudicate without recording a separate approval", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-direct-human-"));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+      repoId: workspaceId("direct-human-adjudication"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "direct-human-adjudication-test",
+    }),
+    human = withRoleBinding(
+      { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" as const },
+      "arbiter",
+    );
+  try {
+    for (const [variant, action] of [
+      [
+        "accept",
+        (decisionId: string) => ({
+          kind: "decision-accept" as const,
+          decisionId,
+          rationale: "The authenticated human accepts directly.",
+          judgmentOnlyRationale: "Direct human judgment needs no separate consent record.",
+        }),
+      ],
+      [
+        "reject",
+        (decisionId: string) => ({
+          kind: "decision-reject" as const,
+          decisionId,
+          reason: "The authenticated human rejects directly.",
+        }),
+      ],
+      [
+        "defer",
+        (decisionId: string) => ({
+          kind: "decision-defer" as const,
+          decisionId,
+          reason: "The authenticated human defers directly.",
+        }),
+      ],
+    ] as const) {
+      const proposed = await cell.run(
+          { ...decisionProposal(), body: realizedDecisionBody(`Direct human ${variant}`) },
+          proposer,
+        ),
+        decisionId = receiptJson(proposed).decisionId as string,
+        result = await cell.run(action(decisionId), human);
+      assert.equal(result.outcome, "applied", JSON.stringify(result));
+      const event = makeTaskEventReader({ repoId: "direct-human-adjudication", rootDir }).readEvent(result.opId);
+      assert.ok(
+        event?.schema === "decision-event/v1" &&
+          (event.type === "decision_accepted" ||
+            event.type === "decision_rejected" ||
+            event.type === "decision_deferred"),
+      );
+      assert.equal(event.payload.judgmentConsent.approvedBy, undefined);
+      assert.equal(event.payload.judgmentConsent.recordedBy, undefined);
     }
   } finally {
     await cell.close();

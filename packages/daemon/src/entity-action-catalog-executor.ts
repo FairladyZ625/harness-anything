@@ -743,9 +743,10 @@ function decisionAuthorization(
     return authorizationDecision;
   }
   if (!judgment && action.kind !== "decision-override-review") return authorizationDecision;
-  const approval = decisionApproval(action, binding);
+  const approval = decisionApproval(action, binding),
+    directHuman = binding.actor.executor === null;
   if (action.kind === "decision-reject" || action.kind === "decision-override-review") {
-    if (!approval)
+    if (!directHuman && !approval)
       reject(
         "actor_unauthorized",
         action.kind === "decision-reject"
@@ -754,7 +755,7 @@ function decisionAuthorization(
       );
     return authorizationDecision;
   }
-  if (proposalActor === null || (!isSamePerson(proposalActor, binding.actor) && !approval))
+  if (proposalActor === null || (!isSamePerson(proposalActor, binding.actor) && !directHuman && !approval))
     reject(
       "actor_unauthorized",
       `Decision ${action.kind === "decision-accept" ? "acceptance" : "deferral"} requires the proposal owner principal or explicit human approval.`,

@@ -68,7 +68,10 @@ const arbiterActor = {
   principal: { personId: "person-g1-arbiter" },
   executor: { kind: "agent" as const, id: "g1-cost-arbiter" },
 };
-const arbiterBinding = withRoleBinding({ actor: arbiterActor, source: "local" as const }, "arbiter");
+const ownerArbiterBinding = withRoleBinding(
+  { actor: { principal: arbiterActor.principal, executor: null }, source: "local" as const },
+  "arbiter",
+);
 const CROCKFORD = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 
 function factIdFor(index: number): string {
@@ -568,7 +571,7 @@ export async function measureWriteCostScaling(eventCount: number): Promise<G1Sca
             decisionId: subject.decisionId,
             reason: "G1 measured rejection reason for the cost-scaling gate fixture decision.",
           },
-          arbiterBinding,
+          ownerArbiterBinding,
         ),
       );
       await each("relation-relate", measure, (subject) =>

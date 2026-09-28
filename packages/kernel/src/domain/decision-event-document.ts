@@ -68,7 +68,9 @@ export function compileDecisionWrite(input: {
             base,
             input.event,
             input.approval,
-            input.currentDocument ? decisionReviewContentDigest(base, input.currentDocument.body) : undefined,
+            input.event.type === "decision_accepted" && input.currentDocument
+              ? decisionReviewContentDigest(base, input.currentDocument.body)
+              : undefined,
           )
         : null,
     amendment = base && input.event.type === "decision_amended" ? decisionAmendment(input.event) : null,
@@ -244,9 +246,9 @@ export function renderDecisionDocument(
       `claims: ${stableStringify(value.claims)}`,
       `relations: ${stableStringify(value.relations)}`,
       `judgmentConsents: ${stableStringify(value.judgmentConsents)}`,
-      `reviews: ${stableStringify(value.reviews)}`,
-      `reviewResponses: ${stableStringify(value.reviewResponses)}`,
-      `reviewOverrides: ${stableStringify(value.reviewOverrides)}`,
+      ...(value.reviews.length === 0 ? [] : [`reviews: ${stableStringify(value.reviews)}`]),
+      ...(value.reviewResponses.length === 0 ? [] : [`reviewResponses: ${stableStringify(value.reviewResponses)}`]),
+      ...(value.reviewOverrides.length === 0 ? [] : [`reviewOverrides: ${stableStringify(value.reviewOverrides)}`]),
       ...history,
       "---",
     ].join("\n"),
