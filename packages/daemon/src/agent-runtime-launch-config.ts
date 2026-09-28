@@ -122,12 +122,26 @@ export async function providerSubscriptionReadiness(
     return available();
   } catch (error) {
     consumeKnownError(error);
-    return typeof error === "object" &&
+    // A probe the harness itself terminated (deadline or cancellation signal) never delivered
+    // the provider's verdict: an exit during forced shutdown is an infrastructure failure, not
+    // an authentication verdict. Only a run the provider completed and rejected itself counts.
+    const terminated =
+      typeof error === "object" &&
+      error !== null &&
+      ((error as { readonly killed?: unknown }).killed === true ||
+        (error as { readonly signal?: unknown }).signal != null);
+    return !terminated &&
+      typeof error === "object" &&
       error !== null &&
       "status" in error &&
       Number.isInteger((error as { status: unknown }).status)
       ? unavailable("runtime_subscription_required", hint)
-      : unavailable("runtime_auth_probe_failed", "Provider authentication probe could not determine readiness.");
+      : unavailable(
+          "runtime_auth_probe_failed",
+          terminated
+            ? "Provider authentication probe was terminated before it could report readiness."
+            : "Provider authentication probe could not determine readiness.",
+        );
   }
 }
 
