@@ -48,7 +48,7 @@ async function dualSyncFixture() {
   mkdirSync(path.join(repo, "harness"), { recursive: true });
   const git = (...args: readonly string[]): string =>
     execFileSync("git", ["-C", repo, ...args], { encoding: "utf8" }).trim();
-  git("init", "-q");
+  git("init", "-q", "-b", "main");
   git("config", "user.name", "Dual Sync Test");
   git("config", "user.email", "dual@example.invalid");
   git("commit", "--allow-empty", "-qm", "base");

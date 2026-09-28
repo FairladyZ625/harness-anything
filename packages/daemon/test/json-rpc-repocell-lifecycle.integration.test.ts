@@ -378,7 +378,7 @@ test("bootstrap binds the ledger repository branch independently of the project 
   const parent = mkdtempSync(path.join(tmpdir(), "ha-bootstrap-branch-")), rootDir = path.join(parent, "repo"), userRoot = path.join(parent, "user");
   const auth = { transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid: process.getuid?.() ?? 0,
     source: "unix-socket-filesystem-owner-boundary" } } as const;
-  mkdirSync(rootDir, { recursive: true }); initRepo(rootDir); git(rootDir, "branch", "-M", "main"); git(rootDir, "branch", "feature"); git(rootDir, "checkout", "--quiet", "feature");
+  mkdirSync(rootDir, { recursive: true }); initRepo(rootDir); git(rootDir, "branch", "feature"); git(rootDir, "checkout", "--quiet", "feature");
   git(rootDir, "update-ref", "refs/remotes/origin/main", "refs/heads/main"); git(rootDir, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
   let host = await openDaemonHost({ daemonId: "bootstrap-one", userRoot });
   try {
@@ -433,7 +433,7 @@ async function writeCloseout(
   return commitSha;
 }
 function initRepo(rootDir: string): void {
-  git(rootDir, "init", "--quiet");
+  git(rootDir, "init", "--quiet", "-b", "main");
   git(rootDir, "config", "user.name", "RepoCell Test");
   git(rootDir, "config", "user.email", "repo-cell@example.invalid");
   git(rootDir, "config", "gc.auto", "0");

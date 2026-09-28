@@ -101,7 +101,7 @@ export async function fixture(
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-completion-review-")),
     repoId = workspaceId("completion-review");
-  git(root, "init", "-q");
+  git(root, "init", "-q", "-b", "main");
   git(root, "config", "user.name", "Completion Review Test");
   git(root, "config", "user.email", "review@example.invalid");
   git(root, "commit", "--allow-empty", "-qm", "test: base");
