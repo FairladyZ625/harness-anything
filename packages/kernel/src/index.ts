@@ -240,7 +240,6 @@ export {
   readFrontmatter,
   readScalar,
   resolveHarnessLayout,
-  settingBlockValue,
   slugifyTaskTitle,
   validateTaskIdSyntax,
 } from "./layout/index.ts";

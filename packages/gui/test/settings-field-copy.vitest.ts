@@ -25,4 +25,9 @@ describe("Settings 字段声明投影覆盖 GUI", () => {
   it("agenda.pinLimit 从声明表自动成为 number 行", () => {
     expect(rows.find((row) => row.field === "agendaPinLimit")).toMatchObject({ widget: "number" });
   });
+
+  it("任务 WIP 与 root 阈值从声明表自动成为 number 行", () => {
+    expect(rows.find((row) => row.field === "wipLimit")).toMatchObject({ widget: "number" });
+    expect(rows.find((row) => row.field === "rootThreshold")).toMatchObject({ widget: "number" });
+  });
 });

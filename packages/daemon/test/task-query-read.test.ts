@@ -788,6 +788,7 @@ function projectionStub(
         task: null,
       },
     }),
+    getEntity: () => null,
     readRelationEdge: (relationId: string) => {
       const edge = edges.find((candidate) => candidate.relationId === relationId);
       return edge

@@ -1,7 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { setting, settingBlockValue } from "../../src/layout/index.ts";
 import { readSettingsFacet, repositorySettings, writeRepositorySettingsFacet } from "../../src/index.ts";
 
 const body = [
@@ -17,24 +16,22 @@ const body = [
 ].join("\n");
 
 test("an annotated setting keeps its authored value instead of falling back", () => {
-  assert.equal(setting(body, "locale"), "en-US");
-  assert.equal(settingBlockValue(body, "tasks", "wipLimit"), "50");
+  const settings = readSettingsFacet(body);
+  assert.equal(settings.locale, "en-US");
+  assert.equal(settings.tasks.wipLimit, 50);
 });
 
 test("settings without comments are unchanged", () => {
-  assert.equal(setting(body, "defaultVertical"), "software/coding");
-  assert.equal(settingBlockValue(body, "scaffolds", "task"), "governance/task-scaffold.json");
+  const settings = readSettingsFacet(body);
+  assert.equal(settings.defaultVertical, "software/coding");
+  assert.equal(settings.scaffolds.task, "governance/task-scaffold.json");
 });
 
-test("a key with no value reads as absent so the caller applies its own default", () => {
-  assert.equal(setting("settings:\n  locale:\n  defaultPreset: standard-task\n", "locale"), undefined);
-  assert.equal(settingBlockValue("settings:\n  tasks:\n    wipLimit: # unset\n", "tasks", "wipLimit"), undefined);
-});
-
-test("a key absent from the block reads as absent", () => {
-  assert.equal(setting(body, "defaultProfile"), undefined);
-  assert.equal(settingBlockValue(body, "tasks", "missing"), undefined);
-  assert.equal(settingBlockValue(body, "absentBlock", "wipLimit"), undefined);
+test("absent declared keys use their declared defaults", () => {
+  const settings = readSettingsFacet("settings:\n");
+  assert.equal(settings.defaultProfile, "baseline");
+  assert.equal(settings.tasks.wipLimit, 30);
+  assert.equal(settings.tasks.rootThreshold, 3);
 });
 
 test("CI workflows default to the witnessing opt-out and accept configured workflow basenames", () => {

@@ -18,7 +18,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import type { RepoCellBinding, Snapshot } from "./repo-cell-types.ts";
-import { resolveTaskRootThreshold } from "./task-wip-settings.ts";
+import { projectedTaskSettings, resolveTaskRootThreshold } from "./task-wip-settings.ts";
 import { readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 import { renderEvidencePayload } from "./repo-cell-evidence.ts";
@@ -147,7 +147,7 @@ export function taskShowFromProjection(
 ): WriteReceipt {
   const read = projection.read(taskId),
     progress = projection.readProgress(taskId),
-    rootSetting = resolveTaskRootThreshold(rootDir),
+    rootSetting = resolveTaskRootThreshold(projectedTaskSettings(projection)),
     notFound = projectedTaskNotFound(read, taskId);
   // task-show answers with receipts on every path — the fleet lease probe reads outcome/code
   // off the receipt — so settle the shared judgment instead of throwing past the attached

@@ -453,7 +453,21 @@ test("settings update field surface has one source: the catalog input is the exp
     );
   for (const expected of declared) assert.ok(names.has(expected), `${expected} missing from settingsUpdateInputFields`);
   assert.ok(names.has("agendaPinLimit"));
+  assert.ok(names.has("wipLimit"));
+  assert.ok(names.has("rootThreshold"));
   assert.ok(names.has("worktreeSetup"));
+});
+
+test("Settings update writes positive task WIP and root thresholds", () => {
+  const draft = compile({ wipLimit: 12, rootThreshold: 4 });
+  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
+  assert.deepEqual(draft.result.bundle.event.payload.settings.tasks, { wipLimit: 12, rootThreshold: 4 });
+  assert.match(draft.result.bundle.blobs[0].body, /^  tasks:\n    wipLimit: 12\n    rootThreshold: 4$/mu);
+  for (const field of [{ wipLimit: 0 }, { rootThreshold: 0 }])
+    assert.throws(
+      () => compile(field),
+      (error: unknown) => error instanceof SettingsActionError && error.code === "invalid_command",
+    );
 });
 
 test("Settings update records ordered worktree setup steps and clears them with none", () => {

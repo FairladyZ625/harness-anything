@@ -95,7 +95,6 @@ export type {
 } from "./task-board-projection.ts";
 
 export {
-  DEFAULT_TASK_ROOT_THRESHOLD,
   DEFAULT_TASK_WIP_LIMIT,
   admitTaskExecutionWip,
   deriveTaskRoot,

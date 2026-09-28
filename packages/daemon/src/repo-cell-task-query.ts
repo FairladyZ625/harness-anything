@@ -20,7 +20,7 @@ import { readTaskReadSet } from "@harness-anything/application";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { requiredPackageDisposition, type TaskQueryReadModel } from "./task-query-read.ts";
-import { resolveTaskRootThreshold, resolveTaskWipLimit } from "./task-wip-settings.ts";
+import { projectedTaskSettings, resolveTaskRootThreshold, resolveTaskWipLimit } from "./task-wip-settings.ts";
 import { selectTaskIndex } from "./task-index-query.ts";
 
 export const DEFAULT_TASK_LIST_LIMIT = 50;
@@ -111,7 +111,7 @@ export function listTasks(cell: TaskQueryCell, action: RepoTaskAction, binding: 
   // Filters and pages narrow the rows; a row's children are still counted across the whole ledger.
   const childCounts =
       selected.mode === "flat" ? cell.projection.readTaskChildCounts(selected.rows.map((row) => row.taskId)) : {},
-    rootSetting = resolveTaskRootThreshold(cell.rootDir),
+    rootSetting = resolveTaskRootThreshold(projectedTaskSettings(cell.projection)),
     value =
       selected.mode === "tree"
         ? {
@@ -208,8 +208,9 @@ export function assertTaskWipCapacity(cell: TaskQueryCell, taskId: string, nextS
       nextStatus === "blocked"
         ? allowsTaskStatusMove(cell.projection.read(taskId).snapshot, nextStatus)
         : activating.status !== nextStatus && explainStatusTransition(activating.status, nextStatus).allowed,
-    setting = resolveTaskWipLimit(cell.rootDir),
-    rootSetting = resolveTaskRootThreshold(cell.rootDir),
+    settings = projectedTaskSettings(cell.projection),
+    setting = resolveTaskWipLimit(settings),
+    rootSetting = resolveTaskRootThreshold(settings),
     admission = admitTaskExecutionWip({
       limit: setting.limit,
       limitLabel: setting.label,
@@ -257,8 +258,9 @@ export function wipSnapshotEntries(cell: TaskQueryCell, activatingTaskId: string
 
 export function readTaskWipSnapshot(cell: TaskQueryCell) {
   const entries = occupyingWipSnapshotEntries(cell),
-    limitSetting = resolveTaskWipLimit(cell.rootDir),
-    rootSetting = resolveTaskRootThreshold(cell.rootDir);
+    settings = projectedTaskSettings(cell.projection),
+    limitSetting = resolveTaskWipLimit(settings),
+    rootSetting = resolveTaskRootThreshold(settings);
   return {
     ok: true,
     limit: limitSetting.limit,
