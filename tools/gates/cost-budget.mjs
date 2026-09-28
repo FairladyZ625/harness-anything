@@ -8,7 +8,7 @@ import { repoRoot } from "./git.mjs";
 import { loadReceipts, verifyReceipt } from "./receipt-verify.mjs";
 import { removeTemporaryDirectory } from "../temporary-directory-cleanup.mjs";
 
-const METRICS = Object.freeze(["projectionRebuildGitProcesses", "firstScreenReadRpcs"]);
+const METRICS = Object.freeze(["projectionRebuildGitProcesses"]);
 
 function parseJsonFile(filePath) {
   try {
@@ -50,14 +50,7 @@ export function readCostFixture(filePath) {
     if (event.schema !== "task-event/v1" || typeof event.opId !== "string" || typeof event.taskId !== "string")
       throw new Error(`${filePath} event ${event.workspaceRevision} must be a task-event/v1`);
   }
-  const firstScreenReads = fixture.firstScreenReads;
-  if (
-    !Array.isArray(firstScreenReads) ||
-    firstScreenReads.length === 0 ||
-    firstScreenReads.some((method) => typeof method !== "string" || method.length === 0)
-  )
-    throw new Error(`${filePath} must contain non-empty firstScreenReads`);
-  return { repoId, events, firstScreenReads };
+  return { repoId, events };
 }
 
 function git(rootDir, ...args) {
@@ -105,7 +98,6 @@ async function measureProjectionRebuild(fixture) {
 export async function measureCosts(fixture) {
   return {
     projectionRebuildGitProcesses: await measureProjectionRebuild(fixture),
-    firstScreenReadRpcs: fixture.firstScreenReads.length,
   };
 }
 
