@@ -22,7 +22,6 @@ const planHeadings = [
   "Execution Surface",
   "Constraints",
   "Checkpoint",
-  "CI/Gate Authority Stop Condition",
   "Implementation Plan",
   "Deliverable Contract",
   "Evidence Protocol",
@@ -244,6 +243,35 @@ test("decision and declaration documents reject their canonical blank scaffolds"
   );
 });
 
+test("a standing stop-condition rule kept verbatim from the scaffold does not block plan readiness", () => {
+  const standingRules = {
+    "en-US":
+      "If this task is not a CI/gate/governance task but requires modifying CI/gate authority surfaces to pass, stop implementation, record the blocker, and request or create a governance task. Explicit CI/gate/governance tasks and break-glass main recovery are the only exceptions; break-glass must record reason, scope, and a follow-up governance task.",
+    "zh-CN":
+      "如果本任务不是 CI/gate/governance 任务，却需要修改 CI/gate 权威面才能通过，停止实现，记录 blocker，并请求或创建治理任务。唯一例外是任务明确授权 CI/gate/governance 改动，或紧急修复 main 的 break-glass；break-glass 必须记录原因、范围和后续治理任务。",
+  } as const;
+  for (const [locale, standingRule] of Object.entries(standingRules)) {
+    const contract = transitionDocumentContract(
+        readFileSync(
+          new URL(`../../preset/assets/software-coding/templates/task.plan/${locale}.md`, import.meta.url),
+          "utf8",
+        ),
+      ),
+      authored = contract.requiredSections
+        .filter((heading) => heading !== "CI/Gate Authority Stop Condition")
+        .map((heading) => `## ${heading}\n\nAuthored ${heading}.`);
+    assert.deepEqual(
+      assessTransitionDocument(
+        "task.plan",
+        `# Plan\n\n${[...authored, `## CI/Gate Authority Stop Condition\n\n${standingRule}`].join("\n\n")}\n`,
+        contract,
+      ).missingSections,
+      [],
+      locale,
+    );
+  }
+});
+
 function realizedPlan(): string {
   return `# Plan\n\n${planHeadings.map((heading) => `## ${heading}\n\nImplemented ${heading}.`).join("\n\n")}\n`;
 }
@@ -301,7 +329,7 @@ test("the lightweight three-section scaffold passes once filled and rejects reta
   );
 });
 
-test("a filled three-section plan still fails the baseline fourteen-section contract", () => {
+test("a filled three-section plan still fails the baseline thirteen-section contract", () => {
   const missing = plan(
     "## Brief\n\nFix it.\n\n## Context\n\nFacts.\n\n## Verification\n\nTests green.",
   ).missingSections;

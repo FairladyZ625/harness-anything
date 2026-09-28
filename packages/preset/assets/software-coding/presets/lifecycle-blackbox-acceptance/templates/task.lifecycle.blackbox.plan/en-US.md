@@ -38,10 +38,6 @@ Do not inspect repository source paths, invent undisclosed payload fields, or wo
 
 Stop at the first defect named by the acceptance script, or after `ha task show` reports canonical status `done`.
 
-## CI/Gate Authority Stop Condition
-
-This no-gate acceptance task does not modify CI or gate authority surfaces.
-
 ## Implementation Plan
 
 Follow `lifecycle-blackbox-acceptance.md` in order: discover public commands, run the hooks negative case, execute the dual-principal lifecycle, and record every command and output.

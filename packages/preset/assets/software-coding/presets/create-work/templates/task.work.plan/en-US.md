@@ -69,10 +69,6 @@ Declare the repository, worktree, branch/base, and write boundary for each wave.
 - At each wave boundary, reconcile the task subtree, this map, `ha work show`, and evidence.
 - Before closeout, fill the four-layer done criteria and gate-retro two-lens evidence.
 
-## CI/Gate Authority Stop Condition
-
-If this work is not CI/gate/governance work but requires changing CI/gate authority surfaces to pass, stop, record the blocker, and request or create governance work. Exceptions are explicitly authorized governance work or break-glass main repair; break-glass must record reason, scope, and follow-up governance task.
-
 ## Implementation Plan
 
 - Create or confirm the charter decision and keep its `dec_*` anchor in this work map.

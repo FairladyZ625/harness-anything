@@ -15,7 +15,7 @@ test("project task scaffold replaces and adds prose while base ownership, anchor
   const root = mkdtempSync(path.join(tmpdir(), "ha-task-scaffold-")),
     scaffold = path.join(root, "governance/task-scaffold.json"),
     template =
-      "# Project Plan\n\n## Brief\n\nB\n\n## Goal\n\nG\n\n## Context\n\nC\n\n## Required Reading\n\nR\n\n## Entry Conditions\n\nE\n\n## Dependencies\n\nD\n\n## Execution Surface\n\nE\n\n## Constraints\n\nC\n\n## Checkpoint\n\nC\n\n## CI/Gate Authority Stop Condition\n\nS\n\n## Implementation Plan\n\nP\n\n## Deliverable Contract\n\nD\n\n## Evidence Protocol\n\nE\n\n## Verification\n\nV\n";
+      "# Project Plan\n\n## Brief\n\nB\n\n## Goal\n\nG\n\n## Context\n\nC\n\n## Required Reading\n\nR\n\n## Entry Conditions\n\nE\n\n## Dependencies\n\nD\n\n## Execution Surface\n\nE\n\n## Constraints\n\nC\n\n## Checkpoint\n\nC\n\n## Implementation Plan\n\nP\n\n## Deliverable Contract\n\nD\n\n## Evidence Protocol\n\nE\n\n## Verification\n\nV\n";
   try {
     write(path.join(root, "templates/plan.md"), template);
     write(path.join(root, "templates/notes.md"), "# Notes\n\n## Project Notes\n\nCustom.\n");

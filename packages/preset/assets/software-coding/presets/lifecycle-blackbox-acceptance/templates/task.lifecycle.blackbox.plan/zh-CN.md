@@ -38,10 +38,6 @@ Task Contract: harness-task v1
 
 在剧本定义的首个缺陷处停止，或在 `ha task show` 显示规范 status 为 `done` 后停止。
 
-## CI/Gate Authority Stop Condition
-
-本次无 gate 验收不修改 CI 或 gate 权威面。
-
 ## Implementation Plan
 
 依次执行 `lifecycle-blackbox-acceptance.md`：发现公开命令、运行 hooks 反例、执行双 principal 生命周期，并记录每条命令和输出。

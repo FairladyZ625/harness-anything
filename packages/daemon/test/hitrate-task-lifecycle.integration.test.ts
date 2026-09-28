@@ -70,10 +70,7 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
     assert.equal(fact.outcome, "applied", JSON.stringify(fact));
     const packagePath = String((created as { readonly packagePath?: unknown }).packagePath),
       planPath = `${packagePath}/task_plan.md`,
-      oneSectionMissing = realizedTaskPlan("Lifecycle hit rate").replace(
-        /\n\n## CI\/Gate Authority Stop Condition\n\n[^\n]+/u,
-        "",
-      );
+      oneSectionMissing = realizedTaskPlan("Lifecycle hit rate").replace(/\n\n## Checkpoint\n\n[^\n]+/u, "");
     writeFileSync(path.join(rootDir, "harness", planPath), oneSectionMissing);
     const placeholder = await cell.run({ kind: "task-start", taskId, executionId }, holder);
     assert.equal(placeholder.outcome, "op_rejected", JSON.stringify(placeholder));
@@ -82,7 +79,7 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
       kind: "missing-sections",
       documentPath: planPath,
       diskDiffers: true,
-      missingSections: [{ section: "CI/Gate Authority Stop Condition", reason: "empty" }],
+      missingSections: [{ section: "Checkpoint", reason: "empty" }],
     });
     const closeoutPath = `${packagePath}/closeout.md`;
     await realizeTaskPlanFixture(
