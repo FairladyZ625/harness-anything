@@ -408,6 +408,66 @@ test("AGY counts each tool step_index once and reports no token usage", async ()
   assert.equal(runtime.usageReported, false);
 });
 
+// Live sample: dispatch_655ec786deea93685bfe9d0f.jsonl (agy, gemini-3.8-flash-high) — each agent_response
+// step carries that step's usage, a settled step can be re-emitted, and result.usage is the run total.
+test("AGY takes token usage from result.usage once, not from per-step usage", async () => {
+  const runtime = active("agy"),
+    replayContext = { ...context(), parseProviderFrame } as never,
+    conversation_id = "cbd5c96f-9c2b-4acf-8747-51ea844b5e5c",
+    responseStep = {
+      event: "step_update",
+      step_update: {
+        conversation_id,
+        step_index: 1,
+        state: "DONE",
+        step_type: "agent_response",
+        duration_seconds: 7.065777,
+        usage: {
+          input_tokens: 32088,
+          output_tokens: 670,
+          thinking_tokens: 497,
+          cache_read_tokens: 0,
+          total_tokens: 32758,
+        },
+      },
+    },
+    resultUsage = {
+      input_tokens: 686756,
+      output_tokens: 39061,
+      thinking_tokens: 22410,
+      cache_read_tokens: 5713499,
+      total_tokens: 725817,
+    };
+  for (const frame of [
+    { event: "init", conversation_id, init: { model: "gemini-3.8-flash-high" } },
+    responseStep,
+    responseStep,
+    {
+      event: "result",
+      result: {
+        conversation_id,
+        status: "SUCCESS",
+        response: "Report submitted.",
+        duration_seconds: 545.142642,
+        num_turns: 1,
+        usage: resultUsage,
+      },
+    },
+  ])
+    await consumeProviderLine(replayContext, runtime, JSON.stringify(frame));
+
+  assert.equal(runtime.usageReported, true);
+  assert.deepEqual(
+    {
+      inputTokens: runtime.inputTokens,
+      outputTokens: runtime.outputTokens,
+      totalTokens: runtime.inputTokens + runtime.outputTokens,
+    },
+    { inputTokens: 686756, outputTokens: 39061, totalTokens: 725817 },
+  );
+  assert.deepEqual(runtime.rawUsage, resultUsage);
+});
+
 // Replay of dispatch_d40a3b837658981ff18cb6a4 (agy, 2026-09-22): the worker launched `npm run test:fast`,
 // ended its turn with "I will wait for execution to complete", and agy killed that command on exit while
 // still reporting SUCCESS with exit 0. No stderr text marks the loss; only the unsettled tool step does.

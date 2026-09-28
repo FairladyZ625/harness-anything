@@ -197,8 +197,10 @@ export function parseAgyFrame(value: Record<string, unknown>, providerSessionId:
     const result = value.result;
     if (!isPlainRecord(result) || typeof result.status !== "string" || typeof result.response !== "string")
       throw new Error("agy result frame is incomplete");
+    // result.usage is the run total; step_update.usage is per step and older builds re-emit settled steps.
     return {
       finalText: result.response,
+      ...(isPlainRecord(result.usage) ? { usage: result.usage } : {}),
       outcome: result.status === "SUCCESS" ? "succeeded" : "failed",
       ...(result.status === "SUCCESS"
         ? {}
