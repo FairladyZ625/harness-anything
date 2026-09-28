@@ -94,7 +94,9 @@ function derive(
     | null
     | undefined = rootDir === "/nonexistent" ? { kind: "empty-tree" } : baseline(rootDir),
   commitSha?: string,
-  taskWorktree = false,
+  // The delivery falls to this output shape, never the completion gate set: a repository-diff task always
+  // carries a public delivery commit, even with an empty (lightweight) gate list.
+  outputShape: "repository-diff" | "task-package-artifact" = "repository-diff",
 ) {
   const snapshot = {
       executions: [
@@ -114,13 +116,15 @@ function derive(
         },
       ],
       task: {
+        taskId: "task-1",
+        taskClass: "standard",
+        presetSnapshotDigest: "snapshot-task-1",
         completionGateIds: gates,
-        ...(taskWorktree ? { taskId: "task-1", taskClass: "standard", presetSnapshotDigest: "snapshot-task-1" } : {}),
       },
     } as unknown as Parameters<typeof deriveCloseoutSubmission>[3],
     body = closeout(summary),
     projection = {
-      readPresetSnapshot: () => ({ snapshot: { profile: { outputShape: "repository-diff" } } }),
+      readPresetSnapshot: () => ({ snapshot: { profile: { outputShape } } }),
       read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { ...snapshot, task: {} }, packagePath }),
       readDocument: (target: string) => ({
         watermark: 1,
@@ -225,10 +229,28 @@ test("structured commit plus artifact anchor derives one cut carrying both", (t)
 
 test("artifact anchors alone still deliver without a commit and reject duplicate paths", () => {
   const { store, blobSha256 } = artifactStore();
-  const guided = derive("/nonexistent", "artifact:artifacts/report.md@7", undefined, [], store);
+  const guided = derive(
+    "/nonexistent",
+    "artifact:artifacts/report.md@7",
+    undefined,
+    [],
+    store,
+    undefined,
+    undefined,
+    "task-package-artifact",
+  );
   assert.deepEqual(guided.artifacts, [{ path: `${packagePath}/artifacts/report.md`, revision: 7, blobSha256 }]);
   assert.deepEqual(guided.deliverables, [`${packagePath}/artifacts/report.md`]);
-  const packet = derive("/nonexistent", `artifact:${packagePath}/artifacts/report.md@7`, undefined, [], store);
+  const packet = derive(
+    "/nonexistent",
+    `artifact:${packagePath}/artifacts/report.md@7`,
+    undefined,
+    [],
+    store,
+    undefined,
+    undefined,
+    "task-package-artifact",
+  );
   assert.equal(packet.commitSha, null);
   assert.deepEqual(packet.deliverables, [`${packagePath}/artifacts/report.md`]);
   assert.throws(
@@ -239,6 +261,9 @@ test("artifact anchors alone still deliver without a commit and reject duplicate
         undefined,
         [],
         store,
+        undefined,
+        undefined,
+        "task-package-artifact",
       ),
     /name each artifact path once/u,
   );
@@ -271,18 +296,21 @@ test("task worktree HEAD is the delivery commit without a runtime dispatch", (t)
   const sha = commit(worktree),
     old = git(root, "rev-parse", "HEAD");
   assert.equal(
-    derive(
-      root,
-      `Completed the bound task worktree; prior cut was ${old}.`,
-      undefined,
-      ["ci"],
-      undefined,
-      undefined,
-      undefined,
-      true,
-    ).commitSha,
+    derive(root, `Completed the bound task worktree; prior cut was ${old}.`, undefined, ["ci"]).commitSha,
     sha,
   );
+});
+
+test("lightweight task worktree HEAD is the delivery commit though its gate set is empty", (t) => {
+  const { root } = fixture(t),
+    worktree = path.join(root, ".worktrees/task-1");
+  git(root, "worktree", "add", "-qb", "task-1", worktree);
+  put(worktree, "src/live.ts", "export const liveValue = 5;\n");
+  const sha = commit(worktree),
+    old = git(root, "rev-parse", "HEAD");
+  // RED under the old completion-gate-based test: an empty gate set (the lightweight profile) used to
+  // route this repository-diff task to the ledger outbox commit instead of the bound worktree HEAD.
+  assert.equal(derive(root, `Completed the lightweight worktree; prior cut was ${old}.`, undefined, []).commitSha, sha);
 });
 
 test("missing dispatch requires an explicit structured delivery commit", (t) => {
@@ -318,13 +346,10 @@ test("a plain directory at the bound worktree path never lends the canonical HEA
   const { root } = fixture(t);
   // A leftover ordinary directory at .worktrees/task-1: rev-parse there walks up to the canonical checkout.
   put(root, ".worktrees/task-1/leftover.txt", "not a worktree\n");
-  assert.throws(
-    () => derive(root, "Completed the live path.", undefined, ["ci"], undefined, undefined, undefined, true),
-    {
-      code: "invalid_submission",
-      message: /No readable bound worktree HEAD exists; rerun with --commit/u,
-    },
-  );
+  assert.throws(() => derive(root, "Completed the live path.", undefined, ["ci"]), {
+    code: "invalid_submission",
+    message: /No readable bound worktree HEAD exists; rerun with --commit/u,
+  });
 });
 
 test("explicit delivery commit must match a bound worktree HEAD and reports both values", (t) => {
@@ -333,7 +358,7 @@ test("explicit delivery commit must match a bound worktree HEAD and reports both
   git(root, "worktree", "add", "-qb", "task-1", worktree);
   put(worktree, "src/live.ts", "export const liveValue = 3;\n");
   const head = commit(worktree);
-  assert.throws(() => derive(root, "Complete.", undefined, ["ci"], undefined, undefined, base, true), {
+  assert.throws(() => derive(root, "Complete.", undefined, ["ci"], undefined, undefined, base), {
     code: "invalid_submission",
     message: new RegExp(`${base}.*${head}`, "u"),
   });
@@ -376,7 +401,7 @@ test("unpublished bound worktree HEAD preserves every branch commit before main"
   commit(worktree);
   put(worktree, "src/second.ts", "second\n");
   const head = commit(worktree),
-    packet = derive(root, "Worktree delivery.", undefined, ["ci"], undefined, undefined, undefined, true);
+    packet = derive(root, "Worktree delivery.", undefined, ["ci"]);
   assert.deepEqual(packet.deliverables, ["src/first.ts", "src/second.ts"]);
   assert.equal(packet.commitSha, head);
 });
@@ -437,7 +462,7 @@ test("a structured commit differing from the bound HEAD is rejected", (t) => {
   put(worker, "src/unrelated.ts", "unrelated\n");
   commit(worker);
   assert.throws(
-    () => derive(root, "Delivery complete.", undefined, ["ci"], undefined, undefined, merged, true),
+    () => derive(root, "Delivery complete.", undefined, ["ci"], undefined, undefined, merged),
     /does not match bound worktree HEAD/u,
   );
 });
@@ -446,10 +471,39 @@ test("documentation task ignores unrelated Summary SHA and delivers ledger artif
   const { root, ledger } = fixture(t);
   put(ledger, `${packagePath}/artifacts/report.md`, "Evidence.\n");
   commit(ledger);
-  const packet = derive(root, `Audited unrelated PR ${"f".repeat(40)}.`, undefined, []);
+  const packet = derive(
+    root,
+    `Audited unrelated PR ${"f".repeat(40)}.`,
+    undefined,
+    [],
+    undefined,
+    undefined,
+    undefined,
+    "task-package-artifact",
+  );
   assert.equal(packet.commitSha, git(ledger, "rev-parse", "HEAD"));
   assert.deepEqual(packet.deliverables, [`${packagePath}/artifacts/report.md`]);
   assert.deepEqual(packet.outputs, []);
+});
+
+// Negative control (dec_BBA713052997C3EF5F5D3DD952): a task-package-artifact task keeps its ledger delivery
+// even with a non-empty gate set, proving the shape-based determinant never keyed private delivery to gates.
+test("a task-package-artifact task still delivers through the ledger with a non-empty gate set", (t) => {
+  const { root, ledger } = fixture(t);
+  put(ledger, `${packagePath}/artifacts/report.md`, "Evidence.\n");
+  commit(ledger);
+  const packet = derive(
+    root,
+    `Audited unrelated PR ${"f".repeat(40)}.`,
+    undefined,
+    ["ci", "code-doc-reconciliation"],
+    undefined,
+    undefined,
+    undefined,
+    "task-package-artifact",
+  );
+  assert.equal(packet.commitSha, git(ledger, "rev-parse", "HEAD"));
+  assert.deepEqual(packet.deliverables, [`${packagePath}/artifacts/report.md`]);
 });
 
 test("ledger fallback still fails closed when the task has no accepted artifacts", (t) => {
@@ -457,10 +511,10 @@ test("ledger fallback still fails closed when the task has no accepted artifacts
   git(root, "commit", "-q", "--allow-empty", "-m", "test: empty product cut");
   const empty = git(root, "rev-parse", "HEAD");
   dispatch(root, root);
-  assert.throws(() => derive(root, `Delivered ${empty}.`, undefined, []), {
-    code: "invalid_submission",
-    message: /artifacts/u,
-  });
+  assert.throws(
+    () => derive(root, `Delivered ${empty}.`, undefined, [], undefined, undefined, undefined, "task-package-artifact"),
+    { code: "invalid_submission", message: /artifacts/u },
+  );
 });
 
 test("a stopped submission keeps the invalid_submission message as its rejection explanation", () => {
