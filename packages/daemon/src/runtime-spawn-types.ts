@@ -224,6 +224,8 @@ export type ProviderFrame = {
   readonly planIncomplete?: boolean;
   readonly toolCallObserved?: boolean;
   readonly providerUsageEmpty?: boolean;
+  /** Token usage a provider nests below the frame top level, handed to the shared usage counters. */
+  readonly usage?: Record<string, unknown>;
   readonly providerFault?: RuntimeProviderFault;
   readonly toolStep?: { readonly id: string; readonly settled: boolean };
   /** Model ids the provider advertised on session establishment (ACP kinds). */

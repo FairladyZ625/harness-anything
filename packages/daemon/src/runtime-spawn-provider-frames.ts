@@ -197,8 +197,15 @@ export function parseAgyFrame(value: Record<string, unknown>, providerSessionId:
     const result = value.result;
     if (!isPlainRecord(result) || typeof result.status !== "string" || typeof result.response !== "string")
       throw new Error("agy result frame is incomplete");
+    // result.usage is the run total; step_update.usage is per step and older builds re-emit settled steps.
+    // agy's input_tokens exclude cache reads, as Claude's do, so its cache_read_tokens take Claude's name.
+    const usage = isPlainRecord(result.usage)
+      ? (({ cache_read_tokens: cacheRead, ...rest }) =>
+          cacheRead === undefined ? rest : { ...rest, cache_read_input_tokens: cacheRead })(result.usage)
+      : undefined;
     return {
       finalText: result.response,
+      ...(usage ? { usage } : {}),
       outcome: result.status === "SUCCESS" ? "succeeded" : "failed",
       ...(result.status === "SUCCESS"
         ? {}

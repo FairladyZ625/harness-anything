@@ -120,6 +120,7 @@ export async function consumeProviderLine(
   if (parsed.sessionIdentity?.sessionId) await context.bindProvider(active, parsed.sessionIdentity);
   if (publishSignals)
     for (const signal of parsed.signals ?? []) context.input.stream.publish(active.runtimeSessionId, signal);
+  if (parsed.usage) observeRuntimeUsage(active, parsed.usage);
   if (parsed.finalText !== undefined) active.finalText = parsed.finalText;
   if (parsed.failureText !== undefined) active.failureText = parsed.failureText;
   if (parsed.outcome) active.providerOutcome = parsed.outcome;
@@ -141,32 +142,8 @@ function observeRuntimeMetrics(active: ActiveRuntime, value: unknown): void {
       frame.message && typeof frame.message === "object" && !Array.isArray(frame.message)
         ? (frame.message as Record<string, unknown>)
         : null,
-    usageValue = frame.usage ?? nestedMessage?.usage,
-    usage =
-      usageValue && typeof usageValue === "object" && !Array.isArray(usageValue)
-        ? (usageValue as Record<string, unknown>)
-        : null;
-  if (usage) {
-    active.rawUsage = { ...active.rawUsage, ...usage };
-    // ACP frames carry usage under neutral names (input/output/total/used); token-named
-    // fields also survive dispatch-stream persistence, so both shapes feed the counters.
-    const input = numberValue(usage.input_tokens) ?? numberValue(usage.inputTokens) ?? numberValue(usage.input),
-      cacheRead = numberValue(usage.cached_input_tokens) ?? numberValue(usage.cache_read_input_tokens),
-      cacheCreation = numberValue(usage.cache_creation_input_tokens),
-      output = numberValue(usage.output_tokens) ?? numberValue(usage.outputTokens) ?? numberValue(usage.output),
-      total =
-        numberValue(usage.total_tokens) ??
-        numberValue(usage.totalTokens) ??
-        numberValue(usage.total) ??
-        numberValue(usage.used);
-    if (input !== null || cacheRead !== null || cacheCreation !== null || output !== null || total !== null)
-      active.usageReported = true;
-    active.inputTokens +=
-      (input ?? 0) +
-      (numberValue(usage.cache_read_input_tokens) !== null ? (cacheRead ?? 0) + (cacheCreation ?? 0) : 0);
-    active.cacheReadTokens += cacheRead ?? 0;
-    active.outputTokens += output ?? 0;
-  }
+    usageValue = frame.usage ?? nestedMessage?.usage;
+  if (providerRecord(usageValue)) observeRuntimeUsage(active, usageValue);
   const type = String(frame.type ?? frame.event ?? "").toLowerCase();
   if (type.includes("compaction") || type.includes("context_truncated") || frame.compacted === true)
     active.compacted = true;
@@ -216,6 +193,27 @@ function observeRuntimeMetrics(active: ActiveRuntime, value: unknown): void {
       active.toolCallCount += 1;
     }
   }
+}
+
+function observeRuntimeUsage(active: ActiveRuntime, usage: Record<string, unknown>): void {
+  active.rawUsage = { ...active.rawUsage, ...usage };
+  // ACP frames carry usage under neutral names (input/output/total/used); token-named
+  // fields also survive dispatch-stream persistence, so both shapes feed the counters.
+  const input = numberValue(usage.input_tokens) ?? numberValue(usage.inputTokens) ?? numberValue(usage.input),
+    cacheRead = numberValue(usage.cached_input_tokens) ?? numberValue(usage.cache_read_input_tokens),
+    cacheCreation = numberValue(usage.cache_creation_input_tokens),
+    output = numberValue(usage.output_tokens) ?? numberValue(usage.outputTokens) ?? numberValue(usage.output),
+    total =
+      numberValue(usage.total_tokens) ??
+      numberValue(usage.totalTokens) ??
+      numberValue(usage.total) ??
+      numberValue(usage.used);
+  if (input !== null || cacheRead !== null || cacheCreation !== null || output !== null || total !== null)
+    active.usageReported = true;
+  active.inputTokens +=
+    (input ?? 0) + (numberValue(usage.cache_read_input_tokens) !== null ? (cacheRead ?? 0) + (cacheCreation ?? 0) : 0);
+  active.cacheReadTokens += cacheRead ?? 0;
+  active.outputTokens += output ?? 0;
 }
 
 function numberValue(value: unknown): number | null {
