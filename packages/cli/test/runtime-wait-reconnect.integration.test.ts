@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -754,7 +754,9 @@ test("detached squad run names a squad status wait that blocks until the run set
 });
 
 async function openFixtureDaemon(daemonId: string): Promise<FixtureDaemon> {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-wait-")),
+  // The registry records the root as `ha daemon repo register` would, resolved: the CLI matches the
+  // realpath of --root, and macOS's tmpdir sits behind the /var -> /private/var symlink.
+  const parent = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-runtime-wait-"))),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     socketPath = localUserDaemonEndpoint(userRoot, daemonId),
