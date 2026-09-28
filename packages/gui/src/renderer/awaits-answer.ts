@@ -1,6 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useState } from "react";
-import { consumeKnownError } from "../api/error-consumption.ts";
 import type { AgendaAnsweredRow, AgendaAwaitsRow } from "../api/renderer-dto.ts";
 import { agendaQueryKeys } from "./agenda-data.ts";
 import { harnessClient } from "./api-client.ts";
@@ -73,41 +72,35 @@ export function useAwaitsAnswer(repoId: string) {
   const submit = useCallback(
     async (row: AgendaAwaitsRow, reason: string): Promise<AwaitsAnswerFeedback> => {
       setFeedback({ state: "pending", opId: "awaiting-receipt", hint: t("components.awaitsAnswer.submitting") });
-      let result: AwaitsAnswerFeedback;
-      try {
-        const settlement = settleTaskReceipt(
-          await harnessClient.retireRelation({
-            repoId,
-            relationId: row.relationId,
-            reason,
-            expectedVersion: row.relationRevision,
+      // 与 task-actions 的写动作同一形状:回执落定成反馈,桥接层拒绝也原样显示成错误反馈。
+      const result: AwaitsAnswerFeedback = await harnessClient
+        .retireRelation({ repoId, relationId: row.relationId, reason, expectedVersion: row.relationRevision })
+        .then(
+          (receipt): AwaitsAnswerFeedback => {
+            const settlement = settleTaskReceipt(receipt);
+            return settlement.state === "applied"
+              ? { state: "success", opId: settlement.opId, hint: t("components.awaitsAnswer.success") }
+              : settlement.code === "revision_conflict"
+                ? {
+                    state: "conflict",
+                    opId: settlement.opId,
+                    code: settlement.code,
+                    hint: t("components.awaitsAnswer.conflict"),
+                  }
+                : {
+                    state: settlement.state === "pending" ? "pending" : "error",
+                    opId: settlement.opId,
+                    ...(settlement.code ? { code: settlement.code } : {}),
+                    hint: settlement.hint ?? t("components.awaitsAnswer.failed"),
+                  };
+          },
+          (error: unknown): AwaitsAnswerFeedback => ({
+            state: "error",
+            opId: "N/A",
+            code: "bridge_error",
+            hint: error instanceof Error ? error.message : String(error),
           }),
         );
-        result =
-          settlement.state === "applied"
-            ? { state: "success", opId: settlement.opId, hint: t("components.awaitsAnswer.success") }
-            : settlement.code === "revision_conflict"
-              ? {
-                  state: "conflict",
-                  opId: settlement.opId,
-                  code: settlement.code,
-                  hint: t("components.awaitsAnswer.conflict"),
-                }
-              : {
-                  state: settlement.state === "pending" ? "pending" : "error",
-                  opId: settlement.opId,
-                  ...(settlement.code ? { code: settlement.code } : {}),
-                  hint: settlement.hint ?? t("components.awaitsAnswer.failed"),
-                };
-      } catch (error) {
-        consumeKnownError(error);
-        result = {
-          state: "error",
-          opId: "N/A",
-          code: "bridge_error",
-          hint: error instanceof Error ? error.message : String(error),
-        };
-      }
       if (result.state !== "error")
         await Promise.all([
           queryClient.invalidateQueries({ queryKey: agendaQueryKeys.read(repoId) }),
