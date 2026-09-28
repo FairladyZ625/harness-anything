@@ -178,7 +178,7 @@ test("retired milestone and epic task classes stay readable but cannot become cu
     assert.deepEqual(validateTaskV2(historical.payload.task, true), []);
     assert.deepEqual(
       validateTaskV2(historical.payload.task).map(({ message }) => message),
-      ["invalid taskClass"],
+      [`retired taskClass ${taskClass}; restate it with ha task contract migrate --apply`],
     );
     assert.deepEqual(parseCanonicalEvent(serializeEventEnvelope(historical)).payload, historical.payload);
     assert.notEqual(validateCurrentCanonicalEvent(historical).length, 0);

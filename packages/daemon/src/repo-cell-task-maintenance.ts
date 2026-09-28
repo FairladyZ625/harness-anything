@@ -4,6 +4,7 @@ import {
   isMigrationImportEvent,
   isTerminalStatus,
   requireEntityStoreKindContract,
+  retiredTaskClassRestatements,
   type TaskProjectionListQuery,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
@@ -211,7 +212,7 @@ export function migrateTaskContracts(
     ),
     candidates = typeof action.taskId === "string" ? [action.taskId] : [...cell.projectedTaskIds()],
     repairs = new Map<string, RestatedTaskContract>(),
-    report = candidates.map((taskId) => {
+    contractRow = (taskId: string): ContractMigrationRow => {
       const current = cell.projection.read(taskId),
         task = current.snapshot.task;
       if (!task) return { taskId, status: "manual", reason: "task_not_found" };
@@ -298,7 +299,8 @@ export function migrateTaskContracts(
               reason: "contract_metadata_incomplete",
             }
           : { taskId, status: "backfill" };
-    });
+    },
+    report = candidates.map((taskId) => withRetiredTaskClass(cell, taskId, contractRow(taskId)));
   if (action.mode === "dry-run")
     return cell.previewResult(
       cell.operationId(action, binding, cell.input.repoId, cell.store.readHead()?.revision ?? 0),
@@ -327,7 +329,7 @@ export function migrateTaskContracts(
     } as WriteReceipt;
   const headRevision = cell.store.readHead()?.revision ?? 0,
     outerOpId = cell.operationId(action, binding, cell.input.repoId, headRevision),
-    prepared = backfills.map(({ taskId }, index) =>
+    prepared = backfills.map(({ taskId, taskClassAfter }, index) =>
       requirePrepared(
         prepareTaskSurfaceWriteAt(
           cell,
@@ -341,7 +343,9 @@ export function migrateTaskContracts(
                   repairPresetId: repairs.get(taskId)!.repair!.presetId,
                   repairTaskClass: repairs.get(taskId)!.repair!.taskClass,
                 }
-              : {}),
+              : typeof taskClassAfter === "string"
+                ? { repairTaskClass: taskClassAfter }
+                : {}),
           },
           binding,
           cell.now(),
@@ -364,6 +368,30 @@ export function migrateTaskContracts(
     cell.store.readHead()?.revision ?? 0,
     steps.length > 0,
   );
+}
+
+type ContractMigrationRow = { readonly taskId: string; readonly status: string; readonly [field: string]: unknown };
+
+/**
+ * dec_5F7E74F1 retired the milestone and epic task classes. The same contract-migrate event restates a
+ * task still carrying one to its mapped class; its presetId stays the provenance of the content-addressed
+ * preset snapshot it was born from.
+ */
+export function withRetiredTaskClass(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  row: ContractMigrationRow,
+): ContractMigrationRow {
+  const taskClass: string | undefined = cell.projection.read(taskId).snapshot.task?.taskClass,
+    restated = taskClass === undefined ? undefined : retiredTaskClassRestatements[taskClass];
+  if (restated === undefined || row.status === "manual" || row.taskClassAfter !== undefined) return row;
+  return {
+    ...row,
+    status: row.status === "current" ? "repair" : row.status,
+    disposition: row.disposition ?? "retired-task-class-restated",
+    taskClassBefore: taskClass,
+    taskClassAfter: restated,
+  };
 }
 
 function migrateTaskPreset(

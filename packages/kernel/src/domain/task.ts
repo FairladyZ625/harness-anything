@@ -47,8 +47,8 @@ export type ReplayTaskStatus = (typeof replayTaskStatuses)[number];
 export const taskClasses = ["standard", "work", "long_running"] as const;
 export type TaskClass = (typeof taskClasses)[number];
 // dec_5F7E74F1: milestone was renamed work and epic was retired. The event log is immutable, so
-// persisted payloads may still carry either, mapped here to their successor class; current writers
-// never emit them.
+// persisted payloads may still carry either until `ha task contract migrate` restates the task to
+// the mapped class; current writers never emit them.
 export const retiredTaskClassRestatements: Readonly<Record<string, TaskClass>> = Object.freeze({
   milestone: "work",
   epic: "standard",
@@ -148,7 +148,13 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
     ? [...taskClasses, ...Object.keys(retiredTaskClassRestatements)]
     : taskClasses;
   if (!acceptedTaskClasses.includes(value.taskClass))
-    issues.push({ code: "invalid_task", message: "invalid taskClass" });
+    issues.push({
+      code: "invalid_task",
+      message:
+        typeof value.taskClass === "string" && Object.hasOwn(retiredTaskClassRestatements, value.taskClass)
+          ? `retired taskClass ${value.taskClass}; restate it with ha task contract migrate --apply`
+          : "invalid taskClass",
+    });
   if (!(replayTaskStatuses as readonly unknown[]).includes(value.status))
     issues.push({ code: "invalid_task", message: "invalid Task status" });
   if (!(taskNodeIdsForValidation as readonly unknown[]).includes(value.currentNode))
