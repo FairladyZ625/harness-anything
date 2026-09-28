@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -22,18 +22,18 @@ test("the same squad worker receives a distinct checkout for each attempt", asyn
     );
     execFileSync("git", ["config", "user.name", "Fixture"], { cwd: rootDir });
     execFileSync("git", ["config", "user.email", "fixture@example.com"], { cwd: rootDir });
-    execFileSync("git", ["branch", "-m", "codex/mission"], { cwd: rootDir });
+    execFileSync("git", ["branch", "-m", "task_0123456789abcdef0123456789"], { cwd: rootDir });
     const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: rootDir, encoding: "utf8" }).trim(),
       state = { squadRunId: "squad_0123456789abcdef01234567", cwd: rootDir, baseSha },
-      first = await prepareWorkerWorktree(state, "worker-3", "worker-1"),
-      second = await prepareWorkerWorktree(state, "worker-3", "worker-2");
+      first = await prepareWorkerWorktree(state, "worker-3", "worker-1", noSetup(rootDir)),
+      second = await prepareWorkerWorktree(state, "worker-3", "worker-2", noSetup(rootDir));
 
     assert.notEqual(first?.cwd, second?.cwd);
     assert.notEqual(first?.branch, second?.branch);
-    assert.match(first?.branch ?? "", /^codex\/mission--squad-/u);
+    assert.match(first?.branch ?? "", /^task_0123456789abcdef0123456789--squad-/u);
     assert.equal(first?.baseSha, baseSha);
     assert.equal(second?.baseSha, baseSha);
-    assert.deepEqual(await prepareWorkerWorktree(state, "worker-3", "worker-1"), first);
+    assert.deepEqual(await prepareWorkerWorktree(state, "worker-3", "worker-1", noSetup(rootDir)), first);
 
     writeFileSync(path.join(first!.cwd, "worker.txt"), "worker\n");
     execFileSync("git", ["add", "worker.txt"], { cwd: first!.cwd });
@@ -55,7 +55,7 @@ test("the same squad worker receives a distinct checkout for each attempt", asyn
     const cherryPickedSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: rootDir, encoding: "utf8" }).trim();
     assert.notEqual(cherryPickedSha, childSha, "cherry-pick recreates the child commit");
 
-    execFileSync("git", ["switch", "codex/mission"], { cwd: rootDir });
+    execFileSync("git", ["switch", "task_0123456789abcdef0123456789"], { cwd: rootDir });
     execFileSync("git", ["merge", "--no-ff", "--no-edit", first!.branch], { cwd: rootDir });
     execFileSync("git", ["merge-base", "--is-ancestor", childSha, "HEAD"], { cwd: rootDir });
   } finally {
@@ -75,12 +75,46 @@ test("workers branch off the Commander's checked-out branch whatever it is named
   execFileSync("git", ["branch", "-m", "delivery/mission"], { cwd: rootDir });
   const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: rootDir, encoding: "utf8" }).trim(),
     state = { squadRunId: "squad_89abcdef0123456789abcdef", cwd: rootDir, baseSha },
-    named = await prepareWorkerWorktree(state, "worker-1", "attempt-1");
+    named = await prepareWorkerWorktree(state, "worker-1", "attempt-1", noSetup(rootDir));
   assert.match(named?.branch ?? "", /^delivery\/mission--squad-/u);
 
   execFileSync("git", ["checkout", "-q", "--detach"], { cwd: rootDir });
   await assert.rejects(
-    prepareWorkerWorktree({ ...state, squadRunId: "squad_fedcba9876543210fedcba98" }, "worker-2", "attempt-1"),
+    prepareWorkerWorktree(
+      { ...state, squadRunId: "squad_fedcba9876543210fedcba98" },
+      "worker-2",
+      "attempt-1",
+      noSetup(rootDir),
+    ),
     /checked-out branch/u,
   );
 });
+
+test("a worker checkout runs the repository's setup steps with the child task id", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "squad-checkout-setup-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  execFileSync("git", ["init", "-q", "-b", "task_0123456789abcdef0123456789", rootDir]);
+  execFileSync(
+    "git",
+    ["-c", "user.name=F", "-c", "user.email=f@example.com", "commit", "-q", "--allow-empty", "-m", "seed"],
+    {
+      cwd: rootDir,
+    },
+  );
+  const baseSha = execFileSync("git", ["rev-parse", "HEAD"], { cwd: rootDir, encoding: "utf8" }).trim(),
+    worker = await prepareWorkerWorktree(
+      { squadRunId: "squad_0123456789abcdef01234567", cwd: rootDir, baseSha },
+      "w",
+      "a",
+      {
+        rootDir,
+        taskId: "task_child",
+        steps: ['run: echo "$HARNESS_TASK_ID" > setup.out'],
+      },
+    );
+  assert.equal(readFileSync(path.join(worker!.cwd, "setup.out"), "utf8"), "task_child\n");
+});
+
+function noSetup(rootDir: string) {
+  return { rootDir, taskId: "task_child", steps: [] };
+}

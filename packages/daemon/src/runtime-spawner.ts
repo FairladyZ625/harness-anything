@@ -31,11 +31,7 @@ import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-type
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { runtimePermissionMode } from "./runtime-permissions.ts";
 import { scheduleMissionWithOutcomeProtocol } from "./schedule-runtime-outcome.ts";
-import {
-  isSealedRuntimeDaemonRoute,
-  removeRuntimeCallbackRelay,
-  runtimeCallbackRelaySpec,
-} from "./runtime-callback-relay.ts";
+import { dispatchCallbackRelay, removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { cancelRuntime, closeRuntimes } from "./runtime-spawn-control.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
 import { adoptRuntimes } from "./runtime-spawn-adoption.ts";
@@ -100,6 +96,7 @@ import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { selectReviewTarget } from "./review-dispatch-admission.ts";
 import { continuationMission, initialFallbackAttempt, requiredRuntimeFast } from "./runtime-spawn-fallback.ts";
 import { admitRuntimeResume, assertResumeAgent, resolveDispatchCwd } from "./runtime-resume-admission.ts";
+import { taskWorktreeCheckoutNote } from "./task-worktree.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
   resumeAdmissionTimeoutMs = 30_000,
@@ -232,7 +229,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       throw runtimeSpawnError("squad_leader_required", "Targeted squad dispatch requires --agent <leader-id>.");
     if (squadId !== undefined && agentId === undefined)
       throw runtimeSpawnError("squad_leader_required", "Squad attribution requires --agent <leader-id>.");
-    const cwd = await resolveDispatchCwd(input, payload, resumed?.header.cwd, taskId),
+    const { cwd, worktree: dispatchWorktree } = await resolveDispatchCwd(input, payload, resumed?.header.cwd, taskId),
       store = input.remote ? null : requiredRuntimeStore(input),
       projection = input.remote ? null : requiredRuntimeProjection(input),
       remoteTask = taskId && input.remote ? await input.remote.taskContext(taskId, missionName) : null;
@@ -434,15 +431,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       configuredPermissionMode = runtimeInstance?.permissionMode ?? undefined,
       declaredPermissionMode = permissionMode ?? agent?.permissionMode,
       effectivePermissionMode = declaredPermissionMode ?? configuredPermissionMode,
-      callbackRelay =
-        globalThis.process?.platform !== "win32" &&
-        daemonRoute &&
-        isSealedRuntimeDaemonRoute(daemonRoute) &&
-        runtimeInstance?.kindId === "codex" &&
-        runtimeInstance.isolationState === "enforced" &&
-        (effectivePermissionMode === "workspace-write" || effectivePermissionMode === "read-only")
-          ? runtimeCallbackRelaySpec(input.rootDir, newDispatchId, daemonRoute)
-          : undefined,
+      callbackRelay = dispatchCallbackRelay(
+        input.rootDir,
+        newDispatchId,
+        daemonRoute,
+        runtimeInstance,
+        effectivePermissionMode,
+      ),
       missionDaemonRoute =
         callbackRelay && daemonRoute ? { userRoot: "", daemonId: "", endpoint: callbackRelay.path } : daemonRoute,
       selfContainedMission =
@@ -452,6 +447,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               repoId: input.repoId,
               canonicalRoot: input.rootDir,
               workerRoot: cwd,
+              worktreeNote: dispatchWorktree ? taskWorktreeCheckoutNote(dispatchWorktree) : null,
               taskId: taskId!,
               taskPackageRoot: taskMission.packageRoot,
               daemonRoute: missionDaemonRoute!,

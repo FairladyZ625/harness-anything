@@ -29,7 +29,8 @@ const writeGrants = [
   "make code changes only in the worker repository root",
   "Park uncommitted work with a temporary WIP commit",
   "Do not use `git stash` in concurrent work",
-  "Before handoff, rebase onto the latest origin/main",
+  "branch `<task-id>` in `.worktrees/<task-id>`",
+  "Before handoff, rebase onto the latest default branch",
   "Leave a local conventional commit",
 ];
 
@@ -89,10 +90,13 @@ for (const role of [undefined, "worker"] as const)
 
 test("commander owns verified integration and PR delivery without merge authority", () => {
   const prompt = assembleUnboundPrompt("Integrate the mission.", "commander");
-  assert.match(prompt, /Integrate each child branch.*codex\/<mission-slug>.*preserves the child commit SHA/su);
+  assert.match(
+    prompt,
+    /Integrate each child branch into the task branch `<task-id>`.*preserves the child commit SHA/su,
+  );
   assert.match(prompt, /Do not cherry-pick or rebase child commits/u);
   assert.match(prompt, /targeted and integration regressions.*final integrated commit/u);
-  assert.match(prompt, /git push origin codex\/<mission-slug>/u);
+  assert.match(prompt, /git push origin <task-id>/u);
   assert.match(prompt, /gh pr create.*complete bilingual PR/u);
   assert.match(prompt, /\.github\/pull_request_template\.md/u);
   assert.match(prompt, /ha task adjudicate --forward/u);

@@ -30,6 +30,8 @@
         "packages/daemon/src/schedule-action-runtime.ts",
         "packages/daemon/src/schedule-builtin-executor.ts",
         "packages/daemon/src/schedule-occurrence-workspace.ts",
+        "packages/daemon/src/worktree-setup-node-modules.ts",
+        "packages/daemon/src/worktree-setup.ts",
         "packages/kernel/src/daemon/registry.ts"
       ]
     },
@@ -81,8 +83,9 @@
     "packages/daemon/src/runtime-callback-relay.ts",
     "packages/daemon/src/runtime.ts",
     "packages/daemon/src/schedule-builtin-executor.ts",
-    "packages/daemon/src/schedule-occurrence-workspace.ts",
     "packages/daemon/src/transport/unix-socket.ts",
+    "packages/daemon/src/worktree-setup-node-modules.ts",
+    "packages/daemon/src/worktree-setup.ts",
     "packages/daemon/src/writer-epoch.ts",
     "packages/gui/src/main/artifact-open-ipc.ts",
     "packages/gui/src/main/local-doc-ipc.ts",

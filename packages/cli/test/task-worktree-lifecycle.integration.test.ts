@@ -22,10 +22,15 @@ test("a task's worktree is bound at create, checked out on start or dispatch, an
   installIdentities(parent, root, env);
   const worktreeOf = (taskId: string) => {
     const shown = JSON.parse(String(run(root, env, ["task", "show", taskId]).evidence)) as {
-      readonly worktree: { readonly path: string; readonly branch: string; readonly state: string } | null;
+      readonly workspace: {
+        readonly kind: string;
+        readonly path: string;
+        readonly branch: string;
+        readonly state: string;
+      } | null;
     };
-    assert.ok(shown.worktree, `${taskId} must be bound to a worktree`);
-    return { ...shown.worktree, cwd: path.join(realpathSync(root), shown.worktree.path) };
+    assert.equal(shown.workspace?.kind, "worktree", `${taskId} must be bound to a worktree`);
+    return { ...shown.workspace!, cwd: path.join(realpathSync(root), shown.workspace!.path) };
   };
 
   // Clean and nothing new: create binds, start checks out, cancel removes the worktree and its branch.
@@ -34,13 +39,20 @@ test("a task's worktree is bound at create, checked out on start or dispatch, an
   assert.equal(existsSync(worktreeOf(clean.taskId).cwd), false, "create binds without checking anything out");
   const started = text(root, env, ["task", "start", clean.taskId, "--execution-id", clean.executionId]);
   const cleanTree = worktreeOf(clean.taskId);
-  assert.match(started, /Harness manages this worktree; no command is needed\./u);
+  assert.match(started, /from origin\/main\. Harness manages this worktree; no command is needed\./u);
   assert.equal(cleanTree.state, "materialized");
-  assert.equal(git(cleanTree.cwd, "branch", "--show-current"), cleanTree.branch);
+  // dec_8B3FCCD256CAC5B0BF3CCEDE58 CH1: the branch and the directory are the task id itself.
+  assert.equal(cleanTree.branch, clean.taskId);
+  assert.equal(cleanTree.path, `.worktrees/${clean.taskId}`);
+  assert.equal(git(cleanTree.cwd, "branch", "--show-current"), clean.taskId);
   assert.equal(git(cleanTree.cwd, "rev-parse", "HEAD"), git(root, "rev-parse", "origin/main"));
   assert.match(
     text(root, env, ["task", "show", clean.taskId]),
-    /^worktree: .+ \(codex\/.+, materialized; managed by Harness/mu,
+    new RegExp(
+      `^workspace: \\.worktrees/${clean.taskId} \\(worktree on branch ${clean.taskId}, materialized; ` +
+        "setup: none; managed by Harness",
+      "mu",
+    ),
   );
   run(root, env, ["task", "release", clean.taskId]);
   const cancelled = text(root, env, ["task", "transition", clean.taskId, "cancelled", "--reason", "demo", "--force"]);
@@ -102,6 +114,67 @@ test("a task's worktree is bound at create, checked out on start or dispatch, an
     env,
   });
   assert.match(help.stdout, /no command is needed/u);
+});
+
+// dec_8B3FCCD256CAC5B0BF3CCEDE58 end to end: nothing about npm, main or a remote is assumed. A plain repository on
+// master with no origin gets a task-id worktree, runs the steps its Settings declare, refuses a start whose step
+// fails, reruns only what failed, and reclaims the worktree when the task closes.
+test("a repository with no npm, no remote and a master branch runs its declared setup in a task-id worktree", async (context) => {
+  const fixture = createRuntimeFixture(context),
+    { root, env } = fixture,
+    marker = path.join(path.dirname(root), "setup-ran.txt"),
+    gate = path.join(path.dirname(root), "allow-second-step");
+  git(root, "config", "user.name", "Plain Demo");
+  git(root, "config", "user.email", "plain@example.invalid");
+  writeFileSync(path.join(root, ".gitignore"), `${readFileSync(path.join(root, ".gitignore"), "utf8")}.worktrees/\n`);
+  git(root, "add", ".gitignore");
+  git(root, "commit", "-qm", "base");
+  git(root, "branch", "-M", "master");
+  assert.equal(existsSync(path.join(root, "package.json")), false);
+  assert.match(text(root, env, ["settings", "read"]), /^worktree\.setup: none$/mu);
+  // Repository Settings are the principal's to change, not an agent executor's.
+  const { HARNESS_ACTOR: _agent, ...owner } = env;
+  text(root, owner, [
+    "settings",
+    "update",
+    "--worktree-setup",
+    'run: echo "$HARNESS_TASK_ID" >> "$HARNESS_REPO_ROOT/../setup-ran.txt"',
+    "--worktree-setup",
+    `run: test -e ${gate}`,
+  ]);
+  assert.match(text(root, env, ["settings", "read"]), /^worktree\.setup: run: echo .*; run: test -e /mu);
+
+  const plain = seedTask(root, env, "wt-plain"),
+    refused = spawnSync(
+      process.execPath,
+      [cli, "--root", root, "task", "start", plain.taskId, "--execution-id", plain.executionId],
+      { encoding: "utf8", env },
+    );
+  console.log(`$ ha task start ${plain.taskId}\n${refused.stdout}${refused.stderr}`.trimEnd());
+  assert.notEqual(refused.status, 0);
+  assert.match(`${refused.stdout}${refused.stderr}`, /setup step 2 \(run: test -e .+\) failed: exit code 1/u);
+  assert.match(`${refused.stdout}${refused.stderr}`, /Log: .+harness-setup\/step-2\.log/u);
+  assert.match(`${refused.stdout}${refused.stderr}`, new RegExp(`run ha task start ${plain.taskId} again`, "u"));
+  const tree = path.join(realpathSync(root), ".worktrees", plain.taskId);
+  assert.equal(existsSync(tree), true, "a failed setup keeps the worktree");
+  assert.equal(git(tree, "branch", "--show-current"), plain.taskId);
+  assert.equal(git(tree, "rev-parse", "HEAD"), git(root, "rev-parse", "master"));
+  assert.equal(readFileSync(marker, "utf8"), `${plain.taskId}\n`);
+
+  writeFileSync(gate, "");
+  const started = text(root, env, ["task", "start", plain.taskId, "--execution-id", plain.executionId]);
+  assert.match(started, /Setup ran: run: test -e /u);
+  assert.equal(readFileSync(marker, "utf8"), `${plain.taskId}\n`, "the step that succeeded does not run again");
+  assert.match(
+    text(root, env, ["task", "show", plain.taskId]),
+    /^workspace: \.worktrees\/\S+ \(worktree on branch \S+, materialized; setup: run: echo .*; run: test -e /mu,
+  );
+
+  run(root, env, ["task", "release", plain.taskId]);
+  const closed = text(root, env, ["task", "transition", plain.taskId, "cancelled", "--reason", "demo", "--force"]);
+  assert.match(closed, /removed/u);
+  assert.equal(existsSync(tree), false);
+  assert.equal(git(root, "branch", "--list", plain.taskId), "");
 });
 
 function text(root: string, env: NodeJS.ProcessEnv, args: readonly string[]): string {

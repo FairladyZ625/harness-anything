@@ -68,7 +68,7 @@ const row = {
   ],
   phase: { index: null, reason: "phase_unresolved", steps: ["planned", "active", "submitted", "in_review", "done"] },
   risk: { flagged: true },
-  worktree: null,
+  workspace: null,
 } as const;
 const list = {
   ok: true,
@@ -188,8 +188,8 @@ test("task snapshot protocol isolates tasks with non-boolean archiveOnComplete",
   assert.equal(isolated.invalidRows[0]?.field, "rows[0].snapshot.task");
 });
 
-test("task snapshot protocol carries this node's view of a task's derived worktree, never a stored one", () => {
-  const binding = { branch: "codex/bound-12345678", path: ".worktrees/bound-12345678", baseRef: "origin/main" },
+test("task snapshot protocol carries this node's view of a task's derived workspace, never a stored one", () => {
+  const binding = { kind: "worktree", branch: "task-bound", path: ".worktrees/task-bound" } as const,
     boundTask = {
       schema: "task/v2",
       taskId: "task-bound",
@@ -208,12 +208,13 @@ test("task snapshot protocol carries this node's view of a task's derived worktr
       ...row,
       taskId: "task-bound",
       snapshot: { ...row.snapshot, task: boundTask },
-      worktree: { ...binding, state: "materialized" },
-    } as const;
-  assert.deepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [boundRow] }), []);
+      workspace: { ...binding, state: "materialized" },
+    } as const,
+    packageRow = { ...row, workspace: { kind: "task-package", path: "harness/tasks/task-bound" } } as const;
+  assert.deepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [boundRow, packageRow] }), []);
 
   const isolated = isolateDaemonTaskSnapshotRows([
-    { ...boundRow, worktree: { ...binding, state: "checked-out" } } as never,
+    { ...boundRow, workspace: { ...binding, state: "checked-out" } } as never,
     {
       ...boundRow,
       snapshot: { ...boundRow.snapshot, task: { ...boundTask, worktree: binding } },
@@ -221,6 +222,6 @@ test("task snapshot protocol carries this node's view of a task's derived worktr
   ]);
   assert.deepEqual(
     isolated.invalidRows.map(({ field }) => field),
-    ["rows[0].worktree", "rows[1].snapshot.task"],
+    ["rows[0].workspace", "rows[1].snapshot.task"],
   );
 });

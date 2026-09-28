@@ -131,7 +131,7 @@ const relationGraph = {
     leaseExecutionId: null,
     activeExecutionIds: [],
     blockingAssessment: { taskId: "task-agenda-contract", state: "clear", blockers: [], warnings: [] },
-    worktree: null,
+    workspace: null,
   },
   agenda = {
     schema: "daemon.agenda/v1",

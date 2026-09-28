@@ -5,28 +5,25 @@ import { deriveTaskWorktreeBinding, validateTaskV2 } from "../../src/index.ts";
 
 const standard = {
   taskId: "task_b7ca3b72da0be23393b16f0a10",
-  slug: "worktree-lifecycle",
   taskClass: "standard",
 } as const;
 
-test("a repository-diff task is bound to a codex/ branch and a .worktrees/ checkout off origin/main", () => {
+test("a repository-diff task's branch and .worktrees/ directory are its full task id", () => {
   assert.deepEqual(deriveTaskWorktreeBinding({ ...standard, outputShape: "repository-diff" }), {
-    branch: "codex/worktree-lifecycle-b7ca3b72",
-    path: ".worktrees/worktree-lifecycle-b7ca3b72",
-    baseRef: "origin/main",
+    branch: "task_b7ca3b72da0be23393b16f0a10",
+    path: ".worktrees/task_b7ca3b72da0be23393b16f0a10",
   });
 });
 
-test("tasks sharing a slug still get distinct worktrees", () => {
-  const first = deriveTaskWorktreeBinding({ ...standard, slug: "task", outputShape: "repository-diff" }),
+test("the name does not depend on the title, so tasks titled without Latin letters stay distinct", () => {
+  const first = deriveTaskWorktreeBinding({ ...standard, outputShape: "repository-diff" }),
     second = deriveTaskWorktreeBinding({
       ...standard,
       taskId: "task_0f1e2d3c4b5a69788796a5b4c3",
-      slug: "task",
       outputShape: "repository-diff",
     });
   assert.notEqual(first?.path, second?.path);
-  assert.notEqual(first?.branch, second?.branch);
+  assert.equal(second?.branch, "task_0f1e2d3c4b5a69788796a5b4c3");
 });
 
 test("a task-package artifact and a declared work root are never bound", () => {

@@ -20,15 +20,18 @@ import { createScheduleV1, type ScheduleV1 } from "@harness-anything/kernel";
 import { dispatchClaimedSchedule } from "../src/schedule-action-runtime.ts";
 import { launchArgs } from "../src/agent-runtime-launch-config.ts";
 import {
-  linkSharedNodeModules,
   prepareScheduleOccurrenceWorkspace,
   settleScheduleOccurrenceWorkspace,
 } from "../src/schedule-occurrence-workspace.ts";
+import { nodeModulesSetupAdapter } from "../src/worktree-setup-node-modules.ts";
 
 test("detect occurrences use the canonical root without creating a worktree", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-schedule-detect-"));
   try {
-    const workspace = await prepareScheduleOccurrenceWorkspace(root, schedule("detect", "occurrence-detect"));
+    // A detect occurrence makes no worktree, so it never reads the setup (an unbootstrapped repository has none).
+    const workspace = await prepareScheduleOccurrenceWorkspace(root, schedule("detect", "occurrence-detect"), () => {
+      throw new Error("detect read the worktree setup");
+    });
     assert.equal(workspace.cwd, root);
     assert.equal(workspace.runtime.worktree, undefined);
   } finally {
@@ -127,10 +130,15 @@ test("scheduled dispatch spawns from the occurrence workspace without extra writ
   assert.equal(argv.includes("--add-dir"), false);
 });
 
-test("remediate occurrences start from origin/main and clean empty worktrees", async () => {
+test("remediate occurrences start from the default branch and clean empty worktrees", async () => {
   const fixture = repositoryFixture();
   try {
-    const workspace = await prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", "occurrence-clean"));
+    const workspace = await prepareScheduleOccurrenceWorkspace(
+      fixture.root,
+      schedule("remediate", "occurrence-clean"),
+      () => [],
+    );
+    assert.equal(workspace.runtime.worktree?.baseRef, "origin/main");
     assert.equal(git(workspace.cwd, "rev-parse", "HEAD"), git(fixture.root, "rev-parse", "origin/main"));
     assert.equal((await settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime)).detail, null);
     assert.equal(existsSync(workspace.cwd), false);
@@ -143,7 +151,11 @@ test("remediate occurrences start from origin/main and clean empty worktrees", a
 test("remediate occurrences retain a dirty worktree and name its path", async () => {
   const fixture = repositoryFixture();
   try {
-    const workspace = await prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", "occurrence-dirty"));
+    const workspace = await prepareScheduleOccurrenceWorkspace(
+      fixture.root,
+      schedule("remediate", "occurrence-dirty"),
+      () => [],
+    );
     writeFileSync(path.join(workspace.cwd, "result.txt"), "dirty");
     const detail = (await settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime)).detail;
     assert.equal(detail, `Occurrence worktree retained at ${workspace.cwd} (uncommitted changes).`);
@@ -159,6 +171,7 @@ test("remediate occurrences keep unmerged commits at an archive tag before remov
     const workspace = await prepareScheduleOccurrenceWorkspace(
       fixture.root,
       schedule("remediate", "occurrence-commit"),
+      () => [],
     );
     writeFileSync(path.join(workspace.cwd, "result.txt"), "commit");
     git(workspace.cwd, "add", "result.txt");
@@ -177,17 +190,20 @@ test("remediate occurrences keep unmerged commits at an archive tag before remov
   }
 });
 
-test("remediate occurrences resolve workspace packages in the worktree and share the rest of the store", async () => {
+test("the node-modules setup resolves workspace packages in the worktree and shares the rest of the store", async () => {
   const fixture = repositoryFixture();
   try {
     const store = storeFixture(fixture.root),
-      workspace = await prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", "occurrence-deps")),
+      workspace = await prepareScheduleOccurrenceWorkspace(
+        fixture.root,
+        schedule("remediate", "occurrence-deps"),
+        () => ["node-modules"],
+      ),
       resolve = createRequire(path.join(workspace.cwd, "index.js")).resolve;
     assert.equal(resolve("@fixture/pkg"), path.join(realpathSync(workspace.cwd), "packages", "pkg", "index.js"));
     assert.equal(resolve("sentinel-pkg"), path.join(realpathSync(store), "sentinel-pkg", "index.js"));
     assert.equal(realpathSync(path.join(workspace.cwd, "node_modules", ".bin", "pkg")), resolve("@fixture/pkg"));
-    assert.equal(workspace.runtime.worktree?.note, undefined);
-    // The mirrored store is the workspace's own doing: it neither marks the worktree dirty nor blocks removal.
+    // The mirrored store is the adapter's own doing: it neither marks the worktree dirty nor blocks removal.
     assert.equal((await settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime)).detail, null);
     assert.equal(existsSync(workspace.cwd), false);
     assert.equal(existsSync(path.join(store, "sentinel-pkg", "index.js")), true);
@@ -201,7 +217,11 @@ test("the mirrored store is removed at reclaim even where node_modules is not ig
   const fixture = repositoryFixture({ ignoreNodeModules: false });
   try {
     const store = storeFixture(fixture.root),
-      workspace = await prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", "occurrence-bare"));
+      workspace = await prepareScheduleOccurrenceWorkspace(
+        fixture.root,
+        schedule("remediate", "occurrence-bare"),
+        () => ["node-modules"],
+      );
     assert.equal(git(workspace.cwd, "status", "--porcelain"), "?? node_modules/");
     assert.equal((await settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime)).detail, null);
     assert.equal(existsSync(workspace.cwd), false);
@@ -211,23 +231,38 @@ test("the mirrored store is removed at reclaim even where node_modules is not ig
   }
 });
 
-test("remediate occurrences without a canonical node_modules still prepare cleanly", async () => {
+test("a repository that declares no setup gets a bare worktree, even with a root node_modules", async () => {
   const fixture = repositoryFixture();
   try {
+    storeFixture(fixture.root);
     const workspace = await prepareScheduleOccurrenceWorkspace(
       fixture.root,
       schedule("remediate", "occurrence-nodeps"),
+      () => [],
     );
     assert.equal(existsSync(path.join(workspace.cwd, "node_modules")), false);
-    assert.equal(workspace.runtime.worktree?.note, undefined);
     assert.equal((await settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime)).detail, null);
   } finally {
     rmSync(fixture.base, { recursive: true, force: true });
   }
 });
 
+test("a failing setup step fails the occurrence workspace and names the step and its log", async () => {
+  const fixture = repositoryFixture();
+  try {
+    await assert.rejects(
+      prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", "occurrence-failed"), () => [
+        "run: exit 3",
+      ]),
+      /setup step 1 \(run: exit 3\) failed: exit code 3\. Log: .*harness-setup\/step-1\.log\./u,
+    );
+  } finally {
+    rmSync(fixture.base, { recursive: true, force: true });
+  }
+});
+
 test(
-  "a failed node_modules link is reported as a note, not thrown or swallowed",
+  "a node_modules mirror that cannot be written fails the adapter and leaves no half-made store",
   { skip: process.platform === "win32" },
   () => {
     const fixture = repositoryFixture(),
@@ -235,10 +270,10 @@ test(
     try {
       mkdirSync(path.join(fixture.root, "node_modules"));
       chmodSync(worktree, 0o555);
-      const note = linkSharedNodeModules(fixture.root, worktree);
-      assert.match(note ?? "", /node_modules/u);
+      assert.throws(() => nodeModulesSetupAdapter.prepare({ rootDir: fixture.root, cwd: worktree }), /EACCES/u);
+      assert.equal(existsSync(path.join(worktree, "node_modules")), false);
       chmodSync(worktree, 0o755);
-      assert.equal(linkSharedNodeModules(fixture.root, worktree), null);
+      nodeModulesSetupAdapter.prepare({ rootDir: fixture.root, cwd: worktree });
       assert.equal(lstatSync(path.join(worktree, "node_modules")).isDirectory(), true);
     } finally {
       chmodSync(worktree, 0o755);

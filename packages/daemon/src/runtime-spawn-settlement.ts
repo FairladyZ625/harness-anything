@@ -75,7 +75,12 @@ export async function publishExit(
     if (active.task && outcome === "succeeded" && active.publicationOwner !== "commander" && !squadLeaderControl) {
       try {
         const env = await context.prepareWorkerGitEnvironment(active.instanceId),
-          push = await pushWorkerBranch({ cwd: active.cwd, canonicalRoot: context.input.rootDir, env });
+          push = await pushWorkerBranch({
+            cwd: active.cwd,
+            canonicalRoot: context.input.rootDir,
+            taskId: active.task.taskId,
+            env,
+          });
         if (push.attempted)
           body = push.ok
             ? `${body}\n\nWorker branch pushed at settlement: ${push.branch} @ ${push.head}`

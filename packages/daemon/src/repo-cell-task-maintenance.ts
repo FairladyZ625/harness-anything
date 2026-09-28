@@ -1,4 +1,6 @@
 import { createHash } from "node:crypto";
+import { renameLegacyTaskWorktrees } from "./task-worktree-legacy-rename.ts";
+import { presetSnapshotReader } from "./task-worktree.ts";
 import {
   createEntityStore,
   isMigrationImportEvent,
@@ -300,7 +302,18 @@ export function migrateTaskContracts(
             }
           : { taskId, status: "backfill" };
     },
-    report = candidates.map((taskId) => withRetiredTaskClass(cell, taskId, contractRow(taskId)));
+    report: readonly ContractMigrationRow[] = [
+      ...candidates.map((taskId) => withRetiredTaskClass(cell, taskId, contractRow(taskId))),
+      // Worktrees live on the node that checked them out; a forwarded migrate leaves them to that node.
+      ...(binding.source === "local"
+        ? renameLegacyTaskWorktrees(
+            cell.rootDir,
+            candidates.map((taskId) => cell.projection.read(taskId).snapshot.task),
+            presetSnapshotReader(cell.projection),
+            action.mode === "apply",
+          )
+        : []),
+    ];
   if (action.mode === "dry-run")
     return cell.previewResult(
       cell.operationId(action, binding, cell.input.repoId, cell.store.readHead()?.revision ?? 0),

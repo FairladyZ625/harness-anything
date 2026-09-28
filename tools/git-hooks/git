@@ -78,7 +78,7 @@ if [ -n "$repo_root" ] && [ -n "$canonical_root" ] && [ -d "$canonical_root" ]; 
 fi
 
 refuse_push() {
-  printf 'Refusing a task-bound git push outside refs/heads/codex/*.\n' >&2
+  printf 'Refusing a task-bound git push outside a task branch refs/heads/task_*.\n' >&2
   exit 1
 }
 
@@ -165,7 +165,7 @@ if [ "${HARNESS_TASK_BOUND:-}" = "1" ]; then
         *) target=$refspec ;;
       esac
       case "$target" in
-        codex/?*|refs/heads/codex/?*) ;;
+        task_?*|refs/heads/task_?*) ;;
         *) refuse_push ;;
       esac
     done

@@ -22,6 +22,8 @@ import {
   rolePreferenceFields,
   settingsLocales,
   validateRepositorySettings,
+  worktreeSetupAdapters,
+  worktreeSetupStepPattern,
   writeRepositorySettingsFacet,
   type RepositorySettingsV1,
   type SettingsLocale,
@@ -62,6 +64,7 @@ const repositoryFieldNames = Object.freeze([
   "closeoutFactDisposition",
   "closeoutCodeDoc",
   "restoreDrillRetention",
+  "worktreeSetup",
 ] as const);
 
 const input = (fields: readonly EntityActionInputField[]): EntityActionInputContract =>
@@ -107,6 +110,7 @@ export const settingsUpdateInputFields: readonly EntityActionInputField[] = Obje
   field("closeoutFactDisposition", "boolean"),
   field("closeoutCodeDoc", "boolean"),
   field("restoreDrillRetention", "number"),
+  field("worktreeSetup", "string-array"),
   field("expectedVersion", "number"),
   field("idempotencyKey"),
 ]);
@@ -291,6 +295,7 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
         "restoreDrillRetention",
         current.restoreDrillRetention ?? DEFAULT_RESTORE_DRILL_RETENTION,
       ),
+      worktree: { setup: updatedWorktreeSetup(input.action, current.worktree.setup) },
     },
     errors = validateRepositorySettings(candidate);
   if (errors.length) rejectSettings("invalid_command", errors.join("; "));
@@ -405,6 +410,26 @@ function updatedWorkflows(action: Readonly<Record<string, unknown>>, current: re
   )
     rejectSettings("invalid_command", "ciWorkflows must contain unique workflow names without .yml.");
   return workflows;
+}
+
+function updatedWorktreeSetup(action: Readonly<Record<string, unknown>>, current: readonly string[]) {
+  if (!Object.hasOwn(action, "worktreeSetup")) return current;
+  const value = action.worktreeSetup;
+  if (!Array.isArray(value) || value.some((step) => typeof step !== "string"))
+    rejectSettings("invalid_command", "worktreeSetup must be an array of setup steps.");
+  // `--worktree-setup none` clears the steps; a repeated flag cannot carry an empty value.
+  if (value.length === 1 && value[0] === "none") return [];
+  const steps = value.map((step) => step.trim());
+  if (
+    steps.some((step) => !new RegExp(worktreeSetupStepPattern, "u").test(step)) ||
+    new Set(steps).size !== steps.length
+  )
+    rejectSettings(
+      "invalid_command",
+      `worktreeSetup steps must be unique, each a built-in adapter (${worktreeSetupAdapters.join(", ")}) ` +
+        "or run: <command>.",
+    );
+  return steps;
 }
 
 /**

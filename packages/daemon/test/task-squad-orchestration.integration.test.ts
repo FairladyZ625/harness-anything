@@ -92,7 +92,7 @@ test(
     assert.equal((await fixture.status()).leaders.length, 2);
     const leader = fixture.providers.find((p) => p.dispatchId === resumed.leaders[1].dispatchId)!;
     assert.match(leader.prompt, /outside\.txt/u);
-    assert.match(leader.prompt, /git push origin codex\/<mission-slug>/u);
+    assert.match(leader.prompt, /git push origin <task-id>/u);
     assert.match(leader.prompt, /gh pr create/u);
     assert.match(leader.prompt, /Do not merge/u);
     await fixture.cell.settlePendingMaterialization("before public integration");
@@ -158,7 +158,8 @@ for (const restart of [false, true])
       const cwd = path.join(fixture.root, ".worktrees", "direct-targeted");
       await fixture.cell.settlePendingMaterialization("before direct branch");
       git(fixture.root, "update-ref", "refs/remotes/origin/main", "HEAD");
-      git(fixture.root, "worktree", "add", "-b", "codex/direct-targeted", cwd);
+      // Settlement publishes the branch named after the dispatched task.
+      git(fixture.root, "worktree", "add", "-b", taskId, cwd);
       const direct = await fixture.cell.spawnRuntime(
         {
           runtimeInstanceId: "stub",
@@ -196,12 +197,12 @@ for (const restart of [false, true])
         "child delivery",
       );
       const report = readFileSync(path.join(fixture.root, "harness", rows[0].reportPath!), "utf8");
-      assert.match(report, /Worker branch pushed at settlement: codex\/direct-targeted/u);
+      assert.match(report, /Worker branch pushed at settlement: task-direct-targeted @/u);
       assert.equal(
-        git(fixture.bare, "for-each-ref", "--format=%(objectname)", "refs/heads/codex/direct-targeted"),
+        git(fixture.bare, "for-each-ref", "--format=%(objectname)", `refs/heads/${taskId}`),
         git(cwd, "rev-parse", "HEAD"),
       );
-      assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", "refs/heads/codex/squad-"), "");
+      assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", `refs/heads/${taskId}--squad-`), "");
     },
   );
 

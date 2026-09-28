@@ -29,7 +29,7 @@ import {
   type TaskRelationQuery,
 } from "@harness-anything/kernel";
 import { readDispatchStreamHeaders, type DispatchStreamHeader } from "./dispatch-stream.ts";
-import { presetSnapshotReader, taskWorktreeView } from "./task-worktree.ts";
+import { presetSnapshotReader, taskWorkspaceView } from "./task-worktree.ts";
 import {
   isolateDaemonTaskSnapshotRows,
   type AgendaAnsweredRow,
@@ -221,6 +221,7 @@ export function makeTaskQueryReadModel(input: {
   function guiTasks(query: TaskProjectionListQuery = {}): DaemonTaskSnapshotListResult {
     const lifecycle = projection.list({ ...query, limit: query.limit ?? 500 }),
       readPresetSnapshot = presetSnapshotReader(projection),
+      { authoredRoot } = resolveHarnessLayout(rootDir),
       { dependencies, derives, awaits, taskStatuses, blockingByTaskId } = readBlockingAssessments(
         lifecycle.rows.map(({ taskId }) => taskId),
       ),
@@ -315,7 +316,7 @@ export function makeTaskQueryReadModel(input: {
           capabilities: taskCapabilities(boardRow),
           phase: taskPhase(boardRow),
           risk: taskRisk(boardRow),
-          worktree: taskWorktreeView(rootDir, row.snapshot.task, readPresetSnapshot),
+          workspace: taskWorkspaceView(rootDir, row.snapshot.task, row.packagePath, readPresetSnapshot, authoredRoot),
         };
       }),
       ...cut,
@@ -350,7 +351,7 @@ export function makeTaskQueryReadModel(input: {
       page: lifecycle.page ?? null,
       rows: rows.map((row) => ({
         ...row,
-        worktree: taskWorktreeView(rootDir, row.snapshot.task, readPresetSnapshot),
+        workspace: taskWorkspaceView(rootDir, row.snapshot.task, row.packagePath, readPresetSnapshot, null),
         work: scope.workOf(row.snapshot.task?.metadata?.parentTaskId ?? null),
         blockingAssessment: graph.blockingByTaskId.get(row.taskId) ?? {
           taskId: row.taskId,
@@ -804,7 +805,7 @@ function projectExecutionEvidence(
 type AgendaSourceRow = ReturnType<TaskProjection["list"]>["rows"][number] & {
   readonly work: AgendaWorkRef | null;
   readonly blockingAssessment: DaemonTaskSnapshotListResult["rows"][number]["blockingAssessment"];
-  readonly worktree: AgendaTaskRow["worktree"];
+  readonly workspace: AgendaTaskRow["workspace"];
 };
 type AgendaWorkScope = {
   readonly members: ReadonlySet<string> | null;
@@ -840,7 +841,7 @@ function agendaTaskRow(row: AgendaSourceRow): AgendaTaskRow {
       .map(({ executionId }) => executionId)
       .sort(),
     blockingAssessment: row.blockingAssessment,
-    worktree: row.worktree,
+    workspace: row.workspace,
   };
 }
 /** 最新一轮 execution:按 iteration 取最大者的 state,不回看更早历史(同一轮内后到者胜出)。 */
@@ -931,7 +932,7 @@ function renderAgendaSummary(
   const workLabel = (row: AgendaTaskRow | AgendaExecutionRow) => (row.work ? ` [工作 ${row.work.title}]` : ""),
     taskLine = (row: AgendaTaskRow) =>
       `- ${row.pinned ? "📌 " : ""}${row.taskId} ${row.title}${workLabel(row)}${row.blockingAssessment.blockers.length ? `（阻塞: ${row.blockingAssessment.blockers.map(blockerText).join(", ")}）` : ""}` +
-      (row.worktree ? `（worktree: ${row.worktree.path} ${row.worktree.state}）` : ""),
+      (row.workspace?.kind === "worktree" ? `（worktree: ${row.workspace.path} ${row.workspace.state}）` : ""),
     blockerText = (blocker: AgendaTaskRow["blockingAssessment"]["blockers"][number]) =>
       blocker.kind === "awaits"
         ? `等 ${blocker.personId} ${blocker.askKind}: ${blocker.question}`

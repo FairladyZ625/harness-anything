@@ -21,9 +21,10 @@ import { spawnWithDeadline } from "./fixtures/deadline-spawn.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
 const gitShell = process.platform === "win32" ? findGitShell() : "sh";
-const posixShellSkip = process.platform === "win32" && gitShell === null
-  ? "requires Git for Windows' POSIX shell to execute repository hooks"
-  : false;
+const posixShellSkip =
+  process.platform === "win32" && gitShell === null
+    ? "requires Git for Windows' POSIX shell to execute repository hooks"
+    : false;
 
 test("public pre-commit rejects artifacts and harness paths", { skip: posixShellSkip }, (context) => {
   const root = makeRepo(context, "hook-artifact-guard-");
@@ -110,13 +111,13 @@ test(
   },
 );
 
-test("task-bound git wrapper permits only explicit codex branch push targets", { skip: posixShellSkip }, (context) => {
+test("task-bound git wrapper permits only explicit task branch push targets", { skip: posixShellSkip }, (context) => {
   const root = makeRepo(context, "hook-push-guard-"),
     bare = path.join(path.dirname(root), `${path.basename(root)}.git`);
   context.after(() => rmSync(bare, { recursive: true, force: true }));
   installHook(root, "git");
   git(root, "init", "--bare", bare);
-  git(root, "checkout", "-b", "codex/push-guard");
+  git(root, "checkout", "-b", "task_0123456789abcdef0123456789");
   git(root, "remote", "add", "origin", bare);
   const env = {
     ...process.env,
@@ -129,14 +130,24 @@ test("task-bound git wrapper permits only explicit codex branch push targets", {
     env,
   });
   assert.equal(refused.status, 1, refused.stderr);
-  assert.match(refused.stderr, /outside refs\/heads\/codex/u);
-  const allowed = runWrappedGit(["-C", root, "push", "origin", "HEAD:refs/heads/codex/push-guard"], {
+  assert.match(refused.stderr, /outside a task branch refs\/heads\/task_/u);
+  // The retired codex/ namespace is no longer a task branch.
+  const retired = runWrappedGit(["-C", root, "push", "origin", "HEAD:refs/heads/codex/push-guard"], {
+    cwd: root,
+    encoding: "utf8",
+    env,
+  });
+  assert.equal(retired.status, 1, retired.stderr);
+  const allowed = runWrappedGit(["-C", root, "push", "origin", "HEAD:refs/heads/task_0123456789abcdef0123456789"], {
     cwd: root,
     encoding: "utf8",
     env,
   });
   assert.equal(allowed.status, 0, allowed.stderr);
-  assert.match(git(bare, "show-ref", "--verify", "refs/heads/codex/push-guard"), /codex\/push-guard/u);
+  assert.match(
+    git(bare, "show-ref", "--verify", "refs/heads/task_0123456789abcdef0123456789"),
+    /task_0123456789abcdef0123456789/u,
+  );
 });
 
 test("GitHub askpass answers only standard HTTPS GitHub prompts", { skip: posixShellSkip }, (context) => {
@@ -188,7 +199,8 @@ function makeRepo(context, prefix) {
 function installHook(root, name) {
   const hooks = path.join(root, "tools", "git-hooks");
   mkdirSync(hooks, { recursive: true });
-  const source = path.join(repositoryRoot, "tools", "git-hooks", name), destination = path.join(hooks, name);
+  const source = path.join(repositoryRoot, "tools", "git-hooks", name),
+    destination = path.join(hooks, name);
   copyFileSync(source, destination);
   chmodSync(destination, 0o755);
   if (process.platform === "win32" && existsSync(`${source}.cmd`)) copyFileSync(`${source}.cmd`, `${destination}.cmd`);
@@ -204,7 +216,11 @@ function runHook(root, name) {
 }
 
 function runPosixScript(script, args, options) {
-  return spawnSync(process.platform === "win32" ? gitShell : script, process.platform === "win32" ? [script, ...args] : args, options);
+  return spawnSync(
+    process.platform === "win32" ? gitShell : script,
+    process.platform === "win32" ? [script, ...args] : args,
+    options,
+  );
 }
 
 function runWrappedGit(args, options) {
@@ -226,7 +242,10 @@ function digest(value) {
 
 function findGitShell() {
   const result = execFileSync("where.exe", ["git.exe"], { encoding: "utf8" });
-  for (const gitPath of result.split(/\r?\n/u).map((value) => value.trim()).filter(Boolean)) {
+  for (const gitPath of result
+    .split(/\r?\n/u)
+    .map((value) => value.trim())
+    .filter(Boolean)) {
     const root = path.resolve(path.dirname(gitPath), "..");
     for (const candidate of [path.join(root, "bin", "sh.exe"), path.join(root, "usr", "bin", "sh.exe")]) {
       if (existsSync(candidate)) return candidate;

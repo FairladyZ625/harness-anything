@@ -225,6 +225,7 @@ export const daemonGuiActionMethods = Object.freeze([
       gatesFromDocument: "boolean?",
       gatesDraft: "array?",
       restoreDrillRetention: "number?",
+      worktreeSetup: "array?",
       expectedVersion: "number?",
       idempotencyKey: "string",
     }),

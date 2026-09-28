@@ -159,22 +159,31 @@ function renderTaskShow(receipt: Record<string, unknown>): string {
       ) || "none"
     }`,
     `packageDisposition: ${String(payload.task.packageDisposition ?? "active")}`,
-    ...(isRecord(payload.worktree)
-      ? [
-          `worktree: ${String(payload.worktree.path)} (${String(payload.worktree.branch)}, ` +
-            `${String(payload.worktree.state)}; managed by Harness, no command needed)`,
-        ]
-      : []),
+    ...(isRecord(payload.workspace) ? [workspaceLine(payload.workspace, payload.worktreeSetup)] : []),
     ...(typeof payload.returnBudget === "number"
       ? [`returnBudget=${String(payload.returnBudget)} (${String(payload.returnBudgetSource)})`]
       : []),
   ].join("\n");
 }
 
+/** dec_8B3FCCD256CAC5B0BF3CCEDE58 CH4: one line tells where every task works. */
+function workspaceLine(workspace: Record<string, unknown>, setup: unknown): string {
+  if (workspace.kind !== "worktree")
+    return `workspace: ${String(workspace.path)} (task package; this task does not change repository files)`;
+  const steps = Array.isArray(setup) && setup.length ? setup.map(String).join("; ") : "none";
+  return (
+    `workspace: ${String(workspace.path)} (worktree on branch ${String(workspace.branch)}, ` +
+    `${String(workspace.state)}; setup: ${steps}; managed by Harness, no command needed)`
+  );
+}
+
 function renderSettingsRead(receipt: Record<string, unknown>): string {
-  const lastChanged = receipt.lastChanged;
+  const lastChanged = receipt.lastChanged,
+    worktree = isRecord(receipt.settings) && isRecord(receipt.settings.worktree) ? receipt.settings.worktree : null,
+    setup = Array.isArray(worktree?.setup) ? worktree.setup.map(String) : [];
   return [
     renderSuccessfulReceipt(receipt),
+    `worktree.setup: ${setup.length ? setup.join("; ") : "none"}`,
     lastChanged === "initial"
       ? "lastChanged=initial"
       : isRecord(lastChanged)

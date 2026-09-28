@@ -230,12 +230,13 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       required.every((field) => nonEmpty(item[field])) &&
       Object.keys(item).every((field) => required.includes(field) || optional.includes(field));
   if (method === "repo.settings.update") {
-    // ciWorkflows and the closeout fields are typed settings judged by the kernel compiler, not here.
+    // ciWorkflows, worktreeSetup and the closeout fields are typed settings judged by the kernel compiler.
     const settingFields = (
         "defaultVertical defaultPreset defaultProfile roles reviewIndependence reviewReturnBudget " +
         "closeoutProfile closeoutReview closeoutConsent closeoutFactDisposition closeoutCodeDoc " +
         "locale taskScaffold repositoryScaffold walFlushAdaptive walFlushEvents " +
-        "walFlushBytes walFlushMilliseconds ciWorkflows gatesFromDocument gatesDraft restoreDrillRetention"
+        "walFlushBytes walFlushMilliseconds ciWorkflows gatesFromDocument gatesDraft restoreDrillRetention " +
+        "worktreeSetup"
       ).split(" "),
       changed = settingFields.filter((field) => value[field] !== undefined),
       identifier = /^[A-Za-z0-9][A-Za-z0-9/_.@-]*$/u;
@@ -248,6 +249,7 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
             !field.startsWith("closeout") &&
             field !== "roles" &&
             field !== "ciWorkflows" &&
+            field !== "worktreeSetup" &&
             field !== "gatesFromDocument" &&
             field !== "gatesDraft" &&
             field !== "reviewReturnBudget" &&

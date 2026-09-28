@@ -1,11 +1,12 @@
 import path from "node:path";
-import type { TaskProjection } from "@harness-anything/kernel";
+import type { SettingsV1, TaskProjection } from "@harness-anything/kernel";
 import { readDispatchStream, readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { resolveRuntimeCwd } from "./runtime-spawn-mission.ts";
 import { requiredRuntimeProjection } from "./runtime-spawn-process.ts";
-import { materializeTaskWorktree, presetSnapshotReader } from "./task-worktree.ts";
+import { materializeTaskWorktree, presetSnapshotReader, type TaskWorktreeCheckout } from "./task-worktree.ts";
+import { worktreeSetupFailure } from "./worktree-setup.ts";
 
 export function admitRuntimeResume(rootDir: string, dispatchId: string | undefined) {
   const resumed = dispatchId ? readDispatchStream(rootDir, dispatchId) : null;
@@ -81,32 +82,52 @@ export function assertResumeAgent(
 
 /**
  * A resumed dispatch without a requested cwd keeps its own. A local task dispatch without one runs in the task's
- * worktree (dec_BBA713052997C3EF5F5D3DD952), checked out here on first use; a reviewer, a dry-run preview and
- * anything else start at the repository root.
+ * worktree (dec_BBA713052997C3EF5F5D3DD952), checked out and prepared here on first use; a setup step that fails
+ * refuses the dispatch (dec_8B3FCCD256CAC5B0BF3CCEDE58 CH3). A reviewer, a dry-run preview and anything else start
+ * at the repository root.
  */
 export async function resolveDispatchCwd(
-  input: { readonly rootDir: string; readonly remote?: unknown; readonly projection?: () => TaskProjection },
+  input: {
+    readonly rootDir: string;
+    readonly remote?: unknown;
+    readonly projection?: () => TaskProjection;
+    readonly readSettings?: () => SettingsV1;
+  },
   payload: { readonly cwd?: unknown; readonly role?: unknown; readonly dryRun?: unknown },
   inherited: string | undefined,
   taskId: string | null,
-): Promise<string> {
-  if (payload.cwd === undefined && inherited) return inherited;
+): Promise<{ readonly cwd: string; readonly worktree: TaskWorktreeCheckout | null }> {
+  if (payload.cwd === undefined && inherited) return { cwd: inherited, worktree: null };
   const worktree =
     payload.cwd === undefined && taskId && !input.remote && payload.role !== "reviewer" && payload.dryRun !== true
-      ? await checkoutTaskWorktree(input.rootDir, requiredRuntimeProjection(input), taskId)
+      ? await checkoutTaskWorktree(input, requiredRuntimeProjection(input), taskId)
       : null;
-  return resolveRuntimeCwd(
-    input.rootDir,
-    worktree
-      ? { scope: "repo-relative", path: path.relative(input.rootDir, worktree.cwd) }
-      : (payload.cwd ?? { scope: "repo-root" }),
-  );
+  return {
+    cwd: resolveRuntimeCwd(
+      input.rootDir,
+      worktree
+        ? { scope: "repo-relative", path: path.relative(input.rootDir, worktree.cwd) }
+        : (payload.cwd ?? { scope: "repo-root" }),
+    ),
+    worktree,
+  };
 }
 
-function checkoutTaskWorktree(rootDir: string, projection: TaskProjection, taskId: string) {
-  return materializeTaskWorktree(
-    rootDir,
+async function checkoutTaskWorktree(
+  input: { readonly rootDir: string; readonly readSettings?: () => SettingsV1 },
+  projection: TaskProjection,
+  taskId: string,
+) {
+  const checkout = await materializeTaskWorktree(
+    input.rootDir,
     requireCurrentTaskProjection(projection, taskId, "runtime.run").snapshot.task,
     presetSnapshotReader(projection),
+    input.readSettings?.().worktree.setup ?? [],
   );
+  if (checkout && !checkout.setup.ok)
+    throw runtimeSpawnError(
+      "worktree_setup_failed",
+      worktreeSetupFailure(checkout.cwd, checkout.setup, `dispatch task ${taskId} again`, checkout.baseRef),
+    );
+  return checkout;
 }

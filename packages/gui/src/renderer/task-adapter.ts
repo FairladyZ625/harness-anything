@@ -59,7 +59,7 @@ function adaptProjectionRow(
       : {}),
     placementProvenance: row.placement.provenance,
     packagePath: row.packagePath,
-    ...(row.worktree ? { worktree: row.worktree } : {}),
+    ...(row.workspace ? { workspace: row.workspace } : {}),
     taskClass: task.taskClass,
     workKind: task.metadata?.workKind,
     vertical: task.metadata?.verticalId,

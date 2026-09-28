@@ -758,7 +758,7 @@ export type DaemonTaskSnapshotListResult = {
     readonly capabilities: readonly import("@harness-anything/kernel/internal/domain/task-board-projection").TaskCapability[];
     readonly phase: import("@harness-anything/kernel/internal/domain/task-board-projection").TaskPhase;
     readonly risk: import("@harness-anything/kernel/internal/domain/task-board-projection").TaskRisk;
-    readonly worktree: TaskWorktreeView | null;
+    readonly workspace: TaskWorkspaceView | null;
   })[];
   readonly invalidRows: readonly DaemonTaskSnapshotInvalidRow[];
   readonly watermark: number;
@@ -799,15 +799,18 @@ export type DaemonWorkspaceSummaryResult = {
 };
 
 /**
- * A task's worktree binding with what the answering node's filesystem shows of it
- * (dec_BBA713052997C3EF5F5D3DD952); a node that never ran the task reads "bound".
+ * Where a task works (dec_8B3FCCD256CAC5B0BF3CCEDE58 CH4): its worktree binding with what the answering node's
+ * filesystem shows of it (dec_BBA713052997C3EF5F5D3DD952; a node that never ran the task reads "bound"), or, for a
+ * task that does not change repository files, its own task package directory. Paths are repository-relative.
  */
-export interface TaskWorktreeView {
-  readonly branch: string;
-  readonly path: string;
-  readonly baseRef: string;
-  readonly state: "bound" | "materialized" | "reclaimed" | "retained";
-}
+export type TaskWorkspaceView =
+  | {
+      readonly kind: "worktree";
+      readonly branch: string;
+      readonly path: string;
+      readonly state: "bound" | "materialized" | "reclaimed" | "retained";
+    }
+  | { readonly kind: "task-package"; readonly path: string };
 
 /** The work an agenda row belongs to: its nearest work root (dec_5F7E74F1). */
 export interface AgendaWorkRef {
@@ -825,7 +828,7 @@ export interface AgendaTaskRow {
   readonly leaseExecutionId: string | null;
   readonly activeExecutionIds: readonly string[];
   readonly blockingAssessment: import("@harness-anything/kernel/internal/domain/task-blocking").BlockingAssessment;
-  readonly worktree: TaskWorktreeView | null;
+  readonly workspace: TaskWorkspaceView | null;
 }
 
 /**

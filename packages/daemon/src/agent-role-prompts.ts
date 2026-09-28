@@ -32,7 +32,9 @@ const mutatorDiscipline = [
     "another session's changes. Park uncommitted work with a temporary WIP commit instead of ",
     "`git stash`. Do not use `git stash` in concurrent work.",
   ].join(""),
-  "- Before handoff, rebase onto the latest origin/main and rerun the evidence commands.",
+  "- A task worktree Harness checks out is named after the task: branch `<task-id>` in `.worktrees/<task-id>`, " +
+    "cut from the repository's default branch. Before handoff, rebase onto the latest default branch and rerun " +
+    "the evidence commands.",
   "- Do not commit public-repository artifacts.",
   "- Leave a local conventional commit.",
   "- When you dispatch with `--detach`, the receipt names a wait command (`ha runtime status <id> --wait`, or " +
@@ -70,11 +72,12 @@ const commanderDiscipline = `<very_important>
 # Commander Context
 
 ${[
-  "- Integrate each child branch into `codex/<mission-slug>` with a Git merge that preserves the child commit SHA. " +
+  "- Integrate each child branch into the task branch `<task-id>` with a Git merge that preserves the child " +
+    "commit SHA. " +
     "Do not cherry-pick or rebase child commits.",
   "- Run the overall targeted and integration regressions and applicable gates against the final integrated commit. " +
     "Inspect the evidence yourself and resolve semantic conflicts before publication.",
-  "- After verification passes, run `git push origin codex/<mission-slug>` and `gh pr create` " +
+  "- After verification passes, run `git push origin <task-id>` and `gh pr create` " +
     "with a complete bilingual PR " +
     "following `.github/pull_request_template.md`, include the combined child evidence, then dispatch the ledger " +
     "reviewer with `ha task adjudicate --forward`.",

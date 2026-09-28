@@ -12,7 +12,7 @@ import {
   workerWorktreeDirty,
 } from "../src/runtime-worker-push.ts";
 
-test("worker push publishes only a codex branch with force-with-lease", async (context) => {
+test("worker push publishes only the dispatched task's own branch with force-with-lease", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-")),
     bare = path.join(root, "remote.git"),
     worker = path.join(root, "worker");
@@ -27,17 +27,17 @@ test("worker push publishes only a codex branch with force-with-lease", async (c
   git(canonical, "commit", "--quiet", "-m", "fixture");
   git(canonical, "remote", "add", "origin", bare);
   git(canonical, "push", "--quiet", "origin", "HEAD:main");
-  git(canonical, "worktree", "add", "--quiet", worker, "-b", "codex/push-test");
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", "task_push_test");
   writeFileSync(path.join(worker, "change.txt"), "worker\n");
   git(worker, "add", "change.txt");
   git(worker, "commit", "--quiet", "-m", "feat: worker change");
 
-  const result = await pushWorkerBranch({ cwd: worker, canonicalRoot: canonical });
+  const result = await pushWorkerBranch({ cwd: worker, canonicalRoot: canonical, taskId: "task_push_test" });
   assert.equal(result.attempted, true);
   assert.equal(result.ok, true);
-  assert.equal(result.branch, "codex/push-test");
+  assert.equal(result.branch, "task_push_test");
   assert.equal(result.head, git(worker, "rev-parse", "HEAD").trim());
-  const remoteRef = git(bare, "show-ref", "--verify", "refs/heads/codex/push-test").trim();
+  const remoteRef = git(bare, "show-ref", "--verify", "refs/heads/task_push_test").trim();
   assert.ok(remoteRef.startsWith(`${String(result.head)} `), `remote holds the pushed head: ${remoteRef}`);
 });
 
@@ -56,7 +56,7 @@ test("worker push refuses the first commit outside the conventional identity and
   git(canonical, "commit", "--quiet", "-m", "fixture");
   git(canonical, "remote", "add", "origin", bare);
   git(canonical, "push", "--quiet", "origin", "HEAD:main");
-  git(canonical, "worktree", "add", "--quiet", worker, "-b", "codex/identity-refuse");
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", "task_identity_refuse");
   for (const name of ["first", "second"])
     git(
       worker,
@@ -73,10 +73,10 @@ test("worker push refuses the first commit outside the conventional identity and
   // git log lists the range newest-first, so the named offender is the stale commit at HEAD.
   const staleHead = git(worker, "rev-parse", "HEAD").trim();
 
-  const result = await pushWorkerBranch({ cwd: worker, canonicalRoot: canonical });
+  const result = await pushWorkerBranch({ cwd: worker, canonicalRoot: canonical, taskId: "task_identity_refuse" });
   assert.equal(result.attempted, true);
   assert.equal(result.ok, false);
-  assert.equal(result.branch, "codex/identity-refuse");
+  assert.equal(result.branch, "task_identity_refuse");
   assert.match(
     result.detail,
     new RegExp(
@@ -87,7 +87,7 @@ test("worker push refuses the first commit outside the conventional identity and
     ),
   );
   assert.equal(
-    refExists(bare, "refs/heads/codex/identity-refuse"),
+    refExists(bare, "refs/heads/task_identity_refuse"),
     false,
     "the refused branch never reaches the remote",
   );
@@ -116,7 +116,7 @@ test("worker push refuses when the canonical repository resolves no git identity
   );
   git(canonical, "remote", "add", "origin", bare);
   git(canonical, "push", "--quiet", "origin", "HEAD:main");
-  git(canonical, "worktree", "add", "--quiet", worker, "-b", "codex/no-identity");
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", "task_no_identity");
   git(
     worker,
     "-c",
@@ -132,7 +132,12 @@ test("worker push refuses when the canonical repository resolves no git identity
 
   // The identity read must be hermetic: an ambient global gitconfig would otherwise answer for
   // a repository whose own config resolves nothing.
-  const result = await pushWorkerBranch({ cwd: worker, canonicalRoot: canonical, env: hermeticGitEnvironment() });
+  const result = await pushWorkerBranch({
+    cwd: worker,
+    canonicalRoot: canonical,
+    taskId: "task_no_identity",
+    env: hermeticGitEnvironment(),
+  });
   assert.equal(result.ok, false);
   assert.match(
     result.detail,
@@ -140,7 +145,7 @@ test("worker push refuses when the canonical repository resolves no git identity
   );
 });
 
-test("worker push refuses when origin/main cannot bound the worker commits", async (context) => {
+test("worker push refuses when no default branch can bound the worker commits", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-no-main-")),
     worker = path.join(root, "worker");
   context.after(() => rmSync(root, { recursive: true, force: true }));
@@ -149,12 +154,30 @@ test("worker push refuses when origin/main cannot bound the worker commits", asy
   git(canonical, "config", "user.email", "push-test@example.invalid");
   git(canonical, "config", "user.name", "Push Test");
   git(canonical, "commit", "--allow-empty", "--quiet", "-m", "fixture");
-  git(canonical, "worktree", "add", "--quiet", worker, "-b", "codex/no-main");
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", "task_no_main");
   git(worker, "commit", "--allow-empty", "--quiet", "-m", "feat: worker change");
+  // No origin and no branch checked out in the main checkout: nothing names a default branch.
+  git(canonical, "checkout", "--quiet", "--detach");
 
-  const result = await pushWorkerBranch({ cwd: worker, canonicalRoot: canonical });
+  const result = await pushWorkerBranch({ cwd: worker, canonicalRoot: canonical, taskId: "task_no_main" });
   assert.equal(result.ok, false);
-  assert.match(result.detail, /worker commits cannot be bounded against origin\/main: /u);
+  assert.match(result.detail, /worker commits cannot be bounded: the repository has no default branch/u);
+});
+
+test("worker push leaves a checkout on any branch but the dispatched task's own", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-other-branch-")),
+    worker = path.join(root, "worker");
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q", "project");
+  const canonical = path.join(root, "project");
+  git(canonical, "config", "user.email", "push-test@example.invalid");
+  git(canonical, "config", "user.name", "Push Test");
+  git(canonical, "commit", "--allow-empty", "--quiet", "-m", "fixture");
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", "codex/retired-name");
+  assert.deepEqual(await pushWorkerBranch({ cwd: worker, canonicalRoot: canonical, taskId: "task_other" }), {
+    attempted: false,
+    reason: "not-task-branch",
+  });
 });
 
 test("worker push records a single failure without retrying", async (context) => {
@@ -175,12 +198,12 @@ test("worker push records a single failure without retrying", async (context) =>
   // worker commits and the failure below is the transport failure it must report once.
   git(canonical, "remote", "set-url", "origin", path.join(root, "missing.git"));
   const worker = path.join(root, "worker");
-  git(canonical, "worktree", "add", "--quiet", worker, "-b", "codex/push-failure");
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", "task_push_failure");
   git(worker, "commit", "--allow-empty", "--quiet", "-m", "feat: worker change");
-  const result = await pushWorkerBranch({ cwd: worker, canonicalRoot: canonical });
+  const result = await pushWorkerBranch({ cwd: worker, canonicalRoot: canonical, taskId: "task_push_failure" });
   assert.equal(result.attempted, true);
   assert.equal(result.ok, false);
-  assert.equal(result.branch, "codex/push-failure");
+  assert.equal(result.branch, "task_push_failure");
   assert.equal(result.head, git(worker, "rev-parse", "HEAD").trim());
   assert.match(result.detail, /does not appear to be a git repository|No such file|not found/iu);
 });
@@ -203,7 +226,7 @@ test("a worker push that never answers ends as a timed-out push failure", async 
   git(canonical, "commit", "--allow-empty", "--quiet", "-m", "fixture");
   git(canonical, "remote", "add", "origin", bare);
   git(canonical, "push", "--quiet", "origin", "HEAD:main");
-  git(canonical, "worktree", "add", "--quiet", worker, "-b", "codex/push-hang");
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", "task_push_hang");
   // Stands in for a stalled remote or a credential dialog nobody answers.
   mkdirSync(hooks);
   writeFileSync(
@@ -214,7 +237,7 @@ test("a worker push that never answers ends as a timed-out push failure", async 
   git(canonical, "config", "core.hooksPath", hooks);
 
   const result = await Promise.race([
-    pushWorkerBranch({ cwd: worker, canonicalRoot: canonical, timeoutMs: 300 }),
+    pushWorkerBranch({ cwd: worker, canonicalRoot: canonical, taskId: "task_push_hang", timeoutMs: 300 }),
     new Promise<never>((_, reject) => {
       setTimeout(() => reject(new Error("the hanging push never settled")), 10_000).unref();
     }),
@@ -222,14 +245,14 @@ test("a worker push that never answers ends as a timed-out push failure", async 
   assert.deepEqual(result, {
     attempted: true,
     ok: false,
-    branch: "codex/push-hang",
+    branch: "task_push_hang",
     head: git(worker, "rev-parse", "HEAD").trim(),
     detail: "git push timed out after 300 ms",
   });
 });
 
 test("canonical roots never trigger worker push", async () => {
-  assert.deepEqual(await pushWorkerBranch({ cwd: "/tmp/project", canonicalRoot: "/tmp/project/" }), {
+  assert.deepEqual(await pushWorkerBranch({ cwd: "/tmp/project", canonicalRoot: "/tmp/project/", taskId: "task_x" }), {
     attempted: false,
     reason: "not-a-worker-worktree",
   });
@@ -244,7 +267,7 @@ test("worker worktree status is read without changing the worktree", async (cont
   git(canonical, "config", "user.email", "push-test@example.invalid");
   git(canonical, "config", "user.name", "Push Test");
   git(canonical, "commit", "--allow-empty", "--quiet", "-m", "fixture");
-  git(canonical, "worktree", "add", "--quiet", worker, "-b", "codex/dirty-test");
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", "task_dirty_test");
 
   assert.equal(await workerWorktreeDirty({ cwd: worker, canonicalRoot: canonical }), false);
   writeFileSync(path.join(worker, "uncommitted.txt"), "dirty\n");
@@ -273,7 +296,7 @@ test("the injected identity overrides a misconfigured worktree for commits and r
   git(canonical, "commit", "--allow-empty", "--quiet", "-m", "fixture");
   git(canonical, "remote", "add", "origin", bare);
   git(canonical, "push", "--quiet", "origin", "HEAD:main");
-  git(canonical, "worktree", "add", "--quiet", worker, "-b", "codex/identity-env");
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", "task_identity_env");
   // The failure shape this guards against: the worktree resolves a different identity than the
   // canonical root, so implicit inheritance would publish the wrong committer.
   git(canonical, "config", "extensions.worktreeConfig", "true");

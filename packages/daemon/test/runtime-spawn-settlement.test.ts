@@ -303,14 +303,14 @@ test("terminal settlement reports the branch and head its worker push published"
     });
   await publishExit(settleContext, runtime, 0);
   const head = git(fixture.worker, "rev-parse", "HEAD").trim(),
-    expectedBody = `worker delivery\n\nWorker branch pushed at settlement: codex/settle-push @ ${head}`;
+    expectedBody = `worker delivery\n\nWorker branch pushed at settlement: task-owner @ ${head}`;
   assert.deepEqual(outcomeBodies, [expectedBody]);
   assert.equal(
     outcomes[0]?.resultRef,
     `artifact:runtime-result/sha256/${createHash("sha256").update(expectedBody).digest("hex")}`,
     "the push line must be inside the durable terminal result the CEO reads",
   );
-  assert.ok(git(fixture.bare, "show-ref", "--verify", "refs/heads/codex/settle-push").trim().startsWith(`${head} `));
+  assert.ok(git(fixture.bare, "show-ref", "--verify", "refs/heads/task-owner").trim().startsWith(`${head} `));
 });
 
 test("squad leader settlement preserves its machine-readable control result", async (context) => {
@@ -371,7 +371,7 @@ test("commander-owned settlement keeps its commit local and returns the delivery
   assert.equal(outcomes[0]?.outcome, "succeeded");
   assert.deepEqual(outcomeBodies, ["worker delivery"]);
   assert.equal(credentialRequests, 0);
-  assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", "refs/heads/codex/squad-child"), "");
+  assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", "refs/heads/task-owner"), "");
   assert.equal(git(fixture.worker, "log", "-1", "--format=%s").trim(), "feat: worker change");
 });
 
@@ -391,7 +391,7 @@ test("terminal settlement names the branch when the worker push fails", async (c
   assert.equal(outcomeBodies.length, 1);
   assert.match(
     outcomeBodies[0],
-    /^worker delivery\n\nWorker branch push failed \(no retry\): codex\/settle-fail @ [0-9a-f]+: .+/u,
+    /^worker delivery\n\nWorker branch push failed \(no retry\): task-owner @ [0-9a-f]+: .+/u,
   );
   assert.equal(outcomes[0]?.outcome, "succeeded", "a push failure is reported, not turned into a task failure");
 });
@@ -427,7 +427,7 @@ test("terminal settlement refuses to publish a worker commit outside the convent
     outcomeBodies[0],
     new RegExp(
       `^worker delivery\\n\\nWorker branch push failed \\(no retry\\): ` +
-        `codex\\/settle-identity @ ${staleHead}: commit ${staleHead} carries author ` +
+        `task-owner @ ${staleHead}: commit ${staleHead} carries author ` +
         "<stale-worker@example.invalid> and committer <stale-worker@example.invalid>, " +
         "not the conventional identity <settle-test@example.invalid>",
       "u",
@@ -435,8 +435,7 @@ test("terminal settlement refuses to publish a worker commit outside the convent
   );
   assert.equal(outcomes[0]?.outcome, "succeeded", "an identity refusal is reported, not turned into a task failure");
   assert.notEqual(
-    spawnSync("git", ["-C", fixture.bare, "show-ref", "--verify", "--quiet", "refs/heads/codex/settle-identity"])
-      .status,
+    spawnSync("git", ["-C", fixture.bare, "show-ref", "--verify", "--quiet", "refs/heads/task-owner"]).status,
     0,
     "the settlement refusal leaves the branch unpublished",
   );
@@ -495,7 +494,8 @@ function workerGitFixture(
   git(canonical, "remote", "add", "origin", bare);
   git(canonical, "push", "--quiet", "origin", "HEAD:main");
   if (!options.reachableRemote) git(canonical, "remote", "set-url", "origin", path.join(root, "missing.git"));
-  git(canonical, "worktree", "add", "--quiet", worker, "-b", `codex/${slug}`);
+  // Settlement publishes the branch named after the dispatched task (workerSettlementRuntime's task-owner).
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", "task-owner");
   writeFileSync(path.join(worker, "change.txt"), "worker\n");
   git(worker, "add", "change.txt");
   git(worker, "commit", "--quiet", "-m", "feat: worker change");

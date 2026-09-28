@@ -521,6 +521,30 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
     expect(lastUpdatePayload().ciWorkflows).toEqual([]);
   });
 
+  it("worktree 准备步骤一行一步编辑,顺序原样提交,清空即提交空清单", async () => {
+    const container = await mountView({ values: { worktreeSetup: ["node-modules"] } });
+    const steps = container.querySelector<HTMLTextAreaElement>('[data-testid="settings-worktreeSetup-input"]')!;
+    expect(steps.value).toBe("node-modules");
+    const type = async (value: string) =>
+      act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(steps, value);
+        steps.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+    // 敲到一半的换行不被回写吞掉:空行只是还没写完的下一步。
+    await type("run: uv sync\n");
+    expect(steps.value).toBe("run: uv sync\n");
+    await type("run: uv sync\n\n  node-modules  ");
+    await act(async () => {
+      saveButton(container).click();
+    });
+    expect(lastUpdatePayload().worktreeSetup).toEqual(["run: uv sync", "node-modules"]);
+    await type("");
+    await act(async () => {
+      saveButton(container).click();
+    });
+    expect(lastUpdatePayload().worktreeSetup).toEqual([]);
+  });
+
   it("并集里的目录外工作流也能被取消勾选,不会永久钉在表单里", async () => {
     const container = await mountView({ values: { ciWorkflows: ["gui-release", "gone-flow"] } });
     const box = (value: string) =>

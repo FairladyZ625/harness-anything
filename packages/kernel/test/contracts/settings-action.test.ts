@@ -357,6 +357,38 @@ test("Settings update rejects malformed CI workflow name lists", () => {
   }
 });
 
+test("Settings update records ordered worktree setup steps and clears them with the none sentinel", () => {
+  const draft = compile({ worktreeSetup: ["node-modules", " run: pip install -e . "] });
+  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
+  assert.deepEqual(draft.result.bundle.event.payload.settings.worktree.setup, [
+    "node-modules",
+    "run: pip install -e .",
+  ]);
+  assert.match(draft.result.bundle.blobs[0].body, /^  worktree:\n    setup:\n      - node-modules\n      - run: pip/mu);
+  assert.deepEqual(readSettingsFacet(draft.result.bundle.blobs[0].body).worktree.setup, [
+    "node-modules",
+    "run: pip install -e .",
+  ]);
+  assertSettingsEventInputs(draft.result.bundle.event, draft.result.bundle.plan, draft.result.bundle.blobs);
+  const withSetup = {
+      currentEntity: draft.result.bundle.event.payload.settings,
+      currentDocumentBody: draft.result.bundle.blobs[0].body,
+    },
+    cleared = compile({ worktreeSetup: ["none"] }, withSetup);
+  if (cleared.kind !== "settings" || cleared.result.kind !== "event") throw new Error("missing settings event");
+  assert.deepEqual(cleared.result.bundle.event.payload.settings.worktree.setup, []);
+  assert.doesNotMatch(cleared.result.bundle.blobs[0].body, /worktree:/u);
+});
+
+test("Settings update rejects worktree setup steps that are neither a built-in adapter nor run: <command>", () => {
+  for (const worktreeSetup of [["npm"], ["run:"], ["run:  "], ["node-modules", "node-modules"], "node-modules"])
+    assert.throws(
+      () => compile({ worktreeSetup }),
+      (error: unknown) => error instanceof SettingsActionError && error.code === "invalid_command",
+      JSON.stringify(worktreeSetup),
+    );
+});
+
 test("Settings expectedVersion rejects a stale edge update with a typed error", () => {
   assert.throws(
     () => compile({ walFlushEvents: 512, expectedVersion: 6 }),
@@ -428,6 +460,7 @@ test("settings update field surface has one source: the catalog input is the exp
     "closeoutFactDisposition",
     "closeoutCodeDoc",
     "restoreDrillRetention",
+    "worktreeSetup",
   ])
     assert.ok(names.includes(expected), `${expected} missing from settingsUpdateInputFields`);
 });

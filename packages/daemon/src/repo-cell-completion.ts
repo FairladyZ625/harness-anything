@@ -8,7 +8,11 @@ import {
   deriveTaskRoot,
   hasCloseoutEvidence,
   isTaskEvent,
+  repositorySettings,
+  resolveHarnessLayout,
+  SETTINGS_ID,
   type EventPublicationKillpoint,
+  type RepositorySettingsV1,
   type TaskProjectionQueries,
   type CompletionEvidenceV1,
   type WriteReceiptDraft as WriteReceipt,
@@ -20,7 +24,7 @@ import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 import { renderEvidencePayload } from "./repo-cell-evidence.ts";
 import { failed } from "./repo-cell-settlement.ts";
 import { projectedTaskNotFound } from "./projection-readiness.ts";
-import { presetSnapshotReader, taskWorktreeView } from "./task-worktree.ts";
+import { presetSnapshotReader, taskWorkspaceView } from "./task-worktree.ts";
 
 /**
  * The canonical witness write entry: judge the evidence's binding to the frozen cut, then let
@@ -174,6 +178,13 @@ export function taskShowFromProjection(
         )
       : null,
     completion = readTaskCompletion(projection, taskId),
+    workspace = taskWorkspaceView(
+      rootDir,
+      task,
+      read.packagePath,
+      presetSnapshotReader(projection),
+      resolveHarnessLayout(rootDir).authoredRoot,
+    ),
     payload = {
       ...read.snapshot,
       task: task
@@ -183,7 +194,9 @@ export function taskShowFromProjection(
           }
         : null,
       packagePath: read.packagePath,
-      worktree: taskWorktreeView(rootDir, task, presetSnapshotReader(projection)),
+      workspace,
+      // Settings `worktree.setup` is what this node runs in the worktree once it checks it out.
+      ...(workspace?.kind === "worktree" ? { worktreeSetup: projectedWorktreeSetup(projection) } : {}),
       returnBudget: returnBudget.value,
       returnBudgetSource: returnBudget.source,
       rootAssessment,
@@ -211,4 +224,9 @@ export function taskShowFromProjection(
         outcome: "pending",
         ...receipt,
       };
+}
+
+function projectedWorktreeSetup(projection: TaskProjectionQueries): readonly string[] {
+  const projected = projection.getEntity("settings", SETTINGS_ID)?.value;
+  return projected === undefined ? [] : repositorySettings(projected as unknown as RepositorySettingsV1).worktree.setup;
 }

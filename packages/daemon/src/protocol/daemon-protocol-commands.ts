@@ -122,6 +122,18 @@ const settingsWriteTopology = {
           },
         ),
         cliInput(
+          "--worktree-setup",
+          "repeated",
+          false,
+          { code: "invalid_field" },
+          {
+            regex: "^(?:node-modules|none|run: \\S.*)$",
+            format:
+              "one step per flag, in order: node-modules, or run: <command> run in the new worktree; " +
+              "none clears the steps",
+          },
+        ),
+        cliInput(
           "--gates-from-document",
           "boolean",
           false,

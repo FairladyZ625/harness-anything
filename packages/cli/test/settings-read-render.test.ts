@@ -9,6 +9,7 @@ test("settings read renders the latest settings_changed attribution line", () =>
     command: "settings-read",
     outcome: "applied",
     summary: "settings-read: applied",
+    settings: { worktree: { setup: ["node-modules", "run: pip install -e ."] } },
     lastChanged: {
       occurredAt: "2026-09-10T00:00:00.000Z",
       actor: "agent:runtime-session:worker-1",
@@ -20,6 +21,7 @@ test("settings read renders the latest settings_changed attribution line", () =>
     stream: "stdout",
     text: [
       "settings-read: applied",
+      "worktree.setup: node-modules; run: pip install -e .",
       "lastChanged=2026-09-10T00:00:00.000Z by=agent:runtime-session:worker-1 revision=7",
     ].join("\n"),
   });
@@ -31,11 +33,12 @@ test("settings read renders lastChanged=initial before any settings_changed even
     command: "settings-read",
     outcome: "applied",
     summary: "settings-read: applied",
+    settings: { worktree: { setup: [] } },
     lastChanged: "initial",
   });
 
   assert.deepEqual(rendered, {
     stream: "stdout",
-    text: ["settings-read: applied", "lastChanged=initial"].join("\n"),
+    text: ["settings-read: applied", "worktree.setup: none", "lastChanged=initial"].join("\n"),
   });
 });

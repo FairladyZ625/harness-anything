@@ -8,18 +8,21 @@ import {
   type TaskWorktreeBindingV1,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
-import { runProcessTextAsync } from "./process-port.ts";
-import type { TaskWorktreeView } from "./protocol/daemon-protocol-gui-types.ts";
+import { cellCodedError } from "./repo-cell-errors.ts";
+import type { TaskWorkspaceView } from "./protocol/daemon-protocol-gui-types.ts";
 import {
   addManagedWorktree,
   reclaimDetail,
   reclaimManagedWorktree,
+  repositoryBaseRef,
   type ManagedWorktree,
 } from "./schedule-occurrence-workspace.ts";
+import { runWorktreeSetup, worktreeSetupFailure, type WorktreeSetupResult } from "./worktree-setup.ts";
 
 // dec_BBA713052997C3EF5F5D3DD952: a task's worktree binding follows from fields fixed at its creation; the node
 // that runs the task checks it out on first start or dispatch and reclaims it when the task closes. There is no
-// worktree command.
+// worktree command. dec_8B3FCCD256CAC5B0BF3CCEDE58: it is cut from the repository's own default branch and
+// prepared by the steps Settings `worktree.setup` declares.
 
 const managedByHarness = "Harness manages this worktree; no command is needed.";
 
@@ -35,55 +38,92 @@ export function presetSnapshotReader(projection: Pick<TaskProjection, "readPrese
   };
 }
 
-/** The binding is derived, never stored (dec_01KY4Y2MW94HM5QK5Q1208XJZ5): id, slug, class and output shape. */
+/** The binding is derived, never stored (dec_01KY4Y2MW94HM5QK5Q1208XJZ5): id, class and output shape. */
 export function taskWorktreeBinding(
   task: TaskV2 | null | undefined,
   readPresetSnapshot: PresetSnapshotRead,
 ): TaskWorktreeBindingV1 | null {
-  if (!task?.metadata || !task.presetSnapshotDigest) return null;
+  if (!task?.presetSnapshotDigest) return null;
   const snapshot = readPresetSnapshot(task.presetSnapshotDigest) as {
       readonly profile?: { readonly outputShape?: unknown };
     } | null,
     outputShape = snapshot?.profile?.outputShape;
   return typeof outputShape === "string"
-    ? deriveTaskWorktreeBinding({
-        taskId: task.taskId,
-        slug: task.metadata.slug,
-        taskClass: task.taskClass,
-        outputShape,
-      })
+    ? deriveTaskWorktreeBinding({ taskId: task.taskId, taskClass: task.taskClass, outputShape })
     : null;
 }
 
-export function taskWorktreeView(
+/**
+ * dec_8B3FCCD256CAC5B0BF3CCEDE58 CH4: every task has one place it works in — its worktree when it changes
+ * repository files, otherwise its own task package directory.
+ */
+export function taskWorkspaceView(
   rootDir: string,
   task: TaskV2 | null | undefined,
+  packagePath: string | null,
   readPresetSnapshot: PresetSnapshotRead,
-): TaskWorktreeView | null {
+  /** The authored root, resolved once by the caller; null where only a worktree is shown (the agenda reads no files). */
+  authoredRoot: string | null,
+): TaskWorkspaceView | null {
   const binding = taskWorktreeBinding(task, readPresetSnapshot);
-  if (!task || !binding) return null;
-  const present = existsSync(path.join(rootDir, binding.path));
-  return {
-    ...binding,
-    state: present ? (taskClosed(task) ? "retained" : "materialized") : taskClosed(task) ? "reclaimed" : "bound",
-  };
+  if (task && binding) {
+    const present = existsSync(path.join(rootDir, binding.path));
+    return {
+      kind: "worktree",
+      ...binding,
+      state: present ? (taskClosed(task) ? "retained" : "materialized") : taskClosed(task) ? "reclaimed" : "bound",
+    };
+  }
+  if (!task || !packagePath || authoredRoot === null) return null;
+  const packageRoot = path.join(authoredRoot, ...packagePath.split("/"));
+  return { kind: "task-package", path: path.relative(rootDir, packageRoot).split(path.sep).join("/") };
+}
+
+export interface TaskWorktreeCheckout {
+  readonly cwd: string;
+  readonly branch: string;
+  /** The default branch a new checkout was cut from; null when the worktree was already here. */
+  readonly baseRef: string | null;
+  readonly setup: WorktreeSetupResult;
 }
 
 /**
- * Checks the bound worktree out on this node, or finds it already there. A node without the base ref (a Git-less
- * edge, a repository before its first commit or without origin) has no worktree to give: null, not a failure.
+ * Checks the bound worktree out on this node, or finds it already there, then runs the Settings setup steps that
+ * have not succeeded in it yet. A node without a default branch (a Git-less edge, a repository before its first
+ * commit) has no worktree to give: null, not a failure.
  */
 export async function materializeTaskWorktree(
   rootDir: string,
   task: TaskV2 | null | undefined,
   readPresetSnapshot: PresetSnapshotRead,
-): Promise<{ readonly cwd: string; readonly note: string | null } | null> {
+  setup: readonly string[],
+): Promise<TaskWorktreeCheckout | null> {
   const binding = taskWorktreeBinding(task, readPresetSnapshot);
   if (!task || !binding || taskClosed(task)) return null;
-  const worktree = managedWorktree(rootDir, binding);
-  if (existsSync(worktree.cwd)) return { cwd: worktree.cwd, note: null };
-  if (!(await resolves(rootDir, worktree.baseRef))) return null;
-  return { cwd: worktree.cwd, note: await addManagedWorktree(rootDir, worktree) };
+  const cwd = path.join(rootDir, binding.path);
+  let baseRef: string | null = null;
+  if (!existsSync(cwd)) {
+    baseRef = await repositoryBaseRef(rootDir);
+    if (!baseRef) return null;
+    await addManagedWorktree(rootDir, { cwd, branch: binding.branch, baseRef });
+  }
+  return {
+    cwd,
+    branch: binding.branch,
+    baseRef,
+    setup: await runWorktreeSetup({ rootDir, cwd, taskId: task.taskId, steps: setup }),
+  };
+}
+
+/** What a person reads about a successful checkout: where, which branch, from which base, what setup ran. */
+export function taskWorktreeCheckoutNote(checkout: TaskWorktreeCheckout): string {
+  const ran = checkout.setup.ok ? checkout.setup.ran : [];
+  return [
+    `Worktree ${checkout.cwd} is checked out on ${checkout.branch}`,
+    checkout.baseRef ? ` from ${checkout.baseRef}. ` : ". ",
+    ran.length ? `Setup ran: ${ran.join("; ")}. ` : "",
+    managedByHarness,
+  ].join("");
 }
 
 const closingActions = new Set([
@@ -96,25 +136,31 @@ const closingActions = new Set([
 ]);
 
 /**
- * The one place a task write reaches its worktree: an applied start materializes it and names it in the receipt;
- * an applied write that closes a task (done, cancelled, archived) reclaims it. Only a locally executed write acts
- * on this node's checkout — a write forwarded from another node leaves that node's checkout to that node. A
- * worktree failure never undoes the lifecycle write: it comes back as a warning.
+ * The one place a task write reaches its worktree: a start checks it out and prepares it before the start is
+ * written, so a setup step that fails refuses the start; an applied write that closes a task (done, cancelled,
+ * archived) reclaims it. Only a locally executed write acts on this node's checkout — a write forwarded from
+ * another node leaves that node's checkout to that node. A reclaim failure never undoes the lifecycle write: it
+ * comes back as a warning.
  */
 export async function applyTaskWorktreeLifecycle(
-  rootDir: string,
-  readTask: (taskId: string) => TaskV2 | null | undefined,
-  readPresetSnapshot: PresetSnapshotRead,
+  input: {
+    readonly rootDir: string;
+    readonly readTask: (taskId: string) => TaskV2 | null | undefined;
+    readonly readPresetSnapshot: PresetSnapshotRead;
+    readonly readSetup: () => readonly string[];
+  },
   action: { readonly kind: string; readonly taskId?: unknown; readonly taskIds?: unknown; readonly dryRun?: unknown },
   source: unknown,
-  receipt: WriteReceipt,
+  write: () => Promise<WriteReceipt>,
 ): Promise<WriteReceipt> {
-  if (receipt.outcome !== "applied" || source !== "local" || action.dryRun === true) return receipt;
-  if (action.kind === "task-start" && typeof action.taskId === "string") {
-    const checkout = await checkoutOnStart(rootDir, readTask(action.taskId), readPresetSnapshot);
-    return withNotes(receipt, checkout.notes, checkout.warnings);
+  const local = source === "local" && action.dryRun !== true;
+  if (local && action.kind === "task-start" && typeof action.taskId === "string") {
+    const checkout = await checkoutOnStart(input, action.taskId),
+      receipt = await write();
+    return receipt.outcome === "applied" ? withNotes(receipt, checkout.notes, checkout.warnings) : receipt;
   }
-  if (!closingActions.has(action.kind)) return receipt;
+  const receipt = await write();
+  if (receipt.outcome !== "applied" || !local || !closingActions.has(action.kind)) return receipt;
   const taskIds =
     typeof action.taskId === "string"
       ? [action.taskId]
@@ -123,11 +169,13 @@ export async function applyTaskWorktreeLifecycle(
         : [];
   let settled = receipt;
   for (const taskId of taskIds) {
-    const task = readTask(taskId),
-      binding = taskWorktreeBinding(task, readPresetSnapshot);
-    if (!task || !binding || !taskClosed(task)) continue;
-    const worktree = managedWorktree(rootDir, binding),
-      result = await reclaimManagedWorktree(rootDir, worktree),
+    const task = input.readTask(taskId),
+      binding = taskWorktreeBinding(task, input.readPresetSnapshot),
+      cwd = binding && task && taskClosed(task) ? path.join(input.rootDir, binding.path) : null,
+      baseRef = cwd && existsSync(cwd) ? await repositoryBaseRef(input.rootDir) : null;
+    if (!binding || !cwd || !baseRef) continue;
+    const worktree: ManagedWorktree = { cwd, branch: binding.branch, baseRef },
+      result = await reclaimManagedWorktree(input.rootDir, worktree),
       detail = reclaimDetail("Worktree", worktree, result);
     if (result.outcome === "retained") settled = withNotes(settled, [], [detail!]);
     else if (result.outcome === "removed")
@@ -137,23 +185,29 @@ export async function applyTaskWorktreeLifecycle(
 }
 
 async function checkoutOnStart(
-  rootDir: string,
-  task: TaskV2 | null | undefined,
-  readPresetSnapshot: PresetSnapshotRead,
+  input: Parameters<typeof applyTaskWorktreeLifecycle>[0],
+  taskId: string,
 ): Promise<{ readonly notes: readonly string[]; readonly warnings: readonly string[] }> {
-  const binding = taskWorktreeBinding(task, readPresetSnapshot);
+  const task = input.readTask(taskId),
+    binding = taskWorktreeBinding(task, input.readPresetSnapshot);
   if (!binding) return { notes: [], warnings: [] };
+  let checkout: TaskWorktreeCheckout | null;
   try {
-    const materialized = await materializeTaskWorktree(rootDir, task, readPresetSnapshot);
-    return {
-      notes: materialized
-        ? [`Worktree ${materialized.cwd} is checked out on ${binding.branch}. ${managedByHarness}`]
-        : [`No worktree on this node: ${binding.baseRef} does not resolve here, so work stays in ${rootDir}.`],
-      warnings: materialized?.note ? [materialized.note] : [],
-    };
+    checkout = await materializeTaskWorktree(input.rootDir, task, input.readPresetSnapshot, input.readSetup());
   } catch (error) {
     return { notes: [], warnings: [`Worktree ${binding.path} was not checked out: ${errorText(error)}`] };
   }
+  if (!checkout)
+    return {
+      notes: [`No worktree on this node: no default branch resolves here, so work stays in ${input.rootDir}.`],
+      warnings: [],
+    };
+  if (!checkout.setup.ok)
+    throw cellCodedError(
+      "worktree_setup_failed",
+      worktreeSetupFailure(checkout.cwd, checkout.setup, `run ha task start ${taskId} again`, checkout.baseRef),
+    );
+  return { notes: [taskWorktreeCheckoutNote(checkout)], warnings: [] };
 }
 
 function withNotes(receipt: WriteReceipt, notes: readonly string[], warnings: readonly string[]): WriteReceipt {
@@ -169,17 +223,6 @@ function withNotes(receipt: WriteReceipt, notes: readonly string[], warnings: re
 
 function taskClosed(task: TaskV2): boolean {
   return isTerminalStatus(task.status) || (task.packageDisposition ?? "active") !== "active";
-}
-
-function managedWorktree(rootDir: string, binding: TaskWorktreeBindingV1): ManagedWorktree {
-  return { cwd: path.join(rootDir, binding.path), branch: binding.branch, baseRef: binding.baseRef };
-}
-
-function resolves(rootDir: string, ref: string): Promise<boolean> {
-  return runProcessTextAsync("git", ["-C", rootDir, "rev-parse", "--verify", "--quiet", `${ref}^{commit}`]).then(
-    () => true,
-    () => false,
-  );
 }
 
 function errorText(error: unknown): string {

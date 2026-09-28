@@ -182,6 +182,7 @@ export async function openRepoCellProxy(
       },
       squadCoordinator = makeSquadCoordinator({
         rootDir: input.rootDir,
+        readWorktreeSetup: () => [],
         projection: () => writableProjection,
         store: () => readStore,
         reacquireTaskLease: unsupportedWrite,

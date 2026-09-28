@@ -164,6 +164,7 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
       closeout: value.closeout ?? INITIAL_SETTINGS_V1.closeout,
       agenda: value.agenda ?? INITIAL_SETTINGS_V1.agenda,
       restoreDrillRetention: value.restoreDrillRetention ?? DEFAULT_RESTORE_DRILL_RETENTION,
+      worktree: value.worktree ?? INITIAL_SETTINGS_V1.worktree,
     },
     current = validateRepositorySettings(normalized).length === 0;
   if (!current) return false;
@@ -187,6 +188,7 @@ function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boo
           "closeout",
           "agenda",
           "restoreDrillRetention",
+          "worktree",
         ].includes(field),
       )
     );

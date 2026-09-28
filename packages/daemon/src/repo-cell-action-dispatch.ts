@@ -41,12 +41,15 @@ export async function executeAction(
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
   return applyTaskWorktreeLifecycle(
-    cell.rootDir,
-    (taskId) => cell.projection.read(taskId).snapshot.task,
-    presetSnapshotReader(cell.projection),
+    {
+      rootDir: cell.rootDir,
+      readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
+      readPresetSnapshot: presetSnapshotReader(cell.projection),
+      readSetup: () => cell.settings.read().worktree.setup,
+    },
     action,
     binding.source,
-    await executeRepoAction(cell, action, binding),
+    () => executeRepoAction(cell, action, binding),
   );
 }
 
