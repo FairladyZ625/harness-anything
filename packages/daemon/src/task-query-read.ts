@@ -27,6 +27,7 @@ import {
   type TaskRelationNeighborhoodQuery,
   type TaskRelationQuery,
 } from "@harness-anything/kernel";
+import { decisionReviewAwaitRationale } from "./decision-review-read.ts";
 import { readDispatchStreamHeaders, type DispatchStreamHeader } from "./dispatch-stream.ts";
 import { presetSnapshotReader, taskWorkspaceView } from "./task-worktree.ts";
 import {
@@ -485,6 +486,12 @@ export function makeTaskQueryReadModel(input: {
           answer = relation?.entity.retirementReason;
         // 被 replace 退役的边不是答复;源实体在答复所在 revision 之后有任何写入即视为已跟进。
         if (request === null || relation === null || answer === undefined || relation.entity.replacedBy) return [];
+        // 评审提醒随 Decision 的评审状态撤边,撤边不是答复。
+        if (
+          edge.sourceRef.startsWith("decision/") &&
+          edge.rationale === decisionReviewAwaitRationale(edge.sourceRef.slice("decision/".length))
+        )
+          return [];
         if (sourceOwnerOf(edge.sourceRef) !== query.principalId) return [];
         const sourceVersion = projection.readEntityVersionWitness(edge.sourceRef).currentVersion;
         if (typeof sourceVersion !== "number" || sourceVersion > relation.workspaceRevision) return [];

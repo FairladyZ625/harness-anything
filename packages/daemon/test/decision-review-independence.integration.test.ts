@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   decisionReviewContentDigest,
+  deriveRelationId,
   makeTaskEventReader,
   serializeCanonicalEvent,
   type DecisionDocumentState,
@@ -159,6 +160,9 @@ test("an independent approved review lets the proposal owner accept the current 
       await cell.run({ kind: "decision-show", decisionId, includeBody: true }, owner),
     ).decision as { readonly acceptReviewReadiness: unknown };
     assert.equal(acceptedDecision.acceptReviewReadiness, null);
+    const acceptedAgenda = await cell.read("repo.agenda.read", { limit: 50 }, owner);
+    assert.deepEqual(acceptedAgenda.awaitingYou, []);
+    assert.deepEqual(acceptedAgenda.answeredForYou, []);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -212,6 +216,20 @@ test("Decision judgment and review disposition stay with the proposal owner or e
       consentChannel: "chat" as const,
     };
   try {
+    const ownerAdded = await cell.run(
+      {
+        kind: "people-add",
+        personId: proposer.actor.principal.personId,
+        displayName: "Proposal Owner",
+        role: "administrator",
+        commandClass: ["admin"],
+        credentialKind: "email-address",
+        credentialIssuer: "example.invalid",
+        credentialSubject: "proposal-owner@example.invalid",
+      },
+      withRoleBinding(proposer, "admin"),
+    );
+    assert.equal(ownerAdded.outcome, "applied", JSON.stringify(ownerAdded));
     const proposed = await cell.run(decisionProposal(), proposer),
       decisionId = receiptJson(proposed).decisionId as string,
       shown = receiptJson(await cell.run({ kind: "decision-show", decisionId, includeBody: true }, proposer))
@@ -279,6 +297,60 @@ test("Decision judgment and review disposition stay with the proposal owner or e
       reviewer,
     );
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+    const secondReportRef = `decisions/decision-${decisionId}/artifacts/reports/changes-requested-2.md`;
+    writeReport(rootDir, secondReportRef);
+    const reviewedAgain = await cell.run(
+      {
+        kind: "decision-review",
+        decisionId,
+        reviewId: "review-changes-requested-2",
+        reviewContentDigest: digest,
+        verdict: "changes_requested",
+        reason: "The proposal needs a second named correction.",
+        findings: [{ findingId: "finding-2", text: "Name the second correction before acceptance." }],
+        evidenceChecked: [],
+        reportRef: secondReportRef,
+      },
+      reviewer,
+    );
+    assert.equal(reviewedAgain.outcome, "applied", JSON.stringify(reviewedAgain));
+    const awaitsRelationId = deriveRelationId({
+        source: `decision/${decisionId}`,
+        target: `person/${proposer.actor.principal.personId}`,
+        type: "awaits",
+        direction: "directed",
+      }),
+      [firstAsk] = relationRows(await cell.run({ kind: "relation-list", entity: `decision/${decisionId}` }, proposer));
+    assert.equal(firstAsk?.state, "active");
+    assert.match(firstAsk?.rationale ?? "", /^consent: /u);
+    assert.equal(
+      decisionReviewContentDigest(
+        {
+          ...current,
+          relations: [
+            {
+              relation_id: firstAsk!.relationId,
+              source: firstAsk!.sourceRef,
+              target: firstAsk!.targetRef,
+              type: firstAsk!.relationType as "awaits",
+              strength: firstAsk!.strength as "strong",
+              direction: firstAsk!.direction as "directed",
+              origin: firstAsk!.origin as "authored",
+              state: firstAsk!.state as "active",
+              rationale: firstAsk!.rationale,
+            },
+          ],
+        },
+        body.body,
+      ),
+      digest,
+    );
+    assert.deepEqual(
+      (await cell.read("repo.agenda.read", { limit: 50 }, proposer)).awaitingYou.map(
+        ({ sourceRef }: { readonly sourceRef: string }) => sourceRef,
+      ),
+      [`decision/${decisionId}`],
+    );
     const override = {
       kind: "decision-override-review" as const,
       decisionId,
@@ -293,11 +365,102 @@ test("Decision judgment and review disposition stay with the proposal owner or e
     );
     const humanOverride = await cell.run(override, humanOwner);
     assert.equal(humanOverride.outcome, "applied", JSON.stringify(humanOverride));
+    assert.equal(
+      relationRows(await cell.run({ kind: "relation-list", entity: `decision/${decisionId}` }, proposer)).find(
+        ({ relationId }) => relationId === awaitsRelationId,
+      )?.state,
+      "active",
+    );
+    const partiallyDisposedAgenda = await cell.read("repo.agenda.read", { limit: 50 }, proposer);
+    assert.deepEqual(
+      partiallyDisposedAgenda.awaitingYou.map(({ sourceRef }: { readonly sourceRef: string }) => sourceRef),
+      [`decision/${decisionId}`],
+    );
+    const secondOverride = await cell.run({ ...override, reviewIds: ["review-changes-requested-2"] }, humanOwner);
+    assert.equal(secondOverride.outcome, "applied", JSON.stringify(secondOverride));
+    const disposedAgenda = await cell.read("repo.agenda.read", { limit: 50 }, proposer);
+    assert.deepEqual(disposedAgenda.awaitingYou, []);
+    assert.deepEqual(disposedAgenda.answeredForYou, []);
     const approvedOverride = await cell.run(
       { ...override, reviewIds: ["review-changes-requested"], ...approval },
       other,
     );
     assert.equal(approvedOverride.outcome, "applied", JSON.stringify(approvedOverride));
+
+    writeReport(rootDir, `decisions/decision-${decisionId}/artifacts/reports/changes-requested-again.md`);
+    const secondReview = await cell.run(
+      {
+        kind: "decision-review",
+        decisionId,
+        reviewId: "review-changes-requested-again",
+        reviewContentDigest: digest,
+        verdict: "changes_requested",
+        reason: "A later review identified another correction.",
+        findings: [{ findingId: "finding-2", text: "Address the later correction." }],
+        evidenceChecked: [],
+        reportRef: `decisions/decision-${decisionId}/artifacts/reports/changes-requested-again.md`,
+      },
+      reviewer,
+    );
+    assert.equal(secondReview.outcome, "applied", JSON.stringify(secondReview));
+    assert.equal(
+      relationRows(await cell.run({ kind: "relation-list", entity: `decision/${decisionId}` }, proposer)).find(
+        ({ relationId }) => relationId === awaitsRelationId,
+      )?.state,
+      "active",
+    );
+    assert.deepEqual(
+      (await cell.read("repo.agenda.read", { limit: 50 }, proposer)).awaitingYou.map(
+        ({ sourceRef }: { readonly sourceRef: string }) => sourceRef,
+      ),
+      [`decision/${decisionId}`],
+    );
+    const amended = await cell.run(
+      {
+        kind: "decision-amend",
+        decisionId,
+        standingPolicy: false,
+        fulfillments: [],
+        sets: [],
+        appends: [],
+        body: realizedDecisionBody("Review independence amended"),
+      },
+      proposer,
+    );
+    assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+    assert.equal(
+      relationRows(await cell.run({ kind: "relation-list", entity: `decision/${decisionId}` }, proposer)).find(
+        ({ relationId }) => relationId === awaitsRelationId,
+      )?.state,
+      "retired",
+    );
+    const amendedDecision = receiptJson(
+      await cell.run({ kind: "decision-show", decisionId, includeBody: true }, proposer),
+    ).decision as { readonly currentReviewContentDigest: `sha256:${string}` };
+    writeReport(rootDir, `decisions/decision-${decisionId}/artifacts/reports/amended-cut.md`);
+    const newCutReview = await cell.run(
+      {
+        kind: "decision-review",
+        decisionId,
+        reviewId: "review-amended-cut",
+        reviewContentDigest: amendedDecision.currentReviewContentDigest,
+        verdict: "changes_requested",
+        reason: "The amended cut has a new correction.",
+        findings: [{ findingId: "finding-amended", text: "Address the amended-cut correction." }],
+        evidenceChecked: [],
+        reportRef: `decisions/decision-${decisionId}/artifacts/reports/amended-cut.md`,
+      },
+      reviewer,
+    );
+    assert.equal(newCutReview.outcome, "applied", JSON.stringify(newCutReview));
+    const rejected = await cell.run(
+      { kind: "decision-reject", decisionId, reason: "The owner rejects the amended proposal." },
+      humanOwner,
+    );
+    assert.equal(rejected.outcome, "applied", JSON.stringify(rejected));
+    const rejectedAgenda = await cell.read("repo.agenda.read", { limit: 50 }, proposer);
+    assert.deepEqual(rejectedAgenda.awaitingYou, []);
+    assert.deepEqual(rejectedAgenda.answeredForYou, []);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -473,6 +636,162 @@ test("a direct human can adjudicate without recording a separate approval", asyn
   }
 });
 
+test("retry completes the awaits write after the review write response is interrupted", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-review-awaits-retry-"));
+  initRepo(rootDir);
+  let armed = false;
+  const cell = await openRepoCell({
+    repoId: workspaceId("decision-review-awaits-retry"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "decision-review-awaits-retry-test",
+    killpoint: (point) => {
+      if (armed && point === "before_response_write") {
+        armed = false;
+        throw new Error("interrupt after review publication");
+      }
+    },
+  });
+  try {
+    const ownerAdded = await cell.run(
+      {
+        kind: "people-add",
+        personId: proposer.actor.principal.personId,
+        displayName: "Proposal Owner",
+        role: "administrator",
+        commandClass: ["admin"],
+        credentialKind: "email-address",
+        credentialIssuer: "example.invalid",
+        credentialSubject: "proposal-owner@example.invalid",
+      },
+      withRoleBinding(proposer, "admin"),
+    );
+    assert.equal(ownerAdded.outcome, "applied", JSON.stringify(ownerAdded));
+    const proposed = await cell.run(decisionProposal(), proposer),
+      decisionId = receiptJson(proposed).decisionId as string,
+      shown = receiptJson(await cell.run({ kind: "decision-show", decisionId, includeBody: true }, proposer))
+        .decision as DecisionDocumentState & { readonly body: { readonly body: string } },
+      { body, ...current } = shown,
+      digest = decisionReviewContentDigest({ ...current, relations: [] }, body.body),
+      reviewer = withRoleBinding(
+        { actor: { principal: { personId: "person-reviewer" }, executor: null }, source: "local" as const },
+        "repo-write",
+      ),
+      action = {
+        kind: "decision-review" as const,
+        decisionId,
+        reviewId: "review-retry",
+        reviewContentDigest: digest,
+        verdict: "changes_requested" as const,
+        reason: "Retry must finish the notification write.",
+        findings: [{ findingId: "finding-retry", text: "Complete the interrupted notification." }],
+        evidenceChecked: [],
+        reportRef: `decisions/decision-${decisionId}/artifacts/reports/retry.md`,
+      };
+    writeReport(rootDir, action.reportRef);
+    armed = true;
+    const interrupted = await cell.run(action, reviewer);
+    assert.equal(interrupted.code, "publication_indeterminate", JSON.stringify(interrupted));
+    assert.deepEqual(
+      relationRows(await cell.run({ kind: "relation-list", entity: `decision/${decisionId}` }, proposer)),
+      [],
+    );
+
+    const retried = await cell.run(action, reviewer);
+    assert.equal(retried.outcome, "applied", JSON.stringify(retried));
+    assert.equal(
+      relationRows(await cell.run({ kind: "relation-list", entity: `decision/${decisionId}` }, proposer))[0]?.state,
+      "active",
+    );
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a person's ask on the proposal owner survives the review changes being resolved", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-review-awaits-owned-"));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId: workspaceId("decision-review-awaits-owned"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "decision-review-awaits-owned-test",
+  });
+  try {
+    const ownerAdded = await cell.run(
+      {
+        kind: "people-add",
+        personId: proposer.actor.principal.personId,
+        displayName: "Proposal Owner",
+        role: "administrator",
+        commandClass: ["admin"],
+        credentialKind: "email-address",
+        credentialIssuer: "example.invalid",
+        credentialSubject: "proposal-owner@example.invalid",
+      },
+      withRoleBinding(proposer, "admin"),
+    );
+    assert.equal(ownerAdded.outcome, "applied", JSON.stringify(ownerAdded));
+    const decisionId = receiptJson(await cell.run(decisionProposal(), proposer)).decisionId as string,
+      asked = await cell.run(
+        {
+          kind: "relation-relate",
+          sourceRef: `decision/${decisionId}`,
+          targetRef: `person/${proposer.actor.principal.personId}`,
+          relationType: "awaits",
+          rationale: "consent: Do you agree with this proposal?",
+          expectedVersion: 0,
+        },
+        proposer,
+      );
+    assert.equal(asked.outcome, "applied", JSON.stringify(asked));
+    const shown = receiptJson(await cell.run({ kind: "decision-show", decisionId, includeBody: true }, proposer))
+        .decision as { readonly currentReviewContentDigest: `sha256:${string}` },
+      reportRef = `decisions/decision-${decisionId}/artifacts/reports/changes-requested.md`;
+    writeReport(rootDir, reportRef);
+    const reviewed = await cell.run(
+      {
+        kind: "decision-review",
+        decisionId,
+        reviewId: "review-changes-requested",
+        reviewContentDigest: shown.currentReviewContentDigest,
+        verdict: "changes_requested",
+        reason: "The proposal needs a correction.",
+        findings: [{ findingId: "finding-1", text: "Name the correction before acceptance." }],
+        evidenceChecked: [],
+        reportRef,
+      },
+      withRoleBinding(
+        { actor: { principal: { personId: "person-reviewer" }, executor: null }, source: "local" as const },
+        "repo-write",
+      ),
+    );
+    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+    const amended = await cell.run(
+      {
+        kind: "decision-amend",
+        decisionId,
+        standingPolicy: false,
+        fulfillments: [],
+        sets: [],
+        appends: [],
+        body: realizedDecisionBody("Review independence amended"),
+      },
+      proposer,
+    );
+    assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+    const ask = relationRows(
+      await cell.run({ kind: "relation-list", entity: `decision/${decisionId}` }, proposer),
+    ).find(({ relationType }) => relationType === "awaits");
+    assert.deepEqual(
+      { state: ask?.state, rationale: ask?.rationale },
+      { state: "active", rationale: "consent: Do you agree with this proposal?" },
+    );
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 function decisionProposal() {
   return {
     kind: "decision-propose",
@@ -502,6 +821,24 @@ function writeReport(rootDir: string, reportRef: string): void {
   const target = path.join(rootDir, "harness", ...reportRef.split("/"));
   mkdirSync(path.dirname(target), { recursive: true });
   writeFileSync(target, "# Independent review\n\nThe current Decision cut was reviewed.\n");
+}
+
+function relationRows(receipt: { readonly evidence?: string }) {
+  return (
+    JSON.parse(String(receipt.evidence)) as {
+      readonly rows: readonly {
+        readonly relationId: string;
+        readonly sourceRef: string;
+        readonly targetRef: string;
+        readonly relationType: string;
+        readonly strength: string;
+        readonly direction: string;
+        readonly origin: string;
+        readonly state: string;
+        readonly rationale: string;
+      }[];
+    }
+  ).rows;
 }
 
 function initRepo(rootDir: string): void {

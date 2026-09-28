@@ -523,11 +523,12 @@ export function decisionMachineDigest(value: DecisionDocumentState): `sha256:${s
   return `sha256:${sha256Text(stableStringify(semantic))}`;
 }
 export function decisionReviewContentDigest(value: DecisionDocumentState, documentBody: string): `sha256:${string}` {
-  const prose = documentBody.startsWith("---\n") ? decisionDocumentProse(documentBody) : documentBody;
+  const prose = documentBody.startsWith("---\n") ? decisionDocumentProse(documentBody) : documentBody,
+    reviewable = { ...value, relations: value.relations.filter(({ type }) => type !== "awaits") };
   return `sha256:${sha256Text(
     stableStringify({
       schema: "decision-review-content/v1",
-      machineDigest: decisionMachineDigest(value),
+      machineDigest: decisionMachineDigest(reviewable),
       prose,
     }),
   )}`;

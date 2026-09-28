@@ -59,6 +59,7 @@ import { actionReceiptGuidance } from "./receipt-guidance.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import { attachDecisionReviewerArtifact } from "./reviewer-artifact-publication.ts";
 import { decisionReviewState } from "./decision-review-read.ts";
+import { reconcileDecisionReviewAwaitAfterWrite } from "./decision-review-awaits.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 type FactBundle = ReturnType<typeof compileFactWrite>;
@@ -138,7 +139,9 @@ export function makeEntityActionCatalogExecutor(input: {
         action,
         opId,
       );
-    return runWrite(contract, action, binding, opId);
+    const receipt = runWrite(contract, action, binding, opId);
+    reconcileDecisionReviewAwaitAfterWrite(action, binding, opId, input);
+    return receipt;
   };
 
   const run = (
