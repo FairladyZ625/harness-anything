@@ -670,11 +670,14 @@ test("Decision human consent defaults absent consent-at and consent-channel at t
     const at = Date.parse(String(consent.consentAt));
     assert.ok(at >= before && at <= after, `consentAt ${String(consent.consentAt)} outside [${before}, ${after}]`);
   }
+  assert.equal(
+    consentOf(["decision", "defer", "dec_TEST", "--rationale", "r", "--consent-by", "person-test"]).consentChannel,
+    "cli",
+  );
   for (const args of [
     [...base, "--consent-at", "2026-09-12T01:02:03Z"],
     [...base, "--consent-by", "person-test", "--consent-channel", "email"],
     [...base, "--consent-by", "person-test", "--consent-at"],
-    ["decision", "defer", "dec_TEST", "--rationale", "r", "--consent-by", "person-test"],
     ["decision", "transition", "superseded", "dec_TEST", "--consent-by", "person-test"],
   ])
     assert.equal(parseThinCommand(args).ok, false, JSON.stringify(args));

@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 // Regression (task_d437aea6d5e724195c5d65e6ec stage 2, CEO ruling: transition narrowed to
 // bookkeeping): decision accept/reject/defer are the only adjudication entries and CLI and GUI
-// share one Policy qualification for them; decision transition compiles only superseded and
+// share one domain qualification for them; decision transition compiles only superseded and
 // outcome_retired, so judgment targets are parameter errors at the CLI parser and at the kernel
 // compiler — never authorization verdicts — while the bookkeeping targets stay repo-write work.
 import assert from "node:assert/strict";
@@ -41,8 +41,8 @@ test("adjudication entries share one qualification and transition judgment targe
       repoWriteBinding = declaredBinding(rootDir, { principal: { personId: repoWriteJudgeId }, executor: null }),
       arbiterBinding = declaredBinding(rootDir, { principal: { personId: arbiterJudgeId }, executor: null });
 
-    // The two families keep their ruling tiers: adjudication is arbiter work, bookkeeping is
-    // repo-write work. This tier split is the load-bearing decision the entry parity builds on.
+    // Accept/defer enter through repo-write because a proposal owner may perform either action;
+    // non-owner qualification is enforced against the same arbiter Policy rule as reject.
     assert.deepEqual(
       {
         accept: commandClassForAction("decision-accept"),
@@ -50,7 +50,7 @@ test("adjudication entries share one qualification and transition judgment targe
         defer: commandClassForAction("decision-defer"),
         transition: commandClassForAction("decision-transition"),
       },
-      { accept: "arbiter", reject: "arbiter", defer: "arbiter", transition: "repo-write" },
+      { accept: "repo-write", reject: "arbiter", defer: "repo-write", transition: "repo-write" },
     );
 
     const d1 = await propose(cell, reader, proposerBinding, "parity cli accept under repo-write"),
@@ -59,7 +59,7 @@ test("adjudication entries share one qualification and transition judgment targe
       d4 = await propose(cell, reader, proposerBinding, "parity gui accept under arbiter"),
       d5 = await propose(cell, reader, proposerBinding, "parity transition targets");
 
-    // 1. Same repo-write binding, both adjudication entries: one denial shape.
+    // 1. Same non-owner repo-write binding, both entries: one domain denial shape.
     const cliAccept = cliAction([
       "decision",
       "accept",
@@ -70,14 +70,14 @@ test("adjudication entries share one qualification and transition judgment targe
       "parity regression",
     ]);
     assert.equal(cliAccept.kind, "decision-accept");
-    assertDeniedBeforeAcceptance("cli accept / repo-write", await cell.run(cliAccept, repoWriteBinding), reader);
+    assertUnqualifiedBeforeAcceptance("cli accept / repo-write", await cell.run(cliAccept, repoWriteBinding), reader);
     const guiAccept = actionForDaemonMethod("repo.decision.accept", {
       decisionId: d2.decisionId,
       rationale: "repo-write only judge",
       judgmentOnlyRationale: "parity regression",
     });
     assert.equal(guiAccept.kind, "decision-accept");
-    assertDeniedBeforeAcceptance("gui accept / repo-write", await cell.run(guiAccept, repoWriteBinding), reader);
+    assertUnqualifiedBeforeAcceptance("gui accept / repo-write", await cell.run(guiAccept, repoWriteBinding), reader);
 
     // 2. Same arbiter binding, both entries: one acceptance shape, same event type.
     const arbiterCli = await cell.run(
@@ -209,32 +209,25 @@ async function propose(
   return { decisionId, revision: event.workspaceRevision };
 }
 
-function assertDeniedBeforeAcceptance(
+function assertUnqualifiedBeforeAcceptance(
   label: string,
   receipt: { readonly opId: string } & Record<string, unknown>,
   reader: ReturnType<typeof makeTaskEventReader>,
 ): void {
-  const decision = receipt.authorizationDecision as
-    | { readonly outcome: string; readonly reasonCodes: readonly string[] }
-    | undefined;
   assert.deepEqual(
     {
       outcome: receipt.outcome,
       code: receipt.code,
-      authorizationOutcome: decision?.outcome,
-      reasonCodes: decision?.reasonCodes,
       canonicalEvent: reader.readEvent(receipt.opId),
       acceptance: receipt.acceptance,
     },
     {
       outcome: "op_rejected",
-      code: "authorization_denied",
-      authorizationOutcome: "denied",
-      reasonCodes: ["authorization_predicate_failed"],
+      code: "actor_unauthorized",
       canonicalEvent: null,
       acceptance: null,
     },
-    `${label}: expected a queue-level Policy denial with no canonical acceptance`,
+    `${label}: expected a domain qualification denial with no canonical acceptance`,
   );
 }
 
@@ -277,7 +270,7 @@ function writePeopleRoster(rootDir: string): void {
         ],
         roles: [
           { roleId: "contributor", commandClasses: ["repo-write", "repo-read"] },
-          { roleId: "judge", commandClasses: ["arbiter", "repo-read"] },
+          { roleId: "judge", commandClasses: ["arbiter", "repo-write", "repo-read"] },
         ],
       },
       null,

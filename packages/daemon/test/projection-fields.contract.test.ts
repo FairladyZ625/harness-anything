@@ -28,6 +28,9 @@ test("decision full rows carry kernel capabilities while summary rows stay narro
     rejected: [],
     claims: [],
     judgmentConsents: [],
+    reviews: [],
+    reviewResponses: [],
+    reviewOverrides: [],
     body: null,
     capabilities: [
       { id: "accept", available: true, reason: null },

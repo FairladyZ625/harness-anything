@@ -23,6 +23,7 @@ const proposer = withRoleBinding(
       executor: { kind: "agent" as const, id: "proposer-agent" },
     },
     source: "local" as const,
+    authorizationBindingMode: "declared" as const,
   },
   "repo-write",
 );
@@ -110,17 +111,36 @@ test("Decision judgment and review disposition stay with the proposal owner or e
     ownerId: "decision-review-authority-test",
   });
   const other = withRoleBinding(
-      {
-        actor: {
-          principal: { personId: "person-other" },
-          executor: { kind: "agent" as const, id: "other-agent" },
+      withRoleBinding(
+        {
+          actor: {
+            principal: { personId: "person-other" },
+            executor: { kind: "agent" as const, id: "other-agent" },
+          },
+          source: "local" as const,
+          authorizationBindingMode: "declared" as const,
         },
-        source: "local" as const,
-      },
+        "repo-write",
+      ),
       "arbiter",
     ),
+    repoWriter = withRoleBinding(
+      {
+        actor: {
+          principal: { personId: "person-repo-writer" },
+          executor: { kind: "agent" as const, id: "repo-writer-agent" },
+        },
+        source: "local" as const,
+        authorizationBindingMode: "declared" as const,
+      },
+      "repo-write",
+    ),
     humanOwner = withRoleBinding(
-      { actor: { principal: other.actor.principal, executor: null }, source: "local" as const },
+      {
+        actor: { principal: other.actor.principal, executor: null },
+        source: "local" as const,
+        authorizationBindingMode: "declared" as const,
+      },
       "arbiter",
     ),
     approval = {
@@ -154,6 +174,22 @@ test("Decision judgment and review disposition stay with the proposal owner or e
     );
     assert.deepEqual(
       { outcome: foreignDefer.outcome, code: foreignDefer.code },
+      { outcome: "op_rejected", code: "actor_unauthorized" },
+    );
+    const unqualifiedApproval = await cell.run(
+      {
+        kind: "decision-accept",
+        decisionId,
+        rationale: "Consent cannot grant a principal arbiter qualification.",
+        judgmentOnlyRationale: "The principal has repo-write authority only.",
+        consentBy: repoWriter.actor.principal.personId,
+        consentAt: approval.consentAt,
+        consentChannel: approval.consentChannel,
+      },
+      repoWriter,
+    );
+    assert.deepEqual(
+      { outcome: unqualifiedApproval.outcome, code: unqualifiedApproval.code },
       { outcome: "op_rejected", code: "actor_unauthorized" },
     );
     const reviewed = await cell.run(

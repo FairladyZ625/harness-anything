@@ -21,14 +21,18 @@ const binding = withRoleBinding(
     "repo-write",
   ),
   secondNodeBinding = withRoleBinding(
-    {
-      actor: {
-        principal: { personId: "person-rematerialize-edge-two" },
-        executor: { kind: "agent", id: "agent-rematerialize-edge-two" },
+    withRoleBinding(
+      {
+        actor: {
+          principal: { personId: "person-rematerialize-edge-two" },
+          executor: { kind: "agent", id: "agent-rematerialize-edge-two" },
+        },
+        source: "local" as const,
+        authorizationBindingMode: "declared" as const,
       },
-      source: "local" as const,
-    },
-    "repo-write",
+      "repo-write",
+    ),
+    "arbiter",
   );
 
 test("entity rematerialize renders relative graph links and is idempotent at one cut", async () => {
@@ -86,6 +90,9 @@ test("entity rematerialize renders relative graph links and is idempotent at one
           decisionId,
           rationale: "The linked graph was independently reviewed.",
           judgmentOnlyRationale: "The linked graph was independently reviewed.",
+          consentBy: secondNodeBinding.actor.principal.personId,
+          consentAt: "2026-09-28T01:02:03.000Z",
+          consentChannel: "chat",
         },
         secondNodeBinding,
       ),

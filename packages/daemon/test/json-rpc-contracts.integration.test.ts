@@ -400,6 +400,9 @@ function decisionList(readiness: unknown): Record<string, unknown> {
           },
         ],
         judgmentConsents: [],
+        reviews: [],
+        reviewResponses: [],
+        reviewOverrides: [],
         capabilities: [
           { id: "accept", available: false, reason: "invalid_transition" },
           { id: "reject", available: false, reason: "invalid_transition" },
