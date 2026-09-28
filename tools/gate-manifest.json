@@ -297,6 +297,7 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
+      "localPathGlobs": ["packages/kernel/src/**", "packages/gui/src/renderer/entity-docs.ts"],
       "authoritySource": ["tools/generate-entity-doc-contract.mjs", "task_5a8b9bb1cff98ebd897402f2d2"],
       "consumerScope": [
         "committed generated region of packages/gui/src/renderer/entity-docs.ts against the live kernel entity kind registry"
@@ -3627,6 +3628,12 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
+      "localPathGlobs": [
+        "packages/kernel/src/domain/**",
+        "packages/gui/src/renderer/model/types.ts",
+        "packages/gui/src/renderer/triadic-data.ts",
+        "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts"
+      ],
       "authoritySource": [
         "packages/kernel/src/domain/status-vocabulary.ts",
         "decision/dec_399F48E3547D831F1199F51E84#CH1",
