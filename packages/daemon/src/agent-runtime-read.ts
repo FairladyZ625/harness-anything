@@ -32,6 +32,7 @@ import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 import type { RuntimeSessionActivityEvidence } from "./dispatch-read.ts";
 import { runtimeSessionSettlement } from "./runtime-settlement.ts";
+import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
 
 export function makeAgentRuntimeReadModel(input: {
   readonly readDispatch?: (taskId: string, dispatchId: string) => { readonly runtimeSessionId: string } | null;
@@ -167,6 +168,25 @@ export function makeAgentRuntimeReadModel(input: {
       dispatch ?? input.projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
     return { snapshot: event?.payload.definitionSnapshot ?? null, persisted: false };
   };
+  // Git-style short-id resolution for `ha runtime status <id>`: an exact id reads directly; a
+  // unique prefix reads that session; ambiguity lists the candidates instead of guessing.
+  const readRuntimeSessionById = (runtimeSessionId: string | null): RuntimeSession | null => {
+    if (runtimeSessionId === null) return null;
+    const exact = input.projection.readRuntimeSession(runtimeSessionId);
+    if (exact !== null) return exact;
+    const prefixed = resolveUniquePrefix(
+      runtimeSessionId,
+      input.projection.readRuntimeSessions().map(({ runtimeSessionId: candidate }) => candidate),
+    );
+    if (prefixed.matched) return input.projection.readRuntimeSession(prefixed.id);
+    if (prefixed.candidates.length > 1)
+      throw coded(
+        "runtime_session_ambiguous_id",
+        `Runtime session id ${runtimeSessionId} is a prefix of ${String(prefixed.candidates.length)} sessions ` +
+          `(${candidateSample(prefixed.candidates)}). Use a longer prefix or the full id.`,
+      );
+    return null;
+  };
   return {
     overview: (payload: Readonly<Record<string, unknown>>): AgentRuntimeOverviewResult => {
       const query = overviewQuery(payload),
@@ -183,7 +203,10 @@ export function makeAgentRuntimeReadModel(input: {
         paged?.rows ??
         (query.taskId
           ? input.projection.readRuntimeSessionsForTask(query.taskId)
-          : input.projection.readRuntimeSessions());
+          : // The unscoped, unpaged overview is the `ha runtime status` default: list what is
+            // still running, not every session ever. Scoped reads keep full task history;
+            // explicit paging stays the deliberate history lane.
+            input.projection.readRuntimeSessions().filter(({ liveness }) => liveness !== "exited"));
       const installationIds = new Set(sessions.map(({ installationId }) => installationId));
       const installations = input.projection.readRuntimeInstallations();
       const installationsById = new Map(
@@ -296,8 +319,7 @@ export function makeAgentRuntimeReadModel(input: {
         target = runtimeSessionTarget(payload),
         runtimeSessionIdValue =
           target.runtimeSessionId ?? input.readDispatch?.(target.taskId!, target.dispatchId!)?.runtimeSessionId ?? null;
-      const session =
-        runtimeSessionIdValue === null ? null : input.projection.readRuntimeSession(runtimeSessionIdValue);
+      const session = readRuntimeSessionById(runtimeSessionIdValue);
       if (!session)
         throw coded(
           "runtime_session_not_found",
