@@ -29,9 +29,25 @@ import {
   replaceExecution,
 } from "./task-lifecycle-contract-support.ts";
 import { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle-transitions.ts";
-import { explainStatusTransition } from "./lifecycle-status.ts";
+import { domainStatuses, explainStatusTransition } from "./lifecycle-status.ts";
 
 // Transition application plus event replay and executor-declaration repair.
+/** The no-match rejection names where the aggregate stands and where the status graph allows it to
+ * go, so a rejected move reports its exit options instead of a bare command type. */
+function noTransitionAccepts(command: TaskLifecycleCommand, snapshot: TaskLifecycleSnapshot): ContractValidationIssue {
+  const current = snapshot.task?.status;
+  if (current === undefined)
+    return lifecycleContractIssue(
+      "invalid_transition",
+      `no lifecycle transition accepts ${command.type} without an existing task`,
+    );
+  const reachable = domainStatuses.filter((to) => to !== current && explainStatusTransition(current, to).allowed);
+  return lifecycleContractIssue(
+    "invalid_transition",
+    `no lifecycle transition accepts ${command.type} from status ${current}; statuses reachable from ` +
+      `${current}: ${reachable.join(", ") || "none"}`,
+  );
+}
 export function validateTransition<C extends TaskLifecycleCommand>(
   snapshot: TaskLifecycleSnapshot,
   command: C,
@@ -40,9 +56,7 @@ export function validateTransition<C extends TaskLifecycleCommand>(
   const envelopeIssues = validateTaskLifecycleCommandEnvelope(command);
   if (envelopeIssues.length) return envelopeIssues;
   const transition = TASK_LIFECYCLE_TRANSITIONS.find((value) => value.matches(command, snapshot));
-  return transition
-    ? transition.validate(snapshot, command, proof)
-    : [lifecycleContractIssue("invalid_transition", `no lifecycle transition accepts ${command.type}`)];
+  return transition ? transition.validate(snapshot, command, proof) : [noTransitionAccepts(command, snapshot)];
 }
 export function applyTransition<C extends TaskLifecycleCommand>(
   snapshot: TaskLifecycleSnapshot,
@@ -52,10 +66,7 @@ export function applyTransition<C extends TaskLifecycleCommand>(
   const normalized = validateTaskLifecycleCommandEnvelope(command);
   if (normalized.length) throw new TaskLifecycleContractError("invalid_schema", normalized);
   const transition = TASK_LIFECYCLE_TRANSITIONS.find((value) => value.matches(command, snapshot));
-  if (!transition)
-    throw new TaskLifecycleContractError("invalid_transition", [
-      lifecycleContractIssue("invalid_transition", `no lifecycle transition accepts ${command.type}`),
-    ]);
+  if (!transition) throw new TaskLifecycleContractError("invalid_transition", [noTransitionAccepts(command, snapshot)]);
   const issues = transition.validate(snapshot, command, proof);
   if (issues.length) throw new TaskLifecycleContractError(errorCode(issues), issues);
   const result = transition.reduce(snapshot, command, proof);

@@ -449,6 +449,133 @@ test("ReturnToPlanned without an open round keeps the iteration", () => {
   assert.equal(canStartExecution(returned, "execution-fresh"), true);
 });
 
+test("ReturnToPlanned returns an unleased blocked task to planned in one step", () => {
+  // The backlog-cleanup shape: a task blocked before any round exists returns without
+  // the unblock round trip, and there is no round to advance.
+  const idleBlocked = apply(
+      planned(),
+      command(2, {
+        type: "TransitionTask",
+        taskId: "task-1",
+        status: "blocked",
+        reason: "Waiting on scope",
+      }) as TaskLifecycleCommand,
+      {} as never,
+    ),
+    idleReturned = apply(
+      idleBlocked,
+      command(3, {
+        type: "TransitionTask",
+        taskId: "task-1",
+        status: "planned",
+        reason: "Backlog cleanup",
+      }) as TaskLifecycleCommand,
+      {} as never,
+    );
+  assert.equal(idleBlocked.task?.status, "blocked", "fixture precondition: the task is blocked");
+  assert.equal(idleReturned.task?.status, "planned");
+  assert.equal(idleReturned.task?.iteration, 0, "no open round: the iteration stays put");
+  assert.equal(canStartExecution(idleReturned, "execution-fresh"), true);
+
+  // A round released into blocked keeps its execution record claiming the iteration;
+  // returning to planned must close that round exactly like the active path does.
+  const releasedBlocked = apply(
+      { ...started(), lease: null },
+      command(3, {
+        type: "TransitionTask",
+        taskId: "task-1",
+        status: "blocked",
+        reason: "Waiting on scope",
+      }) as TaskLifecycleCommand,
+      {} as never,
+    ),
+    reopened = apply(
+      releasedBlocked,
+      command(4, {
+        type: "TransitionTask",
+        taskId: "task-1",
+        status: "planned",
+        reason: "Backlog cleanup",
+      }) as TaskLifecycleCommand,
+      {} as never,
+    );
+  assert.equal(reopened.task?.status, "planned");
+  assert.equal(reopened.task?.iteration, 1, "the open execution round is closed by round advancement");
+  assert.equal(canStartExecution(reopened, "execution-fresh"), true);
+});
+
+test("ReturnToPlanned rejects a blocked task whose lease is still held, naming the release", () => {
+  const unleased = { ...started(), lease: null },
+    leasedBlocked: TaskLifecycleSnapshot = {
+      ...apply(
+        unleased,
+        command(3, {
+          type: "TransitionTask",
+          taskId: "task-1",
+          status: "blocked",
+          reason: "Waiting on scope",
+        }) as TaskLifecycleCommand,
+        {} as never,
+      ),
+      lease: started().lease,
+    },
+    issues = validateTransition(
+      leasedBlocked,
+      command(4, {
+        type: "TransitionTask",
+        taskId: "task-1",
+        status: "planned",
+        reason: "Backlog cleanup",
+      }) as TaskLifecycleCommand,
+      {} as never,
+    );
+  assert.ok(
+    issues.some(
+      ({ code, message }) => code === "invalid_transition" && /release the blocked task's lease/u.test(message),
+    ),
+    `the held lease must be the named reason: ${JSON.stringify(issues)}`,
+  );
+});
+
+test("a rejected transition names the current status and the statuses reachable from it", () => {
+  const submittedIssues = validateTransition(
+      submitted(),
+      command(4, {
+        type: "TransitionTask",
+        taskId: "task-1",
+        status: "planned",
+        reason: "Backlog cleanup",
+      }) as TaskLifecycleCommand,
+      {} as never,
+    ),
+    doneIssues = validateTransition(
+      { ...planned(), task: { ...planned().task!, status: "done" } },
+      command(2, {
+        type: "TransitionTask",
+        taskId: "task-1",
+        status: "planned",
+        reason: "Backlog cleanup",
+      }) as TaskLifecycleCommand,
+      {} as never,
+    ),
+    missingIssues = validateTransition(
+      emptyTaskLifecycleSnapshot(),
+      command(1, {
+        type: "TransitionTask",
+        taskId: "task-1",
+        status: "planned",
+        reason: "Backlog cleanup",
+      }) as TaskLifecycleCommand,
+      {} as never,
+    );
+  assert.match(submittedIssues[0]!.message, /no lifecycle transition accepts TransitionTask/u);
+  assert.match(submittedIssues[0]!.message, /from status submitted/u);
+  assert.match(submittedIssues[0]!.message, /active, in_review, cancelled/u);
+  assert.match(doneIssues[0]!.message, /from status done/u);
+  assert.match(doneIssues[0]!.message, /reachable from done: none/u);
+  assert.match(missingIssues[0]!.message, /no lifecycle transition accepts TransitionTask without an existing task/u);
+});
+
 test("rejoining preserves the frozen delivery baseline and rejects a re-observed one", () => {
   const frozen = { kind: "commit", commitSha: "0".repeat(40) } as const,
     expired: TaskLifecycleSnapshot = { ...started(), lease: null },

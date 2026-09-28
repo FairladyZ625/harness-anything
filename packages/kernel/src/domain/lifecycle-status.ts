@@ -49,7 +49,7 @@ const allowedStatusTransitions = {
   planned: ["active", "blocked", "cancelled"],
   active: ["planned", "submitted", "blocked", "cancelled"],
   submitted: ["active", "in_review", "cancelled"],
-  blocked: ["active", "cancelled"],
+  blocked: ["planned", "active", "cancelled"],
   in_review: ["active", "blocked", "done", "cancelled"],
   done: [],
   cancelled: reinstateTaskTargets,

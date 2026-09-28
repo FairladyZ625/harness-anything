@@ -56,6 +56,7 @@ test("domain owns canonical lifecycle status transition semantics", () => {
     "submitted->in_review",
     "submitted->cancelled",
     "blocked->blocked",
+    "blocked->planned",
     "blocked->active",
     "blocked->cancelled",
     "in_review->in_review",

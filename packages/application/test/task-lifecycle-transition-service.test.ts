@@ -553,6 +553,38 @@ test("transition republishes a historical task without its retired longRunning m
   }
 });
 
+test("a blocked task returns to planned in one step when it holds no lease", async () => {
+  const harness = lifecycleHarness();
+  try {
+    const transition = (status: "planned" | "blocked", reason: string) => {
+      const revision = harness.eventStore.read().revision + 1;
+      return harness.service.execute(
+        command(
+          harness.rootDir,
+          { type: "TransitionTask" as const, taskId: "task-1", status, reason, force: false },
+          {
+            eventId: `event-backlog-${revision}`,
+            workspaceRevision: revision,
+            occurredAt: `2026-08-11T00:${String(revision).padStart(2, "0")}:00.000Z`,
+          },
+        ),
+        {},
+      );
+    };
+
+    await harness.create();
+    await transition("blocked", "Waiting on scope");
+    const returned = await transition("planned", "Backlog cleanup");
+    assert.equal(returned.outcome, "applied");
+    assert.equal(returned.snapshot.task?.status, "planned");
+    assert.equal(harness.projection.read("task-1").snapshot.task?.status, "planned");
+    assert.equal(returned.event?.type, "task_transitioned");
+    assert.equal(returned.event?.payload.mutation.reason, "Backlog cleanup");
+  } finally {
+    await harness.cleanup();
+  }
+});
+
 test("reinstate rolls a cancelled task back to planned, active, or in_review with an audited reason", async () => {
   const harness = lifecycleHarness();
   try {
