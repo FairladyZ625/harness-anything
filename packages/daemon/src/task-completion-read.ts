@@ -11,7 +11,7 @@ import {
   type TaskLifecycleSnapshot,
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
-import { readTaskTransitionDocument } from "./transition-document-access.ts";
+import { readTaskTransitionDocument, taskTransitionDocumentState } from "./transition-document-access.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { cellCodedError, cellErrorCode } from "./repo-cell-errors.ts";
@@ -45,26 +45,43 @@ export function readCompletionContext(
       producesFactCount: 0,
       projectionStatus: "pending",
     };
-  const document = readTaskTransitionDocument({ projection, taskId, slot: "task.closeout" }),
-    assessment = assessTransitionDocument(
-      requireTransitionDocumentKind("task.complete"),
-      document.body ?? "",
-      document.contract ?? undefined,
-    ),
-    facts = projection.readRelationQuery({ source: `task/${taskId}`, relationType: "produces", state: "active" });
+  // Completion names its next step for packages of any generation: a closeout the contract never
+  // declared, has not written yet, or cannot judge without a scaffold is a step to take, not a
+  // read failure that would fail the write rendering this step.
+  const closeout = taskTransitionDocumentState({ projection, taskId, slot: "task.closeout" }),
+    facts = projection.readRelationQuery({ source: `task/${taskId}`, relationType: "produces", state: "active" }),
+    common = {
+      closeoutGates: readEffectiveCloseoutGates(
+        projection,
+        snapshot.task?.completionGateIds ?? [],
+        snapshot.task?.closeoutOverrides,
+      ),
+      eligibleDirtyPaths: [],
+      producesFactCount: facts.rows.filter((row) => row.targetRef.startsWith("fact/")).length,
+      projectionStatus: facts.status,
+    };
+  if (closeout.state === "undeclared") return { ...common, closeout: "missing", closeoutPath: "" };
+  if (closeout.contract === null)
+    return {
+      ...common,
+      closeout: "placeholder",
+      closeoutPath: closeout.path,
+      invalidDocument: {
+        path: closeout.path,
+        reason: "The closeout document has no materialized scaffold to judge its readiness against.",
+      },
+    };
+  const assessment = assessTransitionDocument(
+    requireTransitionDocumentKind("task.complete"),
+    closeout.state === "written" ? readTaskTransitionDocument({ projection, taskId, slot: "task.closeout" }).body : "",
+    closeout.contract,
+  );
   return {
+    ...common,
     closeout: assessment.ready ? "ready" : "placeholder",
-    closeoutContract: document.contract,
-    closeoutPath: document.path,
+    closeoutContract: closeout.contract,
+    closeoutPath: closeout.path,
     closeoutMissingSections: assessment.missingSections,
-    closeoutGates: readEffectiveCloseoutGates(
-      projection,
-      snapshot.task?.completionGateIds ?? [],
-      snapshot.task?.closeoutOverrides,
-    ),
-    eligibleDirtyPaths: [],
-    producesFactCount: facts.rows.filter((row) => row.targetRef.startsWith("fact/")).length,
-    projectionStatus: facts.status,
   };
 }
 

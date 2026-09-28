@@ -101,19 +101,46 @@ function loadCatalogAssets(): CatalogSource | null {
   return bundledCatalog;
 }
 
-export function readTaskTransitionDocument(input: {
+/**
+ * Where the contract's document for a slot stands, without failing on older packages: not
+ * declared by the contract (an older contract generation), declared but not yet written, or
+ * written; with the readiness contract its scaffold declares, or null when none resolves. A
+ * projection that has not caught up counts as written so the reader reports it.
+ */
+export function taskTransitionDocumentState(input: {
   readonly projection: TaskProjectionQueries;
   readonly taskId: string;
   readonly slot: TaskTransitionDocumentSlot;
-  readonly bodyOverrides?: ReadonlyMap<string, string>;
-}): TaskTransitionDocument {
+}):
+  | { readonly state: "undeclared" }
+  | {
+      readonly state: "unwritten" | "written";
+      readonly path: string;
+      readonly contract: MarkdownDocumentContract | null;
+    } {
+  const located = locateTaskTransitionDocument(input);
+  if (located.path === null || !located.descriptor) return { state: "undeclared" };
+  const read = input.projection.readDocument(located.path);
+  return {
+    state: !read.document && read.watermark >= read.sourceRevision ? "unwritten" : "written",
+    path: located.path,
+    contract: transitionDocumentReadinessContract({ contract: located.contract, descriptor: located.descriptor }),
+  };
+}
+
+function locateTaskTransitionDocument(input: {
+  readonly projection: TaskProjectionQueries;
+  readonly taskId: string;
+  readonly slot: TaskTransitionDocumentSlot;
+}) {
   const task = input.projection.read(input.taskId);
   if (task.watermark < task.sourceRevision || !task.snapshot.task || !task.packagePath)
     throw transitionDocumentAccessError(
       "content_not_ready",
       `Task ${input.taskId} package projection is not ready for ${input.slot}.`,
     );
-  const contractPath = `${task.packagePath}/task-contract.json`,
+  const packagePath = task.packagePath,
+    contractPath = `${packagePath}/task-contract.json`,
     contractRead = input.projection.readDocument(contractPath);
   if (contractRead.watermark < contractRead.sourceRevision || !contractRead.document)
     throw transitionDocumentAccessError(
@@ -139,19 +166,30 @@ export function readTaskTransitionDocument(input: {
         (value as { readonly slot?: unknown }).slot === input.slot &&
         typeof (value as { readonly path?: unknown }).path === "string",
     );
-  if (!descriptor)
+  if (!descriptor) return { packagePath, contract, descriptor, path: null };
+  let documentPath: string;
+  try {
+    documentPath = normalizeRelativeDocumentPath(`${packagePath}/${descriptor.path}`);
+  } catch {
+    throw transitionDocumentAccessError("content_not_ready", `Task ${input.taskId} ${input.slot} path is invalid.`);
+  }
+  if (!documentPath.startsWith(`${packagePath}/`))
+    throw transitionDocumentAccessError("content_not_ready", `Task ${input.taskId} ${input.slot} leaves its package.`);
+  return { packagePath, contract, descriptor, path: documentPath };
+}
+
+export function readTaskTransitionDocument(input: {
+  readonly projection: TaskProjectionQueries;
+  readonly taskId: string;
+  readonly slot: TaskTransitionDocumentSlot;
+  readonly bodyOverrides?: ReadonlyMap<string, string>;
+}): TaskTransitionDocument {
+  const { packagePath, contract, descriptor, path: documentPath } = locateTaskTransitionDocument(input);
+  if (!descriptor || documentPath === null)
     throw transitionDocumentAccessError(
       "content_not_ready",
       `Task ${input.taskId} contract has no ${input.slot} document.`,
     );
-  let documentPath: string;
-  try {
-    documentPath = normalizeRelativeDocumentPath(`${task.packagePath}/${descriptor.path}`);
-  } catch {
-    throw transitionDocumentAccessError("content_not_ready", `Task ${input.taskId} ${input.slot} path is invalid.`);
-  }
-  if (!documentPath.startsWith(`${task.packagePath}/`))
-    throw transitionDocumentAccessError("content_not_ready", `Task ${input.taskId} ${input.slot} leaves its package.`);
   const documentRead = input.projection.readDocument(documentPath);
   if (documentRead.watermark < documentRead.sourceRevision || !documentRead.document)
     throw transitionDocumentAccessError(
@@ -160,7 +198,7 @@ export function readTaskTransitionDocument(input: {
     );
   const overridden = input.bodyOverrides?.get(documentPath);
   return {
-    packagePath: task.packagePath,
+    packagePath,
     path: documentPath,
     body: overridden ?? documentRead.document.body,
     blobSha256: overridden === undefined ? documentRead.document.blobSha256 : sha256Text(overridden),

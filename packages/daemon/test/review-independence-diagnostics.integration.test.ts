@@ -358,7 +358,10 @@ test("a lightweight child bare-invocation execution closes without a review disp
     writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     const submitted = await cell.run({ kind: "task-submit", taskId, executionId: priorExecutionId }, bare);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-    assert.deepEqual(submitted.next, [{ command: `ha task complete ${taskId}` }]);
+    assert.match(
+      String((submitted.next as readonly { readonly command: string }[])[0]?.command),
+      new RegExp(`^ha task code-doc reconcile ${taskId} --path`, "u"),
+    );
     return;
     assert.equal(
       (
@@ -657,7 +660,7 @@ test("a lightweight reviewed child closes without declaring a review executor", 
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     // Initial owner triage is required before any independent reviewer can act.
     const next = submitted.next as { readonly command: string; readonly reason?: string }[];
-    assert.equal(next[0]!.command, `ha task complete ${taskId}`);
+    assert.equal(next[0]!.command, `ha task code-doc reconcile ${taskId} --path 'README.md'`);
     return;
     assert.equal(
       (

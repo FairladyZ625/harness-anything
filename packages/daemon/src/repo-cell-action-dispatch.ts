@@ -25,6 +25,7 @@ import { assertExecutionExecutorDeclarationEligible } from "./repo-cell-executio
 import { runLedgerReconcileAction } from "./repo-cell-migration-actions.ts";
 import { type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
 import { readTaskLineageDispatches } from "./dispatch-read.ts";
+import { readCompletionContext } from "./task-completion-read.ts";
 import { dispatchDecisionReview, dispatchTaskReview } from "./task-review-dispatch.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { runFactAction } from "./repo-cell-fact-action.ts";
@@ -466,6 +467,11 @@ export function declareExecutionExecutor(
         const document = cell.projection.readDocument(target).document;
         return document ? [document] : [];
       }),
+      completionContext: {
+        ...readCompletionContext(cell.projection, taskId, declaration.snapshot, current.status),
+        hasDispatchLineage:
+          readTaskLineageDispatches({ rootDir: cell.rootDir, projection: cell.projection, taskId }).length > 0,
+      },
     }),
     appended = cell.store.append(compiled),
     publication = cell.publicPublication(appended);
@@ -526,6 +532,11 @@ export function annotateExecution(
         const document = cell.projection.readDocument(target).document;
         return document ? [document] : [];
       }),
+      completionContext: {
+        ...readCompletionContext(cell.projection, taskId, annotation.snapshot, current.status),
+        hasDispatchLineage:
+          readTaskLineageDispatches({ rootDir: cell.rootDir, projection: cell.projection, taskId }).length > 0,
+      },
     }),
     appended = cell.store.append(compiled),
     publication = cell.publicPublication(appended);

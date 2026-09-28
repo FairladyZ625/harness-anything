@@ -2,7 +2,7 @@ export const closeoutReadinesses = ["not_required", "missing", "incomplete", "re
 
 export type CloseoutReadiness = (typeof closeoutReadinesses)[number];
 
-import { approvedReviewsForExecution, consentedApprovedReviewForExecution } from "./review.ts";
+import { consentedApprovedReviewForExecution, settledApprovedReviewsForExecution } from "./review.ts";
 import { isNativeExecution } from "./execution.ts";
 import type { ExecutionV1, ProjectedExecution, SubmissionV1 } from "./execution.ts";
 import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1 } from "./review.ts";
@@ -96,7 +96,7 @@ export function closeoutReadiness(
     gates.some(({ status }) => status === "unknown")
   )
     return { readiness: "incomplete", executionId: execution.executionId, blocker: "projection_unknown", gates };
-  const approved = approvedReviewsForExecution(snapshot.reviews, execution),
+  const approved = settledApprovedReviewsForExecution(snapshot.reviews, execution, snapshot.reviewDispositions ?? []),
     consented = consentedApprovedReviewForExecution(
       snapshot.reviews,
       snapshot.consents,

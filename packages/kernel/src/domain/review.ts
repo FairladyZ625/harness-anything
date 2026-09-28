@@ -196,10 +196,6 @@ export function approvedReviewHistoryForExecution(
   );
 }
 
-export function approvedReviewsForExecution(reviews: readonly ReviewV1[], execution: ExecutionV1): readonly ReviewV1[] {
-  return reviewsForExecution(reviews, execution).filter((review) => review.verdict === "approved");
-}
-
 export function reviewsForExecution(reviews: readonly ReviewV1[], execution: ExecutionV1): readonly ReviewV1[] {
   if (!execution.submission || !execution.submittedAt) return [];
   const pinned = submissionDigest(execution.submission),

@@ -47,6 +47,7 @@ export interface CompletionBlocker {
   readonly next: CompletionNext;
 }
 export interface CompletionReadinessContext {
+  /** `missing`: the task contract declares no closeout document (an older contract generation). */
   readonly closeout: "ready" | "placeholder" | "dirty_eligible" | "missing";
   readonly closeoutPath: string;
   readonly closeoutMissingSections?: readonly TransitionDocumentMissingSection[];
@@ -58,6 +59,8 @@ export interface CompletionReadinessContext {
   readonly invalidDocument?: { readonly path: string; readonly reason: string };
   readonly closeoutGates?: Readonly<Record<CloseoutGate, boolean>>;
   readonly closeoutContract?: MarkdownDocumentContract | null;
+  /** Whether declare-executor has a dispatch record it can replay as executor proof. */
+  readonly hasDispatchLineage?: boolean;
 }
 
 export function completionBlockers(
@@ -168,29 +171,52 @@ function evaluateCompletion(
       `ha task show ${task.taskId}`,
       `Owner must resolve the ${task.status} task before completion.`,
     );
+  if (context.closeout === "missing")
+    return one(
+      "document_invalid",
+      "closeout",
+      `ha task contract migrate --apply --task ${task.taskId}`,
+      "The task contract declares no closeout document; migrate the contract before continuing completion.",
+    );
+  if (task.status === "active" && execution?.state === "active" && snapshot.lease === null)
+    return one(
+      "not_in_review",
+      "lifecycle",
+      `ha task transition ${task.taskId} planned --reason <why-work-is-returning-to-planning>`,
+      "The execution lease was released; return the unowned round to planning before starting again.",
+    );
   if (!task || task.currentNode !== "review" || execution?.state !== "submitted" || !execution.submission)
     return one(
       "not_in_review",
       "lifecycle",
-      task.status === "active" && execution
-        ? `Fill harness/${context.closeoutPath} with the verified delivery, then submit execution ${executionId}.`
-        : `ha task start ${task.taskId}`,
+      task.status === "active" && execution ? `ha task submit ${task.taskId}` : `ha task start ${task.taskId}`,
       snapshot.lease
-        ? `Execution is held by ${snapshot.lease.actor.executor?.id ?? snapshot.lease.actor.principal.personId}.`
+        ? `Fill harness/${context.closeoutPath} with the verified delivery before submitting execution ${executionId}; ` +
+            `the execution is held by ${snapshot.lease.actor.executor?.id ?? snapshot.lease.actor.principal.personId}.`
         : "The current execution has not been submitted.",
     );
-  if (task.status === "active" && execution.actor.executor === null)
+  // The executor only matters for judging reviewer independence, so it is restored only while an
+  // independent review is still owed: the review gate applies and nobody has reviewed this cut yet
+  // (a recorded review already judged independence; an adverse one routes to the owner's return).
+  if (
+    task.status === "in_review" &&
+    execution.actor.executor === null &&
+    context.closeoutGates?.review !== false &&
+    reviewsForExecution(snapshot.reviews, execution).length === 0
+  )
     return one(
       "executor_missing",
       "lifecycle",
-      [
-        `ha task declare-executor ${task.taskId}`,
-        `--execution-id ${executionId}`,
-        "--reason <auditable-recovery-reason>",
-      ].join(" "),
-      "The submitted execution is already at review; restore its omitted executor instead of restarting it. " +
-        "declare-executor requires an existing dispatch record; without one, an independent reviewer " +
-        "(a different person or HARNESS_ACTOR=agent:<id>) must record the review.",
+      context.hasDispatchLineage === false
+        ? `ha task review-execution ${task.taskId} --execution-id ${executionId} --review-id <id> --from-file <review.json>`
+        : [
+            `ha task declare-executor ${task.taskId}`,
+            `--execution-id ${executionId}`,
+            "--reason <auditable-recovery-reason>",
+          ].join(" "),
+      context.hasDispatchLineage === false
+        ? "This execution has no dispatch record to declare; an independent reviewer must record the review."
+        : "The submitted execution is already at review; restore its omitted executor from its dispatch record.",
     );
   if (task.status === "submitted" && context.closeoutGates?.review !== false)
     return one(
@@ -356,6 +382,22 @@ export function taskCompletionNext(
       (cuts.length === 1 ? cuts[0]!.executionId : active.length === 1 ? active[0]!.executionId : null),
     blocker = completionBlockers(snapshot, executionId ?? "", context)[0] ?? null;
   return { executionId, next: blocker?.next ?? null, blocker };
+}
+
+/** The command a caller can execute now, including complete itself once no blocker remains. */
+export function taskCompletionAction(
+  snapshot: TaskLifecycleSnapshot,
+  context: CompletionReadinessContext,
+  requestedExecutionId?: string,
+): CompletionNext | null {
+  const judged = taskCompletionNext(snapshot, context, requestedExecutionId);
+  if (judged.next || snapshot.task?.status === "done") return judged.next;
+  return completionGuidance(
+    snapshot,
+    judged.executionId ?? "",
+    `ha task complete ${snapshot.task?.taskId ?? "<task-id>"}`,
+    "The completion chain has no remaining blocker.",
+  );
 }
 
 export function completionGuidance(
