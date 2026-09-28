@@ -23,16 +23,18 @@ export function readWorkspaceSummaryRows(db: DatabaseSync): WorkspaceSummary {
     activePackageTasks[row.status !== null && isDomainStatus(row.status) ? row.status : "unknown"] += row.count;
 
   const blockingRelations: Array<ReturnType<typeof readTaskRelationPage>["rows"][number]> = [];
-  let relationCursor: string | undefined;
-  do {
-    const page = readTaskRelationPage(db, {
-      relationType: "depends-on",
-      limit: 500,
-      ...(relationCursor ? { cursor: relationCursor } : {}),
-    });
-    blockingRelations.push(...page.rows);
-    relationCursor = page.page?.nextCursor ?? undefined;
-  } while (relationCursor !== undefined);
+  for (const relationType of ["depends-on", "awaits"] as const) {
+    let relationCursor: string | undefined;
+    do {
+      const page = readTaskRelationPage(db, {
+        relationType,
+        limit: 500,
+        ...(relationCursor ? { cursor: relationCursor } : {}),
+      });
+      blockingRelations.push(...page.rows);
+      relationCursor = page.page?.nextCursor ?? undefined;
+    } while (relationCursor !== undefined);
+  }
   const endpointIds = [
     ...new Set(
       blockingRelations.flatMap(({ sourceRef, targetRef }) =>

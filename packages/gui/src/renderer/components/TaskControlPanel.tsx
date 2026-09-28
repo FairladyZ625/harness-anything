@@ -114,8 +114,18 @@ export function TaskControlPanel({
           key={blocker.relationId}
           className="mt-1 rounded border border-status-blocked/20 px-2 py-1 font-mono ui-micro text-text-muted"
         >
-          {blocker.relationId} · {blocker.sourceTaskId} --{blocker.kind}→ {blocker.targetTaskId}
-          {blocker.rationale && <p className="mt-0.5 font-sans ui-micro">{blocker.rationale}</p>}
+          {blocker.kind === "awaits" ? (
+            <>
+              {blocker.relationId} ·{" "}
+              {t("components.taskControlPanel.awaitsBlocker", { personId: blocker.personId, askKind: blocker.askKind })}
+              <p className="mt-0.5 font-sans ui-micro">{blocker.question}</p>
+            </>
+          ) : (
+            <>
+              {blocker.relationId} · {blocker.sourceTaskId} --{blocker.kind}→ {blocker.targetTaskId}
+              {blocker.rationale && <p className="mt-0.5 font-sans ui-micro">{blocker.rationale}</p>}
+            </>
+          )}
         </div>
       ))}
       {reason && <p className="mt-2 ui-micro leading-relaxed text-text-muted">{reason}</p>}

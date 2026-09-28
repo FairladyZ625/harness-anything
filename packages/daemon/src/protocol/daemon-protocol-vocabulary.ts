@@ -62,7 +62,9 @@ export const relationTypeWords = [
   "owns",
   "dispatches",
   "authorizes",
+  "awaits",
 ] as const;
+export const awaitsAskKindWords = ["question", "acceptance", "consent", "reopen"] as const;
 export const relationStrengthWords = ["strong", "weak"] as const;
 export const relationDirectionWords = ["directed", "undirected"] as const;
 export const relationOriginWords = ["declared", "imported_snapshot", "generated", "inferred"] as const;

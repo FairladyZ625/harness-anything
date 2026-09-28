@@ -30,6 +30,37 @@ test("agenda result schema rejects mistyped pin state and misgrouped awaiting ro
       submittedAt: "2026-08-21T00:00:00.000Z",
       blockingAssessment: { taskId: "task-awaiting", state: "clear", label: "none", blockers: [], warnings: [] },
     },
+    awaits = {
+      relationId: "rel_0123456789abcdef",
+      relationRevision: 4,
+      sourceRef: "task/task-held",
+      title: "Held task",
+      status: "planned",
+      personId: "owner",
+      askKind: "acceptance",
+      question: "请亲自上手验收",
+      askedAt: "2026-09-28T00:00:00.000Z",
+    },
+    heldTask = {
+      ...task,
+      taskId: "task-held",
+      blockingAssessment: {
+        taskId: "task-held",
+        state: "blocked",
+        label: "relations",
+        blockers: [
+          {
+            relationId: "rel_0123456789abcdef",
+            kind: "awaits",
+            sourceTaskId: "task-held",
+            personId: "owner",
+            askKind: "acceptance",
+            question: "请亲自上手验收",
+          },
+        ],
+        warnings: [],
+      },
+    },
     decision = {
       decisionId: "dec-awaiting",
       title: "Awaiting decision",
@@ -44,12 +75,13 @@ test("agenda result schema rejects mistyped pin state and misgrouped awaiting ro
       status: "ready",
       pinnedEntities: [],
       pinnedEntityOverflow: 0,
+      awaitingYou: [awaits],
       inFlight: [],
       awaitingRework: [],
       awaitingAdjudication: [execution],
       underReview: [],
       awaitingDecision: [decision],
-      waitingOnOthers: [task],
+      waitingOnOthers: [task, heldTask],
       dispatchable: [],
       page: { sourceLimit: 100, cursor: null, nextCursor: null },
       watermark: 1,
@@ -79,4 +111,23 @@ test("agenda result schema rejects mistyped pin state and misgrouped awaiting ro
   const { awaitingRework: _omit, ...withoutRework } = agenda;
   assert.notDeepEqual(validateDaemonAgenda(withoutRework), []);
   assert.notDeepEqual(validateDaemonAgenda({ ...agenda, undeclaredGroup: [] }), []);
+  // awaitingYou rows carry a closed ask-kind and a task/decision source; the awaits blocker is its own shape.
+  const { awaitingYou: _omitAwaits, ...withoutAwaits } = agenda;
+  assert.notDeepEqual(validateDaemonAgenda(withoutAwaits), []);
+  assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingYou: [{ ...awaits, askKind: "ask" }] }), []);
+  assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingYou: [{ ...awaits, sourceRef: "fact/F-1" }] }), []);
+  assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingYou: [{ ...awaits, question: "" }] }), []);
+  const [awaitsBlocker] = heldTask.blockingAssessment.blockers;
+  for (const blocker of [
+    { ...awaitsBlocker, targetTaskId: "task-x" },
+    { ...awaitsBlocker, askKind: "later" },
+    { ...awaitsBlocker, kind: "depends-on" },
+  ])
+    assert.notDeepEqual(
+      validateDaemonAgenda({
+        ...agenda,
+        waitingOnOthers: [{ ...heldTask, blockingAssessment: { ...heldTask.blockingAssessment, blockers: [blocker] } }],
+      }),
+      [],
+    );
 });

@@ -541,6 +541,7 @@ const FIXTURE_AGENDA = {
     },
   ],
   underReview: [],
+  awaitingYou: [],
   awaitingDecision: [
     {
       decisionId: DECISION_B_ID,

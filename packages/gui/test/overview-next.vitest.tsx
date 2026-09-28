@@ -112,6 +112,7 @@ function agendaFixture(patch: Partial<AgendaSuccess> = {}): AgendaSuccess {
     status: "ready",
     pinnedEntities: [],
     pinnedEntityOverflow: 0,
+    awaitingYou: [],
     inFlight: [],
     awaitingAdjudication: [
       {
@@ -382,7 +383,13 @@ describe("overview next: attention region (G2)", () => {
     const loading = await mountOverviewNext({});
     expect(textOf(loading.container, "overview-next-attention")).toContain("正在读取议程");
     const empty = await mountOverviewNext({
-      agenda: agendaFixture({ awaitingRework: [], awaitingAdjudication: [], underReview: [], awaitingDecision: [] }),
+      agenda: agendaFixture({
+        awaitingYou: [],
+        awaitingRework: [],
+        awaitingAdjudication: [],
+        underReview: [],
+        awaitingDecision: [],
+      }),
     });
     expect(textOf(empty.container, "overview-next-attention")).toContain("没有需要你处理的事项");
     const failed = await mountOverviewNext({ agendaError: "socket closed" });
@@ -419,6 +426,59 @@ describe("overview next: attention region (G2)", () => {
       }),
     );
     expect(pinnedFirst![0].title).toBe("置顶返回");
+  });
+
+  it("lists awaits edges targeting you first, holding task sources and routing to the source entity", async () => {
+    const awaitingYou: AgendaSuccess["awaitingYou"] = [
+      {
+        relationId: "rel_task_ask",
+        relationRevision: 1,
+        sourceRef: "task/task_asking",
+        title: "等你答复的任务",
+        status: "active",
+        personId: "person_me",
+        askKind: "question",
+        question: "要不要切到新的读面?",
+        askedAt: "2026-09-20T11:00:00.000Z",
+      },
+      {
+        relationId: "rel_dec_ask",
+        relationRevision: 3,
+        sourceRef: "decision/dec_asking",
+        title: "等你同意的决策",
+        status: "proposed",
+        personId: "person_me",
+        askKind: "consent",
+        question: "同意按 CH2 收口吗?",
+        askedAt: "2026-09-20T11:00:00.000Z",
+      },
+    ];
+    const items = attentionItemsOf(agendaFixture({ awaitingYou }))!;
+    const task = items.find((item) => item.key === "awaits/rel_task_ask")!;
+    const decision = items.find((item) => item.key === "awaits/rel_dec_ask")!;
+    expect(task).toMatchObject({
+      group: "awaitingYou",
+      ref: "task/task_asking",
+      title: "等你答复的任务",
+      queuedAt: "2026-09-20T11:00:00.000Z",
+      pinned: false,
+      meta: "question: 要不要切到新的读面?",
+      blocking: true,
+    });
+    expect(decision).toMatchObject({ group: "awaitingYou", ref: "decision/dec_asking", blocking: false });
+    expect(decision.meta).toBe("consent: 同意按 CH2 收口吗?");
+    // task 源被 awaits 挂起:与其它阻塞行同列,排在非阻塞行之前(不按分组词表硬排)。
+    expect(items.indexOf(task)).toBeLessThan(items.findIndex((item) => !item.blocking));
+
+    const view = await mountOverviewNext({ agenda: agendaFixture({ awaitingYou }) });
+    const rows = textOf(view.container, "overview-next-attention-rows");
+    expect(rows).toContain("等你答复");
+    expect(rows.indexOf("等你答复")).toBeLessThan(rows.indexOf("评审返回"));
+    expect(rows).toContain("要不要切到新的读面?");
+    clickRow(view.container, "overview-next-attention-rows", "等你答复的任务");
+    expect(view.navigateEntity).toHaveBeenCalledWith("task/task_asking");
+    clickRow(view.container, "overview-next-attention-rows", "等你同意的决策");
+    expect(view.navigateEntity).toHaveBeenCalledWith("decision/dec_asking");
   });
 });
 

@@ -250,6 +250,7 @@ export { squadActionUsage } from "./squad-action-contract.ts";
 export {
   deriveRelationId,
   isAllowedRelationKindTriple,
+  parseAwaitsRequest,
   normalizeLegacyRelationState,
   relationDirections,
   relationOrigins,

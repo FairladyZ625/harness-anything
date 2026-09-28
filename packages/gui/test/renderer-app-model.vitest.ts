@@ -371,6 +371,14 @@ describe("renderer app model", () => {
                 targetTaskId: "task-upstream",
                 rationale: "wait",
               },
+              {
+                relationId: "rel_2",
+                kind: "awaits",
+                sourceTaskId: "task-active",
+                personId: "person-owner",
+                askKind: "acceptance",
+                question: "验收口径按 CH2 走吗?",
+              },
             ],
           },
         }),
@@ -378,6 +386,10 @@ describe("renderer app model", () => {
     );
     expect(blockedMarkup).toContain("Blocked 是 relation overlay");
     expect(blockedMarkup).toContain("rel_1");
+    // awaits blocker 讲清在等谁、问的是哪类事、问题原文,不冒充 task→task 边。
+    expect(blockedMarkup).toContain("等待 person/person-owner 答复（acceptance）");
+    expect(blockedMarkup).toContain("验收口径按 CH2 走吗?");
+    expect(blockedMarkup).not.toContain("undefined");
     expect(blockedMarkup).not.toContain("解除");
   });
 

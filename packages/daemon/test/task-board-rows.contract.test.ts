@@ -299,6 +299,7 @@ function projectionStub(): TaskProjection {
       rows: [dependsOnEdge].filter((edge) => sourceRefs.includes(edge.sourceRef)),
     }),
     readTaskRelationsByTargets: () => ({ ...cut, rows: [] }),
+    readTaskRelationsBySources: () => ({ ...cut, rows: [] }),
     readTaskStatuses: () => ({ ...cut, rows: statuses }),
     readDecisions: () => ({ ...cut, decisions: [] }),
   } as unknown as TaskProjection;

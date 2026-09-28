@@ -63,14 +63,24 @@ export interface GateResult {
 
 export type BlockingState = "blocked" | "clear" | "unknown";
 
-export interface BlockingContributor {
-  readonly relationId: string;
-  /** The only writable task→task blocking verb (canonical direction: source is blocked). */
-  readonly kind: "depends-on";
-  readonly sourceTaskId: string;
-  readonly targetTaskId: string;
-  readonly rationale?: string;
-}
+export type BlockingContributor =
+  | {
+      readonly relationId: string;
+      /** The only writable task→task blocking verb (canonical direction: source is blocked). */
+      readonly kind: "depends-on";
+      readonly sourceTaskId: string;
+      readonly targetTaskId: string;
+      readonly rationale?: string;
+    }
+  | {
+      /** active awaits 边:task 等 person 答复,边被带答复退役前一直挂起(dec_DF67F23066BAFE444190A191B5/CH3)。 */
+      readonly relationId: string;
+      readonly kind: "awaits";
+      readonly sourceTaskId: string;
+      readonly personId: string;
+      readonly askKind: "question" | "acceptance" | "consent" | "reopen";
+      readonly question: string;
+    };
 
 interface TaskRowFields {
   taskId: string;

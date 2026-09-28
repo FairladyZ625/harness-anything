@@ -740,7 +740,9 @@ export type DaemonTaskSnapshotListResult = {
   readonly ok: true;
   readonly status: "ready" | "pending";
   readonly rows: readonly (TaskProjectionListRow & {
-    readonly coordinationStatus: import("@harness-anything/kernel/internal/domain/lifecycle-status").DomainStatus | "unknown";
+    readonly coordinationStatus:
+      | import("@harness-anything/kernel/internal/domain/lifecycle-status").DomainStatus
+      | "unknown";
     readonly snapshotAvailability: {
       readonly consents: "known" | "unknown";
       readonly codeDocWitnesses: "known" | "unknown";
@@ -825,6 +827,22 @@ export interface AgendaDecisionRow {
   readonly urgency: "low" | "medium" | "high";
   readonly proposedAt: string;
 }
+/**
+ * 「等你处理」行:一条指向读者本人的 active awaits 边(dec_DF67F23066BAFE444190A191B5/CH2)。
+ * 答复 = `ha relation unrelate <relationId> --reason <答复> --expected-version <relationRevision>`。
+ */
+export interface AgendaAwaitsRow {
+  readonly relationId: string;
+  readonly relationRevision: number;
+  /** task/<id> 或 decision/<id>。 */
+  readonly sourceRef: string;
+  readonly title: string;
+  readonly status: string;
+  readonly personId: string;
+  readonly askKind: import("@harness-anything/kernel/internal/domain/task-blocking").AwaitsAskKind;
+  readonly question: string;
+  readonly askedAt: string;
+}
 export interface AgendaPinnedEntityRow {
   readonly ref: string;
   readonly kind: string;
@@ -840,6 +858,8 @@ export type DaemonAgendaResult = {
   readonly status: "ready" | "pending";
   readonly pinnedEntities: readonly AgendaPinnedEntityRow[];
   readonly pinnedEntityOverflow: number;
+  /** 等你处理:指向读者本人(读绑定的 principal)的 active awaits 边。 */
+  readonly awaitingYou: readonly AgendaAwaitsRow[];
   readonly inFlight: readonly AgendaTaskRow[];
   /** 评审打回、等使用者修:active 且最新 execution=changes_requested、无 lease、无 active execution。 */
   readonly awaitingRework: readonly AgendaTaskRow[];

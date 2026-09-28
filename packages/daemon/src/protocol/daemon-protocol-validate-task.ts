@@ -28,6 +28,7 @@ import {
   recordShapeError,
 } from "./daemon-protocol-validate-entities.ts";
 import {
+  awaitsAskKindWords,
   blockingLabelWords,
   packageDispositionWords,
   relationFreshnessWords,
@@ -269,15 +270,18 @@ export function blockingAssessment(value: unknown): boolean {
     !Array.isArray(value.blockers)
   )
     return false;
-  return value.blockers.every(
-    (blocker) =>
-      recordWith(blocker, ["relationId", "kind", "sourceTaskId", "targetTaskId"]) &&
-      Object.keys(blocker).every((key) =>
-        ["relationId", "kind", "sourceTaskId", "targetTaskId", "rationale"].includes(key),
-      ) &&
-      blocker.kind === "depends-on" &&
-      [blocker.relationId, blocker.sourceTaskId, blocker.targetTaskId].every(nonEmpty) &&
-      (blocker.rationale === undefined || nonEmpty(blocker.rationale)),
+  return value.blockers.every((blocker) =>
+    recordWith(blocker, ["kind"]) && blocker.kind === "awaits"
+      ? exactRecord(blocker, ["relationId", "kind", "sourceTaskId", "personId", "askKind", "question"]) &&
+        [blocker.relationId, blocker.sourceTaskId, blocker.personId, blocker.question].every(nonEmpty) &&
+        statusWord(awaitsAskKindWords, blocker.askKind)
+      : recordWith(blocker, ["relationId", "kind", "sourceTaskId", "targetTaskId"]) &&
+        Object.keys(blocker).every((key) =>
+          ["relationId", "kind", "sourceTaskId", "targetTaskId", "rationale"].includes(key),
+        ) &&
+        blocker.kind === "depends-on" &&
+        [blocker.relationId, blocker.sourceTaskId, blocker.targetTaskId].every(nonEmpty) &&
+        (blocker.rationale === undefined || nonEmpty(blocker.rationale)),
   );
 }
 

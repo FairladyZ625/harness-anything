@@ -19,6 +19,7 @@ import {
 } from "./daemon-protocol-validate-entities.ts";
 import { blockingAssessment, queryPageRow } from "./daemon-protocol-validate-task.ts";
 import {
+  awaitsAskKindWords,
   decisionCapabilityIdWords,
   decisionCapabilityReasonWords,
   decisionStateWords,
@@ -62,6 +63,28 @@ export function agendaDecisionRow(value: unknown): boolean {
     exactRecord(value, ["decisionId", "title", "riskTier", "urgency", "proposedAt"]) &&
     [value.decisionId, value.title, value.proposedAt].every(nonEmpty) &&
     [value.riskTier, value.urgency].every((item) => ["low", "medium", "high"].includes(String(item)))
+  );
+}
+
+export function agendaAwaitsRow(value: unknown): boolean {
+  return (
+    exactRecord(value, [
+      "relationId",
+      "relationRevision",
+      "sourceRef",
+      "title",
+      "status",
+      "personId",
+      "askKind",
+      "question",
+      "askedAt",
+    ]) &&
+    [value.relationId, value.sourceRef, value.title, value.status, value.personId, value.question, value.askedAt].every(
+      nonEmpty,
+    ) &&
+    integer(value.relationRevision) &&
+    /^(?:task|decision)\//u.test(String(value.sourceRef)) &&
+    statusWord(awaitsAskKindWords, value.askKind)
   );
 }
 
@@ -128,6 +151,7 @@ export function validateDaemonAgenda(value: unknown): readonly string[] {
       ];
   }
   for (const [field, row, idFields] of [
+    ["awaitingYou", agendaAwaitsRow, ["relationId"]],
     ["awaitingAdjudication", agendaExecutionRow, ["taskId"]],
     ["underReview", agendaExecutionRow, ["taskId"]],
     ["awaitingDecision", agendaDecisionRow, ["decisionId"]],

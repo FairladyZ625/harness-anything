@@ -1,8 +1,10 @@
 import { projectBaseEntityAtCut, requireEntityTypeContract, type BaseEntity } from "./base-entity.ts";
 import {
   assertGovernedRelationRecord,
+  awaitsAskKinds,
   deriveRelationId,
   isAllowedRelationKindTriple,
+  parseAwaitsRequest,
   relationStrengthForType,
   relationDirections,
   relationOrigins,
@@ -578,11 +580,24 @@ function replayCreatedEvent(
  * an already written edge unreplayable (governed-entity-design §5).
  */
 export function assertRelationAdmission(
-  record: Pick<EntityRelationRecord, "source" | "target" | "type">,
+  record: Pick<EntityRelationRecord, "source" | "target" | "type" | "rationale">,
   directions: readonly CanonicalRelationDirection[] = canonicalRelationDirections,
 ): void {
   const kinds = relationEndpointKinds(record);
-  if (isAllowedRelationKindTriple(kinds.source, record.type, kinds.target, directions)) return;
+  if (isAllowedRelationKindTriple(kinds.source, record.type, kinds.target, directions)) {
+    if (record.type === "awaits" && parseAwaitsRequest(record.rationale) === null)
+      throw Object.assign(new Error("An awaits Relation rationale must read <ask-kind>: <question>"), {
+        code: "relation_awaits_request_invalid",
+        diagnostic: {
+          kind: "validation",
+          entity: "relation",
+          field: "rationale",
+          actual: record.rationale,
+          expectation: `--rationale "<${awaitsAskKinds.join("|")}>: <what you are asking>"`,
+        },
+      });
+    return;
+  }
   const writable = directions.filter(({ registration }) => registration !== "derived"),
     reversed = writable.find(
       ({ sourceKind, type, targetKind }) =>
