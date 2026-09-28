@@ -39,8 +39,9 @@ export function dispatchRead<M extends RepoCellReadMethod>(
   handlers: DaemonGuiReadHandlers,
   method: M,
   payload: Readonly<Record<string, unknown>>,
+  binding?: RepoCellBinding,
 ): DaemonGuiReadResultMap[M] {
-  return handlers[method](payload);
+  return handlers[method](payload, binding);
 }
 
 function submittedExecutionWitness(

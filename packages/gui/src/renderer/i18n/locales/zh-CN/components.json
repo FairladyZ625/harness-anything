@@ -121,6 +121,7 @@
   "components.taskControlPanel.blockingUnresolved": "阻塞关系未能确定",
   "components.taskControlPanel.blockingNone": "当前投影无 active blocking relation",
   "components.taskControlPanel.blockerCount": "{count} 个 blocker",
+  "components.taskControlPanel.awaitsBlocker": "等待 person/{personId} 答复（{askKind}）",
   "components.taskControlPanel.readOnlyExternal": "external task 由来源 engine 管理；GUI 只读。",
   "components.taskControlPanel.readOnlyArchived": "archival 或非 active package 只读。",
   "components.taskControlPanel.readOnlyClosed": "该 task 的当前状态不接受 progress 与提交；控制区只读。",

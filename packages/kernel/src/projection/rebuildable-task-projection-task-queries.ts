@@ -12,6 +12,7 @@ import {
   readTaskIndexRows,
   readTaskRelationPage,
   readTaskRelationRows,
+  readTaskRelationsBySources,
   readTaskRelationsByTargets,
   readTaskRuntimeBatchPage,
   readTaskStatusRows,
@@ -129,6 +130,7 @@ export function taskQueryApi(
   | "readWorkspaceSummary"
   | "readTaskDependencyClosure"
   | "readTaskRelationsByTargets"
+  | "readTaskRelationsBySources"
   | "readTaskStatuses"
   | "readTaskExists"
   | "readTaskByIdempotencyKey"
@@ -223,6 +225,16 @@ export function taskQueryApi(
         return {
           status: cut.status,
           rows: readTaskRelationsByTargets(db, targetRefs, relationType),
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
+        };
+      }),
+    readTaskRelationsBySources: (sourceRefs, relationType) =>
+      withDatabase(projectionPath, readHead, (db) => {
+        const cut = readProjectionCut(db, readHead);
+        return {
+          status: cut.status,
+          rows: readTaskRelationsBySources(db, sourceRefs, relationType),
           watermark: cut.watermark,
           sourceRevision: cut.sourceRevision,
         };

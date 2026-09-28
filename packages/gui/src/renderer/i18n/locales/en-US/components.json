@@ -121,6 +121,7 @@
   "components.taskControlPanel.blockingUnresolved": "Blocking relations are undetermined.",
   "components.taskControlPanel.blockingNone": "No active blocking relation in the current projection.",
   "components.taskControlPanel.blockerCount": "{count} blocker(s)",
+  "components.taskControlPanel.awaitsBlocker": "awaiting person/{personId}'s answer ({askKind})",
   "components.taskControlPanel.readOnlyExternal": "External tasks are managed by the source engine; the GUI is read-only.",
   "components.taskControlPanel.readOnlyArchived": "Archived or non-active packages are read-only.",
   "components.taskControlPanel.readOnlyClosed": "This task's current state accepts neither progress nor submission; the control surface is read-only.",

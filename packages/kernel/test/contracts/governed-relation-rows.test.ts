@@ -81,7 +81,12 @@ test("an artifact entity is a relation endpoint for its declared triple only", (
       definition: decodedVertical(artifact({ relations: [relation()] })),
     }),
     artifactRef = `${artifactType}/ADR-0123456789abcdef0123456789abcdef`,
-    declared = { source: artifactRef, target: "decision/dec_29CCC98CD0241D0C9806AC1CF1", type: "relates" } as const;
+    declared = {
+      source: artifactRef,
+      target: "decision/dec_29CCC98CD0241D0C9806AC1CF1",
+      type: "relates",
+      rationale: "fixture",
+    } as const;
   assert.deepEqual(parseEntityRef(artifactRef), {
     raw: artifactRef,
     kind: artifactType,

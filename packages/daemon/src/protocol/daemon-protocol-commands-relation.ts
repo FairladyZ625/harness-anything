@@ -16,7 +16,12 @@ export const relationProtocolCommands = Object.freeze([
     id: "relation-relate",
     phase: "Governed-Entity-W1-D",
     path: ["relation", "relate"],
-    summary: "Create a first-class Relation aggregate under its revision fence.",
+    summary: [
+      "Create a first-class Relation aggregate under its revision fence. ",
+      "To ask a person for an answer, relate task/<id> or decision/<id> to person/<id> with --type awaits ",
+      '--rationale "<question|acceptance|consent|reopen>: <what you ask>"; it lists in their ha agenda ',
+      "等你处理 and holds the task out of the dispatch queue until answered — ask there, not in markdown or chat.",
+    ].join(""),
     method: "repo.task.run",
     inputs: [
       cliInput("--source-ref", "single", true, invalid()),
@@ -35,7 +40,9 @@ export const relationProtocolCommands = Object.freeze([
     id: "relation-unrelate",
     phase: "Governed-Entity-W1-D",
     path: ["relation", "unrelate", "<relation-id>"],
-    summary: "Retire a Relation aggregate under its revision fence.",
+    summary:
+      "Retire a Relation aggregate under its revision fence. Answering an awaits Relation retires it " +
+      "with the answer as --reason.",
     method: "repo.task.run",
     inputs: [cliInput("--reason", "single", true, invalid()), expectedVersion],
   }),

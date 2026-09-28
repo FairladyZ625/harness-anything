@@ -39,6 +39,7 @@ export const RELATION_VISUAL: Record<RelationKind, RelationVisual> = {
   owns: { dasharray: "2 3", strokeWidth: 1.2 },
   dispatches: { dasharray: undefined, strokeWidth: 1.4 },
   authorizes: { dasharray: "6 3", strokeWidth: 1.5 },
+  awaits: { dasharray: "2 3", strokeWidth: 1.6 },
 };
 
 /** 稳定顺序:按语义轴分组,便于筛选 UI 与图例。 */
@@ -63,6 +64,7 @@ export const RELATION_KIND_ORDER: ReadonlyArray<RelationKind> = [
   "owns",
   "dispatches",
   "authorizes",
+  "awaits",
 ];
 
 export function visualForKind(kind: RelationKind): RelationVisual {

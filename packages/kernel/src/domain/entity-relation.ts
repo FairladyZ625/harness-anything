@@ -27,6 +27,7 @@ export const relationTypes = [
   "owns",
   "dispatches",
   "authorizes",
+  "awaits",
 ] as const;
 
 export const relationStrengths = ["strong", "weak"] as const;
@@ -79,7 +80,26 @@ export function relationStrengthForType(type: RelationType): RelationStrength {
  * comparison — a changed target is exactly what makes those edges suspect.
  */
 export function relationFreshnessAnchorForType(type: RelationType): RelationFreshnessAnchor {
-  return type === "derives" ? "source" : type === "depends-on" ? "target-presence" : "target";
+  return type === "derives" ? "source" : type === "depends-on" || type === "awaits" ? "target-presence" : "target";
+}
+
+/**
+ * What an `awaits` edge asks of its target person (dec_DF67F23066BAFE444190A191B5/CH1). The ask
+ * rides in the rationale as `<ask-kind>: <question>` so the relation keeps its one record shape,
+ * event schema and projection columns; admission rejects any other rationale for this type.
+ */
+export const awaitsAskKinds = ["question", "acceptance", "consent", "reopen"] as const;
+export type AwaitsAskKind = (typeof awaitsAskKinds)[number];
+export interface AwaitsRequest {
+  readonly askKind: AwaitsAskKind;
+  readonly question: string;
+}
+
+export function parseAwaitsRequest(rationale: string): AwaitsRequest | null {
+  const match = /^([a-z]+):\s*(\S[\s\S]*)$/u.exec(rationale.trim());
+  return match && (awaitsAskKinds as readonly string[]).includes(match[1]!)
+    ? { askKind: match[1] as AwaitsAskKind, question: match[2]!.trim() }
+    : null;
 }
 
 function relationTripleKey(sourceKind: string, type: RelationType, targetKind: string): string {

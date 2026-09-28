@@ -218,6 +218,22 @@ export const canonicalRelationDirections: readonly CanonicalRelationDirection[] 
     reads: "the policy authorizes the target execution",
     registration: "ratified",
   },
+  // task/decision → person: the source waits on that person's answer (dec_DF67F23066BAFE444190A191B5/CH1).
+  // The rationale carries `<ask-kind>: <question>`; retiring the edge with the answer as reason closes it.
+  {
+    type: "awaits",
+    sourceKind: "task",
+    targetKind: "person",
+    reads: "the task awaits the target person's answer",
+    registration: "ratified",
+  },
+  {
+    type: "awaits",
+    sourceKind: "decision",
+    targetKind: "person",
+    reads: "the decision awaits the target person's answer",
+    registration: "ratified",
+  },
   ...entityTypeContracts.flatMap(({ kind }) => {
     const outgoing: CanonicalRelationDirection = {
         type: "relates",

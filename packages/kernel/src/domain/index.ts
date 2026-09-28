@@ -248,8 +248,10 @@ export type { RuntimeSessionActionDraft } from "./runtime-session-action-contrac
 export { squadActionUsage } from "./squad-action-contract.ts";
 
 export {
+  awaitsAskKinds,
   deriveRelationId,
   isAllowedRelationKindTriple,
+  parseAwaitsRequest,
   normalizeLegacyRelationState,
   relationDirections,
   relationOrigins,
@@ -271,6 +273,8 @@ export { compileEntityDocumentRematerialization } from "./entity-document-event.
 export type { EntityDocumentUpdate } from "./entity-document-event.ts";
 export { factLiveness } from "./fact-liveness.ts";
 export type {
+  AwaitsAskKind,
+  AwaitsRequest,
   EntityRelationValidationIssue,
   EntityRelationValidationIssueCode,
   RelationDirection,

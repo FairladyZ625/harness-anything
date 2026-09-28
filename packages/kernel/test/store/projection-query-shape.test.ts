@@ -26,6 +26,7 @@ import {
   readTaskDependencyClosureRows,
   readTaskIndexRows,
   readTaskRelationPage,
+  readTaskRelationsBySources,
   readTaskRelationsByTargets,
   readTaskStatusRows,
 } from "../../src/projection/task-query-projection.ts";
@@ -539,7 +540,9 @@ test("task context collection reads stay indexed, bounded, and constant in state
       closure = readTaskDependencyClosureRows(db, ["task/a"], 5),
       afterClosure = counted.executions(),
       derives = readTaskRelationsByTargets(db, ["task/a"], "derives"),
-      afterTargets = counted.executions();
+      afterTargets = counted.executions(),
+      dependsOn = readTaskRelationsBySources(db, ["task/b"], "depends-on"),
+      afterSources = counted.executions();
     assert.deepEqual(closure.map(({ relationId }) => relationId).sort(), ["rel_ab", "rel_ba", "rel_bc"]);
     assert.deepEqual(
       derives.map(({ relationId }) => relationId),
@@ -548,18 +551,29 @@ test("task context collection reads stay indexed, bounded, and constant in state
     // The first read on this connection also resolves its table set; the second reuses it.
     assert.equal(afterClosure - before, 3);
     assert.equal(afterTargets - afterClosure, 2);
+    assert.deepEqual(
+      dependsOn.map(({ relationId }) => relationId),
+      ["rel_ba", "rel_bc"],
+    );
+    assert.equal(afterSources - afterTargets, 2);
     assert.throws(() => readTaskDependencyClosureRows(db, ["task/a"], 1), /depth limit/u);
     const closureRead = counted.reads().find(({ sql }) => sql.includes("WITH RECURSIVE dependency_walk"))!,
-      targetRead = counted.reads().find(({ sql }) => sql.includes("requested_targets"))!;
+      [targetRead, sourceRead] = counted.reads().filter(({ sql }) => sql.includes("requested_refs"));
     const closurePlan = queryPlan(db, closureRead),
-      targetPlan = queryPlan(db, targetRead);
+      targetPlan = queryPlan(db, targetRead!),
+      sourcePlan = queryPlan(db, sourceRead!);
     context.diagnostic(`dependency closure plan: ${closurePlan}`);
     context.diagnostic(`relation targets plan: ${targetPlan}`);
     assert.match(closurePlan, /SEARCH task_relation USING INDEX task_relation_source/u);
     assert.match(closurePlan, /SEARCH relation_edge USING INDEX relation_edge_source/u);
     assert.match(targetPlan, /SEARCH task_relation USING INDEX task_relation_target/u);
     assert.match(targetPlan, /SEARCH relation_edge USING INDEX relation_edge_target/u);
-    assert.doesNotMatch(`${closurePlan}\n${targetPlan}`, /SCAN (?:task_relation|relation_edge)(?:\s|$)/u);
+    assert.match(sourcePlan, /SEARCH task_relation USING INDEX task_relation_source/u);
+    assert.match(sourcePlan, /SEARCH relation_edge USING INDEX relation_edge_source/u);
+    assert.doesNotMatch(
+      `${closurePlan}\n${targetPlan}\n${sourcePlan}`,
+      /SCAN (?:task_relation|relation_edge)(?:\s|$)/u,
+    );
   } finally {
     db.close();
   }
@@ -667,6 +681,42 @@ test("a projection connection prepares each statement once and reads its table s
     assert.equal(prepared.length, 4, prepared.join("\n"));
     assert.equal(new Set(prepared).size, prepared.length);
     assert.equal(counted.reads().filter(({ sql }) => sql.includes("sqlite_master")).length, 1);
+  } finally {
+    db.close();
+  }
+});
+
+test("a person ref is witnessed by the people roster document it lives in", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(
+      "CREATE TABLE document (path TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, value_json TEXT NOT NULL)",
+    );
+    const refs = ["person/person_owner", "person/person_missing"];
+    assert.deepEqual(
+      refs.map((ref) => readEntityVersionWitnesses(db, refs).get(ref)?.freshness),
+      ["unknown", "unknown"],
+      "without a roster no person exists",
+    );
+    const body = [
+      "schema: harness-people/v1",
+      "people:",
+      "  - personId: person_owner",
+      "    displayName: Owner",
+      "    roles: [owner]",
+      "roles:",
+      "  - roleId: owner",
+      "    commandClasses: [admin]",
+      "",
+    ].join("\n");
+    runSql(db, "INSERT INTO document VALUES ('people.yaml', 9, ?)", JSON.stringify({ path: "people.yaml", body }));
+    const witnesses = readEntityVersionWitnesses(db, refs);
+    assert.deepEqual(witnesses.get("person/person_owner"), {
+      entityRef: "person/person_owner",
+      freshness: "current",
+      currentVersion: 9,
+    });
+    assert.equal(witnesses.get("person/person_missing")?.currentVersion, null);
   } finally {
     db.close();
   }

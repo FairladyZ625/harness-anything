@@ -7,6 +7,7 @@ import {
   closeoutReadiness,
   deriveRelationId,
   freshnessReasonOf,
+  parseAwaitsRequest,
   relationIsCurrent,
   taskBoardPlacement,
   taskCapabilities,
@@ -30,6 +31,7 @@ import {
 import { readDispatchStreamHeaders, type DispatchStreamHeader } from "./dispatch-stream.ts";
 import {
   isolateDaemonTaskSnapshotRows,
+  type AgendaAwaitsRow,
   type AgendaDecisionRow,
   type AgendaExecutionRow,
   type AgendaPinnedEntityRow,
@@ -54,11 +56,17 @@ import {
  * the canonical kernel definitions directly.
  */
 export interface TaskQueryReadModel {
-  readonly agenda: (query?: { readonly limit?: number; readonly cursor?: string }) => DaemonAgendaResult;
+  readonly agenda: (query?: AgendaQuery) => DaemonAgendaResult;
   readonly relationGraphNeighborhood: (query: TaskRelationNeighborhoodQuery) => DaemonRelationGraphFullResult;
   readonly relationGraphFacet: (query: DaemonRelationGraphFacetPayload) => DaemonRelationGraphFacetResult;
   readonly relationGraphPage: (query: TaskRelationQuery) => DaemonRelationGraphFullResult;
   readonly guiTasks: (query?: TaskProjectionListQuery) => DaemonTaskSnapshotListResult;
+}
+/** `principalId` is the reader's person; the daemon fills it from the read binding, never from the payload. */
+export interface AgendaQuery {
+  readonly limit?: number;
+  readonly cursor?: string;
+  readonly principalId?: string;
 }
 export interface TaskQueryJudgments {
   readonly closeout: typeof closeoutReadiness;
@@ -172,7 +180,8 @@ export function makeTaskQueryReadModel(input: {
     const taskRefs = taskIds.map((taskId) => `task/${taskId}`),
       dependencies = projection.readTaskDependencyClosure(taskRefs),
       derives = projection.readTaskRelationsByTargets(taskRefs, "derives"),
-      edges = [...dependencies.rows, ...derives.rows],
+      awaits = projection.readTaskRelationsBySources(taskRefs, "awaits"),
+      edges = [...dependencies.rows, ...derives.rows, ...awaits.rows],
       relatedTaskIds = [
         ...new Set([
           ...taskIds,
@@ -182,7 +191,8 @@ export function makeTaskQueryReadModel(input: {
         ]),
       ],
       taskStatuses = projection.readTaskStatuses(relatedTaskIds),
-      hardWarnings = [...relationFacetWarnings(dependencies.status), ...relationFacetWarnings(derives.status)]
+      hardWarnings = [dependencies, derives, awaits]
+        .flatMap(({ status }) => relationFacetWarnings(status))
         .filter(({ severity }) => severity === "hard-fail")
         .map(({ message }) => message),
       blockingTasks = taskStatuses.rows.flatMap((row) =>
@@ -191,6 +201,7 @@ export function makeTaskQueryReadModel(input: {
     return {
       dependencies,
       derives,
+      awaits,
       taskStatuses,
       edges,
       blockingByTaskId: new Map(
@@ -203,7 +214,7 @@ export function makeTaskQueryReadModel(input: {
   }
   function guiTasks(query: TaskProjectionListQuery = {}): DaemonTaskSnapshotListResult {
     const lifecycle = projection.list({ ...query, limit: query.limit ?? 500 }),
-      { dependencies, derives, taskStatuses, blockingByTaskId } = readBlockingAssessments(
+      { dependencies, derives, awaits, taskStatuses, blockingByTaskId } = readBlockingAssessments(
         lifecycle.rows.map(({ taskId }) => taskId),
       ),
       decisionIds = [
@@ -214,6 +225,7 @@ export function makeTaskQueryReadModel(input: {
         lifecycle,
         dependencies,
         derives,
+        awaits,
         taskStatuses,
         decisionRead,
       ]),
@@ -342,10 +354,10 @@ export function makeTaskQueryReadModel(input: {
         },
       })),
       warnings: lifecycle.warnings,
-      reads: [lifecycle, graph.dependencies, graph.derives, graph.taskStatuses],
+      reads: [lifecycle, graph.dependencies, graph.derives, graph.awaits, graph.taskStatuses],
     };
   }
-  function agenda(query: { readonly limit?: number; readonly cursor?: string } = {}): DaemonAgendaResult {
+  function agenda(query: AgendaQuery = {}): DaemonAgendaResult {
     const sourceLimit = query.limit ?? 100,
       cursor = query.cursor === undefined ? null : decodeAgendaCursor(query.cursor),
       readTaskPage = (status: "active" | "submitted" | "blocked" | "planned" | "in_review", key: AgendaCursorKey) =>
@@ -363,6 +375,17 @@ export function makeTaskQueryReadModel(input: {
               limit: sourceLimit,
               ...(cursor?.decisions ? { cursor: cursor.decisions } : {}),
             }),
+      // 「等你处理」只收指向读者本人的 active awaits 边(dec_DF67F23066BAFE444190A191B5/CH2)。
+      awaits =
+        cursor?.awaitingYou === null || query.principalId === undefined
+          ? null
+          : projection.readRelationQuery({
+              target: `person/${query.principalId}`,
+              relationType: "awaits",
+              state: "active",
+              limit: sourceLimit,
+              ...(cursor?.awaitingYou ? { cursor: cursor.awaitingYou } : {}),
+            }),
       reads = [
         ...(active?.reads ?? []),
         ...(blocked?.reads ?? []),
@@ -370,6 +393,7 @@ export function makeTaskQueryReadModel(input: {
         ...(submitted?.reads ?? []),
         ...(inReview?.reads ?? []),
         ...(decisions === null ? [] : [decisions]),
+        ...(awaits === null ? [] : [awaits]),
       ],
       inFlight = (active?.rows ?? [])
         .filter((row) => row.snapshot.lease !== null || row.snapshot.executions.some(({ state }) => state === "active"))
@@ -411,6 +435,24 @@ export function makeTaskQueryReadModel(input: {
           proposedAt: decision.proposedAt,
         }))
         .sort((left, right) => left.decisionId.localeCompare(right.decisionId)),
+      awaitingYou: AgendaAwaitsRow[] = (awaits?.rows ?? []).filter(relationIsCurrent).flatMap((edge) => {
+        const request = parseAwaitsRequest(edge.rationale),
+          relation = projection.readRelationEdge(edge.relationId);
+        if (request === null || relation === null) return [];
+        const source = resolveEntitySummary(edge.sourceRef);
+        return [
+          {
+            relationId: edge.relationId,
+            relationRevision: relation.workspaceRevision,
+            sourceRef: edge.sourceRef,
+            title: source.title,
+            status: source.status,
+            personId: edge.targetRef.slice("person/".length),
+            ...request,
+            askedAt: relation.entity.createdAt,
+          },
+        ];
+      }),
       allPinnedEntities = readPinnedEntities().map(resolvePinnedEntity),
       pinnedEntities = allPinnedEntities.slice(0, sourceLimit),
       pinnedEntityOverflow = Math.max(0, allPinnedEntities.length - pinnedEntities.length),
@@ -421,6 +463,7 @@ export function makeTaskQueryReadModel(input: {
         submitted: submitted?.page?.nextCursor ?? null,
         inReview: inReview?.page?.nextCursor ?? null,
         decisions: decisions?.page.nextCursor ?? null,
+        awaitingYou: awaits?.page?.nextCursor ?? null,
       },
       nextCursor = Object.values(nextState).some((value) => value !== null) ? encodeAgendaCursor(nextState) : null,
       cut = requireSameProjectionCut(
@@ -443,6 +486,7 @@ export function makeTaskQueryReadModel(input: {
       ...cut,
       pinnedEntities,
       pinnedEntityOverflow,
+      awaitingYou,
       inFlight,
       awaitingRework,
       awaitingAdjudication,
@@ -455,6 +499,7 @@ export function makeTaskQueryReadModel(input: {
       summary: renderAgendaSummary({
         pinnedEntities,
         pinnedEntityOverflow,
+        awaitingYou,
         inFlight,
         awaitingRework,
         awaitingAdjudication,
@@ -466,37 +511,30 @@ export function makeTaskQueryReadModel(input: {
     };
   }
   function resolvePinnedEntity(row: ReturnType<TaskProjection["listPinnedEntities"]>[number]): AgendaPinnedEntityRow {
-    const parsed = /^([^/]+)\/(.+)$/u.exec(row.entityRef),
+    return { ref: row.entityRef, ...resolveEntitySummary(row.entityRef), pinnedAt: row.pinnedAt };
+  }
+  function resolveEntitySummary(ref: string): {
+    readonly kind: string;
+    readonly title: string;
+    readonly status: string;
+  } {
+    const parsed = /^([^/]+)\/(.+)$/u.exec(ref),
       kind = parsed?.[1] ?? "entity",
-      id = parsed?.[2] ?? row.entityRef;
+      id = parsed?.[2] ?? ref;
     if (kind === "task") {
       const task = projection.read(id).snapshot.task;
-      return {
-        ref: row.entityRef,
-        kind,
-        title: task?.title ?? id,
-        status: task?.status ?? "unknown",
-        pinnedAt: row.pinnedAt,
-      };
+      return { kind, title: task?.title ?? id, status: task?.status ?? "unknown" };
     }
     if (kind === "decision") {
       const decision = projection.readDecision(id).decision;
-      return {
-        ref: row.entityRef,
-        kind,
-        title: decision?.title ?? id,
-        status: decision?.state ?? "unknown",
-        pinnedAt: row.pinnedAt,
-      };
+      return { kind, title: decision?.title ?? id, status: decision?.state ?? "unknown" };
     }
     const entity = projection.getEntity(kind, id),
       value = entity?.value;
     return {
-      ref: row.entityRef,
       kind,
       title: typeof value?.title === "string" ? value.title : id,
       status: typeof value?.state === "string" ? value.state : (entity?.freshness ?? "current"),
-      pinnedAt: row.pinnedAt,
     };
   }
   /**
@@ -702,7 +740,7 @@ type AgendaSourcePage = {
   readonly reads: readonly ProjectionCut[];
 };
 type AgendaCursorKey = "active" | "blocked" | "planned" | "submitted" | "inReview";
-type AgendaCursor = Readonly<Record<AgendaCursorKey | "decisions", string | null>>;
+type AgendaCursor = Readonly<Record<AgendaCursorKey | "decisions" | "awaitingYou", string | null>>;
 function agendaTaskRow(row: AgendaSourceRow): AgendaTaskRow {
   const task = row.snapshot.task!;
   return {
@@ -759,7 +797,7 @@ function decodeAgendaCursor(value: string): AgendaCursor {
   } catch {
     throw new Error("agenda cursor is invalid");
   }
-  const keys = ["active", "blocked", "planned", "submitted", "inReview", "decisions"] as const;
+  const keys = ["active", "blocked", "planned", "submitted", "inReview", "decisions", "awaitingYou"] as const;
   if (
     parsed === null ||
     typeof parsed !== "object" ||
@@ -783,6 +821,7 @@ function renderAgendaSummary(
     DaemonAgendaResult,
     | "pinnedEntities"
     | "pinnedEntityOverflow"
+    | "awaitingYou"
     | "inFlight"
     | "awaitingRework"
     | "awaitingAdjudication"
@@ -793,7 +832,14 @@ function renderAgendaSummary(
   >,
 ): string {
   const taskLine = (row: AgendaTaskRow) =>
-      `- ${row.pinned ? "📌 " : ""}${row.taskId} ${row.title}${row.blockingAssessment.blockers.length ? `（阻塞: ${row.blockingAssessment.blockers.map(({ targetTaskId }) => targetTaskId).join(", ")}）` : ""}`,
+      `- ${row.pinned ? "📌 " : ""}${row.taskId} ${row.title}${row.blockingAssessment.blockers.length ? `（阻塞: ${row.blockingAssessment.blockers.map(blockerText).join(", ")}）` : ""}`,
+    blockerText = (blocker: AgendaTaskRow["blockingAssessment"]["blockers"][number]) =>
+      blocker.kind === "awaits"
+        ? `等 ${blocker.personId} ${blocker.askKind}: ${blocker.question}`
+        : blocker.targetTaskId,
+    awaitsLine = (row: AgendaAwaitsRow) =>
+      `- [${row.askKind}] ${row.sourceRef} ${row.title} [${row.status}] — ${row.question}\n` +
+      `  答复: ha relation unrelate ${row.relationId} --reason "<答复>" --expected-version ${row.relationRevision}`,
     executionLine = (row: AgendaExecutionRow) =>
       `- ${row.pinned ? "📌 " : ""}execution ${row.executionId} / ${row.taskId} ${row.title}`,
     decisionLine = (row: AgendaDecisionRow) => `- decision ${row.decisionId} ${row.title}`,
@@ -812,6 +858,16 @@ function renderAgendaSummary(
       ],
       groups.pinnedEntities.length + groups.pinnedEntityOverflow,
     ),
+    section(
+      "等你处理",
+      "指向你的 active awaits 边（question/acceptance/consent/reopen）；答复即 retire 该边，答复内容写进 --reason",
+      groups.awaitingYou.map(awaitsLine),
+    ),
+    section(
+      "待裁 Decision",
+      "proposed decision；下一步 ha decision accept|reject|defer",
+      groups.awaitingDecision.map(decisionLine),
+    ),
     section("在飞线", "status=active 且（有 lease 或有 active execution）；只需等", groups.inFlight.map(taskLine)),
     section(
       "等我修",
@@ -829,11 +885,10 @@ function renderAgendaSummary(
       groups.underReview.map(executionLine),
     ),
     section(
-      "待裁 Decision",
-      "proposed decision；下一步 ha decision accept|reject|defer",
-      groups.awaitingDecision.map(decisionLine),
+      "球在别人手里",
+      "status=blocked 或 blocking 非 clear（含 active awaits）；只需等",
+      groups.waitingOnOthers.map(taskLine),
     ),
-    section("球在别人手里", "status=blocked 或 blocking 非 clear；只需等", groups.waitingOnOthers.map(taskLine)),
     section("可派队列", "status=planned 且 blocking=clear；下一步 ha runtime run", groups.dispatchable.map(taskLine)),
   ].join("\n\n");
 }

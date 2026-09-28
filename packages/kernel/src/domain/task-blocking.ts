@@ -1,4 +1,11 @@
-import { relationConsumability, relationIsCurrent, type RelationStrength } from "./entity-relation.ts";
+import {
+  parseAwaitsRequest,
+  relationConsumability,
+  relationIsCurrent,
+  type AwaitsAskKind,
+  type RelationStrength,
+} from "./entity-relation.ts";
+export type { AwaitsAskKind } from "./entity-relation.ts";
 import type { RelationFreshness } from "./entity-freshness.ts";
 
 export interface BlockingTask {
@@ -16,13 +23,23 @@ export interface BlockingRelation {
   readonly freshness: RelationFreshness;
   readonly rationale?: string;
 }
-export interface BlockingContributor {
-  readonly relationId: string;
-  readonly kind: "depends-on";
-  readonly sourceTaskId: string;
-  readonly targetTaskId: string;
-  readonly rationale?: string;
-}
+export type BlockingContributor =
+  | {
+      readonly relationId: string;
+      readonly kind: "depends-on";
+      readonly sourceTaskId: string;
+      readonly targetTaskId: string;
+      readonly rationale?: string;
+    }
+  | {
+      /** An active `awaits` edge: the task holds until the person answers (dec_DF67F23066BAFE444190A191B5/CH3). */
+      readonly relationId: string;
+      readonly kind: "awaits";
+      readonly sourceTaskId: string;
+      readonly personId: string;
+      readonly askKind: AwaitsAskKind;
+      readonly question: string;
+    };
 export type BlockingAssessmentState = "blocked" | "clear" | "unknown";
 export type BlockingAvailabilityState = "ready" | "loading" | "error";
 export const blockingLabels = ["relations", "cycle", "unresolved", "none"] as const;
@@ -39,7 +56,10 @@ export interface BlockingProjectionState {
   readonly hardFailWarnings?: readonly string[];
 }
 
-/** Canonical direction: `A depends-on B` blocks A until B is done. */
+/**
+ * Canonical direction: `A depends-on B` blocks A until B is done; `A awaits person/P` blocks A until
+ * the edge is retired with P's answer.
+ */
 export function blockingOf(
   tasks: readonly BlockingTask[],
   relations: readonly BlockingRelation[],
@@ -62,6 +82,27 @@ export function blockingOf(
             ? "relation query loading"
             : (projection.hardFailWarnings?.[0] ?? "relation projection hard-fail warning"),
       );
+  for (const edge of relations.filter(({ relationType }) => relationType === "awaits")) {
+    const sourceId = taskId(edge.sourceRef),
+      personId = /^person\/([^/]+)$/u.exec(edge.targetRef)?.[1],
+      request = parseAwaitsRequest(edge.rationale ?? "");
+    if (!sourceId || !taskById.has(sourceId) || edge.state === "retired") continue;
+    if (!relationIsCurrent(edge)) {
+      add(warnings, sourceId, `awaits relation ${edge.relationId} is ${edge.freshness}`);
+      continue;
+    }
+    if (!personId || !request || edge.direction !== "directed") {
+      add(warnings, sourceId, `invalid awaits relation ${edge.relationId}`);
+      continue;
+    }
+    add(blockers, sourceId, {
+      relationId: edge.relationId,
+      kind: "awaits",
+      sourceTaskId: sourceId,
+      personId,
+      ...request,
+    });
+  }
   for (const edge of relations.filter(({ relationType }) => relationType === "depends-on")) {
     if (edge.state === "retired") continue;
     const sourceId = taskId(edge.sourceRef),

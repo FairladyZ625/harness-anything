@@ -81,6 +81,7 @@ const RELATION_KIND_KEYS: Readonly<Record<string, MessageKey>> = {
   owns: "views.workspace.relation.owns",
   dispatches: "views.workspace.relation.dispatches",
   authorizes: "views.workspace.relation.authorizes",
+  awaits: "views.workspace.relation.awaits",
 };
 
 /** 实体引用前缀 → 文案 key(内建五类 + execution / runtime-session 两类执行面实体)。 */

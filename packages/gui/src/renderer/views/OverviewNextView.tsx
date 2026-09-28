@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowsClockwise,
+  ChatCircleDots,
   CheckCircle,
   Clock,
   Flag,
@@ -251,6 +252,7 @@ function OverviewNextHeader({
 }
 
 const ATTENTION_GROUP_LABEL: Record<AttentionGroup, () => string> = {
+  awaitingYou: () => t("views.overviewNext.attentionGroup.awaitingYou"),
   reviewReturned: () => t("views.overviewNext.attentionGroup.reviewReturned"),
   initialReview: () => t("views.overviewNext.attentionGroup.initialReview"),
   underReview: () => t("views.overviewNext.attentionGroup.underReview"),
@@ -258,6 +260,7 @@ const ATTENTION_GROUP_LABEL: Record<AttentionGroup, () => string> = {
 };
 
 const ATTENTION_GROUP_ICON: Record<AttentionGroup, React.ReactNode> = {
+  awaitingYou: <ChatCircleDots weight="bold" aria-hidden />,
   reviewReturned: <ArrowsClockwise weight="bold" aria-hidden />,
   initialReview: <SignIn weight="bold" aria-hidden />,
   underReview: <MagnifyingGlassPlus weight="bold" aria-hidden />,
@@ -346,7 +349,11 @@ function AttentionRow({ item, onNavigateEntity }: { item: AttentionItem; onNavig
       {item.blocking ? <Flag weight="bold" className="shrink-0 text-status-blocked" aria-hidden /> : null}
       <span className="min-w-0 flex-1">
         <span className="block truncate ui-body text-text">{item.title}</span>
-        {item.meta ? <span className="block truncate font-mono ui-micro text-text-faint">{item.meta}</span> : null}
+        {item.meta ? (
+          <span className="block truncate font-mono ui-micro text-text-faint" title={item.meta}>
+            {item.meta}
+          </span>
+        ) : null}
       </span>
       <span className="shrink-0 font-mono ui-micro text-text-faint">{timeOf(item.queuedAt)}</span>
     </button>

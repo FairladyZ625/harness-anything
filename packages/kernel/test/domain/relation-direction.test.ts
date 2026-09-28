@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { assertRelationAdmission } from "../../src/domain/relation-event.ts";
-import { isAllowedRelationKindTriple, relationTypes } from "../../src/domain/entity-relation.ts";
+import { isAllowedRelationKindTriple, parseAwaitsRequest, relationTypes } from "../../src/domain/entity-relation.ts";
 import {
   canonicalRelationDirections,
   declaredRelationTriples,
@@ -124,6 +124,29 @@ test("Phase 1 relation directions are registered and owns remains derived-only",
   assert.equal(isAllowedRelationKindTriple("agent", "dispatches", "runtime-session"), true);
   assert.equal(isAllowedRelationKindTriple("policy", "authorizes", "execution"), true);
   assert.equal(canonicalRelationDirections.find((row) => row.type === "owns")?.registration, "derived");
+  assert.equal(isAllowedRelationKindTriple("task", "awaits", "person"), true);
+  assert.equal(isAllowedRelationKindTriple("decision", "awaits", "person"), true);
+  assert.equal(isAllowedRelationKindTriple("fact", "awaits", "person"), false);
+  assert.equal(isAllowedRelationKindTriple("person", "awaits", "task"), false);
+});
+
+test("an awaits Relation is admitted only with an <ask-kind>: <question> rationale", () => {
+  const record = { source: "task/task-source", target: "person/person_owner", type: "awaits" } as const;
+  for (const rationale of [
+    "question: 要不要重开 X?",
+    "acceptance:请亲自上手验收总览页",
+    "consent: 同意把 A 拆成两步",
+    "reopen: 已关闭的 Y 是否重开",
+  ])
+    assert.doesNotThrow(() => assertRelationAdmission({ ...record, rationale }), rationale);
+  for (const rationale of ["要不要重开 X?", "ask: 要不要重开 X?", "question:", "question:   ", "Question: X"])
+    assert.throws(
+      () => assertRelationAdmission({ ...record, rationale }),
+      (error: unknown) => (error as { code: string }).code === "relation_awaits_request_invalid",
+      rationale,
+    );
+  assert.deepEqual(parseAwaitsRequest("  acceptance:  上手验收  "), { askKind: "acceptance", question: "上手验收" });
+  assert.equal(parseAwaitsRequest("depends on B"), null);
 });
 
 test("Relation is a first-class endpoint without changing existing verb meanings", () => {
@@ -136,7 +159,7 @@ test("Relation is a first-class endpoint without changing existing verb meanings
 });
 
 test("undeclared admission lists only writable rows from the supplied registry", () => {
-  const record = { source: "task/task-source", target: "fact/F-target", type: "derives" } as const;
+  const record = { source: "task/task-source", target: "fact/F-target", type: "derives", rationale: "x" } as const;
   for (const directions of [canonicalRelationDirections, []]) {
     assert.throws(
       () => assertRelationAdmission(record, directions),
@@ -152,6 +175,7 @@ test("undeclared admission lists only writable rows from the supplied registry",
                 { sourceKind: "task", type: "relates", targetKind: "task" },
                 { sourceKind: "task", type: "produces", targetKind: "fact" },
                 { sourceKind: "task", type: "evidences", targetKind: "fact" },
+                { sourceKind: "task", type: "awaits", targetKind: "person" },
                 { sourceKind: "task", type: "relates", targetKind: "relation" },
               ]
             : [],

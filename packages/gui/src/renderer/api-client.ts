@@ -4,6 +4,7 @@ import type {
   AgendaTaskRow,
   AgendaExecutionRow,
   AgendaDecisionRow,
+  AgendaAwaitsRow,
   ContractVersion,
   FactAnchorRow,
   RelationFactRow,
@@ -82,14 +83,15 @@ export interface RelationGraphSuccess {
 
 /**
  * `repo.agenda.read` 的有界一页。全部分组只做透传:分组判定与组内 pin 置顶都在
- * daemon 投影里完成,renderer 不重推任何「在飞/待派审/评审中/待裁/等我修/球在别人
- * 手里/可派」判据。
+ * daemon 投影里完成,renderer 不重推任何「等你答复/在飞/待派审/评审中/待裁/等我修/
+ * 球在别人手里/可派」判据。
  */
 export interface AgendaSuccess
   extends Pick<
     AgendaRead,
     | "pinnedEntities"
     | "pinnedEntityOverflow"
+    | "awaitingYou"
     | "inFlight"
     | "awaitingRework"
     | "awaitingAdjudication"
@@ -595,6 +597,8 @@ function readAgendaResult(value: unknown): AgendaSuccess {
     !Array.isArray(result.pinnedEntities) ||
     !Number.isSafeInteger(result.pinnedEntityOverflow) ||
     !result.inFlight.every(isAgendaTaskRow) ||
+    !Array.isArray(result.awaitingYou) ||
+    !result.awaitingYou.every(isAgendaAwaitsRow) ||
     !Array.isArray(result.awaitingRework) ||
     !result.awaitingRework.every(isAgendaTaskRow) ||
     !Array.isArray(result.awaitingAdjudication) ||
@@ -655,6 +659,21 @@ function isAgendaDecisionRow(value: unknown): value is AgendaDecisionRow {
     ["low", "medium", "high"].includes(String(value.riskTier)) &&
     ["low", "medium", "high"].includes(String(value.urgency)) &&
     typeof value.proposedAt === "string"
+  );
+}
+
+function isAgendaAwaitsRow(value: unknown): value is AgendaAwaitsRow {
+  return (
+    isRendererRecord(value) &&
+    typeof value.relationId === "string" &&
+    Number.isSafeInteger(value.relationRevision) &&
+    typeof value.sourceRef === "string" &&
+    typeof value.title === "string" &&
+    typeof value.status === "string" &&
+    typeof value.personId === "string" &&
+    ["question", "acceptance", "consent", "reopen"].includes(String(value.askKind)) &&
+    typeof value.question === "string" &&
+    typeof value.askedAt === "string"
   );
 }
 

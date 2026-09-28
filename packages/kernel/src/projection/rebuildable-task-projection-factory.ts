@@ -215,6 +215,7 @@ export function makeTaskProjectionReader(options: {
       readTaskRelationNeighborhood: taskQueries.readTaskRelationNeighborhood,
       readTaskDependencyClosure: taskQueries.readTaskDependencyClosure,
       readTaskRelationsByTargets: taskQueries.readTaskRelationsByTargets,
+      readTaskRelationsBySources: taskQueries.readTaskRelationsBySources,
       readTaskStatuses: taskQueries.readTaskStatuses,
       readTaskExists: taskQueries.readTaskExists,
       readTaskByIdempotencyKey: taskQueries.readTaskByIdempotencyKey,

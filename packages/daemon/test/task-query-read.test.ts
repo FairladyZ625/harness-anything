@@ -20,7 +20,7 @@ import {
 import { readTaskWipSnapshot, wipSnapshotEntries, type TaskQueryCell } from "../src/repo-cell-task-query.ts";
 import { readTaskCompletion } from "../src/task-completion-read.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
-import { reduceTaskEvent, submissionDigest, taskCompletionNext } from "@harness-anything/kernel";
+import { blockingOf, reduceTaskEvent, submissionDigest, taskCompletionNext } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { makeTaskQueryReadModel } from "../src/task-query-read.ts";
 
@@ -376,6 +376,84 @@ test("agenda splits awaiting work by next action and keeps every row in exactly 
   assert.deepEqual(validateDaemonAgenda(result), []);
 });
 
+test("agenda lists awaits addressed to the reader first and moves the held task out of the dispatch queue", () => {
+  const awaitsEdge = (relationId: string, sourceRef: string, personId: string, rationale: string) => ({
+      ...eventEdge,
+      relationId,
+      sourceRef,
+      targetRef: `person/${personId}`,
+      relationType: "awaits" as const,
+      targetObservedVersion: null,
+      currentTargetVersion: null,
+      rationale,
+      ownerRef: sourceRef,
+    }),
+    edges = [
+      awaitsEdge("rel_ask_owner", "task/task_held", "owner", "acceptance: 请亲自上手验收总览页"),
+      awaitsEdge("rel_ask_other", "task/task_other", "someone_else", "question: 另一个人的问题"),
+      { ...awaitsEdge("rel_answered", "task/task_free", "owner", "consent: 已答复"), state: "retired" as const },
+    ],
+    planned = (taskId: string) => protocolTaskRow(taskId),
+    readModel = (principalId?: string) =>
+      makeTaskQueryReadModel({
+        rootDir: canonicalRoot(process.cwd()),
+        projection: projectionStub({
+          edges,
+          taskRows: [planned("task_held"), planned("task_other"), planned("task_free")],
+        }),
+        readPinnedEntities: () => [],
+        judgments: {
+          closeout: (() => ({ readiness: "missing", blocker: "execution", gates: [] })) as never,
+          // 状态读桩为空,这里直接给出三条 planned 任务,让真实 kernel 判定消费 awaits 边。
+          blocking: (_tasks, relations, state) =>
+            blockingOf(
+              ["task_held", "task_other", "task_free"].map((taskId) => ({ taskId, status: "planned" })),
+              relations,
+              state,
+            ),
+        },
+      }).agenda(principalId === undefined ? {} : { principalId }),
+    result = readModel("owner");
+
+  // 只收指向读者本人的 active awaits;retired(已答复)与别人的请求不进「等你处理」。
+  assert.deepEqual(result.awaitingYou, [
+    {
+      relationId: "rel_ask_owner",
+      relationRevision: 5,
+      sourceRef: "task/task_held",
+      title: "task_held",
+      status: "planned",
+      personId: "owner",
+      askKind: "acceptance",
+      question: "请亲自上手验收总览页",
+      askedAt: "2026-09-28T00:00:00.000Z",
+    },
+  ]);
+  // 被 active awaits 挂住的任务(不论等谁)离开可派队列,进「球在别人手里」并带上原因。
+  assert.deepEqual(
+    result.dispatchable.map(({ taskId }) => taskId),
+    ["task_free"],
+  );
+  assert.deepEqual(
+    result.waitingOnOthers.map(({ taskId }) => taskId),
+    ["task_held", "task_other"],
+  );
+  assert.match(result.summary, /📌 重点关注 \(0\)[\s\S]*等你处理 \(1\)[\s\S]*待裁 Decision \(0\)[\s\S]*在飞线/u);
+  assert.match(
+    result.summary,
+    /- \[acceptance\] task\/task_held task_held \[planned\] — 请亲自上手验收总览页\n {2}答复: ha relation unrelate rel_ask_owner --reason "<答复>" --expected-version 5/u,
+  );
+  assert.match(result.summary, /- task_held task_held（阻塞: 等 owner acceptance: 请亲自上手验收总览页）/u);
+  assert.deepEqual(validateDaemonAgenda(result), []);
+  // 读绑定没有 principal 时不猜读者:「等你处理」为空,阻塞判定照旧。
+  const anonymous = readModel();
+  assert.deepEqual(anonymous.awaitingYou, []);
+  assert.deepEqual(
+    anonymous.dispatchable.map(({ taskId }) => taskId),
+    ["task_free"],
+  );
+});
+
 test("agenda counts a cut as reviewed only by an approval of its current submission with no undisposed disagreement", () => {
   const commitSha = "c".repeat(40),
     submission = (claim: string) => ({
@@ -624,7 +702,17 @@ function projectionStub(
         },
       };
     },
-    read: () => ({ ...cut, packagePath: null }),
+    read: (taskId: string) => ({
+      ...cut,
+      packagePath: null,
+      snapshot: (taskRows as ReturnType<typeof protocolTaskRow>[]).find((row) => row.taskId === taskId)?.snapshot ?? {
+        task: null,
+      },
+    }),
+    readRelationEdge: (relationId: string) => {
+      const edge = edges.find((candidate) => candidate.relationId === relationId);
+      return edge ? { ...edge, workspaceRevision: 5, entity: { createdAt: "2026-09-28T00:00:00.000Z" } } : null;
+    },
     readTaskChildCounts: () => options.childCounts ?? {},
     readTaskRelations: () => ({ ...cut, rows: edges }),
     readTaskRelationNeighborhood: () => ({ ...cut, rows: edges }),
@@ -642,6 +730,10 @@ function projectionStub(
         rows: edges.filter((edge) => edge.relationType === relationType && targetRefs.includes(edge.targetRef)),
       };
     },
+    readTaskRelationsBySources: (sourceRefs: readonly string[], relationType: string) => ({
+      ...cut,
+      rows: edges.filter((edge) => edge.relationType === relationType && sourceRefs.includes(edge.sourceRef)),
+    }),
     readRelationQuery: (query: TaskRelationQuery = {}) => {
       options.calls?.push(query);
       let rows = edges.filter(
