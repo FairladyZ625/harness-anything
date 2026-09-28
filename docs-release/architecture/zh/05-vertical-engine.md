@@ -36,6 +36,11 @@ vertical 定义领域；选中的 preset/profile 定义某个 Task 适用哪些�
 kernel 校验非空 gate-ID 语法,daemon 在完成路径上按 `completion-readiness.ts` 执行已实现的门,
 拒绝未知或重复 gate。所以 `--ci` 类要求是 coding 契约的要求,不是 CLI 的全局要求（ADR-0027 D7）。
 
+profile 还可以声明 `closeoutOverrides` 与 `archiveOnComplete`。内置的 `standard-task`、`worker-dispatch`、
+`docs-task` 各带一个 `lightweight` profile,给低风险小改用:计划与 closeout 用精简模板,收口不要求评审、consent
+和 Fact;它不免除 PR 的 CI。`ha task create --help` 列出每个 preset 的 profile;对某个 preset 用它没有声明的
+`--profile`,会以 `missing_profile` 拒绝,并列出该 preset 自己的 profile 和声明了它的 preset。
+
 真实 Task 的 preset/profile 无法解析时,完成路径 fail closed;`task-contract.json` 会钉住
 创建时的 `presetSnapshotDigest`,让契约不随 preset 演进悄悄漂移。
 

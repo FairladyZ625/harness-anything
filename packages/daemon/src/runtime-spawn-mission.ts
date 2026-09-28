@@ -203,6 +203,9 @@ export function taskQueryGuidance(taskId: string): string {
     "- 工作(Work)＝一个根任务加它的子任务树；下方因果上下文的 Work 行就是本任务所属的工作。看全貌用 " +
       "ha work show <工作根任务 id>；新拆出的任务用 ha task create --work <工作根任务 id> 挂进同一工作，" +
       "不带 --work 就是独立任务。",
+    "- 低风险小改(一行声明、错误文本、文档修订)建任务时带 --risk-tier low --profile lightweight：计划与 closeout " +
+      "用精简模板，收口免 review、consent、fact；出代码的小改仍经 PR 的 CI 合入。profile 建任务时定死，" +
+      "哪些 preset 提供它见 ha task create --help 的 Recommended presets。",
   ].join("\n");
 }
 

@@ -159,14 +159,18 @@ export function renderThinHelp(
 function renderPresetHelpEntry(entry: ThinHelpCatalogEntry): string {
   const contract = entry as ThinHelpCatalogEntry & {
     readonly defaultProfile?: string;
+    readonly profiles?: readonly { readonly id: string }[];
     readonly outputShape?: string;
     readonly completionGates?: readonly string[];
   };
+  const others = (contract.profiles ?? []).map(({ id }) => id).filter((id) => id !== contract.defaultProfile);
   const description =
     entry.validity === "valid"
       ? [
           entry.description,
-          `profile=${String(contract.defaultProfile)}`,
+          `profile=${String(contract.defaultProfile)}${
+            others.length ? ` (also ${others.map((id) => `--profile ${id}`).join(", ")})` : ""
+          }`,
           `outputShape=${String(contract.outputShape)}`,
           `completionGates=${JSON.stringify(contract.completionGates)}`,
         ].join(" — ")

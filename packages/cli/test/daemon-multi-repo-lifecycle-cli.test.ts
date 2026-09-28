@@ -73,6 +73,35 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     assert.equal(alphaPreview.dryRun, true);
     assert.equal(alphaPreview.packagePath, "tasks/task-alpha-alpha");
     assert.equal(existsSync(path.join(fixture.alpha, "harness/tasks/task-alpha-alpha")), false);
+    // A low-risk create on a full-ceremony profile names the lightweight short path; on a preset without it
+    // the line points at the presets that declare it, and a lightweight create carries no such line.
+    const lowRisk = (extra: readonly string[]) =>
+      String(
+        run(fixture.alpha, fixture.userRoot, [
+          "task",
+          "create",
+          "--id",
+          "task-low",
+          "--admin",
+          "--title",
+          "Low",
+          "--risk-tier",
+          "low",
+          "--dry-run",
+          ...extra,
+        ]).summary,
+      );
+    assert.equal(
+      lowRisk([]),
+      "would create task task-low at harness/tasks/task-low-low\nshort path: a low-risk small change can take " +
+        "--profile lightweight on this preset — short plan and closeout, no review, consent, or fact at closeout; " +
+        "a code change still lands through the PR's CI. The profile is fixed at creation.",
+    );
+    assert.match(
+      lowRisk(["--preset", "decision-conformance"]),
+      /--profile lightweight on --preset docs-task \| standard-task \| worker-dispatch \(not decision-conformance\)/u,
+    );
+    assert.doesNotMatch(lowRisk(["--profile", "lightweight"]), /short path/u);
     const textPreview = spawnSync(
       process.execPath,
       [

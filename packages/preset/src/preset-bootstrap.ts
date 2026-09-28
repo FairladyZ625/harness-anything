@@ -69,6 +69,7 @@ export interface CompiledTaskPackage {
   readonly scaffoldDigest: `sha256:${string}`;
   readonly documents: readonly CompiledTaskDocument[];
   readonly metadata: TaskMetadataV1;
+  readonly lightweightPresetIds: readonly string[];
 }
 export interface CompiledTaskBootstrap extends CompiledTaskPackage {
   readonly event: TaskBootstrapEventV1;
@@ -223,7 +224,14 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       )}\n`,
     ),
     documents = [index, contract, orderedProse[0]!, orderedProse[1]!, orderedProse[2]!, ...additions, ...presetScripts];
-  return { snapshot, packagePath, scaffoldDigest, documents, metadata };
+  return {
+    snapshot,
+    packagePath,
+    scaffoldDigest,
+    documents,
+    metadata,
+    lightweightPresetIds: resolved.lightweightPresetIds,
+  };
   function machine(slot: string, relativePath: string, body: string): CompiledTaskDocument {
     return {
       slot,

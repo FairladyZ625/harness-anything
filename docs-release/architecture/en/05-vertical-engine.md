@@ -49,6 +49,14 @@ completion path via `completion-readiness.ts`, rejecting unknown or duplicate
 gates. So `--ci`-style requirements come from the coding contract, not from the
 CLI globally (ADR-0027 D7).
 
+A profile may also declare `closeoutOverrides` and `archiveOnComplete`. The
+bundled `standard-task`, `worker-dispatch`, and `docs-task` presets each carry a
+`lightweight` profile for a low-risk small change: minimal plan and closeout
+templates, and a closeout that requires no review, consent, or Fact. It lifts
+no pull-request CI. `ha task create --help` lists each preset's profiles, and a
+`--profile` a preset does not declare is rejected with `missing_profile`, naming
+the preset's own profiles and the presets that do declare it.
+
 Completion fails closed when a real Task's preset/profile cannot resolve;
 `task-contract.json` pins the `presetSnapshotDigest` at creation so the
 contract cannot silently drift as the preset evolves.

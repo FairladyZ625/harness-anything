@@ -63,7 +63,13 @@ export function createRuntime(options: PresetResolverOptions): {
     const leaf = ancestry.at(-1)!.decoded!,
       leafManifest = manifests.at(-1)!,
       profiles = manifests.map((manifest, index) =>
-        profileFor(manifest, index === manifests.length - 1 ? request.profileId : undefined),
+        index === manifests.length - 1
+          ? profileFor(
+              manifest,
+              request.profileId,
+              request.profileId ? presetsDeclaringProfile(inventory, request.verticalId, request.profileId) : [],
+            )
+          : profileFor(manifest),
       ),
       profile = profiles.at(-1)!,
       imports = manifests.flatMap((manifest, index) => [
@@ -276,6 +282,7 @@ export function createRuntime(options: PresetResolverOptions): {
         templateRef: item.selection.templateRef,
       })),
       scripts: request.purpose === "task-create" ? presetPackageScripts(leaf.files) : [],
+      lightweightPresetIds: presetsDeclaringProfile(inventory, request.verticalId, "lightweight"),
       ...(requiredTaskClass ? { requiredTaskClass } : {}),
       packageRoot: executablePackage.root,
       packageDigest: executablePackage.packageDigest,
@@ -359,11 +366,37 @@ export function createRuntime(options: PresetResolverOptions): {
   return { resolver, resolveInternal };
 }
 
-export function profileFor(manifest: PresetTaskManifestV3, requested?: string) {
+export function profileFor(
+  manifest: PresetTaskManifestV3,
+  requested?: string,
+  declaredElsewhere: readonly string[] = [],
+) {
   const id = requested ?? manifest.defaultProfile,
     profile = manifest.profiles.find((item) => item.id === id);
-  if (!profile) throw presetFailure("missing_profile", `Profile ${id} is unavailable.`);
+  if (!profile)
+    throw presetFailure(
+      "missing_profile",
+      `Profile ${id} is unavailable on preset ${manifest.id}; its profiles: ` +
+        `${manifest.profiles.map((item) => item.id).join(", ")}.` +
+        (declaredElsewhere.length ? ` Presets that declare ${id}: ${declaredElsewhere.join(", ")}.` : ""),
+    );
   return profile;
+}
+
+/** The presets of one vertical whose manifest declares a profile id, in id order. */
+export function presetsDeclaringProfile(
+  catalog: ReadonlyMap<string, Candidate>,
+  verticalId: string,
+  profileId: string,
+): string[] {
+  const prefix = key(verticalId, "");
+  return [...catalog]
+    .filter(
+      ([catalogKey, item]) =>
+        catalogKey.startsWith(prefix) && item.decoded?.manifest.profiles.some(({ id }) => id === profileId),
+    )
+    .map(([, item]) => item.id)
+    .sort();
 }
 
 export function resolveAncestry(catalog: Map<string, Candidate>, selected: Candidate, verticalId: string): Candidate[] {
