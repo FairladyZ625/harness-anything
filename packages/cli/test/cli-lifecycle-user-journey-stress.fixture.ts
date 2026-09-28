@@ -12,6 +12,7 @@ import path from "node:path";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
+import { daemonOwnerEnvironment } from "./daemon-cleanup.fixture.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts"),
   clientCount = 8,
@@ -284,14 +285,14 @@ function actorEnvironment(fixture: Fixture, index: number, actor: string | null)
         : actor === "claude-auto"
           ? { CLAUDE_CODE_SESSION_ID: `claude-stress-${index}` }
           : { HARNESS_ACTOR: actor.startsWith("agent:") ? actor : `agent:stress-${index}` };
-  return {
+  return daemonOwnerEnvironment({
     ...base,
     HOME: path.join(fixture.parent, "home"),
     GIT_CONFIG_GLOBAL: "/dev/null",
     HARNESS_DAEMON_USER_ROOT: fixture.userRoot,
     HARNESS_DAEMON_ID: fixture.daemonId,
     ...identity,
-  };
+  });
 }
 
 function packagePathFor(packagePath: string, relative: string): string {

@@ -6,6 +6,10 @@ import path from "node:path";
 import { after } from "node:test";
 import { daemonProcessAlive, readDaemonPid } from "@harness-anything/daemon/internal/daemon-singleton";
 
+export function daemonOwnerEnvironment(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...env, HARNESS_DAEMON_OWNER_PID: String(process.pid) };
+}
+
 /** Register ownership before launching: test failures must not skip daemon teardown. */
 export function ownDaemonFixture(input: {
   readonly parent: string;
