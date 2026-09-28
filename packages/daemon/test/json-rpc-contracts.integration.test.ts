@@ -5,7 +5,6 @@ import test from "node:test";
 import {
   INITIAL_SETTINGS_V1,
   SETTINGS_DECLARATION_RUNTIME,
-  SettingsDeclarationError,
   projectDecisionReadiness,
   settingsUpdateInputFields,
 } from "@harness-anything/kernel";
@@ -379,12 +378,9 @@ test("repo.settings.update leaves semantic value rejection to the kernel compile
   assert.equal(parsed.ok, true, "the transport accepts a correctly typed numeric setting");
   if (!parsed.ok) return;
   const payload = (parsed.params as { readonly payload: Readonly<Record<string, unknown>> }).payload;
-  assert.throws(
-    () => SETTINGS_DECLARATION_RUNTIME.applyRepositoryAction(INITIAL_SETTINGS_V1, payload),
-    (error: unknown) =>
-      error instanceof SettingsDeclarationError &&
-      error.message === "agendaPinLimit must be an integer in its declared range.",
-  );
+  assert.throws(() => SETTINGS_DECLARATION_RUNTIME.applyRepositoryAction(INITIAL_SETTINGS_V1, payload), {
+    message: "agendaPinLimit must be an integer in its declared range.",
+  });
 });
 function decisionList(readiness: unknown): Record<string, unknown> {
   return {
