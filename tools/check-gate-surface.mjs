@@ -379,11 +379,11 @@ function checkCommandResolvableInPackageScripts({ findings, gate, packageScripts
 }
 
 function jobRunsGateCommand({ job, gate, manifest, gates }) {
-  if (job.runCommands.includes(gate.command)) {
+  if (job.blockingRunCommands.includes(gate.command)) {
     return true;
   }
   if (
-    job.runCommands.some((command) =>
+    job.blockingRunCommands.some((command) =>
       manifestRunnerCoversGate({ command, gateId: gate.id, workflowJob: job.id, manifest }),
     )
   ) {
@@ -402,11 +402,11 @@ function manifestRunnerCoversGate({ command, gateId, workflowJob, manifest }) {
 }
 
 function jobRunsCommandPart({ job, part, manifest, gates }) {
-  if (job.runCommands.includes(part)) {
+  if (job.blockingRunCommands.includes(part)) {
     return true;
   }
   const gatesById = new Map(gates.map((gate) => [gate.id, gate]));
-  for (const command of job.runCommands) {
+  for (const command of job.blockingRunCommands) {
     const invocation = parseManifestRunnerCommand(command);
     if (!invocation || invocation.workflowJob !== job.id) {
       continue;
