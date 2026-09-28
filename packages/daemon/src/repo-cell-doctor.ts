@@ -7,6 +7,7 @@ import {
 import type { DaemonBuildStatus } from "./build-identity.ts";
 import { scanDocCandidates } from "./doc-sync-candidate-scanner.ts";
 import { runProcessTextAsync } from "./process-port.ts";
+import { remoteDefaultBranch } from "./schedule-occurrence-workspace.ts";
 import { readTaskWipSnapshot } from "./repo-cell-task-query.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
@@ -24,7 +25,7 @@ export interface DoctorCheck {
  * `ha doctor` health: six read-only checks over the canonical projection and local Git
  * state. Nothing here appends, scans for writes, or mutates; every check degrades to
  * `indeterminate` rather than guessing when its data source cannot answer (a missing
- * `origin/main` ref on an unfetched clone, a Git-less edge node, an unreachable object).
+ * default-branch ref on an unfetched clone, a Git-less edge node, an unreachable object).
  */
 export async function doctorHealth(
   cell: RepoCellOperationalContext,
@@ -34,7 +35,7 @@ export async function doctorHealth(
   if (cell.mode === "remote-edge") return unavailableCenterDoctor(cell.input.repoId) as WriteReceipt;
   const ledger = resolveLedgerGitLayout(cell.rootDir),
     gitRoots = [...new Set([cell.rootDir, ledger.rootDir])],
-    tips: Record<string, string | null> = {};
+    tips: Record<string, BaseTip | null> = {};
   for (const root of gitRoots) tips[root] = await gitTip(root);
   const submitted = submittedRoundExecutions(cell),
     checks: DoctorCheck[] = [
@@ -48,10 +49,12 @@ export async function doctorHealth(
     cut = cell.projection.readCut(),
     scope = {
       repoId: cell.input.repoId,
-      productOriginMainTip: tips[cell.rootDir] ?? null,
+      productBaseRef: tips[cell.rootDir]?.ref ?? null,
+      productBaseTip: tips[cell.rootDir]?.tip ?? null,
       ledgerRoot: ledger.rootDir,
-      ledgerOriginMainTip: tips[ledger.rootDir] ?? null,
-      note: "center repository local origin/main tips only; an unfetched ref does not imply " + "the remote is current",
+      ledgerBaseRef: tips[ledger.rootDir]?.ref ?? null,
+      ledgerBaseTip: tips[ledger.rootDir]?.tip ?? null,
+      note: "center repository local default-branch tips only; an unfetched ref does not imply the remote is current",
     },
     payload = { schema: "doctor-health/v1" as const, scope, checks };
   const receipt = cell.readResult(
@@ -64,9 +67,17 @@ export async function doctorHealth(
   return { ...receipt, ...payload } as WriteReceipt;
 }
 
-async function gitTip(root: string): Promise<string | null> {
-  const result = await git(root, ["rev-parse", "origin/main"]);
-  return result.exit === 0 ? result.stdout.trim() : null;
+interface BaseTip {
+  readonly ref: string;
+  readonly tip: string;
+}
+
+/** The local tip of the repository's published default branch; null on an unfetched or local-only clone. */
+async function gitTip(root: string): Promise<BaseTip | null> {
+  const ref = remoteDefaultBranch(root);
+  if (!ref) return null;
+  const result = await git(root, ["rev-parse", ref]);
+  return result.exit === 0 ? { ref, tip: result.stdout.trim() } : null;
 }
 
 async function git(root: string, args: readonly string[]): Promise<{ readonly exit: number; readonly stdout: string }> {
@@ -107,11 +118,11 @@ function submittedRoundExecutions(cell: RepoCellOperationalContext): {
 }
 
 // Delivered cuts waiting on the review/closeout half of the chain. A cut already merged into
-// origin/main is called out; one still unmerged is the normal waiting queue — either way the
+// the default branch is called out; one still unmerged is the normal waiting queue — either way the
 // item is a warning, not a failure. Missing refs or objects make the whole check indeterminate.
 async function staleDeliveredCheck(
   submitted: ReturnType<typeof submittedRoundExecutions>,
-  tips: Record<string, string | null>,
+  tips: Record<string, BaseTip | null>,
 ): Promise<DoctorCheck> {
   const id = "stale-delivered",
     roots = Object.keys(tips);
@@ -119,7 +130,7 @@ async function staleDeliveredCheck(
     return {
       id,
       status: "indeterminate",
-      summary: "No local origin/main ref exists; delivered-cut freshness cannot be judged.",
+      summary: "No local default-branch ref exists; delivered-cut freshness cannot be judged.",
       count: submitted.length,
       next: "Fetch origin on the center repository, then rerun ha doctor.",
     };
@@ -135,7 +146,7 @@ async function staleDeliveredCheck(
         exit =
           owner === null || !tip
             ? null
-            : (await git(owner, ["merge-base", "--is-ancestor", entry.commitSha, tip])).exit;
+            : (await git(owner, ["merge-base", "--is-ancestor", entry.commitSha, tip.tip])).exit;
       measured = { owner, exit };
       measurements.set(entry.commitSha, measured);
     }
@@ -145,9 +156,10 @@ async function staleDeliveredCheck(
       items.push(`${entry.taskId}/${entry.executionId}: commit ${entry.commitSha.slice(0, 12)} not found locally`);
       continue;
     }
-    if (tips[owner] === null) {
+    const base = tips[owner];
+    if (!base) {
       indeterminate = true;
-      items.push(`${entry.taskId}/${entry.executionId}: ${owner} has no origin/main ref`);
+      items.push(`${entry.taskId}/${entry.executionId}: ${owner} has no default-branch ref`);
       continue;
     }
     const merged = { exit: measured.exit };
@@ -158,7 +170,7 @@ async function staleDeliveredCheck(
     }
     items.push(
       `${entry.taskId}/${entry.executionId}: ${entry.commitSha.slice(0, 12)} ` +
-        (merged.exit === 0 ? "already merged into origin/main" : "not yet merged into origin/main"),
+        (merged.exit === 0 ? `already merged into ${base.ref}` : `not yet merged into ${base.ref}`),
     );
   }
   if (indeterminate)
@@ -322,7 +334,7 @@ export function unavailableCenterDoctor(repoId: string) {
     ok: true,
     outcome: "applied" as const,
     opId: "doctor-center-unavailable",
-    scope: { repoId, productOriginMainTip: null, ledgerOriginMainTip: null, note },
+    scope: { repoId, productBaseRef: null, productBaseTip: null, ledgerBaseRef: null, ledgerBaseTip: null, note },
     checks: ["stale-delivered", "executor-undeclared", "orphan-lease", "wip-pressure", "doc-debt", "build-drift"].map(
       (id) => ({
         id,

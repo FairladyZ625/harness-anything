@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync, spawnSync } from "node:child_process";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -175,6 +175,70 @@ test("a repository with no npm, no remote and a master branch runs its declared 
   assert.match(closed, /removed/u);
   assert.equal(existsSync(tree), false);
   assert.equal(git(root, "branch", "--list", plain.taskId), "");
+});
+
+// A start's setup runs on this node outside the repository write queue: a long install holds only that start,
+// and every other write goes through while it runs; the queue receives the start once setup is done.
+test("a long worktree setup holds only its own start, never the repository's other writes", async (context) => {
+  const fixture = createRuntimeFixture(context),
+    { parent, root, env } = fixture,
+    running = path.join(path.dirname(root), "setup-running"),
+    release = path.join(path.dirname(root), "setup-release");
+  gitRepository(root);
+  installIdentities(parent, root, env);
+  const { HARNESS_ACTOR: _agent, ...owner } = env;
+  text(root, owner, [
+    "settings",
+    "update",
+    "--worktree-setup",
+    `run: touch ${running}; while [ ! -e ${release} ]; do sleep 0.1; done`,
+  ]);
+  const slow = seedTask(root, env, "wt-slow-setup"),
+    start = spawn(
+      process.execPath,
+      [cli, "--root", root, "task", "start", slow.taskId, "--execution-id", slow.executionId],
+      {
+        env,
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    ),
+    output: string[] = [],
+    exited = new Promise<number | null>((resolve) => start.once("close", resolve));
+  start.stdout.on("data", (chunk: Buffer) => output.push(String(chunk)));
+  start.stderr.on("data", (chunk: Buffer) => output.push(String(chunk)));
+  try {
+    for (const deadline = Date.now() + 60_000; !existsSync(running); ) {
+      assert.ok(Date.now() < deadline, `setup never began:\n${output.join("")}`);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    // The setup is still waiting on its release; another task's create is a write to the same repository.
+    const other = spawnSync(
+      process.execPath,
+      [
+        cli,
+        "--root",
+        root,
+        "task",
+        "create",
+        "--id",
+        "task-during-setup",
+        "--admin",
+        "--title",
+        "written during setup",
+      ],
+      {
+        encoding: "utf8",
+        env,
+        timeout: 30_000,
+      },
+    );
+    assert.equal(other.status, 0, `a write during setup must not wait for it:\n${other.stdout}\n${other.stderr}`);
+    assert.equal(existsSync(release), false);
+  } finally {
+    writeFileSync(release, "");
+  }
+  assert.equal(await exited, 0, output.join(""));
+  assert.match(output.join(""), /Setup ran: run: touch /u);
 });
 
 function text(root: string, env: NodeJS.ProcessEnv, args: readonly string[]): string {

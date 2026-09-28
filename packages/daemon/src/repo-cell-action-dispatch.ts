@@ -32,7 +32,7 @@ import { runFactAction } from "./repo-cell-fact-action.ts";
 import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts";
 import { runVerticalDeclarationAction } from "./vertical-declaration-action.ts";
 import { attestGateWitness } from "./repo-cell-witness-adapters.ts";
-import { applyTaskWorktreeLifecycle, presetSnapshotReader } from "./task-worktree.ts";
+import { applyTaskWorktreeLifecycle, presetSnapshotReader, type TaskWorktreeLifecycleInput } from "./task-worktree.ts";
 import { runEntityPinAction } from "./entity-pin-action.ts";
 import { readWork } from "./work-read.ts";
 
@@ -41,17 +41,18 @@ export async function executeAction(
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
-  return applyTaskWorktreeLifecycle(
-    {
-      rootDir: cell.rootDir,
-      readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
-      readPresetSnapshot: presetSnapshotReader(cell.projection),
-      readSetup: () => cell.settings.read().worktree.setup,
-    },
-    action,
-    binding.source,
-    () => executeRepoAction(cell, action, binding),
+  return applyTaskWorktreeLifecycle(taskWorktreeInput(cell), action, binding.source, () =>
+    executeRepoAction(cell, action, binding),
   );
+}
+
+export function taskWorktreeInput(cell: RepoCellOperationalContext): TaskWorktreeLifecycleInput {
+  return {
+    rootDir: cell.rootDir,
+    readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
+    readPresetSnapshot: presetSnapshotReader(cell.projection),
+    readSetup: () => cell.settings.read().worktree.setup,
+  };
 }
 
 async function executeRepoAction(

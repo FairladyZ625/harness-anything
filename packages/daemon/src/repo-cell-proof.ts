@@ -32,6 +32,7 @@ import {
 } from "@harness-anything/kernel";
 import { cellCodedError, cellCriterionError } from "./repo-cell-errors.ts";
 import { makeGitReadinessSource } from "./process-port.ts";
+import { remoteDefaultBranch } from "./schedule-occurrence-workspace.ts";
 import { readDispatchStream } from "./dispatch-stream.ts";
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
 import { strandedDelivery } from "./repo-cell-ci-evidence.ts";
@@ -50,7 +51,7 @@ const COMPLETE_VALIDATION_CRITERION = "task-lifecycle-review-transitions/complet
  * repository is the Git work tree containing the canonical root — a nested ledger repository is a
  * different repository and never supplies this baseline. Only an unborn repository (no commit on
  * any ref) may freeze `empty-tree`; a repository whose baseline cannot be read fails closed rather
- * than guessing from `origin/main` or a moving `HEAD`.
+ * than guessing from the default branch or a moving `HEAD`.
  */
 export function observeDeliveryBaseline(rootDir: string): ExecutionDeliveryBaseline {
   const git = makeGitReadinessSource(),
@@ -479,8 +480,10 @@ function validExternalCompletionEvidence(
   const anchor = command.externalCompletionAnchor.trim();
   if (/^[0-9a-f]{40}$/u.test(anchor))
     try {
-      const originMain = localGitObjectRefStore.resolveCommit(rootDir, "refs/remotes/origin/main");
-      return localGitObjectRefStore.isAncestor(rootDir, anchor, originMain);
+      const published = remoteDefaultBranch(rootDir);
+      if (!published) return false;
+      const tip = localGitObjectRefStore.resolveCommit(rootDir, `refs/remotes/${published}`);
+      return localGitObjectRefStore.isAncestor(rootDir, anchor, tip);
     } catch (error) {
       consumeKnownError(error);
       return false;

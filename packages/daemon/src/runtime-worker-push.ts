@@ -139,7 +139,7 @@ export async function pushWorkerBranch(input: {
     };
   const mismatch = await firstCommitOutsideConventionalIdentity(
     input.cwd,
-    await repositoryBaseRef(input.canonicalRoot),
+    repositoryBaseRef(input.canonicalRoot),
     identity,
     env,
   );

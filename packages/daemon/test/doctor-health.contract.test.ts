@@ -133,6 +133,7 @@ test("doctor reads beyond 500 tasks and deduplicates ancestry against the captur
   git("commit", "--allow-empty", "-qm", "test: later delivery");
   const delivery = git("rev-parse", "HEAD");
   git("update-ref", "refs/remotes/origin/main", tip);
+  git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
   mkdirSync(bin);
   writeFileSync(
     path.join(bin, "git"),

@@ -44,6 +44,8 @@ function fixture(t: TestContext, sharedGit = false) {
   put(root, "src/live.ts", "export const liveValue = 1;\n");
   const base = commit(root);
   git(root, "update-ref", "refs/remotes/origin/main", base);
+  // As a clone records it: the default branch is main even while the main checkout has another branch out.
+  git(root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
   const ledger = path.join(root, "harness");
   if (sharedGit) mkdirSync(ledger, { recursive: true });
   else {
