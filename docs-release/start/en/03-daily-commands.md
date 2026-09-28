@@ -11,13 +11,26 @@ stateful workflow.
 | Command | What it does |
 |---|---|
 | `ha init` | Create the `harness/` ledger layout and its private nested git repository. |
-| `ha task create --title <title>` | Create a new task package. |
-| `ha task list` | List task packages, with state / module / search filters. |
+| `ha task create --title <title>` | Create a new task package. Add `--work <id>` to file it under a work. |
+| `ha task list` | List task packages, with status / search / parent filters. |
 | `ha task show <id>` | Show one task with projected status, metadata, hierarchy, relation edges, and fact anchors. |
 | `ha task start <id>` | Acquire or reuse the current execution lease. |
 | `ha status` | Summarize harness state. |
 | `ha check` | Run harness health checks. |
 | `ha graph` | Render the relation graph as a self-contained HTML panorama. |
+
+**Organize work**
+
+A _work_ is one root task plus the tasks filed under it. It is the only way to
+group tasks; without `--work`, a task stands alone.
+
+```bash
+ha work create --title "Login hardening"      # the work's root task
+ha task create --work <id> --title "Fix redirect loop"
+ha work list                                  # open works with progress; --all for every work
+ha work show <id>                             # goal, subtree counts, open tasks
+ha agenda --work <id>                         # the agenda narrowed to one work
+```
 
 **Check & navigate**
 ```bash

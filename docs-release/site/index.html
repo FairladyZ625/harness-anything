@@ -727,6 +727,7 @@
               <tbody>
                 <tr><td><code>ha init</code></td><td><span lang="en">Create the <code>harness/</code> layout in the current repo.</span><span lang="zh">在当前仓库创建 <code>harness/</code> 布局。</span></td></tr>
                 <tr><td><code>ha task create --title …</code></td><td><span lang="en">Create a new task package.</span><span lang="zh">创建一个新任务包。</span></td></tr>
+                <tr><td><code>ha work create --title …</code> · <code>ha task create --work &lt;id&gt;</code></td><td><span lang="en">Start a work · file a task under it.</span><span lang="zh">开一个工作 · 把任务归入它。</span></td></tr>
                 <tr><td><code>ha task start &lt;id&gt;</code></td><td><span lang="en">Acquire or reuse an execution lease.</span><span lang="zh">取得或复用 execution lease。</span></td></tr>
                 <tr><td><code>ha status</code> · <code>ha check</code></td><td><span lang="en">Summarize state · run health checks.</span><span lang="zh">总结状态 · 运行健康检查。</span></td></tr>
                 <tr><td><code>ha graph</code></td><td><span lang="en">Render the relation graph as a self-contained HTML panorama.</span><span lang="zh">把关系图渲染成自包含 HTML 全景。</span></td></tr>
@@ -749,15 +750,21 @@
           <figure class="code">
             <figcaption><span lang="en">the ones you'll reach for</span><span lang="zh">你会去够的那几条</span></figcaption>
 <pre><span class="c"># move a task along its lifecycle</span>
-<span class="c">$</span> ha task list <span class="k">--state</span> active
+<span class="c">$</span> ha task list <span class="k">--status</span> active
 <span class="c">$</span> ha task progress append &lt;id&gt; <span class="k">--text</span> "Implemented first slice"
+
+<span class="c"># group related tasks into a work</span>
+<span class="c">$</span> ha work create <span class="k">--title</span> "Login hardening"
+<span class="c">$</span> ha task create <span class="k">--work</span> &lt;id&gt; <span class="k">--title</span> "Fix redirect loop"
+<span class="c">$</span> ha agenda <span class="k">--work</span> &lt;id&gt;
 
 <span class="c"># check state and navigate</span>
 <span class="c">$</span> ha status            <span class="c"># what state am I in?</span>
 <span class="c">$</span> ha graph             <span class="c"># see how it all links, as HTML</span></pre>
           </figure>
           <ul>
-            <li><span lang="en"><code>ha task list --state active</code> — the tasks in flight right now, with state / module / search filters.</span><span lang="zh"><code>ha task list --state active</code> —— 此刻在飞的任务，带状态 / 模块 / 搜索过滤。</span></li>
+            <li><span lang="en"><code>ha task list --status active</code> — the tasks in flight right now, with status / search / parent filters.</span><span lang="zh"><code>ha task list --status active</code> —— 此刻在飞的任务，带状态 / 搜索 / 父任务过滤。</span></li>
+            <li><span lang="en"><code>ha work create</code> · <code>ha task create --work &lt;id&gt;</code> — a work is one root task plus the tasks filed under it, the only way to group tasks; <code>ha work list</code> and <code>ha agenda --work &lt;id&gt;</code> show its progress.</span><span lang="zh"><code>ha work create</code> · <code>ha task create --work &lt;id&gt;</code> —— 一个工作是一个根任务加归入它的任务，也是给任务分组的唯一方式；<code>ha work list</code> 和 <code>ha agenda --work &lt;id&gt;</code> 显示它的进度。</span></li>
             <li><span lang="en"><code>ha task progress append &lt;id&gt; --text …</code> — leave a dated line in the task's <code>progress.md</code> so the next agent inherits state, not a cold start.</span><span lang="zh"><code>ha task progress append &lt;id&gt; --text …</code> —— 在任务的 <code>progress.md</code> 里留下一行带日期的记录，让下一个代理接手的是状态，而不是冷启动。</span></li>
             <li><span lang="en"><code>ha doctor</code> — read-only environment diagnostics when something feels off, safe to run anytime.</span><span lang="zh"><code>ha doctor</code> —— 感觉哪里不对时的只读环境诊断，随时跑都安全。</span></li>
           </ul>
@@ -892,8 +899,8 @@
             <span lang="zh">它们的存储方式甚至是不对称的。决策是<strong>集中存放</strong>的——主干，人类该盯着看的那个唯一投影。任务是<strong>容器</strong>，各自一个目录。事实是<strong>嵌入</strong>在产生它的任务里的——因为脱离了任务的事实是不可信的。把"redis 在 10k QPS 下 p99 = 50ms"抽离语境，你就剥掉了它的出处。口号是：不要搬它，引用它。</span>
           </p>
           <p>
-            <span lang="en">And tasks aren't flat. A task can be created with a <code>--parent</code>, so work composes into a tree you can render with <code>ha task tree</code>. Tasks declare <code>depends-on</code> relations to each other, and the adapter rejects a dependency that would close a cycle — so "blocked behind itself" can't happen by accident. (One piece of fine print: <code>parent</code> is set at creation and can't be repointed afterwards; if you meant a different shape, supersede, don't edit.)</span>
-            <span lang="zh">而且任务不是扁平的。一个任务可以在创建时带 <code>--parent</code>，于是工作组合成一棵树，可以用 <code>ha task tree</code> 渲染。任务之间可以声明 <code>depends-on</code> 关系，而适配器会拒绝任何会闭合环的依赖——于是"被自己挡住"不会因失误而发生。（一条细则：<code>parent</code> 在创建时设定、之后不能改挂；如果你想要的是另一种结构，去 supersede，而不是去改它。）</span>
+            <span lang="en">And tasks aren't flat. A task can be filed under a <em>work</em> with <code>--work</code>, so work composes into a tree — one root task plus its subtree — that <code>ha work show</code> summarizes and <code>ha task list --parent &lt;id&gt; --depth all</code> walks. Tasks declare <code>depends-on</code> relations to each other, and the adapter rejects a dependency that would close a cycle — so "blocked behind itself" can't happen by accident.</span>
+            <span lang="zh">而且任务不是扁平的。一个任务可以用 <code>--work</code> 归入一个<em>工作</em>，于是工作组合成一棵树——一个根任务加它的子树——<code>ha work show</code> 给出它的概况，<code>ha task list --parent &lt;id&gt; --depth all</code> 把整棵树走一遍。任务之间可以声明 <code>depends-on</code> 关系，而适配器会拒绝任何会闭合环的依赖——于是"被自己挡住"不会因失误而发生。</span>
           </p>
           <button class="chip" type="button" data-target-tab="how" data-target-id="storage">
             <span lang="en">See how it's built</span><span lang="zh">看它是怎么存的</span>
@@ -965,8 +972,8 @@
             <li><span lang="en"><strong>Usage proof</strong> — real usage appears after delivery, or the thing is the forced path with no legacy alternative left.</span><span lang="zh"><strong>使用证明</strong>——交付后真实使用出现，或者这东西本身就是强制路径、不再有遗留替代方案。</span></li>
           </ol>
           <p>
-            <span lang="en">Something that clears the first three but fails the fourth is <strong>shipped-unused</strong>: it exists, it works, nobody reaches for it. That does not count as a completed milestone. The reinforcing signal is the mirror image: the structures we unconsciously reach for by hand, over and over, are the innovations already validated by behavior.</span>
-            <span lang="zh">通过了前三层却在第四层失手的东西，叫作<strong>已发布未使用（shipped-unused）</strong>：它存在，能运行，但没人用它。这不算完成的里程碑。而强化信号是它的镜像：我们无意识地反复用手工去够的那些结构，正是已经被行为验证过的创新。</span>
+            <span lang="en">Something that clears the first three but fails the fourth is <strong>shipped-unused</strong>: it exists, it works, nobody reaches for it. That does not count as done. The reinforcing signal is the mirror image: the structures we unconsciously reach for by hand, over and over, are the innovations already validated by behavior.</span>
+            <span lang="zh">通过了前三层却在第四层失手的东西，叫作<strong>已发布未使用（shipped-unused）</strong>：它存在，能运行，但没人用它。这不算完成。而强化信号是它的镜像：我们无意识地反复用手工去够的那些结构，正是已经被行为验证过的创新。</span>
           </p>
           <button class="chip" type="button" data-target-tab="how" data-target-id="vertical-engine">
             <span lang="en">See how domains extend without touching the kernel</span><span lang="zh">看领域如何扩展而不动内核</span>
@@ -1210,8 +1217,8 @@
             </table>
           </div>
           <p>
-            <span lang="en">Beyond the lifecycle, coarser gates guard whole milestones and deletions. The <strong>Exit Gate</strong> passes only when all load-bearing decisions are settled, the task chain is closed, and the event ledger is complete. The <strong>Usability Gate</strong> checks that a fresh agent — given only <code>--help</code> and the capabilities listing, no memory — can drive the capability end to end. The <strong>Disposition Guard</strong> refuses unsafe deletion: anything with inbound edges is protected. A referenced decision is never physically deleted (at most retired, keeping its id and edges); a fact is never deleted in isolation, because something may depend on it for provenance.</span>
-            <span lang="zh">在生命周期之外，还有更粗的门守着整个里程碑和删除。<strong>Exit Gate</strong> 只有在所有承重决策都已解决、任务链闭合、事件账本完整时才通过。<strong>Usability Gate</strong> 检查一个全新的代理——只拿到 <code>--help</code> 和能力清单、没有记忆——能否端到端把这项能力跑通。<strong>Disposition Guard</strong> 拒绝不安全的删除：任何有入边的东西都受保护。被引用的决策永不被物理删除（最多退役，保留它的 id 和边）；事实永不被单独删除，因为可能有东西依赖它做出处追溯。</span>
+            <span lang="en">Beyond the lifecycle, coarser gates guard a whole work — a root task and its subtree — and deletions. The <strong>Exit Gate</strong> passes only when all load-bearing decisions are settled, the task chain is closed, and the event ledger is complete. The <strong>Usability Gate</strong> checks that a fresh agent — given only <code>--help</code> and the capabilities listing, no memory — can drive the capability end to end. The <strong>Disposition Guard</strong> refuses unsafe deletion: anything with inbound edges is protected. A referenced decision is never physically deleted (at most retired, keeping its id and edges); a fact is never deleted in isolation, because something may depend on it for provenance.</span>
+            <span lang="zh">在生命周期之外，还有更粗的门守着一整个工作（一个根任务及其子树）和删除。<strong>Exit Gate</strong> 只有在所有承重决策都已解决、任务链闭合、事件账本完整时才通过。<strong>Usability Gate</strong> 检查一个全新的代理——只拿到 <code>--help</code> 和能力清单、没有记忆——能否端到端把这项能力跑通。<strong>Disposition Guard</strong> 拒绝不安全的删除：任何有入边的东西都受保护。被引用的决策永不被物理删除（最多退役，保留它的 id 和边）；事实永不被单独删除，因为可能有东西依赖它做出处追溯。</span>
           </p>
         </section>
 
@@ -1231,8 +1238,8 @@
             <span lang="zh">实体种类分几种：一个<em>生命周期</em>种类（如 task 或 decision）声明一个 <code>packageKind</code>，比如 <code>task-package/v2</code>，并得到完整的文档包；一个 <em>schema</em> 种类（如 fact）声明一个 <code>schemaRef</code>，只约束字段，没有文档模板。指导原则是<em>约定优于声明</em>：如果引擎能从已经存在的文件里推断出某件事——目录结构、文件名、schema 合法性——那就是约定；只有文件系统无法揭示的东西（一个承重标志、一个检查器档案、一个语言回退）才被声明，而且尽量最小化。</span>
           </p>
           <p class="pull">
-            <span lang="en">A milestone is a coding idea; a research project might have <em>phases</em> instead. New surfaces and new domains arrive in the layers <em>around</em> the kernel — verticals, presets, tooling — while the primitives stay fixed.</span>
-            <span lang="zh">里程碑是一个编码领域的概念；一个研究项目可能改用<em>阶段（phases）</em>。新的界面和新的领域出现在内核<em>周围</em>的那些层——场景合同、预设、工具——而原语本身保持不变。</span>
+            <span lang="en">A sprint is a coding idea; a research project might have <em>phases</em> instead. New surfaces and new domains arrive in the layers <em>around</em> the kernel — verticals, presets, tooling — while the primitives stay fixed.</span>
+            <span lang="zh">迭代（sprint）是一个编码领域的概念；一个研究项目可能改用<em>阶段（phases）</em>。新的界面和新的领域出现在内核<em>周围</em>的那些层——场景合同、预设、工具——而原语本身保持不变。</span>
           </p>
         </section>
 

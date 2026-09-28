@@ -53,7 +53,7 @@ authored 目录数量不参与实体集合的通过计算；目标 preimage 冲�
 ha init --repo-id <id> --person-id <id> --display-name <name>
 ```
 
-这会生成 `harness/harness.yaml`、`harness/people.yaml` 以及 context/governance/adr/milestones 骨架，并自动把该仓注册进 daemon。
+这会生成 `harness/harness.yaml`、`harness/people.yaml` 以及 context/standards/governance 骨架，并自动把该仓注册进 daemon。
 
 ### 3. 先跑 dry-run
 
@@ -187,6 +187,9 @@ derived + archived/retired；coverage 保全；当前事件预校验通过。任
 
 **历史会显示成迁移那天吗？**
 不会。事件按原始 `occurredAt` 时间戳重放，新仓的时间线反映的是工作实际发生的时间。
+
+**老台账里的 milestone、epic 任务迁过来变成什么？**
+分组概念现在只有*工作*：一个根任务加归入它的任务。重放会把退役的 `milestone` 任务类别重述为 `work`、`epic` 重述为 `standard`。需要从退役的 `create-milestone` 或 `milestone-closeout` preset 重新编译契约的任务，会改按 `create-work` 或 `work-closeout` 编译，回执会记录这次修复。已是当前代际、只是仍带这些类别的台账不需要重放：先跑 `ha task contract migrate --dry-run` 审阅计划行，再跑 `ha task contract migrate --apply`。它原地重述类别，并把任务的历史 `presetId` 保留为出处。
 
 **本页没写到的命令或 flag？**
 本页只覆盖上述迁移面。运行 `ha migrate --help` 查看权威的命令描述。

@@ -60,8 +60,8 @@ ha init --repo-id <id> --person-id <id> --display-name <name>
 ```
 
 This generates `harness/harness.yaml`, `harness/people.yaml`, and the
-context/governance/adr/milestones skeletons, and registers the repository with
-the daemon automatically.
+context/standards/governance skeletons, and registers the repository with the
+daemon automatically.
 
 ### 3. Run the dry-run first
 
@@ -219,6 +219,16 @@ distinction is provenance: they carry `migration-import/v1`, `migratedFrom`, and
 **Will history show the migration date?**
 No. Events replay under their original `occurredAt` timestamps, so the new
 repository's timeline reflects when the work actually happened.
+
+**My old tasks were milestones or epics. What are they now?**
+Grouping is now a _work_: one root task plus the tasks filed under it. Replay
+restates the retired `milestone` task class to `work` and `epic` to `standard`.
+A task whose contract must be recompiled from the retired `create-milestone` or
+`milestone-closeout` preset is compiled against `create-work` or `work-closeout`,
+and the receipt records that repair. A ledger that is already current but still
+carries those classes needs no replay: run `ha task contract migrate --dry-run`,
+review the planned rows, then `ha task contract migrate --apply`. It restates
+the class in place and keeps the task's historical `presetId` as provenance.
 
 **A command or flag I need isn't on this page.**
 This page only documents the migration surface described above. Run

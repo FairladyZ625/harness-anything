@@ -27,7 +27,7 @@ gates, each guarding a different failure.
 
 | Gate | Guards against | Fires when |
 |---|---|---|
-| **Exit Gate** | a milestone that isn't actually finished | all its decisions are settled **and** the task chain is closed **and** the event ledger is complete |
+| **Exit Gate** | a work (a root task and its subtree) that isn't actually finished | all its decisions are settled **and** the task chain is closed **and** the event ledger is complete |
 | **Usability Gate** | a capability that exists but can't be used | a fresh agent, armed only with `--help` and a capabilities listing, can't actually run it end to end |
 | **Disposition Guard** | unsafe deletion | something with inbound edges is up for removal — a referenced decision is never physically deleted; a fact is never deleted on its own |
 
@@ -35,7 +35,7 @@ gates, each guarding a different failure.
 someone declared it done. Declaration is cheap; the gate checks the structure.
 Are the load-bearing decisions all resolved? Does the chain of tasks actually
 close, with nothing left blocked or dangling? Is the ledger of what happened
-complete? Only then does the milestone pass.
+complete? Only then does the work pass.
 
 **The Disposition Guard** keeps deletion from quietly severing the graph.
 Anything with inbound references is protected: a decision that other entities

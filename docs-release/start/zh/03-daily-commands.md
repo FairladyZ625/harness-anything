@@ -10,13 +10,25 @@
 | 命令 | 做什么 |
 |---|---|
 | `ha init` | 创建 `harness/` 账本布局及其私有嵌套 git 仓。 |
-| `ha task create --title <title>` | 创建一个新任务包。 |
-| `ha task list` | 列出任务包，带状态/模块/搜索过滤。 |
+| `ha task create --title <title>` | 创建一个新任务包。加 `--work <id>` 把它归入一个工作。 |
+| `ha task list` | 列出任务包，带状态/搜索/父任务过滤。 |
 | `ha task show <id>` | 查看单个任务的投影状态、元数据、层级、关系边和事实锚。 |
 | `ha task start <id>` | 取得或复用当前 execution lease。 |
 | `ha status` | 总结 harness 状态。 |
 | `ha check` | 运行 harness 健康检查。 |
 | `ha graph` | 把关系图渲染成自包含 HTML 全景。 |
+
+**组织工作**
+
+一个*工作*是一个根任务加归入它的任务，也是给任务分组的唯一方式；不带 `--work` 的任务独立存在。
+
+```bash
+ha work create --title "Login hardening"      # 工作的根任务
+ha task create --work <id> --title "Fix redirect loop"
+ha work list                                  # 进行中的工作及进度；--all 列出全部
+ha work show <id>                             # 目标、子树计数、未完成任务
+ha agenda --work <id>                         # 只看这一个工作的议程
+```
 
 **检查和导航**
 ```bash

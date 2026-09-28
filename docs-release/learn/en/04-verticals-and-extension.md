@@ -1,4 +1,4 @@
-# The Extension Model: Verticals, Checkers, Milestones, Dossiers
+# The Extension Model: Verticals, Checkers, Works, Dossiers
 
 The [three-primitive kernel](01-three-primitive-kernel.md) knows nothing about
 your domain. It has decisions, tasks, facts, and the relations between them —
@@ -17,7 +17,7 @@ The engine is a declaration parser: you describe the shape of your domain, and
 it materializes the entities, wires the relations, and enforces the rules.
 
 The payoff of this boundary is blunt: you can add a hundred domain concepts and
-the kernel does not change by a single line. A milestone is a coding idea; a
+the kernel does not change by a single line. A sprint is a coding idea; a
 research project might have *phases* instead. The kernel never learns either
 word.
 
@@ -56,27 +56,30 @@ Verticals do not extend every entity the same way. There are three shapes:
   `source`/`confidence`. A fact deliberately gets **no** document template: it is
   an observation recorded in passing while doing a task, so the vertical
   constrains its fields, not its shape.
-- **Composite entities** (milestone) get **no new storage at all**. A milestone
-  is not a new folder — it is one boundary decision plus N acceptance decisions
-  plus a grouping of tasks plus the relations that organize them. Its structure
-  is detected; its composition semantics are declared.
+- **Composite entities** (work) get **no new storage at all**. A work is not a
+  new folder — it is one root task, the tasks filed under it through their
+  parent link, the charter and acceptance decisions that frame it, and the
+  relations that organize them. Its structure is detected; its composition
+  semantics are declared.
 
-## Checkers, milestones, and dossiers
+## Checkers, works, and dossiers
 
 A **checker** is a set of load-bearing invariant rules a vertical declares. You
 invoke a profile of them (`ha check --profile ...`), and they run
 [fail-closed](03-gates-and-fail-closed.md): if a load-bearing invariant is
 violated, the write is refused rather than waved through.
 
-A **milestone**, as above, is a composite — an assembly of existing primitives,
-not a fourth primitive. It needs no new store because relations already let you
-group and organize the entities you have.
+A **work**, as above, is a composite — an assembly of existing primitives, not
+a fourth primitive. It needs no new store because parent links and relations
+already let you group and organize the entities you have. In the CLI it is one
+root task created with `ha work create`, and every task filed under it with
+`ha task create --work <id>`.
 
-A **dossier** is what a milestone produces when it closes: a record of *what was
-built*. At a milestone's exit, a checker the vertical installed fails closed
+A **dossier** is what a work produces when it closes: a record of *what was
+built*. At a work's exit, a checker the vertical installed fails closed
 unless the dossier exists, which is what forces it into being. The dossier
 (a forward record of construction) coexists with the panorama (a backward
-narrative retrospective); the two triangulate the same milestone from opposite
+narrative retrospective); the two triangulate the same work from opposite
 directions.
 
 ## Building your own
