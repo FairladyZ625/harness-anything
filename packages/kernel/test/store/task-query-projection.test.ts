@@ -352,6 +352,7 @@ test("historical task relation events replay into the Relation projection and su
             );
           return {
             relationId: relation.relation_id,
+            workspaceRevision: event.workspaceRevision,
             sourceRef: relation.source,
             targetRef: relation.target,
             relationType: relation.type,
