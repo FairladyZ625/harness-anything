@@ -76,19 +76,6 @@ export const adjudicate: Transition = {
         issues.push(
           lifecycleContractIssue("invalid_proof", "a verdict return must name a recorded review of this cut"),
         );
-      // Consent is final for a cut that can still complete. A stranded delivery commit can never earn
-      // its CI witness, so the owner may return it; the reworked cut earns its own review, consent and CI.
-      else if (
-        task.status === "in_review" &&
-        snapshot.consents.some((value) => value.executionId === command.executionId) &&
-        proof.strandedDelivery !== true
-      )
-        issues.push(
-          lifecycleContractIssue(
-            "invalid_transition",
-            "the current submitted cut already has owner consent and cannot be returned",
-          ),
-        );
     } else {
       issues.push(lifecycleContractIssue("invalid_schema", "adjudication decides forward or return"));
     }
