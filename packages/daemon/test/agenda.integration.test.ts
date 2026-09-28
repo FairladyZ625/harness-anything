@@ -1127,6 +1127,131 @@ test("an answered awaits lists for the source owner until the source is written 
   });
 });
 
+test("an answered awaits is asked again by relating the same endpoints at its retired revision", async () => {
+  await withCell("agenda-reask", async (cell, rootDir) => {
+    const added = await cell.run(
+      {
+        kind: "people-add",
+        personId: "person-agenda",
+        displayName: "Agenda Owner",
+        role: "administrator",
+        commandClass: ["admin"],
+        credentialKind: "email-address",
+        credentialIssuer: "example.invalid",
+        credentialSubject: "agenda@example.invalid",
+      },
+      binding,
+    );
+    assert.equal(added.outcome, "applied", JSON.stringify(added));
+    await waitForFixturePublication(cell, added.opId, binding);
+    const created = await cell.run({ kind: "task-create", taskId: "task_reasked", title: "Reasked task" }, binding);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, binding);
+    const ask = {
+        kind: "relation-relate",
+        sourceRef: "task/task_reasked",
+        targetRef: "person/person-agenda",
+        relationType: "awaits",
+      },
+      answerer = { actor: { principal: { personId: "person-agenda" }, executor: null }, source: "local" as const },
+      first = await cell.run({ ...ask, rationale: "acceptance: 第一轮验收", expectedVersion: 0 }, binding);
+    assert.equal(first.outcome, "applied", JSON.stringify(first));
+
+    // active 的同 id 关系换了 facets 仍被拒,报错写明先答复(retire)再按其 revision 重新发起。
+    const drifted = await cell.run({ ...ask, rationale: "question: 换个问法", expectedVersion: 0 }, binding);
+    assert.equal(drifted.outcome, "op_rejected", JSON.stringify(drifted));
+    assert.equal(drifted.code, "revision_conflict");
+    assert.match(String(drifted.rejectionExplanation), /is still active with different projected facets/u);
+    assert.match(String(drifted.rejectionExplanation), /ha relation unrelate rel_[0-9a-f]{16} /u);
+
+    const [asked] = (await cell.read("repo.agenda.read", { limit: 50 }, binding)).awaitingYou,
+      answered = await cell.run(
+        {
+          kind: "relation-unrelate",
+          relationId: asked!.relationId,
+          reason: "第一轮不通过",
+          expectedVersion: asked!.relationRevision,
+        },
+        answerer,
+      );
+    assert.equal(answered.outcome, "applied", JSON.stringify(answered));
+    const followUp = await cell.read("repo.agenda.read", { limit: 50 }, binding);
+    assert.deepEqual(
+      followUp.answeredForYou.map(({ question, answer }) => ({ question, answer })),
+      [{ question: "第一轮验收", answer: "第一轮不通过" }],
+    );
+    assert.match(
+      followUp.summary,
+      /再次提问: ha relation relate --source-ref task\/task_reasked --target-ref person\/person-agenda --type awaits/u,
+    );
+
+    // 同一对端点第二次提问:不带当前 revision 被拒且报错给出 revision,带上即重新激活同一条边。
+    const stale = await cell.run({ ...ask, rationale: "acceptance: 第二轮验收", expectedVersion: 0 }, binding);
+    assert.equal(stale.outcome, "op_rejected", JSON.stringify(stale));
+    assert.equal(stale.code, "revision_conflict");
+    assert.match(
+      String(stale.rejectionExplanation),
+      new RegExp(`was retired at revision ${answered.revision}; .*--expected-version ${answered.revision}`, "u"),
+    );
+    const second = await cell.run(
+      { ...ask, rationale: "acceptance: 第二轮验收", expectedVersion: answered.revision },
+      binding,
+    );
+    assert.equal(second.outcome, "applied", JSON.stringify(second));
+    assert.equal(second.relationId, asked!.relationId, "relation identity stays derived from its endpoints");
+
+    const reasked = await cell.read("repo.agenda.read", { limit: 50 }, binding);
+    assert.deepEqual(reasked.answeredForYou, [], "the earlier answer leaves once the edge is asked again");
+    assert.deepEqual(
+      reasked.awaitingYou.map(({ relationId, relationRevision, askKind, question }) => ({
+        relationId,
+        relationRevision,
+        askKind,
+        question,
+      })),
+      [
+        {
+          relationId: asked!.relationId,
+          relationRevision: second.revision,
+          askKind: "acceptance",
+          question: "第二轮验收",
+        },
+      ],
+    );
+    assert.equal(
+      reasked.dispatchable.some(({ taskId }) => taskId === "task_reasked"),
+      false,
+      "the reactivated ask holds its task again",
+    );
+
+    const answeredAgain = await cell.run(
+      {
+        kind: "relation-unrelate",
+        relationId: asked!.relationId,
+        reason: "第二轮通过",
+        expectedVersion: second.revision,
+      },
+      answerer,
+    );
+    assert.equal(answeredAgain.outcome, "applied", JSON.stringify(answeredAgain));
+    assert.deepEqual(
+      (await cell.read("repo.agenda.read", { limit: 50 }, binding)).answeredForYou.map(({ question, answer }) => ({
+        question,
+        answer,
+      })),
+      [{ question: "第二轮验收", answer: "第二轮通过" }],
+    );
+    assert.deepEqual(
+      makeTaskEventReader({ repoId: "agenda-reask", rootDir })
+        .read()
+        .events.filter((event) => event.schema === "relation-event/v1")
+        .map(({ type }) => type),
+      ["relation_created", "relation_retired", "relation_created", "relation_retired"],
+      "every ask and answer stays in history",
+    );
+  });
+});
+
 async function withCell(
   name: string,
   run: (cell: Awaited<ReturnType<typeof openRepoCell>>, rootDir: string) => Promise<void>,

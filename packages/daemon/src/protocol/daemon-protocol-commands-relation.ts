@@ -20,7 +20,9 @@ export const relationProtocolCommands = Object.freeze([
       "Create a first-class Relation aggregate under its revision fence. ",
       "To ask a person for an answer, relate task/<id> or decision/<id> to person/<id> with --type awaits ",
       '--rationale "<question|acceptance|consent|reopen>: <what you ask>"; it lists in their ha agenda ',
-      "等你处理 and holds the task out of the dispatch queue until answered — ask there, not in markdown or chat.",
+      "等你处理 and holds the task out of the dispatch queue until answered — ask there, not in markdown or chat. ",
+      "To ask again after an answer, relate the same endpoints with --expected-version set to the retired ",
+      "Relation's revision; the relation reactivates with the new rationale and keeps its history.",
     ].join(""),
     method: "repo.task.run",
     inputs: [
