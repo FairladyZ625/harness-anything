@@ -252,11 +252,12 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     assert.deepEqual(
       {
         outcome: candidate.outcome,
-        canonicalVisible: candidate.proof?.canonicalVisible,
+        status: candidate.status,
+        proof: candidate.proof,
         factState: candidateReport.factState,
         factWrite: candidateReport.factWrite,
       },
-      { outcome: "applied", canonicalVisible: true, factState: "candidate", factWrite: false },
+      { outcome: "applied", status: "settled_no_write", proof: undefined, factState: "candidate", factWrite: false },
     );
     assert.equal(candidateReport.subject.kind, "workspace-file");
     assert.equal(candidateReport.subject.ref, "evidence.md");

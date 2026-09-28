@@ -161,13 +161,6 @@ export function prepareDistillCandidate(input: {
         suggestedClaim: artifact.suggestedClaim,
       }),
       visibility: "center",
-      proof: {
-        committedRevision: input.revision,
-        appliedCut: input.revision,
-        durable: true,
-        canonicalVisible: true,
-        worktreeVisible: true,
-      },
     },
   };
 }

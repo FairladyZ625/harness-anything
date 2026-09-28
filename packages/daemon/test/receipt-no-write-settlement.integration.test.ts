@@ -25,9 +25,10 @@ function assertDefiniteNoWrite(receipt: Record<string, unknown>, outcome: "appli
   const text = JSON.stringify(receipt);
   assert.equal(receipt.outcome, outcome, text);
   assert.notEqual(receipt.code, "acceptance_unknown", text);
-  // No ledger acceptance is claimed: a determinate no-op settles as settled_no_write, never unknown.
-  assert.equal(receipt.status, outcome === "no_changes" ? "settled_no_write" : "unknown", text);
+  // No ledger acceptance is claimed: a determinate no-write settles as settled_no_write, never unknown.
+  assert.equal(receipt.status, "settled_no_write", text);
   assert.equal(receipt.acceptance, null, text);
+  assert.equal(receipt.proof, undefined, text);
 }
 
 test("actions that write nothing to the ledger settle as a definite success", { timeout: 60_000 }, async () => {
