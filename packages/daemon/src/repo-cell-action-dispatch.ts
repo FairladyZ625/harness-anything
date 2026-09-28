@@ -304,8 +304,10 @@ async function executeRepoAction(
       }),
       revision = cell.store.readHead()?.revision ?? 0,
       opId = cell.operationId(action, binding, cell.input.repoId, revision),
-      localWrite = ["preset-install", "preset-seed", "preset-uninstall"].includes(action.kind);
-    if (!localWrite) {
+      // Install, seed, and uninstall write the local preset store, never the ledger: a finished
+      // write settles like a read at the canonical cut, and only a dry run stays a preview.
+      preview = action.dryRun === true && ["preset-install", "preset-seed", "preset-uninstall"].includes(action.kind);
+    if (!preview) {
       const cut = cell.projection.readCut(),
         canonicalVisible = cut.status === "ready",
         base = {
@@ -328,7 +330,6 @@ async function executeRepoAction(
             ...base,
           };
     }
-    const durable = action.dryRun !== true;
     return {
       outcome: "pending",
       opId,
@@ -338,9 +339,9 @@ async function executeRepoAction(
       proof: {
         committedRevision: revision,
         appliedCut: cell.projection.readCut().watermark,
-        durable,
+        durable: false,
         canonicalVisible: false,
-        worktreeVisible: durable,
+        worktreeVisible: false,
       },
     };
   }

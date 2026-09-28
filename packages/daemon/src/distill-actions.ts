@@ -147,7 +147,7 @@ export function prepareDistillCandidate(input: {
     relativePath: relative,
     body: `${JSON.stringify(artifact, null, 2)}\n`,
     receipt: {
-      outcome: "pending",
+      outcome: "applied",
       opId: input.opId,
       revision: input.revision,
       evidence: JSON.stringify({
@@ -165,7 +165,7 @@ export function prepareDistillCandidate(input: {
         committedRevision: input.revision,
         appliedCut: input.revision,
         durable: true,
-        canonicalVisible: false,
+        canonicalVisible: true,
         worktreeVisible: true,
       },
     },

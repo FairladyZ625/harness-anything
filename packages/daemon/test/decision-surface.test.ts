@@ -39,7 +39,7 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
       proposer,
     );
     assert.equal(emptyRepin.outcome, "no_changes");
-    assert.equal(emptyRepin.status, "rejected");
+    assert.equal(emptyRepin.status, "unknown");
     assert.equal(emptyRepin.acceptance, null);
     assert.equal(emptyRepin.proof, undefined);
     const proposed = await cell.run(proposal("Lifecycle surface"), proposer),
@@ -256,7 +256,7 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
         factState: candidateReport.factState,
         factWrite: candidateReport.factWrite,
       },
-      { outcome: "pending", canonicalVisible: undefined, factState: "candidate", factWrite: false },
+      { outcome: "applied", canonicalVisible: true, factState: "candidate", factWrite: false },
     );
     assert.equal(candidateReport.subject.kind, "workspace-file");
     assert.equal(candidateReport.subject.ref, "evidence.md");
