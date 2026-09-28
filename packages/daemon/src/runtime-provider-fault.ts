@@ -137,16 +137,8 @@ function runtimeExitOutcome(
   return "unknown";
 }
 
-// A turn that ends while its own tool step is unsettled abandoned that work, whatever the provider reports.
-function toolStepUnsettled(active: ActiveRuntime): boolean {
-  return [...active.toolStepSettled.values()].includes(false);
-}
-
 function workerStopReason(active: ActiveRuntime, outcome: RuntimeExitOutcome): string {
   if (outcome === "succeeded") return "Worker completed the attempt successfully.";
-  if (active.descendantsAlive) return "Worker exited while descendant processes are still running.";
-  if (active.worktreeDirty) return "Worker exited with uncommitted changes in its worktree.";
-  if (toolStepUnsettled(active)) return "Worker ended its turn while a tool call it started had not finished.";
   if (active.protocolError) return "Worker exited with incomplete provider protocol evidence; outcome is unknown.";
   return "Worker exited without a structured provider outcome; outcome is unknown.";
 }

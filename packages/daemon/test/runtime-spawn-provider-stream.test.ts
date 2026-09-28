@@ -25,7 +25,6 @@ import {
   parseZcodeFrame,
 } from "../src/runtime-spawn-provider-frames.ts";
 import { discoverRuntimeModelCatalog } from "../src/agent-runtime-installation-discovery.ts";
-import { classifyRuntimeExit } from "../src/runtime-provider-fault.ts";
 
 function active(kindId = "codex", process = {} as never, extras: Record<string, unknown> = {}) {
   return createActiveRuntime({
@@ -466,79 +465,6 @@ test("AGY takes token usage from result.usage once, not from per-step usage", as
     },
     { inputTokens: 6400255, cacheReadTokens: 5713499, outputTokens: 39061 },
   );
-});
-
-// Replay of dispatch_d40a3b837658981ff18cb6a4 (agy, 2026-09-22): the worker launched `npm run test:fast`,
-// ended its turn with "I will wait for execution to complete", and agy killed that command on exit while
-// still reporting SUCCESS with exit 0. No stderr text marks the loss; only the unsettled tool step does.
-function agyAbandonedTurn(lastToolStates: readonly string[]) {
-  const step = (step_index: number, state: string, CommandLine: string) => ({
-    event: "step_update",
-    step_update: {
-      conversation_id: "b931879e-fbf2-405f-9d98-c3de741c5320",
-      step_index,
-      state,
-      step_type: "tool",
-      tool_name: "run_command",
-      tool_info: { name: "run_command", parameters: { CommandLine } },
-    },
-  });
-  return [
-    {
-      event: "init",
-      conversation_id: "b931879e-fbf2-405f-9d98-c3de741c5320",
-      init: { model: "gemini-3.8-flash-high" },
-    },
-    step(88, "ACTIVE", "node tools/run-node-tests.mjs --tier fast --list | wc -l"),
-    step(88, "DONE", "node tools/run-node-tests.mjs --tier fast --list | wc -l"),
-    ...lastToolStates.map((state) => step(90, state, "npm run test:fast")),
-    {
-      event: "step_update",
-      step_update: {
-        conversation_id: "b931879e-fbf2-405f-9d98-c3de741c5320",
-        step_index: 91,
-        state: "DONE",
-        step_type: "agent_response",
-        text_delta: "I have launched `npm run test:fast`. I will wait for execution to complete.\n",
-      },
-    },
-    {
-      event: "result",
-      result: {
-        conversation_id: "b931879e-fbf2-405f-9d98-c3de741c5320",
-        status: "SUCCESS",
-        response: "I have launched `npm run test:fast`. I will wait for execution to complete.\n",
-        duration_seconds: 290.001881,
-        num_turns: 1,
-      },
-    },
-  ];
-}
-
-async function settleAgyTurn(frames: readonly unknown[]) {
-  const runtime = active("agy"),
-    replayContext = { ...context(), parseProviderFrame } as never;
-  for (const frame of frames) await consumeProviderLine(replayContext, runtime, JSON.stringify(frame));
-  return classifyRuntimeExit(runtime, 0);
-}
-
-test("an agy turn that ends while its own tool step is unsettled cannot settle as succeeded", async () => {
-  const abandoned = await settleAgyTurn(agyAbandonedTurn(["ACTIVE"]));
-  assert.equal(abandoned.outcome, "unknown");
-  assert.equal(abandoned.classification, "worker_stop");
-  assert.equal(abandoned.reason, "Worker ended its turn while a tool call it started had not finished.");
-});
-
-test("an agy tool step that settled stays settled when older builds re-emit it as ACTIVE", async () => {
-  for (const states of [
-    ["ACTIVE", "DONE"],
-    ["ACTIVE", "ERROR"],
-    ["ACTIVE", "DONE", "ACTIVE"],
-  ]) {
-    const settled = await settleAgyTurn(agyAbandonedTurn(states));
-    assert.equal(settled.outcome, "unknown");
-    assert.doesNotMatch(settled.reason, /tool call it started had not finished/u);
-  }
 });
 
 const conversation = { conversation_id: "agy-conversation", step_index: 2 };

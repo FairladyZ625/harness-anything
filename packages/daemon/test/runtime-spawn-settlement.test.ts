@@ -635,7 +635,6 @@ function active(overrides: Partial<ActiveRuntime>): ActiveRuntime {
     toolCallObserved: false,
     failureText: null,
     lossReason: null,
-    toolStepSettled: new Map(),
     planIncomplete: false,
     planObserved: true,
     protocolError: false,

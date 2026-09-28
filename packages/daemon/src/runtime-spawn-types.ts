@@ -195,8 +195,6 @@ export type ActiveRuntime = {
   lossReason: string | null;
   lossSignal: string | null;
   lossExitCode: number | null;
-  descendantsAlive: boolean;
-  worktreeDirty: boolean;
   toolCallObserved: boolean;
   nonEmptyAgentOutputObserved: boolean;
   providerUsageEmpty: boolean;
@@ -207,8 +205,6 @@ export type ActiveRuntime = {
   toolCallCount: number;
   usageReported: boolean;
   providerToolSteps: Set<string>;
-  /** Provider tool step id -> whether that step reached a terminal state; settled stays settled. */
-  toolStepSettled: Map<string, boolean>;
   compacted: boolean;
   rawUsage: Record<string, unknown>;
 };

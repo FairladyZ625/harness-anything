@@ -22,8 +22,6 @@ type ActiveRuntimeBase = Omit<
   | "lossReason"
   | "lossSignal"
   | "lossExitCode"
-  | "descendantsAlive"
-  | "worktreeDirty"
   | "toolCallObserved"
   | "nonEmptyAgentOutputObserved"
   | "providerUsageEmpty"
@@ -34,7 +32,6 @@ type ActiveRuntimeBase = Omit<
   | "toolCallCount"
   | "usageReported"
   | "providerToolSteps"
-  | "toolStepSettled"
   | "compacted"
   | "rawUsage"
   | "fallbackAttempt"
@@ -63,8 +60,6 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     lossReason: null,
     lossSignal: null,
     lossExitCode: null,
-    descendantsAlive: false,
-    worktreeDirty: false,
     toolCallObserved: false,
     nonEmptyAgentOutputObserved: false,
     providerUsageEmpty: false,
@@ -75,7 +70,6 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     toolCallCount: 0,
     usageReported: false,
     providerToolSteps: new Set(),
-    toolStepSettled: new Map(),
     compacted: false,
     rawUsage: {},
   };
