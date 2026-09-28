@@ -124,7 +124,7 @@ export function resolveRepoBootstrap(
       "  tasks:",
       `    wipLimit: ${DEFAULT_TASK_WIP_LIMIT}`,
       "  agenda:",
-      "    pinLimit: 30",
+      `    pinLimit: ${INITIAL_SETTINGS_V1.agenda.pinLimit}`,
       "  scaffolds:",
       `    task: ${INITIAL_SETTINGS_V1.scaffolds.task}`,
       `    repository: ${INITIAL_SETTINGS_V1.scaffolds.repository}`,

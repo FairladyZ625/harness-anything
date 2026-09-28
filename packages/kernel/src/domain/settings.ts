@@ -1,11 +1,5 @@
-import { setting, settingBlockValue } from "../layout/harness-settings.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
-import {
-  replaceDefaultedBlockScalar,
-  replaceDefaultedScalar,
-  replaceOptionalDefaultedScalar,
-} from "./settings-closeout.ts";
-import type { EntityDocumentJsonSchema } from "./entity-json-schema.ts";
+import type { EntityDocumentJsonSchema, EntityJsonSchemaNode } from "./entity-json-schema.ts";
 import {
   gateAppliesTo,
   gateGovernanceFields,
@@ -15,330 +9,109 @@ import {
 } from "./completion-contract.ts";
 import { validateEntityJsonSchema } from "./entity-json-schema.ts";
 import {
-  DEFAULT_CLOSEOUT_SETTINGS,
-  closeoutProfiles,
-  readCloseoutSettings,
-  settingsCloseoutOverrideKeys,
-  writeCloseoutFacet,
-  type CloseoutSettingsV1,
-} from "./settings-closeout.ts";
+  DEFAULT_CI_WORKFLOWS,
+  DEFAULT_RESTORE_DRILL_RETENTION,
+  DEFAULT_WAL_FLUSH_SETTINGS,
+  AGENDA_PIN_LIMIT_SETTING,
+  SETTINGS_FIELD_DECLARATIONS,
+  defineSettingsField,
+  reviewIndependenceLevels,
+  rolePreferenceFields,
+  settingValuePattern,
+  settingsActionInputFieldsFromDeclarations,
+  settingsCliInputFieldsFromDeclarations,
+  settingsLocales,
+  settingsFieldLabel,
+  type ReviewIndependence,
+  type DeclaredSettingsFields,
+  type SettingsCliInputField,
+  type SettingsFieldDeclaration,
+  type SettingsLocale,
+  type WalFlushSettingsV1,
+} from "./settings-field-declarations.ts";
+
+export {
+  DEFAULT_CI_WORKFLOWS,
+  DEFAULT_RESTORE_DRILL_RETENTION,
+  DEFAULT_WAL_FLUSH_SETTINGS,
+  AGENDA_PIN_LIMIT_SETTING,
+  SETTINGS_FIELD_DECLARATIONS,
+  defineSettingsField,
+  reviewIndependenceLevels,
+  rolePreferenceFields,
+  settingValuePattern,
+  settingsLocales,
+  settingsFieldLabel,
+  type ReviewIndependence,
+  type DeclaredSettingsFields,
+  type SettingsCliInputField,
+  type SettingsFieldDeclaration,
+  type SettingsLocale,
+  type WalFlushSettingsV1,
+};
 
 export const SETTINGS_ID = "repository";
 export const SETTINGS_LOCAL_PATH = ".harness/settings.local.json";
-export const settingsLocales = ["en-US", "zh-CN"] as const;
-export type SettingsLocale = (typeof settingsLocales)[number];
-export const reviewIndependenceLevels = ["execution", "principal"] as const;
-export type ReviewIndependence = (typeof reviewIndependenceLevels)[number];
-export const DEFAULT_RESTORE_DRILL_RETENTION = 3;
-export const DEFAULT_CI_WORKFLOWS = Object.freeze([] as const);
+export const SETTINGS_FIELD_OWNERSHIP = Object.freeze(
+  Object.fromEntries(SETTINGS_FIELD_DECLARATIONS.map(({ path, ownership }) => [path[0], ownership])),
+);
 
-export interface WalFlushSettingsV1 {
-  readonly adaptive: boolean;
-  readonly events: number;
-  readonly bytes: number;
-  readonly milliseconds: number;
-}
+export type RepositorySettingsV1 = Readonly<
+  {
+    readonly schema: "settings/v1";
+    readonly settingsId: typeof SETTINGS_ID;
+  } & DeclaredSettingsFields<"repository">
+>;
 
-// Owner ruling (Zeyu, 2026-08-31): the idle timer is a floor, not the flush
-// driver — 256 events / 8 MiB remain the load-bounded triggers, and one commit
-// per hour of idle activity replaces the ~2s cadence that produced 100+
-// ledger commits per day.
-export const DEFAULT_WAL_FLUSH_SETTINGS: WalFlushSettingsV1 = Object.freeze({
-  adaptive: true,
-  events: 256,
-  bytes: 8 * 1024 * 1024,
-  milliseconds: 3_600_000,
-});
+export type LocalSettingsV1 = Readonly<
+  {
+    readonly schema: "settings-local/v1";
+  } & DeclaredSettingsFields<"local">
+>;
 
-export const SETTINGS_FIELD_OWNERSHIP = Object.freeze({
-  defaultVertical: "repository",
-  defaultPreset: "repository",
-  defaultProfile: "repository",
-  roles: "repository",
-  reviewIndependence: "repository",
-  reviewReturnBudget: "repository",
-  locale: "local",
-  scaffolds: "repository",
-  walFlush: "repository",
-  ci: "repository",
-  gates: "repository",
-  closeout: "repository",
-  agenda: "repository",
-  restoreDrillRetention: "repository",
-} as const);
+export type SettingsV1 = Readonly<
+  {
+    readonly schema: "settings/v1";
+    readonly settingsId: typeof SETTINGS_ID;
+  } & DeclaredSettingsFields<"repository"> &
+    DeclaredSettingsFields<"local">
+>;
 
-type SettingsOwnedField = keyof typeof SETTINGS_FIELD_OWNERSHIP;
+export const SETTINGS_LOCAL_V1_SCHEMA: EntityDocumentJsonSchema<LocalSettingsV1> = settingsSchema(
+  "SettingsLocal/v1",
+  "settings-local/v1",
+  SETTINGS_FIELD_DECLARATIONS.filter(({ ownership }) => ownership === "local"),
+  false,
+) as EntityDocumentJsonSchema<LocalSettingsV1>;
 
-function ownedSchema<T extends object>(
-  field: SettingsOwnedField,
-  schema: T,
-): T & { readonly "x-settings-ownership": (typeof SETTINGS_FIELD_OWNERSHIP)[SettingsOwnedField] } {
-  return { ...schema, "x-settings-ownership": SETTINGS_FIELD_OWNERSHIP[field] };
-}
+export const INITIAL_SETTINGS_V1 = Object.freeze(
+  settingsValueFromDeclarations(SETTINGS_FIELD_DECLARATIONS),
+) as unknown as SettingsV1;
 
-export interface RepositorySettingsV1 {
-  readonly schema: "settings/v1";
-  readonly settingsId: typeof SETTINGS_ID;
-  readonly defaultVertical: string;
-  readonly defaultPreset: string;
-  readonly defaultProfile: string;
-  readonly roles?: Readonly<Partial<Record<"defaultWorker" | "defaultCommander" | "defaultReviewer", string>>>;
-  readonly reviewIndependence: ReviewIndependence;
-  readonly reviewReturnBudget: number;
-  readonly scaffolds: {
-    readonly task: string;
-    readonly repository: string;
-  };
-  readonly walFlush: WalFlushSettingsV1;
-  readonly ci: { readonly workflows: readonly string[] };
-  readonly gates: readonly GateWitnessMappingV1[];
-  readonly closeout: CloseoutSettingsV1;
-  readonly agenda: { readonly pinLimit: number };
-  readonly restoreDrillRetention: number;
-}
-
-export interface LocalSettingsV1 {
-  readonly schema: "settings-local/v1";
-  readonly locale: SettingsLocale;
-}
-
-export interface SettingsV1 {
-  readonly schema: "settings/v1";
-  readonly settingsId: typeof SETTINGS_ID;
-  readonly defaultVertical: string;
-  readonly defaultPreset: string;
-  readonly defaultProfile: string;
-  readonly roles?: Readonly<Partial<Record<"defaultWorker" | "defaultCommander" | "defaultReviewer", string>>>;
-  readonly reviewIndependence: ReviewIndependence;
-  readonly reviewReturnBudget: number;
-  readonly locale: SettingsLocale;
-  readonly scaffolds: {
-    readonly task: string;
-    readonly repository: string;
-  };
-  readonly walFlush: WalFlushSettingsV1;
-  readonly ci: { readonly workflows: readonly string[] };
-  readonly gates: readonly GateWitnessMappingV1[];
-  readonly closeout: CloseoutSettingsV1;
-  readonly agenda: { readonly pinLimit: number };
-  readonly restoreDrillRetention: number;
-}
-
-export const SETTINGS_LOCAL_V1_SCHEMA: EntityDocumentJsonSchema<LocalSettingsV1> = {
-  $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "SettingsLocal/v1",
-  type: "object",
-  properties: {
-    schema: { type: "string", const: "settings-local/v1" },
-    locale: ownedSchema("locale", { type: "string", enum: settingsLocales }),
-  },
-  required: ["schema", "locale"],
-  additionalProperties: false,
-};
-
-export const INITIAL_SETTINGS_V1: SettingsV1 = Object.freeze({
-  schema: "settings/v1",
-  settingsId: SETTINGS_ID,
-  defaultVertical: "software/coding",
-  defaultPreset: "standard-task",
-  defaultProfile: "baseline",
-  reviewIndependence: "execution",
-  reviewReturnBudget: 3,
-  locale: "en-US",
-  scaffolds: Object.freeze({
-    task: "governance/task-scaffold.json",
-    repository: "governance/repository-scaffold.json",
-  }),
-  walFlush: DEFAULT_WAL_FLUSH_SETTINGS,
-  ci: Object.freeze({ workflows: DEFAULT_CI_WORKFLOWS }),
-  gates: Object.freeze([]),
-  closeout: DEFAULT_CLOSEOUT_SETTINGS,
-  agenda: Object.freeze({ pinLimit: 30 }),
-  restoreDrillRetention: DEFAULT_RESTORE_DRILL_RETENTION,
-});
-
-export const settingValuePattern = "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$";
-
-export const rolePreferenceFields = ["defaultWorker", "defaultCommander", "defaultReviewer"] as const;
-
-function rolesSettingsSchema() {
-  return ownedSchema("roles", {
-    type: "object" as const,
-    properties: Object.fromEntries(
-      rolePreferenceFields.map((key) => [key, { type: "string" as const, pattern: settingValuePattern, minLength: 1 }]),
-    ),
-    required: [],
-    additionalProperties: false,
-  });
-}
-
-function writeRoleSettings(body: string, roles: NonNullable<RepositorySettingsV1["roles"]>): string {
-  // Retired root preference is removed on the next canonical settings write.
-  const next = body.replace(/^  defaultReviewer:[^\r\n]*(?:\r?\n|$)/mu, ""),
-    section = /^  roles:[^\r\n]*(?:\r?\n|$)(?:    [^\r\n]*(?:\r?\n|$))*/mu,
-    lines = rolePreferenceFields.flatMap((key) => (roles[key] === undefined ? [] : [`    ${key}: ${roles[key]}`])),
-    rendered = lines.length ? ["  roles:", ...lines, ""].join("\n") : "";
-  if (section.test(next)) return next.replace(section, rendered);
-  return next.replace(/^settings:[^\r\n]*(?:\r?\n|$)/mu, (header) => `${header}${rendered}`);
-}
-
-export const SETTINGS_V1_SCHEMA: EntityDocumentJsonSchema<SettingsV1> = {
-  $schema: "https://json-schema.org/draft/2020-12/schema",
-  $id: "Settings/v1",
-  type: "object",
-  properties: {
-    schema: { type: "string", const: "settings/v1" },
-    settingsId: { type: "string", const: SETTINGS_ID },
-    defaultVertical: {
-      type: "string",
-      pattern: settingValuePattern,
-      minLength: 1,
-      ...ownedSchema("defaultVertical", {}),
-    },
-    defaultPreset: {
-      type: "string",
-      pattern: settingValuePattern,
-      minLength: 1,
-      ...ownedSchema("defaultPreset", {}),
-    },
-    defaultProfile: {
-      type: "string",
-      pattern: settingValuePattern,
-      minLength: 1,
-      ...ownedSchema("defaultProfile", {}),
-    },
-    roles: rolesSettingsSchema(),
-    reviewIndependence: ownedSchema("reviewIndependence", {
-      type: "string",
-      enum: reviewIndependenceLevels,
-    }),
-    reviewReturnBudget: ownedSchema("reviewReturnBudget", { type: "integer", minimum: 1 }),
-    locale: ownedSchema("locale", { type: "string", enum: settingsLocales }),
-    scaffolds: {
-      ...ownedSchema("scaffolds", {}),
-      type: "object",
-      properties: {
-        task: {
-          type: "string",
-          pattern: settingValuePattern,
-          minLength: 1,
-          ...ownedSchema("scaffolds", {}),
-        },
-        repository: {
-          type: "string",
-          pattern: settingValuePattern,
-          minLength: 1,
-          ...ownedSchema("scaffolds", {}),
-        },
-      },
-      required: ["task", "repository"],
-      additionalProperties: false,
-    },
-    walFlush: walFlushSchema(),
-    ci: ciSettingsSchema(),
-    gates: gateSettingsSchema(),
-    closeout: closeoutSettingsSchema(),
-    agenda: ownedSchema("agenda", {
-      type: "object",
-      properties: { pinLimit: { type: "integer", minimum: 1 } },
-      required: ["pinLimit"],
-      additionalProperties: false,
-    }),
-    restoreDrillRetention: ownedSchema("restoreDrillRetention", { type: "integer", minimum: 1 }),
-  },
-  required: [
-    "schema",
-    "settingsId",
-    "defaultVertical",
-    "defaultPreset",
-    "defaultProfile",
-    "locale",
-    "scaffolds",
-    "walFlush",
-  ],
-  additionalProperties: false,
-};
+export const SETTINGS_V1_SCHEMA = settingsSchema(
+  "Settings/v1",
+  "settings/v1",
+  SETTINGS_FIELD_DECLARATIONS,
+  true,
+) as EntityDocumentJsonSchema<SettingsV1>;
 
 /** Event/projection shape containing repository-owned settings only. */
-export const SETTINGS_REPOSITORY_V1_SCHEMA: EntityDocumentJsonSchema<RepositorySettingsV1> = {
-  $id: "SettingsRepository/v1",
-  $schema: "https://json-schema.org/draft/2020-12/schema",
-  type: "object",
-  properties: {
-    schema: { type: "string", const: "settings/v1" },
-    settingsId: { type: "string", const: SETTINGS_ID },
-    defaultVertical: {
-      type: "string",
-      pattern: settingValuePattern,
-      minLength: 1,
-      ...ownedSchema("defaultVertical", {}),
-    },
-    defaultPreset: ownedSchema("defaultPreset", { type: "string", pattern: settingValuePattern, minLength: 1 }),
-    defaultProfile: {
-      type: "string",
-      pattern: settingValuePattern,
-      minLength: 1,
-      ...ownedSchema("defaultProfile", {}),
-    },
-    roles: rolesSettingsSchema(),
-    reviewIndependence: ownedSchema("reviewIndependence", {
-      type: "string",
-      enum: reviewIndependenceLevels,
-    }),
-    reviewReturnBudget: ownedSchema("reviewReturnBudget", { type: "integer", minimum: 1 }),
-    scaffolds: {
-      ...ownedSchema("scaffolds", {}),
-      type: "object",
-      properties: {
-        task: ownedSchema("scaffolds", { type: "string", pattern: settingValuePattern, minLength: 1 }),
-        repository: {
-          type: "string",
-          pattern: settingValuePattern,
-          minLength: 1,
-          ...ownedSchema("scaffolds", {}),
-        },
-      },
-      required: ["task", "repository"],
-      additionalProperties: false,
-    },
-    walFlush: walFlushSchema(),
-    ci: ciSettingsSchema(),
-    gates: gateSettingsSchema(),
-    closeout: closeoutSettingsSchema(),
-    agenda: ownedSchema("agenda", {
-      type: "object",
-      properties: { pinLimit: { type: "integer", minimum: 1 } },
-      required: ["pinLimit"],
-      additionalProperties: false,
-    }),
-    restoreDrillRetention: ownedSchema("restoreDrillRetention", { type: "integer", minimum: 1 }),
-  },
-  required: ["schema", "settingsId", "defaultVertical", "defaultPreset", "defaultProfile", "scaffolds", "walFlush"],
-  additionalProperties: false,
-};
+export const SETTINGS_REPOSITORY_V1_SCHEMA = settingsSchema(
+  "SettingsRepository/v1",
+  "settings/v1",
+  SETTINGS_FIELD_DECLARATIONS.filter(({ ownership }) => ownership === "repository"),
+  true,
+) as EntityDocumentJsonSchema<RepositorySettingsV1>;
 
 export function validateSettingsV1(value: unknown): readonly string[] {
   return withGateMappingIssues(validateEntityJsonSchema(SETTINGS_V1_SCHEMA, value, "settings"), value);
 }
 
 export function repositorySettings(settings: SettingsV1 | RepositorySettingsV1): RepositorySettingsV1 {
-  return {
-    schema: "settings/v1",
-    settingsId: SETTINGS_ID,
-    defaultVertical: settings.defaultVertical,
-    defaultPreset: settings.defaultPreset,
-    defaultProfile: settings.defaultProfile,
-    roles: settings.roles ?? {},
-    reviewIndependence: settings.reviewIndependence ?? INITIAL_SETTINGS_V1.reviewIndependence,
-    reviewReturnBudget: settings.reviewReturnBudget ?? INITIAL_SETTINGS_V1.reviewReturnBudget,
-    scaffolds: { task: settings.scaffolds.task, repository: settings.scaffolds.repository },
-    walFlush: settings.walFlush ?? DEFAULT_WAL_FLUSH_SETTINGS,
-    ci: settings.ci ?? INITIAL_SETTINGS_V1.ci,
-    gates: canonicalGateMappings(settings.gates ?? INITIAL_SETTINGS_V1.gates),
-    closeout: settings.closeout ?? INITIAL_SETTINGS_V1.closeout,
-    agenda: settings.agenda ?? INITIAL_SETTINGS_V1.agenda,
-    restoreDrillRetention: settings.restoreDrillRetention ?? DEFAULT_RESTORE_DRILL_RETENTION,
-  };
+  return settingsValueFromDeclarations(
+    SETTINGS_FIELD_DECLARATIONS.filter(({ ownership }) => ownership === "repository"),
+    settings as unknown as Readonly<Record<string, unknown>>,
+  ) as unknown as RepositorySettingsV1;
 }
 
 export function validateLocalSettingsV1(value: unknown): readonly string[] {
@@ -357,39 +130,7 @@ export function parseLocalSettings(value: unknown): LocalSettingsV1 | null {
 }
 
 export function readSettingsFacet(body: string): SettingsV1 {
-  const settings: SettingsV1 = {
-    schema: "settings/v1",
-    settingsId: SETTINGS_ID,
-    defaultVertical: setting(body, "defaultVertical") ?? INITIAL_SETTINGS_V1.defaultVertical,
-    defaultPreset: setting(body, "defaultPreset") ?? INITIAL_SETTINGS_V1.defaultPreset,
-    defaultProfile: setting(body, "defaultProfile") ?? INITIAL_SETTINGS_V1.defaultProfile,
-    roles: Object.fromEntries(
-      rolePreferenceFields.flatMap((key) => {
-        // An authored document written before `settings.roles` keeps its reviewer at the root key;
-        // writeRoleSettings drops that key on the next write, so this read is the only carrier.
-        const value =
-          settingBlockValue(body, "roles", key) ??
-          (key === "defaultReviewer" ? setting(body, "defaultReviewer") : undefined);
-        return value === undefined ? [] : [[key, value]];
-      }),
-    ),
-    reviewIndependence: (setting(body, "reviewIndependence") ??
-      INITIAL_SETTINGS_V1.reviewIndependence) as ReviewIndependence,
-    reviewReturnBudget: Number(setting(body, "reviewReturnBudget") ?? INITIAL_SETTINGS_V1.reviewReturnBudget),
-    locale: (setting(body, "locale") ?? INITIAL_SETTINGS_V1.locale) as SettingsLocale,
-    scaffolds: {
-      task: settingBlockValue(body, "scaffolds", "task") ?? INITIAL_SETTINGS_V1.scaffolds.task,
-      repository: settingBlockValue(body, "scaffolds", "repository") ?? INITIAL_SETTINGS_V1.scaffolds.repository,
-    },
-    walFlush: readWalFlushSettings(body),
-    ci: readCiSettings(body),
-    gates: readGateSettings(body),
-    closeout: readCloseoutSettings(body),
-    agenda: {
-      pinLimit: Number(settingBlockValue(body, "agenda", "pinLimit") ?? INITIAL_SETTINGS_V1.agenda.pinLimit),
-    },
-    restoreDrillRetention: readRestoreDrillRetention(body),
-  };
+  const settings = SETTINGS_DECLARATION_RUNTIME.read(body) as unknown as SettingsV1;
   const errors = validateSettingsV1(settings);
   if (errors.length) throw new Error(errors.join("; "));
   return settings;
@@ -400,115 +141,180 @@ export function writeRepositorySettingsFacet(body: string, settings: RepositoryS
   const repository = repositorySettings(settings),
     errors = validateRepositorySettings(repository);
   if (errors.length) throw new Error(errors.join("; "));
-  let next = body;
-  next = replaceDefaultedScalar(
-    next,
-    "  ",
-    "defaultVertical",
-    repository.defaultVertical,
-    INITIAL_SETTINGS_V1.defaultVertical,
-  );
-  next = replaceDefaultedScalar(
-    next,
-    "  ",
-    "defaultPreset",
-    repository.defaultPreset,
-    INITIAL_SETTINGS_V1.defaultPreset,
-  );
-  next = replaceDefaultedScalar(
-    next,
-    "  ",
-    "defaultProfile",
-    repository.defaultProfile,
-    INITIAL_SETTINGS_V1.defaultProfile,
-  );
-  next = writeRoleSettings(next, repository.roles ?? {});
-  next = replaceOptionalDefaultedScalar(
-    next,
-    "  ",
-    "reviewIndependence",
-    repository.reviewIndependence,
-    INITIAL_SETTINGS_V1.reviewIndependence,
-  );
-  next = replaceOptionalDefaultedScalar(
-    next,
-    "  ",
-    "reviewReturnBudget",
-    String(repository.reviewReturnBudget),
-    String(INITIAL_SETTINGS_V1.reviewReturnBudget),
-  );
-  next = replaceDefaultedBlockScalar(
-    next,
-    "scaffolds",
-    "task",
-    repository.scaffolds.task,
-    INITIAL_SETTINGS_V1.scaffolds.task,
-  );
-  next = writeWalFlushFacet(next, repository.walFlush);
-  next = writeCiFacet(next, repository.ci);
-  next = writeGatesFacet(next, repository.gates);
-  next = writeCloseoutFacet(next, repository.closeout);
-  next = replaceDefaultedBlockScalar(
-    next,
-    "agenda",
-    "pinLimit",
-    String(repository.agenda.pinLimit),
-    String(INITIAL_SETTINGS_V1.agenda.pinLimit),
-  );
-  next = replaceOptionalDefaultedScalar(
-    next,
-    "  ",
-    "restoreDrillRetention",
-    String(repository.restoreDrillRetention),
-    String(DEFAULT_RESTORE_DRILL_RETENTION),
-  );
-  next = replaceDefaultedBlockScalar(
-    next,
-    "scaffolds",
-    "repository",
-    repository.scaffolds.repository,
-    INITIAL_SETTINGS_V1.scaffolds.repository,
-  );
-  next = removeLegacyLocale(next);
+  const next = SETTINGS_DECLARATION_RUNTIME.writeRepository(body, repository as unknown as Readonly<SettingsRecord>);
   if (stableStringify(repositorySettings(readSettingsFacet(next))) !== stableStringify(repository))
     throw new Error("repository settings facet replacement did not round-trip exactly");
   return next;
 }
 
-function walFlushSchema() {
-  return {
-    ...ownedSchema("walFlush", {}),
-    type: "object" as const,
-    properties: {
-      adaptive: ownedSchema("walFlush", { type: "boolean" as const }),
-      events: ownedSchema("walFlush", { type: "integer" as const, minimum: 1, maximum: 1_000_000 }),
-      bytes: ownedSchema("walFlush", { type: "integer" as const, minimum: 1, maximum: 1_073_741_824 }),
-      milliseconds: ownedSchema("walFlush", { type: "integer" as const, minimum: 1, maximum: 3_600_000 }),
-    },
-    required: ["adaptive", "events", "bytes", "milliseconds"],
-    additionalProperties: false,
-  };
+type SettingsRecord = Record<string, unknown>;
+
+export class SettingsDeclarationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "SettingsDeclarationError";
+  }
 }
 
-function ciSettingsSchema() {
-  return {
-    ...ownedSchema("ci", {}),
-    type: "object" as const,
-    properties: {
-      workflows: ownedSchema("ci", {
-        type: "array" as const,
-        items: { type: "string" as const, pattern: settingValuePattern, minLength: 1 },
-        uniqueItems: true,
-      }),
-    },
-    required: ["workflows"],
+export interface SettingsDeclarationRuntime {
+  readonly actionInputFields: ReturnType<typeof settingsActionInputFieldsFromDeclarations>;
+  readonly cliInputFields: readonly SettingsCliInputField[];
+  readonly repositoryActionFields: readonly string[];
+  readonly read: (body: string) => Readonly<SettingsRecord>;
+  readonly writeRepository: (body: string, settings: Readonly<SettingsRecord>) => string;
+  readonly applyRepositoryAction: (
+    current: Readonly<SettingsRecord>,
+    action: Readonly<Record<string, unknown>>,
+  ) => Readonly<SettingsRecord>;
+  readonly actionValues: (settings: Readonly<SettingsRecord>) => Readonly<Record<string, unknown>>;
+}
+
+export function createSettingsDeclarationRuntime(
+  declarations: readonly SettingsFieldDeclaration[],
+): SettingsDeclarationRuntime {
+  const repositoryDeclarations = declarations.filter(({ ownership }) => ownership === "repository"),
+    actionInputFields = settingsActionInputFieldsFromDeclarations(declarations),
+    cliInputFields = settingsCliInputFieldsFromDeclarations(declarations),
+    repositoryActionFields = Object.freeze([
+      ...new Set(repositoryDeclarations.flatMap(({ action }) => (action ? [action.field] : []))),
+    ]);
+  return Object.freeze({
+    actionInputFields,
+    cliInputFields,
+    repositoryActionFields,
+    read: (body: string) => readDeclaredSettings(body, declarations),
+    writeRepository: (body: string, settings: Readonly<SettingsRecord>) =>
+      writeDeclaredRepositorySettings(body, settings, declarations),
+    applyRepositoryAction: (current: Readonly<SettingsRecord>, action: Readonly<Record<string, unknown>>) =>
+      applyDeclaredRepositoryAction(current, action, repositoryDeclarations),
+    actionValues: (settings: Readonly<SettingsRecord>) => declaredSettingsActionValues(settings, declarations),
+  });
+}
+
+export const SETTINGS_DECLARATION_RUNTIME = createSettingsDeclarationRuntime(SETTINGS_FIELD_DECLARATIONS);
+
+function settingsValueFromDeclarations(
+  declarations: readonly SettingsFieldDeclaration[],
+  source?: Readonly<Record<string, unknown>>,
+): Readonly<SettingsRecord> {
+  const value: SettingsRecord = { schema: "settings/v1", settingsId: SETTINGS_ID };
+  for (const declaration of declarations) {
+    const fromSource = source === undefined ? undefined : valueAtPath(source, declaration.path),
+      fieldValue = fromSource === undefined ? declaration.defaultValue : fromSource;
+    if (fieldValue !== undefined)
+      setValueAtPath(
+        value,
+        declaration.path,
+        declaration.valueKind === "gate-mappings"
+          ? canonicalGateMappings(fieldValue as readonly GateWitnessMappingV1[])
+          : fieldValue,
+      );
+  }
+  return value;
+}
+
+function settingsSchema(
+  id: string,
+  schemaName: "settings/v1" | "settings-local/v1",
+  declarations: readonly SettingsFieldDeclaration[],
+  includeSettingsId: boolean,
+): EntityDocumentJsonSchema {
+  const schema: MutableObjectSchema = {
+    $schema: "https://json-schema.org/draft/2020-12/schema",
+    $id: id,
+    type: "object",
+    properties: { schema: { type: "string", const: schemaName } },
+    required: ["schema"],
     additionalProperties: false,
   };
+  if (includeSettingsId) {
+    schema.properties.settingsId = { type: "string", const: SETTINGS_ID };
+    schema.required.push("settingsId");
+  }
+  for (const declaration of declarations) insertDeclaredSchema(schema, declaration);
+  return schema as unknown as EntityDocumentJsonSchema;
+}
+
+interface MutableObjectSchema {
+  $schema?: "https://json-schema.org/draft/2020-12/schema";
+  $id?: string;
+  type: "object";
+  properties: Record<string, EntityJsonSchemaNode>;
+  required: string[];
+  additionalProperties: false;
+  "x-settings-ownership"?: "repository" | "local";
+}
+
+function insertDeclaredSchema(root: MutableObjectSchema, declaration: SettingsFieldDeclaration): void {
+  let parent = root;
+  declaration.path.forEach((segment, index) => {
+    const leaf = index === declaration.path.length - 1;
+    if (leaf) {
+      parent.properties[segment] = declaredFieldSchema(declaration);
+      if (declaration.snapshotRequired && !parent.required.includes(segment)) parent.required.push(segment);
+      return;
+    }
+    const existing = parent.properties[segment] as MutableObjectSchema | undefined;
+    if (existing?.type === "object") parent = existing;
+    else {
+      const nested: MutableObjectSchema = {
+        type: "object",
+        properties: {},
+        required: [],
+        additionalProperties: false,
+        "x-settings-ownership": declaration.ownership,
+      };
+      parent.properties[segment] = nested;
+      parent = nested;
+    }
+    if (declaration.snapshotRequired) {
+      const owner = schemaParentAtPath(root, declaration.path.slice(0, index));
+      if (!owner.required.includes(segment)) owner.required.push(segment);
+    }
+  });
+}
+
+function schemaParentAtPath(root: MutableObjectSchema, path: readonly string[]): MutableObjectSchema {
+  return path.reduce((parent, segment) => parent.properties[segment] as MutableObjectSchema, root);
+}
+
+function declaredFieldSchema(declaration: SettingsFieldDeclaration): EntityJsonSchemaNode {
+  const common = {
+    description: declaration.description,
+    "x-settings-ownership": declaration.ownership,
+  } as const;
+  switch (declaration.valueKind) {
+    case "string":
+      return {
+        ...common,
+        type: "string",
+        ...(declaration.pattern ? { pattern: declaration.pattern } : {}),
+        minLength: 1,
+      };
+    case "enum":
+      return { ...common, type: "string", enum: declaration.allowedValues ?? [] };
+    case "integer":
+      return { ...common, type: "integer", minimum: declaration.minimum };
+    case "boolean":
+      return { ...common, type: "boolean" };
+    case "string-array":
+      return {
+        ...common,
+        type: "array",
+        items: {
+          type: "string",
+          ...(declaration.pattern ? { pattern: declaration.pattern } : {}),
+          minLength: 1,
+        },
+        ...(declaration.uniqueItems ? { uniqueItems: true } : {}),
+      };
+    case "gate-mappings":
+      return { ...gateSettingsSchema(), ...common };
+  }
 }
 
 function gateSettingsSchema() {
   return {
-    ...ownedSchema("gates", {}),
     type: "array" as const,
     "x-unique-by": "gateId",
     items: {
@@ -534,48 +340,6 @@ function gateSettingsSchema() {
 function withGateMappingIssues(errors: readonly string[], value: unknown): readonly string[] {
   const gates = (value as { readonly gates?: readonly GateWitnessMappingV1[] } | null)?.gates;
   return errors.length || gates === undefined ? errors : gateWitnessMappingIssues(gates);
-}
-
-function closeoutSettingsSchema() {
-  return {
-    ...ownedSchema("closeout", {}),
-    type: "object" as const,
-    properties: {
-      profile: ownedSchema("closeout", { type: "string" as const, enum: closeoutProfiles }),
-      overrides: {
-        ...ownedSchema("closeout", {}),
-        type: "object" as const,
-        properties: Object.fromEntries(
-          settingsCloseoutOverrideKeys.map((key) => [key, ownedSchema("closeout", { type: "boolean" as const })]),
-        ),
-        required: [],
-        additionalProperties: false,
-      },
-    },
-    required: ["profile"],
-    additionalProperties: false,
-  };
-}
-
-function readCiSettings(body: string): SettingsV1["ci"] {
-  const section = /^  ci:[^\S\r\n]*(?:\r?\n)((?:    [^\r\n]*(?:\r?\n|$))*)/mu.exec(body)?.[1];
-  if (section === undefined) return INITIAL_SETTINGS_V1.ci;
-  const raw = settingBlockValue(body, "ci", "workflows");
-  if (raw === undefined) throw new Error("settings.ci.workflows must be an inline array of workflow names");
-  if (!raw.startsWith("[") || !raw.endsWith("]"))
-    throw new Error("settings.ci.workflows must be an inline array of workflow names");
-  // An empty list opts the repository out of CI witnessing; the section must still be explicit.
-  if (raw.slice(1, -1).trim() === "") return { workflows: [] };
-  const workflows = raw
-    .slice(1, -1)
-    .split(",")
-    .map((workflow) => workflow.trim());
-  if (
-    workflows.some((workflow) => !new RegExp(settingValuePattern, "u").test(workflow) || /\.ya?ml$/u.test(workflow)) ||
-    new Set(workflows).size !== workflows.length
-  )
-    throw new Error("settings.ci.workflows must contain unique workflow names without .yml");
-  return { workflows };
 }
 
 /**
@@ -618,61 +382,254 @@ function canonicalGateMappings(gates: readonly GateWitnessMappingV1[]): readonly
   }));
 }
 
-function readWalFlushSettings(body: string): WalFlushSettingsV1 {
-  const readPositive = (key: keyof Omit<WalFlushSettingsV1, "adaptive">): number => {
-      const raw = settingBlockValue(body, "walFlush", key);
-      if (raw === undefined) return DEFAULT_WAL_FLUSH_SETTINGS[key];
-      const value = Number(raw);
-      if (!Number.isSafeInteger(value) || value < 1) throw new Error(`settings.walFlush.${key} must be positive`);
-      return value;
-    },
-    adaptiveRaw = settingBlockValue(body, "walFlush", "adaptive");
-  if (adaptiveRaw !== undefined && adaptiveRaw !== "true" && adaptiveRaw !== "false")
-    throw new Error("settings.walFlush.adaptive must be true or false");
-  return {
-    adaptive: adaptiveRaw === undefined ? DEFAULT_WAL_FLUSH_SETTINGS.adaptive : adaptiveRaw === "true",
-    events: readPositive("events"),
-    bytes: readPositive("bytes"),
-    milliseconds: readPositive("milliseconds"),
-  };
+function readDeclaredSettings(
+  body: string,
+  declarations: readonly SettingsFieldDeclaration[],
+): Readonly<SettingsRecord> {
+  const settings = settingsValueFromDeclarations(declarations) as SettingsRecord;
+  assertDeclaredNestedKeys(body, declarations);
+  for (const declaration of declarations) {
+    const value = readDeclaredField(body, declaration);
+    if (value === undefined) deleteValueAtPath(settings, declaration.path);
+    else setValueAtPath(settings, declaration.path, value);
+  }
+  return settings;
 }
 
-function readRestoreDrillRetention(body: string): number {
-  const raw = setting(body, "restoreDrillRetention");
-  if (raw === undefined) return DEFAULT_RESTORE_DRILL_RETENTION;
-  const value = Number(raw);
-  if (!Number.isSafeInteger(value) || value < 1)
-    throw new Error("settings.restoreDrillRetention must be a positive integer");
-  return value;
+function readDeclaredField(body: string, declaration: SettingsFieldDeclaration): unknown {
+  if (declaration.valueKind === "gate-mappings") return readGateSettings(body);
+  const raw =
+    settingsScalar(body, declaration.path) ??
+    (declaration.legacyPath ? settingsScalar(body, declaration.legacyPath) : undefined);
+  if (raw === undefined) return declaration.defaultValue;
+  switch (declaration.valueKind) {
+    case "string":
+    case "enum":
+      return raw;
+    case "integer":
+      return Number(raw);
+    case "boolean":
+      if (raw !== "true" && raw !== "false")
+        throw new SettingsDeclarationError(`settings.${declaration.path.join(".")} must be true or false`);
+      return raw === "true";
+    case "string-array":
+      return parseInlineStringArray(raw, declaration);
+  }
 }
 
-function writeWalFlushFacet(body: string, settings: WalFlushSettingsV1): string {
-  const section = /^  walFlush:[^\S\r\n]*(?:\r?\n)(?:    [^\r\n]*(?:\r?\n|$))*/mu,
-    isDefault = JSON.stringify(settings) === JSON.stringify(DEFAULT_WAL_FLUSH_SETTINGS);
-  if (!section.test(body) && isDefault) return body;
-  const rendered = [
-    "  walFlush:",
-    `    adaptive: ${settings.adaptive}`,
-    `    events: ${settings.events}`,
-    `    bytes: ${settings.bytes}`,
-    `    milliseconds: ${settings.milliseconds}`,
-    "",
-  ].join("\n");
-  if (section.test(body)) return body.replace(section, rendered);
-  const header = /^settings:[^\r\n]*(?:\r?\n|$)/mu;
-  if (!header.test(body)) throw new Error("Missing settings block in harness.yaml.");
-  return body.replace(header, (match) => `${match}${rendered}`);
+function parseInlineStringArray(raw: string, declaration: SettingsFieldDeclaration): readonly string[] {
+  if (!raw.startsWith("[") || !raw.endsWith("]"))
+    throw new SettingsDeclarationError(`settings.${declaration.path.join(".")} must be an inline array`);
+  const values = raw.slice(1, -1).trim()
+    ? raw
+        .slice(1, -1)
+        .split(",")
+        .map((value) => value.trim())
+    : [];
+  if (
+    values.some(
+      (value) =>
+        (declaration.pattern !== undefined && !new RegExp(declaration.pattern, "u").test(value)) ||
+        (declaration.forbiddenPattern !== undefined && new RegExp(declaration.forbiddenPattern, "u").test(value)),
+    ) ||
+    (declaration.uniqueItems && new Set(values).size !== values.length)
+  )
+    throw new SettingsDeclarationError(`settings.${declaration.path.join(".")} must contain unique declared values`);
+  return values;
 }
 
-function writeCiFacet(body: string, ci: RepositorySettingsV1["ci"]): string {
-  const section = /^  ci:[^\S\r\n]*(?:\r?\n)(?:    [^\r\n]*(?:\r?\n|$))*/mu,
-    isDefault = JSON.stringify(ci) === JSON.stringify(INITIAL_SETTINGS_V1.ci);
-  if (!section.test(body) && isDefault) return body;
-  const rendered = `  ci:\n    workflows: [${ci.workflows.join(", ")}]\n`;
-  if (section.test(body)) return body.replace(section, rendered);
-  const header = /^settings:[^\r\n]*(?:\r?\n|$)/mu;
-  if (!header.test(body)) throw new Error("Missing settings block in harness.yaml.");
-  return body.replace(header, (match) => `${match}${rendered}`);
+function writeDeclaredRepositorySettings(
+  body: string,
+  settings: Readonly<SettingsRecord>,
+  declarations: readonly SettingsFieldDeclaration[],
+): string {
+  let next = body;
+  for (const declaration of declarations) {
+    if (declaration.ownership !== "repository") continue;
+    const value = valueAtPath(settings, declaration.path);
+    next =
+      declaration.valueKind === "gate-mappings"
+        ? writeGatesFacet(next, value as readonly GateWitnessMappingV1[])
+        : writeSettingsScalar(next, declaration, value);
+    if (declaration.legacyPath) next = removeSettingsScalar(next, declaration.legacyPath);
+  }
+  for (const declaration of declarations)
+    if (declaration.ownership === "local") next = removeSettingsScalar(next, declaration.path);
+  return next;
+}
+
+function writeSettingsScalar(body: string, declaration: SettingsFieldDeclaration, value: unknown): string {
+  const fallback = serializedDeclaredValue(declaration, declaration.defaultValue),
+    serialized = serializedDeclaredValue(declaration, value),
+    existing = settingsScalar(body, declaration.path);
+  if (serialized === undefined) return existing === undefined ? body : removeSettingsScalar(body, declaration.path);
+  if (existing === undefined && serialized === fallback) return body;
+  return upsertSettingsScalar(body, declaration.path, serialized);
+}
+
+function serializedDeclaredValue(declaration: SettingsFieldDeclaration, value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (declaration.valueKind === "string-array") return `[${(value as readonly string[]).join(", ")}]`;
+  return String(value);
+}
+
+function applyDeclaredRepositoryAction(
+  current: Readonly<SettingsRecord>,
+  action: Readonly<Record<string, unknown>>,
+  declarations: readonly SettingsFieldDeclaration[],
+): Readonly<SettingsRecord> {
+  const candidate = settingsValueFromDeclarations(declarations, current) as SettingsRecord;
+  validateGroupedActionValues(action, declarations);
+  for (const declaration of declarations) {
+    const actionDeclaration = declaration.action;
+    if (!actionDeclaration || !Object.hasOwn(action, actionDeclaration.field)) continue;
+    const input = action[actionDeclaration.field];
+    if (actionDeclaration.key !== undefined) {
+      const record = input as Readonly<Record<string, unknown>>;
+      if (!Object.hasOwn(record, actionDeclaration.key)) continue;
+      const value = record[actionDeclaration.key];
+      if (value === null) deleteValueAtPath(candidate, declaration.path);
+      else setValueAtPath(candidate, declaration.path, parseActionValue(value, declaration));
+      continue;
+    }
+    setValueAtPath(candidate, declaration.path, parseActionValue(input, declaration));
+  }
+  return candidate;
+}
+
+function validateGroupedActionValues(
+  action: Readonly<Record<string, unknown>>,
+  declarations: readonly SettingsFieldDeclaration[],
+): void {
+  const groups = new Map<string, Set<string>>();
+  for (const declaration of declarations) {
+    const grouped = declaration.action;
+    if (!grouped?.key) continue;
+    const keys = groups.get(grouped.field) ?? new Set<string>();
+    keys.add(grouped.key);
+    groups.set(grouped.field, keys);
+  }
+  for (const [field, keys] of groups) {
+    if (!Object.hasOwn(action, field)) continue;
+    const value = action[field];
+    if (!value || typeof value !== "object" || Array.isArray(value))
+      throw new SettingsDeclarationError(`${field} must be an object.`);
+    for (const [key, entry] of Object.entries(value)) {
+      if (!keys.has(key)) throw new SettingsDeclarationError(`Unknown ${field} entry ${key}.`);
+      if (entry !== null && typeof entry !== "string")
+        throw new SettingsDeclarationError(`${field}.${key} must be a declared value or null.`);
+    }
+  }
+}
+
+function parseActionValue(value: unknown, declaration: SettingsFieldDeclaration): unknown {
+  const label = declaration.action?.field ?? declaration.path.join(".");
+  switch (declaration.valueKind) {
+    case "string": {
+      if (typeof value !== "string" || !value.trim())
+        throw new SettingsDeclarationError(`${label} must be a non-empty string.`);
+      const trimmed = value.trim();
+      if (declaration.pattern && !new RegExp(declaration.pattern, "u").test(trimmed))
+        throw new SettingsDeclarationError(`${label} does not match its declared pattern.`);
+      return trimmed;
+    }
+    case "enum":
+      if (typeof value === "string" && declaration.allowedValues?.includes(value)) return value;
+      throw new SettingsDeclarationError(`${label} must be one of ${declaration.allowedValues?.join(", ")}.`);
+    case "integer": {
+      const parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+      if (
+        Number.isSafeInteger(parsed) &&
+        (declaration.minimum === undefined || parsed >= declaration.minimum) &&
+        (declaration.maximum === undefined || parsed <= declaration.maximum)
+      )
+        return parsed;
+      throw new SettingsDeclarationError(`${label} must be an integer in its declared range.`);
+    }
+    case "boolean":
+      if (typeof value === "boolean") return value;
+      if (value === "true" || value === "false") return value === "true";
+      throw new SettingsDeclarationError(`${label} must be true or false.`);
+    case "string-array": {
+      if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string"))
+        throw new SettingsDeclarationError(`${label} must be an array of strings.`);
+      if (declaration.noneMeansEmpty && value.length === 1 && value[0] === "none") return [];
+      const strings = value.map((entry) => entry.trim());
+      if (
+        strings.some(
+          (entry) =>
+            (declaration.pattern !== undefined && !new RegExp(declaration.pattern, "u").test(entry)) ||
+            (declaration.forbiddenPattern !== undefined && new RegExp(declaration.forbiddenPattern, "u").test(entry)),
+        ) ||
+        (declaration.uniqueItems && new Set(strings).size !== strings.length)
+      )
+        throw new SettingsDeclarationError(`${label} contains invalid or duplicate values.`);
+      return strings;
+    }
+    case "gate-mappings":
+      if (Array.isArray(value) && value.every((entry) => typeof entry === "object" && entry !== null)) return value;
+      throw new SettingsDeclarationError(`${label} must be an array of gate witness mappings.`);
+  }
+}
+
+function declaredSettingsActionValues(
+  settings: Readonly<SettingsRecord>,
+  declarations: readonly SettingsFieldDeclaration[],
+): Readonly<Record<string, unknown>> {
+  const values: Record<string, unknown> = {};
+  for (const declaration of declarations) {
+    const action = declaration.action;
+    if (!action || action.internal || Object.hasOwn(values, action.field)) continue;
+    if (action.key !== undefined) {
+      values[action.field] = valueAtPath(settings, declaration.path.slice(0, -1)) ?? {};
+      continue;
+    }
+    const stored = valueAtPath(settings, declaration.path);
+    values[action.field] =
+      action.project === "effective-closeout-gate"
+        ? (stored ?? valueAtPath(settings, ["closeout", "profile"]) === "strict")
+        : stored;
+  }
+  return values;
+}
+
+function valueAtPath(value: Readonly<Record<string, unknown>>, path: readonly string[]): unknown {
+  let current: unknown = value;
+  for (const segment of path) {
+    if (!current || typeof current !== "object" || Array.isArray(current)) return undefined;
+    current = (current as Readonly<Record<string, unknown>>)[segment];
+  }
+  return current;
+}
+
+function setValueAtPath(target: SettingsRecord, path: readonly string[], value: unknown): void {
+  let current = target;
+  path.forEach((segment, index) => {
+    if (index === path.length - 1) {
+      current[segment] = value;
+      return;
+    }
+    const existing = current[segment];
+    if (!existing || typeof existing !== "object" || Array.isArray(existing)) current[segment] = {};
+    current = current[segment] as SettingsRecord;
+  });
+}
+
+function deleteValueAtPath(target: SettingsRecord, path: readonly string[]): void {
+  const parents: Array<{ readonly record: SettingsRecord; readonly key: string }> = [];
+  let current = target;
+  for (const segment of path.slice(0, -1)) {
+    const next = current[segment];
+    if (!next || typeof next !== "object" || Array.isArray(next)) return;
+    parents.push({ record: current, key: segment });
+    current = next as SettingsRecord;
+  }
+  delete current[path.at(-1)!];
+  for (const { record, key } of parents.reverse()) {
+    const child = record[key];
+    if (child && typeof child === "object" && !Array.isArray(child) && Object.keys(child).length === 0)
+      delete record[key];
+  }
 }
 
 /**
@@ -707,16 +664,134 @@ export function writeGatesFacet(body: string, gates: readonly GateWitnessMapping
   return body.replace(header, (match) => `${match}${rendered}`);
 }
 
-function removeLegacyLocale(body: string): string {
-  const header = /^settings:[^\r\n]*(?:\r?\n|$)/mu,
-    match = header.exec(body);
-  if (!match || match.index === undefined) return body;
-  const contentStart = match.index + match[0].length,
-    remainder = body.slice(contentStart),
-    nextTopLevel = remainder.search(/^[^\s][^\r\n]*(?:\r?\n|$)/mu),
-    end = nextTopLevel < 0 ? body.length : contentStart + nextTopLevel,
-    cleaned = body.slice(match.index, end).replace(/^  locale:[^\r\n]*(?:\r?\n|$)/mu, "");
-  return `${body.slice(0, match.index)}${cleaned}${body.slice(end)}`;
+function settingsScalar(body: string, path: readonly string[]): string | undefined {
+  const lines = body.split(/\r?\n/u),
+    location = locateSettingsPath(lines, path);
+  if (!location) return undefined;
+  const content = lines[location.index]!.slice(location.indent + location.key.length + 1),
+    value = content.replace(/[^\S\r\n]*#.*$/u, "").trim();
+  return value || undefined;
+}
+
+function assertDeclaredNestedKeys(body: string, declarations: readonly SettingsFieldDeclaration[]): void {
+  const groups = new Map<string, { readonly path: readonly string[]; readonly children: Set<string> }>();
+  for (const declaration of declarations) {
+    for (let depth = 1; depth < declaration.path.length; depth += 1) {
+      const path = declaration.path.slice(0, depth),
+        id = path.join("."),
+        group = groups.get(id) ?? { path, children: new Set<string>() };
+      group.children.add(declaration.path[depth]!);
+      groups.set(id, group);
+    }
+  }
+  const lines = body.split(/\r?\n/u);
+  for (const { path, children } of groups.values()) {
+    const parent = locateSettingsPath(lines, path);
+    if (!parent) continue;
+    const end = subtreeEnd(lines, parent.index, parent.indent),
+      childIndent = parent.indent + 2;
+    for (let index = parent.index + 1; index < end; index += 1) {
+      const line = lines[index]!,
+        indent = line.length - line.trimStart().length;
+      if (indent !== childIndent || !line.trim() || line.trimStart().startsWith("#")) continue;
+      const key = /^([^\s:#]+):/u.exec(line.trimStart())?.[1];
+      if (key && !children.has(key))
+        throw new SettingsDeclarationError(`settings.${path.join(".")} field ${key} is not declared`);
+    }
+  }
+}
+
+function upsertSettingsScalar(body: string, path: readonly string[], value: string): string {
+  const trailingNewline = body.endsWith("\n"),
+    lines = body.split(/\r?\n/u);
+  if (trailingNewline) lines.pop();
+  const settingsIndex = lines.findIndex((line) => /^settings:[^\r\n]*$/u.test(line));
+  if (settingsIndex < 0) throw new Error("Missing settings block in harness.yaml.");
+  const located = locateSettingsPath(lines, path);
+  if (located) {
+    const line = lines[located.index]!,
+      comment = /([^\S\r\n]+#[^\r\n]*)$/u.exec(line)?.[1] ?? "";
+    lines[located.index] = `${" ".repeat(located.indent)}${located.key}: ${value}${comment}`;
+    return `${lines.join("\n")}${trailingNewline ? "\n" : ""}`;
+  }
+  const insertion = missingPathInsertion(lines, settingsIndex, path, value);
+  lines.splice(insertion.index, 0, ...insertion.lines);
+  return `${lines.join("\n")}${trailingNewline ? "\n" : ""}`;
+}
+
+function removeSettingsScalar(body: string, path: readonly string[]): string {
+  const trailingNewline = body.endsWith("\n"),
+    lines = body.split(/\r?\n/u);
+  if (trailingNewline) lines.pop();
+  const located = locateSettingsPath(lines, path);
+  if (!located) return body;
+  lines.splice(located.index, 1);
+  for (let depth = path.length - 1; depth > 0; depth -= 1) {
+    const parent = locateSettingsPath(lines, path.slice(0, depth));
+    if (!parent) continue;
+    const end = subtreeEnd(lines, parent.index, parent.indent),
+      hasContent = lines.slice(parent.index + 1, end).some((line) => line.trim() && !line.trimStart().startsWith("#"));
+    if (!hasContent) lines.splice(parent.index, end - parent.index);
+  }
+  return `${lines.join("\n")}${trailingNewline ? "\n" : ""}`;
+}
+
+function locateSettingsPath(
+  lines: readonly string[],
+  path: readonly string[],
+): { readonly index: number; readonly indent: number; readonly key: string } | undefined {
+  const settingsIndex = lines.findIndex((line) => /^settings:[^\r\n]*$/u.test(line));
+  if (settingsIndex < 0) return undefined;
+  let start = settingsIndex + 1,
+    end = subtreeEnd(lines, settingsIndex, 0);
+  for (let depth = 0; depth < path.length; depth += 1) {
+    const indent = (depth + 1) * 2,
+      key = path[depth]!,
+      index = findDirectChild(lines, start, end, indent, key);
+    if (index < 0) return undefined;
+    if (depth === path.length - 1) return { index, indent, key };
+    start = index + 1;
+    end = subtreeEnd(lines, index, indent);
+  }
+  return undefined;
+}
+
+function findDirectChild(lines: readonly string[], start: number, end: number, indent: number, key: string): number {
+  const prefix = `${" ".repeat(indent)}${key}:`;
+  for (let index = start; index < end; index += 1) if (lines[index]!.startsWith(prefix)) return index;
+  return -1;
+}
+
+function subtreeEnd(lines: readonly string[], index: number, indent: number): number {
+  for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
+    const line = lines[cursor]!;
+    if (!line.trim() || line.trimStart().startsWith("#")) continue;
+    const nextIndent = line.length - line.trimStart().length;
+    if (nextIndent <= indent) return cursor;
+  }
+  return lines.length;
+}
+
+function missingPathInsertion(
+  lines: readonly string[],
+  settingsIndex: number,
+  path: readonly string[],
+  value: string,
+): { readonly index: number; readonly lines: readonly string[] } {
+  let parentIndex = settingsIndex,
+    parentIndent = 0,
+    depth = 0;
+  for (; depth < path.length - 1; depth += 1) {
+    const located = locateSettingsPath(lines, path.slice(0, depth + 1));
+    if (!located) break;
+    parentIndex = located.index;
+    parentIndent = located.indent;
+  }
+  const inserted = path.slice(depth).map((key, offset) => {
+    const indent = (depth + offset + 1) * 2;
+    return `${" ".repeat(indent)}${key}:${depth + offset === path.length - 1 ? ` ${value}` : ""}`;
+  });
+  return { index: subtreeEnd(lines, parentIndex, parentIndent), lines: inserted };
 }
 
 export function validateRepositorySettings(value: unknown): readonly string[] {

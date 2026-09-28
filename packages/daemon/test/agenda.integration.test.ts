@@ -744,6 +744,27 @@ test("entity pins cover task, decision, and schedule with bounded rendering and 
   await withCell(
     "agenda-entity-pins",
     async (cell) => {
+      const settingsBinding = {
+          actor: { principal: { personId: "person-agenda" }, executor: null },
+          source: "local" as const,
+        },
+        runCli = (argv: readonly string[]) => {
+          const parsed = parseThinCommand(argv);
+          assert.equal(parsed.ok, true, argv.join(" "));
+          if (!parsed.ok) throw new Error(parsed.nextAction);
+          return cell.run(parsed.command.action as Parameters<typeof cell.run>[0], settingsBinding);
+        },
+        updated = await runCli([
+          "settings",
+          "update",
+          "--agenda-pin-limit",
+          "3",
+          "--idempotency-key",
+          "agenda-pin-limit",
+        ]);
+      assert.equal(updated.outcome, "applied", JSON.stringify(updated));
+      const projected = await runCli(["settings", "read"]);
+      assert.equal((projected.settings as { readonly agenda: { readonly pinLimit: number } }).agenda.pinLimit, 3);
       const task = await cell.run({ kind: "task-create", taskId: "task_pin", title: "Pinned task" }, binding);
       assert.equal(task.outcome, "applied");
       assert.deepEqual(
@@ -841,8 +862,7 @@ test("entity pins cover task, decision, and schedule with bounded rendering and 
       mkdirSync(path.dirname(settingsPath), { recursive: true });
       writeFileSync(
         settingsPath,
-        "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" +
-          "settings:\n  agenda:\n    pinLimit: 3\n",
+        "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" + "settings:\n",
       );
     },
   );

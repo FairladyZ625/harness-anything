@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { SETTINGS_FIELD_DECLARATIONS, type SettingsFieldDeclaration } from "../domain/settings-field-declarations.ts";
 import { domainStatuses } from "../domain/lifecycle-status.ts";
 import { packageDispositions } from "../domain/package-disposition.ts";
 import { priorityTiers, taskWorkKinds } from "../domain/task-metadata.ts";
@@ -31,6 +32,84 @@ const StrictSha256Schema = Schema.String.pipe(Schema.pattern(/^sha256:[a-f0-9]{6
 const ConfigIdentifierSchema = Schema.String.pipe(Schema.pattern(/^[A-Za-z0-9][A-Za-z0-9/_@.-]*$/u));
 const TaskWipLimitSchema = Schema.Number.pipe(Schema.int(), Schema.greaterThan(0));
 
+type AuthoredSettingsSchemaEntry =
+  | { readonly kind: "node"; readonly children: Record<string, AuthoredSettingsSchemaEntry> }
+  | { readonly kind: "leaf"; readonly schema: Schema.Struct.Field };
+
+function authoredSettingsSchemaFields(): Schema.Struct.Fields {
+  const root: Extract<AuthoredSettingsSchemaEntry, { readonly kind: "node" }> = {
+    kind: "node",
+    children: {},
+  };
+  for (const declaration of SETTINGS_FIELD_DECLARATIONS) {
+    if (declaration.ownership !== "repository") continue;
+    let parent = root;
+    declaration.path.forEach((segment, index) => {
+      if (index === declaration.path.length - 1) {
+        parent.children[segment] = { kind: "leaf", schema: Schema.optional(authoredSettingSchema(declaration)) };
+        return;
+      }
+      const existing = parent.children[segment];
+      if (existing?.kind === "leaf") throw new Error(`Settings declaration path ${segment} is both a leaf and group.`);
+      const child = existing ?? { kind: "node" as const, children: {} };
+      parent.children[segment] = child;
+      parent = child;
+    });
+  }
+  return authoredSettingsNodeFields(root);
+}
+
+function authoredSettingsNodeFields(
+  node: Extract<AuthoredSettingsSchemaEntry, { readonly kind: "node" }>,
+): Schema.Struct.Fields {
+  return Object.fromEntries(
+    Object.entries(node.children).map(([name, entry]) => [
+      name,
+      entry.kind === "leaf" ? entry.schema : Schema.optional(Schema.Struct(authoredSettingsNodeFields(entry))),
+    ]),
+  );
+}
+
+function authoredSettingSchema(declaration: SettingsFieldDeclaration): Schema.Schema.Any {
+  switch (declaration.valueKind) {
+    case "string":
+      return declaration.pattern
+        ? Schema.String.pipe(Schema.pattern(new RegExp(declaration.pattern, "u")))
+        : Schema.String;
+    case "enum":
+      return Schema.Literal(...(declaration.allowedValues as [string, ...string[]]));
+    case "integer": {
+      if (declaration.minimum !== undefined && declaration.maximum !== undefined)
+        return Schema.Number.pipe(
+          Schema.int(),
+          Schema.greaterThanOrEqualTo(declaration.minimum),
+          Schema.lessThanOrEqualTo(declaration.maximum),
+        );
+      if (declaration.minimum !== undefined)
+        return Schema.Number.pipe(Schema.int(), Schema.greaterThanOrEqualTo(declaration.minimum));
+      if (declaration.maximum !== undefined)
+        return Schema.Number.pipe(Schema.int(), Schema.lessThanOrEqualTo(declaration.maximum));
+      return Schema.Number.pipe(Schema.int());
+    }
+    case "boolean":
+      return Schema.Boolean;
+    case "string-array": {
+      const patterned = declaration.pattern
+          ? Schema.String.pipe(Schema.pattern(new RegExp(declaration.pattern, "u")))
+          : Schema.String,
+        item = declaration.forbiddenPattern
+          ? patterned.pipe(Schema.filter((value) => !new RegExp(declaration.forbiddenPattern!, "u").test(value)))
+          : patterned,
+        array = Schema.Array(item);
+      return declaration.uniqueItems
+        ? array.pipe(Schema.filter((values) => new Set(values).size === values.length))
+        : array;
+    }
+    case "gate-mappings":
+      return Schema.Record({ key: Schema.String, value: Schema.Unknown });
+  }
+}
+
 export const HarnessConfigSchema = Schema.Struct({
   schema: Schema.Literal("harness/v2"),
   project: Schema.Struct({
@@ -57,36 +136,10 @@ export const HarnessConfigSchema = Schema.Struct({
   }),
   settings: Schema.optional(
     Schema.Struct({
-      defaultVertical: Schema.optional(ConfigIdentifierSchema),
-      defaultPreset: Schema.optional(ConfigIdentifierSchema),
-      defaultProfile: Schema.optional(ConfigIdentifierSchema),
-      reviewIndependence: Schema.optional(Schema.Literal("execution", "principal")),
-      closeout: Schema.optional(
-        Schema.Struct({
-          profile: Schema.Literal("standard", "strict"),
-          overrides: Schema.optional(
-            Schema.Struct({
-              review: Schema.optional(Schema.Boolean),
-              consent: Schema.optional(Schema.Boolean),
-              factDisposition: Schema.optional(Schema.Boolean),
-              codeDoc: Schema.optional(Schema.Boolean),
-            }),
-          ),
-        }),
-      ),
+      ...authoredSettingsSchemaFields(),
       tasks: Schema.optional(
         Schema.Struct({
           wipLimit: Schema.optional(TaskWipLimitSchema),
-        }),
-      ),
-      agenda: Schema.optional(
-        Schema.Struct({
-          pinLimit: Schema.optional(TaskWipLimitSchema),
-        }),
-      ),
-      ci: Schema.optional(
-        Schema.Struct({
-          workflows: Schema.Array(ConfigIdentifierSchema).pipe(Schema.minItems(1)),
         }),
       ),
       identity: Schema.optional(

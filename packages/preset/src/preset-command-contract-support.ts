@@ -13,6 +13,7 @@ export interface CommandTopology {
 }
 export interface CliInputFacet {
   readonly name: string;
+  readonly description?: string;
   readonly kind: "single" | "repeated" | "boolean";
   readonly required: boolean;
   readonly enum?: readonly string[];
@@ -74,4 +75,42 @@ export interface GeneratedTaskActionProtocolProjection {
 export interface GeneratedTaskCreateProjection {
   readonly taskCreateResultFields: readonly string[];
   readonly action: GeneratedTaskActionProtocolDeclaration;
+}
+
+export interface GeneratedSettingsActionInputField {
+  readonly field: string;
+  readonly description?: string;
+  readonly type: NonNullable<EntityActionInputField["type"]>;
+  readonly required: boolean;
+  readonly enum?: readonly string[];
+}
+
+export interface GeneratedSettingsCliInputField {
+  readonly field: string;
+  readonly description: string;
+  readonly name: string;
+  readonly kind: "single" | "repeated" | "boolean";
+  readonly regex?: string;
+  readonly enum?: readonly string[];
+  readonly format?: string;
+  readonly projection?: "number" | "boolean" | "json-object";
+}
+
+export interface GeneratedSettingsValidationRule {
+  readonly field: string;
+  readonly key?: string;
+  readonly valueKind: "string" | "enum" | "integer" | "boolean" | "string-array" | "gate-mappings";
+  readonly pattern?: string;
+  readonly forbiddenPattern?: string;
+  readonly allowedValues?: readonly string[];
+  readonly minimum?: number;
+  readonly maximum?: number;
+  readonly uniqueItems?: boolean;
+  readonly noneMeansEmpty?: boolean;
+}
+
+export interface GeneratedSettingsFieldProtocolProjection {
+  readonly actionInputs: readonly GeneratedSettingsActionInputField[];
+  readonly cliInputs: readonly GeneratedSettingsCliInputField[];
+  readonly validations: readonly GeneratedSettingsValidationRule[];
 }

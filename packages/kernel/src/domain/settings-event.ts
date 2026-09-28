@@ -1,15 +1,14 @@
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import {
-  DEFAULT_WAL_FLUSH_SETTINGS,
-  DEFAULT_RESTORE_DRILL_RETENTION,
-  INITIAL_SETTINGS_V1,
   SETTINGS_ID,
+  SETTINGS_FIELD_DECLARATIONS,
   readSettingsFacet,
   repositorySettings,
   validateRepositorySettings,
   validateSettingsV1,
   type RepositorySettingsV1,
+  type SettingsFieldDeclaration,
   type SettingsV1,
 } from "./settings.ts";
 import {
@@ -136,60 +135,35 @@ function validateSettingsEventFields(value: unknown, allowUnknownFields: boolean
 }
 
 function validSettingsSnapshot(value: unknown, allowUnknownFields: boolean): boolean {
-  if (!isRecord(value) || !isRecord(value.scaffolds)) return false;
-  const normalized = {
-      schema: value.schema,
-      settingsId: value.settingsId,
-      defaultVertical: value.defaultVertical,
-      defaultPreset: value.defaultPreset,
-      defaultProfile: value.defaultProfile,
-      ...(value.roles !== undefined ? { roles: value.roles } : {}),
-      reviewIndependence: value.reviewIndependence ?? "execution",
-      reviewReturnBudget: value.reviewReturnBudget ?? INITIAL_SETTINGS_V1.reviewReturnBudget,
-      scaffolds: {
-        task: value.scaffolds.task,
-        repository: value.scaffolds.repository,
-      },
-      walFlush:
-        allowUnknownFields && isRecord(value.walFlush)
-          ? {
-              adaptive: value.walFlush.adaptive,
-              events: value.walFlush.events,
-              bytes: value.walFlush.bytes,
-              milliseconds: value.walFlush.milliseconds,
-            }
-          : (value.walFlush ?? DEFAULT_WAL_FLUSH_SETTINGS),
-      ci: value.ci ?? INITIAL_SETTINGS_V1.ci,
-      gates: value.gates ?? INITIAL_SETTINGS_V1.gates,
-      closeout: value.closeout ?? INITIAL_SETTINGS_V1.closeout,
-      agenda: value.agenda ?? INITIAL_SETTINGS_V1.agenda,
-      restoreDrillRetention: value.restoreDrillRetention ?? DEFAULT_RESTORE_DRILL_RETENTION,
-    },
-    current = validateRepositorySettings(normalized).length === 0;
-  if (!current) return false;
-  if (!allowUnknownFields)
-    return (
-      value.walFlush !== undefined &&
-      Object.keys(value).every((field) =>
-        [
-          "schema",
-          "settingsId",
-          "defaultVertical",
-          "defaultPreset",
-          "defaultProfile",
-          "roles",
-          "reviewIndependence",
-          "reviewReturnBudget",
-          "scaffolds",
-          "walFlush",
-          "ci",
-          "gates",
-          "closeout",
-          "agenda",
-          "restoreDrillRetention",
-        ].includes(field),
-      )
-    );
+  if (
+    !isRecord(value) ||
+    value.schema !== "settings/v1" ||
+    value.settingsId !== SETTINGS_ID ||
+    !isRecord(value.scaffolds)
+  )
+    return false;
+  if (!allowUnknownFields) return validateRepositorySettings(value).length === 0;
+  if (!validLegacySnapshotShape(value)) return false;
+  return validateRepositorySettings(repositorySettings(value as unknown as RepositorySettingsV1)).length === 0;
+}
+
+function validLegacySnapshotShape(value: Readonly<Record<string, unknown>>): boolean {
+  for (const declaration of SETTINGS_FIELD_DECLARATIONS as readonly SettingsFieldDeclaration[]) {
+    if (declaration.ownership !== "repository") continue;
+    let current = value;
+    for (const [index, segment] of declaration.path.entries()) {
+      const entry = current[segment],
+        leaf = index === declaration.path.length - 1;
+      if (entry === undefined) {
+        const wholeDefaultableGroup = index === 0 && declaration.path.length > 1 && declaration.eventDefaultWhenMissing;
+        if (declaration.snapshotRequired && !wholeDefaultableGroup) return false;
+        break;
+      }
+      if (leaf) break;
+      if (!isRecord(entry)) return false;
+      current = entry;
+    }
+  }
   return true;
 }
 

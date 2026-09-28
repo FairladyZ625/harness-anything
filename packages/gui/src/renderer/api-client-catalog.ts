@@ -75,6 +75,7 @@ export interface CatalogSnapshotSuccess {
   /** settings 动作契约字段表(daemon 侧校验行 shape):仓库设置表单的派生源。 */
   readonly settingsFields: ReadonlyArray<{
     readonly field: string;
+    readonly description?: string;
     readonly type: string;
     readonly required: boolean;
     readonly enum?: readonly string[];

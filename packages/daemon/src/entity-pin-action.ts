@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import {
+  AGENDA_PIN_LIMIT_SETTING,
   compileEntityPinEvent,
   parseEntityRef,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import { resolveAgendaPinLimit } from "./task-wip-settings.ts";
 
 export function runEntityPinAction(
   cell: RepoCellOperationalContext,
@@ -33,11 +33,11 @@ export function runEntityPinAction(
     throw cell.cellCodedError("entity_not_found", `Entity ${entityRef} does not exist.`);
   if (current === pinned)
     return { outcome: "no_changes", opId, revision, evidence: JSON.stringify({ entityRef, pinned }) };
-  const capacity = resolveAgendaPinLimit(cell.rootDir);
-  if (pinned && pinnedEntities.length >= capacity.limit)
+  const pinLimit = cell.settings.readRepository().agenda.pinLimit;
+  if (pinned && pinnedEntities.length >= pinLimit)
     throw cell.cellCodedError(
       "pin_capacity_exceeded",
-      `Agenda pin capacity is ${pinnedEntities.length}/${capacity.limit} (${capacity.label}); ` +
+      `Agenda pin capacity is ${pinnedEntities.length}/${pinLimit} (${AGENDA_PIN_LIMIT_SETTING}); ` +
         "unpin an existing entity before pinning another.",
     );
   const compiled = compileEntityPinEvent({
@@ -72,9 +72,7 @@ export function runEntityPinAction(
   };
   const used = pinned ? pinnedEntities.length + 1 : pinnedEntities.length - 1,
     guidance =
-      pinned && used / capacity.limit >= 0.8
-        ? [{ kind: "pin-agenda" as const, args: { used, limit: capacity.limit } }]
-        : undefined;
+      pinned && used / pinLimit >= 0.8 ? [{ kind: "pin-agenda" as const, args: { used, limit: pinLimit } }] : undefined;
   return canonicalVisible
     ? { outcome: "applied", ...base, ...(guidance ? { guidance } : {}) }
     : { outcome: "pending", ...base, ...(guidance ? { guidance } : {}) };

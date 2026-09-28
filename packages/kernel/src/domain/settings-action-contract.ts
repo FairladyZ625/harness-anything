@@ -11,15 +11,12 @@ import {
 } from "./entity-action-execution.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 import { compileSettingsChangedEvent, type SettingsEventBundle } from "./settings-event.ts";
-import { closeoutProfiles } from "./settings-closeout.ts";
 import {
+  SETTINGS_DECLARATION_RUNTIME,
   SETTINGS_ID,
   readSettingsFacet,
   repositorySettings,
-  DEFAULT_RESTORE_DRILL_RETENTION,
-  reviewIndependenceLevels,
-  settingValuePattern,
-  rolePreferenceFields,
+  SettingsDeclarationError,
   settingsLocales,
   validateRepositorySettings,
   writeRepositorySettingsFacet,
@@ -41,29 +38,6 @@ export class SettingsActionError extends Error {
   }
 }
 
-const repositoryFieldNames = Object.freeze([
-  "defaultVertical",
-  "defaultPreset",
-  "defaultProfile",
-  "roles",
-  "reviewIndependence",
-  "reviewReturnBudget",
-  "taskScaffold",
-  "repositoryScaffold",
-  "walFlushAdaptive",
-  "walFlushEvents",
-  "walFlushBytes",
-  "walFlushMilliseconds",
-  "ciWorkflows",
-  "gates",
-  "closeoutProfile",
-  "closeoutReview",
-  "closeoutConsent",
-  "closeoutFactDisposition",
-  "closeoutCodeDoc",
-  "restoreDrillRetention",
-] as const);
-
 const input = (fields: readonly EntityActionInputField[]): EntityActionInputContract =>
   Object.freeze({
     schema: "entity-action-input/v1",
@@ -82,31 +56,12 @@ const field = (
  * GUI catalog facet both derive from this list, so a new field appears in every consumer with one
  * edit here instead of per-surface hand-written field lists drifting apart. */
 export const settingsUpdateInputFields: readonly EntityActionInputField[] = Object.freeze([
-  field("defaultVertical"),
-  field("defaultPreset"),
-  field("defaultProfile"),
-  field("roles", "json-object"),
-  field("reviewIndependence", "string", false, reviewIndependenceLevels),
-  field("reviewReturnBudget", "number"),
-  field("locale", "string", false, settingsLocales),
-  field("taskScaffold"),
-  field("repositoryScaffold"),
-  field("walFlushAdaptive", "boolean"),
-  field("walFlushEvents", "number"),
-  field("walFlushBytes", "number"),
-  field("walFlushMilliseconds", "number"),
-  field("ciWorkflows", "string-array"),
+  ...SETTINGS_DECLARATION_RUNTIME.actionInputFields,
   field("gatesFromDocument", "boolean"),
   // Not a persisted setting and not a caller-declared `gates` value: a draft for the authored
   // `settings.gates` facet, which the daemon ingress splices into the authored harness.yaml and
   // mints `gates` from — the document stays the only declaration surface.
   field("gatesDraft", "json-object-array"),
-  field("closeoutProfile", "string", false, closeoutProfiles),
-  field("closeoutReview", "boolean"),
-  field("closeoutConsent", "boolean"),
-  field("closeoutFactDisposition", "boolean"),
-  field("closeoutCodeDoc", "boolean"),
-  field("restoreDrillRetention", "number"),
   field("expectedVersion", "number"),
   field("idempotencyKey"),
 ]);
@@ -211,7 +166,9 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
   const current = currentSettings(input),
     revision = input.entityRevision ?? 0,
     expectedVersion = input.action.expectedVersion,
-    repositoryChangeRequested = repositoryFieldNames.some((name) => Object.hasOwn(input.action, name));
+    repositoryChangeRequested = SETTINGS_DECLARATION_RUNTIME.repositoryActionFields.some((name) =>
+      Object.hasOwn(input.action, name),
+    );
   settingsActionLocale(input.action.locale);
   // The flag is a request to the daemon ingress, which mints `gates` from the authored
   // harness.yaml before compile; reaching the compiler without it means a caller bypassed the
@@ -260,38 +217,7 @@ export function compileSettingsUpdate(input: EntityActionCompileInput): Settings
       "update",
       "settings/singleton-revision",
     );
-  const candidate: RepositorySettingsV1 = {
-      schema: "settings/v1",
-      settingsId: SETTINGS_ID,
-      defaultVertical: updatedText(input.action, "defaultVertical", current.defaultVertical),
-      defaultPreset: updatedText(input.action, "defaultPreset", current.defaultPreset),
-      defaultProfile: updatedText(input.action, "defaultProfile", current.defaultProfile),
-      roles: updatedRoles(input.action.roles, current.roles ?? {}),
-      reviewIndependence: updatedReviewIndependence(input.action.reviewIndependence, current.reviewIndependence),
-      reviewReturnBudget: updatedPositiveInteger(input.action, "reviewReturnBudget", current.reviewReturnBudget),
-      agenda: current.agenda,
-      scaffolds: {
-        task: updatedText(input.action, "taskScaffold", current.scaffolds.task),
-        repository: updatedText(input.action, "repositoryScaffold", current.scaffolds.repository),
-      },
-      walFlush: {
-        adaptive: updatedBoolean(input.action, "walFlushAdaptive", current.walFlush.adaptive),
-        events: updatedPositiveInteger(input.action, "walFlushEvents", current.walFlush.events),
-        bytes: updatedPositiveInteger(input.action, "walFlushBytes", current.walFlush.bytes),
-        milliseconds: updatedPositiveInteger(input.action, "walFlushMilliseconds", current.walFlush.milliseconds),
-      },
-      ci: { workflows: updatedWorkflows(input.action, current.ci.workflows) },
-      gates: updatedGateMappings(input.action, current.gates),
-      closeout: {
-        profile: updatedCloseoutProfile(input.action.closeoutProfile, current.closeout.profile),
-        ...closeoutOverrides(input.action, current),
-      },
-      restoreDrillRetention: updatedPositiveInteger(
-        input.action,
-        "restoreDrillRetention",
-        current.restoreDrillRetention ?? DEFAULT_RESTORE_DRILL_RETENTION,
-      ),
-    },
+  const candidate = applyRepositoryAction(current, input.action),
     errors = validateRepositorySettings(candidate);
   if (errors.length) rejectSettings("invalid_command", errors.join("; "));
   const baseDocumentBody = input.currentDocumentBody;
@@ -330,98 +256,19 @@ function currentSettings(input: EntityActionCompileInput): RepositorySettingsV1 
   return current;
 }
 
-function updatedText(action: Readonly<Record<string, unknown>>, name: string, current: string): string {
-  if (!Object.hasOwn(action, name)) return current;
-  const value = action[name];
-  if (typeof value === "string" && value.trim()) return value.trim();
-  rejectSettings("invalid_command", `${name} must be a non-empty string.`);
-}
-
-function updatedReviewIndependence(
-  value: unknown,
-  current: RepositorySettingsV1["reviewIndependence"],
-): RepositorySettingsV1["reviewIndependence"] {
-  if (value === undefined) return current;
-  if (reviewIndependenceLevels.includes(value as RepositorySettingsV1["reviewIndependence"]))
-    return value as RepositorySettingsV1["reviewIndependence"];
-  rejectSettings("invalid_command", `reviewIndependence must be one of ${reviewIndependenceLevels.join(", ")}.`);
-}
-
-function updatedCloseoutProfile(value: unknown, current: RepositorySettingsV1["closeout"]["profile"]) {
-  if (value === undefined) return current;
-  if (closeoutProfiles.includes(value as RepositorySettingsV1["closeout"]["profile"]))
-    return value as RepositorySettingsV1["closeout"]["profile"];
-  rejectSettings("invalid_command", `closeoutProfile must be one of ${closeoutProfiles.join(", ")}.`);
-}
-
-function closeoutOverrides(action: Readonly<Record<string, unknown>>, current: RepositorySettingsV1) {
-  const mapping = {
-    review: "closeoutReview",
-    consent: "closeoutConsent",
-    factDisposition: "closeoutFactDisposition",
-    codeDoc: "closeoutCodeDoc",
-  } as const;
-  const overrides = Object.fromEntries(
-    Object.entries(mapping).flatMap(([key, field]) =>
-      Object.hasOwn(action, field)
-        ? [[key, updatedBoolean(action, field, current.closeout.overrides?.[key as keyof typeof mapping] ?? false)]]
-        : current.closeout.overrides?.[key as keyof typeof mapping] === undefined
-          ? []
-          : [[key, current.closeout.overrides[key as keyof typeof mapping]]],
-    ),
-  );
-  return Object.keys(overrides).length ? { overrides } : {};
-}
-
-function updatedBoolean(action: Readonly<Record<string, unknown>>, name: string, current: boolean): boolean {
-  if (!Object.hasOwn(action, name)) return current;
-  const value = action[name];
-  if (typeof value === "boolean") return value;
-  if (value === "true") return true;
-  if (value === "false") return false;
-  rejectSettings("invalid_command", `${name} must be true or false.`);
-}
-
-function updatedPositiveInteger(action: Readonly<Record<string, unknown>>, name: string, current: number): number {
-  if (!Object.hasOwn(action, name)) return current;
-  const value = action[name],
-    parsed = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
-  if (Number.isSafeInteger(parsed) && parsed > 0) return parsed;
-  rejectSettings("invalid_command", `${name} must be a positive integer.`);
-}
-
-function updatedWorkflows(action: Readonly<Record<string, unknown>>, current: readonly string[]): readonly string[] {
-  if (!Object.hasOwn(action, "ciWorkflows")) return current;
-  const value = action.ciWorkflows;
-  // An empty list is the explicit opt-out from repository CI witnessing; entry shape is still enforced.
-  if (!Array.isArray(value) || value.some((workflow) => typeof workflow !== "string"))
-    rejectSettings("invalid_command", "ciWorkflows must be an array of workflow names.");
-  // `--ci-workflows none` is the CLI spelling of that opt-out; a repeated flag cannot carry an empty value.
-  if (value.length === 1 && value[0] === "none") return [];
-  const workflows = value.map((workflow) => workflow.trim());
-  if (
-    workflows.some((workflow) => !new RegExp(settingValuePattern, "u").test(workflow) || /\.ya?ml$/u.test(workflow)) ||
-    new Set(workflows).size !== workflows.length
-  )
-    rejectSettings("invalid_command", "ciWorkflows must contain unique workflow names without .yml.");
-  return workflows;
-}
-
-/**
- * `action.gates` is never a caller-declared input: the daemon's settings-update runtime mints it
- * from the authored harness.yaml `settings.gates` block when `gatesFromDocument` is set, so the
- * entity's single write path stays the only way gate mappings enter the ledger. Shape errors are
- * still rejected here; field-level judgement belongs to `validateRepositorySettings` below.
- */
-function updatedGateMappings(
+function applyRepositoryAction(
+  current: RepositorySettingsV1,
   action: Readonly<Record<string, unknown>>,
-  current: RepositorySettingsV1["gates"],
-): RepositorySettingsV1["gates"] {
-  if (!Object.hasOwn(action, "gates")) return current;
-  const value = action.gates;
-  if (!Array.isArray(value) || value.some((mapping) => typeof mapping !== "object" || mapping === null))
-    rejectSettings("invalid_command", "gates must be an array of gate witness mappings.");
-  return value as RepositorySettingsV1["gates"];
+): RepositorySettingsV1 {
+  try {
+    return SETTINGS_DECLARATION_RUNTIME.applyRepositoryAction(
+      current as unknown as Readonly<Record<string, unknown>>,
+      action,
+    ) as unknown as RepositorySettingsV1;
+  } catch (error) {
+    if (error instanceof SettingsDeclarationError) rejectSettings("invalid_command", error.message);
+    throw error;
+  }
 }
 
 /**
@@ -450,20 +297,4 @@ function authoredDocumentBase(
 
 function rejectSettings(code: string, message: string): never {
   throw new SettingsActionError(code, message);
-}
-
-function updatedRoles(value: unknown, current: NonNullable<RepositorySettingsV1["roles"]>) {
-  if (value === undefined) return current;
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    rejectSettings("invalid_command", "roles must be an object of role preferences.");
-  const next = { ...current };
-  for (const [key, entry] of Object.entries(value)) {
-    if (!(rolePreferenceFields as readonly string[]).includes(key))
-      rejectSettings("invalid_command", `Unknown role preference ${key}.`);
-    const role = key as (typeof rolePreferenceFields)[number];
-    if (entry === null) delete next[role];
-    else if (typeof entry === "string" && new RegExp(settingValuePattern, "u").test(entry)) next[role] = entry;
-    else rejectSettings("invalid_command", `roles.${key} must be an agent id or null to clear.`);
-  }
-  return next;
 }

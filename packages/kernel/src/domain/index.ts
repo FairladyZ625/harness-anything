@@ -248,6 +248,7 @@ export { compileScheduleDefinitionEvent, compileScheduleRunEvent, isScheduleEven
 export type { ScheduleActionDraft } from "./schedule-action-contract.ts";
 
 export {
+  AGENDA_PIN_LIMIT_SETTING,
   INITIAL_SETTINGS_V1,
   SETTINGS_ID,
   SETTINGS_LOCAL_PATH,

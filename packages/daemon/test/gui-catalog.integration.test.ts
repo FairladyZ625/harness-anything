@@ -41,8 +41,9 @@ test("GUI catalog carries the settings field contract derived from the kernel si
   // 与 kernel 动作目录同一单源:GUI 设置表单的派生面不是 daemon 手抄清单。
   assert.deepEqual(
     snapshot.settingsFields,
-    settingsUpdateInputFields.map(({ field, type, required, enum: values }) => ({
+    settingsUpdateInputFields.map(({ field, description, type, required, enum: values }) => ({
       field,
+      ...(description ? { description } : {}),
       type,
       required,
       ...(values ? { enum: [...values] } : {}),

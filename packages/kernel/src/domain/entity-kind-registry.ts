@@ -236,6 +236,7 @@ export interface EntityActionContract extends EntityActionDescriptorFacets {
 
 export interface EntityActionInputField {
   readonly field: string;
+  readonly description?: string;
   readonly type?:
     | "string"
     | "number"
