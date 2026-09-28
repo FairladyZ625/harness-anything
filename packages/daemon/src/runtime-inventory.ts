@@ -394,8 +394,10 @@ export const runtimeKinds = [
     auth: {
       shape: "subscription-only",
       modes: ["subscription"],
+      // `agy models` boots a language server, resolves OAuth, then fetches the model
+      // list: measured 5-22s end to end, so the probe budget must clear that tail.
       subscriptionProbe: ["models"],
-      subscriptionProbeTimeoutMs: 15_000,
+      subscriptionProbeTimeoutMs: 60_000,
       endpoints: { baseUrl: "none" },
     },
     isolation: { defaultState: "operator-environment", states: ["operator-environment"] },

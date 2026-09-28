@@ -632,6 +632,47 @@ test("subscription probes distinguish a rejected status command from an unspawna
   }
 });
 
+// A provider whose shutdown handler exits non-zero when the probe deadline SIGTERMs it
+// mid-run (agy's measured shape: the fetch itself succeeds past the deadline) must read
+// as a probe that never finished, never as "subscription authentication unavailable".
+test("a probe terminated at its deadline is an infrastructure failure, not an authentication verdict", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-subscription-deadline-")),
+    terminated = {
+      ...observed,
+      installationId: "codex-terminated-status",
+      executablePath: writeProviderExecutable(
+        path.join(userRoot, "terminated-status.mjs"),
+        'process.on("SIGTERM", () => process.exit(1));\nsetInterval(() => {}, 1000);\n',
+      ),
+    },
+    signalDeath = {
+      ...observed,
+      installationId: "codex-signal-death",
+      executablePath: writeProviderExecutable(
+        path.join(userRoot, "signal-death.mjs"),
+        'process.kill(process.pid, "SIGKILL");\n',
+      ),
+    };
+  try {
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [terminated, signalDeath] });
+    for (const installation of [terminated, signalDeath])
+      store.create({
+        schemaVersion: 1,
+        instanceId: installation.installationId,
+        name: installation.installationId,
+        kindId: "codex",
+        installationId: installation.installationId,
+        providerId: "openai",
+        model: "gpt-5.6-sol",
+        auth: { mode: "subscription" },
+      });
+    assert.equal((await store.authStatus(terminated.installationId)).code, "runtime_auth_probe_failed");
+    assert.equal((await store.authStatus(signalDeath.installationId)).code, "runtime_auth_probe_failed");
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
 test("one enabled instance dispatches two supported models without reauth", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-model-choice-"));
   try {
