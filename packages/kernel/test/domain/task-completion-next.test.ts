@@ -21,7 +21,7 @@ test("completion next is one pure judgment across lifecycle and unavailable-inpu
     ready = at(6);
   const cases = [
     ["planned", at(1), context, "not_in_review", "ha task start task-1"],
-    ["active own lease", active, context, "not_in_review", "submit execution execution-1"],
+    ["active own lease", active, context, "not_in_review", "ha task submit task-1"],
     [
       "active other lease",
       {
@@ -36,7 +36,7 @@ test("completion next is one pure judgment across lifecycle and unavailable-inpu
       },
       context,
       "not_in_review",
-      "submit execution execution-1",
+      "ha task submit task-1",
     ],
     [
       "returned review without a current execution",
@@ -238,5 +238,67 @@ test("consent guidance relies on automatic selection for one candidate and names
     several,
     "ha task review-consent task-1 --review-id review-execution or ha task review-consent task-1 --review-id review-additional",
   );
-  assert.match(index(multiple), /--review-id review-execution`.*--review-id review-additional`/u);
+  assert.match(index(multiple), /--review-id review-execution or .*--review-id review-additional`/u);
+});
+
+test("an undisposed changes request prevents an approved review from reaching consent", () => {
+  const approved = at(5),
+    conflicted = {
+      ...approved,
+      reviews: [
+        ...approved.reviews,
+        { ...approved.reviews[0]!, reviewId: "review-changes", verdict: "changes_requested" as const },
+      ],
+    },
+    result = taskCompletionNext(conflicted, context);
+  assert.equal(result.blocker?.code, "review_missing");
+  assert.equal(result.next?.action, "ha task adjudicate task-1 --return --review-id review-changes --note-file <path>");
+});
+
+test("an executorless review without dispatch lineage names an executable independent-review step", () => {
+  const forwarded = at(4),
+    executorless = {
+      ...forwarded,
+      executions: forwarded.executions.map((execution) => ({
+        ...execution,
+        actor: { ...execution.actor, executor: null },
+      })),
+    },
+    result = taskCompletionNext(executorless, { ...context, hasDispatchLineage: false });
+  assert.equal(result.blocker?.code, "executor_missing");
+  assert.equal(
+    result.next?.action,
+    "ha task review-execution task-1 --execution-id execution-1 --review-id <id> --from-file <review.json>",
+  );
+  assert.doesNotMatch(result.next!.action, /declare-executor/u);
+});
+
+test("INDEX next uses the same completion judgment for strict and lightweight profiles", () => {
+  const submitted = at(3),
+    index = (
+      snapshot: typeof submitted,
+      completionContext: typeof context & {
+        readonly closeoutGates: Readonly<
+          Record<"review" | "consent" | "fact" | "factDisposition" | "codeDoc", boolean>
+        >;
+      },
+    ) =>
+      rematerializeTaskDocuments({
+        snapshot,
+        packagePath: "tasks/task-1",
+        paths: ["tasks/task-1/INDEX.md"],
+        currentDocuments: [],
+        completionContext,
+      })[0]!.body,
+    strict = {
+      ...context,
+      closeoutGates: { review: true, consent: true, fact: true, factDisposition: true, codeDoc: true },
+    },
+    lightweight = {
+      ...context,
+      producesFactCount: 0,
+      closeoutGates: { review: false, consent: false, fact: false, factDisposition: false, codeDoc: false },
+    };
+  assert.match(index(submitted, strict), /ha task adjudicate task-1 --forward --note-file <path>/u);
+  assert.match(index(submitted, lightweight), /ha task complete task-1/u);
 });

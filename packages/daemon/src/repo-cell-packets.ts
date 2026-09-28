@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import {
   approvedReviewHistoryForExecution,
-  approvedReviewsForExecution,
   consentedApprovedReviewForExecution,
   makeTaskEventStore,
   reviewDigest,
+  completionGuidance,
+  taskCompletionNext,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { validateGuiSubmission, type GuiSubmissionV1 } from "./protocol/daemon-protocol.contract.ts";
@@ -17,6 +18,7 @@ import { gateChecks } from "./repo-cell-proof.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";
 import type { PublicPublication, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { readWorkspaceText } from "./workspace-text-port.ts";
+import { readCompletionContext } from "./task-completion-read.ts";
 
 export function packetJson(
   value: unknown,
@@ -182,10 +184,7 @@ export function lifecycleReceipt(
 ): WriteReceipt {
   const executionId = "execution" in event.payload ? event.payload.execution.executionId : null,
     execution = snapshot.executions.find((value) => value.executionId === executionId),
-    undeclared = execution?.actor.executor === null,
-    reviews = execution?.submission ? approvedReviewsForExecution(snapshot.reviews, execution) : [],
-    approved = reviews,
-    approvedHistory = execution?.submission ? approvedReviewHistoryForExecution(snapshot.reviews, execution) : [],
+    reviews = execution?.submission ? approvedReviewHistoryForExecution(snapshot.reviews, execution) : [],
     selected = execution?.submission
       ? consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, execution, snapshot.reviewDispositions)
       : undefined,
@@ -193,13 +192,9 @@ export function lifecycleReceipt(
       event.type === "review_recorded" || event.type === "review_consent_recorded" ? event.payload.review : undefined,
     receiptReview = eventReview ?? selected?.review ?? (reviews.length === 1 ? reviews[0] : undefined),
     reviewId = receiptReview?.reviewId ?? null,
-    declarationNeeded = snapshot.task?.status === "in_review" && undeclared && reviews.length === 0,
-    // declare-executor replays a runtime dispatch record as its executor proof; a task with no
-    // dispatch lineage offers no such record, so the receipt must point at independent review.
-    dispatchlessDeclaration =
-      declarationNeeded === true &&
-      readTaskLineageDispatches({ projection: cell.projection, rootDir: cell.rootDir, taskId: event.taskId }).length ===
-        0,
+    hasDispatchLineage =
+      readTaskLineageDispatches({ projection: cell.projection, rootDir: cell.rootDir, taskId: event.taskId }).length >
+      0,
     to = `${snapshot.task?.status ?? "missing"}/${snapshot.task?.currentNode ?? "missing"}`,
     from =
       event.type === "execution_started"
@@ -210,62 +205,29 @@ export function lifecycleReceipt(
             ? to
             : "in_review/review",
     checks = gateChecks(snapshot, executionId ?? ""),
-    missingGate = checks.find((value) => value.status === "blocked")?.gate,
-    nextCommand =
-      event.type === "lease_released" && snapshot.task?.status === "active"
-        ? `ha task transition ${event.taskId} planned --reason <why-work-is-returning-to-planning>`
-        : snapshot.task?.status === "active" && executionId
-          ? `ha task submit ${event.taskId}`
-          : snapshot.task?.status === "active"
-            ? `ha task start ${event.taskId}`
-            : snapshot.task?.status === "submitted"
-              ? snapshot.task.completionGateIds.includes("review")
-                ? `ha task adjudicate ${event.taskId} --forward --note-file <path>`
-                : `ha task complete ${event.taskId}`
-              : snapshot.task?.status !== "in_review"
-                ? null
-                : !approved.length && !approvedHistory.length
-                  ? declarationNeeded && !dispatchlessDeclaration
-                    ? [
-                        "ha task declare-executor ",
-                        `${event.taskId}`,
-                        " --execution-id ",
-                        `${executionId}`,
-                        " --reason <auditable-recovery-reason>",
-                      ].join("")
-                    : [
-                        "ha task review-execution ",
-                        `${event.taskId}`,
-                        " --execution-id ",
-                        `${executionId}`,
-                        " --review-id <id> --from-file <review.json>",
-                      ].join("")
-                  : !selected
-                    ? `ha task review-consent ${event.taskId} --review-id ${approved.at(-1)!.reviewId}`
-                    : missingGate === "code-doc-reconciliation"
-                      ? `ha task code-doc reconcile ${event.taskId} --path <repo-relative-path>...`
-                      : `ha task complete ${event.taskId}`,
+    completionJudgment = taskCompletionNext(
+      snapshot,
+      {
+        ...readCompletionContext(cell.projection, event.taskId, snapshot, "ready"),
+        hasDispatchLineage,
+      },
+      executionId ?? undefined,
+    ),
+    completion =
+      completionJudgment.next ??
+      (snapshot.task?.status === "done"
+        ? null
+        : completionGuidance(
+            snapshot,
+            completionJudgment.executionId ?? "",
+            `ha task complete ${event.taskId}`,
+            "The completion chain has no remaining blocker.",
+          )),
+    nextCommand = completion?.action ?? null,
     next = nextCommand
       ? [
           {
             command: nextCommand,
-            // A reason rides only when the command alone would mislead; the canonical next command
-            // for a lifecycle state is its own explanation.
-            ...(declarationNeeded
-              ? {
-                  reason: dispatchlessDeclaration
-                    ? [
-                        "This execution declared no executor and its task lineage has no dispatch ",
-                        "record, so ha task declare-executor is unavailable; have a different person ",
-                        "run this review, or run it with HARNESS_ACTOR=agent:<id> for an auditable ",
-                        "same-principal review.",
-                      ].join("")
-                    : [
-                        "This Execution declared no executor; record an auditable executor ",
-                        "declaration before same-person review.",
-                      ].join(""),
-                }
-              : {}),
           },
         ]
       : [],

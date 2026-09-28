@@ -1,5 +1,5 @@
 import type { ExecutionV1 } from "./execution.ts";
-import { approvedReviewsForExecution, consentedApprovedReviewForExecution, reviewsForExecution } from "./review.ts";
+import { consentedApprovedReviewForExecution, reviewsForExecution } from "./review.ts";
 import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1 } from "./review.ts";
 import type { LifecycleDocumentClaim, TaskEventV1 } from "./task-lifecycle-event.ts";
 import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
@@ -16,7 +16,7 @@ import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { currentTaskForWrite } from "./task.ts";
 import { codeDocRecordId, currentCodeDocRecord, currentCodeDocWitness } from "./code-doc-witness.ts";
 import { completionGateIds, gateResults } from "./closeout-readiness.ts";
-import { changesRequestedReview, reviewConsentCommands, reviewReturnCommand } from "./completion-readiness.ts";
+import { taskCompletionAction, type CompletionReadinessContext } from "./completion-readiness.ts";
 export interface LifecycleDocumentState {
   readonly path: string;
   readonly body: string;
@@ -86,6 +86,7 @@ export function compileTaskLifecycleWrite(input: {
   readonly snapshot: TaskLifecycleSnapshot;
   readonly packagePath: string | null;
   readonly currentDocuments: readonly LifecycleDocumentState[];
+  readonly completionContext?: CompletionReadinessContext;
 }): {
   readonly event: TaskEventV1;
   readonly plan: FrozenWritePlan;
@@ -114,7 +115,7 @@ export function compileTaskLifecycleWrite(input: {
     current = new Map(input.currentDocuments.map((value) => [value.path, value.body])),
     bodies = paths.map((path) => ({
       path,
-      body: renderLifecycleDocument(sourceEvent, snapshot, path, current.get(path) ?? null),
+      body: renderLifecycleDocument(sourceEvent, snapshot, path, current.get(path) ?? null, input.completionContext),
     })),
     claims: LifecycleDocumentClaim[] = bodies.map(({ path, body }) => ({
       path,
@@ -225,6 +226,7 @@ export function rematerializeTaskDocuments(input: {
   readonly packagePath: string;
   readonly paths: readonly string[];
   readonly currentDocuments: readonly LifecycleDocumentState[];
+  readonly completionContext?: CompletionReadinessContext;
 }): readonly { readonly path: string; readonly body: string }[] {
   const current = new Map(input.currentDocuments.map((document) => [document.path, document.body])),
     packagePath = input.packagePath,
@@ -233,7 +235,11 @@ export function rematerializeTaskDocuments(input: {
   for (const path of input.paths) {
     if (!path.startsWith(prefix)) throw new Error(`task rematerialization path ${path} is outside ${prefix}`);
     const base = current.get(path) ?? null;
-    if (path === `${prefix}INDEX.md`) rendered.push({ path, body: renderIndex(undefined, input.snapshot, path, base) });
+    if (path === `${prefix}INDEX.md`)
+      rendered.push({
+        path,
+        body: renderIndex(undefined, input.snapshot, path, base, input.completionContext),
+      });
     else if (path === `${prefix}task-contract.json`)
       rendered.push({ path, body: renderContract(input.snapshot, base, packagePath) });
     else if (path === `${prefix}module.md`) rendered.push({ path, body: renderModule(input.snapshot) });
@@ -275,9 +281,16 @@ export function renderLifecycleDocument(
   snapshot: TaskLifecycleSnapshot,
   path: string,
   base: string | null,
+  completionContext?: CompletionReadinessContext,
 ): string {
   if (path.endsWith("/INDEX.md"))
-    return renderIndex("execution" in event.payload ? event.payload.execution : undefined, snapshot, path, base);
+    return renderIndex(
+      "execution" in event.payload ? event.payload.execution : undefined,
+      snapshot,
+      path,
+      base,
+      completionContext,
+    );
   if (path.endsWith("/task-contract.json"))
     return renderContract(snapshot, base, path.slice(0, -"/task-contract.json".length));
   if (path.endsWith("/module.md")) return renderModule(snapshot);
@@ -330,17 +343,13 @@ function renderIndex(
   snapshot: TaskLifecycleSnapshot,
   path: string,
   base: string | null,
+  completionContext?: CompletionReadinessContext,
 ): string {
   const task = snapshot.task!,
     current =
       currentExecution ??
       snapshot.executions.find((value) => value.iteration === task.iteration && value.state === "submitted"),
     executionId = current?.executionId ?? "",
-    approved = current?.submission ? approvedReviewsForExecution(snapshot.reviews, current) : [],
-    changes = current?.submission ? changesRequestedReview(snapshot.reviews, current) : undefined,
-    selected = current?.submission
-      ? consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, current, snapshot.reviewDispositions)
-      : undefined,
     gateStatus = (gateId: string) => {
       if (!current?.submission) return false;
       if (gateId === "code-doc-reconciliation") {
@@ -359,29 +368,17 @@ function renderIndex(
       );
     },
     gatesForCut = completionGateIds(task.completionGateIds, current?.submission),
-    missingGate = gatesForCut.find((gateId) => !gateStatus(gateId)),
-    next =
-      task.status === "active"
-        ? `Run \`ha task submit ${task.taskId}\`.`
-        : task.status === "submitted"
-          ? gatesForCut.includes("review")
-            ? `Await the owning CEO's triage: \`ha task adjudicate ${task.taskId} --forward|--return --note-file <path>\`.`
-            : `Run \`ha task complete ${task.taskId}\`.`
-          : task.status === "in_review" && !approved.length
-            ? changes
-              ? `Return the cut with rework instructions: \`${reviewReturnCommand(task.taskId, changes.reviewId)}\`.`
-              : `Run \`ha task dispatch-review ${task.taskId}\`, or record the assigned review.`
-            : task.status === "in_review" && !selected
-              ? `Run ${reviewConsentCommands(task.taskId, snapshot.reviews, current as ExecutionV1)
-                  .map((command) => `\`${command}\``)
-                  .join(", or ")}.`
-              : missingGate === "code-doc-reconciliation"
-                ? `Run \`ha task code-doc reconcile ${task.taskId} --path <repo-relative-path>...\`.`
-                : task.status === "done"
-                  ? "Task complete."
-                  : task.status === "cancelled"
-                    ? "Task cancelled; create follow-up work with `ha task supersede`."
-                    : `Run \`ha task complete ${task.taskId}\`.`,
+    nextAction = taskCompletionAction(
+      snapshot,
+      completionContext ?? {
+        closeout: "ready",
+        closeoutPath: `${path.slice(0, -"/INDEX.md".length)}/closeout.md`,
+        eligibleDirtyPaths: [],
+        producesFactCount: 1,
+      },
+      current?.executionId,
+    )?.action,
+    next = task.status === "done" ? "Task complete." : nextAction ? `Run \`${nextAction}\`.` : "Task complete.",
     gates = gatesForCut.length
       ? gatesForCut.map((gateId) => `- ${gateId}: ${gateStatus(gateId) ? "pass" : "blocked"}`).join("\n")
       : "- none",

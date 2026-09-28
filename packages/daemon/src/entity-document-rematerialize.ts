@@ -25,6 +25,8 @@ import { decisionRelationLinkResolver } from "./entity-document-links.ts";
 import { publicationKillpoints } from "./entity-action-relation.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import { readCompletionContext } from "./task-completion-read.ts";
+import { readTaskLineageDispatches } from "./dispatch-read.ts";
 
 type RematerializeEntityKind = "decision" | "fact" | "task";
 
@@ -84,7 +86,7 @@ export function runEntityDocumentRematerialize(
     linkResolver = decisionRelationLinkResolver(cell.projection),
     targets = entityIds.map((id) => {
       const entityRef = `${entityKind}/${id}`,
-        updates = currentEntityDocumentUpdates(cell.projection, entityKind, id, linkResolver),
+        updates = currentEntityDocumentUpdates(cell.projection, cell.rootDir, entityKind, id, linkResolver),
         conflictPaths = worktreeConflictPaths(cell, updates),
         conflicts = new Set(conflictPaths),
         changed = updates.filter(
@@ -226,13 +228,14 @@ function resolveEntityIds(
 /** The current managed documents of one entity, re-rendered at this projection cut. */
 function currentEntityDocumentUpdates(
   projection: TaskProjection,
+  rootDir: string,
   entityKind: RematerializeEntityKind,
   entityId: string,
   resolveLink: DecisionRelationLinkResolver,
 ): readonly EntityDocumentUpdate[] {
   if (entityKind === "decision") return decisionDocumentUpdates(projection, entityId, resolveLink);
   if (entityKind === "fact") return factDocumentUpdates(projection, entityId);
-  return taskDocumentUpdates(projection, entityId);
+  return taskDocumentUpdates(projection, rootDir, entityId);
 }
 
 function decisionDocumentUpdates(
@@ -315,7 +318,11 @@ export function factDocumentRecord(projection: TaskProjection, fact: FactProject
   };
 }
 
-function taskDocumentUpdates(projection: TaskProjection, taskId: string): readonly EntityDocumentUpdate[] {
+function taskDocumentUpdates(
+  projection: TaskProjection,
+  rootDir: string,
+  taskId: string,
+): readonly EntityDocumentUpdate[] {
   const read = projection.read(taskId),
     packagePath = read.packagePath;
   const taskReadable = read.status === "ready" && read.snapshot.task !== null && packagePath !== null;
@@ -338,6 +345,10 @@ function taskDocumentUpdates(projection: TaskProjection, taskId: string): readon
     packagePath,
     paths,
     currentDocuments,
+    completionContext: {
+      ...readCompletionContext(projection, taskId, read.snapshot, read.status),
+      hasDispatchLineage: readTaskLineageDispatches({ rootDir, projection, taskId }).length > 0,
+    },
   }).map(({ path, body }) => ({
     path,
     policyId: "typed-machine-writer/v1",
