@@ -4,17 +4,27 @@ import type { RepoCellApiContext } from "./repo-cell-api.ts";
 export function agendaQueryFromPayload(
   context: RepoCellApiContext,
   payload: Readonly<Record<string, unknown>>,
-): { readonly limit?: number; readonly cursor?: string } {
+): { readonly limit?: number; readonly cursor?: string; readonly work?: string } {
   if (
-    Object.keys(payload).some((field) => field !== "limit" && field !== "cursor") ||
+    Object.keys(payload).some((field) => !["limit", "cursor", "work"].includes(field)) ||
     (payload.limit !== undefined &&
       (!Number.isSafeInteger(payload.limit) || Number(payload.limit) < 1 || Number(payload.limit) > 500)) ||
-    (payload.cursor !== undefined && (typeof payload.cursor !== "string" || !payload.cursor))
+    (payload.cursor !== undefined && (typeof payload.cursor !== "string" || !payload.cursor)) ||
+    (payload.work !== undefined && (typeof payload.work !== "string" || !payload.work))
   )
-    throw context.cellCodedError("invalid_command", "Agenda accepts --limit 1..500 and a non-empty cursor only.");
+    throw context.cellCodedError(
+      "invalid_command",
+      "Agenda accepts --limit 1..500, a non-empty cursor, and a work root task id only.",
+    );
+  if (typeof payload.work === "string" && !context.projection.readTaskExists(payload.work))
+    throw context.cellCodedError(
+      "task_not_found",
+      `No task ${payload.work}; pass a work root task id from ha work list.`,
+    );
   return {
     ...(payload.limit === undefined ? {} : { limit: Number(payload.limit) }),
     ...(typeof payload.cursor === "string" ? { cursor: payload.cursor } : {}),
+    ...(typeof payload.work === "string" ? { work: payload.work } : {}),
   };
 }
 

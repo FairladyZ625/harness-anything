@@ -254,7 +254,7 @@ function required(value: unknown, field: string): string {
 function optionalTaskClass(value: unknown): TaskClass | undefined {
   if (value === undefined) return undefined;
   if ((taskClasses as readonly string[]).includes(value as string)) return value as TaskClass;
-  throw presetActionError("invalid_task_class", "taskClass must be standard, milestone, epic, or long_running.");
+  throw presetActionError("invalid_task_class", "taskClass must be standard, work, or long_running.");
 }
 function presetActionError(code: string, message: string): Error & { readonly code: string } {
   return Object.assign(new Error(message), { code });
@@ -263,22 +263,9 @@ function taskPackageFields(
   action: Action,
 ): Pick<
   Parameters<typeof compileTaskPackage>[0],
-  | "idempotencyKey"
-  | "parentTaskId"
-  | "workKind"
-  | "riskTier"
-  | "urgency"
-  | "moduleKey"
-  | "registerModule"
-  | "slug"
-  | "surfaces"
-  | "reviewReturnBudget"
+  "idempotencyKey" | "parentTaskId" | "workKind" | "riskTier" | "urgency" | "slug" | "surfaces" | "reviewReturnBudget"
 > {
-  const register =
-      action.registerModule && typeof action.registerModule === "object" && !Array.isArray(action.registerModule)
-        ? (action.registerModule as Record<string, unknown>)
-        : null,
-    reviewReturnBudget = optionalReviewReturnBudget(action.reviewReturnBudget);
+  const reviewReturnBudget = optionalReviewReturnBudget(action.reviewReturnBudget);
   return {
     ...(optionalActionText(action.idempotencyKey)
       ? { idempotencyKey: optionalActionText(action.idempotencyKey)! }
@@ -287,17 +274,6 @@ function taskPackageFields(
     ...(oneOf(action.workKind, taskWorkKinds) ? { workKind: oneOf(action.workKind, taskWorkKinds)! } : {}),
     ...(oneOf(action.riskTier, priorityTiers) ? { riskTier: oneOf(action.riskTier, priorityTiers)! } : {}),
     ...(oneOf(action.urgency, priorityTiers) ? { urgency: oneOf(action.urgency, priorityTiers)! } : {}),
-    ...(optionalActionText(action.moduleKey) ? { moduleKey: optionalActionText(action.moduleKey)! } : {}),
-    ...(register
-      ? {
-          registerModule: {
-            key: required(register.key, "registerModule.key"),
-            title: required(register.title, "registerModule.title"),
-            prefix: required(register.prefix, "registerModule.prefix"),
-            scope: required(register.scope, "registerModule.scope"),
-          },
-        }
-      : {}),
     ...(optionalActionText(action.slug) ? { slug: optionalActionText(action.slug)! } : {}),
     ...(Array.isArray(action.surfaces) ? { surfaces: action.surfaces.map((value) => required(value, "surface")) } : {}),
     ...(reviewReturnBudget === undefined ? {} : { reviewReturnBudget }),

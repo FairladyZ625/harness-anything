@@ -134,14 +134,12 @@ test("guidance plane renders all eight descriptor-derived task-create messages e
       }),
       shared = [
         "contract: repository-diff requires a committable public-repository diff, real CI, and a code-doc reconciliation witness. For a task-package-only report or decision, use the task-package-artifact preset docs-task.",
-        "plan: write the concrete plan at harness/tasks/task-a/task_plan.md; required sections: Brief, Goal, " +
-          "Context, Required Reading, Entry Conditions, Dependencies, Execution Surface, Constraints, Checkpoint, " +
-          "CI/Gate Authority Stop Condition, Implementation Plan, Deliverable Contract, Evidence Protocol, " +
-          "Verification",
+        "plan: write the concrete plan at harness/tasks/task-a/task_plan.md; keep every section heading the " +
+          "preset template ships",
         "artifacts: persist supplementary context, research notes, design drafts, worker prompts, and review " +
           "evidence under harness/tasks/task-a/artifacts/; consider landing any extra information or " +
           "background materials here beyond task_plan.md",
-        "agenda: pin only if blocking the active milestone or awaiting owner decision; otherwise leave unpinned — " +
+        "agenda: pin only if blocking an active work or awaiting owner decision; otherwise leave unpinned — " +
           "ha pin task/task-a.",
         "ledger: INDEX.md and closeout.md are coordinator-managed; update them through ha doc sync",
       ];

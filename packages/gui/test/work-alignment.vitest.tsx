@@ -23,13 +23,13 @@ const rows = [
   task("nested", "group"),
   task("leaf", "nested"),
   task("solo"),
-  task("milestone", undefined, "milestone"),
+  task("declared_work", undefined, "work"),
 ];
 
 describe("work aggregation", () => {
   it("retains nested groups and puts only ungrouped top-level tasks in independent work", () => {
     const result = collectWork(rows);
-    expect(result.groups.map(({ task }) => task.taskId)).toEqual(["group", "milestone", "nested"]);
+    expect(result.groups.map(({ task }) => task.taskId)).toEqual(["declared_work", "group", "nested"]);
     expect(result.isolated.map((row) => row.taskId)).toEqual(["solo"]);
     const ids = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.id));
     expect(ids).toEqual(

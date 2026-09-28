@@ -168,7 +168,6 @@ function initRepo(rootDir: string): string {
     "  localRoot: .harness",
     "  contextRoot: harness/context",
     "  governanceRoot: harness/governance",
-    "  milestonesRoot: harness/milestones",
     "settings:",
     "  defaultVertical: software/coding",
     "  defaultPreset: standard-task",

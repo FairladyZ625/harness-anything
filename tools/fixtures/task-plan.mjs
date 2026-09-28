@@ -35,7 +35,7 @@ export async function realizeTaskPlanFixture(rootDir, packagePath, submit, title
     scaffold = readFileSync(authoredPath, "utf8"),
     currentTitle = scaffold.split(/\r?\n/u)[0].replace(/^#\s*/u, ""),
     // The scaffold is the readiness contract: a preset whose plan template names other sections
-    // (a milestone's Mission, Exit Criteria, ...) is judged on those, so the fixture fills them too.
+    // (a work's Mission, Exit Criteria, ...) is judged on those, so the fixture fills them too.
     known = new Set(fixtureSections.map(([heading]) => heading)),
     presetSections = [...scaffold.matchAll(/^##[ \t]+(.+?)[ \t]*$/gmu)]
       .map((match) => match[1])

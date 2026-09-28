@@ -98,7 +98,7 @@ function causalBlock(prompt: string): string | null {
   return match === null ? null : match[0];
 }
 
-test("task-bound dispatch injects the milestone, deriving decision, and evidence facts", async () => {
+test("task-bound dispatch injects the work, deriving decision, and evidence facts", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-dispatch-context-"));
   let prompt: string | null = null;
   let cell: Cell | undefined;
@@ -134,7 +134,7 @@ test("task-bound dispatch injects the milestone, deriving decision, and evidence
         terminate: () => undefined,
       }),
     });
-    await createTask(cell, root, { taskId: "task_ctx_root", title: "Causal milestone", taskClass: "milestone" });
+    await createTask(cell, root, { taskId: "task_ctx_root", title: "Causal work", taskClass: "work" });
     // Each spawn holds the task lease for its runtime session, so every dispatch
     // in this test gets its own leaf task under the same causal neighborhood.
     for (const taskId of ["task_ctx_leaf", "task_ctx_explicit", "task_ctx_agent"])
@@ -200,7 +200,7 @@ test("task-bound dispatch injects the milestone, deriving decision, and evidence
     assert.ok(prompt !== null, "the launch request captured a prompt");
     const block = causalBlock(prompt!);
     assert.ok(block !== null, `no causal block in prompt:\n${prompt}`);
-    assert.match(block, /- Milestone: Causal milestone\n/u);
+    assert.match(block, /- Work: Causal work\n/u);
     assert.match(block, new RegExp(`- Decision: ${decisionId} "Dispatch context decision"`, "u"));
     assert.match(block, /\* Chosen CH1: Inject the causal slice at dispatch — Agents do not run/u);
     assert.match(block, /\* Claims: C1 94% of dispatches skip read-set\./u);
@@ -322,7 +322,7 @@ test("dry-run preview returns the injected prompt byte-for-byte with zero dispat
         terminate: () => undefined,
       }),
     });
-    await createTask(cell, root, { taskId: "task_pv_root", title: "Preview milestone", taskClass: "milestone" });
+    await createTask(cell, root, { taskId: "task_pv_root", title: "Preview work", taskClass: "work" });
     await createTask(cell, root, {
       taskId: "task_pv_leaf",
       title: "Preview leaf task",
@@ -476,7 +476,7 @@ test("oversized CJK causal context stays inside the byte budget on a real dispat
         terminate: () => undefined,
       }),
     });
-    await createTask(cell, root, { taskId: "task_cjk_root", title: long, taskClass: "milestone" });
+    await createTask(cell, root, { taskId: "task_cjk_root", title: long, taskClass: "work" });
     await createTask(cell, root, {
       taskId: "task_cjk_leaf",
       title: "叶子任务",

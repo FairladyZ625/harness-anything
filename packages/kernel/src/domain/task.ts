@@ -44,8 +44,15 @@ export const replayTaskStatuses = [
   "cancelled",
 ] as const;
 export type ReplayTaskStatus = (typeof replayTaskStatuses)[number];
-export const taskClasses = ["standard", "milestone", "epic", "long_running"] as const;
+export const taskClasses = ["standard", "work", "long_running"] as const;
 export type TaskClass = (typeof taskClasses)[number];
+// dec_5F7E74F1: milestone was renamed work and epic was retired. The event log is immutable, so
+// persisted payloads may still carry either, mapped here to their successor class; current writers
+// never emit them.
+export const retiredTaskClassRestatements: Readonly<Record<string, TaskClass>> = Object.freeze({
+  milestone: "work",
+  epic: "standard",
+});
 export interface ActorAxes {
   readonly principal: { readonly personId: string };
   readonly executor: { readonly kind: "agent"; readonly id: string } | null;
@@ -60,6 +67,7 @@ export interface TaskMetadataV1 {
   readonly verticalId: string;
   readonly presetId: string;
   readonly profileId: string;
+  /** Retired grouping (dec_5F7E74F1): readable on historical tasks; task creation always writes null. */
   readonly moduleKey: string | null;
   readonly slug: string;
   readonly surfaces: readonly string[];
@@ -136,7 +144,10 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
   if (value.schema !== "task/v2") issues.push({ code: "invalid_schema", message: "Task must use task/v2" });
   if (!isNonEmptyString(value.taskId) || !isNonEmptyString(value.title))
     issues.push({ code: "invalid_task", message: "taskId and title are required" });
-  if (!(taskClasses as readonly unknown[]).includes(value.taskClass))
+  const acceptedTaskClasses: readonly unknown[] = allowUnknownFields
+    ? [...taskClasses, ...Object.keys(retiredTaskClassRestatements)]
+    : taskClasses;
+  if (!acceptedTaskClasses.includes(value.taskClass))
     issues.push({ code: "invalid_task", message: "invalid taskClass" });
   if (!(replayTaskStatuses as readonly unknown[]).includes(value.status))
     issues.push({ code: "invalid_task", message: "invalid Task status" });

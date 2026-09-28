@@ -508,12 +508,12 @@ test("code-doc repoint derives the commit and rejects the retired caller cut", (
 });
 
 // A route decided by scanning the whole argv lets a flag *value* spelling a command name hijack it.
-// `daemon` and `gui` are both registered modules in this repository, so `--module daemon` is an
+// `daemon` and `gui` are ordinary slugs in this repository, so `--slug daemon` is an
 // ordinary invocation that was impossible to express: it reached daemon control and died there.
 test("the command token is a position, not an argv membership test", () => {
   for (const [argv, expected] of [
-    [["task", "create", "--title", "T", "--module", "daemon"], "task"],
-    [["task", "create", "--title", "T", "--module", "gui"], "task"],
+    [["task", "create", "--title", "T", "--slug", "daemon"], "task"],
+    [["task", "create", "--title", "T", "--slug", "gui"], "task"],
     [["task", "list", "--search", "daemon"], "task"],
     [["daemon", "status"], "daemon"],
     [["gui"], "gui"],
@@ -530,8 +530,8 @@ test("the command token is a position, not an argv membership test", () => {
 
 test("a flag value that spells a command still parses as its real command", () => {
   for (const value of ["daemon", "gui"]) {
-    const parsed = parseThinCommand(["task", "create", "--title", "Wave", "--module", value]);
-    assert.equal(parsed.ok, true, `--module ${value}`);
+    const parsed = parseThinCommand(["task", "create", "--title", "Wave", "--slug", value]);
+    assert.equal(parsed.ok, true, `--slug ${value}`);
     if (parsed.ok) assert.equal(parsed.command.action.kind, "task-create");
   }
 });

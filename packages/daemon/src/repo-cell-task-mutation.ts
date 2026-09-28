@@ -149,11 +149,6 @@ export function taskMutation(
           ...changed,
           metadata: { ...changed.metadata!, [field]: value },
         };
-      else if (field === "moduleKey")
-        changed = {
-          ...changed,
-          metadata: { ...changed.metadata!, moduleKey: value },
-        };
       else if (field === "taskClass" && (taskClasses as readonly string[]).includes(value))
         changed = { ...changed, taskClass: value as TaskV2["taskClass"] };
       else if (field === "reviewReturnBudget" && /^[1-9][0-9]*$/u.test(value))
@@ -162,7 +157,7 @@ export function taskMutation(
         throw cell.cellCodedError(
           "invalid_amend",
           [
-            "Amend title, parentTaskId, workKind, riskTier, urgency, moduleKey, ",
+            "Amend title, parentTaskId, workKind, riskTier, urgency, ",
             "taskClass, reviewReturnBudget (positive integer), or pinned (true/false); use task contract ",
             "migrate for contract shape changes.",
           ].join(""),

@@ -110,7 +110,7 @@ export function createSoakEvents({ taskCount, eventCount }) {
         verticalId: "software/coding",
         presetId: "baseline",
         profileId: "baseline",
-        moduleKey: "daemon",
+        moduleKey: null,
         slug: `nightly-soak-${String(index).padStart(6, "0")}`,
         surfaces: ["packages/daemon"],
         fromLegacyId: null,

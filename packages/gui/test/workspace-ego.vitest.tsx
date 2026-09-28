@@ -56,7 +56,7 @@ const scope: WorkspaceScopeRead = {
     taskId: "root",
     title: "工作组",
     status: "active",
-    taskClass: "milestone",
+    taskClass: "work",
     parentTaskId: null,
     updatedAt: "2026-09-21",
     pinned: false,

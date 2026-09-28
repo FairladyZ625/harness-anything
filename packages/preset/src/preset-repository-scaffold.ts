@@ -224,7 +224,6 @@ export function repositoryPath(
       "{{paths.contextRoot}}": context,
       "{{paths.governanceRoot}}": relative(layout.governanceRoot),
       "{{paths.standardsRoot}}": relative(layout.standardsRoot),
-      "{{paths.milestonesRoot}}": relative(layout.milestonesRoot),
     };
   let expanded = value.replaceAll("{{paths.rootDir}}/", "").replaceAll("{{paths.rootDir}}", "");
   for (const [token, target] of Object.entries(substitutions)) expanded = expanded.replaceAll(token, target);

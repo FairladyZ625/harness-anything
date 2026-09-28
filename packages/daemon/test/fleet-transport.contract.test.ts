@@ -273,7 +273,8 @@ test("Fleet transport union round-trips every closed wire variant", () => {
       kind: "task-create",
       title: "Fleet task",
       riskTier: "high",
-      registerModule: { key: "kernel", title: "Kernel", prefix: "task", scope: "repo" },
+      parentTaskId: "task_root",
+      taskClass: "work",
       surfaces: ["ha task start"],
     },
     { kind: "task-start", taskId: "task_abc", executionId: "exe_abc", ttlMs: 60_000, dryRun: true },
@@ -401,14 +402,9 @@ test("Fleet codec rejects unknown provenance, nested fields, malformed values, a
     { ...taskCommand, action: { kind: "task-transition", taskId: "task_abc", status: "cancelled", reason: "no" } },
     { ...taskCommand, action: { kind: "task-start", taskId: "task_abc", ttlMs: "forever" } },
     { ...taskCommand, action: { kind: "task-create", title: "t", riskTier: "critical" } },
-    {
-      ...taskCommand,
-      action: {
-        kind: "task-create",
-        title: "t",
-        registerModule: { key: "m", title: "M", prefix: "m", scope: "repo", actor: "spoof" },
-      },
-    },
+    // dec_5F7E74F1 retired the module grouping and the milestone class from the create command.
+    { ...taskCommand, action: { kind: "task-create", title: "t", moduleKey: "m" } },
+    { ...taskCommand, action: { kind: "task-create", title: "t", taskClass: "milestone" } },
     { ...taskCommand, action: { kind: "task-submit", taskId: "task_abc", submission: "not-an-object" } },
     { ...scheduleCommand, action: { kind: "schedule-create", scheduleId: "probe" } },
     { ...scheduleCommand, action: { kind: "schedule-update", scheduleId: "probe" } },

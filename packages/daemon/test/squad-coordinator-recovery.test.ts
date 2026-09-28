@@ -134,7 +134,7 @@ function makeRecoveryFixture(
     taskId: TASK_ID,
     runtimeInstanceId: INSTANCE_ID,
     cwd: rootDir,
-    mission: "Finish the milestone",
+    mission: "Finish the work",
     model: null,
     effort: null,
     permissionMode: options.permissionMode ?? "read-only",

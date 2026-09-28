@@ -7,11 +7,11 @@ import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 test("ha graph parses a ref positional and --depth into a repo.task.read action", () => {
   const plain = parseThinCommand(["graph", "task_abc123"]),
     deep = parseThinCommand(["graph", "dec_1/C1", "--depth", "5"]),
-    slugged = parseThinCommand(["graph", "milestone-w4"]);
+    slugged = parseThinCommand(["graph", "work-w4"]);
   for (const parsed of [plain, deep, slugged]) assert.equal(parsed.ok, true, JSON.stringify(parsed));
   if (plain.ok) assert.deepEqual(plain.command.action, { kind: "graph", ref: "task_abc123" });
   if (deep.ok) assert.deepEqual(deep.command.action, { kind: "graph", ref: "dec_1/C1", depth: 5 });
-  if (slugged.ok) assert.deepEqual(slugged.command.action, { kind: "graph", ref: "milestone-w4" });
+  if (slugged.ok) assert.deepEqual(slugged.command.action, { kind: "graph", ref: "work-w4" });
   if (plain.ok) assert.equal(plain.command.method, "repo.task.read");
 });
 

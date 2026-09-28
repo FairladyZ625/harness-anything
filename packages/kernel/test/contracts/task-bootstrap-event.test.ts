@@ -25,7 +25,7 @@ const event: TaskBootstrapEventV1 = {
       schema: "task/v2",
       taskId: "task-bootstrap-1",
       title: "Bootstrap",
-      taskClass: "milestone",
+      taskClass: "work",
       status: "planned",
       graph: REPLAY_TASK_GRAPH,
       currentNode: "implementation",

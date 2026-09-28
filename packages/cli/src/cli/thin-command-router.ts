@@ -14,6 +14,25 @@ import { parseRuntime } from "./thin-command-runtime.ts";
 import { parseSchedule } from "./thin-command-schedule.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
 
+type RoutedParser = (
+  route: ProtocolCommand,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+) => ThinParseResult;
+
+// Routes whose argv shape needs a dedicated parser, keyed by command id.
+const dedicatedRouteParsers = new Map<string, RoutedParser>([
+  [
+    "repo-bootstrap",
+    (_route, args, rootDir, _repoId, json, inputs) => parseBootstrapRouted(args, rootDir, json, inputs),
+  ],
+  ["work-list", parseWorkRead],
+  ["work-show", parseWorkRead],
+]);
+
 export function parseRouted(
   route: ProtocolCommand | undefined,
   args: readonly string[],
@@ -24,7 +43,8 @@ export function parseRouted(
 ): ThinParseResult | undefined {
   if (!route) return undefined;
   const rootCommand = route.path[0];
-  if (route.id === "repo-bootstrap") return parseBootstrapRouted(args, rootDir, json, inputs);
+  const dedicated = dedicatedRouteParsers.get(route.id);
+  if (dedicated) return dedicated(route, args, rootDir, repoId, json, inputs);
   if (route.id === "agenda") {
     const f = readFlags(route.id, args.slice(1), inputs);
     return f.ok
@@ -488,4 +508,31 @@ function normalizeRelationRelateFailure(result: ThinParseResult, json: boolean):
   return result.nextAction.startsWith("--rationale is required.")
     ? rejected("missing_field", "Add --rationale <why>, then rerun the command.", json)
     : result;
+}
+
+function parseWorkRead(
+  route: ProtocolCommand,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const taskId = route.id === "work-show" ? args[2] : undefined;
+  if (route.id === "work-show" && !nonEmpty(taskId))
+    return rejected("missing_field", "work root task id is required: ha work show <task-id>.", json);
+  const f = readFlags(route.id, args.slice(taskId === undefined ? 2 : 3), inputs);
+  if (!f.ok) return rejected(f.code, f.nextAction, json);
+  return accepted(
+    rootDir,
+    repoId,
+    json,
+    {
+      kind: route.id,
+      ...(taskId === undefined ? {} : { taskId }),
+      ...projectFlags(route.id, f),
+      ...(f.booleans.has("--all") ? { all: true } : {}),
+    },
+    route.method,
+  );
 }

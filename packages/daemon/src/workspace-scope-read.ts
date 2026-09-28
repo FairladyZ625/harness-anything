@@ -1,4 +1,4 @@
-import type { TaskProjection, TaskIndexProjectionRow } from "@harness-anything/kernel";
+import type { TaskProjection, TaskIndexProjectionRow, TaskV2 } from "@harness-anything/kernel";
 
 export interface WorkspaceScopeStatusCounts {
   readonly done: number;
@@ -90,7 +90,7 @@ export function workspaceScopeFromProjection(
 
   const groups = descendants.filter((row) => (children.get(row.taskId)?.length ?? 0) > 0);
   const leaves = descendants.filter((row) => !children.has(row.taskId));
-  const counts: Record<keyof WorkspaceScopeStatusCounts, number> = emptyCounts();
+  const counts: Record<keyof WorkspaceScopeStatusCounts, number> = emptyScopeCounts();
   for (const row of leaves) counts[scopeStatus(row.status)] += 1;
   const sortedLeaves = [...leaves].sort((left, right) => left.taskId.localeCompare(right.taskId));
   const limit = input.limit ?? 100;
@@ -133,12 +133,32 @@ export function workspaceScopeFromProjection(
   };
 }
 
-function emptyCounts(): WorkspaceScopeStatusCounts {
+export function emptyScopeCounts(): Record<keyof WorkspaceScopeStatusCounts, number> {
   return { done: 0, executing: 0, pending: 0, blocked: 0, planned: 0, cancelled: 0 };
 }
 
-function scopeStatus(status: TaskIndexProjectionRow["status"]): keyof WorkspaceScopeStatusCounts {
+export function scopeStatus(status: TaskIndexProjectionRow["status"]): keyof WorkspaceScopeStatusCounts {
   if (status === "active") return "executing";
   if (status === "submitted" || status === "in_review") return "pending";
   return status;
+}
+
+/**
+ * The work a task filed under `taskId` belongs to: the nearest declared work (taskClass=work) walking up
+ * from `taskId` itself, else the topmost ancestor — the dispatch causal context's rule.
+ */
+export function workRootOf(
+  projection: Pick<TaskProjection, "read">,
+  taskId: string,
+): { readonly taskId: string; readonly title: string } | null {
+  let work: { readonly taskId: string; readonly title: string } | null = null;
+  const seen = new Set<string>();
+  for (let id: string | null = taskId; id !== null && !seen.has(id); ) {
+    seen.add(id);
+    const task: TaskV2 | null | undefined = projection.read(id).snapshot.task;
+    if (!task) break;
+    work = { taskId: task.taskId, title: task.title };
+    id = task.taskClass === "work" ? null : (task.metadata?.parentTaskId ?? null);
+  }
+  return work;
 }

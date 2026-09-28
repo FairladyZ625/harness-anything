@@ -187,17 +187,14 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
     );
     const alphaPlacement = (
       unparameterized.rows.find(({ taskId }) => taskId === "task_real_Alpha") as {
-        placement: { moduleKeys: string[]; productLines: string[]; spawningDecisionIds: string[] };
+        placement: { productLines: string[]; spawningDecisionIds: string[] };
       }
     ).placement;
     assert.deepEqual(
-      {
-        moduleKeys: alphaPlacement.moduleKeys,
-        productLines: alphaPlacement.productLines,
-        spawningDecisionIds: alphaPlacement.spawningDecisionIds,
-      },
-      { moduleKeys: ["daemon-query"], productLines: ["gui"], spawningDecisionIds: [spawningDecisionId] },
+      { productLines: alphaPlacement.productLines, spawningDecisionIds: alphaPlacement.spawningDecisionIds },
+      { productLines: ["gui"], spawningDecisionIds: [spawningDecisionId] },
     );
+    assert.equal("moduleKeys" in alphaPlacement, false);
     await cell.close();
     cell = await openRepoCell({
       repoId: workspaceId("task-query-real"),
@@ -526,7 +523,6 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
         kind: "task-create",
         taskId: "task_target",
         title: "Target",
-        moduleKey: "kernel",
       },
       binding,
     );
@@ -537,7 +533,6 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
         workKind: "fix",
         riskTier: "high",
         urgency: "medium",
-        moduleKey: "daemon",
         surfaces: ["ha task list"],
       }),
     );
@@ -654,7 +649,6 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
           {
             kind: "task-list",
             status: "planned",
-            module: "daemon",
             search: "searchable",
           },
           binding,

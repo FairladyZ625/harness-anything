@@ -130,12 +130,12 @@ export function currentSubmittedExecutions(snapshot: CloseoutSnapshot): readonly
   return currentExecutionCuts(snapshot).filter((value) => value.state === "submitted");
 }
 
-/** dec_01KXBDV2R6DA0AA0MXTCH0E4AP CH1: a milestone or long_running task completes only with an active decision derives edge naming it. */
+/** dec_01KXBDV2R6DA0AA0MXTCH0E4AP CH1: a work or long_running task completes only with an active decision derives edge naming it. */
 export function lineageOrphan(
   task: NonNullable<CloseoutSnapshot["task"]>,
   relations: readonly CoverageRelation[],
 ): boolean {
-  if (task.taskId === undefined || (task.taskClass !== "milestone" && task.taskClass !== "long_running")) return false;
+  if (task.taskId === undefined || (task.taskClass !== "work" && task.taskClass !== "long_running")) return false;
   return !relations.some(
     ({ sourceRef, targetRef, relationType, state }) =>
       sourceRef.startsWith("decision/") &&

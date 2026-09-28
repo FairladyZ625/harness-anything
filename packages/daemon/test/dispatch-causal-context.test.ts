@@ -23,15 +23,15 @@ test("a task with no causal neighborhood injects no block", () => {
   assert.equal(assembleTaskCausalContext({ projection: stub(), taskId: "task_lonely" }), null);
 });
 
-test("the block carries milestone, decision, and fact refs at one cut", () => {
+test("the block carries work, decision, and fact refs at one cut", () => {
   const projection = stub({
     readTaskIndex: () => ({
       ...cut(),
       rows: [
         {
           taskId: "task_root",
-          title: "Milestone goal",
-          taskClass: "milestone",
+          title: "Work goal",
+          taskClass: "work",
           parentTaskId: null,
           packagePath: "tasks/root",
         },
@@ -96,7 +96,7 @@ test("the block carries milestone, decision, and fact refs at one cut", () => {
   const block = assembleTaskCausalContext({ projection, taskId: "task_leaf" });
   assert.ok(block !== null);
   assert.match(block, /^# Task Causal Context\n/u);
-  assert.match(block, /- Milestone: Milestone goal\n/u);
+  assert.match(block, /- Work: Work goal\n/u);
   assert.match(block, /Goal: Ship the causal tree\./u);
   assert.match(block, /- Decision: dec_ABC "Completion generalization"/u);
   assert.match(block, /Chosen CH1: Declarative evidence set — Verifiable without merge/u);
@@ -190,7 +190,7 @@ test("oversized CJK content truncates inside the byte budget and keeps refs", ()
     readTaskIndex: () => ({
       ...cut(),
       rows: [
-        { taskId: "task_root", title: long, taskClass: "milestone", parentTaskId: null, packagePath: "tasks/root" },
+        { taskId: "task_root", title: long, taskClass: "work", parentTaskId: null, packagePath: "tasks/root" },
         {
           taskId: "task_leaf",
           title: "Leaf",
@@ -263,7 +263,7 @@ test("ASCII noise, long ids, and long source paths stay inside the byte budget",
         {
           taskId: "task_root",
           title: noise,
-          taskClass: "milestone",
+          taskClass: "work",
           parentTaskId: null,
           packagePath: "tasks/root",
         },

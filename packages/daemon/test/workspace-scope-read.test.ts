@@ -7,7 +7,7 @@ const task = (
   taskId: string,
   parentTaskId: string | null,
   status: "planned" | "active" | "blocked" | "done" | "cancelled",
-  taskClass: "standard" | "milestone" = "standard",
+  taskClass: "standard" | "work" = "standard",
   packageDisposition: "active" | "archived" = "active",
 ) => ({
   taskId,
@@ -16,7 +16,6 @@ const task = (
   taskClass,
   title: taskId,
   pinned: taskId === "root",
-  moduleKey: null,
   workKind: null,
   riskTier: null,
   urgency: null,
@@ -27,8 +26,8 @@ const task = (
 
 test("workspace scope counts only executable leaves and keeps cancellation separate", () => {
   const rows = [
-    task("root", null, "active", "milestone"),
-    task("group", "root", "active", "milestone"),
+    task("root", null, "active", "work"),
+    task("group", "root", "active", "work"),
     task("doing", "group", "active"),
     task("done", "root", "done"),
     task("cancelled", "root", "cancelled", "standard", "archived"),
@@ -62,7 +61,7 @@ test("workspace scope reports a missing ancestor instead of inventing a breadcru
     {
       readTaskIndex: () => ({
         status: "pending",
-        rows: [task("root", "missing", "planned", "milestone")],
+        rows: [task("root", "missing", "planned", "work")],
         watermark: 8,
         sourceRevision: 9,
         warnings: ["projection_missing"],

@@ -70,7 +70,7 @@ export interface Provider {
   readonly kind: CapabilityRefV1["kind"];
   readonly version: string;
   readonly templateOverrides?: Readonly<Record<string, string>>;
-  readonly requiredTaskClass?: "milestone" | "epic";
+  readonly requiredTaskClass?: "work";
   readonly actionKind?: string;
   readonly payloadFields?: readonly string[];
 }
@@ -103,7 +103,7 @@ export interface InternalPresetResolution {
     readonly templateRef: string;
   }[];
   readonly scripts: readonly PresetPackageScript[];
-  readonly requiredTaskClass?: "milestone" | "epic";
+  readonly requiredTaskClass?: "work";
   readonly packageRoot: string;
   readonly packageDigest: string;
   readonly produceActions: Readonly<

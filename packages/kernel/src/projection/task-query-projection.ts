@@ -35,7 +35,6 @@ export interface TaskProjectionListQuery {
   readonly cursor?: string;
   readonly pinnedFirst?: boolean;
   readonly parentTaskId?: string | null;
-  readonly module?: string;
   readonly workKind?: string;
   readonly riskTier?: string;
   readonly urgency?: string;
@@ -126,7 +125,6 @@ export function readTaskIndexRows(
     field = (jsonPath: string) => `json_extract(task_snapshot.snapshot_json, '${jsonPath}')`;
   for (const [value, expression] of [
     [query.status, "task_snapshot.status"],
-    [query.module, field("$.task.metadata.moduleKey")],
     [query.workKind, field("$.task.metadata.workKind")],
     [query.riskTier, field("$.task.metadata.riskTier")],
     [query.urgency, field("$.task.metadata.urgency")],
@@ -199,7 +197,6 @@ export function readTaskIndexRows(
           status: task.status,
           pinned: task.pinned,
           parentTaskId: task.metadata?.parentTaskId ?? null,
-          moduleKey: task.metadata?.moduleKey ?? null,
           workKind: task.metadata?.workKind ?? null,
           riskTier: task.metadata?.riskTier ?? null,
           urgency: task.metadata?.urgency ?? null,

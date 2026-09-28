@@ -26,13 +26,13 @@ export interface WorkSearchRow {
   readonly entity: string;
 }
 
-/** 搜索命中:类型与所属任务组都显式带出,不让用户从标题猜这行是什么、属于谁。 */
+/** 搜索命中:类型与所属工作都显式带出,不让用户从标题猜这行是什么、属于谁。 */
 export interface WorkSearchHit {
   readonly ref: string;
   readonly label: string;
   readonly entity: string;
   readonly detail: string | null;
-  /** 所属任务组 = 任务树根(`TaskRow.rootTaskId`);非任务实体、或本身就是根时为 null。 */
+  /** 所属工作 = 任务树根(`TaskRow.rootTaskId`);非任务实体、或本身就是根时为 null。 */
   readonly group: { readonly taskId: string; readonly title: string } | null;
 }
 
@@ -81,7 +81,7 @@ function groupOf(
  * 渲染层不能把 kernel barrel 拖进浏览器包,所以字面镜像在这里,由 vitest 对着
  * kernel 的真实声明逐词核对 —— 任一边改词,测试当场红。
  */
-export const START_WORK_TASK_CLASSES = Object.freeze(["standard", "milestone", "epic", "long_running"]);
+export const START_WORK_TASK_CLASSES = Object.freeze(["standard", "work", "long_running"]);
 export const START_WORK_WORK_KINDS = Object.freeze(["feat", "fix", "refactor", "docs", "test", "chore"]);
 
 /** 「开始一项工作」表单的全部可写字段;命令是它的纯函数。 */
@@ -138,7 +138,7 @@ export function startWorkIdempotencyKey(draft: StartWorkDraft): string {
 
 /**
  * 拼出真实的 `ha task create` 调用。只用 task-create 契约声明过的 flag
- * (`--title` / `--preset` / `--profile` / `--task-class` / `--kind` / `--parent` /
+ * (`--title` / `--preset` / `--profile` / `--task-class` / `--kind` / `--work` /
  * `--idempotency-key`),测试对着契约逐个核对,拼不出契约里没有的开关。
  */
 export function startWorkCommand(draft: StartWorkDraft): StartWorkCommand {
@@ -156,7 +156,7 @@ export function startWorkCommand(draft: StartWorkDraft): StartWorkCommand {
     draft.taskClass,
     "--kind",
     draft.workKind,
-    ...(draft.parentTaskId === null ? [] : ["--parent", draft.parentTaskId]),
+    ...(draft.parentTaskId === null ? [] : ["--work", draft.parentTaskId]),
     "--idempotency-key",
     idempotencyKey,
   ];

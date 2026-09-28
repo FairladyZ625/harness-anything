@@ -31,7 +31,7 @@ function asNode(value: unknown): GraphNode | null {
 }
 
 function kindLabel(node: GraphNode): string {
-  if (node.kind === "task" && node.detail === "milestone") return "Milestone";
+  if (node.kind === "task" && node.detail === "work") return "Work";
   return node.kind.slice(0, 1).toUpperCase() + node.kind.slice(1);
 }
 

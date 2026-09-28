@@ -25,7 +25,7 @@ import {
 /**
  * G1「工作范围与入口」(S5,task_654349ce)的判据:
  *  - 三个入口都接着真东西:切仓走壳层那一份切换器;搜索走统一实体索引且每行带类型与
- *    所属任务组;「开始一项工作」走到真实 `ha task create` 命令。
+ *    所属工作;「开始一项工作」走到真实 `ha task create` 命令。
  *  - 「不画没有接线的按钮」有对照:命令里出现的每个 flag 都在 task-create 契约里声明过,
  *    两个取值面与 kernel 的真实词表逐词相等;GUI 写面里确实没有 task 创建 ingress
  *    (所以这一步只能是 CLI 指引,这是事实不是偷懒)。
@@ -48,7 +48,6 @@ function taskRow(patch: Partial<TaskRow> & { readonly taskId: string }): TaskRow
     engine: "kernel/task-lifecycle/v1",
     origin: "native",
     source: "local-document",
-    module: "gui",
     lastKnownAt: NOW,
     gates: [],
     board: projectedTaskFields("active").board,
@@ -348,7 +347,7 @@ describe("G1 开始一项工作:命令面与真实契约对齐", () => {
       "--profile",
       "--task-class",
       "--kind",
-      "--parent",
+      "--work",
       "--idempotency-key",
     ]);
   });
@@ -391,7 +390,7 @@ describe("G1 开始一项工作:幂等键", () => {
       { ...DRAFT, intent: `${DRAFT.intent} 追加` },
       { ...DRAFT, presetId: "docs-task" },
       { ...DRAFT, profileId: null },
-      { ...DRAFT, taskClass: "milestone" },
+      { ...DRAFT, taskClass: "work" },
       { ...DRAFT, workKind: "fix" },
       { ...DRAFT, parentTaskId: null },
     ];
@@ -399,8 +398,8 @@ describe("G1 开始一项工作:幂等键", () => {
   });
 });
 
-describe("G1 搜索:类型与所属任务组", () => {
-  it("命中带实体类型;子任务带所属组,根任务与非任务行没有组", () => {
+describe("G1 搜索:类型与所属工作", () => {
+  it("命中带实体类型;子任务带所属工作,根任务与非任务行没有上层工作", () => {
     const hits = searchCurrentRepo(SEARCH_ROWS, TASKS, "统一", 12);
     expect(hits.map((hit) => hit.ref)).toEqual(["task/task_root"]);
     expect(hits[0].entity).toBe("task");
@@ -434,7 +433,7 @@ describe("G1 区域:三个入口", () => {
     expect(view.switchRepo).toHaveBeenCalledTimes(1);
   });
 
-  it("有输入才启用事实索引读面,结果显式标类型与所属组,点击走实体导航", async () => {
+  it("有输入才启用事实索引读面,结果显式标类型与所属工作,点击走实体导航", async () => {
     const view = await mountOverviewNext();
     expect(view.searchActive.mock.calls.at(-1)?.[0]).toBe(false);
     expect(queryTestId(view.container, "overview-next-search-results")).toBeNull();
@@ -442,7 +441,7 @@ describe("G1 区域:三个入口", () => {
     expect(view.searchActive.mock.calls.at(-1)?.[0]).toBe(true);
     const results = byTestId(view.container, "overview-next-search-results");
     expect(results.textContent).toContain("task");
-    expect(results.textContent).toContain("所属组:统一工作体验");
+    expect(results.textContent).toContain("所属工作:统一工作体验");
     await click(results.querySelector("button")!);
     expect(view.navigateEntity).toHaveBeenCalledWith("task/task_child");
   });
@@ -485,7 +484,7 @@ describe("G1 开始一项工作:向导走到真实创建命令", () => {
     expect(command).toContain("ha task create");
     expect(command).toContain(`--title '${DRAFT.title}'`);
     expect(command).toContain("--preset standard-task");
-    expect(command).toContain("--parent task_root");
+    expect(command).toContain("--work task_root");
     expect(dialogTestId("start-work-idempotency").textContent).toContain("gui-start-work-");
     await until(
       () => (dialogTestId("start-work-preconditions").textContent ?? "").includes("code-doc-reconciliation"),

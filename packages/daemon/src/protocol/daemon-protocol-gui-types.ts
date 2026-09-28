@@ -521,6 +521,8 @@ export interface DaemonTaskQueryPayload {
 export interface DaemonAgendaPayload {
   readonly limit?: number;
   readonly cursor?: string;
+  /** Narrow the agenda to one work: the root task and its subtree. */
+  readonly work?: string;
 }
 
 export interface DaemonRelationQueryPayload {
@@ -668,7 +670,6 @@ export type DaemonTaskDispatchesPayload =
     };
 
 export interface TaskPlacementSupplement {
-  readonly moduleKeys: readonly string[];
   readonly productLines: readonly string[];
   readonly spawningDecisionIds: readonly string[];
   readonly parentTaskId: string | null;
@@ -808,9 +809,16 @@ export interface TaskWorktreeView {
   readonly state: "bound" | "materialized" | "reclaimed" | "retained";
 }
 
+/** The work an agenda row belongs to: its nearest work root (dec_5F7E74F1). */
+export interface AgendaWorkRef {
+  readonly taskId: string;
+  readonly title: string;
+}
+
 export interface AgendaTaskRow {
   readonly taskId: string;
   readonly title: string;
+  readonly work: AgendaWorkRef | null;
   readonly status: (typeof taskStatusWords)[number];
   readonly pinned: boolean;
   readonly updatedAt: string;
@@ -827,6 +835,7 @@ export interface AgendaTaskRow {
 export interface AgendaExecutionRow {
   readonly taskId: string;
   readonly title: string;
+  readonly work: AgendaWorkRef | null;
   readonly pinned: boolean;
   readonly executionId: string;
   readonly submittedAt: string;

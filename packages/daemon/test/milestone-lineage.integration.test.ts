@@ -25,8 +25,8 @@ function git(rootDir: string, ...args: readonly string[]): string {
 }
 function initRepo(rootDir: string): void {
   git(rootDir, "init", "--quiet");
-  git(rootDir, "config", "user.name", "Milestone Lineage Test");
-  git(rootDir, "config", "user.email", "milestone-lineage@example.invalid");
+  git(rootDir, "config", "user.name", "Work Lineage Test");
+  git(rootDir, "config", "user.email", "work-lineage@example.invalid");
   git(rootDir, "config", "gc.auto", "0");
   writeFileSync(path.join(rootDir, "README.md"), "# Fixture\n");
   git(rootDir, "add", "README.md");
@@ -40,7 +40,7 @@ async function reachGreenInReview(
   taskId: string,
   executionId: string,
   title: string,
-  taskClass: "milestone" | "standard" = "standard",
+  taskClass: "work" | "standard" = "standard",
 ): Promise<void> {
   const binding = { actor, source: "local" as const };
   await createRealizedTaskPlanFixture(
@@ -52,7 +52,7 @@ async function reachGreenInReview(
           taskId,
           title,
           presetId: "docs-task",
-          ...(taskClass === "milestone" ? { taskClass } : {}),
+          ...(taskClass === "work" ? { taskClass } : {}),
         },
         binding,
       );
@@ -67,7 +67,7 @@ async function reachGreenInReview(
       kind: "fact-record",
       taskId,
       statement: `${title} has completion evidence.`,
-      evidenceSource: "test:milestone-lineage",
+      evidenceSource: "test:work-lineage",
       confidence: "high",
       memoryClass: "episodic",
       memoryTags: [],
@@ -133,8 +133,8 @@ async function reachGreenInReview(
   );
 }
 
-test("an orphan milestone task stops at completion until the prescribed decision relate edge exists, then completes", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-milestone-lineage-"));
+test("an orphan work task stops at completion until the prescribed decision relate edge exists, then completes", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-work-lineage-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   const taskId = "task_m_line",
     executionId = "exe_m_line",
@@ -142,11 +142,11 @@ test("an orphan milestone task stops at completion until the prescribed decision
   try {
     initRepo(rootDir);
     cell = await openRepoCell({
-      repoId: workspaceId("milestone-lineage"),
+      repoId: workspaceId("work-lineage"),
       rootDir: canonicalRoot(rootDir),
-      ownerId: "milestone-lineage",
+      ownerId: "work-lineage",
     });
-    await reachGreenInReview(cell, rootDir, taskId, executionId, "Milestone Lineage", "milestone");
+    await reachGreenInReview(cell, rootDir, taskId, executionId, "Work Lineage", "work");
     const reconciled = (await cell.run({ kind: "task-complete", taskId, executionId }, binding)) as unknown as Record<
       string,
       unknown
@@ -160,14 +160,14 @@ test("an orphan milestone task stops at completion until the prescribed decision
     const next = reconciled.next as readonly CompletionNext[];
     assert.equal(next.length, 1);
     assert.deepEqual(next[0], {
-      action: `Identify the authorizing Decision claim in harness/tasks/${taskId}-milestone-lineage/closeout.md Summary.`,
-      reason: "A milestone task completes only with an active decision derives edge; no active edge names this task.",
+      action: `Identify the authorizing Decision claim in harness/tasks/${taskId}-work-lineage/closeout.md Summary.`,
+      reason: "A work task completes only with an active decision derives edge; no active edge names this task.",
       authority: "person-owner",
       readCut: { revision: next[0]!.readCut.revision, iteration: 0, executionId },
     });
     assert.ok(Number.isInteger(next[0]!.readCut.revision) && next[0]!.readCut.revision > 0);
     assert.equal(
-      makeTaskEventReader({ repoId: "milestone-lineage", rootDir })
+      makeTaskEventReader({ repoId: "work-lineage", rootDir })
         .read()
         .events.some((event) => event.type === "task_completed"),
       false,
@@ -178,15 +178,15 @@ test("an orphan milestone task stops at completion until the prescribed decision
       {
         kind: "decision-propose",
         jsonInput: JSON.stringify({
-          title: "Authorise the lineage milestone",
-          question: "Does this milestone proceed?",
+          title: "Authorise the lineage work",
+          question: "Does this work proceed?",
           riskTier: "medium",
           urgency: "medium",
           vertical: "default",
           preset: "default",
           decisionClass: "ordinary",
           appliesTo: { modules: ["daemon"], productLines: [] },
-          chosen: [{ id: "CH1", text: "Proceed under the milestone lineage rule" }],
+          chosen: [{ id: "CH1", text: "Proceed under the work lineage rule" }],
           rejected: [{ id: "RJ1", text: "Skip the edge", whyNot: "The lineage rule requires it" }],
           claims: [],
           fulfillments: [],
@@ -201,7 +201,7 @@ test("an orphan milestone task stops at completion until the prescribed decision
         sourceRef: `decision/${decisionId}/CH1`,
         relationType: "derives",
         targetRef: `task/${taskId}`,
-        rationale: "This decision authorises the milestone task.",
+        rationale: "This decision authorises the work task.",
         expectedVersion: 0,
       },
       binding,
@@ -213,7 +213,7 @@ test("an orphan milestone task stops at completion until the prescribed decision
       unknown
     >;
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
-    const store = makeTaskEventReader({ repoId: "milestone-lineage", rootDir }),
+    const store = makeTaskEventReader({ repoId: "work-lineage", rootDir }),
       completedEvent = store.read().events.find((event) => event.type === "task_completed");
     assert.notEqual(completedEvent, undefined);
     const shown = (await cell.run({ kind: "task-show", taskId }, binding)) as unknown as Record<string, unknown>;

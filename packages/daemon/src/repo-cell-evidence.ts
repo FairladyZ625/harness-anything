@@ -1,5 +1,6 @@
 import { consumeKnownError } from "@harness-anything/kernel";
 import { renderTaskIndexPayload } from "./task-index-query.ts";
+import { renderWorkPayload } from "./work-read.ts";
 
 export function decodeEvidencePayload(evidence: string): unknown {
   const tag = evidence.indexOf(":");
@@ -17,6 +18,8 @@ export function decodeEvidencePayload(evidence: string): unknown {
 export function renderEvidencePayload(payload: unknown): string {
   const taskIndex = renderTaskIndexPayload(payload);
   if (taskIndex !== null) return taskIndex;
+  const work = renderWorkPayload(payload);
+  if (work !== null) return work;
   const readSet = renderTaskReadSetPayload(payload);
   if (readSet !== null) return readSet;
   if (Array.isArray(payload)) return renderEvidenceRows(payload);

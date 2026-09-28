@@ -101,9 +101,9 @@ test("completion blocker matrix returns one canonical next for every substantive
           })),
         };
       };
-    const orphanMilestone = {
+    const orphanWork = {
       ...consented.snapshot,
-      task: { ...consented.snapshot.task!, taskClass: "milestone" as const },
+      task: { ...consented.snapshot.task!, taskClass: "work" as const },
     };
     const cases = [
       ["not_in_review", started.snapshot, ready],
@@ -115,7 +115,7 @@ test("completion blocker matrix returns one canonical next for every substantive
       ["ci_missing", withGates(["ci"]), ready],
       ["code_doc_missing", withGates(["code-doc-reconciliation"]), ready],
       ["gate_witness_missing", withGates(["lint"]), ready],
-      ["decision_lineage_missing", orphanMilestone, ready],
+      ["decision_lineage_missing", orphanWork, ready],
       ["lease_held", { ...consented.snapshot, lease: started.snapshot.lease }, ready],
       [
         "doc_sync_required",
@@ -154,7 +154,7 @@ test("completion blocker matrix returns one canonical next for every substantive
     assert.equal(witness.next.action.includes("--execution-id"), false);
     assert.match(witness.next.action, /ha task attest task-1 --gate lint --result pass/u);
     // The lineage blocker names the missing edge with the exact command that writes it.
-    const lineage = completionBlockers(orphanMilestone, "execution-1", ready)[0]!;
+    const lineage = completionBlockers(orphanWork, "execution-1", ready)[0]!;
     assert.equal(
       lineage.next.action,
       "Identify the authorizing Decision claim in harness/tasks/task-1/closeout.md Summary.",

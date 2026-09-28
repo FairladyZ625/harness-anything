@@ -127,7 +127,6 @@ function row(taskId: string, title: string, parentTaskId: string | null, pinned 
     status: "planned",
     pinned,
     parentTaskId,
-    moduleKey: null,
     workKind: "feat",
     riskTier: "medium",
     urgency: null,

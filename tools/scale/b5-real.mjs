@@ -190,7 +190,7 @@ async function measureB5RealSingle(options) {
         verticalId: "software/coding",
         presetId: "baseline",
         profileId: "baseline",
-        moduleKey: `module-${Math.floor(random() * 24)}`,
+        moduleKey: null,
         slug: `synthetic-workload-${pad(index)}`,
         surfaces: ["repo"],
         fromLegacyId: null,

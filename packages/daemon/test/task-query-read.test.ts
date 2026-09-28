@@ -247,6 +247,63 @@ test("agenda reads one narrow lifecycle page per status and no wide-assembly rea
   );
 });
 
+test("agenda labels each task row with its nearest work root and --work keeps one work's subtree", () => {
+  const child = (taskId: string, parentTaskId: string | null, taskClass: "standard" | "work" = "standard") => {
+      const row = protocolTaskRow(taskId, [], { status: "active", taskClass });
+      return {
+        ...row,
+        snapshot: {
+          ...row.snapshot,
+          task: { ...row.snapshot.task, title: `${taskId} title`, metadata: { parentTaskId } },
+        },
+      };
+    },
+    rows = [
+      child("release", null, "work"),
+      child("lane", "release", "standard"),
+      child("leaf", "lane"),
+      child("solo", null),
+      child("other-leaf", "other", "standard"),
+      child("other", null, "work"),
+    ],
+    byId = new Map(rows.map((row) => [row.taskId, row] as const)),
+    stub = projectionStub({ taskRows: rows }),
+    projection = {
+      ...stub,
+      read: (taskId: string) => ({ ...readyCut, packagePath: null, snapshot: byId.get(taskId)?.snapshot ?? {} }),
+      readTaskIndex: () => ({
+        ...readyCut,
+        rows: rows.map(({ taskId, snapshot: { task } }) => ({
+          taskId,
+          title: task.title,
+          status: task.status,
+          taskClass: task.taskClass,
+          parentTaskId: task.metadata.parentTaskId,
+          pinned: false,
+          packageDisposition: "active",
+          packagePath: null,
+          updatedAt: "2026-08-30T00:00:00.000Z",
+        })),
+        warnings: [],
+      }),
+    } as unknown as TaskProjection,
+    labels = (agenda: ReturnType<ReturnType<typeof queryRead>["agenda"]>) =>
+      Object.fromEntries(agenda.waitingOnOthers.map(({ taskId, work }) => [taskId, work?.title ?? null]));
+  assert.deepEqual(labels(queryRead(process.cwd(), projection).agenda()), {
+    release: null,
+    lane: "release title",
+    leaf: "release title",
+    solo: null,
+    "other-leaf": "other title",
+    other: null,
+  });
+  assert.deepEqual(labels(queryRead(process.cwd(), projection).agenda({ work: "release" })), {
+    release: null,
+    lane: "release title",
+    leaf: "release title",
+  });
+});
+
 test("agenda groups a changes_requested return into awaiting rework, not the in-flight line", () => {
   const taskRows = [
       reworkTaskRow("task_returned"),
@@ -552,10 +609,10 @@ test("task WIP read returns daemon-counted leaves and root assessments", (t) => 
   const projection = projectionStub({
       taskRows: [
         protocolTaskRow("task_leaf", [], { status: "active" }),
-        protocolTaskRow("task_milestone", [], { status: "blocked", taskClass: "milestone" }),
+        protocolTaskRow("task_work", [], { status: "blocked", taskClass: "work" }),
         protocolTaskRow("task_derived", [], { status: "in_review" }),
       ],
-      childCounts: { task_leaf: 0, task_milestone: 2, task_derived: 4 },
+      childCounts: { task_leaf: 0, task_work: 2, task_derived: 4 },
     }),
     result = readTaskWipSnapshot({ rootDir, projection } as unknown as TaskQueryCell);
 
@@ -564,7 +621,7 @@ test("task WIP read returns daemon-counted leaves and root assessments", (t) => 
     ["task_leaf"],
   );
   assert.deepEqual(result.roots, [
-    { taskId: "task_milestone", reason: "declared", directChildCount: 2, threshold: 3 },
+    { taskId: "task_work", reason: "declared", directChildCount: 2, threshold: 3 },
     { taskId: "task_derived", reason: "derived", directChildCount: 4, threshold: 3 },
   ]);
   assert.equal(result.limit, 30);
@@ -577,7 +634,7 @@ test("the real WIP producer output passes the protocol validator, with or withou
   const wipOf = (taskRows: readonly unknown[]) =>
     readTaskWipSnapshot({
       rootDir,
-      projection: projectionStub({ taskRows, childCounts: { task_leaf: 0, task_milestone: 2 } }),
+      projection: projectionStub({ taskRows, childCounts: { task_leaf: 0, task_work: 2 } }),
     } as unknown as TaskQueryCell);
 
   // Contrast 1 — no root: a leaf-only worktable validates.
@@ -590,11 +647,9 @@ test("the real WIP producer output passes the protocol validator, with or withou
   // parser the GUI client uses. This is the row the old exact-key-count check rejected.
   const withRoots = wipOf([
     protocolTaskRow("task_leaf", [], { status: "active" }),
-    protocolTaskRow("task_milestone", [], { status: "blocked", taskClass: "milestone" }),
+    protocolTaskRow("task_work", [], { status: "blocked", taskClass: "work" }),
   ]);
-  assert.deepEqual(withRoots.roots, [
-    { taskId: "task_milestone", reason: "declared", directChildCount: 2, threshold: 3 },
-  ]);
+  assert.deepEqual(withRoots.roots, [{ taskId: "task_work", reason: "declared", directChildCount: 2, threshold: 3 }]);
   assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.wip", withRoots), withRoots);
 
   // Contrast 3 — forward-compat: self-describing extension fields pass at every level while the
@@ -610,7 +665,7 @@ test("the real WIP producer output passes the protocol validator, with or withou
   // Contrast 4 — fail closed: a missing required field is still refused, extra keys or not.
   const { threshold: _threshold, ...missingField } = extended;
   assert.throws(() => parseDaemonGuiReadResult("repo.tasks.wip", missingField), /task WIP fields/u);
-  const missingRowField = { ...withRoots, roots: [{ taskId: "task_milestone", reason: "declared" }] };
+  const missingRowField = { ...withRoots, roots: [{ taskId: "task_work", reason: "declared" }] };
   assert.throws(() => parseDaemonGuiReadResult("repo.tasks.wip", missingRowField), /task WIP snapshot/u);
 });
 
@@ -793,7 +848,7 @@ function protocolTaskRow(
   codeDocWitnesses: readonly unknown[] = [],
   patch: {
     readonly status?: "planned" | "active" | "blocked" | "submitted" | "in_review";
-    readonly taskClass?: "standard" | "milestone";
+    readonly taskClass?: "standard" | "work";
   } = {},
 ) {
   return {

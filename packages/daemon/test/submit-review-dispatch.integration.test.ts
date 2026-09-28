@@ -158,13 +158,13 @@ test(
 );
 
 test(
-  "a lightweight subtask under a milestone parent resolves the repository default preset, inherits vertical and locale, and completes with zero review or consent work",
+  "a lightweight subtask under a work parent resolves the repository default preset, inherits vertical and locale, and completes with zero review or consent work",
   { timeout: 30_000 },
   async () => {
     const f = await fixture(false, true, false, false, false, undefined, {
       autoSubmit: false,
       closeoutProfile: "strict",
-      create: { presetId: "create-milestone", taskClass: "milestone", locale: "zh-CN" },
+      create: { presetId: "create-work", taskClass: "work", locale: "zh-CN" },
     });
     try {
       await f.install();
@@ -180,11 +180,11 @@ test(
       assert.equal(
         child.metadata?.presetId,
         "standard-task",
-        "the child resolves the repository default preset, not the milestone parent's preset",
+        "the child resolves the repository default preset, not the work parent's preset",
       );
       assert.equal(child.metadata?.verticalId, "software/coding", "the child inherits the parent vertical");
       assert.equal(child.metadata?.profileId, "lightweight");
-      assert.equal(child.taskClass, "standard", "the child is a plain executable slice, not a milestone");
+      assert.equal(child.taskClass, "standard", "the child is a plain executable slice, not a work");
       assert.equal(
         childContract(f.root, packagePath).locale,
         "zh-CN",

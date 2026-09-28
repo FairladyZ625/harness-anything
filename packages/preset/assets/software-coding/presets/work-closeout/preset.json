@@ -1,7 +1,7 @@
 {
   "schema": "preset-manifest/v3",
-  "id": "milestone-closeout",
-  "title": "Milestone Closeout",
+  "id": "work-closeout",
+  "title": "Work Closeout",
   "vertical": "software/coding",
   "version": "3.0.0",
   "kind": "process-action",

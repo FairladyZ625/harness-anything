@@ -50,7 +50,6 @@ export interface TaskIndexProjectionRow {
   readonly status: import("../domain/task.ts").TaskV2["status"];
   readonly pinned: boolean;
   readonly parentTaskId: string | null;
-  readonly moduleKey: string | null;
   readonly workKind: import("../domain/task.ts").TaskMetadataV1["workKind"];
   readonly riskTier: import("../domain/task.ts").TaskMetadataV1["riskTier"];
   readonly urgency: import("../domain/task.ts").TaskMetadataV1["urgency"];

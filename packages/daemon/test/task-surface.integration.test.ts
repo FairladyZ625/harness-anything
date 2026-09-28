@@ -131,13 +131,6 @@ test("task create publishes complete metadata and first-class relations survive 
         verticalId: "software/coding",
         presetId: "standard-task",
         profileId: "baseline",
-        moduleKey: "kernel",
-        registerModule: {
-          key: "kernel",
-          title: "Kernel",
-          prefix: "KER",
-          scope: "packages/kernel/**",
-        },
         slug: "surface",
         surfaces: ["ha task create", "packages/kernel"],
         locale: "zh-CN",
@@ -161,7 +154,7 @@ test("task create publishes complete metadata and first-class relations survive 
       verticalId: "software/coding",
       presetId: "standard-task",
       profileId: "baseline",
-      moduleKey: "kernel",
+      moduleKey: null,
       slug: "surface",
       surfaces: ["ha task create", "packages/kernel"],
       fromLegacyId: null,
@@ -186,7 +179,7 @@ test("task create publishes complete metadata and first-class relations survive 
         readFileSync(path.join(rootDir, "harness/tasks/task_surface-surface/task-contract.json"), "utf8"),
       ) as Record<string, unknown>;
     assert.doesNotMatch(index, /relations:/u);
-    assert.equal((contract.metadata as { moduleKey: string }).moduleKey, "kernel");
+    assert.equal((contract.metadata as { moduleKey: string | null }).moduleKey, null);
     const replay = makeTaskProjection({
         rootDir,
         eventStore: makeTaskEventReader({ repoId: "task-surface", rootDir }),
@@ -195,7 +188,7 @@ test("task create publishes complete metadata and first-class relations survive 
       edge = replay.readRelationQuery({}).rows.find((candidate) => candidate.sourceRef === "task/task_surface");
     replay.close();
     assert.equal(task?.metadata.parentTaskId, "task_dependency");
-    assert.equal(task?.metadata.moduleKey, "kernel");
+    assert.equal(task?.metadata.moduleKey, null);
     assert.equal(task?.metadata.riskTier, "high");
     assert.equal(edge?.targetRef, "task/task_dependency");
   } finally {
@@ -402,8 +395,7 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
             patches: [
               { field: "title", value: "Lifecycle amended" },
               { field: "riskTier", value: "high" },
-              { field: "moduleKey", value: "daemon" },
-              { field: "taskClass", value: "milestone" },
+              { field: "taskClass", value: "work" },
             ],
           },
           binding,
@@ -411,19 +403,17 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
       ).outcome,
       "applied",
     );
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-amend",
-            taskId: "task_lifecycle",
-            patches: [{ field: "taskClass", value: "container" }],
-          },
-          binding,
-        )
-      ).outcome,
-      "op_rejected",
-    );
+    // dec_5F7E74F1: the retired module grouping and milestone class are no longer amendable.
+    for (const patch of [
+      { field: "taskClass", value: "container" },
+      { field: "taskClass", value: "milestone" },
+      { field: "moduleKey", value: "daemon" },
+    ])
+      assert.equal(
+        (await cell.run({ kind: "task-amend", taskId: "task_lifecycle", patches: [patch] }, binding)).outcome,
+        "op_rejected",
+        JSON.stringify(patch),
+      );
     const related = await cell.run(
       {
         kind: "relation-relate",
@@ -527,7 +517,7 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
         string,
         unknown
       >;
-    assert.match(String(taskRead.evidence), /"taskClass":"milestone"/u);
+    assert.match(String(taskRead.evidence), /"taskClass":"work"/u);
     assert.match(String(taskRead.evidence), /"packageDisposition":"archived"/u);
     assert.match(String(taskRead.evidence), /"supersededBy":"task_replacement"/u);
     assert.match(String(replacementRead.evidence), /"packageDisposition":"active"/u);
@@ -566,7 +556,7 @@ test("task lifecycle mutations publish L1 events, exact documents, and replayabl
     replay.close();
     assert.equal(lifecycle?.title, "Lifecycle amended");
     assert.equal(lifecycle?.metadata.riskTier, "high");
-    assert.equal(lifecycle?.metadata.moduleKey, "daemon");
+    assert.equal(lifecycle?.metadata.moduleKey, null);
     assert.equal(lifecycle?.packageDisposition, "archived");
     assert.equal(replacement?.packageDisposition, "active");
     assert.equal(edge?.relationType, "depends-on");

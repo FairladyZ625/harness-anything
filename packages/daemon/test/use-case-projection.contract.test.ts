@@ -77,7 +77,7 @@ test("the folded per-store reads are gone and the net read count fell", () => {
   // token page redesign then added its member-scoped companion repo.agentRuntime.tokenUsageDetail
   // (trend + per-dispatch rows for one agent or squad).
   // The unified work experience (task_e3f53eb9, dec_E98F9EE0DE2743E7ED9D2774D2) then added
-  // repo.workspace.scope.read: one milestone's subtree with its own counts, resolved daemon-side so
+  // repo.workspace.scope.read: one work's subtree with its own counts, resolved daemon-side so
   // the workspace page does not rebuild scope membership from the whole task list.
   assert.equal(
     daemonGuiReadMethods.length,

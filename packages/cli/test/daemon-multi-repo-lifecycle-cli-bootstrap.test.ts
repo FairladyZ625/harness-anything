@@ -63,7 +63,6 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
       "harness/governance/standards/README.md",
       "harness/governance/standards/repository-governance.md",
       "harness/governance/standards/decision-writing.md",
-      "harness/milestones/README.md",
       "harness/governance/walls/walls.json",
       "harness/governance/walls/run-walls.mjs",
       "harness/.gitattributes",
@@ -97,7 +96,7 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     assert.equal(plan.projectOverlayDigest, null);
     assert.deepEqual(
       plan.documents.map(({ disposition }) => disposition),
-      Array(14).fill("created"),
+      Array(13).fill("created"),
     );
     assert.equal((initialized.publication as { ok: boolean }).ok, true);
     for (const target of initialized.created as string[])
@@ -106,10 +105,7 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
       defaultConfig = readFileSync(path.join(fixture.repo, "harness/harness.yaml"), "utf8"),
       people = readFileSync(path.join(fixture.repo, "harness/people.yaml"), "utf8"),
       architecture = readFileSync(path.join(fixture.repo, "harness/context/architecture/README.md"), "utf8");
-    assert.match(
-      defaultConfig,
-      /contextRoot: harness\/context\n  governanceRoot: harness\/governance\n  milestonesRoot: harness\/milestones/u,
-    );
+    assert.match(defaultConfig, /contextRoot: harness\/context\n  governanceRoot: harness\/governance\nsettings:/u);
     assert.match(
       defaultConfig,
       /scaffolds:\n    task: governance\/task-scaffold\.json\n    repository: governance\/repository-scaffold\.json/u,
@@ -126,10 +122,7 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     assert.equal(existsSync(path.join(fixture.repo, "harness/context/architecture/manifest.json")), false);
     assert.equal(existsSync(path.join(fixture.repo, "harness/context/architecture/model")), false);
     assert.equal(existsSync(path.join(fixture.repo, "harness/adr/README.md")), false);
-    assert.match(
-      readFileSync(path.join(fixture.repo, "harness/milestones/README.md"), "utf8"),
-      /does not create.*status/isu,
-    );
+    assert.equal(existsSync(path.join(fixture.repo, "harness/milestones")), false);
     assert.match(
       readFileSync(path.join(fixture.repo, "AGENTS.md"), "utf8"),
       /harness\/governance\/standards\/repository-governance\.md/u,

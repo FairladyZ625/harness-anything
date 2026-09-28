@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -83,7 +83,7 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
           errorCode: undefined,
         },
         { id: "code-impact-analysis", validity: "valid", errorCode: undefined },
-        { id: "create-milestone", validity: "valid", errorCode: undefined },
+        { id: "create-work", validity: "valid", errorCode: undefined },
         { id: "decision-conformance", validity: "valid", errorCode: undefined },
         { id: "docs-task", validity: "valid", errorCode: undefined },
         { id: "github-issue-repair", validity: "valid", errorCode: undefined },
@@ -93,10 +93,9 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
           validity: "valid",
           errorCode: undefined,
         },
-        { id: "milestone-closeout", validity: "valid", errorCode: undefined },
-        { id: "module", validity: "valid", errorCode: undefined },
         { id: "standard-task", validity: "valid", errorCode: undefined },
         { id: "subtask-expansion", validity: "valid", errorCode: undefined },
+        { id: "work-closeout", validity: "valid", errorCode: undefined },
         { id: "worker-dispatch", validity: "valid", errorCode: undefined },
       ],
     );
@@ -104,13 +103,13 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
         ...common,
         presetId: "standard-task",
       }),
-      milestone = await resolver.resolve({
+      work = await resolver.resolve({
         ...common,
-        presetId: "create-milestone",
+        presetId: "create-work",
       });
     assert.equal(standard.ok, true);
-    assert.equal(milestone.ok, true);
-    if (!standard.ok || !milestone.ok) return;
+    assert.equal(work.ok, true);
+    if (!standard.ok || !work.ok) return;
     assert.deepEqual(
       standard.snapshot.templates.map(({ slot, path: target, templateRef }) => ({
         slot,
@@ -136,7 +135,7 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
       ],
     );
     assert.deepEqual(
-      milestone.snapshot.templates.map(({ slot, path: target, templateRef }) => ({
+      work.snapshot.templates.map(({ slot, path: target, templateRef }) => ({
         slot,
         target,
         templateRef,
@@ -145,7 +144,7 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
         {
           slot: "task.plan",
           target: "task_plan.md",
-          templateRef: "template://planning/milestone-task-plan@1",
+          templateRef: "template://planning/work-task-plan@1",
         },
         {
           slot: "task.closeout",
@@ -168,7 +167,7 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
       "## Evidence Protocol",
     ];
     for (const locale of ["en-US", "zh-CN"] as const)
-      for (const presetId of ["standard-task", "create-milestone"]) {
+      for (const presetId of ["standard-task", "create-work"]) {
         const resolved = runtime.resolveInternal({
             ...common,
             locale,
@@ -228,13 +227,13 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
         ["task.plan", "task.closeout", "task.artifacts.keep"],
       ],
       [
-        "create-milestone",
+        "create-work",
         "repository-diff",
         ["ci", "code-doc-reconciliation"],
         ["task.plan", "task.closeout", "task.artifacts.keep"],
       ],
       [
-        "milestone-closeout",
+        "work-closeout",
         "repository-diff",
         ["ci", "code-doc-reconciliation"],
         ["task.plan", "task.closeout", "task.artifacts.keep"],
@@ -244,12 +243,6 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
         "repository-diff",
         ["ci", "code-doc-reconciliation"],
         ["task.plan", "task.closeout", "task.artifacts.keep"],
-      ],
-      [
-        "module",
-        "repository-diff",
-        ["ci", "code-doc-reconciliation"],
-        ["task.plan", "task.closeout", "task.artifacts.keep", "module.plan", "module.brief", "module.session.prompt"],
       ],
       ["subtask-expansion", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
     ] as const;
@@ -267,14 +260,14 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
           { outputShape, completionGateIds, slots, entrypoints: [] },
         );
     }
-    for (const presetId of ["module", "subtask-expansion"]) {
+    for (const presetId of ["subtask-expansion"]) {
       const result = await resolver.resolve({ ...common, presetId });
       assert.equal(result.ok, true, presetId);
     }
     assert.equal(existsSync(new URL("../assets/software-coding/presets/reference-task/", import.meta.url)), false);
     assert.equal(existsSync(new URL("../assets/software-coding/presets/long-running-task/", import.meta.url)), false);
     const noEntrypoint = await resolver.resolve({
-      presetId: "create-milestone",
+      presetId: "create-work",
       verticalId: "software/coding",
       locale: "en-US",
       purpose: "script-run",
@@ -321,13 +314,13 @@ for (const sample of [
     addedPath: null,
   },
   {
-    presetId: "create-milestone",
+    presetId: "create-work",
     gates: ["ci", "code-doc-reconciliation"],
     addedPath: null,
-    taskClass: "milestone",
+    taskClass: "work",
   },
   {
-    presetId: "milestone-closeout",
+    presetId: "work-closeout",
     gates: ["ci", "code-doc-reconciliation"],
     addedPath: null,
   },
@@ -402,39 +395,3 @@ for (const sample of [
       rmSync(rootDir, { recursive: true, force: true });
     }
   });
-
-test("module locale, required anchors, and body digests close through the canonical catalog", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-module-catalog-")),
-    assetsRoot = path.join(root, "assets");
-  try {
-    cpSync(new URL("../assets/software-coding/", import.meta.url), assetsRoot, {
-      recursive: true,
-    });
-    const runtime = createRuntime({
-      bundledRoot: path.join(assetsRoot, "presets"),
-      assetsRoot,
-      userRoot: path.join(root, "user"),
-    });
-    for (const locale of ["en-US", "zh-CN"] as const) {
-      const resolved = runtime.resolveInternal({
-          presetId: "module",
-          verticalId: "software/coding",
-          profileId: "baseline",
-          locale,
-          purpose: "task-create",
-        }),
-        increments = resolved.snapshot.templates.filter(({ slot }) => slot.startsWith("module."));
-      assert.equal(increments.length, 3);
-      for (const template of increments) {
-        const document = resolved.documents.find(({ slot }) => slot === template.slot);
-        assert.equal(template.locale, locale);
-        assert.ok(template.requiredAnchors.length >= 2);
-        assert.equal(template.content.sha256, sha256Text(document?.body ?? ""));
-        for (const anchor of template.requiredAnchors)
-          assert.match(document?.body ?? "", new RegExp(anchor.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
-      }
-    }
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});

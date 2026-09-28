@@ -22,10 +22,8 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
   [
     "task-create:edit-plan",
     (args) =>
-      `plan: write the concrete plan at ${textArg(args, "packagePath")}/task_plan.md; required sections: ` +
-      "Brief, Goal, Context, Required Reading, Entry Conditions, Dependencies, Execution Surface, Constraints, " +
-      "Checkpoint, CI/Gate Authority Stop Condition, Implementation Plan, Deliverable Contract, Evidence Protocol, " +
-      "Verification",
+      `plan: write the concrete plan at ${textArg(args, "packagePath")}/task_plan.md; ` +
+      "keep every section heading the preset template ships",
   ],
   [
     "task-create:task-artifacts",

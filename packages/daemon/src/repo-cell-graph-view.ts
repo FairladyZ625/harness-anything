@@ -17,7 +17,7 @@ const GRAPH_MAX_DEPTH = 16,
   GRAPH_SEED_BUDGET = 128;
 
 /**
- * `ha graph <ref>`: one read-only causal tree over Milestone/Task → Decision/claim → Fact.
+ * `ha graph <ref>`: one read-only causal tree over Work/Task → Decision/claim → Fact.
  * The traversal state is pure kernel domain code (`buildCausalGraphView`); this module only
  * gathers projection inputs at one cut — the indexed relation neighborhood, the task
  * parent/child structure, and per-ref labels — then wraps the view in a read receipt.
@@ -190,7 +190,7 @@ interface GraphRoot {
   readonly anchors: readonly string[];
 }
 
-/** Normalize `task_x`, `dec_x[/C1]`, `F-x`, or a milestone/task slug to a canonical entity ref. */
+/** Normalize `task_x`, `dec_x[/C1]`, `F-x`, or a work/task slug to a canonical entity ref. */
 function resolveGraphRoot(cell: TaskQueryCell, raw: string, cut: ProjectionCut): GraphRoot {
   const normalized = raw
       .replace(/^(task_[0-9A-Za-z_-]+)$/u, "task/$1")
@@ -228,7 +228,7 @@ function resolveGraphRoot(cell: TaskQueryCell, raw: string, cut: ProjectionCut):
       `Slug ${raw} matches ${matches.length} tasks (${matches.map((row) => row.taskId).join(", ")}); use a task_<id> ref.`,
     );
   if (matches.length === 1) return { ref: `task/${matches[0]!.taskId}`, anchors: [] };
-  throw cell.cellCodedError("graph_root_unknown", `No task, decision, fact, or milestone slug resolves ${raw}.`);
+  throw cell.cellCodedError("graph_root_unknown", `No task, decision, fact, or work/task slug resolves ${raw}.`);
 }
 
 function hydrateGraphNodes(

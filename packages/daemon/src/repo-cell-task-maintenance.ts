@@ -111,7 +111,6 @@ export function supersedeWithNewTask(
             verticalId: metadata.verticalId,
             presetId: metadata.presetId,
             profileId: metadata.profileId,
-            moduleKey: metadata.moduleKey,
             surfaces: metadata.surfaces,
           }
         : {}),

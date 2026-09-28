@@ -132,7 +132,6 @@ export function taskEntryToRow(
     ...readExtensionMetadata(entry.frontmatter),
     ...readFieldExtensions(entry.frontmatter, fieldExtensions),
     ...readTaskMetadata(entry.frontmatter),
-    ...readModuleMetadata(taskDir),
     hasLessonCandidates: existsSync(path.join(taskDir, "lesson_candidates.md")),
     ...readCreatedBy(entry.frontmatter),
   };
@@ -210,26 +209,12 @@ function readTaskMetadata(frontmatter: string): Pick<TaskProjectionRow, "workKin
   };
 }
 
-function readModuleMetadata(taskDir: string): { readonly moduleKey?: string; readonly moduleTitle?: string } {
-  const modulePath = path.join(taskDir, "module.md");
-  if (!existsSync(modulePath)) return {};
-  const body = readTextFileIfPresent(modulePath);
-  if (body === null) return {};
-  const moduleKey = body.match(/^Module key:[ \t]*(.+)$/mu)?.[1]?.trim() ?? "";
-  const moduleTitle = body.match(/^Module title:[ \t]*(.+)$/mu)?.[1]?.trim() ?? "";
-  return {
-    ...(moduleKey ? { moduleKey } : {}),
-    ...(moduleTitle ? { moduleTitle } : {}),
-  };
-}
-
 function readTaskSupplementalSourceInputs(
   rootDir: string,
   entries: ReadonlyArray<TaskSourceEntry>,
 ): ReadonlyArray<TaskProjectionSourceHashInput> {
   return entries
     .flatMap((entry) => [
-      { kind: "task-module", path: path.join(path.dirname(entry.indexPath), "module.md") },
       { kind: "task-review", path: path.join(path.dirname(entry.indexPath), "review.md") },
       { kind: "task-closeout", path: path.join(path.dirname(entry.indexPath), "closeout.md") },
     ])

@@ -2,7 +2,6 @@ import { consumeKnownError, type TaskIndexProjectionRow } from "@harness-anythin
 
 export interface TaskIndexFilters {
   readonly status?: string;
-  readonly module?: string;
   readonly workKind?: string;
   readonly riskTier?: string;
   readonly urgency?: string;
@@ -107,7 +106,6 @@ export function renderTaskIndexPayload(payload: unknown): string | null {
                 `${row.pinned === true ? "📌 " : ""}${String(row.taskId)}`,
                 String(row.status),
                 String(row.title),
-                String(row.module ?? ""),
                 String(row.updatedAt ?? ""),
                 String(row.packagePath ?? ""),
                 String(row.packageDisposition ?? ""),
@@ -131,7 +129,6 @@ function matchesFilters(row: TaskIndexProjectionRow, filters: TaskIndexFilters):
   const search = filters.search?.toLocaleLowerCase();
   return (
     (!filters.status || row.status === filters.status) &&
-    (!filters.module || row.moduleKey === filters.module) &&
     (!filters.workKind || row.workKind === filters.workKind) &&
     (!filters.riskTier || row.riskTier === filters.riskTier) &&
     (!filters.urgency || row.urgency === filters.urgency) &&

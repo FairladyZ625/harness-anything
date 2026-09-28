@@ -23,7 +23,6 @@ export interface HarnessLayout {
   readonly tasksRoot: string;
   readonly decisionsRoot: string;
   readonly sessionsRoot: string;
-  readonly milestonesRoot: string;
   readonly legacyRoot: string;
   readonly legacyTasksRoot: string;
   readonly legacyDocsRoot: string;
@@ -70,7 +69,6 @@ interface HarnessLayoutConfig {
   readonly localRoot?: string;
   readonly contextRoot?: string;
   readonly governanceRoot?: string;
-  readonly milestonesRoot?: string;
   readonly tasksRoot?: string;
   readonly generatedRoot?: string;
 }
@@ -82,7 +80,6 @@ interface HarnessLayoutSettings {
   readonly localRootSetting: string;
   readonly contextRootSetting?: string;
   readonly governanceRootSetting?: string;
-  readonly milestonesRootSetting?: string;
   readonly tasksRootSetting?: string;
   readonly generatedRootSetting?: string;
 }
@@ -116,7 +113,6 @@ function resolveHarnessLayoutSettings(input: HarnessLayoutInput): HarnessLayoutS
     localRootSetting: config.localRoot ?? defaultLocalRoot,
     contextRootSetting: config.contextRoot,
     governanceRootSetting: config.governanceRoot,
-    milestonesRootSetting: config.milestonesRoot,
     tasksRootSetting: config.tasksRoot,
     generatedRootSetting: config.generatedRoot,
   };
@@ -133,7 +129,6 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
     localRootSetting,
     contextRootSetting,
     governanceRootSetting,
-    milestonesRootSetting,
     tasksRootSetting,
     generatedRootSetting,
   } = settings;
@@ -151,9 +146,6 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
   const governanceRoot = governanceRootSetting
     ? resolveRootRelativePath(resolvedRoot, governanceRootSetting, "layout.governanceRoot")
     : path.join(authoredRoot, "governance");
-  const milestonesRoot = milestonesRootSetting
-    ? resolveRootRelativePath(resolvedRoot, milestonesRootSetting, "layout.milestonesRoot")
-    : path.join(authoredRoot, "milestones");
   const generatedRoot = generatedRootSetting
     ? resolveRootRelativePath(resolvedRoot, generatedRootSetting, "structure.generatedRoot")
     : path.join(localRoot, "generated");
@@ -167,7 +159,6 @@ function buildHarnessLayout(settings: HarnessLayoutSettings): HarnessLayout {
     tasksRoot,
     decisionsRoot,
     sessionsRoot,
-    milestonesRoot,
     legacyRoot,
     legacyTasksRoot: path.join(legacyRoot, "tasks"),
     legacyDocsRoot: path.join(legacyRoot, "docs"),
@@ -267,7 +258,6 @@ function readLayoutConfig(location: HarnessConfigLocation): HarnessLayoutConfig 
   let localRoot: string | undefined;
   let contextRoot: string | undefined;
   let governanceRoot: string | undefined;
-  let milestonesRoot: string | undefined;
   let tasksRoot: string | undefined;
   let generatedRoot: string | undefined;
 
@@ -289,14 +279,13 @@ function readLayoutConfig(location: HarnessConfigLocation): HarnessLayoutConfig 
     if (section === "layout" && key === "localRoot") localRoot = value;
     if (section === "layout" && key === "contextRoot") contextRoot = value;
     if (section === "layout" && key === "governanceRoot") governanceRoot = value;
-    if (section === "layout" && key === "milestonesRoot") milestonesRoot = value;
     if (section === "tasks" && key === "root") tasksRoot = value;
     if (section === "structure" && key === "harnessRoot") authoredRoot = structureRelativePath(location, value);
     if (section === "structure" && key === "tasksRoot") tasksRoot = structureRelativePath(location, value);
     if (section === "structure" && key === "generatedRoot") generatedRoot = structureRelativePath(location, value);
   }
 
-  return { authoredRoot, localRoot, contextRoot, governanceRoot, milestonesRoot, tasksRoot, generatedRoot };
+  return { authoredRoot, localRoot, contextRoot, governanceRoot, tasksRoot, generatedRoot };
 }
 
 function structureRelativePath(location: HarnessConfigLocation, value: string): string {
