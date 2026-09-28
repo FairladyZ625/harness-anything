@@ -216,3 +216,35 @@ test("an idempotent no-change result retains its accepted interval without claim
     assert.deepEqual(validateReceiptAcceptance(receipt), []);
   }
 });
+
+test("a draft that wrote nothing stays unaccepted instead of being reported rejected or acceptance_unknown", () => {
+  const store = { readCommandOutcome: () => null } as never,
+    projection = { readCut: () => ({ watermark: 2 }) } as never,
+    // The runtime archive draft for a dispatch whose documents are all already published.
+    receipt = attachReceiptAcceptance(
+      {
+        outcome: "no_changes",
+        opId: "runtime-archive-already",
+        revision: 2,
+        code: "already_published",
+        origin: "doc-sync",
+        evidence: "runtime archive: every document is already published",
+        visibility: "center",
+      },
+      store,
+      projection,
+    );
+  assert.equal(receipt.outcome, "no_changes");
+  assert.equal(receipt.code, "already_published");
+  assert.equal(receipt.status, "unknown");
+  assert.equal(receipt.acceptance, null);
+  // The observed ledger revision stays the caller's anchor for a no-op.
+  assert.equal(receipt.revision, 2);
+  assert.deepEqual(validateReceiptAcceptance(receipt), []);
+  const rejected = attachReceiptAcceptance(
+    { outcome: "no_changes", opId: "rejected-before" },
+    { readCommandOutcome: () => ({ status: "rejected" }) } as never,
+    projection,
+  );
+  assert.equal(rejected.status, "rejected");
+});

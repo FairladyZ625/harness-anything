@@ -167,6 +167,7 @@ export function prepareTaskCreateAt(
         current.sourceRevision,
         true,
       ),
+      outcome: "no_changes",
       taskId: idempotent.taskId,
       taskStatus: idempotent.status as TaskCreateReceipt["taskStatus"],
       packagePath: idempotent.packagePath,

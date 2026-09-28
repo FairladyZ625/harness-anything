@@ -45,10 +45,12 @@ export function attachReceiptAcceptance<R extends WriteReceiptDraft>(
   if (receipt.outcome === "op_rejected")
     return { ...unprovenReceipt, ...empty, status: "rejected" } as R & ReceiptAcceptanceFields;
   if (!outcome) {
-    const rejected = store.readCommandOutcome(receipt.opId)?.status === "rejected" || receipt.outcome === "no_changes";
+    // A draft that wrote nothing (no_changes) has no command to verify: it stays unaccepted rather
+    // than being reported as rejected, and keeps the ledger revision it observed as the caller's anchor.
+    const rejected = store.readCommandOutcome(receipt.opId)?.status === "rejected";
     const { revision: _revision, ...unaccepted } = unprovenReceipt;
     return {
-      ...(rejected ? unprovenReceipt : unaccepted),
+      ...(rejected || receipt.outcome === "no_changes" ? unprovenReceipt : unaccepted),
       ...empty,
       status: rejected ? "rejected" : "unknown",
       ...(receipt.outcome === "applied"

@@ -34,7 +34,8 @@ export function createSquadChild(
     },
     receipt = cell.createTask(action, authorize(action, binding, `${child.key}:create`)),
     taskId = (receipt as typeof receipt & { readonly taskId?: string }).taskId;
-  if (receipt.outcome !== "applied" || !taskId)
+  // A retried assignment reuses its child task through the idempotency key and writes nothing.
+  if ((receipt.outcome !== "applied" && receipt.outcome !== "no_changes") || !taskId)
     throw cell.cellCodedError(receipt.code ?? "squad_child_create_failed", JSON.stringify(receipt));
   const plan = readTaskTransitionDocument({ projection: cell.projection, taskId, slot: "task.plan" });
   if (plan.body !== child.prompt)

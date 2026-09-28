@@ -561,7 +561,7 @@ test("real CLI dogfoods a user-layer v3 preset through daemon phases and RepoCel
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     await register(fixture.alpha, fixture.userRoot, "alpha");
     const installed = run(fixture.alpha, fixture.userRoot, ["preset", "install", "--source", source]);
-    assert.equal(installed.outcome, "pending");
+    assert.equal(installed.outcome, "applied");
     assert.equal(installed.status, "unknown");
     assert.equal(installed.acceptance, null);
     assert.equal((installed.git as Record<string, unknown>).state, "pending");

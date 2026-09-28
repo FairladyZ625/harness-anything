@@ -78,18 +78,21 @@ export function publishExecutedVerticalScript(
     throw verticalScriptActionError("script_reported_failure", `${plan.status}: ${JSON.stringify(plan.report)}`);
   const result = scriptResult(prepared.action.dryRun, plan);
   if (prepared.action.dryRun || !plan.changes.length) {
-    const revision = input.store.readHead()?.revision ?? 0;
+    const revision = input.store.readHead()?.revision ?? 0,
+      appliedCut = input.projection.readCut().watermark,
+      // An applied plan with no document changes wrote nothing; only a preview stays pending.
+      settled = !prepared.action.dryRun;
     return {
-      outcome: "pending",
+      outcome: settled ? "no_changes" : "pending",
       opId: `script:${result.planDigest}`,
       revision,
       evidence: JSON.stringify(result),
       visibility: "center",
       proof: {
         committedRevision: revision,
-        appliedCut: input.projection.readCut().watermark,
-        durable: false,
-        canonicalVisible: false,
+        appliedCut,
+        durable: settled,
+        canonicalVisible: settled && appliedCut === revision,
         worktreeVisible: false,
       },
     };

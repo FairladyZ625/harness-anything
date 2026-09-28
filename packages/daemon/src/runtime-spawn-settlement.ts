@@ -168,7 +168,7 @@ export async function publishExit(
               now: context.input.now,
               archive,
             });
-        if (archived.outcome !== "applied")
+        if (archived.outcome !== "applied" && archived.outcome !== "no_changes")
           throw context.runtimeSpawnError(
             "runtime_archive_failed",
             `Runtime archive ${active.dispatchId} was not applied: ${archived.outcome}${

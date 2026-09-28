@@ -219,7 +219,7 @@ export function archiveRuntimeDispatch(
   const pending = classified.filter((entry) => entry.fresh).map((entry) => entry.document);
   if (existing === null && pending.length === 0)
     return {
-      outcome: "applied",
+      outcome: "no_changes",
       opId,
       receiptId: opId,
       code: "already_published",
