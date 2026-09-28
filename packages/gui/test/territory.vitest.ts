@@ -9,13 +9,9 @@ import {
   partitionFactsByAnomaly,
   partitionForSkel,
   classifyFactAnomaly,
-} from "../src/renderer/graph/territory.ts";
-import {
-  UNPROJECTED_MODULE,
-  resolveTaskModule,
-  isModuleUnprojected,
   isFactVisibleWithHost,
-} from "../src/renderer/graph/moduleAssignment.ts";
+} from "../src/renderer/graph/territory.ts";
+import { UNKNOWN_WORK, UNKNOWN_WORK_TITLE } from "../src/renderer/graph/territoryProgress.ts";
 import {
   defaultEntityStatusFilter,
   taskPassesStatusFilter,
@@ -36,7 +32,6 @@ function task(overrides: Partial<TaskRow> = {}): TaskRow {
     closeoutReadiness: "not_required",
     engine: "local",
     source: "local-document",
-    module: "kernel",
     lastKnownAt: "2026-08-01T00:00:00.000Z",
     gates: [],
     docs: [],
@@ -82,83 +77,68 @@ function anchor(f: FactRef = fact()): FactAnchorRow {
   };
 }
 
-describe("module assignment honesty (未投影)", () => {
-  it("treats unassigned/empty/unknown module as unprojected", () => {
-    expect(isModuleUnprojected("unassigned")).toBe(true);
-    expect(isModuleUnprojected("")).toBe(true);
-    expect(isModuleUnprojected(undefined)).toBe(true);
-    expect(isModuleUnprojected("kernel")).toBe(false);
-  });
-
-  it("resolves placeholder modules to UNPROJECTED sentinel", () => {
-    expect(resolveTaskModule("unassigned")).toBe(UNPROJECTED_MODULE);
-    expect(resolveTaskModule("kernel")).toBe("kernel");
-  });
-});
-
 describe("territory task partition", () => {
-  // 分组轴已从 module 换成 PRD 根 task(老版领地的「每个 PRD 的进度」能力)。
-  // module 不再决定摆放,但它的诚实性仍然承重 —— 见下面的 chip 级断言。
-  it("groups tasks by their PRD root task", () => {
+  // 分组轴 = 工作(一个根 task 加它的 parentTaskId 子树,dec_5F7E74F1)。
+  it("groups tasks by their work root task", () => {
     const zones = partitionTasks([
-      task({ taskId: "root", title: "PRD", rootTaskId: "root" }),
-      task({ taskId: "a", parentTaskId: "root", rootTaskId: "root", rootTitle: "PRD" }),
-      task({ taskId: "b", parentTaskId: "root", rootTaskId: "root", rootTitle: "PRD" }),
+      task({ taskId: "root", title: "Work", rootTaskId: "root" }),
+      task({ taskId: "a", parentTaskId: "root", rootTaskId: "root", rootTitle: "Work" }),
+      task({ taskId: "b", parentTaskId: "root", rootTaskId: "root", rootTitle: "Work" }),
     ]);
     expect(zones).toHaveLength(1);
-    expect(zones[0]!.title).toBe("PRD");
+    expect(zones[0]!.title).toBe("Work");
     expect(zones[0]!.chips).toHaveLength(3);
     expect(zones[0]!.progress?.total).toBe(3);
   });
 
-  it("assigns rootId as moduleId for an unassigned task in a PRD block", () => {
-    const zones = partitionTasks([task({ taskId: "a", module: "unassigned" })]);
-    // 顶层无父任务的 task 自己就是一个 PRD 根, 随 PRD 根落点(以 rootId 为 moduleId)
-    expect(zones[0]!.chips[0]!.moduleId).toBe("a");
+  it("uses the work root as the chip groupId; a top-level task roots its own work", () => {
+    const zones = partitionTasks([task({ taskId: "a" })]);
+    expect(zones[0]!.groupId).toBe("a");
+    expect(zones[0]!.chips[0]!.groupId).toBe("a");
   });
 
-  it("sinks the 未投影 block last and keeps it visible", () => {
+  it("sinks the unknown-work block last and keeps it visible", () => {
     const zones = partitionTasks([
-      task({ taskId: "orphan", parentTaskId: "ghost", module: "unassigned" }),
-      task({ taskId: "root", title: "PRD", rootTaskId: "root", module: "kernel" }),
+      task({ taskId: "orphan", parentTaskId: "ghost" }),
+      task({ taskId: "root", title: "Work", rootTaskId: "root" }),
     ]);
-    expect(zones.at(-1)!.title).toBe("未投影");
-    expect(zones.at(-1)!.moduleId).toBe(UNPROJECTED_MODULE);
+    expect(zones.at(-1)!.title).toBe(UNKNOWN_WORK_TITLE);
+    expect(zones.at(-1)!.groupId).toBe(UNKNOWN_WORK);
     expect(zones.at(-1)!.chips).toHaveLength(1);
   });
 
-  it("does not count PRD-clustered tasks without module as unprojected (CEO ruling)", () => {
+  it("counts only tasks whose work is unknown (CEO ruling)", () => {
     const partition = partitionForSkel(
       "task",
       [
-        task({ taskId: "root", title: "PRD", rootTaskId: "root", module: "kernel" }),
-        task({ taskId: "a", parentTaskId: "root", rootTaskId: "root", module: "unassigned" }),
+        task({ taskId: "root", title: "Work", rootTaskId: "root" }),
+        task({ taskId: "a", parentTaskId: "root", rootTaskId: "root" }),
       ],
       [],
       [],
       [],
       [],
     );
-    // PRD 根聚簇的 task 不计未投影
-    expect(partition.unprojectedCount).toBe(0);
+    // 已按工作根聚簇的 task 不计入工作未知
+    expect(partition.unknownWorkCount).toBe(0);
 
     const withOrphan = partitionForSkel(
       "task",
       [
-        task({ taskId: "root", title: "PRD", rootTaskId: "root", module: "kernel" }),
-        task({ taskId: "a", parentTaskId: "root", rootTaskId: "root", module: "unassigned" }),
-        task({ taskId: "orphan", parentTaskId: "ghost", module: "unassigned" }),
+        task({ taskId: "root", title: "Work", rootTaskId: "root" }),
+        task({ taskId: "a", parentTaskId: "root", rootTaskId: "root" }),
+        task({ taskId: "orphan", parentTaskId: "ghost" }),
       ],
       [],
       [],
       [],
       [],
     );
-    // 只有真正落入未投影块的 orphan task 计入未投影
-    expect(withOrphan.unprojectedCount).toBe(1);
+    // 只有真正落入工作未知块的 orphan task 计入
+    expect(withOrphan.unknownWorkCount).toBe(1);
   });
 
-  it("hides facts when their host task is archived/hidden without degrading to unprojected", () => {
+  it("hides facts when their host task is archived/hidden without degrading to unknown work", () => {
     const relations: RelationEdge[] = [
       { from: "task/task_archived", to: "fact/F-arch", kind: "produces", provenance: "local-document" },
       { from: "task/task_active", to: "fact/F-act", kind: "produces", provenance: "local-document" },
@@ -172,13 +152,13 @@ describe("territory task partition", () => {
     expect(isFactVisibleWithHost("fact/F-act", visibleTaskIds, allTaskIds, relations)).toBe(true);
   });
 
-  it("retains standalone facts without host task as visible and counts them as unprojected", () => {
+  it("retains standalone facts without host task as visible and counts them as unknown work", () => {
     const allTaskIds = new Set(["task_active"]);
     const visibleTaskIds = new Set(["task_active"]);
     // 无宿主 fact 保持可见
     expect(isFactVisibleWithHost("fact/F-standalone", visibleTaskIds, allTaskIds, [])).toBe(true);
 
-    // 且在分区中计入未投影
+    // 且在分区中计入工作未知
     const standaloneFact: FactRef = {
       anchor: "fact/F-standalone",
       category: "finding",
@@ -188,26 +168,26 @@ describe("territory task partition", () => {
     };
     const partition = partitionForSkel(
       "unified",
-      [task({ taskId: "root", title: "PRD", rootTaskId: "root", module: "kernel" })],
+      [task({ taskId: "root", title: "Work", rootTaskId: "root" })],
       [],
       [standaloneFact],
       [],
       [],
     );
-    expect(partition.unprojectedCount).toBe(1);
+    expect(partition.unknownWorkCount).toBe(1);
   });
 
-  it("places fact in the same moduleId as its host task chip", () => {
-    const hostTask = task({ taskId: "task_1", rootTaskId: "root_prd", module: "unassigned" });
-    const prdTask = task({ taskId: "root_prd", title: "PRD Root", rootTaskId: "root_prd", module: "kernel" });
+  it("places fact in the same work groupId as its host task chip", () => {
+    const hostTask = task({ taskId: "task_1", rootTaskId: "root_work", rootTitle: "Work Root" });
+    const workRoot = task({ taskId: "root_work", title: "Work Root", rootTaskId: "root_work" });
     const f = fact({ anchor: "fact/F-1", taskId: "task_1" });
     const relations: RelationEdge[] = [
       { from: "task/task_1", to: f.anchor, kind: "produces", provenance: "local-document" },
     ];
-    const partition = partitionForSkel("unified", [prdTask, hostTask], [], [f], [anchor(f)], relations);
+    const partition = partitionForSkel("unified", [workRoot, hostTask], [], [f], [anchor(f)], relations);
 
-    const taskZone = partition.zones.find((z) => z.zoneId === "task:root_prd");
-    const factZone = partition.zones.find((z) => z.zoneId === "fact:root_prd");
+    const taskZone = partition.zones.find((z) => z.zoneId === "task:root_work");
+    const factZone = partition.zones.find((z) => z.zoneId === "fact:root_work");
     expect(taskZone).toBeDefined();
     expect(factZone).toBeDefined();
 
@@ -216,9 +196,10 @@ describe("territory task partition", () => {
     expect(taskChip).toBeDefined();
     expect(factChip).toBeDefined();
 
-    // fact 与宿主 task 落在同一 moduleId
-    expect(factChip!.moduleId).toBe(taskChip!.moduleId);
-    expect(factChip!.moduleId).toBe("root_prd");
+    // fact 与宿主 task 落在同一工作键,fact 块标题是工作根的标题
+    expect(factChip!.groupId).toBe(taskChip!.groupId);
+    expect(factChip!.groupId).toBe("root_work");
+    expect(factZone!.title).toBe("Work Root");
   });
 });
 
@@ -257,17 +238,31 @@ describe("territory decision partition", () => {
 });
 
 describe("territory fact partition", () => {
-  it("groups facts by host task module, 未投影 when host absent", () => {
+  it("groups facts by the host task's work, unknown work when the host is absent", () => {
     const facts: FactRef[] = [
       { anchor: "fact/F-1", taskId: "task_a", category: "finding", text: "x", at: "2026-08-01", confidence: "high" },
+      { anchor: "fact/F-2", taskId: "task_c", category: "finding", text: "y", at: "2026-08-01", confidence: "high" },
+      { anchor: "fact/F-3", category: "finding", text: "z", at: "2026-08-01", confidence: "high" },
+      { anchor: "fact/F-4", taskId: "gone", category: "finding", text: "w", at: "2026-08-01", confidence: "high" },
     ];
     const anchors: FactAnchorRow[] = [];
-    const tasks = [task({ taskId: "task_a", module: "kernel" })];
+    const tasks = [
+      task({ taskId: "task_a", title: "Work A" }),
+      task({ taskId: "task_b", title: "Work B" }),
+      // 缺 rootTaskId 的子任务沿可见父链归入 task_b 的工作。
+      task({ taskId: "task_c", title: "Child", parentTaskId: "task_b" }),
+    ];
     const zones = partitionFacts(facts, anchors, tasks, [
       { from: "task/task_a", to: "fact/F-1", kind: "produces", provenance: "local-document" },
+      { from: "task/task_c", to: "fact/F-2", kind: "produces", provenance: "local-document" },
+      { from: "task/gone", to: "fact/F-4", kind: "produces", provenance: "local-document" },
     ]);
-    expect(zones).toHaveLength(1);
-    expect(zones[0]!.title).toBe("kernel");
+    expect(zones.map((zone) => [zone.title, zone.chips.map((chip) => chip.navRef)])).toEqual([
+      ["Work A", ["fact/F-1"]],
+      ["Work B", ["fact/F-2"]],
+      [UNKNOWN_WORK_TITLE, ["fact/F-3", "fact/F-4"]],
+    ]);
+    expect(zones.at(-1)!.groupId).toBe(UNKNOWN_WORK);
   });
 
   it("marks invalidated facts in chip sub label", () => {
@@ -391,7 +386,7 @@ describe("fact anomaly partition (partitionFactsByAnomaly)", () => {
     expect(anomalyZones.some((z) => z.title.includes("悬空"))).toBe(true);
     expect(anomalyZones.some((z) => z.title.includes("低置信"))).toBe(true);
     expect(anomalyZones.some((z) => z.title.includes("被取代"))).toBe(true);
-    // Normal facts get their own module-based zones.
+    // Normal facts get their own work-based zones.
     const normalZones = zones.filter((z) => z.zoneId.includes("fact:normal:"));
     expect(normalZones.length).toBeGreaterThanOrEqual(1);
   });
@@ -419,8 +414,8 @@ describe("fact anomaly partition (partitionFactsByAnomaly)", () => {
  */
 describe("territory honours the entity-status filter through the row predicates", () => {
   const rows = [
-    task({ taskId: "t_active", title: "Active", coordinationStatus: "active", module: "kernel" }),
-    task({ taskId: "t_done", title: "Done", coordinationStatus: "done", module: "kernel" }),
+    task({ taskId: "t_active", title: "Active", coordinationStatus: "active" }),
+    task({ taskId: "t_done", title: "Done", coordinationStatus: "done" }),
   ];
 
   function chipNavRefs(tasks: ReadonlyArray<TaskRow>): string[] {

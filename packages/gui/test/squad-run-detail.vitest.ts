@@ -22,7 +22,7 @@ const squadRunDetail: SquadRunReadResult = {
     squadRunId: "squad_" + "b".repeat(18),
     squadId: "squad_465504" + "a".repeat(12),
     taskId: "task_5fc508",
-    mission: "Ship the ontology milestone",
+    mission: "Ship the ontology work",
     phase: "workers_running",
     error: null,
     currentLeaderRuntimeSessionId: "runtime-leader-2",
@@ -119,7 +119,7 @@ describe("sessions page: squad run detail", () => {
     expect(markup).toMatch(/border-accent\/40/u);
     expect(markup).toContain('title="runtime-leader-2"');
     expect(markup).toContain("runtime-leader-2");
-    expect(markup).toContain("Ship the ontology milestone");
+    expect(markup).toContain("Ship the ontology work");
     // 扇出树:worker-1 挂在 leader-1 节内,且出现在 leader-2 之前(父子序,不是平铺)。
     const inLeader1 = markup.indexOf('data-testid="squad-run-turn-leader-1"'),
       attemptAt = markup.indexOf('data-testid="squad-run-attempt-worker-1"'),
@@ -247,7 +247,7 @@ const telemetryDetail: SquadRunReadResult = {
     squadRunId: "squad_" + "e".repeat(18),
     squadId: "squad_465504" + "a".repeat(12),
     taskId: "task_5fc508",
-    mission: "Ship the telemetry milestone",
+    mission: "Ship the telemetry work",
     phase: "workers_running",
     error: null,
     currentLeaderRuntimeSessionId: "runtime-leader-9",

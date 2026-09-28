@@ -38,7 +38,6 @@ function task(): TaskRow {
     closeoutReadiness: "not_required",
     engine: "local",
     source: "local-document",
-    module: "gui",
     lastKnownAt: AT,
     gates: [],
     docs: [],

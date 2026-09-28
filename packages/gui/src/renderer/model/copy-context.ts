@@ -58,7 +58,6 @@ export function buildFactTriageContext(
   if (sourceTask) {
     lines.push(`- **id**: \`${sourceTask.taskId}\``);
     lines.push(`- **title**: ${sourceTask.title}`);
-    lines.push(`- **module**: ${sourceTask.module}`);
     lines.push(`- **coordinationStatus**: ${sourceTask.coordinationStatus}`);
     lines.push(`- **closeoutReadiness**: ${sourceTask.closeoutReadiness}`);
     const failedGates = sourceTask.gates.filter((g) => !g.ok);
@@ -171,7 +170,6 @@ export function buildEntityJumpContext(
     if (task) {
       lines.push(`- **id**: \`${task.taskId}\``);
       lines.push(`- **title**: ${task.title}`);
-      lines.push(`- **module**: ${task.module}`);
     } else {
       lines.push(`- \`${taskId}\` 不在当前投影`);
     }

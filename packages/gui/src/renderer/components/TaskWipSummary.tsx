@@ -6,7 +6,7 @@ export function TaskWipSummary({ snapshot }: { readonly snapshot?: TaskWipRead }
   const declared = snapshot.roots.filter((root) => root.reason === "declared"),
     derived = snapshot.roots.filter((root) => root.reason === "derived"),
     rootDetail = [
-      `declared milestone: ${declared.map((root) => root.taskId).join(", ") || "none"}`,
+      `declared work: ${declared.map((root) => root.taskId).join(", ") || "none"}`,
       `derived root: ${
         derived.map((root) => `${root.taskId} (${root.directChildCount} children)`).join(", ") || "none"
       }`,
@@ -24,7 +24,7 @@ export function TaskWipSummary({ snapshot }: { readonly snapshot?: TaskWipRead }
 export function TaskRootBadge({ task }: { readonly task: TaskRow }) {
   const root = task.rootAssessment;
   if (!root) return null;
-  const label = root.reason === "declared" ? "milestone" : `derived ${root.directChildCount} children`;
+  const label = root.reason === "declared" ? "work" : `derived ${root.directChildCount} children`;
   return (
     <span
       className="inline-flex shrink-0 rounded border border-border px-1 font-mono ui-micro text-text-muted"

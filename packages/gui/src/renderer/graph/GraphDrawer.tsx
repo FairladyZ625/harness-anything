@@ -4,7 +4,6 @@ import type { RelationEdge, TaskRow } from "../model/types";
 import { StatusBadge, CloseoutBadge, EngineBadge, FreshnessTag } from "../components/badges";
 import { isExternal } from "../model/types";
 import { KIND_LABEL, KIND_LABEL_IN } from "./constants";
-import { resolveTaskModule, moduleDisplayLabel } from "./moduleAssignment";
 import type { NodePos } from "./endpoint";
 import { endpointToNodeId } from "./endpoint";
 import type { DecisionRow, FactRef } from "../model/types";
@@ -167,11 +166,6 @@ export function GraphDrawer({
             </div>
             <FreshnessTag freshness={focusTask.freshness} lastKnownAt={focusTask.lastKnownAt} />
             <div className="flex gap-3 font-mono ui-micro text-text-muted">
-              <span>
-                {t("graph.graphDrawer.moduleValue", {
-                  module: moduleDisplayLabel(resolveTaskModule(focusTask.module)),
-                })}
-              </span>
               <span>{t("graph.graphDrawer.rawValue", { raw: focusTask.rawStatus })}</span>
             </div>
           </>

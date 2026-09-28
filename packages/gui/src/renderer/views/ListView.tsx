@@ -155,9 +155,6 @@ const AuditRow = memo(function AuditRow({
         </div>
         <div className="mt-1 flex flex-wrap items-center gap-2 font-mono ui-meta text-text-faint">
           <TaskRootBadge task={task} />
-          <span className="min-w-0 truncate">
-            {task.module === "unassigned" || !task.module ? t("views.listView.notProjected") : task.module}
-          </span>
           {task.blocking === "unknown" && (
             <span className="min-w-0 truncate text-stale">{t("views.listView.blockingUnknown")}</span>
           )}
@@ -342,9 +339,7 @@ export function ListView({
           <div className="grid h-full place-items-center p-6">
             <div className="max-w-md rounded-lg border border-dashed border-border px-4 py-5 text-center">
               <div className="ui-title font-semibold text-text">{t("views.listView.noMatchingTasks")}</div>
-              <p className="mt-1 ui-body text-text-faint">
-                {t("views.listView.broadenSearchModuleStatusOpenArchivesView")}
-              </p>
+              <p className="mt-1 ui-body text-text-faint">{t("views.listView.broadenSearchStatusOpenArchivesView")}</p>
             </div>
           </div>
         ) : (
@@ -373,12 +368,12 @@ export function ListView({
                 </ListHeaderCell>
                 <ListHeaderCell
                   columnKey="title"
-                  label={t("views.listView.titleModule")}
+                  label={t("views.listView.title")}
                   width={widths.list.title}
                   onResize={resizeColumn}
                   onReset={resetColumn}
                 >
-                  {t("views.listView.titleModule")}
+                  {t("views.listView.title")}
                 </ListHeaderCell>
                 <ListHeaderCell
                   columnKey="status"

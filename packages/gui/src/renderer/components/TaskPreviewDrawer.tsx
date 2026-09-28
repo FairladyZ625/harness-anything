@@ -147,14 +147,6 @@ export function TaskPreviewDrawer({
           <Section title={t("components.taskPreviewDrawer.context")}>
             <dl className="grid grid-cols-2 gap-x-4 gap-y-2 ui-body">
               <div>
-                <dt className="font-mono ui-meta text-text-faint">{t("components.taskPreviewDrawer.module")}</dt>
-                <dd className="font-mono text-text">
-                  {task.module === "unassigned" || !task.module
-                    ? t("components.taskPreviewDrawer.notProjected")
-                    : task.module}
-                </dd>
-              </div>
-              <div>
                 <dt className="font-mono ui-meta text-text-faint">{t("components.taskPreviewDrawer.rawStatus")}</dt>
                 <dd className="font-mono text-text">{task.rawStatus}</dd>
               </div>

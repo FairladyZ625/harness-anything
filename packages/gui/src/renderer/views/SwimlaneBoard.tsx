@@ -17,7 +17,8 @@ import { spawningDecisionBadge } from "../model/triadic";
 import { TaskRootBadge } from "../components/TaskWipSummary.tsx";
 import { sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
 
-export type LaneGroupBy = "module" | "engine" | "root" | "productLine";
+/** 泳道分组维度;"root" = 按工作分组(一个根 task 加它的 parentTaskId 子树)。 */
+export type LaneGroupBy = "engine" | "root" | "productLine";
 
 /** 泳道列宽默认值 = 原 GRID_COLS(180px 泳道标签 + N×230px 状态列);可调区间各自独立。 */
 const LANE_COLUMN_KEY = "lane";
@@ -38,10 +39,9 @@ type ActiveCell = { lane: string; status: SnapshotStatus };
 export const UNASSIGNED_PLT_LANE = "__unassigned_plt__";
 
 function groupKeyOf(task: TaskRow, groupBy: LaneGroupBy): string {
-  if (groupBy === "module") return task.module;
   if (groupBy === "engine") return task.engine;
   if (groupBy === "productLine") return task.productLines?.[0] ?? UNASSIGNED_PLT_LANE;
-  // root:用 rootTaskId(若缺失则退回自身,显示为顶层独立 task)
+  // root(工作):用 rootTaskId(若缺失则退回自身,显示为顶层独立 task)
   return task.rootTaskId ?? task.taskId;
 }
 

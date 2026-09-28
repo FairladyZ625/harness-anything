@@ -37,7 +37,6 @@ function cadenceTask(overrides: Partial<TaskRow> & { readonly taskId: string }):
     engine: "kernel/task-lifecycle/v1",
     origin: "native",
     source: "local-document",
-    module: "gui",
     lastKnownAt: NOW,
     gates: [],
     board: projectedTaskFields("active").board,
@@ -327,10 +326,9 @@ describe("CadenceView", () => {
     const yieldBody = container.querySelector('[data-testid="cadence-yield-body"]');
     expect(yieldBody?.className).toContain("max-h-60");
     expect(yieldBody?.className).toContain("overflow-y-auto");
-    // 摩擦雷达:门禁失败 1 · 评审打回 1;产出:今日 Fact 1,模块热度含 gui。
+    // 摩擦雷达:门禁失败 1 · 评审打回 1;产出:今日 Fact 1。
     expect(textOf(container, "cadence-friction")).toContain("门禁失败 1");
     expect(textOf(container, "cadence-yield-facts")).toContain("1");
-    expect(container.querySelector('[data-testid="cadence-yield-modules"]')?.textContent).toContain("gui");
     // 堵点卡片:待裁决策与待裁决执行两组都在,且容器受 max-h-48 滚动保护。
     const blockers = container.querySelector('[data-testid="cadence-blockers-groups"]');
     expect(blockers?.textContent).toContain("探针决策:切换读取形态");

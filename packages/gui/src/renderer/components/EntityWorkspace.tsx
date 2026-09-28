@@ -19,7 +19,7 @@ import { TerritoryModeBar, type WorkspaceMode } from "./TerritoryModeBar.tsx";
  *
  * D6 焦点连续性:focusedEntityRef 在三态间始终保留 —— 切模式不丢焦点。
  * 演化史仅 decision 有谱系。非 decision 焦点时演化史按钮置灰 + tooltip。
- * 缺字段(module/PLT/parent)显示「未投影」,不假分组(REQ-GUI-03 验收硬项)。
+ * 缺字段(PLT/parent)显示「未投影」,不假分组(REQ-GUI-03 验收硬项)。
  */
 export interface EntityWorkspaceProps {
   focusedEntityRef: string | null;

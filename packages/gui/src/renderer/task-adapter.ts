@@ -53,8 +53,6 @@ function adaptProjectionRow(
         : row.placement.origin === "archival"
           ? "snapshot-cache"
           : "local-document",
-    // The daemon no longer projects module placement (dec_5F7E74F1); the GUI rename removes the field.
-    module: "unassigned",
     productLines: placement.productLines,
     ...(spawningDecisionIds.length > 1
       ? { placementWarning: "存在多个 spawning decision，placement 已合并但来源不唯一" }

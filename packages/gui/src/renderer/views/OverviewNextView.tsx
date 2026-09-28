@@ -360,7 +360,7 @@ function AttentionRow({ item, onNavigateEntity }: { item: AttentionItem; onNavig
   );
 }
 
-/** G3:重点工作。置顶(共享 pin)与 Milestone/任务组分列;组目标摘要读面缺位 → 诚实空态。 */
+/** G3:重点工作。置顶(共享 pin)与工作分列;工作目标摘要读面缺位 → 诚实空态。 */
 function KeyWorkRegion({
   agenda,
   tasks,

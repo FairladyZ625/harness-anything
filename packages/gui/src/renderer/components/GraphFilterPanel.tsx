@@ -1,7 +1,6 @@
 import { useState } from "react";
 import {
   Funnel,
-  SquaresFour,
   Graph,
   Bandaids,
   CaretDown,
@@ -59,7 +58,6 @@ export interface AxisFilterState {
 }
 
 export interface GraphFilters {
-  modules: Set<string>;
   types: Set<EntityType>;
   axes: AxisFilterState;
   kinds: Set<RelationKind>;
@@ -70,7 +68,6 @@ export interface GraphFilters {
 interface Props {
   filters: GraphFilters;
   setFilters: (f: GraphFilters | ((prev: GraphFilters) => GraphFilters)) => void;
-  availableModules: string[];
   /**
    * 实体类型筛选段是否可见。单种类领地(task/decision/fact skel)下类型由 skel
    * 子开关独占(隐藏此段,避免一个维度两处控件);聚光灯 / 全域(unified)下保留。
@@ -113,21 +110,12 @@ const FLOW_MODES: ReadonlyArray<FlowAnimMode> = ["focus", "all", "off"];
 export function GraphFilterPanel({
   filters,
   setFilters,
-  availableModules,
   entityTypeOptions,
   showEntityTypes = true,
   showDensity = true,
   flowMode,
   onFlowModeChange,
 }: Props) {
-  const toggleModule = (mod: string) =>
-    setFilters((prev) => {
-      const next = new Set(prev.modules);
-      if (next.has(mod)) next.delete(mod);
-      else next.add(mod);
-      return { ...prev, modules: next };
-    });
-
   const toggleType = (entityType: EntityType) =>
     setFilters((prev) => {
       const next = new Set(prev.types);
@@ -206,7 +194,6 @@ export function GraphFilterPanel({
     AXIS_ORDER.filter((a) => !filters.axes[a]).length +
     (showEntityTypes ? Math.max(0, entityTypeOptions.length - filters.types.size) : 0) +
     (showDensity && filters.density === "all" ? 1 : 0) +
-    Math.max(0, availableModules.length - filters.modules.size) +
     Math.max(0, kindOff) +
     statusOff;
 
@@ -354,35 +341,6 @@ export function GraphFilterPanel({
                 </div>
               );
             })}
-          </div>
-        </div>
-
-        {/* 模块 */}
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center gap-1.5 font-mono ui-micro uppercase tracking-wide text-text-muted">
-            <SquaresFour weight="bold" />
-            <span>{t("components.graphFilterPanel.modules")}</span>
-          </div>
-          <div className="flex flex-wrap gap-1.5">
-            {availableModules.map((mod) => {
-              const active = filters.modules.has(mod);
-              return (
-                <button
-                  key={mod}
-                  onClick={() => toggleModule(mod)}
-                  className={`rounded-md px-2 py-1 ui-micro font-medium transition-colors ${
-                    active
-                      ? "border border-accent/30 bg-accent/10 text-accent"
-                      : "border border-border bg-surface-raised text-text-muted hover:bg-border/50"
-                  }`}
-                >
-                  {mod}
-                </button>
-              );
-            })}
-            {availableModules.length === 0 && (
-              <span className="ui-micro text-text-faint">{t("components.graphFilterPanel.modulesEmpty")}</span>
-            )}
           </div>
         </div>
 

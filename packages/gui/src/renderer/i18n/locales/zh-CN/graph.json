@@ -10,7 +10,6 @@
   "graph.graphDrawer.from": "来自：",
   "graph.graphDrawer.to": "指向：",
   "graph.graphDrawer.provenance": "来源追踪",
-  "graph.graphDrawer.moduleValue": "模块：{module}",
   "graph.graphDrawer.rawValue": "原始值：{raw}",
   "graph.graphDrawer.riskUrgency": "{risk} 风险 · {urgency} 紧急度",
   "graph.graphDrawer.question": "问题",

@@ -130,9 +130,6 @@ export function TaskFilterBar({
   /** 看板冷终态计数(W8):折叠态显形「已折叠 N」,点击展开;两种状态都可见,不静默截断。 */
   coldTerminalCount?: number;
 }) {
-  const modules = [
-    ...new Set(tasks.flatMap((task) => (task.moduleKeys?.length ? task.moduleKeys : [task.module]))),
-  ].sort();
   const engines: (EngineId | "all")[] = ["all", ...new Set(tasks.map((task) => task.engine))];
   const chips = taskFilterSummary(filters);
   const active = hasActiveTaskFilters(filters);
@@ -153,17 +150,11 @@ export function TaskFilterBar({
           <input
             value={filters.query}
             onChange={(event) => patch({ query: event.target.value })}
-            placeholder={t("components.taskFilterBar.searchTasksModulesStatusWithinContextLabel", { contextLabel })}
+            placeholder={t("components.taskFilterBar.searchTasksStatusWithinContextLabel", { contextLabel })}
             className="min-w-0 flex-1 bg-transparent ui-prose text-text outline-none placeholder:text-text-faint"
           />
         </label>
 
-        <Select
-          label={t("components.taskFilterBar.module")}
-          value={filters.module}
-          values={["all", ...modules]}
-          onChange={(module) => patch({ module })}
-        />
         <Select
           label={t("components.taskFilterBar.engine")}
           value={filters.engine}

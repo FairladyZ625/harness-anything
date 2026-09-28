@@ -26,8 +26,8 @@ import { useColorMode, minimapMaskColor } from "../graph/colorMode";
 import { EgoNeighborhood } from "../graph/EgoNeighborhood";
 import { EgoHopsControl } from "../graph/EgoHopsControl";
 import type { EgoHopBudget } from "../graph/egoCanvas";
-import { applyTerritoryDensity, partitionForSkel } from "../graph/territory";
-import { isFactVisibleWithHost } from "../graph/moduleAssignment";
+import { applyTerritoryDensity, isFactVisibleWithHost, partitionForSkel } from "../graph/territory";
+import { UNKNOWN_WORK_TITLE } from "../graph/territoryProgress";
 import { layoutTerritory } from "../graph/territoryLayout";
 import { defaultKindFilter, defaultAxisFilter, type FlowAnimMode } from "../graph/relationVisual";
 import {
@@ -181,7 +181,6 @@ function GraphViewInner({
     return () => observer.disconnect();
   }, []);
 
-  const availableModules = useMemo(() => Array.from(new Set(tasks.map((t) => t.module))).sort(), [tasks]);
   const knownKindsRef = useRef<ReadonlySet<string>>(new Set(entityKinds.map(({ kind }) => kind)));
   // kind → 显示名:领地分块标题与图例共用读面上的声明显示名,不在图里再写一份。
   const kindLabelOf = useCallback(
@@ -190,21 +189,12 @@ function GraphViewInner({
   );
 
   const [filters, setFilters] = useState<GraphFilters>(() => ({
-    modules: new Set(availableModules.length ? availableModules : []),
     types: new Set(entityKinds.map(({ kind }) => kind)),
     axes: defaultAxisFilter(),
     kinds: defaultKindFilter(),
     entityStatus: defaultEntityStatusFilter(),
     density: readGraphDensityFocusMode(graphDensityPreferenceStorage()) ? "focus" : "all",
   }));
-
-  useEffect(() => {
-    setFilters((cur) => {
-      const next = new Set(availableModules);
-      if (cur.modules.size === next.size && [...cur.modules].every((m) => next.has(m))) return cur;
-      return { ...cur, modules: next };
-    });
-  }, [availableModules]);
 
   // 声明一个新 kind,筛选面板不改代码就该看见它:新登记的 kind 默认开,消失的 kind
   // 从选中集里退出,已被用户关掉的旧 kind 保持关。
@@ -273,7 +263,7 @@ function GraphViewInner({
   );
 
   // ---- 领地布局 ----
-  // 筛选口径与 archive 线对齐:module/实体类型/实体状态筛选同样作用于领地。单种类 skel
+  // 筛选口径与 archive 线对齐:实体类型/实体状态筛选同样作用于领地。单种类 skel
   // 下 types 由 skel 独占。状态筛选在**行**上生效(archive 是过滤已渲染节点):块计数因此
   // 与可见 chip 一致,不会出现「徽章记了一笔、屏幕纹丝不动」的空筛。fact 不受状态筛选。
   // 降噪(默认隐藏 cancelled/archived task)走同一条行过滤(isTaskArchiveNoise,与看板
@@ -293,7 +283,7 @@ function GraphViewInner({
   // 三元边 + 运行时平面边(agent→task 派发)合成一份;memo 保引用稳定,否则
   // ego 图与重点集每个 render 都会重建。三元边已过归档收口(graphFeed)。
   const graphRelations = useMemo(() => [...graphFeed.relations, ...runtimeRelations], [graphFeed, runtimeRelations]);
-  // 重点集:整份台账(未过 module/status 筛选)上算,领地与聚光灯共用同一份。
+  // 重点集:整份台账(未过 status 筛选)上算,领地与聚光灯共用同一份。
   // 重点模式关闭时为 null(不分层)。
   const focusSelection = useMemo(
     () =>
@@ -310,14 +300,13 @@ function GraphViewInner({
   const territory = useMemo(() => {
     if (viewMode !== "territory") return null;
     const taskVisible = (task: TaskRow) =>
-      filters.modules.has(task.module) &&
       typeOn("task") &&
       taskPassesStatusFilter(task, filters.entityStatus) &&
       (showArchived || !isTaskArchiveNoise(task));
     const visibleTasks = tasks.filter(taskVisible);
     const visibleTaskIds = new Set(visibleTasks.map((task) => task.taskId));
     const allTaskIds = new Set(tasks.map((task) => task.taskId));
-    // fact 跟随宿主 task 的可见性(宿主可见性已含模块/状态/归档筛选);无宿主 fact 保持可见。
+    // fact 跟随宿主 task 的可见性(宿主可见性已含状态/归档筛选);无宿主 fact 保持可见。
     const isFactRefVisible = (ref: string) =>
       typeOn("fact") && isFactVisibleWithHost(ref, visibleTaskIds, allTaskIds, graphFeed.relations);
     const visibleFacts = graphFeed.facts.filter((f) => isFactRefVisible(f.anchor));
@@ -345,7 +334,6 @@ function GraphViewInner({
     decisions,
     graphFeed,
     coverageRows,
-    filters.modules,
     filters.entityStatus,
     typeOn,
     showArchived,
@@ -447,7 +435,6 @@ function GraphViewInner({
     <GraphFilterPanel
       filters={{ ...filters, density }}
       setFilters={setDensityFilters}
-      availableModules={availableModules}
       entityTypeOptions={entityKinds}
       showEntityTypes={viewMode === "spotlight" || skel === "unified"}
       showDensity
@@ -505,12 +492,12 @@ function GraphViewInner({
             {focusSelection ? ` · 重点 ${focusSelection.seedCount} task` : ""}
           </span>
         )}
-        {territory && territory.unprojectedCount > 0 && (
+        {territory && territory.unknownWorkCount > 0 && (
           <span
             className="inline-flex items-center gap-1 rounded bg-stale/10 px-1.5 py-0.5 font-mono text-stale"
-            title="module/PLT 字段缺失,归入「未投影」块 —— 默认折叠并沉底,但绝不隐藏"
+            title="所属工作无法确定(父任务不在可见集合,或 fact 无宿主 task)的实体归入「工作未知」块 —— 沉底,但绝不隐藏"
           >
-            未投影 · {territory.unprojectedCount}
+            {UNKNOWN_WORK_TITLE} · {territory.unknownWorkCount}
           </span>
         )}
         <span className="ml-auto text-text-faint">

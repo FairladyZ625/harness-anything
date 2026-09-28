@@ -4,7 +4,6 @@ import type { NodeProps } from "@xyflow/react";
 import { PushPin, X, Crosshair, ArrowsOutSimple } from "@phosphor-icons/react";
 import { StatusBadge, CloseoutBadge, FreshnessTag } from "../../components/badges";
 import type { TaskRow, DecisionRow, FactRef } from "../../model/types";
-import { moduleDisplayLabel } from "../moduleAssignment";
 import { EntityRefLink } from "../../components/EntityRefLink.tsx";
 import { entityKindVisual } from "../kindVisuals";
 import type { EgoFlowNode } from "../egoCanvas.ts";
@@ -217,7 +216,6 @@ function EgoTaskBody({ task }: { task: TaskRow }) {
       </div>
       <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
       <div className="ui-micro flex flex-wrap gap-x-3 gap-y-1 font-mono text-text-muted">
-        <span>模块 {moduleDisplayLabel(task.module)}</span>
         {task.riskTier && <span>风险 {task.riskTier}</span>}
         {task.urgency && <span>紧迫 {task.urgency}</span>}
       </div>

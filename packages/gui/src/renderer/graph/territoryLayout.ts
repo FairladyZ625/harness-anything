@@ -5,7 +5,7 @@ import type { TerritoryChip, TerritoryPartition, TerritoryZone } from "./territo
  * L1 领地总览布局(两级结构:zone 壳 + 独立 chip 节点)。
  *
  * 恢复 archive 老版(territoryLayout.ts @ be94cc68)的做法:分区数据(territory.ts,
- * 本线的 PRD 聚簇 / decision family / fact 异常分区)不变,这里只负责几何 ——
+ * 本线的工作聚簇 / decision family / fact 异常分区)不变,这里只负责几何 ——
  *   · 列数由容器宽度派生(deriveGridCols),窄屏 1-2 列、宽屏最多 6 列,
  *     而不是把上千实体挤进固定 3 列 × 260px 的槽位;
  *   · zone 盒高跟随它实际发射的 chip 数(零重叠),折叠态只显前 FOLDED_CHIP_CAP
@@ -111,7 +111,7 @@ function landingZone(chips: ReadonlyArray<TerritoryChip>): TerritoryZone {
     zoneId: "__landing__",
     title: "孤立 / landing",
     entity: chips[0]?.entity ?? "decision",
-    moduleId: "__landing__",
+    groupId: "__landing__",
     chips: [...chips],
   };
 }

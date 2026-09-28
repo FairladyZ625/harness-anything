@@ -366,7 +366,7 @@ describe("task binding (searchable picker + open-from-task-detail)", () => {
   it("binds a task picked from the tree popover (search hit + ancestor context) to the custom launch", async () => {
     const { bridge } = stubBridge([sessionRow()], null); // 已有会话 → 进页只附加,不自动 spawn。
     const tree = [
-      { taskId: "root", title: "Terminal milestone", status: "active" as const },
+      { taskId: "root", title: "Terminal work", status: "active" as const },
       ...manyTasks.map((task) => ({ ...task, parentTaskId: "root", status: "planned" as const })),
     ];
     mountView({ repoId: "repo-a", daemonGeneration: null, tasks: tree });

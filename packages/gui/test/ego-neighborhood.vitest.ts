@@ -13,7 +13,7 @@ import { decisionProjectionFields } from "./decision-projection-fields.ts";
  * 只吃 focusRef + 四类集合 + 回调。
  */
 
-function task(taskId: string, title: string, module = "gui"): TaskRow {
+function task(taskId: string, title: string): TaskRow {
   return {
     taskId,
     title,
@@ -25,7 +25,6 @@ function task(taskId: string, title: string, module = "gui"): TaskRow {
     closeoutReadiness: "not_required",
     engine: "local",
     source: "local-document",
-    module,
     lastKnownAt: "2026-08-01T00:00:00.000Z",
     gates: [],
     docs: [],

@@ -1,9 +1,14 @@
 import type { TaskRow, DecisionRow, FactRef, RelationEdge } from "../model/types";
 import type { FactAnchorRow, RelationCoverageRow } from "../../api/renderer-dto";
 import { incomingRelations } from "../model/relation-direction.ts";
-import { resolveFactModule, UNPROJECTED_MODULE, isModuleUnprojected } from "./moduleAssignment";
 import { buildGenealogyEdges, decisionIdOf } from "./genealogy";
-import { clusterTasksByPrd, type ZoneProgress } from "./territoryProgress";
+import {
+  clusterTasksByWork,
+  UNKNOWN_WORK,
+  UNKNOWN_WORK_TITLE,
+  workRootResolver,
+  type ZoneProgress,
+} from "./territoryProgress";
 import type { EntityKind } from "./endpoint";
 import { governedEntityLabel, governedEntitySub, type GovernedEntityRow } from "./governedEntities";
 import type { AgentNodeRow, ScheduleNodeRow } from "./runtimeEntities";
@@ -15,9 +20,9 @@ import { endpointToNodeId } from "./endpoint";
  * 领地总览分区(REQ-GUI-03 territory zone)。
  *
  * 纯前端派生:把五类实体按各自定位维度分进 zone。
- *   task      → PRD(根 task)聚簇 + 进度信号;root 与 module 都缺 → 未投影块(沉底)
+ *   task      → 工作(根 task 及其子树)聚簇 + 进度信号;所属工作无法确定 → 工作未知块(沉底)
  *   decision  → family(谱系连通分量;孤立 decision → 各自独立 zone 或 landing)
- *   fact      → 异常(module 来自宿主 task;宿主不在 → 未投影)
+ *   fact      → 宿主 task 所属的工作;异常单独成块(无宿主/宿主不在 → 工作未知)
  *   agent     → 运行时身份层,一个 zone(chip 副标带被派 task 数)
  *   schedule  → 运行时定时层,一个 zone(chip 副标带 state + trigger)
  *
@@ -36,8 +41,8 @@ export interface TerritoryChip {
   label: string;
   sub?: string;
   entity: TerritoryEntity;
-  /** 用于 chip 着色与 minimap。 */
-  moduleId: string;
+  /** chip 所在分组键(工作根 / 决策族 / 异常类 / 运行时层 / kind)。 */
+  groupId: string;
   /** 台账 pin 的只读标记(task chip;pin 写入口在任务列表,图上不做第二条写路)。 */
   pinned?: boolean;
 }
@@ -46,9 +51,9 @@ export interface TerritoryZone {
   zoneId: string;
   title: string;
   entity: TerritoryEntity;
-  moduleId: string;
+  groupId: string;
   chips: TerritoryChip[];
-  /** PRD/里程碑块的进度信号(task zone 必有;decision/fact zone 无)。 */
+  /** 工作块的进度信号(task zone 必有;decision/fact zone 无)。 */
   progress?: ZoneProgress;
   /** 重点模式下被折叠出本块的 chip 数(0 = 无折叠或未开重点模式)。 */
   deferred?: number;
@@ -58,32 +63,28 @@ export interface TerritoryPartition {
   zones: TerritoryZone[];
   /** 孤立实体(无 zone 归属)的 landing chip。 */
   landing: TerritoryChip[];
-  /** 未投影计数(用于头部摘要)。 */
-  unprojectedCount: number;
+  /** 落进「工作未知」块的实体计数(用于头部摘要)。 */
+  unknownWorkCount: number;
   /** 重点模式折叠掉的 chip 总数(zone + landing;未分层时缺省)。 */
   deferredCount?: number;
 }
 
 /**
- * task 分区:按 PRD(根 task)聚簇,每块带状态构成与完成率;
- * 「未投影」块由 clusterTasksByPrd 恒排最后(降权,不占 C 位),但显式保留、不隐藏。
+ * task 分区:按工作(根 task)聚簇,每块带状态构成与完成率;
+ * 「工作未知」块由 clusterTasksByWork 恒排最后(降权,不占 C 位),但显式保留、不隐藏。
  */
 export function partitionTasks(tasks: ReadonlyArray<TaskRow>): TerritoryZone[] {
-  return clusterTasksByPrd(tasks).map((cluster) => ({
+  return clusterTasksByWork(tasks).map((cluster) => ({
     zoneId: `task:${cluster.rootId}`,
     title: cluster.title,
     entity: "task" as const,
-    moduleId: cluster.progress.unprojected ? UNPROJECTED_MODULE : cluster.rootId,
+    groupId: cluster.rootId,
     chips: cluster.tasks.map((task) => ({
       navRef: `task/${task.taskId}`,
       label: task.title,
       sub: task.coordinationStatus,
       entity: "task" as const,
-      moduleId: cluster.progress.unprojected
-        ? UNPROJECTED_MODULE
-        : isModuleUnprojected(task.module)
-          ? cluster.rootId
-          : task.module,
+      groupId: cluster.rootId,
       ...(task.pinned === true ? { pinned: true } : {}),
     })),
     progress: cluster.progress,
@@ -146,19 +147,19 @@ export function partitionDecisions(
         label: d.title,
         sub: d.state,
         entity: "decision" as const,
-        moduleId: zoneId,
+        groupId: zoneId,
       }));
     if (group.length === 1 && !relatedIds.has(group[0]!.decisionId)) {
       // 孤立 decision → landing(不进 zone,减少空 zone 噪音)。
       landing.push(chips[0]!);
     } else if (group.length === 1) {
-      related.push({ ...chips[0]!, moduleId: "decision:related" });
+      related.push({ ...chips[0]!, groupId: "decision:related" });
     } else {
       zones.push({
         zoneId,
         title: `决策族 · ${group[0]!.title.slice(0, 16)}${group.length > 1 ? ` 等 ${group.length}` : ""}`,
         entity: "decision",
-        moduleId: zoneId,
+        groupId: zoneId,
         chips,
       });
     }
@@ -168,7 +169,7 @@ export function partitionDecisions(
       zoneId: "decision:related",
       title: "关联决策",
       entity: "decision",
-      moduleId: "decision:related",
+      groupId: "decision:related",
       chips: related,
     });
   return { zones, landing };
@@ -211,9 +212,65 @@ export function classifyFactAnomaly(
   return "normal";
 }
 
+/** fact 的宿主 task:produces 边(task → fact)的起点;standalone fact 没有宿主。 */
+function factHostTaskId(factRef: string, relations: ReadonlyArray<RelationEdge>): string | undefined {
+  const canonicalRef = factRef.startsWith("fact/") ? factRef : `fact/${factRef}`;
+  return relations
+    .find((edge) => edge.kind === "produces" && edge.to === canonicalRef && edge.from.startsWith("task/"))
+    ?.from.slice("task/".length);
+}
+
 /**
- * fact 分区:按宿主 task 的 module 归 zone;异常(orphan/invalidated)单独标。
- * 宿主 task 不在投影 → 未投影 zone。
+ * 判定 Fact 在领地视图中是否可见:宿主 task 被归档/状态过滤隐藏时随宿主一起隐藏,
+ * 不降级成工作未知;没有宿主 task(或宿主不在台账任务全集)的 fact 保持可见。
+ */
+export function isFactVisibleWithHost(
+  factRef: string,
+  visibleTaskIds: ReadonlySet<string>,
+  allTaskIds: ReadonlySet<string>,
+  relations: ReadonlyArray<RelationEdge>,
+): boolean {
+  const ownerTaskId = factHostTaskId(factRef, relations);
+  if (!ownerTaskId || !allTaskIds.has(ownerTaskId)) return true;
+  return visibleTaskIds.has(ownerTaskId);
+}
+
+/**
+ * fact 所属工作 = 宿主 task 所属工作(与 task chip 同一份 workRootResolver 判定,fact 因此
+ * 与宿主 task 落在同一工作键)。无宿主、宿主不在投影或父链断开 → UNKNOWN_WORK,不猜。
+ * 标题取工作根 task 的标题(行上的 rootTitle,根不可见时同样可读)。
+ */
+function factWorkIndex(
+  tasks: ReadonlyArray<TaskRow>,
+  relations: ReadonlyArray<RelationEdge>,
+): { workOf: (factRef: string) => string; titleOf: (work: string) => string } {
+  const rootOf = workRootResolver(tasks);
+  const titles = new Map<string, string>();
+  for (const task of tasks) {
+    if (task.rootTaskId && task.rootTitle) titles.set(task.rootTaskId, task.rootTitle);
+    if (!titles.has(task.taskId)) titles.set(task.taskId, task.title);
+  }
+  return {
+    workOf: (factRef) => {
+      const hostTaskId = factHostTaskId(factRef, relations);
+      return (hostTaskId && rootOf(hostTaskId)) || UNKNOWN_WORK;
+    },
+    titleOf: (work) => (work === UNKNOWN_WORK ? UNKNOWN_WORK_TITLE : (titles.get(work) ?? work)),
+  };
+}
+
+/** 工作分组排序:按工作标题,工作未知恒排最后。 */
+function sortWorkGroups<T>(groups: Map<string, T>, titleOf: (work: string) => string): [string, T][] {
+  return [...groups.entries()].sort(([a], [b]) => {
+    if (a === UNKNOWN_WORK) return b === UNKNOWN_WORK ? 0 : 1;
+    if (b === UNKNOWN_WORK) return -1;
+    return titleOf(a).localeCompare(titleOf(b)) || a.localeCompare(b);
+  });
+}
+
+/**
+ * fact 分区:按宿主 task 所属的工作归 zone(见 factWorkIndex);
+ * 无宿主 / 宿主不在投影 → 工作未知 zone。
  */
 export function partitionFacts(
   facts: ReadonlyArray<FactRef>,
@@ -250,38 +307,33 @@ export function partitionFacts(
     facts.filter((f) => f.invalidated).map((f) => (f.anchor.startsWith("fact/") ? f.anchor : `fact/${f.anchor}`)),
   );
 
-  const byModule = new Map<string, typeof allFacts>();
+  const works = factWorkIndex(tasks, relations);
+  const byWork = new Map<string, typeof allFacts>();
   for (const fact of allFacts) {
-    const mod = resolveFactModule(fact.ref, tasks, relations);
-    const arr = byModule.get(mod) ?? [];
+    const work = works.workOf(fact.ref);
+    const arr = byWork.get(work) ?? [];
     arr.push(fact);
-    byModule.set(mod, arr);
+    byWork.set(work, arr);
   }
 
-  return [...byModule.entries()]
-    .sort(([a], [b]) => {
-      if (a === UNPROJECTED_MODULE) return 1;
-      if (b === UNPROJECTED_MODULE) return -1;
-      return a.localeCompare(b);
-    })
-    .map(([mod, group]) => ({
-      zoneId: `fact:${mod}`,
-      title: mod === UNPROJECTED_MODULE ? "未投影" : mod,
+  return sortWorkGroups(byWork, works.titleOf).map(([work, group]) => ({
+    zoneId: `fact:${work}`,
+    title: works.titleOf(work),
+    entity: "fact" as const,
+    groupId: work,
+    chips: group.map((f) => ({
+      navRef: f.ref,
+      label: f.label,
+      sub: archivedRefs.has(f.ref) ? "已归档" : invalidatedRefs.has(f.ref) ? "已失效" : f.sub,
       entity: "fact" as const,
-      moduleId: mod,
-      chips: group.map((f) => ({
-        navRef: f.ref,
-        label: f.label,
-        sub: archivedRefs.has(f.ref) ? "已归档" : invalidatedRefs.has(f.ref) ? "已失效" : f.sub,
-        entity: "fact" as const,
-        moduleId: mod,
-      })),
-    }));
+      groupId: work,
+    })),
+  }));
 }
 
 /**
  * fact 按**异常类型**分区(fact skeleton 专用):contradictory / orphan /
- * low-confidence / superseded / 正常。异常优先,正常按 module 子分。
+ * low-confidence / superseded / 正常。异常优先,正常按宿主 task 所属的工作子分。
  */
 export function partitionFactsByAnomaly(
   facts: ReadonlyArray<FactRef>,
@@ -320,31 +372,28 @@ export function partitionFactsByAnomaly(
   for (const anomaly of order) {
     const group = byAnomaly.get(anomaly);
     if (!group || group.length === 0) continue;
-    // 正常类按 module 子分;异常类整体一个 zone。
+    // 正常类按工作子分;异常类整体一个 zone。
     if (anomaly === "normal") {
-      const byMod = new Map<string, typeof group>();
+      const works = factWorkIndex(tasks, relations);
+      const byWork = new Map<string, typeof group>();
       for (const item of group) {
-        const mod = resolveFactModule(item.ref, tasks, relations);
-        const arr = byMod.get(mod) ?? [];
+        const work = works.workOf(item.ref);
+        const arr = byWork.get(work) ?? [];
         arr.push(item);
-        byMod.set(mod, arr);
+        byWork.set(work, arr);
       }
-      for (const [mod, items] of [...byMod.entries()].sort(([a], [b]) => {
-        if (a === UNPROJECTED_MODULE) return 1;
-        if (b === UNPROJECTED_MODULE) return -1;
-        return a.localeCompare(b);
-      })) {
+      for (const [work, items] of sortWorkGroups(byWork, works.titleOf)) {
         zones.push({
-          zoneId: `fact:normal:${mod}`,
-          title: `正常 · ${mod === UNPROJECTED_MODULE ? "未投影" : mod}`,
+          zoneId: `fact:normal:${work}`,
+          title: `正常 · ${works.titleOf(work)}`,
           entity: "fact",
-          moduleId: mod,
+          groupId: work,
           chips: items.map((f) => ({
             navRef: f.ref,
             label: f.label,
             sub: f.fact?.archived ? "已归档" : f.fact?.category,
             entity: "fact" as const,
-            moduleId: mod,
+            groupId: work,
           })),
         });
       }
@@ -353,13 +402,13 @@ export function partitionFactsByAnomaly(
         zoneId: `fact:anomaly:${anomaly}`,
         title: ANOMALY_LABEL[anomaly],
         entity: "fact",
-        moduleId: `anomaly:${anomaly}`,
+        groupId: `anomaly:${anomaly}`,
         chips: group.map((f) => ({
           navRef: f.ref,
           label: f.label,
           sub: anomaly,
           entity: "fact" as const,
-          moduleId: `anomaly:${anomaly}`,
+          groupId: `anomaly:${anomaly}`,
         })),
       });
     }
@@ -368,13 +417,13 @@ export function partitionFactsByAnomaly(
 }
 
 /**
- * 未投影计数:只统计真正落进未投影块的实体(CEO 裁决 2026-09-14)。
- * 已按 PRD 根聚簇的 task 不计未投影,fact 跟随宿主落点。
+ * 工作未知计数:只统计真正落进「工作未知」块的实体(CEO 裁决 2026-09-14)。
+ * 已按工作根聚簇的 task 不计入,fact 跟随宿主落点。
  */
-function countUnprojectedChips(zones: ReadonlyArray<TerritoryZone>): number {
+function countUnknownWorkChips(zones: ReadonlyArray<TerritoryZone>): number {
   let count = 0;
   for (const zone of zones) {
-    if (zone.moduleId === UNPROJECTED_MODULE) {
+    if (zone.groupId === UNKNOWN_WORK) {
       count += zone.chips.length;
     }
   }
@@ -404,7 +453,7 @@ export function partitionAll(
     ...partitionSchedules(schedules),
     ...partitionGoverned(governed, kindLabel),
   ];
-  return { zones, landing, unprojectedCount: countUnprojectedChips(zones) };
+  return { zones, landing, unknownWorkCount: countUnknownWorkChips(zones) };
 }
 
 /**
@@ -425,13 +474,13 @@ export function partitionGoverned(
     zoneId: `governed:${kind}`,
     title: kindLabel(kind),
     entity: kind,
-    moduleId: kind,
+    groupId: kind,
     chips: kindRows.map((row) => ({
       navRef: row.ref,
       label: governedEntityLabel(row),
       ...(governedEntitySub(row) ? { sub: governedEntitySub(row) as string } : {}),
       entity: kind,
-      moduleId: kind,
+      groupId: kind,
     })),
   }));
 }
@@ -444,7 +493,7 @@ export function partitionAgents(agents: ReadonlyArray<AgentNodeRow>): TerritoryZ
       zoneId: "agent:runtime",
       title: "运行时 · Agent",
       entity: "agent",
-      moduleId: "runtime",
+      groupId: "runtime",
       chips: [...agents]
         .sort((a, b) => a.id.localeCompare(b.id))
         .map((agent) => ({
@@ -452,7 +501,7 @@ export function partitionAgents(agents: ReadonlyArray<AgentNodeRow>): TerritoryZ
           label: agent.name,
           sub: agent.taskCount > 0 ? `${agent.sub} · ${agent.taskCount} task` : agent.sub,
           entity: "agent" as const,
-          moduleId: "runtime",
+          groupId: "runtime",
         })),
     },
   ];
@@ -466,7 +515,7 @@ export function partitionSchedules(schedules: ReadonlyArray<ScheduleNodeRow>): T
       zoneId: "schedule:runtime",
       title: "运行时 · Schedule",
       entity: "schedule",
-      moduleId: "runtime",
+      groupId: "runtime",
       chips: [...schedules]
         .sort((a, b) => a.id.localeCompare(b.id))
         .map((schedule) => ({
@@ -474,7 +523,7 @@ export function partitionSchedules(schedules: ReadonlyArray<ScheduleNodeRow>): T
           label: schedule.name,
           sub: schedule.sub,
           entity: "schedule" as const,
-          moduleId: "runtime",
+          groupId: "runtime",
         })),
     },
   ];
@@ -505,13 +554,13 @@ export function applyTerritoryDensity(
     return { ...zone, chips: split.chips, deferred: split.deferred };
   });
   const landingSplit = splitZone(
-    { zoneId: "__landing__", title: "", entity: "decision", moduleId: "", chips: partition.landing },
+    { zoneId: "__landing__", title: "", entity: "decision", groupId: "", chips: partition.landing },
     partition.landing,
   );
   return {
     zones,
     landing: landingSplit.chips,
-    unprojectedCount: countUnprojectedChips(zones),
+    unknownWorkCount: countUnknownWorkChips(zones),
     deferredCount: zones.reduce((total, zone) => total + (zone.deferred ?? 0), 0) + landingSplit.deferred,
   };
 }
@@ -532,15 +581,15 @@ export function partitionForSkel(
 ): TerritoryPartition {
   if (skel === "task") {
     const zones = partitionTasks(tasks);
-    return { zones, landing: [], unprojectedCount: countUnprojectedChips(zones) };
+    return { zones, landing: [], unknownWorkCount: countUnknownWorkChips(zones) };
   }
   if (skel === "decision") {
     const { zones, landing } = partitionDecisions(decisions, relations);
-    return { zones, landing, unprojectedCount: 0 };
+    return { zones, landing, unknownWorkCount: 0 };
   }
   if (skel === "fact") {
     const zones = partitionFactsByAnomaly(facts, factAnchors, tasks, relations, coverageRows);
-    return { zones, landing: [], unprojectedCount: countUnprojectedChips(zones) };
+    return { zones, landing: [], unknownWorkCount: countUnknownWorkChips(zones) };
   }
   return partitionAll(tasks, decisions, facts, factAnchors, relations, agents, schedules, governed, kindLabel);
 }

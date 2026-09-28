@@ -196,7 +196,7 @@ function AppShell() {
   const [setupGuide, setSetupGuide] = useState<"provider" | "agent" | null>(null);
 
   // placement 不再由 renderer 二次推导:repo.tasks.list 的 row.placement 已带
-  // daemon 侧由同一批 active derives 边算出的 moduleKeys/productLines/
+  // daemon 侧由同一批 active derives 边算出的 productLines/
   // spawningDecisionIds(F-84CF0391),所以任务行适配不再依赖任何三元读取。
   const tasks = useMemo(() => {
     const roots = new Map(taskWipQuery.data?.roots.map((root) => [root.taskId, root]));
@@ -365,9 +365,9 @@ function AppShell() {
     goto("overview");
   };
 
-  const drillToBoard = (lane: string, status: SnapshotStatus, dimension: "root" | "module" | "plt") => {
+  const drillToBoard = (lane: string, status: SnapshotStatus, dimension: "root" | "plt") => {
     // 特殊占位 __all__ 表示不锁定 lane(只 drill 到状态维度)
-    const groupBy: LaneGroupBy = dimension === "root" ? "root" : dimension === "module" ? "module" : "productLine";
+    const groupBy: LaneGroupBy = dimension === "root" ? "root" : "productLine";
     navigate({ drill: { lane, status, groupBy }, view: "board", selectedId: null, previewId: null });
   };
 

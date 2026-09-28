@@ -163,7 +163,6 @@ function row(overrides: Partial<TaskSnapshotProjectionRow> = {}): TaskSnapshotPr
     visibility: { archived: false, noise: false },
     capabilities: [{ id: "start", available: true, reason: null }],
     placement: {
-      moduleKeys: ["gui"],
       productLines: ["harness"],
       parentTaskId: null,
       origin: "native",

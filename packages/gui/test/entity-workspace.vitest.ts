@@ -1,47 +1,13 @@
 // harness-test-tier: integration
 import { describe, expect, it } from "vitest";
-import type { TaskRow } from "../src/renderer/model/types.ts";
 
 /**
- * EntityWorkspace behavior tests (TERRITORY-001 + UNKNOWN-001):
+ * EntityWorkspace behavior tests (TERRITORY-001):
  * - non-decision lineage is reachable (shows prescribed empty state)
- * - module display shows 未投影 for unassigned
  * - territory per-zone collapse toggle
  */
 
 // We test the pure helpers that EntityWorkspace/GraphView consume.
-
-function task(overrides: Partial<TaskRow> = {}): TaskRow {
-  return {
-    taskId: "task_a", title: "Task A", projectId: "proj",
-    coordinationStatus: "active", rawStatus: "active", freshness: "fresh",
-    packageDisposition: "active", closeoutReadiness: "not_required",
-    engine: "local", source: "local-document", module: "unassigned",
-    lastKnownAt: "2026-08-01T00:00:00.000Z", gates: [], docs: [],
-    ...overrides,
-  };
-}
-
-describe("module display honesty (UNKNOWN-001)", () => {
-  it("resolveTaskModule returns UNPROJECTED for unassigned", async () => {
-    const mod = await import("../src/renderer/graph/moduleAssignment.ts");
-    expect(mod.resolveTaskModule("unassigned")).toBe(mod.UNPROJECTED_MODULE);
-    expect(mod.resolveTaskModule("")).toBe(mod.UNPROJECTED_MODULE);
-    expect(mod.resolveTaskModule("kernel")).toBe("kernel");
-  });
-
-  it("moduleDisplayLabel shows 未投影 for UNPROJECTED", async () => {
-    const mod = await import("../src/renderer/graph/moduleAssignment.ts");
-    expect(mod.moduleDisplayLabel(mod.UNPROJECTED_MODULE)).toBe("未投影");
-    expect(mod.moduleDisplayLabel("kernel")).toBe("kernel");
-  });
-
-  it("task module unassigned shows 未投影 in display context", () => {
-    const t = task();
-    const display = t.module === "unassigned" || !t.module ? "未投影" : t.module;
-    expect(display).toBe("未投影");
-  });
-});
 
 describe("territory per-zone collapse (TERRITORY-001)", () => {
   it("collapses/expands individual zones independently", () => {

@@ -847,7 +847,7 @@ function DecisionPoolSection({
           title={t("views.decisionPoolView.groupByTitle")}
         >
           <option value="none">{t("views.decisionPoolView.groupByNone")}</option>
-          <option value="productLine">{t("views.decisionPoolView.groupByMilestone")}</option>
+          <option value="productLine">{t("views.decisionPoolView.groupByProductLine")}</option>
           <option value="vertical">{t("views.decisionPoolView.groupByVertical")}</option>
         </select>
       </div>

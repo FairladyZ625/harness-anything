@@ -82,7 +82,6 @@ const attestTask: TaskRow = {
   engine: "kernel/task-lifecycle/v1",
   origin: "native",
   source: "local-document",
-  module: "gui",
   iteration: 0,
   lastKnownAt: "2026-09-16T10:31:00.000Z",
   gates: [{ name: "ux-signoff", ok: null, status: "missing" }],

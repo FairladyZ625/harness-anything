@@ -68,7 +68,6 @@ export function fixtureTaskRow(taskId: string, title: string): TaskRow {
     closeoutReadiness: "not_required",
     engine: "local",
     source: "local-document",
-    module: "gui",
     lastKnownAt: AT,
     gates: [],
     docs: [],

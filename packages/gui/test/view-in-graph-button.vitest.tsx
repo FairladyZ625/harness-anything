@@ -81,7 +81,6 @@ const task: TaskRow = {
   closeoutReadiness: "not_required",
   engine: "kernel/task-lifecycle/v1",
   source: "local-document",
-  module: "gui",
   packagePath: "tasks/task-gui-detail",
   gates: [],
   docs: [],

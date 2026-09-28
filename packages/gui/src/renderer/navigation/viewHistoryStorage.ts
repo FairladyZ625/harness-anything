@@ -1,7 +1,14 @@
 import { DEFAULT_TASK_FILTERS, type TaskFilters } from "../model/taskFilters.ts";
 import { ATTESTATION_POOL_TABS, type AttestationPoolTabId } from "../model/attestation-pool.ts";
 import { consumeKnownError } from "../../api/error-consumption.ts";
-import { createViewHistory, type AppLocation, type ViewId, type ViewHistoryState } from "./viewHistory.ts";
+import {
+  createViewHistory,
+  type AppLocation,
+  type DrillState,
+  type ViewId,
+  type ViewHistoryState,
+} from "./viewHistory.ts";
+import type { LaneGroupBy } from "../views/SwimlaneBoard.tsx";
 import { isRendererRecord } from "../result-validation.ts";
 
 /**
@@ -68,56 +75,81 @@ function isCanonicalFocusedRef(value: unknown): boolean {
   );
 }
 
-function isTaskFilters(value: unknown): value is TaskFilters {
-  if (!isRendererRecord(value)) return false;
-  return (
-    typeof value.query === "string" &&
-    typeof value.module === "string" &&
-    typeof value.engine === "string" &&
-    Array.isArray(value.status) &&
-    value.status.every((status) => typeof status === "string") &&
-    typeof value.closeout === "string" &&
-    typeof value.freshness === "string" &&
-    typeof value.favoritesOnly === "boolean" &&
-    typeof value.expandColdTerminal === "boolean"
-  );
+/**
+ * 旧存储的 taskFilters 可能带 `module` 键(模块分组已随 dec_5F7E74F1 删除):
+ * 这里只挑出现存字段重建筛选,把它丢掉而不是拒绝整条位置——已存的导航栈照样可读。
+ */
+function restoreTaskFilters(value: unknown): TaskFilters | null {
+  if (!isRendererRecord(value)) return null;
+  const { query, engine, status, closeout, freshness, favoritesOnly, expandColdTerminal } = value;
+  if (
+    typeof query !== "string" ||
+    typeof engine !== "string" ||
+    !Array.isArray(status) ||
+    !status.every((entry) => typeof entry === "string") ||
+    typeof closeout !== "string" ||
+    typeof freshness !== "string" ||
+    typeof favoritesOnly !== "boolean" ||
+    typeof expandColdTerminal !== "boolean"
+  )
+    return null;
+  return {
+    query,
+    engine,
+    status,
+    closeout,
+    freshness,
+    favoritesOnly,
+    expandColdTerminal,
+  } as TaskFilters;
 }
 
-function isAppLocation(value: unknown): value is AppLocation {
-  if (!isRendererRecord(value) || typeof value.view !== "string" || !VIEW_IDS.has(value.view)) return false;
+const LANE_GROUP_BYS: ReadonlySet<unknown> = new Set<LaneGroupBy>(["root", "engine", "productLine"]);
+
+/**
+ * drill 还原:合法 → 原样;旧存储里按已删除的 `module` 维度下钻的 drill 丢成 null
+ * (lane 是模块名,对现存维度没有意义),位置本身保留;其余形状 → undefined(拒绝)。
+ */
+function restoreDrill(drill: unknown): DrillState | null | undefined {
+  if (drill === null) return null;
+  if (!isRendererRecord(drill) || typeof drill.lane !== "string" || typeof drill.status !== "string") return undefined;
+  if (drill.groupBy === "module") return null;
+  return LANE_GROUP_BYS.has(drill.groupBy) ? (drill as unknown as DrillState) : undefined;
+}
+
+function restoreAppLocation(value: unknown): AppLocation | null {
+  if (!isRendererRecord(value) || typeof value.view !== "string" || !VIEW_IDS.has(value.view)) return null;
   if (
     !isNullableString(value.selectedId) ||
     !isNullableString(value.previewId) ||
     !isNullableString(value.focusedEntityRef) ||
     !(value.browserUrl === undefined || isNullableString(value.browserUrl)) ||
     !(value.scopeRootTaskId === undefined || isNullableString(value.scopeRootTaskId)) ||
-    !isCanonicalFocusedRef(value.focusedEntityRef) ||
-    !isTaskFilters(value.taskFilters)
+    !isCanonicalFocusedRef(value.focusedEntityRef)
   )
-    return false;
+    return null;
   // poolTab 是后加字段:旧存储没有它照样可读,消费侧按 "decisions" 解释。
   if (value.poolTab !== undefined && !ATTESTATION_POOL_TABS.includes(value.poolTab as AttestationPoolTabId))
-    return false;
-  const drill = value.drill;
-  return (
-    drill === null ||
-    (isRendererRecord(drill) &&
-      typeof drill.lane === "string" &&
-      typeof drill.status === "string" &&
-      (drill.groupBy === "root" ||
-        drill.groupBy === "module" ||
-        drill.groupBy === "engine" ||
-        drill.groupBy === "productLine"))
-  );
+    return null;
+  const taskFilters = restoreTaskFilters(value.taskFilters);
+  const drill = restoreDrill(value.drill);
+  if (taskFilters === null || drill === undefined) return null;
+  return { ...(value as unknown as AppLocation), taskFilters, drill };
 }
 
-function isStoredViewHistory(value: unknown): value is { schema: string; history: ViewHistoryState } {
-  if (!isRendererRecord(value) || value.schema !== VIEW_HISTORY_SCHEMA) return false;
+function restoreStoredViewHistory(value: unknown): ViewHistoryState | null {
+  if (!isRendererRecord(value) || value.schema !== VIEW_HISTORY_SCHEMA) return null;
   const history: unknown = value.history;
-  if (!isRendererRecord(history) || !Array.isArray(history.entries) || history.entries.length === 0) return false;
+  if (!isRendererRecord(history) || !Array.isArray(history.entries) || history.entries.length === 0) return null;
   const index: unknown = history.index;
-  if (!Number.isInteger(index) || (index as number) < 0 || (index as number) >= history.entries.length) return false;
-  return history.entries.every(isAppLocation);
+  if (!Number.isInteger(index) || (index as number) < 0 || (index as number) >= history.entries.length) return null;
+  const entries: AppLocation[] = [];
+  for (const entry of history.entries as unknown[]) {
+    const location = restoreAppLocation(entry);
+    if (location === null) return null;
+    entries.push(location);
+  }
+  return { entries, index: index as number };
 }
 
 function storageKey(projectId: string): string {
@@ -146,8 +178,7 @@ export function readViewHistory(
   const raw = storage.getItem(storageKey(projectId));
   if (!raw) return createViewHistory(fallback);
   try {
-    const stored: unknown = JSON.parse(raw);
-    return isStoredViewHistory(stored) ? stored.history : createViewHistory(fallback);
+    return restoreStoredViewHistory(JSON.parse(raw)) ?? createViewHistory(fallback);
   } catch {
     return createViewHistory(fallback);
   }
