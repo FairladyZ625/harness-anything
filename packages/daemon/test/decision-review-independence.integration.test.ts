@@ -50,10 +50,37 @@ test("an independent approved review lets the proposal owner accept the current 
         },
         "repo-write",
       );
+    const relatedDecisionIds: string[] = [];
+    for (const suffix of ["relation-a", "relation-b"]) {
+      const relatedProposal = await cell.run(
+        { ...decisionProposal(), body: realizedDecisionBody(`Review independence ${suffix}`) },
+        proposer,
+      );
+      relatedDecisionIds.push(receiptJson(relatedProposal).decisionId as string);
+    }
+    for (const [targetDecisionId, rationale] of [
+      [relatedDecisionIds[0], "The first relation belongs to the proposed Decision."],
+      [relatedDecisionIds[1], "The second relation was added after proposal publication."],
+    ] as const) {
+      const related = await cell.run(
+        {
+          kind: "relation-relate",
+          sourceRef: `decision/${decisionId}`,
+          targetRef: `decision/${targetDecisionId}`,
+          relationType: "relates",
+          rationale,
+          expectedVersion: 0,
+        },
+        proposer,
+      );
+      assert.equal(related.outcome, "applied", JSON.stringify(related));
+    }
     const shown = receiptJson(await cell.run({ kind: "decision-show", decisionId, includeBody: true }, owner))
-        .decision as DecisionDocumentState & { readonly body: { readonly body: string } },
-      { body, ...current } = shown,
-      digest = decisionReviewContentDigest({ ...current, relations: [] }, body.body),
+        .decision as DecisionDocumentState & {
+        readonly body: { readonly body: string };
+        readonly currentReviewContentDigest: `sha256:${string}`;
+      },
+      digest = shown.currentReviewContentDigest,
       unreviewed = await cell.run(
         {
           kind: "decision-accept",
@@ -69,8 +96,30 @@ test("an independent approved review lets the proposal owner accept the current 
       { outcome: unreviewed.outcome, code: unreviewed.code },
       { outcome: "op_rejected", code: "invalid_transition" },
     );
-    const reportRef = `decisions/decision-${decisionId}/artifacts/reports/review-independent.md`;
-    await publishReport(rootDir, cell, reportRef, independentReviewer);
+    const reportRef = `decisions/decision-${decisionId}/artifacts/reports/independent.md`;
+    const missingReport = await cell.run(
+      {
+        kind: "decision-review",
+        decisionId,
+        reviewId: "review-independent",
+        reviewContentDigest: digest,
+        verdict: "approved",
+        reason: "The current content and evidence support acceptance.",
+        findings: [],
+        evidenceChecked: [],
+        reportRef,
+      },
+      independentReviewer,
+    );
+    assert.deepEqual(
+      { outcome: missingReport.outcome, code: missingReport.code },
+      { outcome: "op_rejected", code: "review_report_missing" },
+    );
+    assert.match(
+      String(missingReport.rejectionExplanation),
+      new RegExp(reportRef.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"),
+    );
+    writeReport(rootDir, reportRef);
     const reviewed = await cell.run(
       {
         kind: "decision-review",
@@ -86,6 +135,14 @@ test("an independent approved review lets the proposal owner accept the current 
       independentReviewer,
     );
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+    const reviewEvent = makeTaskEventReader({ repoId: "decision-review-independence", rootDir }).readEvent(
+      reviewed.opId,
+    );
+    assert.ok(reviewEvent?.schema === "decision-event/v1" && reviewEvent.type === "decision_review_recorded");
+    assert.equal(reviewEvent.payload.carriedDocumentClaims?.[0]?.path, reportRef);
+    const report = await cell.run({ kind: "doc-show", path: reportRef }, independentReviewer);
+    assert.equal(report.outcome, "applied", JSON.stringify(report));
+    assert.match(String(report.evidence), /The current Decision cut was reviewed/u);
     const accepted = await cell.run(
       {
         kind: "decision-accept",
@@ -98,6 +155,10 @@ test("an independent approved review lets the proposal owner accept the current 
       owner,
     );
     assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+    const acceptedDecision = receiptJson(
+      await cell.run({ kind: "decision-show", decisionId, includeBody: true }, owner),
+    ).decision as { readonly acceptReviewReadiness: unknown };
+    assert.equal(acceptedDecision.acceptReviewReadiness, null);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -201,8 +262,8 @@ test("Decision judgment and review disposition stay with the proposal owner or e
       },
       "repo-write",
     );
-    const reportRef = `decisions/decision-${decisionId}/artifacts/reports/review-changes-requested.md`;
-    await publishReport(rootDir, cell, reportRef, reviewer);
+    const reportRef = `decisions/decision-${decisionId}/artifacts/reports/changes-requested.md`;
+    writeReport(rootDir, reportRef);
     const reviewed = await cell.run(
       {
         kind: "decision-review",
@@ -437,17 +498,10 @@ function receiptJson(receipt: { readonly evidence?: string }): Record<string, un
   return JSON.parse(String(receipt.evidence)) as Record<string, unknown>;
 }
 
-async function publishReport(
-  rootDir: string,
-  cell: Awaited<ReturnType<typeof openRepoCell>>,
-  reportRef: string,
-  binding: Parameters<Awaited<ReturnType<typeof openRepoCell>>["run"]>[1],
-): Promise<void> {
+function writeReport(rootDir: string, reportRef: string): void {
   const target = path.join(rootDir, "harness", ...reportRef.split("/"));
   mkdirSync(path.dirname(target), { recursive: true });
   writeFileSync(target, "# Independent review\n\nThe current Decision cut was reviewed.\n");
-  const submitted = await cell.run({ kind: "doc-submit", paths: [reportRef] }, binding);
-  assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
 }
 
 function initRepo(rootDir: string): void {

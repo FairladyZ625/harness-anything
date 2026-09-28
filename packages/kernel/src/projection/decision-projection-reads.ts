@@ -296,6 +296,7 @@ function decisionCollectionRow(row: DecisionCollectionRecord): DecisionProjectio
     })),
     judgmentConsents: consents,
     ...reviewState,
+    relations,
     currentReviewContentDigest,
     acceptReviewReadiness: null,
     ...(amendments.length ? { amendments } : {}),
@@ -304,7 +305,7 @@ function decisionCollectionRow(row: DecisionCollectionRecord): DecisionProjectio
     capabilities: decisionCapabilities(state),
     claimsOpen: decisionClaimsOpen(state),
   };
-  return currentReviewContentDigest && body
+  return state === "proposed" && currentReviewContentDigest && body
     ? { ...result, acceptReviewReadiness: decisionAcceptReviewReadiness(semantic, body.body) }
     : result;
 }

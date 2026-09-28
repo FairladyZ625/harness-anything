@@ -1,9 +1,9 @@
 import type { DatabaseSync } from "node:sqlite";
 import { decisionDocumentProse, type DecisionDocumentState } from "../domain/decision-event.ts";
 import type { DocumentState } from "../domain/doc-sync.contract.ts";
-import type { DecisionBodyRow, DecisionRelationEdgeRow } from "./decision-projection-model.ts";
+import type { DecisionBodyRow } from "./decision-projection-model.ts";
 import { readDecisionRow } from "./decision-projection-reads.ts";
-import { prepareQuery, queryRows } from "./rebuildable-task-projection-sql.ts";
+import { prepareQuery } from "./rebuildable-task-projection-sql.ts";
 
 export function readDecisionBody(db: DatabaseSync, decisionId: string): DecisionBodyRow | null {
   const path = `decisions/decision-${decisionId}/decision.md`,
@@ -29,23 +29,6 @@ export function decisionBodyFromDocument(decisionId: string, valueJson: string):
 export function readDecisionDocumentState(db: DatabaseSync, decisionId: string): DecisionDocumentState | null {
   const row = readDecisionRow(db, decisionId);
   if (!row) return null;
-  const { body: _body, ...decision } = row,
-    relations = queryRows<{ readonly row_json: string }>(
-      db,
-      "SELECT row_json FROM relation_edge WHERE owner_ref=? ORDER BY relation_id",
-      `decision/${decisionId}`,
-    )
-      .map((entry) => JSON.parse(entry.row_json) as DecisionRelationEdgeRow)
-      .map((edge) => ({
-        relation_id: edge.relationId,
-        source: edge.sourceRef,
-        target: edge.targetRef,
-        type: edge.relationType,
-        direction: edge.direction,
-        strength: edge.strength,
-        origin: edge.origin,
-        rationale: edge.rationale,
-        state: edge.state,
-      }));
-  return { ...decision, relations };
+  const { body: _body, ...decision } = row;
+  return decision;
 }

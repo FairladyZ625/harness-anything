@@ -12,7 +12,6 @@ export {
   decisionAcceptReviewReadiness,
   decisionReviewContentDigest,
   decisionWritePlan,
-  extendDecisionWriteWithArtifact,
   reduceDecisionDocument,
   renderDecisionDocument,
 } from "./decision-event-document.ts";

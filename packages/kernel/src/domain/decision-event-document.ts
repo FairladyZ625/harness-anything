@@ -190,41 +190,26 @@ export function decisionWritePlan(event: DecisionEventV1): FrozenWritePlan<"Deci
       projection: "relation-graph/v1",
       key: `decision/${event.decisionId}`,
     });
+  if (event.type === "decision_review_recorded")
+    for (const change of event.payload.carriedDocumentClaims ?? [])
+      targets.push(
+        {
+          kind: "authored_file",
+          path: change.path,
+          operation: "replace",
+          sha256: change.candidate.sha256,
+          size: change.candidate.size,
+          mediaType: change.candidate.mediaType,
+        },
+        {
+          kind: "content_blob",
+          sha256: change.candidate.sha256,
+          size: change.candidate.size,
+          mediaType: change.candidate.mediaType,
+        },
+        { kind: "projection_invalidation", projection: "document/v1", key: change.path },
+      );
   return freezeDeclaredWritePlan({ commandType: "DecisionWrite", targets }, ["DecisionWrite"]);
-}
-export function extendDecisionWriteWithArtifact(
-  bundle: CompiledDecisionWrite,
-  artifact: {
-    readonly path: string;
-    readonly sha256: string;
-    readonly size: number;
-    readonly mediaType: "text/markdown";
-    readonly body: string;
-  },
-): CompiledDecisionWrite {
-  return {
-    ...bundle,
-    plan: freezeDeclaredWritePlan(
-      {
-        commandType: "DecisionWrite",
-        targets: [
-          ...bundle.plan.targets,
-          {
-            kind: "authored_file",
-            path: artifact.path,
-            operation: "replace",
-            sha256: artifact.sha256,
-            size: artifact.size,
-            mediaType: artifact.mediaType,
-          },
-          { kind: "content_blob", sha256: artifact.sha256, size: artifact.size, mediaType: artifact.mediaType },
-          { kind: "projection_invalidation", projection: "document/v1", key: artifact.path },
-        ],
-      },
-      ["DecisionWrite"],
-    ),
-    blobs: [...bundle.blobs, artifact],
-  };
 }
 export function assertDecisionWritePlan(event: DecisionEventV1, plan: FrozenWritePlan | undefined): void {
   if (!plan || !isFrozenWritePlan(plan))
@@ -551,12 +536,23 @@ export interface DecisionAcceptReviewReadiness {
   readonly ready: boolean;
   readonly currentDigest: `sha256:${string}`;
   readonly basis: "review" | "policy_unreviewed" | null;
-  readonly blocker: {
-    readonly code: "changes_requested";
-    readonly reviewIds: readonly string[];
+  readonly blocker:
+    | {
+        readonly code: "changes_requested";
+        readonly reviewIds: readonly string[];
+        readonly reason: string;
+      }
+    | {
+        readonly code: "unanswered_findings";
+        readonly findings: readonly { readonly reviewId: string; readonly findingId: string }[];
+        readonly reason: string;
+      }
+    | null;
+  readonly next: {
+    readonly action: "accept" | "override-review" | "respond-review";
+    readonly actor: "owner" | "proposer";
     readonly reason: string;
-  } | null;
-  readonly next: { readonly action: "accept" | "override-review"; readonly reason: string };
+  };
 }
 
 export function decisionAcceptReviewReadiness(
@@ -587,19 +583,50 @@ export function decisionAcceptReviewReadiness(
       },
       next: {
         action: "override-review",
-        reason: "The proposal owner must resolve the named blocking reviews.",
+        actor: "owner",
+        reason:
+          "The owner must override the named reviews, or the proposer must amend the content and seek review again.",
+      },
+    };
+  const approved = current.reviews.some(
+      (review) => review.reviewContentDigest === currentDigest && review.verdict === "approved",
+    ),
+    unanswered = approved
+      ? []
+      : current.reviews
+          .filter(({ verdict }) => verdict === "changes_requested")
+          .flatMap((review) =>
+            review.findings
+              .filter(
+                ({ findingId }) =>
+                  !current.reviewResponses.some(
+                    (response) => response.reviewId === review.reviewId && response.findingId === findingId,
+                  ),
+              )
+              .map(({ findingId }) => ({ reviewId: review.reviewId, findingId })),
+          );
+  if (unanswered.length > 0)
+    return {
+      ready: false,
+      currentDigest,
+      basis: null,
+      blocker: {
+        code: "unanswered_findings",
+        findings: unanswered,
+        reason: "Historical changes_requested findings require proposer responses before policy-unreviewed acceptance.",
+      },
+      next: {
+        action: "respond-review",
+        actor: "proposer",
+        reason: "The proposer must adopt or rebut every unanswered finding before policy-unreviewed acceptance.",
       },
     };
   return {
     ready: true,
     currentDigest,
-    basis: current.reviews.some(
-      (review) => review.reviewContentDigest === currentDigest && review.verdict === "approved",
-    )
-      ? "review"
-      : "policy_unreviewed",
+    basis: approved ? "review" : "policy_unreviewed",
     blocker: null,
-    next: { action: "accept", reason: "No current-content review blocks acceptance." },
+    next: { action: "accept", actor: "proposer", reason: "No current-content review blocks acceptance." },
   };
 }
 export function assertDecisionAcceptReview(
@@ -644,8 +671,15 @@ export function assertDecisionAcceptReview(
       );
     return;
   }
-  if (!readiness.ready)
-    invalidDecision(`Decision has unresolved changes_requested reviews: ${readiness.blocker!.reviewIds.join(", ")}.`);
+  const blocker = readiness.blocker;
+  if (!readiness.ready && blocker)
+    invalidDecision(
+      blocker.code === "changes_requested"
+        ? `Decision has unresolved changes_requested reviews: ${blocker.reviewIds.join(", ")}.`
+        : `Decision has unanswered review findings: ${blocker.findings
+            .map(({ reviewId, findingId }) => `${reviewId}/${findingId}`)
+            .join(", ")}.`,
+    );
 }
 export function assertDecisionReviewMutation(
   current: DecisionDocumentState,

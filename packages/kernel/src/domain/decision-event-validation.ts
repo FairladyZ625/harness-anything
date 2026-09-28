@@ -13,6 +13,7 @@ import { decisionEventTypes, decisionFulfillmentModes, type DecisionEventV1 } fr
 import { claimId, decisionId, includes, uniqueFactStrings } from "./decision-event-validation-shared.ts";
 import { codePoints, requiredWithOptional } from "./event-validation.ts";
 import { timestamp } from "./timestamp.ts";
+import { isValidDocEventChange } from "./doc-sync.contract.ts";
 import {
   isNonEmptyString,
   isRecord,
@@ -139,7 +140,17 @@ function validateDecisionEventFields(value: unknown, allowUnknownFields: boolean
   if (type === "decision_review_recorded")
     return matchesFields(
       payload,
-      ["reviewId", "reviewContentDigest", "verdict", "reason", "findings", "evidenceChecked", "reportRef", ...common],
+      [
+        "reviewId",
+        "reviewContentDigest",
+        "verdict",
+        "reason",
+        "findings",
+        "evidenceChecked",
+        "reportRef",
+        ...(payload.carriedDocumentClaims === undefined ? [] : ["carriedDocumentClaims"]),
+        ...common,
+      ],
       allowUnknownFields,
     ) &&
       isNonEmptyString(payload.reviewId) &&
@@ -159,6 +170,9 @@ function validateDecisionEventFields(value: unknown, allowUnknownFields: boolean
       ) &&
       Array.isArray(payload.evidenceChecked) &&
       payload.evidenceChecked.every(isNonEmptyString) &&
+      (payload.carriedDocumentClaims === undefined ||
+        (Array.isArray(payload.carriedDocumentClaims) &&
+          payload.carriedDocumentClaims.every((change) => isValidDocEventChange(change, allowUnknownFields)))) &&
       (payload.reportRef === null || isNonEmptyString(payload.reportRef))
       ? []
       : ["decision review payload is invalid"];

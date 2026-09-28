@@ -1,4 +1,5 @@
 import { type SessionProvenanceV1 } from "./agent-runtime.ts";
+import type { DocEventChange } from "./doc-sync.contract.ts";
 import { type EntityRelationRecord } from "./entity-relation.ts";
 import { type ActorIdentity, type EventEnvelope, type FrozenWritePlan } from "./write-chain.contract.ts";
 
@@ -196,6 +197,7 @@ export interface DecisionPayloads {
     readonly findings: readonly DecisionReviewFindingV1[];
     readonly evidenceChecked: readonly string[];
     readonly reportRef: string | null;
+    readonly carriedDocumentClaims?: readonly DocEventChange[];
   };
   readonly decision_review_responded: {
     readonly responses: readonly Omit<DecisionReviewResponseV1, "actor" | "respondedAt">[];

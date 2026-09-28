@@ -621,41 +621,28 @@ function compileDraft(
     document = projection.readDocument(path);
   if (document.watermark !== document.sourceRevision)
     reject("content_not_ready", `Decision document ${path} is pending.`);
-  const relations = projection
-      .readRelationQuery({ ownerRef: `decision/${draft.event.decisionId}` })
-      .rows.map((edge) => ({
-        relation_id: edge.relationId,
-        source: edge.sourceRef,
-        target: edge.targetRef,
-        type: edge.relationType,
-        strength: edge.strength,
-        direction: edge.direction,
-        origin: edge.origin,
-        rationale: edge.rationale,
-        state: edge.state,
-      })),
-    incomingRelations = projection
-      .readDecisionIncomingRelations(draft.event.decisionId)
-      .filter((edge) => {
-        const target = parseEntityRef(edge.targetRef);
-        return target?.kind === "decision" && target.id === draft.event.decisionId;
-      })
-      .map((edge) => ({
-        relation_id: edge.relationId,
-        source: edge.sourceRef,
-        target: edge.targetRef,
-        type: edge.relationType,
-        strength: edge.strength,
-        direction: edge.direction,
-        origin: edge.origin,
-        rationale: edge.rationale,
-        state: edge.state,
-      }));
+  const incomingRelations = projection
+    .readDecisionIncomingRelations(draft.event.decisionId)
+    .filter((edge) => {
+      const target = parseEntityRef(edge.targetRef);
+      return target?.kind === "decision" && target.id === draft.event.decisionId;
+    })
+    .map((edge) => ({
+      relation_id: edge.relationId,
+      source: edge.sourceRef,
+      target: edge.targetRef,
+      type: edge.relationType,
+      strength: edge.strength,
+      direction: edge.direction,
+      origin: edge.origin,
+      rationale: edge.rationale,
+      state: edge.state,
+    }));
   return compileDecisionWrite({
     event: draft.event,
     ...(approval ? { approval } : {}),
     currentDecision: read.decision,
-    currentRelations: relations,
+    currentRelations: read.decision?.relations ?? [],
     currentIncomingRelations: incomingRelations,
     resolveLink: decisionRelationLinkResolver(projection),
     currentDocument: document.document,

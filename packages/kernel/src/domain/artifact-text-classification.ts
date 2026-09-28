@@ -116,7 +116,9 @@ export function worktreeDocumentMediaType(value: string): OpaqueTextualMediaType
 }
 
 function artifactPath(value: string): boolean {
-  return value.startsWith("artifacts/") || /^tasks\/[^/]+\/artifacts(?:\/|$)/u.test(value);
+  return (
+    value.startsWith("artifacts/") || /^(?:tasks\/[^/]+|decisions\/decision-[^/]+)\/artifacts(?:\/|$)/u.test(value)
+  );
 }
 
 function architectureModelPath(value: string): boolean {

@@ -574,6 +574,7 @@ export function validateDaemonDecisionList(value: unknown): readonly string[] {
       "reviews",
       "reviewResponses",
       "reviewOverrides",
+      "relations",
       "currentReviewContentDigest",
       "acceptReviewReadiness",
       "body",
@@ -658,6 +659,7 @@ export function validateDaemonDecisionList(value: unknown): readonly string[] {
       !Array.isArray(row.judgmentConsents) ||
       !Array.isArray(row.reviews) ||
       !Array.isArray(row.reviewResponses) ||
+      !Array.isArray(row.relations) ||
       (row.reviewDispatches !== undefined && !Array.isArray(row.reviewDispatches)) ||
       !Array.isArray(row.reviewOverrides) ||
       !isJsonObject(row.appliesTo) ||
