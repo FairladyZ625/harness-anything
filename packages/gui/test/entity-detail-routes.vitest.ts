@@ -42,8 +42,8 @@ describe("entity detail target routing (W4)", () => {
     });
   });
 
-  it("leaves task refs and malformed refs to their existing routes", () => {
-    expect(entityDetailTargetOf("task/task_a")).toBeNull();
+  it("leaves malformed refs unrouted", () => {
+    expect(entityDetailTargetOf("task/")).toBeNull();
     expect(entityDetailTargetOf("decision/")).toBeNull();
     // repo/<repoId>/ 前缀由 App 层先剥再路由,本函数不负责。
     expect(entityDetailTargetOf("repo/r1/decision/dec_1")).toBeNull();

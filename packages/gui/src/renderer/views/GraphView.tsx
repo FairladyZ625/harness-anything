@@ -392,8 +392,19 @@ function GraphViewInner({
         const task = tasks.find((candidate) => `task/${candidate.taskId}` === navRef);
         if (task) onSetTaskPin?.(task, pinned);
       },
+      ...(onNavigateEntity ? { onOpenWork: onNavigateEntity } : {}),
     }).nodes;
-  }, [territory, expandedZones, containerWidth, enterSpotlight, toggleZone, revealZone, tasks, onSetTaskPin]);
+  }, [
+    territory,
+    expandedZones,
+    containerWidth,
+    enterSpotlight,
+    toggleZone,
+    revealZone,
+    tasks,
+    onSetTaskPin,
+    onNavigateEntity,
+  ]);
 
   // 视口策略(与老版同源):聚光灯 fitView 在 EgoNeighborhood 内;领地**不 fitView** ——
   // 上千块 fit 进一屏正是「块被压成几像素细横条」的成因,领地以默认视口(zoom 1,

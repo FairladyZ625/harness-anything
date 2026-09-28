@@ -60,3 +60,37 @@ export function collectWork(tasks: readonly TaskRow[]): { groups: WorkGroup[]; i
       .sort((a, b) => b.lastKnownAt.localeCompare(a.lastKnownAt) || a.taskId.localeCompare(b.taskId)),
   };
 }
+
+export interface WorkIndex {
+  /** Declared (taskClass=work) or a top-level task with children: `ha work list`'s root rule. */
+  readonly isWorkRoot: (taskId: string) => boolean;
+  /** The work a child belongs to: nearest declared-work ancestor, else topmost ancestor; null for a top-level task. */
+  readonly workOf: (taskId: string) => TaskRow | null;
+}
+
+/**
+ * The daemon's two work rules (work-read.ts, workspace-scope-read.ts#workRootOf) over the same-cut task
+ * rows the GUI already holds. The incremental task read cannot carry them per row: both depend on other rows.
+ */
+export function workIndexOf(tasks: readonly TaskRow[]): WorkIndex {
+  const byId = new Map(tasks.map((task) => [task.taskId, task]));
+  const parents = new Set(tasks.flatMap((task) => (task.parentTaskId ? [task.parentTaskId] : [])));
+  return {
+    isWorkRoot: (taskId) => {
+      const task = byId.get(taskId);
+      return task !== undefined && (task.taskClass === "work" || (!task.parentTaskId && parents.has(taskId)));
+    },
+    workOf: (taskId) => {
+      let work: TaskRow | null = null;
+      const seen = new Set<string>();
+      for (let id = byId.get(taskId)?.parentTaskId; id && !seen.has(id); ) {
+        seen.add(id);
+        const task = byId.get(id);
+        if (!task) break;
+        work = task;
+        id = task.taskClass === "work" ? undefined : task.parentTaskId;
+      }
+      return work;
+    },
+  };
+}

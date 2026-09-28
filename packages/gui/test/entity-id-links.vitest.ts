@@ -605,7 +605,6 @@ const VIEW_RENDERERS = {
       catalog: undefined,
       catalogError: null,
       onNavigateEntity: noop,
-      onOpenGroup: noop,
       onSelectRuntimeEntity: noop,
       onOpenPool: noop,
       onOpenSessions: noop,

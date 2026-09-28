@@ -60,6 +60,8 @@ export interface TerritoryLayoutInput {
   onFold: (zoneId: string) => void;
   onRevealZone?: (zoneId: string) => void;
   onSetPin?: (navRef: string, pinned: boolean) => void;
+  /** task 块标题 = 工作名,点击以工作根 ref 走统一实体路由(根任务即工作 → 工作页)。 */
+  onOpenWork?: (navRef: string) => void;
 }
 
 export type TerritoryZoneNodeData = Record<string, unknown> & {
@@ -67,6 +69,7 @@ export type TerritoryZoneNodeData = Record<string, unknown> & {
   readonly folded: boolean;
   readonly variant: "zone" | "landing";
   readonly onFold: (zoneId: string) => void;
+  readonly onOpenWork?: (navRef: string) => void;
 };
 
 export type TerritoryEntityChipNodeData = Record<string, unknown> & {
@@ -117,7 +120,7 @@ function landingZone(chips: ReadonlyArray<TerritoryChip>): TerritoryZone {
 }
 
 export function layoutTerritory(input: TerritoryLayoutInput): TerritoryLayout {
-  const { partition, expandedZones, onOpen, onFold, onRevealZone, onSetPin } = input;
+  const { partition, expandedZones, onOpen, onFold, onRevealZone, onSetPin, onOpenWork } = input;
   const gridCols = deriveGridCols((input.containerWidth ?? 0) - LEFT_PAD * 2);
 
   const zones: TerritoryZone[] = [...partition.zones];
@@ -152,6 +155,7 @@ export function layoutTerritory(input: TerritoryLayoutInput): TerritoryLayout {
           folded,
           variant: zone.zoneId === "__landing__" ? "landing" : "zone",
           onFold,
+          ...(onOpenWork ? { onOpenWork } : {}),
         },
         zIndex: 0,
         selectable: false,

@@ -76,7 +76,6 @@ export function OverviewNextView({
   catalog,
   catalogError,
   onNavigateEntity,
-  onOpenGroup,
   onSelectRuntimeEntity,
   onOpenPool,
   onOpenSessions,
@@ -102,8 +101,6 @@ export function OverviewNextView({
   catalog: CatalogSnapshotSuccess | undefined;
   catalogError: string | null;
   onNavigateEntity: (ref: string) => void;
-  /** 组点击下钻的单点切换位:S1 组工作页未合入,当前 = 现有任务详情。 */
-  onOpenGroup: (taskId: string) => void;
   onSelectRuntimeEntity: (ref: string) => void;
   onOpenPool: () => void;
   onOpenSessions: () => void;
@@ -112,6 +109,7 @@ export function OverviewNextView({
   /** 有搜索输入时才启用事实索引读面,与关系图左栏同一个开关。 */
   onSearchActiveChange: (active: boolean) => void;
   onRefreshLedger: () => void;
+  /** 任务与工作的唯一打开位:App 按「根任务即工作」分流到工作页或任务详情。 */
   onOpenTask: (taskId: string) => void;
 }) {
   const feed = useCadenceFeed(repoId),
@@ -166,10 +164,10 @@ export function OverviewNextView({
           activeSessions={activeSessions}
           runtimeError={runtimeError}
           onSelectRuntimeEntity={onSelectRuntimeEntity}
-          onOpenGroup={onOpenGroup}
+          onOpenTask={onOpenTask}
           onOpenSessions={onOpenSessions}
         />
-        <KeyWorkRegion agenda={agenda} tasks={tasks} onOpenGroup={onOpenGroup} />
+        <KeyWorkRegion agenda={agenda} tasks={tasks} onOpenTask={onOpenTask} />
         <ChangesRegion feed={feed} taskTitles={taskTitles} onNavigateEntity={onNavigateEntity} />
       </div>
     </div>
@@ -392,11 +390,11 @@ function AttentionRow({ item, onOpen }: { item: AttentionItem; onOpen: () => voi
 function KeyWorkRegion({
   agenda,
   tasks,
-  onOpenGroup,
+  onOpenTask,
 }: {
   agenda: AgendaSuccess | undefined;
   tasks: readonly TaskRow[];
-  onOpenGroup: (taskId: string) => void;
+  onOpenTask: (taskId: string) => void;
 }) {
   const { pinned, groups } = useMemo(() => keyWorkRowsOf(agenda, tasks), [agenda, tasks]);
   return (
@@ -414,7 +412,7 @@ function KeyWorkRegion({
               {t("views.overviewNext.keyWorkPinned")} {pinned.length}
             </p>
             {pinned.map((row) => (
-              <KeyWorkRowView key={row.key} row={row} onOpenGroup={onOpenGroup} pinned />
+              <KeyWorkRowView key={row.key} row={row} onOpenTask={onOpenTask} pinned />
             ))}
           </>
         ) : null}
@@ -427,7 +425,7 @@ function KeyWorkRegion({
         ) : (
           <>
             {groups.slice(0, KEYWORK_ROWS).map((row) => (
-              <KeyWorkRowView key={row.key} row={row} onOpenGroup={onOpenGroup} />
+              <KeyWorkRowView key={row.key} row={row} onOpenTask={onOpenTask} />
             ))}
             {groups.length > KEYWORK_ROWS ? (
               <p className="pl-2 ui-micro text-text-faint">
@@ -443,11 +441,11 @@ function KeyWorkRegion({
 
 function KeyWorkRowView({
   row,
-  onOpenGroup,
+  onOpenTask,
   pinned = false,
 }: {
   row: KeyWorkRow;
-  onOpenGroup: (taskId: string) => void;
+  onOpenTask: (taskId: string) => void;
   pinned?: boolean;
 }) {
   const clickable = row.taskId !== null;
@@ -472,7 +470,7 @@ function KeyWorkRowView({
   return clickable ? (
     <button
       type="button"
-      onClick={() => row.taskId && onOpenGroup(row.taskId)}
+      onClick={() => row.taskId && onOpenTask(row.taskId)}
       title={row.ref}
       className="flex w-full items-center gap-2 rounded-md border border-border bg-surface-raised px-2 py-1 text-left transition-colors duration-150 hover:border-accent/60"
     >
@@ -492,7 +490,7 @@ function ExecutionRegion({
   activeSessions,
   runtimeError,
   onSelectRuntimeEntity,
-  onOpenGroup,
+  onOpenTask,
   onOpenSessions,
 }: {
   tasks: readonly TaskRow[];
@@ -500,7 +498,7 @@ function ExecutionRegion({
   activeSessions: readonly AgentRuntimeSessionDto[];
   runtimeError: string | null;
   onSelectRuntimeEntity: (ref: string) => void;
-  onOpenGroup: (taskId: string) => void;
+  onOpenTask: (taskId: string) => void;
   onOpenSessions: () => void;
 }) {
   const liveSessions = activeSessions.filter((session) => session.liveness === "live"),
@@ -555,7 +553,7 @@ function ExecutionRegion({
               <button
                 key={task.taskId}
                 type="button"
-                onClick={() => onOpenGroup(task.taskId)}
+                onClick={() => onOpenTask(task.taskId)}
                 title={task.taskId}
                 className="flex w-full items-center gap-2 rounded-md border border-border bg-surface-raised px-2 py-1 text-left transition-colors duration-150 hover:border-accent/60"
               >

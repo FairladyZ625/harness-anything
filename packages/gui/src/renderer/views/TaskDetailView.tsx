@@ -48,6 +48,8 @@ export function TaskDetailView({
   onSelect,
   projectName,
   fromViewLabel = t("views.taskDetailView.workspace"),
+  work = null,
+  onOpenWork,
   onNavigateDecision,
   onNavigateEntity,
   onOpenTerminal,
@@ -72,6 +74,9 @@ export function TaskDetailView({
   onSelect?: (id: string) => void;
   projectName: string;
   fromViewLabel?: string;
+  /** 本任务所属的工作(dec_5F7E74F1:最近的声明工作祖先,否则最顶层祖先);顶层任务为 null。 */
+  work?: { readonly taskId: string; readonly title: string } | null;
+  onOpenWork?: (taskId: string) => void;
   /** G10 实体互链:详情页内出现的其他实体 ID 必须有路;必填,不给回调就没有路。 */
   onNavigateDecision: (decisionId: string) => void;
   onNavigateEntity: (ref: string) => void;
@@ -144,7 +149,7 @@ export function TaskDetailView({
           >
             <ArrowLeft weight="bold" className="ui-meta" />
           </button>
-          <div className="flex min-w-0 flex-1 items-center gap-1 font-mono ui-micro leading-3 text-text-faint">
+          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden font-mono ui-micro leading-3 text-text-faint">
             <button type="button" onClick={onBack} className="truncate hover:text-text-muted">
               {projectName}
             </button>
@@ -153,6 +158,20 @@ export function TaskDetailView({
               {fromViewLabel}
             </button>
             <CaretRight weight="bold" className="shrink-0" />
+            {work && onOpenWork ? (
+              <>
+                <button
+                  type="button"
+                  data-testid="task-detail-work"
+                  onClick={() => onOpenWork(work.taskId)}
+                  title={work.taskId}
+                  className="max-w-[18rem] shrink-0 truncate font-sans text-accent hover:underline"
+                >
+                  {t("views.taskDetailView.belongsToWork", { title: work.title })}
+                </button>
+                <CaretRight weight="bold" className="shrink-0" />
+              </>
+            ) : null}
             <EntityRefLink
               entityRef={`task/${task.taskId}`}
               onNavigate={onNavigateEntity}

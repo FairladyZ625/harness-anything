@@ -446,6 +446,8 @@ export async function mount(
     readonly onComplete?: () => Promise<unknown>;
     readonly onAdjudicate?: (decision: "forward" | "return", reason: string, reviewId?: string) => Promise<unknown>;
     readonly onConsentReview?: (reviewId: string) => Promise<unknown>;
+    readonly work?: { readonly taskId: string; readonly title: string } | null;
+    readonly onOpenWork?: (taskId: string) => void;
   } = {},
 ) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -472,6 +474,8 @@ export async function mount(
           onComplete: overrides.onComplete,
           onAdjudicate: overrides.onAdjudicate,
           onConsentReview: overrides.onConsentReview,
+          work: overrides.work,
+          onOpenWork: overrides.onOpenWork,
           projectName: "Harness",
         }),
       ),

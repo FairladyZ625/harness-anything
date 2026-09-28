@@ -10,7 +10,7 @@ import { AppSidebar } from "../src/renderer/components/AppSidebar.tsx";
 // 当时这一段每项只是一个打开按钮,解除 pin 只存在于关系图页的抽屉里。这条测试守住入口本身。
 it("每个置顶项都带解除置顶入口,点击用该 task 调 onUnpinWork", async () => {
   const onUnpinWork = vi.fn(),
-    onOpenWorkspace = vi.fn(),
+    onOpenPinned = vi.fn(),
     host = document.createElement("div"),
     root = createRoot(host),
     client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -33,7 +33,7 @@ it("每个置顶项都带解除置顶入口,点击用该 task 调 onUnpinWork", 
             { taskId: "task_aaa", title: "第一条置顶" },
             { taskId: "task_bbb", title: "第二条置顶" },
           ]}
-          onOpenWorkspace={onOpenWorkspace}
+          onOpenPinned={onOpenPinned}
           onUnpinWork={onUnpinWork}
           ledgerStatus={{
             revision: 1,
@@ -73,7 +73,7 @@ it("每个置顶项都带解除置顶入口,点击用该 task 调 onUnpinWork", 
   await act(async () => unpins[1]!.click());
   expect(onUnpinWork).toHaveBeenCalledWith("task_bbb");
   // 解除置顶不应顺带打开该工作。
-  expect(onOpenWorkspace).not.toHaveBeenCalled();
+  expect(onOpenPinned).not.toHaveBeenCalled();
 
   act(() => root.unmount());
   client.clear();

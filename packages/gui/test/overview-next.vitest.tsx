@@ -28,7 +28,7 @@ import { cadenceEventOf } from "../src/renderer/model/cadence.ts";
  *  - G2:议程三分组(评审返回/待初审/决策待裁)渲染真实行;点击行只走统一实体
  *    导航(task/<id>、decision/<id>),不在主行放一键接受;agenda 未读到时显示
  *    读取中,读到但为空显示良好空态,读失败显示错误与原始消息。
- *  - G3:置顶段 + 工作段;组点击走单点切换位 onOpenGroup(S1 未合入=任务详情)。
+ *  - G3:置顶段 + 工作段;组点击走唯一打开位 onOpenTask(App 按根任务即工作分流到工作页)。
  *  - G4:任务 active 与运行 live 分列;live 会话行点击走 selectRuntimeEntity(session/<id>)。
  *  - G5:事件归类词表;follow 新事件只计数不插入已展示列表,点「查看」才进(不抢焦点)。
  */
@@ -244,7 +244,7 @@ beforeAll(() => {
 interface Mounted {
   readonly container: HTMLElement;
   readonly navigateEntity: ReturnType<typeof vi.fn>;
-  readonly openGroup: ReturnType<typeof vi.fn>;
+  readonly openTask: ReturnType<typeof vi.fn>;
   readonly selectRuntimeEntity: ReturnType<typeof vi.fn>;
   /** observe.tail 的待应答队列:每次 loop 调用压入一个 resolver,测试按序消费。 */
   readonly queue: Array<(page: ObserveTailRead) => void>;
@@ -259,7 +259,7 @@ async function mountOverviewNext(options: {
   readonly tasks?: readonly TaskRow[];
 }): Promise<Mounted> {
   const navigateEntity = vi.fn(),
-    openGroup = vi.fn(),
+    openTask = vi.fn(),
     selectRuntimeEntity = vi.fn(),
     queue: Array<(page: ObserveTailRead) => void> = [];
   vi.spyOn(harnessClient, "tailObservability").mockImplementation(
@@ -294,19 +294,18 @@ async function mountOverviewNext(options: {
           catalog: undefined,
           catalogError: null,
           onNavigateEntity: navigateEntity,
-          onOpenGroup: openGroup,
           onSelectRuntimeEntity: selectRuntimeEntity,
           onOpenPool: () => undefined,
           onOpenSessions: () => undefined,
           onSwitchRepo: () => undefined,
           onSearchActiveChange: () => undefined,
           onRefreshLedger: () => undefined,
-          onOpenTask: () => undefined,
+          onOpenTask: openTask,
         }),
       ),
     );
   });
-  return { container, navigateEntity, openGroup, selectRuntimeEntity, queue };
+  return { container, navigateEntity, openTask, selectRuntimeEntity, queue };
 }
 
 /**
@@ -557,7 +556,7 @@ describe("overview next: key work region (G3)", () => {
     // 子任务与独立叶子不进组段。
     expect(rows).not.toContain("独立任务");
     clickRow(view.container, "overview-next-keywork-rows", "根任务组");
-    expect(view.openGroup).toHaveBeenCalledWith("task_root");
+    expect(view.openTask).toHaveBeenCalledWith("task_root");
   });
 
   it("keeps an honest empty state when no groups exist", async () => {
@@ -585,7 +584,7 @@ describe("overview next: execution region (G4)", () => {
     clickRow(view.container, "overview-next-execution-rows", "子任务");
     expect(view.selectRuntimeEntity).toHaveBeenCalledWith("session/runtime_live");
     clickRow(view.container, "overview-next-execution-rows", "待初审任务");
-    expect(view.openGroup).toHaveBeenCalledWith("task_submitted");
+    expect(view.openTask).toHaveBeenCalledWith("task_submitted");
   });
 
   it("keeps honest empties for both lanes and surfaces runtime read errors", async () => {
