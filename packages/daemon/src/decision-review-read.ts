@@ -23,6 +23,14 @@ export function decisionReviewState(row: DecisionProjectionRow): {
   };
 }
 
+/**
+ * The question of the awaits edge that tells a proposal owner about unresolved review changes. The
+ * edge carrying exactly this question is the one the Decision's review state maintains.
+ */
+export function decisionReviewAwaitRationale(decisionId: string): string {
+  return `consent: Decision ${decisionId} has review changes to resolve.`;
+}
+
 export function decisionReviewSummaryRow(row: DecisionProjectionRow) {
   const { decisionId, title, state, riskTier, urgency, proposedAt } = row;
   return { decisionId, title, state, riskTier, urgency, proposedAt };

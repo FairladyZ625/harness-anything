@@ -160,6 +160,9 @@ test("an independent approved review lets the proposal owner accept the current 
       await cell.run({ kind: "decision-show", decisionId, includeBody: true }, owner),
     ).decision as { readonly acceptReviewReadiness: unknown };
     assert.equal(acceptedDecision.acceptReviewReadiness, null);
+    const acceptedAgenda = await cell.read("repo.agenda.read", { limit: 50 }, owner);
+    assert.deepEqual(acceptedAgenda.awaitingYou, []);
+    assert.deepEqual(acceptedAgenda.answeredForYou, []);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -294,6 +297,23 @@ test("Decision judgment and review disposition stay with the proposal owner or e
       reviewer,
     );
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+    const secondReportRef = `decisions/decision-${decisionId}/artifacts/reports/changes-requested-2.md`;
+    writeReport(rootDir, secondReportRef);
+    const reviewedAgain = await cell.run(
+      {
+        kind: "decision-review",
+        decisionId,
+        reviewId: "review-changes-requested-2",
+        reviewContentDigest: digest,
+        verdict: "changes_requested",
+        reason: "The proposal needs a second named correction.",
+        findings: [{ findingId: "finding-2", text: "Name the second correction before acceptance." }],
+        evidenceChecked: [],
+        reportRef: secondReportRef,
+      },
+      reviewer,
+    );
+    assert.equal(reviewedAgain.outcome, "applied", JSON.stringify(reviewedAgain));
     const awaitsRelationId = deriveRelationId({
         source: `decision/${decisionId}`,
         target: `person/${proposer.actor.principal.personId}`,
@@ -349,8 +369,15 @@ test("Decision judgment and review disposition stay with the proposal owner or e
       relationRows(await cell.run({ kind: "relation-list", entity: `decision/${decisionId}` }, proposer)).find(
         ({ relationId }) => relationId === awaitsRelationId,
       )?.state,
-      "retired",
+      "active",
     );
+    const partiallyDisposedAgenda = await cell.read("repo.agenda.read", { limit: 50 }, proposer);
+    assert.deepEqual(
+      partiallyDisposedAgenda.awaitingYou.map(({ sourceRef }: { readonly sourceRef: string }) => sourceRef),
+      [`decision/${decisionId}`],
+    );
+    const secondOverride = await cell.run({ ...override, reviewIds: ["review-changes-requested-2"] }, humanOwner);
+    assert.equal(secondOverride.outcome, "applied", JSON.stringify(secondOverride));
     const disposedAgenda = await cell.read("repo.agenda.read", { limit: 50 }, proposer);
     assert.deepEqual(disposedAgenda.awaitingYou, []);
     assert.deepEqual(disposedAgenda.answeredForYou, []);
@@ -360,6 +387,7 @@ test("Decision judgment and review disposition stay with the proposal owner or e
     );
     assert.equal(approvedOverride.outcome, "applied", JSON.stringify(approvedOverride));
 
+    writeReport(rootDir, `decisions/decision-${decisionId}/artifacts/reports/changes-requested-again.md`);
     const secondReview = await cell.run(
       {
         kind: "decision-review",
@@ -370,18 +398,9 @@ test("Decision judgment and review disposition stay with the proposal owner or e
         reason: "A later review identified another correction.",
         findings: [{ findingId: "finding-2", text: "Address the later correction." }],
         evidenceChecked: [],
-        reportRef: null,
+        reportRef: `decisions/decision-${decisionId}/artifacts/reports/changes-requested-again.md`,
       },
-      withRoleBinding(
-        {
-          actor: {
-            principal: proposer.actor.principal,
-            executor: { kind: "agent" as const, id: "independent-reviewer" },
-          },
-          source: "local" as const,
-        },
-        "arbiter",
-      ),
+      reviewer,
     );
     assert.equal(secondReview.outcome, "applied", JSON.stringify(secondReview));
     assert.equal(
@@ -396,6 +415,52 @@ test("Decision judgment and review disposition stay with the proposal owner or e
       ),
       [`decision/${decisionId}`],
     );
+    const amended = await cell.run(
+      {
+        kind: "decision-amend",
+        decisionId,
+        standingPolicy: false,
+        fulfillments: [],
+        sets: [],
+        appends: [],
+        body: realizedDecisionBody("Review independence amended"),
+      },
+      proposer,
+    );
+    assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+    assert.equal(
+      relationRows(await cell.run({ kind: "relation-list", entity: `decision/${decisionId}` }, proposer)).find(
+        ({ relationId }) => relationId === awaitsRelationId,
+      )?.state,
+      "retired",
+    );
+    const amendedDecision = receiptJson(
+      await cell.run({ kind: "decision-show", decisionId, includeBody: true }, proposer),
+    ).decision as { readonly currentReviewContentDigest: `sha256:${string}` };
+    writeReport(rootDir, `decisions/decision-${decisionId}/artifacts/reports/amended-cut.md`);
+    const newCutReview = await cell.run(
+      {
+        kind: "decision-review",
+        decisionId,
+        reviewId: "review-amended-cut",
+        reviewContentDigest: amendedDecision.currentReviewContentDigest,
+        verdict: "changes_requested",
+        reason: "The amended cut has a new correction.",
+        findings: [{ findingId: "finding-amended", text: "Address the amended-cut correction." }],
+        evidenceChecked: [],
+        reportRef: `decisions/decision-${decisionId}/artifacts/reports/amended-cut.md`,
+      },
+      reviewer,
+    );
+    assert.equal(newCutReview.outcome, "applied", JSON.stringify(newCutReview));
+    const rejected = await cell.run(
+      { kind: "decision-reject", decisionId, reason: "The owner rejects the amended proposal." },
+      humanOwner,
+    );
+    assert.equal(rejected.outcome, "applied", JSON.stringify(rejected));
+    const rejectedAgenda = await cell.read("repo.agenda.read", { limit: 50 }, proposer);
+    assert.deepEqual(rejectedAgenda.awaitingYou, []);
+    assert.deepEqual(rejectedAgenda.answeredForYou, []);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -608,14 +673,8 @@ test("retry completes the awaits write after the review write response is interr
       { body, ...current } = shown,
       digest = decisionReviewContentDigest({ ...current, relations: [] }, body.body),
       reviewer = withRoleBinding(
-        {
-          actor: {
-            principal: proposer.actor.principal,
-            executor: { kind: "agent" as const, id: "retry-reviewer" },
-          },
-          source: "local" as const,
-        },
-        "arbiter",
+        { actor: { principal: { personId: "person-reviewer" }, executor: null }, source: "local" as const },
+        "repo-write",
       ),
       action = {
         kind: "decision-review" as const,
@@ -626,8 +685,9 @@ test("retry completes the awaits write after the review write response is interr
         reason: "Retry must finish the notification write.",
         findings: [{ findingId: "finding-retry", text: "Complete the interrupted notification." }],
         evidenceChecked: [],
-        reportRef: null,
+        reportRef: `decisions/decision-${decisionId}/artifacts/reports/retry.md`,
       };
+    writeReport(rootDir, action.reportRef);
     armed = true;
     const interrupted = await cell.run(action, reviewer);
     assert.equal(interrupted.code, "publication_indeterminate", JSON.stringify(interrupted));
@@ -641,6 +701,90 @@ test("retry completes the awaits write after the review write response is interr
     assert.equal(
       relationRows(await cell.run({ kind: "relation-list", entity: `decision/${decisionId}` }, proposer))[0]?.state,
       "active",
+    );
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a person's ask on the proposal owner survives the review changes being resolved", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-review-awaits-owned-"));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId: workspaceId("decision-review-awaits-owned"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "decision-review-awaits-owned-test",
+  });
+  try {
+    const ownerAdded = await cell.run(
+      {
+        kind: "people-add",
+        personId: proposer.actor.principal.personId,
+        displayName: "Proposal Owner",
+        role: "administrator",
+        commandClass: ["admin"],
+        credentialKind: "email-address",
+        credentialIssuer: "example.invalid",
+        credentialSubject: "proposal-owner@example.invalid",
+      },
+      withRoleBinding(proposer, "admin"),
+    );
+    assert.equal(ownerAdded.outcome, "applied", JSON.stringify(ownerAdded));
+    const decisionId = receiptJson(await cell.run(decisionProposal(), proposer)).decisionId as string,
+      asked = await cell.run(
+        {
+          kind: "relation-relate",
+          sourceRef: `decision/${decisionId}`,
+          targetRef: `person/${proposer.actor.principal.personId}`,
+          relationType: "awaits",
+          rationale: "consent: Do you agree with this proposal?",
+          expectedVersion: 0,
+        },
+        proposer,
+      );
+    assert.equal(asked.outcome, "applied", JSON.stringify(asked));
+    const shown = receiptJson(await cell.run({ kind: "decision-show", decisionId, includeBody: true }, proposer))
+        .decision as { readonly currentReviewContentDigest: `sha256:${string}` },
+      reportRef = `decisions/decision-${decisionId}/artifacts/reports/changes-requested.md`;
+    writeReport(rootDir, reportRef);
+    const reviewed = await cell.run(
+      {
+        kind: "decision-review",
+        decisionId,
+        reviewId: "review-changes-requested",
+        reviewContentDigest: shown.currentReviewContentDigest,
+        verdict: "changes_requested",
+        reason: "The proposal needs a correction.",
+        findings: [{ findingId: "finding-1", text: "Name the correction before acceptance." }],
+        evidenceChecked: [],
+        reportRef,
+      },
+      withRoleBinding(
+        { actor: { principal: { personId: "person-reviewer" }, executor: null }, source: "local" as const },
+        "repo-write",
+      ),
+    );
+    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+    const amended = await cell.run(
+      {
+        kind: "decision-amend",
+        decisionId,
+        standingPolicy: false,
+        fulfillments: [],
+        sets: [],
+        appends: [],
+        body: realizedDecisionBody("Review independence amended"),
+      },
+      proposer,
+    );
+    assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+    const ask = relationRows(
+      await cell.run({ kind: "relation-list", entity: `decision/${decisionId}` }, proposer),
+    ).find(({ relationType }) => relationType === "awaits");
+    assert.deepEqual(
+      { state: ask?.state, rationale: ask?.rationale },
+      { state: "active", rationale: "consent: Do you agree with this proposal?" },
     );
   } finally {
     await cell.close();
