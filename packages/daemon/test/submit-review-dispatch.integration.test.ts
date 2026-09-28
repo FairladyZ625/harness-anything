@@ -277,17 +277,41 @@ test(
         "worker-dispatch",
         "an explicit --preset still wins over the repository default",
       );
-      // A preset that declares no lightweight profile fails closed instead of falling back.
+      // A preset that declares no lightweight profile fails closed instead of falling back, and the
+      // rejection names its own profiles and the presets that do declare lightweight.
       const missing = (await f.run({
         kind: "task-create",
         taskId: "task-missing-profile-child",
         title: "Missing profile subtask",
         parentTaskId: taskId,
-        presetId: "docs-task",
+        presetId: "decision-conformance",
         profileId: "lightweight",
       })) as Record<string, unknown>;
       assert.equal(missing.outcome, "op_rejected", JSON.stringify(missing));
       assert.equal(missing.code, "missing_profile", JSON.stringify(missing));
+      // docs-task declares lightweight too: a declaration or document fix completes under strict settings
+      // with no Fact, no reviewer launch, and no consent.
+      const launchesBefore = f.launches.length;
+      await runChildSlice(
+        f,
+        "task-docs-lightweight-child",
+        "execution-docs-lightweight-child",
+        { presetId: "docs-task", profileId: "lightweight" },
+        { factless: true },
+      );
+      const docsLightweight = createdTask(f.events(), "task-docs-lightweight-child");
+      assert.deepEqual(docsLightweight.closeoutOverrides, { review: false, consent: false, fact: false });
+      const docsCompleted = (await f.run({
+        kind: "task-complete",
+        taskId: "task-docs-lightweight-child",
+        executionId: "execution-docs-lightweight-child",
+      })) as Record<string, unknown>;
+      assert.equal(docsCompleted.outcome, "applied", JSON.stringify(docsCompleted));
+      assert.equal(f.launches.length, launchesBefore, "a lightweight docs-task never launches a reviewer");
+      assert.match(
+        JSON.stringify(missing),
+        /Profile lightweight is unavailable on preset decision-conformance; its profiles: baseline\. Presets that declare lightweight: docs-task, standard-task, worker-dispatch\./u,
+      );
     } finally {
       await f.close();
     }

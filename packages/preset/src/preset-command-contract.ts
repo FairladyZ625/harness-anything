@@ -213,6 +213,12 @@ export const generatedTaskCreateResultFields = Object.freeze(
   taskCreateProjection.taskCreateResultFields.filter((field) => !generatedWriteReceiptFields.includes(field)),
 );
 
+// A cold agent picks the short path from --help alone: the flag says what lightweight lifts and what it keeps,
+// and the Recommended presets rows name the presets that declare it.
+const taskCreateProfileFormat =
+  "<profile; lightweight = short plan and closeout with no review, consent, or fact at closeout, for a " +
+  "low-risk small change (a code change still lands through the PR's CI); Recommended presets below lists " +
+  "the presets that declare it>";
 const taskCreateCliInputs = Object.freeze(
   taskCreateAction.input.fields.flatMap((field) => {
     if (!field.cli) return [];
@@ -225,6 +231,7 @@ const taskCreateCliInputs = Object.freeze(
         ...(field.regex ? { regex: field.regex } : {}),
         ...cli,
         ...(cli.name === "--from-file" ? { format: workspacePathFormat } : {}),
+        ...(cli.name === "--profile" ? { format: taskCreateProfileFormat } : {}),
       }),
     ];
   }),

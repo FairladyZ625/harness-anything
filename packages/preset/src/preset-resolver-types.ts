@@ -103,6 +103,8 @@ export interface InternalPresetResolution {
     readonly templateRef: string;
   }[];
   readonly scripts: readonly PresetPackageScript[];
+  /** The vertical's presets that declare the lightweight profile, so a create receipt can name the short path. */
+  readonly lightweightPresetIds: readonly string[];
   readonly requiredTaskClass?: "work";
   readonly packageRoot: string;
   readonly packageDigest: string;

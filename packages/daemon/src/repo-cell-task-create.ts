@@ -266,7 +266,9 @@ export function prepareTaskCreateAt(
         canonicalVisible: false,
       }),
       commitSha: null,
-      summary: `would create task ${taskId} at ${workspaceRelativePath(roots, compiled.packagePath)}`,
+      summary: `would create task ${taskId} at ${workspaceRelativePath(roots, compiled.packagePath)}${shortPathSummary(
+        compiled,
+      )}`,
     };
     return preview;
   }
@@ -308,7 +310,7 @@ export function preparedTaskCreateReceipt(
       ? `created task ${fields.taskId} at ${workspaceRelativePath(roots, compiled.packagePath)}${workSummary(
           cell,
           compiled.event.payload.task,
-        )}`
+        )}${shortPathSummary(compiled)}`
       : `task ${fields.taskId} is awaiting exact canonical settlement`,
   };
   return receipt;
@@ -322,6 +324,21 @@ function workSummary(cell: RepoCellOperationalContext, task: TaskV2): string {
   if (work !== null) return `\nwork: ${work.taskId} ${work.title}`;
   if (task.taskClass === "work") return `\nwork: ${task.taskId} (new work root; add tasks with --work ${task.taskId})`;
   return "\nwork: none (standalone task); to file it under a work use ha task create --work <id> (see ha work list)";
+}
+
+/** A low-risk task created on a full-ceremony profile hears about the lightweight short path; the profile is
+ * frozen at creation, so the line is advice for this create's rerun or the next small change. */
+function shortPathSummary(compiled: PreparedTaskCreate["compiled"]): string {
+  const { metadata, snapshot, lightweightPresetIds } = compiled;
+  if (metadata.riskTier !== "low" || snapshot.profile.id === "lightweight" || !lightweightPresetIds.length) return "";
+  const where = lightweightPresetIds.includes(snapshot.identity.id)
+    ? "this preset"
+    : `--preset ${lightweightPresetIds.join(" | ")} (not ${snapshot.identity.id})`;
+  return (
+    `\nshort path: a low-risk small change can take --profile lightweight on ${where} — short plan and ` +
+    "closeout, no review, consent, or fact at closeout; a code change still lands through the PR's CI. " +
+    "The profile is fixed at creation."
+  );
 }
 
 export function upgradePresetSnapshot(

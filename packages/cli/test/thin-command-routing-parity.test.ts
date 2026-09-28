@@ -695,6 +695,7 @@ test("task-create help renders recommended presets only from effective catalog r
       validity: "valid",
       ...{
         defaultProfile: "baseline",
+        profiles: [{ id: "baseline" }, { id: "lightweight" }],
         outputShape: "repository-diff",
         completionGates: ["ci", "code-doc-reconciliation"],
       },
@@ -713,9 +714,13 @@ test("task-create help renders recommended presets only from effective catalog r
   );
   assert.match(
     help,
-    /profile=baseline.*outputShape=repository-diff.*completionGates=\["ci","code-doc-reconciliation"\]/su,
+    /profile=baseline \(also --profile lightweight\) — outputShape=repository-diff.*completionGates=\["ci","code-doc-reconciliation"\]/su,
   );
   assert.doesNotMatch(help, /reference-task|long-running-task/u);
+  assert.match(
+    renderThinHelp([], "task", "ha task create"),
+    /--profile — optional; value; format: <profile; lightweight = short plan and closeout with no review, consent, or fact at closeout, for a low-risk small change \(a code change still lands through the PR's CI\)/u,
+  );
 });
 
 test("human preset and task receipts print resolved completion contracts byte-for-byte", () => {

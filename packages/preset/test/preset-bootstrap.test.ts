@@ -227,7 +227,7 @@ test("the lightweight profile materializes the minimal plan and closeout and fre
       source: "local",
       occurredAt: "2026-09-18T00:00:00.000Z",
     } as const;
-    for (const presetId of ["standard-task", "worker-dispatch"] as const) {
+    for (const presetId of ["standard-task", "worker-dispatch", "docs-task"] as const) {
       const compiled = compileTaskBootstrap({
         ...common,
         taskId: `task-${presetId}`,
@@ -256,7 +256,24 @@ test("the lightweight profile materializes the minimal plan and closeout and fre
       const contract = JSON.parse(compiled.documents[1]!.body) as Record<string, unknown>;
       assert.equal(contract.archiveOnComplete, true);
       assert.deepEqual(contract.closeoutOverrides, { review: false, consent: false, fact: false });
+      assert.deepEqual(compiled.lightweightPresetIds, ["docs-task", "standard-task", "worker-dispatch"]);
     }
+    // A preset without the profile fails closed and names its own profiles and the presets that declare it.
+    assert.throws(
+      () =>
+        compileTaskPackage({
+          ...common,
+          taskId: "task-decision-conformance",
+          title: "Lightweight",
+          presetId: "decision-conformance",
+        }),
+      {
+        code: "missing_profile",
+        message:
+          "Profile lightweight is unavailable on preset decision-conformance; its profiles: baseline. " +
+          "Presets that declare lightweight: docs-task, standard-task, worker-dispatch.",
+      },
+    );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
