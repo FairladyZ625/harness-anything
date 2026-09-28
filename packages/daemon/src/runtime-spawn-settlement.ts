@@ -7,6 +7,7 @@ import { runtimeDescendantsAlive } from "./runtime-spawn-process.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
 import { pushWorkerBranch, workerWorktreeDirty } from "./runtime-worker-push.ts";
 import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
+import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
 import { scheduleOutcomeFromRuntime } from "./schedule-runtime-outcome.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
@@ -52,7 +53,12 @@ export async function publishExit(
     const { outcome: initialOutcome, ...classifiedAttempt } = classifyRuntimeExit(active, code),
       attemptOutcome = {
         ...classifiedAttempt,
-        reason: String(scrubProviderValue(classifiedAttempt.reason)).slice(0, 1024),
+        // Provider failures are the classifications a fallback continuation carries forward, and
+        // their reason is a raw diagnostic excerpt — shape those into one line plus the dispatch
+        // stream reference. Worker-stop and gate-red reasons stay byte-identical to before.
+        reason: isProviderFailureClassification(classifiedAttempt.classification)
+          ? attemptOutcomeReason(classifiedAttempt.reason, active.stream.ref)
+          : String(scrubProviderValue(classifiedAttempt.reason)).slice(0, 1024),
       };
     let outcome = initialOutcome;
     if (outcome === "succeeded" && active.decisionReviewTarget) {
@@ -343,21 +349,49 @@ export function runtimeResultText(
     return scrubProviderValue(
       active.finalText ??
         (outcome === "failed"
-          ? (active.failureText ?? "Provider reported failure without a structured diagnostic.")
+          ? (boundedFailureText(active) ?? "Provider reported failure without a structured diagnostic.")
           : ""),
     ) as string;
-  const details = [
-    active.failureText,
-    active.errorOverflowed
-      ? "Provider stderr was omitted because it exceeded the diagnostic limit."
-      : active.errorBuffer.trim() || null,
-  ]
-    .filter((value): value is string => value !== null)
-    .map((value) => scrubProviderValue(value) as string);
+  const details = [boundedFailureText(active), stderrDiagnosticSummary(active)].filter(
+    (value): value is string => value !== null,
+  );
   if (details.length) return `Provider exited with code ${String(code)}. ${details.join("\n")}`;
   return active.stdoutObserved
     ? `Provider exited with code ${String(code)} without a structured failure or stderr diagnostic.`
     : `Provider exited with code ${String(code)} and produced no output.`;
+}
+
+/**
+ * The persisted attempt reason is inlined by every consumer — dispatch rows, the fallback
+ * continuation mission, settlement receipts — so it is one bounded line plus a reference to
+ * the dispatch stream, which keeps the raw provider stderr as worker-host provider_stderr
+ * records. It must never carry the provider's multi-line log verbatim.
+ */
+function attemptOutcomeReason(reason: string, ref: string): string {
+  return `${firstDiagnosticLine(reason)}; full diagnostics: ${ref}`;
+}
+
+/** Provider frame failure text is receipt prose, not log storage: one scrubbed, bounded excerpt. */
+function boundedFailureText(active: ActiveRuntime): string | null {
+  return active.failureText === null ? null : String(scrubProviderValue(active.failureText)).slice(0, 1024);
+}
+
+/** The raw provider stderr stays in the dispatch stream; the result text carries one line and the reference. */
+function stderrDiagnosticSummary(active: ActiveRuntime): string | null {
+  if (active.errorOverflowed) return "Provider stderr was omitted because it exceeded the diagnostic limit.";
+  const stderr = active.errorBuffer.trim();
+  return stderr ? `${firstDiagnosticLine(stderr)}; full stderr: ${active.stream.ref}` : null;
+}
+
+/** The first non-empty, trimmed line of a scrubbed diagnostic, bounded for inline consumption. */
+function firstDiagnosticLine(value: string): string {
+  const scrubbed = String(scrubProviderValue(value));
+  return (
+    scrubbed
+      .split(/\r?\n/u)
+      .map((line) => line.trim())
+      .find((line) => line.length > 0) ?? ""
+  ).slice(0, 200);
 }
 
 export function applied(

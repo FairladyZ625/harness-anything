@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -26,7 +26,7 @@ const installation: RuntimeInstallationWitness = {
   version: "1.0.0",
   observedAt: "2026-08-26T00:00:00.000Z",
 };
-type Behavior = "429" | "success" | "worker_stop" | "empty_success";
+type Behavior = "429" | "success" | "worker_stop" | "empty_success" | "stderr_fail";
 const behaviors = new Map<string, Behavior>([
   ["provider-rate-first", "429"],
   ["provider-success-second", "success"],
@@ -42,6 +42,8 @@ const behaviors = new Map<string, Behavior>([
   ["provider-bare-second", "success"],
   ["provider-bare-cross-kind", "success"],
   ["provider-bare-other-model", "success"],
+  ["provider-stderr-first", "stderr_fail"],
+  ["provider-stderr-second", "success"],
 ]);
 
 test("provider fallback switches attempts, exhausts without blocking the task, and never switches on worker_stop", async () => {
@@ -327,6 +329,45 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     assert.equal(models.get("provider-bare-second"), "bare-model");
     assert.equal(models.has("provider-bare-cross-kind"), false);
     assert.equal(models.has("provider-bare-other-model"), false);
+
+    await installAgent(cell, "fallback-stderr-bounded", [
+      { instance: "provider-stderr-first" },
+      { instance: "provider-stderr-second" },
+    ]);
+    await startTask(cell, root, "task_provider_fallback_stderr", "execution-provider-fallback-stderr");
+    await cell.spawnRuntime(
+      {
+        agentId: "fallback-stderr-bounded",
+        cwd: { scope: "repo-root" },
+        prompt: "Fail with a large provider stderr log.",
+        taskId: "task_provider_fallback_stderr",
+        idempotencyKey: "provider-fallback-stderr",
+      },
+      binding,
+    );
+    const stderrBounded = await eventually(async () => {
+      const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_stderr" })).dispatches;
+      return rows.length === 2 && rows[1]?.status === "succeeded" ? rows : null;
+    });
+    assertAttemptChain(stderrBounded, ["provider-stderr-first", "provider-stderr-second"]);
+    assert.equal(stderrBounded[0]?.classification, "provider_fault");
+    const stderrReason = stderrBounded[0]?.reason ?? "";
+    assert.equal(stderrReason.includes("\n"), false, JSON.stringify(stderrReason));
+    assert.match(stderrReason, /^PROVIDER-STDERR-FIRST-LINE startup log/u);
+    assert.match(stderrReason, /full diagnostics: file:\.harness\/runtime\/dispatches\//u);
+    assert.doesNotMatch(stderrReason, /PROVIDER-STDERR-RAW-LINE-3/u);
+    const stderrContinuation = prompts.get("provider-stderr-second")?.[0] ?? "";
+    assert.match(stderrContinuation, /# Provider fallback continuation/u);
+    assert.match(
+      stderrContinuation,
+      /上次 attempt 用 provider-stderr-first\/provider-success-model 因 provider_fault/u,
+    );
+    assert.match(stderrContinuation, /full diagnostics: file:\.harness\/runtime\/dispatches\//u);
+    assert.doesNotMatch(stderrContinuation, /PROVIDER-STDERR-RAW-LINE-3/u);
+    assert.ok(
+      existsSync(dispatchStreamPath(root, stderrBounded[0]!.dispatchId)),
+      "the reason's diagnostics reference must point at a real dispatch stream",
+    );
   } finally {
     await cell.close();
     rmSync(parent, { recursive: true, force: true });
@@ -604,6 +645,7 @@ function definition(instanceId: string, model: string): AgentDefinitionSnapshot 
 
 function fakeProcess(pid: number, behavior: Behavior): RuntimeProcess {
   let output: ((chunk: string) => void) | null = null,
+    errorOutput: ((chunk: string) => void) | null = null,
     exit: ((code: number | null) => void) | null = null,
     terminated = false;
   return {
@@ -611,11 +653,23 @@ function fakeProcess(pid: number, behavior: Behavior): RuntimeProcess {
     onOutput: (listener) => {
       output = listener;
     },
-    onErrorOutput: () => undefined,
+    onErrorOutput: (listener) => {
+      errorOutput = listener;
+    },
     onExit: (listener) => {
       exit = listener;
       setImmediate(() => {
         if (terminated) return;
+        if (behavior === "stderr_fail") {
+          errorOutput?.(
+            [
+              "PROVIDER-STDERR-FIRST-LINE startup log",
+              ...Array.from({ length: 40 }, (_, index) => `PROVIDER-STDERR-RAW-LINE-${String(index + 2)}`),
+            ].join("\n") + "\n",
+          );
+          exit?.(1);
+          return;
+        }
         const frames =
           behavior === "empty_success"
             ? []

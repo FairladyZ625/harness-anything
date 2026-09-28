@@ -154,6 +154,23 @@ export function reviewDispatchIds(
   };
 }
 
+/**
+ * Inline cap for frozen artifact bodies in the review prompt: a delivery's raw evidence files can
+ * be hundreds of KB each, and the prompt must stay under the reviewer provider's input limit. The
+ * anchor (path, revision, blobSha256) still identifies the full frozen content for retrieval.
+ */
+const reviewArtifactInlineLimit = 16 * 1024;
+
+function reviewArtifactRecord(artifact: ReturnType<typeof readSubmissionArtifact>) {
+  return artifact.body.length > reviewArtifactInlineLimit
+    ? {
+        ...artifact,
+        body: artifact.body.slice(0, reviewArtifactInlineLimit),
+        bodyTruncatedFromChars: artifact.body.length,
+      }
+    : artifact;
+}
+
 /** The review packet prompt every reviewer dispatch carries; each dispatch owns exactly one task. */
 export function reviewDispatchPrompt(input: {
   readonly cell: RepoCellOperationalContext;
@@ -174,10 +191,16 @@ export function reviewDispatchPrompt(input: {
     `The exact submission digest is ${submissionDigest(execution.submission!)}; ` +
       `delivery ${JSON.stringify(execution.submission!)}.`,
     ...(execution.submission!.artifacts ?? []).map((anchor) =>
-      JSON.stringify(readSubmissionArtifact(cell, packagePath, anchor.path, anchor.revision, anchor.blobSha256)),
+      JSON.stringify(
+        reviewArtifactRecord(
+          readSubmissionArtifact(cell, packagePath, anchor.path, anchor.revision, anchor.blobSha256),
+        ),
+      ),
     ),
     "For artifact anchors, review the center-accepted frozen contents above against the contract; " +
-      "do not substitute local files or require Git ancestry for them.",
+      "do not substitute local files or require Git ancestry for them. " +
+      "Bodies longer than the inline limit are truncated and marked bodyTruncatedFromChars; " +
+      "the anchor's path, revision and blobSha256 still identify the full frozen content.",
     `Effective completion gates: ${gates.length ? gates.join(", ") : "none"}.`,
     ...(inapplicable.length ? [`Declared gates not applicable to this delivery: ${inapplicable.join(", ")}.`] : []),
     "Read the task plan, closeout, and submitted delivery yourself. " +
