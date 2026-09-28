@@ -1,41 +1,9 @@
-import type { EngineId, ExternalRef, TaskId } from "./task.js";
-import type { ImmutableBindingField } from "./lifecycle-binding.js";
-
-export type EngineError =
-  | { readonly _tag: "EngineNotEnabled"; readonly engine: EngineId }
-  | { readonly _tag: "AdapterUnavailable"; readonly engine: EngineId; readonly cause?: unknown }
-  | { readonly _tag: "AuthMissing"; readonly engine: EngineId }
-  | { readonly _tag: "RefNotFound"; readonly ref: ExternalRef }
-  | { readonly _tag: "TaskAlreadyExists"; readonly taskId: TaskId }
-  | { readonly _tag: "TaskNotFound"; readonly taskId: TaskId }
-  | { readonly _tag: "InvalidTransition"; readonly taskId: TaskId; readonly from: string; readonly to: string }
-  | { readonly _tag: "DuplicateExternalBinding"; readonly engine: EngineId; readonly ref: ExternalRef }
-  | { readonly _tag: "DuplicateAdoptClaim"; readonly engine: EngineId; readonly ref: ExternalRef }
-  | { readonly _tag: "StaleSnapshotRefused"; readonly engine: EngineId; readonly ref: ExternalRef }
-  | { readonly _tag: "GeneratedTaskIdRequired"; readonly taskId: TaskId }
-  | { readonly _tag: "MalformedSnapshot"; readonly raw: unknown }
-  | { readonly _tag: "StatusUnmapped"; readonly rawStatus: string }
-  | { readonly _tag: "EngineOwnsStatus"; readonly engine: EngineId; readonly ref: ExternalRef }
-  | { readonly _tag: "RateLimited"; readonly engine: EngineId; readonly retryAfterMs?: number }
-  | { readonly _tag: "EngineUnreachable"; readonly engine: EngineId; readonly cause?: unknown }
-  | { readonly _tag: "Timeout"; readonly ms: number };
-
-export type BindingInvariantError = {
-  readonly _tag: "BindingInvariantViolation";
-  readonly taskId: TaskId;
-  readonly field: ImmutableBindingField;
-  readonly expected: string | null;
-  readonly actual: string | null;
-};
+import type { TaskId } from "./task.js";
 
 export type ArtifactStoreError =
   | { readonly _tag: "TaskPackageNotFound"; readonly taskId: TaskId }
   | { readonly _tag: "ArtifactReadFailed"; readonly path: string; readonly cause?: unknown }
   | { readonly _tag: "ArtifactWriteRejected"; readonly path: string; readonly reason: string };
-
-export type TemplateLibraryError =
-  | { readonly _tag: "TemplateNotFound"; readonly templateId: string; readonly locale?: string }
-  | { readonly _tag: "TemplateCatalogInvalid"; readonly reason: string };
 
 type TaggedDomainError<Tag extends string, Code extends string> = {
   readonly _tag: Tag;

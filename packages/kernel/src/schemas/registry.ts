@@ -11,24 +11,6 @@ import { FactEventSchema } from "./fact-event.ts";
 import { HarnessCheckReportSchema } from "./harness-check-report.ts";
 import { SubtaskPlanSchema } from "./subtask-plan.ts";
 import { VerticalDefinitionSchema } from "./vertical-definition.ts";
-
-export { ActorKindSchema, ActorRefSchema, LinkKindSchema } from "./common.ts";
-export { FactEventSchema } from "./fact-event.ts";
-export {
-  HarnessCheckReportSchema,
-  ProjectionWarningCodeSchema,
-  ProjectionWarningSourceSchema,
-} from "./harness-check-report.ts";
-export { SubtaskPlanSchema } from "./subtask-plan.ts";
-export {
-  EntityRelationRecordSchema,
-  EntityRelationsSchema,
-  RelationDirectionSchema,
-  RelationOriginSchema,
-  RelationStateSchema,
-  RelationStrengthSchema,
-  RelationTypeSchema,
-} from "./entity-relations.ts";
 export type { VerticalDefinition } from "../domain/vertical-definition.ts";
 
 export const DomainStatusSchema = Schema.Literal(...domainStatuses);
@@ -359,21 +341,9 @@ export const DocsReleasePromotionBundleSchema = Schema.Struct({
   redactionReport: PublishableProjectionSchema.fields.redactionReport,
 });
 
-export type HarnessConfig = Schema.Schema.Type<typeof HarnessConfigSchema>;
 export type TaskFrontmatter = Schema.Schema.Type<typeof TaskFrontmatterSchema>;
-export type EntityRelations = Schema.Schema.Type<typeof EntityRelationsSchema>;
-export type TaskSnapshot = Schema.Schema.Type<typeof TaskSnapshotSchema>;
-export type PublishableProjection = Schema.Schema.Type<typeof PublishableProjectionSchema>;
 export type TemplateCatalog = Schema.Schema.Type<typeof TemplateCatalogSchema>;
 export type TemplateSelection = Schema.Schema.Type<typeof TemplateSelectionSchema>;
-export type LegacyEvidencePointer = Schema.Schema.Type<typeof LegacyEvidencePointerSchema>;
-export type LegacyIndexEntry = Schema.Schema.Type<typeof LegacyIndexEntrySchema>;
-export type LegacyIndex = Schema.Schema.Type<typeof LegacyIndexSchema>;
-export type LegacyCollisionReport = Schema.Schema.Type<typeof LegacyCollisionReportSchema>;
-export type SqliteTaskRow = Schema.Schema.Type<typeof SqliteTaskRowSchema>;
-export type HarnessCheckReport = Schema.Schema.Type<typeof HarnessCheckReportSchema>;
-export type DocsReleasePromotionBundle = Schema.Schema.Type<typeof DocsReleasePromotionBundleSchema>;
-export type SubtaskPlan = Schema.Schema.Type<typeof SubtaskPlanSchema>;
 
 export const schemaRegistry = [
   {
@@ -482,5 +452,3 @@ export const schemaRegistry = [
     invalidFixturePath: "packages/kernel/fixtures/schemas/subtask-plan/invalid.json",
   },
 ] as const;
-
-export const requiredSchemaIds = schemaRegistry.map((entry) => entry.id);

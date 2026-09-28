@@ -8,7 +8,8 @@ import {
   normalizePersistedCanonicalEvent,
   parseCanonicalEvent,
 } from "../domain/doc-sync.contract.ts";
-import { deriveRelationId, isFactId, parseEntityRef, relationRecord } from "../domain/index.ts";
+import { deriveRelationId, parseEntityRef, relationRecord } from "../domain/index.ts";
+import { isFactId } from "../domain/fact-event.ts";
 import { relationOwnerRef, type EntityRelationRecord } from "../domain/entity-relation.ts";
 import {
   embeddedRelationEventsForReplay,

@@ -3,7 +3,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { Effect } from "effect";
 import type { Exit } from "effect";
-import { taskEntityId } from "../../src/domain/index.ts";
 import type { WriteOp } from "../../src/ports/index.ts";
 import { closeTaskProjectionsUnder } from "../../src/projection/rebuildable-task-projection.ts";
 import { closeSqliteEventStoresUnder } from "../../src/store/sqlite-ledger-connections.ts";
@@ -41,7 +40,7 @@ export async function runEffect<A, E>(effect: Effect.Effect<A, E>): Promise<A> {
 export function docWrite(opId: string, taskId: string, documentPath: string, body: string): WriteOp {
   return {
     opId,
-    entityId: taskEntityId(taskId),
+    entityId: `task/${taskId}`,
     kind: "doc_write",
     payload: {
       path: documentPath,

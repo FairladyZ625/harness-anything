@@ -3,21 +3,29 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
 import { Schema } from "effect";
-import { PublishableProjectionSchema } from "../../src/index.ts";
+import { PublishableProjectionSchema } from "../../src/schemas/registry.ts";
 
 test("publishable projection JSON schema rejects extra private/local-only fields", () => {
-  const schema = JSON.parse(readFileSync("packages/kernel/schemas/json/publishable-projection.schema.json", "utf8")) as {
+  const schema = JSON.parse(
+    readFileSync("packages/kernel/schemas/json/publishable-projection.schema.json", "utf8"),
+  ) as {
     readonly additionalProperties?: boolean;
-    readonly properties: Record<string, {
-      readonly additionalProperties?: boolean;
-      readonly minItems?: number;
-      readonly items?: { readonly additionalProperties?: boolean };
-      readonly properties?: Record<string, {
+    readonly properties: Record<
+      string,
+      {
         readonly additionalProperties?: boolean;
         readonly minItems?: number;
         readonly items?: { readonly additionalProperties?: boolean };
-      }>;
-    }>;
+        readonly properties?: Record<
+          string,
+          {
+            readonly additionalProperties?: boolean;
+            readonly minItems?: number;
+            readonly items?: { readonly additionalProperties?: boolean };
+          }
+        >;
+      }
+    >;
   };
 
   assert.equal(schema.additionalProperties, false);
@@ -40,14 +48,14 @@ test("publishable projection runtime schema rejects empty readiness evidence", (
       closeoutReadiness: "passed",
       reviewGate: "passed",
       ciGate: "passed",
-      evidenceLinks: []
+      evidenceLinks: [],
     },
     redactionReport: {
       scannerVersion: "publish-redaction/v1",
       findings: [],
-      passed: true
+      passed: true,
     },
-    idempotencyKey: "sha256:empty-evidence"
+    idempotencyKey: "sha256:empty-evidence",
   };
 
   assert.throws(() => Schema.decodeUnknownSync(PublishableProjectionSchema)(projection));

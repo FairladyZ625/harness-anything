@@ -2,11 +2,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import * as kernel from "../../src/index.ts";
+import { TASK_LIFECYCLE_COMMAND_CATALOG } from "../../src/domain/task-lifecycle.contract.ts";
 
 test("kernel public source index is importable by the explicit TS test runner", () => {
   assert.equal(kernel.REPLAY_TASK_GRAPH.template, "replay/v1");
   assert.deepEqual(
-    kernel.TASK_LIFECYCLE_COMMAND_CATALOG.map((entry) => entry.commandType),
+    TASK_LIFECYCLE_COMMAND_CATALOG.map((entry) => entry.commandType),
     [
       "CreateReplayTask",
       "StartExecution",
