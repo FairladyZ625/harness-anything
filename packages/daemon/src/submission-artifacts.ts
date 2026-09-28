@@ -10,12 +10,25 @@ import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 export const artifactAnchorGuidance =
   "Use artifact:artifacts/report.md; submit pins the current center-accepted revision.";
 
-// A path token is ASCII path characters only; every other character — whitespace, ASCII or CJK
-// punctuation, Chinese prose — ends the anchor, so 「artifact:artifacts/report.md、」 cannot swallow
-// a neighbouring anchor. `@` ends nothing: a malformed @revision must fail the whole anchor attempt
-// rather than degrade to pinning the current revision.
-const artifactAnchorPattern =
-  /artifact:([A-Za-z0-9._/-]+?)(?:@([1-9][0-9]*))?(?=$|[^A-Za-z0-9._/@-]|[.](?=$|[^A-Za-z0-9._/@-]))/gu;
+// Non-ASCII punctuation (Unicode \p{P}) and fullwidth-block symbols end the anchor, so
+// 「artifact:artifacts/design.md、」 cannot swallow the next anchor, while CJK letters and other
+// non-ASCII path material still count as path characters: artifacts/实测报告.md parses. ASCII
+// handling keeps the pre-CJK-fix rules — whitespace, backtick, angle brackets, comma, and right
+// paren terminate, and a trailing `.` terminates without being consumed. A malformed @revision
+// fails the whole anchor attempt rather than degrading to pinning the current revision.
+const nonAsciiBreak = "[[\\p{P}--[\\x00-\\x7F]][[\\uFF00-\\uFFEF]--[\\p{L}]--[\\p{N}]]]";
+const anchorBreak = "[[\\s`<>,\\)]" + nonAsciiBreak + "]";
+const artifactAnchorPattern = new RegExp(
+  "artifact:([[^\\s`<>@]--[" +
+    nonAsciiBreak +
+    "]]+?)(?:@([1-9][0-9]*))?" +
+    "(?=$|" +
+    anchorBreak +
+    "|[.](?=$|" +
+    anchorBreak +
+    "))",
+  "gv",
+);
 
 type ArtifactAnchorMatch = {
   readonly path: string;

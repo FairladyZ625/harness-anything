@@ -10,7 +10,8 @@ const repositorySettingsStub = {
   readRepository: () => ({ gates: [], ci: { workflows: [] } }),
 } as unknown as Parameters<typeof deriveCloseoutSubmission>[0]["settings"];
 const packagePath = "tasks/task-artifact",
-  path = `${packagePath}/artifacts/report.md`;
+  path = `${packagePath}/artifacts/report.md`,
+  cjkPath = `${packagePath}/artifacts/实测报告.md`;
 function fixture() {
   const bytes = Buffer.from("Frozen evidence.\n"),
     blobSha256 = sha256Bytes(bytes);
@@ -18,7 +19,12 @@ function fixture() {
     schema: "doc-event/v1",
     workspaceRevision: 7,
     opId: "accepted-7",
-    payload: { changes: [{ path, candidate: { sha256: blobSha256 } }] },
+    payload: {
+      changes: [
+        { path, candidate: { sha256: blobSha256 } },
+        { path: cjkPath, candidate: { sha256: blobSha256 } },
+      ],
+    },
   };
   const store = {
     readEventAtRevision: (revision: number) =>
@@ -49,7 +55,7 @@ function derive(summary: string) {
       watermark: 7,
       sourceRevision: 7,
       document: {
-        workspaceRevision: target === path ? 7 : undefined,
+        workspaceRevision: [path, cjkPath].includes(target) ? 7 : undefined,
         body: target.endsWith("task-contract.json")
           ? JSON.stringify({
               documents: [
@@ -135,8 +141,8 @@ test("artifact anchors leave trailing prose punctuation outside the path", () =>
   assert.deepEqual(artifactAnchors("artifact:artifacts/report.md@7.2"), []);
 });
 
-test("anchors break before any CJK or fullwidth punctuation or prose character", () => {
-  for (const trailing of ["、", "；", "：", "）", "。", "，", "的"])
+test("anchors break before any CJK or fullwidth punctuation", () => {
+  for (const trailing of ["、", "；", "：", "）", "。", "，"])
     assert.deepEqual(artifactAnchors(`已交付 artifact:artifacts/report.md${trailing}回执留档。`), [
       { path: "artifacts/report.md" },
     ]);
@@ -152,6 +158,27 @@ test("anchors break before any CJK or fullwidth punctuation or prose character",
       derive(`已交付 artifact:artifacts/report.md${trailing}`).artifacts?.map((a) => a.path),
       [path],
     );
+});
+
+test("non-ASCII letters and % stay path characters, so CJK filenames still anchor", () => {
+  assert.deepEqual(artifactAnchors("已交付 artifact:artifacts/实测报告.md。"), [{ path: "artifacts/实测报告.md" }]);
+  assert.deepEqual(artifactAnchors("artifact:artifacts/a2-修复报告.md、回执另存。"), [
+    { path: "artifacts/a2-修复报告.md" },
+  ]);
+  assert.deepEqual(artifactAnchors("artifact:artifacts/b5v7-cpu-%p.cpuprofile"), [
+    { path: "artifacts/b5v7-cpu-%p.cpuprofile" },
+  ]);
+  assert.deepEqual(artifactAnchors("artifact:artifacts/实测报告.md@7。"), [
+    { path: "artifacts/实测报告.md", revision: 7 },
+  ]);
+  // CJK prose directly after an ASCII filename glues onto the path instead of breaking it; the
+  // resulting anchor then names a path the center never accepted, which resolution rejects.
+  assert.deepEqual(artifactAnchors("artifact:artifacts/report.md的回执。"), [{ path: "artifacts/report.md的回执" }]);
+  const submitted = derive("已交付 artifact:artifacts/实测报告.md。");
+  assert.deepEqual(
+    submitted.artifacts?.map((anchor) => [anchor.path, anchor.revision]),
+    [[cjkPath, 7]],
+  );
 });
 
 test("a prose label ending in 'artifact:' is not counted as a second anchor", () => {
@@ -186,9 +213,9 @@ test("unparsable artifact anchors are reported with the offending summary text",
     code: "invalid_submission",
     message: /is not a parsable anchor: artifact:artifacts\/report\.md@7\.2\./u,
   });
-  assert.throws(() => derive("已交付 artifact:报告.md、"), {
+  assert.throws(() => derive("已交付 artifact:：报告.md、"), {
     code: "invalid_submission",
-    message: /is not a parsable anchor: artifact:报告\.md、\./u,
+    message: /is not a parsable anchor: artifact:：报告\.md、\./u,
   });
 });
 
