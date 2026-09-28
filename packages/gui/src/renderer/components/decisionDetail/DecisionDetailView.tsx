@@ -2,9 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
   CaretRight,
+  ChatsCircle,
   CirclesFour,
   FileText,
+  Gavel,
   LinkSimple,
+  NotePencil,
+  Scroll,
   SealCheck,
   WarningCircle,
 } from "@phosphor-icons/react";
@@ -18,6 +22,20 @@ import { DecisionBodyPanel } from "./DecisionBodyPanel.tsx";
 import { ClaimsPanel, OverviewPanel, RelationsPanel } from "./DecisionDetailSections.tsx";
 import { ActorRef, actorsLabel, IdentityItem } from "./widgets.tsx";
 import { AwaitsAskStrip } from "../AwaitsAskStrip.tsx";
+import type { DecisionAction, DecisionMutationFeedback } from "../../decision-actions.ts";
+import { useDecisionReviewActions } from "../../decision-review-actions.ts";
+import { useDecisionShowQuery } from "../../decision-show-data.ts";
+import { withShownReview } from "../../model/decision-review.ts";
+import {
+  decisionReviewRef,
+  decisionSessionsRef,
+  type DecisionReviewTab,
+} from "../../navigation/decisionReviewRoutes.ts";
+import { DecisionReviewBadge } from "../decisionReview/parts.tsx";
+import { DecisionReviewTab as ReviewPanel } from "../decisionReview/DecisionReviewTab.tsx";
+import { DecisionRespondTab } from "../decisionReview/DecisionRespondTab.tsx";
+import { DecisionReportTab } from "../decisionReview/DecisionReportTab.tsx";
+import { DecisionJudgeTab } from "../decisionReview/DecisionJudgeTab.tsx";
 
 /**
  * 决策详情页(与 Task 详情同级的信息架构:身份条 + 分页签)。
@@ -43,7 +61,13 @@ const tabs = [
     label: "views.decisionDetailView.tabRelations",
     icon: LinkSimple,
   },
+  // Decision 评审(dec_A64B14D6 CH6):评审/回应/报告/裁决是可寻址页签,落点见 decisionReviewRoutes。
+  { id: "review", label: "views.decisionReview.tabReview", icon: ChatsCircle },
+  { id: "respond", label: "views.decisionReview.tabRespond", icon: NotePencil },
+  { id: "report", label: "views.decisionReview.tabReport", icon: Scroll },
+  { id: "judge", label: "views.decisionReview.tabJudge", icon: Gavel },
 ] as const;
+const reviewTabIds: ReadonlySet<string> = new Set<DecisionReviewTab>(["review", "respond", "report", "judge"]);
 
 type DecisionDetailTab = (typeof tabs)[number]["id"];
 
@@ -62,9 +86,25 @@ export function DecisionDetailView({
   onNavigateEntity,
   onFocusGraph,
   onOpenPool,
+  reviewLocation = null,
+  onLocate,
+  onJudge,
+  judgeFeedback,
+  onCheckReceipt,
 }: {
   repoId: string;
   decisionId: string | null;
+  /** 路由给出的评审页签与报告定位(decisionreview/<id>/<tab>[/<reviewId>])。 */
+  reviewLocation?: { readonly tab: DecisionReviewTab | null; readonly reviewId: string | null } | null;
+  /** 页签切换替换当前位置(不推栈),让评审页签可寻址且跨页回链总能落到对应页签。 */
+  onLocate?: (ref: string) => void;
+  onJudge?: (
+    decision: DecisionRow,
+    action: DecisionAction,
+    input: { readonly rationale: string; readonly judgmentOnlyRationale?: string },
+  ) => Promise<DecisionMutationFeedback>;
+  judgeFeedback?: DecisionMutationFeedback;
+  onCheckReceipt?: () => void;
   decisions: DecisionRow[];
   tasks?: readonly TaskRow[];
   relations?: RelationEdge[];
@@ -78,14 +118,38 @@ export function DecisionDetailView({
   onFocusGraph?: (ref: string) => void;
   onOpenPool?: (decisionId: string) => void;
 }) {
-  const [activeTab, setActiveTab] = useState<DecisionDetailTab>("body");
+  const routeTab = reviewLocation?.tab ?? null,
+    routeReviewId = reviewLocation?.reviewId ?? null;
+  const [activeTab, setActiveTab] = useState<DecisionDetailTab>(routeTab ?? "body");
   useEffect(() => {
-    setActiveTab("body");
-  }, [decisionId]);
+    setActiveTab(routeTab ?? "body");
+    // 路由页签只在决策或评审落点变化时生效;同一落点内的页签切换由 selectTab 负责。
+  }, [decisionId, routeTab, routeReviewId]);
+  const reviewActions = useDecisionReviewActions(repoId, decisionId ?? "");
+  const selectTab = (tab: DecisionDetailTab) => {
+    setActiveTab(tab);
+    if (decisionId)
+      onLocate?.(
+        reviewTabIds.has(tab)
+          ? decisionReviewRef(decisionId, tab as DecisionReviewTab, tab === "report" ? routeReviewId : null)
+          : `decision/${decisionId}`,
+      );
+  };
 
+  const listed = useMemo(() => decisions.find((row) => row.decisionId === decisionId) ?? null, [decisions, decisionId]);
+  // 评审切面与 accept 就绪只有带正文的单体读算得出(与正文页签同一查询);追赶中或读失败时
+  // 评审页签逐态说明,不把「没读到」显示成「没有评审 / 可免审」。
+  const shown = useDecisionShowQuery(repoId, listed ? listed.decisionId : ""),
+    reviewRead: "loading" | "pending" | "error" | "ready" = shown.isPending
+      ? "loading"
+      : shown.isError
+        ? "error"
+        : shown.data.status === "pending"
+          ? "pending"
+          : "ready";
   const decision = useMemo(
-    () => decisions.find((row) => row.decisionId === decisionId) ?? null,
-    [decisions, decisionId],
+    () => (listed && reviewRead === "ready" ? withShownReview(listed, shown.data?.decision) : listed),
+    [listed, reviewRead, shown.data],
   );
 
   if (!decision) {
@@ -149,9 +213,31 @@ export function DecisionDetailView({
               <DecisionStateBadge state={decision.state} />
               <RiskTierBadge tier={decision.riskTier} />
               <UrgencyBadge urgency={decision.urgency} />
+              <DecisionReviewBadge review={decision.review} />
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1">
+            {decision.review?.readiness && (
+              <button
+                type="button"
+                data-testid="decision-judge-open"
+                onClick={() => onNavigateEntity(decisionReviewRef(decision.decisionId, "judge"))}
+                className="rounded-md bg-accent px-2 py-1.5 ui-micro font-semibold text-accent-fg hover:bg-accent/85"
+              >
+                {t("views.decisionReview.judgeThis")}
+              </button>
+            )}
+            <button
+              type="button"
+              data-testid="decision-review-sessions-open"
+              onClick={() => onNavigateEntity(decisionSessionsRef(decision.decisionId))}
+              className={[
+                "rounded-md border border-border px-2 py-1.5 ui-micro text-text-muted",
+                "hover:border-border-strong hover:bg-surface-raised hover:text-text",
+              ].join(" ")}
+            >
+              {t("views.decisionReview.allSessions")}
+            </button>
             {onOpenPool && (
               <button
                 type="button"
@@ -242,7 +328,8 @@ export function DecisionDetailView({
               role="tab"
               aria-selected={active}
               aria-controls={`decision-panel-${tab.id}`}
-              onClick={() => setActiveTab(tab.id)}
+              data-testid={`decision-tab-${tab.id}`}
+              onClick={() => selectTab(tab.id)}
               className={[
                 "relative flex h-8 shrink-0 items-center gap-1 px-2 ui-micro font-medium",
                 active ? "text-text" : "text-text-faint hover:text-text-muted",
@@ -271,6 +358,56 @@ export function DecisionDetailView({
               <OverviewPanel decision={decision} />
             ) : activeTab === "claims" ? (
               <ClaimsPanel decision={decision} />
+            ) : reviewTabIds.has(activeTab) && reviewRead !== "ready" ? (
+              <p
+                data-testid="decision-review-read-state"
+                data-state={reviewRead}
+                className={`rounded-md border px-3 py-2 font-mono ui-meta ${
+                  reviewRead === "error"
+                    ? "border-danger/30 bg-danger/5 text-danger"
+                    : "border-stale/40 bg-stale/5 text-stale"
+                }`}
+              >
+                {reviewRead === "loading"
+                  ? t("views.decisionReview.reviewReadLoading")
+                  : reviewRead === "pending"
+                    ? t("views.decisionReview.reviewReadPending")
+                    : t("views.decisionReview.reviewReadFailed", {
+                        detail: shown.error instanceof Error ? shown.error.message : String(shown.error),
+                      })}
+              </p>
+            ) : activeTab === "review" ? (
+              <ReviewPanel
+                decision={decision}
+                dispatchFeedback={reviewActions.feedback?.kind === "dispatch" ? reviewActions.feedback : undefined}
+                onDispatchReview={(digest) => void reviewActions.dispatch(digest)}
+                onNavigateEntity={onNavigateEntity}
+              />
+            ) : activeTab === "respond" ? (
+              <DecisionRespondTab
+                decision={decision}
+                feedback={reviewActions.feedback?.kind === "respond" ? reviewActions.feedback : undefined}
+                onRespond={reviewActions.respond}
+                onNavigateEntity={onNavigateEntity}
+              />
+            ) : activeTab === "report" ? (
+              <DecisionReportTab
+                repoId={repoId}
+                decision={decision}
+                reviewId={routeReviewId}
+                onNavigateEntity={onNavigateEntity}
+              />
+            ) : activeTab === "judge" ? (
+              <DecisionJudgeTab
+                decision={decision}
+                relations={relations}
+                judgeFeedback={judgeFeedback}
+                overrideFeedback={reviewActions.feedback?.kind === "override" ? reviewActions.feedback : undefined}
+                onJudge={onJudge}
+                onCheckReceipt={onCheckReceipt}
+                onOverride={reviewActions.override}
+                onNavigateEntity={onNavigateEntity}
+              />
             ) : (
               <RelationsPanel
                 decision={decision}

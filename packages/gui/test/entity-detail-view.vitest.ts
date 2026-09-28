@@ -276,6 +276,12 @@ function showReceipt(body: string | null, status: "ready" | "pending" = "ready")
         claims: [],
         provenance: [],
         judgmentConsents: [],
+        reviews: [],
+        reviewResponses: [],
+        reviewOverrides: [],
+        // decision-show 的评审切面(daemon decisionReviewState):终态行没有 accept 就绪判定。
+        currentReviewContentDigest: `sha256:${"b".repeat(64)}`,
+        acceptReviewReadiness: null,
         body:
           body === null
             ? null
@@ -422,7 +428,7 @@ describe("DecisionDetailView", () => {
     expect(showDecision).not.toHaveBeenCalled();
   });
 
-  it("身份条与四个分页签齐备;池/图出口带决策 ID", async () => {
+  it("身份条与分页签齐备(含四个评审页签);池/图出口带决策 ID", async () => {
     vi.stubGlobal("window", { harness: { showDecision: vi.fn(async () => showReceipt(PROSE)) } });
     const onOpenPool = vi.fn(),
       onFocusGraph = vi.fn();
@@ -433,6 +439,10 @@ describe("DecisionDetailView", () => {
       "概况",
       "承重与裁决",
       "关系",
+      "提案与评审",
+      "意见回应",
+      "报告",
+      "裁决",
     ]);
     const identity = div.querySelector("[data-testid='decision-identity-strip']");
     expect(identity?.textContent).toContain("dec_1");

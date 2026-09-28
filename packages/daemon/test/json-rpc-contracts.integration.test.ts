@@ -160,6 +160,10 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.decision.accept", { decisionId: "dec_A", rationale: "Approved", judgmentOnlyRationale: "Judgment" }],
     ["repo.decision.reject", { decisionId: "dec_A", reason: "Rejected" }],
     ["repo.decision.defer", { decisionId: "dec_A", reason: "Deferred" }],
+    ["repo.decision.respondReview", { decisionId: "dec_A", responses: [{ reviewId: "review-a", findingId: "F1", disposition: "rebut", rationale: "Keep the scope", amendmentRef: null }] }],
+    ["repo.decision.overrideReview", { decisionId: "dec_A", reviewContentDigest: `sha256:${"a".repeat(64)}`, reviewIds: ["review-a"], reason: "Owner accepts the risk" }],
+    ["repo.decision.dispatchReview", { decisionId: "dec_A", expectedDigest: `sha256:${"a".repeat(64)}` }],
+    ["repo.doc.show", { path: "decisions/decision-dec_A/artifacts/reports/dispatch-a.md" }],
     ["repo.vertical.kind.upsert", { kindId: "runbook", declaration: { id: "runbook" }, expectedVersion: 2 }],
     ["repo.vertical.kind.publishSchema", { kindId: "runbook", attributes: { owner: { type: "string" } }, expectedVersion: 3 }],
     ["repo.vertical.kind.retire", { kindId: "runbook", reason: "Superseded", expectedVersion: 4 }],
@@ -189,6 +193,11 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
   assert.deepEqual(daemonGuiActionMethods.map(({ method }) => method), [...cases.keys()]); assert.equal(daemonGuiActionMethods.some(({ method }) => method === "repo.task.run"), false);
   for (const [method, payload] of cases) { const params = method.startsWith("daemon.") ? { payload } : { repo: { repoId: "alpha" }, payload }; assert.equal(parseDaemonRpcParams(method, params).ok, true, method); assert.equal(parseDaemonRpcParams(method, { ...params, payload: { ...payload, unexpected: true } }).ok, false, `${method}: unknown`); }
   const terminalSpawn = cases.get("repo.terminal.spawn")!; assert.equal(parseDaemonRpcParams("repo.terminal.spawn", { repo: { repoId: "alpha" }, payload: { ...terminalSpawn, backend: "tmux" } }).ok, true); assert.equal(parseDaemonRpcParams("repo.terminal.spawn", { repo: { repoId: "alpha" }, payload: { ...terminalSpawn, backend: "remote" } }).ok, false); const { backend: _backend, ...missingBackend } = terminalSpawn; assert.equal(parseDaemonRpcParams("repo.terminal.spawn", { repo: { repoId: "alpha" }, payload: missingBackend }).ok, false);
+  // 评审回应闭集:disposition 只有 adopt/rebut,理由必填,amendmentRef 为 null 或非空串;处置至少列一条评审。
+  for (const response of [{ reviewId: "review-a", findingId: "F1", disposition: "accept", rationale: "x", amendmentRef: null }, { reviewId: "review-a", findingId: "F1", disposition: "adopt", rationale: "", amendmentRef: null }, { reviewId: "review-a", findingId: "F1", disposition: "adopt", rationale: "x" }, { reviewId: "review-a", findingId: "F1", disposition: "adopt", rationale: "x", amendmentRef: null, actor: "agent:x" }])
+    assert.equal(parseDaemonRpcParams("repo.decision.respondReview", { repo: { repoId: "alpha" }, payload: { decisionId: "dec_A", responses: [response] } }).ok, false, JSON.stringify(response));
+  assert.equal(parseDaemonRpcParams("repo.decision.respondReview", { repo: { repoId: "alpha" }, payload: { decisionId: "dec_A", responses: [] } }).ok, false);
+  assert.equal(parseDaemonRpcParams("repo.decision.overrideReview", { repo: { repoId: "alpha" }, payload: { decisionId: "dec_A", reviewContentDigest: `sha256:${"a".repeat(64)}`, reviewIds: [], reason: "x" } }).ok, false);
   assert.equal(parseDaemonRpcParams("repo.decision.list", { repo: { repoId: "alpha" }, payload: { limit: 0 } }).ok, false);
   assert.equal(parseDaemonRpcParams("repo.decision.list", { repo: { repoId: "alpha" }, payload: { limit: 501 } }).ok, false);
   assert.equal(parseDaemonRpcParams("repo.decision.list", { repo: { repoId: "alpha" }, payload: { cursor: "" } }).ok, false);

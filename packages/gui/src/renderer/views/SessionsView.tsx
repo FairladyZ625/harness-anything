@@ -11,7 +11,11 @@ import {
   useSessionsWorkspace,
   useSquadRunDetail,
 } from "../components/runtime/useRuntimeWorkspace.ts";
-import { SessionGroupList } from "../components/sessions/SessionGroupList.tsx";
+import { SessionGroupList, type DecisionGroupRows } from "../components/sessions/SessionGroupList.tsx";
+import { DecisionReviewSessionCard } from "../components/sessions/DecisionReviewSessionCard.tsx";
+import { decisionReviewRounds } from "../model/decision-review.ts";
+import { decisionSessionsLocation } from "../navigation/decisionReviewRoutes.ts";
+import { adaptDecisionRows, triadicQueryKeys } from "../triadic-data.ts";
 import { SquadRunList } from "../components/sessions/SquadRunList.tsx";
 import { SquadRunDetail } from "../components/sessions/SquadRunDetail.tsx";
 import { SessionInspector } from "../components/sessions/SessionInspector.tsx";
@@ -84,6 +88,9 @@ export function SessionsView({
   const taskRouteId = focusedEntityRef?.startsWith("tasksessions/")
     ? focusedEntityRef.slice("tasksessions/".length) || null
     : null;
+  // Decision 评审会话的落点(decisionsessions/<decisionId>[/<runtimeSessionId>]):按被评审
+  // Decision 归组(daemon 按派工头 reviewTarget 分组),不从 session.taskId 猜 Decision。
+  const decisionFocus = decisionSessionsLocation(focusedEntityRef);
 
   // 检索 150ms debounce(设计稿 §4):即时过滤,但 RPC 频率有界。
   useEffect(() => {
@@ -99,6 +106,15 @@ export function SessionsView({
       return;
     }
     setSegment("sessions");
+    if (decisionFocus !== null) {
+      setGroupBy("task");
+      setRangeBySegment((current) => (current.sessions === "all" ? current : { ...current, sessions: "all" }));
+      setSessionTaskScope(null);
+      setExpandedGroups((current) =>
+        current.has(decisionFocus.decisionId) ? current : new Set([...current, decisionFocus.decisionId]),
+      );
+      return;
+    }
     if (focusedEntityRef.startsWith("tasksessions/")) {
       const taskId = focusedEntityRef.slice("tasksessions/".length);
       setGroupBy("task");
@@ -110,6 +126,7 @@ export function SessionsView({
     setSessionTaskScope((current) =>
       focusedSessionId !== null && current?.runtimeSessionId === focusedSessionId ? current : null,
     );
+    // decisionFocus 由 focusedEntityRef 派生,依赖 ref 本身即可。
   }, [focusedEntityRef, focusedSessionId]);
 
   // 两段各自的读窗:单会话段与会话分组共用,小队编排段独立(见 DEFAULT_RANGE)。
@@ -203,6 +220,60 @@ export function SessionsView({
     return rows;
   }, [expandedTasks, roundsQueries, taskSessionQueries]);
 
+  // Decision 组展开行:该组的评审派工在 Decision full 行上(reviewDispatches),与决策池/详情
+  // 共用同一缓存键;只有展开 Decision 组或落 Decision 会话深链时才读,着陆不增加读请求。
+  const expandedDecisionIds = useMemo(
+    () =>
+      groups.flatMap((group) =>
+        group.kind === "decision" && group.decisionId !== undefined && expandedGroups.has(group.key)
+          ? [group.decisionId]
+          : [],
+      ),
+    [groups, expandedGroups],
+  );
+  const decisionRowsQuery = useQuery({
+    queryKey: triadicQueryKeys.decisions(repoId),
+    queryFn: () => harnessClient.getDecisions({ repoId }),
+    enabled: expandedDecisionIds.length > 0 || decisionFocus?.runtimeSessionId != null,
+    staleTime: 10_000,
+  });
+  const reviewedDecisions = useMemo(
+    () => adaptDecisionRows(decisionRowsQuery.data?.decisions ?? [], [], []),
+    [decisionRowsQuery.data],
+  );
+  const decisionGroupRows = useMemo(() => {
+    const rows = new Map<string, DecisionGroupRows>();
+    for (const decisionId of expandedDecisionIds) {
+      const decision = reviewedDecisions.find((row) => row.decisionId === decisionId);
+      rows.set(decisionId, {
+        title: decision?.title ?? null,
+        rounds: decision ? decisionReviewRounds(decision) : null,
+        pending: decisionRowsQuery.isPending,
+        error: decisionRowsQuery.isError
+          ? decisionRowsQuery.error instanceof Error
+            ? decisionRowsQuery.error.message
+            : String(decisionRowsQuery.error)
+          : null,
+      });
+    }
+    return rows;
+  }, [
+    expandedDecisionIds,
+    reviewedDecisions,
+    decisionRowsQuery.isPending,
+    decisionRowsQuery.isError,
+    decisionRowsQuery.error,
+  ]);
+  const selectedReviewRound = useMemo(() => {
+    if (decisionFocus?.runtimeSessionId == null) return null;
+    const decision = reviewedDecisions.find((row) => row.decisionId === decisionFocus.decisionId);
+    return (
+      (decision ? decisionReviewRounds(decision) : null)?.find(
+        (round) => round.dispatch.runtimeSessionId === decisionFocus.runtimeSessionId,
+      ) ?? null
+    );
+  }, [decisionFocus?.decisionId, decisionFocus?.runtimeSessionId, reviewedDecisions]);
+
   // 深链 session/<id> 始终先成为精确选择;存在性与 task binding 由同一个
   // repo.agentRuntime.sessions.read 判定,绝不因组尚未展开而改选首组 latestRound。
   const allRows = useMemo(
@@ -211,7 +282,7 @@ export function SessionsView({
   );
   const defaultSessionId =
       groups.find(({ latestRound }) => latestRound !== null)?.latestRound?.runtimeSessionId ?? null,
-    selectedSessionId = focusedSessionId ?? defaultSessionId;
+    selectedSessionId = decisionFocus?.runtimeSessionId ?? focusedSessionId ?? defaultSessionId;
   const selectedSession = useQuery({
     queryKey: runtimeQueryKeys.session(repoId, selectedSessionId ?? ""),
     queryFn: () => agentRuntimeClient.session(repoId, selectedSessionId!),
@@ -450,6 +521,7 @@ export function SessionsView({
             truncated={truncated}
             expandedKeys={expandedGroups}
             rowsByGroup={groupRows}
+            decisionRowsByGroup={decisionGroupRows}
             selectedId={selectedSessionId}
             query={debouncedSearch}
             decisionRefsFor={groupDecisionRefsFor}
@@ -462,30 +534,35 @@ export function SessionsView({
             {selectedSessionId === null ? (
               <Empty>{t(workspace.groups.isPending ? "agentRuntime.loading" : "agentRuntime.noSessions")}</Empty>
             ) : (
-              <SessionsPanel
-                repoId={repoId}
-                runtimeSessionId={selectedSessionId}
-                snapshot={selectedSession.data ?? null}
-                snapshotError={
-                  selectedSession.isError
-                    ? selectedSession.error instanceof Error
-                      ? selectedSession.error.message
-                      : String(selectedSession.error)
-                    : null
-                }
-                row={selectedRow}
-                squadNames={squadNames}
-                decisionRefs={selectedTaskId === null ? [] : sessionDecisionRefs(relations, selectedTaskId)}
-                busy={workspace.busy}
-                onCancel={(runtimeSessionId) => void workspace.cancelSession(runtimeSessionId)}
-                onResume={async (dispatchId) => {
-                  const settled = await workspace.resumeDispatch(dispatchId);
-                  if (settled?.state === "applied" && settled.runtimeSessionId)
-                    onSelectEntity(`session/${settled.runtimeSessionId}`);
-                }}
-                onOpenTask={onOpenTask}
-                onNavigateEntity={onSelectEntity}
-              />
+              <>
+                {selectedReviewRound && (
+                  <DecisionReviewSessionCard round={selectedReviewRound} onNavigateEntity={onSelectEntity} />
+                )}
+                <SessionsPanel
+                  repoId={repoId}
+                  runtimeSessionId={selectedSessionId}
+                  snapshot={selectedSession.data ?? null}
+                  snapshotError={
+                    selectedSession.isError
+                      ? selectedSession.error instanceof Error
+                        ? selectedSession.error.message
+                        : String(selectedSession.error)
+                      : null
+                  }
+                  row={selectedRow}
+                  squadNames={squadNames}
+                  decisionRefs={selectedTaskId === null ? [] : sessionDecisionRefs(relations, selectedTaskId)}
+                  busy={workspace.busy}
+                  onCancel={(runtimeSessionId) => void workspace.cancelSession(runtimeSessionId)}
+                  onResume={async (dispatchId) => {
+                    const settled = await workspace.resumeDispatch(dispatchId);
+                    if (settled?.state === "applied" && settled.runtimeSessionId)
+                      onSelectEntity(`session/${settled.runtimeSessionId}`);
+                  }}
+                  onOpenTask={onOpenTask}
+                  onNavigateEntity={onSelectEntity}
+                />
+              </>
             )}
           </main>
           {inspector && (

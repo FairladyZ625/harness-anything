@@ -17,6 +17,9 @@ import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { KindDot, LiveDot } from "../runtime/parts.tsx";
+import type { DecisionReviewRound } from "../../model/decision-review.ts";
+import { decisionReviewRef, decisionSessionsRef } from "../../navigation/decisionReviewRoutes.ts";
+import { dispatchStatusText, VerdictBadge } from "../decisionReview/parts.tsx";
 
 /**
  * 单会话段的组列表(设计稿 §3/§7.1):组头一行(标题/短码、最新状态、轮数、最新
@@ -31,7 +34,15 @@ export type SessionGroupRows = {
   readonly pending: boolean;
   readonly error: string | null;
 };
+/** Decision 评审组的展开行:来自 Decision full 行的 reviewDispatches;null = 读面不含该 Decision。 */
+export type DecisionGroupRows = {
+  readonly title: string | null;
+  readonly rounds: readonly DecisionReviewRound[] | null;
+  readonly pending: boolean;
+  readonly error: string | null;
+};
 
+const NO_DECISION_ROWS: ReadonlyMap<string, DecisionGroupRows> = new Map();
 /** 折叠组头的估算高度(两行文本 + padding);展开组行高由 measureElement 实测收敛。 */
 export const GROUP_HEADER_ESTIMATE_PX = 56;
 export const GROUP_OVERSCAN = 10;
@@ -43,6 +54,7 @@ export function SessionGroupList({
   truncated,
   expandedKeys,
   rowsByGroup,
+  decisionRowsByGroup = NO_DECISION_ROWS,
   selectedId,
   query,
   decisionRefsFor,
@@ -55,6 +67,7 @@ export function SessionGroupList({
   readonly truncated: boolean;
   readonly expandedKeys: ReadonlySet<string>;
   readonly rowsByGroup: ReadonlyMap<string, SessionGroupRows>;
+  readonly decisionRowsByGroup?: ReadonlyMap<string, DecisionGroupRows>;
   readonly selectedId: string | null;
   readonly query: string;
   readonly decisionRefsFor: (taskId: string) => readonly string[];
@@ -101,6 +114,7 @@ export function SessionGroupList({
               <GroupSection
                 group={groups[item.index]!}
                 rows={rowsByGroup.get(groups[item.index]!.key)}
+                decisionRows={decisionRowsByGroup.get(groups[item.index]!.key)}
                 expanded={expandedKeys.has(groups[item.index]!.key)}
                 selectedId={selectedId}
                 query={query}
@@ -132,6 +146,7 @@ export function SessionGroupList({
 const GroupSection = memo(function GroupSection({
   group,
   rows,
+  decisionRows,
   expanded,
   selectedId,
   query,
@@ -143,6 +158,7 @@ const GroupSection = memo(function GroupSection({
 }: {
   readonly group: SessionGroup;
   readonly rows: SessionGroupRows | undefined;
+  readonly decisionRows: DecisionGroupRows | undefined;
   readonly expanded: boolean;
   readonly selectedId: string | null;
   readonly query: string;
@@ -152,7 +168,8 @@ const GroupSection = memo(function GroupSection({
   readonly onOpenTask: (taskId: string) => void;
   readonly onSelectEntity: (ref: string) => void;
 }) {
-  const expandable = group.kind === "task",
+  const decisionGroup = group.kind === "decision",
+    expandable = group.kind === "task" || decisionGroup,
     open = expanded && expandable,
     decisions = expandable && group.taskId ? decisionRefsFor(group.taskId) : [],
     // 检索命中时轮次行按同一词表过滤;无检索词时整组渲染。
@@ -175,11 +192,19 @@ const GroupSection = memo(function GroupSection({
           </span>
         )}
         <LiveDot state={sessionStatusDot[group.latestStatus]} tip={t(sessionStatusKey[group.latestStatus] as never)} />
+        {decisionGroup && (
+          <span className="shrink-0 rounded border border-accent/40 px-1 font-mono ui-micro text-accent">
+            {t("agentRuntime.sessionsDecisionTag")}
+          </span>
+        )}
         <b className="min-w-0 flex-1 truncate ui-meta">
           {group.kind === "unattributed"
             ? t(sessionUnattributedKey[group.key as AgentRuntimeUnattributedGroupKey] as never)
-            : group.label}
+            : (decisionRows?.title ?? group.label)}
         </b>
+        {decisionGroup && group.decisionId && (
+          <span className="shrink-0 font-mono ui-micro text-text-faint">{shortRef(group.decisionId, 11)}</span>
+        )}
         {expandable && group.taskId && (
           <span className="shrink-0 font-mono ui-micro text-text-faint">{shortRef(group.taskId, 11)}</span>
         )}
@@ -218,7 +243,15 @@ const GroupSection = memo(function GroupSection({
       ) : (
         <div className="cursor-default">{headerBody}</div>
       )}
-      {open && (
+      {open && decisionGroup && group.decisionId && (
+        <DecisionGroupBody
+          decisionId={group.decisionId}
+          rows={decisionRows}
+          selectedId={selectedId}
+          onSelectEntity={onSelectEntity}
+        />
+      )}
+      {open && !decisionGroup && (
         <div className="cv-auto-10r px-1.5 pb-2">
           {rows === undefined && <p className="px-1.5 py-1 ui-micro text-text-faint">{t("agentRuntime.loading")}</p>}
           {rows?.pending && <p className="px-1.5 py-1 ui-micro text-text-faint">{t("agentRuntime.loading")}</p>}
@@ -390,5 +423,64 @@ function OrphanRow({
         {t(sessionStatusKey[row.status] as never)}
       </span>
     </button>
+  );
+}
+
+/** Decision 评审组展开体:每轮一个评审派工,点击精确选中该会话;组尾回到被评审 Decision。 */
+function DecisionGroupBody({
+  decisionId,
+  rows,
+  selectedId,
+  onSelectEntity,
+}: {
+  readonly decisionId: string;
+  readonly rows: DecisionGroupRows | undefined;
+  readonly selectedId: string | null;
+  readonly onSelectEntity: (ref: string) => void;
+}) {
+  return (
+    <div className="cv-auto-10r px-1.5 pb-2">
+      {(rows === undefined || rows.pending) && (
+        <p className="px-1.5 py-1 ui-micro text-text-faint">{t("agentRuntime.loading")}</p>
+      )}
+      {rows?.error && (
+        <p role="alert" className="px-1.5 py-1 font-mono ui-micro text-status-blocked">
+          {t("agentRuntime.readFailed", { error: rows.error })}
+        </p>
+      )}
+      {rows && !rows.pending && !rows.error && rows.rounds === null && (
+        <p className="px-1.5 py-1 ui-micro text-text-faint">{t("agentRuntime.sessionsDecisionRowsUnavailable")}</p>
+      )}
+      {rows?.rounds?.map((round) => (
+        <button
+          key={round.dispatch.dispatchId}
+          type="button"
+          data-testid={`rail-session-${round.dispatch.runtimeSessionId}`}
+          aria-current={selectedId === round.dispatch.runtimeSessionId}
+          onClick={() => onSelectEntity(decisionSessionsRef(decisionId, round.dispatch.runtimeSessionId))}
+          className={`cv-auto-2r flex w-full items-center gap-2 rounded border px-2 py-1 text-left ${
+            selectedId === round.dispatch.runtimeSessionId
+              ? "border-accent/40 bg-accent/[0.14]"
+              : "border-transparent hover:bg-surface-raised"
+          }`}
+        >
+          <span className="min-w-0 flex-1 truncate font-mono ui-micro text-text-muted">
+            {shortRef(round.dispatch.runtimeSessionId, 18)}
+          </span>
+          <span className="shrink-0 ui-micro text-text-faint">{dispatchStatusText(round.dispatch.status)}</span>
+          {round.review && <VerdictBadge verdict={round.review.verdict} />}
+        </button>
+      ))}
+      <div className="mt-1.5 px-1.5">
+        <EntityRefLink
+          entityRef={decisionReviewRef(decisionId, "review")}
+          onNavigate={onSelectEntity}
+          title={decisionId}
+          className="rounded border border-border px-1.5 py-0.5 ui-micro text-text-muted hover:border-accent hover:text-accent"
+        >
+          {t("agentRuntime.sessionsDecisionDetail")} ↗
+        </EntityRefLink>
+      </div>
+    </div>
   );
 }

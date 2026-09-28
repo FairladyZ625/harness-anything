@@ -26,6 +26,14 @@ export type {
 export type RelationCoverageRow = DaemonGuiReadResultMap["repo.triadic.relationGraph"]["coverageRows"][number];
 /** 关系图读面真正送达的边行:kernel 行 + daemon 逐行转发的 `current` 判定。 */
 export type ServedRelationEdgeRow = DaemonGuiReadResultMap["repo.triadic.relationGraph"]["edges"][number];
+/**
+ * `repo.decisions.list` full row: the kernel row plus the review cut the read surface computes
+ * (`currentReviewContentDigest`, `acceptReviewReadiness`) and the Decision's review dispatches.
+ */
+export type DecisionFullRow = Extract<
+  DaemonGuiReadResultMap["repo.decisions.list"],
+  { readonly projection?: "full" }
+>["decisions"][number];
 export type TaskSnapshotProjectionRow = DaemonGuiReadResultMap["repo.tasks.list"]["rows"][number];
 export type TaskSnapshotInvalidRow = DaemonGuiReadResultMap["repo.tasks.list"]["invalidRows"][number];
 export type TaskWipRead = DaemonGuiReadResultMap["repo.tasks.wip"];

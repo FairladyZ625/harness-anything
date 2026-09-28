@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { pushRecentRef } from "./recentRefs.ts";
 import { entityDetailTargetOf, workTargetOf } from "./entityRoutes.ts";
+import { decisionDetailLocation, decisionSessionsLocation } from "./decisionReviewRoutes.ts";
 import type { AppLocation } from "./viewHistory.ts";
 
 /**
@@ -47,9 +48,11 @@ export function useEntityNavigation({
   }, []);
 
   // 本仓内导航:一切实体引用(含 task)经 entityDetailTargetOf 判定落点;不认识的引用忽略。
+  // Decision 评审/会话别名在最近访问里记成它们指向的那条 decision(别名不是图上的实体)。
   const navigateLocalEntity = useCallback(
     (ref: string) => {
-      remember(ref);
+      const reviewedDecision = (decisionDetailLocation(ref) ?? decisionSessionsLocation(ref))?.decisionId;
+      remember(reviewedDecision ? `decision/${reviewedDecision}` : ref);
       const target = entityDetailTargetOf(ref, declaredKinds, isWorkRoot);
       if (target) navigate({ selectedId: null, previewId: null, ...target });
     },

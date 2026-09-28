@@ -1,4 +1,5 @@
 import type {
+  DecisionFullRow,
   DecisionProjectionRow,
   RelationDirection,
   RelationState,
@@ -345,6 +346,21 @@ export interface DecisionRow {
     /** accept 成功后需正文回写(supersede/修订 canonical)→ 收件箱提示派生回写 task(42 §4)。 */
     needsWriteback?: { target: string; kind: "supersede" | "amend" | "new-doc" };
   };
+  /**
+   * 评审读面原样透传(dec_A64B14D6 CH6/CH7):评审、逐条回复、业主处置、当前评审切面与
+   * accept 就绪判定都由 daemon 读面计算,GUI 不重算。`dispatches` 只有列表 full 行携带,
+   * 单体 decision-show 行没有它——null 表示「此读面不含派工」,不是「没有派工」。
+   */
+  review?: DecisionReviewState;
+}
+
+export interface DecisionReviewState {
+  readonly reviews: DecisionProjectionRow["reviews"];
+  readonly responses: DecisionProjectionRow["reviewResponses"];
+  readonly overrides: DecisionProjectionRow["reviewOverrides"];
+  readonly currentDigest: DecisionFullRow["currentReviewContentDigest"];
+  readonly readiness: DecisionFullRow["acceptReviewReadiness"];
+  readonly dispatches: DecisionFullRow["reviewDispatches"] | null;
 }
 
 // ============ 三元语：fact（is，内嵌 task、无状态机）============

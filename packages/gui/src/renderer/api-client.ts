@@ -367,9 +367,46 @@ export const harnessClient = {
       readonly decisionId: string;
       readonly rationale: string;
       readonly judgmentOnlyRationale?: string;
+      readonly expectedDigest?: string;
     },
   ): Promise<GuiActionResult> {
     return readGuiActionResult(await invoke("repo.decision.accept", payload, "acceptDecision"));
+  },
+  /** 提案人逐条回应评审意见:与 `ha decision respond-review` 同一动作;回应不解除打回。 */
+  async respondDecisionReview(
+    payload: RepoScope & {
+      readonly decisionId: string;
+      readonly responses: ReadonlyArray<{
+        readonly reviewId: string;
+        readonly findingId: string;
+        readonly disposition: "adopt" | "rebut";
+        readonly rationale: string;
+        readonly amendmentRef: string | null;
+      }>;
+    },
+  ): Promise<GuiActionResult> {
+    return readGuiActionResult(await invoke("repo.decision.respondReview", payload, "respondDecisionReview"));
+  },
+  /** 业主具名处置当前切面的打回:与 `ha decision override-review` 同一动作,裁决资格由中心判定。 */
+  async overrideDecisionReview(
+    payload: RepoScope & {
+      readonly decisionId: string;
+      readonly reviewContentDigest: string;
+      readonly reviewIds: ReadonlyArray<string>;
+      readonly reason: string;
+    },
+  ): Promise<GuiActionResult> {
+    return readGuiActionResult(await invoke("repo.decision.overrideReview", payload, "overrideDecisionReview"));
+  },
+  /** 为当前内容切面派一次只读独立评审:同切面重复点击由中心返回既有派工。 */
+  async dispatchDecisionReview(
+    payload: RepoScope & { readonly decisionId: string; readonly expectedDigest: string },
+  ): Promise<GuiActionResult> {
+    return readGuiActionResult(await invoke("repo.decision.dispatchReview", payload, "dispatchDecisionReview"));
+  },
+  /** 中心文档正文(`ha doc show` 同一读):评审报告按 reportRef 读取,不读本机同名文件。 */
+  async showDocument(payload: RepoScope & { readonly path: string }): Promise<GuiActionResult> {
+    return readGuiActionResult(await invoke("repo.doc.show", payload, "showDocument"));
   },
   async rejectDecision(
     payload: RepoScope & { readonly decisionId: string; readonly reason: string },

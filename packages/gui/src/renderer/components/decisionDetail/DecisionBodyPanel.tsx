@@ -1,9 +1,8 @@
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
 import Markdown from "react-markdown";
 import type { Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { harnessClient } from "../../api-client.ts";
+import { useDecisionShowQuery } from "../../decision-show-data.ts";
 import { t } from "../../i18n/index.tsx";
 import { MarkdownAnchor } from "../../local-doc/MarkdownAnchor.tsx";
 import { markdownUrlTransform } from "../../local-doc/markdown-links.ts";
@@ -20,12 +19,7 @@ const BLOCK_CLASS = "[contain-intrinsic-size:auto_5rem] [content-visibility:auto
 const components: Components = { a: MarkdownAnchor };
 
 export function DecisionBodyPanel({ repoId, decisionId }: { repoId: string; decisionId: string }) {
-  const query = useQuery({
-    queryKey: ["decision-body", repoId, decisionId],
-    queryFn: () => harnessClient.showDecision({ repoId, decisionId, includeBody: true }),
-    enabled: decisionId !== "",
-    staleTime: 10_000,
-  });
+  const query = useDecisionShowQuery(repoId, decisionId);
   if (query.isPending) {
     return (
       <p data-testid="decision-body-loading" className="font-mono ui-meta text-text-faint">

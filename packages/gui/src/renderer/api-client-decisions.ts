@@ -1,11 +1,16 @@
-import type { DecisionProjectionRow, GuiActionResult, ProjectionWarning } from "../api/renderer-dto.ts";
+import type {
+  DecisionFullRow,
+  DecisionProjectionRow,
+  GuiActionResult,
+  ProjectionWarning,
+} from "../api/renderer-dto.ts";
 import { readGuiActionResult } from "./command-receipt.ts";
 import { daemonBridgeError } from "./daemon-startup.ts";
 import { isRendererRecord } from "./result-validation.ts";
 
 export interface DecisionListSuccess {
   readonly ok: true;
-  readonly decisions: ReadonlyArray<DecisionProjectionRow>;
+  readonly decisions: ReadonlyArray<DecisionFullRow>;
   readonly warnings: ReadonlyArray<ProjectionWarning>;
 }
 
@@ -37,9 +42,13 @@ export interface DecisionControlListSuccess {
   readonly hint?: string;
 }
 
+/** decision-show carries the review cut (`currentReviewContentDigest`, `acceptReviewReadiness`) but no dispatches. */
+export type DecisionShowRow = DecisionProjectionRow &
+  Pick<DecisionFullRow, "currentReviewContentDigest" | "acceptReviewReadiness">;
+
 export interface DecisionShowSuccess {
   readonly status: "ready" | "pending";
-  readonly decision: DecisionProjectionRow;
+  readonly decision: DecisionShowRow;
   readonly hint: string | null;
 }
 
@@ -72,12 +81,7 @@ function decisionReadError(value: unknown): Error {
 
 export function readDecisionListResult(value: unknown): DecisionListSuccess {
   const result = value as Partial<DecisionListSuccess>;
-  if (
-    !result ||
-    result.ok !== true ||
-    !Array.isArray(result.decisions) ||
-    !result.decisions.every(isDecisionProjectionRow)
-  ) {
+  if (!result || result.ok !== true || !Array.isArray(result.decisions) || !result.decisions.every(isDecisionFullRow)) {
     throw decisionReadError(value);
   }
   return {
@@ -163,7 +167,7 @@ export function readDecisionShowResult(value: unknown): DecisionShowSuccess {
   }
   try {
     const evidence = JSON.parse(receipt.evidence ?? "") as { readonly status?: unknown; readonly decision?: unknown };
-    if ((evidence.status !== "ready" && evidence.status !== "pending") || !isDecisionProjectionRow(evidence.decision))
+    if ((evidence.status !== "ready" && evidence.status !== "pending") || !isDecisionShowRow(evidence.decision))
       throw new Error();
     return { status: evidence.status, decision: evidence.decision, hint: receipt.nextAction ?? null };
   } catch {
@@ -181,4 +185,17 @@ function isDecisionProjectionRow(value: unknown): value is DecisionProjectionRow
     Number.isInteger(value.workspaceRevision) &&
     Array.isArray(value.claims)
   );
+}
+
+function isDecisionShowRow(value: unknown): value is DecisionShowRow {
+  if (!isDecisionProjectionRow(value)) return false;
+  const row = value as unknown as Record<string, unknown>;
+  return (
+    (typeof row.currentReviewContentDigest === "string" || row.currentReviewContentDigest === null) &&
+    (isRendererRecord(row.acceptReviewReadiness) || row.acceptReviewReadiness === null)
+  );
+}
+
+function isDecisionFullRow(value: unknown): value is DecisionFullRow {
+  return isDecisionShowRow(value) && Array.isArray((value as unknown as Record<string, unknown>).reviewDispatches);
 }

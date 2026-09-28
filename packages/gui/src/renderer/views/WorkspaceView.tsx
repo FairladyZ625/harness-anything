@@ -14,6 +14,9 @@ import { EgoNeighborhood } from "../graph/EgoNeighborhood.tsx";
 import { egoFactRefOf } from "../graph/egoCanvas.ts";
 import { WorkspaceGoal } from "../components/WorkspaceGoal.tsx";
 import { t } from "../i18n/index.tsx";
+import { DecisionReviewBadge } from "../components/decisionReview/parts.tsx";
+import { decisionReviewSignal } from "../model/decision-review.ts";
+import { decisionReviewRef } from "../navigation/decisionReviewRoutes.ts";
 
 export interface WorkspaceViewProps {
   readonly scope: WorkspaceScopeRead;
@@ -609,12 +612,14 @@ function WorkspaceEvidencePanel({
         {t("views.workspace.evidence")}
       </h2>
       <div className="mt-3 min-w-0 space-y-2">
+        <WorkDecisionReviewStrip decisions={evidence.decisions} onNavigateEntity={onNavigateEntity} />
         <EvidenceList
           title={t("views.workspace.decisions")}
           rows={evidence.decisions.map((row) => ({
             ref: `decision/${row.decisionId}`,
             title: row.title,
             meta: row.state,
+            badge: <DecisionReviewBadge review={row.review} />,
           }))}
           onOpen={onNavigateEntity}
         />
@@ -656,7 +661,7 @@ function EvidenceList({
   onOpen,
 }: {
   readonly title: string;
-  readonly rows: readonly { ref: string; title: string; meta: string }[];
+  readonly rows: readonly { ref: string; title: string; meta: string; badge?: ReactNode }[];
   readonly onOpen?: (ref: string) => void;
 }) {
   const [page, setPage] = useState(0);
@@ -679,7 +684,10 @@ function EvidenceList({
                   打开来源 →
                 </button>
               </details>
-              <p className="break-words ui-meta text-text-muted">{row.meta}</p>
+              <p className="flex flex-wrap items-center gap-1.5 break-words ui-meta text-text-muted">
+                {row.meta}
+                {row.badge}
+              </p>
             </li>
           ))}
         </ul>
@@ -688,5 +696,40 @@ function EvidenceList({
       )}
       <ResultPagination label={title} page={currentPage} total={rows.length} size={20} onChange={setPage} />
     </details>
+  );
+}
+
+/**
+ * 工作内 Decision 的评审信号:待处置/待回应/评审中/批准可用的 Decision 置于证据区顶部,
+ * 一眼可见并直达该 Decision 的评审页签;信号取自读面 readiness 与评审派工,不另立判据。
+ */
+function WorkDecisionReviewStrip({
+  decisions,
+  onNavigateEntity,
+}: {
+  readonly decisions: readonly DecisionRow[];
+  readonly onNavigateEntity?: (ref: string) => void;
+}) {
+  const flagged = decisions.filter((row) => {
+    const signal = decisionReviewSignal(row.review);
+    return signal !== null && signal !== "unreviewed" && signal !== "policyUnreviewed";
+  });
+  if (flagged.length === 0) return null;
+  return (
+    <ul data-testid="work-decision-review-strip" className="grid gap-1 border-b border-border pb-2">
+      {flagged.map((row) => (
+        <li key={row.decisionId}>
+          <button
+            type="button"
+            onClick={() => onNavigateEntity?.(decisionReviewRef(row.decisionId, "review"))}
+            className="flex w-full min-w-0 items-center gap-2 rounded px-1 py-1 text-left hover:bg-surface"
+          >
+            <DecisionReviewBadge review={row.review} />
+            <span className="min-w-0 flex-1 truncate text-sm text-text">{row.title}</span>
+            <span className="shrink-0 font-mono ui-micro text-text-faint">{row.decisionId}</span>
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }

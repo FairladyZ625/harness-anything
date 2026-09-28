@@ -1,6 +1,11 @@
 import { useMemo } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import type { DecisionProjectionRow, RelationCoverageRow, ServedRelationEdgeRow } from "../api/renderer-dto.ts";
+import type {
+  DecisionFullRow,
+  DecisionProjectionRow,
+  RelationCoverageRow,
+  ServedRelationEdgeRow,
+} from "../api/renderer-dto.ts";
 import { harnessClient } from "./api-client.ts";
 import type { DecisionListSuccess, RelationFactSummaryRow, RelationGraphSuccess } from "./api-client.ts";
 import { agentEntityClient } from "./agent-entity-client.ts";
@@ -428,8 +433,12 @@ function isKernelRelationKind(value: string): value is RelationEdge["kind"] {
   return Object.hasOwn(KIND_LABEL, value);
 }
 
+/** 列表 full 行带派工;decision-show 行只带评审切面与就绪判定;更旧的读面两者都没有。 */
+type AdaptableDecisionRow = DecisionProjectionRow &
+  Partial<Pick<DecisionFullRow, "currentReviewContentDigest" | "acceptReviewReadiness" | "reviewDispatches">>;
+
 export function adaptDecisionRows(
-  rows: ReadonlyArray<DecisionProjectionRow>,
+  rows: ReadonlyArray<AdaptableDecisionRow>,
   relations: ReadonlyArray<RelationEdge>,
   coverageRows: ReadonlyArray<RelationCoverageRow>,
 ): DecisionRow[] {
@@ -496,6 +505,18 @@ export function adaptDecisionRows(
           }
         : {}),
       lastChangedAt: row.decidedAt ?? row.proposedAt,
+      ...(row.currentReviewContentDigest === undefined
+        ? {}
+        : {
+            review: {
+              reviews: row.reviews,
+              responses: row.reviewResponses,
+              overrides: row.reviewOverrides,
+              currentDigest: row.currentReviewContentDigest,
+              readiness: row.acceptReviewReadiness ?? null,
+              dispatches: row.reviewDispatches ?? null,
+            },
+          }),
     };
   });
 }

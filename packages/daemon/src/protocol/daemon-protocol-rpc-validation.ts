@@ -309,6 +309,21 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       if (field !== undefined && (typeof field !== "string" || [...field].length > 199))
         errors.push("decision rationale is invalid");
   if (
+    method === "repo.decision.respondReview" &&
+    (!Array.isArray(value.responses) ||
+      !value.responses.length ||
+      value.responses.some(
+        (item) =>
+          !exactItem(item, ["reviewId", "findingId", "disposition", "rationale"], ["amendmentRef"]) ||
+          (isJsonObject(item) &&
+            (!["adopt", "rebut"].includes(String(item.disposition)) ||
+              (item.amendmentRef !== null && !nonEmpty(item.amendmentRef)))),
+      ))
+  )
+    errors.push("decision review responses are invalid");
+  if (method === "repo.decision.overrideReview" && (!stringArray(value.reviewIds) || !value.reviewIds.length))
+    errors.push("decision review override is invalid");
+  if (
     method === "daemon.gui.control.request" &&
     (!["refresh", "restart"].includes(String(value.kind)) ||
       (value.reason !== undefined && (typeof value.reason !== "string" || [...value.reason].length > 199)))
