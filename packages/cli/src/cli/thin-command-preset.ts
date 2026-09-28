@@ -48,9 +48,17 @@ export function parsePreset(
     );
   }
   if (route.id === "squad-status") {
-    const squadRunId = args[2];
+    const squadRunId = args[2],
+      f = readFlags(route.id, args.slice(3), inputs);
+    if (!f.ok) return rejected(f.code, f.nextAction, json);
     return nonEmpty(squadRunId)
-      ? accepted(rootDir, repoId, json, { kind: "squad-status", squadRunId }, route.method)
+      ? accepted(
+          rootDir,
+          repoId,
+          json,
+          { kind: "squad-status", squadRunId, ...(f.booleans.has("--wait") ? { wait: true } : {}) },
+          route.method,
+        )
       : rejected("missing_field", "squad run id is required.", json);
   }
   const positionalField = "positional" in route ? route.positional : undefined,

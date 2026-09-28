@@ -2,7 +2,7 @@ import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json
 import { runAgentCreate } from "./cli-agent-create.ts";
 import { renderRuntimeStatus, runRuntimeAuthCommand } from "./cli-runtime-auth.ts";
 import { runRuntimeBatch } from "./cli-runtime-batch.ts";
-import { waitForRuntimeSessions } from "./cli-runtime-wait.ts";
+import { detachedWaitGuidance, waitForRuntimeSessions, waitForSquadRun } from "./cli-runtime-wait.ts";
 import { runSquadRun } from "./cli-squad-run.ts";
 import type { ThinCommand } from "./cli/thin-command.ts";
 import { runCommandThroughDaemon } from "./daemon/client.ts";
@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto";
 export function isRuntimeFacadeCommand(command: ThinCommand): boolean {
   return (
     command.action.kind === "squad-run" ||
+    (command.action.kind === "squad-status" && command.action.wait === true) ||
     command.method.startsWith("repo.agentRuntime.") ||
     command.method === "repo.agent.create" ||
     command.method.startsWith("repo.runtimeInstance.auth.")
@@ -25,6 +26,7 @@ export async function runRuntimeFacadeCommand(
   if (command.method.startsWith("repo.runtimeInstance.auth.")) return runRuntimeAuthCommand(command, writeActivity);
   if (action.kind === "runtime-batch") return runRuntimeBatch(command);
   if (action.kind === "squad-run") return runSquadRun(command, writeActivity);
+  if (action.kind === "squad-status") return waitForSquadRun(command, String(action.squadRunId));
   if (action.kind === "agent-create") return runAgentCreate(command);
   if (action.kind === "runtime-sessions-await") return waitForRuntimeSessions(command, writeActivity);
   if (action.kind === "runtime-status") {
@@ -79,7 +81,10 @@ export async function runRuntimeFacadeCommand(
       command: "runtime-run",
       outcome: "running",
       nextAction,
-      summary: `runtime-run: detached ${String(spawned.dispatchId)}; next: ${nextAction}`,
+      summary: `runtime-run: detached ${String(spawned.dispatchId)}\n${detachedWaitGuidance(
+        nextAction,
+        typeof action.taskId === "string" ? action.taskId : undefined,
+      )}`,
       exitCode: 0,
     };
   }

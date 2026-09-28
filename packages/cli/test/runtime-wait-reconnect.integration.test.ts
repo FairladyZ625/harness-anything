@@ -487,6 +487,7 @@ test("multi-target runtime status --wait issues one daemon await and renders the
       (result.receipt.inFlight as Array<Record<string, unknown>>).map((row) => row.runtimeSessionId),
       ["runtime-wait-other"],
     );
+    assert.equal(result.receipt.nextAction, "ha runtime status runtime-wait-other --wait");
     assert.equal(awaitRequests, 1, "one daemon await covers every target");
     assert.equal(helloRequests, 1, "the wait rides one connection");
   } finally {
@@ -537,6 +538,11 @@ test("task dispatch wait rides one sessions.await request", async () => {
       (result.receipt.dispatches as Array<Record<string, unknown>>).map((row) => row.dispatchId),
       ["dispatch-runtime-wait"],
     );
+    assert.equal(
+      result.receipt.nextAction,
+      `read the report (ha task dispatches ${taskId} lists reportPath) before acting on it; ` +
+        `once the task is submitted, run ha task adjudicate ${taskId} --forward.`,
+    );
   } finally {
     invocation.stop();
     await fixture.close();
@@ -581,6 +587,101 @@ interface RpcRequest {
   readonly method: string;
   readonly params: { readonly payload: Record<string, unknown> };
 }
+
+test("detached runtime run tells its caller how to wait, fold waits, and continue after settlement", async () => {
+  const fixture = await openFixtureDaemon("runtime-detach");
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    assert.equal(request.method, "repo.agentRuntime.spawn");
+    reply(socket, request.id, { ok: true, runtimeSessionId, dispatchId: "dispatch-detached" });
+  };
+  const invocation = runWait(fixture, ["runtime", "run", "fixture-runtime", "--prompt", "hold", "--detach"], false);
+  try {
+    const result = await invocation.result(4_000);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(
+      result.stdout.trim(),
+      [
+        "runtime-run: detached dispatch-detached",
+        `wait: ha runtime status ${runtimeSessionId} --wait blocks until settlement; run it as a background ` +
+          "command if your host wakes you when one exits, otherwise run it in the foreground.",
+        "several dispatches: ha runtime status <id> <id> ... --wait returns when the first settles " +
+          "(--all waits for every one); ha runtime status --task <task-id> --wait covers a task's dispatches.",
+        "after settlement: read the result in the settled receipt before acting on it.",
+      ].join("\n"),
+    );
+  } finally {
+    invocation.stop();
+    await fixture.close();
+  }
+});
+
+test("detached squad run names a squad status wait that blocks until the run settles", async () => {
+  const fixture = await openFixtureDaemon("squad-detach"),
+    squadRunId = "squad_0123456789abcdef01234567";
+  let statusReads = 0;
+  fixture.onRequest = (socket, request) => {
+    if (request.method === "protocol.hello") {
+      reply(socket, request.id, { ok: true });
+      return;
+    }
+    if (request.method === "repo.task.run") {
+      reply(socket, request.id, {
+        ok: true,
+        schema: "squad-control-result/v1",
+        command: "squad-run",
+        outcome: "completed",
+        squadRunId,
+        phase: "planning",
+        summary: "squad-run core-squad: planning",
+      });
+      return;
+    }
+    assert.equal(request.method, "repo.task.read");
+    const { executor: _executor, ...read } = request.params.payload.action as Record<string, unknown>;
+    assert.deepEqual(read, { kind: "squad-status", squadRunId }, "the wait reads squad status without a wait field");
+    statusReads += 1;
+    reply(socket, request.id, {
+      ok: true,
+      command: "squad-status",
+      summary: `squad-run core-squad: ${statusReads < 2 ? "leader_running" : "converged"}`,
+      ...(statusReads < 2 ? {} : { outcome: "converged", exitCode: 0 }),
+    });
+  };
+  const detached = runWait(
+    fixture,
+    ["squad", "run", "core-squad", "--instance", "fixture-runtime", "--task", "task-squad", "--detach"],
+    false,
+  );
+  try {
+    const result = await detached.result(4_000);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(
+      result.stdout.trim(),
+      [
+        "squad-run core-squad: planning",
+        `wait: ha squad status ${squadRunId} --wait blocks until settlement; run it as a background ` +
+          "command if your host wakes you when one exits, otherwise run it in the foreground.",
+        "after settlement: read the report (ha task dispatches task-squad lists reportPath) before acting on it.",
+      ].join("\n"),
+    );
+  } finally {
+    detached.stop();
+  }
+  const waited = runWait(fixture, ["squad", "status", squadRunId, "--wait"]);
+  try {
+    const result = await waited.result(4_000);
+    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.receipt.outcome, "converged");
+    assert.equal(statusReads, 2, "the wait re-reads until the daemon stamps the terminal verdict");
+  } finally {
+    waited.stop();
+    await fixture.close();
+  }
+});
 
 async function openFixtureDaemon(daemonId: string): Promise<FixtureDaemon> {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-wait-")),
