@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { copyFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -161,6 +161,35 @@ test("standalone changed mode derives its local PR gates from manifest path glob
     { id: "check-docs", command: "node check-docs.mjs" },
     { id: "check-release", command: "node check-release.mjs" },
   ]);
+});
+
+test("standalone changed mode selects rebuild-gates checks for the paths they read", () => {
+  const manifest = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "gate-manifest.json"), "utf8"));
+  const plan = (changedPaths) => {
+    const options = parseManifestGateArgs(["--changed", "origin/main"]);
+    options.changedPaths = changedPaths;
+    return buildManifestGatePlan(manifest, options);
+  };
+  const cases = [
+    ["entity-id-links", "node tools/gates/entity-id-links.mjs", "packages/gui/src/renderer/views/DecisionJudgeTab.tsx"],
+    ["derived-contracts", "node tools/gates/derived-contracts.mjs --check", "tools/gates/contracts/gates.contract.mjs"],
+    ["schema-closure", "node tools/gates/schema-closure.mjs --check", "packages/daemon/fixtures/contracts/x.json"],
+    ["dependency-policy", "node tools/gates/dependency-policy.mjs", "package-lock.json"],
+    ["cost-budget", "node tools/gates/cost-budget.mjs", "packages/kernel/src/store/task-event-store.ts"],
+  ];
+  for (const [id, command, changedPath] of cases) {
+    assert.ok(
+      plan([changedPath]).some((entry) => entry.id === id && entry.command === command),
+      `${id} selected by ${changedPath}`,
+    );
+  }
+  const docsPlan = plan(["docs-release/guide.md"]);
+  for (const [id] of cases)
+    assert.equal(
+      docsPlan.some((entry) => entry.id === id),
+      false,
+      `${id} skipped for docs`,
+    );
 });
 
 test("manifest gate runner resumes only the failed run and removes its checkpoint after success", async () => {

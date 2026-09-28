@@ -4068,6 +4068,298 @@
         "status": "covered",
         "evidence": ["tools/gates/test/ontology-action-concurrency.test.mjs"]
       }
+    },
+    {
+      "id": "entity-id-links",
+      "command": "node tools/gates/entity-id-links.mjs",
+      "category": "local-consistency",
+      "tier": "pr-advisory",
+      "tierReason": "G37 is not a branch-protection required context; its blocking signal stays the rebuild-gates.yml entity-id-links job, and this entry lets the changed-path local runner select it for GUI renderer changes. Promotion to a required context remains a CEO-controlled switch.",
+      "localPathGlobs": [
+        "packages/gui/src/renderer/**",
+        "packages/gui/test/entity-id-links.vitest.ts",
+        "tools/gates/entity-id-links.mjs"
+      ],
+      "authoritySource": [
+        "decision/dec_FB488BE3EF6B107814A7E3C2FD#CH1",
+        "tools/gates/contracts/gates.contract.mjs:G37",
+        "task_c0acc7af3f6bf1d067df4dfc58"
+      ],
+      "consumerScope": [
+        "canonical entity references rendered as non-activatable JSX text under packages/gui/src/renderer",
+        "the EntityRefLink primitive rendering its ID inside an activatable button or anchor",
+        "presence of the behavioral half packages/gui/test/entity-id-links.vitest.ts"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": ["ontology-advisory"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "A rendered canonical entity reference must go through EntityRefLink; there is no allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/entity-id-links.mjs",
+          "tools/gates/test/entity-id-links.test.mjs",
+          "package.json:scripts.harness:check-entity-id-links",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": "harness:check-entity-id-links" },
+        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["local", "pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/entity-id-links.test.mjs"]
+      }
+    },
+    {
+      "id": "derived-contracts",
+      "command": "node tools/gates/derived-contracts.mjs --check",
+      "category": "local-consistency",
+      "tier": "pr-advisory",
+      "tierReason": "G11 is not a branch-protection required context; its blocking signal stays the rebuild-gates.yml derived-contracts job, and this entry lets the changed-path local runner select it. Promotion to a required context remains a CEO-controlled switch.",
+      "localPathGlobs": [
+        "packages/**/src/**",
+        "tools/**/*.contract.mjs",
+        "tools/**/*.contract.ts",
+        "tools/gates/contracts/**",
+        ".github/workflows/**",
+        "tools/gates/derived-contracts.mjs",
+        "tools/gates/git.mjs"
+      ],
+      "authoritySource": [
+        "decision/dec_FB488BE3EF6B107814A7E3C2FD#CH1",
+        "tools/gates/contracts/gates.contract.mjs:G11",
+        "task_c0acc7af3f6bf1d067df4dfc58"
+      ],
+      "consumerScope": [
+        "every *.contract.{mjs,ts} declaration under packages, src and tools, including the src modules they re-export from",
+        "append-only phases against HEAD^",
+        "workflow job and command projections into .github/workflows",
+        "catalog projections such as tools/gates/contracts/gates.projection.json"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": ["ontology-advisory"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Contract declarations and their projections must agree; there is no allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/derived-contracts.mjs",
+          "tools/gates/test/derived-contracts.test.mjs",
+          "package.json:scripts.check:local:derived-contracts",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": "check:local:derived-contracts" },
+        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["local", "pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/derived-contracts.test.mjs"]
+      }
+    },
+    {
+      "id": "schema-closure",
+      "command": "node tools/gates/schema-closure.mjs --check",
+      "category": "local-consistency",
+      "tier": "pr-advisory",
+      "tierReason": "G23 is not a branch-protection required context; its blocking signal stays the rebuild-gates.yml schema-closure job, and this entry lets the changed-path local runner select it. Promotion to a required context remains a CEO-controlled switch.",
+      "localPathGlobs": [
+        "packages/**",
+        "tools/gates/**",
+        "tools/**/*.contract.mjs",
+        "tools/**/*.contract.ts",
+        ".github/workflows/**"
+      ],
+      "authoritySource": [
+        "decision/dec_FB488BE3EF6B107814A7E3C2FD#CH1",
+        "tools/gates/contracts/gates.contract.mjs:G23",
+        "task_c0acc7af3f6bf1d067df4dfc58"
+      ],
+      "consumerScope": [
+        "derived-contracts inputs, which it checks first",
+        "schema, parser, writer and error exports declared by contract schemas",
+        "negative fixtures declared by contract schemas",
+        "the forbidden legacy-reader marker in any source file under packages, src and tools/gates"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": ["ontology-advisory"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "A declared schema must close over its parser, writer, error type and negative fixtures; there is no allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/schema-closure.mjs",
+          "tools/gates/test/schema-closure.test.mjs",
+          "package.json:scripts.check:local:schema-closure",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": "check:local:schema-closure" },
+        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["local", "pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/schema-closure.test.mjs"]
+      }
+    },
+    {
+      "id": "dependency-policy",
+      "command": "node tools/gates/dependency-policy.mjs",
+      "category": "local-consistency",
+      "tier": "pr-advisory",
+      "tierReason": "G31 is not a branch-protection required context; its blocking signal stays the rebuild-gates.yml dependency-policy job, and this entry lets the changed-path local runner select it. Promotion to a required context remains a CEO-controlled switch.",
+      "localPathGlobs": [
+        "package.json",
+        "package-lock.json",
+        "packages/**/package.json",
+        "tools/gates/dependency-policy.mjs"
+      ],
+      "authoritySource": [
+        "decision/dec_FB488BE3EF6B107814A7E3C2FD#CH1",
+        "tools/gates/contracts/gates.contract.mjs:G31",
+        "task_c0acc7af3f6bf1d067df4dfc58"
+      ],
+      "consumerScope": [
+        "dependency sections of the root and workspace package.json files",
+        "package-lock.json workspace entries recording the same dependency ranges"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": ["ontology-advisory"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "Every declared dependency range must match the lockfile; there is no allowlist. The PR-body Dependency-Change declaration is the separate dependency-policy-declaration gate."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/dependency-policy.mjs",
+          "tools/gates/test/dependency-policy.test.mjs",
+          "package.json:scripts.harness:check-dependency-policy",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": "harness:check-dependency-policy" },
+        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["local", "pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/dependency-policy.test.mjs"]
+      }
+    },
+    {
+      "id": "cost-budget",
+      "command": "node tools/gates/cost-budget.mjs",
+      "category": "local-consistency",
+      "tier": "pr-advisory",
+      "tierReason": "G38 is not a branch-protection required context; its blocking signal stays the rebuild-gates.yml cost-budget job, and this entry lets the changed-path local runner select it. Promotion to a required context remains a CEO-controlled switch.",
+      "localPathGlobs": [
+        "packages/kernel/**",
+        "packages/daemon/**",
+        "packages/adapters/**",
+        "packages/application/**",
+        "packages/preset/**",
+        "tools/gates/cost-budget.mjs",
+        "tools/gates/cost-budget.json",
+        "tools/gates/receipt-verify.mjs",
+        "tools/gates/receipts/**",
+        "tools/fixtures/task-plan.mjs",
+        "tools/temporary-directory-cleanup.mjs"
+      ],
+      "authoritySource": [
+        "decision/dec_FB488BE3EF6B107814A7E3C2FD#CH1",
+        "tools/gates/contracts/gates.contract.mjs:G38",
+        "task_c0acc7af3f6bf1d067df4dfc58"
+      ],
+      "consumerScope": [
+        "projection rebuild git process count on packages/daemon/fixtures/perf/cost-budget-ledger.json",
+        "G1 write-path cost scaling through the daemon request path at 200 and 2000 events",
+        "budget raises in tools/gates/cost-budget.json backed by receipts in tools/gates/receipts"
+      ],
+      "githubContext": {
+        "requiredContexts": [],
+        "workflowJobs": ["ontology-advisory"],
+        "nodeVersions": [24]
+      },
+      "allowlistPolicy": {
+        "allowed": false,
+        "location": null,
+        "adrOrDecisionRequired": false,
+        "notes": "A budget above its baseline needs a valid cost-budget receipt; there is no path allowlist."
+      },
+      "changeControl": {
+        "ordinaryImplementationMayModify": false,
+        "requiresGovernanceEvidence": true,
+        "protectedSurfaces": [
+          "tools/gates/cost-budget.mjs",
+          "tools/gates/cost-budget.json",
+          "tools/gates/test/cost-budget.test.mjs",
+          "package.json:scripts.harness:check-cost-budget",
+          "tools/gate-manifest.json"
+        ]
+      },
+      "bypassFixtureRequired": false,
+      "executionSurfaces": {
+        "packageJson": { "check": false, "checkPr": false, "script": "harness:check-cost-budget" },
+        "rewriteCi": { "pullRequestJobs": ["ontology-advisory"], "nonPullRequestJobs": [] },
+        "branchProtection": { "required": false, "contexts": [] },
+        "classes": ["local", "pr"]
+      },
+      "deterministic": true,
+      "positiveControl": {
+        "status": "covered",
+        "evidence": ["tools/gates/test/cost-budget.test.mjs"]
+      }
     }
   ]
 }
