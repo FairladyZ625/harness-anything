@@ -17,6 +17,7 @@ import type { GateMappingDraft } from "./gate-mapping-form.ts";
 /** 契约字段描述,形状对齐 daemon catalog snapshot 的 settingsFields 行。 */
 export interface SettingsFieldDescriptor {
   readonly field: string;
+  readonly description?: string;
   readonly type: string;
   readonly required: boolean;
   readonly enum?: readonly string[];
@@ -48,6 +49,7 @@ export type SettingsFieldWidget =
 
 export interface SettingsFieldRow {
   readonly field: string;
+  readonly description: string | null;
   readonly widget: SettingsFieldWidget;
   /** enum-select 的取值面;其余 widget 为 null。 */
   readonly options: readonly string[] | null;
@@ -80,23 +82,56 @@ export function settingsFormRows(fields: readonly SettingsFieldDescriptor[]): re
   return fields.flatMap((descriptor): SettingsFieldRow[] => {
     if (EXCLUDED_FIELDS.has(descriptor.field)) return [];
     if (descriptor.field === "roles" && descriptor.type === "json-object")
-      return [{ field: "roles", widget: "role-selectors", options: null }];
+      return [{ field: "roles", description: descriptor.description ?? null, widget: "role-selectors", options: null }];
     if (CATALOG_SELECT_FIELDS.has(descriptor.field) && descriptor.type === "string")
-      return [{ field: descriptor.field, widget: "catalog-select", options: null }];
+      return [
+        {
+          field: descriptor.field,
+          description: descriptor.description ?? null,
+          widget: "catalog-select",
+          options: null,
+        },
+      ];
     if (CATALOG_MULTI_SELECT_FIELDS.has(descriptor.field) && descriptor.type === "string-array")
-      return [{ field: descriptor.field, widget: "catalog-multi-select", options: null }];
+      return [
+        {
+          field: descriptor.field,
+          description: descriptor.description ?? null,
+          widget: "catalog-multi-select",
+          options: null,
+        },
+      ];
     if (descriptor.enum && descriptor.type === "string")
-      return [{ field: descriptor.field, widget: "enum-select", options: [...descriptor.enum] }];
+      return [
+        {
+          field: descriptor.field,
+          description: descriptor.description ?? null,
+          widget: "enum-select",
+          options: [...descriptor.enum],
+        },
+      ];
     switch (descriptor.type) {
       case "boolean":
-        return [{ field: descriptor.field, widget: "toggle", options: null }];
+        return [
+          { field: descriptor.field, description: descriptor.description ?? null, widget: "toggle", options: null },
+        ];
       case "number":
-        return [{ field: descriptor.field, widget: "number", options: null }];
+        return [
+          { field: descriptor.field, description: descriptor.description ?? null, widget: "number", options: null },
+        ];
       case "string":
-        return [{ field: descriptor.field, widget: "text", options: null }];
-      // 自由有序清单(worktreeSetup):一行一项,空清单合法。
+        return [
+          { field: descriptor.field, description: descriptor.description ?? null, widget: "text", options: null },
+        ];
       case "string-array":
-        return [{ field: descriptor.field, widget: "string-list", options: null }];
+        return [
+          {
+            field: descriptor.field,
+            description: descriptor.description ?? null,
+            widget: "string-list",
+            options: null,
+          },
+        ];
       default:
         return [];
     }

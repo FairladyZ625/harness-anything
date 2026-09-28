@@ -1,3 +1,4 @@
+import { generatedSettingsFieldProtocolProjection } from "@harness-anything/preset/internal/preset-command-contract";
 import { daemonMethodNameSets } from "./daemon-protocol-commands.ts";
 import {
   admitUseCaseProjectionSelector,
@@ -230,50 +231,14 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       required.every((field) => nonEmpty(item[field])) &&
       Object.keys(item).every((field) => required.includes(field) || optional.includes(field));
   if (method === "repo.settings.update") {
-    // ciWorkflows, worktreeSetup and the closeout fields are typed settings judged by the kernel compiler.
-    const settingFields = (
-        "defaultVertical defaultPreset defaultProfile roles reviewIndependence reviewReturnBudget " +
-        "closeoutProfile closeoutReview closeoutConsent closeoutFactDisposition closeoutCodeDoc " +
-        "locale taskScaffold repositoryScaffold walFlushAdaptive walFlushEvents " +
-        "walFlushBytes walFlushMilliseconds ciWorkflows gatesFromDocument gatesDraft restoreDrillRetention " +
-        "worktreeSetup"
-      ).split(" "),
-      changed = settingFields.filter((field) => value[field] !== undefined),
-      identifier = /^[A-Za-z0-9][A-Za-z0-9/_.@-]*$/u;
+    const changed = generatedSettingsFieldProtocolProjection.actionInputs.filter(
+      ({ field }) => field !== "expectedVersion" && field !== "idempotencyKey" && value[field] !== undefined,
+    );
     if (
       changed.length === 0 ||
-      changed
-        .filter(
-          (field) =>
-            !field.startsWith("walFlush") &&
-            !field.startsWith("closeout") &&
-            field !== "roles" &&
-            field !== "ciWorkflows" &&
-            field !== "worktreeSetup" &&
-            field !== "gatesFromDocument" &&
-            field !== "gatesDraft" &&
-            field !== "reviewReturnBudget" &&
-            field !== "restoreDrillRetention",
-        )
-        .some((field) => typeof value[field] !== "string" || !identifier.test(String(value[field]))) ||
-      [
-        value.walFlushEvents,
-        value.walFlushBytes,
-        value.walFlushMilliseconds,
-        value.reviewReturnBudget,
-        value.restoreDrillRetention,
-      ].some((item) => item !== undefined && (!Number.isSafeInteger(item) || Number(item) < 1)) ||
-      (value.roles !== undefined && !isJsonObject(value.roles)) ||
+      !validProjectedSettingsAction(value) ||
       (value.gatesDraft !== undefined &&
-        (!Array.isArray(value.gatesDraft) || value.gatesDraft.some((mapping) => !isJsonObject(mapping)))) ||
-      (value.locale !== undefined && !["en-US", "zh-CN"].includes(String(value.locale))) ||
-      (value.reviewIndependence !== undefined &&
-        !["execution", "principal"].includes(String(value.reviewIndependence))) ||
-      changed
-        .filter((field) =>
-          /^(walFlushAdaptive|closeout(Review|Consent|FactDisposition|CodeDoc)|gatesFromDocument)$/u.test(field),
-        )
-        .some((field) => typeof value[field] !== "boolean")
+        (!Array.isArray(value.gatesDraft) || value.gatesDraft.some((mapping) => !isJsonObject(mapping))))
     )
       errors.push("settings update is invalid");
   }
@@ -395,6 +360,27 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
   if (method === "repo.terminal.terminate" && value.confirmed !== true)
     errors.push("terminal termination requires confirmation");
   return errors;
+}
+
+function validProjectedSettingsAction(value: Readonly<JsonObject>): boolean {
+  return generatedSettingsFieldProtocolProjection.actionInputs.every(({ field, type }) => {
+    if (!Object.hasOwn(value, field)) return true;
+    const candidate = value[field];
+    switch (type) {
+      case "number":
+        return typeof candidate === "number";
+      case "boolean":
+        return typeof candidate === "boolean";
+      case "string-array":
+      case "fact-hold-array":
+      case "json-object-array":
+        return Array.isArray(candidate);
+      case "json-object":
+        return isJsonObject(candidate);
+      default:
+        return typeof candidate === "string";
+    }
+  });
 }
 
 export function exactCwd(value: unknown): boolean {

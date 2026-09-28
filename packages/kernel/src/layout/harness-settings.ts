@@ -1,8 +1,7 @@
 /**
- * The single production reader for the harness.yaml `settings:` block.
- * Preset (defaultVertical, defaultPreset, locale, scaffolds.*) and daemon
- * (tasks.wipLimit) both read authored settings through these helpers; a new
- * parser for this block must not appear beside them.
+ * Narrow scalar reader retained for the Policy-owned `settings.tasks.*` limits.
+ * Settings-owned fields are declared and decoded by the Settings domain runtime;
+ * callers must not use these helpers to bypass that entity.
  */
 
 // Two things this expression is deliberate about, both learned from reading it wrong once:

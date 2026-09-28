@@ -113,8 +113,9 @@ export function openGuiCatalog(input: {
       bundledAgents: listBundledAgentDeclarationIds(),
       // 设置字段契约面:与 settings 动作目录同一单源派生,GUI 仓库设置表单据此渲染,
       // kernel 加字段不再需要 GUI 手写字段清单。
-      settingsFields: settingsUpdateInputFields.map(({ field, type, required, enum: values }) => ({
+      settingsFields: settingsUpdateInputFields.map(({ field, description, type, required, enum: values }) => ({
         field,
+        ...(description ? { description } : {}),
         type,
         required,
         ...(values ? { enum: [...values] } : {}),

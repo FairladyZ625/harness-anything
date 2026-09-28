@@ -487,7 +487,13 @@ export function validateCatalogSnapshot(value: unknown): readonly string[] {
     errors.push(
       ...closed(
         field,
-        { field: "string", type: "string", required: "boolean", enum: "optional-array" },
+        {
+          field: "string",
+          description: "optional-string",
+          type: "string",
+          required: "boolean",
+          enum: "optional-array",
+        },
         "catalog settings field",
       ),
     );

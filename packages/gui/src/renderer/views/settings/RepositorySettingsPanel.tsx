@@ -21,95 +21,6 @@ import {
 } from "../../gate-mapping-form.ts";
 import { GateMappingsEditor } from "./GateMappingsEditor.tsx";
 
-// 字段文案注册表:只登记文案,不登记结构——字段集合、控件类型、取值面全部从
-// catalog snapshot 的 settingsFields(daemon 与 settings 动作目录同一单源)派生。
-// 覆盖面由 settings-field-copy.vitest.ts 锁死:契约渲染字段与这里的登记必须双向一致,
-// 新契约字段不登记文案 = 测试红,不允许以裸 camelCase 字段名进界面。
-// 下方渲染处对 mono 字段名的回落只防御 GUI 与 daemon 版本错位(旧 GUI 连新 daemon),
-// 树内同一提交内不可达。
-export const FIELD_COPY: Readonly<Record<string, { readonly labelKey: MessageKey; readonly descKey: MessageKey }>> = {
-  defaultVertical: {
-    labelKey: "views.settingsView.defaultVerticalLabel",
-    descKey: "views.settingsView.verticalDescription",
-  },
-  defaultPreset: {
-    labelKey: "views.settingsView.defaultPresetLabel",
-    descKey: "views.settingsView.presetDescription",
-  },
-  defaultProfile: {
-    labelKey: "views.settingsView.defaultProfileLabel",
-    descKey: "views.settingsView.profileDescription",
-  },
-  roles: {
-    labelKey: "views.settingsView.rolesLabel",
-    descKey: "views.settingsView.rolesDescription",
-  },
-  reviewIndependence: {
-    labelKey: "views.settingsView.reviewIndependenceLabel",
-    descKey: "views.settingsView.reviewIndependenceDescription",
-  },
-  reviewReturnBudget: {
-    labelKey: "views.settingsView.reviewReturnBudgetLabel",
-    descKey: "views.settingsView.reviewReturnBudgetDescription",
-  },
-  taskScaffold: {
-    labelKey: "views.settingsView.taskScaffoldLabel",
-    descKey: "views.settingsView.taskScaffoldDescription",
-  },
-  repositoryScaffold: {
-    labelKey: "views.settingsView.repositoryScaffoldLabel",
-    descKey: "views.settingsView.repositoryScaffoldDescription",
-  },
-  walFlushAdaptive: {
-    labelKey: "views.settingsView.walFlushAdaptiveLabel",
-    descKey: "views.settingsView.walFlushAdaptiveDescription",
-  },
-  walFlushEvents: {
-    labelKey: "views.settingsView.walFlushEventsLabel",
-    descKey: "views.settingsView.walFlushEventsDescription",
-  },
-  walFlushBytes: {
-    labelKey: "views.settingsView.walFlushBytesLabel",
-    descKey: "views.settingsView.walFlushBytesDescription",
-  },
-  walFlushMilliseconds: {
-    labelKey: "views.settingsView.walFlushMillisecondsLabel",
-    descKey: "views.settingsView.walFlushMillisecondsDescription",
-  },
-  ciWorkflows: {
-    labelKey: "views.settingsView.ciWorkflowsLabel",
-    descKey: "views.settingsView.ciWorkflowsDescription",
-  },
-  closeoutProfile: {
-    labelKey: "views.settingsView.closeoutProfileLabel",
-    descKey: "views.settingsView.closeoutProfileDescription",
-  },
-  closeoutReview: {
-    labelKey: "views.settingsView.closeoutReviewLabel",
-    descKey: "views.settingsView.closeoutReviewDescription",
-  },
-  closeoutConsent: {
-    labelKey: "views.settingsView.closeoutConsentLabel",
-    descKey: "views.settingsView.closeoutConsentDescription",
-  },
-  closeoutFactDisposition: {
-    labelKey: "views.settingsView.closeoutFactDispositionLabel",
-    descKey: "views.settingsView.closeoutFactDispositionDescription",
-  },
-  closeoutCodeDoc: {
-    labelKey: "views.settingsView.closeoutCodeDocLabel",
-    descKey: "views.settingsView.closeoutCodeDocDescription",
-  },
-  restoreDrillRetention: {
-    labelKey: "views.settingsView.restoreDrillRetentionLabel",
-    descKey: "views.settingsView.restoreDrillRetentionDescription",
-  },
-  worktreeSetup: {
-    labelKey: "views.settingsView.worktreeSetupLabel",
-    descKey: "views.settingsView.worktreeSetupDescription",
-  },
-};
-
 /** 仓库设置面板:字段面由 settings 动作契约派生,本文件只承担渲染、目录联动与提交。 */
 export function RepositorySettingsPanel({
   repoId,
@@ -269,9 +180,8 @@ export function RepositorySettingsPanel({
         <div className="p-4 ui-meta text-text-faint">{t("views.settingsView.readingSettings")}</div>
       ) : (
         rows.map((row) => {
-          const copy = FIELD_COPY[row.field],
-            label = copy ? t(copy.labelKey) : row.field,
-            description = copy ? t(copy.descKey) : undefined;
+          const label = translatedFieldCopy(row.field, "Label") ?? humanizeField(row.field),
+            description = translatedFieldCopy(row.field, "Description") ?? row.description ?? undefined;
           return (
             <Row key={row.field} label={label} desc={description}>
               {renderFieldControl(row, {
@@ -345,6 +255,16 @@ export function RepositorySettingsPanel({
       ) : null}
     </Section>
   );
+}
+
+function translatedFieldCopy(field: string, suffix: "Label" | "Description"): string | undefined {
+  const key = `views.settingsView.${field}${suffix}` as MessageKey,
+    translated = t(key);
+  return translated === key ? undefined : translated;
+}
+
+function humanizeField(field: string): string {
+  return field.replace(/([a-z0-9])([A-Z])/gu, "$1 $2").replace(/^./u, (letter) => letter.toUpperCase());
 }
 
 interface FieldControlProps {
@@ -431,6 +351,17 @@ function renderFieldControl(
           onChange={(next) => updateDraft(row.field, next)}
         />
       );
+    case "string-list": {
+      const value = draft[row.field];
+      return (
+        <SettingLinesInput
+          label={row.field}
+          testId={testId ?? `settings-${row.field}-input`}
+          value={Array.isArray(value) ? value : []}
+          onChange={(next) => updateDraft(row.field, next)}
+        />
+      );
+    }
     case "enum-select":
       return (
         <SettingSelect
@@ -442,15 +373,6 @@ function renderFieldControl(
             typeof draft[row.field] === "string" ? (draft[row.field] as string) : undefined,
           )}
           onChange={(value) => updateDraft(row.field, value)}
-        />
-      );
-    case "string-list":
-      return (
-        <SettingLinesInput
-          label={row.field}
-          testId={testId ?? `settings-${row.field}-input`}
-          value={Array.isArray(draft[row.field]) ? (draft[row.field] as readonly string[]) : []}
-          onChange={(next) => updateDraft(row.field, next)}
         />
       );
     case "toggle":
@@ -548,8 +470,6 @@ function SettingNumberInput({
   );
 }
 
-/** 有序自由清单:一行一项,顺序即执行顺序;空行不计,全空 = 空清单。取值合法性归中心
- * 编译器判定(不在这里复制一份步骤语法),被拒时整条错误照实显示在表单底部。 */
 function SettingLinesInput({
   label,
   testId,
@@ -563,7 +483,6 @@ function SettingLinesInput({
 }) {
   const [text, setText] = useState(value.join("\n")),
     joined = value.join("\n");
-  // 草稿从外部换值(读到新设置)时才改写文本;自己敲出的空行与行尾换行不被回写吞掉。
   useEffect(() => {
     if (lines(text).join("\n") !== joined) setText(joined);
   }, [joined]);

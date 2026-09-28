@@ -31,13 +31,14 @@ export type ThinHelpOverlayRoute =
 
 export interface ThinCliInput {
   readonly name: string;
+  readonly description?: string;
   readonly kind: "single" | "repeated" | "boolean";
   readonly required: boolean;
   readonly enum?: readonly string[];
   readonly regex?: string;
   readonly format?: string;
   readonly field?: string;
-  readonly projection?: "number" | "fact-hold-array" | "json-object";
+  readonly projection?: "number" | "boolean" | "fact-hold-array" | "json-object";
   readonly requiredWhen?: { readonly field: string; readonly values: readonly string[] };
   readonly allowedWhen?: { readonly field: string; readonly values: readonly string[] };
   readonly requires?: readonly string[];

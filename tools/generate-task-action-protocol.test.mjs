@@ -5,6 +5,7 @@ import test from "node:test";
 import { normalizeProjectionLineEndings } from "./generate-daemon-status-vocabulary.mjs";
 import {
   generateTaskActionProtocolProjection,
+  projectSettingsFields,
   projectTaskActions,
   renderTaskActionProtocolProjection,
   renderTaskCreateProjection,
@@ -33,12 +34,44 @@ test("Task Action transport has one current build-time projection", async () => 
     projectTaskActions().actions.map(({ id }) => id),
     ["create", "start", "transition", "submit", "adjudicate", "review", "consent", "reconcile", "repoint", "complete"],
   );
+  assert.deepEqual(
+    projectSettingsFields().actionInputs.map(({ field }) => field),
+    [
+      "defaultVertical",
+      "defaultPreset",
+      "defaultProfile",
+      "roles",
+      "reviewIndependence",
+      "reviewReturnBudget",
+      "locale",
+      "taskScaffold",
+      "repositoryScaffold",
+      "walFlushAdaptive",
+      "walFlushEvents",
+      "walFlushBytes",
+      "walFlushMilliseconds",
+      "ciWorkflows",
+      "closeoutProfile",
+      "closeoutReview",
+      "closeoutConsent",
+      "closeoutFactDisposition",
+      "closeoutCodeDoc",
+      "agendaPinLimit",
+      "worktreeSetup",
+      "restoreDrillRetention",
+      "gatesFromDocument",
+      "gatesDraft",
+      "expectedVersion",
+      "idempotencyKey",
+    ],
+  );
 });
 
 test("Task Action transport projection is readable source without compression or elision", async () => {
   const rendered = [await renderTaskActionProtocolProjection(), await renderTaskCreateProjection()].join("\n");
   assert.match(rendered, /export const taskActionDescriptorProjection = \{\n/u);
   assert.match(rendered, /export const taskCreateDescriptorProjection = \{\n/u);
+  assert.match(rendered, /export const settingsFieldProtocolProjection = \{\n/u);
   assert.doesNotMatch(rendered, /zlib|brotli|base64/iu);
   for (const field of projectTaskActions().actions.flatMap((action) => action.input.fields)) {
     assert.ok(Object.hasOwn(field, "type"), `${field.field} must project type`);
