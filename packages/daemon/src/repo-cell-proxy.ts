@@ -54,8 +54,10 @@ export async function openRepoCellProxy(
 ): Promise<RepoCell> {
   const lock = await acquireWorkspaceLock(input.rootDir);
   let relayRuntimeSignal: NonNullable<RepoCellOpenInput["onRuntimeSignal"]> = () => undefined;
-  // Orchestration waiters (runtime batch, agent create) park on these per-session sets; every
-  // runtime signal or outcome notification re-checks the domain settle predicate.
+  // Orchestration waiters (runtime batch, agent create, sessions.await) park on these sets; an exit
+  // signal or outcome notification re-checks the domain settle predicate. Activity and heartbeat
+  // signals change no settle input, and waking every parked wait for each provider frame turned the
+  // host thread into a re-read loop proportional to provider output times parked waits.
   const outcomeWaiters = new Map<string, Set<() => void>>(),
     signalWaiters = new Set<() => void>(),
     pokeSignalWaiters = (): void => {
@@ -81,7 +83,7 @@ export async function openRepoCellProxy(
         },
         onRuntimeSignal: (runtimeSessionId, signal) => {
           relayRuntimeSignal(runtimeSessionId, signal);
-          pokeOutcomeWaiters(runtimeSessionId);
+          if (signal.type === "exit") pokeOutcomeWaiters(runtimeSessionId);
           input.onRuntimeSignal?.(runtimeSessionId, signal);
         },
       },
