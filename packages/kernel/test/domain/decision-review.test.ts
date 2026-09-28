@@ -75,6 +75,31 @@ test("Decision review digest includes accepted prose but excludes review history
   assert.notEqual(decisionReviewContentDigest(current, document("Changed proposal body")), digest);
 });
 
+test("Decision review digest excludes awaits bookkeeping but retains substantive relations", () => {
+  const current = decision(),
+    digest = decisionReviewContentDigest(current, document()),
+    awaits = {
+      relation_id: "rel_awaits",
+      source: `decision/${current.decisionId}`,
+      target: "person/person-owner",
+      type: "awaits" as const,
+      strength: "strong" as const,
+      direction: "directed" as const,
+      origin: "authored" as const,
+      state: "active" as const,
+      rationale: "consent: Review requested changes.",
+    },
+    evidence = {
+      ...awaits,
+      relation_id: "rel_evidence",
+      target: "fact/F-12345678",
+      type: "evidenced-by" as const,
+      rationale: "Evidence for the proposal.",
+    };
+  assert.equal(decisionReviewContentDigest({ ...current, relations: [awaits] }, document()), digest);
+  assert.notEqual(decisionReviewContentDigest({ ...current, relations: [evidence] }, document()), digest);
+});
+
 test("approved review must match the current Decision content", () => {
   const current = decision(),
     digest = decisionReviewContentDigest(current, document()),

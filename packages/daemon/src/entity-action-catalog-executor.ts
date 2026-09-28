@@ -59,6 +59,7 @@ import { actionReceiptGuidance } from "./receipt-guidance.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import { attachDecisionReviewerArtifact } from "./reviewer-artifact-publication.ts";
 import { decisionReviewState } from "./decision-review-read.ts";
+import { ensureDecisionReviewAwait, retireDecisionReviewAwait } from "./decision-review-awaits.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 type FactBundle = ReturnType<typeof compileFactWrite>;
@@ -138,7 +139,24 @@ export function makeEntityActionCatalogExecutor(input: {
         action,
         opId,
       );
-    return runWrite(contract, action, binding, opId);
+    const awaitInput = () => ({
+      decisionId: requiredCommandText(action.decisionId, "decisionId"),
+      binding,
+      opId,
+      authorizationDecision: decisionAuthorization(action, binding, opId, input),
+      rootDir: input.rootDir ?? "",
+      repositoryId: input.repositoryId ?? input.rootDir ?? "",
+      store: input.store,
+      projection: input.projection,
+      now: input.now,
+      sessionIdentity: input.sessionIdentity,
+      ...(input.killpoint ? { killpoint: input.killpoint } : {}),
+    });
+    if (action.kind === "decision-override-review") retireDecisionReviewAwait(awaitInput());
+    const receipt = runWrite(contract, action, binding, opId);
+    if (action.kind === "decision-review" && action.verdict === "changes_requested")
+      ensureDecisionReviewAwait(awaitInput());
+    return receipt;
   };
 
   const run = (
