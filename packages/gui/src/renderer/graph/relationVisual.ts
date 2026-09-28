@@ -38,7 +38,6 @@ export const RELATION_VISUAL: Record<RelationKind, RelationVisual> = {
   reviews: { dasharray: "4 3", strokeWidth: 1.5 },
   owns: { dasharray: "2 3", strokeWidth: 1.2 },
   dispatches: { dasharray: undefined, strokeWidth: 1.4 },
-  authorizes: { dasharray: "6 3", strokeWidth: 1.5 },
   awaits: { dasharray: "2 3", strokeWidth: 1.6 },
 };
 
@@ -63,7 +62,6 @@ export const RELATION_KIND_ORDER: ReadonlyArray<RelationKind> = [
   "reviews",
   "owns",
   "dispatches",
-  "authorizes",
   "awaits",
 ];
 

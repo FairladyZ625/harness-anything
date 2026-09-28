@@ -15,7 +15,6 @@ const expectedKinds = [
   "execution",
   "fact",
   "person",
-  "policy",
   "relation",
   "review",
   "runtime-instance",
@@ -31,7 +30,6 @@ const expectedResidency = {
   execution: { authored: "ledger", live: "runtime-local" },
   fact: { authored: "ledger" },
   person: { authored: "ledger" },
-  policy: { authored: "ledger" },
   relation: { history: "ledger", graph: "projection" },
   review: { authored: "ledger" },
   "runtime-instance": { configuration: "runtime-local" },
@@ -42,7 +40,7 @@ const expectedResidency = {
   task: { authored: "ledger" },
 } as const;
 
-test("one named kind-contract authority explains all fourteen entity kinds with one shape", () => {
+test("one named kind-contract authority explains all thirteen entity kinds with one shape", () => {
   assert.deepEqual(entityKindContracts.map(({ kind }) => kind).sort(), [...expectedKinds]);
   for (const contract of entityKindContracts)
     assert.deepEqual(contract.residency, expectedResidency[contract.kind], `${contract.kind} residency`);
@@ -57,7 +55,7 @@ test("one named kind-contract authority explains all fourteen entity kinds with 
         .map(({ id }) => id),
       `${explanation.kind} available Actions`,
     );
-  for (const kind of ["execution", "review", "policy"] as const) {
+  for (const kind of ["execution", "review"] as const) {
     const transitions = explanations.find((explanation) => explanation.kind === kind)?.transitions;
     assert.deepEqual(transitions?.actions, [], `${kind} declared Actions`);
     assert.match(transitions?.reason ?? "", /decision\/dec_[A-Z0-9]+\/CH1/u, `${kind} no-Action decision`);
@@ -145,18 +143,8 @@ test("generic entity-store boundaries stay aligned with the kind authority", () 
   assert.equal(getEntityKindContract("session"), undefined);
   assert.equal(requireEntityStoreKindContract("agent").kind, "agent");
   assert.equal(requireEntityStoreKindContract("squad").kind, "squad");
-  for (const kind of [
-    "execution",
-    "review",
-    "runtime-instance",
-    "runtime-session",
-    "schedule",
-    "settings",
-    "person",
-    "policy",
-  ])
+  for (const kind of ["execution", "review", "runtime-instance", "runtime-session", "schedule", "settings", "person"])
     assert.throws(() => requireEntityStoreKindContract(kind), /no generic entity-store surface/u);
-  assert.equal(explainEntityKind("policy").authoring, null);
 });
 
 test("Action, projection, and protocol consumers share structured compatibility semantics", () => {

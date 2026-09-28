@@ -11,7 +11,6 @@ import {
   type EntityTypeContract,
 } from "./base-entity.ts";
 import { CONTRACT_VERSION_1_0, type ContractVersion } from "./contract-version.ts";
-import { DEFAULT_POLICY } from "./default-policy.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { compiledPattern, explainEntityJsonSchema, type EntityDocumentJsonSchema } from "./entity-json-schema.ts";
 import { decisionSchema, executionSchema, factSchema, reviewSchema, taskSchema } from "./entity-document-schemas.ts";
@@ -38,8 +37,6 @@ import { boundedContextExceptions, type BoundedContextActionException } from "./
 import { relationSchema } from "./entity-kind-relation-schema.ts";
 import { executionStates } from "./execution.ts";
 import { domainStatuses } from "./lifecycle-status.ts";
-import { policyPredicateNames, POLICY_DECLARATION_V1_SCHEMA } from "./policy.ts";
-import type { PolicyActionRule, PolicyPredicateName } from "./policy.ts";
 import { canonicalRelationDirections } from "./relation-direction.ts";
 import { reviewVerdicts } from "./review.ts";
 import { SCHEDULE_V1_SCHEMA, scheduleEventTypes, scheduleRunOutcomes, scheduleStates } from "./schedule.ts";
@@ -184,11 +181,6 @@ export type EntityKindContract<E extends BaseEntity = BaseEntity, T = unknown> =
     readonly dispositionMatrix: EntityDispositionMatrix;
     readonly storageForm: EntityStorageForm;
   };
-  readonly policy?: {
-    readonly predicates: readonly PolicyPredicateName[];
-    readonly actions: readonly string[];
-    readonly rules: readonly PolicyActionRule[];
-  };
 };
 
 export interface EntitySdkExposure {
@@ -307,11 +299,6 @@ export interface EntityKindExplanation {
   readonly authoring: EntityKindContract["authoring"];
   readonly sdkExposure: EntitySdkExposure;
   readonly framework: EntityKindContract["framework"] | null;
-  readonly policy: {
-    readonly predicates: readonly PolicyPredicateName[];
-    readonly actions: readonly string[];
-    readonly rules: readonly PolicyActionRule[];
-  } | null;
   readonly boundedContextExceptions: readonly BoundedContextActionException[];
 }
 
@@ -717,25 +704,6 @@ export const entityKindContracts = withDeclaredEntityActions([
     sdkExposure: noSdkExposure,
   },
   {
-    kind: "policy",
-    ...entityTypeContractFields("policy"),
-    schema: POLICY_DECLARATION_V1_SCHEMA,
-    relations: { directions: [], edges: [] },
-    canonicalProjection: null,
-    actionCatalog: noActionCatalog(
-      "kernel/policy/v1",
-      "Declaration entity; no independent write path (decision/dec_6FCDFB67623333335987D2542E/CH1).",
-    ),
-    entityStore: null,
-    authoring: null,
-    sdkExposure: noSdkExposure,
-    policy: {
-      predicates: policyPredicateNames,
-      actions: DEFAULT_POLICY.actions,
-      rules: DEFAULT_POLICY.rules ?? [],
-    },
-  },
-  {
     kind: "execution",
     ...entityTypeContractFields("execution"),
     schema: executionSchema,
@@ -994,7 +962,6 @@ export function explainEntityKindContract(contract: EntityKindContract): EntityK
     authoring: contract.authoring,
     sdkExposure: contract.sdkExposure,
     framework: contract.framework ?? null,
-    policy: contract.policy ?? null,
     boundedContextExceptions,
   };
 }

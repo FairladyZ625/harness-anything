@@ -25,7 +25,7 @@ test("Action envelope is one closed kernel contract with a stable replay identit
 
 test("Entity catalogs omit actions that decisions assign to another owner or no write path", () => {
   const catalogs = Object.fromEntries(
-    ["execution", "review", "agent", "runtime-session", "policy"].map((kind) => [kind, explainEntityKind(kind)]),
+    ["execution", "review", "agent", "runtime-session"].map((kind) => [kind, explainEntityKind(kind)]),
   );
   const declared = (kind: string) => catalogs[kind]?.transitions.actions.map(({ id }) => id);
   assert.deepEqual(catalogs.execution?.statusVocabulary, [
@@ -50,13 +50,6 @@ test("Entity catalogs omit actions that decisions assign to another owner or no 
   assert.equal(catalogs.agent?.transitions.catalogRef, "kernel/agent-action/v1");
   assert.deepEqual(catalogs.agent?.transitions.available, ["install", "delete", "validate", "list", "inspect"]);
   assert.deepEqual(declared("agent"), ["install", "delete", "validate", "list", "inspect"]);
-  assert.deepEqual(catalogs.policy?.statusVocabulary, []);
-  assert.deepEqual(catalogs.policy?.transitions.available, []);
-  assert.deepEqual(declared("policy"), []);
-  assert.equal(
-    catalogs.policy?.transitions.reason,
-    "Declaration entity; no independent write path (decision/dec_6FCDFB67623333335987D2542E/CH1).",
-  );
   assert.deepEqual(catalogs["runtime-session"]?.transitions.available, [
     "runtime_session_started",
     "runtime_session_provider_bound",

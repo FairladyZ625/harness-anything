@@ -122,7 +122,6 @@ test("Phase 1 relation directions are registered and owns remains derived-only",
   assert.equal(isAllowedRelationKindTriple("review", "reviews", "execution"), true);
   assert.equal(isAllowedRelationKindTriple("task", "owns", "agent"), false);
   assert.equal(isAllowedRelationKindTriple("agent", "dispatches", "runtime-session"), true);
-  assert.equal(isAllowedRelationKindTriple("policy", "authorizes", "execution"), true);
   assert.equal(canonicalRelationDirections.find((row) => row.type === "owns")?.registration, "derived");
   assert.equal(isAllowedRelationKindTriple("task", "awaits", "person"), true);
   assert.equal(isAllowedRelationKindTriple("decision", "awaits", "person"), true);

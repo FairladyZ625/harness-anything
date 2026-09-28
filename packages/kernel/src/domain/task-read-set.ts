@@ -140,7 +140,7 @@ const readSetAuthorityRank: Record<ReadSetAuthority, number> = { normative: 0, d
 
 function readSetAuthority(entityRef: string): ReadSetAuthority {
   const kind = parseEntityRef(entityRef)?.kind;
-  if (kind === "decision" || kind === "policy") return "normative";
+  if (kind === "decision") return "normative";
   if (kind === "fact") return "descriptive";
   return "historical";
 }

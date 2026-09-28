@@ -65,7 +65,6 @@ test("EntityRef parser derives the twelve canonical kind grammars from authority
     ["agent", "agent/codex"],
     ["squad", "squad/codex"],
     ["runtime-session", "runtime-session/runtime_session1"],
-    ["policy", "policy/policy-1"],
     ["schedule", "schedule/schedule-heartbeat"],
     ["settings", "settings/repository"],
     ["person", "person/person_alice"],

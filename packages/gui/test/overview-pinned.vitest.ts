@@ -140,13 +140,13 @@ describe("overview pinned stream: per-kind open routing", () => {
   it("renders a kind with no detail route as plain text, not a fake button", async () => {
     const navigated: string[] = [];
     const { container, dispose } = await mount({
-      agenda: agenda({ pinnedEntities: [entity("policy/policy_x", "policy", "current")] }),
+      agenda: agenda({ pinnedEntities: [entity("execution/exe-1", "execution", "current")] }),
       onOpenPreview: noop,
       onNavigateEntity: (ref) => navigated.push(ref),
     });
     try {
-      expect(container.querySelector('button[title^="policy/"]')).toBeNull();
-      expect(container.textContent).toContain("Title of policy/policy_x");
+      expect(container.querySelector('button[title^="execution/"]')).toBeNull();
+      expect(container.textContent).toContain("Title of execution/exe-1");
       // 无去处行的 pin 图标仍是陈述性标记:它不是按钮,文案给出 CLI 解除路径。
       expect(container.querySelector("button[data-testid^='overview-pin-toggle-']")).toBeNull();
     } finally {
@@ -158,7 +158,7 @@ describe("overview pinned stream: per-kind open routing", () => {
   it("shows the entity's own status word verbatim when the kind has no status vocabulary", () => {
     const markup = renderToStaticMarkup(
       createElement(PinnedStream, {
-        agenda: agenda({ pinnedEntities: [entity("policy/policy_x", "policy", "weird-state")] }),
+        agenda: agenda({ pinnedEntities: [entity("execution/exe-1", "execution", "weird-state")] }),
         onOpenPreview: noop,
         onNavigateEntity: noop,
       }),

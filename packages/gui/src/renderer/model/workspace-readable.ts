@@ -80,7 +80,6 @@ const RELATION_KIND_KEYS: Readonly<Record<string, MessageKey>> = {
   reviews: "views.workspace.relation.reviews",
   owns: "views.workspace.relation.owns",
   dispatches: "views.workspace.relation.dispatches",
-  authorizes: "views.workspace.relation.authorizes",
   awaits: "views.workspace.relation.awaits",
 };
 

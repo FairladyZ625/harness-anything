@@ -211,13 +211,6 @@ export const canonicalRelationDirections: readonly CanonicalRelationDirection[] 
     reads: "the agent dispatches the target runtime session",
     registration: "ratified",
   },
-  {
-    type: "authorizes",
-    sourceKind: "policy",
-    targetKind: "execution",
-    reads: "the policy authorizes the target execution",
-    registration: "ratified",
-  },
   // task/decision → person: the source waits on that person's answer (dec_DF67F23066BAFE444190A191B5/CH1).
   // The rationale carries `<ask-kind>: <question>`; retiring the edge with the answer as reason closes it.
   {

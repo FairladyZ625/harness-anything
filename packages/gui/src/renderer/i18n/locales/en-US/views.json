@@ -1247,7 +1247,6 @@
   "views.workspace.relation.reviews": "reviews",
   "views.workspace.relation.owns": "owns",
   "views.workspace.relation.dispatches": "dispatches",
-  "views.workspace.relation.authorizes": "authorizes",
   "views.workspace.relation.awaits": "awaits",
   "views.workspace.entity.task": "Task",
   "views.workspace.entity.decision": "Decision",

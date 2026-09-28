@@ -30,7 +30,7 @@ const identityByKind: Readonly<Record<EntityKind, string>> = {
   relation: "rel_b75516c583945a52",
 };
 
-test("all fourteen registered kinds are referenceable relation endpoints from one type contract", () => {
+test("all thirteen registered kinds are referenceable relation endpoints from one type contract", () => {
   const registeredKinds = entityKindContracts.map(({ kind }) => kind).sort();
   const referenceableKinds: EntityKind[] = [];
   const endpointKinds: EntityKind[] = [];
@@ -47,7 +47,7 @@ test("all fourteen registered kinds are referenceable relation endpoints from on
     if (isRelationEndpointKind(contract.kind)) endpointKinds.push(contract.kind);
   }
 
-  assert.equal(registeredKinds.length, 14);
+  assert.equal(registeredKinds.length, 13);
   assert.deepEqual(referenceableKinds.sort(), registeredKinds);
   assert.deepEqual(endpointKinds.sort(), registeredKinds);
   assert.deepEqual(parseEntityRef("relation/rel_b75516c583945a52"), {
@@ -106,8 +106,8 @@ test("BaseEntity projection rejects missing fields, duplicate identity, invalid 
   assert.deepEqual(validateBaseEntity(contract, missingDisposition), ["BaseEntity projection fields are incomplete"]);
 });
 
-test("Agent and Policy expose no state vocabulary that is absent from their schemas", () => {
-  for (const kind of ["agent", "policy"] as const) {
+test("Agent exposes no state vocabulary that is absent from its schema", () => {
+  for (const kind of ["agent"] as const) {
     const contract = entityKindContracts.find((candidate) => candidate.kind === kind)!;
     assert.equal(contract.statusVocabulary, undefined, kind);
     assert.equal(Object.hasOwn(contract.schema.properties, "state"), false, kind);

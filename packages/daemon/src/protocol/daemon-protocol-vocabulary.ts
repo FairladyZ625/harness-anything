@@ -61,7 +61,6 @@ export const relationTypeWords = [
   "reviews",
   "owns",
   "dispatches",
-  "authorizes",
   "awaits",
 ] as const;
 export const awaitsAskKindWords = ["question", "acceptance", "consent", "reopen"] as const;
