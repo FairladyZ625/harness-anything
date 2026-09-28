@@ -47,6 +47,7 @@ export interface CompletionBlocker {
   readonly next: CompletionNext;
 }
 export interface CompletionReadinessContext {
+  /** `missing`: the task contract declares no closeout document (an older contract generation). */
   readonly closeout: "ready" | "placeholder" | "dirty_eligible" | "missing";
   readonly closeoutPath: string;
   readonly closeoutMissingSections?: readonly TransitionDocumentMissingSection[];
@@ -169,6 +170,13 @@ function evaluateCompletion(
       "lifecycle",
       `ha task show ${task.taskId}`,
       `Owner must resolve the ${task.status} task before completion.`,
+    );
+  if (context.closeout === "missing")
+    return one(
+      "document_invalid",
+      "closeout",
+      `ha task contract migrate --apply --task ${task.taskId}`,
+      "The task contract declares no closeout document; migrate the contract before continuing completion.",
     );
   if (task.status === "active" && execution?.state === "active" && snapshot.lease === null)
     return one(

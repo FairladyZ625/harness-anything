@@ -172,6 +172,18 @@ test("missing facts guide an observable change while a recorded fact clears the 
   assert.equal(taskCompletionNext(snapshot, context).blocker, null);
 });
 
+test("a contract that declares no closeout starts completion with its migration", () => {
+  const undeclared = { ...context, closeout: "missing" as const, closeoutPath: "" };
+  for (const snapshot of [at(1), at(2), at(6)]) {
+    const result = taskCompletionNext(snapshot, undeclared);
+    assert.equal(result.blocker?.code, "document_invalid");
+    assert.equal(result.next!.action, "ha task contract migrate --apply --task task-1");
+  }
+  const done = at(fixture.events.length);
+  assert.equal(done.task?.status, "done");
+  assert.equal(taskCompletionNext(done, undeclared).blocker, null);
+});
+
 test("a profile that lifted the fact gate completes without facts; the gate stays on by default", () => {
   const snapshot = at(6),
     lightweight = {
