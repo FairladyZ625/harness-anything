@@ -65,10 +65,17 @@ function embeddedReadinessContract(value: unknown): MarkdownDocumentContract | n
   return { requiredSections: Object.keys(scaffoldBySection), scaffoldBySection };
 }
 
+// dec_5F7E74F1 renamed the create-milestone plan template to the work plan (same sections). Task contracts are
+// immutable, so packages created before the rename still cite the old ref.
+const renamedTemplateRefs: Readonly<Record<string, string>> = Object.freeze({
+  "template://planning/milestone-task-plan@1": "template://planning/work-task-plan@1",
+});
+
 function catalogScaffoldBody(contract: unknown, descriptor: TransitionDocumentDescriptor): string | null {
-  const templateRef = descriptor.templateRef;
-  if (typeof templateRef !== "string" || !templateRef) return null;
-  const locale =
+  const cited = descriptor.templateRef;
+  if (typeof cited !== "string" || !cited) return null;
+  const templateRef = Object.hasOwn(renamedTemplateRefs, cited) ? renamedTemplateRefs[cited] : cited,
+    locale =
       typeof descriptor.locale === "string" && descriptor.locale
         ? descriptor.locale
         : contract && typeof contract === "object" && !Array.isArray(contract)
