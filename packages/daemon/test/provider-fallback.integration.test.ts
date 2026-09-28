@@ -539,6 +539,115 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
   }
 }
 
+// The single-instance incident shape: no fallback chain exists, and a burst of concurrent
+// workers sees HTTP 429 with a retry-after of seconds. The reset window is waited out and the
+// same provider retried instead of settling the whole run provider_quota.
+test("a short provider rate-limit reset is waited out and retried on the same provider", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-provider-rate-retry-")),
+    root = path.join(parent, "repo"),
+    userRoot = path.join(parent, "user"),
+    instances = [runtimeInstance("provider-retry-single")];
+  let pid = 9300,
+    launches = 0;
+  mkdirSync(root);
+  git(root, "init", "-q");
+  git(root, "config", "user.name", "Provider Retry Test");
+  git(root, "config", "user.email", "provider-retry@example.invalid");
+  git(root, "commit", "--allow-empty", "-qm", "base");
+  const open = () =>
+    openRepoCell({
+      repoId: workspaceId("provider-rate-retry"),
+      rootDir: canonicalRoot(root),
+      ownerId: "provider-rate-retry",
+      runtimeDaemonRoute: {
+        userRoot,
+        daemonId: "provider-rate-retry",
+        endpoint: path.join(userRoot, "provider-rate-retry.sock"),
+      },
+      runtimeInstances: () => instances,
+      prepareRuntimeLaunch: async (instanceId, request) => ({
+        definition: definition(instanceId, request.model ?? `${instanceId}-model`),
+        installation,
+        executablePath: installation.executablePath,
+        args: ["exec", "--json", "-"],
+        env: {},
+        cwd: request.cwd,
+        prompt: request.prompt,
+      }),
+      runtimeLaunch: (prepared) => {
+        launches += 1;
+        return rateLimitedThenSuccessProcess(++pid, launches === 1);
+      },
+    });
+  const cell = await open();
+  try {
+    await installAgent(cell, "retry-success", [{ instance: "provider-retry-single" }]);
+    await startTask(cell, root, "task_provider_rate_retry", "execution-provider-rate-retry");
+    await cell.spawnRuntime(
+      {
+        agentId: "retry-success",
+        cwd: { scope: "repo-root" },
+        prompt: "Finish despite a momentary rate limit.",
+        taskId: "task_provider_rate_retry",
+        idempotencyKey: "provider-rate-retry",
+      },
+      binding,
+    );
+    const rows = await eventually(async () => {
+      const dispatches = (await cell.read("repo.task.dispatches", { taskId: "task_provider_rate_retry" })).dispatches;
+      return dispatches.length === 2 && dispatches[1]?.status === "succeeded" ? dispatches : null;
+    });
+    assert.deepEqual(
+      rows.map(({ provider }) => provider.instance),
+      ["provider-retry-single", "provider-retry-single"],
+    );
+    assert.match(rows[0]?.reason ?? "", /HTTP 429/u);
+    assert.equal(launches, 2);
+  } finally {
+    await cell.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+function rateLimitedThenSuccessProcess(pid: number, rateLimited: boolean): RuntimeProcess {
+  let output: ((chunk: string) => void) | null = null,
+    exit: ((code: number | null) => void) | null = null;
+  return {
+    pid,
+    onOutput: (listener) => {
+      output = listener;
+    },
+    onErrorOutput: () => undefined,
+    onExit: (listener) => {
+      exit = listener;
+      setImmediate(() => {
+        const frames = [
+          { type: "thread.started", thread_id: `provider-retry-${pid}` },
+          ...(rateLimited
+            ? [
+                {
+                  type: "turn.failed",
+                  error: {
+                    http_status: 429,
+                    code: "rate_limit",
+                    message: "rate limited; retry shortly",
+                    retry_after: 1,
+                  },
+                },
+              ]
+            : [
+                { type: "item.completed", item: { id: "message", type: "agent_message", text: "done" } },
+                { type: "turn.completed" },
+              ]),
+        ];
+        output?.(`${frames.map((frame) => JSON.stringify(frame)).join("\n")}\n`);
+        exit?.(rateLimited ? 1 : 0);
+      });
+    },
+    terminate: () => undefined,
+  };
+}
+
 async function installAgent(
   cell: Awaited<ReturnType<typeof openRepoCell>>,
   agentId: string,
