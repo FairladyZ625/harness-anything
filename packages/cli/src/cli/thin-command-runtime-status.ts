@@ -42,7 +42,10 @@ export function parseRuntimeStatus(
       "repo.agentRuntime.sessions.await",
     );
   const runtimeSessionId = runtimeSessionIds[0],
-    taskId = taskIds[0];
+    taskId = taskIds[0],
+    // --limit pages through full history including exited sessions; the default overview lists
+    // only what has not exited yet.
+    limit = flags.one.get("--limit");
   return accepted(
     rootDir,
     repoId,
@@ -50,6 +53,7 @@ export function parseRuntimeStatus(
     {
       kind: route.id,
       ...(runtimeSessionId ? { runtimeSessionId } : taskId ? { taskId } : {}),
+      ...(limit ? { limit: Number(limit) } : {}),
       ...(noStream ? { noStream: true } : {}),
     },
     runtimeSessionId ? "repo.agentRuntime.sessions.read" : route.method,

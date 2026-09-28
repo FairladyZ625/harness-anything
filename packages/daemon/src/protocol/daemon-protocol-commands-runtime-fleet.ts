@@ -151,6 +151,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       cliInput("--no-stream", "boolean", false, {
         code: "invalid_field",
       }),
+      cliInput("--limit", "single", false, { code: "invalid_field" }, { projection: "number" }),
     ],
   }),
   defineRepoReadCommand({

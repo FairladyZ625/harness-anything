@@ -213,18 +213,21 @@ describe("agent dispatch flow", () => {
     }
     expect(compatibleDispatchInstances([], [{ ...codexInstance, enabled: false }])).toEqual([]);
   });
-  it("keeps unknown open runtime identifiers fail-closed", () => {
+  it("keeps unknown open runtime identifiers out of automatic routing but passes explicit picks through", () => {
     expect(
       compatibleDispatchInstances([{ type: "opencode-worker" }], [codexInstance, claudeInstance, agyInstance]),
     ).toEqual([]);
-    expect(() => buildDispatchSpawnInput({ ...baseRequest, subject: openCodeAgentSubject }, [codexInstance])).toThrow(
-      "dispatch_runtime_type_mismatch",
-    );
+    expect(
+      buildDispatchSpawnInput(
+        { ...baseRequest, subject: openCodeAgentSubject, runtimeInstanceId: "w4c-verify-codex" },
+        [codexInstance],
+      ),
+    ).toMatchObject({ agentId: "opencode-worker", runtimeInstanceId: "w4c-verify-codex" });
   });
-  it("rejects a runtime instance whose kindId is absent from the selected executor runtimes", () => {
-    expect(() => buildDispatchSpawnInput({ ...baseRequest, subject: agentSubject }, [claudeInstance])).toThrow(
-      "dispatch_runtime_type_mismatch",
-    );
+  it("passes an operator-named instance whose kindId is absent from the executor runtimes", () => {
+    expect(buildDispatchSpawnInput({ ...baseRequest, subject: agentSubject }, [claudeInstance])).toMatchObject({
+      agentId: "terra",
+    });
   });
   it("renders the prototype dispatch modal: who, task, mission, runtime, and what it produces", () => {
     const markup = renderToStaticMarkup(
