@@ -22,6 +22,7 @@ test("Task lifecycle help is projected from the generated Action declarations", 
   );
   const submit = rows.find(({ usage }) => usage.startsWith("ha task submit "));
   assert.match(submit?.usage ?? "", /--amend/u);
+  assert.match(submit?.usage ?? "", /--commit/u);
   assert.doesNotMatch(submit?.usage ?? "", /--from-file|--json-input/u);
   assert.doesNotMatch(submit?.help ?? "", /--from-file|--json-input/u);
   const complete = rows.find(({ usage }) => usage.startsWith("ha task complete "));

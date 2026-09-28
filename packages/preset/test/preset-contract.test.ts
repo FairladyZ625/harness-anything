@@ -302,14 +302,14 @@ test("preset run receipt requires an exact current phase and bounded terminal vo
   assert.match(validatePresetRunReceiptV1({ ...receipt, rejectionExplanation: "" }).join("\n"), /invalid/u);
 });
 
-test("generated task CLI projection accepts closeout submission without packet or evidence flags", () => {
+test("generated task CLI projection accepts a structured commit without packet or evidence flags", () => {
   const projection: GeneratedTaskActionProtocolProjection = taskActionDescriptorProjection,
     submit = projection.actions.find(({ id }) => id === "submit")!,
     complete = projection.actions.find(({ id }) => id === "complete")!;
   assert.deepEqual(submit.input.exactlyOneOf, []);
   assert.deepEqual(
     submit.input.fields.flatMap(({ cli }) => (cli ? [cli.name] : [])),
-    ["--execution-id", "--amend", "--as-owner"],
+    ["--execution-id", "--commit", "--amend", "--as-owner"],
   );
   assert.ok(!complete.input.fields.some(({ cli }) => cli?.name === "--ci" || cli?.name === "--path"));
 });

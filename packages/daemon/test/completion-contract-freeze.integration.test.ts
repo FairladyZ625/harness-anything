@@ -49,18 +49,25 @@ async function submittedTask(name: string, gates: string) {
     cell.run({ kind: "doc-submit", paths: [planPath] }, worker),
   );
   assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, worker)).outcome, "applied");
-  await writeCloseout(cell, rootDir, packagePath, "Frozen delivery.");
+  await writeCloseout(cell, rootDir, taskId, packagePath, "Frozen delivery.");
   return { rootDir, repoId, taskId, executionId, packagePath, cell };
 }
 
-async function writeCloseout(cell: Cell, rootDir: string, packagePath: string, summary: string): Promise<void> {
+async function writeCloseout(
+  cell: Cell,
+  rootDir: string,
+  taskId: string,
+  packagePath: string,
+  summary: string,
+): Promise<void> {
   await cell.settlePendingMaterialization("closeout git commit");
-  writeFileSync(path.join(rootDir, "README.md"), `# ${summary}\n`);
-  git(rootDir, "add", "README.md");
-  git(rootDir, "commit", "--quiet", "-m", "test: delivery");
+  const deliveryRoot = path.join(rootDir, ".worktrees", taskId);
+  writeFileSync(path.join(deliveryRoot, "README.md"), `# ${summary}\n`);
+  git(deliveryRoot, "add", "README.md");
+  git(deliveryRoot, "commit", "--quiet", "-m", "test: delivery");
   writeFileSync(
     path.join(rootDir, "harness", packagePath, "closeout.md"),
-    `# Closeout\n\n## Summary\n\n${summary} Commit ${git(rootDir, "rev-parse", "HEAD")}.\n\n` +
+    `# Closeout\n\n## Summary\n\n${summary} Commit ${git(deliveryRoot, "rev-parse", "HEAD")}.\n\n` +
       "## Verification\n\nVerified.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable.\n",
   );
 }
@@ -171,7 +178,7 @@ test("submit freezes the resolved gate contract into the cut; later harness.yaml
     assert.notEqual(resumed.outcome, "op_rejected", JSON.stringify(resumed));
     assert.deepEqual(submittedContracts(rootDir, repoId), [frozen]);
 
-    await writeCloseout(cell, rootDir, packagePath, "Amended delivery.");
+    await writeCloseout(cell, rootDir, taskId, packagePath, "Amended delivery.");
     const amended = await submitOverTransport(cell, repoId, { taskId, executionId, amend: true });
     assert.equal(amended.outcome, "applied", JSON.stringify(amended));
     assert.deepEqual(submittedContracts(rootDir, repoId), [frozen, frozen]);

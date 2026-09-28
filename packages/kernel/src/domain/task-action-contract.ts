@@ -461,6 +461,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
       taskId,
       expectedVersion,
       cli("executionId", "string", false, "--execution-id"),
+      cli("commitSha", "string", false, "--commit", "single", { regex: "^[0-9a-f]{40}$" }),
       cli("amend", "boolean", false, "--amend", "boolean"),
       cli("asOwner", "boolean", false, "--as-owner", "boolean"),
       ...optionalPacketFields(submissionFields),
