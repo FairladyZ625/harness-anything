@@ -835,6 +835,58 @@ test(
     }
   },
 );
+test(
+  "ci observe pull that rejects a later run never borrows the acceptance of an earlier imported run",
+  { skip: process.platform === "win32" ? "requires POSIX shell-script executables resolved through PATH" : false },
+  async () => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-ci-pull-partial-")),
+      ghBin = mkdtempSync(path.join(tmpdir(), "ha-ci-pull-partial-gh-")),
+      repoId = workspaceId("ci-pull-partial"),
+      filePath = process.env.PATH;
+    let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+    try {
+      initRepo(rootDir);
+      // Run 1 uploads no artifact and imports from its summary; run 2 uploads an artifact whose test
+      // row names an unknown tier, so its observation fails validation after run 1 was appended.
+      writeFileSync(
+        path.join(ghBin, "gh"),
+        "#!/usr/bin/env node\nconst fs = require('fs'), path = require('path');\n" +
+          "const [group, verb, id] = process.argv.slice(2), sha = 'a'.repeat(40);\n" +
+          "if (group === 'run' && verb === 'view')\n" +
+          "  process.stdout.write(JSON.stringify({ workflowName: 'rewrite-ci', headSha: sha, headBranch: 'main',\n" +
+          "    status: 'completed', conclusion: 'success', attempt: 1, event: 'push' }));\n" +
+          "else if (group === 'run' && verb === 'download' && id === '2') {\n" +
+          "  const dir = path.join(process.argv[process.argv.indexOf('--dir') + 1], 'ci-observation-rewrite-ci');\n" +
+          "  fs.mkdirSync(dir, { recursive: true });\n" +
+          "  fs.writeFileSync(path.join(dir, 'observation.json'), JSON.stringify({ schema: 'ci-run-artifact/v1',\n" +
+          "    run: { runId: '2.1', sha, branch: 'main', prNumber: null, job: 'rewrite-ci', wallclockMs: 0,\n" +
+          "      runner: 'github-actions' },\n" +
+          "    tests: [{ file: 'a.test.ts', name: 'a', tier: 'unknown-tier', shard: null, durationMs: 1,\n" +
+          "      status: 'pass', retry: 0 }],\n" +
+          "    gates: [] }));\n" +
+          "} else if (group === 'run' && verb === 'download') process.exit(1);\n" +
+          "else process.stdout.write('[]');\n",
+        { mode: 0o755 },
+      );
+      process.env.PATH = `${ghBin}${path.delimiter}${filePath ?? ""}`;
+      cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "ci-pull-partial" });
+      const pulled = await cell.run({ kind: "ci-observe-pull", runs: [1, 2] }, repoWriteBinding);
+      assert.equal(pulled.outcome, "op_rejected", JSON.stringify(pulled));
+      assert.equal(pulled.code, "invalid_command", JSON.stringify(pulled));
+      assert.doesNotMatch(String(pulled.opId), /^ci-observation-/u, JSON.stringify(pulled));
+      assert.match(String(pulled.rejectionExplanation), /ci run observation event envelope or payload is invalid/u);
+      const observed = makeTaskEventReader({ repoId, rootDir })
+        .read()
+        .events.flatMap((event) => (event.type === "ci_run_observed" ? [event.payload.run.runId] : []));
+      assert.deepEqual(observed, ["1.1"], "the earlier run stays recorded as its own accepted observation");
+    } finally {
+      process.env.PATH = filePath;
+      await cell?.close();
+      rmSync(ghBin, { recursive: true, force: true });
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  },
+);
 async function writeCloseout(
   drain: () => Promise<unknown>,
   rootDir: string,
