@@ -10,7 +10,12 @@ import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 export const artifactAnchorGuidance =
   "Use artifact:artifacts/report.md; submit pins the current center-accepted revision.";
 
-const artifactAnchorPattern = /artifact:([^\s`<>@]+?)(?:@([1-9][0-9]*))?(?=$|[\s`<>,)，。]|[.](?=$|[\s`<>,)，。]))/gu;
+// A path token is ASCII path characters only; every other character — whitespace, ASCII or CJK
+// punctuation, Chinese prose — ends the anchor, so 「artifact:artifacts/report.md、」 cannot swallow
+// a neighbouring anchor. `@` ends nothing: a malformed @revision must fail the whole anchor attempt
+// rather than degrade to pinning the current revision.
+const artifactAnchorPattern =
+  /artifact:([A-Za-z0-9._/-]+?)(?:@([1-9][0-9]*))?(?=$|[^A-Za-z0-9._/@-]|[.](?=$|[^A-Za-z0-9._/@-]))/gu;
 
 type ArtifactAnchorMatch = {
   readonly path: string;
@@ -88,4 +93,16 @@ export function removeArtifactAnchors(summary: string): string {
     cursor = end;
   }
   return result + summary.slice(cursor);
+}
+
+/**
+ * `artifact:` occurrences that did not parse as anchors, each quoted to the end of its
+ * whitespace-free run. Only `artifact:` immediately followed by a non-space character is an
+ * anchor attempt; prose labels like "Delivery artifact:" end in whitespace and count for nothing.
+ */
+export function unparsedArtifactAnchorText(summary: string): readonly string[] {
+  const anchorStarts = new Set(artifactAnchorMatches(summary).map(({ start }) => start));
+  return [...summary.matchAll(/artifact:\S/gu)]
+    .filter((attempt) => !anchorStarts.has(attempt.index!))
+    .map((attempt) => summary.slice(attempt.index!).match(/\S*/u)![0]!);
 }

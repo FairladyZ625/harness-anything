@@ -135,6 +135,25 @@ test("artifact anchors leave trailing prose punctuation outside the path", () =>
   assert.deepEqual(artifactAnchors("artifact:artifacts/report.md@7.2"), []);
 });
 
+test("anchors break before any CJK or fullwidth punctuation or prose character", () => {
+  for (const trailing of ["、", "；", "：", "）", "。", "，", "的"])
+    assert.deepEqual(artifactAnchors(`已交付 artifact:artifacts/report.md${trailing}回执留档。`), [
+      { path: "artifacts/report.md" },
+    ]);
+  // The original mis-parsed closeout: the lazy path used to swallow 「、」 and the next anchor.
+  assert.deepEqual(
+    artifactAnchors(
+      "artifact:artifacts/design.md、artifact:artifacts/report.md 与 artifact:artifacts/prototype/index.html。",
+    ),
+    [{ path: "artifacts/design.md" }, { path: "artifacts/report.md" }, { path: "artifacts/prototype/index.html" }],
+  );
+  for (const trailing of ["、", "；", "：", "）"])
+    assert.deepEqual(
+      derive(`已交付 artifact:artifacts/report.md${trailing}`).artifacts?.map((a) => a.path),
+      [path],
+    );
+});
+
 test("a prose label ending in 'artifact:' is not counted as a second anchor", () => {
   for (const summary of [
     "Delivery artifact: artifact:artifacts/report.md.",
@@ -160,6 +179,17 @@ test("invalid artifact anchors explain the copyable form and revision source", (
       code: "invalid_submission",
       message: /artifact:artifacts\/report\.md.*pins the current center-accepted revision/u,
     });
+});
+
+test("unparsable artifact anchors are reported with the offending summary text", () => {
+  assert.throws(() => derive("artifact:artifacts/report.md@7.2"), {
+    code: "invalid_submission",
+    message: /is not a parsable anchor: artifact:artifacts\/report\.md@7\.2\./u,
+  });
+  assert.throws(() => derive("已交付 artifact:报告.md、"), {
+    code: "invalid_submission",
+    message: /is not a parsable anchor: artifact:报告\.md、\./u,
+  });
 });
 
 test("the guidance's package-relative anchor form resolves and stores the full task-package path", () => {
