@@ -945,7 +945,9 @@ function renderAgendaSummary(
       return (
         `- [${row.askKind}] ${row.sourceRef} ${row.title} [${row.status}] — 问: ${row.question}\n` +
         `  答（${row.answeredBy} @ ${row.answeredAt}）: ${row.answer}\n` +
-        `  下一步: ha ${kind} show ${id}，据答复在源上继续（进度、状态或裁决）；源上一有写入即出列`
+        `  下一步: ha ${kind} show ${id}，据答复在源上继续（进度、状态或裁决）；源上一有写入即出列\n` +
+        `  再次提问: ha relation relate --source-ref ${row.sourceRef} --target-ref person/${row.personId} ` +
+        `--type awaits --rationale "<kind>: <新问题>" --expected-version <这条边答复时的 revision；填错时报错会给出>`
       );
     },
     executionLine = (row: AgendaExecutionRow) =>
@@ -968,7 +970,8 @@ function renderAgendaSummary(
     ),
     section(
       "等你处理",
-      "指向你的 active awaits 边（question/acceptance/consent/reopen）；答复即 retire 该边，答复内容写进 --reason",
+      "指向你的 active awaits 边（question/acceptance/consent/reopen）；答复即 retire 该边，答复内容写进 --reason；" +
+        "答复后提问方可对同一对端点再次 relate 重新发起",
       groups.awaitingYou.map(awaitsLine),
     ),
     section(

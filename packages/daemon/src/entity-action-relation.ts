@@ -108,7 +108,9 @@ export function executeRelationAction(input: {
   if (relationId !== requestedRelationId) reject("invalid_command", "Relation action identity changed during compile.");
   const dependenciesCaughtUp = lookupCut.status === "ready" && lookupCut.watermark === headRevision;
   if (!replay && !dependenciesCaughtUp) reject("content_not_ready", `Relation dependencies are pending${lookupNote}`);
-  if (compiled.type === "relation_created" && current) {
+  // A retired aggregate falls through to the revision fence below: relating the same endpoints at
+  // its current revision reactivates it (F-007522DF), so an answered awaits can be asked again.
+  if (compiled.type === "relation_created" && current?.state === "active") {
     const candidate = compiled.payload.relation,
       same =
         current.sourceRef === candidate.source &&
@@ -117,9 +119,14 @@ export function executeRelationAction(input: {
         current.direction === candidate.direction &&
         current.strength === relationStrengthForType(candidate.type) &&
         current.origin === candidate.origin &&
-        current.rationale === candidate.rationale &&
-        current.state === "active";
-    if (!same) reject("revision_conflict", `Relation ${relationId} already exists with different projected facets.`);
+        current.rationale === candidate.rationale;
+    if (!same)
+      reject(
+        "revision_conflict",
+        `Relation ${relationId} is still active with different projected facets. ` +
+          `To ask again, retire it first (ha relation unrelate ${relationId} --reason <text> ` +
+          `--expected-version ${current.workspaceRevision}), then relate with --expected-version <its retired revision>.`,
+      );
     return relationNoChanges({
       relationId,
       revision: current.workspaceRevision,
@@ -132,7 +139,10 @@ export function executeRelationAction(input: {
   if (Number(expectedVersion) !== aggregateRevision)
     reject(
       compiled.type === "relation_reconfirmed" ? "version_conflict" : "revision_conflict",
-      `Relation ${relationId} expected revision ${String(expectedVersion)}, current revision is ${aggregateRevision}.`,
+      compiled.type === "relation_created" && current?.state === "retired"
+        ? `Relation ${relationId} was retired at revision ${aggregateRevision}; ` +
+            `relate the same endpoints with --expected-version ${aggregateRevision} to ask again.`
+        : `Relation ${relationId} expected revision ${String(expectedVersion)}, current revision is ${aggregateRevision}.`,
     );
   if (
     (compiled.type === "relation_retired" || compiled.type === "relation_reconfirmed") &&

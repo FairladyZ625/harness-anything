@@ -158,8 +158,10 @@ export function reduceRelationEntity(
   const id = migrated?.kind === "relation" ? migrated.relation.relation_id : (event as RelationEventV1).relationId;
   if (current === null && relation === null) throw new Error(`Relation ${id} has no initial history event`);
   if (current !== null && current.id !== id) throw new Error("Relation aggregate identity cannot change");
-  if (current !== null && event.schema === "relation-event/v1" && event.type === "relation_created")
-    throw new Error(`Relation ${id} already exists`);
+  // A retired aggregate is asked again by a later relation_created under the same derived id: the
+  // edge reactivates with the new facets and a fresh creation time, and its history stays whole.
+  const reactivated = current !== null && event.schema === "relation-event/v1" && event.type === "relation_created";
+  if (reactivated && current.state !== "retired") throw new Error(`Relation ${id} already exists`);
 
   const base = projectBaseEntityAtCut(
     requireEntityTypeContract("relation"),
@@ -194,6 +196,7 @@ export function reduceRelationEntity(
   assertRelationEventRecord(relation, false, migrated?.kind === "relation" ? migrated.registry : undefined);
   return Object.freeze({
     ...base,
+    ...(reactivated ? { createdAt: base.updatedAt } : {}),
     source: relation.source,
     target: relation.target,
     type: relation.type,

@@ -188,6 +188,67 @@ test("native Relation history reduces and projects one versioned aggregate row",
   db.close();
 });
 
+test("a retired Relation replays a later relation_created as the reactivated aggregate", () => {
+  const relation = record(),
+    event = (
+      type: "created" | "retired",
+      workspaceRevision: number,
+      occurredAt: string,
+      text: string,
+    ): RelationEventV1 =>
+      type === "created"
+        ? compileRelationCreatedEvent({
+            record: { ...eventRecord(relation, 5), rationale: text },
+            actor,
+            source,
+            opId: `relation-reactivate-${workspaceRevision}`,
+            occurredAt,
+            workspaceRevision,
+          })
+        : compileRelationRetiredEvent({
+            relationId: relation.relation_id,
+            reason: text,
+            actor,
+            source,
+            opId: `relation-reactivate-${workspaceRevision}`,
+            occurredAt,
+            workspaceRevision,
+          }),
+    history = [
+      event("created", 7, "2026-08-31T01:00:00.000Z", "First ask."),
+      event("retired", 9, "2026-08-31T02:00:00.000Z", "First answer."),
+      event("created", 12, "2026-08-31T03:00:00.000Z", "Second ask."),
+    ];
+  const reactivated = history.reduce<ReturnType<typeof reduceRelationEntity> | null>(
+    (current, next) => reduceRelationEntity(current, next),
+    null,
+  )!;
+  assert.equal(reactivated.state, "active");
+  assert.equal(reactivated.rationale, "Second ask.");
+  assert.equal(reactivated.revision, 12);
+  assert.equal(reactivated.createdAt, "2026-08-31T03:00:00.000Z", "the latest ask is the aggregate's live creation");
+  assert.equal(reactivated.retirementReason, undefined, "the earlier answer does not survive reactivation");
+  assert.throws(
+    () => reduceRelationEntity(reactivated, event("created", 13, "2026-08-31T04:00:00.000Z", "Third ask.")),
+    /already exists/u,
+    "an active aggregate still rejects a second creation",
+  );
+  const answeredAgain = reduceRelationEntity(
+    reactivated,
+    event("retired", 14, "2026-08-31T05:00:00.000Z", "Second answer."),
+  );
+
+  const db = new DatabaseSync(":memory:");
+  createRelationGraphProjectionTables(db);
+  for (const next of [...history, event("retired", 14, "2026-08-31T05:00:00.000Z", "Second answer.")])
+    applyRelationProjectionEvent(db, next);
+  const rows = readRelationProjectionRows(db);
+  assert.equal(rows.length, 1);
+  assert.deepEqual(rows[0]?.entity, answeredAgain);
+  assert.equal(rows[0]?.entity.retirementReason, "Second answer.");
+  db.close();
+});
+
 test("entity_migrated is valid Relation genesis and replacement is an explicit family member", () => {
   const relation = record("relation/rel_3333333333333333", "fact/F-ABCDEFGH"),
     migrated: MigrationImportEventV1 = {
