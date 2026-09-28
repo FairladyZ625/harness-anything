@@ -728,6 +728,12 @@ export async function adjudicateTask(
       binding,
       revision: cell.store.readHead()?.revision ?? 0,
       reviewerId,
+      // The same reviewer-resource pins dispatch-review takes: an unpinned reviewer declaration
+      // would otherwise land on an unpredictable default instance.
+      extras: {
+        ...(typeof action.runtimeInstanceId === "string" ? { runtimeInstanceId: action.runtimeInstanceId } : {}),
+        ...(typeof action.model === "string" ? { model: action.model } : {}),
+      },
     }),
     // The step mirrors the historical review-dispatch receipt shape (dispatchId/runtimeSessionId
     // ride the draft the same way dispatch-review's steps do).

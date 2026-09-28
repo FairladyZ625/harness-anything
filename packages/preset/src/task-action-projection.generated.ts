@@ -199,6 +199,18 @@ export const taskActionDescriptorProjection = {
             cli: { name: "--reviewer", kind: "single", error: "invalid_field" },
           },
           {
+            field: "runtimeInstanceId",
+            type: "string",
+            required: false,
+            cli: { name: "--instance", kind: "single", error: "invalid_field" },
+          },
+          {
+            field: "model",
+            type: "string",
+            required: false,
+            cli: { name: "--model", kind: "single", error: "invalid_field" },
+          },
+          {
             field: "reviewId",
             type: "string",
             required: false,

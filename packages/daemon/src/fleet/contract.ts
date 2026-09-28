@@ -444,6 +444,8 @@ const taskActionShapes: Readonly<Record<FleetTaskCommandKind, Check>> = {
       forward: boolean,
       return: boolean,
       reviewer: id,
+      runtimeInstanceId: id,
+      model: text,
       reviewId: id,
       reason: text,
       noteFile: text,
