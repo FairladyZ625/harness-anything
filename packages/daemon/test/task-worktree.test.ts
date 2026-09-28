@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -29,7 +29,8 @@ test("the first start checks the bound worktree out once and names it in the rec
       cwd = path.join(fixture.root, binding.path);
     assert.equal(git(cwd, "branch", "--show-current"), binding.branch);
     assert.equal(git(cwd, "rev-parse", "HEAD"), git(fixture.root, "rev-parse", "origin/main"));
-    assert.equal(readlinkSync(path.join(cwd, "node_modules")), path.join(fixture.root, "node_modules"));
+    // Its own store, so workspace packages resolve to the worktree rather than the canonical checkout.
+    assert.equal(lstatSync(path.join(cwd, "node_modules")).isDirectory(), true);
     assert.match(String((started as { summary?: unknown }).summary), /Harness manages this worktree; no command/u);
     assert.equal(taskWorktreeView(fixture.root, task, repositoryDiff)?.state, "materialized");
     // A later start or dispatch finds the checkout in place instead of cutting a second one.
