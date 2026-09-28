@@ -744,8 +744,21 @@ function decisionAuthorization(
   }
   if (!judgment && action.kind !== "decision-override-review") return authorizationDecision;
   const approval = decisionApproval(action, binding);
-  if (action.kind === "decision-reject" && !approval)
-    reject("actor_unauthorized", "Decision rejection requires explicit human approval.");
+  if (action.kind === "decision-reject" || action.kind === "decision-override-review") {
+    if (!approval)
+      reject(
+        "actor_unauthorized",
+        action.kind === "decision-reject"
+          ? "Decision rejection requires explicit human approval."
+          : "Decision review override requires explicit human approval.",
+      );
+    return authorizationDecision;
+  }
+  if (proposalActor === null || (!isSamePerson(proposalActor, binding.actor) && !approval))
+    reject(
+      "actor_unauthorized",
+      `Decision ${action.kind === "decision-accept" ? "acceptance" : "deferral"} requires the proposal owner principal or explicit human approval.`,
+    );
   return authorizationDecision;
 }
 
@@ -755,8 +768,16 @@ function decisionApproval(
 ): Parameters<typeof compileDecisionWrite>[0]["approval"] {
   if ([action.consentBy, action.consentAt, action.consentChannel].every((value) => value === undefined))
     return undefined;
-  if (action.kind !== "decision-accept" && action.kind !== "decision-reject")
-    reject("invalid_command", "Human consent is only valid for decision accept or decision reject.");
+  if (
+    action.kind !== "decision-accept" &&
+    action.kind !== "decision-reject" &&
+    action.kind !== "decision-defer" &&
+    action.kind !== "decision-override-review"
+  )
+    reject(
+      "invalid_command",
+      "Human consent is only valid for Decision acceptance, rejection, deferral, or review override.",
+    );
   if (action.consentBy !== binding.actor.principal.personId)
     reject("actor_unauthorized", "Human consent must name the authenticated principal person.");
   if (

@@ -101,6 +101,101 @@ test("an independent approved review lets the proposal owner accept the current 
   }
 });
 
+test("Decision judgment and review disposition stay with the proposal owner or explicit human approval", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-review-authority-"));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId: workspaceId("decision-review-authority"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "decision-review-authority-test",
+  });
+  const other = withRoleBinding(
+      {
+        actor: {
+          principal: { personId: "person-other" },
+          executor: { kind: "agent" as const, id: "other-agent" },
+        },
+        source: "local" as const,
+      },
+      "arbiter",
+    ),
+    approval = {
+      consentBy: other.actor.principal.personId,
+      consentAt: "2026-09-28T01:02:03.000Z",
+      consentChannel: "chat" as const,
+    };
+  try {
+    const proposed = await cell.run(decisionProposal(), proposer),
+      decisionId = receiptJson(proposed).decisionId as string,
+      shown = receiptJson(await cell.run({ kind: "decision-show", decisionId, includeBody: true }, proposer))
+        .decision as DecisionDocumentState & { readonly body: { readonly body: string } },
+      { body, ...current } = shown,
+      digest = decisionReviewContentDigest({ ...current, relations: [] }, body.body);
+    const foreignAccept = await cell.run(
+      {
+        kind: "decision-accept",
+        decisionId,
+        rationale: "A different principal cannot accept without approval.",
+        judgmentOnlyRationale: "No owner authority was supplied.",
+      },
+      other,
+    );
+    assert.deepEqual(
+      { outcome: foreignAccept.outcome, code: foreignAccept.code },
+      { outcome: "op_rejected", code: "actor_unauthorized" },
+    );
+    const foreignDefer = await cell.run(
+      { kind: "decision-defer", decisionId, reason: "A different principal cannot defer without approval." },
+      other,
+    );
+    assert.deepEqual(
+      { outcome: foreignDefer.outcome, code: foreignDefer.code },
+      { outcome: "op_rejected", code: "actor_unauthorized" },
+    );
+    const reviewed = await cell.run(
+      {
+        kind: "decision-review",
+        decisionId,
+        reviewId: "review-changes-requested",
+        reviewContentDigest: digest,
+        verdict: "changes_requested",
+        reason: "The proposal needs a named correction.",
+        findings: [{ findingId: "finding-1", text: "Name the correction before acceptance." }],
+        evidenceChecked: [],
+        reportRef: null,
+      },
+      withRoleBinding(
+        {
+          actor: {
+            principal: proposer.actor.principal,
+            executor: { kind: "agent" as const, id: "independent-reviewer" },
+          },
+          source: "local" as const,
+        },
+        "arbiter",
+      ),
+    );
+    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+    const override = {
+      kind: "decision-override-review" as const,
+      decisionId,
+      reviewContentDigest: digest,
+      reviewIds: ["review-changes-requested"],
+      reason: "The authenticated principal explicitly accepts the named disagreement.",
+    };
+    const agentOverride = await cell.run(override, other);
+    assert.deepEqual(
+      { outcome: agentOverride.outcome, code: agentOverride.code },
+      { outcome: "op_rejected", code: "actor_unauthorized" },
+    );
+    const approvedOverride = await cell.run({ ...override, ...approval }, other);
+    assert.equal(approvedOverride.outcome, "applied", JSON.stringify(approvedOverride));
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("Human approval preserves the proposing executor and survives a cold read", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-human-consent-"));
   initRepo(rootDir);
