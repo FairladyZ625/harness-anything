@@ -947,6 +947,93 @@ test("CI observation pull --task fails closed when no completed success covers t
   }
 });
 
+test("CI observation pull reports rate_limited with the reset hint instead of a raw gh 403", async () => {
+  const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observation-rate-limit-")),
+    delivery = "d".repeat(40);
+  const cell = {
+    rootDir,
+    settings: ciSettings(["rewrite-ci"]),
+    cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+    projection: {
+      read: () => ({
+        snapshot: {
+          task: { iteration: 1 },
+          executions: [{ iteration: 1, submission: { commitSha: delivery } }],
+        },
+      }),
+    },
+  };
+  const runs = [
+    {
+      databaseId: 905,
+      headBranch: "main",
+      headSha: "sha-905",
+      createdAt: "2026-09-15T05:00:00Z",
+      status: "completed",
+      conclusion: "success",
+    },
+  ];
+  // execFile-shaped failure: message embeds the gh stderr, stderr rides alongside, code is numeric.
+  const ghRateLimited = (stderr: string) =>
+    Object.assign(new Error(`Command failed: gh api repos/:owner/:repo/compare\n${stderr}`), {
+      code: 1,
+      stdout: "",
+      stderr,
+    });
+  const listThen = (failure: () => Error) => async (_command: string, args: readonly string[]) => {
+    if (args[0] === "api") throw failure();
+    if (args[1] === "list") return JSON.stringify(runs);
+    throw new Error(`unexpected gh call: ${args.join(" ")}`);
+  };
+  try {
+    // A primary rate limit on the compare call classifies with the parsed reset hint.
+    await assert.rejects(
+      fetchCiObservations(
+        cell as never,
+        { kind: "ci-observe-pull", taskId: "task-witness" },
+        listThen(() =>
+          ghRateLimited("gh: API rate limit exceeded for person-zeyu. (rate limit reset in 27m57s) (HTTP 403)"),
+        ),
+      ),
+      (error: Error & { code?: string }) => {
+        assert.equal(error.code, "rate_limited");
+        assert.match(error.message, /resets in 27m57s/u);
+        assert.doesNotMatch(error.message, /Command failed/u);
+        return true;
+      },
+    );
+    // A secondary rate limit without a parseable reset still classifies as rate_limited.
+    await assert.rejects(
+      fetchCiObservations(
+        cell as never,
+        { kind: "ci-observe-pull", taskId: "task-witness" },
+        listThen(() =>
+          ghRateLimited(
+            "gh: You have exceeded a secondary rate limit. Please wait a few minutes before you try again. (HTTP 403)",
+          ),
+        ),
+      ),
+      (error: Error & { code?: string }) => {
+        assert.equal(error.code, "rate_limited");
+        return true;
+      },
+    );
+    // An unscoped pull hits the rate limit on `gh run list` first.
+    await assert.rejects(
+      fetchCiObservations(cell as never, { kind: "ci-observe-pull", limit: 5 }, async () => {
+        throw ghRateLimited("gh: API rate limit exceeded for person-zeyu. (rate limit reset in 1h2m3s) (HTTP 403)");
+      }),
+      (error: Error & { code?: string }) => {
+        assert.equal(error.code, "rate_limited");
+        assert.match(error.message, /resets in 1h2m3s/u);
+        return true;
+      },
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("CI observatory fails closed on malformed quarantine ownership", () => {
   const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observatory-invalid-"));
   mkdirSync(path.join(rootDir, "tools"), { recursive: true });
