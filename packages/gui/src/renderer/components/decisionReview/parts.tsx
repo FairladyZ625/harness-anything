@@ -44,6 +44,13 @@ export function DecisionReviewBadge({ review }: { readonly review: DecisionRevie
   );
 }
 
+/** accept 未就绪时的停用原因(读面 blocker 原文);就绪或不在待裁状态时为 null。 */
+export function reviewAcceptBlockedReason(review: DecisionReviewState | undefined): string | null {
+  const readiness = review?.readiness;
+  if (!readiness || readiness.ready) return null;
+  return t("views.decisionReview.judgeBlocked", { reason: readiness.blocker?.reason ?? readiness.next.reason });
+}
+
 export function VerdictBadge({ verdict }: { readonly verdict: DecisionReview["verdict"] }) {
   return verdict === "approved" ? (
     <span className="rounded-md border border-success/40 bg-success/10 px-1.5 py-0.5 ui-micro font-semibold text-success">

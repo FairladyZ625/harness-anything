@@ -1353,7 +1353,17 @@
   "views.decisionReview.overrideSubmit": "具名处置所选评审",
   "views.decisionReview.overrideValidation": "至少选择一条评审并写明理由。",
   "views.decisionReview.acceptBlockedTip": "readiness 未就绪,accept 已停用",
-  "views.decisionReview.reviewReadLoading": "正在读取当前评审切面…",
-  "views.decisionReview.reviewReadPending": "中心投影追赶中;评审切面与裁决就绪稍后可读,写操作暂停。",
-  "views.decisionReview.reviewReadFailed": "评审切面读取失败:{detail}"
+  "views.workspace.decisionReviewTitle": "Decision 评审",
+  "views.workspace.decisionReviewNote": "同一工作下直接呈现 Decision；不复制为一个评审任务。",
+  "views.workspace.decisionReviewAll": "全部",
+  "views.workspace.decisionReviewGroupDispose": "待处置",
+  "views.workspace.decisionReviewGroupReviewing": "评审中",
+  "views.workspace.decisionReviewGroupJudge": "待裁决",
+  "views.workspace.decisionReviewCount": "{count} 项",
+  "views.workspace.decisionReviewOpen": "查看",
+  "views.workspace.decisionReviewHintChangesRequested": "先采纳或反驳；回复不能自行清除打回",
+  "views.workspace.decisionReviewHintUnansweredFindings": "历史意见尚未逐条回应；先采纳或反驳",
+  "views.workspace.decisionReviewHintReviewing": "可查看运行与冻结切面",
+  "views.workspace.decisionReviewHintApproved": "当前内容有有效批准，可裁决生效",
+  "views.workspace.decisionReviewHintPolicyUnreviewed": "可按免审策略决定生效"
 }

@@ -14,10 +14,8 @@ import {
 } from "../model/readiness-signals";
 import { formatTime } from "../model/time.ts";
 import { DecisionJudgmentPanel, type JudgmentOpenRequest } from "../components/DecisionJudgmentPanel.tsx";
-import { DecisionReviewBadge } from "../components/decisionReview/parts.tsx";
+import { DecisionReviewBadge, reviewAcceptBlockedReason } from "../components/decisionReview/parts.tsx";
 import { decisionReviewRef } from "../navigation/decisionReviewRoutes.ts";
-import { useDecisionShowQuery } from "../decision-show-data.ts";
-import { withShownReview } from "../model/decision-review.ts";
 import type { DecisionAction, DecisionMutationFeedback } from "../decision-actions.ts";
 import { t } from "../i18n/index.tsx";
 
@@ -473,13 +471,7 @@ export function VerdictCard({
         openRequest={openRequest}
         onSubmit={onJudge}
         onCheckReceipt={onCheckReceipt}
-        acceptBlockedReason={
-          d.review?.readiness && !d.review.readiness.ready
-            ? t("views.decisionReview.judgeBlocked", {
-                reason: d.review.readiness.blocker?.reason ?? d.review.readiness.next.reason,
-              })
-            : null
-        }
+        acceptBlockedReason={reviewAcceptBlockedReason(d.review)}
       />
 
       {/* "呼叫 Agent 核查"动作(41 §3.1a):
@@ -511,19 +503,4 @@ export function VerdictCard({
         ))}
     </div>
   );
-}
-
-// ============ inbox 队列壳层 ============
-
-/**
- * 决策池专注卡的评审切面:列表行不带正文,当前评审切面与 accept 就绪要从这一条的单体读取
- * (与详情页正文同一查询键);读到之前卡片照常显示,只是不出评审信号、不停用 accept。
- */
-export function ReviewedVerdictCard({
-  repoId,
-  ...props
-}: { readonly repoId: string } & Parameters<typeof VerdictCard>[0]) {
-  const shown = useDecisionShowQuery(repoId, props.d.decisionId);
-  const d = shown.data?.status === "ready" ? withShownReview(props.d, shown.data.decision) : props.d;
-  return <VerdictCard {...props} d={d} />;
 }

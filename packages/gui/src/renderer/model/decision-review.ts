@@ -1,4 +1,3 @@
-import type { DecisionShowRow } from "../api-client-decisions.ts";
 import type { DecisionReviewState, DecisionRow } from "./types.ts";
 
 /**
@@ -23,13 +22,22 @@ export type DecisionReviewSignal =
 export function decisionReviewSignal(review: DecisionReviewState | undefined): DecisionReviewSignal | null {
   const readiness = review?.readiness;
   if (!review || !readiness) return null;
+  // 互斥主组的先后照设计 Q5:打回未处置先于评审中。
+  if (readiness.blocker?.code === "changes_requested") return "changesRequested";
+  if (readiness.blocker?.code === "unanswered_findings") return "unansweredFindings";
   // 评审中:当前切面上有仍在运行的评审派工(派工状态与切面摘要都来自读面)。
   if (review.dispatches?.some((row) => row.status === "running" && row.reviewContentDigest === review.currentDigest))
     return "reviewing";
-  if (readiness.blocker?.code === "changes_requested") return "changesRequested";
-  if (readiness.blocker?.code === "unanswered_findings") return "unansweredFindings";
   if (readiness.basis === "review") return "approved";
   return review.reviews.length === 0 ? "unreviewed" : "policyUnreviewed";
+}
+
+/** 工作页与总览的下一步分组(原型 S1/S2):待处置、评审中、待裁决;信号为 null 的行不入组。 */
+export type DecisionReviewGroup = "dispose" | "reviewing" | "judge";
+
+export function decisionReviewGroup(signal: DecisionReviewSignal): DecisionReviewGroup {
+  if (signal === "changesRequested" || signal === "unansweredFindings") return "dispose";
+  return signal === "reviewing" ? "reviewing" : "judge";
 }
 
 /** 当前切面与历史切面:按评审自身的 reviewContentDigest 与读面给出的当前摘要比较。 */
@@ -125,23 +133,4 @@ export function decisionReviewRounds(decision: DecisionRow): readonly DecisionRe
       dispatch.reportRef === null ? null : (review.reviews.find((row) => row.reportRef === dispatch.reportRef) ?? null),
     currentDigest: review.currentDigest,
   }));
-}
-
-/**
- * 评审切面与 accept 就绪只在 decision-show(带正文)上算得出;列表 full 行不带正文,这两项恒为
- * null,只贡献评审派工。合并规则:评审/回复/处置/切面/就绪取 show 行,派工取列表行。
- */
-export function withShownReview(decision: DecisionRow, shown: DecisionShowRow | undefined): DecisionRow {
-  if (!shown || shown.decisionId !== decision.decisionId) return decision;
-  return {
-    ...decision,
-    review: {
-      reviews: shown.reviews,
-      responses: shown.reviewResponses,
-      overrides: shown.reviewOverrides,
-      currentDigest: shown.currentReviewContentDigest,
-      readiness: shown.acceptReviewReadiness,
-      dispatches: decision.review?.dispatches ?? null,
-    },
-  };
 }

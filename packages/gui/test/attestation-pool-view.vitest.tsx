@@ -4,7 +4,8 @@ import { act } from "react";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { harnessClient } from "../src/renderer/api-client.ts";
 import { AttestationPoolView } from "../src/renderer/views/AttestationPoolView.tsx";
 import type { AttestationPoolTabId } from "../src/renderer/model/attestation-pool.ts";
 import type { DecisionRow, TaskRow } from "../src/renderer/model/types.ts";
@@ -152,6 +153,7 @@ interface PoolHarness {
 async function mountPool(
   initialTab: AttestationPoolTabId = "taskCloseout",
   tasks: readonly TaskRow[] = [attestTask, failedTask, consentTask],
+  decisions: readonly DecisionRow[] = [proposedDecision],
 ): Promise<PoolHarness> {
   const harness: PoolHarness = { tabChanges: [], attestCalls: [], consentCalls: [], completeCalls: [], judged: [] };
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
@@ -166,7 +168,7 @@ async function mountPool(
         { client },
         createElement(AttestationPoolView, {
           repoId: "repo-a",
-          decisions: [proposedDecision],
+          decisions: [...decisions],
           summary,
           facts: [],
           relations: [],
@@ -461,5 +463,46 @@ describe("AttestationPoolView", () => {
     });
     expect(document.getElementById("decision-card-dec-pool")).toBeTruthy();
     expect(byTestId("attestation-pool-focus-entry")).toBeTruthy();
+  });
+
+  it("决策池卡片直接用列表 full 行的评审就绪:不逐卡读 decision-show,打回未处置时 accept 停用", async () => {
+    const show = vi.spyOn(harnessClient, "showDecision");
+    const digest = `sha256:${"c".repeat(64)}` as const;
+    await mountPool(
+      "decisions",
+      [],
+      [
+        {
+          ...proposedDecision,
+          review: {
+            reviews: [],
+            responses: [],
+            overrides: [],
+            currentDigest: digest,
+            readiness: {
+              ready: false,
+              currentDigest: digest,
+              basis: null,
+              blocker: { code: "changes_requested", reviewIds: ["review-x"], reason: "unresolved changes_requested" },
+              next: { action: "override-review", actor: "owner", reason: "owner decides" },
+            },
+            dispatches: [],
+          },
+        },
+      ],
+    );
+    const card = document.getElementById("decision-card-dec-pool")!;
+    expect(card.querySelector("[data-testid='decision-review-signal']")?.textContent).toBe("待处置");
+    expect(card.querySelector<HTMLButtonElement>("[data-testid='decision-judge-accept']")?.disabled).toBe(true);
+    expect(card.querySelector("[data-testid='decision-judge-accept-blocked']")?.textContent).toContain(
+      "unresolved changes_requested",
+    );
+    await act(async () => {
+      byTestId("attestation-pool-focus-entry").click();
+    });
+    await flushEffects();
+    expect(document.querySelector("[data-testid='decision-review-signal']")?.textContent).toBe("待处置");
+    expect(show).not.toHaveBeenCalled();
+    show.mockRestore();
   });
 });

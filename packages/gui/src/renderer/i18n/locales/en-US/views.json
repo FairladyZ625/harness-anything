@@ -1353,7 +1353,17 @@
   "views.decisionReview.overrideSubmit": "Dispose the selected reviews",
   "views.decisionReview.overrideValidation": "Select at least one review and give a reason.",
   "views.decisionReview.acceptBlockedTip": "readiness is not ready; accept is disabled",
-  "views.decisionReview.reviewReadLoading": "Reading the current review cut…",
-  "views.decisionReview.reviewReadPending": "The center projection is catching up; the review cut and readiness will be readable shortly, and writes are paused.",
-  "views.decisionReview.reviewReadFailed": "Review cut read failed: {detail}"
+  "views.workspace.decisionReviewTitle": "Decision review",
+  "views.workspace.decisionReviewNote": "Decisions in this work appear here directly; no review task is created for them.",
+  "views.workspace.decisionReviewAll": "All",
+  "views.workspace.decisionReviewGroupDispose": "Needs disposition",
+  "views.workspace.decisionReviewGroupReviewing": "Under review",
+  "views.workspace.decisionReviewGroupJudge": "Ready to judge",
+  "views.workspace.decisionReviewCount": "{count} items",
+  "views.workspace.decisionReviewOpen": "Open",
+  "views.workspace.decisionReviewHintChangesRequested": "Adopt or rebut each finding; a reply does not clear the change request",
+  "views.workspace.decisionReviewHintUnansweredFindings": "Earlier findings still need a response; adopt or rebut each one",
+  "views.workspace.decisionReviewHintReviewing": "See the running review and its frozen cut",
+  "views.workspace.decisionReviewHintApproved": "A usable approval covers the current content; ready to judge",
+  "views.workspace.decisionReviewHintPolicyUnreviewed": "Policy allows judging it without review"
 }

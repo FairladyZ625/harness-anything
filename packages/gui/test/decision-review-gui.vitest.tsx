@@ -22,6 +22,7 @@ import {
 } from "../src/renderer/navigation/decisionReviewRoutes.ts";
 import { DecisionDetailView } from "../src/renderer/components/decisionDetail/DecisionDetailView.tsx";
 import { SessionGroupList } from "../src/renderer/components/sessions/SessionGroupList.tsx";
+import { WorkspaceView } from "../src/renderer/views/WorkspaceView.tsx";
 import { decisionProjectionFields } from "./decision-projection-fields.ts";
 
 /**
@@ -203,17 +204,12 @@ function stubShow(review: DecisionReviewState = reviewState(), status: "ready" |
   } as never);
 }
 
-/** 列表 full 行的真实形状:不带正文,所以切面与就绪恒为 null,只有派工。 */
-function listed(review: DecisionReviewState = reviewState()): DecisionRow {
-  return decision({ ...review, currentDigest: null, readiness: null });
-}
-
 function detail(props: Record<string, unknown>) {
   if (!vi.isMockFunction(harnessClient.showDecision)) stubShow();
   return createElement(DecisionDetailView, {
     repoId: "repo-a",
     decisionId: "dec_r",
-    decisions: [listed()],
+    decisions: [decision()],
     relations: [],
     loading: false,
     onBack: () => undefined,
@@ -234,6 +230,23 @@ const click = async (element: Element | null | undefined) => {
 describe("评审展示模型:只映射读面结果", () => {
   it("信号取自 readiness 与派工,不在前端重算 accept 判据", () => {
     expect(decisionReviewSignal(reviewState())).toBe("changesRequested");
+    const ready = {
+      ready: true,
+      currentDigest: CUT_B,
+      blocker: null,
+      next: { action: "accept", actor: "proposer", reason: "ok" },
+    } as const;
+    expect(
+      decisionReviewSignal(
+        reviewState({
+          readiness: { ...ready, basis: "policy_unreviewed" },
+          dispatches: [
+            { dispatchId: "d", runtimeSessionId: "r", status: "running", reviewContentDigest: CUT_B, reportRef: null },
+          ],
+        }),
+      ),
+    ).toBe("reviewing");
+    // 当前切面有未处置打回时先归「待处置」,即使还有评审在跑(设计 Q5 的互斥主组顺序)。
     expect(
       decisionReviewSignal(
         reviewState({
@@ -242,13 +255,7 @@ describe("评审展示模型:只映射读面结果", () => {
           ],
         }),
       ),
-    ).toBe("reviewing");
-    const ready = {
-      ready: true,
-      currentDigest: CUT_B,
-      blocker: null,
-      next: { action: "accept", actor: "proposer", reason: "ok" },
-    } as const;
+    ).toBe("changesRequested");
     expect(decisionReviewSignal(reviewState({ readiness: { ...ready, basis: "review" } }))).toBe("approved");
     expect(
       decisionReviewSignal(reviewState({ readiness: { ...ready, basis: "policy_unreviewed" }, reviews: [] })),
@@ -326,14 +333,11 @@ describe("Decision 详情 · 提案与评审(S3)", () => {
     expect(onNavigateEntity).toHaveBeenLastCalledWith("decisionsessions/dec_r");
   });
 
-  it("列表行不带就绪判定:单体读追赶中时评审页签说明原因,不显示成「可免审」", async () => {
-    stubShow(reviewState(), "pending");
+  it("评审切面与就绪取列表 full 行:正文单体读追赶中不挡评审页签", async () => {
+    stubShow(reviewState({ readiness: null, currentDigest: null }), "pending");
     const view = await mount(detail({ reviewLocation: { tab: "review", reviewId: null } }));
-    expect(view.querySelector("[data-testid='decision-review-read-state']")?.getAttribute("data-state")).toBe(
-      "pending",
-    );
-    expect(view.querySelector("[data-testid='decision-review-signal']")).toBeNull();
-    expect(view.querySelector("[data-testid='decision-review-tab']")).toBeNull();
+    expect(view.querySelector("[data-testid='decision-review-tab']")).toBeTruthy();
+    expect(view.querySelector("[data-testid='decision-review-signal']")?.textContent).toBe("待处置");
   });
 
   it("派审带读面当前切面摘要作为 expectedDigest", async () => {
@@ -498,5 +502,92 @@ describe("会话页(S5):评审会话按被评审 Decision 归组", () => {
       [...view.querySelectorAll("button")].find((button) => button.textContent?.includes("Decision 评审详情")),
     );
     expect(onSelectEntity).toHaveBeenLastCalledWith("decisionreview/dec_r/review");
+  });
+});
+
+describe("工作页(S2):工作内 Decision 按评审信号分组", () => {
+  const ready = {
+    ready: true,
+    currentDigest: CUT_B,
+    basis: "policy_unreviewed",
+    blocker: null,
+    next: { action: "accept", actor: "proposer", reason: "ok" },
+  } as const;
+  const row = (decisionId: string, title: string, review: DecisionReviewState, state = "proposed") =>
+    ({ ...decision(review), decisionId, title, state }) as DecisionRow;
+  const workDecisions = [
+    row("dec_a", "打回未处置的提案", reviewState()),
+    row(
+      "dec_b",
+      "评审进行中的提案",
+      reviewState({
+        readiness: ready,
+        dispatches: [
+          { dispatchId: "d", runtimeSessionId: "r", status: "running", reviewContentDigest: CUT_B, reportRef: null },
+        ],
+      }),
+    ),
+    row("dec_c", "可免审裁决的提案", reviewState({ reviews: [], readiness: ready, dispatches: [] })),
+    row("dec_d", "已生效的提案", reviewState({ readiness: null }), "in_effect"),
+  ];
+  const scope = {
+    schema: "daemon.workspace-scope/v1",
+    ok: true,
+    status: "ready",
+    root: {
+      taskId: "task_root",
+      title: "Review 跨实体统一",
+      status: "active",
+      taskClass: "work",
+      parentTaskId: null,
+      updatedAt: "2026-09-29T00:00:00.000Z",
+      pinned: true,
+      hasChildren: true,
+    },
+    ancestors: [],
+    goalMaterial: { taskId: "task_root", path: "task_plan.md" },
+    counts: { done: 0, executing: 0, pending: 0, blocked: 0, planned: 0, cancelled: 0 },
+    scope: { descendantCount: 1, executableLeafCount: 1, archivedCount: 0 },
+    groups: [],
+    memberTaskIds: ["task_leaf"],
+    tasks: [],
+    page: { limit: 100, cursor: null, nextCursor: null },
+    incompleteParentRefs: [],
+    watermark: 1,
+    sourceRevision: 1,
+    warnings: [],
+  } as const;
+
+  it("待处置/评审中/待裁决各成一组并带计数;页签只改当前显示;查看直达评审页签", async () => {
+    const onNavigateEntity = vi.fn();
+    const view = await mount(
+      createElement(WorkspaceView, {
+        scope,
+        projectName: "Harness",
+        onOpenTask: () => undefined,
+        decisions: workDecisions,
+        relations: workDecisions.map(({ decisionId }) => ({
+          from: "task/task_leaf",
+          to: `decision/${decisionId}`,
+          kind: "derives",
+        })) as never,
+        onNavigateEntity,
+      }),
+    );
+    const section = view.querySelector("[data-testid='work-decision-review']")!;
+    expect(section).toBeTruthy();
+    const group = (id: string) => section.querySelector(`[data-testid='work-decision-review-group-${id}']`);
+    expect(group("dispose")?.textContent).toContain("打回未处置的提案");
+    expect(group("dispose")?.textContent).toContain("1 项");
+    expect(group("reviewing")?.textContent).toContain("评审进行中的提案");
+    expect(group("judge")?.textContent).toContain("可免审裁决的提案");
+    // 终态 Decision 没有就绪判定,不进任何组。
+    expect(section.textContent).not.toContain("已生效的提案");
+    await click(section.querySelector("[data-testid='work-decision-review-tab-reviewing']"));
+    expect(group("dispose")).toBeNull();
+    expect(group("reviewing")?.textContent).toContain("评审进行中的提案");
+    await click(section.querySelector("[data-testid='work-decision-review-tab-all']"));
+    await click(section.querySelector("[data-testid='work-decision-review-open-dec_a']"));
+    expect(onNavigateEntity).toHaveBeenLastCalledWith("decisionreview/dec_a/review");
   });
 });

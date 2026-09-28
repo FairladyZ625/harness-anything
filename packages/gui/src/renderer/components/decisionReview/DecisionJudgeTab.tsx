@@ -10,7 +10,7 @@ import { DecisionJudgmentPanel } from "../DecisionJudgmentPanel.tsx";
 import { DecisionMutationFeedback } from "../DecisionMutationFeedback.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { ReadinessBanner } from "./DecisionReviewTab.tsx";
-import { cardClass, primaryButtonClass, secondaryButtonClass } from "./parts.tsx";
+import { cardClass, primaryButtonClass, reviewAcceptBlockedReason, secondaryButtonClass } from "./parts.tsx";
 
 /**
  * S8 · 裁决确认:当前切面、将写入的 basis、未处置打回与业主具名处置。accept 是否可点只看
@@ -173,13 +173,7 @@ export function DecisionJudgeTab({
               feedback={judgeFeedback}
               onSubmit={onJudge}
               onCheckReceipt={onCheckReceipt}
-              acceptBlockedReason={
-                readiness.ready
-                  ? null
-                  : t("views.decisionReview.judgeBlocked", {
-                      reason: readiness.blocker?.reason ?? readiness.next.reason,
-                    })
-              }
+              acceptBlockedReason={reviewAcceptBlockedReason(review)}
             />
           ) : (
             <p className="mt-2 ui-micro text-text-faint">{t("views.decisionReview.bannerNotPending")}</p>
