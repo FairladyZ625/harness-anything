@@ -17,7 +17,13 @@ test("decision search rows are keyed by the decision rowid and refresh in place"
       const event = proposal(revision, decisionId);
       reduceDecisionEvent(
         db,
-        compileDecisionWrite({ event, currentDecision: null, currentRelations: [], currentDocument: null }).event,
+        compileDecisionWrite({
+          decisionReviewRequirement: "off",
+          event,
+          currentDecision: null,
+          currentRelations: [],
+          currentDocument: null,
+        }).event,
       );
     }
     const document: DocumentState = {

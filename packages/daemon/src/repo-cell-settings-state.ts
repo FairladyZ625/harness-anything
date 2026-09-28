@@ -27,25 +27,28 @@ import {
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { writeFileDurably } from "./durable-file.ts";
+import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellActionContext, RepoCellSettingsState } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 import type { DaemonSettingsLastChange } from "./protocol/daemon-settings-read-types.ts";
 
+export function readRepositorySettings(projection: Pick<TaskProjectionQueries, "getEntity">): RepositorySettingsV1 {
+  const projected = projection.getEntity("settings", "repository")?.value;
+  if (projected === undefined)
+    throw cellCodedError(
+      "projection_pending",
+      "Settings projection is unavailable; bootstrap the repository before retrying.",
+    );
+  const current = repositorySettings(projected as unknown as RepositorySettingsV1),
+    errors = validateRepositorySettings(current);
+  if (errors.length) throw cellCodedError("projection_invalid", errors.join("; "));
+  return current;
+}
+
 export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCellSettingsState {
   const localPath = path.join(cell.rootDir, ...SETTINGS_LOCAL_PATH.split("/"));
 
-  const readRepository = (): RepositorySettingsV1 => {
-    const projected = cell.projection.getEntity("settings", "repository")?.value;
-    if (projected === undefined)
-      throw cell.cellCodedError(
-        "projection_pending",
-        "Settings projection is unavailable; bootstrap the repository before retrying.",
-      );
-    const current = repositorySettings(projected as unknown as RepositorySettingsV1),
-      errors = validateRepositorySettings(current);
-    if (errors.length) throw cell.cellCodedError("projection_invalid", errors.join("; "));
-    return current;
-  };
+  const readRepository = (): RepositorySettingsV1 => readRepositorySettings(cell.projection);
 
   const readLocalState = (): { readonly locale: SettingsLocale; readonly valid: boolean } => {
     if (!existsSync(localPath)) return { locale: INITIAL_SETTINGS_V1.locale, valid: false };

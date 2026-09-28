@@ -230,6 +230,7 @@ const decisionDraft: DecisionEventDraftV1 = {
     },
   },
   decision = compileDecisionWrite({
+    decisionReviewRequirement: "off",
     event: decisionDraft,
     currentDecision: null,
     currentRelations: [],
@@ -319,6 +320,7 @@ test("Decision compiler renders the exact single-file package and frozen write p
   assert.throws(
     () =>
       compileDecisionWrite({
+        decisionReviewRequirement: "off",
         event: {
           ...decisionDraft,
           type: "decision_accepted",
@@ -371,6 +373,7 @@ test("Decision outcome embeds an independently verifiable machine-content consen
     },
   } as const satisfies DecisionEventDraftV1;
   const accepted = compileDecisionWrite({
+    decisionReviewRequirement: "off",
     event: outcome,
     currentDecision: current,
     currentRelations: [],
@@ -417,6 +420,7 @@ test("Decision outcome embeds an independently verifiable machine-content consen
   assert.deepEqual(validateDecisionEvent(nestedFuture), []);
   assert.notDeepEqual(validateCurrentDecisionEvent(nestedFuture), []);
   const proseOnly = compileDecisionWrite({
+    decisionReviewRequirement: "off",
     event: outcome,
     currentDecision: current,
     currentRelations: [],

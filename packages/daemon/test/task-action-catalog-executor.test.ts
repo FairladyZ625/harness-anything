@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getExecutableEntityAction } from "@harness-anything/kernel";
+import { getExecutableEntityAction, INITIAL_SETTINGS_V1, repositorySettings } from "@harness-anything/kernel";
 import { makeEntityActionCatalogExecutor, deriveActionResult } from "../src/entity-action-catalog-executor.ts";
 import { rejectExecutionSelection } from "../src/repo-cell-execution-selection.ts";
 import { cellCriterionError } from "../src/repo-cell-errors.ts";
@@ -38,6 +38,7 @@ test("the catalog executor directly invokes Task execution metadata and derives 
       projection: {} as never,
       now: () => "2026-08-30T00:00:00.000Z",
       sessionIdentity: () => ({ kind: "unavailable", reason: "test" }) as never,
+      readSettings: () => repositorySettings(INITIAL_SETTINGS_V1),
     }),
     receipt = await executor.run(
       { kind: "task-start", taskId: "task_contract", expectedVersion: 4 },
@@ -79,6 +80,7 @@ test("rejected Task ActionResult preserves the exact structured criterion", asyn
       projection: {} as never,
       now: () => "2026-08-30T00:00:00.000Z",
       sessionIdentity: () => ({ kind: "unavailable", reason: "test" }) as never,
+      readSettings: () => repositorySettings(INITIAL_SETTINGS_V1),
     }),
     receipt = await executor.run({ kind: "task-submit", taskId: "task_contract" }, {} as never, "op-fenced", {
       task: async () => ({
@@ -116,6 +118,7 @@ test("ambiguous failure codes do not invent a criterion", async () => {
       projection: {} as never,
       now: () => "2026-08-30T00:00:00.000Z",
       sessionIdentity: () => ({ kind: "unavailable", reason: "test" }) as never,
+      readSettings: () => repositorySettings(INITIAL_SETTINGS_V1),
     }),
     receipt = await executor.run({ kind: "task-submit", taskId: "task_contract" }, {} as never, "op-ambiguous", {
       task: async () => ({

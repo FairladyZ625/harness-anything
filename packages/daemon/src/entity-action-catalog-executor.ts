@@ -10,7 +10,6 @@ import {
   entityDeletedWritePlan,
   getExecutableEntityAction,
   isEntityDeclarationEvent,
-  isIndependentFrom,
   isSamePerson,
   parseEntityRef,
   requireEntityStoreKindContract,
@@ -20,6 +19,7 @@ import {
   type CanonicalEventCut,
   type CanonicalEventStore,
   type DecisionEventV1,
+  type RepositorySettingsV1,
   type EntityActionContract,
   type EntityActionDraft,
   type EntityActionExecutionContract,
@@ -59,6 +59,7 @@ import { actionReceiptGuidance } from "./receipt-guidance.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import { attachDecisionReviewerArtifact } from "./reviewer-artifact-publication.ts";
 import { decisionReviewState } from "./decision-review-read.ts";
+import { assertDecisionReviewerIndependent } from "./decision-review-authorization.ts";
 import { reconcileDecisionReviewAwaitAfterWrite } from "./decision-review-awaits.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
@@ -92,6 +93,7 @@ export function makeEntityActionCatalogExecutor(input: {
   readonly now: () => string;
   readonly sessionIdentity: (binding: RepoCellBinding) => SessionIdentity;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
+  readonly readSettings: () => RepositorySettingsV1;
 }) {
   const decisions = makeDecisionService({ eventStore: input.store, projection: input.projection }),
     facts = makeFactService({ eventStore: input.store, projection: input.projection });
@@ -112,7 +114,7 @@ export function makeEntityActionCatalogExecutor(input: {
           ...read,
           decision: {
             ...read.decision,
-            ...decisionReviewState(read.decision),
+            ...decisionReviewState(read.decision, input.readSettings().decisionReviewRequirement),
             body: action.includeBody === true ? read.decision.body : null,
           },
         });
@@ -486,6 +488,7 @@ export function makeEntityActionCatalogExecutor(input: {
         occurredAt,
       },
       decisionApproval(action, binding),
+      input.readSettings().decisionReviewRequirement,
     );
   };
 
@@ -597,7 +600,8 @@ function compileDraft(
   projection: TaskProjection,
   draft: EntityActionDraft,
   event: Omit<Parameters<typeof compileEntityUpsert>[0], "entityKind" | "entity">,
-  approval?: Parameters<typeof compileDecisionWrite>[0]["approval"],
+  approval: Parameters<typeof compileDecisionWrite>[0]["approval"] | undefined,
+  decisionReviewRequirement: RepositorySettingsV1["decisionReviewRequirement"],
 ): CatalogBundle {
   if (draft.kind === "fact")
     return compileFactWrite({
@@ -654,6 +658,7 @@ function compileDraft(
     currentIncomingRelations: incomingRelations,
     resolveLink: decisionRelationLinkResolver(projection),
     currentDocument: document.document,
+    decisionReviewRequirement,
   });
 }
 
@@ -723,7 +728,12 @@ function decisionAuthorization(
   action: RepoTaskAction,
   binding: RepoCellBinding,
   opId: string,
-  input: { readonly store: CanonicalEventStore; readonly projection: TaskProjection; readonly now: () => string },
+  input: {
+    readonly store: CanonicalEventStore;
+    readonly projection: TaskProjection;
+    readonly now: () => string;
+    readonly readSettings: () => RepositorySettingsV1;
+  },
 ): AuthorizationDecision {
   const authorizationDecision = binding.authorizationDecision;
   if (!authorizationDecision || authorizationDecision.outcome !== "allowed")
@@ -735,15 +745,7 @@ function decisionAuthorization(
     decision = input.projection.readDecision(decisionId).decision,
     proposalActor = decision?.proposer ?? null;
   if (action.kind === "decision-review") {
-    if (
-      proposalActor === null ||
-      !isIndependentFrom(proposalActor, binding.actor) ||
-      decision?.amendments?.some((amendment) => !isIndependentFrom(amendment.actor, binding.actor))
-    )
-      reject(
-        "actor_unauthorized",
-        "A Decision review must be independent from the proposal and current content authors.",
-      );
+    assertDecisionReviewerIndependent(decision, binding.actor, input.readSettings().reviewIndependence);
     return authorizationDecision;
   }
   if (action.kind === "decision-respond-review") {

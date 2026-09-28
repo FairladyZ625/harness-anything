@@ -432,6 +432,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
           projection: context.projection,
           decisions: read.decisions,
           readiness: readinessCache.rows,
+          requirement: context.settings.readRepository().decisionReviewRequirement,
         }),
         warnings: [],
       };

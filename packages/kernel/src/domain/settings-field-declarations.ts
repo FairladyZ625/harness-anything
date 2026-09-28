@@ -55,6 +55,8 @@ export const settingsLocales = ["en-US", "zh-CN"] as const;
 export type SettingsLocale = (typeof settingsLocales)[number];
 export const reviewIndependenceLevels = ["execution", "principal"] as const;
 export type ReviewIndependence = (typeof reviewIndependenceLevels)[number];
+export const decisionReviewRequirementLevels = ["off", "high", "medium_and_high", "all"] as const;
+export type DecisionReviewRequirement = (typeof decisionReviewRequirementLevels)[number];
 export const rolePreferenceFields = ["defaultWorker", "defaultCommander", "defaultReviewer"] as const;
 export const DEFAULT_RESTORE_DRILL_RETENTION = 3;
 export const DEFAULT_CI_WORKFLOWS = Object.freeze([] as const);
@@ -143,6 +145,16 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     description: "Identity axis on which an independent review is required.",
     action: { field: "reviewIndependence", type: "string" },
     cli: { name: "--review-independence", kind: "single", enum: reviewIndependenceLevels },
+  }),
+  defineSettingsField({
+    path: ["decisionReviewRequirement"],
+    ownership: repository,
+    valueKind: "enum",
+    defaultValue: "off",
+    allowedValues: decisionReviewRequirementLevels,
+    description: "Decision risk tiers that require a current approved review before acceptance.",
+    action: { field: "decisionReviewRequirement", type: "string" },
+    cli: { name: "--decision-review-requirement", kind: "single", enum: decisionReviewRequirementLevels },
   }),
   defineSettingsField({
     path: ["reviewReturnBudget"],

@@ -38,6 +38,20 @@ test("an independent approved review lets the proposal owner accept the current 
     ownerId: "decision-review-independence-test",
   });
   try {
+    const settingsOwner = withRoleBinding(
+      { actor: { principal: proposer.actor.principal, executor: null }, source: "local" as const },
+      "repo-write",
+    );
+    const settingsUpdated = await cell.run(
+      {
+        kind: "settings-update",
+        decisionReviewRequirement: "high",
+        reviewIndependence: "principal",
+        idempotencyKey: "decision-review-policy",
+      },
+      settingsOwner,
+    );
+    assert.equal(settingsUpdated.outcome, "applied", JSON.stringify(settingsUpdated));
     const proposed = await cell.run(decisionProposal(), proposer),
       decisionId = receiptJson(proposed).decisionId as string,
       owner = withRoleBinding(proposer, "repo-write"),
@@ -88,7 +102,6 @@ test("an independent approved review lets the proposal owner accept the current 
           decisionId,
           rationale: "The high-risk Decision needs an independent review.",
           judgmentOnlyRationale: "No review was selected.",
-          reviewId: "missing-review",
           expectedDigest: digest,
         },
         owner,
@@ -97,7 +110,61 @@ test("an independent approved review lets the proposal owner accept the current 
       { outcome: unreviewed.outcome, code: unreviewed.code },
       { outcome: "op_rejected", code: "invalid_transition" },
     );
+    const humanApprovedProposal = await cell.run(
+        { ...decisionProposal(), body: realizedDecisionBody("Human-approved review requirement") },
+        proposer,
+      ),
+      humanApprovedDecisionId = receiptJson(humanApprovedProposal).decisionId as string,
+      humanApproved = await cell.run(
+        {
+          kind: "decision-accept",
+          decisionId: humanApprovedDecisionId,
+          rationale: "The owner directly approved the current high-risk Decision content.",
+          judgmentOnlyRationale: "Human approval remains authoritative under the review requirement.",
+          consentBy: proposer.actor.principal.personId,
+          consentAt: "2026-09-29T01:02:03.000Z",
+          consentChannel: "chat",
+        },
+        owner,
+      );
+    assert.equal(humanApproved.outcome, "applied", JSON.stringify(humanApproved));
+    const humanApprovedConsent = (
+      receiptJson(await cell.run({ kind: "decision-show", decisionId: humanApprovedDecisionId }, owner)).decision as {
+        readonly judgmentConsents: readonly { readonly basis?: string }[];
+      }
+    ).judgmentConsents.at(-1);
+    assert.equal(humanApprovedConsent?.basis, "human");
     const reportRef = `decisions/decision-${decisionId}/artifacts/reports/independent.md`;
+    const samePrincipalReportRef = `decisions/decision-${decisionId}/artifacts/reports/same-principal.md`;
+    writeReport(rootDir, samePrincipalReportRef);
+    const samePrincipalReviewer = withRoleBinding(
+      {
+        actor: {
+          principal: proposer.actor.principal,
+          executor: null,
+        },
+        source: "local" as const,
+      },
+      "repo-write",
+    );
+    const samePrincipalReview = await cell.run(
+      {
+        kind: "decision-review",
+        decisionId,
+        reviewId: "review-same-principal",
+        reviewContentDigest: digest,
+        verdict: "approved",
+        reason: "A direct human still represents the proposal owner principal.",
+        findings: [],
+        evidenceChecked: [],
+        reportRef: samePrincipalReportRef,
+      },
+      samePrincipalReviewer,
+    );
+    assert.deepEqual(
+      { outcome: samePrincipalReview.outcome, code: samePrincipalReview.code },
+      { outcome: "op_rejected", code: "actor_unauthorized" },
+    );
     const missingReport = await cell.run(
       {
         kind: "decision-review",
@@ -813,7 +880,7 @@ function decisionProposal() {
     jsonInput: JSON.stringify({
       title: "Review independence",
       question: "Should a separate agent review this proposal?",
-      riskTier: "medium",
+      riskTier: "high",
       urgency: "high",
       vertical: "software/coding",
       preset: "standard-task",
@@ -862,7 +929,7 @@ function initRepo(rootDir: string): void {
   mkdirSync(path.join(rootDir, "harness"), { recursive: true });
   writeFileSync(
     path.join(rootDir, "harness/harness.yaml"),
-    "layout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    "layout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings:\n  reviewIndependence: execution\n",
   );
   execFileSync("git", ["-C", rootDir, "add", "."]);
   execFileSync("git", ["-C", rootDir, "commit", "-qm", "base"]);

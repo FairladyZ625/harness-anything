@@ -119,9 +119,9 @@ test("approved review must match the current Decision content", () => {
         },
       ],
     };
-  assert.doesNotThrow(() => assertDecisionAcceptReview(reviewed, document(), accept("review-1", digest)));
+  assert.doesNotThrow(() => assertDecisionAcceptReview(reviewed, document(), accept("review-1", digest), "off"));
   assert.throws(
-    () => assertDecisionAcceptReview(reviewed, document("Changed proposal body"), accept("review-1", digest)),
+    () => assertDecisionAcceptReview(reviewed, document("Changed proposal body"), accept("review-1", digest), "off"),
     /content changed/u,
   );
 });
@@ -141,7 +141,7 @@ test("changes_requested remains blocking until a named override with a reason", 
       reviewedAt: "2026-09-28T00:01:00.000Z",
     };
   assert.throws(
-    () => assertDecisionAcceptReview({ ...current, reviews: [review] }, document(), accept()),
+    () => assertDecisionAcceptReview({ ...current, reviews: [review] }, document(), accept(), "off"),
     /unresolved/u,
   );
   assert.doesNotThrow(() =>
@@ -172,14 +172,27 @@ test("changes_requested remains blocking until a named override with a reason", 
       },
       document(),
       accept(),
+      "off",
     ),
   );
+});
+
+test("Decision review requirement applies the declared risk threshold", () => {
+  const high = decision(),
+    low = { ...high, riskTier: "low" as const },
+    medium = { ...high, riskTier: "medium" as const };
+  assert.equal(decisionAcceptReviewReadiness(high, document(), "off").ready, true);
+  assert.equal(decisionAcceptReviewReadiness(high, document(), "high").blocker?.code, "review_required");
+  assert.equal(decisionAcceptReviewReadiness(low, document(), "high").ready, true);
+  assert.equal(decisionAcceptReviewReadiness(medium, document(), "medium_and_high").blocker?.code, "review_required");
+  assert.equal(decisionAcceptReviewReadiness(low, document(), "all").blocker?.code, "review_required");
+  assert.throws(() => assertDecisionAcceptReview(high, document(), accept(), "high"), /requires an approved review/u);
 });
 
 test("Decision accept readiness exposes the same current-cut judgment used by writes", () => {
   const current = decision(),
     digest = decisionReviewContentDigest(current, document());
-  assert.deepEqual(decisionAcceptReviewReadiness(current, document()), {
+  assert.deepEqual(decisionAcceptReviewReadiness(current, document(), "off"), {
     ready: true,
     currentDigest: digest,
     basis: "policy_unreviewed",
@@ -202,7 +215,7 @@ test("Decision accept readiness exposes the same current-cut judgment used by wr
       },
     ],
   };
-  assert.deepEqual(decisionAcceptReviewReadiness(blocked, document()), {
+  assert.deepEqual(decisionAcceptReviewReadiness(blocked, document(), "off"), {
     ready: false,
     currentDigest: digest,
     basis: null,
@@ -239,7 +252,7 @@ test("policy-unreviewed acceptance requires a proposer response to every histori
     },
     amendedBody = document("Changed proposal body"),
     unanswered = { ...current, reviews: [review] };
-  assert.deepEqual(decisionAcceptReviewReadiness(unanswered, amendedBody).blocker, {
+  assert.deepEqual(decisionAcceptReviewReadiness(unanswered, amendedBody, "off").blocker, {
     code: "unanswered_findings",
     findings: [
       { reviewId: review.reviewId, findingId: "F1" },
@@ -247,7 +260,10 @@ test("policy-unreviewed acceptance requires a proposer response to every histori
     ],
     reason: "Historical changes_requested findings require proposer responses before policy-unreviewed acceptance.",
   });
-  assert.throws(() => assertDecisionAcceptReview(unanswered, amendedBody, accept()), /unanswered review findings/u);
+  assert.throws(
+    () => assertDecisionAcceptReview(unanswered, amendedBody, accept(), "off"),
+    /unanswered review findings/u,
+  );
   const answered = {
     ...unanswered,
     reviewResponses: review.findings.map(({ findingId }) => ({
@@ -260,5 +276,5 @@ test("policy-unreviewed acceptance requires a proposer response to every histori
       respondedAt: "2026-09-29T00:02:00.000Z",
     })),
   };
-  assert.doesNotThrow(() => assertDecisionAcceptReview(answered, amendedBody, accept()));
+  assert.doesNotThrow(() => assertDecisionAcceptReview(answered, amendedBody, accept(), "off"));
 });
