@@ -6,13 +6,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
-  approvedReviewsForExecution,
   authorizationPort,
   consentedApprovedReviewForExecution,
   currentActionEnvelopeVersion,
   isIndependentFrom,
   normalizeTaskLifecycleCommand,
   openSqliteEventStore,
+  settledApprovedReviewsForExecution,
   submissionDigest,
 } from "@harness-anything/kernel";
 import { makeTaskEventStore, makeTaskProjection } from "../../kernel/test/store/task-lifecycle-runtime.ts";
@@ -170,7 +170,7 @@ test("an amendment requires a Review of the new submission before consent and co
     const amended = await harness.amend("execution-1", "op-submit-amend", "corrected claim");
     const execution = amended.snapshot.executions[0];
     if (execution?.schema !== "execution/v1") throw new Error("native execution missing");
-    assert.deepEqual(approvedReviewsForExecution(amended.snapshot.reviews, execution), []);
+    assert.deepEqual(settledApprovedReviewsForExecution(amended.snapshot.reviews, execution), []);
     assert.equal(
       consentedApprovedReviewForExecution(amended.snapshot.reviews, amended.snapshot.consents, {
         ...execution,
