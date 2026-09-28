@@ -300,7 +300,9 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
       assert.ok(firstExit, "runtime exit listener must be attached before the provider exits");
       firstExit(0);
       const settled = await eventuallyValue(async () => {
-        const projected = (await cell.read("repo.agentRuntime.overview", {})).sessions.find(
+        // The unscoped overview defaults to live sessions only; the explicit paging lane is the
+        // deliberate history read that still surfaces exited sessions.
+        const projected = (await cell.read("repo.agentRuntime.overview", { limit: 64 })).sessions.find(
           (candidate) => candidate.runtimeSessionId === receipt.runtimeSessionId,
         );
         return projected?.liveness === "exited" ? projected : null;
