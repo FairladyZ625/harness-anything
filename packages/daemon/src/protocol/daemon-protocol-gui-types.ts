@@ -933,6 +933,8 @@ export type DaemonAgendaResult = {
   readonly awaitingAdjudication: readonly AgendaExecutionRow[];
   /** 评审中/等 consent:task 状态 in_review、未被 approved 评审了结的 execution 行;报告就绪后 `ha task review-consent`。 */
   readonly underReview: readonly AgendaExecutionRow[];
+  /** 当前切面已有在飞 reviewer；下一步等待或查看 runtime。 */
+  readonly decisionReviewInProgress: readonly AgendaDecisionRow[];
   /** 待裁 decision 行;下一步 `ha decision accept|reject|defer`。 */
   readonly awaitingDecision: readonly AgendaDecisionRow[];
   readonly waitingOnOthers: readonly AgendaTaskRow[];

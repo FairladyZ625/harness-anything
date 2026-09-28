@@ -45,12 +45,12 @@ test("complete bundled reviewer prompt confines writes to its review receipt", (
   );
   assert.match(prompt, /# Reviewer Role/u);
   assert.match(prompt, /code repository is read-only.*Do not modify code, stage files, create commits/u);
-  assert.match(prompt, /Independently inspect.*run the applicable tests.*exact cut/u);
-  assert.match(prompt, /40-character commit SHA/u);
-  assert.match(prompt, /Write only the structured review report.*dispatch-assigned artifacts\/reports\//u);
-  assert.match(prompt, /review-execution command and runtime identity/u);
-  assert.match(prompt, /pinned task, execution, iteration, and submission digest/u);
-  assert.match(prompt, /Stop if that cut changes/u);
+  assert.match(prompt, /exact review target named in the mission/u);
+  assert.match(prompt, /For a Task.*pinned execution.*For a Decision.*reviewContentDigest/su);
+  assert.match(prompt, /Write only the structured review report.*dispatch-assigned artifacts\/reports paths/u);
+  assert.match(prompt, /For a Task use ha task review-execution; for a Decision use ha decision review/u);
+  assert.match(prompt, /stop if that cut changes/u);
+  assert.match(prompt, /Do not amend or adjudicate the target/u);
   assert.match(prompt, /# Required Skills.*review: \/skills\/review\/SKILL.md/su);
   assert.match(prompt, /Honor the declared completion gates/u);
   assert.doesNotMatch(prompt, /# Implementation Permissions|# Worker Role|# Commander Context/u);

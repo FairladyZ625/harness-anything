@@ -27,7 +27,11 @@ import {
   type TaskRelationNeighborhoodQuery,
   type TaskRelationQuery,
 } from "@harness-anything/kernel";
-import { decisionReviewAwaitRationale } from "./decision-review-read.ts";
+import {
+  decisionReviewAwaitRationale,
+  decisionReviewState,
+  readDecisionReviewDispatches,
+} from "./decision-review-read.ts";
 import { readDispatchStreamHeaders, type DispatchStreamHeader } from "./dispatch-stream.ts";
 import { presetSnapshotReader, taskWorkspaceView } from "./task-worktree.ts";
 import {
@@ -452,15 +456,32 @@ export function makeTaskQueryReadModel(input: {
         compareAwaitingExecutions,
       ),
       underReview: AgendaExecutionRow[] = awaitingExecutionRows(inReview?.rows ?? []).sort(compareAwaitingExecutions),
-      awaitingDecision: AgendaDecisionRow[] = (decisions?.decisions ?? [])
-        .map((decision) => ({
-          decisionId: decision.decisionId,
-          title: decision.title,
-          riskTier: decision.riskTier,
-          urgency: decision.urgency,
-          proposedAt: decision.proposedAt,
-        }))
-        .sort((left, right) => left.decisionId.localeCompare(right.decisionId)),
+      decisionSignals = (decisions?.decisions ?? []).map((decision) => {
+        const full = projection.readDecision(decision.decisionId).decision;
+        if (!full) return { decision, signal: "ready" as const };
+        const readiness = decisionReviewState(full).acceptReviewReadiness;
+        if (!readiness) return { decision, signal: "ready" as const };
+        if (readiness.next.action === "override-review" || readiness.next.action === "respond-review")
+          return { decision, signal: "awaitingOwner" as const };
+        const dispatches = readDecisionReviewDispatches({ rootDir, projection, decision: full }).filter(
+            ({ reviewContentDigest }) => reviewContentDigest === readiness.currentDigest,
+          ),
+          active = dispatches.some(({ status }) => status === "running");
+        return { decision, signal: active ? ("inProgress" as const) : ("ready" as const) };
+      }),
+      decisionRow = ({ decision }: (typeof decisionSignals)[number]): AgendaDecisionRow => ({
+        decisionId: decision.decisionId,
+        title: decision.title,
+        riskTier: decision.riskTier,
+        urgency: decision.urgency,
+        proposedAt: decision.proposedAt,
+      }),
+      sortDecisions = (rows: AgendaDecisionRow[]) =>
+        rows.sort((left, right) => left.decisionId.localeCompare(right.decisionId)),
+      decisionReviewInProgress = sortDecisions(
+        decisionSignals.filter(({ signal }) => signal === "inProgress").map(decisionRow),
+      ),
+      awaitingDecision = sortDecisions(decisionSignals.filter(({ signal }) => signal === "ready").map(decisionRow)),
       awaitingYou: AgendaAwaitsRow[] = (awaits?.rows ?? []).filter(relationIsCurrent).flatMap((edge) => {
         const request = parseAwaitsRequest(edge.rationale),
           relation = projection.readRelationEdge(edge.relationId);
@@ -550,6 +571,7 @@ export function makeTaskQueryReadModel(input: {
       awaitingRework,
       awaitingAdjudication,
       underReview,
+      decisionReviewInProgress,
       awaitingDecision,
       waitingOnOthers,
       dispatchable,
@@ -564,6 +586,7 @@ export function makeTaskQueryReadModel(input: {
         awaitingRework,
         awaitingAdjudication,
         underReview,
+        decisionReviewInProgress,
         awaitingDecision,
         waitingOnOthers,
         dispatchable,
@@ -920,6 +943,7 @@ function renderAgendaSummary(
     | "awaitingRework"
     | "awaitingAdjudication"
     | "underReview"
+    | "decisionReviewInProgress"
     | "awaitingDecision"
     | "waitingOnOthers"
     | "dispatchable"
@@ -977,8 +1001,13 @@ function renderAgendaSummary(
       groups.answeredForYou.map(answeredLine),
     ),
     section(
+      "Decision 评审中",
+      "当前 reviewContentDigest 已有在飞 reviewer；只需等，或按 dispatch 回执查看 runtime",
+      groups.decisionReviewInProgress.map(decisionLine),
+    ),
+    section(
       "待裁 Decision",
-      "proposed decision；下一步 ha decision accept|reject|defer",
+      "当前切面可裁决（有效批准或策略免审）；提案人仍需独立判断，下一步 ha decision accept|reject|defer",
       groups.awaitingDecision.map(decisionLine),
     ),
     section("在飞线", "status=active 且（有 lease 或有 active execution）；只需等", groups.inFlight.map(taskLine)),

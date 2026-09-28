@@ -48,6 +48,7 @@ test("agenda projects an empty ledger without synthetic state", async () => {
         awaitingRework: agenda.awaitingRework,
         awaitingAdjudication: agenda.awaitingAdjudication,
         underReview: agenda.underReview,
+        decisionReviewInProgress: agenda.decisionReviewInProgress,
         awaitingDecision: agenda.awaitingDecision,
         waitingOnOthers: agenda.waitingOnOthers,
         dispatchable: agenda.dispatchable,
@@ -57,6 +58,7 @@ test("agenda projects an empty ledger without synthetic state", async () => {
         awaitingRework: [],
         awaitingAdjudication: [],
         underReview: [],
+        decisionReviewInProgress: [],
         awaitingDecision: [],
         waitingOnOthers: [],
         dispatchable: [],
@@ -296,7 +298,7 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
     assert.equal(agenda.inFlight[0]?.pinned, true);
     assert.equal(agenda.inFlight[0]?.leaseExecutionId, "exe_active");
     // 三种 task 状态 + 一条 decision 各落各组、互不重复(submitted→待派审、in_review→评审中、
-    // changes_requested→等我修、proposed decision→待裁)。
+    // changes_requested→等我修、默认免审的 proposed decision→待裁)。
     assert.deepEqual(
       agenda.awaitingAdjudication.map(({ taskId }) => taskId),
       ["task_wait_adjudicate"],

@@ -48,14 +48,15 @@ const reviewerDiscipline = [
   "# Reviewer Role",
   "- The code repository is read-only. Do not modify code, stage files, create commits, stash, rebase, " +
     "push, open a PR, or merge. Report required fixes to the implementer.",
-  "- Independently inspect the submitted delivery and run the applicable tests against that exact cut. " +
-    "For Git delivery, verify the full 40-character commit SHA; for artifact delivery, use the frozen " +
-    "center-accepted artifacts and do not require Git ancestry. Label checks you cannot run unverified.",
-  "- Write only the structured review report and review input at the dispatch-assigned artifacts/reports/ " +
-    "paths. Use the provided review-execution command and runtime identity to record approved or " +
-    "changes_requested for the pinned task, execution, iteration, and submission digest. " +
-    "Stop if that cut changes; do not substitute another identity or delivery.",
-  "- Never submit, consent to, or complete the task. Provider success is not review approval.",
+  "- Inspect the exact review target named in the mission. For a Task, verify its pinned execution, iteration, " +
+    "submission digest, delivery, and applicable tests. For a Decision, inspect the frozen proposal, body, " +
+    "claims, and cited evidence at its reviewContentDigest; do not require a code commit or CI. Label checks " +
+    "you cannot run unverified.",
+  "- Write only the structured review report and input at the dispatch-assigned artifacts/reports paths. " +
+    "For a Task use ha task review-execution; for a Decision use ha decision review. Record approved or " +
+    "changes_requested against the pinned target and digest, and stop if that cut changes.",
+  "- Findings are evidence-backed advice to the owner. Do not amend or adjudicate the target, and do not " +
+    "accept, reject, defer, consent to, or complete it. Provider success is not review approval.",
 ].join("\n");
 
 const workerDiscipline = `# Worker Role

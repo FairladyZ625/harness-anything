@@ -402,7 +402,7 @@ test("agenda splits awaiting work by next action and keeps every row in exactly 
     },
   }).agenda();
 
-  // 三种 task 状态各落各组、一条 proposed decision 只落待裁组,互不重复。
+  // 三种 task 状态各落各组；默认免审的 proposed decision 只落待裁组，互不重复。
   assert.deepEqual(
     result.awaitingAdjudication.map(({ taskId }) => taskId),
     ["task_wait_adjudicate"],
@@ -874,6 +874,8 @@ function projectionStub(
       };
     },
     listDecisions: () => ({ ...decisionCut, decisions: [] }),
+    readDecision: () => ({ ...decisionCut, decision: null }),
+    readRuntimeSession: () => null,
     listDecisionAgendaPage: (query) => ({
       ...decisionCut,
       decisions: decisionAgendaRows,

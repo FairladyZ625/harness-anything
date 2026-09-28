@@ -108,6 +108,7 @@ export const DAEMON_AGENDA_SCHEMA = Object.freeze({
     "awaitingRework",
     "awaitingAdjudication",
     "underReview",
+    "decisionReviewInProgress",
     "awaitingDecision",
     "waitingOnOthers",
     "dispatchable",

@@ -100,10 +100,10 @@
       },
       "agenda": {
         "sqlRowsRead": 181,
-        "sha256Calls": 0,
-        "sha256Bytes": 0,
+        "sha256Calls": 12,
+        "sha256Bytes": 7044,
         "gitProcesses": 0,
-        "fileReadBytes": 0
+        "fileReadBytes": 246
       },
       "runtime-overview": {
         "sqlRowsRead": 150,
@@ -200,10 +200,10 @@
       },
       "agenda": {
         "sqlRowsRead": 181,
-        "sha256Calls": 0,
-        "sha256Bytes": 0,
+        "sha256Calls": 12,
+        "sha256Bytes": 7044,
         "gitProcesses": 0,
-        "fileReadBytes": 0
+        "fileReadBytes": 246
       },
       "runtime-overview": {
         "sqlRowsRead": 150,

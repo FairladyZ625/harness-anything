@@ -561,6 +561,60 @@ test("Decision F06 and distill leaf commands preserve their complete structured 
   assert.equal(parseThinCommand(["decision", "amend", "dec_1"]).ok, false);
 });
 
+test("Decision review commands preserve their target and structured packet", () => {
+  const dispatch = parseThinCommand([
+      "decision",
+      "dispatch-review",
+      "dec_review",
+      "--agent",
+      "closeout-reviewer",
+      "--expected-digest",
+      "sha256:abc",
+    ]),
+    review = parseThinCommand(["decision", "review", "dec_review", "--from-file", "review.json"]),
+    respond = parseThinCommand(["decision", "respond-review", "dec_review", "--from-file", "responses.json"]),
+    override = parseThinCommand([
+      "decision",
+      "override-review",
+      "dec_review",
+      "--from-file",
+      "override.json",
+      "--consent-by",
+      "person_owner",
+    ]);
+  assert.equal(dispatch.ok, true);
+  assert.equal(review.ok, true);
+  assert.equal(respond.ok, true);
+  assert.equal(override.ok, true);
+  if (dispatch.ok)
+    assert.deepEqual(dispatch.command.action, {
+      kind: "decision-dispatch-review",
+      decisionId: "dec_review",
+      agentId: "closeout-reviewer",
+      expectedDigest: "sha256:abc",
+    });
+  if (review.ok)
+    assert.deepEqual(review.command.action, {
+      kind: "decision-review",
+      decisionId: "dec_review",
+      fromFile: "review.json",
+    });
+  if (respond.ok)
+    assert.deepEqual(respond.command.action, {
+      kind: "decision-respond-review",
+      decisionId: "dec_review",
+      fromFile: "responses.json",
+    });
+  if (override.ok) {
+    assert.equal(override.command.action.kind, "decision-override-review");
+    assert.equal(override.command.action.decisionId, "dec_review");
+    assert.equal(override.command.action.fromFile, "override.json");
+    assert.equal(override.command.action.consentBy, "person_owner");
+    assert.equal(override.command.action.consentChannel, "cli");
+    assert.equal(typeof override.command.action.consentAt, "string");
+  }
+});
+
 test("entity rematerialize commands parse exactly one of --all or --id plus --dry-run", () => {
   const decision = parseThinCommand(["decision", "rematerialize", "--id", "dec_1"]),
     decisionAll = parseThinCommand(["decision", "rematerialize", "--all", "--dry-run"]),

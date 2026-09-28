@@ -426,11 +426,17 @@ test("Decision judgment and review disposition stay with the proposal owner or e
       ),
       digest,
     );
+    const blockedAgenda = await cell.read("repo.agenda.read", { limit: 50 }, proposer);
     assert.deepEqual(
-      (await cell.read("repo.agenda.read", { limit: 50 }, proposer)).awaitingYou.map(
-        ({ sourceRef }: { readonly sourceRef: string }) => sourceRef,
-      ),
+      blockedAgenda.awaitingYou.map(({ sourceRef }: { readonly sourceRef: string }) => sourceRef),
       [`decision/${decisionId}`],
+    );
+    assert.equal(
+      [...blockedAgenda.decisionReviewInProgress, ...blockedAgenda.awaitingDecision].some(
+        (row: { readonly decisionId: string }) => row.decisionId === decisionId,
+      ),
+      false,
+      "an unresolved changes_requested Decision is surfaced only through its awaits row",
     );
     const override = {
       kind: "decision-override-review" as const,
@@ -460,7 +466,11 @@ test("Decision judgment and review disposition stay with the proposal owner or e
     const secondOverride = await cell.run({ ...override, reviewIds: ["review-changes-requested-2"] }, humanOwner);
     assert.equal(secondOverride.outcome, "applied", JSON.stringify(secondOverride));
     const disposedAgenda = await cell.read("repo.agenda.read", { limit: 50 }, proposer);
-    assert.deepEqual(disposedAgenda.awaitingYou, []);
+    assert.deepEqual(
+      disposedAgenda.awaitingYou.map(({ sourceRef }: { readonly sourceRef: string }) => sourceRef),
+      [`decision/${decisionId}`],
+      "overrides dispose current blockers but do not replace the proposal owner's finding responses",
+    );
     assert.deepEqual(disposedAgenda.answeredForYou, []);
     const approvedOverride = await cell.run(
       { ...override, reviewIds: ["review-changes-requested"], ...approval },
@@ -513,11 +523,55 @@ test("Decision judgment and review disposition stay with the proposal owner or e
       relationRows(await cell.run({ kind: "relation-list", entity: `decision/${decisionId}` }, proposer)).find(
         ({ relationId }) => relationId === awaitsRelationId,
       )?.state,
-      "retired",
+      "active",
     );
     const amendedDecision = receiptJson(
       await cell.run({ kind: "decision-show", decisionId, includeBody: true }, proposer),
     ).decision as { readonly currentReviewContentDigest: `sha256:${string}` };
+    const unansweredAgenda = await cell.read("repo.agenda.read", { limit: 50 }, proposer);
+    assert.deepEqual(
+      unansweredAgenda.awaitingYou.map(({ sourceRef }: { readonly sourceRef: string }) => sourceRef),
+      [`decision/${decisionId}`],
+      "historical unanswered findings remain visible through the awaits row after a new content cut",
+    );
+    const responded = await cell.run(
+      {
+        kind: "decision-respond-review",
+        decisionId,
+        responses: [
+          {
+            reviewId: "review-changes-requested",
+            findingId: "finding-1",
+            disposition: "adopt",
+            rationale: "The amended content names the first correction.",
+            amendmentRef: "decision-amend:Review independence amended",
+          },
+          {
+            reviewId: "review-changes-requested-2",
+            findingId: "finding-2",
+            disposition: "rebut",
+            rationale: "The second request conflicts with the chosen tradeoff.",
+            amendmentRef: null,
+          },
+          {
+            reviewId: "review-changes-requested-again",
+            findingId: "finding-2",
+            disposition: "adopt",
+            rationale: "The amended content addresses the later correction.",
+            amendmentRef: "decision-amend:Review independence amended",
+          },
+        ],
+      },
+      proposer,
+    );
+    assert.equal(responded.outcome, "applied", JSON.stringify(responded));
+    assert.equal(
+      relationRows(await cell.run({ kind: "relation-list", entity: `decision/${decisionId}` }, proposer)).find(
+        ({ relationId }) => relationId === awaitsRelationId,
+      )?.state,
+      "retired",
+    );
+    assert.deepEqual((await cell.read("repo.agenda.read", { limit: 50 }, proposer)).awaitingYou, []);
     writeReport(rootDir, `decisions/decision-${decisionId}/artifacts/reports/amended-cut.md`);
     const newCutReview = await cell.run(
       {
