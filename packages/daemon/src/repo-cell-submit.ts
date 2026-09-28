@@ -29,6 +29,7 @@ import {
 import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { makeGitReadinessSource, runProcessText } from "./process-port.ts";
+import { repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import {
   isPresetSnapshotCurrent,
@@ -122,7 +123,7 @@ export function deriveCloseoutSubmission(
   const root = publishedRoot,
     commitSha = git.run(root, ["rev-parse", `${named[0]!}^{commit}`]).stdout;
   // Task delivery is not a Git publication state: a resolvable commit may be reviewed before it
-  // becomes a bound worktree HEAD or reaches origin/main. The merge base below derives the cut's
+  // becomes a bound worktree HEAD or reaches the default branch. The merge base below derives the cut's
   // file manifest only; it is not submission admission.
   let deliverables: readonly string[], commitOutputs: readonly string[];
   if (frozen?.commitSha === commitSha) {
@@ -134,22 +135,26 @@ export function deriveCloseoutSubmission(
     const execution = snapshot.executions.find((value) => value.executionId === executionId),
       baseline = execution !== undefined && isNativeExecution(execution) ? execution.deliveryBaseline : undefined;
     // One delivery commit owns one manifest: the comparison cut derives from the commit's own fork
-    // point on origin/main, never from where the project HEAD happened to sit when the execution
+    // point on the default branch, never from where the project HEAD happened to sit when the execution
     // started (F-70FB11C4). Advancing main cannot move a merge base, so the manifest stays identical
-    // across submit, publication, and re-derivation.
-    const mergeBase = git.run(root, ["merge-base", "origin/main", commitSha]);
+    // across submit, publication, and re-derivation. A repository without a remote, or without origin/HEAD,
+    // anchors on the branch its main checkout has out: that local branch is where its deliveries land.
+    const defaultBranch = repositoryBaseRef(root),
+      mergeBase = defaultBranch ? git.run(root, ["merge-base", defaultBranch, commitSha]) : { ok: false, stdout: "" };
     let base: string;
     if (mergeBase.ok && mergeBase.stdout !== commitSha) {
-      // Unpublished fork: everything reachable from the commit and not from origin/main.
+      // Unpublished fork: everything reachable from the commit and not from the default branch.
       base = mergeBase.stdout;
     } else if (mergeBase.ok || baseline === undefined) {
       // A published cut — the merge base is the commit itself — compares against its first parent:
       // the pre-merge main of a merge commit is exactly that PR's branch-wide diff. Executions from
-      // before the baseline freeze (dec_D23B9787328EF7E0FACB70F9FE) keep the same first-parent rule.
-      base = git.run(root, ["rev-parse", `${commitSha}^1`]).stdout;
+      // before the baseline freeze (dec_D23B9787328EF7E0FACB70F9FE) keep the same first-parent rule. A root
+      // commit has no first parent: it delivers its whole tree only when the execution started before any commit.
+      const firstParent = git.run(root, ["rev-parse", "--verify", "--quiet", `${commitSha}^1`]);
+      base = firstParent.ok ? firstParent.stdout : baseline?.kind === "empty-tree" ? EMPTY_TREE_SHA : "";
     } else {
-      // Repositories with no origin/main to anchor against (unborn or local-only) have no derivable
-      // fork point; the start-frozen observation is the only record of where the delivery began.
+      // Repositories with no default branch to anchor against (unborn, or a main checkout on a detached HEAD) have
+      // no derivable fork point; the start-frozen observation is the only record of where the delivery began.
       base = baseline.kind === "commit" ? baseline.commitSha : EMPTY_TREE_SHA;
       if (baseline.kind === "commit" && !git.run(root, ["cat-file", "-e", `${baseline.commitSha}^{commit}`]).ok)
         throw cell.cellCodedError(

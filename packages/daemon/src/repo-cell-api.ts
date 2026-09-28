@@ -445,7 +445,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
             ),
           (error) => failAction(error, durable ? authorizeAtCurrentCut()! : undefined),
         );
-    const externalRead = readBeforeWriteQueue(context, action);
+    const externalRead = readBeforeWriteQueue(context, action, binding);
     if (externalRead)
       return externalRead
         .then((publish) =>

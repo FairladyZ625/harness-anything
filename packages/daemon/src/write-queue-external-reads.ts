@@ -7,7 +7,9 @@ import {
 import { artifactImportSourceResolution, prepareArtifactEntityImportSource } from "./artifact-entity-action.ts";
 import { fetchCiObservations, ingestCiObservations } from "./ci-observation-actions.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
+import { taskWorktreeInput } from "./repo-cell-action-dispatch.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import { prepareTaskStartWorktree } from "./task-worktree.ts";
 import { acceptedGateWitness, gateWaived, witnessAdapters, witnessCollections } from "./repo-cell-witness-adapters.ts";
 
 type QueuedPublication = (
@@ -15,13 +17,19 @@ type QueuedPublication = (
   binding: RepoCellBinding,
 ) => WriteReceiptDraft | Promise<WriteReceiptDraft>;
 
-// A URL artifact source or GitHub can stall without bound, and every other write to the repository
-// would wait behind it in the write queue. These reads finish first; only the returned publication
-// of what they read runs inside the queue.
+// A URL artifact source, GitHub, or a task worktree's setup install can stall without bound, and every
+// other write to the repository would wait behind it in the write queue. These finish first; only the
+// returned publication of what they produced runs inside the queue.
 export function readBeforeWriteQueue(
   context: RepoCellApiContext,
   action: RepoTaskAction,
+  binding: RepoCellBinding,
 ): Promise<QueuedPublication> | null {
+  const started = prepareTaskStartWorktree(taskWorktreeInput(context), action, binding.source);
+  if (started)
+    return started.then(
+      (annotate) => async (action, binding) => annotate(await context.executeAction(action, binding)),
+    );
   if (action.kind === "entity-import")
     return prepareArtifactEntityImportSource({
       rootDir: context.rootDir,

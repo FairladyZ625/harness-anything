@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { ScheduleV1 } from "@harness-anything/kernel";
-import { runProcessTextAsync } from "./process-port.ts";
+import { makeGitReadinessSource, runProcessTextAsync } from "./process-port.ts";
 import type { TrustedScheduleRuntime } from "./runtime-spawn-types.ts";
 import { cleanupWorktreeSetup, runWorktreeSetup, worktreeSetupFailure } from "./worktree-setup.ts";
 
@@ -40,16 +40,38 @@ export async function addManagedWorktree(rootDir: string, worktree: ManagedWorkt
 }
 
 /**
- * dec_8B3FCCD256CAC5B0BF3CCEDE58 CH2: a new worktree starts from the repository's own default branch — the one
- * origin/HEAD names, else the branch the main checkout has out (its origin copy when there is one). Null when none
- * of them resolves: a Git-less edge or a repository before its first commit has no worktree to give.
+ * The published copy of the repository's default branch: the one origin/HEAD names, else the origin copy of the
+ * branch the main checkout has out. Null when neither resolves — an unfetched clone, a local-only repository. What
+ * "published" and "merged" mean is judged against this ref, never against a literal branch name.
  */
-export async function repositoryBaseRef(rootDir: string): Promise<string | null> {
-  const remoteDefault = await gitOrNull(rootDir, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"),
-    checkedOut = await gitOrNull(rootDir, "symbolic-ref", "--quiet", "--short", "HEAD");
-  for (const ref of [remoteDefault, checkedOut && `origin/${checkedOut}`, checkedOut])
-    if (ref && (await gitOrNull(rootDir, "rev-parse", "--verify", "--quiet", `${ref}^{commit}`))) return ref;
-  return null;
+export function remoteDefaultBranch(rootDir: string): string | null {
+  return firstCommitRef(rootDir, defaultBranchCandidates(rootDir).slice(0, 2));
+}
+
+/**
+ * dec_8B3FCCD256CAC5B0BF3CCEDE58 CH2: a new worktree starts from the repository's own default branch — its published
+ * copy, else the branch the main checkout has out. Null when none of them resolves: a Git-less edge or a repository
+ * before its first commit has no worktree to give.
+ */
+export function repositoryBaseRef(rootDir: string): string | null {
+  return firstCommitRef(rootDir, defaultBranchCandidates(rootDir));
+}
+
+function defaultBranchCandidates(rootDir: string): readonly (string | null)[] {
+  // HEAD of the common git directory is the main checkout's, also when rootDir is a linked worktree.
+  const common = gitOrNull(rootDir, "rev-parse", "--path-format=absolute", "--git-common-dir"),
+    checkedOut = common && gitOrNull(rootDir, `--git-dir=${common}`, "symbolic-ref", "--quiet", "--short", "HEAD");
+  return [
+    gitOrNull(rootDir, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"),
+    checkedOut && `origin/${checkedOut}`,
+    checkedOut,
+  ];
+}
+
+function firstCommitRef(rootDir: string, candidates: readonly (string | null)[]): string | null {
+  return (
+    candidates.find((ref) => ref && gitOrNull(rootDir, "rev-parse", "--verify", "--quiet", `${ref}^{commit}`)) ?? null
+  );
 }
 
 /**
@@ -106,7 +128,7 @@ export async function prepareScheduleOccurrenceWorkspace(
 
   const branch = `occ-${active.occurrenceId}`,
     cwd = path.join(rootDir, ".worktrees", branch),
-    baseRef = await repositoryBaseRef(rootDir);
+    baseRef = repositoryBaseRef(rootDir);
   if (!baseRef) throw new Error(`Repository ${rootDir} has no default branch to cut the occurrence worktree from.`);
   await addManagedWorktree(rootDir, { cwd, branch, baseRef });
   const prepared = await runWorktreeSetup({ rootDir, cwd, taskId: null, steps: readSetup() });
@@ -132,13 +154,13 @@ export async function scheduleSettlementDetail(
   return [detail, reclaimed].filter(Boolean).join(" ") || null;
 }
 
+const gitReadiness = makeGitReadinessSource();
+
 function git(cwd: string, ...args: string[]): Promise<string> {
   return runProcessTextAsync("git", ["-C", cwd, ...args]).then((output) => output.trim());
 }
 
-function gitOrNull(cwd: string, ...args: string[]): Promise<string | null> {
-  return git(cwd, ...args).then(
-    (output) => output || null,
-    () => null,
-  );
+function gitOrNull(cwd: string, ...args: string[]): string | null {
+  const result = gitReadiness.run(cwd, args);
+  return result.ok && result.stdout ? result.stdout : null;
 }

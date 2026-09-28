@@ -73,8 +73,8 @@ export function renderDoctorHealth(
   }
   const lines = [
     `doctor health: scope repoId=${String(scope.repoId ?? "?")} ` +
-      `product origin/main tip=${String(scope.productOriginMainTip ?? "none")} ` +
-      `ledger origin/main tip=${String(scope.ledgerOriginMainTip ?? "none")}`,
+      `product ${String(scope.productBaseRef ?? "default branch")} tip=${String(scope.productBaseTip ?? "none")} ` +
+      `ledger ${String(scope.ledgerBaseRef ?? "default branch")} tip=${String(scope.ledgerBaseTip ?? "none")}`,
     `${String(scope.note ?? "")}`,
     ...checks.map(
       (check) => `  [${check.status}] ${check.id} (${check.count}) — ${check.summary}\n    next: ${check.next}`,

@@ -18,12 +18,16 @@ const adapters: Readonly<
   >
 > = { "node-modules": nodeModulesSetupAdapter };
 
+/** A `run:` step still running after this long fails like any other: the start is refused and the step named. */
+const worktreeSetupStepTimeoutMs = 20 * 60 * 1000;
+
 export interface WorktreeSetupInput {
   readonly rootDir: string;
   readonly cwd: string;
   /** The task the worktree serves, exported to every step as HARNESS_TASK_ID; null for a schedule occurrence. */
   readonly taskId: string | null;
   readonly steps: readonly string[];
+  readonly stepTimeoutMs?: number;
 }
 
 export type WorktreeSetupResult =
@@ -94,7 +98,13 @@ async function runStep(input: WorktreeSetupInput, step: string, log: string): Pr
   };
   try {
     if (step.startsWith("run: ")) {
-      const { exitCode } = await runShell(step.slice("run: ".length), input.cwd, log, environment);
+      const { exitCode } = await runShell(
+        step.slice("run: ".length),
+        input.cwd,
+        log,
+        environment,
+        input.stepTimeoutMs ?? worktreeSetupStepTimeoutMs,
+      );
       return exitCode === 0 ? null : `exit code ${exitCode}`;
     }
     const adapter = adapters[step];
@@ -110,7 +120,16 @@ async function runStep(input: WorktreeSetupInput, step: string, log: string): Pr
 }
 
 /** The shell writes the step's own output straight to its log, so a long install never passes through memory. */
-function runShell(command: string, cwd: string, log: string, environment: NodeJS.ProcessEnv) {
+async function runShell(command: string, cwd: string, log: string, environment: NodeJS.ProcessEnv, timeoutMs: number) {
+  try {
+    return await spawnShell(command, cwd, log, environment, timeoutMs);
+  } catch (error) {
+    if ((error as { readonly killed?: boolean }).killed !== true) throw error;
+    throw new Error(`timed out after ${timeoutMs / 1000}s`);
+  }
+}
+
+function spawnShell(command: string, cwd: string, log: string, environment: NodeJS.ProcessEnv, timeoutMs: number) {
   if (process.platform === "win32")
     return runProcessExitAsync(
       environment.ComSpec ?? "cmd.exe",
@@ -119,12 +138,17 @@ function runShell(command: string, cwd: string, log: string, environment: NodeJS
       environment,
       undefined,
       undefined,
-      { windowsVerbatimArguments: true },
+      { windowsVerbatimArguments: true, timeoutMs },
     );
-  return runProcessExitAsync(posixShellFallback, ["-c", `exec >>"$HARNESS_SETUP_LOG" 2>&1\n${command}`], cwd, {
-    ...environment,
-    HARNESS_SETUP_LOG: log,
-  });
+  return runProcessExitAsync(
+    posixShellFallback,
+    ["-c", `exec >>"$HARNESS_SETUP_LOG" 2>&1\n${command}`],
+    cwd,
+    { ...environment, HARNESS_SETUP_LOG: log },
+    undefined,
+    undefined,
+    { timeoutMs },
+  );
 }
 
 function setupDirectory(cwd: string): Promise<string> {

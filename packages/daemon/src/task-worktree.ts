@@ -101,18 +101,37 @@ export async function materializeTaskWorktree(
   const binding = taskWorktreeBinding(task, readPresetSnapshot);
   if (!task || !binding || taskClosed(task)) return null;
   const cwd = path.join(rootDir, binding.path);
-  let baseRef: string | null = null;
-  if (!existsSync(cwd)) {
-    baseRef = await repositoryBaseRef(rootDir);
-    if (!baseRef) return null;
-    await addManagedWorktree(rootDir, { cwd, branch: binding.branch, baseRef });
-  }
-  return {
-    cwd,
-    branch: binding.branch,
-    baseRef,
-    setup: await runWorktreeSetup({ rootDir, cwd, taskId: task.taskId, steps: setup }),
-  };
+  return inWorktreeTurn(cwd, async () => {
+    let baseRef: string | null = null;
+    if (!existsSync(cwd)) {
+      baseRef = repositoryBaseRef(rootDir);
+      if (!baseRef) return null;
+      await addManagedWorktree(rootDir, { cwd, branch: binding.branch, baseRef });
+    }
+    return {
+      cwd,
+      branch: binding.branch,
+      baseRef,
+      setup: await runWorktreeSetup({ rootDir, cwd, taskId: task.taskId, steps: setup }),
+    };
+  });
+}
+
+// A checkout runs outside the repository write queue, so two starts, or a start and a dispatch, can reach one
+// worktree at once. They take turns per worktree path: the later one finds the checkout and its finished steps.
+const worktreeTurns = new Map<string, Promise<void>>();
+
+function inWorktreeTurn<T>(cwd: string, work: () => Promise<T>): Promise<T> {
+  const turn = (worktreeTurns.get(cwd) ?? Promise.resolve()).then(work),
+    settled = turn.then(
+      () => undefined,
+      () => undefined,
+    );
+  worktreeTurns.set(cwd, settled);
+  void settled.then(() => {
+    if (worktreeTurns.get(cwd) === settled) worktreeTurns.delete(cwd);
+  });
+  return turn;
 }
 
 /** What a person reads about a successful checkout: where, which branch, from which base, what setup ran. */
@@ -135,32 +154,53 @@ const closingActions = new Set([
   "task-delete",
 ]);
 
+export interface TaskWorktreeLifecycleInput {
+  readonly rootDir: string;
+  readonly readTask: (taskId: string) => TaskV2 | null | undefined;
+  readonly readPresetSnapshot: PresetSnapshotRead;
+  readonly readSetup: () => readonly string[];
+}
+
+type TaskWorktreeAction = {
+  readonly kind: string;
+  readonly taskId?: unknown;
+  readonly taskIds?: unknown;
+  readonly dryRun?: unknown;
+};
+
 /**
- * The one place a task write reaches its worktree: a start checks it out and prepares it before the start is
- * written, so a setup step that fails refuses the start; an applied write that closes a task (done, cancelled,
- * archived) reclaims it. Only a locally executed write acts on this node's checkout — a write forwarded from
- * another node leaves that node's checkout to that node. A reclaim failure never undoes the lifecycle write: it
- * comes back as a warning.
+ * A start checks its worktree out and prepares it before the start is queued for writing, so a setup step that
+ * fails or times out refuses the start while a long install never holds the repository write queue; the queue
+ * receives only the start itself. The returned function adds what the checkout did to the applied start. Null
+ * when the write starts no task on this node: only a locally executed write acts on this node's checkout — a
+ * write forwarded from another node leaves that node's checkout to that node.
+ */
+export function prepareTaskStartWorktree(
+  input: TaskWorktreeLifecycleInput,
+  action: TaskWorktreeAction,
+  source: unknown,
+): Promise<(receipt: WriteReceipt) => WriteReceipt> | null {
+  if (source !== "local" || action.dryRun === true || action.kind !== "task-start" || typeof action.taskId !== "string")
+    return null;
+  return checkoutOnStart(input, action.taskId).then(
+    (checkout) => (receipt) =>
+      receipt.outcome === "applied" ? withNotes(receipt, checkout.notes, checkout.warnings) : receipt,
+  );
+}
+
+/**
+ * An applied write that closes a task (done, cancelled, archived) reclaims its worktree on this node. A reclaim
+ * failure never undoes the lifecycle write: it comes back as a warning.
  */
 export async function applyTaskWorktreeLifecycle(
-  input: {
-    readonly rootDir: string;
-    readonly readTask: (taskId: string) => TaskV2 | null | undefined;
-    readonly readPresetSnapshot: PresetSnapshotRead;
-    readonly readSetup: () => readonly string[];
-  },
-  action: { readonly kind: string; readonly taskId?: unknown; readonly taskIds?: unknown; readonly dryRun?: unknown },
+  input: TaskWorktreeLifecycleInput,
+  action: TaskWorktreeAction,
   source: unknown,
   write: () => Promise<WriteReceipt>,
 ): Promise<WriteReceipt> {
-  const local = source === "local" && action.dryRun !== true;
-  if (local && action.kind === "task-start" && typeof action.taskId === "string") {
-    const checkout = await checkoutOnStart(input, action.taskId),
-      receipt = await write();
-    return receipt.outcome === "applied" ? withNotes(receipt, checkout.notes, checkout.warnings) : receipt;
-  }
   const receipt = await write();
-  if (receipt.outcome !== "applied" || !local || !closingActions.has(action.kind)) return receipt;
+  if (receipt.outcome !== "applied" || source !== "local" || action.dryRun === true || !closingActions.has(action.kind))
+    return receipt;
   const taskIds =
     typeof action.taskId === "string"
       ? [action.taskId]
@@ -172,7 +212,7 @@ export async function applyTaskWorktreeLifecycle(
     const task = input.readTask(taskId),
       binding = taskWorktreeBinding(task, input.readPresetSnapshot),
       cwd = binding && task && taskClosed(task) ? path.join(input.rootDir, binding.path) : null,
-      baseRef = cwd && existsSync(cwd) ? await repositoryBaseRef(input.rootDir) : null;
+      baseRef = cwd && existsSync(cwd) ? repositoryBaseRef(input.rootDir) : null;
     if (!binding || !cwd || !baseRef) continue;
     const worktree: ManagedWorktree = { cwd, branch: binding.branch, baseRef },
       result = await reclaimManagedWorktree(input.rootDir, worktree),
@@ -185,7 +225,7 @@ export async function applyTaskWorktreeLifecycle(
 }
 
 async function checkoutOnStart(
-  input: Parameters<typeof applyTaskWorktreeLifecycle>[0],
+  input: TaskWorktreeLifecycleInput,
   taskId: string,
 ): Promise<{ readonly notes: readonly string[]; readonly warnings: readonly string[] }> {
   const task = input.readTask(taskId),

@@ -300,6 +300,8 @@ test("shared public and authored Git root keeps a code delivery on its public cu
 
 test("already merged dispatch preserves earlier branch changes and rejects unrelated Summary cut", (t) => {
   const { root, base } = fixture(t);
+  // The main checkout leaves the default branch below, so only origin/HEAD, as a clone records it, names main.
+  git(root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main");
   git(root, "checkout", "-qb", "worker");
   put(root, "src/first.ts", "first\n");
   commit(root);
@@ -502,8 +504,10 @@ test("an execution started before the baseline froze keeps the comparison cut in
 
 test("a frozen baseline unreadable in an unanchored repository fails closed", (t) => {
   const { root } = fixture(t);
-  // Only repositories without origin/main consult the frozen observation; delete the anchor.
+  // Only repositories without a default branch consult the frozen observation: no remote, and the main
+  // checkout on a detached HEAD.
   git(root, "update-ref", "-d", "refs/remotes/origin/main");
+  git(root, "checkout", "-q", "--detach");
   put(root, "src/live.ts", "export const liveValue = 10;\n");
   const sha = commit(root);
   dispatch(root, root);
@@ -515,6 +519,33 @@ test("a frozen baseline unreadable in an unanchored repository fails closed", (t
       }),
     { code: "invalid_submission", message: /not readable/u },
   );
+});
+
+test("a repository without a remote anchors its cut on the local default branch, not the start observation", (t) => {
+  const { root, base } = fixture(t);
+  git(root, "update-ref", "-d", "refs/remotes/origin/main");
+  // Ledger publications share the repository Git and land on main after the execution started.
+  put(root, "ledger/INDEX.md", "published\n");
+  commit(root);
+  const worker = path.join(root, "worker");
+  git(root, "worktree", "add", "-qb", "codex/delivery", worker);
+  put(worker, "src/delivery.ts", "delivery\n");
+  const forked = commit(worker);
+  put(root, "ledger/INDEX.md", "published again\n");
+  commit(root);
+  dispatch(root, worker);
+  const started = { kind: "commit" as const, commitSha: base };
+  assert.deepEqual(derive(worker, `Delivered ${forked}.`, undefined, ["ci"], undefined, started).deliverables, [
+    "src/delivery.ts",
+  ]);
+  // Delivered straight onto main after more ledger writes: the cut is that commit's own change.
+  put(root, "ledger/INDEX.md", "published a third time\n");
+  commit(root);
+  put(root, "src/direct.ts", "direct\n");
+  const direct = commit(root);
+  assert.deepEqual(derive(root, `Delivered ${direct}.`, undefined, ["ci"], undefined, started).deliverables, [
+    "src/direct.ts",
+  ]);
 });
 
 test("the comparison cut follows the delivery fork point, not the project HEAD at start", (t) => {

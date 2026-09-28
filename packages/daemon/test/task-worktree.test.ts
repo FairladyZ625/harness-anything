@@ -6,28 +6,40 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { TaskV2, WriteReceiptDraft } from "@harness-anything/kernel";
-import { applyTaskWorktreeLifecycle, materializeTaskWorktree, taskWorkspaceView } from "../src/task-worktree.ts";
+import {
+  applyTaskWorktreeLifecycle,
+  materializeTaskWorktree,
+  prepareTaskStartWorktree,
+  taskWorkspaceView,
+} from "../src/task-worktree.ts";
 import { prepareWorkerWorktree, reclaimWorkerWorktree } from "../src/squad-worker-checkout.ts";
-import { repositoryBaseRef } from "../src/schedule-occurrence-workspace.ts";
+import { remoteDefaultBranch, repositoryBaseRef } from "../src/schedule-occurrence-workspace.ts";
+import { runWorktreeSetup, worktreeSetupFailure } from "../src/worktree-setup.ts";
 
 const taskId = "task_12345678",
   binding = { branch: taskId, path: `.worktrees/${taskId}` };
 // The binding is derived from the task and the output shape of the preset snapshot it was compiled from.
 const repositoryDiff = () => ({ profile: { outputShape: "repository-diff" } });
 
-/** The lifecycle as executeAction drives it: `write` is the ledger write the worktree step wraps. */
-function lifecycle(
+/**
+ * The lifecycle as the repository drives it: a start's checkout finishes before the write is queued, and the
+ * queued write is `write` wrapped by the close-time reclaim.
+ */
+async function lifecycle(
   root: string,
   task: () => TaskV2,
   action: { readonly kind: string; readonly taskId?: string },
   options: { readonly source?: unknown; readonly setup?: readonly string[]; readonly write?: () => WriteReceiptDraft },
 ) {
-  return applyTaskWorktreeLifecycle(
-    { rootDir: root, readTask: task, readPresetSnapshot: repositoryDiff, readSetup: () => options.setup ?? [] },
-    action,
-    options.source ?? "local",
-    async () => (options.write ?? applied)(),
-  );
+  const input = {
+      rootDir: root,
+      readTask: task,
+      readPresetSnapshot: repositoryDiff,
+      readSetup: () => options.setup ?? [],
+    },
+    source = options.source ?? "local",
+    annotate = (await prepareTaskStartWorktree(input, action, source)) ?? ((receipt: WriteReceiptDraft) => receipt);
+  return annotate(await applyTaskWorktreeLifecycle(input, action, source, async () => (options.write ?? applied)()));
 }
 
 test("the first start checks the bound worktree out once, from the default branch, and names both", async () => {
@@ -65,12 +77,15 @@ test("the base is the repository's own default branch: origin/HEAD, else the mai
   const fixture = repositoryFixture();
   try {
     // A remote without origin/HEAD: the main checkout's branch, as its origin copy.
-    assert.equal(await repositoryBaseRef(fixture.root), "origin/main");
+    assert.equal(repositoryBaseRef(fixture.root), "origin/main");
+    // From a linked worktree the fallback is still the main checkout's branch, not the worktree's own.
+    const linked = (await materializeTaskWorktree(fixture.root, boundTask("active"), repositoryDiff, []))!.cwd;
+    assert.equal(remoteDefaultBranch(linked), "origin/main");
     // A remote whose default branch is not main.
     git(fixture.root, "push", "-q", "origin", "main:trunk");
     git(fixture.root, "fetch", "-q", "origin");
     git(fixture.root, "remote", "set-head", "origin", "trunk");
-    assert.equal(await repositoryBaseRef(fixture.root), "origin/trunk");
+    assert.equal(repositoryBaseRef(fixture.root), "origin/trunk");
   } finally {
     rmSync(fixture.base, { recursive: true, force: true });
   }
@@ -83,7 +98,7 @@ test("the base is the repository's own default branch: origin/HEAD, else the mai
     writeFileSync(path.join(local, ".gitignore"), ".worktrees\n");
     git(local, "add", ".gitignore");
     git(local, "commit", "-qm", "base");
-    assert.equal(await repositoryBaseRef(local), "master");
+    assert.equal(repositoryBaseRef(local), "master");
     const checkout = await materializeTaskWorktree(local, boundTask("active"), repositoryDiff, []);
     assert.equal(checkout?.baseRef, "master");
     assert.equal(git(checkout!.cwd, "rev-parse", "HEAD"), git(local, "rev-parse", "master"));
@@ -148,6 +163,33 @@ test("a failing setup step refuses the start, keeps the worktree, and a retry re
     assert.equal(writes, 1);
     assert.match(String((started as { summary?: unknown }).summary), /Setup ran: run: echo checking/u);
     assert.equal(readFileSync(counter, "utf8"), "x\n", "the step that succeeded does not run again");
+  } finally {
+    rmSync(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test("a run step still going at the timeout fails like any other step and names the timeout and its log", async () => {
+  const fixture = repositoryFixture();
+  try {
+    const task = boundTask("active"),
+      checkout = await materializeTaskWorktree(fixture.root, task, repositoryDiff, []),
+      startedAt = Date.now(),
+      result = await runWorktreeSetup({
+        rootDir: fixture.root,
+        cwd: checkout!.cwd,
+        taskId,
+        steps: ["run: echo installing; sleep 30"],
+        stepTimeoutMs: 300,
+      });
+    assert.ok(Date.now() - startedAt < 10_000, "the step is stopped at the timeout, not waited out");
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.equal(result.detail, "timed out after 0.3s");
+    assert.match(
+      worktreeSetupFailure(checkout!.cwd, result, `run ha task start ${taskId} again`),
+      /setup step 1 \(run: echo installing; sleep 30\) failed: timed out after 0\.3s\. Log: .*harness-setup\/step-1\.log\./u,
+    );
+    assert.match(readFileSync(result.log, "utf8"), /^\$ run: echo installing; sleep 30\ninstalling\n/u);
   } finally {
     rmSync(fixture.base, { recursive: true, force: true });
   }
