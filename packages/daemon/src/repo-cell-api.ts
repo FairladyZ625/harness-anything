@@ -9,7 +9,8 @@ import {
   type SquadControlResult,
 } from "./squad-control-result.ts";
 import type { RepoCellCore } from "./repo-cell.ts";
-import { readAcceptedCommandOutcome } from "@harness-anything/kernel";
+import { VcsCommandError, readAcceptedCommandOutcome } from "@harness-anything/kernel";
+import { cellErrorCode } from "./repo-cell-errors.ts";
 import { daemonSettingsRead } from "./protocol/daemon-settings-read-types.ts";
 import { settingsLastChanged } from "./repo-cell-settings-state.ts";
 import { settleWriteReceipt } from "./write-receipt-settlement.ts";
@@ -382,6 +383,15 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         } catch (error) {
           if (isSquadControlCommand(action.kind))
             return squadControlRejected(action.kind, failAction(error, queuedDecision));
+          // A coded rejection is this command's own determinate verdict, even after an earlier step
+          // (one of several ingested runs, a facade's witness) was accepted as its own command.
+          const code = cellErrorCode(error);
+          if (
+            !(error instanceof VcsCommandError) &&
+            code !== "service_rejected" &&
+            code !== "publication_indeterminate"
+          )
+            throw error;
           // This queue owns the interval. A downstream failure cannot undo its committed acceptance.
           const head = context.store.readHead(),
             accepted = head ? readAcceptedCommandOutcome(context.store, head.opId) : null;
