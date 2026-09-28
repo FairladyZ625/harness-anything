@@ -54,7 +54,6 @@ export type ProviderRateLimitRetryDeps = Pick<
     inheritedFallback?: RuntimeFallbackAttempt,
     trustedSchedule?: TrustedScheduleRuntime,
     handoffFromRuntimeSessionId?: string,
-    retainCoordinatorTaskLease?: boolean,
     publicationOwner?: ActiveRuntime["publicationOwner"],
   ) => Promise<JsonObject>;
 };
@@ -146,7 +145,6 @@ export function scheduleProviderRateLimitRetry(
           retryFallback,
           active.schedule ?? undefined,
           active.runtimeSessionId,
-          active.task !== null && active.binding.actor.executor?.id !== `runtime-session:${active.runtimeSessionId}`,
           active.publicationOwner,
         );
         active.stream.appendFallbackState(
