@@ -5,8 +5,6 @@ import { currentTaskForWrite } from "../domain/task.ts";
 import { docByteLength, type DocumentState } from "../domain/doc-sync.contract.ts";
 import { requireEntityKindContract } from "../domain/entity-kind-registry.ts";
 import { type TaskProgressEventV1 } from "../domain/task-progress-event.ts";
-import { isTaskBoundRuntimeWriter, resolveTaskBoundRuntimeBinding } from "../domain/task-bound-runtime-authority.ts";
-import { isSamePerson } from "../domain/actor-domain-services.ts";
 import { type DecisionEventV1 } from "../domain/decision-event.ts";
 import { type FactEventV1 } from "../domain/fact-event.ts";
 import { type EntityDocumentEventV1 } from "../domain/entity-document-event.ts";
@@ -22,7 +20,7 @@ import { refreshTaskRelationProjection } from "./task-query-projection.ts";
 import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
 import { canonicalJson, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 import { projectInterpretedEntityValue } from "./rebuildable-task-projection-entities.ts";
-import { readRuntimeSession, readSnapshot, storedLease } from "./rebuildable-task-projection-runtime.ts";
+import { readRuntimeSession, readSnapshot } from "./rebuildable-task-projection-runtime.ts";
 import { applyRelationProjectionEvent } from "./relation-entity-projection.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
 export type { TaskProjection } from "./task-projection-port.ts";
@@ -43,43 +41,21 @@ export function projectProgress(
 ): void {
   const taskId = event.payload.taskId,
     snapshot = readSnapshot(db, taskId),
-    lease = storedLease(db, taskId),
     packagePath = queryRows(db, "SELECT package_path FROM task_package WHERE task_id = ?", taskId)[0]?.package_path,
     claim = event.payload.resultDocumentClaim,
     base = queryRows(db, DOCUMENT_BASE_SQL, claim.path)[0],
     bytes = readBlob(claim.sha256),
     runtimeSessionIdValue = event.payload.runtimeSessionId,
     runtime = runtimeSessionIdValue ? readRuntimeSession(db, runtimeSessionIdValue) : null;
-  const runtimeBinding =
-      runtime === null ? null : resolveTaskBoundRuntimeBinding(runtime, taskId, event.payload.executionId),
-    directHolder =
-      lease !== null &&
-      runtimeSessionIdValue === undefined &&
-      canonicalJson(lease.actor) === canonicalJson(event.actor) &&
-      canonicalJson(lease.source) === canonicalJson(event.source),
-    runtimeWorker =
-      lease !== null &&
-      runtimeSessionIdValue !== undefined &&
-      runtimeBinding !== null &&
-      isTaskBoundRuntimeWriter(lease, event.actor, event.source, runtimeBinding),
-    // Owner backfill entries bypass the held-lease requirement but still bind the creator and a
-    // non-held lease, mirroring compileTaskProgress so replay reaches the same verdict.
-    ownerBackfill =
-      event.payload.backfilled === true &&
-      snapshot.task !== null &&
-      isSamePerson(snapshot.task.createdBy, event.actor) &&
-      (lease === null || lease.phase === "released" || lease.phase === "orphaned");
+  // Admission checks the current lease. Replay checks accepted fact references, not today's authority.
   if (
     snapshot.task === null ||
+    !snapshot.executions.some((execution) => execution.executionId === event.payload.executionId) ||
     !packagePath ||
     claim.path !== `${packagePath}/progress.md` ||
-    (!ownerBackfill &&
-      (snapshot.task.status !== "active" ||
-        lease?.phase !== "held" ||
-        lease.executionId !== event.payload.executionId ||
-        (!directHolder && !runtimeWorker)))
+    (runtimeSessionIdValue !== undefined && !runtime?.taskBindings.some((binding) => binding.taskId === taskId))
   )
-    throw new Error(`progress event lease mismatch for task ${taskId}`);
+    throw new Error(`progress event task, execution, or runtime reference mismatch for task ${taskId}`);
   if (event.payload.baseDocumentSha256 !== (base?.blob_sha256 ?? null) || !bytes || bytes.byteLength !== claim.size)
     throw new Error(`progress document base or blob mismatch for task ${taskId}`);
   const body = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
