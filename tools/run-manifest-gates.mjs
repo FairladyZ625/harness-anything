@@ -9,8 +9,7 @@
  * their explicit `&&` short-circuit semantics.
  */
 import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { readTestQuarantine } from "./test-quarantine.mjs";
@@ -27,7 +26,6 @@ export function parseManifestGateArgs(args) {
     changed: null,
     changedPaths: null,
     eventName: null,
-    resume: false,
   };
 
   for (let index = 0; index < args.length; index += 1) {
@@ -60,10 +58,6 @@ export function parseManifestGateArgs(args) {
     if (arg === "--changed") {
       options.changed = requireValue(args, index, arg);
       index += 1;
-      continue;
-    }
-    if (arg === "--resume") {
-      options.resume = true;
       continue;
     }
     throw new Error(`unknown run-manifest-gates option: ${arg}`);
@@ -340,8 +334,6 @@ function main(argv) {
     : options.workflowJob
       ? `workflow:${options.workflowJob}`
       : `changed:${options.changed}`;
-  const resume = prepareResume(manifest, options);
-
   if (options.changed !== null) {
     console.log(`Changed path selection (${options.changed}): ${options.changedPaths.length} path(s).`);
   }
@@ -349,10 +341,6 @@ function main(argv) {
   const gateResults = [];
   const failedGateIds = [];
   for (const entry of plan) {
-    if (resume.passedCommands.has(entry.command)) {
-      console.log(`↷ ${entry.id} (already passed; resumed)`);
-      continue;
-    }
     const result = runCommand(entry.id, entry.command);
     gateResults.push({
       gate: canonicalGateId(entry.id),
@@ -364,72 +352,20 @@ function main(argv) {
       if (options.packageSurface) break;
       continue;
     }
-    resume.passedCommands.add(entry.command);
   }
   writeObservation(gateResults);
   if (failedGateIds.length > 0) {
-    writeResumeCheckpoint(resume);
     console.error(`\nManifest gate runner failed (${selector}): ${failedGateIds.join(", ")}.`);
     process.exitCode = 1;
     return;
   }
-  rmSync(resume.path, { force: true });
   console.log(`\nManifest gate runner passed (${selector}).`);
-}
-
-function prepareResume(manifest, options) {
-  const checkpointPath = resolveResumeCheckpointPath();
-  const signature = createResumeSignature(manifest, options);
-  if (!options.resume) {
-    rmSync(checkpointPath, { force: true });
-    return { path: checkpointPath, signature, passedCommands: new Set() };
-  }
-  if (!existsSync(checkpointPath)) {
-    throw new Error("--resume requires a failed manifest gate run in this worktree");
-  }
-
-  let checkpoint;
-  try {
-    checkpoint = JSON.parse(readFileSync(checkpointPath, "utf8"));
-  } catch (error) {
-    throw new Error(`cannot read resume checkpoint: ${error instanceof Error ? error.message : String(error)}`);
-  }
-  if (checkpoint.schema !== "manifest-gate-resume/v1" || checkpoint.signature !== signature) {
-    throw new Error("resume checkpoint does not match the selected gates or commands; rerun without --resume");
-  }
-  return { path: checkpointPath, signature, passedCommands: new Set(checkpoint.passedCommands ?? []) };
-}
-
-function createResumeSignature(manifest, options) {
-  const baseOptions = { ...options, exclude: new Set(), resume: false };
-  const basePlan = buildManifestGatePlan(manifest, baseOptions);
-  return createHash("sha256").update(JSON.stringify(basePlan)).digest("hex");
 }
 
 function readGitOutput(args) {
   const result = spawnSync("git", args, { cwd: repoRoot, encoding: "utf8", maxBuffer: 50 * 1024 * 1024 });
   if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${(result.stderr || result.stdout).trim()}`);
   return result.stdout;
-}
-
-function resolveResumeCheckpointPath() {
-  return path.resolve(repoRoot, readGitOutput(["rev-parse", "--git-path", "manifest-gate-resume.json"]).trim());
-}
-
-function writeResumeCheckpoint(resume) {
-  writeFileSync(
-    resume.path,
-    `${JSON.stringify(
-      {
-        schema: "manifest-gate-resume/v1",
-        signature: resume.signature,
-        passedCommands: [...resume.passedCommands],
-      },
-      null,
-      2,
-    )}\n`,
-    "utf8",
-  );
 }
 
 function canonicalGateId(id) {

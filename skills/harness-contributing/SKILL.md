@@ -189,16 +189,12 @@ repository/token context is available. Preserve that output and rerun the same
 job with only that gate excluded:
 
 ```bash
-node tools/run-manifest-gates.mjs --workflow-job boundaries --changed origin/main --exclude check-github-required-contexts --resume
+node tools/run-manifest-gates.mjs --workflow-job boundaries --changed origin/main --exclude check-github-required-contexts
 ```
 
 If that exact message is not the sole failure, do not exclude the gate. Never
 treat the exclusion as a CI waiver; the required GitHub context must still pass
-on the PR. `--resume` uses only the checkpoint from the latest failed run in the
-same worktree, skips commands that already passed, and removes the checkpoint
-after success. If the selected gates or their commands changed, the runner
-rejects the checkpoint; rerun without `--resume` so affected checks are not
-skipped. Results are never cached across successful runs.
+on the PR.
 
 > 中文：worker 停止点统一运行 `node tools/run-manifest-gates.mjs --changed
 > origin/main`；它从 manifest 中派生带 `localPathGlobs` 的本地、PR、确定性门，不维护
