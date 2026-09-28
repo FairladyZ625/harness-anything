@@ -182,8 +182,14 @@ export function parseAgyFrame(value: Record<string, unknown>, providerSessionId:
     if (typeof text === "string") return { signals: [{ type: "activity", activity: "message", content: text }] };
     // Tool steps carry no text; without them a read-only recon run looks idle until its final answer.
     if (update.step_type === "tool") {
-      const { conversation_id: _conversation, step_index: _index, ...tool } = update;
-      return { signals: [{ type: "activity", activity: "tool", content: JSON.stringify(tool) }] };
+      const { conversation_id: conversation, step_index: index, ...tool } = update;
+      return {
+        signals: [{ type: "activity", activity: "tool", content: JSON.stringify(tool) }],
+        toolStep: {
+          id: `${String(conversation)}:${String(index)}`,
+          settled: update.state === "DONE" || update.state === "ERROR",
+        },
+      };
     }
     return {};
   }
