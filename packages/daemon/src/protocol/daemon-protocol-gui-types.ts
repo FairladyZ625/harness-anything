@@ -935,6 +935,8 @@ export type DaemonAgendaResult = {
   readonly underReview: readonly AgendaExecutionRow[];
   /** 当前切面已有在飞 reviewer；下一步等待或查看 runtime。 */
   readonly decisionReviewInProgress: readonly AgendaDecisionRow[];
+  /** 当前策略要求独立评审且没有在飞 reviewer；下一步 `ha decision dispatch-review <id>`。 */
+  readonly awaitingDecisionReview: readonly AgendaDecisionRow[];
   /** 待裁 decision 行;下一步 `ha decision accept|reject|defer`。 */
   readonly awaitingDecision: readonly AgendaDecisionRow[];
   readonly waitingOnOthers: readonly AgendaTaskRow[];

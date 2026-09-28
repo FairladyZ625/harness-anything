@@ -33,6 +33,7 @@ import {
   readDecisionReviewDispatches,
 } from "./decision-review-read.ts";
 import { readDispatchStreamHeaders, type DispatchStreamHeader } from "./dispatch-stream.ts";
+import { readRepositorySettings } from "./repo-cell-settings-state.ts";
 import { presetSnapshotReader, taskWorkspaceView } from "./task-worktree.ts";
 import {
   isolateDaemonTaskSnapshotRows,
@@ -394,6 +395,11 @@ export function makeTaskQueryReadModel(input: {
               limit: sourceLimit,
               ...(cursor?.decisions ? { cursor: cursor.decisions } : {}),
             }),
+      // Settings affect only proposed Decisions. Avoid requiring a settings row when this page has none,
+      // which keeps historical event-only projections readable without inventing a policy fallback.
+      decisionReviewRequirement = decisions?.decisions.length
+        ? readRepositorySettings(projection).decisionReviewRequirement
+        : null,
       // 「等你处理」只收指向读者本人的 active awaits 边(dec_DF67F23066BAFE444190A191B5/CH2)。
       awaits =
         cursor?.awaitingYou === null || query.principalId === undefined
@@ -458,8 +464,8 @@ export function makeTaskQueryReadModel(input: {
       underReview: AgendaExecutionRow[] = awaitingExecutionRows(inReview?.rows ?? []).sort(compareAwaitingExecutions),
       decisionSignals = (decisions?.decisions ?? []).map((decision) => {
         const full = projection.readDecision(decision.decisionId).decision;
-        if (!full) return { decision, signal: "ready" as const };
-        const readiness = decisionReviewState(full).acceptReviewReadiness;
+        if (!full || decisionReviewRequirement === null) return { decision, signal: "ready" as const };
+        const readiness = decisionReviewState(full, decisionReviewRequirement).acceptReviewReadiness;
         if (!readiness) return { decision, signal: "ready" as const };
         if (readiness.next.action === "override-review" || readiness.next.action === "respond-review")
           return { decision, signal: "awaitingOwner" as const };
@@ -467,7 +473,11 @@ export function makeTaskQueryReadModel(input: {
             ({ reviewContentDigest }) => reviewContentDigest === readiness.currentDigest,
           ),
           active = dispatches.some(({ status }) => status === "running");
-        return { decision, signal: active ? ("inProgress" as const) : ("ready" as const) };
+        if (active) return { decision, signal: "inProgress" as const };
+        return {
+          decision,
+          signal: readiness.next.action === "dispatch-review" ? ("needsReview" as const) : ("ready" as const),
+        };
       }),
       decisionRow = ({ decision }: (typeof decisionSignals)[number]): AgendaDecisionRow => ({
         decisionId: decision.decisionId,
@@ -480,6 +490,9 @@ export function makeTaskQueryReadModel(input: {
         rows.sort((left, right) => left.decisionId.localeCompare(right.decisionId)),
       decisionReviewInProgress = sortDecisions(
         decisionSignals.filter(({ signal }) => signal === "inProgress").map(decisionRow),
+      ),
+      awaitingDecisionReview = sortDecisions(
+        decisionSignals.filter(({ signal }) => signal === "needsReview").map(decisionRow),
       ),
       awaitingDecision = sortDecisions(decisionSignals.filter(({ signal }) => signal === "ready").map(decisionRow)),
       awaitingYou: AgendaAwaitsRow[] = (awaits?.rows ?? []).filter(relationIsCurrent).flatMap((edge) => {
@@ -572,6 +585,7 @@ export function makeTaskQueryReadModel(input: {
       awaitingAdjudication,
       underReview,
       decisionReviewInProgress,
+      awaitingDecisionReview,
       awaitingDecision,
       waitingOnOthers,
       dispatchable,
@@ -587,6 +601,7 @@ export function makeTaskQueryReadModel(input: {
         awaitingAdjudication,
         underReview,
         decisionReviewInProgress,
+        awaitingDecisionReview,
         awaitingDecision,
         waitingOnOthers,
         dispatchable,
@@ -944,6 +959,7 @@ function renderAgendaSummary(
     | "awaitingAdjudication"
     | "underReview"
     | "decisionReviewInProgress"
+    | "awaitingDecisionReview"
     | "awaitingDecision"
     | "waitingOnOthers"
     | "dispatchable"
@@ -1004,6 +1020,11 @@ function renderAgendaSummary(
       "Decision 评审中",
       "当前 reviewContentDigest 已有在飞 reviewer；只需等，或按 dispatch 回执查看 runtime",
       groups.decisionReviewInProgress.map(decisionLine),
+    ),
+    section(
+      "待评审 Decision",
+      "当前策略要求独立评审；下一步 ha decision dispatch-review <id>",
+      groups.awaitingDecisionReview.map(decisionLine),
     ),
     section(
       "待裁 Decision",

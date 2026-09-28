@@ -204,6 +204,7 @@ export function validateDaemonAgenda(value: unknown): readonly string[] {
     ["awaitingAdjudication", agendaExecutionRow, ["taskId"]],
     ["underReview", agendaExecutionRow, ["taskId"]],
     ["decisionReviewInProgress", agendaDecisionRow, ["decisionId"]],
+    ["awaitingDecisionReview", agendaDecisionRow, ["decisionId"]],
     ["awaitingDecision", agendaDecisionRow, ["decisionId"]],
   ] as const) {
     if (!Array.isArray(value[field])) return [validationError(entityId, field, value[field], "must be an array")];

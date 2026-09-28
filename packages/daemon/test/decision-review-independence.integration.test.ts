@@ -572,6 +572,31 @@ test("Decision judgment and review disposition stay with the proposal owner or e
       "retired",
     );
     assert.deepEqual((await cell.read("repo.agenda.read", { limit: 50 }, proposer)).awaitingYou, []);
+    const requirementUpdated = await cell.run(
+      {
+        kind: "settings-update",
+        decisionReviewRequirement: "high",
+        idempotencyKey: "require-review-after-responses",
+      },
+      withRoleBinding(
+        { actor: { principal: proposer.actor.principal, executor: null }, source: "local" as const },
+        "repo-write",
+      ),
+    );
+    assert.equal(requirementUpdated.outcome, "applied", JSON.stringify(requirementUpdated));
+    const reviewRequiredAgenda = await cell.read("repo.agenda.read", { limit: 50 }, proposer);
+    assert.deepEqual(
+      reviewRequiredAgenda.awaitingDecisionReview.map(
+        ({ decisionId: queuedId }: { readonly decisionId: string }) => queuedId,
+      ),
+      [decisionId],
+      "a high-risk cut with all historical findings answered is queued for review",
+    );
+    assert.deepEqual(
+      reviewRequiredAgenda.awaitingYou,
+      [],
+      "review_required is not an owner-response blocker and must not create an awaits edge",
+    );
     writeReport(rootDir, `decisions/decision-${decisionId}/artifacts/reports/amended-cut.md`);
     const newCutReview = await cell.run(
       {

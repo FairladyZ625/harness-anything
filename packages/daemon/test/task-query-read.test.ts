@@ -6,6 +6,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test, { type TestContext } from "node:test";
 import {
+  INITIAL_SETTINGS_V1,
   type TaskProjection,
   type TaskProjectionListQuery,
   type TaskRelationProjectionRead,
@@ -789,7 +790,8 @@ function projectionStub(
         task: null,
       },
     }),
-    getEntity: () => null,
+    getEntity: (kind: string, id: string) =>
+      kind === "settings" && id === "repository" ? { value: INITIAL_SETTINGS_V1 } : null,
     readRelationEdge: (relationId: string) => {
       const edge = edges.find((candidate) => candidate.relationId === relationId);
       return edge

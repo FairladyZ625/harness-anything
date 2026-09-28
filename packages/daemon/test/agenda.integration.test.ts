@@ -49,6 +49,7 @@ test("agenda projects an empty ledger without synthetic state", async () => {
         awaitingAdjudication: agenda.awaitingAdjudication,
         underReview: agenda.underReview,
         decisionReviewInProgress: agenda.decisionReviewInProgress,
+        awaitingDecisionReview: agenda.awaitingDecisionReview,
         awaitingDecision: agenda.awaitingDecision,
         waitingOnOthers: agenda.waitingOnOthers,
         dispatchable: agenda.dispatchable,
@@ -59,6 +60,7 @@ test("agenda projects an empty ledger without synthetic state", async () => {
         awaitingAdjudication: [],
         underReview: [],
         decisionReviewInProgress: [],
+        awaitingDecisionReview: [],
         awaitingDecision: [],
         waitingOnOthers: [],
         dispatchable: [],
@@ -66,7 +68,7 @@ test("agenda projects an empty ledger without synthetic state", async () => {
     );
     assert.match(
       agenda.summary,
-      /等你处理 \(0\)[\s\S]*待裁 Decision \(0\)[\s\S]*在飞线 \(0\)[\s\S]*待派审 \(0\)[\s\S]*评审中 \(0\)[\s\S]*球在别人手里 \(0\)[\s\S]*可派队列 \(0\)/u,
+      /等你处理 \(0\)[\s\S]*待评审 Decision \(0\)[\s\S]*待裁 Decision \(0\)[\s\S]*在飞线 \(0\)[\s\S]*待派审 \(0\)[\s\S]*评审中 \(0\)[\s\S]*球在别人手里 \(0\)[\s\S]*可派队列 \(0\)/u,
     );
   });
 });
