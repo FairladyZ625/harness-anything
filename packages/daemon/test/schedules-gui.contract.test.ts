@@ -4,12 +4,8 @@ import test from "node:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import {
-  compileScheduleRunEvent,
-  createScheduleV1,
-  type CanonicalEventV1,
-  type ScheduleV1,
-} from "@harness-anything/kernel";
+import { createScheduleV1, type CanonicalEventV1, type ScheduleV1 } from "@harness-anything/kernel";
+import { compileScheduleRunEvent } from "@harness-anything/kernel/internal/domain/schedule-event";
 import {
   daemonGuiActionMethods,
   daemonGuiReadMethods,

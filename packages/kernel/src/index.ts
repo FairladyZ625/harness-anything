@@ -116,7 +116,6 @@ export {
   isReceiptDiagnostic,
   normalizeCommandEnvelope,
   serializeEventHead,
-  WRITE_RECEIPT_SCHEMA,
   sameWriteSource,
   isRecord,
 } from "./domain/write-chain.contract.ts";

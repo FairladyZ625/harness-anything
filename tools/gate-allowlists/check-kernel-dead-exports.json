@@ -2,31 +2,6 @@
   "schema": "harness-anything/gate-allowlist/v1",
   "gateId": "check-kernel-dead-exports",
   "entries": {
-    "zeroConsumptionExports": [
-      {
-        "value": "compileScheduleRunEvent",
-        "ref": "task_34bf34ab1f3156c370d2604f4f",
-        "reason": "Cross-package test fixture consumer invisible to this gate: packages/daemon/test/schedule-runs-read.test.ts and packages/daemon/test/schedules-gui.contract.test.ts seed canonical schedule run events through the kernel barrel; production ingress derives them via domain/schedule-action-contract.ts.",
-        "until": "2026-12-31"
-      },
-      {
-        "value": "EntityRefKind",
-        "ref": "task_34bf34ab1f3156c370d2604f4f",
-        "reason": "Cross-package test contract consumer invisible to this gate: packages/gui/test/entity-docs-contract.vitest.ts types the relation triple check against the kernel ref kinds; tools/gates/ontology-kind-authority.mjs reads the same alias from source.",
-        "until": "2026-12-31"
-      },
-      {
-        "value": "isAllowedRelationKindTriple",
-        "ref": "task_34bf34ab1f3156c370d2604f4f",
-        "reason": "Cross-package test contract consumer invisible to this gate: packages/gui/test/entity-docs-contract.vitest.ts checks rendered relation docs against kernel triples through the barrel; tools/check-relation-canonical-direction.mjs loads it by source path.",
-        "until": "2026-12-31"
-      },
-      {
-        "value": "WRITE_RECEIPT_SCHEMA",
-        "ref": "task_34bf34ab1f3156c370d2604f4f",
-        "reason": "Cross-package test contract consumer invisible to this gate: packages/daemon/test/{daemon-host-recovery,json-rpc-repocell-lifecycle.integration,json-rpc-task-settlement.integration,repo-cell-settings.integration,sqlite-shadow.integration}.test.ts and packages/cli/test/daemon-autostart-cli.fixture.ts assert receipt fields against it via the barrel.",
-        "until": "2026-12-31"
-      }
-    ]
+    "zeroConsumptionExports": []
   }
 }
