@@ -255,20 +255,20 @@ export const block: Transition = {
   validate: (snapshot, raw) => {
     const command = raw as TransitionTaskCommand,
       issues = revisionIssues(snapshot, command);
-    if (!allowsTaskStatusMove(snapshot, "blocked"))
+    if (snapshot.task?.currentNode !== "implementation" || !allowsTaskStatusMove(snapshot, "blocked"))
       issues.push(
         lifecycleContractIssue(
           "invalid_transition",
-          "BlockTask requires an unleased planned, active, or in_review task",
+          "BlockTask requires an unleased planned or active implementation task",
         ),
       );
     return issues;
   },
   reduce: (snapshot, raw) => transitionTask(snapshot, raw as TransitionTaskCommand, "blocked"),
 };
-/** The sole exit from cancelled: a compensating rollback (batch mis-cancellation recovery) to the
- * adjudicated pre-cancel status. Writer semantics mirror cancel — audit-first, aggregate-only —
- * except force stays cancel-specific: reinstate restores recorded state rather than destroying it.
+/** The sole exit from cancelled: a compensating rollback (batch mis-cancellation recovery) to
+ * planned. Writer semantics mirror cancel — audit-first, aggregate-only — while restarting the
+ * workflow avoids manufacturing a coordinate that no normal execution path can reach.
  * Dispatches ahead of unblock so a cancelled→active command lands here, not on the blocked-only entry. */
 export const reinstate: Transition = {
   actionId: "transition",
@@ -288,7 +288,7 @@ export const reinstate: Transition = {
       issues.push(
         lifecycleContractIssue(
           "invalid_transition",
-          "ReinstateTask requires an unleased cancelled task moving back to planned, active, or in_review",
+          "ReinstateTask requires an unleased cancelled task moving back to planned",
         ),
       );
     if (!isNonEmptyString(command.reason))
@@ -319,6 +319,8 @@ export const returnToPlanned: Transition = {
       from = snapshot.task?.status;
     if (from !== "active" && from !== "blocked")
       issues.push(lifecycleContractIssue("invalid_transition", "ReturnToPlanned requires an active or blocked task"));
+    else if (snapshot.task?.currentNode !== "implementation")
+      issues.push(lifecycleContractIssue("invalid_transition", "ReturnToPlanned requires an implementation task"));
     else if (snapshot.lease !== null)
       issues.push(
         lifecycleContractIssue(
