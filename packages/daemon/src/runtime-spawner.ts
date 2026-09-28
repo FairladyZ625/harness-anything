@@ -99,7 +99,7 @@ import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { selectReviewTarget } from "./review-dispatch-admission.ts";
 import { continuationMission, initialFallbackAttempt, requiredRuntimeFast } from "./runtime-spawn-fallback.ts";
-import { admitRuntimeResume, assertResumeAgent, resolveResumeCwd } from "./runtime-resume-admission.ts";
+import { admitRuntimeResume, assertResumeAgent, resolveDispatchCwd } from "./runtime-resume-admission.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
   resumeAdmissionTimeoutMs = 30_000,
@@ -232,7 +232,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       throw runtimeSpawnError("squad_leader_required", "Targeted squad dispatch requires --agent <leader-id>.");
     if (squadId !== undefined && agentId === undefined)
       throw runtimeSpawnError("squad_leader_required", "Squad attribution requires --agent <leader-id>.");
-    const cwd = resolveResumeCwd(input.rootDir, payload.cwd, resumed?.header.cwd),
+    const cwd = await resolveDispatchCwd(input, payload, resumed?.header.cwd, taskId),
       store = input.remote ? null : requiredRuntimeStore(input),
       projection = input.remote ? null : requiredRuntimeProjection(input),
       remoteTask = taskId && input.remote ? await input.remote.taskContext(taskId, missionName) : null;

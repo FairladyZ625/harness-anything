@@ -23,10 +23,10 @@ import {
   settleScheduleOccurrenceWorkspace,
 } from "../src/schedule-occurrence-workspace.ts";
 
-test("detect occurrences use the canonical root without creating a worktree", () => {
+test("detect occurrences use the canonical root without creating a worktree", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-schedule-detect-"));
   try {
-    const workspace = prepareScheduleOccurrenceWorkspace(root, schedule("detect", "occurrence-detect"));
+    const workspace = await prepareScheduleOccurrenceWorkspace(root, schedule("detect", "occurrence-detect"));
     assert.equal(workspace.cwd, root);
     assert.equal(workspace.runtime.worktree, undefined);
   } finally {
@@ -125,12 +125,12 @@ test("scheduled dispatch spawns from the occurrence workspace without extra writ
   assert.equal(argv.includes("--add-dir"), false);
 });
 
-test("remediate occurrences start from origin/main and clean empty worktrees", () => {
+test("remediate occurrences start from origin/main and clean empty worktrees", async () => {
   const fixture = repositoryFixture();
   try {
-    const workspace = prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", "occurrence-clean"));
+    const workspace = await prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", "occurrence-clean"));
     assert.equal(git(workspace.cwd, "rev-parse", "HEAD"), git(fixture.root, "rev-parse", "origin/main"));
-    assert.equal(settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime).retainedDetail, null);
+    assert.equal((await settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime)).detail, null);
     assert.equal(existsSync(workspace.cwd), false);
     assert.throws(() => git(fixture.root, "rev-parse", "occ-occurrence-clean"));
   } finally {
@@ -138,30 +138,49 @@ test("remediate occurrences start from origin/main and clean empty worktrees", (
   }
 });
 
-for (const change of ["dirty", "commit"] as const)
-  test(`remediate occurrences retain a ${change} worktree and name its path`, () => {
-    const fixture = repositoryFixture();
-    try {
-      const workspace = prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", `occurrence-${change}`));
-      writeFileSync(path.join(workspace.cwd, "result.txt"), change);
-      if (change === "commit") {
-        git(workspace.cwd, "add", "result.txt");
-        git(workspace.cwd, "commit", "-qm", "occurrence result");
-      }
-      const detail = settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime).retainedDetail;
-      assert.equal(detail?.includes(workspace.cwd), true);
-      assert.equal(existsSync(workspace.cwd), true);
-    } finally {
-      rmSync(fixture.base, { recursive: true, force: true });
-    }
-  });
+test("remediate occurrences retain a dirty worktree and name its path", async () => {
+  const fixture = repositoryFixture();
+  try {
+    const workspace = await prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", "occurrence-dirty"));
+    writeFileSync(path.join(workspace.cwd, "result.txt"), "dirty");
+    const detail = (await settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime)).detail;
+    assert.equal(detail, `Occurrence worktree retained at ${workspace.cwd} (uncommitted changes).`);
+    assert.equal(existsSync(workspace.cwd), true);
+  } finally {
+    rmSync(fixture.base, { recursive: true, force: true });
+  }
+});
 
-test("remediate occurrences link the canonical node_modules store into the worktree", () => {
+test("remediate occurrences keep unmerged commits at an archive tag before removing the worktree", async () => {
+  const fixture = repositoryFixture();
+  try {
+    const workspace = await prepareScheduleOccurrenceWorkspace(
+      fixture.root,
+      schedule("remediate", "occurrence-commit"),
+    );
+    writeFileSync(path.join(workspace.cwd, "result.txt"), "commit");
+    git(workspace.cwd, "add", "result.txt");
+    git(workspace.cwd, "commit", "-qm", "occurrence result");
+    const head = git(workspace.cwd, "rev-parse", "HEAD"),
+      detail = (await settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime)).detail;
+    assert.equal(
+      detail,
+      `Occurrence worktree ${workspace.cwd} removed; 1 unmerged commit kept at tag archive/wt-occ-occurrence-commit.`,
+    );
+    assert.equal(existsSync(workspace.cwd), false);
+    assert.equal(git(fixture.root, "rev-parse", "archive/wt-occ-occurrence-commit^{commit}"), head);
+    assert.throws(() => git(fixture.root, "rev-parse", "--verify", "refs/heads/occ-occurrence-commit"));
+  } finally {
+    rmSync(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test("remediate occurrences link the canonical node_modules store into the worktree", async () => {
   const fixture = repositoryFixture();
   try {
     mkdirSync(path.join(fixture.root, "node_modules", "sentinel-pkg"), { recursive: true });
     writeFileSync(path.join(fixture.root, "node_modules", "sentinel-pkg", "marker.txt"), "present\n");
-    const workspace = prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", "occurrence-deps"));
+    const workspace = await prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", "occurrence-deps"));
     assert.equal(readlinkSync(path.join(workspace.cwd, "node_modules")), path.join(fixture.root, "node_modules"));
     assert.equal(
       readFileSync(path.join(workspace.cwd, "node_modules", "sentinel-pkg", "marker.txt"), "utf8"),
@@ -169,7 +188,7 @@ test("remediate occurrences link the canonical node_modules store into the workt
     );
     assert.equal(workspace.runtime.worktree?.note, undefined);
     // The linked store is the workspace's own doing: it neither marks the worktree dirty nor blocks removal.
-    assert.equal(settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime).retainedDetail, null);
+    assert.equal((await settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime)).detail, null);
     assert.equal(existsSync(workspace.cwd), false);
     assert.equal(existsSync(path.join(fixture.root, "node_modules", "sentinel-pkg")), true);
   } finally {
@@ -177,13 +196,16 @@ test("remediate occurrences link the canonical node_modules store into the workt
   }
 });
 
-test("remediate occurrences without a canonical node_modules still prepare cleanly", () => {
+test("remediate occurrences without a canonical node_modules still prepare cleanly", async () => {
   const fixture = repositoryFixture();
   try {
-    const workspace = prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", "occurrence-nodeps"));
+    const workspace = await prepareScheduleOccurrenceWorkspace(
+      fixture.root,
+      schedule("remediate", "occurrence-nodeps"),
+    );
     assert.equal(existsSync(path.join(workspace.cwd, "node_modules")), false);
     assert.equal(workspace.runtime.worktree?.note, undefined);
-    assert.equal(settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime).retainedDetail, null);
+    assert.equal((await settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime)).detail, null);
   } finally {
     rmSync(fixture.base, { recursive: true, force: true });
   }

@@ -835,7 +835,6 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       kind: "runtime-run",
       agentId: "terra",
       dryRun: true,
-      cwd: { scope: "repo-root" },
       taskId: "task-1",
       detach: true,
     });
@@ -873,7 +872,6 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       kind: "runtime-run",
       agentId: "terra",
       model: "gpt-5.6-sol",
-      cwd: { scope: "repo-root" },
       taskId: "task-1",
       detach: true,
     });
@@ -908,7 +906,6 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       kind: "runtime-run",
       agentId: "terra",
       missionName: "api-review",
-      cwd: { scope: "repo-root" },
       taskId: "task-1",
       detach: true,
     });

@@ -234,7 +234,10 @@ export const presetCommands = Object.freeze([
     id: "task-create",
     phase: "Preset-A",
     path: ["task", "create"],
-    summary: "Create a task package with its complete metadata.",
+    summary: [
+      "Create a task package with its complete metadata. A repository-diff task is bound to its own git ",
+      "worktree, checked out on first start or dispatch and reclaimed when the task closes; no command is needed.",
+    ].join(""),
     method: "repo.task.create",
     inputs: taskCreateCliInputs,
   }),

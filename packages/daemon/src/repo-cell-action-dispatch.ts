@@ -31,9 +31,25 @@ import { runFactAction } from "./repo-cell-fact-action.ts";
 import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts";
 import { runVerticalDeclarationAction } from "./vertical-declaration-action.ts";
 import { attestGateWitness } from "./repo-cell-witness-adapters.ts";
+import { applyTaskWorktreeLifecycle, presetSnapshotReader } from "./task-worktree.ts";
 import { runEntityPinAction } from "./entity-pin-action.ts";
 
 export async function executeAction(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): Promise<WriteReceipt> {
+  return applyTaskWorktreeLifecycle(
+    cell.rootDir,
+    (taskId) => cell.projection.read(taskId).snapshot.task,
+    presetSnapshotReader(cell.projection),
+    action,
+    binding.source,
+    await executeRepoAction(cell, action, binding),
+  );
+}
+
+async function executeRepoAction(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,

@@ -267,6 +267,15 @@ export function task(value: unknown): boolean {
   );
 }
 
+export function taskWorktreeView(value: unknown): boolean {
+  return (
+    value === null ||
+    (exactRecord(value, ["branch", "path", "baseRef", "state"]) &&
+      [value.branch, value.path, value.baseRef].every(nonEmpty) &&
+      ["bound", "materialized", "reclaimed", "retained"].includes(String(value.state)))
+  );
+}
+
 export function execution(value: unknown): boolean {
   const executionV1Required = [
       "schema",

@@ -69,6 +69,7 @@ const row = {
   ],
   phase: { index: null, reason: "phase_unresolved", steps: ["planned", "active", "submitted", "in_review", "done"] },
   risk: { flagged: true },
+  worktree: null,
 } as const;
 const list = {
   ok: true,
@@ -186,4 +187,41 @@ test("task snapshot protocol isolates tasks with non-boolean archiveOnComplete",
   assert.equal(isolated.invalidRows.length, 1);
   assert.equal(isolated.invalidRows[0]?.taskId, "task-bad-archive");
   assert.equal(isolated.invalidRows[0]?.field, "rows[0].snapshot.task");
+});
+
+test("task snapshot protocol carries this node's view of a task's derived worktree, never a stored one", () => {
+  const binding = { branch: "codex/bound-12345678", path: ".worktrees/bound-12345678", baseRef: "origin/main" },
+    boundTask = {
+      schema: "task/v2",
+      taskId: "task-bound",
+      title: "Bound task",
+      taskClass: "standard",
+      status: "active",
+      graph: {},
+      currentNode: "implementation",
+      iteration: 0,
+      createdBy: actor,
+      completionGateIds: [],
+      presetSnapshotDigest: null,
+      pinned: false,
+    } as const,
+    boundRow = {
+      ...row,
+      taskId: "task-bound",
+      snapshot: { ...row.snapshot, task: boundTask },
+      worktree: { ...binding, state: "materialized" },
+    } as const;
+  assert.deepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [boundRow] }), []);
+
+  const isolated = isolateDaemonTaskSnapshotRows([
+    { ...boundRow, worktree: { ...binding, state: "checked-out" } } as never,
+    {
+      ...boundRow,
+      snapshot: { ...boundRow.snapshot, task: { ...boundTask, worktree: binding } },
+    } as never,
+  ]);
+  assert.deepEqual(
+    isolated.invalidRows.map(({ field }) => field),
+    ["rows[0].worktree", "rows[1].snapshot.task"],
+  );
 });

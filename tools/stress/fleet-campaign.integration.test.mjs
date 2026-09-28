@@ -166,7 +166,7 @@ async function occurrenceArm(fixture, repo, assignments) {
     true,
   );
   const firstClaim = winners[0].receipt.schedule.status.activeRun,
-    firstWorkspace = prepareScheduleOccurrenceWorkspace(repo.rootDir, winners[0].receipt.schedule),
+    firstWorkspace = await prepareScheduleOccurrenceWorkspace(repo.rootDir, winners[0].receipt.schedule),
     artifactName = "result.txt";
   writeFileSync(path.join(firstWorkspace.cwd, artifactName), "first occurrence\n");
   const settled = await fixture.schedule(assignments[0], "settle-first", {
@@ -183,7 +183,7 @@ async function occurrenceArm(fixture, repo, assignments) {
       scheduledFor: "2026-09-06T02:00:00.000Z",
     }),
     secondClaim = second.receipt.schedule.status.activeRun,
-    secondWorkspace = prepareScheduleOccurrenceWorkspace(repo.rootDir, second.receipt.schedule);
+    secondWorkspace = await prepareScheduleOccurrenceWorkspace(repo.rootDir, second.receipt.schedule);
   assert.equal(second.outcome, "applied");
   assert.notEqual(firstWorkspace.cwd, secondWorkspace.cwd);
   writeFileSync(path.join(secondWorkspace.cwd, artifactName), "second occurrence\n");

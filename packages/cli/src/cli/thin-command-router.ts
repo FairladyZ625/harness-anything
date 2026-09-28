@@ -253,11 +253,8 @@ function parseAgentRun(
       ...(f.one.get("--effort") ? { effort: f.one.get("--effort") } : {}),
       ...(f.booleans.has("--fast") ? { fast: true } : {}),
       ...(f.booleans.has("--dry-run") ? { dryRun: true } : {}),
-      ...(cwd
-        ? { cwd: cwd !== "." ? { scope: "repo-relative", path: cwd } : { scope: "repo-root" } }
-        : resumeDispatch
-          ? {}
-          : { cwd: { scope: "repo-root" } }),
+      // Without --cwd the daemon picks: the task's own worktree, or the resumed dispatch's cwd.
+      ...(cwd ? { cwd: cwd !== "." ? { scope: "repo-relative", path: cwd } : { scope: "repo-root" } } : {}),
       ...(!noStream ? { detach: true } : {}),
       ...(onExitCommand ? { onExitCommand } : {}),
       ...(noStream ? { noStream: true } : {}),

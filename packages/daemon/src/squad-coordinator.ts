@@ -19,7 +19,13 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
 import { cellCriterionError } from "./repo-cell-errors.ts";
 import { deriveTaskMission } from "./runtime-spawn-mission.ts";
-import { cwdPayload, prepareWorkerWorktree, resolveCwd, workerPrompt } from "./squad-worker-checkout.ts";
+import {
+  cwdPayload,
+  prepareWorkerWorktree,
+  reclaimWorkerCheckouts,
+  resolveSquadCwd,
+  workerPrompt,
+} from "./squad-worker-checkout.ts";
 import {
   callbackLeaderPrompt,
   initialLeaderPrompt,
@@ -140,7 +146,7 @@ export function makeSquadCoordinator(input: {
       );
     const squadId = requiredSquadText(action.squadId, "squadId"),
       runtimeInstanceId = requiredSquadText(action.runtimeInstanceId, "runtimeInstanceId"),
-      cwd = resolveCwd(input.rootDir, action.cwd),
+      cwd = await resolveSquadCwd(input.rootDir, action.cwd, input.projection, taskId),
       squad = squadForRun(squadId),
       baseSha = localGitObjectRefStore.headCommit(cwd);
     let mission: string;
@@ -296,10 +302,11 @@ export function makeSquadCoordinator(input: {
         "squad/cancellation-complete",
         [`Retry ha squad cancel ${squadRunId}; already-cancelled runtimes are idempotent.`],
       );
+    const retained = await reclaimWorkerCheckouts(state.cwd, state.workerAttempts);
     return {
       squadRunId,
       status: "cancelled",
-      summary: `squad-run ${state.squadId}: cancelled`,
+      summary: [`squad-run ${state.squadId}: cancelled`, ...retained].join("\n"),
     };
   };
 
@@ -532,12 +539,12 @@ export function makeSquadCoordinator(input: {
           error = `Leader synthesis report publication failed: ${errorText(cause)}`;
         }
       }
-      writeState(
-        revise(updated, {
-          phase: error ? "failed" : "converged",
-          error,
-        }),
-      );
+      const ended = revise(updated, {
+        phase: error ? "failed" : "converged",
+        error,
+      });
+      writeState(ended);
+      await reclaimWorkerCheckouts(ended.cwd, ended.workerAttempts);
       return;
     }
     if (running) {
@@ -752,6 +759,7 @@ export function makeSquadCoordinator(input: {
         error: errorText(error),
       });
       writeState(failed);
+      await reclaimWorkerCheckouts(failed.cwd, failed.workerAttempts);
       return failed;
     }
   }
