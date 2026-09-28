@@ -218,7 +218,7 @@ test("vertical schema rejects composite entity kinds in M3", async () => {
     entityKinds: [
       ...vertical.entityKinds,
       {
-        id: "milestone",
+        id: "work",
         entityType: "composite",
         contractEntity: true,
       },

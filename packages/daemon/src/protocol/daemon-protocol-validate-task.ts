@@ -188,7 +188,6 @@ export function snapshot(value: unknown, availability: unknown): boolean {
 export function placement(value: unknown): boolean {
   return (
     exactRecord(value, [
-      "moduleKeys",
       "productLines",
       "spawningDecisionIds",
       "parentTaskId",
@@ -197,7 +196,6 @@ export function placement(value: unknown): boolean {
       "packageDisposition",
       "provenance",
     ]) &&
-    stringArray(value.moduleKeys) &&
     stringArray(value.productLines) &&
     stringArray(value.spawningDecisionIds) &&
     (value.parentTaskId === null || nonEmpty(value.parentTaskId)) &&

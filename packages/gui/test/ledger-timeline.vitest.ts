@@ -5,17 +5,28 @@ import { sortTasksByCreatedDesc, taskCreatedAt } from "../src/renderer/model/led
 
 function task(taskId: string, createdAt: string | null, title = taskId): TaskRow {
   return {
-    taskId, title, projectId: "repo-a", coordinationStatus: "active", rawStatus: "active",
-    freshness: "fresh", packageDisposition: "active", closeoutReadiness: "not_required",
-    engine: "local", source: "local-document", module: "unassigned",
-    createdAt, lastKnownAt: "2026-08-01T00:00:00.000Z", gates: [], docs: [],
+    taskId,
+    title,
+    projectId: "repo-a",
+    coordinationStatus: "active",
+    rawStatus: "active",
+    freshness: "fresh",
+    packageDisposition: "active",
+    closeoutReadiness: "not_required",
+    engine: "local",
+    source: "local-document",
+    createdAt,
+    lastKnownAt: "2026-08-01T00:00:00.000Z",
+    gates: [],
+    docs: [],
   };
 }
 
 describe("ledger task creation time", () => {
   it("uses the projected task_bootstrapped time for current hash ids", () => {
-    expect(taskCreatedAt(task("task_5f7ed8bbe1620ebf6a5ec55d4a", "2026-08-21T15:04:56.406Z")))
-      .toBe("2026-08-21T15:04:56.406Z");
+    expect(taskCreatedAt(task("task_5f7ed8bbe1620ebf6a5ec55d4a", "2026-08-21T15:04:56.406Z"))).toBe(
+      "2026-08-21T15:04:56.406Z",
+    );
   });
 
   it("keeps tasks without a reliable bootstrap event unknown, regardless of id shape", () => {

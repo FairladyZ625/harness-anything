@@ -104,8 +104,6 @@ interface TaskRowFields {
   engine: EngineId;
   origin?: "native" | "archival" | "external";
   source: "local-document" | "external-engine" | "snapshot-cache";
-  module: string;
-  moduleKeys?: readonly string[];
   productLines?: readonly string[];
   placementWarning?: string;
   placementProvenance?: ReadonlyArray<{
@@ -192,7 +190,7 @@ interface TaskRowFields {
   parentTaskId?: string;
   /**
    * 任务树的根 taskId(沿 parentTaskId 上溯到顶层)。根任务的 rootTaskId=自身。
-   * 用于「按 milestone/root task 分组」(milestone 在内核=根 task)。
+   * 用于「按工作分组」(工作 = 一个根 task 加它的 parentTaskId 子树)。
    */
   rootTaskId?: string;
   /** root task 的标题(查表填入,便于分组标签展示) */

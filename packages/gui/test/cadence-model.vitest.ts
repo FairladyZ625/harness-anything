@@ -6,7 +6,6 @@ import {
   CADENCE_EVENT_LIMIT,
   CADENCE_FRICTION_ALERT_THRESHOLD,
   CADENCE_MICRO_EVENTS,
-  CADENCE_MODULE_TOP,
   CADENCE_RECENT_FACTS,
   cadenceEventOf,
   deriveCadenceSnapshot,
@@ -25,7 +24,7 @@ import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
  *  - 摩擦:门禁 witness fail / 评审 changes_requested / 提交退回 / 任务重开四类计数,
  *    总数超过阈值(>2)标记高摩擦;
  *  - HUD:在飞/停滞/平均交付/今日收口/待人工(透传,议程未读为 null 不冒充);
- *  - 产出:今日 Fact、最近 Fact 倒序截断、决策计数、模块热度;
+ *  - 产出:今日 Fact、最近 Fact 倒序截断、决策计数;
  *  - 窗口合并:eventId 去重、升序、封顶丢最旧、无新行返回原引用。
  */
 
@@ -44,7 +43,6 @@ function cadenceTask(overrides: Partial<TaskRow> & { readonly taskId: string }):
     engine: "kernel/task-lifecycle/v1",
     origin: "native",
     source: "local-document",
-    module: "gui",
     lastKnownAt: NOW,
     gates: [],
     board: projectedTaskFields("active").board,
@@ -583,7 +581,7 @@ describe("deriveCadenceSnapshot", () => {
     expect(snapshot.rhythm.some((row) => row.taskId === "task_closed")).toBe(false);
   });
 
-  it("aggregates yield: facts today, newest-first recent facts, decision states, module heat", () => {
+  it("aggregates yield: facts today, newest-first recent facts, decision states", () => {
     const factSeeds = Array.from({ length: CADENCE_RECENT_FACTS + 2 }, (_, index) => ({
       id: `fact-${index}`,
       type: "fact_recorded",
@@ -598,11 +596,7 @@ describe("deriveCadenceSnapshot", () => {
     ]);
     const snapshot = deriveCadenceSnapshot({
       events,
-      tasks: [
-        cadenceTask({ taskId: "task_a", module: "gui" }),
-        cadenceTask({ taskId: "task_b", module: "daemon" }),
-        cadenceTask({ taskId: "task_c", module: "gui" }),
-      ],
+      tasks: [cadenceTask({ taskId: "task_a" }), cadenceTask({ taskId: "task_b" }), cadenceTask({ taskId: "task_c" })],
       decisions: [{ state: "proposed" }, { state: "proposed" }, { state: "in_effect" }, { state: "superseded" }],
       awaitingHuman: 0,
       now: NOW,
@@ -612,7 +606,6 @@ describe("deriveCadenceSnapshot", () => {
     expect(snapshot.yield.recentFacts[0]!.factId).toBe(`F-${CADENCE_RECENT_FACTS + 1}`);
     expect(snapshot.yield.decisionsProposed).toBe(2);
     expect(snapshot.yield.decisionsInEffect).toBe(1);
-    expect(snapshot.yield.moduleHeat[0]).toMatchObject({ module: "gui", events: factSeeds.length + 1, tasks: 1 });
   });
 
   it("keeps event-only tasks honest as unknown rows outside the projection", () => {
@@ -626,24 +619,6 @@ describe("deriveCadenceSnapshot", () => {
     const ghost = snapshot.rhythm.find((row) => row.taskId === "task_ghost")!;
     expect(ghost.known).toBe(false);
     expect(ghost.status).toBe("unknown");
-    expect(ghost.module).toBeNull();
-  });
-
-  it("caps module heat at the configured top list size", () => {
-    const modules = Array.from({ length: CADENCE_MODULE_TOP + 3 }, (_, index) => `m${index}`);
-    const events = feed(
-      modules.flatMap((module, taskIndex) => [
-        { id: `t${taskIndex}`, type: "task_created", taskId: `task_${taskIndex}`, revision: taskIndex + 1 },
-      ]),
-    );
-    const snapshot = deriveCadenceSnapshot({
-      events,
-      tasks: modules.map((module, index) => cadenceTask({ taskId: `task_${index}`, module })),
-      decisions: [],
-      awaitingHuman: 0,
-      now: NOW,
-    });
-    expect(snapshot.yield.moduleHeat).toHaveLength(CADENCE_MODULE_TOP);
   });
 });
 

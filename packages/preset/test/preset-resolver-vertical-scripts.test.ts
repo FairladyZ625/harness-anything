@@ -38,7 +38,7 @@ test("generic list, inspect, check, install, and uninstall actions share the can
       issues: unknown[];
       issueCount?: number;
     }>;
-    assert.equal(listed.length, 13);
+    assert.equal(listed.length, 12);
     const standardRow = listed.find(({ id }) => id === "standard-task")!,
       // The golden row pins the display projection; profile entries come from
       // the same bundled manifest the catalog derives from, so a manifest
@@ -245,7 +245,7 @@ test("software coding declaration closes lifecycle, repository, projection, and 
       field,
       values,
     })),
-    [{ field: "taskClass", values: ["milestone", "epic"] }],
+    [{ field: "taskClass", values: ["work"] }],
   );
   assert.deepEqual(vertical.entityKinds, [
     {
@@ -360,7 +360,6 @@ test("software coding declaration closes lifecycle, repository, projection, and 
     { path: "{{paths.standardsRoot}}", create: "init" },
     { path: "{{paths.contextRoot}}", create: "init" },
     { path: "{{paths.contextRoot}}/architecture", create: "init" },
-    { path: "{{paths.milestonesRoot}}", create: "init" },
     { path: "{{paths.sessionsRoot}}", create: "lazy" },
   ]);
   assert.deepEqual(vertical.repositoryScaffold.agentsEntry, {

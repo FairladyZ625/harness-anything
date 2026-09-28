@@ -169,6 +169,27 @@ function objectAt(value: unknown, objectPath: ObjectPath): Record<string, unknow
     throw new Error(`fixture path is not an object: ${objectPath.join(".")}`);
   return current as Record<string, unknown>;
 }
+test("retired milestone and epic task classes stay readable but cannot become current writes", () => {
+  for (const taskClass of ["milestone", "epic"]) {
+    const historical = {
+      ...taskCreated,
+      payload: { ...taskCreated.payload, task: { ...taskCreated.payload.task, taskClass } },
+    };
+    assert.deepEqual(validateTaskV2(historical.payload.task, true), []);
+    assert.deepEqual(
+      validateTaskV2(historical.payload.task).map(({ message }) => message),
+      [`retired taskClass ${taskClass}; restate it with ha task contract migrate --apply`],
+    );
+    assert.deepEqual(parseCanonicalEvent(serializeEventEnvelope(historical)).payload, historical.payload);
+    assert.notEqual(validateCurrentCanonicalEvent(historical).length, 0);
+  }
+  const current = {
+    ...taskCreated,
+    payload: { ...taskCreated.payload, task: { ...taskCreated.payload.task, taskClass: "work" } },
+  };
+  assert.deepEqual(validateCurrentCanonicalEvent(current), []);
+});
+
 test("historical entity ownership gaps remain readable but cannot become current writes", () => {
   const raw = readFileSync(
     new URL(

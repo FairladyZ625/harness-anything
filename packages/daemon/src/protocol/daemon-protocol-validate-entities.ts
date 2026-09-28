@@ -245,7 +245,8 @@ export function task(value: unknown): boolean {
     Object.keys(value).every((field) => required.includes(field) || optional.includes(field)) &&
     value.schema === "task/v2" &&
     [value.taskId, value.title].every(nonEmpty) &&
-    ["standard", "milestone", "epic", "long_running"].includes(String(value.taskClass)) &&
+    // milestone/epic: retired classes an unmigrated historical snapshot may still carry (dec_5F7E74F1).
+    ["standard", "work", "long_running", "milestone", "epic"].includes(String(value.taskClass)) &&
     statusWord(taskStatusWords, value.status) &&
     ["implementation", "review"].includes(String(value.currentNode)) &&
     iteration(value.iteration) &&

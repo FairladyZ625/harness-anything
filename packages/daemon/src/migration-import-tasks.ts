@@ -332,7 +332,7 @@ export function importedTaskMetadata(
       verticalId: row.vertical,
       presetId: row.preset,
       profileId: row.profile,
-      moduleKey: row.moduleKey ?? null,
+      moduleKey: null,
       slug: slugifyTaskTitle(row.title),
       surfaces: [],
       fromLegacyId: null,

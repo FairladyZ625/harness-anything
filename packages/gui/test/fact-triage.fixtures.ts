@@ -25,7 +25,6 @@ export function baseTask(overrides: Partial<TaskRow> = {}): TaskRow {
     closeoutReadiness: "not_required",
     engine: "local",
     source: "local-document",
-    module: "software/coding",
     lastKnownAt: "2026-07-01T00:00:00.000Z",
     gates: [],
     docs: [],

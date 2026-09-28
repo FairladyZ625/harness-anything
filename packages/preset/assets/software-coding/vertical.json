@@ -8,11 +8,11 @@
       "extends": "task",
       "field": "taskClass",
       "kind": "enum-facet",
-      "values": ["milestone", "epic"],
+      "values": ["work"],
       "default": null,
       "mutability": "amendable",
       "projection": { "column": "task_class", "queryable": true },
-      "reason": "Software delivery planning may explicitly classify milestone or epic tasks."
+      "reason": "Software delivery planning declares a work root: the task whose subtree is one body of work."
     }
   ],
   "entityKinds": [
@@ -161,7 +161,6 @@
       { "path": "{{paths.standardsRoot}}", "create": "init" },
       { "path": "{{paths.contextRoot}}", "create": "init" },
       { "path": "{{paths.contextRoot}}/architecture", "create": "init" },
-      { "path": "{{paths.milestonesRoot}}", "create": "init" },
       { "path": "{{paths.sessionsRoot}}", "create": "lazy" }
     ],
     "seededDocs": [
@@ -173,7 +172,6 @@
       { "slot": "repository.standard.index", "templateRef": "template://repository/standards-index@1", "materializeAs": "{{paths.standardsRoot}}/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
       { "slot": "repository.standard.governance", "templateRef": "template://repository/repository-governance@1", "materializeAs": "{{paths.standardsRoot}}/repository-governance.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
       { "slot": "repository.standard.decision-writing", "templateRef": "template://repository/decision-writing@1", "materializeAs": "{{paths.standardsRoot}}/decision-writing.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
-      { "slot": "repository.milestones.index", "templateRef": "template://repository/milestones-index@1", "materializeAs": "{{paths.milestonesRoot}}/README.md", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
       { "slot": "repository.walls.manifest", "templateRef": "template://repository/walls-manifest@1", "materializeAs": "{{paths.governanceRoot}}/walls/walls.json", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
       { "slot": "repository.walls.runner", "templateRef": "template://repository/walls-runner@1", "materializeAs": "{{paths.governanceRoot}}/walls/run-walls.mjs", "localePolicy": { "prefer": "project", "fallback": "en-US" } },
       { "slot": "repository.gitattributes", "templateRef": "template://repository/gitattributes@1", "materializeAs": "{{paths.authoredRoot}}/.gitattributes", "localePolicy": { "prefer": "project", "fallback": "en-US" } },

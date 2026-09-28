@@ -81,8 +81,6 @@ export const task: TaskRow = {
   engine: "kernel/task-lifecycle/v1",
   origin: "native",
   source: "local-document",
-  module: "gui",
-  moduleKeys: ["gui"],
   productLines: ["platform"],
   packagePath: "tasks/task-w3-expression",
   taskClass: "standard",

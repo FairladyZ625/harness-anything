@@ -4,7 +4,7 @@ Task Contract: harness-task v1
 
 ## Mission
 
-一句话说明这个 milestone 要让谁获得什么可验证能力。
+一句话说明这项工作要让谁获得什么可验证能力。
 
 ## Usage Questions
 
@@ -18,31 +18,30 @@ Task Contract: harness-task v1
 
 | 波次 | 目标 | 子任务锚 | 验收要点 |
 | --- | --- | --- | --- |
-| W0 | charter / canonical 对齐 | 待创建 | decision、map、roadmap、dossier 对齐 |
+| W0 | charter / canonical 对齐 | 待创建 | decision 与工作地图对齐 |
 | W1 | 第一批可用能力 | 待创建 | 可被第一个使用方消费 |
 | W2 | 收口与回归 | 待创建 | checker、gate、使用证明齐备 |
 
 ## Exit Criteria
 
-- [ ] 结构正义：本 milestone 的 root task、task tree、`00-overview.md`、`00-roadmap.md`、`dossier-data.md` 与 charter decision 锚齐备。
+- [ ] 结构正义：本工作的根任务、子任务树、本工作地图与 charter decision 锚齐备。
 - [ ] 语义验收：Mission、使用侧三问、依赖入口和任务映射与实际执行一致。
 - [ ] 对抗验证：引用 gate-retro 双镜头，覆盖已知缺陷 registry 复核与新增 diff 面扫描。
 - [ ] 使用证明：第一个使用方已经按新路径消费，残余项有 owner 和后续入口。
 
 ## Context
 
-- 映射文档：`harness/milestones/<line>/<slug>/00-overview.md`
-- 路线图：`<harness root>/milestones/00-roadmap.md`
-- 结构化表：`harness/milestones/dossier-data.md`
+- 工作地图：本 `task_plan.md`；工作 = 本根任务 + 其子任务树。
+- 状态视图：`ha work show <根任务 id>`；`ha agenda --work <根任务 id>` 只看本工作的 agenda。
 - Charter decision：`dec_*`，由 CEO 裁决后填写；本 preset 只校验存在，不代创建。
 
 ## Required Reading
 
-按顺序列出 charter decision、milestone map、相邻 milestone 与承重代码/契约，并标明哪一份是冲突时的最终权威。
+按顺序列出 charter decision、本工作地图、相邻工作与承重代码/契约，并标明哪一份是冲突时的最终权威。
 
 ## Entry Conditions
 
-列出进入本 milestone 前必须已成立的产品裁决、使用方承诺与前置能力；未满足时不得启动对应波次。
+列出进入本工作前必须已成立的产品裁决、使用方承诺与前置能力；未满足时不得启动对应波次。
 
 ## Dependencies
 
@@ -60,31 +59,31 @@ Task Contract: harness-task v1
 
 ## Constraints
 
-- milestone = root task 任务树（执行面）+ 映射文档（理解面）。
-- 遵循 create-milestone guidance 和仓库内相邻样板，只在配置的 milestones root 下写入。
+- 工作 = 根任务 + 其父子子树；本计划是工作地图，子树是执行面。
+- 遵循 create-work guidance 和仓库内相邻样板。
 - 不为 pre-public-release 以外的外部消费者加兼容 shim、dual-read、backfill 或迁移。
 
 ## Checkpoint
 
-- root task 创建后，先建立 milestone map，再拆子任务。
-- 每批波次完成时，对齐 task tree、map、状态视图与 evidence。
+- 根任务创建后，先填好本工作地图，再建子任务。
+- 每批波次完成时，对齐子任务树、本地图、`ha work show` 与 evidence。
 - 进入 closeout 前，必须补齐 done 四层制与 gate-retro 双镜头证据。
 
 ## CI/Gate Authority Stop Condition
 
-如果本 milestone 不是 CI/gate/governance 工作，却需要修改 CI/gate 权威面才能通过，停止实现，记录 blocker，并请求或创建治理任务。唯一例外是任务明确授权 CI/gate/governance 改动，或紧急修复 main 的 break-glass；break-glass 必须记录原因、范围和后续治理任务。
+如果本工作不是 CI/gate/governance 工作，却需要修改 CI/gate 权威面才能通过，停止实现，记录 blocker，并请求或创建治理任务。唯一例外是任务明确授权 CI/gate/governance 改动，或紧急修复 main 的 break-glass；break-glass 必须记录原因、范围和后续治理任务。
 
 ## Implementation Plan
 
-- 创建或确认 charter decision，并让它的 `dec_*` 锚出现在每个 milestone 视图中。
-- 运行 `ha task create --title "<name> 里程碑(root)" --vertical software/coding --preset create-milestone --task-class milestone`。
-- 阅读 create-milestone `PRESET.md`、`harness.yaml` 和相邻 milestone；在配置的 milestones root 下创建或更新 overview、index、summary 与状态视图。
-- 用 root task fan out 子任务，保持任务映射表与 task tree 同步。
+- 创建或确认 charter decision，并让它的 `dec_*` 锚出现在本工作地图中。
+- 运行 `ha work create --title "<name>"` 建工作根。
+- 阅读 create-work `PRESET.md`、`harness.yaml` 和相邻工作；保持本地图最新。
+- 用 `ha task create --work <根任务 id>` 建每个子任务，保持波次表与 `ha work show` 同步。
 - 校验链接、必需章节、重复行与状态一致性；运行相关仓库检查并记录 evidence。
 
 ## Deliverable Contract
 
-写明 milestone 最终产物、落点、接收者、第一个使用方，以及每个波次必须回交的 task 级产物与状态。
+写明本工作最终产物、落点、接收者、第一个使用方，以及每个波次必须回交的 task 级产物与状态。
 
 ## Evidence Protocol
 
@@ -92,6 +91,6 @@ Task Contract: harness-task v1
 
 ## Verification
 
-- milestone 文件面通过相关仓库检查与人工对账。
-- root task、map、roadmap、dossier-data 与 charter decision 锚互相可追。
+- 本工作通过相关仓库检查与人工对账。
+- 工作根、本地图、`ha work show` 与 charter decision 锚互相可追。
 - 依据 `dec_mrg3z1we/CH4`，承重观察按需显式晋升为 `0..N` 条 Fact；交付证据放在 Execution outputs，不对 review 或 completion 设置 Fact 数量门。

@@ -149,11 +149,6 @@ export function taskMutation(
           ...changed,
           metadata: { ...changed.metadata!, [field]: value },
         };
-      else if (field === "moduleKey")
-        changed = {
-          ...changed,
-          metadata: { ...changed.metadata!, moduleKey: value },
-        };
       else if (field === "taskClass" && (taskClasses as readonly string[]).includes(value))
         changed = { ...changed, taskClass: value as TaskV2["taskClass"] };
       else if (field === "reviewReturnBudget" && /^[1-9][0-9]*$/u.test(value))
@@ -162,7 +157,7 @@ export function taskMutation(
         throw cell.cellCodedError(
           "invalid_amend",
           [
-            "Amend title, parentTaskId, workKind, riskTier, urgency, moduleKey, ",
+            "Amend title, parentTaskId, workKind, riskTier, urgency, ",
             "taskClass, reviewReturnBudget (positive integer), or pinned (true/false); use task contract ",
             "migrate for contract shape changes.",
           ].join(""),
@@ -290,7 +285,11 @@ export function taskMutation(
         ...(repairedTaskClass === null || repairedTaskClass === task.taskClass ? [] : ["taskClass"]),
         ...(repairedPresetId === null || repairedPresetId === task.metadata?.presetId ? [] : ["presetId"]),
       ];
-    if ((task.contractVersion ?? 0) >= 1 && repairedDigest === null)
+    if (
+      (task.contractVersion ?? 0) >= 1 &&
+      repairedDigest === null &&
+      (repairedTaskClass === null || repairedTaskClass === task.taskClass)
+    )
       throw cell.cellCodedError(
         "contract_current",
         `Task ${task.taskId} already has task-contract/v1; run ha task show ${task.taskId} to inspect it.`,
@@ -307,9 +306,11 @@ export function taskMutation(
       audit: {
         command: "contract-migrate",
         reason:
-          repairedDigest === null
-            ? "Backfilled immutable task-contract/v1 from unambiguous L1 task truth"
-            : "Repaired migrated task preset digest and canonical task-contract package path",
+          repairedDigest !== null
+            ? "Repaired migrated task preset digest and canonical task-contract package path"
+            : (task.contractVersion ?? 0) >= 1
+              ? "Restated a retired task class onto its dec_5F7E74F1 successor"
+              : "Backfilled immutable task-contract/v1 from unambiguous L1 task truth",
         fields,
       },
     };

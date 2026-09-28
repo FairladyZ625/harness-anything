@@ -12,7 +12,7 @@ const row = {
   taskId: "task_root",
   title: "统一体验",
   status: "active",
-  taskClass: "milestone",
+  taskClass: "work",
   parentTaskId: null,
   updatedAt: "2026-09-20T00:00:00.000Z",
   pinned: true,

@@ -60,7 +60,6 @@ function poolTask(overrides: Partial<TaskRow> & { readonly taskId: string }): Ta
     engine: "kernel/task-lifecycle/v1",
     origin: "native",
     source: "local-document",
-    module: "gui",
     lastKnownAt: "2026-09-16T10:31:00.000Z",
     gates: [],
     board: projectedTaskFields("in_review").board,

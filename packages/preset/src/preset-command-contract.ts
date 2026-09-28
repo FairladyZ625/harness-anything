@@ -235,30 +235,40 @@ export const presetCommands = Object.freeze([
     phase: "Preset-A",
     path: ["task", "create"],
     summary: [
-      "Create a task package with its complete metadata. A repository-diff task is bound to its own git ",
-      "worktree, checked out on first start or dispatch and reclaimed when the task closes; no command is needed.",
+      "Create a task package with its complete metadata. --work <id> files it under that work (the work root ",
+      "or any task in it becomes its parent); without --work the task stands alone. A repository-diff task is ",
+      "bound to its own git worktree, checked out on first start or dispatch and reclaimed when the task closes; ",
+      "no command is needed.",
     ].join(""),
     method: "repo.task.create",
     inputs: taskCreateCliInputs,
   }),
   defineCenterForwardWriteCommand({
-    id: "subtask-create",
-    // CLI alias only: the forwarded durable action is task-create, so authorization, receipt,
-    // and the Action inventory key on the shared kind rather than a duplicate declaration.
+    id: "work-create",
+    // CLI alias only: the forwarded durable action is task-create (create-work preset, taskClass=work),
+    // so authorization, receipt, and the Action inventory key on the shared kind.
     actionKind: "task-create",
     phase: "Preset-A",
-    path: ["subtask", "create"],
-    summary: "Create a lightweight child task under an existing parent task.",
+    path: ["work", "create"],
+    summary:
+      "Create a work: one root task whose task_plan.md is the work map. Add its tasks with " +
+      "ha task create --work <id>; read it with ha work show <id>.",
     method: "repo.task.create",
     inputs: [
-      cliInput("--parent", "single", true, { code: "missing_field" }, { field: "parentTaskId" }),
       cliInput("--title", "single", true, { code: "missing_field" }, { field: "title" }),
-      cliInput("--profile", "single", false, { code: "invalid_field" }, { field: "profileId" }),
-      cliInput("--preset", "single", false, { code: "invalid_field" }, { field: "presetId" }),
-      cliInput("--vertical", "single", false, { code: "invalid_field" }, { field: "verticalId" }),
-      cliInput("--locale", "single", false, { code: "invalid_field" }, { field: "locale", enum: ["zh-CN", "en-US"] }),
-      cliInput("--idempotency-key", "single", false, { code: "invalid_field" }, { field: "idempotencyKey" }),
-      cliInput("--dry-run", "boolean", false, { code: "invalid_field" }, { field: "dryRun" }),
+      ...taskCreateCliInputs.filter(({ name }) =>
+        [
+          "--work",
+          "--kind",
+          "--risk-tier",
+          "--urgency",
+          "--profile",
+          "--slug",
+          "--locale",
+          "--idempotency-key",
+          "--dry-run",
+        ].includes(name),
+      ),
     ],
   }),
   defineRepoReadCommand({
@@ -447,7 +457,7 @@ const taskCreateRpcFields: RpcShape["fields"] = Object.fromEntries([
 ]);
 export const presetMethods = Object.freeze([
   ...presetCommands
-    // CLI aliases share one RPC method (subtask-create forwards to repo.task.create); the method
+    // CLI aliases share one RPC method (work-create forwards to repo.task.create); the method
     // table keeps the first declaration so the wire surface stays one entry per method id.
     .filter((command, index) => presetCommands.findIndex((candidate) => candidate.method === command.method) === index)
     .map((command) => {

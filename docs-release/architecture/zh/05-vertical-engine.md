@@ -79,8 +79,8 @@ requiredWhen    可选的键/值选择守卫
 `repositoryScaffold` 描述项目采用这个场景合同时,引擎铺下的顶层布局。它有四个部分:
 
 - **`entityRoots[]`**——每个实体种类一条,都是 `{ entityKind, path, create }` 三元组。`path` 是像 `{{paths.tasksRoot}}` 这样的模板,在搭建时解析;`create` 是 `init` 或 `lazy`。`init` 根目录一开始就建好;`lazy` 根目录只在该种类的第一个实体出现时才建。在 `software/coding` 里,task 根是 `init`,decision 根是 `lazy`——task 从一开始就存在,decision 按需到来。
-- **`dirs[]`**——普通目录,用同样的 `init`|`lazy` 建立模式,用于那些不是实体根的布局(`standards/`、`context/`、`milestones/`、`sessions/` 等)。
-- **`seededDocs[]`**——搭建时就放进去的文档(software/coding 有 13 份)。每一份都是一个 `RepositorySeededDoc`:和模板选择相同的 `slot`/`templateRef`/`materializeAs`/`localePolicy` 字段,再加一个可选的 `overwrite` 布尔,决定已存在的文件是否被替换。种子文档就是一个全新仓库为何一到手就已经带好 README 文件和初始文档的原因。
+- **`dirs[]`**——普通目录,用同样的 `init`|`lazy` 建立模式,用于那些不是实体根的布局(`standards/`、`context/`、`sessions/` 等)。
+- **`seededDocs[]`**——搭建时就放进去的文档(software/coding 有 12 份)。每一份都是一个 `RepositorySeededDoc`:和模板选择相同的 `slot`/`templateRef`/`materializeAs`/`localePolicy` 字段,再加一个可选的 `overwrite` 布尔,决定已存在的文件是否被替换。种子文档就是一个全新仓库为何一到手就已经带好 README 文件和初始文档的原因。
 - **`agentsEntry`**——一个可选的复合体,下面细说。
 
 `create: init | lazy` 就是"提前建 vs. 延后建"策略的全部:引擎要么立刻铺下一个目录,要么等第一个占用者出现。

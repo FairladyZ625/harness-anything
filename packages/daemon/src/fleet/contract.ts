@@ -355,7 +355,6 @@ const optionalShape =
     record(value) &&
     required.every((field) => Object.hasOwn(value, field)) &&
     Object.entries(value).every(([field, entry]) => Object.hasOwn(fields, field) && fields[field]!(entry));
-const registerModule = shape({ key: text, title: text, prefix: text, scope: text });
 const taskEvidence = shape({ type: text, path: logicalPath, summary: text });
 const taskActionShapes: Readonly<Record<FleetTaskCommandKind, Check>> = {
   "task-create": optionalShape(
@@ -371,11 +370,9 @@ const taskActionShapes: Readonly<Record<FleetTaskCommandKind, Check>> = {
       verticalId: text,
       presetId: id,
       profileId: id,
-      moduleKey: id,
-      registerModule,
       slug: (value) => typeof value === "string" && /^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$/u.test(value),
       surfaces: array(text),
-      taskClass: one("standard", "milestone", "epic", "long_running"),
+      taskClass: one("standard", "work", "long_running"),
       reviewReturnBudget: positiveInt,
       locale: one("zh-CN", "en-US"),
       dryRun: boolean,

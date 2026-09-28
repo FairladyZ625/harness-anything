@@ -6,4 +6,4 @@ whenToUse: Use when a bounded parent task is ready to be decomposed into indepen
 
 # Subtask Expansion
 
-Decompose a parent task into independently executable outcomes with bounded scope, acceptance evidence, and justified dependency ordering. Create each child with `ha task create --preset subtask-expansion --parent <task-id>`; task create rejects a missing parent before publication and preserves the accepted parent binding in the task package and projection.
+Decompose a parent task into independently executable outcomes with bounded scope, acceptance evidence, and justified dependency ordering. Create each child with `ha task create --preset subtask-expansion --work <task-id>`, which files it under that task and so inside the same work; task create rejects a missing parent before publication and preserves the accepted parent binding in the task package and projection.

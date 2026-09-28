@@ -12,7 +12,7 @@ const squadRunSummary = {
   squadRunId: "squad_" + "a".repeat(18),
   squadId: "squad_465504" + "a".repeat(12),
   taskId: "task_5fc508",
-  mission: "Ship the ontology milestone",
+  mission: "Ship the ontology work",
   phase: "converged" as const,
   leaderTurnCount: 6,
   workerAttemptCount: 5,
@@ -42,7 +42,7 @@ describe("sessions page: squad orchestration", () => {
     expect(markup).toContain("Converged");
     expect(markup).toContain("6 leader turns");
     expect(markup).toContain("5 worker attempts");
-    expect(markup).toContain("Ship the ontology milestone");
+    expect(markup).toContain("Ship the ontology work");
     expect(markup).not.toContain("runtime-sessions-more");
   });
 

@@ -117,13 +117,6 @@ export function makeBaselineReadModel({ rootDir, projection, kernel, relationGra
             .filter((value) => value !== undefined),
           origin = source?.source === "external-engine" ? "external" : disposition !== "active" ? "archival" : "native",
           placement = {
-            moduleKeys: [
-              ...new Set(
-                [metadata?.moduleKey, source?.moduleKey, ...scopes.flatMap((scope) => scope.appliesTo.modules)].filter(
-                  (value) => !!value,
-                ),
-              ),
-            ].sort(),
             productLines: [...new Set(scopes.flatMap((scope) => scope.appliesTo.productLines))].sort(),
             parentTaskId: metadata?.parentTaskId ?? source?.parentTaskId ?? null,
             origin,

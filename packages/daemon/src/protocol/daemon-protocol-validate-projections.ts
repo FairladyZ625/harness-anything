@@ -34,6 +34,7 @@ export function agendaTask(value: unknown): boolean {
     exactRecord(value, [
       "taskId",
       "title",
+      "work",
       "status",
       "pinned",
       "updatedAt",
@@ -43,6 +44,7 @@ export function agendaTask(value: unknown): boolean {
       "worktree",
     ]) &&
     [value.taskId, value.title, value.updatedAt].every(nonEmpty) &&
+    agendaWorkRef(value.work) &&
     statusWord(taskStatusWords, value.status) &&
     typeof value.pinned === "boolean" &&
     (value.leaseExecutionId === null || nonEmpty(value.leaseExecutionId)) &&
@@ -54,11 +56,16 @@ export function agendaTask(value: unknown): boolean {
 
 export function agendaExecutionRow(value: unknown): boolean {
   return (
-    exactRecord(value, ["taskId", "title", "pinned", "executionId", "submittedAt", "blockingAssessment"]) &&
+    exactRecord(value, ["taskId", "title", "work", "pinned", "executionId", "submittedAt", "blockingAssessment"]) &&
     [value.taskId, value.title, value.executionId, value.submittedAt].every(nonEmpty) &&
+    agendaWorkRef(value.work) &&
     typeof value.pinned === "boolean" &&
     blockingAssessment(value.blockingAssessment)
   );
+}
+
+function agendaWorkRef(value: unknown): boolean {
+  return value === null || (exactRecord(value, ["taskId", "title"]) && [value.taskId, value.title].every(nonEmpty));
 }
 
 export function agendaDecisionRow(value: unknown): boolean {

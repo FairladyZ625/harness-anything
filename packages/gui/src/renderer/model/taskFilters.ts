@@ -3,7 +3,6 @@ import { boardColumnOf, isTerminal } from "./types";
 
 export interface TaskFilters {
   query: string;
-  module: string;
   engine: EngineId | "all";
   /**
    * 状态多选(= 看板列桶选择):空数组=全部列;非空=行的看板列桶
@@ -23,7 +22,6 @@ export interface TaskFilters {
 
 export const DEFAULT_TASK_FILTERS: TaskFilters = {
   query: "",
-  module: "all",
   engine: "all",
   status: [],
   closeout: "all",
@@ -34,7 +32,6 @@ export const DEFAULT_TASK_FILTERS: TaskFilters = {
 
 export const hasActiveTaskFilters = (filters: TaskFilters) =>
   filters.query.trim() !== "" ||
-  filters.module !== "all" ||
   filters.engine !== "all" ||
   filters.status.length > 0 ||
   filters.closeout !== "all" ||
@@ -112,8 +109,6 @@ export function matchesTask(task: TaskRow, filters: TaskFilters, favorites?: Rea
     const haystack = [
       task.taskId,
       task.title,
-      task.module,
-      ...(task.moduleKeys ?? []),
       ...(task.productLines ?? []),
       task.engine,
       task.rawStatus,
@@ -126,8 +121,6 @@ export function matchesTask(task: TaskRow, filters: TaskFilters, favorites?: Rea
     if (!haystack.includes(query)) return false;
   }
 
-  if (filters.module !== "all" && task.module !== filters.module && !task.moduleKeys?.includes(filters.module))
-    return false;
   if (filters.engine !== "all" && task.engine !== filters.engine) return false;
   // 状态筛选命中看板列桶(boardColumnOf):归档行只认 archived 桶,不看生命周期词;
   // 活跃行命中协调状态或阻塞评估任一(blocking 的 unknown 由此吸纳进 unknown 档,
@@ -157,7 +150,6 @@ export const applyTaskFilters = (
 export const taskFilterSummary = (filters: TaskFilters): string[] => {
   const parts: string[] = [];
   if (filters.query.trim()) parts.push(`搜索 "${filters.query.trim()}"`);
-  if (filters.module !== "all") parts.push(`module=${filters.module}`);
   if (filters.engine !== "all") parts.push(`engine=${filters.engine}`);
   if (filters.status.length > 0) parts.push(`status=${filters.status.join("|")}`);
   if (filters.closeout !== "all") parts.push(`closeout=${filters.closeout}`);

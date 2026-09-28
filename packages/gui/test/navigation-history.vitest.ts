@@ -202,6 +202,62 @@ describe("view navigation history (HISTORY-002)", () => {
     expect(currentLocation(state).view).toBe("overview");
   });
 
+  it("loads a stored stack that predates the removed module grouping, dropping only the module bits", () => {
+    const storage = new Map<string, string>();
+    const shim = {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => void storage.set(key, value),
+    };
+    const legacyFilters = { ...initialLocation().taskFilters, query: "keep-me", module: "gui" };
+    storage.set(
+      "harness-view-history:proj-legacy",
+      JSON.stringify({
+        schema: "gui-view-history/v1",
+        history: {
+          entries: [
+            { ...initialLocation(), view: "board", taskFilters: legacyFilters, drill: null },
+            {
+              ...initialLocation(),
+              view: "board",
+              taskFilters: legacyFilters,
+              drill: { lane: "gui", status: "active", groupBy: "module" },
+            },
+            {
+              ...initialLocation(),
+              view: "board",
+              taskFilters: legacyFilters,
+              drill: { lane: "root-1", status: "active", groupBy: "root" },
+            },
+          ],
+          index: 2,
+        },
+      }),
+    );
+    const restored = readViewHistory(shim, "proj-legacy");
+    expect(restored.entries).toHaveLength(3);
+    expect(restored.index).toBe(2);
+    for (const entry of restored.entries) {
+      expect(entry.view).toBe("board");
+      expect(entry.taskFilters.query).toBe("keep-me");
+      expect(entry.taskFilters).not.toHaveProperty("module");
+    }
+    // 按已删除的 module 维度下钻的 drill 丢成 null;现存维度的 drill 原样保留。
+    expect(restored.entries[1]!.drill).toBeNull();
+    expect(currentLocation(restored).drill).toEqual({ lane: "root-1", status: "active", groupBy: "root" });
+    // 未知的 groupBy 仍然按坏存储回退干净初始栈。
+    storage.set(
+      "harness-view-history:proj-bad-drill",
+      JSON.stringify({
+        schema: "gui-view-history/v1",
+        history: {
+          entries: [{ ...initialLocation(), drill: { lane: "x", status: "active", groupBy: "planet" } }],
+          index: 0,
+        },
+      }),
+    );
+    expect(currentLocation(readViewHistory(shim, "proj-bad-drill")).view).toBe("overview");
+  });
+
   it("persists per project and rejects corrupted storage", () => {
     const storage = new Map<string, string>();
     const shim = {

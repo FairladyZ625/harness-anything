@@ -9,8 +9,8 @@ import type { TaskRow } from "./model/types.ts";
 
 /**
  * 派生 placement 不再需要 renderer 侧上下文:decision→task 的 `derives` 派生由
- * daemon 在 `repo.tasks.list` 的 `row.placement` 里完成(`moduleKeys` /
- * `productLines` / `spawningDecisionIds`,同一批 active derives 边的同一结果),
+ * daemon 在 `repo.tasks.list` 的 `row.placement` 里完成(`productLines` /
+ * `spawningDecisionIds`,同一批 active derives 边的同一结果),
  * 任务行适配因此不依赖任何三元读取——这是把三元读取从应用根上摘掉的必要条件。
  */
 function adaptProjectionRow(
@@ -53,13 +53,6 @@ function adaptProjectionRow(
         : row.placement.origin === "archival"
           ? "snapshot-cache"
           : "local-document",
-    module:
-      placement.moduleKeys.length === 0
-        ? "unassigned"
-        : placement.moduleKeys.length === 1
-          ? placement.moduleKeys[0]!
-          : `multiple (${placement.moduleKeys.join(", ")})`,
-    moduleKeys: placement.moduleKeys,
     productLines: placement.productLines,
     ...(spawningDecisionIds.length > 1
       ? { placementWarning: "存在多个 spawning decision，placement 已合并但来源不唯一" }

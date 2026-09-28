@@ -27,12 +27,6 @@ import { canonicalPresetBytes, serializePresetSnapshotV1, type PresetSnapshotV1 
 import { createRuntime, type PresetResolverOptions } from "./preset-resolver.ts";
 import { resolverContentHash } from "./preset-resolver-common.ts";
 
-export interface TaskModuleRegistration {
-  readonly key: string;
-  readonly title: string;
-  readonly prefix: string;
-  readonly scope: string;
-}
 export interface CompileTaskPackageInput extends PresetResolverOptions {
   readonly taskId: string;
   readonly title: string;
@@ -46,8 +40,6 @@ export interface CompileTaskPackageInput extends PresetResolverOptions {
   readonly workKind?: TaskMetadataV1["workKind"];
   readonly riskTier?: TaskMetadataV1["riskTier"];
   readonly urgency?: TaskMetadataV1["urgency"];
-  readonly moduleKey?: string;
-  readonly registerModule?: TaskModuleRegistration;
   readonly slug?: string;
   readonly surfaces?: readonly string[];
   readonly reviewReturnBudget?: number;
@@ -132,7 +124,7 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       verticalId: input.verticalId,
       presetId: input.presetId,
       profileId: input.profileId ?? resolved.snapshot.profile.id,
-      moduleKey: input.moduleKey ?? input.registerModule?.key ?? null,
+      moduleKey: null,
       slug,
       surfaces: [...(input.surfaces ?? [])],
       fromLegacyId: null,
@@ -179,20 +171,7 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
         "invalid_scaffold",
         `Preset script ${script.relativePath} collides with a scaffold document path.`,
       );
-  const moduleDocument = metadata.moduleKey
-      ? machine(
-          "task.module",
-          "module.md",
-          `# Module\n\nModule key: ${metadata.moduleKey}\nModule title: ${
-            input.registerModule?.title ?? metadata.moduleKey
-          }\n${
-            input.registerModule
-              ? `Module prefix: ${input.registerModule.prefix}\nModule scope: ${input.registerModule.scope}\n`
-              : ""
-          }`,
-        )
-      : null,
-    scaffoldDigest = resolved.snapshot.scaffold.resolvedSelectionDigest,
+  const scaffoldDigest = resolved.snapshot.scaffold.resolvedSelectionDigest,
     orderedProse = [bySlot.get("task.plan")!, bySlot.get("task.closeout")!, bySlot.get("task.artifacts.keep")!],
     additions = prose
       .filter((document) => !orderedProse.includes(document))
@@ -203,7 +182,6 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       descriptor(orderedProse[0]!),
       descriptor(orderedProse[1]!),
       descriptor(orderedProse[2]!),
-      ...(moduleDocument ? [descriptor(moduleDocument)] : []),
       ...additions.map(descriptor),
       ...presetScripts.map(descriptor),
     ],
@@ -224,7 +202,6 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
           profileId: metadata.profileId,
           locale: input.locale,
           metadata,
-          registerModule: input.registerModule ?? null,
           ...(input.reviewReturnBudget === undefined ? {} : { reviewReturnBudget: input.reviewReturnBudget }),
           ...(snapshot.profile.closeoutOverrides === undefined
             ? {}
@@ -245,16 +222,7 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
         2,
       )}\n`,
     ),
-    documents = [
-      index,
-      contract,
-      orderedProse[0]!,
-      orderedProse[1]!,
-      orderedProse[2]!,
-      ...(moduleDocument ? [moduleDocument] : []),
-      ...additions,
-      ...presetScripts,
-    ];
+    documents = [index, contract, orderedProse[0]!, orderedProse[1]!, orderedProse[2]!, ...additions, ...presetScripts];
   return { snapshot, packagePath, scaffoldDigest, documents, metadata };
   function machine(slot: string, relativePath: string, body: string): CompiledTaskDocument {
     return {
@@ -395,7 +363,6 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
       title,
       taskClass: input.task.taskClass,
       slug: input.task.metadata?.slug,
-      moduleKey: input.task.metadata?.moduleKey ?? undefined,
       workKind: input.task.metadata?.workKind ?? undefined,
       reviewReturnBudget: input.task.reviewReturnBudget,
       verticalId,

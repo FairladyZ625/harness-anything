@@ -37,6 +37,7 @@ import {
   type AgendaExecutionRow,
   type AgendaPinnedEntityRow,
   type AgendaTaskRow,
+  type AgendaWorkRef,
   type CanonicalRoot,
   type DaemonAgendaResult,
   type DaemonRelationGraphFacetPayload,
@@ -47,6 +48,7 @@ import {
   type ExecutionEvidenceProjection,
   type TaskPlacementSupplement,
 } from "./protocol/daemon-protocol.contract.ts";
+import { workRootOf, workspaceScopeFromProjection } from "./workspace-scope-read.ts";
 
 /**
  * The daemon's task query read model. Extracted verbatim from repo-cell so the
@@ -68,6 +70,8 @@ export interface AgendaQuery {
   readonly limit?: number;
   readonly cursor?: string;
   readonly principalId?: string;
+  /** A work root task id; keeps that root and its subtree. */
+  readonly work?: string;
 }
 export interface TaskQueryJudgments {
   readonly closeout: typeof closeoutReadiness;
@@ -252,13 +256,6 @@ export function makeTaskQueryReadModel(input: {
             .filter((value) => value !== undefined),
           origin: TaskPlacementSupplement["origin"] = disposition !== "active" ? "archival" : "native",
           placement: TaskPlacementSupplement = {
-            moduleKeys: [
-              ...new Set(
-                [metadata?.moduleKey, ...scopes.flatMap((scope) => scope.appliesTo.modules)].filter(
-                  (value): value is string => !!value,
-                ),
-              ),
-            ].sort(),
             productLines: [...new Set(scopes.flatMap((scope) => scope.appliesTo.productLines))].sort(),
             spawningDecisionIds: [
               ...new Set(
@@ -335,6 +332,7 @@ export function makeTaskQueryReadModel(input: {
     status: "active" | "submitted" | "blocked" | "planned" | "in_review",
     sourceLimit: number,
     pageCursor: string | undefined,
+    scope: AgendaWorkScope,
   ): AgendaSourcePage {
     const lifecycle = projection.list({
         status,
@@ -343,13 +341,16 @@ export function makeTaskQueryReadModel(input: {
         pinnedFirst: true,
         ...(pageCursor ? { cursor: pageCursor } : {}),
       }),
-      graph = readBlockingAssessments(lifecycle.rows.map(({ taskId }) => taskId)),
+      rows =
+        scope.members === null ? lifecycle.rows : lifecycle.rows.filter(({ taskId }) => scope.members!.has(taskId)),
+      graph = readBlockingAssessments(rows.map(({ taskId }) => taskId)),
       readPresetSnapshot = presetSnapshotReader(projection);
     return {
       page: lifecycle.page ?? null,
-      rows: lifecycle.rows.map((row) => ({
+      rows: rows.map((row) => ({
         ...row,
         worktree: taskWorktreeView(rootDir, row.snapshot.task, readPresetSnapshot),
+        work: scope.workOf(row.snapshot.task?.metadata?.parentTaskId ?? null),
         blockingAssessment: graph.blockingByTaskId.get(row.taskId) ?? {
           taskId: row.taskId,
           state: "unknown" as const,
@@ -359,14 +360,32 @@ export function makeTaskQueryReadModel(input: {
         },
       })),
       warnings: lifecycle.warnings,
-      reads: [lifecycle, graph.dependencies, graph.derives, graph.awaits, graph.taskStatuses],
+      reads: [lifecycle, graph.dependencies, graph.derives, graph.awaits, graph.taskStatuses, ...scope.reads],
+    };
+  }
+  /**
+   * A row's work is its nearest declared work ancestor, else its topmost ancestor — the dispatch causal
+   * context's rule. --work keeps one root and its subtree.
+   */
+  function agendaWorkScope(workId: string | undefined): AgendaWorkScope {
+    const works = new Map<string, AgendaWorkRef | null>(),
+      subtree = workId === undefined ? null : workspaceScopeFromProjection(projection, { rootTaskId: workId });
+    return {
+      members: subtree === null ? null : new Set([subtree.root.taskId, ...subtree.memberTaskIds]),
+      reads: subtree === null ? [] : [subtree],
+      workOf: (parentTaskId) => {
+        if (parentTaskId === null) return null;
+        if (!works.has(parentTaskId)) works.set(parentTaskId, workRootOf(projection, parentTaskId));
+        return works.get(parentTaskId)!;
+      },
     };
   }
   function agenda(query: AgendaQuery = {}): DaemonAgendaResult {
     const sourceLimit = query.limit ?? 100,
       cursor = query.cursor === undefined ? null : decodeAgendaCursor(query.cursor),
+      scope = agendaWorkScope(query.work),
       readTaskPage = (status: "active" | "submitted" | "blocked" | "planned" | "in_review", key: AgendaCursorKey) =>
-        cursor?.[key] === null ? null : readAgendaTaskPage(status, sourceLimit, cursor?.[key] ?? undefined),
+        cursor?.[key] === null ? null : readAgendaTaskPage(status, sourceLimit, cursor?.[key] ?? undefined, scope),
       active = readTaskPage("active", "active"),
       blocked = readTaskPage("blocked", "blocked"),
       planned = readTaskPage("planned", "planned"),
@@ -736,8 +755,14 @@ function projectExecutionEvidence(
   };
 }
 type AgendaSourceRow = ReturnType<TaskProjection["list"]>["rows"][number] & {
+  readonly work: AgendaWorkRef | null;
   readonly blockingAssessment: DaemonTaskSnapshotListResult["rows"][number]["blockingAssessment"];
   readonly worktree: AgendaTaskRow["worktree"];
+};
+type AgendaWorkScope = {
+  readonly members: ReadonlySet<string> | null;
+  readonly reads: readonly ProjectionCut[];
+  readonly workOf: (parentTaskId: string | null) => AgendaWorkRef | null;
 };
 type AgendaSourcePage = {
   readonly page: ProjectionPage | null;
@@ -752,6 +777,7 @@ function agendaTaskRow(row: AgendaSourceRow): AgendaTaskRow {
   return {
     taskId: row.taskId,
     title: task.title,
+    work: row.work,
     status: task.status,
     pinned: task.pinned,
     updatedAt: row.updatedAt,
@@ -784,6 +810,7 @@ function awaitingExecutionRows(rows: readonly AgendaSourceRow[]): AgendaExecutio
       .map((execution) => ({
         taskId: row.taskId,
         title: row.snapshot.task?.title ?? row.taskId,
+        work: row.work,
         pinned: row.snapshot.task!.pinned,
         executionId: execution.executionId,
         submittedAt: execution.submittedAt ?? row.updatedAt,
@@ -838,8 +865,9 @@ function renderAgendaSummary(
     | "dispatchable"
   >,
 ): string {
-  const taskLine = (row: AgendaTaskRow) =>
-      `- ${row.pinned ? "📌 " : ""}${row.taskId} ${row.title}${row.blockingAssessment.blockers.length ? `（阻塞: ${row.blockingAssessment.blockers.map(blockerText).join(", ")}）` : ""}` +
+  const workLabel = (row: AgendaTaskRow | AgendaExecutionRow) => (row.work ? ` [工作 ${row.work.title}]` : ""),
+    taskLine = (row: AgendaTaskRow) =>
+      `- ${row.pinned ? "📌 " : ""}${row.taskId} ${row.title}${workLabel(row)}${row.blockingAssessment.blockers.length ? `（阻塞: ${row.blockingAssessment.blockers.map(blockerText).join(", ")}）` : ""}` +
       (row.worktree ? `（worktree: ${row.worktree.path} ${row.worktree.state}）` : ""),
     blockerText = (blocker: AgendaTaskRow["blockingAssessment"]["blockers"][number]) =>
       blocker.kind === "awaits"
@@ -849,7 +877,7 @@ function renderAgendaSummary(
       `- [${row.askKind}] ${row.sourceRef} ${row.title} [${row.status}] — ${row.question}\n` +
       `  答复: ha relation unrelate ${row.relationId} --reason "<答复>" --expected-version ${row.relationRevision}`,
     executionLine = (row: AgendaExecutionRow) =>
-      `- ${row.pinned ? "📌 " : ""}execution ${row.executionId} / ${row.taskId} ${row.title}`,
+      `- ${row.pinned ? "📌 " : ""}execution ${row.executionId} / ${row.taskId} ${row.title}${workLabel(row)}`,
     decisionLine = (row: AgendaDecisionRow) => `- decision ${row.decisionId} ${row.title}`,
     // 每组标题旁写出过滤条件与下一步命令,「为什么这条不在里面、接下来敲什么」可对照自查。
     section = (title: string, filter: string, rows: readonly string[], total = rows.length) =>

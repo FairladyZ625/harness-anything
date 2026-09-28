@@ -27,7 +27,7 @@ import { cadenceEventOf } from "../src/renderer/model/cadence.ts";
  *  - G2:议程三分组(评审返回/待初审/决策待裁)渲染真实行;点击行只走统一实体
  *    导航(task/<id>、decision/<id>),不在主行放一键接受;agenda 未读到时显示
  *    读取中,读到但为空显示良好空态,读失败显示错误与原始消息。
- *  - G3:置顶段 + 任务组段;组点击走单点切换位 onOpenGroup(S1 未合入=任务详情)。
+ *  - G3:置顶段 + 工作段;组点击走单点切换位 onOpenGroup(S1 未合入=任务详情)。
  *  - G4:任务 active 与运行 live 分列;live 会话行点击走 selectRuntimeEntity(session/<id>)。
  *  - G5:事件归类词表;follow 新事件只计数不插入已展示列表,点「查看」才进(不抢焦点)。
  */
@@ -47,7 +47,6 @@ function nextTask(patch: Partial<TaskRow> & { readonly taskId: string }): TaskRo
     engine: "kernel/task-lifecycle/v1",
     origin: "native",
     source: "local-document",
-    module: "gui",
     lastKnownAt: NOW,
     gates: [],
     board: projectedTaskFields("active").board,
@@ -220,10 +219,10 @@ const TASKS = [
   nextTask({ taskId: "task_child", title: "子任务", rootTaskId: "task_root", parentTaskId: "task_root" }),
   nextTask({ taskId: "task_submitted", title: "待初审任务", rootTaskId: "task_root", activeExecutionId: "exec_1" }),
   nextTask({
-    taskId: "task_milestone",
-    title: "无子任务 Milestone",
-    rootTaskId: "task_milestone",
-    taskClass: "milestone",
+    taskId: "task_declared_work",
+    title: "无子任务的工作",
+    rootTaskId: "task_declared_work",
+    taskClass: "work",
   }),
   nextTask({ taskId: "task_leaf", title: "独立任务", rootTaskId: "task_root" }),
 ].map((task) =>
@@ -491,10 +490,10 @@ describe("overview next: key work region (G3)", () => {
     });
     const rows = textOf(view.container, "overview-next-keywork-rows");
     expect(rows).toContain("置顶工作");
-    expect(rows).toContain("任务组 / Milestone");
+    expect(rows).toContain("工作 2");
     expect(rows).toContain("置顶的组");
     expect(rows).toContain("根任务组");
-    expect(rows).toContain("无子任务 Milestone");
+    expect(rows).toContain("无子任务的工作");
     expect(rows).toContain("目标待补充");
     // 子任务与独立叶子不进组段。
     expect(rows).not.toContain("独立任务");
@@ -506,7 +505,7 @@ describe("overview next: key work region (G3)", () => {
     const view = await mountOverviewNext({
       tasks: [nextTask({ taskId: "task_leaf", title: "独立任务", rootTaskId: "task_root" })],
     });
-    expect(textOf(view.container, "overview-next-keywork-rows")).toContain("暂无任务组");
+    expect(textOf(view.container, "overview-next-keywork-rows")).toContain("暂无重点工作");
   });
 });
 
@@ -609,9 +608,9 @@ describe("overview next: pure derivations", () => {
       TASKS,
     );
     expect(pinned.map((row) => row.ref)).toEqual(["decision/dec_probe"]);
-    expect(groups.map((row) => row.taskId)).toEqual(["task_root", "task_milestone"]);
+    expect(groups.map((row) => row.taskId)).toEqual(["task_root", "task_declared_work"]);
     expect(groups.find((row) => row.taskId === "task_root")?.note).toBe("children:3");
-    expect(groups.find((row) => row.taskId === "task_milestone")?.note).toBe("milestone");
+    expect(groups.find((row) => row.taskId === "task_declared_work")?.note).toBe("work");
   });
 
   it("attentionItemsOf returns null for an unread agenda, not an empty list", () => {

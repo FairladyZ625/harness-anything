@@ -22,7 +22,7 @@ export function collectWork(tasks: readonly TaskRow[]): { groups: WorkGroup[]; i
   const parents = new Set(tasks.flatMap((task) => (task.parentTaskId ? [task.parentTaskId] : [])));
   const groups = new Map<string, WorkGroup>();
   for (const task of tasks) {
-    if (parents.has(task.taskId) || task.taskClass === "milestone") {
+    if (parents.has(task.taskId) || task.taskClass === "work") {
       groups.set(task.taskId, { task, descendants: 0, leaves: 0, counts: {}, activity: null });
     }
   }

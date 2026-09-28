@@ -119,10 +119,10 @@ project adopts the vertical. It has four parts:
   `software/coding`, the task root is `init` and the decision root is `lazy` —
   tasks exist from the start, decisions arrive on demand.
 - **`dirs[]`** — plain directories with the same `init`|`lazy` create mode, for
-  layout that is not an entity root (`standards/`, `context/`, `milestones/`,
-  `sessions/`, and the like).
+  layout that is not an entity root (`standards/`, `context/`, `sessions/`, and
+  the like).
 - **`seededDocs[]`** — documents dropped in at scaffold time (software/coding
-  ships 13). Each is a `RepositorySeededDoc`: the same
+  ships 12). Each is a `RepositorySeededDoc`: the same
   `slot`/`templateRef`/`materializeAs`/`localePolicy` fields as a template
   selection, plus an optional `overwrite` boolean that decides whether an
   existing file is replaced. Seeded docs are how a fresh repo arrives with its

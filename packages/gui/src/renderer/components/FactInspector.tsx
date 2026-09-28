@@ -238,7 +238,7 @@ export function FactInspector({
               </div>
               {task && (
                 <div className="mt-1 font-mono ui-micro text-text-faint">
-                  {t("components.factInspector.moduleSourceValue", { module: task.module, source: task.source })}
+                  {t("components.factInspector.sourceValue", { source: task.source })}
                 </div>
               )}
             </div>

@@ -45,7 +45,7 @@ test("ha graph serves the task→decision→fact causal tree through the repo re
       ownerId: "graph-view-test",
     });
     for (const spec of [
-      { taskId: "task_root", title: "Root milestone", taskClass: "milestone" },
+      { taskId: "task_root", title: "Root work", taskClass: "work" },
       { taskId: "task_leaf", title: "Leaf work", parentTaskId: "task_root" },
     ]) {
       const created = await cell.run({ kind: "task-create", ...spec }, binding);

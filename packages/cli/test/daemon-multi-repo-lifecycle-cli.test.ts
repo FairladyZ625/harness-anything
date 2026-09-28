@@ -110,10 +110,8 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
           "real CI, and a code-doc reconciliation witness. For a task-package-only " +
           "report or decision, use the task-package-artifact preset docs-task.",
         "next: remove --dry-run to publish this exact resolved scaffold",
-        "plan: write the concrete plan at harness/tasks/task-alpha-alpha/task_plan.md; required sections: Brief, " +
-          "Goal, Context, Required Reading, Entry Conditions, Dependencies, Execution Surface, Constraints, " +
-          "Checkpoint, CI/Gate Authority Stop Condition, Implementation Plan, Deliverable Contract, Evidence " +
-          "Protocol, Verification",
+        "plan: write the concrete plan at harness/tasks/task-alpha-alpha/task_plan.md; keep every section heading " +
+          "the preset template ships",
         "artifacts: persist supplementary context, research notes, design drafts, worker prompts, and review " +
           "evidence under harness/tasks/task-alpha-alpha/artifacts/; consider landing any extra information or " +
           "background materials here beyond task_plan.md",
@@ -140,7 +138,11 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     ]);
     assert.equal(alpha.outcome, "applied", JSON.stringify(alpha));
     assert.equal(beta.outcome, "applied", JSON.stringify(beta));
-    assert.equal(alpha.summary, "created task task-alpha at harness/tasks/task-alpha-alpha");
+    // A standalone task's receipt points at --work and ha work list instead of scanning for open works.
+    assert.equal(
+      alpha.summary,
+      "created task task-alpha at harness/tasks/task-alpha-alpha\nwork: none (standalone task); to file it under a work use ha task create --work <id> (see ha work list)",
+    );
     settleFollower(fixture.alpha, fixture.userRoot, alpha);
     const alphaPlan = `${String(alpha.packagePath)}/task_plan.md`;
     writeFileSync(path.join(fixture.alpha, "harness", alphaPlan), realizedTaskPlan("Alpha"));
@@ -423,7 +425,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
   }
 });
 
-test("real CLI creates module and subtask-expansion packages through their declared providers", async () => {
+test("real CLI files subtask-expansion packages under a work and reads the work back", async () => {
   const fixture = setup(),
     ledgerReaders = trackLedgerReaders();
   try {
@@ -435,52 +437,28 @@ test("real CLI creates module and subtask-expansion packages through their decla
     }>;
     assert.deepEqual(
       catalog
-        .filter(({ id }) => ["module", "subtask-expansion"].includes(id))
+        .filter(({ id }) => ["create-work", "subtask-expansion"].includes(id))
         .map(({ id, validity }) => ({ id, validity })),
       [
-        { id: "module", validity: "valid" },
+        { id: "create-work", validity: "valid" },
         { id: "subtask-expansion", validity: "valid" },
       ],
     );
-    assert.equal(
-      run(fixture.alpha, fixture.userRoot, ["task", "create", "--id", "task-parent", "--admin", "--title", "Parent"])
-        .outcome,
-      "applied",
-    );
-    const moduleTask = run(fixture.alpha, fixture.userRoot, [
+    const work = run(fixture.alpha, fixture.userRoot, [
       "task",
       "create",
       "--id",
-      "task-module",
+      "task-parent",
       "--admin",
       "--title",
-      "Module task",
+      "Parent",
       "--preset",
-      "module",
-      "--module",
-      "kernel",
-      "--register-module",
-      "kernel",
-      "--module-title",
-      "Kernel",
-      "--module-prefix",
-      "KER",
-      "--module-scope",
-      "packages/kernel/**",
+      "create-work",
+      "--task-class",
+      "work",
     ]);
-    assert.equal(moduleTask.outcome, "applied", JSON.stringify(moduleTask));
-    settleFollower(fixture.alpha, fixture.userRoot, moduleTask);
-    assert.deepEqual(
-      (moduleTask.generatedPaths as string[])
-        .filter((target) => /(?:module\.md|module_(?:plan|brief|session_prompt)\.md)$/u.test(target))
-        .map((target) => path.basename(target))
-        .sort(),
-      ["module.md", "module_brief.md", "module_plan.md", "module_session_prompt.md"],
-    );
-    assert.match(
-      readFileSync(path.join(fixture.alpha, "harness/tasks/task-module-module-task/module.md"), "utf8"),
-      /Module key: kernel[\s\S]*Module title: Kernel[\s\S]*Module prefix: KER[\s\S]*Module scope: packages\/kernel\/\*\*/u,
-    );
+    assert.equal(work.outcome, "applied", JSON.stringify(work));
+    assert.match(String(work.summary), /work: task-parent \(new work root; add tasks with --work task-parent\)/u);
     const child = run(fixture.alpha, fixture.userRoot, [
       "task",
       "create",
@@ -491,10 +469,11 @@ test("real CLI creates module and subtask-expansion packages through their decla
       "Child",
       "--preset",
       "subtask-expansion",
-      "--parent",
+      "--work",
       "task-parent",
     ]);
     assert.equal(child.outcome, "applied", JSON.stringify(child));
+    assert.match(String(child.summary), /work: task-parent Parent/u);
     const childEvent = ledgerReaders
       .open(fixture.alpha, "alpha")
       .read()
@@ -508,6 +487,22 @@ test("real CLI creates module and subtask-expansion packages through their decla
     ) as { rows: Array<{ taskId: string }> };
     assert.deepEqual(
       children.rows.map(({ taskId }) => taskId),
+      ["task-child"],
+    );
+    const works = JSON.parse(String(run(fixture.alpha, fixture.userRoot, ["work", "list"]).evidence)) as {
+        rows: Array<{ taskId: string; root: string; taskCount: number }>;
+      },
+      shown = JSON.parse(String(run(fixture.alpha, fixture.userRoot, ["work", "show", "task-parent"]).evidence)) as {
+        root: { taskId: string };
+        openTasks: Array<{ taskId: string }>;
+      };
+    assert.deepEqual(
+      works.rows.map(({ taskId, root, taskCount }) => ({ taskId, root, taskCount })),
+      [{ taskId: "task-parent", root: "declared", taskCount: 1 }],
+    );
+    assert.equal(shown.root.taskId, "task-parent");
+    assert.deepEqual(
+      shown.openTasks.map(({ taskId }) => taskId),
       ["task-child"],
     );
   } finally {

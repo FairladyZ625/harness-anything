@@ -67,7 +67,6 @@ export function listTasks(cell: TaskQueryCell, action: RepoTaskAction, binding: 
     );
   const filters = {
       ...(query.status ? { status: query.status } : {}),
-      ...(typeof action.module === "string" ? { module: action.module } : {}),
       ...(typeof action.workKind === "string" ? { workKind: action.workKind } : {}),
       ...(typeof action.riskTier === "string" ? { riskTier: action.riskTier } : {}),
       ...(typeof action.urgency === "string" ? { urgency: action.urgency } : {}),
@@ -135,7 +134,6 @@ export function listTasks(cell: TaskQueryCell, action: RepoTaskAction, binding: 
                 status: row.status,
                 title: row.title,
                 pinned: row.pinned,
-                module: row.moduleKey ?? "",
                 updatedAt: row.updatedAt,
                 packagePath: row.packagePath,
                 packageDisposition: row.packageDisposition,

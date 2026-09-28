@@ -25,7 +25,6 @@ function task(taskId: string, overrides: Partial<TaskRow> = {}): TaskRow {
     closeoutReadiness: "not_required",
     engine: "local",
     source: "local-document",
-    module: "gui",
     lastKnownAt: "2026-08-29T00:00:00.000Z",
     gates: [],
     docs: [],

@@ -220,34 +220,34 @@ test("closeout consumes the latest content-pinned consent selection and ignores 
   );
 });
 
-test("closeout readiness gates milestone and long_running completion on an active decision derives edge", () => {
+test("closeout readiness gates work and long_running completion on an active decision derives edge", () => {
   const edge = (relationType: string, state: string, targetRef = "task/task-1") => [
     { relationId: "rel-lineage", sourceRef: "decision/dec-1/CH1", targetRef, relationType, state },
   ];
-  const milestone = () => {
+  const workRoot = () => {
     const base = closeout("pass");
-    return { ...base, task: { ...base.task!, taskId: "task-1", taskClass: "milestone" as const } };
+    return { ...base, task: { ...base.task!, taskId: "task-1", taskClass: "work" as const } };
   };
-  // An orphan milestone is not closeout-ready even with every other criterion green.
-  const orphan = closeoutReadiness(milestone());
+  // An orphan work root is not closeout-ready even with every other criterion green.
+  const orphan = closeoutReadiness(workRoot());
   assert.equal(orphan.readiness, "incomplete");
   assert.equal(orphan.blocker, "lineage");
   // Only an active derives edge naming this task authorises completion.
   assert.equal(
-    closeoutReadiness({ ...milestone(), decisionRelations: edge("derives", "retired") }).readiness,
+    closeoutReadiness({ ...workRoot(), decisionRelations: edge("derives", "retired") }).readiness,
     "incomplete",
   );
   assert.equal(
-    closeoutReadiness({ ...milestone(), decisionRelations: edge("relates", "active") }).readiness,
+    closeoutReadiness({ ...workRoot(), decisionRelations: edge("relates", "active") }).readiness,
     "incomplete",
   );
   assert.equal(
-    closeoutReadiness({ ...milestone(), decisionRelations: edge("derives", "active", "task/someone-else") }).readiness,
+    closeoutReadiness({ ...workRoot(), decisionRelations: edge("derives", "active", "task/someone-else") }).readiness,
     "incomplete",
   );
-  assert.equal(closeoutReadiness({ ...milestone(), decisionRelations: edge("derives", "active") }).readiness, "ready");
+  assert.equal(closeoutReadiness({ ...workRoot(), decisionRelations: edge("derives", "active") }).readiness, "ready");
   // long_running tasks read their class, not a boolean, and obey the same rule.
-  const longRunning = { ...milestone(), task: { ...milestone().task!, taskClass: "long_running" as const } };
+  const longRunning = { ...workRoot(), task: { ...workRoot().task!, taskClass: "long_running" as const } };
   assert.equal(closeoutReadiness(longRunning).blocker, "lineage");
   assert.equal(closeoutReadiness({ ...longRunning, decisionRelations: edge("derives", "active") }).readiness, "ready");
   // Standard tasks never required lineage and still do not.
@@ -260,7 +260,7 @@ test("closeout readiness gates milestone and long_running completion on an activ
   );
   // A missing gate keeps its own blocker; the lineage gap still withholds readiness.
   const gateFirst = closeoutReadiness({
-    ...milestone(),
+    ...workRoot(),
     gateWitnesses: [],
     decisionRelations: edge("derives", "active"),
   });

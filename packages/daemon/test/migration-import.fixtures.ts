@@ -494,7 +494,7 @@ export function hierarchyFixture(root: string): void {
   );
   const frontmatter = (taskId: string, title: string, extra: string): string =>
     `---\nschema: task-package/v2\ntask_id: ${taskId}\ntitle: ${title}\n${extra}lifecycle:\n  status: planned\n  engine: local\n  bindingCreatedAt: 2026-01-01T00:00:00.000Z\nvertical: software/coding\npreset: standard-task\nprofile: baseline\n---\n\n# ${title}\n`;
-  writeFileSync(path.join(parentRoot, "INDEX.md"), frontmatter("task_parent", "Parent milestone", ""));
+  writeFileSync(path.join(parentRoot, "INDEX.md"), frontmatter("task_parent", "Parent work", ""));
   const relation = {
     relation_id: deriveRelationId({
       source: "task/task_child",

@@ -403,7 +403,7 @@ export const BoardView = memo(function BoardView({
   /** 台账 pin 写通道;三种看板布局的 task 卡片/行共用。 */
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
-  // coding preset 默认按 root 分组(milestone=root task)。drill 携带 groupBy 提示。
+  // coding preset 默认按工作分组(root = 工作的根 task)。drill 携带 groupBy 提示。
   const [layout, setLayout] = useState<BoardLayout>(drill ? "swimlane" : (initialLayout ?? "column"));
   const [groupBy, setGroupBy] = useState<LaneGroupBy>(drill?.groupBy ?? initialGroupBy ?? "root");
 
@@ -540,22 +540,20 @@ export const BoardView = memo(function BoardView({
           <div className="ml-auto flex items-center gap-1.5">
             <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">分组维度</span>
             <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
-              {(["root", "module", "engine", "productLine"] as const).map((d) => (
+              {(["root", "engine", "productLine"] as const).map((d) => (
                 <button
                   key={d}
                   onClick={() => setGroupBy(d)}
                   title={
                     d === "root"
-                      ? "按任务树根分组(milestone)"
-                      : d === "module"
-                        ? "按 module 维度(传统)"
-                        : d === "engine"
-                          ? "按引擎分组"
-                          : "按 productLine(PLT)分组"
+                      ? "按工作分组(根任务及其子树)"
+                      : d === "engine"
+                        ? "按引擎分组"
+                        : "按 productLine(PLT)分组"
                   }
                   className={`font-mono ${seg(groupBy === d)}`}
                 >
-                  {d}
+                  {d === "root" ? "work" : d}
                 </button>
               ))}
             </div>

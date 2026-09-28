@@ -31,7 +31,7 @@ test("tasks sharing a slug still get distinct worktrees", () => {
 
 test("a task-package artifact and a declared work root are never bound", () => {
   assert.equal(deriveTaskWorktreeBinding({ ...standard, outputShape: "task-package-artifact" }), null);
-  for (const taskClass of ["milestone", "long_running"] as const)
+  for (const taskClass of ["work", "long_running"] as const)
     assert.equal(deriveTaskWorktreeBinding({ ...standard, taskClass, outputShape: "repository-diff" }), null);
 });
 

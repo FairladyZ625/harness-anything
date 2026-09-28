@@ -98,7 +98,7 @@ export function WorkView({
       <details className="ui-meta text-text-muted">
         <summary className="cursor-pointer">活跃口径：执行 · 评审 · 签发 · 门见证（含后代）</summary>
         <p className="mt-1">
-          取本组及全部后代的执行、评审、签发、代码文档见证、门见证时间最大值。有活动的组在前；无活动的组按创建时间倒序在后。任务完成仅计后代叶子，父组不重复计入；取消包含在分母中，不代表交付已获认可。
+          取本工作根任务及全部后代的执行、评审、签发、代码文档见证、门见证时间最大值。有活动的工作在前；无活动的工作按创建时间倒序在后。任务完成仅计后代叶子，根任务不重复计入；取消包含在分母中，不代表交付已获认可。
         </p>
       </details>
       {!ready ? (
@@ -108,15 +108,15 @@ export function WorkView({
       ) : null}
       <section className="space-y-3">
         <h2 className="text-sm font-semibold text-text">
-          任务组 · {groups.length} / {collections.groups.length}
+          工作 · {groups.length} / {collections.groups.length}
         </h2>
         <div className="grid min-w-0 gap-2 min-[1101px]:grid-cols-2 min-[1750px]:grid-cols-3">
           {groups.slice(gp * 24, (gp + 1) * 24).map((group) => (
             <WorkGroupCard key={group.task.taskId} group={group} ready={ready} onOpen={onOpenGroup} />
           ))}
         </div>
-        {ready && !groups.length ? <p className="text-sm text-text-muted">没有匹配的任务组。</p> : null}
-        <ResultPagination label="任务组" page={gp} total={groups.length} size={24} onChange={setGroupPage} />
+        {ready && !groups.length ? <p className="text-sm text-text-muted">没有匹配的工作。</p> : null}
+        <ResultPagination label="工作" page={gp} total={groups.length} size={24} onChange={setGroupPage} />
       </section>
       <section data-testid="isolated-work" className="space-y-2 border-t border-border pt-3">
         <button
@@ -125,10 +125,10 @@ export function WorkView({
           onClick={() => setShowIsolated(!showIsolated)}
           className="text-sm font-semibold text-text"
         >
-          {showIsolated ? "收起" : "展开"}独立工作 · {isolated.length} / {collections.isolated.length}
+          {showIsolated ? "收起" : "展开"}独立任务 · {isolated.length} / {collections.isolated.length}
         </button>
         <p className="ui-meta text-text-muted">
-          未归入任务组的顶层工作 · 使用上方搜索与状态筛选；历史工作可在“全部状态”中找到。
+          未归入任何工作的顶层任务 · 使用上方搜索与状态筛选；历史任务可在“全部状态”中找到。
         </p>
         {showIsolated ? (
           <>
@@ -143,8 +143,8 @@ export function WorkView({
                 <span className="shrink-0 text-text-muted">{task.canonicalStatus ?? task.rawStatus}</span>
               </button>
             ))}
-            {ready && !isolated.length ? <p className="text-sm text-text-muted">当前没有匹配的独立工作。</p> : null}
-            <ResultPagination label="独立工作" page={ip} total={isolated.length} size={20} onChange={setIsolatedPage} />
+            {ready && !isolated.length ? <p className="text-sm text-text-muted">当前没有匹配的独立任务。</p> : null}
+            <ResultPagination label="独立任务" page={ip} total={isolated.length} size={20} onChange={setIsolatedPage} />
           </>
         ) : null}
       </section>
@@ -197,7 +197,7 @@ function WorkGroupCard({
       )}
       <p
         className="ui-meta text-text-muted"
-        title={activity ? `${activity.taskId} · ${activity.summary}` : "无生命周期活动，排在有活动组之后"}
+        title={activity ? `${activity.taskId} · ${activity.summary}` : "无生命周期活动，排在有活动的工作之后"}
       >
         {activity
           ? `执行 · 评审 · 签发 · 门见证：${formatTime(activity.at, { style: "month-day-time" })}`

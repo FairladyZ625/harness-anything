@@ -415,7 +415,7 @@ import {
     }
   });
 
-  test("preset taskClass requirement overrides the real Attribution sample declaration", () => {
+  test("a renamed preset restates the real Attribution sample onto its successor preset and class", () => {
     const rootDir = fixtureRoot();
     try {
       const taskId = "task_01KXAWVMTP3GV0QD7E5570CE4B",
@@ -436,12 +436,12 @@ import {
         }),
         contract = JSON.parse(restated.body) as Record<string, unknown>;
       assert.deepEqual(restated.repair, {
-        disposition: "preset-task-class-aligned",
-        presetId: "create-milestone",
-        taskClass: "milestone",
+        disposition: "renamed-preset",
+        presetId: "create-work",
+        taskClass: "work",
       });
-      assert.equal(contract.presetId, "create-milestone");
-      assert.equal(contract.taskClass, "milestone");
+      assert.equal(contract.presetId, "create-work");
+      assert.equal(contract.taskClass, "work");
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
     }
@@ -502,8 +502,8 @@ import {
           },
         });
       assert.equal(retired.repair?.disposition, "retired-preset-to-standard-task");
-      assert.equal(conflict.repair?.disposition, "preset-task-class-aligned");
-      assert.equal(conflict.repair?.taskClass, "milestone");
+      assert.equal(conflict.repair?.disposition, "renamed-preset");
+      assert.equal(conflict.repair?.taskClass, "work");
     } finally {
       rmSync(rootDir, { recursive: true, force: true });
     }

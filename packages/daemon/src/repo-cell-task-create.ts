@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
   sessionProvenance,
   taskBootstrapWritePlan,
+  type TaskV2,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { compileRepoPresetSnapshotUpgrade, compileRepoTaskBootstrap } from "@harness-anything/preset";
@@ -9,6 +10,7 @@ import type { PublicPublication, RepoCellBinding, RepoTaskAction, TaskCreateRece
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { receiptLayoutRoots, taskCreateGuidance, workspaceRelativePath } from "./receipt-guidance.ts";
+import { workRootOf } from "./workspace-scope-read.ts";
 
 export function readResult(
   cell: RepoCellOperationalContext,
@@ -303,10 +305,23 @@ export function preparedTaskCreateReceipt(
     commitSha: publication.commitSha,
     cut: publication.cut,
     summary: proof.canonicalVisible
-      ? `created task ${fields.taskId} at ${workspaceRelativePath(roots, compiled.packagePath)}`
+      ? `created task ${fields.taskId} at ${workspaceRelativePath(roots, compiled.packagePath)}${workSummary(
+          cell,
+          compiled.event.payload.task,
+        )}`
       : `task ${fields.taskId} is awaiting exact canonical settlement`,
   };
   return receipt;
+}
+
+/** dec_5F7E74F1: the receipt names the task's work, or tells a standalone task how to join one. Listing the
+ * open works here would scan every task on each create, so the receipt points at ha work list instead. */
+function workSummary(cell: RepoCellOperationalContext, task: TaskV2): string {
+  const parentTaskId = task.metadata?.parentTaskId ?? null,
+    work = parentTaskId === null ? null : workRootOf(cell.projection, parentTaskId);
+  if (work !== null) return `\nwork: ${work.taskId} ${work.title}`;
+  if (task.taskClass === "work") return `\nwork: ${task.taskId} (new work root; add tasks with --work ${task.taskId})`;
+  return "\nwork: none (standalone task); to file it under a work use ha task create --work <id> (see ha work list)";
 }
 
 export function upgradePresetSnapshot(

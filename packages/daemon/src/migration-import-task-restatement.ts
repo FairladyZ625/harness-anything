@@ -6,6 +6,7 @@ import {
   normalizePersistedCanonicalEvent,
   readSettingsFacet,
   resolveHarnessLayout,
+  retiredTaskClassRestatements,
   validateMigrationImportEvent,
   validatePresetSnapshotUpgradeEvent,
   validateTaskBootstrapEvent,
@@ -50,7 +51,7 @@ export interface RestatedTaskContract {
   readonly presetSnapshotDigest: `sha256:${string}`;
   readonly source: "contract" | "compiled";
   readonly repair?: {
-    readonly disposition: "retired-preset-to-standard-task" | "preset-task-class-aligned";
+    readonly disposition: "retired-preset-to-standard-task" | "renamed-preset" | "preset-task-class-aligned";
     readonly presetId: string;
     readonly taskClass: TaskClass;
   };
@@ -72,9 +73,16 @@ const retiredTaskPresetIds = new Set([
   "idea-to-ship",
   "long-running-task",
   "milestone-dossier",
+  "module",
   "progress-site",
   "usage-acceptance",
 ]);
+
+// dec_5F7E74F1: works replaced milestones, so a legacy task born from a renamed preset compiles its successor.
+const renamedTaskPresets: Readonly<Record<string, { readonly presetId: string; readonly taskClass: TaskClass }>> = {
+  "create-milestone": { presetId: "create-work", taskClass: "work" },
+  "milestone-closeout": { presetId: "work-closeout", taskClass: "standard" },
+};
 
 /** Restates the machine contract into its migrated package and derives the immutable preset digest when needed. */
 export function restateTaskContract(input: {
@@ -172,7 +180,10 @@ export function restateTaskContractBody(input: {
         taskId: input.targetTaskId,
         packagePath: input.targetPackagePath,
         title: metadata.title,
-        taskClass: metadata.taskClass ?? "standard",
+        taskClass:
+          typeof metadata.taskClass === "string" && Object.hasOwn(retiredTaskClassRestatements, metadata.taskClass)
+            ? retiredTaskClassRestatements[metadata.taskClass]
+            : (metadata.taskClass ?? "standard"),
         verticalId: metadata.verticalId ?? settings.defaultVertical,
         presetId: metadata.presetId ?? settings.defaultPreset,
         profileId: metadata.profileId ?? settings.defaultProfile,
@@ -199,16 +210,21 @@ function compileContractForRestatement(
     return { contract: compileContract(sourceRoot, taskId, metadata), metadata };
   } catch (error) {
     const code = codedError(error),
-      presetId = optionalTrimmedText(metadata.presetId);
-    if (code === "preset_not_found" && presetId && retiredTaskPresetIds.has(presetId)) {
-      const repaired = { ...metadata, presetId: "standard-task", taskClass: "standard" as const };
+      presetId = optionalTrimmedText(metadata.presetId),
+      renamed = presetId !== null && Object.hasOwn(renamedTaskPresets, presetId),
+      successor = renamed
+        ? renamedTaskPresets[presetId!]!
+        : presetId !== null && retiredTaskPresetIds.has(presetId)
+          ? { presetId: "standard-task", taskClass: "standard" as const }
+          : null;
+    if (code === "preset_not_found" && successor !== null) {
+      const repaired = { ...metadata, ...successor };
       return {
         contract: compileContract(sourceRoot, taskId, repaired),
         metadata: repaired,
         repair: {
-          disposition: "retired-preset-to-standard-task",
-          presetId: "standard-task",
-          taskClass: "standard",
+          disposition: renamed ? "renamed-preset" : "retired-preset-to-standard-task",
+          ...successor,
         },
       };
     }

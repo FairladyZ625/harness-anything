@@ -257,6 +257,15 @@ Interpret the counts conservatively:
   current code. This is not a generation mismatch, so migration will not fix it;
   stop and investigate the reported symptom separately.
 
+  One in-place restatement does exist for such a ledger, and it is narrow: tasks
+  that still carry the retired `milestone` or `epic` task class. Grouping is now
+  a **work** — one root task plus its subtree — so run
+  `ha task contract migrate --dry-run`, review the planned rows, then
+  `ha task contract migrate --apply` against the daemon that serves the ledger.
+  It restates `milestone` to `work` and `epic` to `standard` and keeps each
+  task's historical `presetId` as provenance. Replay applies the same
+  restatement on import, so a replayed ledger does not need it.
+
 If the scan itself cannot read the events directory or run the current parser,
 stop and report that failure. Do not infer the generation from `harness.yaml`:
 both generations can carry `schema: harness-anything/v1`.
@@ -386,7 +395,7 @@ Branch on those rows:
 
 ## 5. Resolve destination conflicts — one batch, one decision
 
-`ha init` seeds README, ADR, milestone, walls and `people.yaml` files. A source
+`ha init` seeds README, standards, walls and `people.yaml` files. A source
 ledger usually has its own versions of those paths. Each conflict row prints
 both sides and the exact flag to use:
 

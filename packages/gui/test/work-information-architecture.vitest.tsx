@@ -14,7 +14,7 @@ const task = (taskId: string, patch: Partial<TaskRow> = {}): TaskRow =>
     taskId,
     title: taskId,
     canonicalStatus: "planned",
-    taskClass: "milestone",
+    taskClass: "work",
     lastKnownAt: "2099-01-01",
     createdAt: "2026-01-01",
     events: [],
@@ -63,7 +63,7 @@ describe("work information architecture", () => {
         task: {
           title: field,
           status: "planned",
-          taskClass: "milestone",
+          taskClass: "work",
           metadata: {},
           createdBy: { principal: { personId: "p" } },
         },
@@ -81,7 +81,7 @@ describe("work information architecture", () => {
             snapshot,
             createdAt: "2026-01-01",
             updatedAt: "2099-01-01",
-            placement: { spawningDecisionIds: [], moduleKeys: [], productLines: [], provenance: [] },
+            placement: { spawningDecisionIds: [], productLines: [], provenance: [] },
             closeoutAssessment: { gates: [] },
             blockingAssessment: {},
           },
@@ -118,7 +118,7 @@ describe("work information architecture", () => {
     const cards = () => [...host.querySelectorAll('[data-testid="work-group-card"]')];
     expect(cards()).toHaveLength(24);
     expect(cards().some((c) => c.textContent?.includes("done-group"))).toBe(false);
-    act(() => host.querySelector<HTMLButtonElement>('nav[aria-label="任务组分页"] button:last-child')!.click());
+    act(() => host.querySelector<HTMLButtonElement>('nav[aria-label="工作分页"] button:last-child')!.click());
     expect(cards()).toHaveLength(6);
     const select = (label: string, value: string) =>
       act(() => {

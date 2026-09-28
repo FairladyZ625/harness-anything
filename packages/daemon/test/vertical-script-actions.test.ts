@@ -179,10 +179,10 @@ test("RepoCell runs only declared vertical scripts and dry-run publishes the sam
     }>;
     assert.deepEqual(
       catalog
-        .filter(({ id }) => ["module", "subtask-expansion"].includes(id))
+        .filter(({ id }) => ["create-work", "subtask-expansion"].includes(id))
         .map(({ id, validity }) => ({ id, validity })),
       [
-        { id: "module", validity: "valid" },
+        { id: "create-work", validity: "valid" },
         { id: "subtask-expansion", validity: "valid" },
       ],
     );

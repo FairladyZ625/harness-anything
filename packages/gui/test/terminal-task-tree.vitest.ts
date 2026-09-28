@@ -11,7 +11,7 @@ import {
 const NOW = Date.parse("2026-09-02T00:00:00Z");
 const day = (n: number) => new Date(NOW - n * 86_400_000).toISOString();
 const nodes: TaskTreeNode[] = [
-  { taskId: "root-a", title: "Ontology milestone", status: "active", createdAt: day(40) },
+  { taskId: "root-a", title: "Ontology work", status: "active", createdAt: day(40) },
   { taskId: "a1", title: "Ontology phase 1", parentTaskId: "root-a", status: "done", createdAt: day(30) },
   { taskId: "a1x", title: "Write ontology schema", parentTaskId: "a1", status: "done", createdAt: day(20) },
   { taskId: "a1y", title: "Unrelated chore", parentTaskId: "a1", status: "planned", createdAt: day(2) },

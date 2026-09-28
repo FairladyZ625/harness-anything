@@ -212,20 +212,6 @@
       ]
     },
     {
-      "id": "repository/milestones-index",
-      "version": "1",
-      "documentKind": "repository-milestones-index",
-      "slot": "repository.milestones.index",
-      "materializeAs": "{{paths.milestonesRoot}}/README.md",
-      "frontmatterSchema": "none",
-      "requiredAnchors": ["## Navigation", "## State Boundary"],
-      "fallbackLocale": "en-US",
-      "locales": [
-        { "locale": "zh-CN", "anchors": ["## Navigation", "## State Boundary"], "bodyPath": "templates/repository.milestones.index/zh-CN.md" },
-        { "locale": "en-US", "anchors": ["## Navigation", "## State Boundary"], "bodyPath": "templates/repository.milestones.index/en-US.md" }
-      ]
-    },
-    {
       "id": "repository/walls-manifest",
       "version": "1",
       "documentKind": "repository-machine-file",
@@ -352,17 +338,17 @@
       ]
     },
     {
-      "id": "planning/milestone-task-plan",
+      "id": "planning/work-task-plan",
       "version": "1",
-      "documentKind": "milestone-task-plan",
+      "documentKind": "work-task-plan",
       "slot": "task.plan",
       "materializeAs": "task_plan.md",
       "frontmatterSchema": "task-package/v2",
       "requiredAnchors": ["## Mission", "## Usage Questions", "## Wave Decomposition", "## Exit Criteria", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## PR/merge Operations", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"],
       "fallbackLocale": "en-US",
       "locales": [
-        { "locale": "zh-CN", "anchors": ["## Mission", "## Usage Questions", "## Wave Decomposition", "## Exit Criteria", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## PR/merge Operations", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.milestone.plan/zh-CN.md" },
-        { "locale": "en-US", "anchors": ["## Mission", "## Usage Questions", "## Wave Decomposition", "## Exit Criteria", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## PR/merge Operations", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.milestone.plan/en-US.md" }
+        { "locale": "zh-CN", "anchors": ["## Mission", "## Usage Questions", "## Wave Decomposition", "## Exit Criteria", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## PR/merge Operations", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.work.plan/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["## Mission", "## Usage Questions", "## Wave Decomposition", "## Exit Criteria", "## Context", "## Required Reading", "## Entry Conditions", "## Dependencies", "## Execution Surface", "## PR/merge Operations", "## Constraints", "## Checkpoint", "## CI/Gate Authority Stop Condition", "## Implementation Plan", "## Deliverable Contract", "## Evidence Protocol", "## Verification"], "bodyPath": "templates/task.work.plan/en-US.md" }
       ]
     },
     {
@@ -405,48 +391,6 @@
       "locales": [
         { "locale": "zh-CN", "anchors": [], "bodyPath": "templates/task.keep/zh-CN.md" },
         { "locale": "en-US", "anchors": [], "bodyPath": "templates/task.keep/en-US.md" }
-      ]
-    },
-    {
-      "id": "planning/module-plan",
-      "version": "1",
-      "documentKind": "module-plan",
-      "slot": "module.plan",
-      "materializeAs": "module_plan.md",
-      "frontmatterSchema": "task-package/v2",
-      "requiredAnchors": ["## Module", "## Steps"],
-      "fallbackLocale": "en-US",
-      "locales": [
-        { "locale": "zh-CN", "anchors": ["## Module", "## Steps"], "bodyPath": "templates/module.plan/zh-CN.md" },
-        { "locale": "en-US", "anchors": ["## Module", "## Steps"], "bodyPath": "templates/module.plan/en-US.md" }
-      ]
-    },
-    {
-      "id": "planning/module-brief",
-      "version": "1",
-      "documentKind": "module-brief",
-      "slot": "module.brief",
-      "materializeAs": "module_brief.md",
-      "frontmatterSchema": "task-package/v2",
-      "requiredAnchors": ["## Module Objective", "## Interfaces"],
-      "fallbackLocale": "en-US",
-      "locales": [
-        { "locale": "zh-CN", "anchors": ["## Module Objective", "## Interfaces"], "bodyPath": "templates/module.brief/zh-CN.md" },
-        { "locale": "en-US", "anchors": ["## Module Objective", "## Interfaces"], "bodyPath": "templates/module.brief/en-US.md" }
-      ]
-    },
-    {
-      "id": "planning/module-session-prompt",
-      "version": "1",
-      "documentKind": "module-session-prompt",
-      "slot": "module.session.prompt",
-      "materializeAs": "module_session_prompt.md",
-      "frontmatterSchema": "task-package/v2",
-      "requiredAnchors": ["## Session Prompt", "## Required Context"],
-      "fallbackLocale": "en-US",
-      "locales": [
-        { "locale": "zh-CN", "anchors": ["## Session Prompt", "## Required Context"], "bodyPath": "templates/module.session.prompt/zh-CN.md" },
-        { "locale": "en-US", "anchors": ["## Session Prompt", "## Required Context"], "bodyPath": "templates/module.session.prompt/en-US.md" }
       ]
     },
     {

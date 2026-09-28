@@ -69,8 +69,6 @@ export interface TaskProjectionRow {
   readonly vertical?: string;
   readonly preset?: string;
   readonly profile?: string;
-  readonly moduleKey?: string;
-  readonly moduleTitle?: string;
   readonly hasLessonCandidates?: boolean;
   readonly createdBy?: TaskCreatedBy;
   readonly fieldExtensions?: Readonly<Record<string, string | null>>;

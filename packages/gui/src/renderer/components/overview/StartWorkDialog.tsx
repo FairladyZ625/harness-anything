@@ -103,7 +103,7 @@ export function StartWorkDialog({
   const blockers = startWorkBlockers(effectiveDraft);
   const command = startWorkCommand(effectiveDraft);
   const created = lookupRequested ? locateCreatedTask(tasks, effectiveDraft.title) : null;
-  // 任务组候选 = 当前投影里的根任务;挂上层组是可选项,不挂就是独立工作。
+  // 工作候选 = 当前投影里的根任务(`--work <id>`);归入工作是可选项,不归入就是独立任务。
   const groupOptions = tasks.filter((task) => (task.rootTaskId ?? task.taskId) === task.taskId);
   const stepIndex = STEPS.indexOf(step);
 

@@ -351,6 +351,7 @@ export const daemonArtifactsListPayloadShape = shape({
 export const daemonAgendaPayloadShape = shape({
   limit: "number?",
   cursor: "string?",
+  work: "string?",
 });
 
 export const guiAction = <

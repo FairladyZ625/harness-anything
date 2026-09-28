@@ -33,7 +33,6 @@ function task(patch: Partial<TaskRow>): TaskRow {
     closeoutReadiness: "not_required",
     engine: "local",
     source: "local-document",
-    module: "kernel",
     createdAt: null,
     lastKnownAt: "2026-08-01T00:00:00.000Z",
     gates: [],

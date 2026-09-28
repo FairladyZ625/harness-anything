@@ -1,7 +1,7 @@
 {
   "schema": "preset-manifest/v3",
-  "id": "create-milestone",
-  "title": "Create Milestone",
+  "id": "create-work",
+  "title": "Create Work",
   "vertical": "software/coding",
   "version": "3.0.0",
   "kind": "process-action",
@@ -15,9 +15,9 @@
   "profiles": [{
     "id": "baseline",
     "title": "Baseline",
-    "checkerProfile": "software-coding-milestone",
+    "checkerProfile": "software-coding-work",
     "completionGates": ["ci", "code-doc-reconciliation"],
-    "templateSelections": [{ "slot": "task.plan", "templateRef": "template://planning/milestone-task-plan@1", "materializeAs": "task_plan.md", "localePolicy": { "prefer": "project", "fallback": "zh-CN" } }]
+    "templateSelections": [{ "slot": "task.plan", "templateRef": "template://planning/work-task-plan@1", "materializeAs": "task_plan.md", "localePolicy": { "prefer": "project", "fallback": "zh-CN" } }]
   }],
   "defaultProfile": "baseline"
 }

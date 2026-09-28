@@ -21,6 +21,7 @@ test("agenda result schema rejects mistyped pin state and misgrouped awaiting ro
       leaseExecutionId: null,
       activeExecutionIds: [],
       blockingAssessment: { taskId: "task-current", state: "clear", label: "none", blockers: [], warnings: [] },
+      work: { taskId: "task-work", title: "Release 2" },
       worktree: {
         branch: "codex/current-task-12345678",
         path: ".worktrees/current-task-12345678",
@@ -35,6 +36,7 @@ test("agenda result schema rejects mistyped pin state and misgrouped awaiting ro
       executionId: "exe-awaiting",
       submittedAt: "2026-08-21T00:00:00.000Z",
       blockingAssessment: { taskId: "task-awaiting", state: "clear", label: "none", blockers: [], warnings: [] },
+      work: null,
     },
     awaits = {
       relationId: "rel_0123456789abcdef",
@@ -104,6 +106,10 @@ test("agenda result schema rejects mistyped pin state and misgrouped awaiting ro
     };
   assert.deepEqual(validateDaemonAgenda(agenda), []);
   assert.notDeepEqual(validateDaemonAgenda({ ...agenda, waitingOnOthers: [{ ...task, pinned: "true" }] }), []);
+  // Every task row names its work root (or null for a standalone task); a malformed label is refused.
+  const { work: _unlabeled, ...withoutWork } = task;
+  assert.notDeepEqual(validateDaemonAgenda({ ...agenda, waitingOnOthers: [withoutWork] }), []);
+  assert.notDeepEqual(validateDaemonAgenda({ ...agenda, waitingOnOthers: [{ ...task, work: { taskId: "" } }] }), []);
   // Each awaiting group admits only its own row shape: an execution row in the decision
   // group (the old mixed shape) and vice versa are both refused.
   assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingDecision: [execution] }), []);

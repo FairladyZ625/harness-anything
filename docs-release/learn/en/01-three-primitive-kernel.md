@@ -6,7 +6,7 @@ everything above it, and that keeping the core small is what keeps the whole
 system reasonable over time.
 
 This system's kernel is three primitives — and nothing else is a peer of them.
-Everything larger (milestones, standards, reports, roadmaps) is a *combination*
+Everything larger (works, standards, reports, roadmaps) is a *combination*
 of these three, not a fourth primitive. If you can't build it out of decision,
 task, and fact, the instinct is not to add a primitive; it's to ask why not.
 

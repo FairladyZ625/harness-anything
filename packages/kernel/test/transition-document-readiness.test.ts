@@ -52,7 +52,7 @@ const planTemplate = readFileSync(
   plan = (body: string) => assessTransitionDocument("task.plan", body, planContract),
   closeout = (body: string) => assessTransitionDocument("task.closeout", body, closeoutContract);
 
-test("transition document bindings enumerate canonical consumers and omit milestone without a transition", () => {
+test("transition document bindings enumerate canonical consumers and omit work closeout without a transition", () => {
   assert.deepEqual(
     [
       "task.start",
@@ -73,7 +73,7 @@ test("transition document bindings enumerate canonical consumers and omit milest
       "squad.install:squad.roster",
     ],
   );
-  assert.throws(() => requireTransitionDocumentKind("milestone.closeout"), /no canonical document binding/u);
+  assert.throws(() => requireTransitionDocumentKind("work.closeout"), /no canonical document binding/u);
 });
 
 test("task document readiness resolves a dotted transition id directly from its descriptor", () => {

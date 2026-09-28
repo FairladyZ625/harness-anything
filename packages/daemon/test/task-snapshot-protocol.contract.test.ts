@@ -46,7 +46,6 @@ const row = {
   closeoutAssessment: { readiness: "missing", blocker: "execution", gates: [] },
   blockingAssessment: { taskId: "task-repoint", state: "clear", label: "none", blockers: [], warnings: [] },
   placement: {
-    moduleKeys: [],
     productLines: [],
     spawningDecisionIds: [],
     parentTaskId: null,

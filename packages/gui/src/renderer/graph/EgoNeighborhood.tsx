@@ -273,7 +273,7 @@ function EgoNeighborhoodInner({
   // 命令面板 / 焦点历史)是用户动作,平移到新焦点;单击展开长出邻居只是内容变多,相机不动。
   // 布局器把焦点节点的几何中心恒置于流坐标原点,所以定心到 (0,0) 即是定心到焦点;
   // zoom 原样带过去 —— 缩放级别只由用户自己改,不由节点数决定(旧实现 fitView 依赖
-  // displayNodes.length,每次单击都把整张图塞进一屏,几百节点的 milestone 下缩到看不清)。
+  // displayNodes.length,每次单击都把整张图塞进一屏,几百节点的工作下缩到看不清)。
   useEffect(() => {
     if (!active) return;
     if (!canvas.focusId) return;

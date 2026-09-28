@@ -200,6 +200,9 @@ export function taskQueryGuidance(taskId: string): string {
     `- 这个任务/决策/事实连着什么、由什么推出、被什么证据支撑，用 ha graph 查：先执行 ha graph ${taskId}，` +
       "再按需 ha graph <ref> --depth 2。没有语义边时它只显示父子结构，孤任务只有自己一行——那不是命令坏了。",
     "- 动手改代码前先看一眼图。",
+    "- 工作(Work)＝一个根任务加它的子任务树；下方因果上下文的 Work 行就是本任务所属的工作。看全貌用 " +
+      "ha work show <工作根任务 id>；新拆出的任务用 ha task create --work <工作根任务 id> 挂进同一工作，" +
+      "不带 --work 就是独立任务。",
   ].join("\n");
 }
 

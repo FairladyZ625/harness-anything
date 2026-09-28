@@ -904,9 +904,9 @@ test("contract migration deterministically disposes all three canonical manual f
         title: "PLT-Attribution:双轴归属主干统一切面(ADR-0028)",
         slug: "plt-attribution-adr-0028",
         sourcePresetId: "create-milestone",
-        targetPresetId: "create-milestone",
-        targetTaskClass: "milestone" as const,
-        disposition: "preset-task-class-aligned",
+        targetPresetId: "create-work",
+        targetTaskClass: "work" as const,
+        disposition: "renamed-preset",
         hasSourceContract: false,
       },
     ];

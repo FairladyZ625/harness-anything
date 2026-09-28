@@ -117,7 +117,15 @@ test("preset trigger skill routes task creation through preset selection", () =>
   assert.match(body, /ha task create --title "<title>" --vertical software\/coding --preset <id>/u);
   assert.match(body, /standard-task/u);
   assert.match(body, /decision-conformance/u);
-  assert.match(body, /milestone-closeout/u);
+  assert.match(body, /work-closeout/u);
+  assert.match(body, /ha work create --title/u, "a work is created through its own entry");
+  assert.match(body, /ha task create --work <work-id>/u, "tasks are filed under a work with --work");
+  assert.match(body, /ha agenda --work <work-id>/u);
+  assert.doesNotMatch(
+    body,
+    /create-milestone|milestone-closeout|`module`/u,
+    "retired grouping presets must not return",
+  );
   assert.match(body, /ha capabilities preset/u);
   assert.match(body, /Do not hand-create task package directories/u);
 });

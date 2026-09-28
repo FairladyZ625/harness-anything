@@ -71,7 +71,7 @@ export function createRuntime(options: PresetResolverOptions): {
         ...(profiles[index]!.capabilityImports ?? []),
       ]),
       providerMap = new Map(assets.providers.map((item) => [item.id, item]));
-    let requiredTaskClass: "milestone" | "epic" | undefined;
+    let requiredTaskClass: "work" | undefined;
     const missingProviderIds: string[] = [];
     for (const imported of imports) {
       const provider = providerMap.get(imported.id);

@@ -44,7 +44,7 @@ export function TerritoryZoneNode({ data }: NodeProps<TerritoryZoneFlowNode>) {
         landing ? "border-dashed" : ""
       }`}
       style={{
-        borderColor: zone.progress?.unprojected
+        borderColor: zone.progress?.unknownWork
           ? "color-mix(in oklch, var(--color-stale) 45%, var(--color-border))"
           : "var(--color-border)",
       }}
@@ -81,8 +81,8 @@ export function TerritoryZoneNode({ data }: NodeProps<TerritoryZoneFlowNode>) {
 }
 
 /**
- * PRD 块进度条:状态比例条 + 完成率 + 阻塞计数。
- * 老版领地的核心可读性来源 —— 一眼看出「这个 PRD 推到哪了、卡没卡住」。
+ * 工作块进度条:状态比例条 + 完成率 + 阻塞计数。
+ * 老版领地的核心可读性来源 —— 一眼看出「这个工作推到哪了、卡没卡住」。
  * 高度占 ZONE_PROGRESS_H,与布局常量同源。
  */
 function ZoneProgressBar({ progress }: { progress: ZoneProgress }) {

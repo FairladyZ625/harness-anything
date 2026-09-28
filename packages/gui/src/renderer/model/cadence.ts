@@ -18,8 +18,6 @@ export const CADENCE_EVENT_LIMIT = 4_096;
 export const CADENCE_STALLED_AFTER_MS = 24 * 3_600_000;
 /** 高摩擦阈值:同一任务摩擦信号总数**超过**该值标记为高摩擦(task_plan 判据:>2)。 */
 export const CADENCE_FRICTION_ALERT_THRESHOLD = 2;
-/** 模块热度榜单上限。 */
-export const CADENCE_MODULE_TOP = 6;
 /** 今日新 Fact 的展示条数上限。 */
 export const CADENCE_RECENT_FACTS = 5;
 /** 展开行微型事件链的条数上限(取最新 N 条,更早的只报截断数)。 */
@@ -174,7 +172,6 @@ export interface TaskRhythmEntry {
   readonly taskId: string;
   readonly title: string;
   readonly status: SnapshotStatus;
-  readonly module: string | null;
   /** 当前投影 cut 里有没有这一行(事件窗口跨 cut 时可能只见事件不见行)。 */
   readonly known: boolean;
   /** 各阶段首次到达时间;窗口没覆盖到的阶段为 null。 */
@@ -266,18 +263,11 @@ export interface CadenceFactMark {
   readonly at: string | null;
 }
 
-export interface CadenceModuleHeat {
-  readonly module: string;
-  readonly tasks: number;
-  readonly events: number;
-}
-
 export interface CadenceYieldSnapshot {
   readonly factsToday: number;
   readonly recentFacts: readonly CadenceFactMark[];
   readonly decisionsProposed: number;
   readonly decisionsInEffect: number;
-  readonly moduleHeat: readonly CadenceModuleHeat[];
 }
 
 export interface CadenceHudSnapshot {
@@ -367,8 +357,7 @@ export function deriveCadenceSnapshot(input: CadenceInput): CadenceSnapshot {
 
   let completedToday = 0,
     factsToday = 0;
-  const recentFacts: CadenceFactMark[] = [],
-    moduleEvents = new Map<string, { tasks: Set<string>; events: number }>();
+  const recentFacts: CadenceFactMark[] = [];
   const byKind: Record<CadenceFrictionKind, number> = { gateFail: 0, reviewChanges: 0, returned: 0, reopened: 0 };
 
   for (const event of input.events) {
@@ -422,7 +411,6 @@ export function deriveCadenceSnapshot(input: CadenceInput): CadenceSnapshot {
       ) as Record<CadenceStageId, string | null>,
       bootstrapAt = acc?.bootstrapAt ?? null,
       completedAt = acc?.completedAt ?? null,
-      module = row?.module ?? null,
       deliveryMs =
         bootstrapAt !== null && completedAt !== null && acc !== null
           ? Date.parse(completedAt) - Date.parse(bootstrapAt)
@@ -435,12 +423,6 @@ export function deriveCadenceSnapshot(input: CadenceInput): CadenceSnapshot {
       stalledActive += 1;
       stalledTasks.push({ taskId, title: row!.title, lastSeenAt });
     }
-    if (module !== null && acc !== null && acc.count > 0) {
-      const heat = moduleEvents.get(module) ?? { tasks: new Set<string>(), events: 0 };
-      heat.tasks.add(taskId);
-      heat.events += acc.count;
-      moduleEvents.set(module, heat);
-    }
     const elapsedRaw =
         acc !== null && acc.firstAt !== null ? Date.parse(acc.completedAt ?? now) - Date.parse(acc.firstAt) : null,
       microTruncated = Math.max(0, (acc?.events.length ?? 0) - CADENCE_MICRO_EVENTS);
@@ -448,7 +430,6 @@ export function deriveCadenceSnapshot(input: CadenceInput): CadenceSnapshot {
       taskId,
       title: row?.title ?? taskId,
       status,
-      module,
       known,
       stages,
       currentStage: acc?.currentStage ?? null,
@@ -518,10 +499,6 @@ export function deriveCadenceSnapshot(input: CadenceInput): CadenceSnapshot {
       recentFacts: recentFacts.slice(-CADENCE_RECENT_FACTS).reverse(),
       decisionsProposed: input.decisions.filter((decision) => decision.state === "proposed").length,
       decisionsInEffect: input.decisions.filter((decision) => decision.state === "in_effect").length,
-      moduleHeat: [...moduleEvents.entries()]
-        .map(([module, heat]) => ({ module, tasks: heat.tasks.size, events: heat.events }))
-        .sort((left, right) => right.events - left.events || left.module.localeCompare(right.module))
-        .slice(0, CADENCE_MODULE_TOP),
     },
   };
 }

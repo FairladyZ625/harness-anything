@@ -33,6 +33,7 @@ import { runVerticalDeclarationAction } from "./vertical-declaration-action.ts";
 import { attestGateWitness } from "./repo-cell-witness-adapters.ts";
 import { applyTaskWorktreeLifecycle, presetSnapshotReader } from "./task-worktree.ts";
 import { runEntityPinAction } from "./entity-pin-action.ts";
+import { readWork } from "./work-read.ts";
 
 export async function executeAction(
   cell: RepoCellOperationalContext,
@@ -129,6 +130,7 @@ async function executeRepoAction(
   }
   if (action.kind === "task-show") return cell.showTask(String(action.taskId ?? ""));
   if (action.kind === "task-list") return cell.listTasks(action, binding);
+  if (action.kind === "work-list" || action.kind === "work-show") return readWork(cell, action, binding);
   if (action.kind === "relation-list") return cell.listRelations(action, binding);
   if (action.kind === "event-list") return cell.listEvents(action, binding);
   if (action.kind === "event-show") return cell.showEvent(action, binding);

@@ -13,7 +13,7 @@ import {
 } from "@harness-anything/kernel";
 import { compilePresetSnapshotUpgrade, compileTaskBootstrap, compileTaskPackage } from "../src/index.ts";
 
-test("standard and milestone bootstrap compile one exact canonical birth and rebuild from L1", async () => {
+test("standard and work bootstrap compile one exact canonical birth and rebuild from L1", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-bootstrap-")),
     userRoot = path.join(rootDir, ".harness/presets");
   try {
@@ -110,27 +110,27 @@ test("standard and milestone bootstrap compile one exact canonical birth and reb
         compileTaskBootstrap({
           ...common,
           taskId: "task-missing-class",
-          title: "Milestone",
-          presetId: "create-milestone",
+          title: "Work",
+          presetId: "create-work",
           workspaceRevision: 1,
           eventId: "event-missing",
           opId: "op-missing",
         }),
       (error: unknown) => (error as { code?: string }).code === "task_class_required",
     );
-    const milestone = compileTaskBootstrap({
+    const work = compileTaskBootstrap({
       ...common,
-      taskId: "task-milestone",
-      title: "Milestone",
-      presetId: "create-milestone",
-      taskClass: "milestone",
+      taskId: "task-work",
+      title: "Work",
+      presetId: "create-work",
+      taskClass: "work",
       workspaceRevision: 1,
-      eventId: "event-milestone",
-      opId: "op-milestone",
+      eventId: "event-work",
+      opId: "op-work",
     });
-    assert.equal(milestone.event.payload.task.taskClass, "milestone");
-    assert.equal(milestone.snapshot.templates[0]!.templateRef, "template://planning/milestone-task-plan@1");
-    assert.equal(milestone.event.payload.initialDocumentClaims.length, 5);
+    assert.equal(work.event.payload.task.taskClass, "work");
+    assert.equal(work.snapshot.templates[0]!.templateRef, "template://planning/work-task-plan@1");
+    assert.equal(work.event.payload.initialDocumentClaims.length, 5);
     const store = makeTaskEventStore({ repoId: "preset-bootstrap", rootDir }),
       projection = makeTaskProjection({ rootDir, eventStore: store }),
       before = store.currentCommit();

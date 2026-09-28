@@ -501,8 +501,6 @@ test("task-create and preset RPC descriptors enforce closed payloads and retire 
     workKind: "feat",
     riskTier: "high",
     urgency: "medium",
-    moduleKey: "kernel",
-    registerModule: { key: "kernel", title: "Kernel", prefix: "KER", scope: "packages/kernel/**" },
     surfaces: ["ha task create"],
     createMode: "admin",
   };
@@ -527,6 +525,14 @@ test("task-create and preset RPC descriptors enforce closed payloads and retire 
       payload: { ...fullPayload, taskClass: "long_running" },
     }).ok,
     true,
+  );
+  // dec_5F7E74F1 retired the module grouping, so the create payload no longer declares it.
+  assert.equal(
+    parseDaemonRpcParams("repo.task.create", {
+      repo: { repoId: "alpha" },
+      payload: { ...fullPayload, moduleKey: "kernel" },
+    }).ok,
+    false,
   );
 });
 

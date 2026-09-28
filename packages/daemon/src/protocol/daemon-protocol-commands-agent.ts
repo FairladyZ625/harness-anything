@@ -86,7 +86,8 @@ export const agentProtocolCommands = Object.freeze([
     path: ["agenda"],
     summary:
       "Project the current supervisory agenda from tasks, decisions, executions, and relations; " +
-      "等你处理 lists the active awaits Relations addressed to you, each with its answer command.",
+      "等你处理 lists the active awaits Relations addressed to you, each with its answer command. " +
+      "Each task row names its work; --work <id> narrows the agenda to that work's root and subtree.",
     method: "repo.agenda.read",
     inputs: [
       cliInput(
@@ -101,6 +102,7 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--cursor", "single", false, {
         code: "invalid_field",
       }),
+      cliInput("--work", "single", false, { code: "invalid_field" }, { format: "<work root task id>" }),
     ],
   }),
   agentRunProtocolCommand,

@@ -489,7 +489,6 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       ["task-gui-smoke"],
     );
     assert.match(agenda.summary, /在飞线/u);
-    assert.deepEqual(tasks.rows[0]?.placement.moduleKeys, ["gui"]);
     assert.equal(tasks.rows[0]?.placement.origin, "native");
     const graph = parseDaemonGuiReadResult("repo.triadic.relationGraph", results.get("repo.triadic.relationGraph"));
     assert.deepEqual(

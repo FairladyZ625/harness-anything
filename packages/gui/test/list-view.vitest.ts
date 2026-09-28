@@ -23,7 +23,6 @@ const makeTask = (overrides: Partial<TaskRow> = {}): TaskRow => ({
   closeoutReadiness: "not_required",
   engine: "local",
   source: "local-document",
-  module: "core",
   lastKnownAt: "2026-07-09T00:00:00.000Z",
   gates: [],
   docs: [],
@@ -209,7 +208,7 @@ describe("list view column resize (W11)", () => {
     const handle = markup.match(/<div[^>]*data-testid="list-column-resize-title"[^>]*>/u)![0];
     expect(handle).toContain('role="separator"');
     expect(handle).toContain('tabindex="0"');
-    expect(handle).toContain("Resize the &quot;title / module&quot; column");
+    expect(handle).toContain("Resize the &quot;title&quot; column");
     // 回归:真实 Electron 验收发现共享基类缺 position:absolute,静态流里手柄高度
     // 恒 0、鼠标无命中区、拖拽无效(2026-09-09);定位链 = relative th + 基类内置
     // absolute + 消费方 inset 偏移。命中区像素高度由 Electron 走查复核,类名断言
@@ -239,7 +238,6 @@ describe("list view column resize (W11)", () => {
     const task = makeTask({
       taskId: "task_eeb3b5f08c093e63622b24392c",
       title: "Overflow regression",
-      module: "packages/daemon",
       canonicalStatus: "done",
       coordinationStatus: "in_review",
       currentNode: "implementation",
@@ -266,10 +264,9 @@ describe("list view column resize (W11)", () => {
     const dateLine = markup.match(/<div[^>]*class="mt-1 truncate[^"]*"[^>]*>[^<]+<\/div>/u)![0];
     expect(dateLine).toBeTruthy();
     // 同一 fixed 布局下其余不可断行值同样收敛在本列:coordination 键值串、节点行、
-    // 模块名、包处置枚举 chip。
+    // 包处置枚举 chip。
     expect(markup.match(/<span[^>]*>coordination=in_review<\/span>/u)![0]).toContain("truncate");
     expect(markup.match(/<span[^>]*>graph cursor:implementation<\/span>/u)![0]).toContain("truncate");
-    expect(markup.match(/<span[^>]*>packages\/daemon<\/span>/u)![0]).toContain("truncate");
     expect(markup.match(/<span[^>]*>active<\/span>/u)![0]).toContain("max-w-full");
     // 二次验收(2026-09-09):长 decision 徽章与状态列各行在 136px 窄列画进相邻列。
     // 徽章外包可收缩截断项,整串 decision id 保留在徽章自身 title(悬停)与 DOM 文本。

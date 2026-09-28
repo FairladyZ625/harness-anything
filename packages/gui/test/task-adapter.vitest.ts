@@ -34,7 +34,7 @@ function row(overrides: Partial<TaskSnapshotProjectionRow> = {}): TaskSnapshotPr
           verticalId: "software-coding",
           presetId: "gui-task",
           profileId: "default",
-          moduleKey: "gui",
+          moduleKey: null,
           slug: "x",
           surfaces: ["packages/gui"],
           fromLegacyId: null,
@@ -54,7 +54,6 @@ function row(overrides: Partial<TaskSnapshotProjectionRow> = {}): TaskSnapshotPr
     closeoutAssessment: { readiness: "not_required", gates: [] },
     blockingAssessment: { taskId, state: "clear", label: "none", blockers: [], warnings: [] },
     placement: {
-      moduleKeys: ["gui"],
       productLines: ["harness"],
       spawningDecisionIds: [],
       parentTaskId: null,
@@ -111,8 +110,6 @@ describe("adaptProjectionRows", () => {
       createdAt: "2026-08-11T23:59:00.000Z",
       rootTaskId: "task-x",
       rootTitle: "X",
-      module: "gui",
-      moduleKeys: ["gui"],
       productLines: ["harness"],
       origin: "native",
       engine: "kernel/task-lifecycle/v1",
@@ -184,7 +181,6 @@ describe("adaptProjectionRows", () => {
       },
       placement: {
         ...row().placement,
-        moduleKeys: ["gui"],
         productLines: ["desktop"],
         spawningDecisionIds: ["dec-source"],
       },
@@ -193,7 +189,6 @@ describe("adaptProjectionRows", () => {
 
     expect(task?.blockers).toBe(input.blockingAssessment.blockers);
     expect(task?.blockingWarnings).toBe(input.blockingAssessment.warnings);
-    expect(task?.moduleKeys).toBe(input.placement.moduleKeys);
     expect(task?.productLines).toBe(input.placement.productLines);
     expect(task?.spawningDecisionIds).toBe(input.placement.spawningDecisionIds);
   });
@@ -281,13 +276,12 @@ describe("adaptProjectionRows", () => {
   it("carries daemon-derived placement through, including every spawning decision id", () => {
     const parent = row({
       taskId: "task-parent",
-      placement: { ...row().placement, moduleKeys: ["kernel"], productLines: ["platform"] },
+      placement: { ...row().placement, productLines: ["platform"] },
     });
     const child = row({
       taskId: "task-child",
       placement: {
         ...row().placement,
-        moduleKeys: ["gui"],
         productLines: ["desktop"],
         spawningDecisionIds: ["dec-scope"],
         parentTaskId: "task-parent",
@@ -296,8 +290,6 @@ describe("adaptProjectionRows", () => {
     const tasks = adaptProjectionRows([parent, child], "repo-test", "ready");
 
     expect(tasks.find((task) => task.taskId === "task-child")).toMatchObject({
-      module: "gui",
-      moduleKeys: ["gui"],
       productLines: ["desktop"],
       parentTaskId: "task-parent",
       rootTaskId: "task-parent",
@@ -305,7 +297,6 @@ describe("adaptProjectionRows", () => {
       spawningDecisionIds: ["dec-scope"],
     });
     expect(tasks.find((task) => task.taskId === "task-parent")).toMatchObject({
-      module: "kernel",
       productLines: ["platform"],
     });
   });

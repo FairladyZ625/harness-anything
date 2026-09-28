@@ -30,7 +30,7 @@ const actor = { principal: { personId: "person_synthetic" }, executor: null } as
     riskTier: null,
     urgency: null,
     verticalId: "software/coding",
-    presetId: "create-milestone",
+    presetId: "create-work",
     profileId: "baseline",
     moduleKey: null,
     slug: "synthetic",

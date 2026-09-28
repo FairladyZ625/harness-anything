@@ -45,7 +45,6 @@ function makeTask(overrides: Partial<TaskRow> = {}): TaskRow {
     closeoutReadiness: "not_required",
     engine: "local",
     source: "local-document",
-    module: "core",
     lastKnownAt: "2026-07-09T00:00:00.000Z",
     gates: [],
     docs: [],
@@ -90,16 +89,13 @@ describe("taskFilters status multi-select", () => {
     expect(chips).toContain("status=active|blocked");
   });
 
-  it("makes relation unknown and every projected module explicitly filterable", () => {
+  it("makes relation unknown explicitly filterable", () => {
     const task = makeTask({
       coordinationStatus: "planned",
       canonicalStatus: "planned",
       blocking: "unknown",
-      module: "multiple (gui, kernel)",
-      moduleKeys: ["gui", "kernel"],
     });
     expect(matchesTask(task, { ...DEFAULT_TASK_FILTERS, status: ["unknown"] })).toBe(true);
-    expect(matchesTask(task, { ...DEFAULT_TASK_FILTERS, module: "gui" })).toBe(true);
   });
 });
 

@@ -54,7 +54,7 @@ export function deriveTaskRoot(
 ): TaskRootDerivation {
   const directChildCount =
     Number.isSafeInteger(entry.directChildCount) && entry.directChildCount >= 0 ? entry.directChildCount : 0;
-  if (entry.taskClass === "milestone" || entry.taskClass === "long_running") {
+  if (entry.taskClass === "work" || entry.taskClass === "long_running") {
     return { isRoot: true, reason: "declared", directChildCount, threshold };
   }
   if (directChildCount >= threshold && !entry.hasOwnExecution)

@@ -314,6 +314,33 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     ],
   }),
   defineRepoReadCommand({
+    id: "work-list",
+    phase: "W3",
+    path: ["work", "list"],
+    summary:
+      "List works — a work is one root task plus its subtree — with task counts, leaf status counts, and " +
+      "latest activity. Open works only unless --all.",
+    method: "repo.task.read",
+    inputs: [
+      cliInput("--all", "boolean", false, { code: "invalid_field" }),
+      cliInput(
+        "--limit",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { regex: "^(?:[1-9]|[1-9][0-9]|[1-4][0-9]{2}|500)$" },
+      ),
+    ],
+  }),
+  defineRepoReadCommand({
+    id: "work-show",
+    phase: "W3",
+    path: ["work", "show", "<task-id>"],
+    summary: "Show one work: its goal, leaf status counts, groups, and the tasks still open.",
+    method: "repo.task.read",
+    inputs: [],
+  }),
+  defineRepoReadCommand({
     id: "task-list",
     phase: "W3",
     path: ["task", "list"],
@@ -333,9 +360,6 @@ export const taskSurfaceProtocolCommands = Object.freeze([
           enum: taskStatusWords,
         },
       ),
-      cliInput("--module", "single", false, {
-        code: "invalid_field",
-      }),
       cliInput("--search", "single", false, {
         code: "invalid_field",
       }),
@@ -519,7 +543,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     phase: "W3",
     path: ["graph", "<ref>"],
     summary:
-      "Render the read-only causal tree for one Task, Decision, Fact, or milestone slug: " +
+      "Render the read-only causal tree for one Task, Decision, Fact, or work/task slug: " +
       "declared relations in both directions plus task parent/child structure, with cycles, " +
       "repeats, and truncated frontiers marked.",
     method: "repo.task.read",

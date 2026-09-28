@@ -639,6 +639,7 @@ export type {
   AgendaExecutionRow,
   AgendaPinnedEntityRow,
   AgendaTaskRow,
+  AgendaWorkRef,
   DaemonAgendaPayload,
   DaemonAgendaResult,
   DaemonGuiActionMethod,

@@ -14,7 +14,7 @@ import type {
   taskPhaseSteps,
 } from "@harness-anything/kernel";
 
-export const AGENDA_PIN_CRITERIA = "blocking the active milestone or awaiting owner decision; otherwise leave unpinned";
+export const AGENDA_PIN_CRITERIA = "blocking an active work or awaiting owner decision; otherwise leave unpinned";
 
 // daemon-status-vocabulary:generated:start
 export const taskStatusWords = ["planned", "active", "submitted", "blocked", "in_review", "done", "cancelled"] as const;

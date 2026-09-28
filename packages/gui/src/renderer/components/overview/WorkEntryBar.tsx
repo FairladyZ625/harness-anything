@@ -8,7 +8,7 @@ import { searchCurrentRepo, type WorkSearchRow } from "../../start-work-flow.ts"
  * G1 的三个入口(S5):切仓、当前仓搜索、开始一项工作。
  *
  * 切仓复用壳层那一份 `projectSwitcherOpen`(不另建切换状态);搜索复用 ⌘K/关系图左栏
- * 共用的统一实体索引(按当前仓装配,所以默认就是当前仓),只是把「类型」与「所属任务组」
+ * 共用的统一实体索引(按当前仓装配,所以默认就是当前仓),只是把「类型」与「所属工作」
  * 显式摆到每一行上;创建走 StartWorkDialog。
  *
  * 读的节流:索引里的事实切面只在有搜索输入时启用(`onSearchActiveChange`,与关系图左栏

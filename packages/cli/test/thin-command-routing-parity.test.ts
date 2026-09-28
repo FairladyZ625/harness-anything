@@ -502,7 +502,6 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "squad-status",
       "squad-validate",
     ],
-    subtask: ["subtask-create"],
     task: [
       "task-adjudicate",
       "task-amend",
@@ -545,6 +544,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "vertical-kind-upsert-cli",
       "vertical-validate",
     ],
+    work: ["work-create", "work-list", "work-show"],
   });
 });
 
@@ -791,14 +791,12 @@ test("human preset and task receipts print resolved completion contracts byte-fo
         expectedContract,
         "next: edit harness/tasks/task-one/task_plan.md, then run ha doc sync --submit --path " +
           "tasks/task-one/task_plan.md, then run ha task start task-one",
-        "plan: write the concrete plan at harness/tasks/task-one/task_plan.md; required sections: Brief, Goal, " +
-          "Context, Required Reading, Entry Conditions, Dependencies, Execution Surface, Constraints, Checkpoint, " +
-          "CI/Gate Authority Stop Condition, Implementation Plan, Deliverable Contract, Evidence Protocol, " +
-          "Verification",
+        "plan: write the concrete plan at harness/tasks/task-one/task_plan.md; keep every section heading the " +
+          "preset template ships",
         "artifacts: persist supplementary context, research notes, design drafts, worker prompts, and review " +
           "evidence under harness/tasks/task-one/artifacts/; consider landing any extra information or " +
           "background materials here beyond task_plan.md",
-        "agenda: pin only if blocking the active milestone or awaiting owner decision; otherwise leave unpinned — " +
+        "agenda: pin only if blocking an active work or awaiting owner decision; otherwise leave unpinned — " +
           "ha pin task/task-one.",
         "ledger: INDEX.md and closeout.md are coordinator-managed; update them through ha doc sync",
       ].join("\n");
@@ -829,9 +827,9 @@ test("thin parser derives closed preset and task-create payloads from descriptor
       "--title",
       "Bound",
       "--preset",
-      "create-milestone",
+      "create-work",
       "--task-class",
-      "milestone",
+      "work",
       "--dry-run",
     ]),
     tree = parseThinCommand(["task", "list", "--parent", "task-root", "--depth", "all", "--search", "needle"]),
@@ -852,8 +850,8 @@ test("thin parser derives closed preset and task-create payloads from descriptor
     assert.deepEqual(create.command.action, {
       kind: "task-create",
       title: "Bound",
-      presetId: "create-milestone",
-      taskClass: "milestone",
+      presetId: "create-work",
+      taskClass: "work",
       dryRun: true,
     });
   }
@@ -907,50 +905,37 @@ test("thin parser derives closed preset and task-create payloads from descriptor
     });
 });
 
-test("subtask create forwards a task-create action with parent and lightweight profile default", () => {
-  assert.equal(parseThinCommand(["subtask", "create", "--title", "slice"]).ok, false);
-  assert.equal(parseThinCommand(["subtask", "create", "--parent", "task-root"]).ok, false);
-  const subtask = parseThinCommand([
-      "subtask",
-      "create",
-      "--parent",
-      "task-root",
-      "--title",
-      "slice one",
-      "--locale",
-      "zh-CN",
-    ]),
-    overridden = parseThinCommand([
-      "subtask",
-      "create",
-      "--parent",
-      "task-root",
-      "--title",
-      "slice two",
-      "--profile",
-      "baseline",
-      "--dry-run",
-    ]);
-  assert.equal(subtask.ok, true, JSON.stringify(subtask));
-  if (subtask.ok) {
-    assert.equal(subtask.command.method, "repo.task.create");
-    assert.deepEqual(subtask.command.action, {
+test("work create, list, and show route to the task-create and work read actions", () => {
+  assert.equal(parseThinCommand(["work", "create"]).ok, false);
+  assert.equal(parseThinCommand(["work", "show"]).ok, false);
+  assert.equal(parseThinCommand(["task", "create", "--title", "slice", "--parent", "task-root"]).ok, false);
+  assert.equal(parseThinCommand(["subtask", "create", "--parent", "task-root", "--title", "slice"]).ok, false);
+  const work = parseThinCommand(["work", "create", "--title", "Release 2", "--locale", "zh-CN", "--dry-run"]),
+    member = parseThinCommand(["task", "create", "--work", "task-root", "--title", "slice one"]),
+    list = parseThinCommand(["work", "list", "--all", "--limit", "5"]),
+    show = parseThinCommand(["work", "show", "task-root"]);
+  assert.equal(work.ok, true, JSON.stringify(work));
+  if (work.ok) {
+    assert.equal(work.command.method, "repo.task.create");
+    assert.deepEqual(work.command.action, {
       kind: "task-create",
-      title: "slice one",
-      parentTaskId: "task-root",
-      profileId: "lightweight",
+      title: "Release 2",
       locale: "zh-CN",
-    });
-  }
-  assert.equal(overridden.ok, true, JSON.stringify(overridden));
-  if (overridden.ok)
-    assert.deepEqual(overridden.command.action, {
-      kind: "task-create",
-      title: "slice two",
-      parentTaskId: "task-root",
-      profileId: "baseline",
+      presetId: "create-work",
+      taskClass: "work",
       dryRun: true,
     });
+  }
+  assert.equal(member.ok, true, JSON.stringify(member));
+  if (member.ok)
+    assert.deepEqual(member.command.action, { kind: "task-create", title: "slice one", parentTaskId: "task-root" });
+  assert.equal(list.ok, true, JSON.stringify(list));
+  if (list.ok) {
+    assert.equal(list.command.method, "repo.task.read");
+    assert.deepEqual(list.command.action, { kind: "work-list", limit: 5, all: true });
+  }
+  assert.equal(show.ok, true, JSON.stringify(show));
+  if (show.ok) assert.deepEqual(show.command.action, { kind: "work-show", taskId: "task-root" });
 });
 
 test("runtime instance parser rejects repeated static headers regardless of spelling", () => {

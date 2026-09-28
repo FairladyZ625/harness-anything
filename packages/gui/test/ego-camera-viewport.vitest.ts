@@ -10,7 +10,7 @@ import { decisionProjectionFields } from "./decision-projection-fields.ts";
  * 相机归属:聚光灯的缩放级别只由用户改,不由画布上有多少节点决定。
  *
  * 泽宇 2026-09-13 在 Electron 里实测到的问题——单击一个 chip 展开邻居,整张图被
- * fitView 塞进一屏,几百个子任务的 milestone 下缩到看不清,原本在读的那块彻底找不回来。
+ * fitView 塞进一屏,几百个子任务的工作下缩到看不清,原本在读的那块彻底找不回来。
  * 病根是旧 effect 把 displayNodes.length 放进了依赖:那是内容变化,不是用户动作。
  *
  * 这里钉两条:换焦点(用户动作)平移到焦点且不改 zoom;单击展开(内容变化)完全不动相机。
@@ -42,7 +42,6 @@ function task(taskId: string, title: string): TaskRow {
     closeoutReadiness: "not_required",
     engine: "local",
     source: "local-document",
-    module: "gui",
     lastKnownAt: "2026-08-01T00:00:00.000Z",
     gates: [],
     docs: [],

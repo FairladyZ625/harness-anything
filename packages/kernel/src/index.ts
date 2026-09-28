@@ -86,7 +86,13 @@ export type {
   TaskLifecycleCommand,
   TaskLifecycleSnapshot,
 } from "./domain/task-lifecycle.contract.ts";
-export { canonicalizeContractValue, currentTaskForWrite, taskClasses, validateTaskV2 } from "./domain/task.ts";
+export {
+  canonicalizeContractValue,
+  currentTaskForWrite,
+  retiredTaskClassRestatements,
+  taskClasses,
+  validateTaskV2,
+} from "./domain/task.ts";
 export type { TaskClass, TaskMetadataV1, TaskV2 } from "./domain/task.ts";
 export {
   assertTaskBootstrapWritePlan,

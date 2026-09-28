@@ -112,7 +112,6 @@ export function resolveRepoBootstrap(
       "  localRoot: .harness",
       "  contextRoot: harness/context",
       "  governanceRoot: harness/governance",
-      "  milestonesRoot: harness/milestones",
       "settings:",
       `  defaultVertical: ${INITIAL_SETTINGS_V1.defaultVertical}`,
       `  defaultPreset: ${INITIAL_SETTINGS_V1.defaultPreset}`,

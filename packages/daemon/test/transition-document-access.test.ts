@@ -113,6 +113,19 @@ test("readiness contract resolves from the descriptor-embedded map, then the bun
   );
 });
 
+test("a contract citing the retired milestone plan template reads the work plan scaffold it was renamed to", () => {
+  const workPlan = readFileSync(
+      new URL("../../preset/assets/software-coding/templates/task.work.plan/zh-CN.md", import.meta.url),
+      "utf8",
+    ),
+    // dec_5F7E74F1: task contracts are immutable, so historical create-milestone packages keep this ref.
+    contract = transitionDocumentReadinessContract({
+      contract: { locale: "zh-CN" },
+      descriptor: { slot: "task.plan", path: "task_plan.md", templateRef: "template://planning/milestone-task-plan@1" },
+    });
+  assert.deepEqual(contract, transitionDocumentContract(workPlan));
+});
+
 function realizedPlan(): string {
   return `# Plan\n\n${planHeadings.map((heading) => `## ${heading}\n\nImplemented ${heading}.`).join("\n\n")}\n`;
 }

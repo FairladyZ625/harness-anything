@@ -3,8 +3,8 @@ import { requireSameProjectionCut, type ProjectionCut } from "./task-query-read.
 
 /**
  * Dispatch-time causal context: the bounded slice of the causal graph a freshly
- * spawned worker needs before it can query anything itself — the parent
- * milestone goal, the decision whose chosen anchor derives the task, and the
+ * spawned worker needs before it can query anything itself — the goal of the
+ * work it belongs to, the decision whose chosen anchor derives the task, and the
  * facts that evidence that decision's load-bearing claims.
  *
  * Every field is read from the canonical projection at one verified cut; the
@@ -18,7 +18,7 @@ import { requireSameProjectionCut, type ProjectionCut } from "./task-query-read.
  * is measured, not guessed: over the production ledger's 1,541 parented tasks
  * (2026-09-18) a full block is 351 B mean, 776 B p90, 1,709 B max, while the
  * old 500 B cap dropped at least one line in 16% of blocks — usually the
- * evidence Facts or the milestone Goal under CJK text. 2 KiB covers the
+ * evidence Facts or the work Goal under CJK text. 2 KiB covers the
  * observed maximum with headroom. Canonical refs are never truncated away —
  * the fixed lookup guidance every task-bound mission carries (see
  * taskQueryGuidance) is what tells the worker `ha graph <task-id>` re-queries
@@ -53,7 +53,7 @@ export function assembleTaskCausalContext(input: {
     parentId = row.parentTaskId;
   }
   const parent = ancestors[0] ?? null,
-    milestone = ancestors.find((row) => row.taskClass === "milestone") ?? ancestors.at(-1) ?? null,
+    work = ancestors.find((row) => row.taskClass === "work") ?? ancestors.at(-1) ?? null,
     derives = projection.readTaskRelationsByTargets([`task/${taskId}`], "derives");
   reads.push(derives);
   const derivingAnchor = new Map<string, string>(),
@@ -96,25 +96,24 @@ export function assembleTaskCausalContext(input: {
   // Archived Facts stay in the ledger but leave the agent-facing retrieval surface: neither
   // their statements nor their refs belong in the injected block.
   const servedFactRefs = factRefs.filter((ref) => facts.get(ref)?.archived !== true);
-  let milestoneGoal: string | null = null;
-  if (milestone?.packagePath) {
-    const plan = projection.readDocument(`${milestone.packagePath}/task_plan.md`);
+  let workGoal: string | null = null;
+  if (work?.packagePath) {
+    const plan = projection.readDocument(`${work.packagePath}/task_plan.md`);
     reads.push(plan);
-    if (plan.document !== null && plan.watermark >= plan.sourceRevision)
-      milestoneGoal = planGoalSummary(plan.document.body);
+    if (plan.document !== null && plan.watermark >= plan.sourceRevision) workGoal = planGoalSummary(plan.document.body);
   }
   requireSameProjectionCut("dispatch causal context", reads);
-  if (milestone === null && parent === null && decisionIds.length === 0) return null;
+  if (work === null && parent === null && decisionIds.length === 0) return null;
   // Priority order: identity lines first, then each decision's header, chosen
-  // anchor and load-bearing claims, then the evidence layer — a fat milestone
+  // anchor and load-bearing claims, then the evidence layer — a fat work
   // title can never starve the facts of all budget. Goal, question and any
   // second decision are detail tails the greedy fit may drop.
   const details: string[] = [],
     tails: string[] = [];
   // The refs line already carries every canonical id, so identity lines stay
   // title-only — repeating `(${id})` here would spend budget twice.
-  if (milestone !== null) details.push(`- Milestone: ${field(milestone.title, 48)}`);
-  if (parent !== null && parent.taskId !== milestone?.taskId) details.push(`- Parent: ${field(parent.title, 48)}`);
+  if (work !== null) details.push(`- Work: ${field(work.title, 48)}`);
+  if (parent !== null && parent.taskId !== work?.taskId) details.push(`- Parent: ${field(parent.title, 48)}`);
   const decisionBlocks: string[][] = [];
   for (const decisionId of decisionIds) {
     const decision = decisions.get(decisionId);
@@ -143,11 +142,11 @@ export function assembleTaskCausalContext(input: {
     }`;
   });
   if (factLines.length > 0) details.push(`- Facts:\n${factLines[0]!}`, ...factLines.slice(1));
-  if (milestoneGoal !== null) tails.unshift(`  * Goal: ${field(milestoneGoal, 64)}`);
+  if (workGoal !== null) tails.unshift(`  * Goal: ${field(workGoal, 64)}`);
   details.push(...(decisionBlocks[1] ?? []), ...tails);
   const refs = [
-    ...(milestone === null ? [] : [`task/${milestone.taskId}`]),
-    ...(parent === null || parent.taskId === milestone?.taskId ? [] : [`task/${parent.taskId}`]),
+    ...(work === null ? [] : [`task/${work.taskId}`]),
+    ...(parent === null || parent.taskId === work?.taskId ? [] : [`task/${parent.taskId}`]),
     ...decisionIds.map((decisionId) => `decision/${decisionId}`),
     ...servedFactRefs,
   ];
@@ -212,8 +211,9 @@ function field(text: string, maxBytes = 96): string {
 }
 
 /** The one-paragraph goal/mission statement of a task plan, if the plan declares one. */
-function planGoalSummary(body: string): string | null {
-  for (const heading of ["Goal", "Brief"]) {
+export function planGoalSummary(body: string): string | null {
+  // The create-work plan states its goal under Mission.
+  for (const heading of ["Goal", "Brief", "Mission"]) {
     const section = new RegExp(`^## ${heading}\\s*\\r?\\n([\\s\\S]*?)(?=^## |$)`, "mu").exec(body)?.[1],
       text = section
         ?.split(/\r?\n/u)

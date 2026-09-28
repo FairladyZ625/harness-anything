@@ -118,9 +118,6 @@ const reviewFields = Object.freeze(
     }),
   ),
 );
-const registerModuleFields = Object.freeze(
-  ["key", "title", "prefix", "scope"].map((name) => field(name, "string", true)),
-);
 const createPacketFields = Object.freeze([
   field("title", "string", true),
   field("taskId"),
@@ -132,8 +129,6 @@ const createPacketFields = Object.freeze([
   field("verticalId"),
   field("presetId"),
   field("profileId"),
-  field("moduleKey"),
-  objectField("registerModule", registerModuleFields),
   field("slug", "string", false, undefined, "^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$"),
   field("surfaces", "string-array"),
   field("taskClass", "string", false, taskClasses),
@@ -178,7 +173,7 @@ const createInput = input([
   cli("title", "string", false, "--title", "single", {}, "missing_field"),
   cli("taskId", "string", false, "--id"),
   cli("idempotencyKey", "string", false, "--idempotency-key"),
-  cli("parentTaskId", "string", false, "--parent"),
+  cli("parentTaskId", "string", false, "--work"),
   cli("workKind", "string", false, "--kind", "single", { enum: taskWorkKinds }),
   cli("riskTier", "string", false, "--risk-tier", "single", { enum: priorityTiers }),
   cli("urgency", "string", false, "--urgency", "single", { enum: priorityTiers }),
@@ -186,11 +181,6 @@ const createInput = input([
   cli("verticalId", "string", false, "--vertical"),
   cli("presetId", "string", false, "--preset"),
   cli("profileId", "string", false, "--profile"),
-  cli("moduleKey", "string", false, "--module"),
-  cli("registerModuleKey", "string", false, "--register-module"),
-  cli("moduleTitle", "string", false, "--module-title"),
-  cli("modulePrefix", "string", false, "--module-prefix"),
-  cli("moduleScope", "string", false, "--module-scope"),
   cli("slug", "string", false, "--slug", "single", {
     regex: "^[a-z0-9](?:[a-z0-9-]{0,70}[a-z0-9])?$",
   }),
@@ -205,7 +195,6 @@ const createInput = input([
   cli("migration", "boolean", false, "--migration", "boolean"),
   cli("import", "boolean", false, "--import", "boolean"),
   cli("admin", "boolean", false, "--admin", "boolean"),
-  objectField("registerModule", registerModuleFields),
   field("createMode", "string", false, ["migration", "import", "admin"]),
 ]);
 

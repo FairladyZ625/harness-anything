@@ -70,6 +70,8 @@ function mutationDocumentPaths(event: TaskEventV1, packagePath: string): readonl
   return [
     `${packagePath}/INDEX.md`,
     `${packagePath}/task-contract.json`,
+    // moduleKey is a retired, read-only field (dec_5F7E74F1): task creation never sets it, but replay requires the
+    // historical tasks that carry it to keep claiming the module.md their earlier events claimed.
     ...(event.payload.task.metadata?.moduleKey ? [`${packagePath}/module.md`] : []),
   ];
 }

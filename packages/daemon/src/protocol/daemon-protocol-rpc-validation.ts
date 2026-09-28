@@ -168,6 +168,7 @@ export function validateAgendaQueryPayload(value: unknown): string[] {
   if (value.limit !== undefined && (!integer(value.limit) || Number(value.limit) < 1 || Number(value.limit) > 500))
     errors.push("repo.agenda.read.payload.limit is invalid");
   if (value.cursor !== undefined && !nonEmpty(value.cursor)) errors.push("repo.agenda.read.payload.cursor is invalid");
+  if (value.work !== undefined && !nonEmpty(value.work)) errors.push("repo.agenda.read.payload.work is invalid");
   return errors;
 }
 

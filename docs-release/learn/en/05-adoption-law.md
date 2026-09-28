@@ -36,7 +36,7 @@ hold:
 
 The fourth layer is where the adoption law bites. Something that clears the
 first three but fails the fourth is **shipped-unused**: it exists, it works, and
-nobody reaches for it. Shipped-unused does not count as a completed milestone.
+nobody reaches for it. Shipped-unused does not count as done.
 When a delivery is necessarily a skeleton — infrastructure that cannot yet have
 users — that is allowed, but only if its wiring is scheduled at the same moment,
 so it has a committed route to the fourth layer rather than an open-ended

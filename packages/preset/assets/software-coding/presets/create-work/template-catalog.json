@@ -1,8 +1,8 @@
 {
   "schema": "template-catalog/v2",
   "package": {
-    "id": "preset-create-milestone",
-    "title": "create-milestone",
+    "id": "preset-create-work",
+    "title": "create-work",
     "version": "3.0.0",
     "owner": "preset",
     "locales": [
@@ -12,9 +12,9 @@
   },
   "documents": [
     {
-      "id": "planning/milestone-task-plan",
+      "id": "planning/work-task-plan",
       "version": "1",
-      "documentKind": "milestone-task-plan",
+      "documentKind": "work-task-plan",
       "slot": "task.plan",
       "materializeAs": "task_plan.md",
       "frontmatterSchema": "task-package/v2",
@@ -60,7 +60,7 @@
             "## Evidence Protocol",
             "## Verification"
           ],
-          "bodyPath": "templates/task.milestone.plan/zh-CN.md"
+          "bodyPath": "templates/task.work.plan/zh-CN.md"
         },
         {
           "locale": "en-US",
@@ -83,7 +83,7 @@
             "## Evidence Protocol",
             "## Verification"
           ],
-          "bodyPath": "templates/task.milestone.plan/en-US.md"
+          "bodyPath": "templates/task.work.plan/en-US.md"
         }
       ]
     }

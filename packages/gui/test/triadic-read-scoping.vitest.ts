@@ -31,7 +31,6 @@ function taskRow(taskId: string) {
     closeoutAssessment: { readiness: "not_required", gates: [] },
     blockingAssessment: { taskId, state: "clear", blockers: [], warnings: [] },
     placement: {
-      moduleKeys: ["gui"],
       productLines: ["desktop"],
       spawningDecisionIds: ["dec-probe"],
       parentTaskId: null,
@@ -70,7 +69,7 @@ function taskRow(taskId: string) {
           verticalId: "software/coding",
           presetId: "standard-task",
           profileId: "baseline",
-          moduleKey: "gui",
+          moduleKey: null,
           slug: taskId,
           surfaces: [],
           fromLegacyId: null,

@@ -120,7 +120,7 @@ function compareAttention(left: AttentionItem, right: AttentionItem): number {
   return byTime !== 0 ? byTime : left.key.localeCompare(right.key);
 }
 
-/** G3 的重点工作行:置顶(共享 pin 语义)与 Milestone/任务组两段分列。 */
+/** G3 的重点工作行:置顶(共享 pin 语义)与工作两段分列。 */
 export interface KeyWorkRow {
   readonly key: string;
   readonly kind: "pinned" | "group";
@@ -136,8 +136,8 @@ export interface KeyWorkRow {
 
 /**
  * 「重点工作」行集:置顶段直接取 agenda.pinnedEntities(共享 pin,不改归属语义);
- * 组段 = 任务树根任务(rootTaskId 自指)且 wip root 判定在场的行,milestone 类根
- * 即使暂无子任务也列出。排序按组内最新活动时间倒序(呈现层排序,允许)。
+ * 工作段 = 任务树根任务(rootTaskId 自指)且 wip root 判定在场的行,taskClass=work
+ * 的根即使暂无子任务也列出。排序按工作内最新活动时间倒序(呈现层排序,允许)。
  */
 export function keyWorkRowsOf(
   agenda: AgendaSuccess | undefined,
@@ -157,8 +157,7 @@ export function keyWorkRowsOf(
   );
   const groups = tasks
     .filter(
-      (task) =>
-        task.taskId === task.rootTaskId && (task.rootAssessment !== undefined || task.taskClass === "milestone"),
+      (task) => task.taskId === task.rootTaskId && (task.rootAssessment !== undefined || task.taskClass === "work"),
     )
     .map(
       (task): KeyWorkRow => ({

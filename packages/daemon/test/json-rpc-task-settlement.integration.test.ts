@@ -70,7 +70,7 @@ const actor = { principal: { personId: "person-owner" }, executor: { kind: "agen
 const repoWriteBinding = withRoleBinding({ actor, source: "local" as const }, "repo-write");
 // prettier-ignore
 
-test("milestone-closeout uses the normal completion facade, review, and gates exactly once", async () => {
+test("work-closeout uses the normal completion facade, review, and gates exactly once", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-completion-facade-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   const taskId = "task-complete",
     executionId = "execution-complete",
@@ -85,7 +85,7 @@ test("milestone-closeout uses the normal completion facade, review, and gates ex
     }, "repo-write");
   try {
     initRepo(rootDir); mkdirSync(path.join(rootDir, "harness"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n  ci:\n    workflows: [rewrite-ci]\n  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n  closeout:\n    profile: strict\n"); /* The completion facade is a strict-profile closeout gate. */ cell = await openRepoCell({ repoId: workspaceId("completion-facade"), rootDir: canonicalRoot(rootDir), ownerId: "completion-daemon" }); const store = () => makeTaskEventReader({ repoId: "completion-facade", rootDir });
-    const created = await cell.run({ kind: "task-create", taskId, title: "Completion facade", presetId: "milestone-closeout" }, binding); const createdVisible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding)); await cell.run({ kind: "task-start", taskId, executionId }, binding);
+    const created = await cell.run({ kind: "task-create", taskId, title: "Completion facade", presetId: "work-closeout" }, binding); const createdVisible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding)); await cell.run({ kind: "task-start", taskId, executionId }, binding);
     const activeRow = (await cell.read("repo.tasks.list")).rows.find((row) => row.taskId === taskId)!,
       guiActive = (await cell.read("repo.tasks.completion.read", { taskId })).completionNext, eventsBefore = store().read().events,
       dispatchesBefore = readDispatchStreamHeaders(rootDir).length;
@@ -112,7 +112,7 @@ test("milestone-closeout uses the normal completion facade, review, and gates ex
     assert.equal(
       (
         await cell.run(
-          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Owner forwards the milestone." },
+          { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Owner forwards the work." },
           binding,
         )
       ).outcome,
@@ -253,7 +253,7 @@ test("invalid Decision payload stays invalid_command and reckon records exact pr
     const proposal = decisionProposal("Canonical", "Should reckon use the exact basis?"), proposed = await cell.run(proposal, binding);
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed)); const proposedVisible = await waitForAcceptedReceipt(cell, proposed, binding); assert.equal(proposedVisible.wait?.state, "satisfied", JSON.stringify(proposedVisible)); const decisionId = (JSON.parse(proposed.evidence) as { decisionId: string }).decisionId, related = await cell.run({ kind: "relation-relate", sourceRef: `decision/${decisionId}/CH1`, targetRef: "task/task-decision", relationType: "derives", rationale: "Decision creates this task.", expectedVersion: 0 }, binding); assert.equal(related.outcome, "applied", JSON.stringify(related)); const decisionPath = `decisions/decision-${decisionId}/decision.md`, decisionFile = path.join(rootDir, "harness", decisionPath), beforeInvalid = makeTaskEventReader({ repoId: "decision-cell", rootDir }).readHead()!.revision;
     assert.equal((proposed as Record<string, unknown>).path, decisionPath); assert.equal(proposed.status, "accepted_durable");
-    const placement = (await cell.read("repo.tasks.list")).rows.find((row) => row.taskId === "task-decision")!.placement; assert.equal(placement.moduleKeys.includes("daemon"), true, JSON.stringify(placement)); assert.equal(placement.provenance.some(({ kind }) => kind === "decision-relation"), true, JSON.stringify(placement));
+    const placement = (await cell.read("repo.tasks.list")).rows.find((row) => row.taskId === "task-decision")!.placement; assert.equal(Object.hasOwn(placement, "moduleKeys"), false, JSON.stringify(placement)); assert.equal(placement.provenance.some(({ kind }) => kind === "decision-relation"), true, JSON.stringify(placement));
     const decisionBody = readFileSync(decisionFile, "utf8"); assert.match(decisionBody, /^---\nschema: decision-package\/v1[\s\S]*\nstate: proposed[\s\S]*\n---\n# Canonical\n\nUse the canonical event-backed flow for this fixture\.\n\n<!-- harness:relation-neighborhood:start -->[\s\S]*<!-- harness:relation-neighborhood:end -->\n$/u); const decisionEvent = makeTaskEventReader({ repoId: "decision-cell", rootDir }).readEvent(proposed.opId); assert.equal(decisionEvent?.schema, "decision-event/v1"); if (decisionEvent?.schema === "decision-event/v1") { assert.equal(decisionEvent.payload.decisionDocumentClaim.path, decisionPath); assert.equal(decisionEvent.payload.decisionDocumentClaim.sha256, String((proposed as Record<string, unknown>).documentSha256)); }
     const invalid = await cell.run({ kind: "decision-accept", decisionId, rationale: "x".repeat(200) }, withRoleBinding({ actor: { principal: { personId: "person-arbiter" }, executor: null }, source: "local" }, "arbiter"));
     assert.deepEqual({ outcome: invalid.outcome, code: invalid.code, state: cell.status().state }, { outcome: "op_rejected", code: "invalid_command", state: "attached" }); assert.equal(makeTaskEventReader({ repoId: "decision-cell", rootDir }).readHead()?.revision, beforeInvalid);

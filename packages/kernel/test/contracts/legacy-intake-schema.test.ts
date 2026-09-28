@@ -29,7 +29,6 @@ test("legacy storage layout is inside authored harness root", () => {
   assert.equal(layout.governanceRoot, path.join(rootDir, "harness", "governance"));
   assert.equal(layout.standardsRoot, path.join(rootDir, "harness", "governance", "standards"));
   assert.equal(layout.contextRoot, path.join(rootDir, "harness", "context"));
-  assert.equal(layout.milestonesRoot, path.join(rootDir, "harness", "milestones"));
   assert.equal(layout.legacyRoot, path.join(rootDir, "harness", "legacy"));
   assert.equal(layout.legacyTasksRoot, path.join(layout.legacyRoot, "tasks"));
   assert.equal(layout.legacyDocsRoot, path.join(layout.legacyRoot, "docs"));
@@ -57,6 +56,7 @@ test("layout resolver honors harness.yaml layout roots and upward discovery", ()
         "  localRoot: .harness-local",
         "  contextRoot: docs/context",
         "  governanceRoot: policy",
+        // Retired by dec_5F7E74F1 (works replaced the milestones directory); older configs keep it inert.
         "  milestonesRoot: planning/milestones",
         "tasks:",
         "  root: .harness-private/coding-agent-harness/tasks",
@@ -75,7 +75,7 @@ test("layout resolver honors harness.yaml layout roots and upward discovery", ()
     assert.equal(layout.contextRoot, path.join(rootDir, "docs/context"));
     assert.equal(layout.governanceRoot, path.join(rootDir, "policy"));
     assert.equal(layout.standardsRoot, path.join(rootDir, "policy/standards"));
-    assert.equal(layout.milestonesRoot, path.join(rootDir, "planning/milestones"));
+    assert.equal("milestonesRoot" in layout, false);
     assert.equal(layout.tasksRoot, path.join(rootDir, ".harness-private/coding-agent-harness/tasks"));
     assert.equal(layout.legacyRoot, path.join(layout.authoredRoot, "legacy"));
   });

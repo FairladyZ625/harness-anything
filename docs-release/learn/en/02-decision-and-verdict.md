@@ -78,7 +78,7 @@ graph query, not a count of entries in a list.
 That does **not** make acceptance a coverage gate. Accept is a judgment gate: a
 decision can go active once it has at least one evidence relation from a claim
 to a real graph entity, or an explicit judgment-only rationale. Full per-claim
-coverage is enforced later at reckoning and milestone exit, where facts now
+coverage is enforced later at reckoning and work exit, where facts now
 exist. There the checker fails closed for any uncovered load-bearing claim.
 
 ## The ADR is a projection, not a parallel ledger

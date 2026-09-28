@@ -331,14 +331,14 @@ test("task list exposes active package metadata and excludes archived packages f
     });
     const binding = { actor, source: "local" as const };
     await createReadyTask(cell, rootDir, "task_STD", "Standard work");
-    await createReadyTask(cell, rootDir, "task_MILESTONE", "Milestone container", { taskClass: "milestone" });
+    await createReadyTask(cell, rootDir, "task_WORK", "Work container", { taskClass: "work" });
     await createReadyTask(cell, rootDir, "task_ARCHIVED", "Retired work");
     assert.equal(
       (await cell.run({ kind: "task-start", taskId: "task_STD", executionId: "exe_std" }, binding)).outcome,
       "applied",
     );
     assert.equal(
-      (await cell.run({ kind: "task-start", taskId: "task_MILESTONE", executionId: "exe_milestone" }, binding)).outcome,
+      (await cell.run({ kind: "task-start", taskId: "task_WORK", executionId: "exe_work" }, binding)).outcome,
       "applied",
     );
     assert.equal(
@@ -365,7 +365,7 @@ test("task list exposes active package metadata and excludes archived packages f
     const byTask = new Map(rows.map((row) => [row.taskId, row]));
     assert.equal(byTask.get("task_STD")?.taskClass, "standard");
     assert.equal(byTask.get("task_STD")?.packageDisposition, "active");
-    assert.equal(byTask.get("task_MILESTONE")?.taskClass, "milestone");
+    assert.equal(byTask.get("task_WORK")?.taskClass, "work");
     assert.equal(byTask.has("task_ARCHIVED"), false);
     // The gate's counting criteria, recomputed only from visible worktable rows: 1 occupying slot.
     const occupying = rows.filter(
@@ -549,7 +549,7 @@ async function createReadyTask(
   rootDir: string,
   taskId: string,
   title: string,
-  options: { readonly taskClass?: "milestone" | "long_running"; readonly parentTaskId?: string } = {},
+  options: { readonly taskClass?: "work" | "long_running"; readonly parentTaskId?: string } = {},
 ): Promise<void> {
   const binding = { actor, source: "local" as const };
   await createRealizedTaskPlanFixture(
@@ -667,12 +667,12 @@ test("the served WIP snapshot passes the same protocol validator the GUI client 
     const noRoots = await cell.read("repo.tasks.wip");
     assert.deepEqual(noRoots.roots, []);
     assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.wip", noRoots), noRoots);
-    // A declared root (milestone container) and a derived root (three children, never executed).
-    await createReadyTask(cell, rootDir, "task_MILESTONE", "Milestone container", { taskClass: "milestone" });
+    // A declared root (work container) and a derived root (three children, never executed).
+    await createReadyTask(cell, rootDir, "task_WORK", "Work container", { taskClass: "work" });
     assert.equal(
       (
         await cell.run(
-          { kind: "task-transition", taskId: "task_MILESTONE", status: "blocked", reason: "Parking the container" },
+          { kind: "task-transition", taskId: "task_WORK", status: "blocked", reason: "Parking the container" },
           binding,
         )
       ).outcome,
@@ -700,7 +700,7 @@ test("the served WIP snapshot passes the same protocol validator the GUI client 
       [...withRoots.roots].sort((left, right) => left.taskId.localeCompare(right.taskId)),
       [
         { taskId: "task_DERIVED", reason: "derived", directChildCount: 3, threshold: 3 },
-        { taskId: "task_MILESTONE", reason: "declared", directChildCount: 0, threshold: 3 },
+        { taskId: "task_WORK", reason: "declared", directChildCount: 0, threshold: 3 },
       ],
     );
     assert.deepEqual(parseDaemonGuiReadResult("repo.tasks.wip", withRoots), withRoots);
