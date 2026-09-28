@@ -1,13 +1,8 @@
 // harness-test-tier: contract
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import {
-  isAllowedRelationKindTriple,
-  relationStates,
-  relationTypes,
-  type EntityRefKind,
-  type RelationType,
-} from "@harness-anything/kernel";
+import { relationStates, relationTypes, type RelationType } from "@harness-anything/kernel";
+import { isAllowedRelationKindTriple } from "@harness-anything/kernel/internal/domain/entity-relation";
 import { explainEntityKind, projectedEntityKinds } from "../../../tools/generate-entity-doc-contract.mjs";
 import {
   CURATED_ENTITY_DOC_BY_KIND,
@@ -127,7 +122,7 @@ describe("relation edges mirror the canonical direction registry", () => {
   for (const source of endpointKinds)
     for (const type of relationTypes)
       for (const target of endpointKinds)
-        if (isAllowedRelationKindTriple(source as EntityRefKind, type as RelationType, target as EntityRefKind))
+        if (isAllowedRelationKindTriple(source, type as RelationType, target))
           allowedTriples.push({ sourceKind: source, type, targetKind: target });
 
   const documentedTriples = (kind: string) =>

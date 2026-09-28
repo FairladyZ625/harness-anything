@@ -407,14 +407,6 @@ export function disableDaemonRepo(
   return { registry: next, repo, registryPath: paths.registryPath, changed, warnings: [] };
 }
 
-export function resolveDaemonRepoByRoot(
-  rootDir: string,
-  options: DaemonRegistryOptions = {},
-): DaemonRegistryRepo | undefined {
-  const canonicalRoot = canonicalDaemonRegistryRoot(rootDir);
-  return readDaemonRegistry(options).repos.find((repo) => repo.canonicalRoot === canonicalRoot);
-}
-
 function emptyDaemonRegistry(): DaemonRegistry {
   return { schema: daemonRegistrySchema, connections: [localConnection()], repos: [], invalidRepos: [] };
 }

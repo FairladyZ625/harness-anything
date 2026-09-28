@@ -30,6 +30,5 @@ test("kernel public source index is importable by the explicit TS test runner", 
   assert.equal("VersionControlSystem" in kernel, false);
   assert.equal(typeof kernel.makeTaskEventStore, "function");
   assert.equal(typeof kernel.makeTaskProjection, "function");
-  assert.equal(typeof kernel.WRITE_RECEIPT_SCHEMA, "object");
   assert.equal(typeof kernel.schemaRegistry.length, "number");
 });

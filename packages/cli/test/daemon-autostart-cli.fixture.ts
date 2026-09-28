@@ -57,7 +57,7 @@ import {
   type TaskEventV1,
 } from "@harness-anything/kernel";
 
-import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel";
+import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel/internal/domain/receipt-domain-registry";
 
 import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 

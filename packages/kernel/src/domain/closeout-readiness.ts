@@ -336,7 +336,3 @@ export function closeoutGateOk(status: CloseoutGateStatus): boolean | null {
 function gateResult(gateId: string, status: CloseoutGateStatus, detail?: string): CloseoutGateResult {
   return { gateId, status, ok: closeoutGateOk(status), ...(detail === undefined ? {} : { detail }) };
 }
-
-export function isCloseoutReadiness(value: string): value is CloseoutReadiness {
-  return (closeoutReadinesses as ReadonlyArray<string>).includes(value);
-}

@@ -15,7 +15,7 @@ import {
   makeTaskProjection,
   readDaemonRegistry,
 } from "@harness-anything/kernel";
-import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel";
+import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel/internal/domain/receipt-domain-registry";
 import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 import { reviewDigest } from "@harness-anything/kernel";
 import {

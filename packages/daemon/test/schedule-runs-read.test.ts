@@ -1,12 +1,8 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  compileScheduleRunEvent,
-  createScheduleV1,
-  type CanonicalEventV1,
-  type ScheduleV1,
-} from "@harness-anything/kernel";
+import { createScheduleV1, type CanonicalEventV1, type ScheduleV1 } from "@harness-anything/kernel";
+import { compileScheduleRunEvent } from "@harness-anything/kernel/internal/domain/schedule-event";
 import { readScheduleRuns, validateScheduleRuns } from "../src/schedule-runs-read.ts";
 
 const actor = { principal: { personId: "schedule-runs-test" }, executor: null } as const;

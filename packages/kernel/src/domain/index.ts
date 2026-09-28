@@ -111,7 +111,7 @@ export { deriveTaskWorktreeBinding } from "./task-worktree.ts";
 export type { TaskWorktreeBindingV1 } from "./task-worktree.ts";
 
 export { parseEntityRef } from "./entity-ref.ts";
-export type { EntityRef, EntityRefKind } from "./entity-ref.ts";
+export type { EntityRef } from "./entity-ref.ts";
 export { compileEntityPinEvent } from "./entity-pin-event.ts";
 
 export { buildCausalGraphView } from "./causal-graph-view.ts";
@@ -205,7 +205,6 @@ export { squadActionUsage } from "./squad-action-contract.ts";
 
 export {
   deriveRelationId,
-  isAllowedRelationKindTriple,
   parseAwaitsRequest,
   normalizeLegacyRelationState,
   relationDirections,
@@ -244,7 +243,7 @@ export type {
   ScheduleTriggerV1,
   ScheduleV1,
 } from "./schedule.ts";
-export { compileScheduleDefinitionEvent, compileScheduleRunEvent, isScheduleEvent } from "./schedule-event.ts";
+export { compileScheduleDefinitionEvent, isScheduleEvent } from "./schedule-event.ts";
 export type { ScheduleActionDraft } from "./schedule-action-contract.ts";
 
 export {

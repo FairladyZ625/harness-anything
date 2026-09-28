@@ -19,7 +19,7 @@ import {
   type AgentRuntimeEventV1,
   type FrozenWritePlan,
 } from "@harness-anything/kernel";
-import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel";
+import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel/internal/domain/receipt-domain-registry";
 import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 import {
   canonicalRoot,

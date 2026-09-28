@@ -24,7 +24,6 @@ import {
   readDaemonRegistry,
   registerDaemonConnection,
   removeDaemonConnection,
-  resolveDaemonRepoByRoot,
   disableDaemonRepo,
   unbindDaemonRepo,
   updateDaemonConnection,
@@ -72,7 +71,6 @@ test("daemon registry register realpaths canonical roots and writes registry-onl
     assert.equal(result.repo.registeredAt, "2026-07-07T00:00:00.000Z");
     assert.equal(existsSync(daemonRegistryPaths({ userRoot }).registryPath), true);
     assert.equal(existsSync(daemonRegistryPaths({ userRoot }).reposRoot), false);
-    assert.equal(resolveDaemonRepoByRoot(aliasRoot, { userRoot })?.repoId, "brain");
   });
 });
 
@@ -333,7 +331,6 @@ test("daemon registry keeps the manifest authoritative when Windows convenience 
     assert.equal(result.changed, true);
     assert.match(result.warnings.join("\n"), /could not create repo convenience link/u);
     assert.equal(readDaemonRegistry({ userRoot }).repos[0]?.canonicalRoot, canonicalRoot);
-    assert.equal(resolveDaemonRepoByRoot(canonicalRoot, { userRoot })?.repoId, "canonical");
     assert.equal(lstatSync(path.join(userRoot, "repos")).isFile(), true);
   });
 });
