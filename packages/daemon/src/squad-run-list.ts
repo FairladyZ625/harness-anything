@@ -1,5 +1,6 @@
 import type { SquadState } from "./squad-coordinator.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
+import { squadAttemptStatus } from "./squad-leader-decision.ts";
 import {
   compareRuntimeActivity,
   latestRuntimeActivityAt,
@@ -175,13 +176,17 @@ export function statusDto(state: SquadState, rows: readonly TaskDispatchRow[]) {
     leaderRuntimeSessionIds: state.leaderTurns.map((turn) => turn.runtimeSessionId),
     leaders: state.leaderTurns.map((turn) => {
       const row = byDispatchId.get(turn.dispatchId);
-      return { ...row, ...turn, ...attemptMetrics(row) };
+      return { ...row, ...turn, status: squadAttemptStatus(null, row), ...attemptMetrics(row) };
     }),
-    workers: state.workerAttempts.map((attempt) => ({
-      ...(attempt.dispatchId ? byDispatchId.get(attempt.dispatchId) : undefined),
-      ...attempt,
-      ...attemptMetrics(attempt.dispatchId ? byDispatchId.get(attempt.dispatchId) : undefined),
-    })),
+    workers: state.workerAttempts.map((attempt) => {
+      const row = attempt.dispatchId ? byDispatchId.get(attempt.dispatchId) : undefined;
+      return {
+        ...row,
+        ...attempt,
+        status: squadAttemptStatus(attempt.rejection, row),
+        ...attemptMetrics(row),
+      };
+    }),
     workerCallbackCount: state.observedWorkerRuntimeSessionIds.length,
     pendingLeaderCallbackCount: state.pendingLeaderTriggers.length + state.workerWaits.length,
     error: state.error,

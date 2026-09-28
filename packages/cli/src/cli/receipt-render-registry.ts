@@ -268,11 +268,16 @@ function renderSquadStatusReceipt(receipt: Record<string, unknown>): string {
 
 function squadAttemptLine(kind: string, index: number, value: unknown): string {
   if (!isRecord(value)) throw new TypeError(`Squad ${kind} metrics are invalid.`);
-  const usage = isRecord(value.tokenUsage) ? value.tokenUsage : {};
+  // The daemon receipt derives every attempt status from one source (squadAttemptStatus);
+  // a missing status here is a broken contract, not a display fallback.
+  if (typeof value.status !== "string") throw new TypeError(`Squad ${kind} status is missing.`);
+  const usage = isRecord(value.tokenUsage) ? value.tokenUsage : {},
+    rejection = typeof value.rejection === "string" && value.rejection !== "" ? ` rejection=${value.rejection}` : "";
   return (
-    `${kind} ${String(value.turnId ?? value.attemptId ?? index)}: status=${String(value.status ?? "unknown")}` +
+    `${kind} ${String(value.turnId ?? value.attemptId ?? index)}: status=${value.status}` +
     ` tokens=${String(usage.input ?? 0)}in/${String(usage.output ?? 0)}out` +
-    ` tools=${String(value.toolCallCount ?? 0)} compacted=${String(value.compacted ?? false)}`
+    ` tools=${String(value.toolCallCount ?? 0)} compacted=${String(value.compacted ?? false)}` +
+    rejection
   );
 }
 

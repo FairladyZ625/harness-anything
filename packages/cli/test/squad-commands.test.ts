@@ -92,6 +92,63 @@ test("Squad status renders token, tool-call, and compaction metrics for each att
   });
 });
 
+test("Squad status renders an admission-rejected worker with its reason instead of unknown", () => {
+  const rendered = renderCliReceipt({
+    ok: true,
+    command: "squad-status",
+    summary: "squad-run core-squad: workers_running",
+    leaders: [
+      {
+        turnId: "leader-1",
+        status: "running",
+        tokenUsage: { input: 10, output: 5 },
+        toolCallCount: 1,
+        compacted: false,
+      },
+    ],
+    workers: [
+      {
+        attemptId: "worker-4",
+        status: "rejected",
+        rejection: "TASK_WIP_LIMIT_REACHED: Execution worktable is full (40/40; settings.tasks.wipLimit=40).",
+        tokenUsage: { input: 0, output: 0 },
+        toolCallCount: 0,
+        compacted: false,
+      },
+    ],
+  });
+
+  assert.deepEqual(rendered, {
+    stream: "stdout",
+    text: [
+      "squad-run core-squad: workers_running",
+      "leader leader-1: status=running tokens=10in/5out tools=1 compacted=false",
+      "worker worker-4: status=rejected tokens=0in/0out tools=0 compacted=false" +
+        " rejection=TASK_WIP_LIMIT_REACHED: Execution worktable is full (40/40; settings.tasks.wipLimit=40).",
+    ].join("\n"),
+  });
+
+  // The daemon receipt is the single judgment source: a row without a status is a broken
+  // contract, not something the CLI re-derives (that inference used to print "unknown").
+  assert.throws(
+    () =>
+      renderCliReceipt({
+        ok: true,
+        command: "squad-status",
+        summary: "squad-run core-squad: workers_running",
+        workers: [
+          {
+            attemptId: "worker-4",
+            tokenUsage: { input: 0, output: 0 },
+            toolCallCount: 0,
+            compacted: false,
+          },
+        ],
+      }),
+    /Squad worker status is missing/u,
+  );
+});
+
 test("squad status --wait routes through the CLI wait instead of a single daemon read", () => {
   const squadRunId = "squad_0123456789abcdef01234567",
     read = parseThinCommand(["squad", "status", squadRunId]),
