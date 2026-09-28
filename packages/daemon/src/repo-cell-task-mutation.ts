@@ -349,7 +349,6 @@ function terminalExecutionRuntimeBinding(
   for (const session of sessions) {
     if (session.runtimeSessionId !== runtimeSessionIdFromActor(lease.actor)) continue;
     if (runtimeSessionId !== null && session.runtimeSessionId !== runtimeSessionId) continue;
-    if (inferredTerminalSessionIds !== null && !inferredTerminalSessionIds.has(session.runtimeSessionId)) continue;
     if (
       (session.liveness !== "exited" || runtimeSessionSemanticState(session) === "running") &&
       !inferredTerminalSessionIds?.has(session.runtimeSessionId)
