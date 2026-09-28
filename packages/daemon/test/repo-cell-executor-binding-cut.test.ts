@@ -365,9 +365,11 @@ test("runtime.run verifies its executor claim and spawns in one publication turn
       () => lease,
     ),
     spawned = createRepoCellApi(context).spawnRuntime({ ...payload, executor: runtimeActor.executor }, binding);
-  assert.equal(context.tailAssignments, 1);
+  // The worktree is prepared before the dispatch enters the publication queue.
+  assert.equal(context.tailAssignments, 0);
   await spawned;
   assert.equal(context.tailAssignments, 1);
+  assert.deepEqual(context.prepared, [payload]);
   assert.deepEqual(context.spawned, [{ payload, actor: runtimeActor }]);
   assert.equal(context.taskReads, 0, "the spawner owns the single task projection check");
 
@@ -536,6 +538,10 @@ function contextFor(
         });
       },
       runtimeSpawner: {
+        prepareWorktree: (payload: unknown) => {
+          fixture.prepared.push(payload);
+          return Promise.resolve(null);
+        },
         spawn: (payload: unknown, verified: RepoCellBinding) => {
           fixture.spawned.push({ payload, actor: verified.actor });
           return Promise.resolve({ ok: true });
@@ -543,12 +549,14 @@ function contextFor(
       },
       observedActor: null as RepoCellBinding["actor"] | null,
       taskReads: 0,
+      prepared: [] as unknown[],
       spawned: [] as { readonly payload: unknown; readonly actor: RepoCellBinding["actor"] }[],
     };
   return fixture as unknown as RepoCellApiContext & {
     readonly observedActor: RepoCellBinding["actor"] | null;
     readonly tailAssignments: number;
     readonly taskReads: number;
+    readonly prepared: readonly unknown[];
     readonly spawned: readonly { readonly payload: unknown; readonly actor: RepoCellBinding["actor"] }[];
   };
 }

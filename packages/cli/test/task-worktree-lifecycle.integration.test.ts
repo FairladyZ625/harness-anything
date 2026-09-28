@@ -177,69 +177,85 @@ test("a repository with no npm, no remote and a master branch runs its declared 
   assert.equal(git(root, "branch", "--list", plain.taskId), "");
 });
 
-// A start's setup runs on this node outside the repository write queue: a long install holds only that start,
-// and every other write goes through while it runs; the queue receives the start once setup is done.
-test("a long worktree setup holds only its own start, never the repository's other writes", async (context) => {
-  const fixture = createRuntimeFixture(context),
-    { parent, root, env } = fixture,
-    running = path.join(path.dirname(root), "setup-running"),
-    release = path.join(path.dirname(root), "setup-release");
-  gitRepository(root);
-  installIdentities(parent, root, env);
-  const { HARNESS_ACTOR: _agent, ...owner } = env;
-  text(root, owner, [
-    "settings",
-    "update",
-    "--worktree-setup",
-    `run: touch ${running}; while [ ! -e ${release} ]; do sleep 0.1; done`,
-  ]);
-  const slow = seedTask(root, env, "wt-slow-setup"),
-    start = spawn(
-      process.execPath,
-      [cli, "--root", root, "task", "start", slow.taskId, "--execution-id", slow.executionId],
-      {
+// A start's or a dispatch's setup runs on this node outside the repository write queue: a long install holds only
+// that start or dispatch, and every other write goes through while it runs; the queue receives it once setup is done.
+for (const { name, command } of [
+  {
+    name: "start",
+    command: (task: ReturnType<typeof seedTask>) => ["task", "start", task.taskId, "--execution-id", task.executionId],
+  },
+  {
+    name: "dispatch",
+    command: (task: ReturnType<typeof seedTask>) => [
+      "agent",
+      "run",
+      "terra",
+      "--prompt",
+      "work here",
+      "--task",
+      task.taskId,
+      "--no-stream",
+    ],
+  },
+])
+  test(`a long worktree setup holds only its own ${name}, never the repository's other writes`, async (context) => {
+    const fixture = createRuntimeFixture(context),
+      { parent, root, env } = fixture,
+      running = path.join(path.dirname(root), "setup-running"),
+      release = path.join(path.dirname(root), "setup-release");
+    gitRepository(root);
+    installIdentities(parent, root, env);
+    const { HARNESS_ACTOR: _agent, ...owner } = env;
+    text(root, owner, [
+      "settings",
+      "update",
+      "--worktree-setup",
+      `run: touch ${running}; while [ ! -e ${release} ]; do sleep 0.1; done`,
+    ]);
+    const slow = seedTask(root, env, "wt-slow-setup"),
+      start = spawn(process.execPath, [cli, "--root", root, ...command(slow)], {
         env,
         stdio: ["ignore", "pipe", "pipe"],
-      },
-    ),
-    output: string[] = [],
-    exited = new Promise<number | null>((resolve) => start.once("close", resolve));
-  start.stdout.on("data", (chunk: Buffer) => output.push(String(chunk)));
-  start.stderr.on("data", (chunk: Buffer) => output.push(String(chunk)));
-  try {
-    for (const deadline = Date.now() + 60_000; !existsSync(running); ) {
-      assert.ok(Date.now() < deadline, `setup never began:\n${output.join("")}`);
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      }),
+      output: string[] = [],
+      exited = new Promise<number | null>((resolve) => start.once("close", resolve));
+    start.stdout.on("data", (chunk: Buffer) => output.push(String(chunk)));
+    start.stderr.on("data", (chunk: Buffer) => output.push(String(chunk)));
+    try {
+      for (const deadline = Date.now() + 60_000; !existsSync(running); ) {
+        assert.ok(Date.now() < deadline, `setup never began:\n${output.join("")}`);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      // The setup is still waiting on its release; another task's create is a write to the same repository.
+      const other = spawnSync(
+        process.execPath,
+        [
+          cli,
+          "--root",
+          root,
+          "task",
+          "create",
+          "--id",
+          "task-during-setup",
+          "--admin",
+          "--title",
+          "written during setup",
+        ],
+        {
+          encoding: "utf8",
+          env,
+          timeout: 30_000,
+        },
+      );
+      assert.equal(other.status, 0, `a write during setup must not wait for it:\n${other.stdout}\n${other.stderr}`);
+      assert.equal(existsSync(release), false);
+    } finally {
+      writeFileSync(release, "");
     }
-    // The setup is still waiting on its release; another task's create is a write to the same repository.
-    const other = spawnSync(
-      process.execPath,
-      [
-        cli,
-        "--root",
-        root,
-        "task",
-        "create",
-        "--id",
-        "task-during-setup",
-        "--admin",
-        "--title",
-        "written during setup",
-      ],
-      {
-        encoding: "utf8",
-        env,
-        timeout: 30_000,
-      },
-    );
-    assert.equal(other.status, 0, `a write during setup must not wait for it:\n${other.stdout}\n${other.stderr}`);
-    assert.equal(existsSync(release), false);
-  } finally {
-    writeFileSync(release, "");
-  }
-  assert.equal(await exited, 0, output.join(""));
-  assert.match(output.join(""), /Setup ran: run: touch /u);
-});
+    assert.equal(await exited, 0, output.join(""));
+    // A dispatch's mission carries the same note a start prints: the checkout it runs in was prepared first.
+    assert.match(output.join(""), /Setup ran: run: touch /u);
+  });
 
 function text(root: string, env: NodeJS.ProcessEnv, args: readonly string[]): string {
   const result = spawnSync(process.execPath, [cli, "--root", root, ...args], { encoding: "utf8", env });

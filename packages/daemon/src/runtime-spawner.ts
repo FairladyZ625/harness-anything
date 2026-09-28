@@ -91,8 +91,13 @@ import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { assertReviewerTarget, selectReviewTarget } from "./review-dispatch-admission.ts";
 import { continuationMission, initialFallbackAttempt, requiredRuntimeFast } from "./runtime-spawn-fallback.ts";
-import { admitRuntimeResume, assertResumeAgent, resolveDispatchCwd } from "./runtime-resume-admission.ts";
-import { taskWorktreeCheckoutNote } from "./task-worktree.ts";
+import {
+  admitRuntimeResume,
+  assertResumeAgent,
+  prepareDispatchWorktree,
+  resolveDispatchCwd,
+} from "./runtime-resume-admission.ts";
+import { taskWorktreeCheckoutNote, type TaskWorktreeCheckout } from "./task-worktree.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
   resumeAdmissionTimeoutMs = 30_000,
@@ -145,6 +150,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     trustedSchedule?: TrustedScheduleRuntime,
     handoffFromRuntimeSessionId?: string,
     publicationOwner: ActiveRuntime["publicationOwner"] = "runtime",
+    preparedWorktree: TaskWorktreeCheckout | null = null,
   ): Promise<JsonObject> => {
     const allowed = [
         "runtimeInstanceId",
@@ -225,7 +231,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       throw runtimeSpawnError("squad_leader_required", "Targeted squad dispatch requires --agent <leader-id>.");
     if (squadId !== undefined && agentId === undefined)
       throw runtimeSpawnError("squad_leader_required", "Squad attribution requires --agent <leader-id>.");
-    const { cwd, worktree: dispatchWorktree } = await resolveDispatchCwd(input, payload, resumed?.header.cwd, taskId),
+    const { cwd, worktree: dispatchWorktree } = resolveDispatchCwd(
+        input.rootDir,
+        payload,
+        resumed?.header.cwd,
+        preparedWorktree,
+      ),
       store = input.remote ? null : requiredRuntimeStore(input),
       projection = input.remote ? null : requiredRuntimeProjection(input),
       remoteTask = taskId && input.remote ? await input.remote.taskContext(taskId, missionName) : null;
@@ -819,7 +830,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         };
   };
   return {
-    spawn: (payload: JsonObject, binding: RuntimeBinding) => spawnAttempt(payload, binding),
+    /** Checks a task dispatch's worktree out and prepares it; runs before the dispatch is queued for writing. */
+    prepareWorktree: (payload: JsonObject) => prepareDispatchWorktree(input, payload),
+    spawn: (payload: JsonObject, binding: RuntimeBinding, worktree: TaskWorktreeCheckout | null = null) =>
+      spawnAttempt(payload, binding, undefined, undefined, undefined, "runtime", worktree),
     spawnCoordinated: (payload: JsonObject, binding: RuntimeBinding) =>
       spawnAttempt(
         payload,

@@ -195,6 +195,45 @@ test("a run step still going at the timeout fails like any other step and names 
   }
 });
 
+test(
+  "a run step stopped at the timeout takes the processes it started with it",
+  { skip: process.platform === "win32" ? "POSIX process groups" : false },
+  async () => {
+    const fixture = repositoryFixture();
+    try {
+      const task = boundTask("active"),
+        checkout = await materializeTaskWorktree(fixture.root, task, repositoryDiff, []),
+        pidFile = path.join(fixture.base, "install.pid"),
+        result = await runWorktreeSetup({
+          rootDir: fixture.root,
+          cwd: checkout!.cwd,
+          taskId,
+          // Like `npm ci`: the shell waits on a process it started, which would keep writing the worktree.
+          steps: [`run: sleep 30 & echo $! > ${pidFile}; wait`],
+          stepTimeoutMs: 300,
+        });
+      assert.equal(result.ok, false);
+      const pid = Number(readFileSync(pidFile, "utf8"));
+      for (const deadline = Date.now() + 5_000; alive(pid); ) {
+        assert.ok(Date.now() < deadline, `the step's child ${pid} outlived the refused step`);
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    } finally {
+      rmSync(fixture.base, { recursive: true, force: true });
+    }
+  },
+);
+
+/** A killed orphan left unreaped (a container whose init reaps nothing) is a zombie, not a running process. */
+function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+  } catch {
+    return false;
+  }
+  return process.platform !== "linux" || !/^\d+ \(.*\) Z /u.test(readFileSync(`/proc/${pid}/stat`, "utf8"));
+}
+
 test("the node-modules adapter mirrors the root store and removes its mirror before the worktree is reclaimed", async () => {
   const fixture = repositoryFixture();
   try {

@@ -679,12 +679,14 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     // A dry-run preview is a read projection: it must not enter the publication
     // turn, acquire a lease, or append a dispatch event.
     if (spawn.dryRun === true) return context.runtimeSpawner.spawn(spawn, binding);
+    // A task dispatch's worktree checkout and setup finish first; the queue receives only the dispatch itself.
+    const worktree = await context.runtimeSpawner.prepareWorktree(spawn);
     return enqueueRuntimePublication(
       context,
       "runtime-run",
       { kind: "runtime-spawn", ...payload },
       binding,
-      (authorizedBinding) => context.runtimeSpawner.spawn(spawn, authorizedBinding),
+      (authorizedBinding) => context.runtimeSpawner.spawn(spawn, authorizedBinding, worktree),
     );
   };
   const cancelRuntime: RepoCell["cancelRuntime"] = async (payload, binding) => {

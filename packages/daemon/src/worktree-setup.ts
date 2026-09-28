@@ -1,6 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { posixShellFallback, runProcessExitAsync, runProcessTextAsync } from "./process-port.ts";
+import { posixShellFallback, runProcessExitAsync, runProcessTextAsync, startDetachedProcess } from "./process-port.ts";
 import { nodeModulesSetupAdapter } from "./worktree-setup-node-modules.ts";
 
 // dec_8B3FCCD256CAC5B0BF3CCEDE58 CH3: the repository declares in Settings `worktree.setup` what a fresh worktree
@@ -18,7 +18,10 @@ const adapters: Readonly<
   >
 > = { "node-modules": nodeModulesSetupAdapter };
 
-/** A `run:` step still running after this long fails like any other: the start is refused and the step named. */
+/**
+ * A `run:` step still running after this long fails like any other: the start is refused and the step named. Every
+ * process the step started stops with it, so nothing keeps writing the worktree after the refusal.
+ */
 const worktreeSetupStepTimeoutMs = 20 * 60 * 1000;
 
 export interface WorktreeSetupInput {
@@ -140,15 +143,31 @@ function spawnShell(command: string, cwd: string, log: string, environment: Node
       undefined,
       { windowsVerbatimArguments: true, timeoutMs },
     );
-  return runProcessExitAsync(
+  // The shell leads its own process group, and the timeout kills that whole group: what the step started (an
+  // install) goes with it. Until the exit event the shell is at least unreaped, so its group still exists.
+  const shell = startDetachedProcess(
     posixShellFallback,
     ["-c", `exec >>"$HARNESS_SETUP_LOG" 2>&1\n${command}`],
-    cwd,
     { ...environment, HARNESS_SETUP_LOG: log },
     undefined,
-    undefined,
-    { timeoutMs },
+    cwd,
   );
+  return new Promise<{ readonly exitCode: number }>((resolve, reject) => {
+    let killed = false;
+    const timer = setTimeout(() => {
+      killed = true;
+      process.kill(-shell.pid!, "SIGKILL");
+    }, timeoutMs);
+    shell.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    shell.once("exit", (exitCode, signal) => {
+      clearTimeout(timer);
+      if (exitCode === null) reject(Object.assign(new Error(`${command} ended by ${signal}`), { killed }));
+      else resolve({ exitCode });
+    });
+  });
 }
 
 function setupDirectory(cwd: string): Promise<string> {
