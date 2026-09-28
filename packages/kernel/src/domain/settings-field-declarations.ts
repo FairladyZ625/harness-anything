@@ -1,6 +1,7 @@
 import type { EntityActionInputField } from "./entity-kind-registry.ts";
 import type { GateWitnessMappingV1 } from "./completion-contract.ts";
 import { closeoutProfiles, DEFAULT_CLOSEOUT_SETTINGS } from "./settings-closeout.ts";
+import { DEFAULT_TASK_ROOT_THRESHOLD, DEFAULT_TASK_WIP_LIMIT } from "./task-wip-policy.ts";
 
 export type SettingsFieldOwnership = "repository" | "local";
 export type SettingsFieldValueKind = "string" | "enum" | "integer" | "boolean" | "string-array" | "gate-mappings";
@@ -300,6 +301,26 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     description: "Maximum number of entities pinned to the repository agenda.",
     action: { field: "agendaPinLimit", type: "number" },
     cli: { name: "--agenda-pin-limit", kind: "single", regex: "^[1-9][0-9]*$" },
+  }),
+  defineSettingsField({
+    path: ["tasks", "wipLimit"],
+    ownership: repository,
+    valueKind: "integer",
+    defaultValue: DEFAULT_TASK_WIP_LIMIT,
+    minimum: 1,
+    description: "Maximum number of tasks admitted to the execution worktable.",
+    action: { field: "wipLimit", type: "number" },
+    cli: { name: "--wip-limit", kind: "single", regex: "^[1-9][0-9]*$" },
+  }),
+  defineSettingsField({
+    path: ["tasks", "rootThreshold"],
+    ownership: repository,
+    valueKind: "integer",
+    defaultValue: DEFAULT_TASK_ROOT_THRESHOLD,
+    minimum: 1,
+    description: "Direct-child count at which a standard task is treated as a work root.",
+    action: { field: "rootThreshold", type: "number" },
+    cli: { name: "--root-threshold", kind: "single", regex: "^[1-9][0-9]*$" },
   }),
   defineSettingsField({
     path: ["worktree", "setup"],

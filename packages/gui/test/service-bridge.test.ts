@@ -317,6 +317,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       gates: [],
       closeout: { profile: "standard" },
       agenda: { pinLimit: 30 },
+      tasks: { wipLimit: 30, rootThreshold: 3 },
       worktree: { setup: [] },
     });
     const settingsUpdated = parseDaemonGuiActionResponse(

@@ -178,6 +178,7 @@ process.stdout.write(result.stdout || ''); process.stderr.write(result.stderr ||
     input: { repoId: "doctor-cut" },
     now: () => "2026-09-15T00:00:00.000Z",
     projection: {
+      getEntity: () => undefined,
       list: (query: { status: string; limit?: number }) => ({
         rows: query.status === "in_review" ? rows.slice(0, query.limit) : [],
       }),

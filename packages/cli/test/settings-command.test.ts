@@ -39,6 +39,10 @@ test("Settings CLI projects read and owned update flags to the closed daemon act
     "true",
     "--agenda-pin-limit",
     "40",
+    "--wip-limit",
+    "12",
+    "--root-threshold",
+    "4",
     "--restore-drill-retention",
     "5",
     "--expected-version",
@@ -57,6 +61,8 @@ test("Settings CLI projects read and owned update flags to the closed daemon act
       walFlushAdaptive: false,
       closeoutReview: true,
       agendaPinLimit: 40,
+      wipLimit: 12,
+      rootThreshold: 4,
       restoreDrillRetention: 5,
       expectedVersion: 42,
       idempotencyKey: "settings-one",
@@ -65,7 +71,7 @@ test("Settings CLI projects read and owned update flags to the closed daemon act
 
 test("Settings CLI rejects unknown and unsupported locale fields", () => {
   assert.equal(parseThinCommand(["settings", "update", "--locale", "fr-FR"]).ok, false);
-  assert.equal(parseThinCommand(["settings", "update", "--wip-limit", "1"]).ok, false);
+  assert.equal(parseThinCommand(["settings", "update", "--wip-limit", "0"]).ok, false);
   assert.equal(parseThinCommand(["settings", "read", "--locale", "en-US"]).ok, false);
   const shown = parseThinCommand(["settings", "show", "--locale", "en-US"]);
   assert.equal(shown.ok, false);

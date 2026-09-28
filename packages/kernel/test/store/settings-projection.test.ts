@@ -86,7 +86,7 @@ test("Settings publication rejects a candidate that also mutates layout, WIP, or
         occurredAt: "2026-08-27T01:00:00.000Z",
       });
 
-    assert.throws(() => eventStore.append(bundle), /only their owned harness\.yaml facet fields/u);
+    assert.throws(() => eventStore.append(bundle), /exact harness\.yaml claim and write plan/u);
     assert.equal(eventStore.read().revision, 0);
     assert.equal(eventStore.readCommandOutcome(bundle.event.opId), null);
     assert.equal(readFileSync(path.join(rootDir, "harness/harness.yaml"), "utf8"), original);
