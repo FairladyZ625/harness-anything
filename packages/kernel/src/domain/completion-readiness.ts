@@ -9,6 +9,8 @@ import {
 import type { FrozenCompletionContract } from "./completion-contract.ts";
 import type { MarkdownDocumentContract, TransitionDocumentMissingSection } from "./transition-document-readiness.ts";
 import type { CloseoutGate } from "./settings-closeout.ts";
+import { approvedReviewHistoryForExecution, reviewsForExecution, type ReviewV1 } from "./review.ts";
+import type { ExecutionV1 } from "./execution.ts";
 
 export type CompletionBlockerCode =
   | "projection_unknown"
@@ -281,21 +283,53 @@ function evaluateCompletion(
   if (!includeReview) return [];
   // The assessment already carries the gate judgment; re-deriving review or consent here
   // would duplicate the one closeout-readiness decision.
-  if (assessment.blocker === "review")
-    return one(
-      "review_missing",
-      "review",
-      `ha task dispatch-review ${task.taskId}`,
-      "The forwarded cut has no recorded review; wait for the dispatched reviewer's verdict or dispatch one.",
-    );
+  if (assessment.blocker === "review") {
+    const changes = changesRequestedReview(snapshot.reviews, execution);
+    return changes
+      ? one(
+          "review_missing",
+          "review",
+          reviewReturnCommand(task.taskId, changes.reviewId),
+          `Review ${changes.reviewId} requested changes; the owner returns the cut with rework instructions in the note.`,
+        )
+      : one(
+          "review_missing",
+          "review",
+          `ha task dispatch-review ${task.taskId}`,
+          "The forwarded cut has no recorded review; wait for the dispatched reviewer's verdict or dispatch one.",
+        );
+  }
   if (assessment.blocker === "consent")
     return one(
       "consent_missing",
       "consent",
-      `ha task review-consent ${task.taskId} --review-id <review-id>`,
+      reviewConsentCommands(task.taskId, snapshot.reviews, execution).join(" or "),
       "The owner's verdict accepts the latest approved review, pinned to its reviewed content.",
     );
   return [];
+}
+
+/** The latest changes_requested verdict on the submitted cut: an adverse verdict the owner adjudicates. */
+export function changesRequestedReview(reviews: readonly ReviewV1[], execution: ExecutionV1): ReviewV1 | undefined {
+  return reviewsForExecution(reviews, execution)
+    .filter((review) => review.verdict === "changes_requested")
+    .at(-1);
+}
+
+export function reviewReturnCommand(taskId: string, reviewId: string): string {
+  return `ha task adjudicate ${taskId} --return --review-id ${reviewId} --note-file <path>`;
+}
+
+/** review-consent selects a sole approved candidate itself; several candidates each need their explicit command. */
+export function reviewConsentCommands(
+  taskId: string,
+  reviews: readonly ReviewV1[],
+  execution: ExecutionV1,
+): readonly string[] {
+  const candidates = approvedReviewHistoryForExecution(reviews, execution);
+  return candidates.length === 1
+    ? [`ha task review-consent ${taskId}`]
+    : candidates.map((review) => `ha task review-consent ${taskId} --review-id ${review.reviewId}`);
 }
 
 function closeoutReason(context: CompletionReadinessContext): string {

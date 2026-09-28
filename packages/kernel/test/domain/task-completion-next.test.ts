@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { reduceTaskEvent, taskCompletionNext } from "../../src/index.ts";
+import { reduceTaskEvent, rematerializeTaskDocuments, taskCompletionNext } from "../../src/index.ts";
 import { emptyTaskLifecycleSnapshot } from "../../src/domain/task-lifecycle.contract.ts";
 import { lifecycleFixture } from "../store/task-lifecycle-fixture.ts";
 
@@ -192,4 +192,51 @@ test("missing CI witness precedes independent review and requests canonical obse
   const result = taskCompletionNext(gatedAt([ciRequirement], 6), context);
   assert.equal(result.blocker?.code, "ci_missing");
   assert.equal(result.next?.action, "ha ci observe pull");
+});
+
+// Q1-R1-003: an adverse verdict on the current cut is the owner's to adjudicate, not a missing review.
+test("a recorded changes_requested review guides the owner's return instead of another review dispatch", () => {
+  const reviewed = at(5),
+    changesRequested = {
+      ...reviewed,
+      reviews: [{ ...reviewed.reviews[0]!, reviewId: "review-changes", verdict: "changes_requested" as const }],
+    },
+    result = taskCompletionNext(changesRequested, context);
+  assert.equal(result.blocker?.code, "review_missing");
+  assert.equal(result.next?.action, "ha task adjudicate task-1 --return --review-id review-changes --note-file <path>");
+  assert.equal(result.next?.authority, "person-owner");
+  assert.doesNotMatch(result.next!.reason, /no recorded review/u);
+  assert.match(result.next!.reason, /rework/u);
+  const index = rematerializeTaskDocuments({
+    snapshot: changesRequested,
+    packagePath: "tasks/task-1",
+    paths: ["tasks/task-1/INDEX.md"],
+    currentDocuments: [],
+  })[0]!.body;
+  assert.match(index, /ha task adjudicate task-1 --return --review-id review-changes --note-file <path>/u);
+  assert.doesNotMatch(index, /dispatch-review/u);
+  // Without any recorded review the dispatch guidance stands.
+  assert.equal(taskCompletionNext(at(4), context).next?.action, "ha task dispatch-review task-1");
+});
+
+// Q1-R1-004: review-consent selects a sole approved candidate itself; only a choice needs its id.
+test("consent guidance relies on automatic selection for one candidate and names each of several", () => {
+  const single = at(5),
+    multiple = { ...single, reviews: [...single.reviews, { ...single.reviews[0]!, reviewId: "review-additional" }] },
+    index = (snapshot: typeof single) =>
+      rematerializeTaskDocuments({
+        snapshot,
+        packagePath: "tasks/task-1",
+        paths: ["tasks/task-1/INDEX.md"],
+        currentDocuments: [],
+      })[0]!.body;
+  assert.equal(taskCompletionNext(single, context).next?.action, "ha task review-consent task-1");
+  assert.match(index(single), /`ha task review-consent task-1`/u);
+  const several = taskCompletionNext(multiple, context).next!.action;
+  assert.doesNotMatch(several, /<review-id>/u);
+  assert.equal(
+    several,
+    "ha task review-consent task-1 --review-id review-execution or ha task review-consent task-1 --review-id review-additional",
+  );
+  assert.match(index(multiple), /--review-id review-execution`.*--review-id review-additional`/u);
 });

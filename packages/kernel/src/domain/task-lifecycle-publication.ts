@@ -16,6 +16,7 @@ import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { currentTaskForWrite } from "./task.ts";
 import { codeDocRecordId, currentCodeDocRecord, currentCodeDocWitness } from "./code-doc-witness.ts";
 import { completionGateIds, gateResults } from "./closeout-readiness.ts";
+import { changesRequestedReview, reviewConsentCommands, reviewReturnCommand } from "./completion-readiness.ts";
 export interface LifecycleDocumentState {
   readonly path: string;
   readonly body: string;
@@ -336,6 +337,7 @@ function renderIndex(
       snapshot.executions.find((value) => value.iteration === task.iteration && value.state === "submitted"),
     executionId = current?.executionId ?? "",
     approved = current?.submission ? approvedReviewsForExecution(snapshot.reviews, current) : [],
+    changes = current?.submission ? changesRequestedReview(snapshot.reviews, current) : undefined,
     selected = current?.submission
       ? consentedApprovedReviewForExecution(snapshot.reviews, snapshot.consents, current, snapshot.reviewDispositions)
       : undefined,
@@ -366,9 +368,13 @@ function renderIndex(
             ? `Await the owning CEO's triage: \`ha task adjudicate ${task.taskId} --forward|--return --note-file <path>\`.`
             : `Run \`ha task complete ${task.taskId}\`.`
           : task.status === "in_review" && !approved.length
-            ? `Run \`ha task dispatch-review ${task.taskId}\`, or record the assigned review.`
+            ? changes
+              ? `Return the cut with rework instructions: \`${reviewReturnCommand(task.taskId, changes.reviewId)}\`.`
+              : `Run \`ha task dispatch-review ${task.taskId}\`, or record the assigned review.`
             : task.status === "in_review" && !selected
-              ? `Run \`ha task review-consent ${task.taskId} --review-id ${approved.at(-1)!.reviewId}\`.`
+              ? `Run ${reviewConsentCommands(task.taskId, snapshot.reviews, current as ExecutionV1)
+                  .map((command) => `\`${command}\``)
+                  .join(", or ")}.`
               : missingGate === "code-doc-reconciliation"
                 ? `Run \`ha task code-doc reconcile ${task.taskId} --path <repo-relative-path>...\`.`
                 : task.status === "done"
