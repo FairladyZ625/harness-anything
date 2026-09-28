@@ -6,6 +6,7 @@ import {
   createEntityStore,
   currentSubmittedExecutions,
   submissionDigest,
+  decisionReviewContentDigest,
   type ExecutionV1,
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
@@ -33,6 +34,98 @@ export function reviewDispatchKey(taskId: string, execution: ExecutionV1): strin
   return `task-review:${taskId}:${execution.executionId}:${execution.iteration}:${submissionDigest(
     execution.submission!,
   )}`;
+}
+
+export function decisionReviewDispatchKey(decisionId: string, digest: string): string {
+  return `decision-review:${decisionId}:${digest}`;
+}
+
+export async function dispatchDecisionReview(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): Promise<WriteReceiptDraft> {
+  const decisionId = cell.requiredCellText(action.decisionId, "decisionId"),
+    read = cell.projection.readDecision(decisionId);
+  if (read.watermark !== read.sourceRevision || !read.decision)
+    throw cell.cellCodedError("content_not_ready", `Decision ${decisionId} is unavailable or pending.`);
+  const path = `decisions/decision-${decisionId}/decision.md`,
+    document = cell.projection.readDocument(path);
+  if (document.watermark !== document.sourceRevision || !document.document)
+    throw cell.cellCodedError("content_not_ready", `Decision document ${path} is unavailable or pending.`);
+  const relations = cell.projection.readRelationQuery({ ownerRef: `decision/${decisionId}` }).rows.map((edge) => ({
+      relation_id: edge.relationId,
+      source: edge.sourceRef,
+      target: edge.targetRef,
+      type: edge.relationType,
+      strength: edge.strength,
+      direction: edge.direction,
+      origin: edge.origin,
+      rationale: edge.rationale,
+      state: edge.state,
+    })),
+    current = { ...read.decision, relations },
+    digest = decisionReviewContentDigest(current, document.document.body);
+  if (typeof action.expectedDigest === "string" && action.expectedDigest !== digest)
+    throw cell.cellCodedError(
+      "version_conflict",
+      `Decision review content changed: expected=${action.expectedDigest} current=${digest}.`,
+    );
+  const key = decisionReviewDispatchKey(decisionId, digest),
+    ids = reviewDispatchIds(cell.input.repoId, key),
+    revision = cell.store.readHead()?.revision ?? 0;
+  if (cell.store.readEvent(ids.dispatchOpId) !== null)
+    return {
+      outcome: "applied",
+      opId: ids.dispatchOpId,
+      revision,
+      summary: `Decision ${decisionId} already has review dispatch ${ids.dispatchId} for ${digest}.`,
+      dispatches: [{ decisionId, digest, ...ids, outcome: "already_dispatched" }],
+    } as WriteReceiptDraft;
+  const reviewerId =
+      typeof action.agentId === "string" && action.agentId.length > 0
+        ? action.agentId
+        : (cell.settings.readRepository().roles?.defaultReviewer ?? "closeout-reviewer"),
+    resolved = readAgentDeclarationResolution({
+      rootDir: cell.rootDir,
+      agentId: reviewerId,
+      entityStore: createEntityStore(cell.store),
+    });
+  if (!resolved)
+    throw cell.cellCodedError("review_dispatch_failed", `Reviewer ${reviewerId} is not bundled or installed.`);
+  const payload = {
+      agentId: resolved.declaration.id,
+      role: "reviewer",
+      reviewTarget: { kind: "decision", decisionId, digest },
+      cwd: { scope: "repo-relative", path: `harness/decisions/decision-${decisionId}` },
+      idempotencyKey: key,
+      ...(typeof action.runtimeInstanceId === "string" ? { runtimeInstanceId: action.runtimeInstanceId } : {}),
+      ...(typeof action.model === "string" ? { model: action.model } : {}),
+      ...(typeof action.effort === "string" ? { effort: action.effort } : {}),
+      prompt: [
+        `Independently review Decision ${decisionId} at reviewContentDigest ${digest}.`,
+        `Read the frozen accepted document at harness/${path}.`,
+        "Record approved or changes_requested with ha decision review; never accept, reject, defer, or amend.",
+        `Write the report to harness/decisions/decision-${decisionId}/artifacts/reports/${ids.dispatchId}.md.`,
+      ].join("\n"),
+    },
+    authorizationDecision = authorizeRepoCellAction({
+      action: { kind: "runtime-spawn", ...payload },
+      binding,
+      actionId: ids.dispatchOpId,
+      revision,
+      now: cell.now(),
+    });
+  if (authorizationDecision.outcome !== "allowed")
+    throw cell.cellCodedError("authorization_denied", authorizationDecision.nextActions.join(" "));
+  await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision });
+  return {
+    outcome: "applied",
+    opId: ids.dispatchOpId,
+    revision,
+    summary: `Dispatched Decision ${decisionId} review ${ids.dispatchId} for ${digest}.`,
+    dispatches: [{ decisionId, digest, ...ids, outcome: "dispatched" }],
+  } as WriteReceiptDraft;
 }
 
 function reviewAttemptKey(base: string, attempt: number): string {

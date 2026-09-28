@@ -5,7 +5,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, serializeCanonicalEvent } from "@harness-anything/kernel";
+import {
+  decisionReviewContentDigest,
+  makeTaskEventReader,
+  serializeCanonicalEvent,
+  type DecisionDocumentState,
+} from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
@@ -22,7 +27,7 @@ const proposer = withRoleBinding(
   "repo-write",
 );
 
-test("Decision outcomes reject self-judgment and accept an independent reviewer", async () => {
+test("an independent approved review lets the proposal owner accept the current Decision cut", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-review-independence-"));
   initRepo(rootDir);
   const cell = await openRepoCell({
@@ -33,7 +38,7 @@ test("Decision outcomes reject self-judgment and accept an independent reviewer"
   try {
     const proposed = await cell.run(decisionProposal(), proposer),
       decisionId = receiptJson(proposed).decisionId as string,
-      sameAgent = withRoleBinding(proposer, "arbiter"),
+      owner = withRoleBinding(proposer, "repo-write"),
       independentAgent = withRoleBinding(
         {
           actor: {
@@ -44,27 +49,50 @@ test("Decision outcomes reject self-judgment and accept an independent reviewer"
         },
         "arbiter",
       );
-    const denied = await cell.run(
-      {
-        kind: "decision-accept",
-        decisionId,
-        rationale: "The proposer must not accept its own proposal.",
-        judgmentOnlyRationale: "Self-review is intentionally rejected.",
-      },
-      sameAgent,
-    );
+    const shown = receiptJson(await cell.run({ kind: "decision-show", decisionId, includeBody: true }, owner))
+        .decision as DecisionDocumentState & { readonly body: { readonly body: string } },
+      { body, ...current } = shown,
+      digest = decisionReviewContentDigest({ ...current, relations: [] }, body.body),
+      unreviewed = await cell.run(
+        {
+          kind: "decision-accept",
+          decisionId,
+          rationale: "The high-risk Decision needs an independent review.",
+          judgmentOnlyRationale: "No review was selected.",
+          reviewId: "missing-review",
+          expectedDigest: digest,
+        },
+        owner,
+      );
     assert.deepEqual(
-      { outcome: denied.outcome, code: denied.code },
-      { outcome: "op_rejected", code: "actor_unauthorized" },
+      { outcome: unreviewed.outcome, code: unreviewed.code },
+      { outcome: "op_rejected", code: "invalid_transition" },
     );
+    const reviewed = await cell.run(
+      {
+        kind: "decision-review",
+        decisionId,
+        reviewId: "review-independent",
+        reviewContentDigest: digest,
+        verdict: "approved",
+        reason: "The current content and evidence support acceptance.",
+        findings: [],
+        evidenceChecked: [],
+        reportRef: null,
+      },
+      independentAgent,
+    );
+    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
     const accepted = await cell.run(
       {
         kind: "decision-accept",
         decisionId,
         rationale: "An independent agent reviewed the proposal.",
         judgmentOnlyRationale: "Executor-axis independence is satisfied.",
+        reviewId: "review-independent",
+        expectedDigest: digest,
       },
-      independentAgent,
+      owner,
     );
     assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
   } finally {
@@ -112,8 +140,6 @@ test("Human approval preserves the proposing executor and survives a cold read",
         decisionId = receiptJson(proposal).decisionId as string,
         action = adjudication(decisionId),
         approval = { consentBy: proposer.actor.principal.personId, consentAt, consentChannel: "chat" };
-      const denied = await cell.run(action, binding);
-      assert.equal(denied.code, "actor_unauthorized", JSON.stringify(denied));
       for (const invalid of [
         { ...approval, consentBy: "another-person" },
         { ...approval, consentBy: proposer.actor.executor.id },

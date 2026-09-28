@@ -161,10 +161,12 @@ export const daemonGuiActionMethods = Object.freeze([
       decisionId: "string",
       rationale: "string",
       judgmentOnlyRationale: "string?",
+      reviewId: "string?",
+      expectedDigest: "string?",
     }),
     "acceptDecision",
     "/api/decision-control/:decisionId/accept",
-    "arbiter",
+    "repo-write",
   ),
   guiAction(
     "decision.reject",
@@ -182,7 +184,7 @@ export const daemonGuiActionMethods = Object.freeze([
     shape({ decisionId: "string", reason: "string" }),
     "deferDecision",
     "/api/decision-control/:decisionId/defer",
-    "arbiter",
+    "repo-write",
   ),
   ...entityImportGuiActions,
   // `waitFor`/`timeoutMs` are the receipt-acceptance predicates the cell already runs

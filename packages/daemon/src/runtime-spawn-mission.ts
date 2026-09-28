@@ -27,6 +27,21 @@ export function resolveRuntimeCwd(root: string, value: unknown): string {
   return resolved;
 }
 
+export function decisionReviewTarget(value: unknown): {
+  readonly kind: "decision";
+  readonly decisionId: string;
+  readonly digest: string;
+} | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const target = value as Record<string, unknown>;
+  if (target.kind !== "decision") return null;
+  return {
+    kind: "decision",
+    decisionId: requiredRuntimeSpawnText(target.decisionId, "reviewTarget.decisionId"),
+    digest: requiredRuntimeSpawnText(target.digest, "reviewTarget.digest"),
+  };
+}
+
 export function assembleAgentPrompt(
   agent: RuntimeAgent,
   mission: string,

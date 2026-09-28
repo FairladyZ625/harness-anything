@@ -1,12 +1,15 @@
 /** Public Decision event contract. */
 export * from "./decision-event-types.ts";
 export {
+  assertDecisionAcceptReview,
+  assertDecisionReviewMutation,
   assertDecisionContentPin,
   assertDecisionJudgmentConsent,
   assertDecisionWritePlan,
   compileDecisionWrite,
   decisionDocumentProse,
   decisionMachineDigest,
+  decisionReviewContentDigest,
   decisionWritePlan,
   reduceDecisionDocument,
   renderDecisionDocument,

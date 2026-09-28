@@ -32,6 +32,7 @@ const stateDigestTables = [
   ["decision_judgment_consent", "consent_id"],
   ["decision_amendment", "amendment_id"],
   ["decision_content_pin", "pin_id"],
+  ["decision_review_event", "event_id"],
 ] as const;
 
 export function watermark(db: DatabaseSync): number {

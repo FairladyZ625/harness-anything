@@ -132,6 +132,45 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
     insertDecisionPin(db, event);
     return;
   }
+  if (event.type === "decision_review_recorded") {
+    prepareQuery(db, "INSERT INTO decision_review_event VALUES (?, ?, 'review', ?, ?)").run(
+      event.eventId,
+      event.decisionId,
+      revision,
+      JSON.stringify({ ...event.payload, actor: event.actor, reviewedAt: event.occurredAt }),
+    );
+    return;
+  }
+  if (event.type === "decision_review_responded") {
+    prepareQuery(db, "INSERT INTO decision_review_event VALUES (?, ?, 'response', ?, ?)").run(
+      event.eventId,
+      event.decisionId,
+      revision,
+      JSON.stringify(
+        event.payload.responses.map((response) => ({
+          ...response,
+          actor: event.actor,
+          respondedAt: event.occurredAt,
+        })),
+      ),
+    );
+    return;
+  }
+  if (event.type === "decision_review_overridden") {
+    prepareQuery(db, "INSERT INTO decision_review_event VALUES (?, ?, 'override', ?, ?)").run(
+      event.eventId,
+      event.decisionId,
+      revision,
+      JSON.stringify({
+        reviewContentDigest: event.payload.reviewContentDigest,
+        reviewIds: event.payload.reviewIds,
+        reason: event.payload.reason,
+        actor: event.actor,
+        overriddenAt: event.occurredAt,
+      }),
+    );
+    return;
+  }
   if (event.type === "decision_claim_declared") {
     prepareQuery(
       db,

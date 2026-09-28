@@ -55,6 +55,17 @@ export async function publishExit(
         reason: String(scrubProviderValue(classifiedAttempt.reason)).slice(0, 1024),
       };
     let outcome = initialOutcome;
+    if (outcome === "succeeded" && active.decisionReviewTarget) {
+      const target = active.decisionReviewTarget,
+        reviewRegistered = context
+          .requiredRuntimeProjection(context.input)
+          .readDecision(target.decisionId)
+          .decision?.reviews.some(
+            (review) =>
+              review.reviewId === `review-${active.dispatchId}` && review.reviewContentDigest === target.digest,
+          );
+      if (!reviewRegistered) outcome = "failed";
+    }
     active.stream.appendAttemptOutcome(attemptOutcome, context.input.now());
     active.stream.appendRuntimeMetrics?.(
       {
@@ -94,7 +105,10 @@ export async function publishExit(
         body = `${body}\n\nWorker branch push failed (no retry): ${detail || "GitHub credential resolution failed."}`;
       }
     }
-    let reasonCode: string | null = null,
+    let reasonCode: string | null =
+        initialOutcome === "succeeded" && outcome === "failed" && active.decisionReviewTarget
+          ? "review_result_missing"
+          : null,
       sha256 = createHash("sha256").update(body).digest("hex"),
       result: RuntimeResultClaim = {
         sha256,

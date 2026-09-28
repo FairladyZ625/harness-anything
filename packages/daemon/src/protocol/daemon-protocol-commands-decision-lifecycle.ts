@@ -166,7 +166,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineLocalArbiterCommand({
+  defineLedgerWriteCommand({
     id: "decision-accept",
     phase: "DecisionFact-B",
     path: ["decision", "accept", "<id>"],
@@ -194,6 +194,8 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
         },
         { requires: ["--rationale"], regex: "^[\\s\\S]{1,199}$" },
       ),
+      cliInput("--review-id", "single", false, { code: "invalid_field" }),
+      cliInput("--expected-digest", "single", false, { code: "invalid_field" }),
       cliInput(
         "--consent-by",
         "single",
@@ -254,7 +256,7 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineLocalArbiterCommand({
+  defineLedgerWriteCommand({
     id: "decision-defer",
     phase: "DecisionFact-B",
     path: ["decision", "defer", "<id>"],
@@ -269,6 +271,85 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
           code: "invalid_field",
         },
         { regex: "^[\\s\\S]{1,199}$" },
+      ),
+    ],
+  }),
+  defineLocalArbiterCommand({
+    id: "decision-review",
+    phase: "DecisionFact-B",
+    path: ["decision", "review", "<id>"],
+    summary: "Record an independent review of the current Decision content cut.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput(
+        "--from-file",
+        "single",
+        true,
+        { code: "invalid_field" },
+        {
+          format: workspacePathFormat,
+          jsonFields: [
+            "reviewId",
+            "reviewContentDigest",
+            "verdict",
+            "reason",
+            "findings",
+            "evidenceChecked",
+            "reportRef",
+          ],
+        },
+      ),
+    ],
+  }),
+  defineLedgerWriteCommand({
+    id: "decision-dispatch-review",
+    phase: "DecisionFact-B",
+    path: ["decision", "dispatch-review", "<id>"],
+    summary: "Dispatch one read-only independent reviewer for the current Decision content cut.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput("--agent", "single", false, { code: "invalid_field" }),
+      cliInput("--instance", "single", false, { code: "invalid_field" }),
+      cliInput("--model", "single", false, { code: "invalid_field" }),
+      cliInput("--effort", "single", false, { code: "invalid_runtime_effort" }),
+      cliInput("--expected-digest", "single", false, { code: "invalid_field" }),
+    ],
+  }),
+  defineLedgerWriteCommand({
+    id: "decision-respond-review",
+    phase: "DecisionFact-B",
+    path: ["decision", "respond-review", "<id>"],
+    summary: "Record the proposal owner's responses to Decision review findings.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput(
+        "--from-file",
+        "single",
+        true,
+        { code: "invalid_field" },
+        {
+          format: workspacePathFormat,
+          jsonFields: ["responses"],
+        },
+      ),
+    ],
+  }),
+  defineLocalArbiterCommand({
+    id: "decision-override-review",
+    phase: "DecisionFact-B",
+    path: ["decision", "override-review", "<id>"],
+    summary: "Record an owner-authorized disposition of named Decision reviews.",
+    method: "repo.task.run",
+    inputs: [
+      cliInput(
+        "--from-file",
+        "single",
+        true,
+        { code: "invalid_field" },
+        {
+          format: workspacePathFormat,
+          jsonFields: ["reviewContentDigest", "reviewIds", "reason"],
+        },
       ),
     ],
   }),

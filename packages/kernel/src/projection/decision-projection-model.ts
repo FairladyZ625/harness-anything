@@ -2,6 +2,7 @@ import type { SessionProvenanceV1 } from "../domain/agent-runtime.ts";
 import type {
   DecisionAmendmentV1,
   DecisionContentPinV1,
+  DecisionDocumentState,
   DecisionFulfillmentMode,
   DecisionJudgmentConsentV1,
   DecisionState,
@@ -61,6 +62,9 @@ export interface DecisionProjectionRow {
   }[];
   readonly provenance: readonly SessionProvenanceV1[];
   readonly judgmentConsents: readonly DecisionJudgmentConsentV1[];
+  readonly reviews: DecisionDocumentState["reviews"];
+  readonly reviewResponses: DecisionDocumentState["reviewResponses"];
+  readonly reviewOverrides: DecisionDocumentState["reviewOverrides"];
   readonly amendments?: readonly DecisionAmendmentV1[];
   readonly contentPins?: readonly DecisionContentPinV1[];
   readonly body: DecisionBodyRow | null;

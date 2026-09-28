@@ -84,7 +84,9 @@ test("the default Policy covers the frozen durable inventory exactly once", () =
   // task_dcf07acd47f00a30691722e276 (owner adjudication 2026-09-19, derives dec_13FF6AEF): task-adjudicate
   // enters the durable inventory as the repo-write owner gate between submit and review — the CEO's forward
   // and return orders; a repo-read actor is refused below, 127 → 128.
-  assert.equal(durablePolicyActions.length, 128);
+  // dec_A64B14D6B7DDCF6A459CCC7A00 CH3/CH5 adds Decision review, response, override, and dispatch
+  // Actions while moving accept/defer to repo-write; the owner-approved inventory grows 128 → 132.
+  assert.equal(durablePolicyActions.length, 132);
   for (const kind of ["entity-pin", "entity-unpin"] as const) {
     assert.equal(port.authorize(action(kind), roleContext("repo-write")).outcome, "allowed");
     assert.equal(port.authorize(action(kind), roleContext("repo-read")).outcome, "denied");
@@ -111,8 +113,8 @@ test("RoleBinding qualification is actor, target, and role scoped", () => {
     true,
   );
   assert.equal(port.authorize(action("fact-record", outsider), roleContext("repo-write")).outcome, "denied");
-  assert.equal(port.authorize(action("decision-accept"), roleContext("repo-write")).outcome, "denied");
-  assert.equal(port.authorize(action("decision-accept"), roleContext("arbiter")).outcome, "allowed");
+  assert.equal(port.authorize(action("decision-accept"), roleContext("repo-write")).outcome, "allowed");
+  assert.equal(port.authorize(action("decision-accept"), roleContext("arbiter")).outcome, "denied");
 });
 
 test("Assignment is one auditable qualification binding for repository writes only", () => {

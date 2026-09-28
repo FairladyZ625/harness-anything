@@ -124,9 +124,12 @@ export { verifyDelegatedExecutionToken } from "./delegated-execution-token.ts";
 export type { DelegatedExecutionToken, DelegatedExecutionTokenReasonCode } from "./delegated-execution-token.ts";
 
 export {
+  assertDecisionAcceptReview,
+  assertDecisionReviewMutation,
   compileDecisionWrite,
   decisionDocumentProse,
   decisionMachineDigest,
+  decisionReviewContentDigest,
   decisionStates,
   decisionWritePlan,
 } from "./decision-event.ts";
@@ -134,6 +137,7 @@ export type {
   DecisionAmendableSnapshot,
   DecisionDocumentState,
   DecisionEventV1,
+  DecisionEventDraftV1,
   DecisionState,
 } from "./decision-event.ts";
 export { DECISION_DOCUMENT_POLICY_ID } from "./decision-event.ts";

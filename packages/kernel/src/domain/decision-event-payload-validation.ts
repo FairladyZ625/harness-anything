@@ -235,7 +235,7 @@ export function judgmentConsent(
     !requiredWithOptional(
       value,
       ["schema", "consentId", "decisionId", "action", "targetState", "machineDigest", "actor", "source", "consentedAt"],
-      ["approvedBy", "recordedBy", "at", "channel"],
+      ["approvedBy", "recordedBy", "at", "channel", "basis", "reviewContentDigest", "reviewId", "policyRevision"],
       allowUnknownFields,
     )
   )
@@ -254,6 +254,10 @@ export function judgmentConsent(
     validateWriteSource(value.source, allowUnknownFields).length === 0 &&
     sameWriteSource(value.source, event.source) &&
     value.consentedAt === event.occurredAt &&
+    (value.basis === undefined || ["human", "review", "policy_unreviewed"].includes(String(value.basis))) &&
+    (value.reviewContentDigest === undefined || /^sha256:[0-9a-f]{64}$/u.test(String(value.reviewContentDigest))) &&
+    (value.reviewId === undefined || isNonEmptyString(value.reviewId)) &&
+    (value.policyRevision === undefined || Number.isSafeInteger(value.policyRevision)) &&
     (value.approvedBy === undefined
       ? [value.recordedBy, value.at, value.channel].every((field) => field === undefined)
       : isRecord(event.actor) &&

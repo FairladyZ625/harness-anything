@@ -49,6 +49,7 @@ import {
   assembleTaskMission,
   deriveTaskMission,
   dispatchMissionForPermission,
+  decisionReviewTarget as parseDecisionReviewTarget,
   resolveRuntimeInstanceId,
   runtimeMissionName,
   explicitPromptMission,
@@ -92,7 +93,7 @@ import { isProviderFailureClassification } from "./runtime-fallback-contract.ts"
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
-import { selectReviewTarget } from "./review-dispatch-admission.ts";
+import { assertReviewerTarget, selectReviewTarget } from "./review-dispatch-admission.ts";
 import { continuationMission, initialFallbackAttempt, requiredRuntimeFast } from "./runtime-spawn-fallback.ts";
 import { admitRuntimeResume, assertResumeAgent, resolveDispatchCwd } from "./runtime-resume-admission.ts";
 import { taskWorktreeCheckoutNote } from "./task-worktree.ts";
@@ -215,6 +216,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           : requiredRuntimeSpawnText(payload.taskId, "taskId"),
       requestedExecutionId =
         payload.executionId === undefined ? undefined : requiredRuntimeSpawnText(payload.executionId, "executionId"),
+      decisionReviewTarget = parseDecisionReviewTarget(payload.reviewTarget),
       providerSessionId =
         typeof payload.providerSessionId === "string"
           ? requiredRuntimeSpawnText(payload.providerSessionId, "providerSessionId")
@@ -233,23 +235,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       projection = input.remote ? null : requiredRuntimeProjection(input),
       remoteTask = taskId && input.remote ? await input.remote.taskContext(taskId, missionName) : null;
     const reviewerBinding = role === "reviewer";
-    // A reviewer binds to a submitted cut through the review surface only; a role-reviewer spawn
-    // without a task can never select that cut and must not fall back to a task-less runtime.
-    if (reviewerBinding && taskId === null)
-      throw runtimeSpawnError(
-        "invalid_runtime_spawn",
-        "Reviewer dispatch requires a reviewed task id; use ha task dispatch-review <task-id>.",
-      );
-    if (requestedExecutionId !== undefined && !reviewerBinding)
-      throw runtimeSpawnError(
-        "invalid_runtime_spawn",
-        "executionId only applies to a reviewer dispatch; use ha task dispatch-review <task-id> --execution-id <id>.",
-      );
-    if (reviewerBinding && taskId !== null && input.remote && remoteTask?.executionId === undefined)
-      throw runtimeSpawnError(
-        "review_target_missing",
-        `Remote task context for ${taskId} returned no submitted execution to review.`,
-      );
+    assertReviewerTarget({
+      reviewer: reviewerBinding,
+      taskId,
+      decisionTarget: decisionReviewTarget,
+      executionId: requestedExecutionId,
+      remoteExecutionId: remoteTask?.executionId,
+      remote: input.remote !== undefined,
+    });
     // Every local spawn (runtime.run, squad turns, fallback continuations) runs in the RepoCell write queue.
     const taskSnapshot =
         taskId && !input.remote ? requireCurrentTaskProjection(projection!, taskId, "runtime.run").snapshot : null,
@@ -265,9 +258,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       // implementation execution or lease — so it cannot observe, open, or mutate an implementation
       // iteration. Selection happens here so every entry (task dispatch-review, completion facade)
       // enforces the same invariant.
-      reviewTarget = reviewerBinding
-        ? selectReviewTarget(taskId, requestedExecutionId, taskSnapshot, input.remote != null)
-        : null,
+      reviewTarget =
+        reviewerBinding && decisionReviewTarget === null
+          ? selectReviewTarget(taskId, requestedExecutionId, taskSnapshot, input.remote != null)
+          : null,
       hash = createHash("sha256").update(`${input.repoId}\0${idempotencyKey}`).digest("hex"),
       newDispatchId = `dispatch_${hash.slice(0, 24)}`,
       runtimeSessionId = `runtime_${hash.slice(24, 48)}`,
@@ -785,6 +779,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       parentRuntimeSessionId: parentRuntimeSessionId ?? null,
       binding: activeBinding,
       task: taskBinding,
+      decisionReviewTarget,
       schedule: trustedSchedule ?? null,
       installation: {
         executablePath: installation.executablePath,

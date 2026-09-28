@@ -16,6 +16,9 @@ export const decisionEventTypes = [
   "decision_related",
   "decision_relation_retired",
   "decision_relation_replaced",
+  "decision_review_recorded",
+  "decision_review_responded",
+  "decision_review_overridden",
 ] as const;
 export const decisionStates = [
   "proposed",
@@ -98,6 +101,39 @@ export interface DecisionAmendmentV1 {
   readonly actor: ActorIdentity;
   readonly amendedAt: string;
 }
+export type DecisionReviewVerdict = "approved" | "changes_requested";
+export interface DecisionReviewFindingV1 {
+  readonly findingId: string;
+  readonly text: string;
+  readonly anchor?: string;
+}
+export interface DecisionReviewV1 {
+  readonly reviewId: string;
+  readonly reviewContentDigest: `sha256:${string}`;
+  readonly verdict: DecisionReviewVerdict;
+  readonly reason: string;
+  readonly findings: readonly DecisionReviewFindingV1[];
+  readonly evidenceChecked: readonly string[];
+  readonly reportRef: string | null;
+  readonly actor: ActorIdentity;
+  readonly reviewedAt: string;
+}
+export interface DecisionReviewResponseV1 {
+  readonly reviewId: string;
+  readonly findingId: string;
+  readonly disposition: "adopt" | "rebut";
+  readonly rationale: string;
+  readonly amendmentRef: string | null;
+  readonly actor: ActorIdentity;
+  readonly respondedAt: string;
+}
+export interface DecisionReviewOverrideV1 {
+  readonly reviewContentDigest: `sha256:${string}`;
+  readonly reviewIds: readonly string[];
+  readonly reason: string;
+  readonly actor: ActorIdentity;
+  readonly overriddenAt: string;
+}
 export interface DecisionContentPinV1 {
   readonly schema: "decision-content-pin/v1";
   readonly pinId: string;
@@ -118,6 +154,9 @@ export interface DecisionPayloads {
       readonly mode: DecisionFulfillmentMode;
     }[];
     readonly standingPolicy?: boolean;
+    readonly reviewId?: string;
+    readonly expectedDigest?: `sha256:${string}`;
+    readonly policyRevision?: number;
   };
   readonly decision_rejected: { readonly reason: string };
   readonly decision_deferred: { readonly reason: string };
@@ -149,6 +188,23 @@ export interface DecisionPayloads {
     readonly replacement: EntityRelationRecord;
     readonly body: string | null;
   };
+  readonly decision_review_recorded: {
+    readonly reviewId: string;
+    readonly reviewContentDigest: `sha256:${string}`;
+    readonly verdict: DecisionReviewVerdict;
+    readonly reason: string;
+    readonly findings: readonly DecisionReviewFindingV1[];
+    readonly evidenceChecked: readonly string[];
+    readonly reportRef: string | null;
+  };
+  readonly decision_review_responded: {
+    readonly responses: readonly Omit<DecisionReviewResponseV1, "actor" | "respondedAt">[];
+  };
+  readonly decision_review_overridden: {
+    readonly reviewContentDigest: `sha256:${string}`;
+    readonly reviewIds: readonly string[];
+    readonly reason: string;
+  };
 }
 export type DecisionJudgmentAction = Extract<
   DecisionTransitionDefinition,
@@ -168,6 +224,10 @@ export interface DecisionJudgmentConsentV1 {
   readonly recordedBy?: ActorIdentity["executor"];
   readonly at?: string;
   readonly channel?: "chat" | "cli" | "gui";
+  readonly basis?: "human" | "review" | "policy_unreviewed";
+  readonly reviewContentDigest?: `sha256:${string}`;
+  readonly reviewId?: string;
+  readonly policyRevision?: number;
 }
 export const DECISION_DOCUMENT_POLICY_ID = "markdown-body-replaceable/v1" as const;
 export interface DecisionDocumentClaim {
@@ -237,6 +297,9 @@ export interface DecisionDocumentState {
   readonly judgmentConsents: readonly DecisionJudgmentConsentV1[];
   readonly amendments?: readonly DecisionAmendmentV1[];
   readonly contentPins?: readonly DecisionContentPinV1[];
+  readonly reviews: readonly DecisionReviewV1[];
+  readonly reviewResponses: readonly DecisionReviewResponseV1[];
+  readonly reviewOverrides: readonly DecisionReviewOverrideV1[];
 }
 export interface DecisionContentBlob {
   readonly sha256: string;
