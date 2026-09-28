@@ -251,6 +251,17 @@ function evaluateCompletion(
       codeDoc: true,
     },
     assessment = closeoutReadiness(snapshot, undefined, closeoutGates);
+  // A changes request on the current cut ends that cut: no witness can complete it, so the owner's
+  // return comes before any missing evidence.
+  const changes =
+    includeReview && assessment.blocker === "review" ? changesRequestedReview(snapshot.reviews, execution) : undefined;
+  if (changes)
+    return one(
+      "review_missing",
+      "review",
+      reviewReturnCommand(task.taskId, changes.reviewId),
+      `Review ${changes.reviewId} requested changes; the owner returns the cut with rework instructions in the note.`,
+    );
   const gate = assessment.gates.find(
     ({ gateId, status }) =>
       !gateSatisfied(status) &&
@@ -310,22 +321,13 @@ function evaluateCompletion(
   if (!includeReview) return [];
   // The assessment already carries the gate judgment; re-deriving review or consent here
   // would duplicate the one closeout-readiness decision.
-  if (assessment.blocker === "review") {
-    const changes = changesRequestedReview(snapshot.reviews, execution);
-    return changes
-      ? one(
-          "review_missing",
-          "review",
-          reviewReturnCommand(task.taskId, changes.reviewId),
-          `Review ${changes.reviewId} requested changes; the owner returns the cut with rework instructions in the note.`,
-        )
-      : one(
-          "review_missing",
-          "review",
-          `ha task dispatch-review ${task.taskId}`,
-          "The forwarded cut has no recorded review; wait for the dispatched reviewer's verdict or dispatch one.",
-        );
-  }
+  if (assessment.blocker === "review")
+    return one(
+      "review_missing",
+      "review",
+      `ha task dispatch-review ${task.taskId}`,
+      "The forwarded cut has no recorded review; wait for the dispatched reviewer's verdict or dispatch one.",
+    );
   if (assessment.blocker === "consent")
     return one(
       "consent_missing",

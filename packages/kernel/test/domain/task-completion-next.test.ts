@@ -235,6 +235,19 @@ test("a recorded changes_requested review guides the owner's return instead of a
 });
 
 // Q1-R1-004: review-consent selects a sole approved candidate itself; only a choice needs its id.
+test("a changes request on the current cut comes before missing CI evidence", () => {
+  const reviewed = gatedAt([ciRequirement], 5),
+    changesRequested = {
+      ...reviewed,
+      reviews: [{ ...reviewed.reviews[0]!, reviewId: "review-changes", verdict: "changes_requested" as const }],
+    },
+    result = taskCompletionNext(changesRequested, context);
+  assert.equal(result.blocker?.code, "review_missing");
+  assert.equal(result.next?.action, "ha task adjudicate task-1 --return --review-id review-changes --note-file <path>");
+  // Without the changes request the missing CI witness still leads.
+  assert.equal(taskCompletionNext(reviewed, context).blocker?.code, "ci_missing");
+});
+
 test("consent guidance relies on automatic selection for one candidate and names each of several", () => {
   const single = at(5),
     multiple = { ...single, reviews: [...single.reviews, { ...single.reviews[0]!, reviewId: "review-additional" }] },
