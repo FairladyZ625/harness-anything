@@ -191,6 +191,26 @@ test("gate surface check rejects branch-protection document drift from required 
   }
 });
 
+test("gate surface check rejects a required gate step that continues on error", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, {
+      workflow(workflow) {
+        return workflow.replace(
+          "      - run: npm run harness:check-gate-surface\n",
+          "      - run: npm run harness:check-gate-surface\n        continue-on-error: true\n",
+        );
+      },
+    });
+
+    const result = runChecker(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /check-gate-surface expects boundaries to run/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("gate surface check rejects non-PR gates without a tier reason", () => {
   const root = makeFixtureRoot();
   try {

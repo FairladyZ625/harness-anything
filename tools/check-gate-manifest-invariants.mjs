@@ -184,8 +184,9 @@ function checkWorkflowMapping(gate, workflow, surfaceName, findings) {
 }
 
 function jobRunsGate(job, gate) {
-  if (job.runCommands.includes(gate.command)) return true;
-  return job.runCommands.some((command) => {
+  const commands = gate.tier === "pr-required" ? job.blockingRunCommands : job.runCommands;
+  if (commands.includes(gate.command)) return true;
+  return commands.some((command) => {
     const runner = parseManifestRunner(command);
     return runner?.workflowJob === job.id && !runner.excludes.has(gate.id);
   });

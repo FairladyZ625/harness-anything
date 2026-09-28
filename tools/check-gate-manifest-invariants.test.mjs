@@ -65,6 +65,27 @@ test("rejects manifest workflow execution surfaces that drift from the actual jo
   }
 });
 
+test("rejects a required manifest runner step that continues on error", () => {
+  const root = makeFixtureRoot();
+  try {
+    writeFixture(root, {
+      deterministic: true,
+      surfaceClasses: ["local", "pr", "main-full"],
+      pullRequestJobs: ["boundaries"],
+      workflowContinueOnError: true,
+    });
+
+    const result = runChecker(root);
+    assert.equal(result.status, 1);
+    assert.match(
+      result.stderr,
+      /example-gate declares PR workflow job boundaries, but its command is absent from that job/u,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("rejects an actual PR gate job that is absent from the manifest workflow inventory", () => {
   const root = makeFixtureRoot();
   try {
@@ -190,6 +211,7 @@ function writeFixture(
     surfaceClasses,
     pullRequestJobs,
     workflowRun = "node tools/run-manifest-gates.mjs --workflow-job boundaries",
+    workflowContinueOnError = false,
     workflowExtra = [],
     fullCheckRun = "npm run check",
     protectedSurfaces = [],
@@ -225,6 +247,7 @@ function writeFixture(
       {
         id: "example-gate",
         command: "npm run harness:example-gate",
+        tier: "pr-required",
         deterministic,
         ...(protectedSurfaces.length > 0
           ? {
@@ -261,6 +284,7 @@ function writeFixture(
     "    runs-on: ubuntu-latest",
     "    steps:",
     `      - run: ${workflowRun}`,
+    ...(workflowContinueOnError ? ["        continue-on-error: true"] : []),
     ...workflowExtra,
     "",
   ].join("\n");

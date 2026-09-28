@@ -2,12 +2,14 @@ export function parseGateWorkflow(text) {
   const jobs = new Map();
   let inJobs = false;
   let current = null;
+  let currentStep = null;
   let multilineRunIndent = null;
   for (const line of text.split(/\r?\n/u)) {
     if (multilineRunIndent !== null) {
       const indent = /^\s*/u.exec(line)?.[0].length ?? 0;
       if (line.trim() && indent > multilineRunIndent) {
         current.runCommands.push(line.trim());
+        currentStep.runCommands.push(line.trim());
         continue;
       }
       multilineRunIndent = null;
@@ -19,23 +21,44 @@ export function parseGateWorkflow(text) {
     if (!inJobs) continue;
     const jobMatch = /^  ([A-Za-z0-9_-]+):\s*$/u.exec(line);
     if (jobMatch) {
-      current = { id: jobMatch[1], ifExpressions: [], runCommands: [], nodeVersions: [] };
+      current = {
+        id: jobMatch[1],
+        ifExpressions: [],
+        runCommands: [],
+        blockingRunCommands: [],
+        nodeVersions: [],
+        steps: [],
+      };
+      currentStep = null;
       jobs.set(current.id, current);
       continue;
     }
     if (!current) continue;
+    const stepMatch = /^(\s+)-\s+/u.exec(line);
+    if (stepMatch) {
+      currentStep = { indent: stepMatch[1].length, runCommands: [], continueOnError: false };
+      current.steps.push(currentStep);
+    }
+    const continueOnErrorMatch = /^(\s+)continue-on-error:\s*(.+?)\s*$/u.exec(line);
+    if (continueOnErrorMatch && currentStep && continueOnErrorMatch[1].length > currentStep.indent) {
+      currentStep.continueOnError = unquoteYamlScalar(continueOnErrorMatch[2]) !== "false";
+    }
     const ifMatch = /^\s+if:\s*(.+?)\s*$/u.exec(line);
     if (ifMatch) current.ifExpressions.push(unquoteYamlScalar(ifMatch[1]));
     const runMatch = /^\s+(?:-\s*)?run:\s*(.+?)\s*$/u.exec(line);
     if (runMatch) {
       const command = unquoteYamlScalar(runMatch[1]);
       if (command === "|" || command === ">") multilineRunIndent = /^\s*/u.exec(line)?.[0].length ?? 0;
-      else current.runCommands.push(command);
+      else {
+        current.runCommands.push(command);
+        currentStep.runCommands.push(command);
+      }
     }
     const nodeVersionMatch = /^\s+node-version:\s*(.+?)\s*$/u.exec(line);
     if (nodeVersionMatch) current.nodeVersions.push(...extractNumbers(unquoteYamlScalar(nodeVersionMatch[1])));
   }
   for (const job of jobs.values()) {
+    job.blockingRunCommands = job.steps.filter((step) => !step.continueOnError).flatMap((step) => step.runCommands);
     // A job whose conditions never mention the event runs on every event the workflow declares
     // (step-level `if: always()` does not gate the job), so it is both a pull-request job and a
     // non-pull-request job; the manifest runner picks the gate set per event. A positive
