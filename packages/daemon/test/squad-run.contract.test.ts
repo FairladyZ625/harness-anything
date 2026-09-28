@@ -581,6 +581,8 @@ type SeedOptions = {
   readonly phase: "planning" | "leader_running" | "workers_running" | "converged" | "failed";
   readonly leader: DispatchFact;
   readonly worker?: DispatchFact;
+  /** admission 阶段被拒的 worker attempt:无派工流,拒绝原因在 rejection 上。 */
+  readonly rejectedWorker?: { readonly attemptId: string; readonly workerId: string; readonly rejection: string };
   readonly taskId?: string;
 };
 
@@ -629,17 +631,30 @@ function seedSquadRun(rootDir: string, options: SeedOptions): void {
       ],
       leaderProviderSessionId: null,
       currentLeaderRuntimeSessionId: null,
-      workerAttempts: options.worker
-        ? [
-            {
-              attemptId: "worker-1",
-              workerId: "sol",
-              dispatchId: options.worker.dispatchId,
-              runtimeSessionId: options.worker.runtimeSessionId,
-              rejection: null,
-            },
-          ]
-        : [],
+      workerAttempts: [
+        ...(options.worker
+          ? [
+              {
+                attemptId: "worker-1",
+                workerId: "sol",
+                dispatchId: options.worker.dispatchId,
+                runtimeSessionId: options.worker.runtimeSessionId,
+                rejection: null,
+              },
+            ]
+          : []),
+        ...(options.rejectedWorker
+          ? [
+              {
+                attemptId: options.rejectedWorker.attemptId,
+                workerId: options.rejectedWorker.workerId,
+                dispatchId: null,
+                runtimeSessionId: null,
+                rejection: options.rejectedWorker.rejection,
+              },
+            ]
+          : []),
+      ],
       observedWorkerRuntimeSessionIds: [],
       workerWaits: [],
       pendingLeaderTriggers: [],
@@ -1007,6 +1022,45 @@ test("the real write path keeps deriving activity from dispatch facts, not a per
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("an admission-rejected worker carries status=rejected and its reason in the status receipt", () => {
+  withRootDir((rootDir) => {
+    const rejection = "TASK_WIP_LIMIT_REACHED: Execution worktable is full (40/40; settings.tasks.wipLimit=40).",
+      worker = {
+        dispatchId: "dispatch_00000000000000000000b2c3",
+        runtimeSessionId: "runtime-worker",
+        startedAt: "2026-08-27T11:30:00.000Z",
+        endedAt: "2026-08-27T11:55:00.000Z",
+      };
+    seedSquadRun(rootDir, {
+      squadRunId: "squad_0123456789abcdef01234567",
+      phase: "workers_running",
+      leader: {
+        dispatchId: "dispatch_00000000000000000000a1b2",
+        runtimeSessionId: "runtime-leader",
+        startedAt: "2026-08-27T11:00:00.000Z",
+      },
+      worker,
+      rejectedWorker: { attemptId: "worker-2", workerId: "sol", rejection },
+    });
+    const { coordinator: squad } = coordinator(
+      rootDir,
+      [],
+      new Map([[worker.dispatchId, { ...archiveDoc(worker), outcome: "succeeded" }]]),
+    );
+    const status = squad.status("squad_0123456789abcdef01234567"),
+      workers = status.workers as Array<Record<string, unknown>>,
+      rejected = workers.find((row) => row.attemptId === "worker-2"),
+      dispatched = workers.find((row) => row.attemptId === "worker-1");
+    // 回执与详细 callback 同源判定:拒绝优先于台账行,读者不必翻 JSON 找原因。
+    assert.equal(rejected?.status, "rejected");
+    assert.equal(rejected?.rejection, rejection);
+    assert.equal(rejected?.runtimeSessionId, null);
+    // 已派工的 worker 不受影响:status 仍来自派工台账行。
+    assert.equal(dispatched?.status, "succeeded");
+    assert.equal(dispatched?.rejection, null);
+  });
 });
 
 test("a run whose task has no projected package path fails the list", () => {

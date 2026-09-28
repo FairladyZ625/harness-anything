@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActorIdentity, LeaseV1, TaskLifecycleSnapshot, TaskV2 } from "@harness-anything/kernel";
 import { reacquireSquadTaskLease } from "../src/repo-cell-squad-child.ts";
-import { callbackLeaderPrompt, initialLeaderPrompt, parseLeaderDecision } from "../src/squad-leader-decision.ts";
+import {
+  callbackLeaderPrompt,
+  initialLeaderPrompt,
+  parseLeaderDecision,
+  squadAttemptStatus,
+} from "../src/squad-leader-decision.ts";
+import type { TaskDispatchRow } from "../src/protocol/daemon-protocol.contract.ts";
 
 const squadActor: ActorIdentity = {
     principal: { personId: "person-squad" },
@@ -193,4 +199,41 @@ test("leader protocol preserves finite child ownership and rejects glob or paren
   });
   for (const scope of ["src/**", "../outside", "/absolute", "src/{a,b}/", "src/../other"])
     assert.throws(() => parse([scope]), Error, `invalid ownership scope was accepted: ${scope}`);
+});
+
+test("the callback prompt and the status receipt share one attempt-status judgment", () => {
+  const rejection = "TASK_WIP_LIMIT_REACHED: Execution worktable is full (40/40; settings.tasks.wipLimit=40).";
+  assert.equal(squadAttemptStatus(rejection, undefined), "rejected");
+  assert.equal(squadAttemptStatus(null, undefined), "running");
+  const row = { status: "succeeded" } as TaskDispatchRow;
+  assert.equal(squadAttemptStatus(null, row), "succeeded");
+  // 详细 callback 的状态行必须经同一判定:拒绝优先于台账行,不再是各渲染面的私有推断。
+  const prompt = callbackLeaderPrompt(
+    {
+      taskId: "task-squad",
+      squadRunId: "squad_0123456789abcdef01234567",
+      roster: "worker -> terra\nsynthesis -> artifacts/reports/{squadRunId}.md",
+      mission: "Synthesize worker evidence.",
+      workerAttempts: [
+        {
+          attemptId: "attempt-1",
+          taskId: null,
+          executionId: null,
+          ownedPaths: [],
+          ownershipCheck: null,
+          workerId: "terra",
+          leaderTurnId: "turn-1",
+          dispatchId: null,
+          runtimeSessionId: null,
+          worktree: null,
+          rejection,
+        },
+      ],
+    },
+    [{ kind: "worker_rejected", attemptId: "attempt-1" }],
+    [],
+    () => null,
+  );
+  assert.ok(prompt.includes("status=rejected"), "callback status row must show the rejected judgment");
+  assert.ok(prompt.includes(`rejection=${rejection}`), "callback status row must carry the rejection reason");
 });

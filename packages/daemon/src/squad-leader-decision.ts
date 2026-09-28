@@ -85,6 +85,17 @@ export type WorkerPlan = {
   readonly ownedPaths?: readonly string[];
 };
 
+/** Squad attempt 状态的唯一判定:admission 拒绝(rejection 非空)优先于派工台账行,
+ * 无台账行的未拒绝 attempt 是派发进行中。statusDto(`ha squad status` 回执)与详细
+ * callback 的状态行都从这里取;消费方不得自行推断——分叉推断曾让被拒 worker 在简表
+ * 显示 unknown。 */
+export function squadAttemptStatus(
+  rejection: string | null,
+  row: TaskDispatchRow | undefined,
+): "rejected" | TaskDispatchRow["status"] {
+  return rejection === null ? (row?.status ?? "running") : "rejected";
+}
+
 type LeaderPromptState = {
   readonly taskId: string;
   readonly squadRunId: string;
@@ -168,7 +179,7 @@ function statusRowsForPrompt(
       `ownership=${JSON.stringify(attempt.ownershipCheck)}`,
       `dispatch=${attempt.dispatchId ?? "none"}`,
       `session=${attempt.runtimeSessionId ?? "none"}`,
-      `status=${attempt.rejection ? "rejected" : (row?.status ?? "running")}`,
+      `status=${squadAttemptStatus(attempt.rejection, row)}`,
       `exitCode=${String(row?.exitCode ?? "none")}`,
       `resultRef=${row?.resultRef ?? "none"}`,
       `reportPath=${row?.reportPath ?? "none"}`,
