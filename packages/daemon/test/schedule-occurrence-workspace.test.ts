@@ -5,12 +5,14 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
+  lstatSync,
   mkdtempSync,
-  readFileSync,
-  readlinkSync,
+  realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -175,22 +177,35 @@ test("remediate occurrences keep unmerged commits at an archive tag before remov
   }
 });
 
-test("remediate occurrences link the canonical node_modules store into the worktree", async () => {
+test("remediate occurrences resolve workspace packages in the worktree and share the rest of the store", async () => {
   const fixture = repositoryFixture();
   try {
-    mkdirSync(path.join(fixture.root, "node_modules", "sentinel-pkg"), { recursive: true });
-    writeFileSync(path.join(fixture.root, "node_modules", "sentinel-pkg", "marker.txt"), "present\n");
-    const workspace = await prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", "occurrence-deps"));
-    assert.equal(readlinkSync(path.join(workspace.cwd, "node_modules")), path.join(fixture.root, "node_modules"));
-    assert.equal(
-      readFileSync(path.join(workspace.cwd, "node_modules", "sentinel-pkg", "marker.txt"), "utf8"),
-      "present\n",
-    );
+    const store = storeFixture(fixture.root),
+      workspace = await prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", "occurrence-deps")),
+      resolve = createRequire(path.join(workspace.cwd, "index.js")).resolve;
+    assert.equal(resolve("@fixture/pkg"), path.join(realpathSync(workspace.cwd), "packages", "pkg", "index.js"));
+    assert.equal(resolve("sentinel-pkg"), path.join(realpathSync(store), "sentinel-pkg", "index.js"));
+    assert.equal(realpathSync(path.join(workspace.cwd, "node_modules", ".bin", "pkg")), resolve("@fixture/pkg"));
     assert.equal(workspace.runtime.worktree?.note, undefined);
-    // The linked store is the workspace's own doing: it neither marks the worktree dirty nor blocks removal.
+    // The mirrored store is the workspace's own doing: it neither marks the worktree dirty nor blocks removal.
     assert.equal((await settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime)).detail, null);
     assert.equal(existsSync(workspace.cwd), false);
-    assert.equal(existsSync(path.join(fixture.root, "node_modules", "sentinel-pkg")), true);
+    assert.equal(existsSync(path.join(store, "sentinel-pkg", "index.js")), true);
+    assert.equal(existsSync(path.join(store, "@fixture", "pkg", "index.js")), true);
+  } finally {
+    rmSync(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test("the mirrored store is removed at reclaim even where node_modules is not ignored", async () => {
+  const fixture = repositoryFixture({ ignoreNodeModules: false });
+  try {
+    const store = storeFixture(fixture.root),
+      workspace = await prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", "occurrence-bare"));
+    assert.equal(git(workspace.cwd, "status", "--porcelain"), "?? node_modules/");
+    assert.equal((await settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime)).detail, null);
+    assert.equal(existsSync(workspace.cwd), false);
+    assert.equal(existsSync(path.join(store, "sentinel-pkg", "index.js")), true);
   } finally {
     rmSync(fixture.base, { recursive: true, force: true });
   }
@@ -224,7 +239,7 @@ test(
       assert.match(note ?? "", /node_modules/u);
       chmodSync(worktree, 0o755);
       assert.equal(linkSharedNodeModules(fixture.root, worktree), null);
-      assert.equal(readlinkSync(path.join(worktree, "node_modules")), path.join(fixture.root, "node_modules"));
+      assert.equal(lstatSync(path.join(worktree, "node_modules")).isDirectory(), true);
     } finally {
       chmodSync(worktree, 0o755);
       rmSync(fixture.base, { recursive: true, force: true });
@@ -240,7 +255,7 @@ function schedule(mode: "detect" | "remediate", occurrenceId: string): ScheduleV
   } as ScheduleV1;
 }
 
-function repositoryFixture(): { readonly base: string; readonly root: string } {
+function repositoryFixture({ ignoreNodeModules = true } = {}): { readonly base: string; readonly root: string } {
   const base = mkdtempSync(path.join(tmpdir(), "ha-schedule-workspace-")),
     remote = path.join(base, "remote.git"),
     root = path.join(base, "canonical");
@@ -249,9 +264,12 @@ function repositoryFixture(): { readonly base: string; readonly root: string } {
   git(root, "config", "user.name", "Schedule Test");
   git(root, "config", "user.email", "schedule@example.invalid");
   writeFileSync(path.join(root, "README.md"), "base\n");
-  // Same form as this repository: a trailing slash matches directories only, so not the linked store.
-  writeFileSync(path.join(root, ".gitignore"), "node_modules/\n.worktrees\n");
-  git(root, "add", "README.md", ".gitignore");
+  // Same form as this repository: a trailing slash matches directories only.
+  writeFileSync(path.join(root, ".gitignore"), `${ignoreNodeModules ? "node_modules/\n" : ""}.worktrees\n`);
+  mkdirSync(path.join(root, "packages", "pkg"), { recursive: true });
+  writeFileSync(path.join(root, "packages", "pkg", "package.json"), '{ "name": "@fixture/pkg" }\n');
+  writeFileSync(path.join(root, "packages", "pkg", "index.js"), "module.exports = 'pkg';\n");
+  git(root, "add", "README.md", ".gitignore", "packages");
   git(root, "commit", "-qm", "base");
   git(root, "remote", "add", "origin", remote);
   git(root, "push", "-q", "-u", "origin", "main");
@@ -260,4 +278,16 @@ function repositoryFixture(): { readonly base: string; readonly root: string } {
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+}
+
+/** An installed store in npm's shape: third-party packages as directories, workspaces and bins as relative links. */
+function storeFixture(root: string): string {
+  const store = path.join(root, "node_modules");
+  mkdirSync(path.join(store, "sentinel-pkg"), { recursive: true });
+  writeFileSync(path.join(store, "sentinel-pkg", "index.js"), "module.exports = 'sentinel';\n");
+  mkdirSync(path.join(store, "@fixture"));
+  symlinkSync(path.join("..", "..", "packages", "pkg"), path.join(store, "@fixture", "pkg"));
+  mkdirSync(path.join(store, ".bin"));
+  symlinkSync(path.join("..", "@fixture", "pkg", "index.js"), path.join(store, ".bin", "pkg"));
+  return store;
 }
