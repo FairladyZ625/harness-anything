@@ -21,6 +21,35 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 
 import { actor, git, initRepo, ownerBinding, rows, standardMigration, write } from "./doc-sync-slice-a.fixtures.ts";
+test("artifact add publishes inline content through the canonical artifact writer", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-artifact-inline-")),
+    repoId = workspaceId("artifact-inline");
+  initRepo(root);
+  const cell = await openRepoCell({ repoId, rootDir: canonicalRoot(root), ownerId: "artifact-inline" });
+  try {
+    const created = await cell.run({ kind: "task-create", taskId: "task-inline", title: "Inline" }, ownerBinding);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, ownerBinding);
+    const receipt = await cell.run(
+      {
+        kind: "task-artifact-add",
+        taskId: "task-inline",
+        content: "same-run evidence\n",
+        destination: "evidence/command.json",
+      },
+      ownerBinding,
+    );
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    await waitForFixturePublication(cell, receipt.opId, ownerBinding);
+    assert.equal(
+      readFileSync(path.join(root, "harness/tasks/task-inline-inline/artifacts/evidence/command.json"), "utf8"),
+      "same-run evidence\n",
+    );
+  } finally {
+    await cell.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 test("artifact add is the untracked UTF-8 canonical subset of doc submit", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-artifact-equivalence-")),
     left = path.join(parent, "left"),

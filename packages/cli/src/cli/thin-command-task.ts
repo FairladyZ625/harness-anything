@@ -44,14 +44,7 @@ export function parseTask(
       : rejected("missing_field", "Run ha task show <task-id>.", json);
   }
   if (id === "task-progress-append") return parseProgress(rootDir, repoId, json, args, inputs);
-  if (id === "task-artifact-add") {
-    const taskId = args[3];
-    return nonEmpty(taskId)
-      ? parseProjected(id, args.slice(4), rootDir, repoId, json, inputs, {
-          taskId,
-        })
-      : rejected("missing_field", "Run ha task artifact add <task-id>.", json);
-  }
+  if (id === "task-artifact-add") return parseTaskArtifactAdd(args, rootDir, repoId, json, inputs);
   const taskId = args[id === "task-code-doc-reconcile" || id === "task-code-doc-repoint" ? 3 : 2];
   if (!nonEmpty(taskId)) return rejected("missing_field", `Run ha task ${verb ?? "<verb>"} <task-id>.`, json);
   if (
@@ -119,6 +112,25 @@ export function parseTask(
     renderCliGuidance("run-help", { helpCommand: inputs.get(id)!.helpCommand }),
     json,
   );
+}
+
+function parseTaskArtifactAdd(
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const taskId = args[3],
+    parsed = nonEmpty(taskId)
+      ? parseProjected("task-artifact-add", args.slice(4), rootDir, repoId, json, inputs, { taskId })
+      : rejected("missing_field", "Run ha task artifact add <task-id>.", json);
+  if (!parsed.ok) return parsed;
+  if (parsed.command.action.run === true)
+    return rejected("missing_field", "--run requires -- <command> [args...]. See ha task artifact add --help.", json);
+  return parsed.command.action.destination === undefined
+    ? rejected("missing_field", "--destination is required with --source. See ha task artifact add --help.", json)
+    : parsed;
 }
 
 function parseTaskDispatchReview(
