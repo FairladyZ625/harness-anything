@@ -2,8 +2,9 @@ import type { ViewId } from "./viewHistory.ts";
 
 /**
  * 实体引用 → 详情路由(W4):Fact 与 Decision 有自己的可寻址详情页,
- * 「打开详情」不再落在列表页。task 的详情页是既有 selectedId 路由(TaskDetailView),
- * 不经此映射。
+ * 「打开详情」不再落在列表页。task 引用按「根任务即工作」(dec_5F7E74F1)分流:
+ * 工作根落工作页(workspace,根任务详情是其中一个分区),其余 task 落既有 selectedId
+ * 路由(TaskDetailView)。
  *
  * W6 IA 拆分:运行时实体也走可寻址路由——agent/squad 归「Agent · 含 Squad」入口
  * (Squad 是该页的一个面,不是第四入口),provider(Runtime 实例)归「Provider」,
@@ -14,9 +15,20 @@ import type { ViewId } from "./viewHistory.ts";
  * 纯函数,供 App 的 navigateLocalEntity 与测试共用。
  */
 
-export interface EntityDetailTarget {
-  view: ViewId;
-  focusedEntityRef: string;
+export type EntityDetailTarget =
+  | { view: ViewId; focusedEntityRef: string }
+  | WorkTarget
+  | { selectedId: string; focusedEntityRef: string };
+
+export interface WorkTarget {
+  view: "workspace";
+  scopeRootTaskId: string;
+  focusedEntityRef: null;
+}
+
+/** 工作页落点的唯一拼法:工作根、子组与「属于工作」链接共用。 */
+export function workTargetOf(taskId: string): WorkTarget {
+  return { view: "workspace", scopeRootTaskId: taskId, focusedEntityRef: null };
 }
 
 /**
@@ -25,8 +37,20 @@ export interface EntityDetailTarget {
  * `declaredKinds` 是已注册 kind 读面上的 kind 清单:声明出来的实体没有专页,统一落
  * 实体页的该 kind 详情(与 entitydoc/<kind> 同一落点),整条 ref 原样下发,由那一页
  * 选中对应实体。本函数不持有 kind 清单——不传就只认代码里有专页的那些。
+ *
+ * `isWorkRoot` 是工作根判定(daemon 工作索引 `repo.works.index`,经 model/work-collections#workIndexOf);
+ * 本函数同样不持有任务集——不传就把每个 task 都当普通任务。
  */
-export function entityDetailTargetOf(ref: string, declaredKinds: readonly string[] = []): EntityDetailTarget | null {
+export function entityDetailTargetOf(
+  ref: string,
+  declaredKinds: readonly string[] = [],
+  isWorkRoot: (taskId: string) => boolean = () => false,
+): EntityDetailTarget | null {
+  if (ref.startsWith("task/")) {
+    const taskId = ref.split("/")[1];
+    if (!taskId) return null;
+    return isWorkRoot(taskId) ? workTargetOf(taskId) : { selectedId: taskId, focusedEntityRef: `task/${taskId}` };
+  }
   if (ref.startsWith("decision/")) {
     const decisionId = ref.split("/")[1];
     if (!decisionId) return null;

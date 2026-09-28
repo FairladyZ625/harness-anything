@@ -178,11 +178,11 @@ export function TaskPreviewDrawer({
                     "root"
                   )}{" "}
                   /{" "}
-                  {task.rootTaskId ? (
+                  {task.workId ? (
                     <EntityRefLink
-                      entityRef={`task/${task.rootTaskId}`}
-                      onNavigate={() => onOpenDetail(task.rootTaskId!)}
-                      title={task.rootTaskId}
+                      entityRef={`task/${task.workId}`}
+                      onNavigate={() => onOpenDetail(task.workId!)}
+                      title={task.workId}
                       className="text-accent hover:underline"
                     />
                   ) : (

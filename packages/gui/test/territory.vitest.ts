@@ -11,7 +11,7 @@ import {
   classifyFactAnomaly,
   isFactVisibleWithHost,
 } from "../src/renderer/graph/territory.ts";
-import { UNKNOWN_WORK, UNKNOWN_WORK_TITLE } from "../src/renderer/graph/territoryProgress.ts";
+import { NO_WORK, NO_WORK_TITLE } from "../src/renderer/graph/territoryProgress.ts";
 import {
   defaultEntityStatusFilter,
   taskPassesStatusFilter,
@@ -78,12 +78,12 @@ function anchor(f: FactRef = fact()): FactAnchorRow {
 }
 
 describe("territory task partition", () => {
-  // 分组轴 = 工作(一个根 task 加它的 parentTaskId 子树,dec_5F7E74F1)。
+  // 分组轴 = 工作(dec_5F7E74F1):daemon 工作索引盖在行上的 workId,与 `ha work list` 一一对应。
   it("groups tasks by their work root task", () => {
     const zones = partitionTasks([
-      task({ taskId: "root", title: "Work", rootTaskId: "root" }),
-      task({ taskId: "a", parentTaskId: "root", rootTaskId: "root", rootTitle: "Work" }),
-      task({ taskId: "b", parentTaskId: "root", rootTaskId: "root", rootTitle: "Work" }),
+      task({ taskId: "root", title: "Work", workId: "root" }),
+      task({ taskId: "a", parentTaskId: "root", workId: "root", workTitle: "Work" }),
+      task({ taskId: "b", parentTaskId: "root", workId: "root", workTitle: "Work" }),
     ]);
     expect(zones).toHaveLength(1);
     expect(zones[0]!.title).toBe("Work");
@@ -91,42 +91,44 @@ describe("territory task partition", () => {
     expect(zones[0]!.progress?.total).toBe(3);
   });
 
-  it("uses the work root as the chip groupId; a top-level task roots its own work", () => {
-    const zones = partitionTasks([task({ taskId: "a" })]);
-    expect(zones[0]!.groupId).toBe("a");
-    expect(zones[0]!.chips[0]!.groupId).toBe("a");
+  it("uses the daemon's work as the chip groupId; a top-level task in no work gets no zone of its own", () => {
+    const zones = partitionTasks([task({ taskId: "a", workId: "w", workTitle: "W" }), task({ taskId: "solo" })]);
+    expect(zones.map((zone) => [zone.groupId, zone.chips.map((chip) => chip.groupId)])).toEqual([
+      ["w", ["w"]],
+      [NO_WORK, [NO_WORK]],
+    ]);
   });
 
-  it("sinks the unknown-work block last and keeps it visible", () => {
+  it("sinks the standalone block last and keeps it visible", () => {
     const zones = partitionTasks([
       task({ taskId: "orphan", parentTaskId: "ghost" }),
-      task({ taskId: "root", title: "Work", rootTaskId: "root" }),
+      task({ taskId: "root", title: "Work", workId: "root" }),
     ]);
-    expect(zones.at(-1)!.title).toBe(UNKNOWN_WORK_TITLE);
-    expect(zones.at(-1)!.groupId).toBe(UNKNOWN_WORK);
+    expect(zones.at(-1)!.title).toBe(NO_WORK_TITLE);
+    expect(zones.at(-1)!.groupId).toBe(NO_WORK);
     expect(zones.at(-1)!.chips).toHaveLength(1);
   });
 
-  it("counts only tasks whose work is unknown (CEO ruling)", () => {
+  it("counts only tasks in no work (CEO ruling)", () => {
     const partition = partitionForSkel(
       "task",
       [
-        task({ taskId: "root", title: "Work", rootTaskId: "root" }),
-        task({ taskId: "a", parentTaskId: "root", rootTaskId: "root" }),
+        task({ taskId: "root", title: "Work", workId: "root" }),
+        task({ taskId: "a", parentTaskId: "root", workId: "root" }),
       ],
       [],
       [],
       [],
       [],
     );
-    // 已按工作根聚簇的 task 不计入工作未知
-    expect(partition.unknownWorkCount).toBe(0);
+    // 已按工作聚簇的 task 不计入独立任务
+    expect(partition.noWorkCount).toBe(0);
 
     const withOrphan = partitionForSkel(
       "task",
       [
-        task({ taskId: "root", title: "Work", rootTaskId: "root" }),
-        task({ taskId: "a", parentTaskId: "root", rootTaskId: "root" }),
+        task({ taskId: "root", title: "Work", workId: "root" }),
+        task({ taskId: "a", parentTaskId: "root", workId: "root" }),
         task({ taskId: "orphan", parentTaskId: "ghost" }),
       ],
       [],
@@ -134,11 +136,11 @@ describe("territory task partition", () => {
       [],
       [],
     );
-    // 只有真正落入工作未知块的 orphan task 计入
-    expect(withOrphan.unknownWorkCount).toBe(1);
+    // 只有真正落入独立任务块的 orphan task 计入
+    expect(withOrphan.noWorkCount).toBe(1);
   });
 
-  it("hides facts when their host task is archived/hidden without degrading to unknown work", () => {
+  it("hides facts when their host task is archived/hidden without degrading to the standalone block", () => {
     const relations: RelationEdge[] = [
       { from: "task/task_archived", to: "fact/F-arch", kind: "produces", provenance: "local-document" },
       { from: "task/task_active", to: "fact/F-act", kind: "produces", provenance: "local-document" },
@@ -152,13 +154,13 @@ describe("territory task partition", () => {
     expect(isFactVisibleWithHost("fact/F-act", visibleTaskIds, allTaskIds, relations)).toBe(true);
   });
 
-  it("retains standalone facts without host task as visible and counts them as unknown work", () => {
+  it("retains standalone facts without host task as visible and counts them in the standalone block", () => {
     const allTaskIds = new Set(["task_active"]);
     const visibleTaskIds = new Set(["task_active"]);
     // 无宿主 fact 保持可见
     expect(isFactVisibleWithHost("fact/F-standalone", visibleTaskIds, allTaskIds, [])).toBe(true);
 
-    // 且在分区中计入工作未知
+    // 且在分区中计入独立任务块
     const standaloneFact: FactRef = {
       anchor: "fact/F-standalone",
       category: "finding",
@@ -168,18 +170,18 @@ describe("territory task partition", () => {
     };
     const partition = partitionForSkel(
       "unified",
-      [task({ taskId: "root", title: "Work", rootTaskId: "root" })],
+      [task({ taskId: "root", title: "Work", workId: "root" })],
       [],
       [standaloneFact],
       [],
       [],
     );
-    expect(partition.unknownWorkCount).toBe(1);
+    expect(partition.noWorkCount).toBe(1);
   });
 
   it("places fact in the same work groupId as its host task chip", () => {
-    const hostTask = task({ taskId: "task_1", rootTaskId: "root_work", rootTitle: "Work Root" });
-    const workRoot = task({ taskId: "root_work", title: "Work Root", rootTaskId: "root_work" });
+    const hostTask = task({ taskId: "task_1", workId: "root_work", workTitle: "Work Root" });
+    const workRoot = task({ taskId: "root_work", title: "Work Root", workId: "root_work" });
     const f = fact({ anchor: "fact/F-1", taskId: "task_1" });
     const relations: RelationEdge[] = [
       { from: "task/task_1", to: f.anchor, kind: "produces", provenance: "local-document" },
@@ -238,7 +240,7 @@ describe("territory decision partition", () => {
 });
 
 describe("territory fact partition", () => {
-  it("groups facts by the host task's work, unknown work when the host is absent", () => {
+  it("groups facts by the host task's work, the standalone block when the host is absent", () => {
     const facts: FactRef[] = [
       { anchor: "fact/F-1", taskId: "task_a", category: "finding", text: "x", at: "2026-08-01", confidence: "high" },
       { anchor: "fact/F-2", taskId: "task_c", category: "finding", text: "y", at: "2026-08-01", confidence: "high" },
@@ -247,10 +249,9 @@ describe("territory fact partition", () => {
     ];
     const anchors: FactAnchorRow[] = [];
     const tasks = [
-      task({ taskId: "task_a", title: "Work A" }),
-      task({ taskId: "task_b", title: "Work B" }),
-      // 缺 rootTaskId 的子任务沿可见父链归入 task_b 的工作。
-      task({ taskId: "task_c", title: "Child", parentTaskId: "task_b" }),
+      task({ taskId: "task_a", title: "Work A", workId: "task_a", workTitle: "Work A" }),
+      task({ taskId: "task_b", title: "Work B", workId: "task_b", workTitle: "Work B" }),
+      task({ taskId: "task_c", title: "Child", parentTaskId: "task_b", workId: "task_b", workTitle: "Work B" }),
     ];
     const zones = partitionFacts(facts, anchors, tasks, [
       { from: "task/task_a", to: "fact/F-1", kind: "produces", provenance: "local-document" },
@@ -260,9 +261,9 @@ describe("territory fact partition", () => {
     expect(zones.map((zone) => [zone.title, zone.chips.map((chip) => chip.navRef)])).toEqual([
       ["Work A", ["fact/F-1"]],
       ["Work B", ["fact/F-2"]],
-      [UNKNOWN_WORK_TITLE, ["fact/F-3", "fact/F-4"]],
+      [NO_WORK_TITLE, ["fact/F-3", "fact/F-4"]],
     ]);
-    expect(zones.at(-1)!.groupId).toBe(UNKNOWN_WORK);
+    expect(zones.at(-1)!.groupId).toBe(NO_WORK);
   });
 
   it("marks invalidated facts in chip sub label", () => {

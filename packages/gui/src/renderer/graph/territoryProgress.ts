@@ -3,19 +3,19 @@ import type { TaskRow } from "../model/types";
 /**
  * 领地的「每个工作的进度」(老版领地视图的核心能力,rebuild 线丢失后在此找回)。
  *
- * 工作(dec_5F7E74F1)= 一个**根 task** 加它的 parentTaskId 子树:task 树沿 parentTaskId
- * 上溯,根即 rootTaskId。领地 task 分区按 rootTaskId 聚簇成工作块,每块带自己的状态
- * 构成与完成率。
+ * 工作(dec_5F7E74F1)= 一个工作根 task 加它的 parentTaskId 子树。task 所属工作由 daemon
+ * 工作索引(`repo.works.index`)给出,落在行上的 workId;领地 task 分区按 workId 聚簇成
+ * 工作块(与 `ha work list` 一一对应,嵌套的声明工作自成一块),每块带自己的状态构成与完成率。
  *
  * 构成与排序都读 daemon 投影的 `board`(dec_5B135F46 CH4):列由 `board.columnId` 给,
  * 块内顺序由 `board.rank` 给,renderer 不再自己把状态词分桶或排权重。
- * 诚实边界:所属工作无法确定的 task(父任务不在可见集合、或父链成环)显式归入
- * 「工作未知」块,只降权重排,不隐藏,也不猜它属于哪个工作。
+ * 不属于任何工作的 task(独立任务)显式归入「独立任务」块,只降权重排,不隐藏;
+ * renderer 不沿父链自己判定归属。
  */
 
-/** 内部哨兵:所属工作未知。渲染侧翻成 UNKNOWN_WORK_TITLE。 */
-export const UNKNOWN_WORK = "__unknown_work__";
-export const UNKNOWN_WORK_TITLE = "工作未知";
+/** 内部哨兵:不属于任何工作。渲染侧翻成 NO_WORK_TITLE。 */
+export const NO_WORK = "__no_work__";
+export const NO_WORK_TITLE = "独立任务";
 
 export interface ZoneProgress {
   total: number;
@@ -28,8 +28,8 @@ export interface ZoneProgress {
   unplaced: number;
   /** 完成率 = terminal / total,0..1。 */
   doneRatio: number;
-  /** 该块是否是「工作未知」块(所属工作无法确定)。 */
-  unknownWork: boolean;
+  /** 该块是否是「独立任务」块(不属于任何工作)。 */
+  noWork: boolean;
 }
 
 const EMPTY_PROGRESS: ZoneProgress = {
@@ -40,12 +40,12 @@ const EMPTY_PROGRESS: ZoneProgress = {
   inReview: 0,
   unplaced: 0,
   doneRatio: 0,
-  unknownWork: false,
+  noWork: false,
 };
 
 /** 一组 task 的看板列构成 + 完成率。 */
-export function deriveZoneProgress(tasks: ReadonlyArray<TaskRow>, unknownWork = false): ZoneProgress {
-  if (tasks.length === 0) return { ...EMPTY_PROGRESS, unknownWork };
+export function deriveZoneProgress(tasks: ReadonlyArray<TaskRow>, noWork = false): ZoneProgress {
+  if (tasks.length === 0) return { ...EMPTY_PROGRESS, noWork };
   const counts = { terminal: 0, open: 0, blocked: 0, in_review: 0 };
   let unplaced = 0;
   for (const task of tasks) {
@@ -61,17 +61,17 @@ export function deriveZoneProgress(tasks: ReadonlyArray<TaskRow>, unknownWork = 
     inReview: counts.in_review,
     unplaced,
     doneRatio: counts.terminal / tasks.length,
-    unknownWork,
+    noWork,
   };
 }
 
 /**
- * zone 排序键(小的排前面)。承重排序:**有阻塞的工作最先看见,工作未知永远沉底**。
- *   0 有阻塞 · 1 在推进 · 2 待办为主 · 3 基本完工(≥80%) · 9 工作未知
- * 这是「工作未知桶降权」的机械实现:它不参与前四档竞争,恒为最后。
+ * zone 排序键(小的排前面)。承重排序:**有阻塞的工作最先看见,独立任务永远沉底**。
+ *   0 有阻塞 · 1 在推进 · 2 待办为主 · 3 基本完工(≥80%) · 9 独立任务
+ * 这是「独立任务桶降权」的机械实现:它不参与前四档竞争,恒为最后。
  */
 export function zoneRank(progress: ZoneProgress): number {
-  if (progress.unknownWork) return 9;
+  if (progress.noWork) return 9;
   if (progress.blocked > 0) return 0;
   if (progress.doneRatio >= 0.8) return 3;
   if (progress.open > 0 || progress.inReview > 0) return 1;
@@ -79,51 +79,27 @@ export function zoneRank(progress: ZoneProgress): number {
 }
 
 export interface WorkCluster {
-  /** 工作的根 taskId;「工作未知」块为 UNKNOWN_WORK 哨兵。 */
+  /** 工作的根 taskId;「独立任务」块为 NO_WORK 哨兵。 */
   rootId: string;
   title: string;
   tasks: readonly TaskRow[];
   progress: ZoneProgress;
 }
 
-/**
- * 一个 task 所属工作的根(task 与 fact 分区共用这一份判定):rootTaskId 优先;缺失时
- * 沿本集合内的父链上溯,到顶即为根(没有父任务的 task 自己就是一个工作的根)。
- * 投影只给 parentTaskId 时,父链完整的上溯是确定性推导,不是猜归属;task 不在集合、
- * 父任务不在集合内(不可见)或父链成环 → undefined(工作未知),不伪装成根。
- */
-export function workRootResolver(tasks: ReadonlyArray<TaskRow>): (taskId: string) => string | undefined {
-  const byId = new Map(tasks.map((task) => [task.taskId, task] as const));
-  return (taskId) => {
-    const seen = new Set<string>();
-    let current = byId.get(taskId);
-    while (current !== undefined && !seen.has(current.taskId)) {
-      if (current.rootTaskId) return current.rootTaskId;
-      if (!current.parentTaskId) return current.taskId;
-      seen.add(current.taskId);
-      current = byId.get(current.parentTaskId);
-    }
-    return undefined;
-  };
-}
-
-/** 按工作(根 task)聚簇;所属工作无法确定的 task 进「工作未知」块。任何情况都不猜归属。 */
+/** 按所属工作(daemon 给的 workId)聚簇;不属于任何工作的 task 进「独立任务」块。 */
 export function clusterTasksByWork(tasks: ReadonlyArray<TaskRow>): WorkCluster[] {
-  const titleById = new Map<string, string>();
-  for (const task of tasks) titleById.set(task.taskId, task.title);
-  const rootOf = workRootResolver(tasks);
-
   const groups = new Map<string, TaskRow[]>();
-  const unknown: TaskRow[] = [];
+  const titles = new Map<string, string>();
+  const standalone: TaskRow[] = [];
   for (const task of tasks) {
-    const root = rootOf(task.taskId);
-    if (!root) {
-      unknown.push(task);
+    if (!task.workId) {
+      standalone.push(task);
       continue;
     }
-    const list = groups.get(root) ?? [];
+    const list = groups.get(task.workId) ?? [];
     list.push(task);
-    groups.set(root, list);
+    groups.set(task.workId, list);
+    if (task.workTitle) titles.set(task.workId, task.workTitle);
   }
 
   const clusters: WorkCluster[] = [];
@@ -131,17 +107,17 @@ export function clusterTasksByWork(tasks: ReadonlyArray<TaskRow>): WorkCluster[]
     const sorted = [...group].sort(taskImportance);
     clusters.push({
       rootId,
-      title: workTitle(rootId, group, titleById),
+      title: titles.get(rootId) ?? rootId,
       tasks: sorted,
       progress: deriveZoneProgress(sorted),
     });
   }
-  if (unknown.length > 0) {
+  if (standalone.length > 0) {
     clusters.push({
-      rootId: UNKNOWN_WORK,
-      title: UNKNOWN_WORK_TITLE,
-      tasks: [...unknown].sort(taskImportance),
-      progress: deriveZoneProgress(unknown, true),
+      rootId: NO_WORK,
+      title: NO_WORK_TITLE,
+      tasks: [...standalone].sort(taskImportance),
+      progress: deriveZoneProgress(standalone, true),
     });
   }
 
@@ -151,11 +127,6 @@ export function clusterTasksByWork(tasks: ReadonlyArray<TaskRow>): WorkCluster[]
       b.progress.total - a.progress.total ||
       a.title.localeCompare(b.title),
   );
-}
-
-function workTitle(rootId: string, group: ReadonlyArray<TaskRow>, titleById: ReadonlyMap<string, string>): string {
-  const fromRow = group.find((task) => task.rootTitle)?.rootTitle;
-  return fromRow ?? titleById.get(rootId) ?? rootId;
 }
 
 /** task 重要性:排序权重由投影的 `board.rank` 给;同档按标题稳定排序。 */

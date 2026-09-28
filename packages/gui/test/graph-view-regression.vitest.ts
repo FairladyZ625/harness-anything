@@ -265,9 +265,10 @@ describe("territory archive-noise filter (board parity)", () => {
 
     // 重点模式(默认开,task_5ba031c2)与「显示已归档」是两个独立收窄维度,AND 组合:
     // 归档 chip 被 archive 开关重新放行后,仍不是重点集成员,折叠进本块「重点外 N 项」
-    // 徽章(不会「开关点了、屏幕纹丝不动」——徽章计数与块头计数都动了)。
+    // 徽章(不会「开关点了、屏幕纹丝不动」——徽章计数与块头计数都动了)。三条都不属于任何工作,
+    // 同落「独立任务」一块,所以是一条计 2 的徽章。
     expect(chipRefs(div)).toEqual(["task/t_live"]);
-    expect(deferredBadges(div)).toEqual([1, 1]);
+    expect(deferredBadges(div)).toEqual([2]);
     expect(window.localStorage.getItem("harness:gui:graph-territory-show-archived")).toBe("true");
     await act(async () => {
       root.unmount();
@@ -275,7 +276,7 @@ describe("territory archive-noise filter (board parity)", () => {
 
     const second = await mountTerritory(noiseTasks());
     expect(chipRefs(second.div)).toEqual(["task/t_live"]);
-    expect(deferredBadges(second.div)).toEqual([1, 1]);
+    expect(deferredBadges(second.div)).toEqual([2]);
     await act(async () => {
       second.root.unmount();
     });

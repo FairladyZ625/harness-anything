@@ -74,7 +74,7 @@ describe("deriveGridCols", () => {
 
 describe("layoutTerritory (two-level zone + chip)", () => {
   const many = Array.from({ length: 40 }, (_, i) =>
-    task({ taskId: `t${i}`, title: `T${i}`, rootTaskId: "root", rootTitle: "PRD" }),
+    task({ taskId: `t${i}`, title: `T${i}`, workId: "root", workTitle: "PRD" }),
   );
 
   it("emits chips as separate nodes placed inside the zone body", () => {
@@ -116,7 +116,7 @@ describe("layoutTerritory (two-level zone + chip)", () => {
 
   it("expands to the cap but never dumps thousands of chips", () => {
     const huge = Array.from({ length: 1174 }, (_, i) =>
-      task({ taskId: `t${i}`, title: `T${i}`, rootTaskId: "root", rootTitle: "PRD" }),
+      task({ taskId: `t${i}`, title: `T${i}`, workId: "root", workTitle: "PRD" }),
     );
     const partition = partitionForSkel("task", huge, [], [], [], []);
     const { nodes } = layoutTerritory({
@@ -142,9 +142,9 @@ describe("layoutTerritory (two-level zone + chip)", () => {
   it("advances rows by the tallest zone in the row (no vertical overlap)", () => {
     // 三个独立 PRD 根(三个 zone),单列宽 → 3 行。
     const tasks = [
-      ...Array.from({ length: 12 }, (_, i) => task({ taskId: `a${i}`, rootTaskId: "ra", rootTitle: "A" })),
-      ...Array.from({ length: 2 }, (_, i) => task({ taskId: `b${i}`, rootTaskId: "rb", rootTitle: "B" })),
-      task({ taskId: "c0", rootTaskId: "rc", rootTitle: "C" }),
+      ...Array.from({ length: 12 }, (_, i) => task({ taskId: `a${i}`, workId: "ra", workTitle: "A" })),
+      ...Array.from({ length: 2 }, (_, i) => task({ taskId: `b${i}`, workId: "rb", workTitle: "B" })),
+      task({ taskId: "c0", workId: "rc", workTitle: "C" }),
     ];
     const { nodes } = layout({ tasks, containerWidth: 360 });
     const zones = nodes.filter(isTerritoryZoneNode).sort((a, b) => a.position.y - b.position.y);
@@ -157,8 +157,8 @@ describe("layoutTerritory (two-level zone + chip)", () => {
 
   it("places multiple zones side by side when the container is wide", () => {
     const tasks = [
-      task({ taskId: "a0", rootTaskId: "ra", rootTitle: "A" }),
-      task({ taskId: "b0", rootTaskId: "rb", rootTitle: "B" }),
+      task({ taskId: "a0", workId: "ra", workTitle: "A" }),
+      task({ taskId: "b0", workId: "rb", workTitle: "B" }),
     ];
     const { nodes } = layout({ tasks, containerWidth: 360 * 3 });
     const zones = nodes.filter(isTerritoryZoneNode);

@@ -1,0 +1,9 @@
+{
+  "schema": "daemon.work-index/v1",
+  "ok": true,
+  "status": "ready",
+  "works": [{ "taskId": "task-root", "title": "Root", "root": "declared", "parentTaskId": null }],
+  "watermark": 0,
+  "sourceRevision": 0,
+  "warnings": []
+}

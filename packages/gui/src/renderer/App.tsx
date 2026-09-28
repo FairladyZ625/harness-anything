@@ -24,6 +24,8 @@ import { AppSidebar } from "./components/AppSidebar.tsx";
 import type { LedgerStatusBarInput } from "./components/sidebar/SystemStatusPanel.tsx";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { useEntityNavigation } from "./navigation/useEntityNavigation.ts";
+import { workTargetOf } from "./navigation/entityRoutes.ts";
+import { workIndexOf } from "./model/work-collections.ts";
 import { useAppShortcuts } from "./navigation/useAppShortcuts.ts";
 import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
 import { adaptProjectionRows } from "./task-adapter.ts";
@@ -34,6 +36,7 @@ import {
   useActiveTasksQuery,
   useTasksQuery,
   useTaskWipQuery,
+  useWorkIndexQuery,
 } from "./task-data.ts";
 import { useAgendaQuery } from "./agenda-data.ts";
 import {
@@ -162,6 +165,10 @@ function AppShell() {
   // 侧栏置顶工作、总览、总览(新)和研发态势消费 `ha agenda` 同一条 repo.agenda.read 投影；
   // 侧栏跨视图常驻，因此读面也随仓库常驻，不建立第二份 pin 状态。
   const agendaQuery = useAgendaQuery(activeRepoId);
+  // 工作根与任务所属工作只读 daemon 工作索引(dec_5F7E74F1):关系图领地、看板泳道、工作列表、
+  // 重点工作、面包屑与「根任务即工作」的跳转判定都从这一份来,renderer 不另立规则。
+  const workIndexQuery = useWorkIndexQuery(activeRepoId);
+  const works = useMemo(() => workIndexOf(workIndexQuery.data), [workIndexQuery.data]);
   const workspaceScopeQuery = useWorkspaceScopeQuery(activeRepoId, location.scopeRootTaskId ?? null);
   const workspaceScope = useMemo(
     () => combineWorkspaceScopePages(workspaceScopeQuery.data?.pages ?? []),
@@ -206,11 +213,12 @@ function AppShell() {
       mergeTaskRows(tasksQuery.data?.rows, activeTasksQuery.data),
       projectId,
       tasksQuery.data?.status ?? "pending",
+      works,
     ).map((task) => {
       const rootAssessment = roots.get(task.taskId);
       return rootAssessment ? { ...task, rootAssessment } : task;
     });
-  }, [projectId, taskWipQuery.data, tasksQuery.data, activeTasksQuery.data]);
+  }, [projectId, taskWipQuery.data, tasksQuery.data, activeTasksQuery.data, works]);
   const activeRepo = systemQuery.data?.repos.find((repo) => repo.repoId === activeRepoId);
   const project = adaptRepoProject(
     projectId,
@@ -227,6 +235,8 @@ function AppShell() {
   /** task 详情「打开终端」→ 终端页进页即建绑定会话;requestId 让同一请求只消费一次。 */
   const [terminalLaunch, setTerminalLaunch] = useState<TerminalLaunchTask | null>(null);
   const selected = useMemo(() => tasks.find((t) => t.taskId === selectedId) ?? null, [tasks, selectedId]);
+  // 根任务即工作:选中位落在工作根(跨仓深链、历史恢复时任务行尚未到)就原地换成工作页。
+  const selectedWorkRootId = selected !== null && works.isWorkRoot(selected.taskId) ? selected.taskId : null;
   const previewTask = useMemo(() => tasks.find((t) => t.taskId === previewId) ?? null, [previewId, tasks]);
   const filteredProjectTasks = useMemo(
     () => applyTaskFilters(projectTasks, taskFilters, favorites),
@@ -377,9 +387,9 @@ function AppShell() {
     resetRecentRefs,
     openTaskPreview,
     openTaskDetail,
+    openWork,
     navigateToEntity,
     navigateToDecision,
-    navigateToTask,
     focusEntityInGraph,
     focusEntityInWorkspace,
     openDecisionInPool,
@@ -397,7 +407,54 @@ function AppShell() {
       setProjectSwitcherOpen(true);
     },
     declaredKinds,
+    isWorkRoot: works.isWorkRoot,
   });
+
+  useEffect(() => {
+    if (selectedWorkRootId !== null)
+      updateLocation({ ...workTargetOf(selectedWorkRootId), selectedId: null, previewId: null });
+  }, [selectedWorkRootId, updateLocation]);
+
+  const renderTaskDetail = (
+    task: TaskRow,
+    framing: { readonly onBack: () => void; readonly fromViewLabel: string; readonly embedded?: boolean },
+  ) => {
+    const work =
+      framing.embedded || task.workId === undefined || task.workId === task.taskId
+        ? null
+        : { taskId: task.workId, title: task.workTitle ?? task.workId };
+    return (
+      <TaskDetailView
+        repoId={projectId}
+        task={task}
+        tasks={tasks}
+        relations={edgeRelations}
+        decisions={chromeDecisions}
+        onBack={framing.onBack}
+        onSelect={openTaskDetail}
+        projectName={project.name}
+        fromViewLabel={framing.fromViewLabel}
+        work={work}
+        onOpenWork={openWork}
+        onNavigateDecision={navigateToDecision}
+        onNavigateEntity={navigateToEntity}
+        mutationFeedback={taskActions.feedback.get(task.taskId)}
+        onProgress={(input) => taskActions.appendProgress(task, input)}
+        onSubmit={() => taskActions.submitTask(task)}
+        onComplete={() => taskActions.completeTask(task)}
+        onAdjudicate={(decision, reason, reviewId) => taskActions.adjudicateTask(task, decision, reason, reviewId)}
+        onConsentReview={(reviewId) => taskActions.consentReview(task, reviewId)}
+        onAttest={taskActions.attestGate}
+        onSetPin={handleSetPin}
+        onOpenTerminal={(target) => {
+          setTerminalLaunch({ requestId: crypto.randomUUID(), taskId: target.taskId, title: target.title });
+          updateLocation({ selectedId: null });
+          goto("terminal");
+        }}
+        onFocusGraph={focusEntityInGraph}
+      />
+    );
+  };
 
   // ⌘K 命令面板(REQ-GUI-01)与关系图左栏共用统一实体索引(search-index-data):
   // 事实条目在 ⌘K 打开或左栏有搜索输入时才读,声明实体一并进搜索范围。
@@ -464,15 +521,7 @@ function AppShell() {
             item.kind === "task" ? [{ taskId: item.ref.replace(/^task\//u, ""), title: item.title }] : [],
           )}
           onUnpinWork={(taskId) => handleSetPin({ taskId }, false)}
-          onOpenWorkspace={(taskId) =>
-            navigate({
-              view: "workspace",
-              scopeRootTaskId: taskId,
-              selectedId: null,
-              previewId: null,
-              focusedEntityRef: null,
-            })
-          }
+          onOpenPinned={openTaskDetail}
           ledgerStatus={ledgerStatusBar}
           onRefreshLedger={refreshLedger}
           health={runtimeHealth}
@@ -490,36 +539,11 @@ function AppShell() {
           <NavigationHistoryBar canBack={canBack} canForward={canForward} onBack={back} onForward={forward} />
           <div key={projectId} className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-              {selected ? (
-                <TaskDetailView
-                  repoId={projectId}
-                  task={selected}
-                  tasks={tasks}
-                  relations={edgeRelations}
-                  decisions={chromeDecisions}
-                  onBack={() => updateLocation({ selectedId: null })}
-                  onSelect={(id) => updateLocation({ selectedId: id })}
-                  projectName={project.name}
-                  fromViewLabel={navLabel(view)}
-                  onNavigateDecision={navigateToDecision}
-                  onNavigateEntity={navigateToEntity}
-                  mutationFeedback={taskActions.feedback.get(selected.taskId)}
-                  onProgress={(input) => taskActions.appendProgress(selected, input)}
-                  onSubmit={() => taskActions.submitTask(selected)}
-                  onComplete={() => taskActions.completeTask(selected)}
-                  onAdjudicate={(decision, reason, reviewId) =>
-                    taskActions.adjudicateTask(selected, decision, reason, reviewId)
-                  }
-                  onConsentReview={(reviewId) => taskActions.consentReview(selected, reviewId)}
-                  onAttest={taskActions.attestGate}
-                  onSetPin={handleSetPin}
-                  onOpenTerminal={(task) => {
-                    setTerminalLaunch({ requestId: crypto.randomUUID(), taskId: task.taskId, title: task.title });
-                    updateLocation({ selectedId: null });
-                    goto("terminal");
-                  }}
-                  onFocusGraph={focusEntityInGraph}
-                />
+              {selected && selectedWorkRootId === null ? (
+                renderTaskDetail(selected, {
+                  onBack: () => updateLocation({ selectedId: null }),
+                  fromViewLabel: navLabel(view),
+                })
               ) : decisionReadError ? (
                 <WorkspaceSummaryPending error={decisionReadError} />
               ) : view === "home" ? (
@@ -593,9 +617,6 @@ function AppShell() {
                     catalog={catalogQuery.data}
                     catalogError={catalogQuery.error instanceof Error ? catalogQuery.error.message : null}
                     onNavigateEntity={navigateToEntity}
-                    onOpenGroup={(taskId) =>
-                      navigate({ view: "workspace", scopeRootTaskId: taskId, selectedId: null, previewId: null })
-                    }
                     onSelectRuntimeEntity={selectRuntimeEntity}
                     onSwitchRepo={() => setProjectSwitcherOpen(true)}
                     onSearchActiveChange={onSearchActiveChange}
@@ -622,10 +643,7 @@ function AppShell() {
                   repoId={projectId}
                   projectName={project.name}
                   ready={tasksQuery.data?.status === "ready"}
-                  onOpenTask={(taskId) => navigate({ selectedId: taskId, previewId: null })}
-                  onOpenGroup={(taskId) =>
-                    navigate({ view: "workspace", scopeRootTaskId: taskId, selectedId: null, previewId: null })
-                  }
+                  onOpenTask={openTaskDetail}
                 />
               ) : view === "workspace" ? (
                 workspaceScope ? (
@@ -651,15 +669,13 @@ function AppShell() {
                       void workspaceScopeQuery.fetchNextPage();
                     }}
                     loadingMore={workspaceScopeQuery.isFetchingNextPage}
-                    onOpenTask={(taskId) => navigate({ selectedId: taskId, previewId: null })}
-                    onOpenGroup={(taskId) =>
-                      navigate({
-                        view: "workspace",
-                        scopeRootTaskId: taskId,
-                        selectedId: null,
-                        previewId: null,
-                      })
-                    }
+                    onOpenTask={openTaskDetail}
+                    renderRootTask={(onBack) => {
+                      const root = tasks.find(({ taskId }) => taskId === workspaceScope.root.taskId);
+                      return root
+                        ? renderTaskDetail(root, { onBack, fromViewLabel: navLabel("workspace"), embedded: true })
+                        : null;
+                    }}
                   />
                 ) : (
                   <WorkspaceSummaryPending error={workspaceScopeQuery.error} />
@@ -717,7 +733,7 @@ function AppShell() {
                   projectName={project.name}
                   fromViewLabel={navLabel(view)}
                   onNavigateDecision={navigateToDecision}
-                  onNavigateTask={navigateToTask}
+                  onNavigateTask={openTaskDetail}
                   onNavigateEntity={navigateToEntity}
                   onFocusGraph={focusEntityInGraph}
                   onOpenPool={openDecisionInPool}
@@ -734,7 +750,7 @@ function AppShell() {
                   loading={triadicQuery.isPending}
                   onNavigateEntity={navigateToEntity}
                   onNavigateDecision={navigateToDecision}
-                  onNavigateTask={navigateToTask}
+                  onNavigateTask={openTaskDetail}
                   onFocusGraph={focusEntityInGraph}
                 />
               ) : view === "decisionPool" ? (
@@ -758,7 +774,7 @@ function AppShell() {
                     onAttest={taskActions.attestGate}
                     taskFeedback={feedbackOf}
                     onConsentReview={(task, reviewId) => taskActions.consentReview(task, reviewId)}
-                    onNavigateTask={navigateToTask}
+                    onNavigateTask={openTaskDetail}
                     poolTab={location.poolTab ?? "decisions"}
                     onPoolTabChange={setPoolTab}
                     focusedDecisionId={
@@ -835,7 +851,7 @@ function AppShell() {
                   focusedEntityRef={focusedEntityRef}
                   onSelectEntity={selectRuntimeEntity}
                   // W5:「编排」段随入口撤销;session → task 的出口改指 Task 详情(派工链所在)。
-                  onOpenTask={navigateToTask}
+                  onOpenTask={openTaskDetail}
                 />
               ) : view === "schedules" ? (
                 <SchedulesView
@@ -846,7 +862,7 @@ function AppShell() {
                   onFocusGraph={focusEntityInGraph}
                 />
               ) : view === "artifacts" ? (
-                <ArtifactsView repoId={projectId} onNavigateTask={navigateToTask} />
+                <ArtifactsView repoId={projectId} onNavigateTask={openTaskDetail} />
               ) : view === "agentSquad" ? (
                 <AgentSquadView
                   repoId={projectId}
@@ -872,7 +888,7 @@ function AppShell() {
                   focusedEntityRef={focusedEntityRef}
                   onFocusMember={(ref) => navigate({ focusedEntityRef: ref })}
                   onSelectEntity={selectRuntimeEntity}
-                  onOpenTask={navigateToTask}
+                  onOpenTask={openTaskDetail}
                 />
               ) : view === "terminal" ? (
                 <TerminalRoute

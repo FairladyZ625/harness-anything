@@ -43,9 +43,7 @@ function scope(overrides: Partial<WorkspaceScopeRead> = {}): WorkspaceScopeRead 
 
 describe("workspace view states", () => {
   it("renders honest empty collections", () => {
-    const html = renderToStaticMarkup(
-      <WorkspaceView scope={scope()} projectName="Harness" onOpenTask={() => {}} onOpenGroup={() => {}} />,
-    );
+    const html = renderToStaticMarkup(<WorkspaceView scope={scope()} projectName="Harness" onOpenTask={() => {}} />);
     expect(html).toContain("暂无正在推进");
     expect(html).toContain("workspace-sidebar");
     expect(html).not.toContain("max-w-6xl");
@@ -64,7 +62,6 @@ describe("workspace view states", () => {
         })}
         projectName="Harness"
         onOpenTask={() => {}}
-        onOpenGroup={() => {}}
       />,
     );
     expect(html).toContain("范围数据尚未完整");
@@ -94,7 +91,6 @@ describe("workspace view states", () => {
         projectName="Harness"
         tasks={[pendingTask]}
         onOpenTask={() => {}}
-        onOpenGroup={() => {}}
         onAttest={() => {}}
         onLoadMore={() => {}}
       />,
@@ -114,7 +110,6 @@ describe("workspace view states", () => {
           scope={scope({ page: { limit: 100, cursor: null, nextCursor: "next" } })}
           projectName="Harness"
           onOpenTask={() => {}}
-          onOpenGroup={() => {}}
           onLoadMore={() => loaded++}
         />,
       ),

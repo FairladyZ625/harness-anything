@@ -1,6 +1,6 @@
 import { ResultPagination } from "../components/ResultPagination.tsx";
 import type { WorkspaceScopeRead } from "../../api/renderer-dto.ts";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "../model/types.ts";
 import { deriveAttestationLanes } from "../model/attestation-pool.ts";
@@ -19,8 +19,8 @@ export interface WorkspaceViewProps {
   readonly scope: WorkspaceScopeRead;
   readonly repoId?: string;
   readonly projectName: string;
+  /** 任务行与子组共用:经共享路由判定,子组是工作就进工作页,不是就进任务详情。 */
   readonly onOpenTask: (taskId: string) => void;
-  readonly onOpenGroup: (taskId: string) => void;
   readonly tasks?: readonly TaskRow[];
   readonly decisions?: readonly DecisionRow[];
   readonly facts?: readonly FactRef[];
@@ -33,6 +33,8 @@ export interface WorkspaceViewProps {
   readonly feedback?: (taskId: string) => TaskMutationFeedback | undefined;
   readonly onLoadMore?: () => void;
   readonly loadingMore?: boolean;
+  /** 根任务即工作:根任务自己的详情(计划、状态、收口、关系、执行记录与写动作)是本页一个分区。 */
+  readonly renderRootTask?: (onBack: () => void) => ReactNode;
 }
 
 const COUNT_LABELS = {
@@ -49,7 +51,6 @@ export function WorkspaceView({
   repoId = "unselected",
   projectName,
   onOpenTask,
-  onOpenGroup,
   tasks = [],
   decisions = [],
   facts = [],
@@ -61,8 +62,15 @@ export function WorkspaceView({
   feedback,
   onLoadMore,
   loadingMore = false,
+  renderRootTask,
 }: WorkspaceViewProps) {
   const [tab, setTab] = useState("overview");
+  // 页内指向根任务的入口切到根任务分区,不再离开工作页。
+  const rootRef = `task/${scope.root.taskId}`;
+  const openTask = (taskId: string) =>
+    renderRootTask && taskId === scope.root.taskId ? setTab("root") : onOpenTask(taskId);
+  const navigateEntity = (ref: string) =>
+    renderRootTask && ref === rootRef ? setTab("root") : onNavigateEntity?.(ref);
   const [focusRef, setFocusRef] = useState(`task/${scope.root.taskId}`);
   const [graphStats, setGraphStats] = useState({ nodes: 0, edges: 0, focusLabel: null as string | null });
   const onGraphStats = useCallback((next: typeof graphStats) => {
@@ -145,6 +153,7 @@ export function WorkspaceView({
             ["tasks", `任务 ${scope.scope.executableLeafCount}`],
             ["evidence", "经过与证据"],
             ["relations", "关系"],
+            ...(renderRootTask ? [["root", t("views.workspace.rootTaskTab")]] : []),
           ].map(([id, label]) => (
             <button
               key={id}
@@ -195,7 +204,7 @@ export function WorkspaceView({
                 <WorkspacePending
                   tasks={scopedTasks}
                   lanes={lanes}
-                  onOpenTask={onOpenTask}
+                  onOpenTask={openTask}
                   onAttest={onAttest}
                   onConsent={onConsent}
                   feedback={feedback}
@@ -203,7 +212,7 @@ export function WorkspaceView({
                 <WorkspaceRows
                   title="正在推进"
                   rows={scope.tasks.filter(({ status }) => status === "active" || status === "blocked")}
-                  onOpen={onOpenTask}
+                  onOpen={openTask}
                 />
                 <button type="button" className="text-sm text-accent" onClick={() => setTab("tasks")}>
                   查看全部任务 →
@@ -212,8 +221,8 @@ export function WorkspaceView({
             ) : null}
             {tab === "tasks" ? (
               <>
-                <WorkspaceRows title="子组" rows={scope.groups} onOpen={onOpenGroup} />
-                <WorkspaceRows title="任务" rows={scope.tasks} onOpen={onOpenTask} />
+                <WorkspaceRows title="子组" rows={scope.groups} onOpen={openTask} />
+                <WorkspaceRows title="任务" rows={scope.tasks} onOpen={openTask} />
                 {scope.page.nextCursor ? (
                   <button
                     type="button"
@@ -235,8 +244,16 @@ export function WorkspaceView({
                 facts={facts}
                 relations={relations}
                 titles={titles}
-                onNavigateEntity={onNavigateEntity}
+                onNavigateEntity={navigateEntity}
               />
+            ) : null}
+            {tab === "root" && renderRootTask ? (
+              <section
+                data-testid="workspace-root-task"
+                className="h-[calc(100vh-240px)] min-h-[520px] overflow-hidden rounded-lg border border-border"
+              >
+                {renderRootTask(() => setTab("overview"))}
+              </section>
             ) : null}
             <section hidden={tab !== "relations"} className="space-y-2" aria-labelledby="workspace-graph">
               <h2 id="workspace-graph" className="sr-only">
@@ -255,7 +272,7 @@ export function WorkspaceView({
                     {...graph}
                     focusRef={focusRef}
                     factAnchors={[]}
-                    onNavigateEntity={onNavigateEntity}
+                    onNavigateEntity={navigateEntity}
                     onSetTaskPin={onSetTaskPin}
                     onRefocus={setFocusRef}
                     onLayoutStats={onGraphStats}
@@ -267,7 +284,7 @@ export function WorkspaceView({
           </div>
           {tab === "overview" ? (
             <aside data-testid="workspace-sidebar" className="min-w-0 space-y-8">
-              <WorkspaceGoal scope={scope} repoId={repoId} onOpenTask={onOpenTask} />
+              <WorkspaceGoal scope={scope} repoId={repoId} onOpenTask={openTask} />
               <section className="space-y-3">
                 <h2 className="text-sm font-semibold text-text">参与执行</h2>
                 {scopedTasks.filter((task) => task.canonicalStatus === "active").length ? (
@@ -277,7 +294,7 @@ export function WorkspaceView({
                       <button
                         key={task.taskId}
                         type="button"
-                        onClick={() => onOpenTask(task.taskId)}
+                        onClick={() => openTask(task.taskId)}
                         className="block w-full break-words border-b border-border pb-3 text-left text-sm text-text"
                       >
                         {task.title}
@@ -299,7 +316,7 @@ export function WorkspaceView({
                   facts={facts}
                   relations={relations}
                   titles={titles}
-                  onNavigateEntity={onNavigateEntity}
+                  onNavigateEntity={navigateEntity}
                 />
               ) : null}
             </aside>

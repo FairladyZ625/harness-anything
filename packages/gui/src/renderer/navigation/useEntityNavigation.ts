@@ -1,12 +1,13 @@
 import { useCallback, useState } from "react";
 import { pushRecentRef } from "./recentRefs.ts";
-import { entityDetailTargetOf } from "./entityRoutes.ts";
+import { entityDetailTargetOf, workTargetOf } from "./entityRoutes.ts";
 import type { AppLocation } from "./viewHistory.ts";
 
 /**
  * 实体导航(W4 从 AppShell 抽出):所有「跳去某个实体」的出口集中在此。
  *
- * 路由表(可寻址):
+ * 路由表(可寻址,判定全部在 entityDetailTargetOf):
+ *   task/<工作根>         → 工作页(workspace,根任务详情是其中一个分区)
  *   task/<id>            → selectedId(TaskDetailView 既有路由)
  *   decision/<id>        → decisionDetail 详情页(不落决策池)
  *   fact/<anchor> → factDetail 详情页(W5 起事实分诊列表页已撤销)
@@ -24,6 +25,7 @@ export function useEntityNavigation({
   openInRepo,
   onRepoUnavailable,
   declaredKinds = [],
+  isWorkRoot,
 }: {
   navigate: (fields: Partial<AppLocation>) => void;
   updateLocation: (fields: Partial<AppLocation>) => void;
@@ -35,6 +37,8 @@ export function useEntityNavigation({
   onRepoUnavailable: () => void;
   /** 已注册 kind 清单(读面派生):声明实体的 ref 靠它路由,本模块不持有副本。 */
   declaredKinds?: readonly string[];
+  /** 工作根判定(读面同切面的任务行派生):task 引用靠它分流到工作页或任务详情。 */
+  isWorkRoot: (taskId: string) => boolean;
 }) {
   const [recentRefs, setRecentRefs] = useState<string[]>([]);
 
@@ -42,32 +46,31 @@ export function useEntityNavigation({
     setRecentRefs((prev) => pushRecentRef(prev, ref));
   }, []);
 
-  const openTaskPreview = useCallback(
-    (id: string) => {
-      updateLocation({ selectedId: null, previewId: id });
-    },
-    [updateLocation],
-  );
-
-  const openTaskDetail = useCallback(
-    (id: string) => {
-      navigate({ focusedEntityRef: `task/${id}`, previewId: null, selectedId: id });
-    },
-    [navigate],
-  );
-
-  // 本仓内导航:task → 既有详情路由;decision/fact → 详情页;其余引用忽略。
+  // 本仓内导航:一切实体引用(含 task)经 entityDetailTargetOf 判定落点;不认识的引用忽略。
   const navigateLocalEntity = useCallback(
     (ref: string) => {
       remember(ref);
-      if (ref.startsWith("task/")) {
-        openTaskDetail(ref.slice(5).split("/")[0]);
-        return;
-      }
-      const target = entityDetailTargetOf(ref, declaredKinds);
-      if (target) navigate({ ...target, selectedId: null, previewId: null });
+      const target = entityDetailTargetOf(ref, declaredKinds, isWorkRoot);
+      if (target) navigate({ selectedId: null, previewId: null, ...target });
     },
-    [declaredKinds, navigate, openTaskDetail, remember],
+    [declaredKinds, isWorkRoot, navigate, remember],
+  );
+
+  const openTaskDetail = useCallback((id: string) => navigateLocalEntity(`task/${id}`), [navigateLocalEntity]);
+
+  // 预览抽屉是任务详情的轻量版;工作根没有单独的任务详情,直接进工作页。
+  const openTaskPreview = useCallback(
+    (id: string) => {
+      if (isWorkRoot(id)) openTaskDetail(id);
+      else updateLocation({ selectedId: null, previewId: id });
+    },
+    [isWorkRoot, openTaskDetail, updateLocation],
+  );
+
+  // 显式开某个已知工作的工作页:任务详情的「属于工作」。
+  const openWork = useCallback(
+    (taskId: string) => navigate({ ...workTargetOf(taskId), selectedId: null, previewId: null }),
+    [navigate],
   );
 
   // 决策池聚焦跳转:落列表页并高亮滚动到该 decision(池内 tab 自动切换)。
@@ -84,10 +87,10 @@ export function useEntityNavigation({
   // 导航回撤原路返回。runtime 引用不进 recentRefs(那是关系图的邻域记录)。
   const selectRuntimeEntity = useCallback(
     (ref: string) => {
-      const target = entityDetailTargetOf(ref, declaredKinds);
-      if (target) navigate({ ...target, selectedId: null, previewId: null });
+      const target = entityDetailTargetOf(ref, declaredKinds, isWorkRoot);
+      if (target) navigate({ selectedId: null, previewId: null, ...target });
     },
-    [declaredKinds, navigate],
+    [declaredKinds, isWorkRoot, navigate],
   );
 
   // 带 repo/<repoId>/ 前缀的实体引用先显式切仓,再在该仓导航。
@@ -113,7 +116,6 @@ export function useEntityNavigation({
     (decisionId: string) => navigateToEntity(`decision/${decisionId}`),
     [navigateToEntity],
   );
-  const navigateToTask = useCallback((taskId: string) => openTaskDetail(taskId), [openTaskDetail]);
 
   const focusEntityInGraph = useCallback(
     (ref: string) => {
@@ -141,9 +143,9 @@ export function useEntityNavigation({
     resetRecentRefs: useCallback(() => setRecentRefs([]), []),
     openTaskPreview,
     openTaskDetail,
+    openWork,
     navigateToEntity,
     navigateToDecision,
-    navigateToTask,
     focusEntityInGraph,
     focusEntityInWorkspace,
     openDecisionInPool,

@@ -41,13 +41,13 @@ export const UNASSIGNED_PLT_LANE = "__unassigned_plt__";
 function groupKeyOf(task: TaskRow, groupBy: LaneGroupBy): string {
   if (groupBy === "engine") return task.engine;
   if (groupBy === "productLine") return task.productLines?.[0] ?? UNASSIGNED_PLT_LANE;
-  // root(工作):用 rootTaskId(若缺失则退回自身,显示为顶层独立 task)
-  return task.rootTaskId ?? task.taskId;
+  // root(工作):用所属工作 workId(daemon 工作索引);不属于任何工作的 task 自成一道
+  return task.workId ?? task.taskId;
 }
 
-/** 把分组 key 翻译成展示标签;root 用组内代表(rootTitle,缺失退回代表自身标题)。 */
+/** 把分组 key 翻译成展示标签;root 用组内代表(workTitle,缺失退回代表自身标题)。 */
 function laneLabelOf(key: string, groupBy: LaneGroupBy, representative: TaskRow): string {
-  if (groupBy === "root") return representative.rootTitle ?? representative.title ?? key;
+  if (groupBy === "root") return representative.workTitle ?? representative.title ?? key;
   if (groupBy === "productLine" && key === UNASSIGNED_PLT_LANE) return "未投影 PLT";
   return key;
 }

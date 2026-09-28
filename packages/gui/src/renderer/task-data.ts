@@ -1,4 +1,5 @@
 import { useQuery, useQueryClient, type QueryClient, type UseQueryResult } from "@tanstack/react-query";
+import type { WorkIndexRead } from "../api/renderer-dto.ts";
 import { harnessClient, type TaskListSuccess, type TaskQueryFacets } from "./api-client.ts";
 import { agendaQueryKeys } from "./agenda-data.ts";
 import { runtimeQueryKeys } from "./agent-runtime-client.ts";
@@ -27,6 +28,7 @@ export const taskQueryKeys = {
   list: (repoId: string) => ["tasks", repoId, "list"] as const,
   activeSlice: (repoId: string) => ["tasks", repoId, "active-slice"] as const,
   wip: (repoId: string) => ["tasks", repoId, "wip"] as const,
+  works: (repoId: string) => ["tasks", repoId, "works"] as const,
   document: (repoId: string, taskId: string, path: string) => ["tasks", repoId, taskId, "document", path] as const,
   documentList: (repoId: string, taskId: string) => ["tasks", repoId, taskId, "document-list"] as const,
 };
@@ -37,6 +39,17 @@ export function useTaskWipQuery(repoId: string | null, enabled: boolean) {
     queryKey: taskQueryKeys.wip(selectedRepoId),
     queryFn: () => harnessClient.getTaskWip({ repoId: selectedRepoId }),
     enabled: repoId !== null && enabled,
+    staleTime: 10_000,
+  });
+}
+
+/** 工作索引(daemon `repo.works.index`):工作根与任务所属工作,随台账切面换代(invalidateLedgerDependents)。 */
+export function useWorkIndexQuery(repoId: string | null): UseQueryResult<WorkIndexRead, Error> {
+  const selectedRepoId = repoId ?? "unselected";
+  return useQuery({
+    queryKey: taskQueryKeys.works(selectedRepoId),
+    queryFn: () => harnessClient.getWorkIndex({ repoId: selectedRepoId }),
+    enabled: repoId !== null,
     staleTime: 10_000,
   });
 }

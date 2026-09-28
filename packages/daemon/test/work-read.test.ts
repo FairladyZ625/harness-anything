@@ -1,7 +1,13 @@
 // harness-test-tier: fast
 import test from "node:test";
 import assert from "node:assert/strict";
-import { renderWorkPayload, workListFromProjection, workShowFromProjection } from "../src/work-read.ts";
+import {
+  renderWorkPayload,
+  workIndexFromProjection,
+  workListFromProjection,
+  workShowFromProjection,
+} from "../src/work-read.ts";
+import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 
 const task = (
   taskId: string,
@@ -58,6 +64,47 @@ test("work list derives declared and parent-derived roots with leaf counts, newe
     ["declared", "derived"],
   );
   assert.equal(workListFromProjection(projection(), { all: true }).count, 3);
+});
+
+test("work index assigns every task to the work root ha work list names; nested declared work owns its subtree", () => {
+  const nested = [
+    task("outer", null, "active"),
+    task("group", "outer", "active"),
+    task("group-leaf", "group", "planned"),
+    task("inner", "group", "active", "work"),
+    task("inner-leaf", "inner", "active"),
+    task("inner-deep", "inner-leaf", "done"),
+    task("lonely", null, "active"),
+    task("orphan", "missing-parent", "active"),
+    task("finished", null, "done", "work"),
+  ];
+  const index = workIndexFromProjection({
+    readTaskIndex: () => ({ status: "ready", rows: nested, watermark: 3, sourceRevision: 3, warnings: [] }),
+  } as never);
+  assert.deepEqual(
+    Object.fromEntries(index.works.map(({ taskId, root, memberTaskIds }) => [taskId, { root, memberTaskIds }])),
+    {
+      outer: { root: "derived", memberTaskIds: ["group", "group-leaf"] },
+      inner: { root: "declared", memberTaskIds: ["inner-deep", "inner-leaf"] },
+      finished: { root: "declared", memberTaskIds: [] },
+    },
+  );
+  const listed = workListFromProjection(
+    {
+      readTaskIndex: () => ({ status: "ready", rows: nested, watermark: 3, sourceRevision: 3, warnings: [] }),
+    } as never,
+    { all: true },
+  );
+  assert.deepEqual(
+    index.works.map(({ taskId }) => taskId),
+    listed.rows.map(({ taskId }) => taskId),
+  );
+  assert.deepEqual(parseDaemonGuiReadResult("repo.works.index", index), index);
+  assert.throws(
+    () =>
+      parseDaemonGuiReadResult("repo.works.index", { ...index, works: [{ ...index.works[0], memberTaskIds: [1] }] }),
+    /work index/u,
+  );
 });
 
 test("work show names the goal, subtree counts and open tasks, and the renderer points at the next commands", () => {

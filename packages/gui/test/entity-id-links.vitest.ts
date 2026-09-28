@@ -605,7 +605,6 @@ const VIEW_RENDERERS = {
       catalog: undefined,
       catalogError: null,
       onNavigateEntity: noop,
-      onOpenGroup: noop,
       onSelectRuntimeEntity: noop,
       onOpenPool: noop,
       onOpenSessions: noop,
@@ -620,7 +619,6 @@ const VIEW_RENDERERS = {
       repoId: REPO_ID,
       projectName: FIXTURE_PROJECT.name,
       ready: true,
-      onOpenGroup: noop,
       onOpenTask: noop,
     }),
   board: () =>

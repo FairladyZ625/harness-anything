@@ -32,7 +32,7 @@ export interface WorkSearchHit {
   readonly label: string;
   readonly entity: string;
   readonly detail: string | null;
-  /** 所属工作 = 任务树根(`TaskRow.rootTaskId`);非任务实体、或本身就是根时为 null。 */
+  /** 所属工作 = daemon 工作索引给的 `TaskRow.workId`;非任务实体、不属于工作或本身就是工作根时为 null。 */
   readonly group: { readonly taskId: string; readonly title: string } | null;
 }
 
@@ -71,9 +71,9 @@ function groupOf(
 ): { readonly taskId: string; readonly title: string } | null {
   if (!ref.startsWith("task/")) return null;
   const task = byTaskId.get(ref.slice("task/".length));
-  const rootTaskId = task?.rootTaskId;
-  if (task === undefined || rootTaskId === undefined || rootTaskId === task.taskId) return null;
-  return { taskId: rootTaskId, title: task.rootTitle ?? rootTaskId };
+  const workId = task?.workId;
+  if (task === undefined || workId === undefined || workId === task.taskId) return null;
+  return { taskId: workId, title: task.workTitle ?? workId };
 }
 
 /**

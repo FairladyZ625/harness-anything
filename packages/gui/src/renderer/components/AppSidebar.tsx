@@ -28,7 +28,8 @@ export interface AppSidebarProps {
   readonly onOpenProjectManager: () => void;
   readonly onNavigate: (view: ViewId) => void;
   readonly pinnedWork: readonly { readonly taskId: string; readonly title: string }[];
-  readonly onOpenWorkspace: (taskId: string) => void;
+  /** 置顶项的打开位:App 按「根任务即工作」分流到工作页或任务详情。 */
+  readonly onOpenPinned: (taskId: string) => void;
   /** 解除置顶。这一段是唯一展示置顶集的地方,所以取消它的入口也只能在这里。 */
   readonly onUnpinWork: (taskId: string) => void;
   readonly ledgerStatus: LedgerStatusBarInput;
@@ -62,7 +63,7 @@ export function AppSidebar({
   onOpenProjectManager,
   onNavigate,
   pinnedWork = [],
-  onOpenWorkspace,
+  onOpenPinned,
   onUnpinWork,
   ledgerStatus,
   onRefreshLedger,
@@ -147,7 +148,7 @@ export function AppSidebar({
               >
                 <button
                   type="button"
-                  onClick={() => onOpenWorkspace(item.taskId)}
+                  onClick={() => onOpenPinned(item.taskId)}
                   className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-sm"
                 >
                   <span aria-hidden>◆</span>

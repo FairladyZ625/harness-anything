@@ -9,27 +9,30 @@ import { collectWork } from "../src/renderer/model/work-collections.ts";
 import type { TaskRow } from "../src/renderer/model/types.ts";
 import { NAV_GROUPS } from "../src/renderer/navigation/navConfig.tsx";
 
-const task = (taskId: string, parentTaskId?: string, taskClass = "standard") =>
+// workId 是 daemon 工作索引(`repo.works.index`)盖在行上的所属工作;renderer 不自己判定。
+const task = (taskId: string, parentTaskId?: string, workId?: string, taskClass = "standard") =>
   ({
     taskId,
     title: taskId,
     parentTaskId,
     taskClass,
+    workId,
     lastKnownAt: "2026-09-21",
     canonicalStatus: "planned",
   }) as TaskRow;
 const rows = [
-  task("group"),
-  task("nested", "group"),
-  task("leaf", "nested"),
+  task("group", undefined, "group"),
+  task("nested", "group", "group"),
+  task("leaf", "nested", "group"),
   task("solo"),
-  task("declared_work", undefined, "work"),
+  task("declared_work", undefined, "declared_work", "work"),
 ];
 
 describe("work aggregation", () => {
-  it("retains nested groups and puts only ungrouped top-level tasks in independent work", () => {
+  it("lists only the daemon's work roots and puts top-level tasks in no work in independent work", () => {
     const result = collectWork(rows);
-    expect(result.groups.map(({ task }) => task.taskId)).toEqual(["declared_work", "group", "nested"]);
+    // 中层组 nested 有子任务但不是工作根,不单列成工作卡片。
+    expect(result.groups.map(({ task }) => task.taskId)).toEqual(["declared_work", "group"]);
     expect(result.isolated.map((row) => row.taskId)).toEqual(["solo"]);
     const ids = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.id));
     expect(ids).toEqual(
@@ -43,14 +46,7 @@ describe("work aggregation", () => {
     act(() =>
       root.render(
         <QueryClientProvider client={new QueryClient()}>
-          <WorkView
-            tasks={rows}
-            repoId="repo"
-            projectName="Project"
-            ready
-            onOpenGroup={(id) => opened.push(id)}
-            onOpenTask={(id) => opened.push(id)}
-          />
+          <WorkView tasks={rows} repoId="repo" projectName="Project" ready onOpenTask={(id) => opened.push(id)} />
         </QueryClientProvider>,
       ),
     );

@@ -27,7 +27,7 @@ import { EgoNeighborhood } from "../graph/EgoNeighborhood";
 import { EgoHopsControl } from "../graph/EgoHopsControl";
 import type { EgoHopBudget } from "../graph/egoCanvas";
 import { applyTerritoryDensity, isFactVisibleWithHost, partitionForSkel } from "../graph/territory";
-import { UNKNOWN_WORK_TITLE } from "../graph/territoryProgress";
+import { NO_WORK_TITLE } from "../graph/territoryProgress";
 import { layoutTerritory } from "../graph/territoryLayout";
 import { defaultKindFilter, defaultAxisFilter, type FlowAnimMode } from "../graph/relationVisual";
 import {
@@ -392,8 +392,19 @@ function GraphViewInner({
         const task = tasks.find((candidate) => `task/${candidate.taskId}` === navRef);
         if (task) onSetTaskPin?.(task, pinned);
       },
+      ...(onNavigateEntity ? { onOpenWork: onNavigateEntity } : {}),
     }).nodes;
-  }, [territory, expandedZones, containerWidth, enterSpotlight, toggleZone, revealZone, tasks, onSetTaskPin]);
+  }, [
+    territory,
+    expandedZones,
+    containerWidth,
+    enterSpotlight,
+    toggleZone,
+    revealZone,
+    tasks,
+    onSetTaskPin,
+    onNavigateEntity,
+  ]);
 
   // 视口策略(与老版同源):聚光灯 fitView 在 EgoNeighborhood 内;领地**不 fitView** ——
   // 上千块 fit 进一屏正是「块被压成几像素细横条」的成因,领地以默认视口(zoom 1,
@@ -496,12 +507,12 @@ function GraphViewInner({
             {focusSelection ? ` · 重点 ${focusSelection.seedCount} task` : ""}
           </span>
         )}
-        {territory && territory.unknownWorkCount > 0 && (
+        {territory && territory.noWorkCount > 0 && (
           <span
             className="inline-flex items-center gap-1 rounded bg-stale/10 px-1.5 py-0.5 font-mono text-stale"
-            title="所属工作无法确定(父任务不在可见集合,或 fact 无宿主 task)的实体归入「工作未知」块 —— 沉底,但绝不隐藏"
+            title="不属于任何工作的实体(独立任务,或 fact 无宿主 task、宿主不属于工作)归入「独立任务」块 —— 沉底,但绝不隐藏"
           >
-            {UNKNOWN_WORK_TITLE} · {territory.unknownWorkCount}
+            {NO_WORK_TITLE} · {territory.noWorkCount}
           </span>
         )}
         <span className="ml-auto text-text-faint">

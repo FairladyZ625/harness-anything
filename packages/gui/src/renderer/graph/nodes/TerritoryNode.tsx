@@ -1,6 +1,6 @@
 import type { NodeProps } from "@xyflow/react";
 import { ArrowsOutSimple, PushPin } from "@phosphor-icons/react";
-import type { ZoneProgress } from "../territoryProgress";
+import { NO_WORK, type ZoneProgress } from "../territoryProgress";
 import { entityKindAxisVar } from "../kindVisuals";
 import {
   zoneHeaderH,
@@ -12,7 +12,8 @@ import {
 /**
  * L1 领地总览的两级节点(REQ-GUI-03 territory,archive 两级结构):
  *   TerritoryZoneNode  — zone 壳(标题 + 进度信号 + 折叠钮),自身不参与点击选中,
- *                        chip 是独立 React Flow 节点叠在壳的 body 区上。
+ *                        chip 是独立 React Flow 节点叠在壳的 body 区上;task 块标题
+ *                        是工作名,点击进工作页(根任务即工作)。
  *   TerritoryChipNode  — zone 内实体 chip,单击进聚光灯;fold 变体是折叠态底部
  *                        「▸ 还有 N 项」提示行,单击展开 zone(deferred 变体是重点
  *                        模式折叠的重点外 chip,单击该块回到全量)。
@@ -35,6 +36,7 @@ export function TerritoryZoneNode({ data }: NodeProps<TerritoryZoneFlowNode>) {
   const axis = entityKindAxisVar(zone.entity);
   const headerH = zoneHeaderH(zone);
   const landing = data.variant === "landing";
+  const onOpenWork = zone.entity === "task" && zone.groupId !== NO_WORK ? data.onOpenWork : undefined;
 
   return (
     <div
@@ -44,7 +46,7 @@ export function TerritoryZoneNode({ data }: NodeProps<TerritoryZoneFlowNode>) {
         landing ? "border-dashed" : ""
       }`}
       style={{
-        borderColor: zone.progress?.unknownWork
+        borderColor: zone.progress?.noWork
           ? "color-mix(in oklch, var(--color-stale) 45%, var(--color-border))"
           : "var(--color-border)",
       }}
@@ -56,7 +58,22 @@ export function TerritoryZoneNode({ data }: NodeProps<TerritoryZoneFlowNode>) {
             className="inline-block size-2.5 shrink-0 rounded-sm"
             style={{ backgroundColor: axis, opacity: 0.75 }}
           />
-          <span className="ui-body min-w-0 flex-1 truncate ui-body font-semibold text-text">{zone.title}</span>
+          {onOpenWork ? (
+            <button
+              type="button"
+              data-testid="territory-zone-title"
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenWork(`task/${zone.groupId}`);
+              }}
+              title={zone.groupId}
+              className="nodrag ui-body min-w-0 flex-1 cursor-pointer truncate text-left font-semibold text-text hover:text-accent hover:underline"
+            >
+              {zone.title}
+            </button>
+          ) : (
+            <span className="ui-body min-w-0 flex-1 truncate ui-body font-semibold text-text">{zone.title}</span>
+          )}
           <span className="shrink-0 rounded bg-surface-raised px-1.5 py-0.5 font-mono ui-micro text-text-faint">
             {zone.chips.length}
           </span>

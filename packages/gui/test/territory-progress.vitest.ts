@@ -4,17 +4,16 @@ import type { TaskRow } from "../src/renderer/model/types.ts";
 import {
   clusterTasksByWork,
   deriveZoneProgress,
-  UNKNOWN_WORK,
-  UNKNOWN_WORK_TITLE,
-  workRootResolver,
+  NO_WORK,
+  NO_WORK_TITLE,
   zoneRank,
 } from "../src/renderer/graph/territoryProgress.ts";
 import { partitionTasks } from "../src/renderer/graph/territory.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
 
 /**
- * 领地找回「每个工作的进度」+ 工作未知降权。
- * 诚实边界同时受测:工作未知只沉底,不隐藏、不猜归属。
+ * 领地找回「每个工作的进度」+ 独立任务降权。
+ * 所属工作只读 daemon 工作索引盖在行上的 workId:独立任务只沉底,不隐藏,renderer 不沿父链猜归属。
  */
 
 function task(overrides: Partial<TaskRow> = {}): TaskRow {
@@ -42,29 +41,29 @@ function task(overrides: Partial<TaskRow> = {}): TaskRow {
 /** 一个工作根 + 三个子任务(1 完成 / 1 进行 / 1 阻塞)。 */
 function workFixture(): TaskRow[] {
   return [
-    task({ taskId: "root_1", title: "工作一", rootTaskId: "root_1", coordinationStatus: "active" }),
+    task({ taskId: "root_1", title: "工作一", workId: "root_1", coordinationStatus: "active" }),
     task({
       taskId: "c1",
       title: "子一",
       parentTaskId: "root_1",
-      rootTaskId: "root_1",
-      rootTitle: "工作一",
+      workId: "root_1",
+      workTitle: "工作一",
       coordinationStatus: "done",
     }),
     task({
       taskId: "c2",
       title: "子二",
       parentTaskId: "root_1",
-      rootTaskId: "root_1",
-      rootTitle: "工作一",
+      workId: "root_1",
+      workTitle: "工作一",
       coordinationStatus: "active",
     }),
     task({
       taskId: "c3",
       title: "子三",
       parentTaskId: "root_1",
-      rootTaskId: "root_1",
-      rootTitle: "工作一",
+      workId: "root_1",
+      workTitle: "工作一",
       coordinationStatus: "blocked",
     }),
   ];
@@ -97,7 +96,7 @@ describe("工作进度派生", () => {
 });
 
 describe("工作聚簇", () => {
-  it("同一 rootTaskId 的任务聚成一块,标题取 rootTitle", () => {
+  it("同一 workId 的任务聚成一块,标题取 workTitle", () => {
     const clusters = clusterTasksByWork(workFixture());
     expect(clusters).toHaveLength(1);
     expect(clusters[0]!.rootId).toBe("root_1");
@@ -111,75 +110,47 @@ describe("工作聚簇", () => {
     expect(cluster!.tasks.at(-1)!.coordinationStatus).toBe("done");
   });
 
-  it("缺 rootTaskId 时沿可见父链上溯到根,归入该工作", () => {
+  it("嵌套的声明工作按 daemon 给的 workId 自成一块,不并进外层工作", () => {
     const clusters = clusterTasksByWork([
-      task({ taskId: "root_2", title: "工作二" }),
-      task({ taskId: "mid", title: "中间", parentTaskId: "root_2" }),
-      task({ taskId: "leaf", title: "叶子", parentTaskId: "mid" }),
+      task({ taskId: "outer", title: "外层", workId: "outer", workTitle: "外层" }),
+      task({ taskId: "group", parentTaskId: "outer", workId: "outer", workTitle: "外层" }),
+      task({ taskId: "inner", title: "内层", parentTaskId: "group", workId: "inner", workTitle: "内层" }),
+      task({ taskId: "inner_leaf", parentTaskId: "inner", workId: "inner", workTitle: "内层" }),
     ]);
-    expect(clusters).toHaveLength(1);
-    expect(clusters[0]!.rootId).toBe("root_2");
-    expect(clusters[0]!.title).toBe("工作二");
-    expect(clusters[0]!.tasks.map((t) => t.taskId).sort()).toEqual(["leaf", "mid", "root_2"]);
+    expect(Object.fromEntries(clusters.map((c) => [c.rootId, c.tasks.map((t) => t.taskId).sort()]))).toEqual({
+      outer: ["group", "outer"],
+      inner: ["inner", "inner_leaf"],
+    });
   });
 
-  it("父任务不在可见集合的任务归入工作未知块,不猜归属", () => {
+  it("没有 workId 的任务归入独立任务块;父链可见也不自己上溯", () => {
     const clusters = clusterTasksByWork([
       ...workFixture(),
-      task({ taskId: "orphan", title: "孤儿", parentTaskId: "ghost" }),
+      task({ taskId: "solo", title: "独立" }),
+      task({ taskId: "under_solo", parentTaskId: "root_1" }),
     ]);
-    const unknown = clusters.find((c) => c.rootId === UNKNOWN_WORK);
-    expect(unknown).toBeDefined();
-    expect(unknown!.title).toBe(UNKNOWN_WORK_TITLE);
-    expect(unknown!.progress.unknownWork).toBe(true);
-    expect(unknown!.tasks.map((t) => t.taskId)).toEqual(["orphan"]);
+    const standalone = clusters.find((c) => c.rootId === NO_WORK);
+    expect(standalone).toBeDefined();
+    expect(standalone!.title).toBe(NO_WORK_TITLE);
+    expect(standalone!.progress.noWork).toBe(true);
+    expect(standalone!.tasks.map((t) => t.taskId).sort()).toEqual(["solo", "under_solo"]);
   });
 
-  it("父链成环的任务同样归入工作未知块", () => {
-    const clusters = clusterTasksByWork([
-      task({ taskId: "loop_a", parentTaskId: "loop_b" }),
-      task({ taskId: "loop_b", parentTaskId: "loop_a" }),
-    ]);
-    expect(clusters).toHaveLength(1);
-    expect(clusters[0]!.rootId).toBe(UNKNOWN_WORK);
-    expect(clusters[0]!.tasks).toHaveLength(2);
-  });
-
-  it("工作未知块恒排最后 —— 降权,但不隐藏", () => {
-    const clusters = clusterTasksByWork([
-      task({ taskId: "orphan", title: "孤儿", parentTaskId: "ghost" }),
-      ...workFixture(),
-    ]);
-    expect(clusters.at(-1)!.rootId).toBe(UNKNOWN_WORK);
-    // 仍然在结果里(未被过滤掉)。
-    expect(clusters.some((c) => c.rootId === UNKNOWN_WORK)).toBe(true);
-  });
-});
-
-describe("工作根判定(task 与 fact 分区共用)", () => {
-  it("rootTaskId 优先;缺失时上溯;task 不在集合 → undefined", () => {
-    const rootOf = workRootResolver([
-      task({ taskId: "r", title: "根" }),
-      task({ taskId: "c", parentTaskId: "r" }),
-      task({ taskId: "hidden_parent_child", parentTaskId: "gone", rootTaskId: "gone" }),
-    ]);
-    expect(rootOf("r")).toBe("r");
-    expect(rootOf("c")).toBe("r");
-    // adapter 在全量切面上算好的 rootTaskId 即使根不可见也照用:这是投影事实,不是猜。
-    expect(rootOf("hidden_parent_child")).toBe("gone");
-    expect(rootOf("missing")).toBeUndefined();
+  it("独立任务块恒排最后 —— 降权,但不隐藏", () => {
+    const clusters = clusterTasksByWork([task({ taskId: "solo", title: "独立" }), ...workFixture()]);
+    expect(clusters.at(-1)!.rootId).toBe(NO_WORK);
   });
 });
 
 describe("块排序权重", () => {
-  it("有阻塞的块排最前,基本完工的沉后,工作未知垫底", () => {
+  it("有阻塞的块排最前,基本完工的沉后,独立任务垫底", () => {
     const blocked = zoneRank(deriveZoneProgress([task({ coordinationStatus: "blocked" })]));
     const running = zoneRank(deriveZoneProgress([task({ coordinationStatus: "active" })]));
     const mostlyDone = zoneRank(deriveZoneProgress([task({ coordinationStatus: "done" })]));
-    const unknownWork = zoneRank(deriveZoneProgress([task()], true));
+    const noWork = zoneRank(deriveZoneProgress([task()], true));
     expect(blocked).toBeLessThan(running);
     expect(running).toBeLessThan(mostlyDone);
-    expect(mostlyDone).toBeLessThan(unknownWork);
+    expect(mostlyDone).toBeLessThan(noWork);
   });
 });
 
@@ -192,9 +163,9 @@ describe("territory 分区接线", () => {
     expect(zones[0]!.chips).toHaveLength(4);
   });
 
-  it("工作未知 zone 的 groupId 是显式哨兵(供计数与降权识别)", () => {
-    const zones = partitionTasks([task({ taskId: "orphan", parentTaskId: "ghost" })]);
-    expect(zones[0]!.groupId).toBe(UNKNOWN_WORK);
-    expect(zones[0]!.title).toBe(UNKNOWN_WORK_TITLE);
+  it("独立任务 zone 的 groupId 是显式哨兵(供计数与降权识别)", () => {
+    const zones = partitionTasks([task({ taskId: "solo" })]);
+    expect(zones[0]!.groupId).toBe(NO_WORK);
+    expect(zones[0]!.title).toBe(NO_WORK_TITLE);
   });
 });
