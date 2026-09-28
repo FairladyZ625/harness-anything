@@ -146,7 +146,7 @@ export function makeSquadCoordinator(input: {
       );
     const squadId = requiredSquadText(action.squadId, "squadId"),
       runtimeInstanceId = requiredSquadText(action.runtimeInstanceId, "runtimeInstanceId"),
-      cwd = await resolveSquadCwd(input.rootDir, action.cwd, () => input.projection().read(taskId).snapshot.task),
+      cwd = await resolveSquadCwd(input.rootDir, action.cwd, input.projection, taskId),
       squad = squadForRun(squadId),
       baseSha = localGitObjectRefStore.headCommit(cwd);
     let mission: string;

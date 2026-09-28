@@ -40,12 +40,6 @@ test("standard and milestone bootstrap compile one exact canonical birth and reb
       opId: "op-standard",
     });
     assert.equal(standard.event.payload.task.taskClass, "standard");
-    // dec_BBA713052997C3EF5F5D3DD952: a repository-diff task is born bound to its own worktree.
-    assert.deepEqual(standard.event.payload.task.worktree, {
-      branch: "codex/standard-standard",
-      path: ".worktrees/standard-standard",
-      baseRef: "origin/main",
-    });
     assert.equal(standard.event.payload.initialDocumentClaims.length, 5);
     assert.equal(standard.packagePath, "tasks/task-standard-standard");
     assert.ok(
@@ -135,7 +129,6 @@ test("standard and milestone bootstrap compile one exact canonical birth and reb
       opId: "op-milestone",
     });
     assert.equal(milestone.event.payload.task.taskClass, "milestone");
-    assert.equal(milestone.event.payload.task.worktree, undefined, "a work root is never bound to a worktree");
     assert.equal(milestone.snapshot.templates[0]!.templateRef, "template://planning/milestone-task-plan@1");
     assert.equal(milestone.event.payload.initialDocumentClaims.length, 5);
     const store = makeTaskEventStore({ repoId: "preset-bootstrap", rootDir }),

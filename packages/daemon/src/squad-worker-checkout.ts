@@ -1,10 +1,10 @@
 import path from "node:path";
 import { existsSync } from "node:fs";
-import type { TaskV2 } from "@harness-anything/kernel";
+import type { TaskProjection } from "@harness-anything/kernel";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 import { addManagedWorktree, reclaimManagedWorktree, type WorktreeReclaim } from "./schedule-occurrence-workspace.ts";
-import { materializeTaskWorktree } from "./task-worktree.ts";
+import { materializeTaskWorktree, presetSnapshotReader } from "./task-worktree.ts";
 
 /** Where a squad worker runs: the run cwd, or its own worktree and branch cut at the run baseline. */
 export type WorkerCheckout = { readonly cwd: string; readonly branch: string; readonly baseSha: string };
@@ -15,11 +15,15 @@ const workerBranchSeparator = "--";
 export async function resolveSquadCwd(
   rootDir: string,
   value: unknown,
-  task: () => TaskV2 | null | undefined,
+  projection: () => TaskProjection,
+  taskId: string,
 ): Promise<string> {
-  return value === undefined
-    ? ((await materializeTaskWorktree(rootDir, task()))?.cwd ?? rootDir)
-    : resolveCwd(rootDir, value);
+  if (value !== undefined) return resolveCwd(rootDir, value);
+  const read = projection();
+  return (
+    (await materializeTaskWorktree(rootDir, read.read(taskId).snapshot.task, presetSnapshotReader(read)))?.cwd ??
+    rootDir
+  );
 }
 
 function resolveCwd(rootDir: string, value: unknown): string {

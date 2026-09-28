@@ -1,7 +1,9 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import {
+  deriveTaskWorktreeBinding,
   isTerminalStatus,
+  type TaskProjection,
   type TaskV2,
   type TaskWorktreeBindingV1,
   type WriteReceiptDraft as WriteReceipt,
@@ -15,16 +17,54 @@ import {
   type ManagedWorktree,
 } from "./schedule-occurrence-workspace.ts";
 
-// dec_BBA713052997C3EF5F5D3DD952: the ledger records a task's worktree binding; the node that runs the task
-// checks it out on first start or dispatch and reclaims it when the task closes. There is no worktree command.
+// dec_BBA713052997C3EF5F5D3DD952: a task's worktree binding follows from fields fixed at its creation; the node
+// that runs the task checks it out on first start or dispatch and reclaims it when the task closes. There is no
+// worktree command.
 
 const managedByHarness = "Harness manages this worktree; no command is needed.";
 
-export function taskWorktreeView(rootDir: string, task: TaskV2 | null | undefined): TaskWorktreeView | null {
-  if (!task?.worktree) return null;
-  const present = existsSync(path.join(rootDir, task.worktree.path));
+/** Reads a preset snapshot by digest: the task's profile output shape is one input of its binding. */
+export type PresetSnapshotRead = (digest: string) => unknown;
+
+/** One reader per request: tasks compiled from the same preset share one snapshot read. */
+export function presetSnapshotReader(projection: Pick<TaskProjection, "readPresetSnapshot">): PresetSnapshotRead {
+  const snapshots = new Map<string, unknown>();
+  return (digest) => {
+    if (!snapshots.has(digest)) snapshots.set(digest, projection.readPresetSnapshot(digest).snapshot);
+    return snapshots.get(digest);
+  };
+}
+
+/** The binding is derived, never stored (dec_01KY4Y2MW94HM5QK5Q1208XJZ5): id, slug, class and output shape. */
+export function taskWorktreeBinding(
+  task: TaskV2 | null | undefined,
+  readPresetSnapshot: PresetSnapshotRead,
+): TaskWorktreeBindingV1 | null {
+  if (!task?.metadata || !task.presetSnapshotDigest) return null;
+  const snapshot = readPresetSnapshot(task.presetSnapshotDigest) as {
+      readonly profile?: { readonly outputShape?: unknown };
+    } | null,
+    outputShape = snapshot?.profile?.outputShape;
+  return typeof outputShape === "string"
+    ? deriveTaskWorktreeBinding({
+        taskId: task.taskId,
+        slug: task.metadata.slug,
+        taskClass: task.taskClass,
+        outputShape,
+      })
+    : null;
+}
+
+export function taskWorktreeView(
+  rootDir: string,
+  task: TaskV2 | null | undefined,
+  readPresetSnapshot: PresetSnapshotRead,
+): TaskWorktreeView | null {
+  const binding = taskWorktreeBinding(task, readPresetSnapshot);
+  if (!task || !binding) return null;
+  const present = existsSync(path.join(rootDir, binding.path));
   return {
-    ...task.worktree,
+    ...binding,
     state: present ? (taskClosed(task) ? "retained" : "materialized") : taskClosed(task) ? "reclaimed" : "bound",
   };
 }
@@ -36,9 +76,11 @@ export function taskWorktreeView(rootDir: string, task: TaskV2 | null | undefine
 export async function materializeTaskWorktree(
   rootDir: string,
   task: TaskV2 | null | undefined,
+  readPresetSnapshot: PresetSnapshotRead,
 ): Promise<{ readonly cwd: string; readonly note: string | null } | null> {
-  if (!task?.worktree || taskClosed(task)) return null;
-  const worktree = managedWorktree(rootDir, task.worktree);
+  const binding = taskWorktreeBinding(task, readPresetSnapshot);
+  if (!task || !binding || taskClosed(task)) return null;
+  const worktree = managedWorktree(rootDir, binding);
   if (existsSync(worktree.cwd)) return { cwd: worktree.cwd, note: null };
   if (!(await resolves(rootDir, worktree.baseRef))) return null;
   return { cwd: worktree.cwd, note: await addManagedWorktree(rootDir, worktree) };
@@ -62,13 +104,14 @@ const closingActions = new Set([
 export async function applyTaskWorktreeLifecycle(
   rootDir: string,
   readTask: (taskId: string) => TaskV2 | null | undefined,
+  readPresetSnapshot: PresetSnapshotRead,
   action: { readonly kind: string; readonly taskId?: unknown; readonly taskIds?: unknown; readonly dryRun?: unknown },
   source: unknown,
   receipt: WriteReceipt,
 ): Promise<WriteReceipt> {
   if (receipt.outcome !== "applied" || source !== "local" || action.dryRun === true) return receipt;
   if (action.kind === "task-start" && typeof action.taskId === "string") {
-    const checkout = await checkoutOnStart(rootDir, readTask(action.taskId));
+    const checkout = await checkoutOnStart(rootDir, readTask(action.taskId), readPresetSnapshot);
     return withNotes(receipt, checkout.notes, checkout.warnings);
   }
   if (!closingActions.has(action.kind)) return receipt;
@@ -80,9 +123,10 @@ export async function applyTaskWorktreeLifecycle(
         : [];
   let settled = receipt;
   for (const taskId of taskIds) {
-    const task = readTask(taskId);
-    if (!task?.worktree || !taskClosed(task)) continue;
-    const worktree = managedWorktree(rootDir, task.worktree),
+    const task = readTask(taskId),
+      binding = taskWorktreeBinding(task, readPresetSnapshot);
+    if (!task || !binding || !taskClosed(task)) continue;
+    const worktree = managedWorktree(rootDir, binding),
       result = await reclaimManagedWorktree(rootDir, worktree),
       detail = reclaimDetail("Worktree", worktree, result);
     if (result.outcome === "retained") settled = withNotes(settled, [], [detail!]);
@@ -95,19 +139,20 @@ export async function applyTaskWorktreeLifecycle(
 async function checkoutOnStart(
   rootDir: string,
   task: TaskV2 | null | undefined,
+  readPresetSnapshot: PresetSnapshotRead,
 ): Promise<{ readonly notes: readonly string[]; readonly warnings: readonly string[] }> {
+  const binding = taskWorktreeBinding(task, readPresetSnapshot);
+  if (!binding) return { notes: [], warnings: [] };
   try {
-    const materialized = await materializeTaskWorktree(rootDir, task);
+    const materialized = await materializeTaskWorktree(rootDir, task, readPresetSnapshot);
     return {
       notes: materialized
-        ? [`Worktree ${materialized.cwd} is checked out on ${task!.worktree!.branch}. ${managedByHarness}`]
-        : task?.worktree
-          ? [`No worktree on this node: ${task.worktree.baseRef} does not resolve here, so work stays in ${rootDir}.`]
-          : [],
+        ? [`Worktree ${materialized.cwd} is checked out on ${binding.branch}. ${managedByHarness}`]
+        : [`No worktree on this node: ${binding.baseRef} does not resolve here, so work stays in ${rootDir}.`],
       warnings: materialized?.note ? [materialized.note] : [],
     };
   } catch (error) {
-    return { notes: [], warnings: [`Worktree ${task!.worktree!.path} was not checked out: ${errorText(error)}`] };
+    return { notes: [], warnings: [`Worktree ${binding.path} was not checked out: ${errorText(error)}`] };
   }
 }
 

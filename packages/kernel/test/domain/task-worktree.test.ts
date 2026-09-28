@@ -35,7 +35,7 @@ test("a task-package artifact and a declared work root are never bound", () => {
     assert.equal(deriveTaskWorktreeBinding({ ...standard, taskClass, outputShape: "repository-diff" }), null);
 });
 
-test("Task/v2 admits only a complete relative worktree binding", () => {
+test("Task/v2 does not store a worktree binding: every reader derives it", () => {
   const task = {
     schema: "task/v2",
     taskId: standard.taskId,
@@ -57,11 +57,11 @@ test("Task/v2 admits only a complete relative worktree binding", () => {
     presetSnapshotDigest: null,
     pinned: false,
   };
-  const binding = deriveTaskWorktreeBinding({ ...standard, outputShape: "repository-diff" });
-  const issues = (worktree: unknown) =>
-    validateTaskV2({ ...task, worktree }).filter(({ message }) => message.includes("worktree"));
-  assert.deepEqual(issues(binding), []);
-  assert.equal(issues({ ...binding, path: "/tmp/elsewhere" }).length, 1);
-  assert.equal(issues({ ...binding, path: "../escape" }).length, 1);
-  assert.equal(issues({ branch: binding?.branch, path: binding?.path }).length, 1);
+  const unknownField = { code: "invalid_task", message: "Task/v2 fields are incomplete or unknown" },
+    worktree = deriveTaskWorktreeBinding({ ...standard, outputShape: "repository-diff" });
+  assert.equal(
+    validateTaskV2(task).some(({ message }) => message === unknownField.message),
+    false,
+  );
+  assert.deepEqual(validateTaskV2({ ...task, worktree }), [unknownField]);
 });

@@ -189,7 +189,7 @@ test("task snapshot protocol isolates tasks with non-boolean archiveOnComplete",
   assert.equal(isolated.invalidRows[0]?.field, "rows[0].snapshot.task");
 });
 
-test("task snapshot protocol carries a task's worktree binding and this node's view of it", () => {
+test("task snapshot protocol carries this node's view of a task's derived worktree, never a stored one", () => {
   const binding = { branch: "codex/bound-12345678", path: ".worktrees/bound-12345678", baseRef: "origin/main" },
     boundTask = {
       schema: "task/v2",
@@ -204,7 +204,6 @@ test("task snapshot protocol carries a task's worktree binding and this node's v
       completionGateIds: [],
       presetSnapshotDigest: null,
       pinned: false,
-      worktree: binding,
     } as const,
     boundRow = {
       ...row,
@@ -216,7 +215,10 @@ test("task snapshot protocol carries a task's worktree binding and this node's v
 
   const isolated = isolateDaemonTaskSnapshotRows([
     { ...boundRow, worktree: { ...binding, state: "checked-out" } } as never,
-    { ...boundRow, snapshot: { ...boundRow.snapshot, task: { ...boundTask, worktree: { path: "x" } } } } as never,
+    {
+      ...boundRow,
+      snapshot: { ...boundRow.snapshot, task: { ...boundTask, worktree: binding } },
+    } as never,
   ]);
   assert.deepEqual(
     isolated.invalidRows.map(({ field }) => field),

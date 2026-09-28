@@ -20,7 +20,7 @@ import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 import { renderEvidencePayload } from "./repo-cell-evidence.ts";
 import { failed } from "./repo-cell-settlement.ts";
 import { projectedTaskNotFound } from "./projection-readiness.ts";
-import { taskWorktreeView } from "./task-worktree.ts";
+import { presetSnapshotReader, taskWorktreeView } from "./task-worktree.ts";
 
 /**
  * The canonical witness write entry: judge the evidence's binding to the frozen cut, then let
@@ -183,7 +183,7 @@ export function taskShowFromProjection(
           }
         : null,
       packagePath: read.packagePath,
-      worktree: taskWorktreeView(rootDir, task),
+      worktree: taskWorktreeView(rootDir, task, presetSnapshotReader(projection)),
       returnBudget: returnBudget.value,
       returnBudgetSource: returnBudget.source,
       rootAssessment,

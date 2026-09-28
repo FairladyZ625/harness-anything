@@ -28,7 +28,7 @@ import {
   type TaskRelationQuery,
 } from "@harness-anything/kernel";
 import { readDispatchStreamHeaders, type DispatchStreamHeader } from "./dispatch-stream.ts";
-import { taskWorktreeView } from "./task-worktree.ts";
+import { presetSnapshotReader, taskWorktreeView } from "./task-worktree.ts";
 import {
   isolateDaemonTaskSnapshotRows,
   type AgendaDecisionRow,
@@ -204,6 +204,7 @@ export function makeTaskQueryReadModel(input: {
   }
   function guiTasks(query: TaskProjectionListQuery = {}): DaemonTaskSnapshotListResult {
     const lifecycle = projection.list({ ...query, limit: query.limit ?? 500 }),
+      readPresetSnapshot = presetSnapshotReader(projection),
       { dependencies, derives, taskStatuses, blockingByTaskId } = readBlockingAssessments(
         lifecycle.rows.map(({ taskId }) => taskId),
       ),
@@ -304,7 +305,7 @@ export function makeTaskQueryReadModel(input: {
           capabilities: taskCapabilities(boardRow),
           phase: taskPhase(boardRow),
           risk: taskRisk(boardRow),
-          worktree: taskWorktreeView(rootDir, row.snapshot.task),
+          worktree: taskWorktreeView(rootDir, row.snapshot.task, readPresetSnapshot),
         };
       }),
       ...cut,
@@ -330,12 +331,13 @@ export function makeTaskQueryReadModel(input: {
         pinnedFirst: true,
         ...(pageCursor ? { cursor: pageCursor } : {}),
       }),
-      graph = readBlockingAssessments(lifecycle.rows.map(({ taskId }) => taskId));
+      graph = readBlockingAssessments(lifecycle.rows.map(({ taskId }) => taskId)),
+      readPresetSnapshot = presetSnapshotReader(projection);
     return {
       page: lifecycle.page ?? null,
       rows: lifecycle.rows.map((row) => ({
         ...row,
-        worktree: taskWorktreeView(rootDir, row.snapshot.task),
+        worktree: taskWorktreeView(rootDir, row.snapshot.task, readPresetSnapshot),
         blockingAssessment: graph.blockingByTaskId.get(row.taskId) ?? {
           taskId: row.taskId,
           state: "unknown" as const,

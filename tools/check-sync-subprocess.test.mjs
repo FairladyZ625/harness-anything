@@ -10,9 +10,11 @@ const repoRoot = path.resolve(import.meta.dirname, "..");
 
 test("repository inventory freezes the governed API and syntax-kind multisets", () => {
   const counts = inventoryCounts(scanSyncSubprocess(repoRoot));
-  assert.equal(counts.total, 18);
-  assert.deepEqual(counts.kinds, { import: 6, call: 12 });
-  assert.deepEqual(counts.apis, { execFileSync: 16, spawnSync: 2 });
+  // dec_BBA713052997C3EF5F5D3DD952 moved schedule occurrence worktrees onto the async managed-worktree path,
+  // retiring its five synchronous git sites.
+  assert.equal(counts.total, 13);
+  assert.deepEqual(counts.kinds, { import: 5, call: 8 });
+  assert.deepEqual(counts.apis, { execFileSync: 11, spawnSync: 2 });
 });
 
 test("renamed named imports are resolved while comments and strings are ignored", () => {

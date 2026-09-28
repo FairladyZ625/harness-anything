@@ -5,7 +5,7 @@ import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { resolveRuntimeCwd } from "./runtime-spawn-mission.ts";
 import { requiredRuntimeProjection } from "./runtime-spawn-process.ts";
-import { materializeTaskWorktree } from "./task-worktree.ts";
+import { materializeTaskWorktree, presetSnapshotReader } from "./task-worktree.ts";
 
 export function admitRuntimeResume(rootDir: string, dispatchId: string | undefined) {
   const resumed = dispatchId ? readDispatchStream(rootDir, dispatchId) : null;
@@ -93,15 +93,20 @@ export async function resolveDispatchCwd(
   if (payload.cwd === undefined && inherited) return inherited;
   const worktree =
     payload.cwd === undefined && taskId && !input.remote && payload.role !== "reviewer" && payload.dryRun !== true
-      ? await materializeTaskWorktree(
-          input.rootDir,
-          requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot.task,
-        )
+      ? await checkoutTaskWorktree(input.rootDir, requiredRuntimeProjection(input), taskId)
       : null;
   return resolveRuntimeCwd(
     input.rootDir,
     worktree
       ? { scope: "repo-relative", path: path.relative(input.rootDir, worktree.cwd) }
       : (payload.cwd ?? { scope: "repo-root" }),
+  );
+}
+
+function checkoutTaskWorktree(rootDir: string, projection: TaskProjection, taskId: string) {
+  return materializeTaskWorktree(
+    rootDir,
+    requireCurrentTaskProjection(projection, taskId, "runtime.run").snapshot.task,
+    presetSnapshotReader(projection),
   );
 }

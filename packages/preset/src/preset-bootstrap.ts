@@ -2,7 +2,6 @@ import {
   REPLAY_TASK_GRAPH,
   classifyTextualArtifactPath,
   currentTaskForWrite,
-  deriveTaskWorktreeBinding,
   getExecutableEntityAction,
   presetSnapshotUpgradeWritePlan,
   sha256Text,
@@ -302,13 +301,7 @@ export function compileTaskBootstrap(input: CompileTaskBootstrapInput): Compiled
       owner: document.owner,
       policyId:
         document.owner === "machine" ? ("typed-machine-writer/v1" as const) : ("markdown-body-replaceable/v1" as const),
-    })),
-    worktree = deriveTaskWorktreeBinding({
-      taskId: input.taskId,
-      slug: compiled.metadata.slug,
-      taskClass: input.taskClass ?? "standard",
-      outputShape: compiled.snapshot.profile.outputShape,
-    });
+    }));
   const event: TaskBootstrapEventV1 = {
     schema: "task-bootstrap-event/v1",
     eventId: input.eventId,
@@ -344,7 +337,6 @@ export function compileTaskBootstrap(input: CompileTaskBootstrapInput): Compiled
         ...(compiled.snapshot.profile.archiveOnComplete === undefined
           ? {}
           : { archiveOnComplete: compiled.snapshot.profile.archiveOnComplete }),
-        ...(worktree === null ? {} : { worktree }),
       },
       presetSnapshotClaim: snapshotClaim,
       initialDocumentClaims,

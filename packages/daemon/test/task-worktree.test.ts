@@ -10,6 +10,8 @@ import { applyTaskWorktreeLifecycle, materializeTaskWorktree, taskWorktreeView }
 import { prepareWorkerWorktree, reclaimWorkerWorktree } from "../src/squad-worker-checkout.ts";
 
 const binding = { branch: "codex/lifecycle-12345678", path: ".worktrees/lifecycle-12345678", baseRef: "origin/main" };
+// The binding is derived from the task and the output shape of the preset snapshot it was compiled from.
+const repositoryDiff = () => ({ profile: { outputShape: "repository-diff" } });
 
 test("the first start checks the bound worktree out once and names it in the receipt", async () => {
   const fixture = repositoryFixture();
@@ -19,6 +21,7 @@ test("the first start checks the bound worktree out once and names it in the rec
     const started = await applyTaskWorktreeLifecycle(
         fixture.root,
         () => task,
+        repositoryDiff,
         { kind: "task-start", taskId: task.taskId },
         "local",
         applied(),
@@ -28,11 +31,11 @@ test("the first start checks the bound worktree out once and names it in the rec
     assert.equal(git(cwd, "rev-parse", "HEAD"), git(fixture.root, "rev-parse", "origin/main"));
     assert.equal(readlinkSync(path.join(cwd, "node_modules")), path.join(fixture.root, "node_modules"));
     assert.match(String((started as { summary?: unknown }).summary), /Harness manages this worktree; no command/u);
-    assert.equal(taskWorktreeView(fixture.root, task)?.state, "materialized");
+    assert.equal(taskWorktreeView(fixture.root, task, repositoryDiff)?.state, "materialized");
     // A later start or dispatch finds the checkout in place instead of cutting a second one.
-    assert.deepEqual(await materializeTaskWorktree(fixture.root, task), { cwd, note: null });
+    assert.deepEqual(await materializeTaskWorktree(fixture.root, task, repositoryDiff), { cwd, note: null });
     task = boundTask("cancelled");
-    assert.equal(taskWorktreeView(fixture.root, task)?.state, "retained");
+    assert.equal(taskWorktreeView(fixture.root, task, repositoryDiff)?.state, "retained");
   } finally {
     rmSync(fixture.base, { recursive: true, force: true });
   }
@@ -42,13 +45,13 @@ test("a checkout whose directory was removed is restored onto its surviving bran
   const fixture = repositoryFixture();
   try {
     const task = boundTask("active"),
-      cwd = (await materializeTaskWorktree(fixture.root, task))!.cwd;
+      cwd = (await materializeTaskWorktree(fixture.root, task, repositoryDiff))!.cwd;
     writeFileSync(path.join(cwd, "kept.txt"), "kept\n");
     git(cwd, "add", "kept.txt");
     git(cwd, "commit", "-qm", "kept");
     const head = git(cwd, "rev-parse", "HEAD");
     git(fixture.root, "worktree", "remove", cwd);
-    await materializeTaskWorktree(fixture.root, task);
+    await materializeTaskWorktree(fixture.root, task, repositoryDiff);
     assert.equal(git(cwd, "rev-parse", "HEAD"), head);
   } finally {
     rmSync(fixture.base, { recursive: true, force: true });
@@ -59,16 +62,17 @@ test("a node without the base ref has no worktree to give, and forwarded writes 
   const gitless = mkdtempSync(path.join(tmpdir(), "ha-task-worktree-gitless-")),
     fixture = repositoryFixture();
   try {
-    assert.equal(await materializeTaskWorktree(gitless, boundTask("active")), null);
+    assert.equal(await materializeTaskWorktree(gitless, boundTask("active"), repositoryDiff), null);
     const gitlessStart = await applyTaskWorktreeLifecycle(
       gitless,
       () => boundTask("active"),
+      repositoryDiff,
       { kind: "task-start", taskId: "task_12345678" },
       "local",
       applied(),
     );
     assert.match(String((gitlessStart as { summary?: unknown }).summary), /No worktree on this node: origin\/main/u);
-    assert.equal(taskWorktreeView(gitless, boundTask("planned"))?.state, "bound");
+    assert.equal(taskWorktreeView(gitless, boundTask("planned"), repositoryDiff)?.state, "bound");
     const receipt = applied(),
       task = boundTask("active");
     for (const source of ["remote_direct", { kind: "assignment", nodeId: "edge", assignmentId: "a" }])
@@ -76,6 +80,7 @@ test("a node without the base ref has no worktree to give, and forwarded writes 
         await applyTaskWorktreeLifecycle(
           fixture.root,
           () => task,
+          repositoryDiff,
           { kind: "task-start", taskId: "t" },
           source,
           receipt,
@@ -83,7 +88,10 @@ test("a node without the base ref has no worktree to give, and forwarded writes 
         receipt,
       );
     assert.equal(existsSync(path.join(fixture.root, binding.path)), false);
-    assert.equal(taskWorktreeView(fixture.root, { ...task, worktree: undefined }), null);
+    assert.equal(
+      taskWorktreeView(fixture.root, task, () => ({ profile: { outputShape: "task-package-artifact" } })),
+      null,
+    );
   } finally {
     rmSync(gitless, { recursive: true, force: true });
     rmSync(fixture.base, { recursive: true, force: true });
@@ -128,12 +136,13 @@ test("closing a task reclaims its worktree by the managed-worktree rule", async 
       const fixture = repositoryFixture();
       try {
         let task = boundTask("active");
-        const cwd = (await materializeTaskWorktree(fixture.root, task))!.cwd;
+        const cwd = (await materializeTaskWorktree(fixture.root, task, repositoryDiff))!.cwd;
         scenario.work(cwd, fixture.root);
         task = boundTask("cancelled");
         const closed = await applyTaskWorktreeLifecycle(
             fixture.root,
             () => task,
+            repositoryDiff,
             { kind: "task-transition", taskId: task.taskId },
             "local",
             applied(),
@@ -149,7 +158,10 @@ test("closing a task reclaims its worktree by the managed-worktree rule", async 
         else assert.equal(summary, null);
         if (scenario.expect.warning) assert.match(String(closed.warnings?.[0]), scenario.expect.warning);
         else assert.equal(closed.warnings, undefined);
-        assert.equal(taskWorktreeView(fixture.root, task)?.state, scenario.expect.present ? "retained" : "reclaimed");
+        assert.equal(
+          taskWorktreeView(fixture.root, task, repositoryDiff)?.state,
+          scenario.expect.present ? "retained" : "reclaimed",
+        );
       } finally {
         rmSync(fixture.base, { recursive: true, force: true });
       }
@@ -160,12 +172,13 @@ test("an applied write that leaves the task open does not touch its worktree", a
   const fixture = repositoryFixture();
   try {
     const task = boundTask("active"),
-      cwd = (await materializeTaskWorktree(fixture.root, task))!.cwd,
+      cwd = (await materializeTaskWorktree(fixture.root, task, repositoryDiff))!.cwd,
       receipt = applied();
     assert.equal(
       await applyTaskWorktreeLifecycle(
         fixture.root,
         () => task,
+        repositoryDiff,
         { kind: "task-transition", taskId: task.taskId },
         "local",
         receipt,
@@ -217,9 +230,22 @@ function boundTask(status: TaskV2["status"]): TaskV2 {
     iteration: 0,
     createdBy: { principal: { personId: "person-1" }, executor: null },
     completionGateIds: [],
-    presetSnapshotDigest: null,
+    presetSnapshotDigest: `sha256:${"0".repeat(64)}`,
     pinned: false,
-    worktree: binding,
+    metadata: {
+      idempotencyKey: null,
+      parentTaskId: null,
+      workKind: null,
+      riskTier: null,
+      urgency: null,
+      verticalId: "coding",
+      presetId: "standard-task",
+      profileId: "default",
+      moduleKey: null,
+      slug: "lifecycle",
+      surfaces: [],
+      fromLegacyId: null,
+    },
   };
 }
 
