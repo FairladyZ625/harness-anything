@@ -160,13 +160,11 @@ type SummaryCacheEntry = {
   readonly value: DispatchStreamSummary | null;
 };
 
-type HeaderCacheEntry = {
-  readonly mtimeMs: number;
-  readonly values: readonly DispatchStreamHeader[];
-};
-
 const summaryCache = new Map<string, SummaryCacheEntry>();
-const headerCache = new Map<string, HeaderCacheEntry>();
+// Keyed by stream path: the header is the stream's first line, written once when the stream is
+// created and never rewritten. The directory is listed on every read, because a directory mtime
+// on a coarse clock does not advance for a stream created within the same tick.
+const headerCache = new Map<string, DispatchStreamHeader>();
 const summaryHeadBytes = 16 * 1024;
 const summaryTailBytes = 128 * 1024;
 // A blind-spot probe overlaps each covered window by this many bytes so a record line that
@@ -244,6 +242,7 @@ export function removeDispatchStream(rootDir: string, dispatchId: string): void 
   const target = dispatchStreamPath(rootDir, dispatchId),
     header = readDispatchStreamHeader(rootDir, dispatchId);
   summaryCache.delete(target);
+  headerCache.delete(target);
   readLimitWarnings.delete(target);
   writeLimitWarnings.delete(target);
   if (existsSync(target)) unlinkSync(target);
@@ -388,19 +387,18 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
 
 export function readDispatchStreamHeaders(rootDir: string): readonly DispatchStreamHeader[] {
   const root = dispatchStreamRoot(resolveHarnessLayout(rootDir));
-  const stat = statSync(root, { throwIfNoEntry: false });
-  if (!stat?.isDirectory()) {
-    headerCache.delete(root);
-    return [];
-  }
-  const cached = headerCache.get(root);
-  if (cached?.mtimeMs === stat.mtimeMs) return cached.values;
-  const values = readdirSync(root)
+  if (!statSync(root, { throwIfNoEntry: false })?.isDirectory()) return [];
+  return readdirSync(root)
     .filter((name) => /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name))
-    .map((name) => readDispatchStreamHeader(rootDir, name.slice(0, -6)))
+    .map((name) => {
+      const target = path.join(root, name),
+        cached = headerCache.get(target);
+      if (cached) return cached;
+      const header = readDispatchStreamHeader(rootDir, name.slice(0, -6));
+      if (header) headerCache.set(target, header);
+      return header;
+    })
     .filter((header): header is DispatchStreamHeader => header !== null);
-  headerCache.set(root, { mtimeMs: stat.mtimeMs, values });
-  return values;
 }
 
 export function readDispatchStreamSummaries(rootDir: string): readonly DispatchStreamSummary[] {

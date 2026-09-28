@@ -12,6 +12,7 @@ import {
   openDispatchStreamAppender,
   readDispatchLiveIndex,
   readDispatchStream,
+  readDispatchStreamHeaders,
   readDispatchStreamIncrement,
   readDispatchStreamSummary,
   scrubProviderValue,
@@ -65,6 +66,40 @@ test("the live index rebuilds exactly from dispatch stream headers", () => {
     rmSync(dispatchLiveIndexPath(rootDir, "task-1"));
     const rebuilt = readDispatchLiveIndex(rootDir, ["task-1"]);
     assert.deepEqual(rebuilt, before);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a stream created within the directory's mtime tick is still listed", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-headers-"));
+  try {
+    const open = (suffix: string) =>
+      openDispatchStream(rootDir, {
+        dispatchId: `dispatch_${suffix}`,
+        taskId: "task-1",
+        executionId: "execution-1",
+        runtimeSessionId: `runtime_${suffix}`,
+        instanceId: "instance-1",
+        startedAt: "2026-08-24T00:00:00.000Z",
+      });
+    open("111111111111111111111111");
+    const directory = path.dirname(dispatchStreamPath(rootDir, "dispatch_111111111111111111111111")),
+      tick = 1_756_000_000;
+    utimesSync(directory, tick, tick);
+    assert.deepEqual(
+      readDispatchStreamHeaders(rootDir).map(({ dispatchId }) => dispatchId),
+      ["dispatch_111111111111111111111111"],
+    );
+    open("222222222222222222222222");
+    // A coarse filesystem clock leaves the directory mtime unchanged for a file created in the same tick.
+    utimesSync(directory, tick, tick);
+    assert.deepEqual(
+      readDispatchStreamHeaders(rootDir)
+        .map(({ dispatchId }) => dispatchId)
+        .sort(),
+      ["dispatch_111111111111111111111111", "dispatch_222222222222222222222222"],
+    );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
