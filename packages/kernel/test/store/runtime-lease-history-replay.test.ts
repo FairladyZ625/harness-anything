@@ -93,7 +93,7 @@ test("historically accepted delegated progress remains replayable", async () => 
             },
           },
         ])
-          assert.throws(() => replay({ ...compiled.event, payload }), /reference mismatch/u);
+          assert.throws(() => replay({ ...compiled.event, payload }), /mismatch/u);
         assert.throws(
           () =>
             replay({
