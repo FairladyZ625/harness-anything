@@ -192,7 +192,7 @@ test("ownership ignores fetched upstream commits merged into the worker branch",
 function ownershipRepository(context: test.TestContext): string {
   const cwd = mkdtempSync(path.join(tmpdir(), "ha-squad-ownership-"));
   context.after(() => rmSync(cwd, { recursive: true, force: true }));
-  git(cwd, "init", "-q");
+  git(cwd, "init", "-q", "-b", "main");
   git(cwd, "config", "user.name", "Ownership Test");
   git(cwd, "config", "user.email", "ownership@example.invalid");
   mkdirSync(path.join(cwd, "src"));

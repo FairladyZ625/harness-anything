@@ -11,7 +11,7 @@ import type { RuntimeLauncher } from "../src/runtime-spawn-types.ts";
 import type { WorkerAttempt } from "../src/squad-leader-decision.ts";
 import { appendRuntimeWorkerRecord, readDispatchStreamHeader } from "../src/dispatch-stream.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
-import { evidence, git, initRepo } from "./task-surface.fixtures.ts";
+import { evidence, git } from "./task-surface.fixtures.ts";
 import { realizedTaskPlan, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const binding = {
@@ -349,7 +349,10 @@ async function openFixture(t: { after(fn: () => Promise<void>): void }, slug: st
     taskId = `task-squad-e2e-${slug}`,
     providers: Provider[] = [];
   mkdirSync(root);
-  initRepo(root);
+  git(root, "init", "-q", "-b", "main");
+  git(root, "config", "user.name", "Task Surface Test");
+  git(root, "config", "user.email", "task-surface@example.invalid");
+  git(root, "commit", "--allow-empty", "-qm", "base");
   const bare = path.join(parent, "remote.git");
   git(parent, "init", "--bare", bare);
   git(root, "remote", "add", "origin", bare);
