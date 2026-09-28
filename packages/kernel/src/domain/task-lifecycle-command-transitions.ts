@@ -304,23 +304,33 @@ export const reinstate: Transition = {
 };
 /** ReturnToPlanned closes the round the way changes_requested does: an unleased execution that is
  * still active in the current iteration would otherwise keep claiming the round forever, leaving
- * `ha task start` no way to allocate a fresh execution. Advancing the iteration supersedes it. */
+ * `ha task start` no way to allocate a fresh execution. Advancing the iteration supersedes it.
+ * A blocked task returns the same way — block always leaves the task unleased, so backlog cleanup
+ * does not need an unblock round trip first. */
 export const returnToPlanned: Transition = {
   actionId: "transition",
   matches: (command, snapshot) =>
-    command.type === "TransitionTask" && command.status === "planned" && snapshot.task?.status === "active",
+    command.type === "TransitionTask" &&
+    command.status === "planned" &&
+    (snapshot.task?.status === "active" || snapshot.task?.status === "blocked"),
   validate: (snapshot, raw) => {
     const command = raw as TransitionTaskCommand,
-      issues = revisionIssues(snapshot, command);
-    if (
-      snapshot.task?.status !== "active" ||
-      snapshot.lease !== null ||
-      !explainStatusTransition("active", "planned").allowed
-    )
+      issues = revisionIssues(snapshot, command),
+      from = snapshot.task?.status;
+    if (from !== "active" && from !== "blocked")
+      issues.push(lifecycleContractIssue("invalid_transition", "ReturnToPlanned requires an active or blocked task"));
+    else if (snapshot.lease !== null)
       issues.push(
         lifecycleContractIssue(
           "invalid_transition",
-          "ReturnToPlanned requires an unleased active task after its execution lease is released",
+          `ReturnToPlanned requires an unleased task: release the ${from} task's lease before returning it to planned`,
+        ),
+      );
+    else if (!explainStatusTransition(from, "planned").allowed)
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_transition",
+          `ReturnToPlanned does not accept ${from}: the status graph has no ${from} to planned transition`,
         ),
       );
     if (!isNonEmptyString(command.reason))
