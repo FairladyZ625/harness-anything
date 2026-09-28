@@ -672,8 +672,12 @@ export function validSquadControlAuthorization(value: unknown): boolean {
 
 export function validateReceiptAcceptanceWire(value: Readonly<Record<string, unknown>>): readonly string[] {
   const errors: string[] = [];
-  if (!["accepted_durable", "rejected", "unknown"].includes(String(value.status)))
+  if (!["accepted_durable", "rejected", "settled_no_write", "unknown"].includes(String(value.status)))
     errors.push("receipt status is invalid");
+  if (value.status === "settled_no_write" && value.outcome !== "no_changes")
+    errors.push("settled_no_write requires no_changes");
+  if (value.outcome === "no_changes" && value.status === "unknown")
+    errors.push("no_changes requires accepted_durable, rejected, or settled_no_write");
   if (value.status === "accepted_durable") {
     const a = value.acceptance;
     if (

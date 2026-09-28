@@ -230,7 +230,9 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     .filter((key) => ![...WRITE_RECEIPT_SCHEMA.required, ...WRITE_RECEIPT_SCHEMA.optional].includes(key))
     .map((key) => `unexpected field: ${key}`);
   errors.push(...validateReceiptAcceptance(value));
-  const unaccepted = value.acceptance === null && (value.status === "unknown" || value.status === "rejected");
+  const unaccepted =
+    value.acceptance === null &&
+    (value.status === "unknown" || value.status === "rejected" || value.status === "settled_no_write");
   if (unaccepted && "proof" in value) errors.push("unaccepted receipt must not carry committed proof");
   if (!(WRITE_RECEIPT_SCHEMA.outcomes as readonly unknown[]).includes(value.outcome))
     errors.push("receipt outcome is invalid");

@@ -42,7 +42,9 @@ test("unaccepted pending and no-op receipts carry no fabricated committed proof"
     guidance: [{ kind: "retry-receipt", args: { opId: "cancel-missing-session" } }],
   };
   assert.deepEqual(writeReceipt(pending), []);
-  assert.deepEqual(writeReceipt({ ...pending, outcome: "no_changes", code: "no_changes", origin: "daemon" }), []);
+  const noOp = { ...pending, outcome: "no_changes", status: "settled_no_write", code: "no_changes", origin: "daemon" };
+  assert.deepEqual(writeReceipt(noOp), []);
+  assert.match(writeReceipt({ ...noOp, status: "unknown" }).join("\n"), /no_changes requires/u);
   assert.match(writeReceipt({ ...pending, outcome: "applied" }).join("\n"), /applied requires accepted_durable/u);
   assert.match(
     writeReceipt({

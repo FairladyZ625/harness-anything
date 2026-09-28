@@ -217,7 +217,7 @@ test("an idempotent no-change result retains its accepted interval without claim
   }
 });
 
-test("a draft that wrote nothing stays unaccepted instead of being reported rejected or acceptance_unknown", () => {
+test("a draft that wrote nothing settles as settled_no_write instead of unknown, rejected, or acceptance_unknown", () => {
   const store = { readCommandOutcome: () => null } as never,
     projection = { readCut: () => ({ watermark: 2 }) } as never,
     // The runtime archive draft for a dispatch whose documents are all already published.
@@ -236,7 +236,7 @@ test("a draft that wrote nothing stays unaccepted instead of being reported reje
     );
   assert.equal(receipt.outcome, "no_changes");
   assert.equal(receipt.code, "already_published");
-  assert.equal(receipt.status, "unknown");
+  assert.equal(receipt.status, "settled_no_write");
   assert.equal(receipt.acceptance, null);
   // The observed ledger revision stays the caller's anchor for a no-op.
   assert.equal(receipt.revision, 2);
@@ -247,4 +247,17 @@ test("a draft that wrote nothing stays unaccepted instead of being reported reje
     projection,
   );
   assert.equal(rejected.status, "rejected");
+  // An applied draft with no committed outcome is still an unestablished acceptance.
+  const unverified = attachReceiptAcceptance({ outcome: "applied", opId: "never-recorded" }, store, projection);
+  assert.equal(unverified.status, "unknown");
+  assert.equal(unverified.code, "acceptance_unknown");
+  // The vocabulary binds the new word to a determinate no-write outcome only.
+  assert.match(
+    validateReceiptAcceptance({ ...receipt, status: "unknown" }).join("\n"),
+    /no_changes requires accepted_durable, rejected, or settled_no_write/u,
+  );
+  assert.match(
+    validateReceiptAcceptance({ ...receipt, outcome: "pending" }).join("\n"),
+    /settled_no_write requires no_changes/u,
+  );
 });

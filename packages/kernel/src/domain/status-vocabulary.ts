@@ -83,7 +83,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "status",
     module: "packages/kernel/src/domain/receipt-acceptance.ts",
     anchor: "receiptAcceptanceStatuses",
-    words: ["accepted_durable", "rejected", "unknown"],
+    words: ["accepted_durable", "rejected", "settled_no_write", "unknown"],
   },
   {
     id: "receipt.facet",

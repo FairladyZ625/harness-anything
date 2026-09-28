@@ -812,6 +812,13 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     divergence: "entity-scoped",
   },
   {
+    word: "settled_no_write",
+    entity: "WriteReceipt",
+    field: "status",
+    meaning: "The command settled definitely without writing the ledger; there is no acceptance to query.",
+    divergence: "entity-scoped",
+  },
+  {
     word: "unknown",
     entity: "WriteReceipt",
     field: "status",
