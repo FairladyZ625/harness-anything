@@ -177,18 +177,19 @@ test("preload exposes only the approved API methods", () => {
   );
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", staleRepoId: "repo-b" }), /not allowed/u);
   assert.throws(() => assertPreloadPayload("getSystemStatus", { repoId: "repo-a" }), /not allowed/u);
-  // 41 explicit actions plus the complete declaration read are the 42 editing-facing facets:
+  // 42 explicit actions plus the complete declaration read are the 43 editing-facing facets:
   // task adjudication (owner triage/verdict) and the owner's review consent joined as named
-  // facets alongside complete.
+  // facets alongside complete; retireRelation answers an awaits ask in place
+  // (dec_DF67F23066BAFE444190A191B5, task_ec805e49).
   const editingFacets = [
     ...daemonGuiActionMethods.map(({ guiBridgeMethod }) => guiBridgeMethod),
     "readVerticalDeclaration",
   ];
-  assert.equal(editingFacets.length, 42);
+  assert.equal(editingFacets.length, 43);
   assert.equal(preloadAllowlist.includes("readVerticalDeclaration"), true);
   // entity.update / entity.archive / entity.delete plus vertical kind upsert / publish-schema / retire
   // are explicit GUI facets.
-  assert.equal(daemonGuiActionMethods.length, 41);
+  assert.equal(daemonGuiActionMethods.length, 42);
   assert.equal(
     daemonGuiActionMethods.some(({ method }) => method === "repo.entity.delete"),
     true,
@@ -205,6 +206,25 @@ test("preload exposes only the approved API methods", () => {
     assert.throws(() => assertPreloadPayload(method, { repoId: "repo-a", taskId: "task-a", patches: [] }), /invalid/u);
     assert.throws(() => assertPreloadPayload(method, { repoId: "repo-a", taskId: "" }), /invalid/u);
   }
+  // retireRelation 是答复 awaits 的 GUI 写通道(`ha relation unrelate` 同一动作):payload 闭集由
+  // daemon RPC 形状把守,多余字段(如改写 rationale)在 RPC 校验层就被拒。
+  assert.deepEqual(
+    validateDaemonRpcCall({
+      method: "repo.relation.unrelate",
+      params: { repo: { repoId: "repo-a" }, payload: { relationId: "rel_a", reason: "通过", expectedVersion: 3 } },
+    }),
+    [],
+  );
+  assert.notDeepEqual(
+    validateDaemonRpcCall({
+      method: "repo.relation.unrelate",
+      params: {
+        repo: { repoId: "repo-a" },
+        payload: { relationId: "rel_a", reason: "通过", expectedVersion: 3, rationale: "改写问题" },
+      },
+    }),
+    [],
+  );
   // completeTask 是收口销账的 GUI 写通道:payload 只镜像 fleet 契约的 task-complete
   // 载荷(taskId/executionId/consent),不加任何 GUI 侧业务判定。
   assert.equal(assertPreloadPayload("completeTask", { repoId: "repo-a", taskId: "task-a", consent: true }), true);

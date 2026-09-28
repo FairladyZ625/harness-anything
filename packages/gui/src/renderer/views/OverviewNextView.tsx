@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowBendDownLeft,
   ArrowsClockwise,
   ChatCircleDots,
   CheckCircle,
@@ -24,6 +25,8 @@ import { formatTime } from "../model/time.ts";
 import type { WorkSearchRow } from "../start-work-flow.ts";
 import { Card } from "../components/overview/parts.tsx";
 import { StartWorkDialog } from "../components/overview/StartWorkDialog.tsx";
+import { AwaitsAnswerPanel } from "../components/AwaitsAnswerPanel.tsx";
+import type { AwaitsPanelSubject } from "../awaits-answer.ts";
 import { WorkEntryBar } from "../components/overview/WorkEntryBar.tsx";
 import { seg } from "../components/overview/streamParts.tsx";
 import { useCadenceFeed } from "../cadence-feed.ts";
@@ -151,6 +154,7 @@ export function OverviewNextView({
         ].join(" ")}
       >
         <AttentionRegion
+          repoId={repoId}
           agenda={agenda}
           agendaError={agendaError}
           onNavigateEntity={onNavigateEntity}
@@ -253,6 +257,7 @@ function OverviewNextHeader({
 
 const ATTENTION_GROUP_LABEL: Record<AttentionGroup, () => string> = {
   awaitingYou: () => t("views.overviewNext.attentionGroup.awaitingYou"),
+  answeredForYou: () => t("views.overviewNext.attentionGroup.answeredForYou"),
   reviewReturned: () => t("views.overviewNext.attentionGroup.reviewReturned"),
   initialReview: () => t("views.overviewNext.attentionGroup.initialReview"),
   underReview: () => t("views.overviewNext.attentionGroup.underReview"),
@@ -261,25 +266,32 @@ const ATTENTION_GROUP_LABEL: Record<AttentionGroup, () => string> = {
 
 const ATTENTION_GROUP_ICON: Record<AttentionGroup, React.ReactNode> = {
   awaitingYou: <ChatCircleDots weight="bold" aria-hidden />,
+  answeredForYou: <ArrowBendDownLeft weight="bold" aria-hidden />,
   reviewReturned: <ArrowsClockwise weight="bold" aria-hidden />,
   initialReview: <SignIn weight="bold" aria-hidden />,
   underReview: <MagnifyingGlassPlus weight="bold" aria-hidden />,
   decision: <Scales weight="bold" aria-hidden />,
 };
 
-/** G2:需要你处理。点击行只进详情;不在主行放一键接受按钮(spec §2)。 */
+/**
+ * G2:需要你处理。不在主行放一键接受按钮(spec §2):等你答复 / 已答复行点开答复面板
+ * (这件事本身,不跳离总览),其余行进详情。
+ */
 function AttentionRegion({
+  repoId,
   agenda,
   agendaError,
   onNavigateEntity,
   onOpenPool,
 }: {
+  repoId: string;
   agenda: AgendaSuccess | undefined;
   agendaError: string | null;
   onNavigateEntity: (ref: string) => void;
   onOpenPool: () => void;
 }) {
-  const items = attentionItemsOf(agenda);
+  const items = attentionItemsOf(agenda),
+    [panel, setPanel] = useState<AwaitsPanelSubject | null>(null);
   return (
     <Card
       title={t("views.overviewNext.attentionTitle")}
@@ -312,7 +324,11 @@ function AttentionRegion({
                       {ATTENTION_GROUP_LABEL[group]()} {rows.length}
                     </p>
                     {rows.slice(0, ATTENTION_ROWS).map((item) => (
-                      <AttentionRow key={item.key} item={item} onNavigateEntity={onNavigateEntity} />
+                      <AttentionRow
+                        key={item.key}
+                        item={item}
+                        onOpen={() => (item.panel ? setPanel(item.panel) : onNavigateEntity(item.ref))}
+                      />
                     ))}
                     {rows.length > ATTENTION_ROWS ? (
                       <p className="pl-2 ui-micro text-text-faint">
@@ -333,15 +349,27 @@ function AttentionRegion({
           )}
         </div>
       )}
+      {panel ? (
+        <AwaitsAnswerPanel
+          repoId={repoId}
+          subject={panel}
+          onClose={() => setPanel(null)}
+          onNavigateEntity={(ref) => {
+            setPanel(null);
+            onNavigateEntity(ref);
+          }}
+        />
+      ) : null}
     </Card>
   );
 }
 
-function AttentionRow({ item, onNavigateEntity }: { item: AttentionItem; onNavigateEntity: (ref: string) => void }) {
+function AttentionRow({ item, onOpen }: { item: AttentionItem; onOpen: () => void }) {
   return (
     <button
       type="button"
-      onClick={() => onNavigateEntity(item.ref)}
+      onClick={onOpen}
+      data-testid={`overview-next-attention-row-${item.key}`}
       title={item.ref}
       className="flex w-full items-center gap-2 rounded-md border border-border bg-surface-raised px-2 py-1 text-left transition-colors duration-150 hover:border-accent/60"
     >

@@ -4,6 +4,7 @@ import type {
   AgendaTaskRow,
   AgendaExecutionRow,
   AgendaDecisionRow,
+  AgendaAnsweredRow,
   AgendaAwaitsRow,
   ContractVersion,
   FactAnchorRow,
@@ -92,6 +93,7 @@ export interface AgendaSuccess
     | "pinnedEntities"
     | "pinnedEntityOverflow"
     | "awaitingYou"
+    | "answeredForYou"
     | "inFlight"
     | "awaitingRework"
     | "awaitingAdjudication"
@@ -429,6 +431,12 @@ export const harnessClient = {
   async unpinTask(payload: RepoScope & { readonly taskId: string }): Promise<GuiActionResult> {
     return readGuiActionResult(await invoke("repo.task.unpin", payload, "unpinTask"));
   },
+  /** 答复 awaits 的唯一 GUI 写通道:与 `ha relation unrelate` 同一条 relation-unrelate 动作,答复即 retire 理由。 */
+  async retireRelation(
+    payload: RepoScope & { readonly relationId: string; readonly reason: string; readonly expectedVersion: number },
+  ): Promise<GuiActionResult> {
+    return readGuiActionResult(await invoke("repo.relation.unrelate", payload, "retireRelation"));
+  },
   /**
    * Gate 签发的唯一 GUI 写通道:正式 facet `repo.task.attest`(bridge `taskAttest`),
    * 与 `ha task attest` 同一条 task-attest 动作。payload 是闭形状,daemon 按
@@ -599,6 +607,8 @@ function readAgendaResult(value: unknown): AgendaSuccess {
     !result.inFlight.every(isAgendaTaskRow) ||
     !Array.isArray(result.awaitingYou) ||
     !result.awaitingYou.every(isAgendaAwaitsRow) ||
+    !Array.isArray(result.answeredForYou) ||
+    !result.answeredForYou.every(isAgendaAnsweredRow) ||
     !Array.isArray(result.awaitingRework) ||
     !result.awaitingRework.every(isAgendaTaskRow) ||
     !Array.isArray(result.awaitingAdjudication) ||
@@ -673,7 +683,24 @@ function isAgendaAwaitsRow(value: unknown): value is AgendaAwaitsRow {
     typeof value.personId === "string" &&
     ["question", "acceptance", "consent", "reopen"].includes(String(value.askKind)) &&
     typeof value.question === "string" &&
-    typeof value.askedAt === "string"
+    typeof value.askedAt === "string" &&
+    typeof value.askedBy === "string"
+  );
+}
+
+function isAgendaAnsweredRow(value: unknown): value is AgendaAnsweredRow {
+  return (
+    isRendererRecord(value) &&
+    typeof value.relationId === "string" &&
+    typeof value.sourceRef === "string" &&
+    typeof value.title === "string" &&
+    typeof value.status === "string" &&
+    typeof value.personId === "string" &&
+    ["question", "acceptance", "consent", "reopen"].includes(String(value.askKind)) &&
+    typeof value.question === "string" &&
+    typeof value.answer === "string" &&
+    typeof value.answeredAt === "string" &&
+    typeof value.answeredBy === "string"
   );
 }
 

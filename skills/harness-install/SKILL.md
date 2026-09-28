@@ -145,7 +145,7 @@ ha --root "<目标仓库绝对路径>" task start <任务标识>
 
 `decisionClass` 常用 `ordinary` 或 `standing_policy`；不编造替代方案。输入文件放在工作区允许的任务产物位置。遇到 `fromFile must stay inside the workspace` 时修正输入落点，不能把临时目录当成有效来源。
 
-原始观察先记录，再按当前 `ha relation` 契约将决策声明关联证据，选择关联派生任务。不要复制退役的 `decision relate` 命令。用户需要裁决时展示问题、选择、替代和证据后取得批准，由真实有权身份办理；不通过更换环境变量代替用户。一时答不了的问题、上手验收或同意请求，用 `ha relation relate --type awaits` 把任务或决策挂到该人名下（理由写 `<question|acceptance|consent|reopen>: <问的是什么>`），它会出现在对方的 `ha agenda`「等你处理」里。
+原始观察先记录，再按当前 `ha relation` 契约将决策声明关联证据，选择关联派生任务。不要复制退役的 `decision relate` 命令。用户需要裁决时展示问题、选择、替代和证据后取得批准，由真实有权身份办理；不通过更换环境变量代替用户。一时答不了的问题、上手验收或同意请求，用 `ha relation relate --type awaits` 把任务或决策挂到该人名下（理由写 `<question|acceptance|consent|reopen>: <问的是什么>`），它会出现在对方的 `ha agenda`「等你处理」和图形界面总览「等你答复」里；对方可在图形界面就地答复，或让 Agent 执行 `ha relation unrelate <relation-id> --reason "<答复>"`，答复后回到提问方的「已答复，待你跟进」。
 
 ### 提交、独立评审、同意和完成
 

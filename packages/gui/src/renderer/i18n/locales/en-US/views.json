@@ -1061,6 +1061,7 @@
   "views.overviewNext.attentionCatchingUp": "catching up with ledger cut (r{revision})",
   "views.overviewNext.attentionEmpty": "Nothing needs your attention; requests awaiting your answer, new submissions, review returns and pending decisions will appear here.",
   "views.overviewNext.attentionGroup.awaitingYou": "Awaiting your answer",
+  "views.overviewNext.attentionGroup.answeredForYou": "Answered, for your follow-up",
   "views.overviewNext.attentionGroup.reviewReturned": "Review returned",
   "views.overviewNext.attentionGroup.initialReview": "Initial review",
   "views.overviewNext.attentionGroup.underReview": "Under review",

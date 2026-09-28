@@ -148,6 +148,7 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.task.attest", { taskId: "task-a", gateId: "ci", result: "pass", mode: "override", rationale: "Upstream runner outage" }],
     ["repo.task.pin", { taskId: "task-a" }],
     ["repo.task.unpin", { taskId: "task-a" }],
+    ["repo.relation.unrelate", { relationId: "rel_a", reason: "通过", expectedVersion: 3 }],
     ["repo.decision.list", { state: "proposed", legacyRange: { start: 1, end: 4 }, limit: 25, cursor: "WyJkZWNfQSJd" }],
     ["repo.decision.show", { decisionId: "dec_A", includeBody: true }],
     ["repo.decision.propose", proposal],

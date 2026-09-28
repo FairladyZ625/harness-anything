@@ -48,6 +48,19 @@ test("agenda result schema rejects mistyped pin state and misgrouped awaiting ro
       askKind: "acceptance",
       question: "请亲自上手验收",
       askedAt: "2026-09-28T00:00:00.000Z",
+      askedBy: "codex-sol",
+    },
+    answered = {
+      relationId: "rel_fedcba9876543210",
+      sourceRef: "decision/dec-asked",
+      title: "Asked decision",
+      status: "proposed",
+      personId: "owner",
+      askKind: "consent",
+      question: "你同意吗?",
+      answer: "同意",
+      answeredAt: "2026-09-28T01:00:00.000Z",
+      answeredBy: "owner",
     },
     heldTask = {
       ...task,
@@ -84,6 +97,7 @@ test("agenda result schema rejects mistyped pin state and misgrouped awaiting ro
       pinnedEntities: [],
       pinnedEntityOverflow: 0,
       awaitingYou: [awaits],
+      answeredForYou: [answered],
       inFlight: [],
       awaitingRework: [],
       awaitingAdjudication: [execution],
@@ -129,6 +143,17 @@ test("agenda result schema rejects mistyped pin state and misgrouped awaiting ro
   assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingYou: [{ ...awaits, askKind: "ask" }] }), []);
   assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingYou: [{ ...awaits, sourceRef: "fact/F-1" }] }), []);
   assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingYou: [{ ...awaits, question: "" }] }), []);
+  const { askedBy: _omitAskedBy, ...withoutAskedBy } = awaits;
+  assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingYou: [withoutAskedBy] }), []);
+  // answeredForYou rows carry the answer text; an empty answer or a non-task/decision source is refused.
+  const { answeredForYou: _omitAnswered, ...withoutAnswered } = agenda;
+  assert.notDeepEqual(validateDaemonAgenda(withoutAnswered), []);
+  assert.notDeepEqual(validateDaemonAgenda({ ...agenda, answeredForYou: [{ ...answered, answer: "" }] }), []);
+  assert.notDeepEqual(
+    validateDaemonAgenda({ ...agenda, answeredForYou: [{ ...answered, sourceRef: "fact/F-1" }] }),
+    [],
+  );
+  assert.notDeepEqual(validateDaemonAgenda({ ...agenda, answeredForYou: [awaits] }), []);
   const [awaitsBlocker] = heldTask.blockingAssessment.blockers;
   for (const blocker of [
     { ...awaitsBlocker, targetTaskId: "task-x" },

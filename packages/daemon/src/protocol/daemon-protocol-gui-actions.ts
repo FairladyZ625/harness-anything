@@ -93,6 +93,16 @@ export const daemonGuiActionMethods = Object.freeze([
     "/api/tasks/:taskId/unpin",
     "repo-write",
   ),
+  // 答复 awaits 的 GUI 写通道:与 `ha relation unrelate` 同一条 daemon 动作,答复原文即 retire 理由。
+  guiAction(
+    "relation.unrelate",
+    "repo.relation.unrelate",
+    "relation-unrelate",
+    shape({ relationId: "string", reason: "string", expectedVersion: "number" }),
+    "retireRelation",
+    "/api/relations/:relationId/retire",
+    "repo-write",
+  ),
   guiAction(
     "decision.list",
     "repo.decision.list",

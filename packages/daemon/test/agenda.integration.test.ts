@@ -1015,6 +1015,118 @@ test("an awaits relation lists in the reader's agenda, holds its task, and retir
   });
 });
 
+test("an answered awaits lists for the source owner until the source is written again", async () => {
+  await withCell("agenda-answered", async (cell) => {
+    const added = await cell.run(
+      {
+        kind: "people-add",
+        personId: "person-agenda",
+        displayName: "Agenda Owner",
+        role: "administrator",
+        commandClass: ["admin"],
+        credentialKind: "email-address",
+        credentialIssuer: "example.invalid",
+        credentialSubject: "agenda@example.invalid",
+      },
+      binding,
+    );
+    assert.equal(added.outcome, "applied", JSON.stringify(added));
+    await waitForFixturePublication(cell, added.opId, binding);
+    const created = await cell.run({ kind: "task-create", taskId: "task_asked", title: "Asked task" }, binding);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, binding);
+    const proposed = (await cell.run(decisionProposal(), binding)) as Record<string, unknown>;
+    assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
+    const decisionId = String((JSON.parse(String(proposed.evidence)) as { decisionId: string }).decisionId),
+      ask = { kind: "relation-relate", targetRef: "person/person-agenda", relationType: "awaits", expectedVersion: 0 };
+    for (const [sourceRef, rationale] of [
+      ["task/task_asked", "reopen: 要不要重开?"],
+      [`decision/${decisionId}`, "consent: 你同意吗?"],
+    ] as const) {
+      const related = await cell.run({ ...ask, sourceRef, rationale }, binding);
+      assert.equal(related.outcome, "applied", JSON.stringify(related));
+    }
+    const asked = await cell.read("repo.agenda.read", { limit: 50 }, binding);
+    assert.deepEqual(asked.answeredForYou, [], "an unanswered ask is not a follow-up yet");
+    assert.deepEqual(
+      asked.awaitingYou.map(({ askedBy }) => askedBy),
+      ["codex-sol", "codex-sol"],
+    );
+    const answerer = { actor: { principal: { personId: "person-agenda" }, executor: null }, source: "local" as const };
+    for (const row of asked.awaitingYou) {
+      const answered = await cell.run(
+        {
+          kind: "relation-unrelate",
+          relationId: row.relationId,
+          reason: row.askKind === "reopen" ? "重开:入口按钮还是错的" : "同意",
+          expectedVersion: row.relationRevision,
+        },
+        answerer,
+      );
+      assert.equal(answered.outcome === "applied" || answered.outcome === "pending", true, JSON.stringify(answered));
+    }
+
+    const followUp = await cell.read("repo.agenda.read", { limit: 50 }, binding);
+    assert.deepEqual(followUp.awaitingYou, []);
+    assert.deepEqual(
+      followUp.answeredForYou
+        .map(({ sourceRef, status, personId, askKind, question, answer, answeredBy }) => ({
+          sourceRef,
+          status,
+          personId,
+          askKind,
+          question,
+          answer,
+          answeredBy,
+        }))
+        .sort((left, right) => left.sourceRef.localeCompare(right.sourceRef)),
+      [
+        {
+          sourceRef: `decision/${decisionId}`,
+          status: "proposed",
+          personId: "person-agenda",
+          askKind: "consent",
+          question: "你同意吗?",
+          answer: "同意",
+          answeredBy: "person-agenda",
+        },
+        {
+          sourceRef: "task/task_asked",
+          status: "planned",
+          personId: "person-agenda",
+          askKind: "reopen",
+          question: "要不要重开?",
+          answer: "重开:入口按钮还是错的",
+          answeredBy: "person-agenda",
+        },
+      ],
+    );
+    assert.match(followUp.summary, /已答复，待你跟进 \(2\)[\s\S]*ha task show task_asked/u);
+    // 只对提问方(源实体归属人)可见。
+    const other = await cell.read(
+      "repo.agenda.read",
+      { limit: 50 },
+      { actor: { principal: { personId: "person-other" }, executor: null }, source: "local" },
+    );
+    assert.deepEqual(other.answeredForYou, []);
+
+    // 退出条件:答复之后源实体上有任何写入(这里是改标题与延后裁决)即出列。
+    const amended = await cell.run(
+      { kind: "task-amend", taskId: "task_asked", patches: [{ field: "title", value: "Asked task, reopened" }] },
+      binding,
+    );
+    assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+    const afterTask = await cell.read("repo.agenda.read", { limit: 50 }, binding);
+    assert.deepEqual(
+      afterTask.answeredForYou.map(({ sourceRef }) => sourceRef),
+      [`decision/${decisionId}`],
+    );
+    const deferred = await cell.run({ kind: "decision-defer", decisionId, reason: "按答复再等一轮" }, answerer);
+    assert.equal(deferred.outcome === "applied" || deferred.outcome === "pending", true, JSON.stringify(deferred));
+    assert.deepEqual((await cell.read("repo.agenda.read", { limit: 50 }, binding)).answeredForYou, []);
+  });
+});
+
 async function withCell(
   name: string,
   run: (cell: Awaited<ReturnType<typeof openRepoCell>>, rootDir: string) => Promise<void>,

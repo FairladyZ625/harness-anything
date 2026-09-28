@@ -98,6 +98,7 @@ export const DAEMON_AGENDA_SCHEMA = Object.freeze({
     "pinnedEntities",
     "pinnedEntityOverflow",
     "awaitingYou",
+    "answeredForYou",
     "inFlight",
     "awaitingRework",
     "awaitingAdjudication",

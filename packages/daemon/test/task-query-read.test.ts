@@ -449,6 +449,7 @@ test("agenda lists awaits addressed to the reader first and moves the held task 
       awaitsEdge("rel_ask_owner", "task/task_held", "owner", "acceptance: 请亲自上手验收总览页"),
       awaitsEdge("rel_ask_other", "task/task_other", "someone_else", "question: 另一个人的问题"),
       { ...awaitsEdge("rel_answered", "task/task_free", "owner", "consent: 已答复"), state: "retired" as const },
+      { ...awaitsEdge("rel_followed", "task/task_moved", "owner", "question: 已跟进"), state: "retired" as const },
     ],
     planned = (taskId: string) => protocolTaskRow(taskId),
     readModel = (principalId?: string) =>
@@ -456,7 +457,7 @@ test("agenda lists awaits addressed to the reader first and moves the held task 
         rootDir: canonicalRoot(process.cwd()),
         projection: projectionStub({
           edges,
-          taskRows: [planned("task_held"), planned("task_other"), planned("task_free")],
+          taskRows: [planned("task_held"), planned("task_other"), planned("task_free"), planned("task_moved")],
         }),
         readPinnedEntities: () => [],
         judgments: {
@@ -464,7 +465,7 @@ test("agenda lists awaits addressed to the reader first and moves the held task 
           // 状态读桩为空,这里直接给出三条 planned 任务,让真实 kernel 判定消费 awaits 边。
           blocking: (_tasks, relations, state) =>
             blockingOf(
-              ["task_held", "task_other", "task_free"].map((taskId) => ({ taskId, status: "planned" })),
+              ["task_held", "task_other", "task_free", "task_moved"].map((taskId) => ({ taskId, status: "planned" })),
               relations,
               state,
             ),
@@ -484,12 +485,35 @@ test("agenda lists awaits addressed to the reader first and moves the held task 
       askKind: "acceptance",
       question: "请亲自上手验收总览页",
       askedAt: "2026-09-28T00:00:00.000Z",
+      askedBy: "codex-sol",
     },
   ]);
+  // 已答复的边只对源实体归属人(task 创建者 person-owner)列出;答复后源已写过的(task_moved)出列。
+  assert.deepEqual(result.answeredForYou, []);
+  const owner = readModel("person-owner");
+  assert.deepEqual(owner.answeredForYou, [
+    {
+      relationId: "rel_answered",
+      sourceRef: "task/task_free",
+      title: "task_free",
+      status: "planned",
+      personId: "owner",
+      askKind: "consent",
+      question: "已答复",
+      answer: "同意",
+      answeredAt: "2026-09-28T01:00:00.000Z",
+      answeredBy: "codex-sol",
+    },
+  ]);
+  assert.match(
+    owner.summary,
+    /已答复，待你跟进 \(1\)[\s\S]*答（codex-sol @ [^）]+）: 同意\n {2}下一步: ha task show task_free/u,
+  );
+  assert.deepEqual(validateDaemonAgenda(owner), []);
   // 被 active awaits 挂住的任务(不论等谁)离开可派队列,进「球在别人手里」并带上原因。
   assert.deepEqual(
     result.dispatchable.map(({ taskId }) => taskId),
-    ["task_free"],
+    ["task_free", "task_moved"],
   );
   assert.deepEqual(
     result.waitingOnOthers.map(({ taskId }) => taskId),
@@ -507,7 +531,7 @@ test("agenda lists awaits addressed to the reader first and moves the held task 
   assert.deepEqual(anonymous.awaitingYou, []);
   assert.deepEqual(
     anonymous.dispatchable.map(({ taskId }) => taskId),
-    ["task_free"],
+    ["task_free", "task_moved"],
   );
 });
 
@@ -766,8 +790,25 @@ function projectionStub(
     }),
     readRelationEdge: (relationId: string) => {
       const edge = edges.find((candidate) => candidate.relationId === relationId);
-      return edge ? { ...edge, workspaceRevision: 5, entity: { createdAt: "2026-09-28T00:00:00.000Z" } } : null;
+      return edge
+        ? {
+            ...edge,
+            workspaceRevision: 5,
+            entity: {
+              createdAt: "2026-09-28T00:00:00.000Z",
+              updatedAt: "2026-09-28T01:00:00.000Z",
+              provenance: { actor: { principal: { personId: "owner" }, executor: { kind: "agent", id: "codex-sol" } } },
+              ...(edge.state === "retired" ? { retirementReason: "同意" } : {}),
+            },
+          }
+        : null;
     },
+    // 源实体的版本:task_free 在答复(revision 5)之后被写过,其余停在答复所在 revision。
+    readEntityVersionWitness: (entityRef: string) => ({
+      entityRef,
+      freshness: "current",
+      currentVersion: entityRef === "task/task_moved" ? 6 : 5,
+    }),
     readTaskChildCounts: () => options.childCounts ?? {},
     readTaskRelations: () => ({ ...cut, rows: edges }),
     readTaskRelationNeighborhood: () => ({ ...cut, rows: edges }),

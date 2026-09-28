@@ -23,6 +23,7 @@ import type { RelationEdge, TaskRow } from "../model/types.ts";
 import { isExternal } from "../model/types.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
 import { t } from "../i18n/index.tsx";
+import { AwaitsAskStrip } from "../components/AwaitsAskStrip.tsx";
 
 // 密度重做(task_9f39e256):tab 文案走 locales,
 // 定义只留 id/icon,label 渲染期取。
@@ -38,6 +39,7 @@ const tabs = [
 type TaskDetailTab = (typeof tabs)[number]["id"];
 
 export function TaskDetailView({
+  repoId,
   task,
   onBack,
   tasks,
@@ -59,6 +61,8 @@ export function TaskDetailView({
   onSetPin,
   onFocusGraph,
 }: {
+  /** 当前仓;给出时详情头下列出挂在本任务上、等你答复 / 已答复的 awaits(同一答复面板)。 */
+  repoId?: string;
   task: TaskRow;
   onBack: () => void;
   tasks?: readonly TaskRow[];
@@ -329,6 +333,9 @@ export function TaskDetailView({
           </nav>
         </div>
       </header>
+      {repoId ? (
+        <AwaitsAskStrip repoId={repoId} sourceRef={`task/${task.taskId}`} onNavigateEntity={onNavigateEntity} />
+      ) : null}
 
       {/* 宽屏自适应:main 是容器量尺(内容盒宽 = 卡片宽),卡片铺满可用宽度。
           断带:容器 <1100px 单栏叠放(文件树横排在上,量高 18rem 内滚,不挤死正文);

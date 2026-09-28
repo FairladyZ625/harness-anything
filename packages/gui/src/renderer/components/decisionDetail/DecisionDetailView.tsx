@@ -17,6 +17,7 @@ import { t } from "../../i18n/index.tsx";
 import { DecisionBodyPanel } from "./DecisionBodyPanel.tsx";
 import { ClaimsPanel, OverviewPanel, RelationsPanel } from "./DecisionDetailSections.tsx";
 import { ActorRef, actorsLabel, IdentityItem } from "./widgets.tsx";
+import { AwaitsAskStrip } from "../AwaitsAskStrip.tsx";
 
 /**
  * 决策详情页(与 Task 详情同级的信息架构:身份条 + 分页签)。
@@ -219,6 +220,11 @@ export function DecisionDetailView({
           </dl>
         </details>
       </header>
+      <AwaitsAskStrip
+        repoId={repoId}
+        sourceRef={`decision/${decision.decisionId}`}
+        onNavigateEntity={onNavigateEntity}
+      />
 
       <nav
         role="tablist"

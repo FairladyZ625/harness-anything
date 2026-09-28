@@ -4,6 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act } from "react";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { OverviewNextView } from "../src/renderer/views/OverviewNextView.tsx";
 import { NAV_GROUPS, navLabel } from "../src/renderer/navigation/navConfig.tsx";
 import { harnessClient, type AgendaSuccess } from "../src/renderer/api-client.ts";
@@ -112,6 +113,7 @@ function agendaFixture(patch: Partial<AgendaSuccess> = {}): AgendaSuccess {
     pinnedEntities: [],
     pinnedEntityOverflow: 0,
     awaitingYou: [],
+    answeredForYou: [],
     inFlight: [],
     awaitingAdjudication: [
       {
@@ -272,32 +274,36 @@ async function mountOverviewNext(options: {
   mounted.push({ root, container });
   await act(async () => {
     root.render(
-      createElement(OverviewNextView, {
-        repoId: REPO_ID,
-        project: PROJECT,
-        tasks: options.tasks ?? TASKS,
-        agenda: options.agenda,
-        agendaError: options.agendaError ?? null,
-        activeSessions: options.sessions ?? [],
-        runtimeError: options.runtimeError ?? null,
-        health: HEALTH,
-        daemonReadFailed: false,
-        ledgerRevision: { watermark: 12, sourceRevision: 3 },
-        // G1 的入口面(S5)由 overview-next-work-entry.vitest.tsx 判;这里只把它接上,
-        // G2–G5 的断言一条不动。
-        searchRows: [],
-        catalog: undefined,
-        catalogError: null,
-        onNavigateEntity: navigateEntity,
-        onOpenGroup: openGroup,
-        onSelectRuntimeEntity: selectRuntimeEntity,
-        onOpenPool: () => undefined,
-        onOpenSessions: () => undefined,
-        onSwitchRepo: () => undefined,
-        onSearchActiveChange: () => undefined,
-        onRefreshLedger: () => undefined,
-        onOpenTask: () => undefined,
-      }),
+      createElement(
+        QueryClientProvider,
+        { client: new QueryClient() },
+        createElement(OverviewNextView, {
+          repoId: REPO_ID,
+          project: PROJECT,
+          tasks: options.tasks ?? TASKS,
+          agenda: options.agenda,
+          agendaError: options.agendaError ?? null,
+          activeSessions: options.sessions ?? [],
+          runtimeError: options.runtimeError ?? null,
+          health: HEALTH,
+          daemonReadFailed: false,
+          ledgerRevision: { watermark: 12, sourceRevision: 3 },
+          // G1 的入口面(S5)由 overview-next-work-entry.vitest.tsx 判;这里只把它接上,
+          // G2–G5 的断言一条不动。
+          searchRows: [],
+          catalog: undefined,
+          catalogError: null,
+          onNavigateEntity: navigateEntity,
+          onOpenGroup: openGroup,
+          onSelectRuntimeEntity: selectRuntimeEntity,
+          onOpenPool: () => undefined,
+          onOpenSessions: () => undefined,
+          onSwitchRepo: () => undefined,
+          onSearchActiveChange: () => undefined,
+          onRefreshLedger: () => undefined,
+          onOpenTask: () => undefined,
+        }),
+      ),
     );
   });
   return { container, navigateEntity, openGroup, selectRuntimeEntity, queue };
@@ -384,6 +390,7 @@ describe("overview next: attention region (G2)", () => {
     const empty = await mountOverviewNext({
       agenda: agendaFixture({
         awaitingYou: [],
+        answeredForYou: [],
         awaitingRework: [],
         awaitingAdjudication: [],
         underReview: [],
@@ -439,6 +446,7 @@ describe("overview next: attention region (G2)", () => {
         askKind: "question",
         question: "要不要切到新的读面?",
         askedAt: "2026-09-20T11:00:00.000Z",
+        askedBy: "codex-sol",
       },
       {
         relationId: "rel_dec_ask",
@@ -450,6 +458,7 @@ describe("overview next: attention region (G2)", () => {
         askKind: "consent",
         question: "同意按 CH2 收口吗?",
         askedAt: "2026-09-20T11:00:00.000Z",
+        askedBy: "codex-sol",
       },
     ];
     const items = attentionItemsOf(agendaFixture({ awaitingYou }))!;
@@ -474,10 +483,60 @@ describe("overview next: attention region (G2)", () => {
     expect(rows).toContain("等你答复");
     expect(rows.indexOf("等你答复")).toBeLessThan(rows.indexOf("评审返回"));
     expect(rows).toContain("要不要切到新的读面?");
+    // 点开的是这件事本身(答复面板),不跳离总览;来源链接在面板里。
     clickRow(view.container, "overview-next-attention-rows", "等你答复的任务");
+    expect(view.navigateEntity).not.toHaveBeenCalled();
+    expect(textOf(view.container, "awaits-answer-kind")).toBe("提问");
+    expect(textOf(view.container, "awaits-answer-question")).toBe("要不要切到新的读面?");
+    expect(textOf(view.container, "awaits-answer-panel")).toContain("提问方:codex-sol");
+    clickRow(view.container, "awaits-answer-panel", "task/task_asking");
     expect(view.navigateEntity).toHaveBeenCalledWith("task/task_asking");
+    expect(view.container.querySelector('[data-testid="awaits-answer-panel"]')).toBeNull();
     clickRow(view.container, "overview-next-attention-rows", "等你同意的决策");
-    expect(view.navigateEntity).toHaveBeenCalledWith("decision/dec_asking");
+    expect(textOf(view.container, "awaits-answer-kind")).toBe("请你同意");
+    expect(view.container.querySelector('[data-testid="awaits-answer-choice-agree"]')).not.toBeNull();
+  });
+
+  it("lists answered asks for the asker's follow-up and opens them read-only", async () => {
+    const answeredForYou: AgendaSuccess["answeredForYou"] = [
+      {
+        relationId: "rel_answered",
+        sourceRef: "task/task_asked",
+        title: "已被答复的任务",
+        status: "completed",
+        personId: "person_owner",
+        askKind: "reopen",
+        question: "要不要重开?",
+        answer: "重开:入口还是错的",
+        answeredAt: "2026-09-20T11:30:00.000Z",
+        answeredBy: "person_owner",
+      },
+    ];
+    const [item] = attentionItemsOf(
+      agendaFixture({
+        answeredForYou,
+        awaitingRework: [],
+        awaitingAdjudication: [],
+        underReview: [],
+        awaitingDecision: [],
+      }),
+    )!;
+    expect(item).toMatchObject({
+      key: "answered/rel_answered",
+      group: "answeredForYou",
+      ref: "task/task_asked",
+      queuedAt: "2026-09-20T11:30:00.000Z",
+      meta: "reopen: 重开:入口还是错的",
+      blocking: false,
+    });
+    const view = await mountOverviewNext({ agenda: agendaFixture({ answeredForYou }) });
+    const rows = textOf(view.container, "overview-next-attention-rows");
+    expect(rows).toContain("已答复,待你跟进");
+    clickRow(view.container, "overview-next-attention-rows", "已被答复的任务");
+    expect(textOf(view.container, "awaits-answer-kind")).toBe("要不要重开");
+    expect(textOf(view.container, "awaits-answer-answer")).toBe("重开:入口还是错的");
+    // 只读:没有答复控件。
+    expect(view.container.querySelector('[data-testid="awaits-answer-submit"]')).toBeNull();
   });
 });
 
