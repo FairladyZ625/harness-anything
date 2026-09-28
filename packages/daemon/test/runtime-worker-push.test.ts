@@ -170,6 +170,8 @@ test("worker push leaves a checkout on any branch but the dispatched task's own"
   context.after(() => rmSync(root, { recursive: true, force: true }));
   git(root, "init", "-q", "project");
   const canonical = path.join(root, "project");
+  git(canonical, "config", "user.email", "push-test@example.invalid");
+  git(canonical, "config", "user.name", "Push Test");
   git(canonical, "commit", "--allow-empty", "--quiet", "-m", "fixture");
   git(canonical, "worktree", "add", "--quiet", worker, "-b", "codex/retired-name");
   assert.deepEqual(await pushWorkerBranch({ cwd: worker, canonicalRoot: canonical, taskId: "task_other" }), {

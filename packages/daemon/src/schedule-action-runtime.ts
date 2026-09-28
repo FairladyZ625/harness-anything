@@ -145,7 +145,7 @@ async function dispatchClaimedReceipt(
   if (active.dispatchId && active.runtimeSessionId) return claimed;
   let workspace: ScheduleOccurrenceWorkspace;
   try {
-    workspace = await prepareScheduleOccurrenceWorkspace(cell.rootDir, schedule, readWorktreeSetup());
+    workspace = await prepareScheduleOccurrenceWorkspace(cell.rootDir, schedule, readWorktreeSetup);
   } catch (error) {
     const settled = await runInternal(
       {

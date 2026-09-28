@@ -91,7 +91,8 @@ export function reclaimDetail(label: string, worktree: ManagedWorktree, result: 
 export async function prepareScheduleOccurrenceWorkspace(
   rootDir: string,
   schedule: ScheduleV1,
-  setup: readonly string[],
+  /** Read only when a worktree is made: a detect occurrence runs in the root and prepares nothing. */
+  readSetup: () => readonly string[],
 ): Promise<ScheduleOccurrenceWorkspace> {
   const active = schedule.status.activeRun;
   if (!active) throw new Error(`Schedule ${schedule.scheduleId} has no claimed occurrence workspace.`);
@@ -108,7 +109,7 @@ export async function prepareScheduleOccurrenceWorkspace(
     baseRef = await repositoryBaseRef(rootDir);
   if (!baseRef) throw new Error(`Repository ${rootDir} has no default branch to cut the occurrence worktree from.`);
   await addManagedWorktree(rootDir, { cwd, branch, baseRef });
-  const prepared = await runWorktreeSetup({ rootDir, cwd, taskId: null, steps: setup });
+  const prepared = await runWorktreeSetup({ rootDir, cwd, taskId: null, steps: readSetup() });
   if (!prepared.ok) throw new Error(worktreeSetupFailure(cwd, prepared, "let the next occurrence run"));
   return { rootDir, cwd, runtime: { ...base, worktree: { cwd, branch, baseRef } } };
 }

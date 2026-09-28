@@ -28,7 +28,10 @@ import { nodeModulesSetupAdapter } from "../src/worktree-setup-node-modules.ts";
 test("detect occurrences use the canonical root without creating a worktree", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-schedule-detect-"));
   try {
-    const workspace = await prepareScheduleOccurrenceWorkspace(root, schedule("detect", "occurrence-detect"), []);
+    // A detect occurrence makes no worktree, so it never reads the setup (an unbootstrapped repository has none).
+    const workspace = await prepareScheduleOccurrenceWorkspace(root, schedule("detect", "occurrence-detect"), () => {
+      throw new Error("detect read the worktree setup");
+    });
     assert.equal(workspace.cwd, root);
     assert.equal(workspace.runtime.worktree, undefined);
   } finally {
@@ -133,7 +136,7 @@ test("remediate occurrences start from the default branch and clean empty worktr
     const workspace = await prepareScheduleOccurrenceWorkspace(
       fixture.root,
       schedule("remediate", "occurrence-clean"),
-      [],
+      () => [],
     );
     assert.equal(workspace.runtime.worktree?.baseRef, "origin/main");
     assert.equal(git(workspace.cwd, "rev-parse", "HEAD"), git(fixture.root, "rev-parse", "origin/main"));
@@ -151,7 +154,7 @@ test("remediate occurrences retain a dirty worktree and name its path", async ()
     const workspace = await prepareScheduleOccurrenceWorkspace(
       fixture.root,
       schedule("remediate", "occurrence-dirty"),
-      [],
+      () => [],
     );
     writeFileSync(path.join(workspace.cwd, "result.txt"), "dirty");
     const detail = (await settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime)).detail;
@@ -168,7 +171,7 @@ test("remediate occurrences keep unmerged commits at an archive tag before remov
     const workspace = await prepareScheduleOccurrenceWorkspace(
       fixture.root,
       schedule("remediate", "occurrence-commit"),
-      [],
+      () => [],
     );
     writeFileSync(path.join(workspace.cwd, "result.txt"), "commit");
     git(workspace.cwd, "add", "result.txt");
@@ -191,9 +194,11 @@ test("the node-modules setup resolves workspace packages in the worktree and sha
   const fixture = repositoryFixture();
   try {
     const store = storeFixture(fixture.root),
-      workspace = await prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", "occurrence-deps"), [
-        "node-modules",
-      ]),
+      workspace = await prepareScheduleOccurrenceWorkspace(
+        fixture.root,
+        schedule("remediate", "occurrence-deps"),
+        () => ["node-modules"],
+      ),
       resolve = createRequire(path.join(workspace.cwd, "index.js")).resolve;
     assert.equal(resolve("@fixture/pkg"), path.join(realpathSync(workspace.cwd), "packages", "pkg", "index.js"));
     assert.equal(resolve("sentinel-pkg"), path.join(realpathSync(store), "sentinel-pkg", "index.js"));
@@ -212,9 +217,11 @@ test("the mirrored store is removed at reclaim even where node_modules is not ig
   const fixture = repositoryFixture({ ignoreNodeModules: false });
   try {
     const store = storeFixture(fixture.root),
-      workspace = await prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", "occurrence-bare"), [
-        "node-modules",
-      ]);
+      workspace = await prepareScheduleOccurrenceWorkspace(
+        fixture.root,
+        schedule("remediate", "occurrence-bare"),
+        () => ["node-modules"],
+      );
     assert.equal(git(workspace.cwd, "status", "--porcelain"), "?? node_modules/");
     assert.equal((await settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime)).detail, null);
     assert.equal(existsSync(workspace.cwd), false);
@@ -231,7 +238,7 @@ test("a repository that declares no setup gets a bare worktree, even with a root
     const workspace = await prepareScheduleOccurrenceWorkspace(
       fixture.root,
       schedule("remediate", "occurrence-nodeps"),
-      [],
+      () => [],
     );
     assert.equal(existsSync(path.join(workspace.cwd, "node_modules")), false);
     assert.equal((await settleScheduleOccurrenceWorkspace(fixture.root, workspace.runtime)).detail, null);
@@ -244,7 +251,9 @@ test("a failing setup step fails the occurrence workspace and names the step and
   const fixture = repositoryFixture();
   try {
     await assert.rejects(
-      prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", "occurrence-failed"), ["run: exit 3"]),
+      prepareScheduleOccurrenceWorkspace(fixture.root, schedule("remediate", "occurrence-failed"), () => [
+        "run: exit 3",
+      ]),
       /setup step 1 \(run: exit 3\) failed: exit code 3\. Log: .*harness-setup\/step-1\.log\./u,
     );
   } finally {

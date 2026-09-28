@@ -351,12 +351,7 @@ export function bootstrapRepo(
 function npmWorkspaces(rootDir: string): boolean {
   const manifest = path.join(rootDir, "package.json");
   if (!existsSync(manifest)) return false;
-  try {
-    return (JSON.parse(readFileSync(manifest, "utf8")) as { workspaces?: unknown }).workspaces !== undefined;
-  } catch (error) {
-    consumeKnownError(error);
-    return false;
-  }
+  return (JSON.parse(readFileSync(manifest, "utf8")) as { workspaces?: unknown }).workspaces !== undefined;
 }
 
 /** The receipt names the setup init wrote and how to change it. */

@@ -315,7 +315,7 @@ export function makeTaskQueryReadModel(input: {
           capabilities: taskCapabilities(boardRow),
           phase: taskPhase(boardRow),
           risk: taskRisk(boardRow),
-          workspace: taskWorkspaceView(rootDir, row.snapshot.task, row.packagePath, readPresetSnapshot, null),
+          workspace: taskWorkspaceView(rootDir, row.snapshot.task, row.packagePath, readPresetSnapshot, authoredRoot),
         };
       }),
       ...cut,

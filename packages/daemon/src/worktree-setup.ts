@@ -1,6 +1,5 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError } from "@harness-anything/kernel";
 import { posixShellFallback, runProcessExitAsync, runProcessTextAsync } from "./process-port.ts";
 import { nodeModulesSetupAdapter } from "./worktree-setup-node-modules.ts";
 
@@ -103,7 +102,7 @@ async function runStep(input: WorktreeSetupInput, step: string, log: string): Pr
     await adapter.prepare(input);
     return null;
   } catch (error) {
-    consumeKnownError(error);
+    // The failure is the step's result: the caller refuses the start and names this step and its log.
     const detail = error instanceof Error ? error.message : String(error);
     appendFileSync(log, `${detail}\n`);
     return detail;

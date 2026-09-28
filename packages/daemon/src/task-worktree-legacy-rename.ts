@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { consumeKnownError, type TaskV2 } from "@harness-anything/kernel";
+import type { TaskV2 } from "@harness-anything/kernel";
 import { readDispatchStream, readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { runProcessText } from "./process-port.ts";
+import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import { taskWorktreeBinding, type PresetSnapshotRead } from "./task-worktree.ts";
 
 // dec_8B3FCCD256CAC5B0BF3CCEDE58 CH1: task worktrees checked out before the rename carry the old name, directory
@@ -60,19 +61,9 @@ function liveDispatchIn(rootDir: string, worktree: string): boolean {
     const relative = path.relative(worktree, header.cwd);
     if (relative.startsWith("..") || path.isAbsolute(relative)) continue;
     const worker = readDispatchStream(rootDir, header.dispatchId)?.process;
-    if (worker && !worker.exited && alive(worker.pid)) return true;
+    if (worker && !worker.exited && runtimePidIsAlive(worker.pid)) return true;
   }
   return false;
-}
-
-function alive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    consumeKnownError(error);
-    return false;
-  }
 }
 
 function git(cwd: string, ...args: string[]): string {

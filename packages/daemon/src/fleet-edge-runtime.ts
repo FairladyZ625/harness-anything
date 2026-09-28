@@ -473,7 +473,9 @@ export function openFleetEdgeRuntime(input: {
       workspace: await prepareScheduleOccurrenceWorkspace(
         request.workspaceRoot,
         scheduleValueV1,
-        readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8")).worktree.setup,
+        () =>
+          readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8")).worktree
+            .setup,
       ),
       idempotencyKey: operationKey,
       now,
