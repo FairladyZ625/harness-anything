@@ -12,10 +12,16 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { prepareTaskStartWorktree } from "./task-worktree.ts";
 import { acceptedGateWitness, gateWaived, witnessAdapters, witnessCollections } from "./repo-cell-witness-adapters.ts";
 
-type QueuedPublication = (
+type QueuedPublication = ((
   action: RepoTaskAction,
   binding: RepoCellBinding,
-) => WriteReceiptDraft | Promise<WriteReceiptDraft>;
+) => WriteReceiptDraft | Promise<WriteReceiptDraft>) & {
+  /**
+   * Appends what was read as its own durable writes before the action executes, so the action's
+   * receipt never claims them: a rejected action stays rejected even though its reads were recorded.
+   */
+  readonly ingest?: (binding: RepoCellBinding) => void;
+};
 
 // A URL artifact source, GitHub, or a task worktree's setup install can stall without bound, and every
 // other write to the repository would wait behind it in the write queue. These finish first; only the
@@ -94,16 +100,23 @@ export function readBeforeWriteQueue(
           );
           return [requirement.gateId, { adapter, collected }] as const;
         }),
-      ).then((entries) => async (action, binding) => {
-        for (const [, { adapter, collected }] of entries) adapter.ingest?.(context.extracted, binding, collected);
-        return context.executeAction(
+      ).then((entries) =>
+        Object.assign(
+          (action: RepoTaskAction, binding: RepoCellBinding) =>
+            context.executeAction(
+              {
+                ...action,
+                [witnessCollections]: new Map(entries.map(([gateId, { collected }]) => [gateId, collected])),
+              },
+              binding,
+            ),
           {
-            ...action,
-            [witnessCollections]: new Map(entries.map(([gateId, { collected }]) => [gateId, collected])),
+            ingest: (binding: RepoCellBinding) => {
+              for (const [, { adapter, collected }] of entries) adapter.ingest?.(context.extracted, binding, collected);
+            },
           },
-          binding,
-        );
-      });
+        ),
+      );
   }
   return null;
 }
