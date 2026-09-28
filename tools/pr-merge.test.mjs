@@ -23,7 +23,8 @@ function run(command, args, { cwd, env, allowFailure = false } = {}) {
 }
 
 function git(cwd, ...args) {
-  return run("git", args, { cwd }).stdout.trim();
+  // The task-bound git wrapper on a worker's PATH refuses the fixture's pushes to main.
+  return run("git", args, { cwd, env: { ...process.env, HARNESS_TASK_BOUND: "" } }).stdout.trim();
 }
 
 function makeFakeGh(root) {
