@@ -46,7 +46,9 @@ export async function executeAction(
   );
 }
 
-export function taskWorktreeInput(cell: RepoCellOperationalContext): TaskWorktreeLifecycleInput {
+export function taskWorktreeInput(
+  cell: Pick<RepoCellOperationalContext, "rootDir" | "projection" | "settings">,
+): TaskWorktreeLifecycleInput {
   return {
     rootDir: cell.rootDir,
     readTask: (taskId) => cell.projection.read(taskId).snapshot.task,

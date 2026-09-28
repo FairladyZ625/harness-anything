@@ -25,7 +25,7 @@ export function readBeforeWriteQueue(
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): Promise<QueuedPublication> | null {
-  const started = prepareTaskStartWorktree(taskWorktreeInput(context.extracted), action, binding.source);
+  const started = prepareTaskStartWorktree(taskWorktreeInput(context), action, binding.source);
   if (started)
     return started.then(
       (annotate) => async (action, binding) => annotate(await context.executeAction(action, binding)),
