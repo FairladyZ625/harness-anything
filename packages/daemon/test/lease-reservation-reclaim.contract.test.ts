@@ -180,12 +180,13 @@ test("a stale RuntimeSession terminal cannot release a newer execution lease", (
   );
 });
 
-test("the task owner reclaims a held lease after its bound dispatch reaches a terminal attempt", () => {
+test("the task owner reclaims a held lease after the actual holder reaches a terminal attempt across execution drift", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-terminal-lease-reclaim-")),
+    runtimeSessionId = "runtime-terminal-owner-reclaim",
     taskOwner = owner("task-owner"),
     worker = {
       principal: { personId: "person-worker" },
-      executor: { kind: "agent" as const, id: "departed-worker" },
+      executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
     },
     heldLease = { ...lease, actor: worker },
     ownedTask = { ...task, createdBy: taskOwner },
@@ -202,7 +203,6 @@ test("the task owner reclaims a held lease after its bound dispatch reaches a te
       closedAt: null,
       submission: null,
     },
-    runtimeSessionId = "runtime-terminal-owner-reclaim",
     runtimeSession = {
       runtimeSessionId,
       instanceId: "codex-test",
@@ -217,7 +217,7 @@ test("the task owner reclaims a held lease after its bound dispatch reaches a te
       taskBindings: [
         {
           taskId: heldLease.taskId,
-          executionId: heldLease.executionId,
+          executionId: "exec-original-dispatch",
           providerSessionId: "provider-test",
           transcriptRef: "file:transcript.jsonl",
           boundAt: now,
@@ -251,7 +251,7 @@ test("the task owner reclaims a held lease after its bound dispatch reaches a te
     openDispatchStream(rootDir, {
       dispatchId: "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
       taskId: heldLease.taskId,
-      executionId: heldLease.executionId,
+      executionId: "exec-original-dispatch",
       runtimeSessionId,
       instanceId: "codex-test",
       startedAt: now,
@@ -275,6 +275,24 @@ test("the task owner reclaims a held lease after its bound dispatch reaches a te
     );
     assert.equal(mutation.type, "lease_released");
     assert.equal(mutation.releasedLease, heldLease);
+    assert.throws(
+      () =>
+        taskMutation(
+          terminalCell,
+          { kind: "task-release", taskId: task.taskId },
+          ownedTask,
+          {
+            ...terminalSnapshot,
+            lease: {
+              ...heldLease,
+              actor: { ...worker, executor: { kind: "agent", id: "runtime-session:another-holder" } },
+            },
+          },
+          taskOwnerBinding,
+        ),
+      (error: unknown) => error instanceof Error && "code" in error && error.code === "lease_conflict",
+      "an old terminal dispatch cannot prove the new holder is dead",
+    );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

@@ -6,7 +6,6 @@ import {
   currentSubmittedExecutions,
   isSameExecution,
   isSamePerson,
-  resolveTaskBoundRuntimeBinding,
   runtimeDefinitionSnapshotArtifact,
   runtimeSessionIdFromActor,
   type AuthorizationDecision,
@@ -148,7 +147,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     inheritedFallback?: RuntimeFallbackAttempt,
     trustedSchedule?: TrustedScheduleRuntime,
     handoffFromRuntimeSessionId?: string,
-    retainCoordinatorTaskLease = false,
     publicationOwner: ActiveRuntime["publicationOwner"] = "runtime",
   ): Promise<JsonObject> => {
     const allowed = [
@@ -269,15 +267,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       trustedHandoffSource = handoffFromRuntimeSessionId ?? resumed?.header.runtimeSessionId ?? null;
     const authorizationDecision: AuthorizationDecision | null = binding.authorizationDecision ?? null;
     if (taskId && !input.remote && !reviewerBinding) {
-      const callerRuntimeSessionId = runtimeSessionIdFromActor(binding.actor),
-        runtimeBinding =
-          callerRuntimeSessionId === null || leaseAtAdmission === null
-            ? null
-            : resolveTaskBoundRuntimeBinding(
-                projection!.readRuntimeSession(callerRuntimeSessionId),
-                taskId,
-                leaseAtAdmission.executionId,
-              );
       const leaseExecutorId = leaseAtAdmission?.actor.executor?.id ?? null,
         leaseHeldByRuntime = leaseExecutorId?.startsWith("runtime-session:") === true,
         dispatchLeaseExecutor = `runtime-session:${runtimeSessionId}`,
@@ -288,7 +277,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           : leaseAtAdmission.phase === "held" &&
             isSamePerson(leaseAtAdmission.actor, binding.actor) &&
             (isSameExecution(leaseAtAdmission.actor, binding.actor) ||
-              runtimeBinding !== null ||
               leaseExecutorId === dispatchLeaseExecutor ||
               leaseExecutorId === trustedSourceExecutor ||
               (binding.actor.executor === null && !leaseHeldByRuntime));
@@ -525,13 +513,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           : undefined,
       workerIdentityEnvironment =
         taskId || trustedSchedule || reviewerBinding ? await conventionalWorkerGitEnvironment(input.rootDir) : {};
-    // Squad leaders retain the coordinator lease; child tasks transfer their own lease to the worker.
-    // Direct runtime/batch dispatches still transfer ownership even when
-    // they select a squad member through --to.
+    // Every implementation runtime, including squad leaders, takes the actual lease.
     const taskLeaseHandoff =
-        taskId && !input.remote && !reviewerBinding && reviewExecution === null && !retainCoordinatorTaskLease
-          ? input.handoffTaskLease
-          : undefined,
+        taskId && !input.remote && !reviewerBinding && reviewExecution === null ? input.handoffTaskLease : undefined,
       activeBinding = taskLeaseHandoff
         ? await taskLeaseHandoff({
             taskId: taskId!,
@@ -839,7 +823,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         undefined,
         undefined,
         undefined,
-        payload.targetAgentId === undefined,
         payload.targetAgentId === undefined ? "runtime" : "commander",
       ),
     spawnScheduled: (scheduled: TrustedScheduleSpawn, binding: RuntimeBinding) =>
@@ -863,7 +846,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         undefined,
         scheduled,
         undefined,
-        false,
       ),
     adopt: () => adoptRuntimes(extracted),
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),
@@ -1044,7 +1026,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             nextFallback,
             header.schedule,
             header.runtimeSessionId,
-            header.taskId !== null && binding.actor.executor?.id !== `runtime-session:${header.runtimeSessionId}`,
             header.publicationOwner,
           );
           writer.appendFallbackState(

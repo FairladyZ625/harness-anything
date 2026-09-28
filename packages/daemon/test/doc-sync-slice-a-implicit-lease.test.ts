@@ -163,10 +163,7 @@ test("a runtime session with multiple matching held executions rejects with exac
           schema: "lease/v1",
           taskId,
           executionId,
-          actor: {
-            principal: { personId: "person-owner" },
-            executor: { kind: "agent", id: "dispatch-holder" },
-          },
+          actor: runtimeActor,
           source,
           phase: "held",
           expiresAt: "2026-08-23T01:00:00.000Z",
@@ -181,6 +178,7 @@ test("a runtime session with multiple matching held executions rejects with exac
             : target.includes("task-route-b-b")
               ? "task-route-b"
               : null,
+        currentLease: (taskId: string) => leases.find((value) => value.taskId === taskId) ?? null,
         currentLeaseForExecution: (executionId: string) =>
           leases.find((value) => value.executionId === executionId) ?? null,
         readRuntimeSession: () => ({
@@ -543,10 +541,7 @@ test("the named release-and-re-enter recovery terminates for a bound runtime ses
       schema: "lease/v1",
       taskId: "task-recover",
       executionId: "exec-recover",
-      actor: {
-        principal: { personId: "person-owner" },
-        executor: { kind: "agent", id: "codex" },
-      },
+      actor: runtimeActor,
       source,
       get phase() {
         return phase;
@@ -564,7 +559,7 @@ test("the named release-and-re-enter recovery terminates for a bound runtime ses
         readRuntimeSession: () => ({
           runtimeSessionId: "recovery",
           liveness: "live",
-          taskBindings: [{ taskId: "task-recover", executionId: "exec-recover" }],
+          taskBindings: [{ taskId: "task-recover", executionId: "exec-original-dispatch" }],
         }),
         readDocument: (target: string) => ({
           status: "ready",

@@ -3,11 +3,11 @@ import path from "node:path";
 import {
   durablePolicyActions,
   isSameExecution,
-  isSamePerson,
   parseEntityRef,
   parsePeopleRosterDocument,
   PEOPLE_ROSTER_PATH,
   taskIsDescendantOf,
+  stableStringify,
   verifyDelegatedExecutionToken,
   type AuthorizationContext,
   type AuthorizationDecision,
@@ -422,15 +422,28 @@ export function bindVerifiedExecutorClaim(input: {
       raw,
       "The claimed RuntimeSession is not canonically bound to this Task action.",
     );
+  const runtimeActor = {
+    principal: input.binding.actor.principal,
+    executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
+  };
+  // Review identity pins a submitted target, never ordinary write authority.
+  if (action.kind === "task-review-execution" && taskId !== null && executionId !== null) {
+    const target = input.projection
+      .read(taskId)
+      .snapshot.executions.find((candidate) => candidate.executionId === executionId && candidate.submission !== null);
+    if (
+      target &&
+      session.taskBindings.some((candidate) => candidate.taskId === taskId && candidate.executionId === executionId)
+    )
+      return { action, binding: { ...input.binding, actor: runtimeActor } };
+    throw invalidExecutorBindingFor(input, raw, "The reviewer is not bound to this submitted execution.");
+  }
   const exactBinding =
       taskId === null
         ? session.taskBindings.length === 1
           ? session.taskBindings[0]
           : undefined
-        : session.taskBindings.find(
-            (candidate) =>
-              candidate.taskId === taskId && (executionId === null || candidate.executionId === executionId),
-          ),
+        : session.taskBindings.find((candidate) => candidate.taskId === taskId),
     descendantBinding =
       exactBinding === undefined && taskId !== null && (action.kind === "doc-submit" || action.kind === "runtime-spawn")
         ? session.taskBindings.find((candidate) => {
@@ -449,8 +462,9 @@ export function bindVerifiedExecutorClaim(input: {
               };
             return (
               candidateLease !== null &&
-              candidateLease.executionId === candidate.executionId &&
-              isSamePerson(candidateLease.actor, candidateActor)
+              candidateLease.phase === "held" &&
+              isSameExecution(candidateLease.actor, candidateActor) &&
+              stableStringify(candidateLease.source) === stableStringify(input.binding.source)
             );
           })
         : undefined,
@@ -469,11 +483,15 @@ export function bindVerifiedExecutorClaim(input: {
     );
   }
   const lease = input.projection.currentLease(taskBinding.taskId, input.now),
-    runtimeActor = {
-      principal: input.binding.actor.principal,
-      executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
-    };
-  if (lease === null || lease.executionId !== taskBinding.executionId || !isSamePerson(lease.actor, runtimeActor))
+    // Acquiring a lease is a lifecycle transition, not a write under a released lease.
+    reacquiring = action.kind === "task-start" || action.kind === "task-contract-migrate";
+  if (
+    lease === null ||
+    (lease.phase !== "held" && !(reacquiring && (lease.phase === "released" || lease.phase === "orphaned"))) ||
+    (executionId !== null && executionId !== lease.executionId && action.kind !== "task-start") ||
+    !isSameExecution(lease.actor, runtimeActor) ||
+    stableStringify(lease.source) !== stableStringify(input.binding.source)
+  )
     throw invalidExecutorBindingFor(
       input,
       raw,
@@ -628,36 +646,39 @@ function invalidExecutorBindingFor(
       raw.kind === "agent" &&
       typeof raw.id === "string" &&
       raw.id.startsWith("runtime-session:"),
+    wrongExecution =
+      !reviewerRedispatch &&
+      requestedExecutionId !== null &&
+      lease !== null &&
+      requestedExecutionId !== lease.executionId,
     missingRequestedBinding =
       taskId !== null &&
       runtimeSession !== null &&
-      !runtimeSession.taskBindings.some(
-        (candidate) =>
-          candidate.taskId === taskId &&
-          (requestedExecutionId === null || candidate.executionId === requestedExecutionId),
-      ),
+      !runtimeSession.taskBindings.some((candidate) => candidate.taskId === taskId),
     expectation = canonicalTaskId
       ? `The supplied taskId matches the bound package basename; use canonical taskId ${canonicalTaskId}, then retry ` +
         executorRetryCommand(input.action, canonicalTaskId, executionId)
       : reviewerRedispatch
         ? `Expected a reviewer RuntimeSession bound to execution ${executionId ?? "<execution-id>"}; run ` +
           `ha task dispatch-review ${taskId} --agent <reviewer-agent-id>, then retry ${retry}`
-        : delegationExpectation
-          ? delegationExpectation
-          : missingRequestedBinding
-            ? `Expected the claimed RuntimeSession to have canonical Task/Execution binding ` +
-              `${taskId}/${executionId ?? "<execution-id>"}; retry ${retry} from that bound session`
-            : expected
-              ? `Expected ${expected} from the held execution lease; run from that executor, then retry ${retry}`
-              : "Expected a task-bound executor with a matching held execution lease; run ha task start " +
-                `${taskId ?? "<task-id>"}, then retry ${retry}`,
+        : wrongExecution
+          ? `Expected executionId ${lease!.executionId} from the current lease; received executionId ${requestedExecutionId}`
+          : delegationExpectation
+            ? delegationExpectation
+            : missingRequestedBinding
+              ? `Expected the claimed RuntimeSession to have canonical Task/Execution binding ` +
+                `${taskId}/${executionId ?? "<execution-id>"}; retry ${retry} from that bound session`
+              : expected
+                ? `Expected ${expected} from the held execution lease; run from that executor, then retry ${retry}`
+                : "Expected a task-bound executor with a matching held execution lease; run ha task start " +
+                  `${taskId ?? "<task-id>"}, then retry ${retry}`,
     diagnostic: ReceiptDiagnostic = {
       kind: "validation",
       entity: [taskId ? `task ${taskId}` : "repository", executionId ? `execution ${executionId}` : ""]
         .filter(Boolean)
         .join(" "),
-      field: canonicalTaskId ? "taskId" : "executor",
-      actual: canonicalTaskId ? taskId! : actual,
+      field: canonicalTaskId ? "taskId" : wrongExecution ? "executionId" : "executor",
+      actual: canonicalTaskId ? taskId! : wrongExecution ? requestedExecutionId! : actual,
       expectation,
     };
   return Object.assign(new Error(message), { code: "executor_binding_invalid" as const, diagnostic });

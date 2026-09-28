@@ -41,10 +41,40 @@ test(
   { timeout: 30_000 },
   async (t) => {
     const fixture = await openFixture(t, "delivery");
+    const planningLeader = (await fixture.status()).leaders[0].runtimeSessionId;
+    assert.equal(fixture.task(fixture.taskId).snapshot.lease?.actor.executor?.id, `runtime-session:${planningLeader}`);
     await fixture.plan(["src/a.txt"], ["docs/"]);
     const running = await fixture.waitStatus(
       (state) => state.workers.length === 2 && state.workers.every((w) => w.runtimeSessionId),
     );
+    const planningEvents = makeTaskEventReader({ repoId: fixture.repoId, rootDir: fixture.root }).read().events;
+    const leaderRelease = planningEvents.findIndex(
+      (event) =>
+        event.type === "lease_released" &&
+        event.taskId === fixture.taskId &&
+        event.payload.releasedLease.actor.executor?.id === `runtime-session:${planningLeader}`,
+    );
+    const coordinatorReacquire = planningEvents.findIndex(
+      (event, index) =>
+        index > leaderRelease &&
+        event.type === "execution_started" &&
+        event.taskId === fixture.taskId &&
+        event.actor.executor?.id === "coordinator",
+    );
+    assert.ok(
+      leaderRelease >= 0 && coordinatorReacquire > leaderRelease,
+      "leader release must precede coordinator callback reacquisition",
+    );
+    const staleLeaderWrite = await fixture.cell.run(
+      {
+        kind: "task-progress-append",
+        taskId: fixture.taskId,
+        text: "stale planning leader",
+        executor: { kind: "agent", id: `runtime-session:${planningLeader}` },
+      },
+      binding,
+    );
+    assert.equal(staleLeaderWrite.code, "executor_binding_invalid");
     const [first, second] = running.workers;
     assert.ok(first.taskId && second.taskId && first.executionId && second.executionId);
     assert.notEqual(first.taskId, second.taskId);
@@ -119,6 +149,31 @@ test(
       }),
     );
     await fixture.waitStatus((state) => state.status === "converged");
+    // dec_B3A15CC2/CH1: attribution follows the actual handoffs, not the first leader's terminal event.
+    const finalExecution = fixture.task(fixture.taskId).snapshot.executions.at(-1)!;
+    assert.equal(finalExecution.actor.executor?.id, "coordinator");
+    assert.notEqual(finalExecution.actor.executor?.id, `runtime-session:${planningLeader}`);
+    assert.equal(
+      (await fixture.cell.run({ kind: "task-release", taskId: fixture.taskId }, binding)).outcome,
+      "applied",
+    );
+    await fixture.cell.settlePendingMaterialization("squad owner closeout");
+    writeFileSync(
+      path.join(fixture.root, "harness", fixture.task(fixture.taskId).packagePath!, "closeout.md"),
+      `## Summary\nIntegrated child delivery ${git(fixture.root, "rev-parse", "HEAD")}.\n## Verification\nChild commits and synthesis checked.\n` +
+        "## Residual Risk\nNo external PR created.\n## Same Mechanism Elsewhere\nExplicit handoff attribution.\n",
+    );
+    const ownerBinding = { ...binding, actor: { ...binding.actor, executor: null } };
+    const settled = await fixture.cell.run({ kind: "task-settle", taskId: fixture.taskId }, ownerBinding);
+    assert.equal(settled.outcome, "applied", JSON.stringify(settled));
+    assert.deepEqual(fixture.task(fixture.taskId).snapshot.executions.at(-1)?.actor, finalExecution.actor);
+    const recoveredSubmit = await fixture.cell.run({ kind: "task-settle", taskId: fixture.taskId }, ownerBinding);
+    assert.equal(recoveredSubmit.outcome, "applied", JSON.stringify(recoveredSubmit));
+    assert.equal(
+      recoveredSubmit.opId,
+      settled.opId,
+      "owner resumes the same submission without restamping the planning leader",
+    );
     const launches = fixture.providers.length;
     await fixture.reopen();
     const recovered = await fixture.status();

@@ -63,6 +63,84 @@ const action = {
   executor: runtimeActor.executor,
 } as const;
 
+test("runtime write authority follows its current lease after a new iteration", async (t) => {
+  const nextExecutionId = "exec-runtime-next-iteration";
+  for (const nextAction of [
+    { kind: "doc-submit", taskId },
+    { kind: "task-submit", taskId, executionId: nextExecutionId },
+    { kind: "task-release", taskId, reason: "finished" },
+  ] as const) {
+    await t.test(nextAction.kind, async () => {
+      const receipt = await createRepoCellApi(
+        contextFor(
+          Promise.resolve(),
+          () => runtimeSession,
+          () => ({ ...lease, executionId: nextExecutionId }),
+        ),
+      ).run({ ...nextAction, executor: runtimeActor.executor }, binding);
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    });
+  }
+});
+
+test("task membership does not grant a runtime the coordinator lease", async () => {
+  const receipt = await createRepoCellApi(
+    contextFor(
+      Promise.resolve(),
+      () => runtimeSession,
+      () => ({ ...lease, actor: { principal: runtimeActor.principal, executor: null } }),
+    ),
+  ).run(action, binding);
+  assert.equal(receipt.code, "executor_binding_invalid", JSON.stringify(receipt));
+});
+
+test("ordinary writes reject absent, released and other-runtime leases", async () => {
+  for (const current of [
+    null,
+    { ...lease, phase: "released" as const },
+    {
+      ...lease,
+      actor: { ...runtimeActor, executor: { kind: "agent" as const, id: "runtime-session:new-holder" } },
+    },
+  ]) {
+    const receipt = await createRepoCellApi(
+      contextFor(
+        Promise.resolve(),
+        () => runtimeSession,
+        () => current,
+      ),
+    ).run(action, binding);
+    assert.equal(receipt.code, "executor_binding_invalid", JSON.stringify(receipt));
+  }
+});
+
+test("lease acquisition reaches lifecycle admission without a stored execution target", async () => {
+  for (const phase of ["released", "orphaned"] as const) {
+    const receipt = await createRepoCellApi(
+      contextFor(
+        Promise.resolve(),
+        () => runtimeSession,
+        () => ({ ...lease, phase }),
+      ),
+    ).run({ kind: "task-start", taskId, executionId: "exec-next-round", executor: runtimeActor.executor }, binding);
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+  }
+});
+
+test("wrong execution diagnostics show both execution ids", async () => {
+  const receipt = await createRepoCellApi(
+    contextFor(
+      Promise.resolve(),
+      () => runtimeSession,
+      () => lease,
+    ),
+  ).run({ kind: "task-submit", taskId, executionId: "exec-stale", executor: runtimeActor.executor }, binding);
+  assert.equal(receipt.code, "executor_binding_invalid");
+  assert.equal(receipt.diagnostic?.field, "executionId");
+  assert.equal(receipt.diagnostic?.actual, "exec-stale");
+  assert.match(String(receipt.diagnostic?.expectation), new RegExp(executionId));
+});
+
 test("executor binding waits for the preceding writer cut that binds the runtime session", async () => {
   let projectedSession: RuntimeSession | null = null,
     projectedLease: LeaseV1 | null = null;

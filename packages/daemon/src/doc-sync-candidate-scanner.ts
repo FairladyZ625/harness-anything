@@ -555,11 +555,12 @@ export function resolveDocExecutionBinding(
       exactMatches =
         session?.taskBindings.flatMap((binding) => {
           if (!tasks.has(binding.taskId)) return [];
-          const lease = projection.currentLeaseForExecution(binding.executionId, now),
-            runtimeBinding = resolveTaskBoundRuntimeBinding(session, binding.taskId, binding.executionId);
+          const lease = projection.currentLease(binding.taskId, now),
+            runtimeBinding =
+              lease === null ? null : resolveTaskBoundRuntimeBinding(session, binding.taskId, lease.executionId);
           if (lease === null || runtimeBinding === null) return [];
           return isTaskBoundRuntimeWriter(lease, actor, source, runtimeBinding)
-            ? [{ id: binding.executionId, lease }]
+            ? [{ id: lease.executionId, lease }]
             : [];
         }) ?? [],
       descendantMatches =
@@ -574,11 +575,12 @@ export function resolveDocExecutionBinding(
                 )
               )
                 return [];
-              const lease = projection.currentLeaseForExecution(binding.executionId, now),
-                runtimeBinding = resolveTaskBoundRuntimeBinding(session, binding.taskId, binding.executionId);
+              const lease = projection.currentLease(binding.taskId, now),
+                runtimeBinding =
+                  lease === null ? null : resolveTaskBoundRuntimeBinding(session, binding.taskId, lease.executionId);
               if (lease === null || runtimeBinding === null) return [];
               return isTaskBoundRuntimeWriter(lease, actor, source, runtimeBinding)
-                ? [{ id: binding.executionId, lease }]
+                ? [{ id: lease.executionId, lease }]
                 : [];
             }) ?? []),
       matches = exactMatches.length > 0 ? exactMatches : descendantMatches,

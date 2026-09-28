@@ -72,12 +72,18 @@ test("progress compiler rejects invalid evidence, lease mismatches, and stale ba
     },
     runtime = compileTaskProgress({
       ...fixture,
+      activeLease: { ...fixture.activeLease, actor: runtimeActor },
       actor: runtimeActor,
       runtimeBinding,
     });
   assert.equal(runtime.event.payload.runtimeSessionId, "runtime-progress");
   assert.deepEqual(runtime.event.actor, runtimeActor);
   assert.deepEqual(validateTaskProgressEvent(runtime.event), []);
+  assert.throws(
+    () => compileTaskProgress({ ...fixture, actor: runtimeActor, runtimeBinding }),
+    (error: unknown) => code(error) === "progress_lease_mismatch",
+    "same-person runtime membership cannot borrow another executor's lease",
+  );
   assert.throws(
     () => compileTaskProgress({ ...fixture, actor: runtimeActor }),
     (error: unknown) => code(error) === "progress_lease_mismatch",
