@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { ownDaemonFixture } from "./daemon-cleanup.fixture.ts";
+import { daemonOwnerEnvironment, ownDaemonFixture } from "./daemon-cleanup.fixture.ts";
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 
@@ -81,13 +81,13 @@ function cliEnv(root: string, userRoot: string, actor?: string): NodeJS.ProcessE
     HARNESS_DAEMON_ID: _daemonId,
     ...base
   } = process.env;
-  return {
+  return daemonOwnerEnvironment({
     ...base,
     HOME: path.join(root, ".home"),
     GIT_CONFIG_GLOBAL: "/dev/null",
     HARNESS_DAEMON_USER_ROOT: userRoot,
     ...(actor ? { HARNESS_ACTOR: actor } : {}),
-  };
+  });
 }
 
 function setup(): { parent: string; root: string; userRoot: string } {

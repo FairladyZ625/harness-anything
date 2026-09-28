@@ -50,9 +50,11 @@ async function runResidentDaemon(
   // startup replay parks here and drains at the next yield instead of being
   // swallowed by synchronous work. stop() is idempotent, so a second signal
   // cannot cut the drain short.
+  const ownerPid = daemonOwnerPid(process.env.HARNESS_DAEMON_OWNER_PID);
   let daemon: Awaited<ReturnType<typeof startDaemon>>,
     stopping: Promise<void> | null = null,
-    parked: (() => void) | undefined;
+    parked: (() => void) | undefined,
+    ownerLivenessTimer: NodeJS.Timeout | undefined;
   const idle = new Promise<void>((resolve) => {
     parked = resolve;
   });
@@ -86,16 +88,37 @@ async function runResidentDaemon(
       },
     });
     if (!("stop" in daemon)) return finish(deferredServeReceipt(daemon, userRoot), 0);
+    if (ownerPid !== null)
+      ownerLivenessTimer = setInterval(() => {
+        if (!processExists(ownerPid)) requestStop();
+      }, 250);
     if (stopping === null) {
       await idle;
       await stopping;
     } else await daemon.stop();
     return 0;
   } finally {
+    if (ownerLivenessTimer) clearInterval(ownerLivenessTimer);
     process.removeListener("SIGTERM", requestStop);
     process.removeListener("SIGINT", requestStop);
   }
 }
+
+function daemonOwnerPid(value: string | undefined): number | null {
+  if (!value || !/^[1-9][0-9]*$/u.test(value)) return null;
+  const pid = Number(value);
+  return Number.isSafeInteger(pid) ? pid : null;
+}
+
+function processExists(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return !(typeof error === "object" && error !== null && "code" in error && error.code === "ESRCH");
+  }
+}
+
 function deferredServeReceipt(
   incumbent: { readonly pid: number | null; readonly endpoint: string; readonly witness: string },
   userRoot: string,

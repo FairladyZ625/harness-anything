@@ -9,6 +9,7 @@ import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { localUserDaemonEndpoint } from "../src/daemon/client.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
+import { daemonOwnerEnvironment } from "./daemon-cleanup.fixture.ts";
 
 export const cli = path.resolve("packages/cli/src/index.ts");
 
@@ -125,7 +126,7 @@ export function createRuntimeFixture(context: TestContext) {
     path.join(binRoot, "gh"),
     'if (process.argv[2] !== "run" || process.argv[3] !== "list") process.exit(1); console.log("[]");\n',
   );
-  const env = {
+  const env = daemonOwnerEnvironment({
     ...baseEnv,
     HOME: path.join(parent, "home"),
     TMPDIR: process.platform === "win32" ? baseEnv.TMPDIR : "/tmp",
@@ -145,7 +146,7 @@ export function createRuntimeFixture(context: TestContext) {
     HARNESS_DAEMON_ID: daemonId,
     HARNESS_DAEMON_ENDPOINT: localUserDaemonEndpoint(userRoot, daemonId),
     HARNESS_ACTOR: "agent:runtime-cli-test",
-  };
+  });
   context.after(() => {
     runMaybe(root, env, ["daemon", "stop"]);
     rmSync(parent, { recursive: true, force: true });
