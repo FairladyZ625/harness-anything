@@ -504,8 +504,9 @@ function liveRow(
     metrics = dispatchMetrics(stream);
   return {
     dispatchId: header.dispatchId,
-    taskId: header.taskId!,
-    executionId: header.executionId!,
+    taskId: header.taskId ?? "",
+    executionId: header.executionId ?? "",
+    ...(header.reviewTarget ? { reviewTarget: header.reviewTarget } : {}),
     runtimeSessionId: header.runtimeSessionId,
     instanceId: header.instanceId,
     attemptGroupId:

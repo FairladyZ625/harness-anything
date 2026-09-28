@@ -170,7 +170,13 @@ export function buildCommand(
         contentDigest: packet.digest,
         submissionDigest: selection.submissionDigest,
       };
-    assertPhysicalReviewReport({ rootDir, packagePath, reviewId, taskId, verb: "review-execution" });
+    assertPhysicalReviewReport({
+      rootDir,
+      packagePath,
+      reviewId,
+      subject: `Task ${taskId}`,
+      retry: `ha task review-execution ${taskId} --review-id ${reviewId}`,
+    });
     return normalizeTaskLifecycleCommand(bound, fields);
   }
   if (action.kind === "task-adjudicate") {
@@ -275,7 +281,13 @@ export function buildCommand(
       );
     const current = snapshot.executions.find((value) => value.executionId === executionId);
     if (!current?.submission) throw cellCodedError("invalid_transition", "Consent requires a submitted execution cut.");
-    assertPhysicalReviewReport({ rootDir, packagePath, reviewId, taskId, verb: "review-consent" });
+    assertPhysicalReviewReport({
+      rootDir,
+      packagePath,
+      reviewId,
+      subject: `Task ${taskId}`,
+      retry: `ha task review-consent ${taskId} --review-id ${reviewId}`,
+    });
     return normalizeTaskLifecycleCommand(bound, {
       type: "RecordReviewConsent",
       taskId,

@@ -86,12 +86,13 @@ export async function adoptRuntimes(context: RuntimeSpawnerContext): Promise<voi
               leaseVersion: stream.header.leaseVersion ?? null,
             }
           : null,
-      decisionReviewTarget: (() => {
-        const match = /^Independently review Decision ([^ ]+) at reviewContentDigest (sha256:[0-9a-f]{64})\./u.exec(
-          metadata.prompt,
-        );
-        return match ? { decisionId: match[1]!, digest: match[2]! } : null;
-      })(),
+      decisionReviewTarget:
+        stream.header.reviewTarget?.kind === "decision"
+          ? {
+              decisionId: stream.header.reviewTarget.decisionId,
+              digest: stream.header.reviewTarget.digest,
+            }
+          : null,
       schedule: stream.header.schedule ?? null,
       cwd: metadata.cwd,
       prompt: metadata.prompt,

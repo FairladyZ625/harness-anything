@@ -8,6 +8,7 @@ import {
   isSamePerson,
   runtimeDefinitionSnapshotArtifact,
   runtimeSessionIdFromActor,
+  submissionDigest,
   type AuthorizationDecision,
 } from "@harness-anything/kernel";
 import { presetDocumentBody } from "@harness-anything/preset/internal/preset-resolver";
@@ -585,6 +586,18 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         dispatchId: newDispatchId,
         taskId: taskBinding?.taskId ?? null,
         executionId: taskBinding?.executionId ?? null,
+        ...(decisionReviewTarget
+          ? { reviewTarget: decisionReviewTarget }
+          : reviewerBinding && taskBinding && reviewTarget?.submission
+            ? {
+                reviewTarget: {
+                  kind: "task" as const,
+                  taskId: taskBinding.taskId,
+                  executionId: taskBinding.executionId,
+                  digest: submissionDigest(reviewTarget.submission),
+                },
+              }
+            : {}),
         ...(typeof taskBinding?.leaseVersion === "number" ? { leaseVersion: taskBinding.leaseVersion } : {}),
         ...(trustedSchedule ? { schedule: trustedSchedule } : {}),
         runtimeSessionId,

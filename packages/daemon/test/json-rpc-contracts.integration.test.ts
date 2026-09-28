@@ -421,6 +421,10 @@ function decisionList(readiness: unknown): Record<string, unknown> {
         reviews: [],
         reviewResponses: [],
         reviewOverrides: [],
+        relations: [],
+        currentReviewContentDigest: null,
+        acceptReviewReadiness: null,
+        reviewDispatches: [],
         capabilities: [
           { id: "accept", available: false, reason: "invalid_transition" },
           { id: "reject", available: false, reason: "invalid_transition" },

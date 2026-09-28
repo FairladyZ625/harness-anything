@@ -4,6 +4,9 @@ export type TaskDispatchResume = {
 };
 
 export interface TaskDispatchRow {
+  readonly reviewTarget?:
+    | { readonly kind: "task"; readonly taskId: string; readonly executionId: string; readonly digest: string }
+    | { readonly kind: "decision"; readonly decisionId: string; readonly digest: string };
   readonly resume?: TaskDispatchResume;
   readonly metrics?: {
     readonly inputTokens: number;

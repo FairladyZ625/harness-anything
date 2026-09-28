@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   assertDecisionAcceptReview,
+  decisionAcceptReviewReadiness,
   decisionReviewContentDigest,
   type DecisionDocumentState,
   type DecisionEventDraftV1,
@@ -132,9 +133,107 @@ test("changes_requested remains blocking until a named override with a reason", 
             overriddenAt: "2026-09-28T00:02:00.000Z",
           },
         ],
+        reviewResponses: [
+          {
+            reviewId: review.reviewId,
+            findingId: "F1",
+            disposition: "rebut" as const,
+            rationale: "The proposer documented why the tradeoff is accepted.",
+            amendmentRef: null,
+            actor: proposer,
+            respondedAt: "2026-09-28T00:02:00.000Z",
+          },
+        ],
       },
       document(),
       accept(),
     ),
   );
+});
+
+test("Decision accept readiness exposes the same current-cut judgment used by writes", () => {
+  const current = decision(),
+    digest = decisionReviewContentDigest(current, document());
+  assert.deepEqual(decisionAcceptReviewReadiness(current, document()), {
+    ready: true,
+    currentDigest: digest,
+    basis: "policy_unreviewed",
+    blocker: null,
+    next: { action: "accept", actor: "proposer", reason: "No current-content review blocks acceptance." },
+  });
+  const blocked = {
+    ...current,
+    reviews: [
+      {
+        reviewId: "review-blocked",
+        reviewContentDigest: digest,
+        verdict: "changes_requested" as const,
+        reason: "Needs work.",
+        findings: [{ findingId: "F1", text: "Fix it." }],
+        evidenceChecked: [],
+        reportRef: null,
+        actor: { ...proposer, executor: { kind: "agent" as const, id: "reviewer" } },
+        reviewedAt: "2026-09-29T00:00:00.000Z",
+      },
+    ],
+  };
+  assert.deepEqual(decisionAcceptReviewReadiness(blocked, document()), {
+    ready: false,
+    currentDigest: digest,
+    basis: null,
+    blocker: {
+      code: "changes_requested",
+      reviewIds: ["review-blocked"],
+      reason: "Current content has unresolved changes_requested reviews.",
+    },
+    next: {
+      action: "override-review",
+      actor: "owner",
+      reason:
+        "The owner must override the named reviews, or the proposer must amend the content and seek review again.",
+    },
+  });
+});
+
+test("policy-unreviewed acceptance requires a proposer response to every historical finding", () => {
+  const current = decision(),
+    oldDigest = decisionReviewContentDigest(current, document()),
+    review = {
+      reviewId: "review-old-cut",
+      reviewContentDigest: oldDigest,
+      verdict: "changes_requested" as const,
+      reason: "The old cut needs a correction.",
+      findings: [
+        { findingId: "F1", text: "Explain the tradeoff." },
+        { findingId: "F2", text: "Name the evidence." },
+      ],
+      evidenceChecked: [],
+      reportRef: null,
+      actor: { ...proposer, executor: { kind: "agent" as const, id: "reviewer" } },
+      reviewedAt: "2026-09-29T00:00:00.000Z",
+    },
+    amendedBody = document("Changed proposal body"),
+    unanswered = { ...current, reviews: [review] };
+  assert.deepEqual(decisionAcceptReviewReadiness(unanswered, amendedBody).blocker, {
+    code: "unanswered_findings",
+    findings: [
+      { reviewId: review.reviewId, findingId: "F1" },
+      { reviewId: review.reviewId, findingId: "F2" },
+    ],
+    reason: "Historical changes_requested findings require proposer responses before policy-unreviewed acceptance.",
+  });
+  assert.throws(() => assertDecisionAcceptReview(unanswered, amendedBody, accept()), /unanswered review findings/u);
+  const answered = {
+    ...unanswered,
+    reviewResponses: review.findings.map(({ findingId }) => ({
+      reviewId: review.reviewId,
+      findingId,
+      disposition: "rebut" as const,
+      rationale: "The amended proposal addresses the concern explicitly.",
+      amendmentRef: null,
+      actor: proposer,
+      respondedAt: "2026-09-29T00:02:00.000Z",
+    })),
+  };
+  assert.doesNotThrow(() => assertDecisionAcceptReview(answered, amendedBody, accept()));
 });

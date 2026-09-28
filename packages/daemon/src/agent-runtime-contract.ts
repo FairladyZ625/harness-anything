@@ -178,7 +178,7 @@ export type AgentRuntimeEventsResult = {
   readonly done: boolean;
 };
 export type AgentRuntimeSessionGroupBy = "task" | "squad" | "agent" | "day";
-export type AgentRuntimeSessionGroupKind = AgentRuntimeSessionGroupBy | "unattributed";
+export type AgentRuntimeSessionGroupKind = AgentRuntimeSessionGroupBy | "decision" | "unattributed";
 export type AgentRuntimeSessionGroupStatus = RuntimeSessionSemanticState | "unknown" | "lost";
 /**
  * The runtime value half of `AgentRuntimeSessionGroupStatus`, so the status filter admits exactly
@@ -228,6 +228,7 @@ export interface AgentRuntimeSessionGroupDto {
   readonly kind: AgentRuntimeSessionGroupKind;
   readonly label: string;
   readonly taskId?: string;
+  readonly decisionId?: string;
   readonly squadId?: string;
   readonly agentId?: string;
   readonly day?: string;
@@ -662,7 +663,14 @@ function hasAgentRuntimeContractFields(
   );
 }
 
-const sessionGroupKinds: readonly AgentRuntimeSessionGroupKind[] = ["task", "squad", "agent", "day", "unattributed"],
+const sessionGroupKinds: readonly AgentRuntimeSessionGroupKind[] = [
+    "task",
+    "decision",
+    "squad",
+    "agent",
+    "day",
+    "unattributed",
+  ],
   sessionGroupStatuses: readonly AgentRuntimeSessionGroupStatus[] = [
     "running",
     "succeeded",
@@ -676,7 +684,9 @@ const sessionGroupKinds: readonly AgentRuntimeSessionGroupKind[] = ["task", "squ
 
 function validSessionGroup(value: unknown): value is AgentRuntimeSessionGroupDto {
   if (!isAgentRuntimeContractRecord(value)) return false;
-  const identityFields = ["taskId", "squadId", "agentId", "day"].filter((field) => value[field] !== undefined),
+  const identityFields = ["taskId", "decisionId", "squadId", "agentId", "day"].filter(
+      (field) => value[field] !== undefined,
+    ),
     required = [
       "key",
       "kind",
@@ -689,7 +699,7 @@ function validSessionGroup(value: unknown): value is AgentRuntimeSessionGroupDto
       "latestRound",
     ];
   return (
-    hasAgentRuntimeContractFields(value, required, ["taskId", "squadId", "agentId", "day"]) &&
+    hasAgentRuntimeContractFields(value, required, ["taskId", "decisionId", "squadId", "agentId", "day"]) &&
     [value.key, value.label].every(sessionGroupText) &&
     sessionGroupKinds.includes(value.kind as AgentRuntimeSessionGroupKind) &&
     validSessionGroupIdentity(value, identityFields) &&
@@ -702,6 +712,8 @@ function validSessionGroup(value: unknown): value is AgentRuntimeSessionGroupDto
 
 function validSessionGroupIdentity(value: Record<string, unknown>, fields: readonly string[]): boolean {
   if (value.kind === "task") return fields.length === 1 && fields[0] === "taskId" && sessionGroupText(value.taskId);
+  if (value.kind === "decision")
+    return fields.length === 1 && fields[0] === "decisionId" && sessionGroupText(value.decisionId);
   if (value.kind === "squad") return fields.length === 1 && fields[0] === "squadId" && sessionGroupText(value.squadId);
   if (value.kind === "day")
     return fields.length === 1 && fields[0] === "day" && /^\d{4}-\d{2}-\d{2}$/u.test(String(value.day));

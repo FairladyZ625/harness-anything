@@ -85,7 +85,7 @@ export function buildAgentRuntimeSessionGroups(input: {
 }
 
 type GroupIdentity = Pick<AgentRuntimeSessionGroupDto, "key" | "kind" | "label"> &
-  Partial<Pick<AgentRuntimeSessionGroupDto, "taskId" | "squadId" | "agentId" | "day">>;
+  Partial<Pick<AgentRuntimeSessionGroupDto, "taskId" | "decisionId" | "squadId" | "agentId" | "day">>;
 type GroupMember = {
   readonly identity: GroupIdentity;
   readonly session: RuntimeSession;
@@ -124,6 +124,20 @@ function membersForSession(
       ...taskSearch,
     ];
   if (input.query.groupBy === "task") {
+    if (dispatch?.reviewTarget?.kind === "decision") {
+      const { decisionId } = dispatch.reviewTarget;
+      return [
+        member(
+          { key: decisionId, kind: "decision", label: decisionId, decisionId },
+          session,
+          dispatch,
+          status,
+          startedAt,
+          agentName,
+          [...commonSearch, decisionId, dispatch.reviewTarget.digest],
+        ),
+      ];
+    }
     const taskIds = [...new Set(session.taskBindings.map(({ taskId }) => taskId))];
     if (taskIds.length === 0) {
       const identity = unattributed("task", dispatch !== null);

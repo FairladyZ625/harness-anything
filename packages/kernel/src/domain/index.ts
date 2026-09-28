@@ -124,6 +124,7 @@ export type { DelegatedExecutionToken, DelegatedExecutionTokenReasonCode } from 
 
 export {
   compileDecisionWrite,
+  decisionAcceptReviewReadiness,
   decisionDocumentProse,
   decisionMachineDigest,
   decisionReviewContentDigest,
@@ -131,6 +132,7 @@ export {
   decisionWritePlan,
 } from "./decision-event.ts";
 export type {
+  DecisionAcceptReviewReadiness,
   DecisionAmendableSnapshot,
   DecisionDocumentState,
   DecisionEventV1,

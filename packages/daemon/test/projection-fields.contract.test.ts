@@ -31,6 +31,10 @@ test("decision full rows carry kernel capabilities while summary rows stay narro
     reviews: [],
     reviewResponses: [],
     reviewOverrides: [],
+    relations: [],
+    currentReviewContentDigest: null,
+    acceptReviewReadiness: null,
+    reviewDispatches: [],
     body: null,
     capabilities: [
       { id: "accept", available: true, reason: null },

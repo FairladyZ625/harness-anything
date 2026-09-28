@@ -527,6 +527,59 @@ test("each unattributed bucket names the thing that is actually missing", () => 
   );
 });
 
+test("Decision reviewer sessions group by the persisted review target", () => {
+  const session = runtimeSession(
+      "runtime-decision-review",
+      "instance-reviewer",
+      "2026-08-26T11:00:00.000Z",
+      "live",
+      null,
+      [],
+    ),
+    row = {
+      ...dispatch(
+        "dispatch-decision-review",
+        session.runtimeSessionId,
+        "",
+        session.instanceId,
+        "2026-08-26T10:30:00.000Z",
+        "running",
+        { agentId: "sol", agentName: "Sol", classification: null, reason: null },
+      ),
+      reviewTarget: {
+        kind: "decision" as const,
+        decisionId: "dec_A64B14D6B7DDCF6A459CCC7A00",
+        digest: `sha256:${"a".repeat(64)}`,
+      },
+    },
+    reads = makeAgentRuntimeReadModel({
+      projection: {
+        ...projectionFixture(),
+        readRuntimeSessions: () => [session],
+        readRuntimeDispatches: () => [runtimeDispatch(session)],
+        readTaskRuntimeBatch: () => ({ rows: [] }),
+      } as unknown as TaskProjection,
+      store: {} as never,
+      stream: {} as never,
+      now: () => "2026-08-26T12:00:00.000Z",
+      readDispatches: () => [row],
+    });
+  assert.deepEqual(
+    reads.sessionGroups({ groupBy: "task" }).groups.map(({ key, kind, decisionId }) => ({
+      key,
+      kind,
+      decisionId,
+    })),
+    [
+      {
+        key: "dec_A64B14D6B7DDCF6A459CCC7A00",
+        kind: "decision",
+        decisionId: "dec_A64B14D6B7DDCF6A459CCC7A00",
+      },
+    ],
+  );
+});
+
 test("exited sessions skip the dispatch-stream evidence read in session groups and overview", () => {
   let evidenceReads = 0;
   const reads = makeAgentRuntimeReadModel({

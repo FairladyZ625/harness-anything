@@ -2,6 +2,7 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   classifyTextualArtifactPath,
+  compileDecisionWrite,
   documentPath,
   resolveHarnessLayout,
   runtimeSessionIdFromActor,
@@ -12,6 +13,8 @@ import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { readWorkspaceText } from "./workspace-text-port.ts";
+import { readDispatchStream } from "./dispatch-stream.ts";
+import { decisionWritePlan } from "@harness-anything/kernel/internal/domain/decision-event";
 
 /**
  * The reviewer-authored Markdown report is the physical credential behind every recorded Review.
@@ -29,16 +32,22 @@ export function assertPhysicalReviewReport(input: {
   readonly rootDir: string;
   readonly packagePath: string | null;
   readonly reviewId: string;
-  readonly taskId: string;
-  readonly verb: "review-execution" | "review-consent";
-}): void {
-  const retry = `ha task ${input.verb} ${input.taskId} --review-id ${input.reviewId}`,
+  readonly subject: string;
+  readonly retry: string;
+}): {
+  readonly path: string;
+  readonly sha256: string;
+  readonly size: DocEventChange["candidate"]["size"];
+  readonly mediaType: "text/markdown";
+  readonly body: string;
+} {
+  const retry = input.retry,
     report = input.packagePath === null ? null : reviewReportRelativePath(input.packagePath, input.reviewId);
   if (report === null)
     throw cellCodedError(
       "review_report_missing",
-      `Review ${input.reviewId} has no resolvable physical report path; run ha task dispatch-review ` +
-        `${input.taskId} or write the reviewer-authored Markdown report under the task package's ` +
+      `Review ${input.reviewId} has no resolvable physical report path; write the reviewer-authored Markdown ` +
+        `report under the ${input.subject} package's ` +
         `artifacts/reports/ directory, then retry ${retry}.`,
     );
   const absolute = path.join(resolveHarnessLayout(input.rootDir).authoredRoot, ...report.split("/"));
@@ -72,6 +81,13 @@ export function assertPhysicalReviewReport(input: {
         "Markdown heading and real findings); provider error output or a placeholder does not qualify. " +
         `Rewrite it, then retry ${retry}.`,
     );
+  return {
+    path: report,
+    sha256: sha256Text(body),
+    size: Buffer.byteLength(body) as DocEventChange["candidate"]["size"],
+    mediaType: "text/markdown",
+    body,
+  };
 }
 
 export function reviewerArtifactsForReview(
@@ -127,4 +143,111 @@ export function reviewerArtifactsForReview(
     };
   });
   return { changes: rows.map(({ change }) => change), blobs: rows.map(({ blob }) => blob) };
+}
+
+export function decisionReviewerArtifact(input: {
+  readonly rootDir: string;
+  readonly projection: RepoCellOperationalContext["projection"];
+  readonly action: RepoTaskAction;
+  readonly binding: RepoCellBinding;
+}): {
+  readonly change: DocEventChange;
+  readonly blob: {
+    readonly sha256: string;
+    readonly size: number;
+    readonly mediaType: "text/markdown";
+    readonly body: string;
+  };
+} | null {
+  const decisionId = String(input.action.decisionId ?? ""),
+    reviewId = String(input.action.reviewId ?? ""),
+    digest = String(input.action.reviewContentDigest ?? ""),
+    reportRef = typeof input.action.reportRef === "string" ? input.action.reportRef.replace(/^harness\//u, "") : null,
+    runtimeSessionId = runtimeSessionIdFromActor(input.binding.actor);
+  if (runtimeSessionId === null) {
+    if (input.binding.actor.executor !== null)
+      throw cellCodedError(
+        "actor_unauthorized",
+        "Decision reviews require a bound reviewer dispatch or a direct human actor.",
+      );
+    const packagePath = `decisions/decision-${decisionId}`,
+      artifact = assertPhysicalReviewReport({
+        rootDir: input.rootDir,
+        packagePath,
+        reviewId,
+        subject: `Decision ${decisionId}`,
+        retry: `ha decision review ${decisionId} --review-id ${reviewId}`,
+      });
+    if (reportRef !== artifact.path)
+      throw cellCodedError("review_report_invalid", `Decision review reportRef must be ${artifact.path}.`);
+    const { path: artifactPath, ...blob } = artifact;
+    return {
+      change: {
+        path: documentPath(artifactPath),
+        baseBlobSha256: input.projection.readDocument(artifactPath).document?.blobSha256 ?? null,
+        candidate: { sha256: artifact.sha256, size: artifact.size, mediaType: artifact.mediaType },
+        policyId: classifyTextualArtifactPath(artifactPath)!.policyId,
+        regionProofs: [],
+      },
+      blob,
+    };
+  }
+  const session = input.projection.readRuntimeSession(runtimeSessionId),
+    dispatch = session && input.projection.readRuntimeDispatch(runtimeSessionId, session.definitionSnapshotRef),
+    dispatchId = dispatch?.payload.dispatchId ?? "",
+    stream = dispatchId ? readDispatchStream(input.rootDir, dispatchId) : null,
+    target = stream?.header.reviewTarget;
+  if (
+    target?.kind !== "decision" ||
+    target.decisionId !== decisionId ||
+    target.digest !== digest ||
+    reviewId !== `review-${dispatchId}`
+  )
+    throw cellCodedError(
+      "actor_unauthorized",
+      "Decision review does not match the dispatch's persisted review target.",
+    );
+  const packagePath = `decisions/decision-${decisionId}`,
+    expected = reviewReportRelativePath(packagePath, reviewId);
+  if (reportRef !== expected)
+    throw cellCodedError("review_report_invalid", `Decision review reportRef must be ${expected}.`);
+  const artifact = assertPhysicalReviewReport({
+      rootDir: input.rootDir,
+      packagePath,
+      reviewId,
+      subject: `Decision ${decisionId}`,
+      retry: `ha decision review ${decisionId} --review-id ${reviewId}`,
+    }),
+    classification = classifyTextualArtifactPath(artifact.path);
+  if (!classification)
+    throw cellCodedError("review_report_invalid", `Decision review report is not textual: ${artifact.path}.`);
+  const { path: artifactPath, ...blob } = artifact;
+  return {
+    change: {
+      path: documentPath(artifactPath),
+      baseBlobSha256: input.projection.readDocument(artifactPath).document?.blobSha256 ?? null,
+      candidate: { sha256: artifact.sha256, size: artifact.size, mediaType: classification.mediaType },
+      policyId: classification.policyId,
+      regionProofs: [],
+    },
+    blob,
+  };
+}
+
+export function attachDecisionReviewerArtifact(
+  bundle: ReturnType<typeof compileDecisionWrite>,
+  input: Parameters<typeof decisionReviewerArtifact>[0],
+): ReturnType<typeof compileDecisionWrite> {
+  const artifact = decisionReviewerArtifact(input);
+  if (!artifact || bundle.event.type !== "decision_review_recorded") return bundle;
+  const event = {
+    ...bundle.event,
+    payload: { ...bundle.event.payload, carriedDocumentClaims: [artifact.change] },
+  };
+  return {
+    ...bundle,
+    event,
+    plan: decisionWritePlan(event),
+    blobs: [...bundle.blobs, artifact.blob],
+  };
 }

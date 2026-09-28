@@ -219,6 +219,26 @@ export function projectDecision(
   );
   runSql(db, UPSERT_DOCUMENT_SQL, claim.path, event.workspaceRevision, canonicalJson(document));
   refreshDecisionDocumentSearch(db, document);
+  if (event.type === "decision_review_recorded")
+    for (const change of event.payload.carriedDocumentClaims ?? []) {
+      const carriedBase = queryRows(db, DOCUMENT_BASE_SQL, change.path)[0],
+        carriedBytes = readBlob(change.candidate.sha256);
+      if (!carriedBytes || carriedBytes.byteLength !== change.candidate.size)
+        throw new Error(`carried document blob ${change.candidate.sha256} is unavailable`);
+      if (change.baseBlobSha256 !== (carriedBase?.blob_sha256 ?? null))
+        throw new Error(`carried document proof mismatch for ${change.path}`);
+      const carriedDocument: DocumentState = {
+        path: change.path as DocumentState["path"],
+        blobSha256: change.candidate.sha256,
+        body: new TextDecoder("utf-8", { fatal: true }).decode(carriedBytes),
+        size: docByteLength(change.candidate.size),
+        mediaType: change.candidate.mediaType,
+        policyId: change.policyId,
+        workspaceRevision: event.workspaceRevision,
+      };
+      runSql(db, UPSERT_DOCUMENT_SQL, change.path, event.workspaceRevision, canonicalJson(carriedDocument));
+      refreshDecisionDocumentSearch(db, carriedDocument);
+    }
 }
 
 export function projectEntityDocumentRematerialization(

@@ -65,6 +65,7 @@ export interface DecisionProjectionRow {
   readonly reviews: DecisionDocumentState["reviews"];
   readonly reviewResponses: DecisionDocumentState["reviewResponses"];
   readonly reviewOverrides: DecisionDocumentState["reviewOverrides"];
+  readonly relations: DecisionDocumentState["relations"];
   readonly amendments?: readonly DecisionAmendmentV1[];
   readonly contentPins?: readonly DecisionContentPinV1[];
   readonly body: DecisionBodyRow | null;

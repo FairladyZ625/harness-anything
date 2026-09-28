@@ -190,6 +190,25 @@ export function decisionWritePlan(event: DecisionEventV1): FrozenWritePlan<"Deci
       projection: "relation-graph/v1",
       key: `decision/${event.decisionId}`,
     });
+  if (event.type === "decision_review_recorded")
+    for (const change of event.payload.carriedDocumentClaims ?? [])
+      targets.push(
+        {
+          kind: "authored_file",
+          path: change.path,
+          operation: "replace",
+          sha256: change.candidate.sha256,
+          size: change.candidate.size,
+          mediaType: change.candidate.mediaType,
+        },
+        {
+          kind: "content_blob",
+          sha256: change.candidate.sha256,
+          size: change.candidate.size,
+          mediaType: change.candidate.mediaType,
+        },
+        { kind: "projection_invalidation", projection: "document/v1", key: change.path },
+      );
   return freezeDeclaredWritePlan({ commandType: "DecisionWrite", targets }, ["DecisionWrite"]);
 }
 export function assertDecisionWritePlan(event: DecisionEventV1, plan: FrozenWritePlan | undefined): void {
@@ -513,12 +532,110 @@ export function decisionReviewContentDigest(value: DecisionDocumentState, docume
     }),
   )}`;
 }
+export interface DecisionAcceptReviewReadiness {
+  readonly ready: boolean;
+  readonly currentDigest: `sha256:${string}`;
+  readonly basis: "review" | "policy_unreviewed" | null;
+  readonly blocker:
+    | {
+        readonly code: "changes_requested";
+        readonly reviewIds: readonly string[];
+        readonly reason: string;
+      }
+    | {
+        readonly code: "unanswered_findings";
+        readonly findings: readonly { readonly reviewId: string; readonly findingId: string }[];
+        readonly reason: string;
+      }
+    | null;
+  readonly next: {
+    readonly action: "accept" | "override-review" | "respond-review";
+    readonly actor: "owner" | "proposer";
+    readonly reason: string;
+  };
+}
+
+export function decisionAcceptReviewReadiness(
+  current: DecisionDocumentState,
+  documentBody: string,
+): DecisionAcceptReviewReadiness {
+  const currentDigest = decisionReviewContentDigest(current, documentBody),
+    blocking = current.reviews
+      .filter((review) => review.reviewContentDigest === currentDigest && review.verdict === "changes_requested")
+      .filter(
+        (review) =>
+          !current.reviewOverrides.some(
+            (override) =>
+              override.reviewContentDigest === currentDigest &&
+              override.reason.trim().length > 0 &&
+              override.reviewIds.includes(review.reviewId),
+          ),
+      );
+  if (blocking.length > 0)
+    return {
+      ready: false,
+      currentDigest,
+      basis: null,
+      blocker: {
+        code: "changes_requested",
+        reviewIds: blocking.map(({ reviewId }) => reviewId),
+        reason: "Current content has unresolved changes_requested reviews.",
+      },
+      next: {
+        action: "override-review",
+        actor: "owner",
+        reason:
+          "The owner must override the named reviews, or the proposer must amend the content and seek review again.",
+      },
+    };
+  const approved = current.reviews.some(
+      (review) => review.reviewContentDigest === currentDigest && review.verdict === "approved",
+    ),
+    unanswered = approved
+      ? []
+      : current.reviews
+          .filter(({ verdict }) => verdict === "changes_requested")
+          .flatMap((review) =>
+            review.findings
+              .filter(
+                ({ findingId }) =>
+                  !current.reviewResponses.some(
+                    (response) => response.reviewId === review.reviewId && response.findingId === findingId,
+                  ),
+              )
+              .map(({ findingId }) => ({ reviewId: review.reviewId, findingId })),
+          );
+  if (unanswered.length > 0)
+    return {
+      ready: false,
+      currentDigest,
+      basis: null,
+      blocker: {
+        code: "unanswered_findings",
+        findings: unanswered,
+        reason: "Historical changes_requested findings require proposer responses before policy-unreviewed acceptance.",
+      },
+      next: {
+        action: "respond-review",
+        actor: "proposer",
+        reason: "The proposer must adopt or rebut every unanswered finding before policy-unreviewed acceptance.",
+      },
+    };
+  return {
+    ready: true,
+    currentDigest,
+    basis: approved ? "review" : "policy_unreviewed",
+    blocker: null,
+    next: { action: "accept", actor: "proposer", reason: "No current-content review blocks acceptance." },
+  };
+}
 export function assertDecisionAcceptReview(
   current: DecisionDocumentState,
   documentBody: string,
   event: Extract<DecisionEventDraftV1, { readonly type: "decision_accepted" }>,
 ): void {
-  const currentDigest = decisionReviewContentDigest(current, documentBody);
+  const readiness = decisionAcceptReviewReadiness(current, documentBody),
+    currentDigest = readiness.currentDigest;
   if (event.payload.expectedDigest !== undefined && event.payload.expectedDigest !== currentDigest)
     invalidDecision(
       `Decision review content changed: expected=${event.payload.expectedDigest} current=${currentDigest}.`,
@@ -554,20 +671,14 @@ export function assertDecisionAcceptReview(
       );
     return;
   }
-  const unresolved = reviews
-    .filter((review) => review.verdict === "changes_requested")
-    .filter((review) => {
-      if (review.submissionDigest !== currentDigest) return false;
-      return !dispositions.some(
-        (disposition) =>
-          disposition.submissionDigest === currentDigest &&
-          disposition.rationale.trim().length > 0 &&
-          disposition.disposedReviewIds.includes(review.reviewId),
-      );
-    });
-  if (unresolved.length > 0)
+  const blocker = readiness.blocker;
+  if (!readiness.ready && blocker)
     invalidDecision(
-      `Decision has unresolved changes_requested reviews: ${unresolved.map((v) => v.reviewId).join(", ")}.`,
+      blocker.code === "changes_requested"
+        ? `Decision has unresolved changes_requested reviews: ${blocker.reviewIds.join(", ")}.`
+        : `Decision has unanswered review findings: ${blocker.findings
+            .map(({ reviewId, findingId }) => `${reviewId}/${findingId}`)
+            .join(", ")}.`,
     );
 }
 export function assertDecisionReviewMutation(

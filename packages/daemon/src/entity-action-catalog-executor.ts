@@ -57,6 +57,8 @@ import { executeRelationAction, publicationKillpoints, reject } from "./entity-a
 import { decisionRelationLinkResolver } from "./entity-document-links.ts";
 import { actionReceiptGuidance } from "./receipt-guidance.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
+import { attachDecisionReviewerArtifact } from "./reviewer-artifact-publication.ts";
+import { decisionReviewState } from "./decision-review-read.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 type FactBundle = ReturnType<typeof compileFactWrite>;
@@ -107,7 +109,11 @@ export function makeEntityActionCatalogExecutor(input: {
         const read = decisions.show(requiredCommandText(action.decisionId, "decisionId"));
         return readReceipt("decision-show", {
           ...read,
-          decision: { ...read.decision, body: action.includeBody === true ? read.decision.body : null },
+          decision: {
+            ...read.decision,
+            ...decisionReviewState(read.decision),
+            body: action.includeBody === true ? read.decision.body : null,
+          },
         });
       }
       if (action.kind === "decision-validate")
@@ -310,9 +316,17 @@ export function makeEntityActionCatalogExecutor(input: {
       );
     if (contract.target.kind === "decision" && !timestamp(occurredAt))
       reject("invalid_command", "decidedAt must be an ISO-8601 UTC timestamp ending in Z.");
-    const bundle =
+    let bundle =
       matchingReplayBundle(input.store, contract, action, existing) ??
       compileAction(contract, action, binding, opId, occurredAt);
+    if (existing === null && action.kind === "decision-review" && isDecisionBundle(bundle)) {
+      bundle = attachDecisionReviewerArtifact(bundle, {
+        rootDir: input.rootDir ?? "",
+        projection: input.projection,
+        action,
+        binding,
+      });
+    }
     if (isRuntimeSessionBundle(bundle)) {
       if (dryRun) reject("invalid_command", `${contract.execution.ingress} does not support --dry-run.`);
       return deriveActionResult(
@@ -564,6 +578,10 @@ function isFactBundle(bundle: CatalogBundle): bundle is FactBundle {
   return bundle.event.schema === "fact-event/v1";
 }
 
+function isDecisionBundle(bundle: CatalogBundle): bundle is DecisionBundle {
+  return bundle.event.schema === "decision-event/v1";
+}
+
 function isEntityBundle(bundle: CatalogBundle): bundle is EntityCatalogBundle {
   return bundle.event.schema === "entity-event/v1";
 }
@@ -608,41 +626,28 @@ function compileDraft(
     document = projection.readDocument(path);
   if (document.watermark !== document.sourceRevision)
     reject("content_not_ready", `Decision document ${path} is pending.`);
-  const relations = projection
-      .readRelationQuery({ ownerRef: `decision/${draft.event.decisionId}` })
-      .rows.map((edge) => ({
-        relation_id: edge.relationId,
-        source: edge.sourceRef,
-        target: edge.targetRef,
-        type: edge.relationType,
-        strength: edge.strength,
-        direction: edge.direction,
-        origin: edge.origin,
-        rationale: edge.rationale,
-        state: edge.state,
-      })),
-    incomingRelations = projection
-      .readDecisionIncomingRelations(draft.event.decisionId)
-      .filter((edge) => {
-        const target = parseEntityRef(edge.targetRef);
-        return target?.kind === "decision" && target.id === draft.event.decisionId;
-      })
-      .map((edge) => ({
-        relation_id: edge.relationId,
-        source: edge.sourceRef,
-        target: edge.targetRef,
-        type: edge.relationType,
-        strength: edge.strength,
-        direction: edge.direction,
-        origin: edge.origin,
-        rationale: edge.rationale,
-        state: edge.state,
-      }));
+  const incomingRelations = projection
+    .readDecisionIncomingRelations(draft.event.decisionId)
+    .filter((edge) => {
+      const target = parseEntityRef(edge.targetRef);
+      return target?.kind === "decision" && target.id === draft.event.decisionId;
+    })
+    .map((edge) => ({
+      relation_id: edge.relationId,
+      source: edge.sourceRef,
+      target: edge.targetRef,
+      type: edge.relationType,
+      strength: edge.strength,
+      direction: edge.direction,
+      origin: edge.origin,
+      rationale: edge.rationale,
+      state: edge.state,
+    }));
   return compileDecisionWrite({
     event: draft.event,
     ...(approval ? { approval } : {}),
     currentDecision: read.decision,
-    currentRelations: relations,
+    currentRelations: read.decision?.relations ?? [],
     currentIncomingRelations: incomingRelations,
     resolveLink: decisionRelationLinkResolver(projection),
     currentDocument: document.document,

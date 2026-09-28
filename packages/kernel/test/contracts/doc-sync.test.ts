@@ -295,6 +295,11 @@ test("opaque textual paths preserve their media type", () => {
     mediaType: "text/markdown",
     policyId: OPAQUE_TEXTUAL_POLICY_ID,
   });
+  assert.deepEqual(classifyTextualArtifactPath("decisions/decision-dec_EXAMPLE/artifacts/reports/review.md"), {
+    kind: "opaque-textual",
+    mediaType: "text/markdown",
+    policyId: "opaque-textual-whole-file/v1",
+  });
 });
 
 test("doc content claims accept only the supported opaque textual media types", () => {

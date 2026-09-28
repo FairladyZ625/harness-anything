@@ -128,6 +128,12 @@ export function readDecisionRows(
           WHERE decision_id = decision.decision_id AND kind = 'override' ORDER BY workspace_revision
         )
       ), '[]') AS review_overrides_json
+      , COALESCE((
+        SELECT json_group_array(row_json) FROM (
+          SELECT row_json FROM relation_edge
+          WHERE owner_ref = 'decision/' || decision.decision_id ORDER BY relation_id
+        )
+      ), '[]') AS relations_json
     FROM requested_decisions JOIN decision ON decision.decision_id = requested_decisions.decision_id ${bodyJoin}
     ORDER BY requested_decisions.request_order`;
   return queryRows<DecisionCollectionRecord>(db, sql, JSON.stringify(decisionIds)).map(decisionCollectionRow);
@@ -159,6 +165,7 @@ interface DecisionCollectionRecord extends ProjectionSqlRow {
   readonly reviews_json: string;
   readonly review_responses_json: string;
   readonly review_overrides_json: string;
+  readonly relations_json: string;
 }
 
 function decisionCollectionRow(row: DecisionCollectionRecord): DecisionProjectionRow {
@@ -182,7 +189,29 @@ function decisionCollectionRow(row: DecisionCollectionRecord): DecisionProjectio
     ),
     amendments = (JSON.parse(row.amendments_json) as string[]).map((value) => JSON.parse(value) as DecisionAmendmentV1),
     pins = (JSON.parse(row.pins_json) as string[]).map((value) => JSON.parse(value) as DecisionContentPinV1),
-    body = row.body_document_json === null ? null : decisionBodyFromDocument(decisionId, row.body_document_json);
+    body = row.body_document_json === null ? null : decisionBodyFromDocument(decisionId, row.body_document_json),
+    reviews = (JSON.parse(row.reviews_json) as string[]).map((value) => JSON.parse(value) as DecisionReviewV1),
+    reviewResponses = (JSON.parse(row.review_responses_json) as string[]).flatMap(
+      (value) => JSON.parse(value) as DecisionReviewResponseV1[],
+    ),
+    reviewOverrides = (JSON.parse(row.review_overrides_json) as string[]).map(
+      (value) => JSON.parse(value) as DecisionReviewOverrideV1,
+    ),
+    reviewState = { reviews, reviewResponses, reviewOverrides },
+    relations = (JSON.parse(row.relations_json) as string[]).map((value) => {
+      const edge = JSON.parse(value) as DecisionRelationEdgeRow;
+      return {
+        relation_id: edge.relationId,
+        source: edge.sourceRef,
+        target: edge.targetRef,
+        type: edge.relationType,
+        direction: edge.direction,
+        strength: edge.strength,
+        origin: edge.origin,
+        rationale: edge.rationale,
+        state: edge.state,
+      };
+    });
   return {
     schema: "decision-row/v1",
     decisionId,
@@ -224,13 +253,8 @@ function decisionCollectionRow(row: DecisionCollectionRecord): DecisionProjectio
       fulfillment: claim.fulfillment,
     })),
     judgmentConsents: consents,
-    reviews: (JSON.parse(row.reviews_json) as string[]).map((value) => JSON.parse(value) as DecisionReviewV1),
-    reviewResponses: (JSON.parse(row.review_responses_json) as string[]).flatMap(
-      (value) => JSON.parse(value) as DecisionReviewResponseV1[],
-    ),
-    reviewOverrides: (JSON.parse(row.review_overrides_json) as string[]).map(
-      (value) => JSON.parse(value) as DecisionReviewOverrideV1,
-    ),
+    ...reviewState,
+    relations,
     ...(amendments.length ? { amendments } : {}),
     ...(pins.length ? { contentPins: pins } : {}),
     body,

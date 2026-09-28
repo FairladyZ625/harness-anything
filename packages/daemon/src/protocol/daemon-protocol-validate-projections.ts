@@ -566,11 +566,23 @@ export function validateDaemonDecisionList(value: unknown): readonly string[] {
       "reviews",
       "reviewResponses",
       "reviewOverrides",
+      "relations",
       "body",
       "capabilities",
       "claimsOpen",
     ],
-    allowed = [...fields, "provenance", "legacyId", "readiness", "amendments", "contentPins"],
+    // readiness, reviewDispatches and the review cut are added by the daemon read surface, not the projection row.
+    allowed = [
+      ...fields,
+      "provenance",
+      "legacyId",
+      "readiness",
+      "amendments",
+      "contentPins",
+      "reviewDispatches",
+      "currentReviewContentDigest",
+      "acceptReviewReadiness",
+    ],
     history = (row: JsonObject) =>
       (row.amendments !== undefined &&
         (!Array.isArray(row.amendments) ||
@@ -648,6 +660,14 @@ export function validateDaemonDecisionList(value: unknown): readonly string[] {
       !Array.isArray(row.judgmentConsents) ||
       !Array.isArray(row.reviews) ||
       !Array.isArray(row.reviewResponses) ||
+      !Array.isArray(row.relations) ||
+      (row.reviewDispatches !== undefined && !Array.isArray(row.reviewDispatches)) ||
+      (row.currentReviewContentDigest !== undefined &&
+        row.currentReviewContentDigest !== null &&
+        !/^sha256:[0-9a-f]{64}$/u.test(String(row.currentReviewContentDigest))) ||
+      (row.acceptReviewReadiness !== undefined &&
+        row.acceptReviewReadiness !== null &&
+        !isJsonObject(row.acceptReviewReadiness)) ||
       !Array.isArray(row.reviewOverrides) ||
       !isJsonObject(row.appliesTo) ||
       !isJsonObject(row.proposer) ||

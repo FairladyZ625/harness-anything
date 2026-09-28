@@ -74,7 +74,15 @@ export function canonicalDocumentClaims(event: PersistedCanonicalEventV1): reado
               : isRelationEvent(event)
                 ? relationEventDocumentClaims(event)
                 : isDecisionEvent(event)
-                  ? [event.payload.decisionDocumentClaim]
+                  ? [
+                      event.payload.decisionDocumentClaim,
+                      ...(event.type === "decision_review_recorded"
+                        ? (event.payload.carriedDocumentClaims ?? []).map(({ path: target, candidate }) => ({
+                            path: target,
+                            ...candidate,
+                          }))
+                        : []),
+                    ]
                   : isMigrationImportEvent(event)
                     ? migrationImportClaims(event)
                     : [];
@@ -179,7 +187,12 @@ export function contentClaims(event: CanonicalEventV1): readonly {
                 : isRelationEvent(event)
                   ? relationEventDocumentClaims(event)
                   : isDecisionEvent(event)
-                    ? [event.payload.decisionDocumentClaim]
+                    ? [
+                        event.payload.decisionDocumentClaim,
+                        ...(event.type === "decision_review_recorded"
+                          ? (event.payload.carriedDocumentClaims ?? []).map((change) => change.candidate)
+                          : []),
+                      ]
                     : isMigrationImportEvent(event)
                       ? migrationImportContentClaims(event)
                       : isAgentRuntimeEvent(event)
