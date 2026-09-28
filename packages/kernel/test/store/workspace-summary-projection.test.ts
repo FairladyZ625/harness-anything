@@ -66,6 +66,12 @@ function ledger() {
         "INSERT INTO task_relation VALUES (?, ?, ?, ?, 'depends-on', 'directed', 'strong', 'authored', ?, '', ?, '', 0, ?, '')",
       ).run(relationId, sourceRef.replace(/^task\//u, ""), sourceRef, targetRef, state, sourceRef, revision);
     },
+    awaits(relationId: string, sourceRef: string, personRef: string, rationale: string) {
+      revision += 1;
+      db.prepare(
+        "INSERT INTO task_relation VALUES (?, ?, ?, ?, 'awaits', 'directed', 'strong', 'authored', 'active', ?, ?, '', 0, ?, '')",
+      ).run(relationId, sourceRef.replace(/^task\//u, ""), sourceRef, personRef, rationale, sourceRef, revision);
+    },
     decision(decisionId: string, state: DecisionState) {
       revision += 1;
       db.prepare(
@@ -85,12 +91,14 @@ function rowByRowCensus(db: DatabaseSync): WorkspaceSummary {
     .prepare("SELECT task_id, status, package_disposition FROM task_snapshot ORDER BY task_id")
     .all() as unknown as { task_id: string; status: string | null; package_disposition: PackageDisposition }[];
   const relations: Array<ReturnType<typeof readTaskRelationPage>["rows"][number]> = [];
-  let cursor: string | undefined;
-  do {
-    const page = readTaskRelationPage(db, { relationType: "depends-on", limit: 500, ...(cursor ? { cursor } : {}) });
-    relations.push(...page.rows);
-    cursor = page.page?.nextCursor ?? undefined;
-  } while (cursor !== undefined);
+  for (const relationType of ["depends-on", "awaits"]) {
+    let cursor: string | undefined;
+    do {
+      const page = readTaskRelationPage(db, { relationType, limit: 500, ...(cursor ? { cursor } : {}) });
+      relations.push(...page.rows);
+      cursor = page.page?.nextCursor ?? undefined;
+    } while (cursor !== undefined);
+  }
   const blocking = new Map(
     blockingOf(
       taskRows.map((row) => ({ taskId: row.task_id, status: row.status ?? "unknown" })),
@@ -141,6 +149,8 @@ function seedCensus(fixture: ReturnType<typeof ledger>): void {
   fixture.dependsOn("rel-l-x", "task/l-waits-on-missing", "task/x-missing");
   fixture.dependsOn("rel-m-a", "task/m-retired-edge", "task/a-planned-waits-on-active", "retired");
   fixture.dependsOn("rel-q-dec", "task/q-waits-on-decision", "decision/dec_B_effect");
+  fixture.task("r-awaits-person", "planned");
+  fixture.awaits("rel-r-person", "task/r-awaits-person", "person/person_owner", "acceptance: try it first");
   // Retired interleaves its two states by decision id; every other group holds one state.
   fixture.decision("dec_A_proposed", "proposed");
   fixture.decision("dec_B_effect", "in_effect");
@@ -158,10 +168,12 @@ test("the SQL census reproduces the row-by-row census field for field", () => {
     seedCensus(fixture);
     const expected = rowByRowCensus(fixture.db);
     assert.deepEqual(readWorkspaceSummaryRows(fixture.db), expected);
-    // The fixture exercises the blocking judgment, not only the plain status counts.
+    // The fixture exercises the blocking judgment, not only the plain status counts. The awaits
+    // edge names a person this projection has no roster for, so it is not current and its task
+    // keeps its own status in both censuses; the agenda integration test covers a current one.
     assert.deepEqual(expected.tasks, {
-      total: 14,
-      byStatus: { planned: 2, active: 2, submitted: 1, blocked: 5, in_review: 1, done: 1, cancelled: 0, unknown: 2 },
+      total: 15,
+      byStatus: { planned: 3, active: 2, submitted: 1, blocked: 5, in_review: 1, done: 1, cancelled: 0, unknown: 2 },
     });
     assert.deepEqual(expected.decisions.groups.find(({ id }) => id === "retired")?.decisionIds, [
       "dec_C_retired",
