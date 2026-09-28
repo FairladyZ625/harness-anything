@@ -96,21 +96,7 @@ export interface GeneratedSettingsCliInputField {
   readonly projection?: "number" | "boolean" | "json-object";
 }
 
-export interface GeneratedSettingsValidationRule {
-  readonly field: string;
-  readonly key?: string;
-  readonly valueKind: "string" | "enum" | "integer" | "boolean" | "string-array" | "gate-mappings";
-  readonly pattern?: string;
-  readonly forbiddenPattern?: string;
-  readonly allowedValues?: readonly string[];
-  readonly minimum?: number;
-  readonly maximum?: number;
-  readonly uniqueItems?: boolean;
-  readonly noneMeansEmpty?: boolean;
-}
-
 export interface GeneratedSettingsFieldProtocolProjection {
   readonly actionInputs: readonly GeneratedSettingsActionInputField[];
   readonly cliInputs: readonly GeneratedSettingsCliInputField[];
-  readonly validations: readonly GeneratedSettingsValidationRule[];
 }

@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import { format } from "prettier";
 import prettierConfig from "../prettier.config.mjs";
 import { getEntityKindContract } from "../packages/kernel/src/index.ts";
-import { SETTINGS_DECLARATION_RUNTIME, SETTINGS_FIELD_DECLARATIONS } from "../packages/kernel/src/domain/settings.ts";
+import { SETTINGS_DECLARATION_RUNTIME } from "../packages/kernel/src/domain/settings.ts";
 
 const target = path.resolve(import.meta.dirname, "../packages/preset/src/task-action-projection.generated.ts"),
   createTarget = path.resolve(import.meta.dirname, "../packages/preset/src/task-create-projection.generated.ts");
@@ -92,24 +92,6 @@ export function projectSettingsFields() {
       ...(values ? { enum: values } : {}),
     })),
     cliInputs: SETTINGS_DECLARATION_RUNTIME.cliInputFields,
-    validations: SETTINGS_FIELD_DECLARATIONS.flatMap((declaration) => {
-      const action = declaration.action;
-      if (!action || action.internal) return [];
-      return [
-        {
-          field: action.field,
-          ...(action.key ? { key: action.key } : {}),
-          valueKind: declaration.valueKind,
-          ...(declaration.pattern ? { pattern: declaration.pattern } : {}),
-          ...(declaration.forbiddenPattern ? { forbiddenPattern: declaration.forbiddenPattern } : {}),
-          ...(declaration.allowedValues ? { allowedValues: declaration.allowedValues } : {}),
-          ...(declaration.minimum !== undefined ? { minimum: declaration.minimum } : {}),
-          ...(declaration.maximum !== undefined ? { maximum: declaration.maximum } : {}),
-          ...(declaration.uniqueItems ? { uniqueItems: true } : {}),
-          ...(declaration.noneMeansEmpty ? { noneMeansEmpty: true } : {}),
-        },
-      ];
-    }),
   };
 }
 

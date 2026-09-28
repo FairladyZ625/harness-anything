@@ -22,6 +22,8 @@ import {
   settingsCliInputFieldsFromDeclarations,
   settingsLocales,
   settingsFieldLabel,
+  worktreeSetupAdapters,
+  worktreeSetupStepPattern,
   type ReviewIndependence,
   type DeclaredSettingsFields,
   type SettingsCliInputField,
@@ -42,6 +44,8 @@ export {
   settingValuePattern,
   settingsLocales,
   settingsFieldLabel,
+  worktreeSetupAdapters,
+  worktreeSetupStepPattern,
   type ReviewIndependence,
   type DeclaredSettingsFields,
   type SettingsCliInputField,
@@ -398,10 +402,16 @@ function readDeclaredSettings(
 
 function readDeclaredField(body: string, declaration: SettingsFieldDeclaration): unknown {
   if (declaration.valueKind === "gate-mappings") return readGateSettings(body);
+  if (declaration.valueKind === "string-array" && declaration.yamlStyle === "block-list")
+    return readDeclaredBlockList(body, declaration);
   const raw =
     settingsScalar(body, declaration.path) ??
     (declaration.legacyPath ? settingsScalar(body, declaration.legacyPath) : undefined);
-  if (raw === undefined) return declaration.defaultValue;
+  if (raw === undefined) {
+    if (declaration.valueKind === "string-array" && settingsPathExists(body, declaration.path))
+      throw new SettingsDeclarationError(`settings.${declaration.path.join(".")} must be an inline array`);
+    return declaration.defaultValue;
+  }
   switch (declaration.valueKind) {
     case "string":
     case "enum":
@@ -417,6 +427,25 @@ function readDeclaredField(body: string, declaration: SettingsFieldDeclaration):
   }
 }
 
+function readDeclaredBlockList(body: string, declaration: SettingsFieldDeclaration): readonly string[] {
+  const lines = body.split(/\r?\n/u),
+    location = locateSettingsPath(lines, declaration.path);
+  if (!location) return declaration.defaultValue as readonly string[];
+  const inline = lines[location.index]!.slice(location.indent + location.key.length + 1).trim();
+  if (inline === "[]") return [];
+  if (inline)
+    throw new SettingsDeclarationError(`settings.${declaration.path.join(".")} must hold a setup: block list`);
+  const end = subtreeEnd(lines, location.index, location.indent),
+    values = lines.slice(location.index + 1, end).flatMap((line) => {
+      if (!line.trim() || line.trimStart().startsWith("#")) return [];
+      const value = new RegExp(`^${" ".repeat(location.indent + 2)}- (\\S.*?)\\s*$`, "u").exec(line)?.[1];
+      if (value === undefined)
+        throw new SettingsDeclarationError(`settings.${declaration.path.join(".")} cannot read line: ${line.trim()}`);
+      return [value];
+    });
+  return parseDeclaredStringArray(values, declaration);
+}
+
 function parseInlineStringArray(raw: string, declaration: SettingsFieldDeclaration): readonly string[] {
   if (!raw.startsWith("[") || !raw.endsWith("]"))
     throw new SettingsDeclarationError(`settings.${declaration.path.join(".")} must be an inline array`);
@@ -426,6 +455,10 @@ function parseInlineStringArray(raw: string, declaration: SettingsFieldDeclarati
         .split(",")
         .map((value) => value.trim())
     : [];
+  return parseDeclaredStringArray(values, declaration);
+}
+
+function parseDeclaredStringArray(values: readonly string[], declaration: SettingsFieldDeclaration): readonly string[] {
   if (
     values.some(
       (value) =>
@@ -459,12 +492,53 @@ function writeDeclaredRepositorySettings(
 }
 
 function writeSettingsScalar(body: string, declaration: SettingsFieldDeclaration, value: unknown): string {
+  if (declaration.valueKind === "string-array" && declaration.yamlStyle === "block-list")
+    return writeDeclaredBlockList(body, declaration, value as readonly string[]);
   const fallback = serializedDeclaredValue(declaration, declaration.defaultValue),
     serialized = serializedDeclaredValue(declaration, value),
     existing = settingsScalar(body, declaration.path);
   if (serialized === undefined) return existing === undefined ? body : removeSettingsScalar(body, declaration.path);
   if (existing === undefined && serialized === fallback) return body;
   return upsertSettingsScalar(body, declaration.path, serialized);
+}
+
+function writeDeclaredBlockList(
+  body: string,
+  declaration: SettingsFieldDeclaration,
+  values: readonly string[],
+): string {
+  const lines = body.split(/\r?\n/u),
+    location = locateSettingsPath(lines, declaration.path),
+    fallback = declaration.defaultValue as readonly string[];
+  if (!values.length && !fallback.length) return location ? removeSettingsSubtree(body, declaration.path) : body;
+  const rendered = values.map((value) => `${" ".repeat(declaration.path.length * 2 + 2)}- ${value}`);
+  if (location) {
+    const end = subtreeEnd(lines, location.index, location.indent);
+    lines.splice(location.index, end - location.index, `${" ".repeat(location.indent)}${location.key}:`, ...rendered);
+    return `${lines.join("\n")}${body.endsWith("\n") ? "\n" : ""}`;
+  }
+  const next = upsertSettingsScalar(body, declaration.path, "[]"),
+    nextLines = next.split(/\r?\n/u),
+    inserted = locateSettingsPath(nextLines, declaration.path)!;
+  nextLines.splice(inserted.index, 1, `${" ".repeat(inserted.indent)}${inserted.key}:`, ...rendered);
+  return `${nextLines.join("\n").replace(/\n$/u, "")}${body.endsWith("\n") ? "\n" : ""}`;
+}
+
+function removeSettingsSubtree(body: string, path: readonly string[]): string {
+  const trailingNewline = body.endsWith("\n"),
+    lines = body.split(/\r?\n/u);
+  if (trailingNewline) lines.pop();
+  const located = locateSettingsPath(lines, path);
+  if (!located) return body;
+  lines.splice(located.index, subtreeEnd(lines, located.index, located.indent) - located.index);
+  for (let depth = path.length - 1; depth > 0; depth -= 1) {
+    const parent = locateSettingsPath(lines, path.slice(0, depth));
+    if (!parent) continue;
+    const end = subtreeEnd(lines, parent.index, parent.indent),
+      hasContent = lines.slice(parent.index + 1, end).some((line) => line.trim() && !line.trimStart().startsWith("#"));
+    if (!hasContent) lines.splice(parent.index, end - parent.index);
+  }
+  return `${lines.join("\n")}${trailingNewline ? "\n" : ""}`;
 }
 
 function serializedDeclaredValue(declaration: SettingsFieldDeclaration, value: unknown): string | undefined {
@@ -671,6 +745,10 @@ function settingsScalar(body: string, path: readonly string[]): string | undefin
   const content = lines[location.index]!.slice(location.indent + location.key.length + 1),
     value = content.replace(/[^\S\r\n]*#.*$/u, "").trim();
   return value || undefined;
+}
+
+function settingsPathExists(body: string, path: readonly string[]): boolean {
+  return locateSettingsPath(body.split(/\r?\n/u), path) !== undefined;
 }
 
 function assertDeclaredNestedKeys(body: string, declarations: readonly SettingsFieldDeclaration[]): void {

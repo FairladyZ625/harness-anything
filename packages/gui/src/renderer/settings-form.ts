@@ -42,6 +42,7 @@ export type SettingsFieldWidget =
   | "enum-select"
   | "catalog-select"
   | "catalog-multi-select"
+  | "string-list"
   | "toggle"
   | "number"
   | "text";
@@ -121,6 +122,15 @@ export function settingsFormRows(fields: readonly SettingsFieldDescriptor[]): re
       case "string":
         return [
           { field: descriptor.field, description: descriptor.description ?? null, widget: "text", options: null },
+        ];
+      case "string-array":
+        return [
+          {
+            field: descriptor.field,
+            description: descriptor.description ?? null,
+            widget: "string-list",
+            options: null,
+          },
         ];
       default:
         return [];

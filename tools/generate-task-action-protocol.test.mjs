@@ -57,6 +57,7 @@ test("Task Action transport has one current build-time projection", async () => 
       "closeoutFactDisposition",
       "closeoutCodeDoc",
       "agendaPinLimit",
+      "worktreeSetup",
       "restoreDrillRetention",
       "gatesFromDocument",
       "gatesDraft",

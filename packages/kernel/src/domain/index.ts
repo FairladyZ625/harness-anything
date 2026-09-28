@@ -250,6 +250,8 @@ export type { ScheduleActionDraft } from "./schedule-action-contract.ts";
 export {
   AGENDA_PIN_LIMIT_SETTING,
   INITIAL_SETTINGS_V1,
+  SETTINGS_DECLARATION_RUNTIME,
+  SettingsDeclarationError,
   SETTINGS_ID,
   SETTINGS_LOCAL_PATH,
   parseLocalSettings,
@@ -258,6 +260,8 @@ export {
   repositorySettings,
   serializeLocalSettings,
   settingValuePattern,
+  worktreeSetupAdapters,
+  worktreeSetupStepPattern,
   validateRepositorySettings,
   validateSettingsV1,
   writeGatesFacet,

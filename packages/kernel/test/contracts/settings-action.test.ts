@@ -453,6 +453,40 @@ test("settings update field surface has one source: the catalog input is the exp
     );
   for (const expected of declared) assert.ok(names.has(expected), `${expected} missing from settingsUpdateInputFields`);
   assert.ok(names.has("agendaPinLimit"));
+  assert.ok(names.has("worktreeSetup"));
+});
+
+test("Settings update records ordered worktree setup steps and clears them with none", () => {
+  const draft = compile({ worktreeSetup: ["node-modules", " run: pip install -e . "] });
+  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
+  assert.deepEqual(draft.result.bundle.event.payload.settings.worktree.setup, [
+    "node-modules",
+    "run: pip install -e .",
+  ]);
+  assert.match(draft.result.bundle.blobs[0].body, /^  worktree:\n    setup:\n      - node-modules\n      - run: pip/mu);
+  assert.deepEqual(readSettingsFacet(draft.result.bundle.blobs[0].body).worktree.setup, [
+    "node-modules",
+    "run: pip install -e .",
+  ]);
+  const cleared = compile(
+    { worktreeSetup: ["none"] },
+    {
+      currentEntity: draft.result.bundle.event.payload.settings,
+      currentDocumentBody: draft.result.bundle.blobs[0].body,
+    },
+  );
+  if (cleared.kind !== "settings" || cleared.result.kind !== "event") throw new Error("missing cleared settings event");
+  assert.deepEqual(cleared.result.bundle.event.payload.settings.worktree.setup, []);
+  assert.doesNotMatch(cleared.result.bundle.blobs[0].body, /worktree:/u);
+});
+
+test("Settings update rejects invalid or duplicate worktree setup steps", () => {
+  for (const worktreeSetup of [["npm"], ["run:"], ["node-modules", "node-modules"], "node-modules"])
+    assert.throws(
+      () => compile({ worktreeSetup }),
+      (error: unknown) => error instanceof SettingsActionError && error.code === "invalid_command",
+      JSON.stringify(worktreeSetup),
+    );
 });
 
 test("repositorySettingsActionValues covers every repository field for a fully populated settings", () => {

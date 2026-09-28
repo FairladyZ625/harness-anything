@@ -2,7 +2,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { projectDecisionReadiness, settingsUpdateInputFields } from "@harness-anything/kernel";
+import {
+  INITIAL_SETTINGS_V1,
+  SETTINGS_DECLARATION_RUNTIME,
+  SettingsDeclarationError,
+  projectDecisionReadiness,
+  settingsUpdateInputFields,
+} from "@harness-anything/kernel";
 import {
   actionForDaemonMethod,
   daemonGuiActionMethods,
@@ -363,6 +369,22 @@ test("repo.settings.update accepts every settings-contract field and nothing els
     payload: { notASettingsField: true, idempotencyKey: "probe" },
   });
   assert.equal(rejected.ok, false);
+});
+
+test("repo.settings.update leaves semantic value rejection to the kernel compiler", () => {
+  const parsed = parseDaemonRpcParams("repo.settings.update", {
+    repo: { repoId: "alpha" },
+    payload: { agendaPinLimit: 0, idempotencyKey: "invalid-limit" },
+  });
+  assert.equal(parsed.ok, true, "the transport accepts a correctly typed numeric setting");
+  if (!parsed.ok) return;
+  const payload = (parsed.params as { readonly payload: Readonly<Record<string, unknown>> }).payload;
+  assert.throws(
+    () => SETTINGS_DECLARATION_RUNTIME.applyRepositoryAction(INITIAL_SETTINGS_V1, payload),
+    (error: unknown) =>
+      error instanceof SettingsDeclarationError &&
+      error.message === "agendaPinLimit must be an integer in its declared range.",
+  );
 });
 function decisionList(readiness: unknown): Record<string, unknown> {
   return {

@@ -41,6 +41,7 @@ export interface SettingsFieldDeclaration<Value = unknown> {
   readonly cli?: SettingsFieldCliDeclaration;
   readonly legacyPath?: readonly [string, ...string[]];
   readonly noneMeansEmpty?: boolean;
+  readonly yamlStyle?: "inline" | "block-list";
 }
 
 export interface SettingsCliInputField extends SettingsFieldCliDeclaration {
@@ -56,6 +57,8 @@ export type ReviewIndependence = (typeof reviewIndependenceLevels)[number];
 export const rolePreferenceFields = ["defaultWorker", "defaultCommander", "defaultReviewer"] as const;
 export const DEFAULT_RESTORE_DRILL_RETENTION = 3;
 export const DEFAULT_CI_WORKFLOWS = Object.freeze([] as const);
+export const worktreeSetupAdapters = ["node-modules"] as const;
+export const worktreeSetupStepPattern = `^(?:${worktreeSetupAdapters.join("|")}|run: \\S.*)$`;
 
 // Owner ruling (Zeyu, 2026-08-31): the idle timer is a floor, not the flush driver. The event and
 // byte triggers stay load-bounded while an hour of idle activity replaces the former ~2s cadence.
@@ -297,6 +300,24 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     description: "Maximum number of entities pinned to the repository agenda.",
     action: { field: "agendaPinLimit", type: "number" },
     cli: { name: "--agenda-pin-limit", kind: "single", regex: "^[1-9][0-9]*$" },
+  }),
+  defineSettingsField({
+    path: ["worktree", "setup"],
+    ownership: repository,
+    valueKind: "string-array",
+    defaultValue: Object.freeze([] as readonly string[]),
+    pattern: worktreeSetupStepPattern,
+    uniqueItems: true,
+    description: "Ordered preparation steps run in every new task worktree.",
+    action: { field: "worktreeSetup", type: "string-array" },
+    cli: {
+      name: "--worktree-setup",
+      kind: "repeated",
+      regex: `^(?:none|${worktreeSetupStepPattern.slice(1, -1)})$`,
+      format: `built-in adapter (${worktreeSetupAdapters.join(", ")}), run: <command>, or none to clear`,
+    },
+    noneMeansEmpty: true,
+    yamlStyle: "block-list",
   }),
   defineSettingsField({
     path: ["restoreDrillRetention"],

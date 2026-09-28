@@ -351,6 +351,17 @@ function renderFieldControl(
           onChange={(next) => updateDraft(row.field, next)}
         />
       );
+    case "string-list": {
+      const value = draft[row.field];
+      return (
+        <SettingLinesInput
+          label={row.field}
+          testId={testId ?? `settings-${row.field}-input`}
+          value={Array.isArray(value) ? value : []}
+          onChange={(next) => updateDraft(row.field, next)}
+        />
+      );
+    }
     case "enum-select":
       return (
         <SettingSelect
@@ -457,6 +468,45 @@ function SettingNumberInput({
       }}
     />
   );
+}
+
+function SettingLinesInput({
+  label,
+  testId,
+  value,
+  onChange,
+}: {
+  readonly label: string;
+  readonly testId: string;
+  readonly value: readonly string[];
+  readonly onChange: (next: readonly string[]) => void;
+}) {
+  const [text, setText] = useState(value.join("\n")),
+    joined = value.join("\n");
+  useEffect(() => {
+    if (lines(text).join("\n") !== joined) setText(joined);
+  }, [joined]);
+  return (
+    <textarea
+      aria-label={label}
+      data-testid={testId}
+      rows={Math.max(2, value.length + 1)}
+      placeholder={t("views.settingsView.worktreeSetupPlaceholder")}
+      className="w-80 rounded border border-border bg-surface-raised px-2 py-1 font-mono ui-meta text-text"
+      value={text}
+      onChange={(event) => {
+        setText(event.currentTarget.value);
+        onChange(lines(event.currentTarget.value));
+      }}
+    />
+  );
+}
+
+function lines(text: string): readonly string[] {
+  return text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
 }
 
 /** string-array 的目录多选:每个取值一个 checkbox,全不勾 = 空集合(合法且有意义:

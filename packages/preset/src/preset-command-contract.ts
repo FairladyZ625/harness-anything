@@ -22,7 +22,6 @@ export type {
   GeneratedTaskActionProtocolDeclaration,
   GeneratedSettingsActionInputField,
   GeneratedSettingsCliInputField,
-  GeneratedSettingsValidationRule,
   RpcShape,
 } from "./preset-command-contract-support.ts";
 

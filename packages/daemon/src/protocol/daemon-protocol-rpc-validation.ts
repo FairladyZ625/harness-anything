@@ -363,60 +363,24 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
 }
 
 function validProjectedSettingsAction(value: Readonly<JsonObject>): boolean {
-  const rules = generatedSettingsFieldProtocolProjection.validations,
-    groupedFields = new Set(rules.flatMap(({ field, key }) => (key === undefined ? [] : [field])));
-  for (const field of groupedFields) {
-    if (!Object.hasOwn(value, field)) continue;
-    const group = value[field];
-    if (!isJsonObject(group)) return false;
-    const fieldRules = rules.filter((rule) => rule.field === field && rule.key !== undefined);
-    for (const [key, entry] of Object.entries(group)) {
-      const rule = fieldRules.find((candidate) => candidate.key === key);
-      if (!rule || (entry !== null && !validProjectedSettingsValue(entry, rule))) return false;
+  return generatedSettingsFieldProtocolProjection.actionInputs.every(({ field, type }) => {
+    if (!Object.hasOwn(value, field)) return true;
+    const candidate = value[field];
+    switch (type) {
+      case "number":
+        return typeof candidate === "number";
+      case "boolean":
+        return typeof candidate === "boolean";
+      case "string-array":
+      case "fact-hold-array":
+      case "json-object-array":
+        return Array.isArray(candidate);
+      case "json-object":
+        return isJsonObject(candidate);
+      default:
+        return typeof candidate === "string";
     }
-  }
-  return rules.every((rule) =>
-    rule.key !== undefined || !Object.hasOwn(value, rule.field)
-      ? true
-      : validProjectedSettingsValue(value[rule.field], rule),
-  );
-}
-
-function validProjectedSettingsValue(
-  value: unknown,
-  rule: (typeof generatedSettingsFieldProtocolProjection.validations)[number],
-): boolean {
-  switch (rule.valueKind) {
-    case "string": {
-      if (typeof value !== "string" || !value.trim()) return false;
-      return rule.pattern === undefined || new RegExp(rule.pattern, "u").test(value.trim());
-    }
-    case "enum":
-      return typeof value === "string" && rule.allowedValues?.includes(value) === true;
-    case "integer":
-      return (
-        Number.isSafeInteger(value) &&
-        (rule.minimum === undefined || Number(value) >= rule.minimum) &&
-        (rule.maximum === undefined || Number(value) <= rule.maximum)
-      );
-    case "boolean":
-      return typeof value === "boolean" || value === "true" || value === "false";
-    case "string-array": {
-      if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) return false;
-      if (rule.noneMeansEmpty && value.length === 1 && value[0] === "none") return true;
-      const strings = value.map((entry) => entry.trim());
-      return (
-        strings.every(
-          (entry) =>
-            (rule.pattern === undefined || new RegExp(rule.pattern, "u").test(entry)) &&
-            (rule.forbiddenPattern === undefined || !new RegExp(rule.forbiddenPattern, "u").test(entry)),
-        ) &&
-        (!rule.uniqueItems || new Set(strings).size === strings.length)
-      );
-    }
-    case "gate-mappings":
-      return Array.isArray(value) && value.every(isJsonObject);
-  }
+  });
 }
 
 export function exactCwd(value: unknown): boolean {
