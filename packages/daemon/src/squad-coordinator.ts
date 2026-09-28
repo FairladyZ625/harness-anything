@@ -11,7 +11,7 @@ import {
   type CanonicalEventStore,
   type TaskProjection,
 } from "@harness-anything/kernel";
-import { appendRuntimeWorkerRecord, readDispatchStreamSummaries } from "./dispatch-stream.ts";
+import { appendRuntimeWorkerRecord } from "./dispatch-stream.ts";
 import { storedAgentDeclarationOutcome } from "./agent-declaration-resolution.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
@@ -37,8 +37,8 @@ import {
   type LeaderTurn,
   type WorkerAttempt,
   type WorkerPlan,
-  type WorkerWaitTrigger,
 } from "./squad-leader-decision.ts";
+import { latestSquadStates, squadState, terminal, validSquadRunId, type SquadState } from "./squad-run-state.ts";
 import {
   activePhase,
   detailDto,
@@ -60,36 +60,6 @@ import type {
 } from "./squad-run-contract.ts";
 import { isAvailableSquadRunSummary } from "./squad-run-contract.ts";
 import { checkWorkerOwnership, overlappingWorkerPaths, type WorkerOwnershipCheck } from "./squad-worker-ownership.ts";
-
-export type SquadState = {
-  readonly schema: "squad-run/v1";
-  readonly squadRunId: string;
-  readonly stateDispatchId: string | null;
-  readonly squadId: string;
-  readonly taskId: string;
-  readonly runtimeInstanceId: string;
-  readonly cwd: string;
-  readonly baseSha: string | null;
-  readonly mission: string;
-  readonly model: string | null;
-  readonly effort: string | null;
-  readonly permissionMode?: string | null;
-  readonly leaderAgentId: string;
-  readonly roster: string;
-  readonly workers: readonly string[];
-  readonly leaderTurnBudget: number;
-  readonly binding: RuntimeBinding;
-  readonly leaderTurns: readonly LeaderTurn[];
-  readonly leaderProviderSessionId: string | null;
-  readonly currentLeaderRuntimeSessionId: string | null;
-  readonly workerAttempts: readonly WorkerAttempt[];
-  readonly observedWorkerRuntimeSessionIds: readonly string[];
-  readonly workerWaits: readonly WorkerWaitTrigger[];
-  readonly pendingLeaderTriggers: readonly LeaderTrigger[];
-  readonly phase: SquadRunPhase;
-  readonly revision: number;
-  readonly error: string | null;
-};
 
 type RuntimeOutcomeEvent = Extract<AgentRuntimeEventV1, { readonly type: "runtime_session_outcome_observed" }>;
 
@@ -953,35 +923,8 @@ export function makeSquadCoordinator(input: {
   function ensureSquadRunProjection(): void {
     const projection = input.projection();
     if (projection.squadRunProjectionReady()) return;
-    const states = new Map<string, SquadState>();
-    for (const stream of readDispatchStreamSummaries(input.rootDir)) {
-      for (const record of stream.records) {
-        if (record.kind === "squad_run_cancelled") {
-          const squadRunId = record.squadRunId,
-            revision = record.revision;
-          if (typeof squadRunId !== "string" || !Number.isSafeInteger(revision)) continue;
-          const current = states.get(squadRunId);
-          if (current && current.revision < Number(revision))
-            states.set(squadRunId, {
-              ...current,
-              currentLeaderRuntimeSessionId: null,
-              workerWaits: [],
-              pendingLeaderTriggers: [],
-              phase: "cancelled",
-              revision: Number(revision),
-              error: null,
-            });
-          continue;
-        }
-        if (record.kind !== "squad_run_state") continue;
-        const state = squadState(record.state);
-        if (!state) continue;
-        const current = states.get(state.squadRunId);
-        if (!current || current.revision < state.revision) states.set(state.squadRunId, state);
-      }
-    }
     projection.replaceSquadRuns(
-      [...states.values()].map((state) => ({
+      [...latestSquadStates(input.rootDir).values()].map((state) => ({
         squadRunId: state.squadRunId,
         revision: state.revision,
         state,
@@ -1018,35 +961,11 @@ export function makeSquadCoordinator(input: {
   return { start, status, cancel, list, read, observeOutcome, reconcile };
 }
 
-function squadState(value: unknown): SquadState | null {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const row = value as Partial<SquadState>;
-  return row.schema === "squad-run/v1" &&
-    typeof row.squadRunId === "string" &&
-    (row.baseSha === undefined || row.baseSha === null || typeof row.baseSha === "string") &&
-    validSquadRunId(row.squadRunId) &&
-    typeof row.stateDispatchId === "string" &&
-    Array.isArray(row.leaderTurns) &&
-    Array.isArray(row.workerAttempts) &&
-    Array.isArray(row.observedWorkerRuntimeSessionIds) &&
-    Array.isArray(row.workerWaits) &&
-    Array.isArray(row.pendingLeaderTriggers) &&
-    Number.isSafeInteger(row.leaderTurnBudget) &&
-    Number(row.leaderTurnBudget) >= 1 &&
-    typeof row.revision === "number"
-    ? ({ ...value, baseSha: row.baseSha ?? null } as SquadState)
-    : null;
-}
-
 function revise(
   state: SquadState,
   change: Partial<Omit<SquadState, "schema" | "squadRunId" | "revision">>,
 ): SquadState {
   return { ...state, ...change, revision: state.revision + 1 };
-}
-
-function terminal(state: SquadState): boolean {
-  return state.phase === "cancelled" || state.phase === "converged" || state.phase === "failed";
 }
 
 function requiredSquadText(value: unknown, field: string): string {
@@ -1066,10 +985,6 @@ function requiredReceiptText(receipt: JsonObject, field: string): string {
 function receiptHint(receipt: JsonObject): string {
   const error = receipt.error && typeof receipt.error === "object" ? (receipt.error as Record<string, unknown>) : null;
   return typeof error?.hint === "string" ? error.hint : "Runtime dispatch was rejected.";
-}
-
-function validSquadRunId(value: unknown): value is string {
-  return typeof value === "string" && /^squad_[a-f0-9]{24}$/u.test(value);
 }
 
 function errorText(error: unknown): string {

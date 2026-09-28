@@ -16,6 +16,7 @@ import {
   reclaimManagedWorktree,
   repositoryBaseRef,
   type ManagedWorktree,
+  type WorktreeReclaim,
 } from "./schedule-occurrence-workspace.ts";
 import { runWorktreeSetup, worktreeSetupFailure, type WorktreeSetupResult } from "./worktree-setup.ts";
 
@@ -219,20 +220,83 @@ export async function applyTaskWorktreeLifecycle(
         ? action.taskIds.filter((id): id is string => typeof id === "string")
         : [];
   let settled = receipt;
-  for (const taskId of new Set([...taskIds, ...worktreeDirectories(input.rootDir)])) {
+  for (const row of await reconcileClosedTaskWorktrees(input, taskIds)) {
+    if (row.result.outcome === "retained" && row.named) settled = withNotes(settled, [], [row.detail!]);
+    else if (row.result.outcome === "removed")
+      settled = withNotes(
+        settled,
+        [row.detail ?? `Worktree ${row.worktree.cwd} and branch ${row.worktree.branch} removed.`],
+        [],
+      );
+  }
+  return settled;
+}
+
+/** One reconciliation row: what this node still holds for a closed task, and what the reclaim did to it. */
+export interface ReconciledTaskWorktree {
+  readonly taskId: string;
+  /** True when the closing write itself named this task, so a retained worktree is its warning to carry. */
+  readonly named: boolean;
+  readonly worktree: ManagedWorktree;
+  readonly result: WorktreeReclaim;
+  readonly detail: string | null;
+}
+
+/**
+ * The reentrant reconciliation both a close and a daemon start run: every directory under this node's `.worktrees/`
+ * names a task, and each task the ledger says is closed has its worktree reclaimed here and now. Inputs come from
+ * the shared ledger; the directories are this node's own — each node reconciles only what it holds.
+ */
+export async function reconcileClosedTaskWorktrees(
+  input: TaskWorktreeLifecycleInput,
+  namedTaskIds: readonly string[] = [],
+): Promise<readonly ReconciledTaskWorktree[]> {
+  const rows: ReconciledTaskWorktree[] = [];
+  for (const taskId of new Set([...namedTaskIds, ...worktreeDirectories(input.rootDir)])) {
     const task = input.readTask(taskId),
       binding = taskWorktreeBinding(task, input.readPresetSnapshot),
       cwd = binding && task && taskClosed(task) ? path.join(input.rootDir, binding.path) : null,
       baseRef = cwd && existsSync(cwd) ? repositoryBaseRef(input.rootDir) : null;
     if (!binding || !cwd || !baseRef) continue;
     const worktree: ManagedWorktree = { cwd, branch: binding.branch, baseRef },
-      result = await reclaimManagedWorktree(input.rootDir, worktree),
-      detail = reclaimDetail("Worktree", worktree, result);
-    if (result.outcome === "retained" && taskIds.includes(taskId)) settled = withNotes(settled, [], [detail!]);
-    else if (result.outcome === "removed")
-      settled = withNotes(settled, [detail ?? `Worktree ${worktree.cwd} and branch ${worktree.branch} removed.`], []);
+      result = await reclaimManagedWorktree(input.rootDir, worktree);
+    rows.push({
+      taskId,
+      named: namedTaskIds.includes(taskId),
+      worktree,
+      result,
+      detail: reclaimDetail("Worktree", worktree, result),
+    });
   }
-  return settled;
+  return rows;
+}
+
+/** What a daemon start adds to the shared sweep: the orphan cancellations, and how the rows are reported. */
+export interface StartupTaskWorktreeReconciliation {
+  /** Cancels the child tasks rejected Squad attempts left behind; the caller's write surface owns how. */
+  readonly cancelSquadOrphans: () => Promise<void> | void;
+  /** Removals and retentions a person can find later; defaults to the daemon log with a [task-worktree] prefix. */
+  readonly report?: (note: string, warning: boolean) => void;
+}
+
+/**
+ * What a daemon start runs once per attached repository: the same reconciliation a close runs, with one addition a
+ * close cannot make — the cancelling writes for rejected Squad children, which would deadlock inside a write turn.
+ */
+export async function reconcileAbandonedTaskWorktrees(
+  input: TaskWorktreeLifecycleInput,
+  startup: StartupTaskWorktreeReconciliation,
+): Promise<void> {
+  await startup.cancelSquadOrphans();
+  const report =
+    startup.report ?? ((note, warning) => (warning ? console.warn : console.log)(`[task-worktree] ${note}`));
+  for (const row of await reconcileClosedTaskWorktrees(input)) {
+    if (row.result.outcome === "absent") continue;
+    report(
+      row.detail ?? `Worktree ${row.worktree.cwd} and branch ${row.worktree.branch} removed.`,
+      row.result.outcome === "retained",
+    );
+  }
 }
 
 /** The directories under this node's `.worktrees/`; each task-bound one is named by its task id. */

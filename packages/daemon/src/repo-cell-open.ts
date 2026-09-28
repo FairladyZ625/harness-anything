@@ -43,6 +43,7 @@ import {
   type RepoCellOperationalContext,
   type RepoCellRuntimeContext,
 } from "./repo-cell-action-context.ts";
+import { taskWorktreeInput } from "./repo-cell-action-dispatch.ts";
 import { createRepoCellApi } from "./repo-cell-api.ts";
 import { dispatchRead } from "./repo-cell-command.ts";
 import { publishTaskArtifact } from "./doc-sync-actions.ts";
@@ -86,6 +87,8 @@ import {
 } from "./runtime-spawn.ts";
 import { openTerminalHost } from "./terminal-host.ts";
 import { makeSquadCoordinator } from "./squad-coordinator.ts";
+import { cancelRejectedSquadChildren } from "./squad-run-state.ts";
+import { reconcileAbandonedTaskWorktrees } from "./task-worktree.ts";
 import { createSquadChild, publishSquadChildDocument, reacquireSquadTaskLease } from "./repo-cell-squad-child.ts";
 import { makeAgentActionRuntime, makeSquadActionRuntime } from "./squad-action-runtime.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
@@ -968,6 +971,18 @@ export async function openRepoWriterCell(
   };
   await runtimeSpawner.adopt();
   schedule(() => squadCoordinator.reconcile());
+  // The close-run reconciliation, once more at attach: failed reclaims and rejected Squad children get another chance.
+  schedule(() =>
+    reconcileAbandonedTaskWorktrees(taskWorktreeInput(operationalContext), {
+      cancelSquadOrphans: () =>
+        cancelRejectedSquadChildren({
+          rootDir,
+          readTask: (taskId) => projection.read(taskId).snapshot.task,
+          cancel: (action, binding, actionId) =>
+            extracted.taskSurfaceWrite(action, authorizeRuntimeAction(action, binding, actionId)),
+        }),
+    }),
+  );
 
   const apiContext = {
     extracted: operationalContext,

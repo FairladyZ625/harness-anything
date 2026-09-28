@@ -1,4 +1,4 @@
-import type { SquadState } from "./squad-coordinator.ts";
+import type { SquadState } from "./squad-run-state.ts";
 import type { TaskDispatchRow } from "./protocol/daemon-protocol.contract.ts";
 import { squadAttemptStatus } from "./squad-leader-decision.ts";
 import {
