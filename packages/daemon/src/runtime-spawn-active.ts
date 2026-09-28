@@ -34,6 +34,7 @@ type ActiveRuntimeBase = Omit<
   | "toolCallCount"
   | "usageReported"
   | "providerToolSteps"
+  | "toolStepSettled"
   | "compacted"
   | "rawUsage"
   | "fallbackAttempt"
@@ -74,6 +75,7 @@ export function createActiveRuntime(base: ActiveRuntimeBase): ActiveRuntime {
     toolCallCount: 0,
     usageReported: false,
     providerToolSteps: new Set(),
+    toolStepSettled: new Map(),
     compacted: false,
     rawUsage: {},
   };

@@ -207,6 +207,8 @@ export type ActiveRuntime = {
   toolCallCount: number;
   usageReported: boolean;
   providerToolSteps: Set<string>;
+  /** Provider tool step id -> whether that step reached a terminal state; settled stays settled. */
+  toolStepSettled: Map<string, boolean>;
   compacted: boolean;
   rawUsage: Record<string, unknown>;
 };
@@ -223,6 +225,7 @@ export type ProviderFrame = {
   readonly toolCallObserved?: boolean;
   readonly providerUsageEmpty?: boolean;
   readonly providerFault?: RuntimeProviderFault;
+  readonly toolStep?: { readonly id: string; readonly settled: boolean };
   /** Model ids the provider advertised on session establishment (ACP kinds). */
   readonly observedModels?: readonly string[];
   readonly observedCurrentModel?: string;

@@ -266,6 +266,7 @@ function active(overrides: Partial<ActiveRuntime>): ActiveRuntime {
     planObserved: false,
     writeItemObserved: false,
     lossReason: null,
+    toolStepSettled: new Map(),
     ...overrides,
   } as ActiveRuntime;
 }
