@@ -17,7 +17,6 @@ import {
   waivableAutomatedFail,
   type CompletionEvidenceV1,
   type FrozenGateRequirement,
-  type SettingsV1,
 } from "@harness-anything/kernel";
 import type { TaskLifecycleSnapshot } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
@@ -25,7 +24,6 @@ import { gate as validateGateWitnessWire } from "../src/protocol/daemon-protocol
 import { attestGateWitness, witnessAdapters } from "../src/repo-cell-witness-adapters.ts";
 import { strandedDelivery } from "../src/repo-cell-ci-evidence.ts";
 import { fetchCiObservations } from "../src/ci-observation-actions.ts";
-import { proofFor } from "../src/repo-cell-proof.ts";
 import { runProcessExitAsync } from "../src/process-port.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import type { RepoCellBinding, Snapshot } from "../src/repo-cell-types.ts";
@@ -306,36 +304,6 @@ test("a delivery is stranded only when no run on the frozen CI branch can ever c
     git(root, "merge", "-qm", "merge delivery", cutSha);
     git(root, "update-ref", "refs/remotes/origin/main", "main");
     assert.equal(stranded(cutSha), false, "the commit itself reached main");
-
-    // Only a consented return asks the stranded question; the kernel lifts consent finality on its answer.
-    const consented = lifecycleFixture({ taskId: "task", complete: false }).snapshot,
-      adjudication = (decision: "return" | "forward", sha: string) => {
-        const snapshot = {
-          ...consented,
-          executions: consented.executions.map((value) => ({
-            ...value,
-            submission: { ...value.submission!, commitSha: sha, completionContract: { gates: [githubRequirement()] } },
-          })),
-        } as unknown as Snapshot;
-        return proofFor(
-          {
-            type: "AdjudicateSubmission",
-            taskId: "task",
-            executionId: snapshot.executions[0]!.executionId,
-            decision,
-            reason: "rework",
-            actor: snapshot.task!.createdBy,
-          } as unknown as Parameters<typeof proofFor>[0],
-          snapshot,
-          { ...binding, authorizationDecision: { outcome: "allowed", policyRef: "policy" } } as RepoCellBinding,
-          {} as Parameters<typeof proofFor>[3],
-          root,
-          () => ({}) as SettingsV1,
-        );
-      };
-    assert.equal((await adjudication("return", "f".repeat(40))).strandedDelivery, true);
-    assert.equal((await adjudication("return", cutSha)).strandedDelivery, undefined);
-    assert.equal((await adjudication("forward", "f".repeat(40))).strandedDelivery, undefined);
 
     const observed = submittedExecution("f".repeat(40), [githubRequirement()]),
       cell = Object.assign(cellStub(root, observed), {

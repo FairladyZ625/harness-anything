@@ -180,8 +180,6 @@ export interface AdjudicationProof {
   readonly actorBinding: ActorAxes;
   readonly capability: "task-adjudicate@v1";
   readonly capabilityRef: string;
-  /** Daemon-verified: no run of the frozen CI branch can ever cover the cut's delivery commit. */
-  readonly strandedDelivery?: true;
 }
 export interface ReviewProof {
   readonly actorBinding: ActorAxes;

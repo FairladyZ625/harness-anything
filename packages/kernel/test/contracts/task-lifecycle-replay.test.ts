@@ -83,7 +83,7 @@ test("Execution receipts distinguish undeclared gates from required missing witn
   assert.match(codeDoc, /- Code-doc witness: pending/u);
 });
 
-test("owner consent excludes a return unless the consented delivery is stranded", () => {
+test("the owner may return a consented cut for a fresh iteration", () => {
   const { snapshot } = lifecycleFixture({ complete: false }),
     command = {
       ...normalizeTaskLifecycleCommand(
@@ -101,24 +101,120 @@ test("owner consent excludes a return unless the consented delivery is stranded"
       workspaceRevision: snapshot.revision + 1,
       occurredAt: "2026-08-11T00:07:00.000Z",
     };
+  const nonOwner = { principal: { personId: "person-non-owner" }, executor: null } as const,
+    nonOwnerCommand = {
+      ...normalizeTaskLifecycleCommand(
+        { workspaceId: "workspace-1", actor: nonOwner, source: "local", expectedRevision: snapshot.revision },
+        {
+          type: "AdjudicateSubmission",
+          taskId: snapshot.task!.taskId,
+          executionId: snapshot.executions[0]!.executionId,
+          decision: "return" as const,
+          reason: "A non-owner attempts to reject the approved cut.",
+          reviewId: snapshot.reviews[0]!.reviewId,
+        },
+      ),
+      eventId: "event-non-owner-return-after-consent",
+      workspaceRevision: snapshot.revision + 1,
+      occurredAt: "2026-08-11T00:07:00.000Z",
+    };
   assert.throws(
     () =>
-      applyTransition(snapshot, command, {
-        actorBinding: implementer,
+      applyTransition(snapshot, nonOwnerCommand, {
+        actorBinding: nonOwner,
         capability: "task-adjudicate@v1",
         capabilityRef: "cap-adjudicate",
       }),
-    /already has owner consent/u,
+    /task-owning principal/u,
   );
   const returned = applyTransition(snapshot, command, {
     actorBinding: implementer,
     capability: "task-adjudicate@v1",
     capabilityRef: "cap-adjudicate",
-    strandedDelivery: true,
   });
   assert.equal(returned.event.type, "submission_returned");
   assert.equal(returned.snapshot.task?.status, "active");
   assert.equal(returned.snapshot.executions[0]?.state, "changes_requested");
+  assert.equal(returned.snapshot.consents.length, 1, "the historical cut retains its consent record");
+
+  const secondExecutionId = "execution-after-consented-return",
+    started = applyTransition(
+      returned.snapshot,
+      {
+        ...normalizeTaskLifecycleCommand(
+          {
+            workspaceId: "workspace-1",
+            actor: implementer,
+            source: "local",
+            expectedRevision: returned.snapshot.revision,
+          },
+          {
+            type: "StartExecution",
+            taskId: snapshot.task!.taskId,
+            executionId: secondExecutionId,
+          },
+        ),
+        eventId: "event-start-after-consented-return",
+        workspaceRevision: returned.snapshot.revision + 1,
+        occurredAt: "2026-08-11T00:08:00.000Z",
+      },
+      {
+        actorBinding: implementer,
+        deliveryBaseline: { kind: "commit", commitSha: "0".repeat(40) },
+        reservation: {
+          taskId: snapshot.task!.taskId,
+          executionId: secondExecutionId,
+          expiresAt: "2026-08-11T01:08:00.000Z",
+          ttlMs: 1_800_000,
+          previousHolder: null,
+          reason: "initial_claim",
+          version: 0,
+        },
+      },
+    );
+  assert.equal(started.snapshot.task?.iteration, 1);
+  assert.equal(started.snapshot.executions.at(-1)?.executionId, secondExecutionId);
+  const resubmitted = applyTransition(
+    started.snapshot,
+    {
+      ...normalizeTaskLifecycleCommand(
+        {
+          workspaceId: "workspace-1",
+          actor: implementer,
+          source: "local",
+          expectedRevision: started.snapshot.revision,
+        },
+        {
+          type: "SubmitExecution",
+          taskId: snapshot.task!.taskId,
+          executionId: secondExecutionId,
+          submission: {
+            completionClaim: "reworked cut",
+            deliverables: [],
+            outputs: [],
+            verificationNotes: ["tests"],
+            knownGaps: [],
+            residualRisks: [],
+            commitSha: "b".repeat(40),
+            completionContract: { gates: [] },
+          },
+        },
+      ),
+      eventId: "event-resubmit-after-consented-return",
+      workspaceRevision: started.snapshot.revision + 1,
+      occurredAt: "2026-08-11T00:09:00.000Z",
+    },
+    { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" },
+  );
+  assert.equal(resubmitted.snapshot.executions.at(-1)?.state, "submitted");
+  assert.equal(
+    resubmitted.snapshot.consents.some((value) => value.executionId === secondExecutionId),
+    false,
+  );
+  assert.equal(
+    resubmitted.snapshot.reviews.some((value) => value.executionId === secondExecutionId),
+    false,
+  );
 });
 
 test("an owner return publishes its instruction as a managed task document", () => {

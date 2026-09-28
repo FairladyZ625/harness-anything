@@ -35,7 +35,6 @@ import { makeGitReadinessSource } from "./process-port.ts";
 import { remoteDefaultBranch } from "./schedule-occurrence-workspace.ts";
 import { readDispatchStream } from "./dispatch-stream.ts";
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
-import { strandedDelivery } from "./repo-cell-ci-evidence.ts";
 import { readTaskLineageDispatches } from "./dispatch-read.ts";
 import { reviewDispatchKey } from "./task-review-dispatch.ts";
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
@@ -331,20 +330,11 @@ export async function proofFor(
             ].join("")
           : "Adjudication requires an existing task owner.",
       );
-    const consentedReturn =
-      command.decision === "return" && snapshot.consents.some((value) => value.executionId === command.executionId);
     return {
       actorBinding: command.actor,
       capability: "task-adjudicate@v1",
       capabilityRef: authorizationDecision.policyRef,
       authorizationDecision,
-      ...(consentedReturn &&
-      strandedDelivery(
-        rootDir,
-        snapshot.executions.find((value) => value.executionId === command.executionId)?.submission,
-      )
-        ? { strandedDelivery: true as const }
-        : {}),
     };
   }
   if (command.type === "RecordReviewConsent") {
