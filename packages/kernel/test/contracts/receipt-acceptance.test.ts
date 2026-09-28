@@ -258,6 +258,20 @@ test("a draft that wrote nothing settles as settled_no_write instead of unknown,
   );
   assert.match(
     validateReceiptAcceptance({ ...receipt, outcome: "pending" }).join("\n"),
-    /settled_no_write requires no_changes/u,
+    /settled_no_write requires no_changes or applied/u,
+  );
+  // A local action that finished without writing the ledger is an applied no-write: no interval, no proof.
+  const appliedNoWrite = { ...receipt, outcome: "applied" };
+  assert.deepEqual(validateReceiptAcceptance(appliedNoWrite), []);
+  assert.match(
+    validateReceiptAcceptance({ ...appliedNoWrite, acceptance: accepted.acceptance, opId: "command" }).join("\n"),
+    /unaccepted receipt requires acceptance:null/u,
+  );
+  assert.match(
+    validateWriteReceipt({
+      ...appliedNoWrite,
+      proof: { committedRevision: 2, appliedCut: 2, durable: true, canonicalVisible: true, worktreeVisible: true },
+    }).join("\n"),
+    /unaccepted receipt must not carry committed proof/u,
   );
 });

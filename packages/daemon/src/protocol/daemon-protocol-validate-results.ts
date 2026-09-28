@@ -490,7 +490,11 @@ export function writeReceipt(value: JsonObject): string[] {
     return [validationError(entityId, "revision", value.revision, "must be an integer")];
   if ((applied || pending || noChanges) && !nonEmpty(value.evidence))
     return [validationError(entityId, "evidence", value.evidence, "must be a non-empty string")];
-  if (applied && (!proof.durable || !proof.canonicalVisible || proof.committedRevision !== proof.appliedCut))
+  if (
+    applied &&
+    !unaccepted &&
+    (!proof.durable || !proof.canonicalVisible || proof.committedRevision !== proof.appliedCut)
+  )
     return [validationError(entityId, "proof", value.proof, "must prove durable canonical visibility at one cut")];
   if (pending && (!Array.isArray(value.guidance) || value.guidance.length === 0))
     return [validationError(entityId, "guidance", value.guidance, "must include structured guidance")];

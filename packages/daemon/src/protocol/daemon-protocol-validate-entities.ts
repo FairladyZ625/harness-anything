@@ -674,8 +674,8 @@ export function validateReceiptAcceptanceWire(value: Readonly<Record<string, unk
   const errors: string[] = [];
   if (!["accepted_durable", "rejected", "settled_no_write", "unknown"].includes(String(value.status)))
     errors.push("receipt status is invalid");
-  if (value.status === "settled_no_write" && value.outcome !== "no_changes")
-    errors.push("settled_no_write requires no_changes");
+  if (value.status === "settled_no_write" && value.outcome !== "no_changes" && value.outcome !== "applied")
+    errors.push("settled_no_write requires no_changes or applied");
   if (value.outcome === "no_changes" && value.status === "unknown")
     errors.push("no_changes requires accepted_durable, rejected, or settled_no_write");
   if (value.status === "accepted_durable") {
@@ -718,8 +718,9 @@ export function validateReceiptAcceptanceWire(value: Readonly<Record<string, unk
     )
       errors.push(`${name} must report an independent verified cut or pending state`);
   }
-  if (value.outcome === "applied" && value.status !== "accepted_durable")
-    errors.push("applied requires accepted_durable");
+  // An applied receipt either carries its committed interval or settles as a determinate no-write.
+  if (value.outcome === "applied" && value.status !== "accepted_durable" && value.status !== "settled_no_write")
+    errors.push("applied requires accepted_durable or settled_no_write");
   if (
     "wait" in value &&
     (!isJsonObject(value.wait) ||

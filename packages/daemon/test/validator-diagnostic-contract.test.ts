@@ -46,6 +46,16 @@ test("unaccepted pending and no-op receipts carry no fabricated committed proof"
   assert.deepEqual(writeReceipt(noOp), []);
   assert.match(writeReceipt({ ...noOp, status: "unknown" }).join("\n"), /no_changes requires/u);
   assert.match(writeReceipt({ ...pending, outcome: "applied" }).join("\n"), /applied requires accepted_durable/u);
+  const appliedNoWrite = { ...pending, outcome: "applied", status: "settled_no_write" };
+  delete appliedNoWrite.guidance;
+  assert.deepEqual(writeReceipt(appliedNoWrite), []);
+  assert.match(
+    writeReceipt({
+      ...appliedNoWrite,
+      proof: { committedRevision: 1, appliedCut: 1, durable: true, canonicalVisible: true, worktreeVisible: true },
+    }).join("\n"),
+    /must be absent without a committed acceptance/u,
+  );
   assert.match(
     writeReceipt({
       ...pending,

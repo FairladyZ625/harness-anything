@@ -84,6 +84,10 @@ test("wire acceptance agrees with domain acceptance for committed receipts and n
   check({ ...noWrite, status: "settled_no_write" }, true);
   check({ ...noWrite, status: "unknown" }, false);
   check({ ...noWrite, status: "settled_no_write", outcome: "pending" }, false);
+  // A finished local action that wrote nothing to the ledger is a determinate applied no-write.
+  check({ ...noWrite, status: "settled_no_write", outcome: "applied" }, true);
+  check({ ...noWrite, status: "unknown", outcome: "applied" }, false);
+  check({ ...receipt, status: "settled_no_write" }, false);
   check({ ...receipt, outcome: "no_changes", status: "settled_no_write" }, false);
   check({ ...receipt, status: "rejected" }, false);
   check({ ...receipt, status: "invalid" }, false);

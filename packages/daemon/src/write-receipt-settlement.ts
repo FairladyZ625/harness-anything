@@ -13,6 +13,8 @@ const canonicalSettlementActions = new Set(
     .filter(({ receiptSettlement }) => receiptSettlement === "canonical-acceptance")
     .map(({ kind }) => kind),
 );
+// These actions write local files (the preset store, a distill candidate), never the ledger.
+const ledgerFreeActions = new Set(["preset-install", "preset-seed", "preset-uninstall", "distill-candidate"]);
 
 /**
  * Settlement tail of RepoCell.run: attach SQLite acceptance to durable write receipts, honor
@@ -31,6 +33,8 @@ export async function settleWriteReceipt(
     receipt.effects[0] === "settings-local/locale_changed"
   )
     return receipt;
+  if (ledgerFreeActions.has(action.kind))
+    return receipt.outcome === "applied" ? { ...receipt, status: "settled_no_write" } : receipt;
   if (!canonicalSettlementActions.has(action.kind) && action.kind !== "receipt-show") return receipt;
   const read = () =>
     relationWorktreeSettlement(
