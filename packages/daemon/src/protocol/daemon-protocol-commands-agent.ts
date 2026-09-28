@@ -220,10 +220,10 @@ export const agentProtocolCommands = Object.freeze([
     id: "squad-status",
     phase: "Runtime-B",
     path: ["squad", "status", "<squad-run-id>"],
-    summary: "Read a durable Squad run and its leader and worker dispatches.",
+    summary: "Read a durable Squad run and its leader and worker dispatches; --wait blocks until the run settles.",
     method: "repo.task.read",
     positional: "squadRunId",
-    inputs: [],
+    inputs: [cliInput("--wait", "boolean", false, { code: "invalid_field" })],
   }),
   defineRuntimeLocalWriteCommand({
     id: "squad-cancel",

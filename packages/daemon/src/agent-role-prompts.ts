@@ -15,7 +15,12 @@ export const sharedExecutionDiscipline = `# Harness Execution Discipline
   an awaits Relation when the dispatch allows ledger writes: \`ha relation relate --source-ref task/<task-id>
   --target-ref person/<person-id> --type awaits --rationale "<question|acceptance|consent|reopen>: <the ask>"
   --expected-version 0\`. It lists in that person's \`ha agenda\` and holds the task until they retire it with
-  their answer. Otherwise put the exact ask in your report; never leave it only in markdown or chat.`;
+  their answer. Otherwise put the exact ask in your report; never leave it only in markdown or chat.
+- When you dispatch with \`--detach\`, the receipt names a wait command (\`ha runtime status <id> --wait\`, or
+  \`ha squad status <id> --wait\` for a Squad run) that blocks until settlement. Run it as a background command if your
+  host wakes you when one exits; otherwise run it in the foreground. Wait on several dispatches with one
+  \`ha runtime status <id> <id> --wait\` (it returns when the first settles; \`--all\` waits for every one). After
+  settlement, read the dispatch report (\`ha task dispatches <task-id>\`) before acting on the result.`;
 
 const mutatorDiscipline = [
   "# Implementation Permissions",
@@ -73,6 +78,10 @@ ${[
     "with a complete bilingual PR " +
     "following `.github/pull_request_template.md`, include the combined child evidence, then dispatch the ledger " +
     "reviewer with `ha task adjudicate --forward`.",
+  "- Inside a Squad run, Harness spawns your workers and calls you back with their receipts; return the waiting " +
+    "decision instead of blocking. When you dispatch children yourself, wait on all of them in one " +
+    "`ha runtime status <id> <id> --wait`, re-run it on the ids its nextAction lists, and integrate each " +
+    "child's commit only after reading its report.",
   "- Track CI and review through approval, then hand the PR and evidence to the CEO. " +
     "Do not merge the PR or merge into main; final merge authority belongs to the CEO.",
 ].join("\n")}

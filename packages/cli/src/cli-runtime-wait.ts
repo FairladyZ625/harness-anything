@@ -86,7 +86,10 @@ export async function waitForRuntimeSessions(
         : daemonGoneReceipt("runtime-status", result.cause, "unknown", {
             ...(taskIds.length > 0 ? { taskIds } : { runtimeSessionIds }),
           });
-    return runtimeAwaitReceipt(result, spawned);
+    return withSettledNextAction(
+      runtimeAwaitReceipt(result, spawned),
+      target?.taskId ?? (taskIds.length === 1 ? taskIds[0] : associatedTaskId(result)),
+    );
   } finally {
     statusReader?.close();
     detach?.();
@@ -120,6 +123,48 @@ function runtimeAwaitReceipt(result: JsonObject, spawned: JsonObject | undefined
       (typeof winner?.reason === "string" && winner.reason) ||
       `runtime-run: ${String(result.outcome)}`,
   };
+}
+
+/** A detached dispatch hands its caller the whole wait: the command that blocks until settlement,
+ * how to run it whatever the host, how to fold several dispatches into one wait, and what follows. */
+export function detachedWaitGuidance(waitCommand: string, taskId: string | undefined, squad = false): string {
+  return [
+    `wait: ${waitCommand} blocks until settlement; run it as a background command if your host wakes you ` +
+      "when one exits, otherwise run it in the foreground.",
+    ...(squad
+      ? []
+      : [
+          "several dispatches: ha runtime status <id> <id> ... --wait returns when the first settles " +
+            "(--all waits for every one); ha runtime status --task <task-id> --wait covers a task's dispatches.",
+        ]),
+    `after settlement: ${afterSettlement(taskId, squad)}`,
+  ].join("\n");
+}
+
+function afterSettlement(taskId: string | undefined, squad = false): string {
+  if (taskId === undefined) return "read the result in the settled receipt before acting on it.";
+  return (
+    `read the report (ha task dispatches ${taskId} lists reportPath) before acting on it` +
+    (squad ? "." : `; once the task is submitted, run ha task adjudicate ${taskId} --forward.`)
+  );
+}
+
+/** A settled wait names what comes next unless the daemon already did: the dispatches still in flight
+ * to wait on again, else the report and adjudication of the settled task. */
+function withSettledNextAction(receipt: JsonObject, taskId: string | undefined): JsonObject {
+  if (receipt.ok !== true || typeof receipt.nextAction === "string") return receipt;
+  const inFlight = (Array.isArray(receipt.inFlight) ? receipt.inFlight : []).flatMap((row) =>
+    row && typeof row === "object" && !Array.isArray(row) && typeof row.runtimeSessionId === "string"
+      ? [row.runtimeSessionId]
+      : [],
+  );
+  if (inFlight.length > 0) return { ...receipt, nextAction: `ha runtime status ${inFlight.join(" ")} --wait` };
+  return taskId === undefined ? receipt : { ...receipt, nextAction: afterSettlement(taskId) };
+}
+
+function associatedTaskId(result: JsonObject): string | undefined {
+  const taskId = (result as unknown as Partial<AgentRuntimeSessionResult>).session?.associations[0]?.taskId;
+  return typeof taskId === "string" ? taskId : undefined;
 }
 
 /** The attach stream renders live activity while the daemon await runs. Its terminal signal no

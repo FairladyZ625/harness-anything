@@ -100,3 +100,24 @@ test("commander owns verified integration and PR delivery without merge authorit
   assert.doesNotMatch(prompt, /Stop at a local commit|runtime publishes worker/u);
   assert.doesNotMatch(prompt, /if stashing is unavoidable/u);
 });
+
+for (const role of [undefined, "worker", "commander"] as const)
+  test(`${role ?? "undeclared"} dispatches carry the host-neutral wait discipline`, () => {
+    const prompt = assembleUnboundPrompt("Dispatch and integrate.", role);
+    assert.match(prompt, /`ha runtime status <id> --wait`.*`ha squad status <id> --wait`.*blocks until settlement/su);
+    assert.match(
+      prompt,
+      /background command if your\s+host wakes you when one exits; otherwise run it in the foreground/u,
+    );
+    assert.match(prompt, /`ha runtime status <id> <id> --wait` \(it returns when the first settles; `--all`/u);
+    assert.match(prompt, /read the dispatch report \(`ha task dispatches <task-id>`\) before acting/u);
+  });
+
+test("commander folds child waits and leaves Squad callbacks to Harness", () => {
+  const prompt = assembleUnboundPrompt("Integrate the mission.", "commander");
+  assert.match(
+    prompt,
+    /Inside a Squad run, Harness spawns your workers and calls you back.*return the waiting decision/su,
+  );
+  assert.match(prompt, /wait on all of them in one `ha runtime status <id> <id> --wait`.*nextAction lists/su);
+});

@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
+import { isRuntimeFacadeCommand } from "../src/cli-runtime-command.ts";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 
 test("squad cancel routes a required run id through the daemon", () => {
@@ -89,4 +90,17 @@ test("Squad status renders token, tool-call, and compaction metrics for each att
       "worker worker-1: status=succeeded tokens=80in/20out tools=2 compacted=false",
     ].join("\n"),
   });
+});
+
+test("squad status --wait routes through the CLI wait instead of a single daemon read", () => {
+  const squadRunId = "squad_0123456789abcdef01234567",
+    read = parseThinCommand(["squad", "status", squadRunId]),
+    waited = parseThinCommand(["squad", "status", squadRunId, "--wait"]);
+  assert.equal(read.ok && waited.ok, true);
+  if (!read.ok || !waited.ok) return;
+  assert.deepEqual(read.command.action, { kind: "squad-status", squadRunId });
+  assert.equal(isRuntimeFacadeCommand(read.command), false);
+  assert.deepEqual(waited.command.action, { kind: "squad-status", squadRunId, wait: true });
+  assert.equal(isRuntimeFacadeCommand(waited.command), true);
+  assert.equal(parseThinCommand(["squad", "status", squadRunId, "--bogus"]).ok, false);
 });
