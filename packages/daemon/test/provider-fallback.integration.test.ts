@@ -574,7 +574,7 @@ test("a short provider rate-limit reset is waited out and retried on the same pr
         cwd: request.cwd,
         prompt: request.prompt,
       }),
-      runtimeLaunch: (prepared) => {
+      runtimeLaunch: () => {
         launches += 1;
         return rateLimitedThenSuccessProcess(++pid, launches === 1);
       },

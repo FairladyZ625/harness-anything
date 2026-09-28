@@ -181,7 +181,8 @@ test("unscoped overview hides exited history and short session ids resolve or li
         ),
       );
     }
-    append(paddedEvent("runtime_session_exited", { runtimeSessionId: "runtime-exited-old" }, (revision += 1)));
+    revision += 1;
+    append(paddedEvent("runtime_session_exited", { runtimeSessionId: "runtime-exited-old" }, revision));
     const reads = makeAgentRuntimeReadModel({ store, projection, stream });
     // The unscoped overview is the `ha runtime status` default: exited history stays out;
     // live, stale, and unknown sessions all stay in.
