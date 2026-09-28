@@ -49,6 +49,9 @@ import {
 import { graphDensityPreferenceStorage, readGraphDensityFocusMode } from "../graph-density-preferences";
 import { useGraphDensity } from "../graph/useGraphDensity.ts";
 
+/** 领地初始视口:y 让出顶部悬浮 Panel(左上筛选条、居中模式条)的高度加边距。 */
+const TERRITORY_VIEWPORT = { x: 0, y: 64, zoom: 1 } as const;
+
 export type ViewMode = "territory" | "spotlight";
 
 export interface GraphViewProps {
@@ -394,10 +397,11 @@ function GraphViewInner({
 
   // 视口策略(与老版同源):聚光灯 fitView 在 EgoNeighborhood 内;领地**不 fitView** ——
   // 上千块 fit 进一屏正是「块被压成几像素细横条」的成因,领地以默认视口(zoom 1,
-  // 左上角)打开,块保持可读尺寸,漫游交给 pan/zoom + MiniMap。
+  // 左上角)打开,块保持可读尺寸,漫游交给 pan/zoom + MiniMap。首帧由 defaultViewport 定位
+  // (此时实例未就绪,setViewport 不生效);切回领地时由这里复位。
   useEffect(() => {
     if (viewMode !== "territory") return;
-    const frame = requestAnimationFrame(() => void setViewport({ x: 0, y: 0, zoom: 1 }, { duration: 200 }));
+    const frame = requestAnimationFrame(() => void setViewport(TERRITORY_VIEWPORT, { duration: 200 }));
     return () => cancelAnimationFrame(frame);
   }, [setViewport, viewMode, skel]);
 
@@ -534,6 +538,7 @@ function GraphViewInner({
             <ReactFlow
               nodes={territoryNodes}
               nodeTypes={nodeTypes}
+              defaultViewport={TERRITORY_VIEWPORT}
               colorMode={colorMode}
               minZoom={0.05}
               maxZoom={2}
