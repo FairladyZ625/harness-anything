@@ -45,26 +45,31 @@ export async function withAutostart(
         timeoutMs: Math.max(0, budgetMs - (Date.now() - startedAt)),
       });
     if (!changed.ok) return daemonRestartingReceipt(Date.now() - startedAt, 0);
-    // Leave room for autostart's two bounded socket probes so the whole
-    // recovery path, including an unreachable Unix socket, stays inside the
-    // caller-visible budget.
-    const probeReserveMs = 550,
-      remainingMs = budgetMs - (Date.now() - startedAt) - probeReserveMs;
-    if (remainingMs <= 0) return daemonRestartingReceipt(Date.now() - startedAt, 0);
-    const started = await ensureLocalDaemonRunning({
-      socketPath,
-      invokingRoot: options.invokingRoot,
-      launch,
-      readyTimeoutMs: remainingMs,
-      extendTimeoutWhileProgressing: false,
-      onProgress: (progress) => process.stderr.write(`${progress.message}\n`),
-    });
-    if (!started.ok) {
-      // A runtime or worktree caller is allowed to wait for a supervisor-owned
-      // replacement, but it must never inherit authority to spawn that daemon.
-      if (started.code === "daemon_start_runtime_forbidden" || started.code === "daemon_start_noncanonical_checkout")
-        return daemonRestartingReceipt(Date.now() - startedAt, 0);
-      throw new DaemonAutostartError(started);
+    // A caller without autostart (a parked wait) must never spawn a daemon, and readiness probing
+    // spawns one whenever the successor's socket is not bound yet. It resends straight away and a
+    // still-unbound socket reaches that caller's own reconnect loop as an unreachable error.
+    if (options.autostart) {
+      // Leave room for autostart's two bounded socket probes so the whole
+      // recovery path, including an unreachable Unix socket, stays inside the
+      // caller-visible budget.
+      const probeReserveMs = 550,
+        remainingMs = budgetMs - (Date.now() - startedAt) - probeReserveMs;
+      if (remainingMs <= 0) return daemonRestartingReceipt(Date.now() - startedAt, 0);
+      const started = await ensureLocalDaemonRunning({
+        socketPath,
+        invokingRoot: options.invokingRoot,
+        launch,
+        readyTimeoutMs: remainingMs,
+        extendTimeoutWhileProgressing: false,
+        onProgress: (progress) => process.stderr.write(`${progress.message}\n`),
+      });
+      if (!started.ok) {
+        // A runtime or worktree caller is allowed to wait for a supervisor-owned
+        // replacement, but it must never inherit authority to spawn that daemon.
+        if (started.code === "daemon_start_runtime_forbidden" || started.code === "daemon_start_noncanonical_checkout")
+          return daemonRestartingReceipt(Date.now() - startedAt, 0);
+        throw new DaemonAutostartError(started);
+      }
     }
     try {
       const retried = await request();
@@ -72,7 +77,7 @@ export async function withAutostart(
       return { ...retried, daemonRestart: { waitedMs: Date.now() - startedAt, retries: 1 } };
     } catch (error) {
       const { isDaemonUnreachable } = await import("@harness-anything/daemon/internal/client/daemon-autostart");
-      if (isDaemonUnreachable(error)) return daemonRestartingReceipt(Date.now() - startedAt, 1);
+      if (options.autostart && isDaemonUnreachable(error)) return daemonRestartingReceipt(Date.now() - startedAt, 1);
       throw error;
     }
   } catch (error) {

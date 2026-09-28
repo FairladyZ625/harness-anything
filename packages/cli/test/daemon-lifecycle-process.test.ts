@@ -7,7 +7,10 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { pathToFileURL } from "node:url";
-import { readDaemonStartProgress, type DaemonLaunchSpec } from "@harness-anything/daemon/internal/client/daemon-autostart";
+import {
+  readDaemonStartProgress,
+  type DaemonLaunchSpec,
+} from "@harness-anything/daemon/internal/client/daemon-autostart";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { daemonProcessAlive, daemonSingletonLockPath } from "@harness-anything/daemon/internal/daemon-singleton";
 import { openDaemonLifecycleLog } from "@harness-anything/daemon/internal/lifecycle-log";
@@ -393,6 +396,49 @@ test("daemon_stopping waits for the replacement generation and resends exactly o
   } finally {
     clearTimeout(replace);
     await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("daemon_stopping without autostart resends to the successor and never launches a daemon", async () => {
+  // A parked wait answered daemon_stopping after its successor wrote the pid but before it bound the
+  // socket: readiness probing would spawn a daemon of its own that races the successor for the socket.
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-restart-no-autostart-")),
+    daemonId = "restart-no-autostart",
+    pidPath = daemonPidPath(parent, daemonId),
+    unbound = Object.assign(new Error("connect ENOENT"), { code: "ENOENT" });
+  let calls = 0,
+    launches = 0;
+  writeFileSync(pidPath, "111\n");
+  try {
+    await assert.rejects(
+      withAutostart(
+        async () => {
+          calls += 1;
+          if (calls > 1) throw unbound;
+          writeFileSync(pidPath, "222\n");
+          return { ok: false, code: "daemon_stopping" };
+        },
+        () => {
+          launches += 1;
+          return unusedLaunch();
+        },
+        path.join(parent, "unbound.sock"),
+        {
+          autostart: false,
+          env: {},
+          invokingRoot: process.cwd(),
+          userRoot: parent,
+          daemonId,
+          restartBudgetMs: 1_000,
+          commandCategory: "operation",
+        },
+      ),
+      (error) => error === unbound,
+    );
+    assert.equal(calls, 2, "the idempotent request is resent to the successor exactly once");
+    assert.equal(launches, 0, "a caller without autostart never launches a daemon");
+  } finally {
     rmSync(parent, { recursive: true, force: true });
   }
 });
