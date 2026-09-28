@@ -1,14 +1,15 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { bindWriterGenerationToken } from "@harness-anything/kernel";
+import { bindWriterGenerationToken, resolveHarnessLayout } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {
   bootstrapRepo,
+  removeHarnessIgnoreRules,
   resolveRepoBootstrap,
   type RepoBootstrapReceipt,
   type RepoBootstrapRequest,
@@ -122,6 +123,28 @@ test("bootstrap reports an actionable identity error without git user.name", () 
       if (previousSystem === undefined) delete process.env.GIT_CONFIG_SYSTEM;
       else process.env.GIT_CONFIG_SYSTEM = previousSystem;
     }
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("init ignores the task worktrees directory and undoing it removes only the rules it added", () => {
+  const rootDir = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-bootstrap-ignore-")));
+  try {
+    git(rootDir, "init", "-q");
+    writeFileSync(path.join(rootDir, ".gitignore"), "user-rule\n");
+    assert.equal(init(rootDir, false).publication.ok, true);
+    const ignorePath = path.join(rootDir, ".gitignore");
+    assert.deepEqual(readFileSync(ignorePath, "utf8").split("\n"), [
+      "user-rule",
+      "/harness/",
+      "/.harness/",
+      "/.worktrees/",
+      "",
+    ]);
+    const layout = resolveHarnessLayout(rootDir);
+    removeHarnessIgnoreRules(rootDir, layout.authoredRoot, layout.localRoot);
+    assert.equal(readFileSync(ignorePath, "utf8"), "user-rule\n");
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

@@ -715,7 +715,8 @@ function projectRelativePaths(
   localRoot: string,
 ): readonly string[] {
   const canonicalRoot = realpathSync.native(rootDir);
-  return [authoredRoot, localRoot].map((target) =>
+  // Task worktrees are checked out under <root>/.worktrees/<task-id> (deriveTaskWorktreeBinding).
+  return [authoredRoot, localRoot, path.join(rootDir, ".worktrees")].map((target) =>
     path
       .relative(projectRoot, path.join(canonicalRoot, path.relative(rootDir, target)))
       .split(path.sep)
