@@ -69,6 +69,9 @@ export function addDecision(context: MigrationImportContext, row: ColdDecisionPr
           relations: [],
           provenance: [],
           judgmentConsents: [],
+          reviews: [],
+          reviewResponses: [],
+          reviewOverrides: [],
         },
         sourceBody = context.utf8File(context.sourceRoot, row.path),
         body = renderDecisionDocument(

@@ -128,6 +128,8 @@ export function authorizeDurableRepoCellAction(
       return authorizeRepoCellAction(input);
     case "decision-defer":
       return authorizeRepoCellAction(input);
+    case "decision-dispatch-review":
+      return authorizeRepoCellAction(input);
     case "decision-propose":
       return authorizeRepoCellAction(input);
     case "decision-reckon":
@@ -137,6 +139,12 @@ export function authorizeDurableRepoCellAction(
     case "decision-rematerialize":
       return authorizeRepoCellAction(input);
     case "decision-repin":
+      return authorizeRepoCellAction(input);
+    case "decision-review":
+      return authorizeRepoCellAction(input);
+    case "decision-respond-review":
+      return authorizeRepoCellAction(input);
+    case "decision-override-review":
       return authorizeRepoCellAction(input);
     case "decision-retire":
       return authorizeRepoCellAction(input);

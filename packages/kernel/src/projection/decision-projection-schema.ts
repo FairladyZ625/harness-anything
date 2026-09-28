@@ -59,6 +59,13 @@ export function createDecisionProjectionTables(db: DatabaseSync): void {
       workspace_revision INTEGER NOT NULL,
       value_json TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS decision_review_event (
+      event_id TEXT PRIMARY KEY,
+      decision_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      workspace_revision INTEGER NOT NULL,
+      value_json TEXT NOT NULL
+    );
     CREATE VIRTUAL TABLE IF NOT EXISTS decision_fts USING fts5(
       decision_id UNINDEXED,
       title,
@@ -74,5 +81,7 @@ export function createDecisionProjectionTables(db: DatabaseSync): void {
       ON decision_judgment_consent(decision_id, workspace_revision);
     CREATE INDEX IF NOT EXISTS decision_amendment_owner ON decision_amendment(decision_id, workspace_revision);
     CREATE INDEX IF NOT EXISTS decision_content_pin_owner ON decision_content_pin(decision_id, workspace_revision);
+    CREATE INDEX IF NOT EXISTS decision_review_event_owner
+      ON decision_review_event(decision_id, workspace_revision);
   `);
 }

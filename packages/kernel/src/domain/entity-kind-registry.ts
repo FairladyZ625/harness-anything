@@ -546,6 +546,9 @@ const decisionActionCatalog = Object.freeze({
     decisionWriteAction("propose", "decision-propose"),
     ...decisionTransitionDefinitions.map(({ action }) => decisionWriteAction(action, `decision-${action}`)),
     ...Object.values(decisionAuxiliaryActions).map(([id, ingress]) => decisionWriteAction(id, ingress)),
+    decisionWriteAction("review", "decision-review"),
+    decisionWriteAction("respond-review", "decision-respond-review"),
+    decisionWriteAction("override-review", "decision-override-review"),
     decisionWriteAction("transition", "decision-transition"),
     executableAction(
       "decision",

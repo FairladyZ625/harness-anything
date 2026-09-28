@@ -127,6 +127,7 @@ export {
   compileDecisionWrite,
   decisionDocumentProse,
   decisionMachineDigest,
+  decisionReviewContentDigest,
   decisionStates,
   decisionWritePlan,
 } from "./decision-event.ts";

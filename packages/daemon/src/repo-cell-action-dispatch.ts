@@ -25,7 +25,7 @@ import { assertExecutionExecutorDeclarationEligible } from "./repo-cell-executio
 import { runLedgerReconcileAction } from "./repo-cell-migration-actions.ts";
 import { type RepoCellBinding, type RepoTaskAction, type Snapshot } from "./repo-cell-types.ts";
 import { readTaskLineageDispatches } from "./dispatch-read.ts";
-import { dispatchTaskReview } from "./task-review-dispatch.ts";
+import { dispatchDecisionReview, dispatchTaskReview } from "./task-review-dispatch.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { runFactAction } from "./repo-cell-fact-action.ts";
 import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts";
@@ -154,6 +154,7 @@ async function executeRepoAction(
   if (action.kind === "graph") return cell.graphView(action, binding);
   if (action.kind === "task-review") return cell.reviewTask(action, binding);
   if (action.kind === "task-dispatch-review") return dispatchTaskReview(cell, action, binding);
+  if (action.kind === "decision-dispatch-review") return dispatchDecisionReview(cell, action, binding);
   if (action.kind === "distill-candidate") {
     const taskId = cell.requiredCellText(action.taskId, "taskId");
     if (!cell.projection.read(taskId).snapshot.task)

@@ -517,6 +517,20 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     divergence: "entity-scoped",
   },
   {
+    word: "adopt",
+    entity: "Review",
+    field: "response disposition",
+    meaning: "The proposal owner accepts a review finding and names the change that answers it.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "rebut",
+    entity: "Review",
+    field: "response disposition",
+    meaning: "The proposal owner disagrees with a review finding and records the reason.",
+    divergence: "entity-scoped",
+  },
+  {
     word: "dismissed",
     entity: "Review",
     field: "verdict",

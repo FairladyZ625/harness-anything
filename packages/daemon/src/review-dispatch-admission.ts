@@ -2,6 +2,25 @@ import { currentSubmittedExecutions, type ExecutionV1 } from "@harness-anything/
 import type { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 
+export function assertReviewerTarget(input: {
+  readonly reviewer: boolean;
+  readonly taskId: string | null;
+  readonly decisionTarget: object | null;
+  readonly executionId: string | undefined;
+  readonly remoteExecutionId: string | undefined;
+  readonly remote: boolean;
+}): void {
+  if (input.reviewer && input.taskId === null && input.decisionTarget === null)
+    throw runtimeSpawnError("invalid_runtime_spawn", "Reviewer dispatch requires a task or Decision review target.");
+  if (input.executionId !== undefined && (!input.reviewer || input.decisionTarget !== null))
+    throw runtimeSpawnError("invalid_runtime_spawn", "executionId only applies to a Task reviewer dispatch.");
+  if (input.reviewer && input.taskId !== null && input.remote && input.remoteExecutionId === undefined)
+    throw runtimeSpawnError(
+      "review_target_missing",
+      `Remote task context for ${input.taskId} returned no submitted execution to review.`,
+    );
+}
+
 /** A reviewer dispatch binds to the task's submitted cut; anything else is a dispatch error, never a fallback to an implementation execution. */
 export function selectReviewTarget(
   taskId: string | null,

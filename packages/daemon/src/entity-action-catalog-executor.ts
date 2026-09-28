@@ -10,7 +10,8 @@ import {
   entityDeletedWritePlan,
   getExecutableEntityAction,
   isEntityDeclarationEvent,
-  isSameExecution,
+  isIndependentFrom,
+  isSamePerson,
   parseEntityRef,
   requireEntityStoreKindContract,
   readAcceptedCommandOutcome,
@@ -55,6 +56,7 @@ import {
 import { executeRelationAction, publicationKillpoints, reject } from "./entity-action-relation.ts";
 import { decisionRelationLinkResolver } from "./entity-document-links.ts";
 import { actionReceiptGuidance } from "./receipt-guidance.ts";
+import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 type FactBundle = ReturnType<typeof compileFactWrite>;
@@ -713,26 +715,63 @@ function decisionAuthorization(
   action: RepoTaskAction,
   binding: RepoCellBinding,
   opId: string,
-  input: { readonly store: CanonicalEventStore; readonly projection: TaskProjection },
+  input: { readonly store: CanonicalEventStore; readonly projection: TaskProjection; readonly now: () => string },
 ): AuthorizationDecision {
   const authorizationDecision = binding.authorizationDecision;
   if (!authorizationDecision || authorizationDecision.outcome !== "allowed")
     reject("actor_unauthorized", "Catalog execution requires the center AuthorizationPort decision.");
   const judgment = ["decision-accept", "decision-reject", "decision-defer"].includes(action.kind);
-  if (!judgment) return authorizationDecision;
+  if (!judgment && !["decision-review", "decision-respond-review", "decision-override-review"].includes(action.kind))
+    return authorizationDecision;
   const decisionId = requiredCommandText(action.decisionId, "decisionId"),
-    proposalActor = input.projection.readDecision(decisionId).decision?.proposer ?? null;
-  const approval = decisionApproval(action, binding);
-  if (
-    !approval &&
-    proposalActor !== null &&
-    proposalActor.executor !== null &&
-    isSameExecution(proposalActor, binding.actor)
-  )
+    decision = input.projection.readDecision(decisionId).decision,
+    proposalActor = decision?.proposer ?? null;
+  if (action.kind === "decision-review") {
+    if (
+      proposalActor === null ||
+      !isIndependentFrom(proposalActor, binding.actor) ||
+      decision?.amendments?.some((amendment) => !isIndependentFrom(amendment.actor, binding.actor))
+    )
+      reject(
+        "actor_unauthorized",
+        "A Decision review must be independent from the proposal and current content authors.",
+      );
+    return authorizationDecision;
+  }
+  if (action.kind === "decision-respond-review") {
+    if (proposalActor === null || !isSamePerson(proposalActor, binding.actor))
+      reject("actor_unauthorized", "Decision review responses must be recorded by the proposal owner principal.");
+    return authorizationDecision;
+  }
+  if (!judgment && action.kind !== "decision-override-review") return authorizationDecision;
+  const approval = decisionApproval(action, binding),
+    directHuman = binding.actor.executor === null,
+    proposalOwner = proposalActor !== null && isSamePerson(proposalActor, binding.actor);
+  if (!proposalOwner || action.kind === "decision-reject" || action.kind === "decision-override-review") {
+    const arbiterDecision = authorizeRepoCellAction({
+      action: { ...action, kind: "decision-reject" },
+      binding,
+      actionId: opId,
+      revision: input.store.readHead()?.revision ?? 0,
+      now: input.now(),
+    });
+    if (arbiterDecision.outcome !== "allowed")
+      reject("actor_unauthorized", "Decision adjudication by a non-proposer requires arbiter authority.");
+  }
+  if (action.kind === "decision-reject" || action.kind === "decision-override-review") {
+    if (!directHuman && !approval)
+      reject(
+        "actor_unauthorized",
+        action.kind === "decision-reject"
+          ? "Decision rejection requires explicit human approval."
+          : "Decision review override requires explicit human approval.",
+      );
+    return authorizationDecision;
+  }
+  if (proposalActor === null || (!proposalOwner && !directHuman && !approval))
     reject(
       "actor_unauthorized",
-      "An agent cannot judge its own Decision proposal; use an independent reviewer " +
-        "or record explicit human approval with decision accept --consent-by, --consent-at, and --consent-channel.",
+      `Decision ${action.kind === "decision-accept" ? "acceptance" : "deferral"} requires the proposal owner principal or explicit human approval.`,
     );
   return authorizationDecision;
 }
@@ -743,8 +782,16 @@ function decisionApproval(
 ): Parameters<typeof compileDecisionWrite>[0]["approval"] {
   if ([action.consentBy, action.consentAt, action.consentChannel].every((value) => value === undefined))
     return undefined;
-  if (action.kind !== "decision-accept" && action.kind !== "decision-reject")
-    reject("invalid_command", "Human consent is only valid for decision accept or decision reject.");
+  if (
+    action.kind !== "decision-accept" &&
+    action.kind !== "decision-reject" &&
+    action.kind !== "decision-defer" &&
+    action.kind !== "decision-override-review"
+  )
+    reject(
+      "invalid_command",
+      "Human consent is only valid for Decision acceptance, rejection, deferral, or review override.",
+    );
   if (action.consentBy !== binding.actor.principal.personId)
     reject("actor_unauthorized", "Human consent must name the authenticated principal person.");
   if (

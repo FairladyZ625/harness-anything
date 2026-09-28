@@ -5,6 +5,9 @@ import type {
   DecisionContentPinV1,
   DecisionFulfillmentMode,
   DecisionJudgmentConsentV1,
+  DecisionReviewOverrideV1,
+  DecisionReviewResponseV1,
+  DecisionReviewV1,
   DecisionState,
 } from "../domain/decision-event.ts";
 import type { ActorIdentity } from "../domain/write-chain.contract.ts";
@@ -107,6 +110,24 @@ export function readDecisionRows(
           WHERE decision_id = decision.decision_id ORDER BY workspace_revision
         )
       ), '[]') AS pins_json
+      , COALESCE((
+        SELECT json_group_array(value_json) FROM (
+          SELECT value_json FROM decision_review_event
+          WHERE decision_id = decision.decision_id AND kind = 'review' ORDER BY workspace_revision
+        )
+      ), '[]') AS reviews_json
+      , COALESCE((
+        SELECT json_group_array(value_json) FROM (
+          SELECT value_json FROM decision_review_event
+          WHERE decision_id = decision.decision_id AND kind = 'response' ORDER BY workspace_revision
+        )
+      ), '[]') AS review_responses_json
+      , COALESCE((
+        SELECT json_group_array(value_json) FROM (
+          SELECT value_json FROM decision_review_event
+          WHERE decision_id = decision.decision_id AND kind = 'override' ORDER BY workspace_revision
+        )
+      ), '[]') AS review_overrides_json
     FROM requested_decisions JOIN decision ON decision.decision_id = requested_decisions.decision_id ${bodyJoin}
     ORDER BY requested_decisions.request_order`;
   return queryRows<DecisionCollectionRecord>(db, sql, JSON.stringify(decisionIds)).map(decisionCollectionRow);
@@ -135,6 +156,9 @@ interface DecisionCollectionRecord extends ProjectionSqlRow {
   readonly consents_json: string;
   readonly amendments_json: string;
   readonly pins_json: string;
+  readonly reviews_json: string;
+  readonly review_responses_json: string;
+  readonly review_overrides_json: string;
 }
 
 function decisionCollectionRow(row: DecisionCollectionRecord): DecisionProjectionRow {
@@ -200,6 +224,13 @@ function decisionCollectionRow(row: DecisionCollectionRecord): DecisionProjectio
       fulfillment: claim.fulfillment,
     })),
     judgmentConsents: consents,
+    reviews: (JSON.parse(row.reviews_json) as string[]).map((value) => JSON.parse(value) as DecisionReviewV1),
+    reviewResponses: (JSON.parse(row.review_responses_json) as string[]).flatMap(
+      (value) => JSON.parse(value) as DecisionReviewResponseV1[],
+    ),
+    reviewOverrides: (JSON.parse(row.review_overrides_json) as string[]).map(
+      (value) => JSON.parse(value) as DecisionReviewOverrideV1,
+    ),
     ...(amendments.length ? { amendments } : {}),
     ...(pins.length ? { contentPins: pins } : {}),
     body,

@@ -42,7 +42,7 @@ test("Decision transition matrix, transport arbiter, claims, historical relation
         roleBindings: [
           {
             actor: { kind: "person", id: actor.principal.personId },
-            role: "arbiter",
+            role: "repo-write",
             target: "settings/repository",
             source: "declared",
             expiresAt: null,

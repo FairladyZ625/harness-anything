@@ -153,6 +153,9 @@ const decisionState = (relations: readonly EntityRelationRecord[]): DecisionDocu
   relations,
   provenance: [],
   judgmentConsents: [],
+  reviews: [],
+  reviewResponses: [],
+  reviewOverrides: [],
 });
 
 test("the causal graph block renders grouped, deterministic, relative links at the document tail", () => {

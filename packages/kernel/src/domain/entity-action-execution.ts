@@ -244,6 +244,9 @@ export type DecisionActionCompilerId =
   | "relate"
   | "reject"
   | "repin"
+  | "review"
+  | "respond-review"
+  | "override-review"
   | "replace-relation"
   | "retire"
   | "retire-relation"
@@ -404,6 +407,11 @@ function decisionEvent(id: DecisionActionCompilerId, input: EntityActionCompileI
             : null,
         fulfillments: [],
         standingPolicy: false,
+        ...(typeof action.reviewId === "string" ? { reviewId: action.reviewId } : {}),
+        ...(typeof action.expectedDigest === "string"
+          ? { expectedDigest: action.expectedDigest as `sha256:${string}` }
+          : {}),
+        ...(typeof action.policyRevision === "number" ? { policyRevision: action.policyRevision } : {}),
       },
     };
   if (id === "reject")
@@ -429,6 +437,44 @@ function decisionEvent(id: DecisionActionCompilerId, input: EntityActionCompileI
       ...base,
       type: "decision_repinned",
       payload: { migrationEvidence: requiredText(input, action.migrationEvidence, "migrationEvidence") },
+    };
+  if (id === "review")
+    return {
+      ...base,
+      type: "decision_review_recorded",
+      payload: {
+        reviewId: requiredText(input, action.reviewId, "reviewId"),
+        reviewContentDigest: requiredText(
+          input,
+          action.reviewContentDigest,
+          "reviewContentDigest",
+        ) as `sha256:${string}`,
+        verdict: choice(input, action.verdict, ["approved", "changes_requested"], "verdict"),
+        reason: requiredText(input, action.reason, "reason"),
+        findings: Array.isArray(action.findings) ? (action.findings as never) : [],
+        evidenceChecked: stringList(action.evidenceChecked),
+        reportRef: typeof action.reportRef === "string" ? action.reportRef : null,
+      },
+    };
+  if (id === "respond-review")
+    return {
+      ...base,
+      type: "decision_review_responded",
+      payload: { responses: Array.isArray(action.responses) ? (action.responses as never) : [] },
+    };
+  if (id === "override-review")
+    return {
+      ...base,
+      type: "decision_review_overridden",
+      payload: {
+        reviewContentDigest: requiredText(
+          input,
+          action.reviewContentDigest,
+          "reviewContentDigest",
+        ) as `sha256:${string}`,
+        reviewIds: stringList(action.reviewIds),
+        reason: requiredText(input, action.reason, "reason"),
+      },
     };
   if (id === "declare-claim")
     return {

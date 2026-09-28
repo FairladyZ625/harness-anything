@@ -563,6 +563,9 @@ export function validateDaemonDecisionList(value: unknown): readonly string[] {
       "rejected",
       "claims",
       "judgmentConsents",
+      "reviews",
+      "reviewResponses",
+      "reviewOverrides",
       "body",
       "capabilities",
       "claimsOpen",
@@ -643,6 +646,9 @@ export function validateDaemonDecisionList(value: unknown): readonly string[] {
       (row.provenance !== undefined &&
         (!Array.isArray(row.provenance) || row.provenance.some((entry) => !sessionProvenance(entry)))) ||
       !Array.isArray(row.judgmentConsents) ||
+      !Array.isArray(row.reviews) ||
+      !Array.isArray(row.reviewResponses) ||
+      !Array.isArray(row.reviewOverrides) ||
       !isJsonObject(row.appliesTo) ||
       !isJsonObject(row.proposer) ||
       (row.arbiter !== null && !isJsonObject(row.arbiter)) ||

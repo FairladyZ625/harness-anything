@@ -160,6 +160,7 @@ export type ActiveRuntime = {
   readonly parentRuntimeSessionId: string | null;
   readonly binding: RuntimeBinding;
   readonly task: RuntimeLeaseScope | null;
+  readonly decisionReviewTarget: { readonly decisionId: string; readonly digest: string } | null;
   readonly schedule: TrustedScheduleRuntime | null;
   /** The witnessed installation backing this launch; absent on adopted sessions
    * rebuilt from persisted streams, where the witness is no longer in scope. */

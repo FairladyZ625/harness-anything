@@ -118,6 +118,11 @@ export function assertDecisionAdmission(db: DatabaseSync, event: DecisionEventV1
   ) {
     return;
   }
+  if (event.type === "decision_review_recorded") return;
+  if (event.type === "decision_review_responded" || event.type === "decision_review_overridden") {
+    if (row.state !== "proposed") fail("invalid_transition", `${event.type} requires proposed state.`);
+    return;
+  }
   fail("invalid_transition", "Unsupported Decision event.");
 }
 

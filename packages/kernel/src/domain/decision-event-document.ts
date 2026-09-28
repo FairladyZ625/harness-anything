@@ -17,6 +17,7 @@ import {
 } from "./decision-event-types.ts";
 import { type EntityRelationRecord } from "./entity-relation.ts";
 import { parseEntityRef } from "./entity-ref.ts";
+import { describeReviewConsentConflicts, reviewConsentConflicts } from "./review-consent-validity.ts";
 import { assertTransitionDocumentReady, requireTransitionDocumentKind } from "./transition-document-readiness.ts";
 import {
   freezeDeclaredWritePlan,
@@ -44,12 +45,34 @@ export function compileDecisionWrite(input: {
       : input.currentDecision === null || input.currentDocument === null
   )
     throw new Error("decision projection and authored document base must agree");
-  if (input.event.type === "decision_accepted")
+  if (input.event.type === "decision_accepted") {
     assertTransitionDocumentReady(requireTransitionDocumentKind("decision.accept"), input.currentDocument!.body);
+    assertDecisionAcceptReview(
+      { ...input.currentDecision!, relations: input.currentRelations },
+      input.currentDocument!.body,
+      input.event,
+    );
+  }
+  if (input.currentDecision && input.currentDocument)
+    assertDecisionReviewMutation(
+      { ...input.currentDecision, relations: input.currentRelations },
+      input.currentDocument.body,
+      input.event,
+    );
   const base = input.currentDecision === null ? null : { ...input.currentDecision, relations: input.currentRelations };
   assertDecisionEvidenceFloor(base, input.event);
   const reduced = reduceDecisionDocument(base, input.event),
-    consent = base && decisionOutcome(input.event) ? decisionConsent(base, input.event, input.approval) : null,
+    consent =
+      base && decisionOutcome(input.event)
+        ? decisionConsent(
+            base,
+            input.event,
+            input.approval,
+            input.event.type === "decision_accepted" && input.currentDocument
+              ? decisionReviewContentDigest(base, input.currentDocument.body)
+              : undefined,
+          )
+        : null,
     amendment = base && input.event.type === "decision_amended" ? decisionAmendment(input.event) : null,
     pin =
       base &&
@@ -223,6 +246,9 @@ export function renderDecisionDocument(
       `claims: ${stableStringify(value.claims)}`,
       `relations: ${stableStringify(value.relations)}`,
       `judgmentConsents: ${stableStringify(value.judgmentConsents)}`,
+      ...(value.reviews.length === 0 ? [] : [`reviews: ${stableStringify(value.reviews)}`]),
+      ...(value.reviewResponses.length === 0 ? [] : [`reviewResponses: ${stableStringify(value.reviewResponses)}`]),
+      ...(value.reviewOverrides.length === 0 ? [] : [`reviewOverrides: ${stableStringify(value.reviewOverrides)}`]),
       ...history,
       "---",
     ].join("\n"),
@@ -349,6 +375,9 @@ export function reduceDecisionDocument(
       relations: [...p.relations].sort((a, b) => a.relation_id.localeCompare(b.relation_id)),
       provenance: p.provenance ?? [],
       judgmentConsents: [],
+      reviews: [],
+      reviewResponses: [],
+      reviewOverrides: [],
     };
   }
   if (!current) throw new Error(`Decision ${event.decisionId} does not exist.`);
@@ -380,6 +409,37 @@ export function reduceDecisionDocument(
     };
   if (event.type === "decision_amended") return { ...revision, ...event.payload.next };
   if (event.type === "decision_repinned") return revision;
+  if (event.type === "decision_review_recorded")
+    return {
+      ...revision,
+      reviews: [...current.reviews, { ...event.payload, actor: event.actor, reviewedAt: event.occurredAt }],
+    };
+  if (event.type === "decision_review_responded")
+    return {
+      ...revision,
+      reviewResponses: [
+        ...current.reviewResponses,
+        ...event.payload.responses.map((response) => ({
+          ...response,
+          actor: event.actor,
+          respondedAt: event.occurredAt,
+        })),
+      ],
+    };
+  if (event.type === "decision_review_overridden")
+    return {
+      ...revision,
+      reviewOverrides: [
+        ...current.reviewOverrides,
+        {
+          reviewContentDigest: event.payload.reviewContentDigest,
+          reviewIds: event.payload.reviewIds,
+          reason: event.payload.reason,
+          actor: event.actor,
+          overriddenAt: event.occurredAt,
+        },
+      ],
+    };
   if (event.type === "decision_claim_declared")
     return {
       ...revision,
@@ -443,9 +503,126 @@ export function decisionMachineDigest(value: DecisionDocumentState): `sha256:${s
   };
   return `sha256:${sha256Text(stableStringify(semantic))}`;
 }
+export function decisionReviewContentDigest(value: DecisionDocumentState, documentBody: string): `sha256:${string}` {
+  const prose = documentBody.startsWith("---\n") ? decisionDocumentProse(documentBody) : documentBody;
+  return `sha256:${sha256Text(
+    stableStringify({
+      schema: "decision-review-content/v1",
+      machineDigest: decisionMachineDigest(value),
+      prose,
+    }),
+  )}`;
+}
+export function assertDecisionAcceptReview(
+  current: DecisionDocumentState,
+  documentBody: string,
+  event: Extract<DecisionEventDraftV1, { readonly type: "decision_accepted" }>,
+): void {
+  const currentDigest = decisionReviewContentDigest(current, documentBody);
+  if (event.payload.expectedDigest !== undefined && event.payload.expectedDigest !== currentDigest)
+    invalidDecision(
+      `Decision review content changed: expected=${event.payload.expectedDigest} current=${currentDigest}.`,
+    );
+  const selected =
+      event.payload.reviewId === undefined
+        ? undefined
+        : current.reviews.find((review) => review.reviewId === event.payload.reviewId),
+    reviews = current.reviews.map((review) => ({
+      reviewId: review.reviewId,
+      verdict: review.verdict,
+      submissionDigest: review.reviewContentDigest,
+    })),
+    dispositions = current.reviewOverrides.map((override) => ({
+      submissionDigest: override.reviewContentDigest,
+      disposedReviewIds: override.reviewIds,
+      rationale: override.reason,
+    }));
+  if (event.payload.reviewId !== undefined) {
+    const conflicts = reviewConsentConflicts({
+      selectedReview: selected
+        ? { reviewId: selected.reviewId, verdict: selected.verdict, submissionDigest: selected.reviewContentDigest }
+        : undefined,
+      reviews,
+      dispositions,
+      currentSubmissionDigest: currentDigest,
+    });
+    if (!selected || conflicts.length > 0)
+      invalidDecision(
+        `Decision review is not valid for the current content: ${
+          selected ? describeReviewConsentConflicts(conflicts) : `reviewId=${event.payload.reviewId} not found`
+        }`,
+      );
+    return;
+  }
+  const unresolved = reviews
+    .filter((review) => review.verdict === "changes_requested")
+    .filter((review) => {
+      if (review.submissionDigest !== currentDigest) return false;
+      return !dispositions.some(
+        (disposition) =>
+          disposition.submissionDigest === currentDigest &&
+          disposition.rationale.trim().length > 0 &&
+          disposition.disposedReviewIds.includes(review.reviewId),
+      );
+    });
+  if (unresolved.length > 0)
+    invalidDecision(
+      `Decision has unresolved changes_requested reviews: ${unresolved.map((v) => v.reviewId).join(", ")}.`,
+    );
+}
+export function assertDecisionReviewMutation(
+  current: DecisionDocumentState,
+  documentBody: string,
+  event: DecisionEventDraftV1,
+): void {
+  const digest = decisionReviewContentDigest(current, documentBody);
+  if (event.type === "decision_review_recorded") {
+    if (event.payload.reviewContentDigest !== digest)
+      invalidDecision(
+        `Decision review content changed: expected=${event.payload.reviewContentDigest} current=${digest}.`,
+      );
+    if (current.reviews.some((review) => review.reviewId === event.payload.reviewId))
+      invalidDecision(`Decision reviewId=${event.payload.reviewId} already exists.`);
+    if (event.payload.verdict === "changes_requested" && event.payload.findings.length === 0)
+      invalidDecision("Decision changes_requested review requires at least one finding.");
+    return;
+  }
+  if (event.type === "decision_review_responded") {
+    for (const response of event.payload.responses) {
+      const review = current.reviews.find((candidate) => candidate.reviewId === response.reviewId);
+      if (!review?.findings.some((finding) => finding.findingId === response.findingId))
+        invalidDecision(`Decision review finding ${response.reviewId}/${response.findingId} does not exist.`);
+    }
+    return;
+  }
+  if (event.type === "decision_review_overridden") {
+    if (event.payload.reviewContentDigest !== digest)
+      invalidDecision(
+        `Decision review override content changed: expected=${event.payload.reviewContentDigest} current=${digest}.`,
+      );
+    for (const reviewId of event.payload.reviewIds) {
+      const review = current.reviews.find((candidate) => candidate.reviewId === reviewId);
+      if (review?.verdict !== "changes_requested" || review.reviewContentDigest !== digest)
+        invalidDecision(`Decision reviewId=${reviewId} is not a current changes_requested review.`);
+    }
+  }
+}
 export function assertDecisionJudgmentConsent(current: DecisionDocumentState, event: DecisionEventV1): void {
   if (!decisionOutcome(event)) return;
-  const expected = decisionConsent(current, event, event.payload.judgmentConsent);
+  const generated = decisionConsent(
+      current,
+      event,
+      event.payload.judgmentConsent,
+      event.payload.judgmentConsent.reviewContentDigest,
+    ),
+    expected =
+      event.payload.judgmentConsent.basis === undefined
+        ? Object.fromEntries(
+            Object.entries(generated).filter(
+              ([key]) => !["basis", "reviewContentDigest", "reviewId", "policyRevision"].includes(key),
+            ),
+          )
+        : generated;
   if (stableStringify(event.payload.judgmentConsent) !== stableStringify(expected))
     invalidDecision("Decision judgment consent does not match the machine content cut or event authority.");
   assertDecisionEvidenceFloor(current, event);
@@ -465,8 +642,10 @@ function decisionConsent(
   current: DecisionDocumentState,
   event: Extract<DecisionEventDraftV1 | DecisionEventV1, { readonly type: DecisionOutcomeType }>,
   approval?: Pick<DecisionJudgmentConsentV1, "approvedBy" | "at" | "channel">,
+  reviewContentDigest?: `sha256:${string}`,
 ): DecisionJudgmentConsentV1 {
-  const action = event.type.slice("decision_".length, -2) as DecisionJudgmentAction;
+  const action = event.type.slice("decision_".length, -2) as DecisionJudgmentAction,
+    acceptance = event.type === "decision_accepted" ? event.payload : null;
   return {
     schema: "decision-judgment-consent/v1",
     consentId: `djc_${sha256Text(event.opId).slice(0, 26)}`,
@@ -477,6 +656,14 @@ function decisionConsent(
     actor: event.actor,
     source: event.source,
     consentedAt: event.occurredAt,
+    ...(event.type === "decision_accepted"
+      ? {
+          basis: approval?.approvedBy !== undefined ? "human" : acceptance?.reviewId ? "review" : "policy_unreviewed",
+          ...(reviewContentDigest === undefined ? {} : { reviewContentDigest }),
+          ...(acceptance?.reviewId === undefined ? {} : { reviewId: acceptance.reviewId }),
+          ...(acceptance?.policyRevision === undefined ? {} : { policyRevision: acceptance.policyRevision }),
+        }
+      : {}),
     ...(approval?.approvedBy === undefined
       ? {}
       : {

@@ -70,13 +70,16 @@ function validateDecisionEventFields(value: unknown, allowUnknownFields: boolean
     return requiredWithOptional(
       payload,
       ["rationale", "judgmentOnlyRationale", "judgmentConsent", ...common],
-      ["fulfillments", "standingPolicy", "contentPin"],
+      ["fulfillments", "standingPolicy", "reviewId", "expectedDigest", "policyRevision", "contentPin"],
       allowUnknownFields,
     ) &&
       codePoints(payload.rationale, 1, 199) &&
       (payload.judgmentOnlyRationale === null || codePoints(payload.judgmentOnlyRationale, 1, 199)) &&
       (payload.fulfillments === undefined || fulfillments(payload.fulfillments, allowUnknownFields)) &&
       (payload.standingPolicy === undefined || typeof payload.standingPolicy === "boolean") &&
+      (payload.reviewId === undefined || isNonEmptyString(payload.reviewId)) &&
+      (payload.expectedDigest === undefined || /^sha256:[0-9a-f]{64}$/u.test(String(payload.expectedDigest))) &&
+      (payload.policyRevision === undefined || Number.isSafeInteger(payload.policyRevision)) &&
       judgmentConsent(payload.judgmentConsent, value, type, allowUnknownFields) &&
       (payload.contentPin === undefined || contentPin(payload.contentPin, value, allowUnknownFields))
       ? []
@@ -133,6 +136,64 @@ function validateDecisionEventFields(value: unknown, allowUnknownFields: boolean
       includes(decisionFulfillmentModes, payload.mode)
       ? []
       : ["decision fulfillment payload is invalid"];
+  if (type === "decision_review_recorded")
+    return matchesFields(
+      payload,
+      ["reviewId", "reviewContentDigest", "verdict", "reason", "findings", "evidenceChecked", "reportRef", ...common],
+      allowUnknownFields,
+    ) &&
+      isNonEmptyString(payload.reviewId) &&
+      typeof payload.reviewContentDigest === "string" &&
+      /^sha256:[0-9a-f]{64}$/u.test(payload.reviewContentDigest) &&
+      ["approved", "changes_requested"].includes(String(payload.verdict)) &&
+      isNonEmptyString(payload.reason) &&
+      Array.isArray(payload.findings) &&
+      (payload.verdict !== "changes_requested" || payload.findings.length > 0) &&
+      payload.findings.every(
+        (finding) =>
+          isRecord(finding) &&
+          requiredWithOptional(finding, ["findingId", "text"], ["anchor"], allowUnknownFields) &&
+          isNonEmptyString(finding.findingId) &&
+          isNonEmptyString(finding.text) &&
+          (finding.anchor === undefined || isNonEmptyString(finding.anchor)),
+      ) &&
+      Array.isArray(payload.evidenceChecked) &&
+      payload.evidenceChecked.every(isNonEmptyString) &&
+      (payload.reportRef === null || isNonEmptyString(payload.reportRef))
+      ? []
+      : ["decision review payload is invalid"];
+  if (type === "decision_review_responded")
+    return matchesFields(payload, ["responses", ...common], allowUnknownFields) &&
+      Array.isArray(payload.responses) &&
+      payload.responses.length > 0 &&
+      payload.responses.every(
+        (response) =>
+          isRecord(response) &&
+          requiredWithOptional(
+            response,
+            ["reviewId", "findingId", "disposition", "rationale", "amendmentRef"],
+            [],
+            allowUnknownFields,
+          ) &&
+          isNonEmptyString(response.reviewId) &&
+          isNonEmptyString(response.findingId) &&
+          ["adopt", "rebut"].includes(String(response.disposition)) &&
+          isNonEmptyString(response.rationale) &&
+          (response.amendmentRef === null || isNonEmptyString(response.amendmentRef)),
+      )
+      ? []
+      : ["decision review response payload is invalid"];
+  if (type === "decision_review_overridden")
+    return matchesFields(payload, ["reviewContentDigest", "reviewIds", "reason", ...common], allowUnknownFields) &&
+      typeof payload.reviewContentDigest === "string" &&
+      /^sha256:[0-9a-f]{64}$/u.test(payload.reviewContentDigest) &&
+      Array.isArray(payload.reviewIds) &&
+      payload.reviewIds.length > 0 &&
+      payload.reviewIds.every(isNonEmptyString) &&
+      new Set(payload.reviewIds).size === payload.reviewIds.length &&
+      isNonEmptyString(payload.reason)
+      ? []
+      : ["decision review override payload is invalid"];
   if (type === "decision_related")
     return matchesFields(payload, ["relation", ...common], allowUnknownFields) &&
       relation(payload.relation, allowUnknownFields)
