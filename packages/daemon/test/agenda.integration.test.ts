@@ -64,7 +64,7 @@ test("agenda projects an empty ledger without synthetic state", async () => {
     );
     assert.match(
       agenda.summary,
-      /在飞线 \(0\)[\s\S]*待派审 \(0\)[\s\S]*评审中 \(0\)[\s\S]*待裁 Decision \(0\)[\s\S]*球在别人手里 \(0\)[\s\S]*可派队列 \(0\)/u,
+      /等你处理 \(0\)[\s\S]*待裁 Decision \(0\)[\s\S]*在飞线 \(0\)[\s\S]*待派审 \(0\)[\s\S]*评审中 \(0\)[\s\S]*球在别人手里 \(0\)[\s\S]*可派队列 \(0\)/u,
     );
   });
 });
@@ -332,7 +332,7 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
     );
     assert.match(
       agenda.summary,
-      /📌 task_active[\s\S]*待派审 \(1\)[\s\S]*task_wait_adjudicate[\s\S]*评审中 \(1\)[\s\S]*task_review[\s\S]*待裁 Decision \(1\)[\s\S]*球在别人手里[\s\S]*📌 task_dispatch_pinned/u,
+      /待裁 Decision \(1\)[\s\S]*📌 task_active[\s\S]*待派审 \(1\)[\s\S]*task_wait_adjudicate[\s\S]*评审中 \(1\)[\s\S]*task_review[\s\S]*球在别人手里[\s\S]*📌 task_dispatch_pinned/u,
     );
     writeFileSync(
       path.join(rootDir, "review.json"),
@@ -882,6 +882,130 @@ test("terminal task transitions clear pins without changing unpinned task outcom
         { taskId: "task_plain", status: "cancelled", pinned: false },
       ],
     );
+  });
+});
+
+test("an awaits relation lists in the reader's agenda, holds its task, and retires with the answer", async () => {
+  await withCell("agenda-awaits", async (cell, rootDir) => {
+    const added = await cell.run(
+      {
+        kind: "people-add",
+        personId: "person-agenda",
+        displayName: "Agenda Owner",
+        role: "administrator",
+        commandClass: ["admin"],
+        credentialKind: "email-address",
+        credentialIssuer: "example.invalid",
+        credentialSubject: "agenda@example.invalid",
+      },
+      binding,
+    );
+    assert.equal(added.outcome, "applied", JSON.stringify(added));
+    await waitForFixturePublication(cell, added.opId, binding);
+    const created = await cell.run({ kind: "task-create", taskId: "task_held", title: "Held for acceptance" }, binding);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, binding);
+    const ask = {
+        kind: "relation-relate",
+        sourceRef: "task/task_held",
+        targetRef: "person/person-agenda",
+        relationType: "awaits",
+        expectedVersion: 0,
+      },
+      rejected = await cell.run({ ...ask, rationale: "请亲自上手验收" }, binding);
+    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+    assert.equal((rejected as Record<string, unknown>).code, "relation_awaits_request_invalid");
+    const related = await cell.run({ ...ask, rationale: "acceptance: 请亲自上手验收总览页" }, binding);
+    assert.equal(related.outcome, "applied", JSON.stringify(related));
+    const proposed = (await cell.run(decisionProposal(), binding)) as Record<string, unknown>;
+    assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
+    const decisionId = String((JSON.parse(String(proposed.evidence)) as { decisionId: string }).decisionId),
+      decisionAsk = await cell.run(
+        { ...ask, sourceRef: `decision/${decisionId}`, rationale: "consent: 这条决策你同意吗?" },
+        binding,
+      );
+    assert.equal(decisionAsk.outcome, "applied", JSON.stringify(decisionAsk));
+    assert.match(
+      readFileSync(path.join(rootDir, "harness", "decisions", `decision-${decisionId}`, "decision.md"), "utf8"),
+      /"target":"person\/person-agenda","type":"awaits"/u,
+    );
+
+    const held = await cell.read("repo.agenda.read", { limit: 50 }, binding),
+      row = held.awaitingYou.find(({ sourceRef }) => sourceRef === "task/task_held");
+    assert.deepEqual(
+      held.awaitingYou
+        .filter(({ sourceRef }) => sourceRef.startsWith("decision/"))
+        .map(({ sourceRef, status, askKind }) => ({ sourceRef, status, askKind })),
+      [{ sourceRef: `decision/${decisionId}`, status: "proposed", askKind: "consent" }],
+    );
+    assert.deepEqual(
+      held.awaitingYou
+        .filter(({ sourceRef }) => sourceRef.startsWith("task/"))
+        .map(({ sourceRef, title, status, personId, askKind, question }) => ({
+          sourceRef,
+          title,
+          status,
+          personId,
+          askKind,
+          question,
+        })),
+      [
+        {
+          sourceRef: "task/task_held",
+          title: "Held for acceptance",
+          status: "planned",
+          personId: "person-agenda",
+          askKind: "acceptance",
+          question: "请亲自上手验收总览页",
+        },
+      ],
+    );
+    assert.equal(
+      held.dispatchable.some(({ taskId }) => taskId === "task_held"),
+      false,
+    );
+    assert.deepEqual(held.waitingOnOthers.find(({ taskId }) => taskId === "task_held")?.blockingAssessment.blockers, [
+      {
+        relationId: row!.relationId,
+        kind: "awaits",
+        sourceTaskId: "task_held",
+        personId: "person-agenda",
+        askKind: "acceptance",
+        question: "请亲自上手验收总览页",
+      },
+    ]);
+    assert.match(held.summary, new RegExp(`等你处理 \\(2\\)[\\s\\S]*ha relation unrelate ${row!.relationId} `, "u"));
+    // 别人的读者看不到这条请求。
+    const other = await cell.read(
+      "repo.agenda.read",
+      { limit: 50 },
+      { actor: { principal: { personId: "person-other" }, executor: null }, source: "local" },
+    );
+    assert.deepEqual(other.awaitingYou, []);
+
+    const answered = await cell.run(
+      {
+        kind: "relation-unrelate",
+        relationId: row!.relationId,
+        reason: "已上手验收,通过",
+        expectedVersion: row!.relationRevision,
+      },
+      binding,
+    );
+    assert.equal(answered.outcome, "applied", JSON.stringify(answered));
+    const released = await cell.read("repo.agenda.read", { limit: 50 }, binding);
+    assert.deepEqual(
+      released.awaitingYou.map(({ sourceRef }) => sourceRef),
+      [`decision/${decisionId}`],
+    );
+    assert.equal(
+      released.dispatchable.some(({ taskId }) => taskId === "task_held"),
+      true,
+    );
+    const retired = makeTaskEventReader({ repoId: "agenda-awaits", rootDir })
+      .read()
+      .events.find((event) => event.schema === "relation-event/v1" && event.type === "relation_retired");
+    assert.equal((retired?.payload as { reason?: string } | undefined)?.reason, "已上手验收,通过");
   });
 });
 

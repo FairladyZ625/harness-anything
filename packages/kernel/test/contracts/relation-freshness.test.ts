@@ -47,12 +47,13 @@ test("relation freshness compares a pinned witness with the target at one cut", 
   );
 });
 
-test("derives anchors on the source, depends-on on target presence; every other type keeps the pinned target", () => {
+test("derives anchors on the source, depends-on and awaits on target presence; every other type keeps the pinned target", () => {
+  // awaits (dec_DF67F23066BAFE444190A191B5): "this task awaits that person" holds however the person record changes.
   assert.deepEqual(
     relationTypes.map((type) => [type, relationFreshnessAnchorForType(type)]),
     relationTypes.map((type) => [
       type,
-      type === "derives" ? "source" : type === "depends-on" ? "target-presence" : "target",
+      type === "derives" ? "source" : type === "depends-on" || type === "awaits" ? "target-presence" : "target",
     ]),
   );
 });

@@ -335,6 +335,7 @@ export const RELATION_TYPE_WORDS: readonly string[] = Object.freeze([
   "owns",
   "dispatches",
   "authorizes",
+  "awaits",
 ]);
 // entity-kind-contract:generated:end
 
@@ -382,6 +383,7 @@ const taskDoc: EntityKindDoc = {
     { type: "evidences", sourceKind: "task", targetKind: "fact" },
     { type: "executes", sourceKind: "execution", targetKind: "task" },
     { type: "executes", sourceKind: "runtime-session", targetKind: "task" },
+    { type: "awaits", sourceKind: "task", targetKind: "person" },
   ],
   guiEntry: { view: "board", note: "看板 / 议程 / 列表;详情从任务行进入" },
   liveCount: "tasks",
@@ -437,6 +439,7 @@ const decisionDoc: EntityKindDoc = {
     { type: "implements", sourceKind: "task", targetKind: "decision" },
     { type: "evidenced-by", sourceKind: "decision", targetKind: "fact" },
     { type: "refuted-by", sourceKind: "decision", targetKind: "fact" },
+    { type: "awaits", sourceKind: "decision", targetKind: "person" },
   ],
   guiEntry: { view: "decisionPool", note: "待办签发总池的决策待裁域(专注裁决从域内进入);详情从决策行进入" },
   liveCount: "decisions",
@@ -761,7 +764,10 @@ const personDoc: EntityKindDoc = {
     field("disabled", false, "boolean", "是否停用。"),
   ],
   nestedFields: noNested,
-  edges: [],
+  edges: [
+    { type: "awaits", sourceKind: "task", targetKind: "person" },
+    { type: "awaits", sourceKind: "decision", targetKind: "person" },
+  ],
   guiEntry: null,
   liveCount: null,
 };

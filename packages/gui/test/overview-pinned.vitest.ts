@@ -17,6 +17,7 @@ const agenda = (patch: Partial<AgendaSuccess> = {}): AgendaSuccess => ({
   awaitingRework: [],
   awaitingAdjudication: [],
   underReview: [],
+  awaitingYou: [],
   awaitingDecision: [],
   waitingOnOthers: [],
   dispatchable: [],

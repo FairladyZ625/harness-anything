@@ -599,8 +599,11 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         ...(payload.path === undefined ? {} : { requestedPath: context.requiredCellText(payload.path, "path") }),
       });
     },
-    "repo.agenda.read": (payload: Readonly<Record<string, unknown>>) =>
-      queryRead().agenda(agendaQueryFromPayload(context, payload)),
+    "repo.agenda.read": (payload: Readonly<Record<string, unknown>>, binding?: RepoCellBinding) =>
+      queryRead().agenda({
+        ...agendaQueryFromPayload(context, payload),
+        ...(binding ? { principalId: binding.actor.principal.personId } : {}),
+      }),
     "repo.triadic.relationGraph": (payload: Readonly<Record<string, unknown>>) => relationGraphFromPayload(payload),
     "repo.agent.entities.list": () =>
       readAgentEntityGuiProjection({
@@ -728,7 +731,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         request,
       ) as DaemonGuiReadResultMap[typeof method];
     }
-    return context.dispatchRead(readHandlers, method, payload) as DaemonGuiReadResultMap[typeof method];
+    return context.dispatchRead(readHandlers, method, payload, binding) as DaemonGuiReadResultMap[typeof method];
   };
   const read: RepoCell["read"] = async (method, payload = {}, binding) => readNow(method, payload, binding);
   // Narrow/paged query payload for the task list read: an empty payload keeps one default-bounded

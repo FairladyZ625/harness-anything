@@ -1,5 +1,5 @@
 import type { AgendaSuccess } from "../api-client.ts";
-import type { AgendaDecisionRow, AgendaExecutionRow, AgendaTaskRow } from "../../api/renderer-dto.ts";
+import type { AgendaAwaitsRow, AgendaDecisionRow, AgendaExecutionRow, AgendaTaskRow } from "../../api/renderer-dto.ts";
 import type { TaskRow } from "./types.ts";
 import type { CadenceFeedEvent } from "./cadence.ts";
 
@@ -11,7 +11,7 @@ import type { CadenceFeedEvent } from "./cadence.ts";
  */
 
 /** G2 的待处理分组(取数全部收在 attentionItemsOf,议程分组词表变更只动这里)。 */
-export type AttentionGroup = "reviewReturned" | "initialReview" | "underReview" | "decision";
+export type AttentionGroup = "awaitingYou" | "reviewReturned" | "initialReview" | "underReview" | "decision";
 
 export interface AttentionItem {
   readonly key: string;
@@ -19,16 +19,20 @@ export interface AttentionItem {
   readonly title: string;
   /** 实体引用:task/<id> 或 decision/<id>,点击走统一实体导航。 */
   readonly ref: string;
-  /** 进入队列时间(初审=提交时间,决策=提案时间,返回=任务最后已知时间)。 */
+  /** 进入队列时间(等你答复=提问时间,初审=提交时间,决策=提案时间,返回=任务最后已知时间)。 */
   readonly queuedAt: string | null;
   readonly pinned: boolean;
-  /** 行内次级信息:决策行给风险/紧急度,执行行给阻塞判定码。 */
+  /** 行内次级信息:等你答复行给 ask kind 与问题,决策行给风险/紧急度,执行行给阻塞判定码。 */
   readonly meta: string | null;
-  /** 阻塞当前工作:kernel blockingAssessment.state=blocked 才置真,不从 urgency 推断。 */
+  /**
+   * 阻塞当前工作:kernel blockingAssessment.state=blocked 才置真,不从 urgency 推断;
+   * 等你答复行的 task 源由 awaits 边挂起,同样置真。
+   */
   readonly blocking: boolean;
 }
 
 export const ATTENTION_GROUP_ORDER: readonly AttentionGroup[] = [
+  "awaitingYou",
   "reviewReturned",
   "initialReview",
   "underReview",
@@ -38,7 +42,8 @@ export const ATTENTION_GROUP_ORDER: readonly AttentionGroup[] = [
 /**
  * 议程 → 「需要你处理」行集。agenda 尚未读到时返回 null(调用方显示读取中,不冒充空)。
  *
- * 分组取数(读面已按下一步动作三分):待初审 = `awaitingAdjudication`(提交待派审);
+ * 分组取数(读面已按下一步动作分组):等你答复 = `awaitingYou`(指向你的 active awaits 边);
+ * 待初审 = `awaitingAdjudication`(提交待派审);
  * 评审中/等 consent = `underReview`;决策待裁 = `awaitingDecision`(纯 decision 行);
  * 评审返回 = `awaitingRework`。排序:置顶优先 → 阻塞当前工作(blockingAssessment=blocked)
  * → 进入队列时间倒序。
@@ -46,12 +51,27 @@ export const ATTENTION_GROUP_ORDER: readonly AttentionGroup[] = [
 export function attentionItemsOf(agenda: AgendaSuccess | undefined): readonly AttentionItem[] | null {
   if (agenda === undefined) return null;
   const items: AttentionItem[] = [
+    ...agenda.awaitingYou.map(attentionOfAwaits),
     ...agenda.awaitingAdjudication.map((row) => attentionOfExecution(row, "initialReview")),
     ...agenda.underReview.map((row) => attentionOfExecution(row, "underReview")),
     ...agenda.awaitingDecision.map(attentionOfDecision),
     ...agenda.awaitingRework.map(attentionOfRework),
   ];
   return items.sort(compareAttention);
+}
+
+/** 等你答复:点击进源 task/decision;答复 = 带 reason 退役这条 awaits 边。task 源在答复前一直挂起。 */
+function attentionOfAwaits(row: AgendaAwaitsRow): AttentionItem {
+  return {
+    key: `awaits/${row.relationId}`,
+    group: "awaitingYou",
+    title: row.title,
+    ref: row.sourceRef,
+    queuedAt: row.askedAt,
+    pinned: false,
+    meta: `${row.askKind}: ${row.question}`,
+    blocking: row.sourceRef.startsWith("task/"),
+  };
 }
 
 function attentionOfExecution(row: AgendaExecutionRow, group: "initialReview" | "underReview"): AttentionItem {

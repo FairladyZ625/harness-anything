@@ -506,3 +506,56 @@ test("blocking applies depends-on to the source and releases it only when the ta
     [],
   );
 });
+
+test("an active awaits edge holds its source task until it is retired with the answer", () => {
+  // dec_DF67F23066BAFE444190A191B5/CH3: a task awaiting a person's answer leaves the dispatch queue.
+  const tasks = [
+      { taskId: "a", status: "planned" },
+      { taskId: "b", status: "planned" },
+    ],
+    awaits = {
+      relationId: "ask",
+      sourceRef: "task/a",
+      targetRef: "person/owner",
+      relationType: "awaits",
+      direction: "directed",
+      state: "active",
+      strength: "strong" as const,
+      freshness: "current" as const,
+      rationale: "acceptance: 请亲自上手验收总览页",
+    };
+  const [held, untouched] = blockingOf(tasks, [awaits]);
+  assert.deepEqual(held, {
+    taskId: "a",
+    state: "blocked",
+    label: "relations",
+    blockers: [
+      {
+        relationId: "ask",
+        kind: "awaits",
+        sourceTaskId: "a",
+        personId: "owner",
+        askKind: "acceptance",
+        question: "请亲自上手验收总览页",
+      },
+    ],
+    warnings: [],
+  });
+  assert.equal(untouched?.state, "clear");
+  assert.deepEqual(
+    blockingOf(tasks, [{ ...awaits, state: "retired" }]).map(({ state }) => state),
+    ["clear", "clear"],
+    "retiring the edge with the answer releases the task",
+  );
+  const orphaned = blockingOf(tasks, [{ ...awaits, freshness: "suspect" as const }]);
+  assert.equal(orphaned[0]?.state, "unknown", "an ask whose person is gone is not silently dispatchable");
+  assert.match(orphaned[0]?.warnings[0] ?? "", /awaits relation ask is suspect/u);
+  const malformed = blockingOf(tasks, [{ ...awaits, rationale: "no ask kind" }]);
+  assert.equal(malformed[0]?.state, "unknown");
+  assert.match(malformed[0]?.warnings[0] ?? "", /invalid awaits relation ask/u);
+  assert.deepEqual(
+    blockingOf(tasks, [{ ...awaits, sourceRef: "decision/dec_X" }]).map(({ state }) => state),
+    ["clear", "clear"],
+    "a decision's awaits edge does not block any task",
+  );
+});

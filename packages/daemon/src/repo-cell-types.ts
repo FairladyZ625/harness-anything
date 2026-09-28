@@ -202,7 +202,10 @@ export interface RepoCell {
 }
 
 export type DaemonGuiReadHandlers = {
-  readonly [M in RepoCellReadMethod]: (payload: Readonly<Record<string, unknown>>) => DaemonGuiReadResultMap[M];
+  readonly [M in RepoCellReadMethod]: (
+    payload: Readonly<Record<string, unknown>>,
+    binding?: RepoCellBinding,
+  ) => DaemonGuiReadResultMap[M];
 };
 
 export type Snapshot = Awaited<ReturnType<ReturnType<typeof makeTaskLifecycleService>["read"]>>["snapshot"];

@@ -373,18 +373,36 @@ export function readTaskRelationsByTargets(
   targetRefs: readonly string[],
   relationType: string,
 ): readonly TaskRelationProjectionRow[] {
-  checkedRefs(targetRefs, "relation target batch");
-  if (targetRefs.length === 0) return [];
-  const sql = `WITH requested_targets(target_order, target_ref) AS MATERIALIZED (SELECT CAST(key AS INTEGER), value FROM json_each(?)),
+  return readTaskRelationsByEndpoint(db, "target", targetRefs, relationType);
+}
+
+/** The same indexed lookup keyed by source endpoint (e.g. the `awaits` edges a task page holds). */
+export function readTaskRelationsBySources(
+  db: DatabaseSync,
+  sourceRefs: readonly string[],
+  relationType: string,
+): readonly TaskRelationProjectionRow[] {
+  return readTaskRelationsByEndpoint(db, "source", sourceRefs, relationType);
+}
+
+function readTaskRelationsByEndpoint(
+  db: DatabaseSync,
+  endpoint: "source" | "target",
+  refs: readonly string[],
+  relationType: string,
+): readonly TaskRelationProjectionRow[] {
+  checkedRefs(refs, `relation ${endpoint} batch`);
+  if (refs.length === 0) return [];
+  const sql = `WITH requested_refs(ref_order, ref) AS MATERIALIZED (SELECT CAST(key AS INTEGER), value FROM json_each(?)),
     matching_rows AS (
-      SELECT requested_targets.target_order, task_relation.relation_id, task_relation.source_ref,
+      SELECT requested_refs.ref_order, task_relation.relation_id, task_relation.source_ref,
         task_relation.target_ref, task_relation.relation_type, task_relation.direction, task_relation.strength,
         task_relation.origin, task_relation.state, NULL AS target_observed_version, task_relation.rationale,
         task_relation.owner_ref, task_relation.source_path, task_relation.record_index
-      FROM requested_targets CROSS JOIN task_relation INDEXED BY task_relation_target
-      WHERE task_relation.target_ref = requested_targets.target_ref AND task_relation.relation_type = ? AND NOT EXISTS (SELECT 1 FROM relation_edge WHERE relation_edge.relation_id = task_relation.relation_id)
+      FROM requested_refs CROSS JOIN task_relation INDEXED BY task_relation_${endpoint}
+      WHERE task_relation.${endpoint}_ref = requested_refs.ref AND task_relation.relation_type = ? AND NOT EXISTS (SELECT 1 FROM relation_edge WHERE relation_edge.relation_id = task_relation.relation_id)
       UNION ALL
-      SELECT requested_targets.target_order, relation_edge.relation_id, relation_edge.source_ref,
+      SELECT requested_refs.ref_order, relation_edge.relation_id, relation_edge.source_ref,
         relation_edge.target_ref, relation_edge.relation_type,
         json_extract(relation_edge.row_json, '$.direction'),
         json_extract(relation_edge.row_json, '$.strength'), json_extract(relation_edge.row_json, '$.origin'),
@@ -392,13 +410,13 @@ export function readTaskRelationsByTargets(
         json_extract(relation_edge.row_json, '$.rationale'), relation_edge.owner_ref,
         json_extract(relation_edge.row_json, '$.sourcePath'),
         json_extract(relation_edge.row_json, '$.recordIndex')
-      FROM requested_targets CROSS JOIN relation_edge INDEXED BY relation_edge_target
-      WHERE relation_edge.target_ref = requested_targets.target_ref AND relation_edge.relation_type = ?
+      FROM requested_refs CROSS JOIN relation_edge INDEXED BY relation_edge_${endpoint}
+      WHERE relation_edge.${endpoint}_ref = requested_refs.ref AND relation_edge.relation_type = ?
     )
     SELECT relation_id, source_ref, target_ref, relation_type, direction, strength, origin, state,
       target_observed_version, rationale, owner_ref, source_path, record_index
-    FROM matching_rows ORDER BY target_order, relation_id`;
-  return taskRelationRowsAtCut(db, queryRows(db, sql, JSON.stringify(targetRefs), relationType, relationType));
+    FROM matching_rows ORDER BY ref_order, relation_id`;
+  return taskRelationRowsAtCut(db, queryRows(db, sql, JSON.stringify(refs), relationType, relationType));
 }
 
 export interface TaskRelationNeighborhoodWindow {

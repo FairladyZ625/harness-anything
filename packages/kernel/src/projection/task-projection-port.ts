@@ -101,6 +101,10 @@ export interface TaskProjection {
     targetRefs: readonly string[],
     relationType: string,
   ) => TaskRelationProjectionRead;
+  readonly readTaskRelationsBySources: (
+    sourceRefs: readonly string[],
+    relationType: string,
+  ) => TaskRelationProjectionRead;
   readonly readTaskStatuses: (taskIds?: readonly string[]) => {
     readonly status: "ready" | "pending";
     readonly rows: readonly { readonly taskId: string; readonly status: string | null }[];
