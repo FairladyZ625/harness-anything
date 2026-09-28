@@ -41,7 +41,6 @@ test("a temporary named after its writer exists only where it was judged", () =>
     "daemon/src/agent-runtime-instance-storage.ts: `${target}.${process.pid}.tmp`",
     "daemon/src/agent-runtime-instance-storage.ts: `${target}.${process.pid}.tmp`",
     "daemon/src/agent-runtime-instance-store.ts: `${target}.${process.pid}.tmp`",
-    "daemon/src/dispatch-stream.ts: `${target}.${process.pid}.tmp`",
     "daemon/src/durable-file.ts: `${file}.${process.pid}.${randomUUID()}.tmp`",
     "kernel/src/daemon/registry.ts: `${registryPath}.${process.pid}.${Date.now()}.tmp`",
     "kernel/src/local/local-layout-file-system.ts: `${entry.path}.${process.pid}.tmp`",
