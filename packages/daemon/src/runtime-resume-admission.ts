@@ -81,32 +81,51 @@ export function assertResumeAgent(
 }
 
 /**
- * A resumed dispatch without a requested cwd keeps its own. A local task dispatch without one runs in the task's
- * worktree (dec_BBA713052997C3EF5F5D3DD952), checked out and prepared here on first use; a setup step that fails
- * refuses the dispatch (dec_8B3FCCD256CAC5B0BF3CCEDE58 CH3). A reviewer, a dry-run preview and anything else start
- * at the repository root.
+ * A local task dispatch without a requested cwd runs in the task's worktree (dec_BBA713052997C3EF5F5D3DD952), checked
+ * out and prepared here before the dispatch is queued for writing, as a start's is: a setup step that fails refuses
+ * the dispatch (dec_8B3FCCD256CAC5B0BF3CCEDE58 CH3) while a long install never holds the repository write queue. A
+ * resumed dispatch keeps its own cwd; a reviewer, a dry-run preview and anything else start at the repository root.
  */
-export async function resolveDispatchCwd(
+export async function prepareDispatchWorktree(
   input: {
     readonly rootDir: string;
     readonly remote?: unknown;
     readonly projection?: () => TaskProjection;
     readonly readSettings?: () => SettingsV1;
   },
-  payload: { readonly cwd?: unknown; readonly role?: unknown; readonly dryRun?: unknown },
+  payload: {
+    readonly cwd?: unknown;
+    readonly role?: unknown;
+    readonly dryRun?: unknown;
+    readonly dispatchId?: unknown;
+    readonly taskId?: unknown;
+  },
+): Promise<TaskWorktreeCheckout | null> {
+  const resumed = typeof payload.dispatchId === "string" ? readDispatchStream(input.rootDir, payload.dispatchId) : null,
+    taskId = typeof payload.taskId === "string" ? payload.taskId : (resumed?.header.taskId ?? null);
+  return payload.cwd === undefined &&
+    !resumed?.header.cwd &&
+    taskId &&
+    !input.remote &&
+    payload.role !== "reviewer" &&
+    payload.dryRun !== true
+    ? checkoutTaskWorktree(input, requiredRuntimeProjection(input), taskId)
+    : null;
+}
+
+/** Where a dispatch runs: a resumed dispatch's own cwd, else its prepared task worktree, else the requested cwd. */
+export function resolveDispatchCwd(
+  rootDir: string,
+  payload: { readonly cwd?: unknown },
   inherited: string | undefined,
-  taskId: string | null,
-): Promise<{ readonly cwd: string; readonly worktree: TaskWorktreeCheckout | null }> {
+  worktree: TaskWorktreeCheckout | null,
+): { readonly cwd: string; readonly worktree: TaskWorktreeCheckout | null } {
   if (payload.cwd === undefined && inherited) return { cwd: inherited, worktree: null };
-  const worktree =
-    payload.cwd === undefined && taskId && !input.remote && payload.role !== "reviewer" && payload.dryRun !== true
-      ? await checkoutTaskWorktree(input, requiredRuntimeProjection(input), taskId)
-      : null;
   return {
     cwd: resolveRuntimeCwd(
-      input.rootDir,
+      rootDir,
       worktree
-        ? { scope: "repo-relative", path: path.relative(input.rootDir, worktree.cwd) }
+        ? { scope: "repo-relative", path: path.relative(rootDir, worktree.cwd) }
         : (payload.cwd ?? { scope: "repo-root" }),
     ),
     worktree,
