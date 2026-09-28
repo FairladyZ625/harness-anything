@@ -58,10 +58,17 @@ export function summarizeWorkspace(
   tasks: readonly WorkspaceSummaryTask[],
   decisions: readonly WorkspaceSummaryDecision[],
 ): WorkspaceSummary {
-  const boardTasks = tasks.filter(
-    (task) => task.packageDisposition === "active" && task.coordinationStatus !== "cancelled",
-  );
+  const activePackageTasks = emptyWorkspaceTaskCounts();
+  for (const task of tasks) if (task.packageDisposition === "active") activePackageTasks[task.coordinationStatus] += 1;
+  return summarizeWorkspaceCensus(activePackageTasks, decisions);
+}
 
+/** The same census from active-package task counts by coordinationStatus, for a projection
+ * that counts tasks in SQL instead of materializing each one. */
+export function summarizeWorkspaceCensus(
+  activePackageTasks: Readonly<Record<DomainStatus | "unknown", number>>,
+  decisions: readonly WorkspaceSummaryDecision[],
+): WorkspaceSummary {
   const groups: Array<{ id: WorkspaceDecisionGroupId; states: DecisionState[]; decisionIds: string[] }> = [
     { id: "proposed", states: ["proposed"], decisionIds: [] },
     { id: "in_effect", states: ["in_effect"], decisionIds: [] },
@@ -87,7 +94,7 @@ export function summarizeWorkspace(
   const publishedGroups = groups.map((group) => ({ ...group, count: group.decisionIds.length }));
 
   return {
-    tasks: countTasks(boardTasks),
+    tasks: boardTaskSummary(activePackageTasks),
     decisions: {
       total: decisions.length,
       inboxCount: publishedGroups[0]!.count,
@@ -97,19 +104,15 @@ export function summarizeWorkspace(
   };
 }
 
-function countTasks(tasks: readonly WorkspaceSummaryTask[]): WorkspaceTaskSummary {
-  const byStatus: Record<DomainStatus | "unknown", number> = {
-    planned: 0,
-    active: 0,
-    submitted: 0,
-    blocked: 0,
-    in_review: 0,
-    done: 0,
-    cancelled: 0,
-    unknown: 0,
-  };
-  for (const task of tasks) byStatus[task.coordinationStatus] += 1;
-  return { total: tasks.length, byStatus };
+export function emptyWorkspaceTaskCounts(): Record<DomainStatus | "unknown", number> {
+  return { planned: 0, active: 0, submitted: 0, blocked: 0, in_review: 0, done: 0, cancelled: 0, unknown: 0 };
+}
+
+function boardTaskSummary(
+  activePackageTasks: Readonly<Record<DomainStatus | "unknown", number>>,
+): WorkspaceTaskSummary {
+  const byStatus = { ...activePackageTasks, cancelled: 0 };
+  return { total: Object.values(byStatus).reduce((sum, count) => sum + count, 0), byStatus };
 }
 
 export function workspaceTaskStatus(task: WorkspaceTaskStatusInput): DomainStatus {
