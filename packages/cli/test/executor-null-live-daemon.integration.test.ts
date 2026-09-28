@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { accessSync, constants, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test, { before, after } from "node:test";
@@ -39,7 +39,7 @@ type TaskSnapshot = {
 };
 
 test("a live installed-bin daemon refuses to declare an executor for a reviewed execution that was never dispatched", async (context) => {
-  const parent = mkdtempSync(path.join(privateTemporaryRoot(), "executor-null-live.")),
+  const parent = mkdtempSync(path.join(process.env.HARNESS_TEST_TEMP_ROOT!, "executor-null-live.")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "edge-user-root"),
     daemonId = `edge-executor-null-${process.pid}`,
@@ -215,21 +215,8 @@ test("a live installed-bin daemon refuses to declare an executor for a reviewed 
       runMaybe(root, userRoot, daemonId, ["daemon", "stop", "--user-root", userRoot, "--daemon-id", daemonId]);
     if (daemon && daemon.exitCode === null) daemon.kill("SIGKILL");
     if (daemon) await childExit(daemon);
-    rmSync(parent, { recursive: true, force: true });
   }
-  assert.equal(existsSync(userRoot), false, "the dedicated daemon user-root must be removed after the live probe");
 });
-
-function privateTemporaryRoot(): string {
-  const preferred = "/private/tmp";
-  try {
-    mkdirSync(preferred, { recursive: true });
-    accessSync(preferred, constants.W_OK);
-    return preferred;
-  } catch {
-    return tmpdir();
-  }
-}
 
 function initialize(root: string): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });

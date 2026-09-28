@@ -22,6 +22,13 @@ import { readTestQuarantine } from "./test-quarantine.mjs";
 const repoRoot = resolve(import.meta.dirname, "..");
 const DEFAULT_TEST_FILE_TIMEOUT_MS = 900_000;
 const PROCESS_TREE_KILL_GRACE_MS = 1_000;
+const DAEMON_ROUTE_ENVIRONMENT_VARIABLES = [
+  "HARNESS_DAEMON_ENDPOINT",
+  "HARNESS_DAEMON_USER_ROOT",
+  "HARNESS_DAEMON_ID",
+  "HARNESS_DAEMON_REPO_ID",
+  "HARNESS_DAEMON_RELAY",
+];
 
 // Reuse type-strip/compile output across the test host and every CLI
 // subprocess it spawns (integration tests cold-start `node src/index.ts` per
@@ -122,6 +129,7 @@ const selectedFileTimeouts = new Map(
 const finiteTimeouts = [...selectedFileTimeouts.values()].filter((timeout) => timeout !== "none");
 const fileTimeoutMs = finiteTimeouts.length > 0 ? Math.min(...finiteTimeouts) : defaultFileTimeoutMs;
 const activityRoot = mkdtempSync(join(tmpdir(), "ha-node-test-watchdog-"));
+const testTemporaryRoot = mkdtempSync(join(tmpdir(), "ha-node-test-"));
 const activityPath = join(activityRoot, "activity.jsonl");
 const reporterUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-file-activity-reporter.mjs")).href;
 const observationReporterUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-observation-reporter.mjs")).href;
@@ -136,6 +144,8 @@ const stallReportUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-sta
 // Stall reports stay on for the bounded files of a run; only a run made solely of unbounded
 // stress files has nothing to report at 90% of a timeout.
 const stallReportMs = finiteTimeouts.length === 0 ? undefined : Math.max(1_000, Math.floor(fileTimeoutMs * 0.9));
+const childEnvironment = { ...process.env, HARNESS_TEST_TEMP_ROOT: testTemporaryRoot };
+for (const name of DAEMON_ROUTE_ENVIRONMENT_VARIABLES) delete childEnvironment[name];
 const child = spawn(
   process.execPath,
   [
@@ -155,7 +165,7 @@ const child = spawn(
   {
     cwd: repoRoot,
     env: {
-      ...process.env,
+      ...childEnvironment,
       ...(stallReportMs === undefined
         ? { HARNESS_TEST_STALL_REPORT_MS: "0" }
         : { HARNESS_TEST_STALL_REPORT_MS: String(stallReportMs) }),
@@ -216,6 +226,7 @@ const exitCode = await new Promise((resolveRun) => {
     removeSignalForwarding();
     void termination.then(() => {
       rmSync(activityRoot, { recursive: true, force: true });
+      rmSync(testTemporaryRoot, { recursive: true, force: true });
       resolveRun(code);
     });
   };

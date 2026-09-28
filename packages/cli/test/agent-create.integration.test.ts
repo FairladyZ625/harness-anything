@@ -1,8 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
@@ -21,7 +20,7 @@ const ontologySquad = {
 } as const;
 
 test("agent create runs and ontology-squad reinstall stays on the canonical Entity write road", async () => {
-  const parent = mkdtempSync(path.join(tmpdir(), "ha-agent-create-cli-")),
+  const parent = mkdtempSync(path.join(process.env.HARNESS_TEST_TEMP_ROOT!, "ha-agent-create-cli-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     binRoot = path.join(parent, "bin");
@@ -354,7 +353,6 @@ test("agent create runs and ontology-squad reinstall stays on the canonical Enti
     );
   } finally {
     runMaybe(root, env, ["daemon", "stop"]);
-    rmSync(parent, { recursive: true, force: true });
   }
 });
 
