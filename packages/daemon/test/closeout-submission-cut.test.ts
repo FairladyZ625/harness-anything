@@ -334,7 +334,7 @@ test("removed dispatch worktree resolves an explicit delivery cut in the canonic
   assert.equal(derive(root, `Delivery ${merged}`).commitSha, merged);
   assert.deepEqual(derive(root, `Delivery ${merged}`).deliverables, ["src/delivery.ts"]);
   assert.throws(() => derive(root, "Delivery complete."), /one delivery commit or at least one artifact/u);
-  assert.throws(() => derive(root, `Delivery ${"f".repeat(40)}`), /not published/u);
+  assert.throws(() => derive(root, `Delivery ${"f".repeat(40)}`), /not in any local clone/u);
   put(root, "src/unpublished.ts", "unpublished\n");
   const unpublished = commit(root);
   assert.equal(derive(root, `Delivery ${unpublished}`).commitSha, unpublished);
