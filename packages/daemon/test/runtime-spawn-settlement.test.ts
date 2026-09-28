@@ -10,7 +10,7 @@ import { classifyRuntimeExit } from "../src/runtime-provider-fault.ts";
 import { failed } from "../src/repo-cell-settlement.ts";
 import { runtimeMissionName } from "../src/runtime-spawn-mission.ts";
 import { scheduleMissionWithOutcomeProtocol, scheduleOutcomeFromRuntime } from "../src/schedule-runtime-outcome.ts";
-import { publishExit } from "../src/runtime-spawn-settlement.ts";
+import { publishExit, runtimeResultText } from "../src/runtime-spawn-settlement.ts";
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
 
@@ -76,6 +76,101 @@ test("schedule outcome requires an exact verdict on the last non-empty line", ()
   assert.equal(scheduleOutcomeFromRuntime("failed", "HARNESS-OUTCOME: succeeded"), "failed");
   assert.equal(scheduleOutcomeFromRuntime("unknown", "HARNESS-OUTCOME: succeeded"), "unknown");
   assert.equal(scheduleOutcomeFromRuntime("cancelled", "HARNESS-OUTCOME: succeeded"), "cancelled");
+});
+
+test("a failed attempt persists a one-line reason that references the dispatch stream diagnostics", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-settlement-reason-")),
+    outcomes: Record<string, unknown>[] = [],
+    runtime = active({
+      process: {
+        pid: 111,
+        onOutput: () => undefined,
+        onErrorOutput: () => undefined,
+        onExit: () => undefined,
+        terminate: () => undefined,
+      },
+      runtimeSessionId: "runtime-settlement-reason",
+      dispatchOpId: "reason-dispatch-op",
+      binding: {
+        actor: {
+          principal: { kind: "human", id: "operator" },
+          executor: { kind: "agent", id: "runtime-session:runtime-settlement-reason" },
+        },
+        source: "local",
+      },
+      task: null,
+      schedule: null,
+      cwd: rootDir,
+      prompt: "settle this result",
+      onExitCommand: null,
+      reasoningEffort: null,
+      fast: false,
+      startedAt: "2026-09-03T00:00:00.000Z",
+      stream: {
+        ref: "file:.harness/runtime/dispatches/dispatch_0123456789abcdef01234567.jsonl",
+        appendAttemptOutcome: (value) => outcomes.push(value),
+      } as never,
+      buffer: "",
+      durableOutputCount: 0,
+      stdoutObserved: true,
+      providerSessionId: "provider-session",
+      resumeProviderSessionId: null,
+      finalText: null,
+      cancelBinding: null,
+      cancelOpId: null,
+      errorBuffer:
+        "PROVIDER-STDERR-FIRST-LINE diagnostic\nPROVIDER-STDERR-RAW-SECOND-LINE\nPROVIDER-STDERR-RAW-THIRD-LINE",
+    }),
+    context = {
+      exiting: new Set<string>(),
+      processes: new Map([[runtime.runtimeSessionId, runtime]]),
+      input: {
+        repoId: "canonical",
+        rootDir,
+        now: () => "2026-09-03T00:01:00.000Z",
+        stream: { publish: () => ({}) },
+        remote: { archive: async () => ({ outcome: "applied" }) },
+      },
+      resultMediaType: "text/markdown",
+      runtimeResultText: () => "failed result",
+      markProtocolError: () => undefined,
+      publishRuntimeEvent: async () => ({}),
+      settleFallback: async () => undefined,
+    } as unknown as RuntimeSpawnerContext;
+  try {
+    await publishExit(context, runtime, 1);
+    const outcome = outcomes[0] as { readonly classification: string; readonly reason: string };
+    assert.equal(outcome.classification, "provider_fault");
+    assert.equal(outcome.reason.includes("\n"), false, JSON.stringify(outcome.reason));
+    assert.match(outcome.reason, /^PROVIDER-STDERR-FIRST-LINE diagnostic/u);
+    assert.match(outcome.reason, /full diagnostics: file:\.harness\/runtime\/dispatches\//u);
+    assert.doesNotMatch(outcome.reason, /PROVIDER-STDERR-RAW-SECOND-LINE/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("runtime result text bounds provider failure diagnostics to one line plus the stream reference", () => {
+  const failed_ = active({
+      stream: { ref: "file:.harness/runtime/dispatches/dispatch_0123456789abcdef01234567.jsonl" } as never,
+      errorBuffer:
+        "PROVIDER-STDERR-FIRST-LINE diagnostic\nPROVIDER-STDERR-RAW-SECOND-LINE\nPROVIDER-STDERR-RAW-THIRD-LINE",
+      failureText: null,
+    }),
+    text = runtimeResultText({} as never, failed_, 1, "failed");
+  assert.match(text, /^Provider exited with code 1\. PROVIDER-STDERR-FIRST-LINE diagnostic/u);
+  assert.match(text, /full stderr: file:\.harness\/runtime\/dispatches\//u);
+  assert.doesNotMatch(text, /PROVIDER-STDERR-RAW-SECOND-LINE/u);
+});
+
+test("runtime result text caps provider frame failure text", () => {
+  const failed_ = active({
+      stream: { ref: "file:.harness/runtime/dispatches/dispatch_0123456789abcdef01234567.jsonl" } as never,
+      errorBuffer: "",
+      failureText: "F".repeat(5000),
+    }),
+    text = runtimeResultText({} as never, failed_, 1, "failed");
+  assert.ok(text.length <= 1200, String(text.length));
 });
 
 test("a write-capable squad leader converged decision settles as succeeded without per-turn write evidence", () => {

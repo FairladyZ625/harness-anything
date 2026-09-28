@@ -87,11 +87,18 @@ export function initialFallbackAttempt(
   };
 }
 
+/**
+ * The failure info a continuation carries is the attempt outcome's classification, provider, and
+ * one-line reason — bounded at settlement and referencing the dispatch stream that keeps the raw
+ * provider stderr. It must never inline the previous attempt's raw log, whose size would grow the
+ * next mission (and can push it past the next provider's input limit).
+ */
 export function continuationMission(outcome: RuntimeAttemptOutcome, originalMission: string): string {
   return [
     "# Provider fallback continuation",
     [
-      `上次 attempt 用 ${outcome.provider.instance}/${outcome.provider.model} 因 ${outcome.reason} 中断；`,
+      `上次 attempt 用 ${outcome.provider.instance}/${outcome.provider.model} 因 ${outcome.classification} ` +
+        `(${outcome.reason}) 中断；`,
       "worktree 现状保留在原 cwd；继续同一任务，不使用 provider resume。",
     ].join(""),
     "",
