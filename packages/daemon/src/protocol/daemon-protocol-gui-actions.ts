@@ -1,4 +1,8 @@
-import { optionalEnum, shape } from "./daemon-protocol-gui-types.ts";
+import {
+  generatedSettingsFieldProtocolProjection,
+  type GeneratedSettingsActionInputField,
+} from "@harness-anything/preset/internal/preset-command-contract";
+import { optionalEnum, shape, type RpcShape } from "./daemon-protocol-gui-types.ts";
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 import { entityDeclarationGuiActions, entityImportGuiActions } from "./daemon-protocol-gui-actions-entity.ts";
 import { taskCompletionGuiActions } from "./daemon-protocol-gui-actions-entity.ts";
@@ -15,6 +19,30 @@ import {
   TERMINAL_DETACH_ACK_SCHEMA,
   TERMINAL_INPUT_ACK_SCHEMA,
 } from "./daemon-protocol-schema-ids.ts";
+
+const settingsUpdateRpcFields = Object.fromEntries(
+  generatedSettingsFieldProtocolProjection.actionInputs.map((field) => [field.field, settingsActionRpcRule(field)]),
+) as RpcShape["fields"];
+
+function settingsActionRpcRule(field: GeneratedSettingsActionInputField): RpcShape["fields"][string] {
+  if (field.field === "idempotencyKey") return "string";
+  if (field.enum) return optionalEnum(field.enum);
+  switch (field.type) {
+    case "number":
+      return "number?";
+    case "boolean":
+      return "boolean?";
+    case "string-array":
+    case "fact-hold-array":
+    case "json-object-array":
+      return "array?";
+    case "json-object":
+      return "json?";
+    default:
+      return "string?";
+  }
+}
+
 export const daemonGuiActionMethods = Object.freeze([
   {
     id: "gui.control.request",
@@ -202,33 +230,7 @@ export const daemonGuiActionMethods = Object.freeze([
     "settings.update",
     "repo.settings.update",
     "settings-update",
-    shape({
-      defaultVertical: "string?",
-      defaultPreset: "string?",
-      defaultProfile: "string?",
-      roles: "json?",
-      reviewIndependence: "string?",
-      reviewReturnBudget: "number?",
-      closeoutProfile: "string?",
-      closeoutReview: "boolean?",
-      closeoutConsent: "boolean?",
-      closeoutFactDisposition: "boolean?",
-      closeoutCodeDoc: "boolean?",
-      locale: "string?",
-      taskScaffold: "string?",
-      repositoryScaffold: "string?",
-      walFlushAdaptive: "boolean?",
-      walFlushEvents: "number?",
-      walFlushBytes: "number?",
-      walFlushMilliseconds: "number?",
-      ciWorkflows: "array?",
-      gatesFromDocument: "boolean?",
-      gatesDraft: "array?",
-      restoreDrillRetention: "number?",
-      worktreeSetup: "array?",
-      expectedVersion: "number?",
-      idempotencyKey: "string",
-    }),
+    shape(settingsUpdateRpcFields),
     "updateSettings",
     "/api/settings",
     "repo-write",

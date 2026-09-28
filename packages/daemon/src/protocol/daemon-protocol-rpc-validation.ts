@@ -1,3 +1,4 @@
+import { generatedSettingsFieldProtocolProjection } from "@harness-anything/preset/internal/preset-command-contract";
 import { daemonMethodNameSets } from "./daemon-protocol-commands.ts";
 import {
   admitUseCaseProjectionSelector,
@@ -230,50 +231,14 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       required.every((field) => nonEmpty(item[field])) &&
       Object.keys(item).every((field) => required.includes(field) || optional.includes(field));
   if (method === "repo.settings.update") {
-    // ciWorkflows, worktreeSetup and the closeout fields are typed settings judged by the kernel compiler.
-    const settingFields = (
-        "defaultVertical defaultPreset defaultProfile roles reviewIndependence reviewReturnBudget " +
-        "closeoutProfile closeoutReview closeoutConsent closeoutFactDisposition closeoutCodeDoc " +
-        "locale taskScaffold repositoryScaffold walFlushAdaptive walFlushEvents " +
-        "walFlushBytes walFlushMilliseconds ciWorkflows gatesFromDocument gatesDraft restoreDrillRetention " +
-        "worktreeSetup"
-      ).split(" "),
-      changed = settingFields.filter((field) => value[field] !== undefined),
-      identifier = /^[A-Za-z0-9][A-Za-z0-9/_.@-]*$/u;
+    const changed = generatedSettingsFieldProtocolProjection.actionInputs.filter(
+      ({ field }) => field !== "expectedVersion" && field !== "idempotencyKey" && value[field] !== undefined,
+    );
     if (
       changed.length === 0 ||
-      changed
-        .filter(
-          (field) =>
-            !field.startsWith("walFlush") &&
-            !field.startsWith("closeout") &&
-            field !== "roles" &&
-            field !== "ciWorkflows" &&
-            field !== "worktreeSetup" &&
-            field !== "gatesFromDocument" &&
-            field !== "gatesDraft" &&
-            field !== "reviewReturnBudget" &&
-            field !== "restoreDrillRetention",
-        )
-        .some((field) => typeof value[field] !== "string" || !identifier.test(String(value[field]))) ||
-      [
-        value.walFlushEvents,
-        value.walFlushBytes,
-        value.walFlushMilliseconds,
-        value.reviewReturnBudget,
-        value.restoreDrillRetention,
-      ].some((item) => item !== undefined && (!Number.isSafeInteger(item) || Number(item) < 1)) ||
-      (value.roles !== undefined && !isJsonObject(value.roles)) ||
+      !validProjectedSettingsAction(value) ||
       (value.gatesDraft !== undefined &&
-        (!Array.isArray(value.gatesDraft) || value.gatesDraft.some((mapping) => !isJsonObject(mapping)))) ||
-      (value.locale !== undefined && !["en-US", "zh-CN"].includes(String(value.locale))) ||
-      (value.reviewIndependence !== undefined &&
-        !["execution", "principal"].includes(String(value.reviewIndependence))) ||
-      changed
-        .filter((field) =>
-          /^(walFlushAdaptive|closeout(Review|Consent|FactDisposition|CodeDoc)|gatesFromDocument)$/u.test(field),
-        )
-        .some((field) => typeof value[field] !== "boolean")
+        (!Array.isArray(value.gatesDraft) || value.gatesDraft.some((mapping) => !isJsonObject(mapping))))
     )
       errors.push("settings update is invalid");
   }
@@ -395,6 +360,63 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
   if (method === "repo.terminal.terminate" && value.confirmed !== true)
     errors.push("terminal termination requires confirmation");
   return errors;
+}
+
+function validProjectedSettingsAction(value: Readonly<JsonObject>): boolean {
+  const rules = generatedSettingsFieldProtocolProjection.validations,
+    groupedFields = new Set(rules.flatMap(({ field, key }) => (key === undefined ? [] : [field])));
+  for (const field of groupedFields) {
+    if (!Object.hasOwn(value, field)) continue;
+    const group = value[field];
+    if (!isJsonObject(group)) return false;
+    const fieldRules = rules.filter((rule) => rule.field === field && rule.key !== undefined);
+    for (const [key, entry] of Object.entries(group)) {
+      const rule = fieldRules.find((candidate) => candidate.key === key);
+      if (!rule || (entry !== null && !validProjectedSettingsValue(entry, rule))) return false;
+    }
+  }
+  return rules.every((rule) =>
+    rule.key !== undefined || !Object.hasOwn(value, rule.field)
+      ? true
+      : validProjectedSettingsValue(value[rule.field], rule),
+  );
+}
+
+function validProjectedSettingsValue(
+  value: unknown,
+  rule: (typeof generatedSettingsFieldProtocolProjection.validations)[number],
+): boolean {
+  switch (rule.valueKind) {
+    case "string": {
+      if (typeof value !== "string" || !value.trim()) return false;
+      return rule.pattern === undefined || new RegExp(rule.pattern, "u").test(value.trim());
+    }
+    case "enum":
+      return typeof value === "string" && rule.allowedValues?.includes(value) === true;
+    case "integer":
+      return (
+        Number.isSafeInteger(value) &&
+        (rule.minimum === undefined || Number(value) >= rule.minimum) &&
+        (rule.maximum === undefined || Number(value) <= rule.maximum)
+      );
+    case "boolean":
+      return typeof value === "boolean" || value === "true" || value === "false";
+    case "string-array": {
+      if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string")) return false;
+      if (rule.noneMeansEmpty && value.length === 1 && value[0] === "none") return true;
+      const strings = value.map((entry) => entry.trim());
+      return (
+        strings.every(
+          (entry) =>
+            (rule.pattern === undefined || new RegExp(rule.pattern, "u").test(entry)) &&
+            (rule.forbiddenPattern === undefined || !new RegExp(rule.forbiddenPattern, "u").test(entry)),
+        ) &&
+        (!rule.uniqueItems || new Set(strings).size === strings.length)
+      );
+    }
+    case "gate-mappings":
+      return Array.isArray(value) && value.every(isJsonObject);
+  }
 }
 
 export function exactCwd(value: unknown): boolean {

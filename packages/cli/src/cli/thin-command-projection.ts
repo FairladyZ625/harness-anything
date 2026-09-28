@@ -44,9 +44,11 @@ export function projectFlags(
     projected[field] =
       input?.projection === "json-object"
         ? jsonObjectFlag(value)
-        : input?.projection === "number" || field === "limit" || field === "ttlMs"
-          ? Number(value)
-          : value;
+        : input?.projection === "boolean"
+          ? value === "true"
+          : input?.projection === "number" || field === "limit" || field === "ttlMs"
+            ? Number(value)
+            : value;
   }
   for (const [name, values] of flags.many) {
     const input = inputs?.get(commandId)?.inputs.find((candidate) => candidate.name === name),

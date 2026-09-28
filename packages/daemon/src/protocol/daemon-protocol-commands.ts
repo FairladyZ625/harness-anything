@@ -2,6 +2,7 @@ import {
   cliInput,
   defineCliCommand,
   defineRepoReadCommand,
+  generatedSettingsFieldProtocolProjection,
   presetCommands,
   presetMethods,
 } from "@harness-anything/preset/internal/preset-command-contract";
@@ -32,18 +33,21 @@ const settingsWriteTopology = {
       "remote-edge": "via-center-forward" as const,
     },
   },
-  settingValueInput = (name: string) =>
+  declaredSettingsInputs = generatedSettingsFieldProtocolProjection.cliInputs.map((input) =>
     cliInput(
-      name,
-      "single",
+      input.name,
+      input.kind,
       false,
+      { code: "invalid_field" },
       {
-        code: "invalid_field",
+        description: input.description,
+        ...(input.regex ? { regex: input.regex } : {}),
+        ...(input.enum ? { enum: input.enum } : {}),
+        ...(input.format ? { format: input.format } : {}),
+        ...(input.projection ? { projection: input.projection } : {}),
       },
-      { regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$" },
     ),
-  positiveSettingInput = (name: string) =>
-    cliInput(name, "single", false, { code: "invalid_field" }, { regex: "^[1-9][0-9]*$" }),
+  ),
   settingsProtocolCommands = Object.freeze([
     defineRepoReadCommand({
       id: "settings-read",
@@ -71,56 +75,7 @@ const settingsWriteTopology = {
       summary: "Update the Settings-owned harness.yaml facet through the canonical writer.",
       method: "repo.task.run",
       inputs: [
-        settingValueInput("--default-vertical"),
-        settingValueInput("--default-preset"),
-        settingValueInput("--default-profile"),
-        cliInput("--roles", "single", false, { code: "invalid_field" }, { projection: "json-object" }),
-        cliInput(
-          "--review-independence",
-          "single",
-          false,
-          { code: "invalid_field" },
-          {
-            enum: ["execution", "principal"],
-          },
-        ),
-        positiveSettingInput("--review-return-budget"),
-        cliInput("--closeout-profile", "single", false, { code: "invalid_field" }, { enum: ["standard", "strict"] }),
-        cliInput("--closeout-review", "single", false, { code: "invalid_field" }, { enum: ["true", "false"] }),
-        cliInput("--closeout-consent", "single", false, { code: "invalid_field" }, { enum: ["true", "false"] }),
-        cliInput(
-          "--closeout-fact-disposition",
-          "single",
-          false,
-          { code: "invalid_field" },
-          { enum: ["true", "false"] },
-        ),
-        cliInput("--closeout-code-doc", "single", false, { code: "invalid_field" }, { enum: ["true", "false"] }),
-        cliInput(
-          "--locale",
-          "single",
-          false,
-          {
-            code: "invalid_field",
-          },
-          { enum: ["en-US", "zh-CN"] },
-        ),
-        settingValueInput("--task-scaffold"),
-        settingValueInput("--repository-scaffold"),
-        cliInput("--wal-flush-adaptive", "single", false, { code: "invalid_field" }, { enum: ["true", "false"] }),
-        positiveSettingInput("--wal-flush-events"),
-        positiveSettingInput("--wal-flush-bytes"),
-        positiveSettingInput("--wal-flush-milliseconds"),
-        cliInput(
-          "--ci-workflows",
-          "repeated",
-          false,
-          { code: "invalid_field" },
-          {
-            regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$",
-            format: "workflow names, or none to disable CI witnessing (unconfigured repositories witness none)",
-          },
-        ),
+        ...declaredSettingsInputs,
         cliInput(
           "--worktree-setup",
           "repeated",

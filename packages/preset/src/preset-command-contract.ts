@@ -6,9 +6,10 @@ import type {
   CommandTopology,
   GeneratedTaskActionProtocolProjection,
   GeneratedTaskCreateProjection,
+  GeneratedSettingsFieldProtocolProjection,
   RpcShape,
 } from "./preset-command-contract-support.ts";
-import { taskActionDescriptorProjection } from "./task-action-projection.generated.ts";
+import { settingsFieldProtocolProjection, taskActionDescriptorProjection } from "./task-action-projection.generated.ts";
 import { taskCreateDescriptorProjection } from "./task-create-projection.generated.ts";
 
 export type {
@@ -19,6 +20,9 @@ export type {
   CommandTopology,
   GeneratedTaskActionInputField,
   GeneratedTaskActionProtocolDeclaration,
+  GeneratedSettingsActionInputField,
+  GeneratedSettingsCliInputField,
+  GeneratedSettingsValidationRule,
   RpcShape,
 } from "./preset-command-contract-support.ts";
 
@@ -83,6 +87,7 @@ export function parameterRelationHint(value: string): boolean {
 
 export function cliInputHelp(input: CliInputFacet): string {
   const facts = [
+    ...(input.description ? [input.description] : []),
     input.required ? "required" : input.requiredWhen ? "conditionally required" : "optional",
     input.kind === "repeated" ? "repeatable" : input.kind === "boolean" ? "flag" : "value",
   ];
@@ -195,6 +200,8 @@ export const decisionProposalJsonFields = Object.freeze([
 const taskActionProtocolProjection: GeneratedTaskActionProtocolProjection = taskActionDescriptorProjection,
   taskCreateProjection: GeneratedTaskCreateProjection = taskCreateDescriptorProjection,
   taskCreateAction = taskCreateProjection.action;
+export const generatedSettingsFieldProtocolProjection: GeneratedSettingsFieldProtocolProjection =
+  settingsFieldProtocolProjection;
 export function taskCreateEnum(field: string): readonly string[] {
   const values = taskCreateAction?.input.fields.find((candidate) => candidate.field === field)?.enum;
   if (!values) throw new Error(`task.create ${field} enum projection is missing.`);
