@@ -530,9 +530,15 @@ test("an agy turn that ends while its own tool step is unsettled cannot settle a
 });
 
 test("an agy tool step that settled stays settled when older builds re-emit it as ACTIVE", async () => {
-  assert.equal((await settleAgyTurn(agyAbandonedTurn(["ACTIVE", "DONE"]))).outcome, "succeeded");
-  assert.equal((await settleAgyTurn(agyAbandonedTurn(["ACTIVE", "ERROR"]))).outcome, "succeeded");
-  assert.equal((await settleAgyTurn(agyAbandonedTurn(["ACTIVE", "DONE", "ACTIVE"]))).outcome, "succeeded");
+  for (const states of [
+    ["ACTIVE", "DONE"],
+    ["ACTIVE", "ERROR"],
+    ["ACTIVE", "DONE", "ACTIVE"],
+  ]) {
+    const settled = await settleAgyTurn(agyAbandonedTurn(states));
+    assert.equal(settled.outcome, "unknown");
+    assert.doesNotMatch(settled.reason, /tool call it started had not finished/u);
+  }
 });
 
 const conversation = { conversation_id: "agy-conversation", step_index: 2 };

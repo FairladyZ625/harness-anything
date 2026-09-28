@@ -150,9 +150,8 @@ test("attempt-bound classification falls back only before tools or for recognize
     ).classification,
     "worker_stop",
   );
-  const succeeded = classifyRuntimeExit(active({ providerOutcome: "succeeded" }), 0);
-  assert.deepEqual(pick(succeeded), { outcome: "succeeded", classification: "worker_stop" });
-  assert.match(succeeded.reason, /successfully/u);
+  const cleanExit = classifyRuntimeExit(active({ providerOutcome: "succeeded" }), 0);
+  assert.deepEqual(pick(cleanExit), { outcome: "unknown", classification: "worker_stop" });
   const descendantsAlive = classifyRuntimeExit(active({ descendantsAlive: true } as Partial<ActiveRuntime>), 0);
   assert.deepEqual(pick(descendantsAlive), { outcome: "unknown", classification: "worker_stop" });
   assert.match(descendantsAlive.reason, /descendant processes are still running/u);
@@ -204,7 +203,7 @@ test("blank successful Codex turns classify as provider faults", () => {
     observeProviderFault(runtime, parsed);
   }
   const result = classifyRuntimeExit(runtime, 0);
-  assert.equal(result.outcome, "succeeded");
+  assert.equal(result.outcome, "unknown");
   assert.equal(result.classification, "provider_fault");
   assert.equal(result.reason, "Provider completed a turn but produced no output.");
 });
