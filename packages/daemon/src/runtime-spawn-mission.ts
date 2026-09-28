@@ -1,4 +1,3 @@
-import { existsSync, globSync } from "node:fs";
 import path from "node:path";
 import type { AgentRole, TaskProjection } from "@harness-anything/kernel";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
@@ -228,10 +227,6 @@ export function deriveTaskMission(
 ): {
   readonly mission: string;
   readonly packageRoot: string;
-  readonly planPath: string;
-  readonly plan: string;
-  readonly missionPath: string | null;
-  readonly missionBody: string | null;
 } {
   const planDocument = assertTaskTransitionDocumentReady({
       rootDir,
@@ -243,7 +238,7 @@ export function deriveTaskMission(
     packageRoot = path.resolve(resolveHarnessLayout(rootDir).authoredRoot, ...planDocument.packagePath.split("/")),
     planPath = path.join(packageRoot, ...path.posix.relative(planDocument.packagePath, planDocument.path).split("/")),
     missionDocument = missionName
-      ? readMissionDocument(projection, planDocument.packagePath, taskId, missionName, packageRoot)
+      ? readMissionDocument(projection, planDocument.packagePath, taskId, missionName)
       : null,
     causalContextResolved =
       causalContext === undefined ? assembleTaskCausalContext({ projection, taskId }) : causalContext,
@@ -259,15 +254,11 @@ export function deriveTaskMission(
       ...(returnDocument ? [`# Owner rework instruction\n\n${returnDocument.body.trim()}`] : []),
       taskQueryGuidance(taskId),
       ...(causalContextResolved === null ? [] : [causalContextResolved]),
-      ...(missionDocument ? [`# Mission: ${missionName}\n\n${missionDocument.body.trim()}`] : []),
+      ...(missionDocument ? [`# Mission: ${missionName}\n\n${missionDocument.trim()}`] : []),
     ].join("\n\n");
   return {
     packageRoot,
-    planPath,
-    plan: planDocument.body,
     mission,
-    missionPath: missionDocument?.path ?? null,
-    missionBody: missionDocument?.body ?? null,
   };
 }
 
@@ -294,8 +285,7 @@ function readMissionDocument(
   packagePath: string,
   taskId: string,
   missionName: string,
-  packageRoot: string,
-): { readonly path: string; readonly body: string } {
+): string {
   const name = runtimeMissionName(missionName),
     logicalPath = `${packagePath}/artifacts/missions/${name}.md`,
     read = projection.readDocument(logicalPath);
@@ -307,7 +297,7 @@ function readMissionDocument(
         `If the file exists on disk, run ha doc sync --submit --path ${logicalPath}, then retry.`,
       ].join(""),
     );
-  return { path: path.join(packageRoot, "artifacts", "missions", `${name}.md`), body: read.document.body };
+  return read.document.body;
 }
 
 export function assembleTaskMission(input: {
@@ -382,74 +372,4 @@ export function assembleScheduledMission(input: {
     "# Assigned Mission",
     input.mission,
   ].join("\n");
-}
-
-export function validateMissionCommands(mission: string, workerRoot: string, source: string): void {
-  for (const block of mission.matchAll(/(?:^|\r?\n)```(?:sh|bash|zsh|shell)[^\r\n]*\r?\n([\s\S]*?)(?:^|\r?\n)```/giu))
-    for (const line of (block[1] ?? "").split(/\r?\n/u))
-      for (const tokens of shellSegments(line)) {
-        const command = path.basename(tokens[0] ?? ""),
-          args = tokens.slice(1),
-          candidates = new Set<string>();
-        if (!command || command.startsWith("#")) continue;
-        if (command === "node") for (const value of args) if (looksLikeMissionPath(value)) candidates.add(value);
-        if (command === "rg") {
-          const last = args.at(-1);
-          if (last && looksLikeMissionPath(last)) candidates.add(last);
-        }
-        if (["cat", "cd", "head", "tail", "test", "wc", "ls", "stat", "sed"].includes(command))
-          for (const value of args) if (!value.startsWith("-") && looksLikeMissionPath(value)) candidates.add(value);
-        if (tokens[0]?.includes("/") && looksLikeMissionPath(tokens[0])) candidates.add(tokens[0]);
-        for (const candidate of candidates)
-          if (!missionPathExists(workerRoot, candidate))
-            throw runtimeSpawnError(
-              "runtime_mission_invalid",
-              [
-                "",
-                `${source}`,
-                " shell command references unavailable path ",
-                `${JSON.stringify(candidate)}`,
-                " from worker root ",
-                `${workerRoot}`,
-                ".",
-              ].join(""),
-            );
-      }
-}
-
-export function shellSegments(line: string): string[][] {
-  const segments: string[][] = [[]];
-  for (const [raw] of line.matchAll(/"(?:\\.|[^"])*"|'[^']*'|&&|[|;]|(?:<[^<>\r\n]+>|[^\s|&;<>])+/gu)) {
-    if (["&&", "|", ";"].includes(raw)) {
-      if (segments.at(-1)?.length) segments.push([]);
-      continue;
-    }
-    const token =
-      raw.length >= 2 && ((raw.startsWith('"') && raw.endsWith('"')) || (raw.startsWith("'") && raw.endsWith("'")))
-        ? raw.slice(1, -1)
-        : raw;
-    if (token === "#") {
-      segments.push([]);
-      break;
-    }
-    segments.at(-1)!.push(token);
-  }
-  return segments.filter((segment) => segment.length > 0);
-}
-
-export function looksLikeMissionPath(value: string): boolean {
-  return (
-    !value.includes("$") &&
-    !/[<>]/u.test(value) &&
-    !/^https?:\/\//u.test(value) &&
-    (path.isAbsolute(value) ||
-      value.startsWith(".") ||
-      value.includes("/") ||
-      /\.(?:[cm]?[jt]s|json|md|sh|ya?ml)$/iu.test(value))
-  );
-}
-
-export function missionPathExists(workerRoot: string, value: string): boolean {
-  if (/[*?[\]{}]/u.test(value)) return globSync(value, { cwd: workerRoot }).length > 0;
-  return existsSync(path.isAbsolute(value) ? value : path.resolve(workerRoot, value));
 }
