@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import path from "node:path";
 import {
   completionGuidance,
@@ -188,8 +189,10 @@ export function deriveCloseoutSubmission(
     git = makeGitReadinessSource(),
     // Only the bound task worktree names a delivery implicitly: a dispatch cwd may be any checkout,
     // canonical included, so it only locates an explicitly requested commit below.
-    boundHead = taskRoot ? git.run(taskRoot, ["rev-parse", "HEAD"]) : null,
-    bound = boundHead?.ok && boundHead.stdout ? boundHead.stdout : undefined,
+    // A plain directory at the bound path would resolve to the enclosing checkout, so the path must be its own top level.
+    boundHead = taskRoot ? git.run(taskRoot, ["rev-parse", "--show-toplevel", "HEAD"]) : null,
+    [boundTop, boundSha] = boundHead?.ok ? boundHead.stdout.split("\n") : [],
+    bound = boundTop && boundSha && realpathSync(boundTop) === realpathSync(taskRoot!) ? boundSha : undefined,
     uniqueDirectories = [...new Set([...(taskRoot ? [taskRoot] : []), ...dispatches.map((dispatch) => dispatch.cwd!)])],
     namedCommit = requestedCommit ?? bound;
   if (!namedCommit)

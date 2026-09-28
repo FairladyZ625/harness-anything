@@ -314,6 +314,19 @@ test("an old dispatch cwd in another checkout never stands in for the bound work
   assert.equal(derive(root, "Completed.", undefined, ["ci"], undefined, undefined, sha).commitSha, sha);
 });
 
+test("a plain directory at the bound worktree path never lends the canonical HEAD", (t) => {
+  const { root } = fixture(t);
+  // A leftover ordinary directory at .worktrees/task-1: rev-parse there walks up to the canonical checkout.
+  put(root, ".worktrees/task-1/leftover.txt", "not a worktree\n");
+  assert.throws(
+    () => derive(root, "Completed the live path.", undefined, ["ci"], undefined, undefined, undefined, true),
+    {
+      code: "invalid_submission",
+      message: /No readable bound worktree HEAD exists; rerun with --commit/u,
+    },
+  );
+});
+
 test("explicit delivery commit must match a bound worktree HEAD and reports both values", (t) => {
   const { root, base } = fixture(t),
     worktree = path.join(root, ".worktrees/task-1");
