@@ -1,5 +1,8 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import nodePath from "node:path";
 import test from "node:test";
 import { sha256Bytes, submissionDigest } from "@harness-anything/kernel";
 import { validateGuiSubmission } from "../src/protocol/daemon-protocol-validate-entities.ts";
@@ -179,6 +182,81 @@ test("non-ASCII letters and % stay path characters, so CJK filenames still ancho
     submitted.artifacts?.map((anchor) => [anchor.path, anchor.revision]),
     [[cjkPath, 7]],
   );
+});
+
+test("a directory deliverable anchor expands to every file under it, or rejects naming the unfiled count", () => {
+  const parent = mkdtempSync(nodePath.join(tmpdir(), "ha-submission-dir-")),
+    rawDir = `${packagePath}/artifacts/raw/`,
+    filedA = `${packagePath}/artifacts/raw/a.log`,
+    filedB = `${packagePath}/artifacts/raw/nested/b.log`;
+  const deriveDir = (summary: string, accepted: readonly string[]) => {
+    const bytes = Buffer.from("Frozen evidence.\n"),
+      blobSha256 = sha256Bytes(bytes),
+      event = {
+        schema: "doc-event/v1",
+        workspaceRevision: 7,
+        opId: "accepted-7",
+        payload: { changes: accepted.map((target) => ({ path: target, candidate: { sha256: blobSha256 } })) },
+      },
+      cell = {
+        store: { readEventAtRevision: () => event, readContentBlob: () => bytes },
+        cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+      } as unknown as Parameters<typeof deriveCloseoutSubmission>[0],
+      body = `## Summary\n${summary}\n## Verification\nRead evidence.\n## Residual Risk\nNone identified.\n## Same Mechanism Elsewhere\nChecked sibling.\n`,
+      projection = {
+        read: () => ({ watermark: 7, sourceRevision: 7, snapshot: { task: {} }, packagePath }),
+        readDocument: (target: string) => ({
+          watermark: 7,
+          sourceRevision: 7,
+          document: {
+            workspaceRevision: accepted.includes(target) ? 7 : undefined,
+            body: target.endsWith("task-contract.json")
+              ? JSON.stringify({
+                  documents: [
+                    {
+                      slot: "task.closeout",
+                      path: "closeout.md",
+                      templateRef: "template://planning/closeout@1",
+                      locale: "en-US",
+                    },
+                  ],
+                })
+              : body,
+          },
+        }),
+      } as unknown as Parameters<typeof deriveCloseoutSubmission>[0]["projection"];
+    return deriveCloseoutSubmission(
+      { ...cell, rootDir: parent, projection, settings: repositorySettingsStub },
+      "task-artifact",
+      "execution",
+      { executions: [] } as unknown as Parameters<typeof deriveCloseoutSubmission>[3],
+    );
+  };
+  try {
+    mkdirSync(nodePath.join(parent, "harness", packagePath, "artifacts", "raw", "nested"), { recursive: true });
+    writeFileSync(nodePath.join(parent, "harness", packagePath, "artifacts", "raw", "a.log"), "a\n");
+    writeFileSync(nodePath.join(parent, "harness", packagePath, "artifacts", "raw", "nested", "b.log"), "b\n");
+    // Every file filed: the cut freezes each file at its own accepted revision.
+    const submitted = deriveDir(`artifact:${rawDir}`, [filedA, filedB]);
+    assert.deepEqual(
+      submitted.artifacts?.map((anchor) => [anchor.path, anchor.revision]),
+      [
+        [filedA, 7],
+        [filedB, 7],
+      ],
+    );
+    assert.deepEqual(submitted.deliverables, [filedA, filedB]);
+    // An unfiled file rejects the submit naming the count, before the cut can freeze.
+    assert.throws(
+      () => deriveDir(`artifact:${rawDir}`, [filedA]),
+      (error: Error & { readonly code?: string }) =>
+        error.code === "invalid_submission" && /1 of 2 file\(s\).*b\.log/u.test(error.message),
+    );
+    // A @revision pin on a directory deliverable is meaningless and rejected.
+    assert.throws(() => deriveDir(`artifact:${rawDir}@7`, [filedA, filedB]), { code: "invalid_submission" });
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
 });
 
 test("a prose label ending in 'artifact:' is not counted as a second anchor", () => {

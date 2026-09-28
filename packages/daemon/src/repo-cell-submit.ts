@@ -23,6 +23,7 @@ import {
   artifactAnchors,
   removeArtifactAnchors,
   readSubmissionArtifact,
+  submissionArtifactDirectoryFiles,
   submissionArtifactPath,
   unparsedArtifactAnchorText,
 } from "./submission-artifacts.ts";
@@ -86,15 +87,48 @@ export function deriveCloseoutSubmission(
         : `Summary contains artifact: text that is not a parsable anchor: ${unparsed.join(", ")}. `) +
         artifactAnchorGuidance,
     );
-  const artifacts = anchors.map(({ path, revision }) => {
-    const artifact = submissionArtifactPath(document.packagePath, path);
-    const acceptedRevision = revision ?? cell.projection.readDocument(artifact).document?.workspaceRevision;
-    if (acceptedRevision === undefined)
+  const artifacts = anchors.flatMap(({ path, revision }) => {
+    if (!path.endsWith("/")) {
+      const artifact = submissionArtifactPath(document.packagePath, path);
+      const acceptedRevision = revision ?? cell.projection.readDocument(artifact).document?.workspaceRevision;
+      if (acceptedRevision === undefined)
+        throw cell.cellCodedError(
+          "invalid_submission",
+          `Artifact ${artifact}: no center-accepted revision exists. ${artifactAnchorGuidance}`,
+        );
+      return [readSubmissionArtifact(cell, document.packagePath, artifact, acceptedRevision).anchor];
+    }
+    // Directory deliverable: expand to every file under it; each pins its own current
+    // center-accepted revision, and any unfiled file rejects the submit naming the count.
+    if (revision !== undefined)
       throw cell.cellCodedError(
         "invalid_submission",
-        `Artifact ${artifact}: no center-accepted revision exists. ${artifactAnchorGuidance}`,
+        `Artifact ${path}: a directory deliverable pins each file's own accepted revision; ` +
+          `remove @${String(revision)}. ` +
+          artifactAnchorGuidance,
       );
-    return readSubmissionArtifact(cell, document.packagePath, artifact, acceptedRevision).anchor;
+    const directoryArtifact = submissionArtifactPath(document.packagePath, path),
+      files = submissionArtifactDirectoryFiles(cell.rootDir, directoryArtifact);
+    if (files.length === 0)
+      throw cell.cellCodedError(
+        "invalid_submission",
+        `Artifact ${path}: the directory deliverable contains no files. ${artifactAnchorGuidance}`,
+      );
+    const unfiled = files.filter(
+      (file) => cell.projection.readDocument(file).document?.workspaceRevision === undefined,
+    );
+    if (unfiled.length > 0)
+      throw cell.cellCodedError(
+        "invalid_submission",
+        `Artifact ${path}: ${String(unfiled.length)} of ${String(files.length)} file(s) have no center-accepted ` +
+          `revision (${unfiled.slice(0, 8).join(", ")}${unfiled.length > 8 ? ", …" : ""}). File every deliverable ` +
+          "with ha doc sync --submit or ha task artifact add before ha task submit. " +
+          artifactAnchorGuidance,
+      );
+    return files.map((file) => {
+      const acceptedRevision = cell.projection.readDocument(file).document?.workspaceRevision;
+      return readSubmissionArtifact(cell, document.packagePath, file, acceptedRevision!).anchor;
+    });
   });
   if (new Set(artifacts.map((anchor) => anchor.path)).size !== artifacts.length)
     throw cell.cellCodedError(

@@ -1,7 +1,10 @@
 import { isUtf8 } from "node:buffer";
+import { readdirSync, statSync } from "node:fs";
+import path from "node:path";
 import {
   isDocEvent,
   normalizeRelativeDocumentPath,
+  resolveHarnessLayout,
   sha256Bytes,
   type ArtifactDelivery,
 } from "@harness-anything/kernel";
@@ -49,6 +52,34 @@ function artifactAnchorMatches(summary: string): readonly ArtifactAnchorMatch[] 
 /** Anchors name this task's artifacts package-relative; the frozen cut stores the full task-package path. */
 export function submissionArtifactPath(packagePath: string, path: string): string {
   return path.startsWith("artifacts/") ? `${packagePath}/${path}` : path;
+}
+
+/**
+ * A directory deliverable anchor (`artifact:artifacts/raw/`) expands to every file under that
+ * directory in the task package. Submit then requires each file to have a center-accepted
+ * revision, so an unfiled file rejects the submit naming the count instead of surfacing as a
+ * review rejection after the cut froze. `directory` is authored-root relative; so are the
+ * returned paths.
+ */
+export function submissionArtifactDirectoryFiles(rootDir: string, directory: string): readonly string[] {
+  const absolute = path.join(resolveHarnessLayout(rootDir).authoredRoot, directory);
+  let state;
+  try {
+    state = statSync(absolute);
+  } catch {
+    return [];
+  }
+  if (!state.isDirectory()) return [];
+  return walk(absolute)
+    .map((file) => `${directory}${path.relative(absolute, file).split(path.sep).join("/")}`)
+    .sort();
+}
+
+function walk(root: string): readonly string[] {
+  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+    const target = path.join(root, entry.name);
+    return entry.isDirectory() ? walk(target) : [target];
+  });
 }
 
 /** Resolve only center-accepted bytes; current workspace files are never evidence for a historical cut. */
