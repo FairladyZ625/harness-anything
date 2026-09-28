@@ -39,7 +39,7 @@ import {
   upgradeDriftedPresetSnapshot,
 } from "./repo-cell-task-progress.ts";
 import { actionWitnessCollections } from "./repo-cell-witness-adapters.ts";
-import { presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
+import { presetSnapshotReader, taskOutputShape, taskWorktreeBinding } from "./task-worktree.ts";
 
 /** Git resolves the empty-tree object id virtually; it exists in every repository. */
 const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -129,9 +129,11 @@ export function deriveCloseoutSubmission(
       "invalid_submission",
       `Summary must name each artifact path once. ${artifactAnchorGuidance}`,
     );
-  const privateDelivery = !(snapshot.task?.completionGateIds ?? []).some(
-    (gate) => gate === "ci" || gate === "code-doc-reconciliation",
-  );
+  // The delivery falls to the task's own output shape, not its completion gates (dec_BBA713052997C3EF5F5D3DD952):
+  // a repository-diff task always carries a public delivery commit, even under a lightweight profile whose
+  // gate set is empty; a task-package-artifact task always delivers through the ledger or anchored artifacts.
+  const readPresetSnapshot = presetSnapshotReader(cell.projection),
+    privateDelivery = taskOutputShape(snapshot.task, readPresetSnapshot) !== "repository-diff";
   if (privateDelivery) {
     if (artifacts.length)
       return {
@@ -184,7 +186,7 @@ export function deriveCloseoutSubmission(
         dispatch.role !== "reviewer" &&
         dispatch.cwd,
     ),
-    binding = taskWorktreeBinding(snapshot.task, presetSnapshotReader(cell.projection)),
+    binding = taskWorktreeBinding(snapshot.task, readPresetSnapshot),
     taskRoot = binding ? path.join(cell.rootDir, binding.path) : null,
     git = makeGitReadinessSource(),
     // Only the bound task worktree names a delivery implicitly: a dispatch cwd may be any checkout,

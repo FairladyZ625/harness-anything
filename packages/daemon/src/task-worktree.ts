@@ -38,17 +38,26 @@ export function presetSnapshotReader(projection: Pick<TaskProjection, "readPrese
   };
 }
 
-/** The binding is derived, never stored (dec_01KY4Y2MW94HM5QK5Q1208XJZ5): id, class and output shape. */
-export function taskWorktreeBinding(
+/** The task's declared output shape: the compiled preset snapshot's profile field, or null before it compiles. */
+export function taskOutputShape(
   task: TaskV2 | null | undefined,
   readPresetSnapshot: PresetSnapshotRead,
-): TaskWorktreeBindingV1 | null {
+): string | null {
   if (!task?.presetSnapshotDigest) return null;
   const snapshot = readPresetSnapshot(task.presetSnapshotDigest) as {
       readonly profile?: { readonly outputShape?: unknown };
     } | null,
     outputShape = snapshot?.profile?.outputShape;
-  return typeof outputShape === "string"
+  return typeof outputShape === "string" ? outputShape : null;
+}
+
+/** The binding is derived, never stored (dec_01KY4Y2MW94HM5QK5Q1208XJZ5): id, class and output shape. */
+export function taskWorktreeBinding(
+  task: TaskV2 | null | undefined,
+  readPresetSnapshot: PresetSnapshotRead,
+): TaskWorktreeBindingV1 | null {
+  const outputShape = taskOutputShape(task, readPresetSnapshot);
+  return task && outputShape
     ? deriveTaskWorktreeBinding({ taskId: task.taskId, taskClass: task.taskClass, outputShape })
     : null;
 }
