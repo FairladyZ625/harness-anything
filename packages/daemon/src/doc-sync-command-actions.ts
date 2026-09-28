@@ -281,11 +281,24 @@ export function runDocRetire(input: Input): DocSettlementReceipt {
 
 export function runArtifactAdd(input: Input): ArtifactAddReceipt {
   const taskId = requiredDocSyncText(input.action.taskId, "taskId"),
-    sourceValue = requiredDocSyncText(input.action.source, "source"),
-    destinationValue = requiredDocSyncText(input.action.destination, "destination");
-  if (!hasExactDocSyncActionFields(input.action, ["kind", "taskId", "source", "destination"]))
-    throw docSyncError("invalid_command", "task artifact add requires taskId, source, and destination");
-  const source = artifactSource(input, sourceValue),
+    destinationValue = requiredDocSyncText(input.action.destination, "destination"),
+    inline = typeof input.action.content === "string" ? input.action.content : undefined,
+    sourceValue = typeof input.action.source === "string" ? input.action.source : undefined;
+  if (
+    (inline === undefined) === (sourceValue === undefined) ||
+    !hasExactDocSyncActionFields(input.action, [
+      "kind",
+      "taskId",
+      inline === undefined ? "source" : "content",
+      "destination",
+    ])
+  )
+    throw docSyncError("invalid_command", "task artifact add requires exactly one of source or content");
+  if (inline !== undefined && Buffer.byteLength(JSON.stringify(input.action)) > DOC_COMMAND_FRAME_MAX_BYTES)
+    throw docSyncError("invalid_command", "inline task artifact exceeds the command frame limit");
+  if (inline !== undefined)
+    return publishTaskArtifactBytes(input, taskArtifactTarget(input, taskId, destinationValue), Buffer.from(inline));
+  const source = artifactSource(input, requiredDocSyncText(sourceValue, "source")),
     target = taskArtifactTarget(input, taskId, destinationValue, source.absolute);
   // Size is settled from the file, not from a buffer: a source past the blob contract is refused
   // without first reading 50 MB of it into the daemon.

@@ -17,6 +17,7 @@ import {
 } from "./cli/thin-command.ts";
 import { beginCliTiming, cliPhaseEnd, cliPhaseStart, daemonRequestTimer, finishCliTiming } from "./cli/timing.ts";
 import { isRetiredEntityExplain, taskExplainHelpOverlay } from "./cli/thin-command-explain.ts";
+import { parseTaskEvidenceInvocation, runTaskEvidence } from "./cli-task-evidence-run.ts";
 import { doctorInvocation, renderDoctorReport, runDoctor } from "./cli/thin-command-doctor.ts";
 import { runDoctorHealth } from "./cli/thin-command-doctor-health.ts";
 import { renderCliReceipt } from "./cli/receipt-render-registry.ts";
@@ -92,6 +93,12 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
     );
     cliPhaseEnd("render", helpRenderStartedAt);
     return 0;
+  }
+  const evidenceInvocation = parseTaskEvidenceInvocation(argv);
+  if (evidenceInvocation) {
+    const receipt = await runTaskEvidence(evidenceInvocation);
+    emit(receipt, evidenceInvocation.json);
+    return receiptExitCode(receipt);
   }
   if (command === "doctor") {
     const invocation = doctorInvocation(argv);
