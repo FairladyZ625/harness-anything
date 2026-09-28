@@ -10,7 +10,25 @@ import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 export const artifactAnchorGuidance =
   "Use artifact:artifacts/report.md; submit pins the current center-accepted revision.";
 
-const artifactAnchorPattern = /artifact:([^\s`<>@]+?)(?:@([1-9][0-9]*))?(?=$|[\s`<>,)，。]|[.](?=$|[\s`<>,)，。]))/gu;
+// Non-ASCII punctuation (Unicode \p{P}) and fullwidth-block symbols end the anchor, so
+// 「artifact:artifacts/design.md、」 cannot swallow the next anchor, while CJK letters and other
+// non-ASCII path material still count as path characters: artifacts/实测报告.md parses. ASCII
+// handling keeps the pre-CJK-fix rules — whitespace, backtick, angle brackets, comma, and right
+// paren terminate, and a trailing `.` terminates without being consumed. A malformed @revision
+// fails the whole anchor attempt rather than degrading to pinning the current revision.
+const nonAsciiBreak = "[[\\p{P}--[\\x00-\\x7F]][[\\uFF00-\\uFFEF]--[\\p{L}]--[\\p{N}]]]";
+const anchorBreak = "[[\\s`<>,\\)]" + nonAsciiBreak + "]";
+const artifactAnchorPattern = new RegExp(
+  "artifact:([[^\\s`<>@]--[" +
+    nonAsciiBreak +
+    "]]+?)(?:@([1-9][0-9]*))?" +
+    "(?=$|" +
+    anchorBreak +
+    "|[.](?=$|" +
+    anchorBreak +
+    "))",
+  "gv",
+);
 
 type ArtifactAnchorMatch = {
   readonly path: string;
@@ -88,4 +106,16 @@ export function removeArtifactAnchors(summary: string): string {
     cursor = end;
   }
   return result + summary.slice(cursor);
+}
+
+/**
+ * `artifact:` occurrences that did not parse as anchors, each quoted to the end of its
+ * whitespace-free run. Only `artifact:` immediately followed by a non-space character is an
+ * anchor attempt; prose labels like "Delivery artifact:" end in whitespace and count for nothing.
+ */
+export function unparsedArtifactAnchorText(summary: string): readonly string[] {
+  const anchorStarts = new Set(artifactAnchorMatches(summary).map(({ start }) => start));
+  return [...summary.matchAll(/artifact:\S/gu)]
+    .filter((attempt) => !anchorStarts.has(attempt.index!))
+    .map((attempt) => summary.slice(attempt.index!).match(/\S*/u)![0]!);
 }

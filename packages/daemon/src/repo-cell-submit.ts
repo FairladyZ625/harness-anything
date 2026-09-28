@@ -24,6 +24,7 @@ import {
   removeArtifactAnchors,
   readSubmissionArtifact,
   submissionArtifactPath,
+  unparsedArtifactAnchorText,
 } from "./submission-artifacts.ts";
 import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
@@ -68,22 +69,21 @@ export function deriveCloseoutSubmission(
     // The execution's first submission freezes the gate requirements; resumes and amendments keep them.
     prose = { ...parsed, completionContract: frozen?.completionContract ?? freezeCompletionContract(cell, snapshot) },
     anchors = artifactAnchors(prose.completionClaim),
-    named = [...new Set(removeArtifactAnchors(prose.completionClaim).match(/\b[0-9a-f]{40}\b/gu) ?? [])];
+    named = [...new Set(removeArtifactAnchors(prose.completionClaim).match(/\b[0-9a-f]{40}\b/gu) ?? [])],
+    unparsed = unparsedArtifactAnchorText(prose.completionClaim);
   if (named.length > 1)
     throw cell.cellCodedError(
       "invalid_submission",
       `Summary names ${named.length} delivery commits; one execution has exactly one delivery cut, ` +
         "so name only the commit being delivered.",
     );
-  // Only `artifact:` immediately followed by a path character is an anchor attempt; prose labels
-  // like "Delivery artifact:" end in whitespace and must not count against the parsed anchors.
-  if (
-    (named.length === 0 && anchors.length === 0) ||
-    (prose.completionClaim.match(/artifact:\S/gu) ?? []).length !== anchors.length
-  )
+  if ((named.length === 0 && anchors.length === 0) || unparsed.length !== 0)
     throw cell.cellCodedError(
       "invalid_submission",
-      `Summary must name one delivery commit or at least one artifact:path@revision anchor. ` + artifactAnchorGuidance,
+      (unparsed.length === 0
+        ? "Summary must name one delivery commit or at least one artifact:path@revision anchor. "
+        : `Summary contains artifact: text that is not a parsable anchor: ${unparsed.join(", ")}. `) +
+        artifactAnchorGuidance,
     );
   const artifacts = anchors.map(({ path, revision }) => {
     const artifact = submissionArtifactPath(document.packagePath, path);
