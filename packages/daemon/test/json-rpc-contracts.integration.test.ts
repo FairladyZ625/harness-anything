@@ -421,6 +421,7 @@ function decisionList(readiness: unknown): Record<string, unknown> {
         reviews: [],
         reviewResponses: [],
         reviewOverrides: [],
+        relations: [],
         currentReviewContentDigest: null,
         acceptReviewReadiness: null,
         reviewDispatches: [],

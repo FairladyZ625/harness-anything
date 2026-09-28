@@ -58,6 +58,7 @@ import { decisionRelationLinkResolver } from "./entity-document-links.ts";
 import { actionReceiptGuidance } from "./receipt-guidance.ts";
 import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import { attachDecisionReviewerArtifact } from "./reviewer-artifact-publication.ts";
+import { decisionReviewState } from "./decision-review-read.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 type FactBundle = ReturnType<typeof compileFactWrite>;
@@ -108,7 +109,11 @@ export function makeEntityActionCatalogExecutor(input: {
         const read = decisions.show(requiredCommandText(action.decisionId, "decisionId"));
         return readReceipt("decision-show", {
           ...read,
-          decision: { ...read.decision, body: action.includeBody === true ? read.decision.body : null },
+          decision: {
+            ...read.decision,
+            ...decisionReviewState(read.decision),
+            body: action.includeBody === true ? read.decision.body : null,
+          },
         });
       }
       if (action.kind === "decision-validate")

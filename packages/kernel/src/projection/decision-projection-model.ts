@@ -12,7 +12,6 @@ import type { ActorIdentity } from "../domain/write-chain.contract.ts";
 import type { EntityVersion, RelationFreshness } from "../domain/entity-freshness.ts";
 import type { DecisionReadinessProjection } from "./decision-readiness-projection.ts";
 import type { DecisionCapability } from "../domain/decision-board-projection.ts";
-import type { DecisionAcceptReviewReadiness } from "../domain/decision-event-document.ts";
 
 export interface DecisionBodyRow {
   readonly path: string;
@@ -67,8 +66,6 @@ export interface DecisionProjectionRow {
   readonly reviewResponses: DecisionDocumentState["reviewResponses"];
   readonly reviewOverrides: DecisionDocumentState["reviewOverrides"];
   readonly relations: DecisionDocumentState["relations"];
-  readonly currentReviewContentDigest: `sha256:${string}` | null;
-  readonly acceptReviewReadiness: DecisionAcceptReviewReadiness | null;
   readonly amendments?: readonly DecisionAmendmentV1[];
   readonly contentPins?: readonly DecisionContentPinV1[];
   readonly body: DecisionBodyRow | null;

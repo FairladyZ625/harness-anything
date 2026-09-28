@@ -522,15 +522,7 @@ export function validateDaemonDecisionList(value: unknown): readonly string[] {
       return [validationError(entityId, "decisions", value.decisions, "must be an array")];
     const invalidIndex = value.decisions.findIndex(
       (row) =>
-        !exactRecord(row, [
-          "decisionId",
-          "title",
-          "state",
-          "riskTier",
-          "urgency",
-          "proposedAt",
-          "currentReviewContentDigest",
-        ]) ||
+        !exactRecord(row, ["decisionId", "title", "state", "riskTier", "urgency", "proposedAt"]) ||
         !nonEmpty(row.decisionId) ||
         !nonEmpty(row.title) ||
         !statusWord(decisionStateWords, row.state) ||

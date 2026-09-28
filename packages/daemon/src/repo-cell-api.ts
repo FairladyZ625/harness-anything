@@ -53,7 +53,7 @@ import { readEntityContent, type EntityContentSource } from "./entity-content-re
 import { readEntityLocator } from "./entity-locator-read.ts";
 import { readAgentSkillsGui } from "./agent-skills.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
-import { decisionReviewSummaryRow, readDecisionReviewDispatches } from "./decision-review-read.ts";
+import { decisionReviewState, decisionReviewSummaryRow, readDecisionReviewDispatches } from "./decision-review-read.ts";
 import { agentRuntimeTokenUsageReadHandlers } from "./agent-runtime-token-usage.ts";
 import {
   admitUseCaseProjectionSelector,
@@ -697,7 +697,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
             projection: context.projection,
             decision,
           });
-          return { ...decision, readiness: readiness[index]!, reviewDispatches };
+          return { ...decision, ...decisionReviewState(decision), readiness: readiness[index]!, reviewDispatches };
         }),
         warnings: [],
       };

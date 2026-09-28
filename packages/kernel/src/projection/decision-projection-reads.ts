@@ -8,12 +8,10 @@ import type {
   DecisionReviewOverrideV1,
   DecisionReviewResponseV1,
   DecisionReviewV1,
-  DecisionDocumentState,
   DecisionState,
 } from "../domain/decision-event.ts";
 import type { ActorIdentity } from "../domain/write-chain.contract.ts";
 import { decisionCapabilities, decisionClaimsOpen } from "../domain/decision-board-projection.ts";
-import { decisionAcceptReviewReadiness, decisionReviewContentDigest } from "../domain/decision-event-document.ts";
 import { decisionCoverage } from "./decision-projection-coverage.ts";
 import { decisionBodyFromDocument } from "./decision-projection-documents.ts";
 import type {
@@ -214,47 +212,7 @@ function decisionCollectionRow(row: DecisionCollectionRecord): DecisionProjectio
         state: edge.state,
       };
     });
-  const semantic: DecisionDocumentState = {
-    decisionId,
-    state,
-    title: row.title,
-    question: row.question,
-    riskTier: row.risk_tier as DecisionProjectionRow["riskTier"],
-    urgency: row.urgency as DecisionProjectionRow["urgency"],
-    vertical: row.vertical,
-    preset: row.preset,
-    decisionClass: row.decision_class as DecisionProjectionRow["decisionClass"],
-    appliesTo: JSON.parse(row.applies_json) as DecisionProjectionRow["appliesTo"],
-    proposer: JSON.parse(row.proposer_json) as ActorIdentity,
-    arbiter: row.arbiter_json === null ? null : (JSON.parse(row.arbiter_json) as ActorIdentity),
-    proposedAt: row.proposed_at,
-    decidedAt: row.decided_at,
-    workspaceRevision: Number(row.workspace_revision),
-    chosen: options
-      .filter((option) => option.kind === "chosen")
-      .map((option) => ({
-        id: option.option_id,
-        text: option.text,
-        ...(option.rationale ? { rationale: option.rationale } : {}),
-      })),
-    rejected: options
-      .filter((option) => option.kind === "rejected")
-      .map((option) => ({ id: option.option_id, text: option.text, whyNot: option.rationale! })),
-    claims: claims.map((claim) => ({
-      id: claim.claim_id,
-      text: claim.text,
-      loadBearing: Boolean(claim.load_bearing),
-      fulfillment: claim.fulfillment,
-    })),
-    relations,
-    provenance: JSON.parse(row.provenance_json) as readonly SessionProvenanceV1[],
-    judgmentConsents: consents,
-    ...reviewState,
-    ...(amendments.length ? { amendments } : {}),
-    ...(pins.length ? { contentPins: pins } : {}),
-  };
-  const currentReviewContentDigest = body ? decisionReviewContentDigest(semantic, body.body) : null;
-  const result: DecisionProjectionRow = {
+  return {
     schema: "decision-row/v1",
     decisionId,
     ...(legacyId ? { legacyId } : {}),
@@ -297,17 +255,12 @@ function decisionCollectionRow(row: DecisionCollectionRecord): DecisionProjectio
     judgmentConsents: consents,
     ...reviewState,
     relations,
-    currentReviewContentDigest,
-    acceptReviewReadiness: null,
     ...(amendments.length ? { amendments } : {}),
     ...(pins.length ? { contentPins: pins } : {}),
     body,
     capabilities: decisionCapabilities(state),
     claimsOpen: decisionClaimsOpen(state),
   };
-  return state === "proposed" && currentReviewContentDigest && body
-    ? { ...result, acceptReviewReadiness: decisionAcceptReviewReadiness(semantic, body.body) }
-    : result;
 }
 
 /**

@@ -11,7 +11,6 @@ export function decisionSummaryRead() {
         riskTier: "medium",
         urgency: "medium",
         proposedAt: "2026-09-11T00:00:00.000Z",
-        currentReviewContentDigest: null,
       },
     ],
     warnings: [],

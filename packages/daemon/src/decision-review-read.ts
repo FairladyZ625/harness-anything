@@ -1,10 +1,31 @@
-import type { DecisionProjectionRow, TaskProjection } from "@harness-anything/kernel";
+import {
+  decisionAcceptReviewReadiness,
+  decisionReviewContentDigest,
+  type DecisionAcceptReviewReadiness,
+  type DecisionProjectionRow,
+  type TaskProjection,
+} from "@harness-anything/kernel";
 import { readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import type { DaemonDecisionReviewDispatchRow } from "./protocol/daemon-protocol-gui-types.ts";
 
+/**
+ * The review cut and accept readiness a reader sees. Computed only on read surfaces: the accept write
+ * path runs the same kernel judgment itself, and other writes never need it.
+ */
+export function decisionReviewState(row: DecisionProjectionRow): {
+  readonly currentReviewContentDigest: `sha256:${string}` | null;
+  readonly acceptReviewReadiness: DecisionAcceptReviewReadiness | null;
+} {
+  if (row.body === null) return { currentReviewContentDigest: null, acceptReviewReadiness: null };
+  return {
+    currentReviewContentDigest: decisionReviewContentDigest(row, row.body.body),
+    acceptReviewReadiness: row.state === "proposed" ? decisionAcceptReviewReadiness(row, row.body.body) : null,
+  };
+}
+
 export function decisionReviewSummaryRow(row: DecisionProjectionRow) {
-  const { decisionId, title, state, riskTier, urgency, proposedAt, currentReviewContentDigest } = row;
-  return { decisionId, title, state, riskTier, urgency, proposedAt, currentReviewContentDigest };
+  const { decisionId, title, state, riskTier, urgency, proposedAt } = row;
+  return { decisionId, title, state, riskTier, urgency, proposedAt };
 }
 
 export function readDecisionReviewDispatches(input: {

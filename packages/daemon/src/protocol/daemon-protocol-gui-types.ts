@@ -4,6 +4,7 @@ export type { TaskDispatchRow } from "./task-dispatch-contract.ts";
 import type {
   CanonicalEventV1,
   DaemonRepoMode,
+  DecisionAcceptReviewReadiness,
   DecisionProjectionRow,
   FreshnessReason,
   ProjectionPage,
@@ -635,7 +636,6 @@ export interface DaemonDecisionSummaryRow {
   readonly riskTier: DecisionProjectionRow["riskTier"];
   readonly urgency: DecisionProjectionRow["urgency"];
   readonly proposedAt: DecisionProjectionRow["proposedAt"];
-  readonly currentReviewContentDigest: DecisionProjectionRow["currentReviewContentDigest"];
 }
 
 export interface DaemonDecisionReviewDispatchRow {
@@ -647,6 +647,8 @@ export interface DaemonDecisionReviewDispatchRow {
 }
 
 export type DaemonDecisionFullRow = DecisionProjectionRow & {
+  readonly currentReviewContentDigest: `sha256:${string}` | null;
+  readonly acceptReviewReadiness: DecisionAcceptReviewReadiness | null;
   readonly reviewDispatches: readonly DaemonDecisionReviewDispatchRow[];
 };
 
