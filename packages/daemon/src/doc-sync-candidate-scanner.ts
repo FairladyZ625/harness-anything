@@ -108,7 +108,9 @@ export function scanDocCandidates(input: {
     // enumerated on purpose so scanOne blocks them with an actionable reason
     // instead of the submit silently dropping them.
     enumerationScope = taskPrefix ?? "",
-    selected = input.selection?.map((value) => documentPath(normalizeSelectedPath(ledger.authoredPrefix, value))),
+    selected = input.selection?.map((value) =>
+      documentPath(normalizeSelectedPath(ledger.authoredPrefix, sourcePrefix, value)),
+    ),
     inventoryByPath = new Map(input.inventory?.rows.map((row) => [row.path, row] as const) ?? []),
     conflictsByPath = localDocConflictsByPath(layout),
     candidates = selected?.length
@@ -478,8 +480,13 @@ export function validateSelectedDocPaths(selected: readonly string[], scan: DocC
   if (missing[0]) throw docSyncError("document_not_found", blockedCandidateNextAction(missing[0]));
 }
 
-function normalizeSelectedPath(authoredPrefix: string, value: string): string {
-  return authoredPrefix && value.startsWith(`${authoredPrefix}/`) ? value.slice(authoredPrefix.length + 1) : value;
+// Both the ledger Git prefix and the product-visible authored-root prefix are accepted: the
+// authored root is its own Git repository in the nested layout, so the ledger prefix is empty
+// there while users still spell selection paths relative to the product root.
+function normalizeSelectedPath(authoredPrefix: string, sourcePrefix: string, value: string): string {
+  for (const prefix of [authoredPrefix, sourcePrefix])
+    if (prefix && value.startsWith(`${prefix}/`)) return value.slice(prefix.length + 1);
+  return value;
 }
 
 export function intentFromScan(
