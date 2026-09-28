@@ -30,7 +30,7 @@ const worker = {
 function initRepo(rootDir: string): void {
   const git = (...args: readonly string[]) =>
     execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-  git("init", "--quiet");
+  git("init", "--quiet", "-b", "main");
   git("config", "user.name", "Settle Lifecycle Test");
   git("config", "user.email", "settle@example.invalid");
   git("config", "gc.auto", "0");
