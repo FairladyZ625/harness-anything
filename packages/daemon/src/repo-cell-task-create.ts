@@ -10,7 +10,6 @@ import type { PublicPublication, RepoCellBinding, RepoTaskAction, TaskCreateRece
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { receiptLayoutRoots, taskCreateGuidance, workspaceRelativePath } from "./receipt-guidance.ts";
-import { workListFromProjection } from "./work-read.ts";
 import { workRootOf } from "./workspace-scope-read.ts";
 
 export function readResult(
@@ -315,18 +314,14 @@ export function preparedTaskCreateReceipt(
   return receipt;
 }
 
-/** dec_5F7E74F1: the receipt names the task's work, or points a standalone task at the active works. */
+/** dec_5F7E74F1: the receipt names the task's work, or tells a standalone task how to join one. Listing the
+ * open works here would scan every task on each create, so the receipt points at ha work list instead. */
 function workSummary(cell: RepoCellOperationalContext, task: TaskV2): string {
   const parentTaskId = task.metadata?.parentTaskId ?? null,
     work = parentTaskId === null ? null : workRootOf(cell.projection, parentTaskId);
   if (work !== null) return `\nwork: ${work.taskId} ${work.title}`;
   if (task.taskClass === "work") return `\nwork: ${task.taskId} (new work root; add tasks with --work ${task.taskId})`;
-  const open = workListFromProjection(cell.projection, { limit: 3 });
-  return open.count === 0
-    ? "\nwork: none (standalone task)"
-    : `\nwork: none (standalone task); ${open.count} open work(s) exist, e.g. ` +
-        `${open.rows.map(({ taskId, title }) => `${taskId} ${title}`).join("; ")} — ` +
-        "file tasks under one with ha task create --work <id> (see ha work list)";
+  return "\nwork: none (standalone task); to file it under a work use ha task create --work <id> (see ha work list)";
 }
 
 export function upgradePresetSnapshot(

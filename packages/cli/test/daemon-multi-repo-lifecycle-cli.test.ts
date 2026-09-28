@@ -138,10 +138,10 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     ]);
     assert.equal(alpha.outcome, "applied", JSON.stringify(alpha));
     assert.equal(beta.outcome, "applied", JSON.stringify(beta));
-    // No open work exists in this repository, so the receipt names the task standalone without a --work hint.
+    // A standalone task's receipt points at --work and ha work list instead of scanning for open works.
     assert.equal(
       alpha.summary,
-      "created task task-alpha at harness/tasks/task-alpha-alpha\nwork: none (standalone task)",
+      "created task task-alpha at harness/tasks/task-alpha-alpha\nwork: none (standalone task); to file it under a work use ha task create --work <id> (see ha work list)",
     );
     settleFollower(fixture.alpha, fixture.userRoot, alpha);
     const alphaPlan = `${String(alpha.packagePath)}/task_plan.md`;
