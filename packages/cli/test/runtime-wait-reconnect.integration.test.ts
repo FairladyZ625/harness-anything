@@ -11,7 +11,12 @@ import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/clien
 import { writeDaemonStoppedMarker } from "@harness-anything/daemon/internal/client/daemon-autostart";
 
 const cli = path.resolve("packages/cli/src/index.ts"),
-  runtimeSessionId = "runtime-wait-reconnect";
+  runtimeSessionId = "runtime-wait-reconnect",
+  // Every wall clock in this file is a hang guard, never a speed assertion: each case judges that
+  // the invocation returns after an observed daemon-side event with the right content, because a
+  // tight ceiling races the CLI's cold start under load (testing-standard, platform assumptions).
+  // The magnitude follows the reconnect-budget paths that already needed 12 s / 20 s.
+  hangGuardMs = 20_000;
 
 test("runtime status --wait renders the daemon verdict while the attached stream shows activity", async () => {
   const fixture = await openFixtureDaemon("stream-terminal");
@@ -46,12 +51,12 @@ test("runtime status --wait renders the daemon verdict while the attached stream
   };
   const invocation = runWait(fixture, ["runtime", "status", runtimeSessionId, "--wait"], false);
   try {
-    for (const deadline = Date.now() + 4_000; (!attachSocket || pendingAwait.length === 0) && Date.now() < deadline; )
-      await delay(20);
+    await waitForObserved(() => (attachSocket !== undefined && pendingAwait.length === 1) || invocation.closed);
     assert.ok(attachSocket, "the runtime stream must attach");
     assert.equal(pendingAwait.length, 1, "the daemon-side await must be parked");
     await delay(1_200);
     assert.equal(statusReads, 1, "a parked await must not perform periodic status reads");
+    assert.ok(!invocation.closed, "the wait must stay parked while the stream shows activity");
     attachSocket.write(
       `${JSON.stringify({
         jsonrpc: "2.0",
@@ -67,7 +72,7 @@ test("runtime status --wait renders the daemon verdict while the attached stream
       })}\n`,
     );
     for (const pending of pendingAwait) reply(pending.socket, pending.id, awaitReceipt());
-    const result = await invocation.result(2_000);
+    const result = await invocation.result(hangGuardMs);
     assert.equal(result.code, 0, result.stderr);
     assert.equal(result.stdout.trim(), "settled after reconnect");
     assert.equal(awaitRequests, 1);
@@ -81,6 +86,7 @@ test("runtime status --wait keeps one daemon await across an attached stream gap
   const fixture = await openFixtureDaemon("stream-gap");
   let statusReads = 0,
     awaitRequests = 0;
+  const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       reply(socket, request.id, { ok: true });
@@ -107,7 +113,7 @@ test("runtime status --wait keeps one daemon await across an attached stream gap
     }
     if (request.method === "repo.agentRuntime.sessions.await") {
       awaitRequests += 1;
-      reply(socket, request.id, awaitReceipt());
+      pendingAwait.push({ socket, id: request.id });
       return;
     }
     assert.equal(request.method, "repo.agentRuntime.sessions.read");
@@ -116,7 +122,11 @@ test("runtime status --wait keeps one daemon await across an attached stream gap
   };
   const invocation = runWait(fixture, ["runtime", "status", runtimeSessionId, "--wait"], false);
   try {
-    const result = await invocation.result(4_000);
+    await waitForObserved(() => pendingAwait.length === 1 || invocation.closed);
+    assert.equal(pendingAwait.length, 1, "the daemon-side await must be parked");
+    assert.ok(!invocation.closed, "the wait must not return before the daemon answers the await");
+    for (const pending of pendingAwait) reply(pending.socket, pending.id, awaitReceipt());
+    const result = await invocation.result(hangGuardMs);
     assert.equal(result.code, 0, result.stderr);
     assert.equal(result.stdout.trim(), "settled after reconnect");
     assert.equal(statusReads, 1, "a stream gap must not trigger extra status reads");
@@ -161,11 +171,12 @@ test("runtime status --wait keeps the daemon wait when the attached stream is lo
   };
   const invocation = runWait(fixture, ["runtime", "status", runtimeSessionId, "--wait"], false);
   try {
-    for (const deadline = Date.now() + 8_000; attachAttempts < 2 && Date.now() < deadline; ) await delay(50);
+    await waitForObserved(() => attachAttempts >= 2 || invocation.closed);
     assert.ok(attachAttempts >= 2, `expected stream reconnect attempts, observed ${attachAttempts}`);
     assert.equal(pendingAwait.length, 1, "the daemon-side await must stay parked through stream loss");
+    assert.ok(!invocation.closed, "the wait must survive the loss of the attached stream");
     for (const pending of pendingAwait) reply(pending.socket, pending.id, awaitReceipt());
-    const result = await invocation.result(2_000);
+    const result = await invocation.result(hangGuardMs);
     assert.equal(result.code, 0, result.stderr);
     assert.equal(result.stdout.trim(), "settled after reconnect");
     assert.equal(statusReads, 1);
@@ -180,6 +191,7 @@ test("runtime status --wait reconnects the await after the daemon restarts", asy
   const fixture = await openFixtureDaemon("daemon-restart");
   let statusReads = 0,
     awaitRequests = 0;
+  const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       reply(socket, request.id, { ok: true });
@@ -191,7 +203,7 @@ test("runtime status --wait reconnects the await after the daemon restarts", asy
         void fixture.restart();
         return;
       }
-      reply(socket, request.id, awaitReceipt());
+      pendingAwait.push({ socket, id: request.id });
       return;
     }
     assert.equal(request.method, "repo.agentRuntime.sessions.read");
@@ -200,7 +212,11 @@ test("runtime status --wait reconnects the await after the daemon restarts", asy
   };
   const invocation = runWait(fixture);
   try {
-    const result = await invocation.result(12_000);
+    await waitForObserved(() => pendingAwait.length === 1 || invocation.closed);
+    assert.equal(pendingAwait.length, 1, "the await must be reissued on the restarted daemon");
+    assert.ok(!invocation.closed, "the wait must stay parked across the daemon restart");
+    for (const pending of pendingAwait) reply(pending.socket, pending.id, awaitReceipt());
+    const result = await invocation.result(hangGuardMs);
     assert.equal(result.code, 0, result.stderr);
     assert.equal(result.receipt.outcome, "succeeded");
     assert.equal(awaitRequests, 2, "the idempotent await must be reissued on the new daemon");
@@ -214,13 +230,14 @@ test("runtime status --wait reconnects the await after the daemon restarts", asy
 test("runtime status --wait returns daemon_gone with the last-known dispatch after pid and socket loss", async () => {
   const fixture = await openFixtureDaemon("daemon-gone");
   let statusReads = 0;
+  const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       reply(socket, request.id, { ok: true });
       return;
     }
     if (request.method === "repo.agentRuntime.sessions.await") {
-      fixture.die();
+      pendingAwait.push({ socket, id: request.id });
       return;
     }
     assert.equal(request.method, "repo.agentRuntime.sessions.read");
@@ -229,7 +246,11 @@ test("runtime status --wait returns daemon_gone with the last-known dispatch aft
   };
   const invocation = runWait(fixture);
   try {
-    const result = await invocation.result(20_000);
+    await waitForObserved(() => pendingAwait.length === 1 || invocation.closed);
+    assert.equal(pendingAwait.length, 1, "the daemon-side await must be parked");
+    assert.ok(!invocation.closed, "the wait must stay parked until the daemon disappears");
+    fixture.die();
+    const result = await invocation.result(hangGuardMs);
     assert.equal(result.code, 1, result.stderr);
     assert.equal(result.receipt.code, "daemon_gone");
     assert.equal((result.receipt.error as Record<string, unknown>).code, "daemon_gone");
@@ -257,6 +278,7 @@ test("runtime status --wait bridges a daemon_stopping handoff whose successor pi
   // after the answer can already name the new generation and the wait would never see a change.
   const fixture = await openFixtureDaemon("stopping-handoff");
   let awaitRequests = 0;
+  const pendingAwait: { socket: net.Socket; id: number }[] = [];
   writeFileSync(daemonPidPath(fixture.userRoot, fixture.daemonId), "424242\n");
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
@@ -272,7 +294,7 @@ test("runtime status --wait bridges a daemon_stopping handoff whose successor pi
         void fixture.restart();
         return;
       }
-      reply(socket, request.id, awaitReceipt());
+      pendingAwait.push({ socket, id: request.id });
       return;
     }
     assert.equal(request.method, "repo.agentRuntime.sessions.read");
@@ -280,7 +302,11 @@ test("runtime status --wait bridges a daemon_stopping handoff whose successor pi
   };
   const invocation = runWait(fixture);
   try {
-    const result = await invocation.result(12_000);
+    await waitForObserved(() => pendingAwait.length === 1 || invocation.closed);
+    assert.equal(pendingAwait.length, 1, "the bridge must reissue the await on the successor daemon");
+    assert.ok(!invocation.closed, "the wait must stay parked across the handoff bridge");
+    for (const pending of pendingAwait) reply(pending.socket, pending.id, awaitReceipt());
+    const result = await invocation.result(hangGuardMs);
     assert.equal(result.code, 0, result.stderr);
     assert.equal(result.receipt.outcome, "succeeded");
     assert.equal(awaitRequests, 2, "the daemon_stopping bridge must reissue the idempotent await");
@@ -309,13 +335,14 @@ test("runtime status --wait reports an operator stop honestly instead of burning
   };
   const invocation = runWait(fixture);
   try {
-    for (const deadline = Date.now() + 4_000; pendingAwait.length === 0 && Date.now() < deadline; ) await delay(20);
+    await waitForObserved(() => pendingAwait.length === 1 || invocation.closed);
     assert.equal(pendingAwait.length, 1, "the daemon-side await must be parked");
+    assert.ok(!invocation.closed, "the wait must stay parked until the operator stops the daemon");
     // The operator's stop writes the marker before the daemon drains, so the wait can tell a stop
     // apart from a restart handoff: it reports the stop and never tries to reconnect.
     writeDaemonStoppedMarker(fixture.userRoot, fixture.daemonId);
     fixture.die();
-    const result = await invocation.result(4_000);
+    const result = await invocation.result(hangGuardMs);
     assert.equal(result.code, 1, result.stderr);
     assert.equal(result.receipt.code, "daemon_stopped_by_operator");
     assert.match(String((result.receipt.error as Record<string, unknown>).hint), /stopped by the operator/u);
@@ -346,8 +373,9 @@ test("runtime status --wait exits non-zero when the parked await answers an erro
   };
   const invocation = runWait(fixture, ["runtime", "status", runtimeSessionId, "--wait", "--no-stream"], false);
   try {
-    for (const deadline = Date.now() + 4_000; pendingAwait.length === 0 && Date.now() < deadline; ) await delay(20);
+    await waitForObserved(() => pendingAwait.length === 1 || invocation.closed);
     assert.equal(pendingAwait.length, 1, "the daemon-side await must be parked");
+    assert.ok(!invocation.closed, "the wait must stay parked until the daemon answers");
     for (const pending of pendingAwait)
       reply(pending.socket, pending.id, {
         schema: "command-receipt/v2",
@@ -361,7 +389,7 @@ test("runtime status --wait exits non-zero when the parked await answers an erro
         rejectionExplanation: "RepoCell is closed.",
         error: { code: "repo_unavailable" },
       });
-    const result = await invocation.result(4_000);
+    const result = await invocation.result(hangGuardMs);
     assert.notEqual(result.code, 0, "an errored wait must not report success through its exit code");
     assert.equal(result.code, 1);
     assert.match(result.stderr, /error code=repo_unavailable hint=RepoCell is closed\./u);
@@ -373,15 +401,28 @@ test("runtime status --wait exits non-zero when the parked await answers an erro
 
 test("runtime status --wait surfaces the daemon's settlement failure verdict", async () => {
   const fixture = await openFixtureDaemon("settlement-outcome");
+  const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       reply(socket, request.id, { ok: true });
       return;
     }
     if (request.method === "repo.agentRuntime.sessions.await") {
+      pendingAwait.push({ socket, id: request.id });
+      return;
+    }
+    assert.equal(request.method, "repo.agentRuntime.sessions.read");
+    reply(socket, request.id, runtimeStatus(false));
+  };
+  const invocation = runWait(fixture);
+  try {
+    await waitForObserved(() => pendingAwait.length === 1 || invocation.closed);
+    assert.equal(pendingAwait.length, 1, "the daemon-side await must be parked");
+    assert.ok(!invocation.closed, "the wait must stay parked until the daemon answers");
+    for (const pending of pendingAwait)
       reply(
-        socket,
-        request.id,
+        pending.socket,
+        pending.id,
         awaitReceipt({
           outcome: "unknown",
           exitCode: 1,
@@ -390,14 +431,7 @@ test("runtime status --wait surfaces the daemon's settlement failure verdict", a
           resultText: "injected failure: runtime_lease_release_failed",
         }),
       );
-      return;
-    }
-    assert.equal(request.method, "repo.agentRuntime.sessions.read");
-    reply(socket, request.id, runtimeStatus(false));
-  };
-  const invocation = runWait(fixture);
-  try {
-    const result = await invocation.result(4_000);
+    const result = await invocation.result(hangGuardMs);
     assert.equal(result.code, 1, result.stderr);
     assert.equal(result.receipt.code, "runtime_settlement_failed");
     assert.equal(result.receipt.outcome, "unknown");
@@ -410,15 +444,28 @@ test("runtime status --wait surfaces the daemon's settlement failure verdict", a
 
 test("runtime status --wait does not infer settlement failure from an unknown outcome's text", async () => {
   const fixture = await openFixtureDaemon("unknown-outcome");
+  const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       reply(socket, request.id, { ok: true });
       return;
     }
     if (request.method === "repo.agentRuntime.sessions.await") {
+      pendingAwait.push({ socket, id: request.id });
+      return;
+    }
+    assert.equal(request.method, "repo.agentRuntime.sessions.read");
+    reply(socket, request.id, runtimeStatus(false));
+  };
+  const invocation = runWait(fixture);
+  try {
+    await waitForObserved(() => pendingAwait.length === 1 || invocation.closed);
+    assert.equal(pendingAwait.length, 1, "the daemon-side await must be parked");
+    assert.ok(!invocation.closed, "the wait must stay parked until the daemon answers");
+    for (const pending of pendingAwait)
       reply(
-        socket,
-        request.id,
+        pending.socket,
+        pending.id,
         awaitReceipt({
           outcome: "unknown",
           exitCode: 1,
@@ -427,14 +474,7 @@ test("runtime status --wait does not infer settlement failure from an unknown ou
           resultText: "Runtime terminal settlement failed (provider-authored diagnostic)",
         }),
       );
-      return;
-    }
-    assert.equal(request.method, "repo.agentRuntime.sessions.read");
-    reply(socket, request.id, runtimeStatus(false));
-  };
-  const invocation = runWait(fixture);
-  try {
-    const result = await invocation.result(4_000);
+    const result = await invocation.result(hangGuardMs);
     assert.equal(result.code, 1, result.stderr);
     assert.equal(result.receipt.code, "provider_exit");
     assert.equal(result.receipt.outcome, "unknown");
@@ -448,6 +488,7 @@ test("multi-target runtime status --wait issues one daemon await and renders the
   const fixture = await openFixtureDaemon("multi-target");
   let helloRequests = 0,
     awaitRequests = 0;
+  const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       helloRequests += 1;
@@ -457,14 +498,7 @@ test("multi-target runtime status --wait issues one daemon await and renders the
     assert.equal(request.method, "repo.agentRuntime.sessions.await");
     awaitRequests += 1;
     assert.deepEqual(request.params.payload.runtimeSessionIds, [runtimeSessionId, "runtime-wait-other"]);
-    reply(
-      socket,
-      request.id,
-      awaitReceipt({
-        inFlight: ["runtime-wait-other"],
-        summary: `runtime-status: ${runtimeSessionId} settled succeeded; 1 still in flight`,
-      }),
-    );
+    pendingAwait.push({ socket, id: request.id });
   };
   const invocation = runWait(fixture, [
     "runtime",
@@ -475,7 +509,19 @@ test("multi-target runtime status --wait issues one daemon await and renders the
     "--no-stream",
   ]);
   try {
-    const result = await invocation.result(4_000);
+    await waitForObserved(() => pendingAwait.length === 1 || invocation.closed);
+    assert.equal(pendingAwait.length, 1, "the daemon-side await must be parked");
+    assert.ok(!invocation.closed, "the multi-target wait must stay parked until the daemon answers");
+    for (const pending of pendingAwait)
+      reply(
+        pending.socket,
+        pending.id,
+        awaitReceipt({
+          inFlight: ["runtime-wait-other"],
+          summary: `runtime-status: ${runtimeSessionId} settled succeeded; 1 still in flight`,
+        }),
+      );
+    const result = await invocation.result(hangGuardMs);
     assert.equal(result.code, 0, result.stderr);
     assert.equal(result.receipt.outcome, "succeeded");
     assert.equal(result.receipt.mode, "any");
@@ -499,6 +545,7 @@ test("multi-target runtime status --wait issues one daemon await and renders the
 test("task dispatch wait rides one sessions.await request", async () => {
   const fixture = await openFixtureDaemon("task-await"),
     taskId = "task-runtime-wait";
+  const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       reply(socket, request.id, { ok: true });
@@ -506,31 +553,36 @@ test("task dispatch wait rides one sessions.await request", async () => {
     }
     assert.equal(request.method, "repo.agentRuntime.sessions.await");
     assert.deepEqual(request.params.payload.taskIds, [taskId]);
-    reply(socket, request.id, {
-      schema: "command-receipt/v2",
-      ok: true,
-      status: "ready",
-      command: "runtime-status",
-      mode: "all",
-      taskIds: [taskId],
-      dispatches: [
-        {
-          dispatchId: "dispatch-runtime-wait",
-          status: "succeeded",
-          outcome: "succeeded",
-          exitCode: 0,
-          fallbackState: null,
-          nextDispatchId: null,
-        },
-      ],
-      outcome: "succeeded",
-      exitCode: 0,
-      summary: `runtime-status task ${taskId}: 1 dispatch succeeded`,
-    });
+    pendingAwait.push({ socket, id: request.id });
   };
   const invocation = runWait(fixture, ["runtime", "status", "--task", taskId, "--wait", "--no-stream"]);
   try {
-    const result = await invocation.result(4_000);
+    await waitForObserved(() => pendingAwait.length === 1 || invocation.closed);
+    assert.equal(pendingAwait.length, 1, "the daemon-side await must be parked");
+    assert.ok(!invocation.closed, "the task wait must stay parked until the daemon answers");
+    for (const pending of pendingAwait)
+      reply(pending.socket, pending.id, {
+        schema: "command-receipt/v2",
+        ok: true,
+        status: "ready",
+        command: "runtime-status",
+        mode: "all",
+        taskIds: [taskId],
+        dispatches: [
+          {
+            dispatchId: "dispatch-runtime-wait",
+            status: "succeeded",
+            outcome: "succeeded",
+            exitCode: 0,
+            fallbackState: null,
+            nextDispatchId: null,
+          },
+        ],
+        outcome: "succeeded",
+        exitCode: 0,
+        summary: `runtime-status task ${taskId}: 1 dispatch succeeded`,
+      });
+    const result = await invocation.result(hangGuardMs);
     assert.equal(result.code, 0, result.stderr);
     assert.equal(result.receipt.outcome, "succeeded");
     assert.equal(result.receipt.exitCode, 0);
@@ -552,17 +604,22 @@ test("task dispatch wait rides one sessions.await request", async () => {
 test("task dispatch wait classifies an unreachable daemon as daemon_gone", async () => {
   const fixture = await openFixtureDaemon("task-daemon-gone"),
     taskId = "task-runtime-wait";
+  const pendingAwait: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       reply(socket, request.id, { ok: true });
       return;
     }
     assert.equal(request.method, "repo.agentRuntime.sessions.await");
-    fixture.die();
+    pendingAwait.push({ socket, id: request.id });
   };
   const invocation = runWait(fixture, ["runtime", "status", "--task", taskId, "--wait", "--no-stream"]);
   try {
-    const result = await invocation.result(20_000);
+    await waitForObserved(() => pendingAwait.length === 1 || invocation.closed);
+    assert.equal(pendingAwait.length, 1, "the daemon-side await must be parked");
+    assert.ok(!invocation.closed, "the task wait must stay parked until the daemon disappears");
+    fixture.die();
+    const result = await invocation.result(hangGuardMs);
     assert.equal(result.code, 1, result.stderr);
     assert.equal(result.receipt.code, "daemon_gone");
     assert.deepEqual(result.receipt.taskIds, [taskId]);
@@ -590,17 +647,23 @@ interface RpcRequest {
 
 test("detached runtime run tells its caller how to wait, fold waits, and continue after settlement", async () => {
   const fixture = await openFixtureDaemon("runtime-detach");
+  const pendingSpawn: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       reply(socket, request.id, { ok: true });
       return;
     }
     assert.equal(request.method, "repo.agentRuntime.spawn");
-    reply(socket, request.id, { ok: true, runtimeSessionId, dispatchId: "dispatch-detached" });
+    pendingSpawn.push({ socket, id: request.id });
   };
   const invocation = runWait(fixture, ["runtime", "run", "fixture-runtime", "--prompt", "hold", "--detach"], false);
   try {
-    const result = await invocation.result(4_000);
+    await waitForObserved(() => pendingSpawn.length === 1 || invocation.closed);
+    assert.equal(pendingSpawn.length, 1, "the detached run must send its spawn request");
+    assert.ok(!invocation.closed, "the detached run must wait for its spawn receipt");
+    for (const pending of pendingSpawn)
+      reply(pending.socket, pending.id, { ok: true, runtimeSessionId, dispatchId: "dispatch-detached" });
+    const result = await invocation.result(hangGuardMs);
     assert.equal(result.code, 0, result.stderr);
     assert.equal(
       result.stdout.trim(),
@@ -623,21 +686,14 @@ test("detached squad run names a squad status wait that blocks until the run set
   const fixture = await openFixtureDaemon("squad-detach"),
     squadRunId = "squad_0123456789abcdef01234567";
   let statusReads = 0;
+  const pendingRun: { socket: net.Socket; id: number }[] = [];
   fixture.onRequest = (socket, request) => {
     if (request.method === "protocol.hello") {
       reply(socket, request.id, { ok: true });
       return;
     }
     if (request.method === "repo.task.run") {
-      reply(socket, request.id, {
-        ok: true,
-        schema: "squad-control-result/v1",
-        command: "squad-run",
-        outcome: "completed",
-        squadRunId,
-        phase: "planning",
-        summary: "squad-run core-squad: planning",
-      });
+      pendingRun.push({ socket, id: request.id });
       return;
     }
     assert.equal(request.method, "repo.task.read");
@@ -657,7 +713,20 @@ test("detached squad run names a squad status wait that blocks until the run set
     false,
   );
   try {
-    const result = await detached.result(4_000);
+    await waitForObserved(() => pendingRun.length === 1 || detached.closed);
+    assert.equal(pendingRun.length, 1, "the detached squad run must send its control request");
+    assert.ok(!detached.closed, "the detached squad run must wait for its control receipt");
+    for (const pending of pendingRun)
+      reply(pending.socket, pending.id, {
+        ok: true,
+        schema: "squad-control-result/v1",
+        command: "squad-run",
+        outcome: "completed",
+        squadRunId,
+        phase: "planning",
+        summary: "squad-run core-squad: planning",
+      });
+    const result = await detached.result(hangGuardMs);
     assert.equal(result.code, 0, result.stderr);
     assert.equal(
       result.stdout.trim(),
@@ -673,7 +742,8 @@ test("detached squad run names a squad status wait that blocks until the run set
   }
   const waited = runWait(fixture, ["squad", "status", squadRunId, "--wait"]);
   try {
-    const result = await waited.result(4_000);
+    await waitForObserved(() => statusReads >= 2 || waited.closed);
+    const result = await waited.result(hangGuardMs);
     assert.equal(result.code, 0, result.stderr);
     assert.equal(result.receipt.outcome, "converged");
     assert.equal(statusReads, 2, "the wait re-reads until the daemon stamps the terminal verdict");
@@ -776,7 +846,7 @@ function runWait(
   json = true,
 ): {
   readonly closed: boolean;
-  readonly result: (timeoutMs: number) => Promise<InvocationResult>;
+  readonly result: (guardMs: number) => Promise<InvocationResult>;
   readonly stop: () => void;
 } {
   const { HARNESS_DAEMON_ENDPOINT: _endpoint, HARNESS_DAEMON_REPO_ID: _repoId, ...baseEnv } = process.env,
@@ -809,7 +879,7 @@ function runWait(
     get closed() {
       return closed;
     },
-    result: (timeoutMs) => withTimeout(completion, child, timeoutMs),
+    result: (guardMs) => withTimeout(completion, child, guardMs),
     stop: () => {
       if (!closed) child.kill("SIGKILL");
     },
@@ -823,10 +893,16 @@ interface InvocationResult {
   readonly stderr: string;
 }
 
+// Anchors progression on the CLI's own observable action (a request it sent, a reply it still owes)
+// instead of a wall clock; the deadline only guards a hung run and never asserts how fast anything is.
+async function waitForObserved(observed: () => boolean): Promise<void> {
+  for (const deadline = Date.now() + hangGuardMs; !observed() && Date.now() < deadline; ) await delay(20);
+}
+
 async function withTimeout(
   completion: Promise<InvocationResult>,
   child: ChildProcess,
-  timeoutMs: number,
+  guardMs: number,
 ): Promise<InvocationResult> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
@@ -835,8 +911,8 @@ async function withTimeout(
       new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => {
           child.kill("SIGKILL");
-          reject(new Error(`runtime status --wait did not return within ${timeoutMs}ms`));
-        }, timeoutMs);
+          reject(new Error(`the CLI invocation hung: no exit within the ${guardMs}ms hang guard`));
+        }, guardMs);
       }),
     ]);
   } finally {
