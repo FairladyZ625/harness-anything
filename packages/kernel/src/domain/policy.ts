@@ -7,12 +7,8 @@ import {
 } from "./entity-json-schema.ts";
 import { isRecord } from "./write-chain.contract.ts";
 
-export const policyPredicateNames = Object.freeze([
-  "hasRoleBinding",
-  "hasDefaultBinding",
-  "hasAssignmentBinding",
-] as const);
-export type PolicyPredicateName = (typeof policyPredicateNames)[number];
+const policyPredicateNames = Object.freeze(["hasRoleBinding", "hasDefaultBinding", "hasAssignmentBinding"] as const);
+type PolicyPredicateName = (typeof policyPredicateNames)[number];
 
 type PolicyPredicate =
   | { readonly predicate: "hasRoleBinding"; readonly role: string }
@@ -74,7 +70,7 @@ const predicateClauseSchema = {
   },
 };
 
-export const POLICY_DECLARATION_V1_SCHEMA = Object.freeze({
+const POLICY_DECLARATION_V1_SCHEMA = Object.freeze({
   $schema: "https://json-schema.org/draft/2020-12/schema",
   $id: "policy/v1",
   type: "object",

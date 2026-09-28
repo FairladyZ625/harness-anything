@@ -151,12 +151,6 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
     statuses: [],
     actions: ["add", "set-role", "bind", "delegate", "revoke-delegation", "remove"],
   },
-  policy: {
-    schemaId: "policy/v1",
-    refTemplate: "policy/{id}",
-    statuses: [],
-    actions: [],
-  },
   relation: {
     schemaId: "Relation/v1",
     refTemplate: "relation/{id}",
@@ -337,7 +331,6 @@ export const RELATION_TYPE_WORDS: readonly string[] = Object.freeze([
   "reviews",
   "owns",
   "dispatches",
-  "authorizes",
   "awaits",
 ]);
 // entity-kind-contract:generated:end
@@ -560,7 +553,6 @@ const executionDoc: EntityKindDoc = {
   edges: [
     { type: "executes", sourceKind: "execution", targetKind: "task" },
     { type: "reviews", sourceKind: "review", targetKind: "execution" },
-    { type: "authorizes", sourceKind: "policy", targetKind: "execution" },
   ],
   guiEntry: { view: "sessions", note: "会话页与 Task 详情;执行链随派工归属" },
   liveCount: null,
@@ -718,24 +710,6 @@ const presetDoc: EntityKindDoc = {
   liveCount: "presets",
 };
 
-const policyDoc: EntityKindDoc = {
-  kind: "policy",
-  ...kernelContract("policy"),
-  storage: "策略声明(predicate + action 规则)",
-  definition: "写入面的授权规则:哪些动作在什么谓词下放行。执行授权走 policy → execution 边。",
-  fields: [
-    field("id", true, "string", "稳定身份 slug。"),
-    field("version", true, "integer", "单调递增的版本号。"),
-    field("predicates", true, "array", "本策略可用的内核谓词(判据)。"),
-    field("actions", true, "array", "受控动作清单。"),
-    field("rules", false, "array", "谓词 → 动作的放行规则。"),
-  ],
-  nestedFields: noNested,
-  edges: [{ type: "authorizes", sourceKind: "policy", targetKind: "execution" }],
-  guiEntry: null,
-  liveCount: null,
-};
-
 const settingsDoc: EntityKindDoc = {
   kind: "settings",
   ...kernelContract("settings"),
@@ -875,8 +849,8 @@ export const CURATED_ENTITY_DOC_GROUPS: readonly EntityDocGroup[] = [
   {
     id: "catalog",
     title: "目录与配置",
-    summary: "脚手架、授权、默认值、人员与引擎接入面。",
-    docs: [presetDoc, policyDoc, settingsDoc, personDoc, adapterDoc],
+    summary: "脚手架、默认值、人员与引擎接入面。",
+    docs: [presetDoc, settingsDoc, personDoc, adapterDoc],
   },
 ];
 

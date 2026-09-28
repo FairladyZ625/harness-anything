@@ -20,7 +20,6 @@ export const OUT_LABEL: Record<RelationKind, string> = {
   reviews: "审查",
   owns: "拥有",
   dispatches: "派发",
-  authorizes: "授权",
   awaits: "等待答复",
 };
 
@@ -44,6 +43,5 @@ export const IN_LABEL: Record<RelationKind, string> = {
   reviews: "被审查",
   owns: "归属",
   dispatches: "被派发",
-  authorizes: "获授权",
   awaits: "被等待答复",
 };

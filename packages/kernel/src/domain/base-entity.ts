@@ -118,7 +118,7 @@ const decisionIdentity = Object.freeze({
   refPattern: "^(?:dec_[A-Za-z0-9_-]+|[A-Za-z0-9][A-Za-z0-9_-]*-[A-Za-z0-9_-]+)$",
   anchorPattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$",
 });
-const slugIdentity = <K extends "agent" | "squad" | "policy">(kind: K, field = "id") =>
+const slugIdentity = <K extends "agent" | "squad">(kind: K, field = "id") =>
   Object.freeze({ field, pattern: ENTITY_ID_PATTERN, refTemplate: `${kind}/{id}` as const });
 const executionIdentity = Object.freeze({
   field: "executionId",
@@ -167,7 +167,6 @@ export const entityTypeContracts = Object.freeze([
   { kind: "decision", ...baseEntityTypeContract(decisionIdentity, authoredResidency) },
   { kind: "agent", ...baseEntityTypeContract(slugIdentity("agent"), authoredResidency) },
   { kind: "squad", ...baseEntityTypeContract(slugIdentity("squad"), authoredResidency) },
-  { kind: "policy", ...baseEntityTypeContract(slugIdentity("policy"), authoredResidency) },
   { kind: "execution", ...baseEntityTypeContract(executionIdentity, authoredLiveResidency) },
   { kind: "review", ...baseEntityTypeContract(reviewIdentity, authoredResidency) },
   { kind: "runtime-session", ...baseEntityTypeContract(runtimeSessionIdentity, authoredLiveResidency) },

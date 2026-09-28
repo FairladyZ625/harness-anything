@@ -26,7 +26,6 @@ export const relationTypes = [
   "reviews",
   "owns",
   "dispatches",
-  "authorizes",
   "awaits",
 ] as const;
 

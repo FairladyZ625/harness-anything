@@ -53,7 +53,6 @@ export const KIND_AXIS: Record<RelationKind, SemanticAxis> = {
   reviews: "execution",
   owns: "assoc",
   dispatches: "execution",
-  authorizes: "authority",
   awaits: "execution",
 };
 
@@ -104,7 +103,6 @@ export const KIND_LABEL: Record<RelationKind, string> = {
   reviews: "审查",
   owns: "拥有",
   dispatches: "派发",
-  authorizes: "授权",
   awaits: "等待答复",
 };
 

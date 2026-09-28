@@ -1247,7 +1247,6 @@
   "views.workspace.relation.reviews": "评审",
   "views.workspace.relation.owns": "拥有",
   "views.workspace.relation.dispatches": "派发",
-  "views.workspace.relation.authorizes": "授权",
   "views.workspace.relation.awaits": "等待答复",
   "views.workspace.entity.task": "任务",
   "views.workspace.entity.decision": "决策",
