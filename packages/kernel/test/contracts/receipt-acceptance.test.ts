@@ -225,6 +225,7 @@ test("a draft that wrote nothing stays unaccepted instead of being reported reje
       {
         outcome: "no_changes",
         opId: "runtime-archive-already",
+        revision: 2,
         code: "already_published",
         origin: "doc-sync",
         evidence: "runtime archive: every document is already published",
@@ -237,6 +238,8 @@ test("a draft that wrote nothing stays unaccepted instead of being reported reje
   assert.equal(receipt.code, "already_published");
   assert.equal(receipt.status, "unknown");
   assert.equal(receipt.acceptance, null);
+  // The observed ledger revision stays the caller's anchor for a no-op.
+  assert.equal(receipt.revision, 2);
   assert.deepEqual(validateReceiptAcceptance(receipt), []);
   const rejected = attachReceiptAcceptance(
     { outcome: "no_changes", opId: "rejected-before" },

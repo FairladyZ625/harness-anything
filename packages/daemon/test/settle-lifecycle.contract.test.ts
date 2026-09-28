@@ -294,7 +294,7 @@ test("settle submits then migrates a drifted preset snapshot with a real upgrade
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "settle-preset" });
     assert.equal(
       (await cell.run({ kind: "preset-install", packageSource: "source/upgrade-task" }, workerBinding)).outcome,
-      "pending",
+      "applied",
     );
     const title = "Settle Preset";
     await createRealizedTaskPlanFixture(
@@ -354,7 +354,7 @@ test("settle submits then migrates a drifted preset snapshot with a real upgrade
     writeFileSync(path.join(source, "preset.json"), packageBody("3.2.0"));
     assert.equal(
       (await cell.run({ kind: "preset-install", packageSource: "source/upgrade-task" }, workerBinding)).outcome,
-      "pending",
+      "applied",
     );
 
     const settled = (await cell.run({ kind: "task-settle", taskId }, workerBinding)) as Record<string, unknown>;
