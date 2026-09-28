@@ -44,8 +44,6 @@ export {
   settingValuePattern,
   settingsLocales,
   settingsFieldLabel,
-  worktreeSetupAdapters,
-  worktreeSetupStepPattern,
   type ReviewIndependence,
   type DeclaredSettingsFields,
   type SettingsCliInputField,
