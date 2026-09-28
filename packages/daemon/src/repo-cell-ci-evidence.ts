@@ -10,9 +10,32 @@ import {
   type CompletionEvidenceResult,
   type CompletionEvidenceV1,
   type FrozenGateRequirement,
+  type SubmissionV1,
 } from "@harness-anything/kernel";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import { makeGitReadinessSource } from "./process-port.ts";
 import type { Snapshot } from "./repo-cell-types.ts";
+
+/**
+ * A cut whose delivery commit no run on its frozen CI branch can ever cover: the commit is gone
+ * from the canonical repository, or every commit of its unpublished fork already landed on the
+ * branch under another SHA (cherry-pick, rebase). A fork that is merely unmerged still has patches to land.
+ */
+export function strandedDelivery(rootDir: string, submission: SubmissionV1 | null | undefined): boolean {
+  const commitSha = submission?.commitSha,
+    branch = submission?.completionContract?.gates.flatMap(({ witness }) =>
+      witness.adapterId === "github-actions" ? [witness.adapterOptions.branch] : [],
+    )[0];
+  if (!commitSha || branch === undefined) return false;
+  const git = makeGitReadinessSource(),
+    target = `refs/remotes/origin/${branch}`;
+  if (!git.run(rootDir, ["rev-parse", "--verify", "--quiet", `${target}^{commit}`]).ok) return false;
+  if (!git.run(rootDir, ["cat-file", "-e", `${commitSha}^{commit}`]).ok) return true;
+  // `git cherry` lists the fork's commits: "-" already upstream by patch id, "+" not yet landed.
+  const cherry = git.run(rootDir, ["cherry", target, commitSha]),
+    lines = cherry.stdout.split("\n").filter(Boolean);
+  return cherry.ok && lines.length > 0 && lines.every((line) => line.startsWith("- "));
+}
 
 /**
  * The `github-actions` witness adapter: reads recorded CI run observations and judges them against

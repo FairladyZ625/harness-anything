@@ -14,6 +14,7 @@ import {
 } from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { runProcessTextAsync } from "./process-port.ts";
+import { strandedDelivery } from "./repo-cell-ci-evidence.ts";
 import { localGitObjectRefStore, resolveHarnessLayout } from "@harness-anything/kernel";
 import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
@@ -346,14 +347,22 @@ async function selectTaskWitnessRun(
   runGh: RunGh,
 ): Promise<readonly Pick<CiWorkflowRun, "databaseId">[]> {
   const snapshot = cell.projection?.read(taskId).snapshot,
-    delivery = snapshot?.executions.find(
+    submission = snapshot?.executions.find(
       (candidate) => candidate.iteration === snapshot.task?.iteration && candidate.submission !== null,
-    )?.submission?.commitSha;
+    )?.submission,
+    delivery = submission?.commitSha;
   if (!isNativeCommitSha(delivery))
     throw cell.cellCodedError(
       "ci_witness_delivery_unresolved",
       `Task ${taskId} has no submitted execution with a delivery commit. ` +
         `next: submit the task delivery, then retry ha ci observe pull --task ${taskId}.`,
+    );
+  if (strandedDelivery(cell.rootDir, submission))
+    throw cell.cellCodedError(
+      "ci_witness_not_found",
+      `No CI run can ever cover delivery ${delivery} of ${taskId}: the commit is gone or its changes ` +
+        "landed under another commit. next: the task owner returns the cut with " +
+        `ha task adjudicate ${taskId} --return --review-id <review-id> --note <reason>, then resubmits the landed commit.`,
     );
   const mainRuns = listed
       .filter((run) => run.headBranch === "main")
