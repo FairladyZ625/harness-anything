@@ -309,11 +309,9 @@ test("the injected identity overrides a misconfigured worktree for commits and r
 });
 
 function git(root, ...args) {
-  // The task-bound git wrapper on a worker's PATH refuses fixture pushes to main, so the
-  // harness-side git here states it is not a task-bound worker.
-  const env = { ...process.env };
-  delete env.HARNESS_TASK_BOUND;
-  return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", env });
+  // Fixture commits carry only the identity the fixture states: a host GIT_AUTHOR_*/GIT_COMMITTER_*
+  // outranks both repository config and -c, and the task-bound git wrapper refuses pushes to main.
+  return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", env: hermeticGitEnvironment() });
 }
 
 function gitEnv(env, root, ...args) {
