@@ -213,6 +213,11 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     assert.doesNotMatch(block, /ha graph/u, "the causal block no longer spends budget on a bare command word");
     assert.match(prompt!, /# 台账查询引导/u, "the lookup guidance rides every task-bound mission");
     assert.match(prompt!, /ha graph task_ctx_leaf/u, "the guidance's first graph command carries this task's id");
+    assert.match(
+      prompt!,
+      /ha task create --work <工作根任务 id>/u,
+      "the guidance tells a worker how to file into its work",
+    );
 
     // An explicit prompt on a task-bound dispatch still gets the same block prepended.
     prompt = null;

@@ -146,6 +146,9 @@ export function renderThinHelp(
           "  capabilities [--json] — Describe the contracted CLI command surface.",
           "  --version — Print the CLI package version.",
           "",
+          "Organize work — a work is one root task plus its subtree: ha work create --title <name>, then " +
+            "ha task create --work <id> --title <title>; ha work list · ha work show <id> · ha agenda --work <id>.",
+          "",
           "Use ha <domain> --help for the commands in a domain.",
           ...rows.filter(({ usage }) => usage.includes("--service")).map(({ usage }) => `  ${usage}`),
         ],
