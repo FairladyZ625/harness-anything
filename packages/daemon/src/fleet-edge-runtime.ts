@@ -247,7 +247,7 @@ export function openFleetEdgeRuntime(input: {
                 }
                 if (!body.trim())
                   throw edgeRuntimeError("runtime_mission_unavailable", `Task ${taskId} mission ${name} is empty.`);
-                return { path: missionPath, body };
+                return body;
               })()
             : null,
           baseMission =
@@ -255,16 +255,12 @@ export function openFleetEdgeRuntime(input: {
         return {
           executionId: assigned.scope.executionId,
           packageRoot,
-          planPath,
-          plan,
           mission: [
             baseMission,
             taskQueryGuidance(taskId),
             ...(causalContext === null ? [] : [causalContext]),
-            ...(mission ? [`# Mission: ${missionName}\n\n${mission.body.trim()}`] : []),
+            ...(mission ? [`# Mission: ${missionName}\n\n${mission.trim()}`] : []),
           ].join("\n\n"),
-          missionPath: mission?.path ?? null,
-          missionBody: mission?.body ?? null,
           causalContext,
         };
       },

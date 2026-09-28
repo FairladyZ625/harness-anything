@@ -237,8 +237,15 @@ test("overlapping worker declarations reject the second child before execution",
   assert.match(state.workers[1].rejection ?? "", /Ownership conflict/u);
   assert.equal(state.workers[1].taskId, null);
   assert.equal(state.workers[1].runtimeSessionId, null);
-  fixture.finish(state.workers[0].dispatchId!, "first child completed");
+  fixture.finish(
+    state.workers[0].dispatchId!,
+    "first child completed\n```bash\ncloseout/submission/review/consent\n```",
+  );
   const resumed = await fixture.waitStatus((value) => value.leaders.length === 2);
+  const callback = fixture.providers.find((provider) => provider.dispatchId === resumed.leaders[1].dispatchId)!;
+  assert.match(callback.prompt, /worker_rejected/u);
+  assert.match(callback.prompt, /Ownership conflict/u);
+  assert.match(callback.prompt, /closeout\/submission\/review\/consent/u);
   fixture.finish(
     resumed.leaders[1].dispatchId,
     JSON.stringify({

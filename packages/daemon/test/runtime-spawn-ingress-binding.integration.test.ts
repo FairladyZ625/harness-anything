@@ -533,7 +533,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         "a conflicting target must be rejected before opening the parent daemon socket",
       );
     });
-    await t.test("task mission rejects an unmatched shell glob before provider launch", async () => {
+    await t.test("task mission leaves an unmatched shell glob to the provider", async () => {
       const taskId = "task-runtime-invalid-glob",
         executionId = "exec-runtime-invalid-glob";
       await createReadyTask(
@@ -552,11 +552,10 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
             idempotencyKey: "invalid-glob",
           },
         });
-      assert.equal(receipt.outcome, "op_rejected");
-      assert.equal(receipt.code, "runtime_mission_invalid");
-      assert.equal(launchCount, before);
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      assert.equal(launchCount, before + 1);
     });
-    await t.test("task mission rejects a missing Node entry before provider launch", async () => {
+    await t.test("task mission leaves a missing Node entry to the provider", async () => {
       const taskId = "task-runtime-missing-entry",
         executionId = "exec-runtime-missing-entry";
       await createReadyTask(taskId, "Missing entry", "```bash\nnode tools/missing-entry.mjs\n```");
@@ -571,9 +570,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
             idempotencyKey: "missing-entry",
           },
         });
-      assert.equal(receipt.outcome, "op_rejected");
-      assert.equal(receipt.code, "runtime_mission_invalid");
-      assert.equal(launchCount, before);
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      assert.equal(launchCount, before + 1);
     });
     await t.test("payload-reported executor remains rejected", async () => {
       const taskId = "task-runtime-mismatch",
