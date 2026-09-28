@@ -27,7 +27,7 @@
       "id": "lightweight",
       "title": "Lightweight",
       "checkerProfile": "standard",
-      "completionGates": [],
+      "completionGates": ["ci"],
       "capabilityImports": [
         { "id": "policy:template-override/lightweight-task-plan/v1", "kind": "command", "version": "1" },
         { "id": "policy:template-override/lightweight-closeout/v1", "kind": "command", "version": "1" }
