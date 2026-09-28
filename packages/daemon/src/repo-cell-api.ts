@@ -43,7 +43,7 @@ import { readEntityContent, type EntityContentSource } from "./entity-content-re
 import { readEntityLocator } from "./entity-locator-read.ts";
 import { readAgentSkillsGui } from "./agent-skills.ts";
 import { readTaskDispatches } from "./dispatch-read.ts";
-import { decisionReviewState, decisionReviewSummaryRow, readDecisionReviewDispatches } from "./decision-review-read.ts";
+import { decisionFullListRows, decisionReviewSummaryRow } from "./decision-review-read.ts";
 import { agentRuntimeTokenUsageReadHandlers } from "./agent-runtime-token-usage.ts";
 import {
   admitUseCaseProjectionSelector,
@@ -424,17 +424,14 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
           key: cacheKey,
           rows: projectDecisionReadiness({ rootDir: context.rootDir, commitSha, decisions: read.decisions }, source),
         };
-      const readiness = readinessCache.rows;
       return {
         ok: true,
         ...(payload.projection === "full" ? { projection: "full" as const } : {}),
-        decisions: read.decisions.map((decision, index: number) => {
-          const reviewDispatches = readDecisionReviewDispatches({
-            rootDir: context.rootDir,
-            projection: context.projection,
-            decision,
-          });
-          return { ...decision, ...decisionReviewState(decision), readiness: readiness[index]!, reviewDispatches };
+        decisions: decisionFullListRows({
+          rootDir: context.rootDir,
+          projection: context.projection,
+          decisions: read.decisions,
+          readiness: readinessCache.rows,
         }),
         warnings: [],
       };

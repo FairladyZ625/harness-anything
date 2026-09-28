@@ -6,7 +6,7 @@ import {
   type TaskProjection,
 } from "@harness-anything/kernel";
 import { readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
-import type { DaemonDecisionReviewDispatchRow } from "./protocol/daemon-protocol-gui-types.ts";
+import type { DaemonDecisionFullRow, DaemonDecisionReviewDispatchRow } from "./protocol/daemon-protocol-gui-types.ts";
 
 /**
  * The review cut and accept readiness a reader sees. Computed only on read surfaces: the accept write
@@ -34,6 +34,29 @@ export function decisionReviewAwaitRationale(decisionId: string): string {
 export function decisionReviewSummaryRow(row: DecisionProjectionRow) {
   const { decisionId, title, state, riskTier, urgency, proposedAt } = row;
   return { decisionId, title, state, riskTier, urgency, proposedAt };
+}
+
+/**
+ * Full list rows. List reads leave the document body out, so the review state is computed from the
+ * same Decisions read with their bodies; the body itself stays on the server.
+ */
+export function decisionFullListRows(input: {
+  readonly rootDir: string;
+  readonly projection: TaskProjection;
+  readonly decisions: readonly DecisionProjectionRow[];
+  readonly readiness: readonly NonNullable<DecisionProjectionRow["readiness"]>[];
+}): readonly DaemonDecisionFullRow[] {
+  const withBodies = new Map(
+    input.projection
+      .readDecisions(input.decisions.map(({ decisionId }) => decisionId))
+      .decisions.map((decision) => [decision.decisionId, decision]),
+  );
+  return input.decisions.map((decision, index) => ({
+    ...decision,
+    ...decisionReviewState(withBodies.get(decision.decisionId) ?? decision),
+    readiness: input.readiness[index]!,
+    reviewDispatches: readDecisionReviewDispatches({ rootDir: input.rootDir, projection: input.projection, decision }),
+  }));
 }
 
 export function readDecisionReviewDispatches(input: {

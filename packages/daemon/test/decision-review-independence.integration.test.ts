@@ -144,6 +144,20 @@ test("an independent approved review lets the proposal owner accept the current 
     const report = await cell.run({ kind: "doc-show", path: reportRef }, independentReviewer);
     assert.equal(report.outcome, "applied", JSON.stringify(report));
     assert.match(String(report.evidence), /The current Decision cut was reviewed/u);
+    const reviewedShow = receiptJson(await cell.run({ kind: "decision-show", decisionId }, owner)).decision as {
+        readonly currentReviewContentDigest: unknown;
+        readonly acceptReviewReadiness: unknown;
+      },
+      listed = (await cell.read("repo.decisions.list", { projection: "full" }, owner)).decisions.find(
+        (row: { readonly decisionId: string }) => row.decisionId === decisionId,
+      );
+    assert.equal(reviewedShow.currentReviewContentDigest, digest);
+    assert.notEqual(reviewedShow.acceptReviewReadiness, null);
+    assert.deepEqual(
+      { digest: listed?.currentReviewContentDigest, readiness: listed?.acceptReviewReadiness, body: listed?.body },
+      { digest, readiness: reviewedShow.acceptReviewReadiness, body: null },
+      "full list rows carry the same review cut and readiness as decision-show without returning the body",
+    );
     const accepted = await cell.run(
       {
         kind: "decision-accept",
