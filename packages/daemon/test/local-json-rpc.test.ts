@@ -542,6 +542,39 @@ test("task-create and preset RPC descriptors enforce closed payloads and retire 
   );
 });
 
+test("repo.task.create RPC params accept --plan-file through the real RPC entry, not just cell.run", () => {
+  const parsed = parseDaemonRpcParams("repo.task.create", {
+    repo: { repoId: "alpha" },
+    payload: { title: "Plan", planFile: "harness/tmp-plans/consent-return.md" },
+  });
+  assert.equal(parsed.ok, true, parsed.ok ? "" : parsed.errors.join("; "));
+});
+
+// The wire params shape used to be hand-filtered down to the --from-file/--json-input packet subset,
+// so every CLI-only create field (e.g. --plan-file) silently became an unknown_field rejection at the
+// RPC layer the moment cell.run tests stopped being the only coverage. Walking every field the kernel
+// task-create contract declares (task-action-contract.ts) guards the whole class, not one field name.
+test("repo.task.create RPC params accept every field the kernel task-create contract declares", () => {
+  const declaredFields =
+      getEntityKindContract("task")?.actionCatalog?.actions.find((action) => action.id === "create")?.input.fields ??
+      [],
+    probeValueByType: Record<string, unknown> = { boolean: true, number: 1, "string-array": ["x"] };
+  assert.ok(
+    declaredFields.some(({ field }) => field === "planFile"),
+    "fixture sanity: the create contract must still declare planFile",
+  );
+  for (const declared of declaredFields) {
+    if (declared.field === "fromFile" || declared.field === "jsonInput") continue; // exercised above with a real payload
+    const probeValue = probeValueByType[declared.type ?? "string"] ?? "probe",
+      parsed = parseDaemonRpcParams("repo.task.create", {
+        repo: { repoId: "alpha" },
+        payload: { title: "Probe", [declared.field]: probeValue },
+      }),
+      unknownField = !parsed.ok && parsed.errors.some((error) => error.includes("unknown field"));
+    assert.equal(unknownField, false, `repo.task.create RPC params must accept declared field "${declared.field}"`);
+  }
+});
+
 // Fragment from json-rpc-secret-keys.test.ts.
 test("secret-like keys are rejected at any depth while the JSON object check stays shallow", () => {
   assert.deepEqual(rejectSecretKeys({ note: "fine", nested: { detail: { apiKey: "x" } } }), [

@@ -209,9 +209,6 @@ export function taskCreateEnum(field: string): readonly string[] {
 const taskCreatePacketFieldNames = taskCreateAction.input.fields.find(({ field }) => field === "fromFile")?.cli
   ?.jsonAllowedFields;
 if (!taskCreatePacketFieldNames) throw new Error("task.create packet projection is missing.");
-const taskCreatePacketFields = taskCreateAction.input.fields.filter(({ field }) =>
-  taskCreatePacketFieldNames.includes(field),
-);
 export const taskCreateJsonFields = Object.freeze([...taskCreatePacketFieldNames]);
 export const generatedTaskActionProtocolDeclarations = Object.freeze([...taskActionProtocolProjection.actions]);
 export const generatedWriteReceiptFields = Object.freeze([...taskActionProtocolProjection.writeReceiptFields]);
@@ -451,8 +448,11 @@ export const presetCommands = Object.freeze([
     ],
   }),
 ] as const);
-const taskCreateRpcFields: RpcShape["fields"] = Object.fromEntries([
-  ...taskCreatePacketFields.map((field) => [
+// The wire shape accepts every declared create input, not only the --from-file/--json-input packet
+// subset (taskCreateJsonFields): a hand-picked subset here silently drops CLI-only fields such as
+// --plan-file whenever the kernel contract grows one.
+const taskCreateRpcFields: RpcShape["fields"] = Object.fromEntries(
+  taskCreateAction.input.fields.map((field) => [
     field.field,
     field.type === "json-object"
       ? "json?"
@@ -464,10 +464,7 @@ const taskCreateRpcFields: RpcShape["fields"] = Object.fromEntries([
             ? "number?"
             : "string?",
   ]),
-  ["fromFile", "string?"],
-  ["jsonInput", "string?"],
-  ["dryRun", "boolean?"],
-]);
+);
 export const presetMethods = Object.freeze([
   ...presetCommands
     // CLI aliases share one RPC method (work-create forwards to repo.task.create); the method
