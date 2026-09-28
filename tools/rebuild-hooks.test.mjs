@@ -103,48 +103,56 @@ test(
   },
 );
 
-test("rebuild hooks work inside a worktree without its own node_modules", { skip: posixShellSkip }, (context) => {
-  const root = makeRebuildRepo(context, "rebuild-worktree-");
-  const base = commitAll(root, "base");
+test(
+  "rebuild hooks leave linked worktrees alone, even when their build would fail",
+  { skip: posixShellSkip },
+  (context) => {
+    const root = makeRebuildRepo(context, "rebuild-worktree-");
+    // A linked worktree has no node_modules of its own, so a build there compiles against
+    // the main checkout's packages and fails whenever the main checkout lags the branch.
+    writeFileSync(
+      path.join(root, "tools/record-build.mjs"),
+      [
+        'import { appendFileSync } from "node:fs";',
+        'appendFileSync(new URL("../npm.log", import.meta.url), `${process.argv[2]}\\n`);',
+        "process.exit(1);",
+        "",
+      ].join("\n"),
+    );
+    const base = commitAll(root, "base");
 
-  const worktreeRoot = realpathSync(mkdtempSync(path.join(os.tmpdir(), "rebuild-worktree-wt-")));
-  context.after(() => rmSync(worktreeRoot, { recursive: true, force: true }));
-  const worktreeAdd = spawnSync("git", ["-C", root, "worktree", "add", worktreeRoot, "-b", "linked"], {
-    encoding: "utf8",
-  });
-  assert.equal(worktreeAdd.status, 0, worktreeAdd.stderr);
-  // worktree add performs a checkout too (unborn prev ref): its conservative
-  // rebuild is not what this test asserts.
-  writeFileSync(path.join(worktreeRoot, "npm.log"), "");
+    const worktreeRoot = realpathSync(mkdtempSync(path.join(os.tmpdir(), "rebuild-worktree-wt-")));
+    context.after(() => rmSync(worktreeRoot, { recursive: true, force: true }));
+    const worktreeAdd = spawnSync("git", ["-C", root, "worktree", "add", worktreeRoot, "-b", "linked"], {
+      encoding: "utf8",
+    });
+    assert.equal(worktreeAdd.status, 0, worktreeAdd.stderr);
+    assert.match(worktreeAdd.stdout + worktreeAdd.stderr, /post-checkout: linked worktree; skipping dist rebuild/u);
+    assert.equal(existsSync(path.join(worktreeRoot, "node_modules")), false);
 
-  // The linked worktree shares the repository but has no node_modules of its
-  // own; the hooks must still resolve tsc from the main checkout.
-  assert.equal(existsSync(path.join(worktreeRoot, "node_modules")), false);
+    writeFileSync(path.join(worktreeRoot, "packages/daemon/src/main.ts"), "daemon v2\n");
+    git(worktreeRoot, "add", "packages");
+    const commit = spawnSync("git", ["-C", worktreeRoot, "commit", "-q", "-m", "daemon change"], { encoding: "utf8" });
+    assert.equal(commit.status, 0, commit.stderr);
 
-  writeFileSync(path.join(worktreeRoot, "packages/daemon/src/main.ts"), "daemon v2\n");
-  git(worktreeRoot, "add", "packages", "tools");
-  const commit = spawnSync("git", ["-C", worktreeRoot, "commit", "-q", "-m", "daemon change"], { encoding: "utf8" });
-  assert.equal(commit.status, 0, commit.stderr);
-  assert.deepEqual(readNpmLog(worktreeRoot), ["@harness-anything/daemon"]);
+    const checkoutBack = spawnSync("git", ["-C", worktreeRoot, "checkout", "-q", "-b", "back", base], {
+      encoding: "utf8",
+    });
+    assert.equal(checkoutBack.status, 0, checkoutBack.stderr);
+    const checkoutLinked = spawnSync("git", ["-C", worktreeRoot, "checkout", "linked"], { encoding: "utf8" });
+    assert.equal(checkoutLinked.status, 0, checkoutLinked.stderr);
 
-  const checkoutBack = spawnSync("git", ["-C", worktreeRoot, "checkout", "-q", "-b", "back", base], {
-    encoding: "utf8",
-  });
-  assert.equal(checkoutBack.status, 0, checkoutBack.stderr);
-  writeFileSync(path.join(worktreeRoot, "npm.log"), "");
+    git(worktreeRoot, "update-ref", "ORIG_HEAD", base);
+    const merge = runHookScript(path.join(root, "tools/git-hooks/post-merge"), [], worktreeRoot);
+    assert.equal(merge.status, 0, merge.stderr);
 
-  const checkoutLinked = spawnSync("git", ["-C", worktreeRoot, "checkout", "linked"], { encoding: "utf8" });
-  assert.equal(checkoutLinked.status, 0, checkoutLinked.stderr);
-  // git routes hook output to stderr, so check both streams.
-  const output = checkoutLinked.stdout + checkoutLinked.stderr;
-  assert.doesNotMatch(output, /No such file or directory/u);
-  assert.match(output, /rebuilding @harness-anything\/daemon/u);
-  assert.deepEqual(readNpmLog(worktreeRoot), ["@harness-anything/daemon"]);
-});
+    assert.deepEqual(readNpmLog(worktreeRoot), []);
+  },
+);
 
 // Fixture repository shaped like the minimum the rebuild hooks observe: real
 // npm workspaces whose build scripts record themselves, and a tsc stub in the
-// main checkout's node_modules exactly where lib.sh resolves it. The stub
+// checkout's node_modules exactly where lib.sh resolves it. The stub
 // build programs intentionally split cli from daemon+kernel so the two trigger
 // derivations can be asserted independently.
 function makeRebuildRepo(context, prefix) {

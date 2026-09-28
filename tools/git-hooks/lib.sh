@@ -5,14 +5,17 @@
 # file, so lib.sh must travel with the hook that uses it. $repo_root is
 # already set by the sourcing hook.
 
-# Resolve tsc from the main checkout, not the current one: linked worktrees
-# share the repository but not node_modules, so the relative
-# node_modules/.bin/tsc died with "No such file or directory" in any worktree
-# without its own install. The git common dir anchors the main checkout, whose
-# node_modules npm install keeps populated; inside the main checkout itself
-# this resolves to the same absolute path as the old relative one.
-main_root=$(cd "$(git rev-parse --git-common-dir)/.." && pwd -P)
-hook_tsc="$main_root/node_modules/.bin/tsc"
+# The rebuilt dist serves the local `ha` and the resident daemon, which run from
+# the main checkout. A linked worktree has no node_modules of its own, so a build
+# there compiles against the main checkout's packages and fails whenever the main
+# checkout lags the worktree's branch, failing the git command that fired the hook
+# (`git worktree add` included). Rebuild only in the main checkout.
+if [ "$(git rev-parse --path-format=absolute --git-dir)" != "$(git rev-parse --path-format=absolute --git-common-dir)" ]; then
+  echo "$(basename -- "$0"): linked worktree; skipping dist rebuild."
+  exit 0
+fi
+
+hook_tsc="$repo_root/node_modules/.bin/tsc"
 
 # Trigger paths for one workspace package's build program: the package roots
 # tsc compiles (tsconfig include + every followed import) plus the npm-level
