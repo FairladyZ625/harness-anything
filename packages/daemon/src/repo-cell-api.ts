@@ -317,6 +317,7 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         .catch((error) => failAction(error));
     const enqueuePublication = (
       execute: (authorizationDecision?: AuthorizationDecision) => WriteReceiptDraft | Promise<WriteReceiptDraft>,
+      ingest?: (authorizationDecision?: AuthorizationDecision) => void,
     ): Promise<WriteReceipt | SquadControlResult> => {
       context.queueDepth += 1;
       let queuedDecision: AuthorizationDecision | undefined,
@@ -348,6 +349,9 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
         assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
         context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
         context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
+        // Ingested reads are their own accepted commands, recorded before the execution interval
+        // opens: a failed execution must never adopt one of them as its accepted outcome.
+        ingest?.(queuedDecision);
         const revisionBeforeExecution = context.store.readHead()?.revision ?? 0;
         try {
           if (isSquadControlCommand(action.kind)) {
@@ -449,8 +453,12 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     if (externalRead)
       return externalRead
         .then((publish) =>
-          enqueuePublication((authorizationDecision) =>
-            publish(action, authorizationDecision ? { ...binding, authorizationDecision } : binding),
+          enqueuePublication(
+            (authorizationDecision) =>
+              publish(action, authorizationDecision ? { ...binding, authorizationDecision } : binding),
+            publish.ingest &&
+              ((authorizationDecision) =>
+                publish.ingest!(authorizationDecision ? { ...binding, authorizationDecision } : binding)),
           ),
         )
         .catch((error) => failAction(error, durable ? authorizeAtCurrentCut()! : undefined));

@@ -747,6 +747,81 @@ test("task complete accepts a verified main run on a commit that contains the su
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+test(
+  "task complete collecting a failed covering main run rejects and never borrows the observation's acceptance",
+  { skip: process.platform === "win32" ? "requires POSIX shell-script executables resolved through PATH" : false },
+  async () => {
+    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-complete-ci-red-")),
+      ghBin = mkdtempSync(path.join(tmpdir(), "ha-complete-ci-red-gh-")),
+      taskId = "task-complete-ci-red",
+      executionId = "execution-complete-ci-red",
+      repoId = workspaceId("complete-ci-red"),
+      filePath = process.env.PATH;
+    let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+    try {
+      initRepo(rootDir);
+      mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+      writeFileSync(
+        path.join(rootDir, "harness/harness.yaml"),
+        "settings:\n  ci:\n    workflows: [rewrite-ci]\n  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n",
+      );
+      // GitHub holds only a failed main run covering the delivery, with no ci-observation artifact.
+      // The writer thread copies the environment when it starts, so the stub goes on PATH first
+      // and reads the delivery commit once the task has submitted it.
+      writeFileSync(
+        path.join(ghBin, "gh"),
+        "#!/usr/bin/env node\nconst fs = require('fs'), path = require('path');\n" +
+          "const [group, verb] = process.argv.slice(2), marker = path.join(__dirname, 'delivery');\n" +
+          "const sha = fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8') : null;\n" +
+          "const run = { databaseId: 36464979857, headBranch: 'main', headSha: sha, status: 'completed' };\n" +
+          "if (sha && group === 'run' && verb === 'list')\n" +
+          "  process.stdout.write(JSON.stringify([{ ...run, createdAt: '2026-09-29T00:00:00Z', conclusion: 'failure' }]));\n" +
+          "else if (sha && group === 'run' && verb === 'view')\n" +
+          "  process.stdout.write(JSON.stringify({ workflowName: 'rewrite-ci', headSha: sha, headBranch: 'main',\n" +
+          "    status: 'completed', conclusion: 'failure', attempt: 1, event: 'push' }));\n" +
+          "else if (group === 'run' && verb === 'download') process.exit(1);\n" +
+          "else process.stdout.write('[]');\n",
+        { mode: 0o755 },
+      );
+      process.env.PATH = `${ghBin}${path.delimiter}${filePath ?? ""}`;
+      cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-ci-red" });
+      await prepareReadyCompletion(cell, rootDir, repoId, taskId, executionId, "CI Red", false);
+      const reader = makeTaskEventReader({ repoId, rootDir }),
+        submitted = reader
+          .read()
+          .events.find(
+            (event) => event.type === "execution_submitted" && event.payload.execution.executionId === executionId,
+          );
+      assert.ok(submitted && submitted.type === "execution_submitted");
+      writeFileSync(path.join(ghBin, "delivery"), String(submitted.payload.execution.submission?.commitSha));
+      const attempt = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding);
+      assert.equal(attempt.outcome, "op_rejected", JSON.stringify(attempt));
+      assert.equal(attempt.status, "rejected", JSON.stringify(attempt));
+      assert.equal(attempt.code, "invalid_proof", JSON.stringify(attempt));
+      assert.match(String(attempt.rejectionExplanation), /Gate ci receipt event:ci-observation-.* reported fail/u);
+      const after = reader.read().events;
+      assert.equal(
+        after.some((event) => event.type === "ci_run_observed" && event.payload.run.runId === "36464979857.1"),
+        true,
+        "the collected failure run is recorded as an observation",
+      );
+      assert.equal(
+        after.some((event) => event.type === "task_completed"),
+        false,
+      );
+      const shown = await cell.run({ kind: "task-show", taskId }, repoWriteBinding);
+      assert.equal(
+        (JSON.parse(String(shown.evidence)) as { readonly task: { readonly status: string } }).task.status,
+        "in_review",
+      );
+    } finally {
+      process.env.PATH = filePath;
+      await cell?.close();
+      rmSync(ghBin, { recursive: true, force: true });
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  },
+);
 async function writeCloseout(
   drain: () => Promise<unknown>,
   rootDir: string,
