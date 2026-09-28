@@ -7,7 +7,6 @@ import {
   realpathSync,
   renameSync,
   rmSync,
-  statSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -80,13 +79,6 @@ export interface DaemonRegistryOptions {
   readonly createConvenienceLinks?: boolean;
 }
 
-interface CachedDaemonRegistry {
-  readonly mtimeMs: number;
-  readonly registry: DaemonRegistry;
-}
-
-const daemonRegistryCache = new Map<string, CachedDaemonRegistry>();
-
 export interface DaemonRegistryRegisterInput extends DaemonRegistryOptions {
   readonly canonicalRoot?: string;
   /** Derived by the composition layer, which owns VCS access. */
@@ -147,22 +139,14 @@ export function daemonRegistryPaths(options: DaemonRegistryOptions = {}): Daemon
 
 export function readDaemonRegistry(options: DaemonRegistryOptions = {}): DaemonRegistry {
   const { registryPath } = daemonRegistryPaths(options);
-  if (!existsSync(registryPath)) {
-    daemonRegistryCache.delete(registryPath);
-    return emptyDaemonRegistry();
-  }
-  const mtimeMs = statSync(registryPath).mtimeMs,
-    cached = daemonRegistryCache.get(registryPath);
-  if (cached?.mtimeMs === mtimeMs) return cached.registry;
+  if (!existsSync(registryPath)) return emptyDaemonRegistry();
   const decoded = JSON.parse(readFileSync(registryPath, "utf8")) as unknown;
   if (isDaemonRegistryRecord(decoded) && decoded.schema === "harness-daemon-registry/v1") {
     const upgraded = decodeDaemonRegistry(upgradeDaemonRegistryV1(decoded, registryPath), registryPath);
     writeDaemonRegistry(upgraded, options);
     return upgraded;
   }
-  const registry = decodeDaemonRegistry(decoded, registryPath);
-  daemonRegistryCache.set(registryPath, { mtimeMs, registry });
-  return registry;
+  return decodeDaemonRegistry(decoded, registryPath);
 }
 
 export function writeDaemonRegistryRepo(
@@ -604,7 +588,6 @@ function invalidDaemonRegistryRepo(value: unknown, entryIndex: number, error: st
 
 function writeDaemonRegistry(registry: DaemonRegistry, options: DaemonRegistryOptions): void {
   const { userRoot, registryPath } = daemonRegistryPaths(options);
-  daemonRegistryCache.delete(registryPath);
   mkdirSync(userRoot, { recursive: true });
   const tempPath = `${registryPath}.${process.pid}.${Date.now()}.tmp`;
   const sorted = sortDaemonRegistry(registry),
