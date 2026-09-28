@@ -42,6 +42,19 @@ const awaitsRow = (relationId: string, relationRevision = 1) => ({
   askKind: "question" as const,
   question: `问题 ${relationId}`,
   askedAt: AT,
+  askedBy: "codex-sol",
+});
+const answeredRow = (relationId: string) => ({
+  relationId,
+  sourceRef: `task/task_${relationId}`,
+  title: `答复 ${relationId}`,
+  status: "active",
+  personId: "person_me",
+  askKind: "acceptance" as const,
+  question: `问题 ${relationId}`,
+  answer: "通过",
+  answeredAt: AT,
+  answeredBy: "person_me",
 });
 
 const page = (over: Partial<AgendaRead> = {}): AgendaSuccess => {
@@ -54,6 +67,7 @@ const page = (over: Partial<AgendaRead> = {}): AgendaSuccess => {
     pinnedEntities: [],
     pinnedEntityOverflow: 0,
     awaitingYou: [],
+    answeredForYou: [],
     awaitingRework: [],
     awaitingAdjudication: [],
     underReview: [],
@@ -132,6 +146,7 @@ describe("agenda read discipline", () => {
       page({
         status: "pending",
         awaitingYou: [awaitsRow("rel_a")],
+        answeredForYou: [answeredRow("rel_old")],
         awaitingRework: [row("task_rework")],
         awaitingAdjudication: [executionRow("task_sub", "exe_sub")],
         underReview: [executionRow("task_rev", "exe_rev")],
@@ -143,6 +158,7 @@ describe("agenda read discipline", () => {
     pages.push(
       page({
         awaitingYou: [awaitsRow("rel_a", 2), awaitsRow("rel_b")],
+        answeredForYou: [answeredRow("rel_old"), answeredRow("rel_new")],
         awaitingRework: [row("task_rework")],
         awaitingAdjudication: [executionRow("task_sub2", "exe_sub2")],
         underReview: [executionRow("task_rev", "exe_rev")],
@@ -156,6 +172,7 @@ describe("agenda read discipline", () => {
       ["rel_a", 2],
       ["rel_b", 1],
     ]);
+    expect(joined.answeredForYou.map(({ relationId }) => relationId)).toEqual(["rel_old", "rel_new"]);
     expect(joined.awaitingRework.map(({ taskId }) => taskId)).toEqual(["task_rework"]);
     expect(joined.awaitingAdjudication.map(({ executionId }) => executionId)).toEqual(["exe_sub", "exe_sub2"]);
     expect(joined.underReview.map(({ executionId }) => executionId)).toEqual(["exe_rev"]);

@@ -88,11 +88,49 @@ export function agendaAwaitsRow(value: unknown): boolean {
       "askKind",
       "question",
       "askedAt",
+      "askedBy",
     ]) &&
-    [value.relationId, value.sourceRef, value.title, value.status, value.personId, value.question, value.askedAt].every(
-      nonEmpty,
-    ) &&
+    [
+      value.relationId,
+      value.sourceRef,
+      value.title,
+      value.status,
+      value.personId,
+      value.question,
+      value.askedAt,
+      value.askedBy,
+    ].every(nonEmpty) &&
     integer(value.relationRevision) &&
+    /^(?:task|decision)\//u.test(String(value.sourceRef)) &&
+    statusWord(awaitsAskKindWords, value.askKind)
+  );
+}
+
+export function agendaAnsweredRow(value: unknown): boolean {
+  return (
+    exactRecord(value, [
+      "relationId",
+      "sourceRef",
+      "title",
+      "status",
+      "personId",
+      "askKind",
+      "question",
+      "answer",
+      "answeredAt",
+      "answeredBy",
+    ]) &&
+    [
+      value.relationId,
+      value.sourceRef,
+      value.title,
+      value.status,
+      value.personId,
+      value.question,
+      value.answer,
+      value.answeredAt,
+      value.answeredBy,
+    ].every(nonEmpty) &&
     /^(?:task|decision)\//u.test(String(value.sourceRef)) &&
     statusWord(awaitsAskKindWords, value.askKind)
   );
@@ -162,6 +200,7 @@ export function validateDaemonAgenda(value: unknown): readonly string[] {
   }
   for (const [field, row, idFields] of [
     ["awaitingYou", agendaAwaitsRow, ["relationId"]],
+    ["answeredForYou", agendaAnsweredRow, ["relationId"]],
     ["awaitingAdjudication", agendaExecutionRow, ["taskId"]],
     ["underReview", agendaExecutionRow, ["taskId"]],
     ["awaitingDecision", agendaDecisionRow, ["decisionId"]],

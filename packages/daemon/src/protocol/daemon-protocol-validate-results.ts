@@ -448,6 +448,9 @@ export const writeReceiptFields = generatedWriteReceiptFields,
     // entity-import returns the derived entity id on the CLI channel; repo.entity.import is a
     // named ingress onto that same write, so the GUI envelope accepts what it already produces.
     "entityId",
+    // relation-unrelate returns its relation id on the CLI channel; repo.relation.unrelate (answering
+    // an awaits ask) is a named ingress onto that same write.
+    "relationId",
   ];
 
 export function writeReceipt(value: JsonObject): string[] {

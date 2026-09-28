@@ -1,5 +1,12 @@
 import type { AgendaSuccess } from "../api-client.ts";
-import type { AgendaAwaitsRow, AgendaDecisionRow, AgendaExecutionRow, AgendaTaskRow } from "../../api/renderer-dto.ts";
+import type {
+  AgendaAnsweredRow,
+  AgendaAwaitsRow,
+  AgendaDecisionRow,
+  AgendaExecutionRow,
+  AgendaTaskRow,
+} from "../../api/renderer-dto.ts";
+import type { AwaitsPanelSubject } from "../awaits-answer.ts";
 import type { TaskRow } from "./types.ts";
 import type { CadenceFeedEvent } from "./cadence.ts";
 
@@ -11,7 +18,13 @@ import type { CadenceFeedEvent } from "./cadence.ts";
  */
 
 /** G2 的待处理分组(取数全部收在 attentionItemsOf,议程分组词表变更只动这里)。 */
-export type AttentionGroup = "awaitingYou" | "reviewReturned" | "initialReview" | "underReview" | "decision";
+export type AttentionGroup =
+  | "awaitingYou"
+  | "answeredForYou"
+  | "reviewReturned"
+  | "initialReview"
+  | "underReview"
+  | "decision";
 
 export interface AttentionItem {
   readonly key: string;
@@ -29,10 +42,13 @@ export interface AttentionItem {
    * 等你答复行的 task 源由 awaits 边挂起,同样置真。
    */
   readonly blocking: boolean;
+  /** 等你答复 / 已答复行点开的是这件事本身(答复面板),其余行为 null、点击走实体导航。 */
+  readonly panel: AwaitsPanelSubject | null;
 }
 
 export const ATTENTION_GROUP_ORDER: readonly AttentionGroup[] = [
   "awaitingYou",
+  "answeredForYou",
   "reviewReturned",
   "initialReview",
   "underReview",
@@ -43,6 +59,7 @@ export const ATTENTION_GROUP_ORDER: readonly AttentionGroup[] = [
  * 议程 → 「需要你处理」行集。agenda 尚未读到时返回 null(调用方显示读取中,不冒充空)。
  *
  * 分组取数(读面已按下一步动作分组):等你答复 = `awaitingYou`(指向你的 active awaits 边);
+ * 已答复待你跟进 = `answeredForYou`(你名下源实体上已答复、源实体此后未再写入的 awaits 边);
  * 待初审 = `awaitingAdjudication`(提交待派审);
  * 评审中/等 consent = `underReview`;决策待裁 = `awaitingDecision`(纯 decision 行);
  * 评审返回 = `awaitingRework`。排序:置顶优先 → 阻塞当前工作(blockingAssessment=blocked)
@@ -52,6 +69,7 @@ export function attentionItemsOf(agenda: AgendaSuccess | undefined): readonly At
   if (agenda === undefined) return null;
   const items: AttentionItem[] = [
     ...agenda.awaitingYou.map(attentionOfAwaits),
+    ...agenda.answeredForYou.map(attentionOfAnswered),
     ...agenda.awaitingAdjudication.map((row) => attentionOfExecution(row, "initialReview")),
     ...agenda.underReview.map((row) => attentionOfExecution(row, "underReview")),
     ...agenda.awaitingDecision.map(attentionOfDecision),
@@ -60,7 +78,7 @@ export function attentionItemsOf(agenda: AgendaSuccess | undefined): readonly At
   return items.sort(compareAttention);
 }
 
-/** 等你答复:点击进源 task/decision;答复 = 带 reason 退役这条 awaits 边。task 源在答复前一直挂起。 */
+/** 等你答复:点击打开答复面板;答复 = 带 reason 退役这条 awaits 边。task 源在答复前一直挂起。 */
 function attentionOfAwaits(row: AgendaAwaitsRow): AttentionItem {
   return {
     key: `awaits/${row.relationId}`,
@@ -71,6 +89,22 @@ function attentionOfAwaits(row: AgendaAwaitsRow): AttentionItem {
     pinned: false,
     meta: `${row.askKind}: ${row.question}`,
     blocking: row.sourceRef.startsWith("task/"),
+    panel: { mode: "answer", row },
+  };
+}
+
+/** 已答复,待你跟进:行内给出答复原文,点击打开只读面板(问题、答复、来源链接)。 */
+function attentionOfAnswered(row: AgendaAnsweredRow): AttentionItem {
+  return {
+    key: `answered/${row.relationId}`,
+    group: "answeredForYou",
+    title: row.title,
+    ref: row.sourceRef,
+    queuedAt: row.answeredAt,
+    pinned: false,
+    meta: `${row.askKind}: ${row.answer}`,
+    blocking: false,
+    panel: { mode: "answered", row },
   };
 }
 
@@ -84,6 +118,7 @@ function attentionOfExecution(row: AgendaExecutionRow, group: "initialReview" | 
     pinned: row.pinned,
     meta: row.blockingAssessment.state === "blocked" ? `blocked:${row.blockingAssessment.label}` : null,
     blocking: row.blockingAssessment.state === "blocked",
+    panel: null,
   };
 }
 
@@ -97,6 +132,7 @@ function attentionOfDecision(row: AgendaDecisionRow): AttentionItem {
     pinned: false,
     meta: `risk:${row.riskTier} urgency:${row.urgency}`,
     blocking: false,
+    panel: null,
   };
 }
 
@@ -110,6 +146,7 @@ function attentionOfRework(row: AgendaTaskRow): AttentionItem {
     pinned: row.pinned,
     meta: null,
     blocking: row.blockingAssessment.state === "blocked",
+    panel: null,
   };
 }
 

@@ -1061,6 +1061,7 @@
   "views.overviewNext.attentionCatchingUp": "正在追赶台账切面(r{revision})",
   "views.overviewNext.attentionEmpty": "没有需要你处理的事项;等你答复的请求、新的提交、评审返回与决策待裁会出现在这里。",
   "views.overviewNext.attentionGroup.awaitingYou": "等你答复",
+  "views.overviewNext.attentionGroup.answeredForYou": "已答复,待你跟进",
   "views.overviewNext.attentionGroup.reviewReturned": "评审返回",
   "views.overviewNext.attentionGroup.initialReview": "待初审",
   "views.overviewNext.attentionGroup.underReview": "评审中/等 consent",

@@ -864,6 +864,28 @@ export interface AgendaAwaitsRow {
   readonly askKind: import("@harness-anything/kernel/internal/domain/task-blocking").AwaitsAskKind;
   readonly question: string;
   readonly askedAt: string;
+  /** 提问者:建边 actor 的 agent id,无 agent 时为其 person id。 */
+  readonly askedBy: string;
+}
+/**
+ * 「已答复,待你跟进」行:读者名下(task 创建者 / decision 提案者)源实体上已被答复退役的 awaits 边。
+ * 退出条件:源实体在答复之后有任何写入(进度、状态、裁决等)即出列,不另存「已读」状态。
+ */
+export interface AgendaAnsweredRow {
+  readonly relationId: string;
+  /** task/<id> 或 decision/<id>。 */
+  readonly sourceRef: string;
+  readonly title: string;
+  readonly status: string;
+  /** 被问的人(awaits 目标)。 */
+  readonly personId: string;
+  readonly askKind: import("@harness-anything/kernel/internal/domain/task-blocking").AwaitsAskKind;
+  readonly question: string;
+  /** 答复原文 = retire 理由。 */
+  readonly answer: string;
+  readonly answeredAt: string;
+  /** 答复者:retire actor 的 agent id,无 agent 时为其 person id。 */
+  readonly answeredBy: string;
 }
 export interface AgendaPinnedEntityRow {
   readonly ref: string;
@@ -882,6 +904,8 @@ export type DaemonAgendaResult = {
   readonly pinnedEntityOverflow: number;
   /** 等你处理:指向读者本人(读绑定的 principal)的 active awaits 边。 */
   readonly awaitingYou: readonly AgendaAwaitsRow[];
+  /** 已答复,待你跟进:读者名下源实体上已答复、源实体此后尚无写入的 awaits 边。 */
+  readonly answeredForYou: readonly AgendaAnsweredRow[];
   readonly inFlight: readonly AgendaTaskRow[];
   /** 评审打回、等使用者修:active 且最新 execution=changes_requested、无 lease、无 active execution。 */
   readonly awaitingRework: readonly AgendaTaskRow[];

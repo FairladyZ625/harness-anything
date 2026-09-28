@@ -86,7 +86,9 @@ export const agentProtocolCommands = Object.freeze([
     path: ["agenda"],
     summary:
       "Project the current supervisory agenda from tasks, decisions, executions, and relations; " +
-      "等你处理 lists the active awaits Relations addressed to you, each with its answer command. " +
+      "等你处理 lists the active awaits Relations addressed to you, each with its answer command " +
+      "(or answer in place from the GUI overview); 已答复，待你跟进 lists answered awaits on the tasks " +
+      "and decisions you own until the source is written again. " +
       "Each task row names its work; --work <id> narrows the agenda to that work's root and subtree.",
     method: "repo.agenda.read",
     inputs: [

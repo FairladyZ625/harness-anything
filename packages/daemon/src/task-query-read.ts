@@ -32,6 +32,7 @@ import { readDispatchStreamHeaders, type DispatchStreamHeader } from "./dispatch
 import { presetSnapshotReader, taskWorktreeView } from "./task-worktree.ts";
 import {
   isolateDaemonTaskSnapshotRows,
+  type AgendaAnsweredRow,
   type AgendaAwaitsRow,
   type AgendaDecisionRow,
   type AgendaExecutionRow,
@@ -410,6 +411,16 @@ export function makeTaskQueryReadModel(input: {
               limit: sourceLimit,
               ...(cursor?.awaitingYou ? { cursor: cursor.awaitingYou } : {}),
             }),
+      // 「已答复,待你跟进」候选:全部已退役的 awaits 边,再按源实体归属读者、答复后源实体未再写入收窄。
+      answered =
+        cursor?.answeredForYou === null || query.principalId === undefined
+          ? null
+          : projection.readRelationQuery({
+              relationType: "awaits",
+              state: "retired",
+              limit: sourceLimit,
+              ...(cursor?.answeredForYou ? { cursor: cursor.answeredForYou } : {}),
+            }),
       reads = [
         ...(active?.reads ?? []),
         ...(blocked?.reads ?? []),
@@ -418,6 +429,7 @@ export function makeTaskQueryReadModel(input: {
         ...(inReview?.reads ?? []),
         ...(decisions === null ? [] : [decisions]),
         ...(awaits === null ? [] : [awaits]),
+        ...(answered === null ? [] : [answered]),
       ],
       inFlight = (active?.rows ?? [])
         .filter((row) => row.snapshot.lease !== null || row.snapshot.executions.some(({ state }) => state === "active"))
@@ -474,6 +486,31 @@ export function makeTaskQueryReadModel(input: {
             personId: edge.targetRef.slice("person/".length),
             ...request,
             askedAt: relation.entity.createdAt,
+            askedBy: actorLabel(relation.entity.provenance.actor),
+          },
+        ];
+      }),
+      answeredForYou: AgendaAnsweredRow[] = (answered?.rows ?? []).flatMap((edge) => {
+        const request = parseAwaitsRequest(edge.rationale),
+          relation = projection.readRelationEdge(edge.relationId),
+          answer = relation?.entity.retirementReason;
+        // 被 replace 退役的边不是答复;源实体在答复所在 revision 之后有任何写入即视为已跟进。
+        if (request === null || relation === null || answer === undefined || relation.entity.replacedBy) return [];
+        if (sourceOwnerOf(edge.sourceRef) !== query.principalId) return [];
+        const sourceVersion = projection.readEntityVersionWitness(edge.sourceRef).currentVersion;
+        if (typeof sourceVersion !== "number" || sourceVersion > relation.workspaceRevision) return [];
+        const source = resolveEntitySummary(edge.sourceRef);
+        return [
+          {
+            relationId: edge.relationId,
+            sourceRef: edge.sourceRef,
+            title: source.title,
+            status: source.status,
+            personId: edge.targetRef.slice("person/".length),
+            ...request,
+            answer,
+            answeredAt: relation.entity.updatedAt,
+            answeredBy: actorLabel(relation.entity.provenance.actor),
           },
         ];
       }),
@@ -488,6 +525,7 @@ export function makeTaskQueryReadModel(input: {
         inReview: inReview?.page?.nextCursor ?? null,
         decisions: decisions?.page.nextCursor ?? null,
         awaitingYou: awaits?.page?.nextCursor ?? null,
+        answeredForYou: answered?.page?.nextCursor ?? null,
       },
       nextCursor = Object.values(nextState).some((value) => value !== null) ? encodeAgendaCursor(nextState) : null,
       cut = requireSameProjectionCut(
@@ -511,6 +549,7 @@ export function makeTaskQueryReadModel(input: {
       pinnedEntities,
       pinnedEntityOverflow,
       awaitingYou,
+      answeredForYou,
       inFlight,
       awaitingRework,
       awaitingAdjudication,
@@ -524,6 +563,7 @@ export function makeTaskQueryReadModel(input: {
         pinnedEntities,
         pinnedEntityOverflow,
         awaitingYou,
+        answeredForYou,
         inFlight,
         awaitingRework,
         awaitingAdjudication,
@@ -533,6 +573,13 @@ export function makeTaskQueryReadModel(input: {
         dispatchable,
       }),
     };
+  }
+  /** 源实体的归属人:task 的创建者、decision 的提案者;「待你跟进」按它判定读者是不是提问方。 */
+  function sourceOwnerOf(ref: string): string | undefined {
+    const parsed = /^(task|decision)\/(.+)$/u.exec(ref);
+    if (parsed?.[1] === "task") return projection.read(parsed[2]!).snapshot.task?.createdBy.principal.personId;
+    if (parsed?.[1] === "decision") return projection.readDecision(parsed[2]!).decision?.proposer.principal.personId;
+    return undefined;
   }
   function resolvePinnedEntity(row: ReturnType<TaskProjection["listPinnedEntities"]>[number]): AgendaPinnedEntityRow {
     return { ref: row.entityRef, ...resolveEntitySummary(row.entityRef), pinnedAt: row.pinnedAt };
@@ -771,7 +818,13 @@ type AgendaSourcePage = {
   readonly reads: readonly ProjectionCut[];
 };
 type AgendaCursorKey = "active" | "blocked" | "planned" | "submitted" | "inReview";
-type AgendaCursor = Readonly<Record<AgendaCursorKey | "decisions" | "awaitingYou", string | null>>;
+type AgendaCursor = Readonly<Record<AgendaCursorKey | "decisions" | "awaitingYou" | "answeredForYou", string | null>>;
+function actorLabel(actor: {
+  readonly principal: { readonly personId: string };
+  readonly executor: { readonly id: string } | null;
+}) {
+  return actor.executor?.id ?? actor.principal.personId;
+}
 function agendaTaskRow(row: AgendaSourceRow): AgendaTaskRow {
   const task = row.snapshot.task!;
   return {
@@ -831,7 +884,16 @@ function decodeAgendaCursor(value: string): AgendaCursor {
   } catch {
     throw new Error("agenda cursor is invalid");
   }
-  const keys = ["active", "blocked", "planned", "submitted", "inReview", "decisions", "awaitingYou"] as const;
+  const keys = [
+    "active",
+    "blocked",
+    "planned",
+    "submitted",
+    "inReview",
+    "decisions",
+    "awaitingYou",
+    "answeredForYou",
+  ] as const;
   if (
     parsed === null ||
     typeof parsed !== "object" ||
@@ -856,6 +918,7 @@ function renderAgendaSummary(
     | "pinnedEntities"
     | "pinnedEntityOverflow"
     | "awaitingYou"
+    | "answeredForYou"
     | "inFlight"
     | "awaitingRework"
     | "awaitingAdjudication"
@@ -875,7 +938,16 @@ function renderAgendaSummary(
         : blocker.targetTaskId,
     awaitsLine = (row: AgendaAwaitsRow) =>
       `- [${row.askKind}] ${row.sourceRef} ${row.title} [${row.status}] — ${row.question}\n` +
-      `  答复: ha relation unrelate ${row.relationId} --reason "<答复>" --expected-version ${row.relationRevision}`,
+      `  答复: ha relation unrelate ${row.relationId} --reason "<答复>" --expected-version ${row.relationRevision}` +
+      `（或在 GUI 总览「等你答复」就地答复）`,
+    answeredLine = (row: AgendaAnsweredRow) => {
+      const [kind, id] = row.sourceRef.split("/");
+      return (
+        `- [${row.askKind}] ${row.sourceRef} ${row.title} [${row.status}] — 问: ${row.question}\n` +
+        `  答（${row.answeredBy} @ ${row.answeredAt}）: ${row.answer}\n` +
+        `  下一步: ha ${kind} show ${id}，据答复在源上继续（进度、状态或裁决）；源上一有写入即出列`
+      );
+    },
     executionLine = (row: AgendaExecutionRow) =>
       `- ${row.pinned ? "📌 " : ""}execution ${row.executionId} / ${row.taskId} ${row.title}${workLabel(row)}`,
     decisionLine = (row: AgendaDecisionRow) => `- decision ${row.decisionId} ${row.title}`,
@@ -898,6 +970,11 @@ function renderAgendaSummary(
       "等你处理",
       "指向你的 active awaits 边（question/acceptance/consent/reopen）；答复即 retire 该边，答复内容写进 --reason",
       groups.awaitingYou.map(awaitsLine),
+    ),
+    section(
+      "已答复，待你跟进",
+      "你名下（task 创建者 / decision 提案者）已被答复退役的 awaits 边；答复后源实体一有写入即出列",
+      groups.answeredForYou.map(answeredLine),
     ),
     section(
       "待裁 Decision",

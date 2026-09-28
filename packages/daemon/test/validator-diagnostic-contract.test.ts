@@ -141,6 +141,7 @@ const relationGraph = {
     pinnedEntities: [],
     pinnedEntityOverflow: 0,
     awaitingYou: [],
+    answeredForYou: [],
     inFlight: [agendaTask],
     awaitingRework: [],
     awaitingAdjudication: [],

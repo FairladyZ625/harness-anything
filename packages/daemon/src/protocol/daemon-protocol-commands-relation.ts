@@ -42,7 +42,8 @@ export const relationProtocolCommands = Object.freeze([
     path: ["relation", "unrelate", "<relation-id>"],
     summary:
       "Retire a Relation aggregate under its revision fence. Answering an awaits Relation retires it " +
-      "with the answer as --reason.",
+      "with the answer as --reason; the person can instead answer it in place from the GUI overview " +
+      "(等你答复), which writes the same retire.",
     method: "repo.task.run",
     inputs: [cliInput("--reason", "single", true, invalid()), expectedVersion],
   }),
