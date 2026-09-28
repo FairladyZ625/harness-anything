@@ -113,6 +113,10 @@ for (const role of [undefined, "worker", "commander"] as const)
     assert.match(prompt, /read the dispatch report \(`ha task dispatches <task-id>`\) before acting/u);
   });
 
+test("reviewers, who never dispatch, do not carry the wait discipline", () => {
+  assert.doesNotMatch(assembleUnboundPrompt("Review the cut.", "reviewer"), /blocks until settlement/u);
+});
+
 test("commander folds child waits and leaves Squad callbacks to Harness", () => {
   const prompt = assembleUnboundPrompt("Integrate the mission.", "commander");
   assert.match(

@@ -15,12 +15,7 @@ export const sharedExecutionDiscipline = `# Harness Execution Discipline
   an awaits Relation when the dispatch allows ledger writes: \`ha relation relate --source-ref task/<task-id>
   --target-ref person/<person-id> --type awaits --rationale "<question|acceptance|consent|reopen>: <the ask>"
   --expected-version 0\`. It lists in that person's \`ha agenda\` and holds the task until they retire it with
-  their answer. Otherwise put the exact ask in your report; never leave it only in markdown or chat.
-- When you dispatch with \`--detach\`, the receipt names a wait command (\`ha runtime status <id> --wait\`, or
-  \`ha squad status <id> --wait\` for a Squad run) that blocks until settlement. Run it as a background command if your
-  host wakes you when one exits; otherwise run it in the foreground. Wait on several dispatches with one
-  \`ha runtime status <id> <id> --wait\` (it returns when the first settles; \`--all\` waits for every one). After
-  settlement, read the dispatch report (\`ha task dispatches <task-id>\`) before acting on the result.`;
+  their answer. Otherwise put the exact ask in your report; never leave it only in markdown or chat.`;
 
 const mutatorDiscipline = [
   "# Implementation Permissions",
@@ -40,6 +35,11 @@ const mutatorDiscipline = [
   "- Before handoff, rebase onto the latest origin/main and rerun the evidence commands.",
   "- Do not commit public-repository artifacts.",
   "- Leave a local conventional commit.",
+  "- When you dispatch with `--detach`, the receipt names a wait command (`ha runtime status <id> --wait`, or " +
+    "`ha squad status <id> --wait` for a Squad run) that blocks until settlement. Run it as a background command " +
+    "if your host wakes you when one exits; otherwise run it in the foreground. Wait on several dispatches with " +
+    "one `ha runtime status <id> <id> --wait` (it returns when the first settles; `--all` waits for every one). " +
+    "After settlement, read the dispatch report (`ha task dispatches <task-id>`) before acting on the result.",
 ].join("\n");
 
 const reviewerDiscipline = [
