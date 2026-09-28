@@ -72,6 +72,19 @@ test("wire acceptance agrees with domain acceptance for committed receipts and n
     check({ ...receipt, acceptance: missing }, false);
   }
   check({ ...receipt, status: "unknown", acceptance: null }, false);
+  const noWrite: JsonObject = {
+    opId: "op-2",
+    outcome: "no_changes",
+    acceptance: null,
+    projection: { state: "pending", cut: null },
+    git: { state: "pending", cut: null, commitSha: null },
+    worktree: { state: "pending", cut: null },
+    replica: { state: "not_configured", cut: null },
+  };
+  check({ ...noWrite, status: "settled_no_write" }, true);
+  check({ ...noWrite, status: "unknown" }, false);
+  check({ ...noWrite, status: "settled_no_write", outcome: "pending" }, false);
+  check({ ...receipt, outcome: "no_changes", status: "settled_no_write" }, false);
   check({ ...receipt, status: "rejected" }, false);
   check({ ...receipt, status: "invalid" }, false);
   for (const name of ["projection", "git", "worktree", "replica"]) {

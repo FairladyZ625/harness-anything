@@ -1,7 +1,12 @@
 import { isNonEmptyString } from "./contract-validation.ts";
 import type { LedgerCutIdentity } from "./receipt-domain-registry.ts";
 
-export const receiptAcceptanceStatuses = Object.freeze(["accepted_durable", "rejected", "unknown"] as const);
+export const receiptAcceptanceStatuses = Object.freeze([
+  "accepted_durable",
+  "rejected",
+  "settled_no_write",
+  "unknown",
+] as const);
 export const receiptFacetStates = Object.freeze(["pending", "verified", "not_configured"] as const);
 export const receiptWaitStates = Object.freeze(["satisfied", "timed_out"] as const);
 
@@ -82,8 +87,12 @@ export function unsatisfiedReceiptPredicates(
 
 export function validateReceiptAcceptance(value: Readonly<Record<string, unknown>>): readonly string[] {
   const errors: string[] = [];
-  if (!["accepted_durable", "rejected", "unknown"].includes(String(value.status)))
+  if (!["accepted_durable", "rejected", "settled_no_write", "unknown"].includes(String(value.status)))
     errors.push("receipt status is invalid");
+  if (value.status === "settled_no_write" && value.outcome !== "no_changes")
+    errors.push("settled_no_write requires no_changes");
+  if (value.outcome === "no_changes" && value.status === "unknown")
+    errors.push("no_changes requires accepted_durable, rejected, or settled_no_write");
   if (value.status === "accepted_durable") {
     const a = value.acceptance;
     if (

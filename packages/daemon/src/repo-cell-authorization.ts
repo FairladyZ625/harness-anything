@@ -727,7 +727,7 @@ export function withAuthorizationDecision(
     worktree: { state: "pending", cut: null },
     replica: { state: "not_configured", cut: null },
     ...receipt,
-    status: "unknown",
+    status: receipt.outcome === "no_changes" ? "settled_no_write" : "unknown",
     authorizationDecision,
     unmetCriteria,
     rejectionExplanation:

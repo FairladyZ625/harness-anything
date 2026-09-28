@@ -25,8 +25,8 @@ function assertDefiniteNoWrite(receipt: Record<string, unknown>, outcome: "appli
   const text = JSON.stringify(receipt);
   assert.equal(receipt.outcome, outcome, text);
   assert.notEqual(receipt.code, "acceptance_unknown", text);
-  // No ledger acceptance is claimed: the receipt is neither rejected nor certified durable.
-  assert.equal(receipt.status, "unknown", text);
+  // No ledger acceptance is claimed: a determinate no-op settles as settled_no_write, never unknown.
+  assert.equal(receipt.status, outcome === "no_changes" ? "settled_no_write" : "unknown", text);
   assert.equal(receipt.acceptance, null, text);
 }
 

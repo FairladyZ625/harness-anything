@@ -59,6 +59,22 @@ test("successful Decision proposals point to the canonical action explanation", 
   assert.equal(renderCliReceipt({ ...receipt, command: "decision-show" }).text, "Decision proposed");
 });
 
+test("settled_no_write receipts report a determinate no-op instead of an open acceptance", () => {
+  assert.deepEqual(
+    renderCliReceipt({
+      ok: true,
+      command: "task-create",
+      status: "settled_no_write",
+      outcome: "no_changes",
+      summary: "reused task task_a for the supplied idempotency key",
+    }),
+    {
+      stream: "stdout",
+      text: "reused task task_a for the supplied idempotency key\nacceptance: settled_no_write",
+    },
+  );
+});
+
 test("accepted_durable receipts affirm success, attribute the git outbox, and separate next steps", () => {
   const commitSha = "a".repeat(40);
   assert.deepEqual(

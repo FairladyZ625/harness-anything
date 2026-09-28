@@ -74,7 +74,9 @@ export function renderCliReceipt(
           }
         : base.stream === "stderr"
           ? { ...base, text: [base.text, ...renderReceiptNext(receipt.next, base.text)].join("\n") }
-          : base,
+          : receipt.status === "settled_no_write"
+            ? { ...base, text: `${base.text}\nacceptance: settled_no_write` }
+            : base,
     daemonBuild =
       receipt.daemonBuild !== null && typeof receipt.daemonBuild === "object" && !Array.isArray(receipt.daemonBuild)
         ? (receipt.daemonBuild as Record<string, unknown>)

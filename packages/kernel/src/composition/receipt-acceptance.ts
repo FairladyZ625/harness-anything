@@ -45,14 +45,14 @@ export function attachReceiptAcceptance<R extends WriteReceiptDraft>(
   if (receipt.outcome === "op_rejected")
     return { ...unprovenReceipt, ...empty, status: "rejected" } as R & ReceiptAcceptanceFields;
   if (!outcome) {
-    // A draft that wrote nothing (no_changes) has no command to verify: it stays unaccepted rather
-    // than being reported as rejected, and keeps the ledger revision it observed as the caller's anchor.
+    // A draft that wrote nothing (no_changes) has no command to verify: it settles as a determinate
+    // no-write rather than unknown or rejected, and keeps the ledger revision it observed as the caller's anchor.
     const rejected = store.readCommandOutcome(receipt.opId)?.status === "rejected";
     const { revision: _revision, ...unaccepted } = unprovenReceipt;
     return {
       ...(rejected || receipt.outcome === "no_changes" ? unprovenReceipt : unaccepted),
       ...empty,
-      status: rejected ? "rejected" : "unknown",
+      status: rejected ? "rejected" : receipt.outcome === "no_changes" ? "settled_no_write" : "unknown",
       ...(receipt.outcome === "applied"
         ? { outcome: "indeterminate", code: "acceptance_unknown", origin: "daemon" }
         : {}),
@@ -156,7 +156,12 @@ export async function waitForReceiptAcceptance<R extends WriteReceiptDraft>(
     deadline = performance.now() + timeout;
   let receipt = read(),
     unsatisfied = evaluate(receipt);
-  if (unsatisfied.length > 0 && receipt.status !== "rejected" && performance.now() < deadline) {
+  if (
+    unsatisfied.length > 0 &&
+    receipt.status !== "rejected" &&
+    receipt.status !== "settled_no_write" &&
+    performance.now() < deadline
+  ) {
     // The writer's pending follower settlement is the only in-process signal that advances these
     // facets; await it once, raced against the caller's deadline, instead of rebuilding the
     // receipt on a fixed poll tick.
