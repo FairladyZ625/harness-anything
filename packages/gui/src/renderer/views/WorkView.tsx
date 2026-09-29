@@ -1,31 +1,66 @@
 import { useMemo, useState } from "react";
 import { Plus } from "@phosphor-icons/react";
-import type { TaskRow } from "../model/types.ts";
+import type { SnapshotStatus, TaskRow } from "../model/types.ts";
 import type { CatalogSnapshotSuccess } from "../api-client-catalog.ts";
+import type { AgendaSuccess } from "../api-client.ts";
 import { StartWorkDialog } from "../components/StartWorkDialog.tsx";
 import { t } from "../i18n/index.tsx";
-import { collectWork, type WorkGroup } from "../model/work-collections.ts";
-import { ResultPagination } from "../components/ResultPagination.tsx";
+import {
+  attentionByWork,
+  collectWork,
+  workHealth,
+  type WorkGroup,
+  type WorkHealth,
+} from "../model/work-collections.ts";
+import { FilterChips } from "../components/primitives/FilterChips.tsx";
+import { SegBar } from "../components/primitives/SegBar.tsx";
+import { StatusTag, type StatusTone } from "../components/primitives/StatusTag.tsx";
+import { DenseRow } from "../components/primitives/DenseRow.tsx";
+import { relativeTime } from "../sessions-model.ts";
 import { formatTime } from "../model/time.ts";
 
+/** 注意力条目 kind → 状态色档:等你/阻塞红,裁决/评审/停滞琥珀,已答复在做青,可归档灰。 */
+const ATTENTION_TONE: Record<string, StatusTone> = {
+  "awaiting-you": "bad",
+  blocked: "bad",
+  rework: "wait",
+  adjudication: "wait",
+  decision: "wait",
+  stalled: "wait",
+  answered: "active",
+  archive: "neutral",
+};
+
+type WorkFilter = "attn" | "me" | "blocked" | "moving" | "stale" | "finished" | "all";
+type WorkSort = "attn" | "activity" | "progress";
+
+interface WorkEntry {
+  readonly group: WorkGroup;
+  readonly health: WorkHealth;
+}
+
 /**
- * 工作页:当前仓的工作与独立任务。顶部是「开始一项工作」的唯一入口(dec_DC3A1BB9 CH3:
- * 建工作属于工作页,总览只负责看),向导复用 StartWorkDialog。
+ * 工作页(S4,dec_B3D40712A6B050D83F1C2EF78D CH1 的「工作」区域放大成整页;交互样张是
+ * overview-prototype-v1.html 的「工作」tab):每个工作一行健康摘要——状态分段进度条、
+ * 执行/待审/阻塞/计划数、有几件等你、在跑 agent、最后活动、停滞标记。默认只看
+ * 「需要关注」,其余折叠成一行;搜索同时匹配工作标题与其下任务标题,命中任务显示在
+ * 所属工作下;排序默认用 daemon 议程读面的注意力分(与总览同一序)。数据全部来自
+ * App 已挂载的任务切面与议程读面,本页不另发请求。顶部仍是「开始一项工作」的唯一
+ * 入口(dec_DC3A1BB9 CH3)。
  */
 export function WorkView({
   tasks,
   repoId,
-  projectName,
   ready,
   onOpenTask,
   catalog,
   catalogError,
   daemonState,
   onRefreshLedger,
+  agenda,
 }: {
   readonly tasks: readonly TaskRow[];
   readonly repoId: string;
-  readonly projectName: string;
   readonly ready: boolean;
   readonly onOpenTask: (id: string) => void;
   /** `repo.gui.catalog.snapshot` 同一条投影(App 已挂载);创建向导的选型取值面。 */
@@ -33,35 +68,93 @@ export function WorkView({
   readonly catalogError: string | null;
   readonly daemonState: string;
   readonly onRefreshLedger: () => void;
+  /** `repo.agenda.read` 同一条投影(App 已挂载);注意力条目按 workTaskId 归到各工作。 */
+  readonly agenda: AgendaSuccess | undefined;
 }) {
   const [startWorkOpen, setStartWorkOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("unfinished");
-  const [sort, setSort] = useState("activity");
-  const [groupPage, setGroupPage] = useState(0);
-  const [isolatedPage, setIsolatedPage] = useState(0);
-  const [showIsolated, setShowIsolated] = useState(false);
+  const [filter, setFilter] = useState<WorkFilter>("attn");
+  const [sort, setSort] = useState<WorkSort>("attn");
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const collections = useMemo(() => collectWork(tasks), [tasks]);
-  const matches = (task: TaskRow) =>
-    `${task.title} ${task.taskId}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()) &&
-    (status === "all" ||
-      (status === "unfinished"
-        ? !["done", "cancelled"].includes(task.canonicalStatus ?? "")
-        : task.canonicalStatus === status));
-  const groups = collections.groups.filter(({ task }) => matches(task));
-  if (sort === "size") groups.sort((a, b) => b.leaves - a.leaves);
-  const isolated = collections.isolated.filter(matches);
-  const gp = Math.min(groupPage, Math.max(0, Math.ceil(groups.length / 24) - 1));
-  const ip = Math.min(isolatedPage, Math.max(0, Math.ceil(isolated.length / 20) - 1));
-  const resetPages = () => {
-    setGroupPage(0);
-    setIsolatedPage(0);
+  const attention = useMemo(() => attentionByWork(agenda?.attentionItems ?? []), [agenda]);
+  const now = Date.now();
+  const entries: WorkEntry[] = collections.groups.map((group) => ({
+    group,
+    health: workHealth(group, attention.get(group.task.taskId), now),
+  }));
+  const query = search.trim().toLocaleLowerCase();
+  const matchesText = (task: TaskRow) => `${task.title} ${task.taskId}`.toLocaleLowerCase().includes(query);
+  const searchHits = (entry: WorkEntry) =>
+    query ? entry.group.members.filter(matchesText) : ([] as readonly TaskRow[]);
+  const workMatches = (entry: WorkEntry) => {
+    if (!query) return true;
+    return matchesText(entry.group.task) || searchHits(entry).length > 0;
   };
+  const matchesFilter = (entry: WorkEntry, key: WorkFilter) =>
+    key === "all"
+      ? true
+      : key === "attn"
+        ? entry.health.needs
+        : key === "me"
+          ? entry.health.mine.length > 0
+          : key === "blocked"
+            ? entry.health.blocked
+            : key === "moving"
+              ? entry.health.moving
+              : key === "stale"
+                ? entry.health.stale
+                : entry.health.finished;
+  const progressOf = (group: WorkGroup) => {
+    const effective = group.leaves - (group.counts.cancelled ?? 0);
+    return effective > 0 ? (group.counts.done ?? 0) / effective : 0;
+  };
+  const rows = entries
+    .filter((entry) => workMatches(entry) && (query ? true : matchesFilter(entry, filter)))
+    .sort((a, b) => {
+      if (sort === "activity")
+        return (
+          b.group.lastChangeAt.localeCompare(a.group.lastChangeAt) ||
+          a.group.task.taskId.localeCompare(b.group.task.taskId)
+        );
+      if (sort === "progress")
+        return progressOf(a.group) - progressOf(b.group) || a.group.task.taskId.localeCompare(b.group.task.taskId);
+      return (
+        b.health.score - a.health.score ||
+        b.group.live - a.group.live ||
+        Number(b.health.blocked) - Number(a.health.blocked) ||
+        Number(b.health.stale) - Number(a.health.stale) ||
+        b.group.lastChangeAt.localeCompare(a.group.lastChangeAt) ||
+        a.group.task.taskId.localeCompare(b.group.task.taskId)
+      );
+    });
+  const quietCount = !query && filter === "attn" ? entries.length - rows.length : 0;
+  const chips: readonly { readonly key: WorkFilter; readonly label: string; readonly count: number }[] = (
+    [
+      ["attn", t("views.work.filter.attn")],
+      ["me", t("views.work.filter.me")],
+      ["blocked", t("views.work.filter.blocked")],
+      ["moving", t("views.work.filter.moving")],
+      ["stale", t("views.work.filter.stale")],
+      ["finished", t("views.work.filter.finished")],
+      ["all", t("views.work.filter.all")],
+    ] as const
+  ).map(([key, label]) => ({ key, label, count: entries.filter((entry) => matchesFilter(entry, key)).length }));
+  const mineWorks = entries.filter(({ health }) => health.mine.length > 0).length;
+  const toggle = (taskId: string) =>
+    setExpanded((previous) => {
+      const next = new Set(previous);
+      if (next.has(taskId)) next.delete(taskId);
+      else next.add(taskId);
+      return next;
+    });
   return (
-    <div data-testid="work-view" className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4 md:p-5">
+    <div data-testid="work-view" className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 md:p-5">
       <header className="flex flex-wrap items-baseline gap-3">
         <h1 className="text-xl font-semibold text-text">工作</h1>
-        <span className="text-sm text-text-muted">当前仓库 · {projectName}</span>
+        <span data-testid="work-summary" className="text-sm text-text-muted">
+          {t("views.work.summary", { count: entries.length, mine: mineWorks })}
+        </span>
         <button
           type="button"
           onClick={() => setStartWorkOpen(true)}
@@ -90,160 +183,196 @@ export function WorkView({
       <div className="flex flex-wrap items-center gap-2 text-sm text-text">
         <input
           aria-label="搜索工作"
-          placeholder="搜索工作名称或任务…"
+          placeholder={t("views.work.searchPlaceholder")}
           value={search}
-          onChange={(event) => {
-            setSearch(event.target.value);
-            resetPages();
-          }}
-          className="min-w-0 flex-1 rounded border border-border bg-surface-raised px-3 py-2"
+          onChange={(event) => setSearch(event.target.value)}
+          className="min-w-[220px] flex-1 rounded-xs border border-border bg-surface-raised px-3 py-2"
         />
-        <select
-          aria-label="工作状态"
-          value={status}
-          onChange={(event) => {
-            setStatus(event.target.value);
-            resetPages();
-          }}
-          className="rounded border border-border bg-surface-raised p-2"
-        >
-          {[
-            ["unfinished", "未结束"],
-            ["all", "全部状态"],
-            ["active", "执行中"],
-            ["planned", "计划中"],
-            ["blocked", "阻塞"],
-            ["submitted", "待评审"],
-            ["in_review", "评审中"],
-            ["done", "已完成"],
-            ["cancelled", "已取消"],
-          ].map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
         <select
           aria-label="工作排序"
           value={sort}
-          onChange={(event) => {
-            setSort(event.target.value);
-            resetPages();
-          }}
-          className="rounded border border-border bg-surface-raised p-2"
+          onChange={(event) => setSort(event.target.value as WorkSort)}
+          className="rounded-xs border border-border bg-surface-raised p-2"
         >
-          <option value="activity">近期活跃</option>
-          <option value="size">任务量 · 可执行叶子</option>
+          <option value="attn">{t("views.work.sort.attn")}</option>
+          <option value="activity">{t("views.work.sort.activity")}</option>
+          <option value="progress">{t("views.work.sort.progress")}</option>
         </select>
       </div>
-      <details className="ui-meta text-text-muted">
-        <summary className="cursor-pointer">活跃口径：执行 · 评审 · 签发 · 门见证（含后代）</summary>
-        <p className="mt-1">
-          取本工作根任务及全部后代的执行、评审、签发、代码文档见证、门见证时间最大值。有活动的工作在前；无活动的工作按创建时间倒序在后。任务完成仅计后代叶子，根任务不重复计入；取消包含在分母中，不代表交付已获认可。
-        </p>
-      </details>
+      <div data-testid="work-filter-chips">
+        <FilterChips chips={chips} value={filter} onChange={setFilter} />
+      </div>
       {!ready ? (
         <p role="status" className="text-sm text-warning">
-          任务范围仍在读取，分组与数量尚不完整。
+          {t("views.work.reading")}
         </p>
       ) : null}
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold text-text">
-          工作 · {groups.length} / {collections.groups.length}
-        </h2>
-        <div className="grid min-w-0 gap-2 min-[1101px]:grid-cols-2 min-[1750px]:grid-cols-3">
-          {groups.slice(gp * 24, (gp + 1) * 24).map((group) => (
-            <WorkGroupCard key={group.task.taskId} group={group} ready={ready} onOpen={onOpenTask} />
-          ))}
-        </div>
-        {ready && !groups.length ? <p className="text-sm text-text-muted">没有匹配的工作。</p> : null}
-        <ResultPagination label="工作" page={gp} total={groups.length} size={24} onChange={setGroupPage} />
-      </section>
-      <section data-testid="isolated-work" className="space-y-2 border-t border-border pt-3">
-        <button
-          type="button"
-          aria-expanded={showIsolated}
-          onClick={() => setShowIsolated(!showIsolated)}
-          className="text-sm font-semibold text-text"
-        >
-          {showIsolated ? "收起" : "展开"}独立任务 · {isolated.length} / {collections.isolated.length}
-        </button>
-        <p className="ui-meta text-text-muted">
-          未归入任何工作的顶层任务 · 使用上方搜索与状态筛选；历史任务可在“全部状态”中找到。
-        </p>
-        {showIsolated ? (
-          <>
-            {isolated.slice(ip * 20, (ip + 1) * 20).map((task) => (
-              <button
-                type="button"
-                key={task.taskId}
-                onClick={() => onOpenTask(task.taskId)}
-                className="flex w-full items-center justify-between gap-3 border-b border-border py-2 text-left text-sm text-text"
-              >
-                <span className="min-w-0 break-words">{task.title}</span>
-                <span className="shrink-0 text-text-muted">{task.canonicalStatus ?? task.rawStatus}</span>
-              </button>
-            ))}
-            {ready && !isolated.length ? <p className="text-sm text-text-muted">当前没有匹配的独立任务。</p> : null}
-            <ResultPagination label="独立任务" page={ip} total={isolated.length} size={20} onChange={setIsolatedPage} />
-          </>
+      <section className="space-y-1.5">
+        {rows.map((entry) => (
+          <WorkRow
+            key={entry.group.task.taskId}
+            entry={entry}
+            hits={searchHits(entry)}
+            open={expanded.has(entry.group.task.taskId) || searchHits(entry).length > 0}
+            ready={ready}
+            onToggle={() => toggle(entry.group.task.taskId)}
+            onOpen={() => onOpenTask(entry.group.task.taskId)}
+          />
+        ))}
+        {ready && !rows.length && !quietCount ? (
+          <p className="text-sm text-text-muted">{t("views.work.empty")}</p>
+        ) : null}
+        {quietCount > 0 ? (
+          <button
+            type="button"
+            data-testid="work-quiet"
+            onClick={() => setFilter("all")}
+            className="w-full rounded-sm border border-border bg-surface/40 px-3 py-2 text-left ui-meta text-text-muted hover:text-text"
+          >
+            ▸ {t("views.work.quiet", { count: quietCount })}
+          </button>
         ) : null}
       </section>
     </div>
   );
 }
 
-function WorkGroupCard({
-  group,
+function WorkRow({
+  entry,
+  hits,
+  open,
   ready,
+  onToggle,
   onOpen,
 }: {
-  readonly group: WorkGroup;
+  readonly entry: WorkEntry;
+  /** 搜索命中的后代任务,显示在所属工作的标题下(样张 v1 的「↳ 命中行」)。 */
+  readonly hits: readonly TaskRow[];
+  readonly open: boolean;
   readonly ready: boolean;
-  readonly onOpen: (id: string) => void;
+  readonly onToggle: () => void;
+  readonly onOpen: () => void;
 }) {
-  const { task, counts, leaves, activity } = group;
-  const pending = (counts.submitted ?? 0) + (counts.in_review ?? 0);
+  const { group, health } = entry,
+    { task, counts } = group,
+    effective = group.leaves - (counts.cancelled ?? 0),
+    lastActivity = formatTime(group.lastChangeAt, { style: "month-day-time" }) ?? group.lastChangeAt;
   return (
-    <button
-      type="button"
-      data-testid="work-group-card"
-      onClick={() => onOpen(task.taskId)}
-      className="min-w-0 space-y-2 rounded border border-border bg-surface-raised p-3 text-left hover:border-accent/60"
+    <article
+      data-testid="work-row"
+      data-work-id={task.taskId}
+      className="rounded-sm border border-border bg-surface-raised"
     >
-      <div className="flex items-start justify-between gap-2">
-        <h3 className="line-clamp-2 break-words text-sm font-semibold text-text" title={task.title}>
-          {task.title}
-        </h3>
-        <span className="shrink-0 ui-meta text-text-muted">{task.canonicalStatus ?? task.rawStatus}</span>
-      </div>
-      {ready ? (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 ui-meta text-text-muted">
-          <progress
-            aria-label={`${task.title} · 任务完成`}
-            value={counts.done ?? 0}
-            max={leaves || 1}
-            className="h-1 min-w-8 flex-1 accent-accent"
-          />
-          <span>
-            {counts.done ?? 0} / {leaves} 叶子
-          </span>
-          {pending ? <span>待处理 {pending}</span> : null}
-          {counts.blocked ? <span>阻塞 {counts.blocked}</span> : null}
-          {counts.active ? <span>执行中 {counts.active}</span> : null}
-          {counts.cancelled ? <span>取消 {counts.cancelled}</span> : null}
-        </div>
-      ) : (
-        <p className="ui-meta text-text-muted">正在读取完整任务范围…</p>
-      )}
-      <p
-        className="ui-meta text-text-muted"
-        title={activity ? `${activity.taskId} · ${activity.summary}` : "无生命周期活动，排在有活动的工作之后"}
+      <button
+        type="button"
+        data-testid="work-row-toggle"
+        aria-expanded={open}
+        onClick={onToggle}
+        className="flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2 text-left hover:border-accent/60"
       >
-        {activity
-          ? `执行 · 评审 · 签发 · 门见证：${formatTime(activity.at, { style: "month-day-time" })}`
-          : `暂无活动 · 创建 ${task.createdAt ? formatTime(task.createdAt, { style: "month-day-time" }) : "时间未知"}`}
-      </p>
-    </button>
+        <span className="flex min-w-[220px] flex-1 flex-col gap-1">
+          <span className="truncate text-sm font-semibold text-text" title={task.title}>
+            {task.title}
+          </span>
+          {hits.map((hit) => (
+            <span key={hit.taskId} data-testid="work-hit" className="flex min-w-0 items-center gap-1.5">
+              <span aria-hidden className="text-text-faint">
+                ↳
+              </span>
+              <span className="min-w-0 truncate ui-meta text-text" title={hit.title}>
+                {hit.title}
+              </span>
+              <StatusTag status={(hit.canonicalStatus ?? "unknown") as SnapshotStatus} />
+            </span>
+          ))}
+        </span>
+        {ready ? (
+          <span data-testid="work-progress" className="flex w-40 shrink-0 flex-col gap-1">
+            <SegBar counts={counts as Partial<Record<SnapshotStatus, number>>} />
+            <span className="font-mono tabular-nums text-text-muted ui-meta">
+              {counts.done ?? 0} / {effective}
+            </span>
+          </span>
+        ) : null}
+        <span className="flex shrink-0 flex-wrap items-center gap-1">
+          {health.mine.length > 0 ? (
+            <StatusTag tone="bad" label={t("views.work.flag.mine", { count: health.mine.length })} />
+          ) : null}
+          {health.blocked ? <StatusTag tone="bad" label={t("views.work.flag.blocked")} /> : null}
+          {health.stale ? <StatusTag tone="wait" label={t("views.work.flag.stale")} /> : null}
+          {group.live > 0 ? (
+            <StatusTag tone="active" label={t("views.work.flag.agents", { count: group.live })} />
+          ) : null}
+          {health.finished ? <StatusTag tone="neutral" label={t("views.work.flag.finished")} /> : null}
+        </span>
+        <span
+          data-testid="work-last-activity"
+          title={
+            group.activity ? `${group.activity.taskId} · ${group.activity.summary} · ${lastActivity}` : lastActivity
+          }
+          className="w-24 shrink-0 text-right font-mono tabular-nums text-text-muted ui-meta"
+        >
+          {relativeTime(group.lastChangeAt)}
+        </span>
+      </button>
+      {open ? (
+        <div data-testid="work-row-body" className="space-y-2 border-t border-border px-3 py-2.5">
+          {ready ? (
+            <p className="flex flex-wrap gap-x-3 gap-y-1 ui-meta text-text-muted">
+              <span>
+                {t("views.work.counts.executing")} {counts.active ?? 0}
+              </span>
+              <span>
+                {t("views.work.counts.pending")} {(counts.submitted ?? 0) + (counts.in_review ?? 0)}
+              </span>
+              <span>
+                {t("views.work.counts.blocked")} {counts.blocked ?? 0}
+              </span>
+              <span>
+                {t("views.work.counts.planned")} {counts.planned ?? 0}
+              </span>
+              <span>
+                {t("views.work.counts.done")} {counts.done ?? 0}
+              </span>
+              <span className="text-text-faint">
+                {t("views.work.counts.cancelled")} {counts.cancelled ?? 0}
+              </span>
+            </p>
+          ) : (
+            <p className="ui-meta text-text-muted">{t("views.work.reading")}</p>
+          )}
+          {health.mine.length > 0 ? (
+            <div>
+              <p className="ui-meta text-text-faint">{t("views.work.mineTitle")}</p>
+              {health.mine.map((item) => (
+                <DenseRow
+                  key={item.ref}
+                  tag={
+                    <StatusTag
+                      tone={ATTENTION_TONE[item.kind] ?? "neutral"}
+                      label={t(`views.work.attention.${item.kind}`)}
+                    />
+                  }
+                  title={item.title}
+                  time={<span title={t("views.work.scoreTitle")}>{item.attention.score}</span>}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="ui-meta text-text-faint">{t("views.work.mineEmpty")}</p>
+          )}
+          <div>
+            <button
+              type="button"
+              data-testid="work-open"
+              onClick={onOpen}
+              className="rounded-xs border border-border bg-text/5 px-2.5 py-1 ui-meta text-text hover:bg-text/10"
+            >
+              {t("views.work.openWork")}
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </article>
   );
 }

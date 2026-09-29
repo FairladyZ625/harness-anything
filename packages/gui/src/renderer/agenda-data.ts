@@ -70,6 +70,7 @@ function joinAgendaCut(previous: AgendaSuccess | undefined, read: AgendaSuccess)
     pinnedEntities: read.pinnedEntities,
     pinnedEntityOverflow: read.pinnedEntityOverflow,
     awaitingYou: merge(previous.awaitingYou, read.awaitingYou, ({ relationId }) => relationId),
+    attentionItems: merge(previous.attentionItems, read.attentionItems, ({ ref }) => ref),
     answeredForYou: merge(previous.answeredForYou, read.answeredForYou, ({ relationId }) => relationId),
     inFlight: merge(previous.inFlight, read.inFlight, ({ taskId }) => taskId),
     awaitingRework: merge(previous.awaitingRework, read.awaitingRework, ({ taskId }) => taskId),

@@ -47,6 +47,7 @@ export type AgendaDecisionRow = AgendaRead["awaitingDecision"][number];
 export type AgendaDecisionReviewRow = AgendaRead["decisionReviewInProgress"][number];
 export type AgendaAwaitsRow = AgendaRead["awaitingYou"][number];
 export type AgendaAnsweredRow = AgendaRead["answeredForYou"][number];
+export type AgendaAttentionItem = AgendaRead["attentionItems"][number];
 export type SettingsRead = DaemonGuiReadResultMap["repo.settings.read"];
 export type WorkspaceSummaryRead = DaemonGuiReadResultMap["repo.workspace.summary.read"];
 export type WorkspaceScopeRead = DaemonGuiReadResultMap["repo.workspace.scope.read"];

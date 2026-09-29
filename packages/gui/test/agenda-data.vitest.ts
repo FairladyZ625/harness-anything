@@ -80,6 +80,7 @@ const page = (over: Partial<AgendaRead> = {}): AgendaSuccess => {
     awaitingDecision: [],
     waitingOnOthers: [],
     dispatchable: [],
+    attentionItems: [],
     summary: "在飞线 (0)",
     page: { sourceLimit: 100, cursor: null, nextCursor: null },
     watermark: 3,
@@ -159,6 +160,24 @@ describe("agenda read discipline", () => {
         decisionReviewInProgress: [reviewingRow("dec_running")],
         awaitingDecisionReview: [decisionRow("dec_needs_review")],
         awaitingDecision: [decisionRow("dec_one")],
+        attentionItems: [
+          {
+            ref: "relation/rel_a",
+            title: "等答复 rel_a",
+            kind: "awaiting-you",
+            region: "mine",
+            workTaskId: "task_a",
+            attention: { score: 100, reasons: [] },
+          },
+          {
+            ref: "task/task_stuck",
+            title: "停滞",
+            kind: "stalled",
+            region: "stuck",
+            workTaskId: "task_a",
+            attention: { score: 55, reasons: [] },
+          },
+        ],
         page: { sourceLimit: 100, cursor: null, nextCursor: "agenda-next" },
       }),
     );
@@ -173,6 +192,16 @@ describe("agenda read discipline", () => {
         decisionReviewInProgress: [reviewingRow("dec_running")],
         awaitingDecisionReview: [decisionRow("dec_needs_review"), decisionRow("dec_needs_review_2")],
         awaitingDecision: [decisionRow("dec_one"), decisionRow("dec_two")],
+        attentionItems: [
+          {
+            ref: "relation/rel_a",
+            title: "等答复 rel_a",
+            kind: "awaiting-you",
+            region: "mine",
+            workTaskId: "task_a",
+            attention: { score: 130, reasons: [] },
+          },
+        ],
         page: { sourceLimit: 100, cursor: "agenda-next", nextCursor: null },
       }),
     );
@@ -189,6 +218,11 @@ describe("agenda read discipline", () => {
     expect(joined.awaitingDecision.map(({ decisionId }) => decisionId)).toEqual(["dec_one", "dec_two"]);
     // Decision 评审两组(PR #3053)同样按 decisionId 去重合并,不在前端重分组。
     expect(joined.decisionReviewInProgress.map(({ decisionId }) => decisionId)).toEqual(["dec_running"]);
+    // 注意力条目按 ref 去重,后读到的分数覆盖先前一页的同一条。
+    expect(joined.attentionItems.map(({ ref, attention }) => [ref, attention.score])).toEqual([
+      ["relation/rel_a", 130],
+      ["task/task_stuck", 55],
+    ]);
     expect(joined.awaitingDecisionReview.map(({ decisionId }) => decisionId)).toEqual([
       "dec_needs_review",
       "dec_needs_review_2",
