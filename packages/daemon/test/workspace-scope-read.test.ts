@@ -73,3 +73,28 @@ test("workspace scope reports a missing ancestor instead of inventing a breadcru
   assert.equal(result.status, "pending");
   assert.deepEqual(result.ancestors, []);
 });
+
+test("workspace scope cursor drains mixed-case task ids in sort order", () => {
+  const rows = [
+    task("root", null, "active", "work"),
+    task("task_A", "root", "planned"),
+    task("task_a", "root", "planned"),
+  ];
+  const projection = {
+    readTaskIndex: () => ({ status: "ready", rows, watermark: 12, sourceRevision: 12, warnings: [] }),
+  } as never;
+  const taskIds: string[] = [];
+  let cursor: string | undefined;
+
+  do {
+    const page = workspaceScopeFromProjection(projection, {
+      rootTaskId: "root",
+      limit: 1,
+      ...(cursor ? { cursor } : {}),
+    });
+    taskIds.push(...page.tasks.map(({ taskId }) => taskId));
+    cursor = page.page.nextCursor ?? undefined;
+  } while (cursor !== undefined);
+
+  assert.deepEqual(taskIds, ["task_a", "task_A"]);
+});

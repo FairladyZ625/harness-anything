@@ -81,8 +81,12 @@ export function workIndexFromProjection(projection: TaskProjection) {
 /** The roots (declared, or a top-level task with children) with their subtree counts, newest activity first. */
 function workRows(rows: readonly TaskIndexProjectionRow[]): WorkListRow[] {
   const children = new Map<string, TaskIndexProjectionRow[]>();
-  for (const row of rows)
-    if (row.parentTaskId !== null) children.set(row.parentTaskId, [...(children.get(row.parentTaskId) ?? []), row]);
+  for (const row of rows) {
+    if (row.parentTaskId === null) continue;
+    const siblings = children.get(row.parentTaskId);
+    if (siblings) siblings.push(row);
+    else children.set(row.parentTaskId, [row]);
+  }
   return rows
     .filter((row) => row.taskClass === "work" || (row.parentTaskId === null && children.has(row.taskId)))
     .map((row): WorkListRow => {

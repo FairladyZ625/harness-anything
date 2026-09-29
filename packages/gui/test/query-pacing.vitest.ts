@@ -8,6 +8,7 @@ vi.hoisted(() => {
 
 import { agendaQuery } from "../src/renderer/agenda-data.ts";
 import { connectionsQuery } from "../src/renderer/connection-data.ts";
+import { entityKindCatalogQuery, governedEntityRowsQuery } from "../src/renderer/entity-kind-data.ts";
 import { LEDGER_PROBE_FOCUS_REFETCH, QUERY_PACING_MS, rendererQueryDefaults } from "../src/renderer/query-pacing.ts";
 import { systemStatusQuery } from "../src/renderer/system-data.ts";
 import { taskListQuery } from "../src/renderer/task-data.ts";
@@ -19,6 +20,13 @@ afterEach(() => {
 });
 
 describe("renderer query pacing definitions", () => {
+  it("does not read governed entities before a repository is selected", () => {
+    expect(entityKindCatalogQuery("unselected").enabled).toBe(false);
+    expect(governedEntityRowsQuery("unselected").enabled).toBe(false);
+    expect(entityKindCatalogQuery("repo-a").enabled).toBe(true);
+    expect(governedEntityRowsQuery("repo-a").enabled).toBe(true);
+  });
+
   it("sources every daemon read interval from the single pacing table", () => {
     expect(taskListQuery("repo-a").refetchInterval).toBe(QUERY_PACING_MS.ledgerProbe);
     expect(taskListQuery("repo-a").refetchOnWindowFocus).toBe(LEDGER_PROBE_FOCUS_REFETCH);
