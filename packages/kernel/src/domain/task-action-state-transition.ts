@@ -30,13 +30,10 @@ export function stateTransition(id: string): EntityActionContract["stateTransiti
       [coordinate("planned", "implementation")],
       [branch(coordinate("active", "implementation", { executionState: "active" }))],
     );
-  if (id === "transition") {
-    const statuses = ["planned", "active", "blocked", "in_review", "done", "cancelled"];
-    return transition(
-      statuses.filter((status) => status !== "done").map((status) => coordinate(status, null)),
-      statuses.map((status) => branch(coordinate(status, null), equals("input.status", status))),
-    );
-  }
+  // TransitionTask shares one action id across status-, node-, lease-, and reason-dependent
+  // registry entries. A flat from/to projection cannot preserve those guards, so the catalog
+  // deliberately omits it instead of advertising a broader transition than the registry accepts.
+  if (id === "transition") return null;
   if (id === "submit")
     return transition(
       [

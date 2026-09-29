@@ -36,10 +36,9 @@ export function statusCoarseClass(status: DomainStatus): StatusCoarseClass {
   return isTerminalStatus(status) ? "terminal" : "open";
 }
 
-/** The sole exit from cancelled: a compensating rollback (reinstate_task) to the
- * status the owner adjudicates as the recorded pre-cancel position. done keeps no exit —
- * its integrity is vouched for by the completion chain, so reversal is a different semantic. */
-export const reinstateTaskTargets = ["planned", "active", "in_review"] as const satisfies ReadonlyArray<DomainStatus>;
+/** The sole exit from cancelled: restart the task from planned. done keeps no exit — its
+ * integrity is vouched for by the completion chain, so reversal is a different semantic. */
+export const reinstateTaskTargets = ["planned"] as const satisfies ReadonlyArray<DomainStatus>;
 
 /** The adjudication corridor (owner ruling 2026-09-19): submit lands the cut in `submitted`
  * awaiting the owning CEO's triage; only the owner's adjudication moves it to `in_review`
@@ -50,7 +49,7 @@ const allowedStatusTransitions = {
   active: ["planned", "submitted", "blocked", "cancelled"],
   submitted: ["active", "in_review", "cancelled"],
   blocked: ["planned", "active", "cancelled"],
-  in_review: ["active", "blocked", "done", "cancelled"],
+  in_review: ["active", "done", "cancelled"],
   done: [],
   cancelled: reinstateTaskTargets,
 } as const satisfies Record<DomainStatus, ReadonlyArray<DomainStatus>>;
