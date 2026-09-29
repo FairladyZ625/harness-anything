@@ -83,11 +83,11 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     if (command === "stop") {
       const pid = readDaemonPid(userRoot, daemonId);
       if (pid === null) return finish(daemonFailure("daemon-stop", "daemon_unavailable", "No daemon is running."), 1);
-      writeDaemonStoppedMarker(userRoot, daemonId);
       if (argv.includes("--force")) {
         const forced = await forceStopDaemon(userRoot, daemonId, pid);
         return finish(forced, forced.ok === true ? 0 : 1);
       }
+      writeDaemonStoppedMarker(userRoot, daemonId);
       const exchange = await requestCooperativeStop(userRoot, daemonId, pid);
       const outcome = await waitForDaemonStop(userRoot, daemonId, pid, exchange);
       if (outcome === "stopped") return finish({ ok: true, command: "daemon-stop", pid }, 0);
@@ -112,6 +112,38 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
   } catch (error) {
     return finish(daemonFailure(`daemon-${command ?? "unknown"}`, code(error), message(error)), 1);
   }
+}
+
+// Only queued writes refuse a force: they are the work a forced stop destroys (2026-09-28 lost 1219
+// of them). Live runtimes are not — their workers run detached and are re-adopted by pid once a
+// replacement daemon takes the slot — so they must not hold the stop hostage.
+async function forceStopInUseRefusal(userRoot: string, daemonId: string): Promise<Record<string, unknown> | null> {
+  const current = await requestDaemonJsonRpcAt(
+    localUserDaemonEndpoint(userRoot, daemonId),
+    "daemon.status",
+    {},
+    75,
+    75,
+    undefined,
+    true,
+  );
+  const queuedWrites = (Array.isArray(current.repos) ? current.repos.filter(controlRecord) : []).flatMap((repo) =>
+    typeof repo.repoId === "string" && typeof repo.queueDepth === "number" && repo.queueDepth > 0
+      ? [{ repoId: repo.repoId, queueDepth: repo.queueDepth }]
+      : [],
+  );
+  if (queuedWrites.length === 0) return null;
+  return {
+    ...daemonFailure(
+      "daemon-stop",
+      "daemon_in_use",
+      `The daemon has ${String(queuedWrites.reduce((total, row) => total + row.queueDepth, 0))} queued write(s); drain them before retrying --force.`,
+    ),
+    usage: { queuedWrites },
+  };
+}
+function controlRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 async function startDaemonService(
   argv: readonly string[],
@@ -243,7 +275,9 @@ async function requestCooperativeStop(
 ): Promise<DaemonShutdownExchange | null> {
   let exchange: DaemonShutdownExchange | null = null;
   try {
-    const { requestDaemonShutdownAt } = await import("@harness-anything/daemon/internal/client/local-json-rpc-shutdown");
+    const { requestDaemonShutdownAt } = await import(
+      "@harness-anything/daemon/internal/client/local-json-rpc-shutdown"
+    );
     exchange = await requestDaemonShutdownAt(localUserDaemonEndpoint(userRoot, daemonId), 75);
   } catch (error) {
     consumeKnownError(error);
@@ -301,6 +335,14 @@ async function forceStopDaemon(userRoot: string, daemonId: string, pid: number):
       "daemon_replaced",
       `The daemon slot for --daemon-id ${daemonId} no longer belongs to pid ${pid} (its bookkeeping names a different pid); no signal was sent. If pid ${pid} really is a harness daemon from before singleton bookkeeping, stop it with kill ${pid}.`,
     );
+  try {
+    const refusal = await forceStopInUseRefusal(userRoot, daemonId);
+    if (refusal) return refusal;
+  } catch (error) {
+    // A daemon that cannot answer this bounded read is the R-02 escape case for force.
+    consumeKnownError(error);
+  }
+  writeDaemonStoppedMarker(userRoot, daemonId);
   signalStop(pid);
   if (await waitProcessExit(pid, 2_000))
     return {
