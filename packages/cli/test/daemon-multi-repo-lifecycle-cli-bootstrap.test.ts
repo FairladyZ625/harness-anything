@@ -156,9 +156,11 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
         .some((target) => target.startsWith("tasks/")),
       false,
     );
-    assert.equal(stream.revision, 2);
+    // Fresh init also claims the people.yaml it created, so the owner is a canonical Person from the first event.
+    assert.equal(stream.revision, 3);
     assert.equal(stream.events[0]?.schema, "settings-event/v1");
     assert.equal(stream.events[1]?.schema, "vertical-declaration-event/v1");
+    assert.equal(stream.events[2]?.schema, "people-event/v1");
     const settingsRead = run(fixture.repo, fixture.userRoot, ["settings", "read"]).settings;
     assert.equal(settingsRead.locale, "en-US");
     assert.deepEqual(

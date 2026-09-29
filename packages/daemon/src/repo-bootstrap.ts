@@ -54,8 +54,11 @@ export interface RepoBootstrapInput {
   readonly repoId: WorkspaceId;
   readonly machineDocuments: readonly BootstrapDocument[];
   readonly settingsBootstrap: readonly [settings: SettingsV1, documentBody: string];
-  /** The people.yaml body init wrote; RepoCell open publishes it as the first canonical People document. */
-  readonly peopleBootstrap: string;
+  /**
+   * The people.yaml body this init created; RepoCell open publishes it as the first canonical People document.
+   * Absent when people.yaml already existed: claiming it would rewrite authored bytes into the canonical form.
+   */
+  readonly peopleBootstrap?: string;
   readonly repositoryPlan: RepositoryScaffoldPlan;
   readonly actor: ActorIdentity;
   readonly configureOnly?: boolean;
@@ -186,7 +189,7 @@ export function resolveRepoBootstrap(
     actor: { principal: { personId }, executor: null },
     machineDocuments,
     settingsBootstrap: [settings, harnessDocument.body],
-    peopleBootstrap: peopleDocument.body,
+    ...(initialized ? {} : { peopleBootstrap: peopleDocument.body }),
     repositoryPlan: compileRepoRepositoryScaffold(rootDir, settings),
     ...(request.configureOnly ? { configureOnly: true } : {}),
   };

@@ -7,8 +7,8 @@ import type { RepoBootstrapInput } from "./repo-bootstrap.ts";
 import { readDefaultVerticalDefinition } from "./vertical-declaration-action.ts";
 
 /**
- * Publishes the canonical documents init authored — Settings, the default vertical and the People roster — as the
- * ledger's first events. Returns whether the Settings initialization appended an event.
+ * Publishes the canonical documents init authored — Settings, the default vertical and, when init created it, the
+ * People roster — as the ledger's first events. Returns whether the Settings initialization appended an event.
  */
 export async function initializeBootstrapLedger(
   cell: RepoCellActionContext,
@@ -56,11 +56,12 @@ export async function initializeBootstrapLedger(
   projection.apply(verticalBundle.event, verticalBundle.plan);
   // The bootstrap owner must be a canonical Person from the start: relations such as a review's awaits edge
   // resolve Person refs through the projected People document, not the authored file init committed.
-  if (projection.readDocument("people.yaml").document === null) {
+  const peopleBootstrap = bootstrap.peopleBootstrap;
+  if (peopleBootstrap !== undefined && projection.readDocument("people.yaml").document === null) {
     const peopleRevision = (store.readHead()?.revision ?? 0) + 1,
       peopleBundle = compilePeopleRosterActionEvent({
-        currentBody: bootstrap.peopleBootstrap,
-        action: { kind: "people-replace", sourceBody: bootstrap.peopleBootstrap },
+        currentBody: peopleBootstrap,
+        action: { kind: "people-replace", sourceBody: peopleBootstrap },
         claimAuthoredBaseline: true,
         eventId: `event-people-bootstrap-${peopleRevision}`,
         opId: `people-bootstrap-${peopleRevision}`,
