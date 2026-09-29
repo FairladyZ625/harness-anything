@@ -50,13 +50,13 @@
     }
   },
   "dependencies": {
-    "@harness-anything/application": "0.0.1",
-    "@harness-anything/daemon": "0.0.1",
-    "@harness-anything/kernel": "0.0.1",
     "@dagrejs/dagre": "^3.0.0",
     "@dnd-kit/core": "^6.3.1",
     "@fontsource-variable/geist": "^5.2.9",
     "@fontsource-variable/geist-mono": "^5.2.8",
+    "@harness-anything/application": "0.0.1",
+    "@harness-anything/daemon": "0.0.1",
+    "@harness-anything/kernel": "0.0.1",
     "@phosphor-icons/react": "^2.1.10",
     "@tanstack/react-query": "^5.101.2",
     "@xterm/addon-fit": "^0.11.0",
@@ -69,11 +69,12 @@
     "@xyflow/react": "^12.11.2",
     "dockview": "8.2.0",
     "dockview-react": "8.2.0",
+    "electron": "42.11.9",
+    "motion": "^13.4.5",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1",
-    "electron": "42.5.1"
+    "remark-gfm": "^4.0.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.2",
