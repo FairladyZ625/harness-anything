@@ -149,6 +149,31 @@ test("terminal streams leave the live directory while point reads remain availab
   }
 });
 
+test("a point read follows a stream archived after its live path was resolved", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-archive-open-race-"));
+  try {
+    const dispatchId = "dispatch_abcdefabcdefabcdefabcdef";
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: "task-race",
+      executionId: "execution-race",
+      runtimeSessionId: "runtime_abcdefabcdefabcdefabcdef",
+      instanceId: "instance-race",
+      startedAt: "2026-09-29T00:00:00.000Z",
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 42 });
+    const resolvedLivePath = dispatchStreamPath(rootDir, dispatchId);
+    archiveDispatchStream(rootDir, dispatchId);
+
+    const increment = readDispatchStreamIncrement(resolvedLivePath, 0);
+    assert.ok(increment);
+    assert.equal(increment.bytes.length, increment.size);
+    assert.match(increment.bytes.toString("utf8"), /"kind":"process_started","pid":42/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("rebuild enumeration and later worker records retain an archived stream", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-archive-rebuild-"));
   try {

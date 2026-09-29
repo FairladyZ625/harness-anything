@@ -328,13 +328,13 @@ export function removeDispatchLiveIndexEntries(rootDir: string, removals: readon
 
 export function readDispatchStreamHeader(rootDir: string, dispatchId: string): DispatchStreamHeader | null {
   const target = dispatchStreamPath(rootDir, dispatchId);
-  const stat = statSync(target, { throwIfNoEntry: false });
-  return stat?.isFile() ? readDispatchStreamHeaderAt(target, dispatchId) : null;
+  return readDispatchStreamHeaderAt(target, dispatchId);
 }
 
 function readDispatchStreamHeaderAt(target: string, dispatchId: string): DispatchStreamHeader | null {
-  const descriptor = openSync(target, fsConstants.O_RDONLY),
-    chunks: Buffer[] = [];
+  const descriptor = openDispatchStreamForRead(target);
+  if (descriptor === null) return null;
+  const chunks: Buffer[] = [];
   try {
     while (true) {
       const chunk = Buffer.alloc(4096),
@@ -358,8 +358,11 @@ function readDispatchStreamHeaderAt(target: string, dispatchId: string): Dispatc
  */
 export function readDispatchStreamSummary(rootDir: string, dispatchId: string): DispatchStreamSummary | null {
   const target = dispatchStreamPath(rootDir, dispatchId);
-  const stat = statSync(target, { throwIfNoEntry: false });
-  if (!stat?.isFile()) return null;
+  const descriptor = openDispatchStreamForRead(target);
+  if (descriptor === null) return null;
+  const stat = fstatSync(descriptor);
+  closeSync(descriptor);
+  if (!stat.isFile()) return null;
   const header = readDispatchStreamHeaderAt(target, dispatchId);
   if (!header) return null;
   const headerEnd = firstLineEndOffset(target, stat.size);
@@ -448,14 +451,25 @@ export function readDispatchStream(
   readonly records: readonly DispatchStreamRecord[];
 } | null {
   const target = dispatchStreamPath(rootDir, dispatchId);
-  if (!existsSync(target)) return null;
-  const stat = statSync(target);
-  if (!stat.isFile()) return null;
+  const descriptor = openDispatchStreamForRead(target);
+  if (descriptor === null) return null;
+  const stat = fstatSync(descriptor);
+  if (!stat.isFile()) {
+    closeSync(descriptor);
+    return null;
+  }
   if (stat.size > dispatchStreamReadLimitBytes) {
+    closeSync(descriptor);
     warnOnce(readLimitWarnings, target, `skipping full read of ${path.basename(target)} at ${String(stat.size)} bytes`);
     return null;
   }
-  const lines = readFileSync(target, "utf8").split(/\r?\n/u).filter(Boolean),
+  let body: string;
+  try {
+    body = readFileSync(descriptor, "utf8");
+  } finally {
+    closeSync(descriptor);
+  }
+  const lines = body.split(/\r?\n/u).filter(Boolean),
     first = parseRecord(lines[0]);
   if (!isHeader(first) || first.dispatchId !== dispatchId) return null;
   const records = lines
@@ -497,9 +511,8 @@ export function readDispatchStreamIncrement(
   target: string,
   offset: number,
 ): { readonly bytes: Buffer; readonly size: number } | null {
-  const stat = statSync(target, { throwIfNoEntry: false });
-  if (!stat?.isFile() || stat.size > dispatchStreamReadLimitBytes) return null;
-  const descriptor = openSync(target, fsConstants.O_RDONLY);
+  const descriptor = openDispatchStreamForRead(target);
+  if (descriptor === null) return null;
   try {
     const size = fstatSync(descriptor).size;
     if (size > dispatchStreamReadLimitBytes || size <= offset) return { bytes: Buffer.alloc(0), size };
@@ -512,7 +525,8 @@ export function readDispatchStreamIncrement(
 }
 
 export function readRuntimeWorkerChunk(target: string, offset: number, limit = 1024 * 1024): Buffer {
-  const descriptor = openSync(target, fsConstants.O_RDONLY);
+  const descriptor = openDispatchStreamForRead(target);
+  if (descriptor === null) return Buffer.alloc(0);
   try {
     const size = fstatSync(descriptor).size;
     if (size <= offset) return Buffer.alloc(0);
@@ -781,7 +795,7 @@ function readBoundedStreamWindows(
   size: number,
   headerEnd: number,
 ): readonly { offset: number; text: string }[] {
-  const descriptor = openSync(target, fsConstants.O_RDONLY);
+  const descriptor = requiredDispatchStreamForRead(target);
   try {
     const windows = [
       { offset: 0, length: Math.min(size, summaryHeadBytes) },
@@ -800,7 +814,7 @@ function readBoundedStreamWindows(
 }
 
 function firstLineEndOffset(target: string, size: number): number {
-  const descriptor = openSync(target, fsConstants.O_RDONLY);
+  const descriptor = requiredDispatchStreamForRead(target);
   try {
     let offset = 0;
     while (offset < size) {
@@ -849,7 +863,7 @@ function readStreamRecordOfKindForward(
   start: number,
   end: number,
 ): DispatchStreamRecord | null {
-  const descriptor = openSync(target, fsConstants.O_RDONLY),
+  const descriptor = requiredDispatchStreamForRead(target),
     marker = Buffer.from(`"kind":"${kind}"`),
     chunkSize = 64 * 1024,
     bytes = Buffer.alloc(chunkSize);
@@ -888,7 +902,7 @@ function readStreamRecordOfKindForward(
 }
 
 function readLatestRecordOfKind(target: string, kind: string, start: number): Record<string, unknown> | null {
-  const descriptor = openSync(target, fsConstants.O_RDONLY),
+  const descriptor = requiredDispatchStreamForRead(target),
     size = fstatSync(descriptor).size,
     marker = Buffer.from(`"kind":"${kind}"`),
     chunkSize = 64 * 1024;
@@ -911,6 +925,40 @@ function readLatestRecordOfKind(target: string, kind: string, start: number): Re
     closeSync(descriptor);
   }
   return null;
+}
+
+function openDispatchStreamForRead(target: string): number | null {
+  const live = openDispatchStreamPath(target);
+  if (live.descriptor !== null) return live.descriptor;
+  const archived = archivedPathForLiveTarget(target);
+  if (archived === null) return null;
+  return openDispatchStreamPath(archived).descriptor;
+}
+
+function openDispatchStreamPath(target: string): { readonly descriptor: number | null } {
+  try {
+    return { descriptor: openSync(target, fsConstants.O_RDONLY) };
+  } catch (error) {
+    if (fsErrorCode(error) !== "ENOENT") throw error;
+    return { descriptor: null };
+  }
+}
+
+function requiredDispatchStreamForRead(target: string): number {
+  const descriptor = openDispatchStreamForRead(target);
+  if (descriptor !== null) return descriptor;
+  throw Object.assign(new Error(`Dispatch stream ${path.basename(target)} does not exist.`), { code: "ENOENT" });
+}
+
+function archivedPathForLiveTarget(target: string): string | null {
+  const name = path.basename(target);
+  return /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name) && path.basename(path.dirname(target)) !== "archive"
+    ? path.join(path.dirname(target), "archive", name)
+    : null;
+}
+
+function fsErrorCode(error: unknown): string | null {
+  return typeof error === "object" && error !== null && "code" in error ? String(error.code) : null;
 }
 
 export function parseRecord(value: string | undefined): Record<string, unknown> | null {
