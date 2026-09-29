@@ -12,6 +12,12 @@ import { FIRST_RUN_BOOTSTRAP_CHANNEL, FIRST_RUN_CHOOSE_CHANNEL, type FirstRunApi
 import { ARTIFACT_OPEN_EXTERNAL_CHANNEL, type ArtifactOpenApi } from "../api/artifact-open-contract.ts";
 import { LOCAL_DOC_READ_CHANNEL, LOCAL_DOC_WRITE_CHANNEL, type LocalDocApi } from "../api/local-doc-contract.ts";
 import {
+  OIDC_LOGIN_CHANNEL,
+  OIDC_LOGOUT_CHANNEL,
+  OIDC_STATUS_CHANNEL,
+  type OidcAuthApi,
+} from "../api/oidc-auth-contract.ts";
+import {
   CONNECTION_PROBE_CHANNEL,
   CONNECTION_REGISTER_CHANNEL,
   CONNECTION_STATUS_CHANNEL,
@@ -72,6 +78,11 @@ const exposedHarnessApi = {
     unregister: (input) => ipcRenderer.invoke(REPO_UNREGISTER_CHANNEL, input),
     inspectWorkspace: (input) => ipcRenderer.invoke(WORKSPACE_INSPECT_CHANNEL, input),
   } satisfies RepoAdminApi,
+  auth: {
+    login: () => ipcRenderer.invoke(OIDC_LOGIN_CHANNEL, null),
+    logout: () => ipcRenderer.invoke(OIDC_LOGOUT_CHANNEL, null),
+    status: () => ipcRenderer.invoke(OIDC_STATUS_CHANNEL, null),
+  } satisfies OidcAuthApi,
   capabilities: preloadApiCapabilities,
 };
 

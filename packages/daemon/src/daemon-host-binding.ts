@@ -74,10 +74,17 @@ export function localDefaultBinding(
   auth: DaemonAuthenticationContext,
   executor: RepoCellBinding["actor"]["executor"] = null,
 ): RepoCellBinding {
-  const ownerUid = auth.unixSocketOwnerBoundary?.ownerUid;
-  if (auth.transportKind !== "unix-socket" || typeof ownerUid !== "number")
-    throw hostCodedError("credential_unavailable", "Local default binding requires a Unix socket owner boundary.");
-  return withSessionEnvironment(defaultLocalBinding(ownerUid, executor), auth);
+  if (!auth.oidcPrincipal || auth.oidcPrincipal.expiresAt <= Date.now())
+    throw hostCodedError("authentication_required", "Sign in with Keycloak before performing this action.");
+  return withSessionEnvironment(
+    {
+      actor: { principal: { personId: auth.oidcPrincipal.personId }, executor },
+      roleBindings: [],
+      authorizationBindingMode: "declared",
+      source: "local",
+    },
+    auth,
+  );
 }
 
 function withSessionEnvironment(binding: RepoCellBinding, auth: DaemonAuthenticationContext): RepoCellBinding {

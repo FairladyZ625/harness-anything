@@ -20,12 +20,7 @@ import {
   requireHostMode as requireHostModeImpl,
   settleControl as settleControlImpl,
 } from "./daemon-host-admission.ts";
-import {
-  binding as deriveBinding,
-  localDefaultBinding,
-  localSystemBinding,
-  withDaemonWriterEpochFence,
-} from "./daemon-host-binding.ts";
+import { binding as deriveBinding, localSystemBinding, withDaemonWriterEpochFence } from "./daemon-host-binding.ts";
 import { createDaemonHostControlApi } from "./daemon-host-control-api.ts";
 import {
   attachBudgetError,
@@ -91,6 +86,7 @@ import {
   type WriterEpochLease,
 } from "./writer-epoch.ts";
 import { ManagedRbacService } from "./managed-rbac-service.ts";
+import { OidcSessionService } from "./oidc-session-service.ts";
 
 export interface DaemonHostOpenInput {
   readonly daemonId: string;
@@ -166,7 +162,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     buildObserver = observeDaemonBuild(input.runtimeFile),
     fleetEdgeRuntimes = new Map<string, ReturnType<typeof openFleetEdgeRuntime>>();
   let daemonWriterEpoch: PersistentWriterEpoch | null = null;
-  const daemonWriterLeases = new Map<string, WriterEpochLease>(),
+  const oidc = new OidcSessionService(input.userRoot),
+    daemonWriterLeases = new Map<string, WriterEpochLease>(),
     writerEpochLease = (repoId: string, rootDir?: string) => {
       daemonWriterEpoch ??= openPersistentWriterEpoch({
         stateRoot: path.join(input.userRoot, "fleet"),
@@ -214,7 +211,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       return withDaemonWriterEpochFence(base, writerEpochFence(repoId));
     },
     hostBinding: DaemonHostApiContext["binding"] = async (rootDir, auth, executor = null, writerRepoId) => {
-      const base = await deriveBinding(rootDir, auth, executor);
+      const base = await deriveBinding(rootDir, oidc.bind(auth), executor);
       return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
     },
     closeDaemonWriterEpoch = () => {
@@ -609,9 +606,45 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     ...lifecycle,
     manageRbac: (request, auth) => {
       localOnly(auth);
+      if (request.operation === "login-begin") {
+        if (!request.redirectUri) throw hostCodedError("oidc_redirect_required", "Login requires redirectUri.");
+        return Promise.resolve(oidc.begin(request.redirectUri));
+      }
+      if (request.operation === "login-complete") {
+        if (!request.code || !request.state)
+          throw hostCodedError("oidc_callback_invalid", "Login completion requires code and state.");
+        return oidc.complete(request.code, request.state);
+      }
+      if (request.operation === "session") return Promise.resolve(oidc.status());
+      if (request.operation === "logout") return Promise.resolve(oidc.logout());
+      if (request.operation === "bootstrap-admin") {
+        const required = [request.username, request.email, request.displayName, request.password, request.personId];
+        if (required.some((value) => typeof value !== "string" || value.trim() === ""))
+          throw hostCodedError("bootstrap_admin_invalid", "First administrator fields must be non-empty strings.");
+        return oidc.bootstrapAdmin({
+          username: request.username!,
+          email: request.email!,
+          displayName: request.displayName!,
+          password: request.password!,
+          personId: request.personId!,
+        });
+      }
+      if (request.operation === "invite") {
+        const required = [request.username, request.email, request.displayName, request.personId];
+        if (required.some((value) => typeof value !== "string" || value.trim() === ""))
+          throw hostCodedError("invite_invalid", "Invitation fields must be non-empty strings.");
+        return oidc.invite({
+          username: request.username!,
+          email: request.email!,
+          displayName: request.displayName!,
+          personId: request.personId!,
+        });
+      }
       requireAuthorizedHostAction({
         kind: "rbac-bootstrap",
-        binding: localDefaultBinding(auth),
+        // Lifecycle bootstrap is the sole socket-owner exception: it can install/start the
+        // identity authority before an OIDC session exists, but it cannot run repository actions.
+        binding: localSystemBinding(input.userRoot),
         actionId: `rbac-bootstrap:${request.operation ?? "bootstrap"}`,
         evaluatedAtCut: "daemon-rbac:current",
       });

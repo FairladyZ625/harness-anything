@@ -21,6 +21,12 @@ export interface DaemonAuthenticationContext {
   readonly sessionEnvironment?: DaemonSessionEnvironment;
   readonly endpoint?: string;
   readonly unixSocketOwnerBoundary?: UnixSocketOwnerBoundary;
+  /** Principal established by the daemon's OIDC session service; never accepted from JSON-RPC payloads. */
+  readonly oidcPrincipal?: {
+    readonly personId: string;
+    readonly subject: string;
+    readonly expiresAt: number;
+  };
   readonly assignmentBinding?: DaemonFleetAssignmentBinding;
   /** Center-only admission context; never accepted from a client payload. */
   readonly writerEpoch?: number;
