@@ -114,49 +114,32 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
   }
 }
 
+// Only queued writes refuse a force: they are the work a forced stop destroys (2026-09-28 lost 1219
+// of them). Live runtimes are not — their workers run detached and are re-adopted by pid once a
+// replacement daemon takes the slot — so they must not hold the stop hostage.
 async function forceStopInUseRefusal(userRoot: string, daemonId: string): Promise<Record<string, unknown> | null> {
-  const endpoint = localUserDaemonEndpoint(userRoot, daemonId);
-  const current = await requestDaemonJsonRpcAt(endpoint, "daemon.status", {}, 75, 75, undefined, true);
-  const repos = Array.isArray(current.repos) ? current.repos.filter(controlRecord) : [];
-  const queuedWrites = repos.flatMap((repo) =>
+  const current = await requestDaemonJsonRpcAt(
+    localUserDaemonEndpoint(userRoot, daemonId),
+    "daemon.status",
+    {},
+    75,
+    75,
+    undefined,
+    true,
+  );
+  const queuedWrites = (Array.isArray(current.repos) ? current.repos.filter(controlRecord) : []).flatMap((repo) =>
     typeof repo.repoId === "string" && typeof repo.queueDepth === "number" && repo.queueDepth > 0
       ? [{ repoId: repo.repoId, queueDepth: repo.queueDepth }]
       : [],
   );
-  const runtimeReads = await Promise.all(
-    repos.flatMap((repo) =>
-      typeof repo.repoId === "string" && repo.state === "attached"
-        ? [
-            requestDaemonJsonRpcAt(
-              endpoint,
-              "repo.agentRuntime.overview",
-              { repo: { repoId: repo.repoId }, payload: {} },
-              75,
-              75,
-              undefined,
-              true,
-            ).then((receipt) => ({ repoId: repo.repoId as string, receipt })),
-          ]
-        : [],
-    ),
-  );
-  const liveRuntimes = runtimeReads.flatMap(({ repoId, receipt }) =>
-    Array.isArray(receipt.sessions)
-      ? receipt.sessions.flatMap((session) =>
-          controlRecord(session) && typeof session.runtimeSessionId === "string"
-            ? [{ repoId, runtimeSessionId: session.runtimeSessionId }]
-            : [],
-        )
-      : [],
-  );
-  if (queuedWrites.length === 0 && liveRuntimes.length === 0) return null;
+  if (queuedWrites.length === 0) return null;
   return {
     ...daemonFailure(
       "daemon-stop",
       "daemon_in_use",
-      `The daemon has ${String(queuedWrites.reduce((total, row) => total + row.queueDepth, 0))} queued write(s) and ${String(liveRuntimes.length)} live runtime session(s); drain them before retrying --force.`,
+      `The daemon has ${String(queuedWrites.reduce((total, row) => total + row.queueDepth, 0))} queued write(s); drain them before retrying --force.`,
     ),
-    usage: { queuedWrites, liveRuntimes },
+    usage: { queuedWrites },
   };
 }
 function controlRecord(value: unknown): value is Record<string, unknown> {

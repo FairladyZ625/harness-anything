@@ -245,7 +245,7 @@ test("force refuses to signal a pid the daemon slot no longer claims", async () 
   }
 });
 
-test("force refuses while the daemon reports queued writes or live runtimes", async () => {
+test("force refuses while the daemon reports queued writes", async () => {
   const fixture = await spawnLegacyDaemon("in-use");
   try {
     const refused = runRaw(fixture, ["daemon", "stop", "--force", "--json"]);
@@ -254,12 +254,10 @@ test("force refuses while the daemon reports queued writes or live runtimes", as
       readonly code?: string;
       readonly usage?: {
         readonly queuedWrites?: readonly { readonly repoId?: string; readonly queueDepth?: number }[];
-        readonly liveRuntimes?: readonly { readonly repoId?: string; readonly runtimeSessionId?: string }[];
       };
     };
     assert.equal(receipt.code, "daemon_in_use", JSON.stringify(receipt));
     assert.deepEqual(receipt.usage?.queuedWrites, [{ repoId: "busy-repo", queueDepth: 2 }]);
-    assert.deepEqual(receipt.usage?.liveRuntimes, [{ repoId: "busy-repo", runtimeSessionId: "runtime-session-live" }]);
     assert.equal(await alive(fixture.daemonPid), true, "refusal must leave the daemon running");
   } finally {
     await stopCleanup(fixture);
@@ -852,11 +850,9 @@ const server = net.createServer((socket) => {
       if (!line.startsWith("{")) continue;
       const request = JSON.parse(line);
       const answer = request.method === "protocol.hello"
-        ? { jsonrpc: "2.0", id: request.id, result: { ok: true, protocolVersion: { major: 1, minor: 0 }, methods: ["protocol.hello", "daemon.status", "repo.agentRuntime.overview"] } }
+        ? { jsonrpc: "2.0", id: request.id, result: { ok: true, protocolVersion: { major: 1, minor: 0 }, methods: ["protocol.hello", "daemon.status"] } }
         : request.method === "daemon.status"
-          ? { jsonrpc: "2.0", id: request.id, result: { ok: true, daemonId: mode, pid: process.pid, repos: mode === "in-use" ? [{ repoId: "busy-repo", state: "attached", queueDepth: 2 }] : [], summary: "daemon status: pid=" + process.pid } }
-          : request.method === "repo.agentRuntime.overview" && mode === "in-use"
-            ? { jsonrpc: "2.0", id: request.id, result: { ok: true, sessions: [{ runtimeSessionId: "runtime-session-live", liveness: "live" }] } }
+          ? { jsonrpc: "2.0", id: request.id, result: { ok: true, daemonId: mode, pid: process.pid, repos: mode === "in-use" ? [{ repoId: "busy-repo", queueDepth: 2 }] : [], summary: "daemon status: pid=" + process.pid } }
           : { jsonrpc: "2.0", id: request.id, error: { code: -32601, message: "Method not found" } };
       socket.write(JSON.stringify(answer) + "\\n");
     }
