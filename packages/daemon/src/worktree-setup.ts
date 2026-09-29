@@ -170,6 +170,15 @@ function spawnShell(command: string, cwd: string, log: string, environment: Node
   });
 }
 
+/**
+ * The steps recorded as succeeded in a worktree checked out on this node, read without spawning git so a task read
+ * stays synchronous: a managed worktree is a linked one, whose `.git` file names its git directory.
+ */
+export function readWorktreeSetupSucceeded(cwd: string): string[] {
+  const gitDir = /^gitdir: (.+)$/mu.exec(readFileSync(path.join(cwd, ".git"), "utf8"))![1]!;
+  return readSucceeded(path.join(path.resolve(cwd, gitDir.trim()), "harness-setup"));
+}
+
 function setupDirectory(cwd: string): Promise<string> {
   return runProcessTextAsync("git", ["-C", cwd, "rev-parse", "--absolute-git-dir"]).then((gitDir) =>
     path.join(gitDir.trim(), "harness-setup"),

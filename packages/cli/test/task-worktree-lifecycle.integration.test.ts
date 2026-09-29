@@ -188,6 +188,10 @@ test("a repository with no npm, no remote and a master branch runs its declared 
   assert.match(`${refused.stdout}${refused.stderr}`, new RegExp(`run ha task start ${plain.taskId} again`, "u"));
   const tree = path.join(realpathSync(root), ".worktrees", plain.taskId);
   assert.equal(existsSync(tree), true, "a failed setup keeps the worktree");
+  assert.match(
+    text(root, env, ["task", "show", plain.taskId]),
+    /; setup: run: echo .* \(done\); run: test -e \S+ \(pending, runs at next start\); managed by Harness/mu,
+  );
   assert.equal(git(tree, "branch", "--show-current"), plain.taskId);
   assert.equal(git(tree, "rev-parse", "HEAD"), git(root, "rev-parse", "master"));
   assert.equal(readFileSync(marker, "utf8"), `${plain.taskId}\n`);
@@ -198,7 +202,7 @@ test("a repository with no npm, no remote and a master branch runs its declared 
   assert.equal(readFileSync(marker, "utf8"), `${plain.taskId}\n`, "the step that succeeded does not run again");
   assert.match(
     text(root, env, ["task", "show", plain.taskId]),
-    /^workspace: \.worktrees\/\S+ \(worktree on branch \S+, materialized; setup: run: echo .*; run: test -e /mu,
+    /^workspace: \.worktrees\/\S+ \(worktree on branch \S+, materialized; setup: run: echo .* \(done\); run: test -e \S+ \(done\); /mu,
   );
 
   run(root, env, ["task", "release", plain.taskId]);

@@ -1,5 +1,6 @@
 import { readTaskCompletion } from "./task-completion-read.ts";
 import { createHash } from "node:crypto";
+import path from "node:path";
 import {
   completionGateIds,
   compileCompletionGateWitness,
@@ -26,6 +27,7 @@ import { failed } from "./repo-cell-settlement.ts";
 import { projectedTaskNotFound } from "./projection-readiness.ts";
 import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
 import { presetSnapshotReader, taskWorkspaceView } from "./task-worktree.ts";
+import { readWorktreeSetupSucceeded } from "./worktree-setup.ts";
 
 /**
  * The canonical witness write entry: judge the evidence's binding to the frozen cut, then let
@@ -215,8 +217,19 @@ export function taskShowFromProjection(
         : null,
       packagePath: read.packagePath,
       workspace,
-      // Settings `worktree.setup` is what this node runs in the worktree once it checks it out.
-      ...(workspace?.kind === "worktree" ? { worktreeSetup: projectedWorktreeSetup(projection) } : {}),
+      // Settings `worktree.setup` is what runs in the worktree; what already succeeded there is readable only on
+      // the node that holds the checkout, so without one here it is null (unknown), not guessed.
+      ...(workspace?.kind === "worktree"
+        ? {
+            worktreeSetup: {
+              declared: projectedWorktreeSetup(projection),
+              succeeded:
+                workspace.state === "materialized" || workspace.state === "retained"
+                  ? readWorktreeSetupSucceeded(path.join(rootDir, workspace.path))
+                  : null,
+            },
+          }
+        : {}),
       returnBudget: returnBudget.value,
       returnBudgetSource: returnBudget.source,
       rootAssessment,
