@@ -159,7 +159,11 @@ test("Task execution rejects with the exact Action criterion and performs no rej
       actual: "approve",
       allowedValues: ["approved", "changes_requested", "dismissed"],
     });
-    assert.deepEqual(invalidVerdict.nextActions, []);
+    assert.deepEqual(invalidVerdict.nextActions, [
+      `ha task review-execution ${taskId} [--execution-id <execution-id>] --review-id <review-id> ` +
+        "[--from-file <from-file>] [--json-input <json|@->]",
+    ]);
+    assert.doesNotMatch(invalidVerdict.nextActions.join("\n"), /<task-id>/u);
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({

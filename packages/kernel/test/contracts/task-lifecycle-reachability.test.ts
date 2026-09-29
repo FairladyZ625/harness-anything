@@ -14,6 +14,11 @@ import {
   type TaskLifecycleCommandIntent,
   type TaskLifecycleSnapshot,
 } from "../../src/domain/task-lifecycle.contract.ts";
+import {
+  evaluateTaskActionCapability,
+  getTaskActionForTransition,
+  taskLifecycleNextActions,
+} from "../../src/domain/index.ts";
 import type { ActorAxes } from "../../src/domain/task.ts";
 
 const owner: ActorAxes = {
@@ -225,7 +230,7 @@ function coordinate(snapshot: TaskLifecycleSnapshot): string {
   });
 }
 
-test("every registry-reachable non-terminal task coordinate can reach done without cancellation", () => {
+test("every registry-reachable non-terminal task coordinate can reach done without cancellation", (t) => {
   assert.equal(
     stateTransition("transition"),
     null,
@@ -295,4 +300,52 @@ test("every registry-reachable non-terminal task coordinate can reach done witho
     [],
   );
   assert.deepEqual(stranded, []);
+  const lifecycleActions = [...new Set(TASK_LIFECYCLE_TRANSITIONS.map(({ actionId }) => actionId))].map((actionId) => {
+      const action = getTaskActionForTransition(actionId);
+      assert.ok(action, `missing declaration for lifecycle action ${actionId}`);
+      return action;
+    }),
+    nonTerminal = [...snapshots.values()].filter(
+      (snapshot) => snapshot.task !== null && !["done", "cancelled"].includes(snapshot.task.status),
+    ),
+    terminal = [...snapshots.values()].filter((snapshot) =>
+      ["done", "cancelled"].includes(snapshot.task?.status ?? ""),
+    );
+  t.diagnostic(
+    `${nonTerminal.length} registry-reachable non-terminal coordinates × ${lifecycleActions.length} lifecycle commands`,
+  );
+  for (const snapshot of nonTerminal)
+    for (const action of lifecycleActions) {
+      const rejected = evaluateTaskActionCapability({
+        action,
+        snapshot,
+        actor: owner,
+        invocation: { taskId: snapshot.task!.taskId },
+      }).some(({ status }) => status === "unmet");
+      if (!rejected) continue;
+      assert.notDeepEqual(
+        taskLifecycleNextActions({
+          snapshot,
+          actor: owner,
+          taskId: snapshot.task!.taskId,
+          rejectedActionId: action.id,
+          actions: lifecycleActions,
+        }),
+        [],
+        `${coordinate(snapshot)} rejects ${action.id} without a derived next action`,
+      );
+    }
+  assert.ok(terminal.length > 0, "the enumeration must explicitly observe terminal coordinates");
+  for (const snapshot of terminal)
+    assert.deepEqual(
+      taskLifecycleNextActions({
+        snapshot,
+        actor: owner,
+        taskId: snapshot.task!.taskId,
+        rejectedActionId: "transition",
+        actions: lifecycleActions,
+      }),
+      [],
+      `${coordinate(snapshot)} is terminal and must be explicitly exempt from nextActions`,
+    );
 });
