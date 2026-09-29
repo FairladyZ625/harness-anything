@@ -25,6 +25,7 @@ type RoutedParser = (
 
 // Routes whose argv shape needs a dedicated parser, keyed by command id.
 const dedicatedRouteParsers = new Map<string, RoutedParser>([
+  ["rbac-bootstrap", (_route, args, rootDir, _repoId, json, inputs) => parseRbacBootstrap(args, rootDir, json, inputs)],
   [
     "repo-bootstrap",
     (_route, args, rootDir, _repoId, json, inputs) => parseBootstrapRouted(args, rootDir, json, inputs),
@@ -32,6 +33,31 @@ const dedicatedRouteParsers = new Map<string, RoutedParser>([
   ["work-list", parseWorkRead],
   ["work-show", parseWorkRead],
 ]);
+
+function parseRbacBootstrap(
+  args: readonly string[],
+  rootDir: SafePath,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const f = readFlags("rbac-bootstrap", args.slice(1), inputs);
+  if (!f.ok) return rejected(f.code, f.nextAction, json);
+  return accepted(
+    rootDir,
+    undefined,
+    json,
+    {
+      kind: "rbac-bootstrap",
+      ...(f.one.get("--operation") ? { operation: f.one.get("--operation") } : {}),
+      ...(f.one.get("--mode") ? { mode: f.one.get("--mode") } : {}),
+      ...(f.one.get("--url") ? { url: f.one.get("--url") } : {}),
+      ...(f.one.get("--realm") ? { realm: f.one.get("--realm") } : {}),
+      ...(f.one.get("--client-id") ? { clientId: f.one.get("--client-id") } : {}),
+      ...(f.one.get("--backup-dir") ? { backupDir: f.one.get("--backup-dir") } : {}),
+    },
+    "daemon.rbac.manage",
+  );
+}
 
 export function parseRouted(
   route: ProtocolCommand | undefined,

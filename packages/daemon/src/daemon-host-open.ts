@@ -84,6 +84,7 @@ import {
   type PersistentWriterEpoch,
   type WriterEpochLease,
 } from "./writer-epoch.ts";
+import { ManagedRbacService } from "./managed-rbac-service.ts";
 
 export interface DaemonHostOpenInput {
   readonly daemonId: string;
@@ -592,12 +593,22 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     now,
     startedAt,
   };
+  const managedRbac = new ManagedRbacService(input.userRoot),
+    lifecycle = createDaemonHostLifecycleApi(hostContext);
   const host: DaemonHost = {
     remoteProxy,
     ...createDaemonHostRepositoryApi(hostContext),
     ...createDaemonHostRuntimeApi(hostContext),
     ...createDaemonHostControlApi(hostContext),
-    ...createDaemonHostLifecycleApi(hostContext),
+    ...lifecycle,
+    manageRbac: (request, auth) => {
+      localOnly(auth);
+      return managedRbac.run(request);
+    },
+    close: async () => {
+      await managedRbac.stop();
+      await lifecycle.close();
+    },
   };
   return host;
   async function closeCell(repoId: string): Promise<void> {

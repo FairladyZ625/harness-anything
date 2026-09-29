@@ -7,6 +7,7 @@ import { findW3WriteAuthorityViolations } from "./check-write-coordinator-bounda
 const requiredRows = Object.freeze({
   "lifecycle.event-publication": ["task-create", "task-submit", "task-review-execution", "task-complete"],
   "workspace.bootstrap": [
+    "rbac-bootstrap",
     "repo-bootstrap",
     "daemon-repo-register",
     "ledger-backup",

@@ -15,6 +15,7 @@ import { type RepoBootstrapRequest } from "./repo-bootstrap.ts";
 import { type RepoCell, type RepoCellStatus, type RepoTaskAction, type RuntimeIngressAction } from "./repo-cell.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import type { RemoteProxyManager } from "./remote-proxy.ts";
+import type { ManagedRbacRequest } from "./managed-rbac-service.ts";
 
 export interface DaemonHost {
   readonly remoteProxy: RemoteProxyManager;
@@ -107,6 +108,10 @@ export interface DaemonHost {
   ) => AgentRuntimeAttachEvent;
   readonly bootstrap: (
     request: RepoBootstrapRequest,
+    auth: DaemonAuthenticationContext,
+  ) => Promise<Record<string, unknown>>;
+  readonly manageRbac: (
+    request: ManagedRbacRequest,
     auth: DaemonAuthenticationContext,
   ) => Promise<Record<string, unknown>>;
   readonly admin: (
