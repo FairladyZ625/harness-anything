@@ -94,6 +94,19 @@ function makeHarnessRoot() {
 function writeDecision(root, options) {
   const dir = path.join(root, "harness/decisions", `decision-${options.decisionId}`);
   mkdirSync(dir, { recursive: true });
+  const relations = [
+    {
+      relation_id: "rel_test",
+      source: `decision/${options.decisionId}/CH1`,
+      target: `task/${options.targetTaskId}`,
+      type: "derives",
+      strength: "strong",
+      direction: "directed",
+      origin: "declared",
+      rationale: options.rationale,
+      state: "active",
+    },
+  ];
   writeFileSync(
     path.join(dir, "decision.md"),
     [
@@ -104,8 +117,7 @@ function writeDecision(root, options) {
       `state: ${options.state}`,
       'proposedAt: "2026-05-30T00:00:00.000Z"',
       `decidedAt: "${options.decidedAt}"`,
-      "relations:",
-      `  - { relation_id: "rel_test", source: "decision/${options.decisionId}/CH1", target: "task/${options.targetTaskId}", type: "derives", strength: "strong", direction: "directed", origin: "declared", rationale: "${options.rationale}", state: "active" }`,
+      `relations: ${JSON.stringify(relations)}`,
       "---",
     ].join("\n") + realizedDecisionBody("Test decision"),
     "utf8",

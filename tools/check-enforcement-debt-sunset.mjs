@@ -12,7 +12,9 @@ const decisionsRoot = path.join(root, "harness/decisions");
 const tasksRoot = path.join(root, "harness/tasks");
 
 if (!existsSync(decisionsRoot) || !existsSync(tasksRoot)) {
-  console.log("Enforcement debt sunset check skipped: private harness/decisions or harness/tasks root is absent in this checkout.");
+  console.log(
+    "Enforcement debt sunset check skipped: private harness/decisions or harness/tasks root is absent in this checkout.",
+  );
   process.exit(0);
 }
 
@@ -43,7 +45,7 @@ for (const decision of readDecisions(decisionsRoot)) {
       ageDays,
       decisionPath: decision.path,
       taskPath: task?.path ?? null,
-      title: task?.title ?? "(missing task package)"
+      title: task?.title ?? "(missing task package)",
     });
   }
 }
@@ -55,7 +57,9 @@ if (overdue.length > 0) {
   }
   process.exitCode = 1;
 } else {
-  console.log(`Enforcement debt sunset check passed (${scannedRelations} aged active derives relation(s) scanned, 0 overdue enforcement task(s)).`);
+  console.log(
+    `Enforcement debt sunset check passed (${scannedRelations} aged active derives relation(s) scanned, 0 overdue enforcement task(s)).`,
+  );
 }
 
 function readDecisions(dir) {
@@ -63,15 +67,17 @@ function readDecisions(dir) {
     const body = readFileSync(file, "utf8");
     const frontmatter = readFrontmatter(body);
     if (!frontmatter || readScalar(frontmatter, "schema") !== "decision-package/v1") return [];
-    return [{
-      path: relative(file),
-      decisionId: readScalar(frontmatter, "decision_id") ?? path.basename(path.dirname(file)),
-      title: readScalar(frontmatter, "title") ?? "",
-      state: readScalar(frontmatter, "state") ?? "",
-      proposedAt: parseDate(readScalar(frontmatter, "proposedAt")),
-      decidedAt: parseDate(readScalar(frontmatter, "decidedAt")),
-      relations: parseRelations(frontmatter)
-    }];
+    return [
+      {
+        path: relative(file),
+        decisionId: readScalar(frontmatter, "decision_id") ?? path.basename(path.dirname(file)),
+        title: readScalar(frontmatter, "title") ?? "",
+        state: readScalar(frontmatter, "state") ?? "",
+        proposedAt: parseDate(readScalar(frontmatter, "proposedAt")),
+        decidedAt: parseDate(readScalar(frontmatter, "decidedAt")),
+        relations: parseRelations(frontmatter),
+      },
+    ];
   });
 }
 
@@ -86,7 +92,7 @@ function readTasks(dir) {
       taskId,
       path: relative(file),
       title: readScalar(frontmatter, "title") ?? "",
-      status: readScalar(frontmatter, "  status") ?? "unknown"
+      status: readScalar(frontmatter, "  status") ?? "unknown",
     });
   }
   return tasks;
@@ -116,27 +122,11 @@ function readScalar(frontmatter, key) {
 }
 
 function parseRelations(frontmatter) {
-  const relations = [];
-  for (const match of frontmatter.matchAll(/^\s*-\s*\{([^}]+)\}\s*$/gmu)) {
-    const fields = parseFlowFields(match[1] ?? "");
-    if (fields.type && fields.target) {
-      relations.push({
-        type: fields.type,
-        target: fields.target,
-        state: fields.state ?? "active",
-        rationale: fields.rationale ?? ""
-      });
-    }
-  }
+  const value = readScalar(frontmatter, "relations");
+  if (!value) return [];
+  const relations = JSON.parse(value);
+  if (!Array.isArray(relations)) throw new Error("decision relations must be a JSON array");
   return relations;
-}
-
-function parseFlowFields(body) {
-  const fields = {};
-  for (const match of body.matchAll(/\b([A-Za-z_][A-Za-z0-9_]*)\s*:\s*("(?:[^"\\]|\\.)*"|[^,]+)(?:,|$)/gu)) {
-    fields[match[1]] = unquote(match[2]?.trim() ?? "");
-  }
-  return fields;
 }
 
 function unquote(value) {
