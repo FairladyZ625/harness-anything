@@ -159,7 +159,8 @@ export function assertTransitionDocumentReady(
   if (assessment.ready) return;
   const sections = assessment.missingSections.map(({ section }) => section).join(", "),
     error = new Error(
-      `${assessment.code}: ${kind} has empty or scaffold-equivalent required content: ${sections}.`,
+      `${assessment.code}: ${kind} has empty or scaffold-equivalent required content: ${sections}.` +
+        (kind === "decision.body" ? " Provide Decision prose with --body or --body-file." : ""),
     ) as Error & {
       code: TransitionDocumentPlaceholderCode;
       missingSections: readonly TransitionDocumentMissingSection[];

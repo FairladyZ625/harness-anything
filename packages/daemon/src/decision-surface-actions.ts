@@ -1,6 +1,5 @@
 import { consumeKnownError } from "@harness-anything/kernel";
 import {
-  decisionDocumentProse,
   decisionMachineDigest,
   deriveRelationId,
   readFrontmatter,
@@ -219,10 +218,6 @@ function validateOne(
   for (const relation of relations)
     if (relation.relation_id !== deriveRelationId(relation))
       errors.push(`relation ${relation.relation_id} is not deterministic`);
-  if (document && frontmatter && !decisionDocumentProse(document.body).trim())
-    warnings.push(
-      "Decision markdown body is empty. Add a human-readable narrative with background, trade-offs, and a plain-language conclusion.",
-    );
   const { body: _body, readiness: _readiness, ...state } = decision,
     digest = decisionMachineDigest({ ...state, relations }),
     latestPin = decision.contentPins?.at(-1);

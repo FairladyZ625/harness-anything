@@ -285,7 +285,7 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
   }
 });
 
-test("decision accept rejects a heading-only proposal body", async () => {
+test("decision propose rejects its heading-only default body", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-placeholder-"));
   initRepo(rootDir);
   const cell = await openRepoCell({
@@ -299,19 +299,9 @@ test("decision accept rejects a heading-only proposal body", async () => {
       (await cell.run({ kind: "task-create", taskId: "task-evidence", title: "Decision evidence" }, proposer)).outcome,
       "applied",
     );
-    const proposed = await cell.run(proposal("Placeholder decision"), proposer),
-      decisionId = String(receiptJson(proposed).decisionId),
-      accepted = await cell.run(
-        {
-          kind: "decision-accept",
-          decisionId,
-          rationale: "The arbiter reviewed the proposal.",
-          judgmentOnlyRationale: "The arbiter reviewed the proposal.",
-        },
-        arbiter,
-      );
-    assert.equal(accepted.outcome, "op_rejected", JSON.stringify(accepted));
-    assert.equal(accepted.code, "body_placeholder");
+    const proposed = await cell.run(proposal("Placeholder decision", false), proposer);
+    assert.equal(proposed.outcome, "op_rejected", JSON.stringify(proposed));
+    assert.equal(proposed.code, "body_placeholder");
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -518,9 +508,12 @@ test("the decisions readiness cache key never reserializes the decision rows", a
   }
 });
 
-function proposal(title: string) {
+function proposal(title: string, withBody = true) {
   return {
     kind: "decision-propose",
+    ...(withBody
+      ? { body: "# Decision\n\n## 背景\n\nKnown facts.\n\n## 权衡\n\nCompared options.\n\n## 结论\n\nAdopt it.\n" }
+      : {}),
     jsonInput: JSON.stringify({
       title,
       question: "Should the full Decision lifecycle use immutable events?",
