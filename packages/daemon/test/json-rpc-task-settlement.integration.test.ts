@@ -747,6 +747,72 @@ test("task complete accepts a verified main run on a commit that contains the su
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+test("a lightweight repository-diff task completes off submitted through its CI witness with no review or consent", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-complete-ci-lightweight-")),
+    taskId = "task-complete-ci-lightweight",
+    executionId = "execution-complete-ci-lightweight",
+    repoId = workspaceId("complete-ci-lightweight");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+    writeFileSync(
+      path.join(rootDir, "harness/harness.yaml"),
+      "settings:\n  ci:\n    workflows: [rewrite-ci]\n  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n  closeout:\n    profile: strict\n",
+    ); // strict: only the task's frozen lightweight profile lifts review
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-ci-lightweight" });
+    const created = (await cell.run(
+      { kind: "task-create", taskId, title: "CI Lightweight", presetId: "standard-task", profileId: "lightweight" },
+      repoWriteBinding,
+    )) as Record<string, unknown>;
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    assert.equal(created.outputShape, "repository-diff");
+    await waitForAcceptedReceipt(cell, created as never);
+    const packagePath = String(created.packagePath);
+    await realizeTaskPlanFixture(rootDir, packagePath, (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, repoWriteBinding),
+    );
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, repoWriteBinding)).outcome, "applied");
+    await cell.settlePendingMaterialization("lightweight delivery commit");
+    const deliveryRoot = path.join(rootDir, ".worktrees", taskId);
+    writeFileSync(path.join(deliveryRoot, "README.md"), "# Lightweight delivery\n");
+    git(deliveryRoot, "add", "README.md");
+    git(deliveryRoot, "commit", "--quiet", "-m", "fix: lightweight delivery");
+    const delivered = git(deliveryRoot, "rev-parse", "HEAD");
+    writeFileSync(
+      path.join(rootDir, "harness", packagePath, "closeout.md"),
+      `# Closeout\n\n## Summary\n\nDelivered ${delivered}.\n\n## Verification\n\nnode --test fixture — exit 0.\n`,
+    );
+    const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, repoWriteBinding);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    // The one path: a lifted review gate owes no triage, so there is no forward to take.
+    const forwarded = (await cell.run(
+      { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward a lightweight cut." },
+      repoWriteBinding,
+    )) as Record<string, unknown>;
+    assert.equal(forwarded.code, "invalid_transition", JSON.stringify(forwarded));
+    assert.match(String(forwarded.rejectionExplanation), /lifted review.*ha task complete/u);
+    const laterMain = git(rootDir, "commit-tree", `${delivered}^{tree}`, "-p", delivered, "-m", "merged main");
+    await publishCiObservation(repoId, rootDir, executionId, laterMain, "run-lightweight-main");
+    const completed = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding);
+    assert.equal(completed.outcome, "applied", JSON.stringify(completed));
+    const events = makeTaskEventReader({ repoId, rootDir }).read().events;
+    assert.ok(events.some((event) => event.type === "completion_gate_verified" && event.taskId === taskId));
+    assert.ok(events.some((event) => event.type === "task_completed" && event.taskId === taskId));
+    assert.equal(
+      events.filter((event) =>
+        ["submission_forwarded", "runtime_dispatch_requested", "review_recorded", "review_consent_recorded"].includes(
+          event.type,
+        ),
+      ).length,
+      0,
+      "the lightweight cut is never forwarded, reviewed, or consented",
+    );
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
 test(
   "task complete collecting a failed covering main run rejects without borrowing its acceptance, then passes on the rerun attempt",
   { skip: process.platform === "win32" ? "requires POSIX shell-script executables resolved through PATH" : false },
