@@ -45,6 +45,8 @@ import {
   useCaseProjectionNameWords,
 } from "./daemon-protocol-vocabulary.ts";
 import { isJsonObject, unknownFieldViolation, type JsonObject } from "./json-rpc-types.ts";
+import type { AgendaAttentionItem, AgendaRegionWeights } from "./daemon-protocol-agenda-attention.ts";
+export type { AgendaAttentionItem, AgendaRegionWeights } from "./daemon-protocol-agenda-attention.ts";
 
 type TaskProjectionListRow = ReturnType<TaskProjection["list"]>["rows"][number];
 type TaskProjectionWarning = ReturnType<TaskProjection["list"]>["warnings"][number];
@@ -934,7 +936,13 @@ export type DaemonAgendaResult = {
   readonly awaitingYou: readonly AgendaAwaitsRow[];
   /** 已答复,待你跟进:读者名下源实体上已答复、源实体此后尚无写入的 awaits 边。 */
   readonly answeredForYou: readonly AgendaAnsweredRow[];
+  /** All actionable rows in canonical attention order. */
+  readonly attentionItems: readonly AgendaAttentionItem[];
+  /** Dashboard region weights derived from the same attention scores. */
+  readonly regionWeights: AgendaRegionWeights;
   readonly inFlight: readonly AgendaTaskRow[];
+  /** Active tasks with neither a live lease nor activity in the last seven days. */
+  readonly stalled: readonly AgendaTaskRow[];
   /** 评审打回、等使用者修:active 且最新 execution=changes_requested、无 lease、无 active execution。 */
   readonly awaitingRework: readonly AgendaTaskRow[];
   /** 提交待派审:task 状态 submitted、未被 approved 评审了结的 execution 行;下一步 `ha task adjudicate --forward`。 */
