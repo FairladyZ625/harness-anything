@@ -102,6 +102,8 @@ test("agenda result schema rejects mistyped pin state and misgrouped awaiting ro
       awaitingRework: [],
       awaitingAdjudication: [execution],
       underReview: [],
+      decisionReviewInProgress: [],
+      awaitingDecisionReview: [],
       awaitingDecision: [decision],
       waitingOnOthers: [task, heldTask],
       dispatchable: [],

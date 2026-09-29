@@ -293,7 +293,9 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
     id: "decision-review",
     phase: "DecisionFact-B",
     path: ["decision", "review", "<id>"],
-    summary: "Record an independent review of the current Decision content cut.",
+    summary:
+      "Record an independent review of the current Decision content cut; changes_requested must name findings, " +
+      "then the proposal owner responds to each with ha decision respond-review.",
     method: "repo.task.run",
     inputs: [
       cliInput(
@@ -320,7 +322,9 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
     id: "decision-dispatch-review",
     phase: "DecisionFact-B",
     path: ["decision", "dispatch-review", "<id>"],
-    summary: "Dispatch one read-only independent reviewer for the current Decision content cut.",
+    summary:
+      "Dispatch one read-only independent reviewer for the current Decision content cut; the receipt names its " +
+      "reviewContentDigest and runtime to wait for.",
     method: "repo.task.run",
     inputs: [
       cliInput("--agent", "single", false, { code: "invalid_field" }),
@@ -334,7 +338,9 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
     id: "decision-respond-review",
     phase: "DecisionFact-B",
     path: ["decision", "respond-review", "<id>"],
-    summary: "Record the proposal owner's responses to Decision review findings.",
+    summary:
+      "Respond to each finding with adopt (name the corresponding change) or rebut (give the reason). A response " +
+      "does not clear changes_requested; only a new content cut or authorized override does.",
     method: "repo.task.run",
     inputs: [
       cliInput(
@@ -353,7 +359,9 @@ export const decisionLifecycleProtocolCommands = Object.freeze([
     id: "decision-override-review",
     phase: "DecisionFact-B",
     path: ["decision", "override-review", "<id>"],
-    summary: "Record an owner-authorized disposition of named Decision reviews.",
+    summary:
+      "Override named changes_requested reviewIds with a reason. This requires arbiter authority; an agent also " +
+      "requires explicit authenticated human consent.",
     method: "repo.task.run",
     inputs: [
       cliInput(

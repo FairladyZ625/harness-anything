@@ -6,6 +6,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test, { type TestContext } from "node:test";
 import {
+  INITIAL_SETTINGS_V1,
   type TaskProjection,
   type TaskProjectionListQuery,
   type TaskRelationProjectionRead,
@@ -402,7 +403,7 @@ test("agenda splits awaiting work by next action and keeps every row in exactly 
     },
   }).agenda();
 
-  // 三种 task 状态各落各组、一条 proposed decision 只落待裁组,互不重复。
+  // 三种 task 状态各落各组；默认免审的 proposed decision 只落待裁组，互不重复。
   assert.deepEqual(
     result.awaitingAdjudication.map(({ taskId }) => taskId),
     ["task_wait_adjudicate"],
@@ -789,7 +790,8 @@ function projectionStub(
         task: null,
       },
     }),
-    getEntity: () => null,
+    getEntity: (kind: string, id: string) =>
+      kind === "settings" && id === "repository" ? { value: INITIAL_SETTINGS_V1 } : null,
     readRelationEdge: (relationId: string) => {
       const edge = edges.find((candidate) => candidate.relationId === relationId);
       return edge
@@ -874,6 +876,8 @@ function projectionStub(
       };
     },
     listDecisions: () => ({ ...decisionCut, decisions: [] }),
+    readDecision: () => ({ ...decisionCut, decision: null }),
+    readRuntimeSession: () => null,
     listDecisionAgendaPage: (query) => ({
       ...decisionCut,
       decisions: decisionAgendaRows,

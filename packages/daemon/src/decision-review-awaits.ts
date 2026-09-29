@@ -88,11 +88,13 @@ function reconcileDecisionReviewAwait(input: DecisionReviewAwaitInput): void {
     },
     current = input.projection.readRelationEdge(deriveRelationId(identity)),
     rationale = decisionReviewAwaitRationale(input.decisionId),
+    nextAction =
+      decision.body === null
+        ? null
+        : decisionAcceptReviewReadiness(decision, decision.body.body, input.readSettings().decisionReviewRequirement)
+            .next.action,
     shouldAwait =
-      decision.state === "proposed" &&
-      decision.body !== null &&
-      decisionAcceptReviewReadiness(decision, decision.body.body, input.readSettings().decisionReviewRequirement)
-        .blocker?.code === "changes_requested";
+      decision.state === "proposed" && (nextAction === "override-review" || nextAction === "respond-review");
   if (shouldAwait) {
     if (current?.state === "active") return;
     runRelation(input, "relation-relate", {

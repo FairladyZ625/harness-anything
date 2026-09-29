@@ -33,6 +33,21 @@ export function parseDecision(
     return parseDecisionRead(id, args, rootDir, repoId, json, inputs);
   if (!noId && !nonEmpty(decisionId)) return rejected("missing_field", "Decision id is required.", json);
   if (id === "decision-propose") return parseProposal(args, rootDir, repoId, json, inputs);
+  if (id === "decision-dispatch-review") {
+    const f = readFlags(id, args.slice(3), inputs);
+    if (!f.ok) return rejected(f.code, f.nextAction, json);
+    return accepted(rootDir, repoId, json, {
+      kind: id,
+      decisionId,
+      ...(f.one.get("--agent") ? { agentId: f.one.get("--agent") } : {}),
+      ...(f.one.get("--instance") ? { runtimeInstanceId: f.one.get("--instance") } : {}),
+      ...(f.one.get("--model") ? { model: f.one.get("--model") } : {}),
+      ...(f.one.get("--effort") ? { effort: f.one.get("--effort") } : {}),
+      ...(f.one.get("--expected-digest") ? { expectedDigest: f.one.get("--expected-digest") } : {}),
+    });
+  }
+  if (["decision-review", "decision-respond-review", "decision-override-review"].includes(id))
+    return parseDecisionReviewCommand(id, decisionId!, args, rootDir, repoId, json, inputs);
   if (["decision-accept", "decision-reject", "decision-defer"].includes(id))
     return parseProjected(
       id,
@@ -55,6 +70,28 @@ export function parseDecision(
       decisionId,
     });
   return rejected("unsupported_command", "Use a canonical Decision command.", json);
+}
+
+function parseDecisionReviewCommand(
+  id: string,
+  decisionId: string,
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const tokens = id === "decision-override-review" ? withDefaultConsent(args.slice(3)) : args.slice(3),
+    f = readFlags(id, tokens, inputs);
+  if (!f.ok) return rejected(f.code, f.nextAction, json);
+  return accepted(rootDir, repoId, json, {
+    kind: id,
+    decisionId,
+    fromFile: f.one.get("--from-file"),
+    ...(f.one.get("--consent-by") ? { consentBy: f.one.get("--consent-by") } : {}),
+    ...(f.one.get("--consent-at") ? { consentAt: f.one.get("--consent-at") } : {}),
+    ...(f.one.get("--consent-channel") ? { consentChannel: f.one.get("--consent-channel") } : {}),
+  });
 }
 
 export function parseProposal(

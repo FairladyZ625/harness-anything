@@ -48,6 +48,8 @@ test("agenda projects an empty ledger without synthetic state", async () => {
         awaitingRework: agenda.awaitingRework,
         awaitingAdjudication: agenda.awaitingAdjudication,
         underReview: agenda.underReview,
+        decisionReviewInProgress: agenda.decisionReviewInProgress,
+        awaitingDecisionReview: agenda.awaitingDecisionReview,
         awaitingDecision: agenda.awaitingDecision,
         waitingOnOthers: agenda.waitingOnOthers,
         dispatchable: agenda.dispatchable,
@@ -57,6 +59,8 @@ test("agenda projects an empty ledger without synthetic state", async () => {
         awaitingRework: [],
         awaitingAdjudication: [],
         underReview: [],
+        decisionReviewInProgress: [],
+        awaitingDecisionReview: [],
         awaitingDecision: [],
         waitingOnOthers: [],
         dispatchable: [],
@@ -64,7 +68,7 @@ test("agenda projects an empty ledger without synthetic state", async () => {
     );
     assert.match(
       agenda.summary,
-      /等你处理 \(0\)[\s\S]*待裁 Decision \(0\)[\s\S]*在飞线 \(0\)[\s\S]*待派审 \(0\)[\s\S]*评审中 \(0\)[\s\S]*球在别人手里 \(0\)[\s\S]*可派队列 \(0\)/u,
+      /等你处理 \(0\)[\s\S]*待评审 Decision \(0\)[\s\S]*待裁 Decision \(0\)[\s\S]*在飞线 \(0\)[\s\S]*待派审 \(0\)[\s\S]*评审中 \(0\)[\s\S]*球在别人手里 \(0\)[\s\S]*可派队列 \(0\)/u,
     );
   });
 });
@@ -296,7 +300,7 @@ test("agenda splits awaiting work by next action, pins first, and rejects a miss
     assert.equal(agenda.inFlight[0]?.pinned, true);
     assert.equal(agenda.inFlight[0]?.leaseExecutionId, "exe_active");
     // 三种 task 状态 + 一条 decision 各落各组、互不重复(submitted→待派审、in_review→评审中、
-    // changes_requested→等我修、proposed decision→待裁)。
+    // changes_requested→等我修、默认免审的 proposed decision→待裁)。
     assert.deepEqual(
       agenda.awaitingAdjudication.map(({ taskId }) => taskId),
       ["task_wait_adjudicate"],
