@@ -1,17 +1,30 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, statSync, truncateSync, utimesSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  statSync,
+  truncateSync,
+  utimesSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
   appendRuntimeWorkerRecord,
+  archiveDispatchStream,
   dispatchLiveIndexPath,
   dispatchStreamPath,
   openDispatchStream,
   openDispatchStreamAppender,
+  readAllDispatchStreamSummaries,
   readDispatchLiveIndex,
   readDispatchStream,
+  readDispatchStreamHeader,
   readDispatchStreamHeaders,
   readDispatchStreamIncrement,
   readDispatchStreamSummary,
@@ -99,6 +112,70 @@ test("a stream created within the directory's mtime tick is still listed", () =>
         .map(({ dispatchId }) => dispatchId)
         .sort(),
       ["dispatch_111111111111111111111111", "dispatch_222222222222222222222222"],
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("terminal streams leave the live directory while point reads remain available", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-archive-"));
+  try {
+    for (let index = 0; index < 3_500; index += 1) {
+      const dispatchId = `dispatch_${index.toString(16).padStart(24, "0")}`;
+      openDispatchStream(rootDir, {
+        dispatchId,
+        taskId: null,
+        executionId: null,
+        runtimeSessionId: `runtime_${index.toString(16).padStart(24, "0")}`,
+        instanceId: "instance-1",
+        startedAt: "2026-09-29T00:00:00.000Z",
+      });
+      if (index < 3_490) archiveDispatchStream(rootDir, dispatchId);
+    }
+    const live = readDispatchStreamHeaders(rootDir);
+    assert.equal(live.length, 10);
+    assert.equal(
+      readdirSync(path.dirname(dispatchStreamPath(rootDir, live[0]!.dispatchId))).filter((name) =>
+        /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name),
+      ).length,
+      10,
+    );
+    const archivedId = "dispatch_000000000000000000000000";
+    assert.equal(readDispatchStreamHeader(rootDir, archivedId)?.dispatchId, archivedId);
+    assert.equal(existsSync(dispatchStreamPath(rootDir, archivedId)), true);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("rebuild enumeration and later worker records retain an archived stream", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-dispatch-archive-rebuild-"));
+  try {
+    const dispatchId = "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa";
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: "task-squad",
+      executionId: "execution-squad",
+      runtimeSessionId: "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
+      instanceId: "instance-squad",
+      startedAt: "2026-09-29T00:00:00.000Z",
+    });
+    archiveDispatchStream(rootDir, dispatchId);
+    appendRuntimeWorkerRecord(rootDir, dispatchId, {
+      kind: "squad_run_state",
+      squadRunId: "squad_aaaaaaaaaaaaaaaaaaaaaaaa",
+      revision: 2,
+      state: { schema: "squad-run/v1" },
+    });
+
+    const liveRoot = path.dirname(path.dirname(dispatchStreamPath(rootDir, dispatchId)));
+    assert.equal(existsSync(path.join(liveRoot, `${dispatchId}.jsonl`)), false);
+    assert.equal(
+      readAllDispatchStreamSummaries(rootDir)
+        .find((stream) => stream.header.dispatchId === dispatchId)
+        ?.records.some((record) => record.kind === "squad_run_state"),
+      true,
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { dispatchStreamPath } from "../src/dispatch-stream.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { initIngressRepo, rpc, eventuallyValue } from "./fixtures/runtime-ingress.ts";
 import { writeAcpProviderStub } from "./fixtures/acp-stub.ts";
@@ -102,7 +103,7 @@ async function spawnSettled(
       });
       return (value.session as { activity?: { outcome?: unknown } } | undefined)?.activity?.outcome ? value : null;
     }),
-    streamPath = path.join(root, ".harness", "runtime", "dispatches", `${String(receipt.dispatchId)}.jsonl`),
+    streamPath = dispatchStreamPath(root, String(receipt.dispatchId)),
     records = await eventuallyValue(() => {
       const lines = readFileSync(streamPath, "utf8")
         .split("\n")
@@ -133,7 +134,7 @@ test("daemon ingress drives an ACP provider through the worker host", async () =
     assert.equal((read.session as { activity: { outcome: unknown; exitCode: unknown } }).activity.outcome, "succeeded");
     assert.equal((read.session as { activity: { exitCode: unknown } }).activity.exitCode, 0);
     assert.equal((read.result as Record<string, unknown>).text, "devin live content");
-    const streamPath = path.join(root, ".harness", "runtime", "dispatches", `${String(receipt.dispatchId)}.jsonl`),
+    const streamPath = dispatchStreamPath(root, String(receipt.dispatchId)),
       stream = await eventuallyValue(() => {
         try {
           const content = readFileSync(streamPath, "utf8");

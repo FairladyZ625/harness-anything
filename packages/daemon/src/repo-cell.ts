@@ -176,10 +176,10 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     });
     const runtimeReads = makeAgentRuntimeReadModel({
         readActivityEvidence: (dispatchId) => readRuntimeSessionActivityEvidence(context.rootDir, dispatchId),
-        readAttemptChain: (runtimeSessionId) => readRuntimeAttemptChain(context.rootDir, runtimeSessionId),
+        readAttemptChain: (runtimeSessionId) => readRuntimeAttemptChain(context.rootDir, runtimeSessionId, projection!),
         readDispatch: (taskId, dispatchId) => readTaskDispatchSession(context.rootDir, taskId, dispatchId),
         readDispatches: ({ sessions, events }) =>
-          readSessionGroupDispatches({ rootDir: context.rootDir, sessions, events }),
+          readSessionGroupDispatches({ rootDir: context.rootDir, sessions, events, projection: projection! }),
         projection,
         store,
         stream: context.runtimeStream,

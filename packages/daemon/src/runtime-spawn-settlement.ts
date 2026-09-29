@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { AgentRuntimeEventV1, CanonicalEventStore, RuntimeResultClaim } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel";
-import { scrubProviderValue } from "./dispatch-stream.ts";
+import { archiveDispatchStream, readDispatchStream, scrubProviderValue } from "./dispatch-stream.ts";
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
 import { pushWorkerBranch, workerBranchHasDelivery } from "./runtime-worker-push.ts";
@@ -70,17 +70,16 @@ export async function publishExit(
           : String(scrubProviderValue(classifiedAttempt.reason)).slice(0, 1024),
     };
     active.stream.appendAttemptOutcome(attemptOutcome, context.input.now());
+    const runtimeMetrics = {
+      inputTokens: active.inputTokens,
+      cacheReadTokens: active.cacheReadTokens,
+      outputTokens: active.outputTokens,
+      totalTokens: active.inputTokens + active.outputTokens,
+      toolCallCount: active.toolCallCount,
+      usageUnavailable: !active.usageReported,
+    };
     active.stream.appendRuntimeMetrics?.(
-      {
-        inputTokens: active.inputTokens,
-        cacheReadTokens: active.cacheReadTokens,
-        outputTokens: active.outputTokens,
-        totalTokens: active.inputTokens + active.outputTokens,
-        toolCallCount: active.toolCallCount,
-        compacted: active.compacted,
-        raw: active.rawUsage,
-        usageUnavailable: !active.usageReported,
-      },
+      { ...runtimeMetrics, compacted: active.compacted, raw: active.rawUsage },
       context.input.now(),
     );
     let body = context.runtimeResultText(active, code, outcome);
@@ -290,6 +289,9 @@ export async function publishExit(
         resultRef,
         result,
         ...(reasonCode ? { reasonCode } : {}),
+        dispatchId: active.dispatchId,
+        endedAt,
+        runtimeMetrics,
       },
       `${active.dispatchOpId}-outcome`,
       terminalBinding,
@@ -309,6 +311,8 @@ export async function publishExit(
       reason: active.lossReason ?? (outcome === "succeeded" ? null : attemptOutcome.reason),
     });
     context.input.stream.publish(active.runtimeSessionId, { type: "exit", outcome });
+    if (readDispatchStream(context.input.rootDir, active.dispatchId)?.fallbackState !== "scheduled")
+      archiveDispatchStream(context.input.rootDir, active.dispatchId);
     const onExitCommand = active.onExitCommand;
     if (typeof onExitCommand === "string")
       setImmediate(() =>

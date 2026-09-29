@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, type AgentDefinitionSnapshot, type AgentRuntimeEventV1 } from "@harness-anything/kernel";
 import type { RuntimeInstanceSummary, RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { dispatchStreamPath, readDispatchStream, readDispatchStreamHeaders } from "../src/dispatch-stream.ts";
+import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
 import type { TaskDispatchRow } from "../src/protocol/daemon-protocol.contract.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
@@ -475,7 +475,7 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
       });
   let spawner = open();
   try {
-    await spawner[coordinated ? "spawnCoordinated" : "spawn"](
+    const spawned = await spawner[coordinated ? "spawnCoordinated" : "spawn"](
       {
         agentId: "leader",
         targetAgentId: agent.id,
@@ -487,9 +487,7 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
       binding,
     );
     const first = await eventually(async () => {
-      const stream = readDispatchStreamHeaders(root)
-        .map((header) => readDispatchStream(root, header.dispatchId))
-        .find((value) => value !== null);
+      const stream = readDispatchStream(root, spawned.dispatchId);
       return stream?.fallbackState === "scheduled" ? stream : null;
     });
     spawner.close();
@@ -514,8 +512,13 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
     await spawner.adopt();
     await spawner.adopt();
     const streams = await eventually(async () => {
-      const values = readDispatchStreamHeaders(root)
-          .map((header) => readDispatchStream(root, header.dispatchId))
+      const continuationIds = published.flatMap((event) =>
+          event.type === "runtime_dispatch_requested" && event.payload.instanceId === "provider-adopt-next"
+            ? [event.payload.dispatchId]
+            : [],
+        ),
+        values = [first.header.dispatchId, ...continuationIds]
+          .map((dispatchId) => readDispatchStream(root, dispatchId))
           .filter((value): value is NonNullable<typeof value> => value !== null),
         original = values.find((stream) => stream.header.dispatchId === first.header.dispatchId);
       return values.length === 2 && original?.fallbackState === "dispatched" ? values : null;

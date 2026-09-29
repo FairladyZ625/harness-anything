@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dispatchTaskCommand, parseToolOptions, renderToolHelp, toolValue } from "./tool-command-contract.mjs";
+import { dispatchStreamPath } from "../packages/daemon/src/dispatch-stream.ts";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -39,7 +40,8 @@ function parseReceiptText(text, command) {
   } catch {
     throw new Error(`${command.join(" ")} did not return one JSON receipt.`);
   }
-  if (!receipt || typeof receipt !== "object" || Array.isArray(receipt)) throw new Error(`${command.join(" ")} returned an invalid receipt.`);
+  if (!receipt || typeof receipt !== "object" || Array.isArray(receipt))
+    throw new Error(`${command.join(" ")} returned an invalid receipt.`);
   return receipt;
 }
 
@@ -49,8 +51,14 @@ function subprocessRunner({ haBin = process.env.HA_BIN, cwd }) {
       ? { executable: haBin, leadingArgs: [] }
       : { executable: process.execPath, leadingArgs: [path.join(repositoryRoot, "packages/cli/src/index.ts")] };
     const command = [launcher.executable, ...launcher.leadingArgs, "--json", ...args];
-    const result = spawnSync(launcher.executable, [...launcher.leadingArgs, "--json", ...args], { cwd, env: process.env, encoding: "utf8" });
-    const status = result.status ?? 1, stdout = result.stdout ?? "", stderr = result.stderr ?? "";
+    const result = spawnSync(launcher.executable, [...launcher.leadingArgs, "--json", ...args], {
+      cwd,
+      env: process.env,
+      encoding: "utf8",
+    });
+    const status = result.status ?? 1,
+      stdout = result.stdout ?? "",
+      stderr = result.stderr ?? "";
     if (status !== 0) throw new DispatchCommandError(command, status, stdout, stderr);
     return { command, receipt: parseReceiptText(stdout, command) };
   };
@@ -68,7 +76,8 @@ function findWorkspaceRoot(start = repositoryRoot) {
 
 function receiptText(receipt, field, step) {
   const value = receipt?.[field];
-  if (typeof value !== "string" || value.length === 0) throw new Error(`${step} receipt has no ${field}; refusing to infer it.`);
+  if (typeof value !== "string" || value.length === 0)
+    throw new Error(`${step} receipt has no ${field}; refusing to infer it.`);
   return value;
 }
 
@@ -104,9 +113,21 @@ export function runDispatch(input, dependencies = {}) {
   const dispatchId = receiptText(dispatched, "dispatchId", "runtime run");
   const runtimeSessionId = receiptText(dispatched, "runtimeSessionId", "runtime run");
   const nextAction = receiptText(dispatched, "nextAction", "runtime run");
-  const dispatchJsonlPath = path.join(workspaceRoot, ".harness", "runtime", "dispatches", `${dispatchId}.jsonl`);
+  const dispatchJsonlPath = dispatchStreamPath(workspaceRoot, dispatchId);
 
-  return { schema: "dispatch-task-receipt/v2", ok: true, taskId, executionId, packagePath, planPath, dispatchId, runtimeSessionId, dispatchJsonlPath, nextAction, steps };
+  return {
+    schema: "dispatch-task-receipt/v2",
+    ok: true,
+    taskId,
+    executionId,
+    packagePath,
+    planPath,
+    dispatchId,
+    runtimeSessionId,
+    dispatchJsonlPath,
+    nextAction,
+    steps,
+  };
 }
 
 function main() {

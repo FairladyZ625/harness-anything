@@ -11,7 +11,7 @@ import { connect, type TLSSocket } from "node:tls";
 import { makeTaskEventReader, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import type { AgentRuntimeSessionDto } from "../src/agent-runtime-contract.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { readDispatchStream } from "../src/dispatch-stream.ts";
+import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
@@ -389,11 +389,8 @@ test(
       ).length,
       1,
     );
-    assert.equal(existsSync(path.join(edgeRoot, ".harness/runtime/dispatches", `${receipt.dispatchId}.jsonl`)), true);
-    assert.equal(
-      existsSync(path.join(fixture.repo, ".harness/runtime/dispatches", `${receipt.dispatchId}.jsonl`)),
-      false,
-    );
+    assert.equal(existsSync(dispatchStreamPath(edgeRoot, receipt.dispatchId)), true);
+    assert.equal(existsSync(dispatchStreamPath(fixture.repo, receipt.dispatchId)), false);
     assert.equal(
       readFileSync(
         path.join(edgeRoot, "harness/tasks/task-fleet-fleet/artifacts/reports", `${receipt.dispatchId}.md`),

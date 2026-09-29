@@ -5,11 +5,12 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { type CanonicalEventStore, type RuntimeSession, type TaskProjection } from "@harness-anything/kernel";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, archiveDispatchStream, openDispatchStream } from "../src/dispatch-stream.ts";
 import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 import { makeSquadCoordinator } from "../src/squad-coordinator.ts";
+import { latestSquadStates } from "../src/squad-run-state.ts";
 import {
   serializeSquadRunRead,
   serializeSquadRunsList,
@@ -373,6 +374,18 @@ function seedRunningSquadRun(rootDir: string, squadRunId: string): void {
   });
 }
 
+test("squad state rebuild replays an archived leader stream", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-squad-archive-rebuild-"));
+  try {
+    const squadRunId = "squad_0123456789abcdef01234567";
+    seedRunningSquadRun(rootDir, squadRunId);
+    archiveDispatchStream(rootDir, "dispatch_00000000000000000000a1b2");
+    assert.equal(latestSquadStates(rootDir).get(squadRunId)?.revision, 2);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 /** leader 派工的归档结算行:outcome/resultRef 是 receipt 原文的既有时实来源。 */
 function leaderArchive(): Record<string, unknown> {
   return {
@@ -448,6 +461,7 @@ function detailProjectionWith(archives: ReadonlyMap<string, Record<string, unkno
             payload: { dispatchId: "dispatch_00000000000000000000a1b2", runtimeSessionId },
           }
         : null,
+    readRuntimeDispatchByResumeSource: () => null,
     readDocument: (documentPath: string) => {
       const archive = archives.get(/dispatch_[a-f0-9]{24}/u.exec(documentPath)?.[0] ?? "");
       return {
@@ -757,6 +771,7 @@ function windowProjectionWith(
     readSquadRun: (squadRunId: string) => rows.find((row) => row.squadRunId === squadRunId) ?? null,
     readRuntimeSession: (runtimeSessionId: string) =>
       sessions.find((candidate) => candidate.runtimeSessionId === runtimeSessionId) ?? null,
+    readRuntimeDispatchByResumeSource: () => null,
     batchCalls,
   } as unknown as TaskProjection & { readonly batchCalls: readonly (readonly string[])[] };
 }

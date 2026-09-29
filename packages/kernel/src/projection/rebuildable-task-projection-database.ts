@@ -403,6 +403,29 @@ function createTables(db: DatabaseSync): void {
     CREATE INDEX IF NOT EXISTS event_index_runtime_dispatches ON event_index(workspace_revision)
       WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
         AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
+    CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_id ON event_index(
+      json_extract(event_json, '$.payload.dispatchId')
+    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1';
+    CREATE INDEX IF NOT EXISTS event_index_runtime_resume_source ON event_index(
+      json_extract(event_json, '$.payload.resumedFromDispatchId')
+    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
+    CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_started ON event_index(
+      json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.payload.dispatchId')
+    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
+    CREATE INDEX IF NOT EXISTS event_index_runtime_attempt_group ON event_index(
+      json_extract(event_json, '$.payload.attemptGroupId'), workspace_revision
+    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
+    CREATE INDEX IF NOT EXISTS event_index_runtime_task_execution ON event_index(
+      json_extract(event_json, '$.payload.taskId'), json_extract(event_json, '$.payload.executionId'), workspace_revision
+    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
+    CREATE INDEX IF NOT EXISTS event_index_runtime_review_decision ON event_index(
+      json_extract(event_json, '$.payload.reviewTarget.decisionId'), workspace_revision
+    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
+      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
     CREATE INDEX IF NOT EXISTS event_index_runtime_session ON event_index(
       json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1';

@@ -18,7 +18,8 @@ import { daemonGuiReadMethods, validateDaemonRpcCall } from "../src/protocol/dae
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 
 const NOW = "2026-09-14T12:00:00.000Z",
-  CUT = { status: "ready" as const, watermark: 7, sourceRevision: 7 };
+  CUT = { status: "ready" as const, watermark: 7, sourceRevision: 7 },
+  EMPTY_PROJECTION = { readRuntimeDispatchPage: () => ({ rows: [], nextCursor: null, done: true }) };
 
 function metrics(input: number, cache: number, output: number, tools: number, usageUnavailable = false) {
   return {
@@ -117,6 +118,7 @@ function read(rootDir: string, now = NOW, range: (typeof agentRuntimeTokenUsageR
     range,
     entityLabel: (squadId) => (squadId === "core-squad" ? "Core" : null),
     cut: CUT,
+    projection: EMPTY_PROJECTION,
   });
 }
 
@@ -241,6 +243,36 @@ test("today slices hourly buckets and the multi-day ranges widen the window mono
   }
 });
 
+test("token history pagination stops on reader done, not cursor presence", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-token-usage-pages-"));
+  try {
+    let reads = 0;
+    const result = readAgentRuntimeTokenUsage({
+      rootDir,
+      now: NOW,
+      range: "30d",
+      entityLabel: () => null,
+      cut: CUT,
+      projection: {
+        readRuntimeDispatchPage: () => {
+          reads += 1;
+          return reads === 1
+            ? {
+                rows: [],
+                nextCursor: { startedAt: "2026-09-01T00:00:00.000Z", dispatchId: "dispatch_cursor" },
+                done: false,
+              }
+            : { rows: [], nextCursor: { startedAt: "2099-01-01T00:00:00.000Z", dispatchId: "tail" }, done: true };
+        },
+      },
+    });
+    assert.equal(result.totals.totalTokens, 0);
+    assert.equal(reads, 2, "a terminal page may carry a cursor and must not trigger a third read");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("agent runtime token usage rows sort by total tokens descending", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-token-usage-sort-"));
   try {
@@ -282,6 +314,7 @@ test("readAgentRuntimeTokenUsageDetail scopes sessions, trend and totals to one 
       member: { kind: "agent", agentId: "terra" },
       entityLabel: () => null,
       cut: CUT,
+      projection: EMPTY_PROJECTION,
     });
     assert.deepEqual(detail.member, { kind: "agent", agentId: "terra", agentName: "Terra" });
     assert.equal(detail.totals.sessionCount, 1);
@@ -305,6 +338,7 @@ test("readAgentRuntimeTokenUsageDetail scopes sessions, trend and totals to one 
       member: { kind: "agent", agentId: "sol" },
       entityLabel: () => null,
       cut: CUT,
+      projection: EMPTY_PROJECTION,
     });
     assert.equal(sol.sessions[0]!.usage, "unavailable");
     assert.equal(sol.totals.usageUnavailableDispatches, 1);
@@ -317,6 +351,7 @@ test("readAgentRuntimeTokenUsageDetail scopes sessions, trend and totals to one 
       member: { kind: "squad", squadId: "core-squad" },
       entityLabel: (squadId) => (squadId === "core-squad" ? "Core" : null),
       cut: CUT,
+      projection: EMPTY_PROJECTION,
     });
     assert.deepEqual(squad.member, { kind: "squad", squadId: "core-squad", squadName: "Core" });
     assert.equal(squad.totals.sessionCount, 2);
@@ -353,6 +388,7 @@ test("validateAgentRuntimeTokenUsage accepts the aggregate and rejects corrupted
       member: { kind: "agent", agentId: "terra" },
       entityLabel: () => null,
       cut: CUT,
+      projection: EMPTY_PROJECTION,
     });
     assert.deepEqual(validateAgentRuntimeTokenUsageDetail(detail), []);
     assert.equal(serializeAgentRuntimeTokenUsageDetail(detail), `${JSON.stringify(detail)}\n`);
@@ -438,6 +474,7 @@ test("repo.agentRuntime.tokenUsage and tokenUsageDetail are registered through t
         member: { kind: "agent", agentId: "terra" },
         entityLabel: () => null,
         cut: CUT,
+        projection: EMPTY_PROJECTION,
       }),
     );
     assert.equal(parsedDetail.ok, true);

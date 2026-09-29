@@ -29,7 +29,7 @@ import {
   runtimeArchiveText,
 } from "./doc-sync-files.ts";
 import { readDocReceipt } from "./doc-sync-reads.ts";
-import { readDispatchStream } from "./dispatch-stream.ts";
+import { readDispatchStreamHeader } from "./dispatch-stream.ts";
 
 export interface RuntimeDispatchArchive {
   readonly dispatchId: string;
@@ -187,7 +187,7 @@ export function archiveRuntimeDispatch(
   // A reviewer registers its review (which publishes the report documents itself) before its runtime
   // settles. For reviewer dispatches an archive document that is already published with identical
   // content is already archived, not a collision; only divergent pre-existing content still fails.
-  const reviewer = readDispatchStream(input.rootDir, value.dispatchId)?.header.role === "reviewer",
+  const reviewer = readDispatchStreamHeader(input.rootDir, value.dispatchId)?.role === "reviewer",
     classified = documents.map((document, index) => {
       const authored = path.join(layout.authoredRoot, ...document.path.split("/")),
         authoredBody = existsSync(authored) ? readFileSync(authored) : null,

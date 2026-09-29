@@ -8,6 +8,7 @@ import test from "node:test";
 import { makeTaskEventStore, registerDaemonRepo, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { dispatchStreamPath } from "../src/dispatch-stream.ts";
 import { validateRuntimeSpawnReceipt } from "../src/gui-s3-control.ts";
 import {
   canonicalRoot,
@@ -810,10 +811,7 @@ test("a squad-delegated worker injects selected absolute skill paths into every 
       binding,
     );
     const header = JSON.parse(
-      readFileSync(
-        path.join(root, ".harness/runtime/dispatches", `${String(leaderReceipt.dispatchId)}.jsonl`),
-        "utf8",
-      ).split(/\r?\n/u)[0]!,
+      readFileSync(dispatchStreamPath(root, String(leaderReceipt.dispatchId)), "utf8").split(/\r?\n/u)[0]!,
     ) as Record<string, unknown>;
     assert.equal(header.squadId, "runtime-squad");
     assert.equal(header.agentId, "squad-leader");
@@ -922,7 +920,7 @@ test("Agent skill is really read by the provider from the absolute path in its f
           break;
         assert.notEqual(event?.type, "exit", "runtime exited before the provider witness arrived");
       }
-      const streamPath = path.join(root, ".harness", "runtime", "dispatches", `${receipt.dispatchId}.jsonl`),
+      const streamPath = dispatchStreamPath(root, receipt.dispatchId),
         stream = readFileSync(streamPath, "utf8"),
         records = stream
           .trim()
@@ -1049,10 +1047,7 @@ test("Codex API-key bearer remains confined to the private provider config", asy
           repoId: "runtime-bearer-confidentiality",
           rootDir: root,
         }).read().events,
-        stream = readFileSync(
-          path.join(root, ".harness", "runtime", "dispatches", `${receipt.dispatchId}.jsonl`),
-          "utf8",
-        ),
+        stream = readFileSync(dispatchStreamPath(root, receipt.dispatchId), "utf8"),
         config = readFileSync(
           path.join(userRoot, "runtime-instances", "codex-private", "home", ".codex", "config.toml"),
           "utf8",

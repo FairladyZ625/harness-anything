@@ -32,7 +32,7 @@ import {
   decisionReviewState,
   readDecisionReviewDispatches,
 } from "./decision-review-read.ts";
-import { readDispatchStreamHeaders, type DispatchStreamHeader } from "./dispatch-stream.ts";
+import type { DispatchStreamHeader } from "./dispatch-stream.ts";
 import { readRepositorySettings } from "./repo-cell-settings-state.ts";
 import { presetSnapshotReader, taskWorkspaceView } from "./task-worktree.ts";
 import {
@@ -102,7 +102,7 @@ export function makeTaskQueryReadModel(input: {
         ok: true,
         facet: "runtimeEdges",
         ...emptyRows,
-        edges: runtimeDispatchEdges(readDispatchStreamHeaders(rootDir)),
+        edges: runtimeDispatchEdges(projectedRuntimeHeaders(projection)),
         warnings: [],
       };
     }
@@ -708,6 +708,36 @@ export function makeTaskQueryReadModel(input: {
     };
   }
   return Object.freeze({ agenda, relationGraphNeighborhood, relationGraphFacet, relationGraphPage, guiTasks });
+}
+
+function projectedRuntimeHeaders(projection: TaskProjection): DispatchStreamHeader[] {
+  const headers: DispatchStreamHeader[] = [];
+  let cursor: { readonly startedAt: string; readonly dispatchId: string } | undefined;
+  for (;;) {
+    const page = projection.readRuntimeDispatchPage({
+      startedAtGte: "0000-01-01T00:00:00.000Z",
+      ...(cursor ? { cursor } : {}),
+      limit: 500,
+    });
+    for (const { event } of page.rows) {
+      const value = event.payload;
+      headers.push({
+        schema: "runtime-dispatch-stream/v1",
+        kind: "dispatch",
+        dispatchId: value.dispatchId,
+        taskId: value.taskId ?? null,
+        executionId: value.executionId ?? null,
+        runtimeSessionId: value.runtimeSessionId,
+        instanceId: value.instanceId,
+        startedAt: value.startedAt ?? event.occurredAt,
+        eventStreamRef: `file:.harness/runtime/dispatches/archive/${value.dispatchId}.jsonl`,
+        ...(value.agentId ? { agentId: value.agentId } : {}),
+      });
+    }
+    if (page.done) return headers;
+    if (!page.nextCursor) throw new Error("runtime dispatch graph page is incomplete without a next cursor");
+    cursor = page.nextCursor;
+  }
 }
 /**
  * `repo.triadic.relationGraph {facet:"runtimeEdges"}` — the agent→task dispatch edges.

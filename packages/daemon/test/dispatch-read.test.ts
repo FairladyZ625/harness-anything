@@ -48,6 +48,7 @@ function projectionFor(current: RuntimeSession): TaskProjection {
       sourceRevision: 1,
     }),
     readRuntimeDispatch: () => ({ payload: { dispatchId } }),
+    readRuntimeDispatchByResumeSource: () => null,
     readReplicaBasis: () => {
       throw new Error("dispatch reads must not enumerate the replica document basis");
     },
@@ -133,6 +134,7 @@ test("a single-task query for an id the projection does not have answers task_no
       readReplicaBasis: () => {
         throw new Error("dispatch reads must not enumerate the replica document basis");
       },
+      readRuntimeDispatchByResumeSource: () => null,
       readDocument: () => ({ document: null }),
     } as unknown as TaskProjection;
     assert.throws(
@@ -162,6 +164,7 @@ test("a single-task query for a task without a projected package answers task_no
         throw new Error("dispatch reads must not enumerate the replica document basis");
       },
       readDocument: () => ({ document: null }),
+      readRuntimeDispatchByResumeSource: () => null,
     } as unknown as TaskProjection;
     assert.throws(
       () => readTaskDispatches({ rootDir, projection, taskId }),
@@ -313,6 +316,7 @@ test("an unbound detached dispatch is read from the live index", () => {
         throw new Error("dispatch reads must not enumerate the replica document basis");
       },
       readDocument: () => ({ document: null }),
+      readRuntimeDispatchByResumeSource: () => null,
     } as unknown as TaskProjection;
     const result = readTaskDispatches({ rootDir, projection, taskId });
     assert.equal(result.dispatches.find((row) => row.dispatchId === dispatchId)?.status, "running");
@@ -392,6 +396,7 @@ test("live and archived rows carry the parent runtime session edge only when pre
         sourceRevision: 1,
       }),
       readRuntimeDispatch: () => ({ payload: { dispatchId } }),
+      readRuntimeDispatchByResumeSource: () => null,
       readDocument: () => ({ document: { body: JSON.stringify(archived) } }),
       readReplicaBasis: () => {
         throw new Error("dispatch reads must not enumerate the replica document basis");
@@ -446,6 +451,7 @@ test("archived dispatch rows expose terminal result and task artifact references
         sourceRevision: 1,
       }),
       readRuntimeDispatch: () => ({ payload: { dispatchId } }),
+      readRuntimeDispatchByResumeSource: () => null,
       readDocument: () => ({ document: { body: JSON.stringify(archived) } }),
       readReplicaBasis: () => {
         throw new Error("dispatch reads must not enumerate the replica document basis");
@@ -574,6 +580,7 @@ test("an archived providerSessionId restores resume without a stream binding", (
           sourceRevision: 1,
         }),
         readRuntimeDispatch: () => ({ payload: { dispatchId } }),
+        readRuntimeDispatchByResumeSource: () => null,
         readDocument: () => ({ document: { body: JSON.stringify(body) } }),
         readReplicaBasis: () => {
           throw new Error("dispatch reads must not enumerate the replica document basis");

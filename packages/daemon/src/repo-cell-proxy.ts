@@ -196,10 +196,11 @@ export async function openRepoCellProxy(
       }),
       runtimeReads = makeAgentRuntimeReadModel({
         readActivityEvidence: (dispatchId) => readRuntimeSessionActivityEvidence(input.rootDir, dispatchId),
-        readAttemptChain: (runtimeSessionId) => readRuntimeAttemptChain(input.rootDir, runtimeSessionId),
+        readAttemptChain: (runtimeSessionId) =>
+          readRuntimeAttemptChain(input.rootDir, runtimeSessionId, writableProjection),
         readDispatch: (taskId, dispatchId) => readTaskDispatchSession(input.rootDir, taskId, dispatchId),
         readDispatches: ({ sessions, events }) =>
-          readSessionGroupDispatches({ rootDir: input.rootDir, sessions, events }),
+          readSessionGroupDispatches({ rootDir: input.rootDir, sessions, events, projection: writableProjection }),
         projection: writableProjection,
         store: readStore,
         stream: runtime,

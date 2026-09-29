@@ -334,16 +334,7 @@ test("agent create runs and ontology-squad reinstall stays on the canonical Enti
     const mission = readFileSync(path.join(root, "harness", String(dispatch.missionRef)), "utf8");
     assert.equal(dispatch.agentId, "mechanic-agent");
     assert.match(mission, /MECHANIC_INSTRUCTIONS_WITNESS/u);
-    const stream = readFileSync(
-      path.join(
-        root,
-        ".harness",
-        "runtime",
-        "dispatches",
-        `${String((child.spawn as Record<string, unknown>).dispatchId)}.jsonl`,
-      ),
-      "utf8",
-    )
+    const stream = readFileSync(path.join(root, String(dispatch.eventStreamRef).slice("file:".length)), "utf8")
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line) as Record<string, unknown>);

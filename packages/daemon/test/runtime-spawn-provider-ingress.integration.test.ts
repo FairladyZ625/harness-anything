@@ -7,6 +7,7 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { readDispatchStream } from "../src/dispatch-stream.ts";
 import type { DaemonLifecycleEntry } from "../src/lifecycle-log.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
@@ -141,14 +142,10 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
             String((read.result as Record<string, unknown>).ref),
             /^artifact:runtime-result\/sha256\/[0-9a-f]{64}$/u,
           );
-          const streamPath = path.join(root, ".harness", "runtime", "dispatches", `${receipt.dispatchId}.jsonl`),
-            stream = await eventuallyValue(() => {
-              try {
-                return readFileSync(streamPath, "utf8");
-              } catch {
-                return null;
-              }
-            });
+          const stream = await eventuallyValue(() => {
+            const value = readDispatchStream(root, receipt.dispatchId);
+            return value ? value.records.map((record) => JSON.stringify(record)).join("\n") : null;
+          });
           assert.match(stream, /"kind":"provider_event"/u);
           if (kindId === "codex") {
             assert.doesNotMatch(
@@ -358,10 +355,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
       /Provider exited with code 1.*OPENAI_API_KEY=\[REDACTED\]/u,
     );
     assert.doesNotMatch(JSON.stringify(stderrRead), new RegExp(secret, "u"));
-    assert.doesNotMatch(
-      readFileSync(path.join(root, ".harness", "runtime", "dispatches", `${stderrFailure.dispatchId}.jsonl`), "utf8"),
-      new RegExp(secret, "u"),
-    );
+    assert.doesNotMatch(JSON.stringify(readDispatchStream(root, stderrFailure.dispatchId)), new RegExp(secret, "u"));
     const structured = await rpc(host, auth, "repo.agentRuntime.spawn", {
       repo: { repoId },
       payload: {

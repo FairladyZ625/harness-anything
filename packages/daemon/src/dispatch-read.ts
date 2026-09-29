@@ -78,10 +78,9 @@ export function readTaskDispatches(
     throw Object.assign(new Error(`Task ${singleTaskId} has no projected package path.`), {
       code: "task_not_found",
     });
-  const resumedDispatches = resumedDispatchesBySource(readDispatchStreamHeaders(input.rootDir)),
-    sessions = new Map(
-      batch.rows.flatMap((task) => task.sessions.map((session) => [session.runtimeSessionId, session] as const)),
-    );
+  const sessions = new Map(
+    batch.rows.flatMap((task) => task.sessions.map((session) => [session.runtimeSessionId, session] as const)),
+  );
   const candidates = new Map<string, DispatchCandidate>();
   for (const task of batch.rows)
     for (const session of task.sessions) {
@@ -102,6 +101,14 @@ export function readTaskDispatches(
     addCandidate(candidates, entry.dispatchId, session, entry.taskId, task.packagePath, true);
     if (sessions.has(entry.runtimeSessionId)) staleIndexEntries.set(entry.dispatchId, entry);
   }
+  const resumedDispatches = new Map(
+    [...candidates.keys()].flatMap((dispatchId) => {
+      const resumed = input.projection.readRuntimeDispatchByResumeSource(dispatchId);
+      return resumed ? [[dispatchId, resumed.event.payload.dispatchId] as const] : [];
+    }),
+  );
+  for (const [source, resumed] of resumedDispatchesBySource(readDispatchStreamHeaders(input.rootDir)))
+    resumedDispatches.set(source, resumed);
   const rows = new Map<string, TaskDispatchRow>();
   for (const [dispatchId, candidate] of candidates) {
     const stream = /^dispatch_[a-f0-9]{24}$/u.test(dispatchId)
@@ -270,10 +277,20 @@ export function readSessionGroupDispatches(input: {
   readonly rootDir: string;
   readonly sessions: readonly RuntimeSession[];
   readonly events: readonly Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>[];
+  readonly projection: Pick<TaskProjection, "readRuntimeDispatchByResumeSource">;
 }): readonly TaskDispatchRow[] {
-  const headers = readDispatchStreamHeaders(input.rootDir),
-    headersByDispatchId = new Map(headers.map((header) => [header.dispatchId, header])),
-    resumedDispatches = resumedDispatchesBySource(headers),
+  const headersByDispatchId = new Map(
+      input.events.flatMap((event) => {
+        const stream = readDispatchStreamSummary(input.rootDir, event.payload.dispatchId);
+        return stream ? [[event.payload.dispatchId, stream.header] as const] : [];
+      }),
+    ),
+    resumedDispatches = new Map(
+      input.events.flatMap((event) => {
+        const resumed = input.projection.readRuntimeDispatchByResumeSource(event.payload.dispatchId);
+        return resumed ? [[event.payload.dispatchId, resumed.event.payload.dispatchId] as const] : [];
+      }),
+    ),
     sessions = new Map(input.sessions.map((session) => [session.runtimeSessionId, session]));
   return input.events.flatMap((event) => {
     const session = sessions.get(event.payload.runtimeSessionId);
@@ -301,21 +318,17 @@ export function readSessionGroupDispatches(input: {
 export function readRuntimeAttemptChain(
   rootDir: string,
   runtimeSessionId: string,
+  projection: Pick<TaskProjection, "readRuntimeDispatchesBySession" | "readRuntimeDispatchesByAttemptGroup">,
 ): AgentRuntimeAttemptChainDto | undefined {
-  const headers = readDispatchStreamHeaders(rootDir),
-    resumedDispatches = resumedDispatchesBySource(headers),
-    targetHeader = headers.find((header) => header.runtimeSessionId === runtimeSessionId);
-  if (!targetHeader) return undefined;
-  const target = readDispatchStreamSummary(rootDir, targetHeader.dispatchId);
+  const targetRow = projection.readRuntimeDispatchesBySession(runtimeSessionId)[0];
+  if (!targetRow) return undefined;
+  const target = readDispatchStreamSummary(rootDir, targetRow.event.payload.dispatchId);
   if (!target) return undefined;
   const groupId = attemptGroupId(target),
-    attempts = headers
-      .filter(
-        (header) =>
-          header.taskId === targetHeader.taskId &&
-          (header.dispatchId === targetHeader.dispatchId || header.fallbackAttempt?.attemptGroupId === groupId),
-      )
-      .map((header) => readDispatchStreamSummary(rootDir, header.dispatchId))
+    groupRows = projection.readRuntimeDispatchesByAttemptGroup(groupId),
+    resumedDispatches = resumedDispatchesBySource(groupRows.map((row) => row.event.payload)),
+    attempts = groupRows
+      .map((row) => readDispatchStreamSummary(rootDir, row.event.payload.dispatchId))
       .filter((stream): stream is NonNullable<ReturnType<typeof readDispatchStream>> => stream !== null)
       .filter((stream) => attemptGroupId(stream) === groupId)
       .map((stream) => ({

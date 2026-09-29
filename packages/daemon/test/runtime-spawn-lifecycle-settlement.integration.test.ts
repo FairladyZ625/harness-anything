@@ -12,7 +12,7 @@ import {
   type AgentDefinitionSnapshot,
 } from "@harness-anything/kernel";
 import { type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, dispatchStreamPath } from "../src/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import {
@@ -734,10 +734,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
       }
     });
     await eventually(() =>
-      readFileSync(
-        path.join(root, ".harness", "runtime", "dispatches", `${String(receipt.dispatchId)}.jsonl`),
-        "utf8",
-      ).includes("provider-re-adopt-session"),
+      readFileSync(dispatchStreamPath(root, String(receipt.dispatchId)), "utf8").includes("provider-re-adopt-session"),
     );
     const firstDispatchPath = path.join(
         root,
@@ -760,10 +757,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
     });
     writeFileSync(firstDispatchPath, `${firstDispatchLines.join("\n")}\n`);
     const reAdoptHostPid = await eventuallyValue(() => {
-      const started = readFileSync(
-        path.join(root, ".harness", "runtime", "dispatches", `${String(receipt.dispatchId)}.jsonl`),
-        "utf8",
-      )
+      const started = readFileSync(dispatchStreamPath(root, String(receipt.dispatchId)), "utf8")
         .trim()
         .split(/\r?\n/u)
         .map((line) => JSON.parse(line) as Record<string, unknown>)
@@ -844,7 +838,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
       }
     });
     assert.match(
-      readFileSync(path.join(root, ".harness", "runtime", "dispatches", `${String(receipt.dispatchId)}.jsonl`), "utf8"),
+      readFileSync(dispatchStreamPath(root, String(receipt.dispatchId)), "utf8"),
       /survived daemon restart/u,
     );
     rmSync(release, { force: true });
@@ -867,19 +861,17 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
       }
     });
     await eventually(() =>
-      readFileSync(
-        path.join(root, ".harness", "runtime", "dispatches", `${String(absentReceipt.dispatchId)}.jsonl`),
-        "utf8",
-      ).includes("provider-re-adopt-session"),
+      readFileSync(dispatchStreamPath(root, String(absentReceipt.dispatchId)), "utf8").includes(
+        "provider-re-adopt-session",
+      ),
     );
     await cell.close();
     cell = undefined;
     writeFileSync(release, "release");
     await eventually(() =>
-      readFileSync(
-        path.join(root, ".harness", "runtime", "dispatches", `${String(absentReceipt.dispatchId)}.jsonl`),
-        "utf8",
-      ).includes('"kind":"process_exit"'),
+      readFileSync(dispatchStreamPath(root, String(absentReceipt.dispatchId)), "utf8").includes(
+        '"kind":"process_exit"',
+      ),
     );
     cell = await open("re-adopt-dead", newFence);
     await eventually(() =>
@@ -966,10 +958,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
     });
     const lostDispatchId = String(lostReceipt.dispatchId),
       hostPid = await eventuallyValue(() => {
-        const started = readFileSync(
-          path.join(root, ".harness", "runtime", "dispatches", `${lostDispatchId}.jsonl`),
-          "utf8",
-        )
+        const started = readFileSync(dispatchStreamPath(root, lostDispatchId), "utf8")
           .trim()
           .split(/\r?\n/u)
           .map((line) => JSON.parse(line) as Record<string, unknown>)
@@ -1014,7 +1003,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
     lostProjection.close();
     assert.ok(lostRow, "lost dispatch row missing after daemon restart");
     assert.equal(
-      readFileSync(path.join(root, ".harness", "runtime", "dispatches", `${lostDispatchId}.jsonl`), "utf8")
+      readFileSync(dispatchStreamPath(root, lostDispatchId), "utf8")
         .split(/\r?\n/u)
         .some((line) => line.includes('"kind":"process_lost"')),
       true,

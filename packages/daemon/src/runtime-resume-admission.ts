@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { SettingsV1, TaskProjection } from "@harness-anything/kernel";
-import { readDispatchStream, readDispatchStreamHeaders } from "./dispatch-stream.ts";
+import { readDispatchStream } from "./dispatch-stream.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { resolveRuntimeCwd } from "./runtime-spawn-mission.ts";
@@ -8,14 +8,19 @@ import { requiredRuntimeProjection } from "./runtime-spawn-process.ts";
 import { materializeTaskWorktree, presetSnapshotReader, type TaskWorktreeCheckout } from "./task-worktree.ts";
 import { worktreeSetupFailure } from "./worktree-setup.ts";
 
-export function admitRuntimeResume(rootDir: string, dispatchId: string | undefined) {
+export function admitRuntimeResume(
+  rootDir: string,
+  dispatchId: string | undefined,
+  projection: () => Pick<TaskProjection, "readRuntimeDispatchByResumeSource">,
+) {
   const resumed = dispatchId ? readDispatchStream(rootDir, dispatchId) : null;
   if (!dispatchId) return resumed;
+  const resumedDispatch = projection().readRuntimeDispatchByResumeSource(dispatchId);
   const admission = runtimeResumeAdmission({
     dispatchId,
     agentId: resumed?.header.agentId ?? null,
     providerSessionId: resumed?.providerSessionId ?? null,
-    resumedDispatches: resumedDispatchesBySource(readDispatchStreamHeaders(rootDir)),
+    resumedDispatches: resumedDispatchesBySource(resumedDispatch ? [resumedDispatch.event.payload] : []),
   });
   if (!admission.resumable && admission.reason === "missing_provider_session")
     throw runtimeSpawnError(

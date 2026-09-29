@@ -8,6 +8,7 @@ import {
   readSync,
   readdirSync,
   readFileSync,
+  renameSync,
   statSync,
   unlinkSync,
   writeFileSync,
@@ -157,17 +158,6 @@ export type DispatchStreamSummary = Omit<NonNullable<ReturnType<typeof readDispa
   readonly records: readonly DispatchStreamRecord[];
 };
 
-type SummaryCacheEntry = {
-  readonly mtimeMs: number;
-  readonly size: number;
-  readonly value: DispatchStreamSummary | null;
-};
-
-const summaryCache = new Map<string, SummaryCacheEntry>();
-// Keyed by stream path: the header is the stream's first line, written once when the stream is
-// created and never rewritten. The directory is listed on every read, because a directory mtime
-// on a coarse clock does not advance for a stream created within the same tick.
-const headerCache = new Map<string, DispatchStreamHeader>();
 const summaryHeadBytes = 16 * 1024;
 const summaryTailBytes = 128 * 1024;
 // A blind-spot probe overlaps each covered window by this many bytes so a record line that
@@ -177,6 +167,7 @@ const summaryProbeOverlapBytes = 4 * 1024;
 // bound, but real providers settle binding within hundreds of KB. Bound the forward probe so
 // oversized or sparse stream files (e.g. hundreds of MB) are never scanned end-to-end.
 const summaryPreambleProbeLimitBytes = 2 * 1024 * 1024;
+const summaryMetricsProbeLimitBytes = 2 * 1024 * 1024;
 const readLimitWarnings = new Set<string>();
 const writeLimitWarnings = new Set<string>();
 const summaryKinds = new Set([
@@ -217,22 +208,47 @@ export function openDispatchStream(
   return {
     ref,
     appendProviderEvent: (value, occurredAt) =>
-      appendJsonl(target, {
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
         schema: streamSchema,
         kind: "provider_event",
         occurredAt,
         event: scrubProviderValue(value),
       }),
     appendProviderBinding: (providerSessionId, occurredAt) =>
-      appendJsonl(target, { schema: streamSchema, kind: "provider_binding", occurredAt, providerSessionId }),
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        schema: streamSchema,
+        kind: "provider_binding",
+        occurredAt,
+        providerSessionId,
+      }),
     appendExitNotification: (value, occurredAt) =>
-      appendJsonl(target, { schema: streamSchema, kind: "exit_notification", occurredAt, ...value }),
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        schema: streamSchema,
+        kind: "exit_notification",
+        occurredAt,
+        ...value,
+      }),
     appendAttemptOutcome: (value, occurredAt) =>
-      appendJsonl(target, { schema: streamSchema, kind: "attempt_outcome", occurredAt, ...value }),
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        schema: streamSchema,
+        kind: "attempt_outcome",
+        occurredAt,
+        ...value,
+      }),
     appendFallbackState: (value, occurredAt) =>
-      appendJsonl(target, { schema: streamSchema, kind: "fallback_state", occurredAt, ...value }),
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        schema: streamSchema,
+        kind: "fallback_state",
+        occurredAt,
+        ...value,
+      }),
     appendRuntimeMetrics: (value, occurredAt) =>
-      appendJsonl(target, { schema: streamSchema, kind: "runtime_metrics", occurredAt, ...value }),
+      appendJsonl(dispatchStreamPath(rootDir, header.dispatchId), {
+        schema: streamSchema,
+        kind: "runtime_metrics",
+        occurredAt,
+        ...value,
+      }),
   };
 }
 
@@ -244,8 +260,6 @@ export function reopenDispatchStream(rootDir: string, header: DispatchStreamHead
 export function removeDispatchStream(rootDir: string, dispatchId: string): void {
   const target = dispatchStreamPath(rootDir, dispatchId),
     header = readDispatchStreamHeader(rootDir, dispatchId);
-  summaryCache.delete(target);
-  headerCache.delete(target);
   readLimitWarnings.delete(target);
   writeLimitWarnings.delete(target);
   if (existsSync(target)) unlinkSync(target);
@@ -253,6 +267,15 @@ export function removeDispatchStream(rootDir: string, dispatchId: string): void 
     removeDispatchLiveIndexEntries(rootDir, [
       { dispatchId, taskId: header.taskId, runtimeSessionId: header.runtimeSessionId },
     ]);
+}
+
+/** Move a terminal stream out of the directory enumerated by live-runtime reads. */
+export function archiveDispatchStream(rootDir: string, dispatchId: string): void {
+  const live = liveDispatchStreamPath(rootDir, dispatchId);
+  if (!statSync(live, { throwIfNoEntry: false })?.isFile()) return;
+  const archived = archivedDispatchStreamPath(rootDir, dispatchId);
+  mkdirSync(path.dirname(archived), { recursive: true, mode: 0o700 });
+  renameSync(live, archived);
 }
 
 export function readDispatchLiveIndex(rootDir: string, taskIds: readonly string[]): DispatchLiveIndex {
@@ -336,17 +359,9 @@ function readDispatchStreamHeaderAt(target: string, dispatchId: string): Dispatc
 export function readDispatchStreamSummary(rootDir: string, dispatchId: string): DispatchStreamSummary | null {
   const target = dispatchStreamPath(rootDir, dispatchId);
   const stat = statSync(target, { throwIfNoEntry: false });
-  if (!stat?.isFile()) {
-    summaryCache.delete(target);
-    return null;
-  }
-  const cached = summaryCache.get(target);
-  if (cached?.mtimeMs === stat.mtimeMs && cached.size === stat.size) return cached.value;
+  if (!stat?.isFile()) return null;
   const header = readDispatchStreamHeaderAt(target, dispatchId);
-  if (!header) {
-    summaryCache.set(target, { mtimeMs: stat.mtimeMs, size: stat.size, value: null });
-    return null;
-  }
+  if (!header) return null;
   const headerEnd = firstLineEndOffset(target, stat.size);
   const chunks = readBoundedStreamWindows(target, stat.size, headerEnd),
     records: DispatchStreamRecord[] = [];
@@ -380,12 +395,14 @@ export function readDispatchStreamSummary(rootDir: string, dispatchId: string): 
     }
   }
   if (value.runtimeMetrics === null) {
-    const runtimeMetrics = readLatestRecordOfKind(target, "runtime_metrics");
+    const runtimeMetrics = readLatestRecordOfKind(
+      target,
+      "runtime_metrics",
+      Math.max(0, stat.size - summaryMetricsProbeLimitBytes),
+    );
     if (runtimeMetrics && isRuntimeMetrics(runtimeMetrics)) records.push(runtimeMetrics);
   }
-  const valueWithRecoveredMetrics = summarizeDispatch(header, records, stat.mtimeMs);
-  summaryCache.set(target, { mtimeMs: stat.mtimeMs, size: stat.size, value: valueWithRecoveredMetrics });
-  return valueWithRecoveredMetrics;
+  return summarizeDispatch(header, records, stat.mtimeMs);
 }
 
 export function readDispatchStreamHeaders(rootDir: string): readonly DispatchStreamHeader[] {
@@ -393,20 +410,28 @@ export function readDispatchStreamHeaders(rootDir: string): readonly DispatchStr
   if (!statSync(root, { throwIfNoEntry: false })?.isDirectory()) return [];
   return readdirSync(root)
     .filter((name) => /^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name))
-    .map((name) => {
-      const target = path.join(root, name),
-        cached = headerCache.get(target);
-      if (cached) return cached;
-      const header = readDispatchStreamHeader(rootDir, name.slice(0, -6));
-      if (header) headerCache.set(target, header);
-      return header;
-    })
+    .map((name) => readDispatchStreamHeaderAt(path.join(root, name), name.slice(0, -6)))
     .filter((header): header is DispatchStreamHeader => header !== null);
 }
 
 export function readDispatchStreamSummaries(rootDir: string): readonly DispatchStreamSummary[] {
   return readDispatchStreamHeaders(rootDir)
     .map((header) => readDispatchStreamSummary(rootDir, header.dispatchId))
+    .filter((stream): stream is DispatchStreamSummary => stream !== null);
+}
+
+/** Replay every retained stream when rebuilding projections that have no other durable source. */
+export function readAllDispatchStreamSummaries(rootDir: string): readonly DispatchStreamSummary[] {
+  const root = dispatchStreamRoot(resolveHarnessLayout(rootDir)),
+    archive = path.join(root, "archive"),
+    dispatchIds = new Set<string>();
+  for (const directory of [root, archive]) {
+    if (!statSync(directory, { throwIfNoEntry: false })?.isDirectory()) continue;
+    for (const name of readdirSync(directory))
+      if (/^dispatch_[a-f0-9]{24}\.jsonl$/u.test(name)) dispatchIds.add(name.slice(0, -6));
+  }
+  return [...dispatchIds]
+    .map((dispatchId) => readDispatchStreamSummary(rootDir, dispatchId))
     .filter((stream): stream is DispatchStreamSummary => stream !== null);
 }
 
@@ -552,7 +577,7 @@ function openStreamAppender(
 
 export function openDispatchStreamAppender(target: string): DispatchStreamAppender {
   return openStreamAppender(target, {
-    invalidateSummary: () => summaryCache.delete(target),
+    invalidateSummary: () => undefined,
     scrub: scrubProviderValue,
     unbounded: unboundedDispatchRecord,
     warnDroppedOutput: () =>
@@ -567,7 +592,7 @@ export function openDispatchStreamAppender(target: string): DispatchStreamAppend
 export function dispatchStreamRef(rootDir: string, dispatchId: string): string {
   const layout = resolveHarnessLayout(rootDir);
   const relative = path
-    .relative(layout.rootDir, dispatchStreamPathForLayout(layout, dispatchId))
+    .relative(layout.rootDir, archivedDispatchStreamPath(rootDir, dispatchId))
     .split(path.sep)
     .join("/");
   return `file:${relative}`;
@@ -589,10 +614,23 @@ export function scrubProviderValue(value: unknown): unknown {
 }
 
 export function dispatchStreamPath(rootDir: string, dispatchId: string): string {
+  const live = liveDispatchStreamPath(rootDir, dispatchId),
+    archived = archivedDispatchStreamPath(rootDir, dispatchId);
+  return existsSync(archived) && !existsSync(live) ? archived : live;
+}
+function liveDispatchStreamPath(rootDir: string, dispatchId: string): string {
   return dispatchStreamPathForLayout(resolveHarnessLayout(rootDir), dispatchId);
 }
-function dispatchStreamPathForLayout(layout: ReturnType<typeof resolveHarnessLayout>, dispatchId: string): string {
+function archivedDispatchStreamPath(rootDir: string, dispatchId: string): string {
+  const layout = resolveHarnessLayout(rootDir);
+  assertDispatchId(dispatchId);
+  return path.join(dispatchStreamRoot(layout), "archive", `${dispatchId}.jsonl`);
+}
+function assertDispatchId(dispatchId: string): void {
   if (!/^dispatch_[a-f0-9]{24}$/u.test(dispatchId)) throw new Error("dispatch id is invalid");
+}
+function dispatchStreamPathForLayout(layout: ReturnType<typeof resolveHarnessLayout>, dispatchId: string): string {
+  assertDispatchId(dispatchId);
   return path.join(dispatchStreamRoot(layout), `${dispatchId}.jsonl`);
 }
 export function dispatchLiveIndexPath(rootDir: string, taskId: string): string {
@@ -855,31 +893,32 @@ function readStreamRecordOfKindForward(
   return null;
 }
 
-function readLatestRecordOfKind(target: string, kind: string): Record<string, unknown> | null {
+function readLatestRecordOfKind(target: string, kind: string, start: number): Record<string, unknown> | null {
   const descriptor = openSync(target, fsConstants.O_RDONLY),
     size = fstatSync(descriptor).size,
     marker = Buffer.from(`"kind":"${kind}"`),
     chunkSize = 64 * 1024;
   try {
-    for (let end = size; end > 0; ) {
-      const start = Math.max(0, end - chunkSize),
-        length = end - start,
+    for (let end = size; end > start; ) {
+      const chunkStart = Math.max(start, end - chunkSize),
+        length = end - chunkStart,
         bytes = Buffer.alloc(length),
-        read = readSync(descriptor, bytes, 0, length, start),
+        read = readSync(descriptor, bytes, 0, length, chunkStart),
         markerOffset = bytes.subarray(0, read).lastIndexOf(marker);
       if (markerOffset !== -1) {
         const lineStart = bytes.lastIndexOf(10, markerOffset) + 1,
           lineEnd = bytes.indexOf(10, markerOffset);
         if (lineEnd !== -1) return parseRecord(bytes.subarray(lineStart, lineEnd).toString("utf8"));
       }
-      if (start === 0) break;
-      end = start + marker.length - 1;
+      if (chunkStart === start) break;
+      end = chunkStart + marker.length - 1;
     }
   } finally {
     closeSync(descriptor);
   }
   return null;
 }
+
 export function parseRecord(value: string | undefined): Record<string, unknown> | null {
   if (!value) return null;
   try {

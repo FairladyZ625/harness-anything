@@ -16,6 +16,7 @@ import { presetRuntimeDefaults, presetUserRoot } from "@harness-anything/preset/
 import { agentRuntimeTargetForKind } from "./agent-runtime-contract.ts";
 import { resolveAgentSkills } from "./agent-skills.ts";
 import {
+  archiveDispatchStream,
   openDispatchStream,
   readDispatchStream,
   reopenDispatchStream,
@@ -87,6 +88,8 @@ import type {
 } from "./runtime-spawn-types.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
+import { runtimeDispatchRequestedPayload } from "./runtime-spawn-event.ts";
+import { prepareTaskWorkerGitEnvironment } from "./runtime-spawn-context.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { assertReviewerTarget, selectReviewTarget } from "./review-dispatch-admission.ts";
@@ -102,21 +105,11 @@ export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
   resumeAdmissionTimeoutMs = 30_000,
   exitNotificationTimeoutMs = 30_000;
-
 export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const processes = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
     launch = input.launch ?? launchNative,
-    prepareWorkerGitEnvironment = async (instanceId: string): Promise<NodeJS.ProcessEnv | undefined> => {
-      const credentialEnvironment = await input.prepareWorkerGitEnvironment?.(instanceId);
-      return credentialEnvironment
-        ? {
-            ...credentialEnvironment,
-            GIT_ASKPASS: path.join(input.rootDir, "tools", "git-hooks", "git-askpass"),
-            HARNESS_TASK_BOUND: "1",
-          }
-        : undefined;
-    };
+    prepareWorkerGitEnvironment = (instanceId: string) => prepareTaskWorkerGitEnvironment(input, instanceId);
   let fallbackClosed = false;
   const extracted: RuntimeSpawnerContext = {
     input,
@@ -180,7 +173,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const dryRun = payload.dryRun === true;
     const requestedDispatchId =
         payload.dispatchId === undefined ? undefined : requiredRuntimeSpawnText(payload.dispatchId, "dispatchId"),
-      resumed = admitRuntimeResume(input.rootDir, requestedDispatchId);
+      resumed = admitRuntimeResume(input.rootDir, requestedDispatchId, () =>
+        extracted.requiredRuntimeProjection(input),
+      );
     const explicitRuntimeInstanceId =
         payload.runtimeInstanceId === undefined
           ? resumed?.header.instanceId
@@ -691,16 +686,31 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       );
       requested = await publishRuntimeEvent(
         "runtime_dispatch_requested",
-        {
-          dispatchId: newDispatchId,
-          runtimeSessionId,
-          instanceId: definition.instanceId,
-          installationId: definition.installationId,
-          kindId: definition.kindId,
-          idempotencyKey,
-          definitionSnapshotRef,
-          definitionSnapshot: definition,
-        },
+        runtimeDispatchRequestedPayload(
+          {
+            dispatchId: newDispatchId,
+            runtimeSessionId,
+            instanceId: definition.instanceId,
+            installationId: definition.installationId,
+            kindId: definition.kindId,
+            idempotencyKey,
+            definitionSnapshotRef,
+            definitionSnapshot: definition,
+            startedAt: streamStartedAt,
+          },
+          {
+            ...(requestedDispatchId ? { resumedFromDispatchId: requestedDispatchId } : {}),
+            ...(taskBinding ? { taskBinding } : {}),
+            attemptGroupId: fallbackAttempt?.attemptGroupId ?? newDispatchId,
+            attemptIndex: fallbackAttempt?.attemptIndex ?? 0,
+            ...(agent ? { agent } : {}),
+            ...(squad ? { squadId: squad.squadId } : {}),
+            cwd,
+            ...(role ? { role } : {}),
+            ...(decisionReviewTarget ? { decisionReviewTarget } : {}),
+            ...(reviewerBinding && reviewTarget?.submission ? { reviewerSubmission: reviewTarget.submission } : {}),
+          },
+        ),
         dispatchOpId,
         binding,
         definitionArtifact.body,
@@ -1054,10 +1064,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             },
             input.now(),
           );
+          archiveDispatchStream(input.rootDir, header.dispatchId);
         } catch (error) {
           consumeKnownError(error);
           const reason = `Provider fallback could not launch ${next.instance}: ${runtimeErrorMessage(error)}`;
           writer.appendFallbackState({ state: "exhausted", reason }, input.now());
+          archiveDispatchStream(input.rootDir, header.dispatchId);
           await input.onAttemptTerminal?.({
             runtimeSessionId: header.runtimeSessionId,
             dispatchId: header.dispatchId,

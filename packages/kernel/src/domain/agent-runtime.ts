@@ -335,6 +335,24 @@ interface RuntimePayloads {
     readonly idempotencyKey: string;
     readonly definitionSnapshotRef: string;
     readonly definitionSnapshot: AgentDefinitionSnapshot;
+    readonly startedAt?: string;
+    readonly resumedFromDispatchId?: string;
+    readonly taskId?: string;
+    readonly executionId?: string;
+    readonly attemptGroupId?: string;
+    readonly attemptIndex?: number;
+    readonly agentId?: string;
+    readonly agentName?: string;
+    readonly squadId?: string;
+    readonly cwd?: string;
+    readonly role?: string;
+    readonly reviewTarget?: {
+      readonly kind: "decision" | "task";
+      readonly decisionId?: string;
+      readonly taskId?: string;
+      readonly executionId?: string;
+      readonly digest: string;
+    };
   };
   readonly runtime_session_started: {
     readonly runtimeSessionId: string;
@@ -371,8 +389,19 @@ interface RuntimePayloads {
     readonly resultRef: string;
     readonly result: RuntimeResultClaim | null;
     readonly reasonCode?: string;
+    readonly dispatchId?: string;
+    readonly endedAt?: string;
+    readonly runtimeMetrics?: RuntimeDispatchMetrics;
   };
   readonly runtime_dispatch_outcome_unknown: { readonly dispatchId: string; readonly runtimeSessionId: string };
+}
+export interface RuntimeDispatchMetrics {
+  readonly inputTokens: number;
+  readonly cacheReadTokens: number;
+  readonly outputTokens: number;
+  readonly totalTokens: number;
+  readonly toolCallCount: number;
+  readonly usageUnavailable: boolean;
 }
 export type AgentRuntimeEventV1 = {
   [T in AgentRuntimeEventType]: EventEnvelope<"agent-runtime-event/v1", T, ActorIdentity, RuntimePayloads[T]>;
@@ -435,10 +464,25 @@ function validateAgentRuntimePayloadFields(
 ): readonly string[] {
   const optionalFields =
     type === "runtime_session_outcome_observed"
-      ? ["reasonCode"]
+      ? ["reasonCode", "dispatchId", "endedAt", "runtimeMetrics"]
       : type === "runtime_session_started"
         ? ["taskBinding"]
-        : [];
+        : type === "runtime_dispatch_requested"
+          ? [
+              "startedAt",
+              "resumedFromDispatchId",
+              "taskId",
+              "executionId",
+              "attemptGroupId",
+              "attemptIndex",
+              "agentId",
+              "agentName",
+              "squadId",
+              "cwd",
+              "role",
+              "reviewTarget",
+            ]
+          : [];
   if (
     !isRecord(value) ||
     !hasRequiredFields(value, payloadFields[type]) ||
@@ -469,6 +513,12 @@ function validateAgentRuntimePayloadFields(
   )
     return ["runtime definition snapshot is invalid"];
   if (
+    type === "runtime_dispatch_requested" &&
+    ((value.startedAt !== undefined && !timestamp(String(value.startedAt))) ||
+      (value.attemptIndex !== undefined && (!Number.isInteger(value.attemptIndex) || Number(value.attemptIndex) < 0)))
+  )
+    return ["runtime dispatch query metadata is invalid"];
+  if (
     type === "runtime_session_started" &&
     (!validRef(value.definitionSnapshotRef) ||
       !Number.isInteger(value.launchGeneration) ||
@@ -496,7 +546,33 @@ function validateAgentRuntimePayloadFields(
       !validResult(value.resultRef, value.result, allowUnknownFields))
   )
     return ["runtime outcome observation is invalid"];
+  if (
+    type === "runtime_session_outcome_observed" &&
+    ((value.endedAt !== undefined && !timestamp(String(value.endedAt))) ||
+      (value.runtimeMetrics !== undefined && !validRuntimeDispatchMetrics(value.runtimeMetrics)))
+  )
+    return ["runtime dispatch settlement metadata is invalid"];
   return [];
+}
+
+function validRuntimeDispatchMetrics(value: unknown): value is RuntimeDispatchMetrics {
+  if (
+    !isRecord(value) ||
+    !hasOnlyFields(value, [
+      "inputTokens",
+      "cacheReadTokens",
+      "outputTokens",
+      "totalTokens",
+      "toolCallCount",
+      "usageUnavailable",
+    ])
+  )
+    return false;
+  return (
+    [value.inputTokens, value.cacheReadTokens, value.outputTokens, value.totalTokens, value.toolCallCount].every(
+      (count) => Number.isSafeInteger(count) && Number(count) >= 0,
+    ) && typeof value.usageUnavailable === "boolean"
+  );
 }
 export function validateAgentRuntimeEvent(value: unknown): readonly string[] {
   return validateAgentRuntimeEventFields(value, true);
