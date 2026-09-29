@@ -28,6 +28,42 @@ import {
   writeIdentity,
 } from "./runtime-cli.fixtures.ts";
 
+test("parked runtime awaits omit the repo-read response deadline at the transport seam", async (context) => {
+  const { root, env } = createRuntimeFixture(context);
+  const deadlines: unknown[] = [];
+  const captureDeadline =
+    <Args extends unknown[], Result>(_request: (...args: Args) => Promise<Result>) =>
+    async (...args: Args): Promise<Result> => {
+      deadlines.push(args[4]);
+      return { ok: true } as Result;
+    };
+  await runCommandThroughDaemon(
+    {
+      rootDir: safePath(root),
+      repoId: "runtime-cli",
+      json: true,
+      method: "repo.agentRuntime.sessions.await",
+      action: { kind: "runtime-sessions-await", runtimeSessionIds: ["runtime-1"], noStream: true },
+    },
+    undefined,
+    { env },
+    captureDeadline,
+  );
+  await runCommandThroughDaemon(
+    {
+      rootDir: safePath(root),
+      repoId: "runtime-cli",
+      json: true,
+      method: "repo.agentRuntime.overview",
+      action: { kind: "runtime-status", taskId: "task-1" },
+    },
+    undefined,
+    { env },
+    captureDeadline,
+  );
+  assert.deepEqual(deadlines, [undefined, 30_000]);
+});
+
 test("Task dispatch rejects an incomplete plan then automatically acquires its lease", async (context) => {
   const fixture = createRuntimeFixture(context);
   installIdentities(fixture.parent, fixture.root, fixture.env);

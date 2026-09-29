@@ -3,6 +3,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import type { ITerminalAddon, ITerminalOptions } from "@xterm/xterm";
 
 const xterm = vi.hoisted(() => ({
   loaded: [] as string[],
@@ -10,57 +11,54 @@ const xterm = vi.hoisted(() => ({
   keyHandler: null as ((event: KeyboardEvent) => boolean) | null,
   selection: "",
 }));
-vi.mock("@xterm/xterm", () => ({
-  Terminal: class {
-    cols = 80;
-    rows = 24;
-    options: Record<string, unknown>;
-    #unicode = { activeVersion: "6" };
-    constructor(options: Record<string, unknown> = {}) {
-      this.options = options;
-      xterm.lastOptions = options;
-    }
-    // Mirror xterm's real gate: reading `unicode` (what Unicode11Addon.activate does, and what
-    // TerminalPane's `terminal.unicode.activeVersion = "11"` does) throws unless allowProposedApi is on.
-    get unicode() {
-      if (this.options.allowProposedApi !== true)
-        throw new Error("You must set the allowProposedApi option to true to use proposed API");
-      return this.#unicode;
-    }
-    loadAddon(addon: { readonly name: string }) {
-      xterm.loaded.push(addon.name);
-    }
-    open() {}
-    onData() {
-      return { dispose() {} };
-    }
-    attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) {
-      xterm.keyHandler = handler;
-    }
-    hasSelection() {
-      return xterm.selection.length > 0;
-    }
-    getSelection() {
-      return xterm.selection;
-    }
-    onSelectionChange() {
-      return { dispose() {} };
-    }
-    focus() {}
-    reset() {}
-    write() {}
-    dispose() {}
-  },
-}));
+vi.mock("@xterm/xterm", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@xterm/xterm")>();
+  return {
+    ...actual,
+    Terminal: class extends actual.Terminal {
+      constructor(options: ITerminalOptions = {}) {
+        super(options);
+        xterm.lastOptions = options as Record<string, unknown>;
+      }
+      loadAddon(addon: ITerminalAddon & { readonly name?: string }) {
+        xterm.loaded.push(addon.name || "unicode11");
+        super.loadAddon(addon);
+      }
+      open() {}
+      onData() {
+        return { dispose() {} };
+      }
+      attachCustomKeyEventHandler(handler: (event: KeyboardEvent) => boolean) {
+        xterm.keyHandler = handler;
+      }
+      hasSelection() {
+        return xterm.selection.length > 0;
+      }
+      getSelection() {
+        return xterm.selection;
+      }
+      onSelectionChange() {
+        return { dispose() {} };
+      }
+      focus() {}
+      reset() {}
+      write() {}
+    },
+  };
+});
 vi.mock("@xterm/addon-fit", () => ({
   FitAddon: class {
     name = "fit";
+    activate() {}
+    dispose() {}
     fit() {}
   },
 }));
 vi.mock("@xterm/addon-search", () => ({
   SearchAddon: class {
     name = "search";
+    activate() {}
+    dispose() {}
     findNext() {
       return true;
     }
@@ -72,22 +70,23 @@ vi.mock("@xterm/addon-search", () => ({
 vi.mock("@xterm/addon-serialize", () => ({
   SerializeAddon: class {
     name = "serialize";
-  },
-}));
-vi.mock("@xterm/addon-unicode11", () => ({
-  Unicode11Addon: class {
-    name = "unicode11";
+    activate() {}
+    dispose() {}
   },
 }));
 vi.mock("@xterm/addon-web-links", () => ({
   WebLinksAddon: class {
     name = "web-links";
     constructor(_handler: unknown) {}
+    activate() {}
+    dispose() {}
   },
 }));
 vi.mock("@xterm/addon-webgl", () => ({
   WebglAddon: class {
     name = "webgl";
+    activate() {}
+    dispose() {}
   },
 }));
 vi.mock("../src/renderer/components/terminal/terminal-link-provider.ts", () => ({
