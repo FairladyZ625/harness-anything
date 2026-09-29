@@ -114,10 +114,7 @@ export function DocReader({
       </div>
       <div className="pointer-events-none sticky top-3 z-20 -mb-11 flex justify-end px-3 pt-3">
         <div
-          className={[
-            "pointer-events-auto flex items-center gap-1 rounded-lg border border-border-strong",
-            "bg-surface-raised/95 p-1 shadow-lg backdrop-blur",
-          ].join(" ")}
+          className="glass pointer-events-auto flex items-center gap-1 rounded-lg p-1"
           data-testid="reader-floating-toolbar"
         >
           {/* 栏数默认「自适应」:由 .doc-flow 容器查询按可用宽度自动分栏,无需点击;

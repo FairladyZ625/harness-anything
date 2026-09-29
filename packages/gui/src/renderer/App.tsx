@@ -81,6 +81,7 @@ import { useLocalDocOpener } from "./local-doc/local-doc-context.ts";
 import { useEntityKindOptions, useGovernedEntityRows } from "./entity-kind-data.ts";
 import { guiTransport } from "./gui-transport.ts";
 import { DaemonStartupGate } from "./components/DaemonStartupGate.tsx";
+import { AuroraBackdrop, LiquidFilterDef } from "./components/GlassFoundation.tsx";
 import { agentRuntimeClient, runtimeQueryKeys } from "./agent-runtime-client.ts";
 
 /**
@@ -928,13 +929,19 @@ function AppShell() {
 
 export function App() {
   return (
-    <ThemeProvider>
-      {/* 本机文档浮层(task_89d324b5)挂在 AppShell 内:它需要当前仓的连接模式 ——
-          纯展示(remote-proxy)仓本机无文件,项目外本机文件链接禁用并提示
-          (PLT-EdgeGUI-W3);其余模式照常读取。 */}
-      <DaemonStartupGate>
-        <AppShell />
-      </DaemonStartupGate>
-    </ThemeProvider>
+    <>
+      {/* S2 视觉基础:环境光给玻璃层提供可折射的背景,#liquid 供放大层折射引用,
+          两者均为 fixed/absolute 装饰面,不参与页面布局结构。 */}
+      <AuroraBackdrop />
+      <LiquidFilterDef />
+      <ThemeProvider>
+        {/* 本机文档浮层(task_89d324b5)挂在 AppShell 内:它需要当前仓的连接模式 ——
+            纯展示(remote-proxy)仓本机无文件,项目外本机文件链接禁用并提示
+            (PLT-EdgeGUI-W3);其余模式照常读取。 */}
+        <DaemonStartupGate>
+          <AppShell />
+        </DaemonStartupGate>
+      </ThemeProvider>
+    </>
   );
 }

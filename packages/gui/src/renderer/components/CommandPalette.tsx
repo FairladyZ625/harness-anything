@@ -121,7 +121,7 @@ export function CommandPalette({
   return (
     <div
       data-testid="command-palette"
-      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 pt-[12vh] backdrop-blur-[2px]"
+      className="glass-scrim fixed inset-0 z-50 flex items-start justify-center pt-[12vh]"
       onClick={onClose}
     >
       <div
