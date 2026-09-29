@@ -99,6 +99,7 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
     const proposed = await cell.run(
       {
         kind: "decision-propose",
+        body: "# Decision-derived placement\n\n## 背景\n\nThe GUI needs stable placement.\n\n## 权衡\n\nCompare retaining and dropping placement.\n\n## 结论\n\nRetain placement.\n",
         jsonInput: JSON.stringify({
           title: "Place Alpha",
           question: "Should the list retain Decision-derived placement?",

@@ -62,6 +62,7 @@ test("immediate relate observes all newly created endpoints across twenty writer
     const decision = await cell.run(
       {
         kind: "decision-propose",
+        body: "# Immediate relation anchors\n\n## 背景\n\nNew entities need durable relation anchors.\n\n## 权衡\n\nCompare immediate writes with delayed writes.\n\n## 结论\n\nWrite canonical relations immediately.\n",
         jsonInput: JSON.stringify({
           title: "Immediate relation anchors",
           question: "Can a chosen option derive a newly created task?",
@@ -167,6 +168,7 @@ test("immediate relate observes all newly created endpoints across twenty writer
     const targetDecision = await cell.run(
         {
           kind: "decision-propose",
+          body: "# Incoming relation target\n\n## 背景\n\nNeighborhoods must preserve direction.\n\n## 权衡\n\nCompare canonical and reversed edges.\n\n## 结论\n\nKeep canonical direction.\n",
           jsonInput: JSON.stringify({
             title: "Incoming relation target",
             question: "Does the target preserve canonical relation direction?",

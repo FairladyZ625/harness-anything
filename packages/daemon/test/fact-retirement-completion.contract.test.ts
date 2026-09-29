@@ -253,6 +253,7 @@ async function linkUpstreamFact(
     proposed = await cell.run(
       {
         kind: "decision-propose",
+        body: "# Fact retirement\n\n## 背景\n\nCompletion must close its motivating Fact loop.\n\n## 权衡\n\nCompare explicit disposition with leaving the loop open.\n\n## 结论\n\nRequire explicit disposition.\n",
         jsonInput: JSON.stringify({
           title: `Require Fact retirement disposition (${marker})`,
           question: "How should completion close the motivating Fact loop?",

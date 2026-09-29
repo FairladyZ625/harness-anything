@@ -1335,6 +1335,7 @@ async function withCell(
 function decisionProposal() {
   return {
     kind: "decision-propose",
+    body: "# Agenda behavior\n\n## 背景\n\nProposals need review visibility.\n\n## 权衡\n\nCompare projection with hiding proposals.\n\n## 结论\n\nProject the proposal.\n",
     jsonInput: JSON.stringify({
       title: "Choose agenda behavior",
       question: "Should this proposal appear in the agenda?",

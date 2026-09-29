@@ -138,6 +138,7 @@ test("A vertical artifact entity is a relation endpoint for its declared triple 
 function proposal(title: string) {
   return {
     kind: "decision-propose",
+    body: "# Artifact relation endpoint\n\n## 背景\n\nArtifacts need canonical graph relationships.\n\n## 权衡\n\nCompare the registry with special-case parsing.\n\n## 结论\n\nUse the compiled direction registry.\n",
     jsonInput: JSON.stringify({
       title,
       question: "Should artifact entities be relation endpoints?",

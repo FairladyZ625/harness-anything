@@ -69,7 +69,7 @@ export function population(f, n) {
       kind: "decision",
       key: `d${index}`,
       values: [title, text],
-      argv: ["decision", "propose", "--json-input", decisionPacket(title, text)],
+      argv: ["decision", "propose", "--json-input", decisionPacket(title, text), "--body", realizedDecisionBody(title)],
     });
   }
   for (let index = 0; index < Math.round(0.5 * n); index++) {

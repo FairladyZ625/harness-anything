@@ -64,6 +64,7 @@ test("task create rejects ids that cannot form task entity references", async (t
   const proposed = await cell.run(
       {
         kind: "decision-propose",
+        body: "# Reckon target\n\n## 背景\n\nA decision needs a delivery task.\n\n## 权衡\n\nCompare delivery with skipping the work.\n\n## 结论\n\nDeliver through the task.\n",
         jsonInput: JSON.stringify({
           title: "Reckon target",
           question: "Which task delivers it?",
