@@ -655,6 +655,14 @@ function invalidExecutorBindingFor(
       taskId !== null &&
       runtimeSession !== null &&
       !runtimeSession.taskBindings.some((candidate) => candidate.taskId === taskId),
+    sameExecutor =
+      lease?.actor.executor !== null &&
+      runtimeSessionId !== null &&
+      lease?.actor.executor?.kind === "agent" &&
+      lease.actor.executor.id === `runtime-session:${runtimeSessionId}`,
+    principalMismatch = sameExecutor && lease.actor.principal.personId !== input.binding.actor.principal.personId,
+    sourceMismatch =
+      sameExecutor && !principalMismatch && stableStringify(lease.source) !== stableStringify(input.binding.source),
     // Identity and write source already answer to the lease holder, so the only unmet requirement is
     // the phase; the expectation must name that phase (and, past submit, the frozen cut), never echo
     // the claimant's own executor id back as the missing party.
@@ -690,25 +698,47 @@ function invalidExecutorBindingFor(
             : missingRequestedBinding
               ? `Expected the claimed RuntimeSession to have canonical Task/Execution binding ` +
                 `${taskId}/${executionId ?? "<execution-id>"}; retry ${retry} from that bound session`
-              : claimantHoldsLeaseIdentity
-                ? claimantTaskStatus === "submitted" || claimantTaskStatus === "in_review"
-                  ? `Expected a held execution lease, but task ${leaseTargetTaskId} already left implementation: the ` +
-                    `round was submitted and its cut is frozen — worker writes happen BEFORE ha task submit; if ` +
-                    `artifacts must still land, the owner returns the cut with ha task adjudicate ` +
-                    `${leaseTargetTaskId} --return and the work is resubmitted with them`
-                  : `Expected a held execution lease, but the lease on task ${leaseTargetTaskId} is ` +
-                    `${claimantLease!.phase}; reacquire it with ha task start ${leaseTargetTaskId}, then retry ${retry}`
-                : expected
-                  ? `Expected ${expected} from the held execution lease; run from that executor, then retry ${retry}`
-                  : "Expected a task-bound executor with a matching held execution lease; run ha task start " +
-                    `${taskId ?? "<task-id>"}, then retry ${retry}`,
+              : principalMismatch
+                ? `Expected principal ${lease.actor.principal.personId} from the held execution lease; received ` +
+                  `principal ${input.binding.actor.principal.personId}`
+                : sourceMismatch
+                  ? `Expected write source ${stableStringify(lease.source)} from the held execution lease; received ` +
+                    `write source ${stableStringify(input.binding.source)}`
+                  : claimantHoldsLeaseIdentity
+                    ? claimantTaskStatus === "submitted" || claimantTaskStatus === "in_review"
+                      ? `Expected a held execution lease, but task ${leaseTargetTaskId} already left implementation: the ` +
+                        `round was submitted and its cut is frozen — worker writes happen BEFORE ha task submit; if ` +
+                        `artifacts must still land, the owner returns the cut with ha task adjudicate ` +
+                        `${leaseTargetTaskId} --return and the work is resubmitted with them`
+                      : `Expected a held execution lease, but the lease on task ${leaseTargetTaskId} is ` +
+                        `${claimantLease!.phase}; reacquire it with ha task start ${leaseTargetTaskId}, then retry ${retry}`
+                    : expected
+                      ? `Expected ${expected} from the held execution lease; run from that executor, then retry ${retry}`
+                      : "Expected a task-bound executor with a matching held execution lease; run ha task start " +
+                        `${taskId ?? "<task-id>"}, then retry ${retry}`,
     diagnostic: ReceiptDiagnostic = {
       kind: "validation",
       entity: [taskId ? `task ${taskId}` : "repository", executionId ? `execution ${executionId}` : ""]
         .filter(Boolean)
         .join(" "),
-      field: canonicalTaskId ? "taskId" : wrongExecution ? "executionId" : "executor",
-      actual: canonicalTaskId ? taskId! : wrongExecution ? requestedExecutionId! : actual,
+      field: canonicalTaskId
+        ? "taskId"
+        : wrongExecution
+          ? "executionId"
+          : principalMismatch
+            ? "principal"
+            : sourceMismatch
+              ? "source"
+              : "executor",
+      actual: canonicalTaskId
+        ? taskId!
+        : wrongExecution
+          ? requestedExecutionId!
+          : principalMismatch
+            ? input.binding.actor.principal.personId
+            : sourceMismatch
+              ? stableStringify(input.binding.source)
+              : actual,
       expectation,
     };
   return Object.assign(new Error(message), { code: "executor_binding_invalid" as const, diagnostic });

@@ -300,6 +300,49 @@ test("executor binding rejection names the claimed and held executors", async (t
   assert.equal(context.observedActor, null);
 });
 
+test("matching executor diagnostics name principal and write source mismatches", async (t) => {
+  await t.test("principal", async () => {
+    const receipt = await createRepoCellApi(
+      contextFor(
+        Promise.resolve(),
+        () => runtimeSession,
+        () => ({
+          ...lease,
+          actor: { ...lease.actor, principal: { personId: "person-other-owner" } },
+        }),
+      ),
+    ).run(action, binding);
+
+    assert.equal(receipt.code, "executor_binding_invalid");
+    assert.equal(receipt.diagnostic?.field, "principal");
+    assert.equal(receipt.diagnostic?.actual, runtimeActor.principal.personId);
+    assert.match(String(receipt.diagnostic?.expectation), /person-other-owner/u);
+    assert.doesNotMatch(
+      String(receipt.diagnostic?.expectation),
+      new RegExp(`Expected agent:${runtimeActor.executor.id}`),
+    );
+  });
+
+  await t.test("write source", async () => {
+    const receipt = await createRepoCellApi(
+      contextFor(
+        Promise.resolve(),
+        () => runtimeSession,
+        () => ({ ...lease, source: "remote_direct" as const }),
+      ),
+    ).run(action, binding);
+
+    assert.equal(receipt.code, "executor_binding_invalid");
+    assert.equal(receipt.diagnostic?.field, "source");
+    assert.equal(receipt.diagnostic?.actual, '"local"');
+    assert.match(String(receipt.diagnostic?.expectation), /"remote_direct"/u);
+    assert.doesNotMatch(
+      String(receipt.diagnostic?.expectation),
+      new RegExp(`Expected agent:${runtimeActor.executor.id}`),
+    );
+  });
+});
+
 test("missing session binding diagnostics name the missing canonical condition", async () => {
   const unbound = { ...runtimeSession, taskBindings: [] },
     receipt = await createRepoCellApi(
