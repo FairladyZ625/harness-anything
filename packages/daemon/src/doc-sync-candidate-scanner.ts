@@ -464,13 +464,17 @@ export function scanDocCandidates(input: {
 
   function validateCloseoutArtifactRevisions(taskId: string | null, logical: string, bytes: Uint8Array): string | null {
     if (taskId === null) return null;
+    const revisedAnchors = artifactAnchors(new TextDecoder().decode(bytes)).filter(
+      (anchor) => anchor.revision !== undefined,
+    );
+    if (revisedAnchors.length === 0) return null;
     const closeout = taskTransitionDocumentState({ projection: input.projection, taskId, slot: "task.closeout" });
     if (closeout.state === "undeclared" || closeout.path !== logical) return null;
     const owner = input.projection.read(taskId);
     if (!owner.packagePath) return null;
-    const body = new TextDecoder().decode(bytes);
-    for (const anchor of artifactAnchors(body)) {
-      if (anchor.revision === undefined) continue;
+    for (const anchor of revisedAnchors) {
+      const revision = anchor.revision;
+      if (revision === undefined) continue;
       const artifact = submissionArtifactPath(owner.packagePath, anchor.path);
       try {
         readSubmissionArtifact(
@@ -480,7 +484,7 @@ export function scanDocCandidates(input: {
           },
           owner.packagePath,
           artifact,
-          anchor.revision,
+          revision,
         );
       } catch (error) {
         return error instanceof Error ? error.message : String(error);
