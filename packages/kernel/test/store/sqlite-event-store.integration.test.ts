@@ -55,6 +55,32 @@ import { freezeDeclaredWritePlan } from "../../src/domain/write-chain.contract.t
 const repoId = "sqlite-generation-test";
 const fence: SqliteWriterFence = { repoId, holder: "writer-a", epoch: 1 };
 
+test("mutable SQLite ledger opening requires an explicit repository identity", () => {
+  assert.throws(
+    () => openSqliteEventStore({ databasePath: scratch("missing-repo") }),
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "repo_mismatch" &&
+      /requires repoId/u.test(error.message),
+  );
+});
+
+test("SQLite ledger opening rejects another repository or generation", () => {
+  const databasePath = scratch("metadata-identity"),
+    store = openSqliteEventStore({ repoId, databasePath, generation: 1 });
+  store.close();
+
+  assert.throws(
+    () => openSqliteEventStore({ repoId: "another-repository", databasePath, generation: 1 }),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "repo_mismatch",
+  );
+  assert.throws(
+    () => openSqliteEventStore({ repoId, databasePath, generation: 2, readOnly: true }),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "repo_mismatch",
+  );
+});
+
 test("canonical adapter accepts in SQLite before independently verifying the Git follower", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-canonical-"));
   initRepo(rootDir);
