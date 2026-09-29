@@ -161,7 +161,7 @@ export function evaluateTaskActionCapability(
           : status === "met"
             ? []
             : status === "invocation-required"
-              ? invocationNextActions(input.action)
+              ? invocationNextActions(input.action, invocationTaskId(input))
               : [`${criterion.explain} ${retryUsage(input.action, input.snapshot.task?.taskId)}`],
       ),
     });
@@ -371,11 +371,11 @@ export function taskLifecycleNextActions(input: {
   });
 }
 
-function invocationNextActions(action: EntityActionContract): readonly string[] {
+function invocationNextActions(action: EntityActionContract, taskId: string): readonly string[] {
   const hasRequiredInvocation =
     action.input.fields.some((field) => field.required && field.cli !== undefined) ||
     action.input.exactlyOneOf.length > 0;
-  return hasRequiredInvocation ? [taskActionUsage(action)] : [];
+  return hasRequiredInvocation ? [taskActionUsage(action, taskId)] : [];
 }
 
 function retryUsage(action: EntityActionContract, taskId = "<task-id>"): string {
