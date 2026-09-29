@@ -38,7 +38,7 @@ import { openWriterSupervisor } from "../../src/writer-supervisor.ts";
 import { openRepoCell } from "../../src/repo-cell.ts";
 import { openBootstrappedRepoCell } from "../repo-settings.fixture.ts";
 import { withRoleBinding } from "../role-binding.fixtures.ts";
-import { initRepo } from "../task-surface.fixtures.ts";
+import { git, initRepo } from "../task-surface.fixtures.ts";
 import { realizedDecisionBody, realizedTaskPlan } from "../../../../tools/fixtures/task-plan.mjs";
 import { installCostProbe, resetCostProbe, snapshotCostProbe } from "./g1-cost-probe.mjs";
 
@@ -446,6 +446,9 @@ export async function measureWriteCostScaling(eventCount: number): Promise<G1Sca
     repoId = workspaceId(`g1-cost-${eventCount}`);
   mkdirSync(repoDir, { recursive: true });
   initRepo(repoDir);
+  // task-show reads a materialized worktree's `.git` pointer; relative, it is the same length under every temp root,
+  // so fileReadBytes does not float with the machine's tmpdir.
+  git(repoDir, "config", "worktree.useRelativePaths", "true");
   const rootDir = canonicalRoot(repoDir);
   installCostProbe();
   const counts: Record<string, Counters> = {},
