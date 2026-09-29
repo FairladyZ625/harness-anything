@@ -85,6 +85,7 @@ test("D4 refuses applied before commit, invented intervals, and Git SHA without 
 test("wait predicates require the same repository, generation and cut ancestry", () => {
   for (const wrong of [
     { ...cut, repoId: "other" },
+    { ...cut, generation: 2 },
     { ...cut, revision: 1 },
     { ...cut, headDigest: `sha256:${"b".repeat(64)}` },
   ])
