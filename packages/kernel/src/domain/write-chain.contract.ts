@@ -309,12 +309,6 @@ export function canonicalizeWriteValue(value: unknown): unknown {
   );
 }
 
-export function freezeWriteValue<T>(value: T): Readonly<T> {
-  if (typeof value !== "object" || value === null) return value;
-  for (const nested of Object.values(value)) freezeWriteValue(nested);
-  return Object.freeze(value);
-}
-
 export function validateEventEnvelopeIdentity(value: unknown, allowUnknownFields = false): readonly string[] {
   if (
     isRecord(value) &&
@@ -518,10 +512,6 @@ export function freezeDeclaredWritePlan<C extends string>(
 
 export function isFrozenWritePlan(plan: WritePlan): boolean {
   return Object.isFrozen(plan) && Object.isFrozen(plan.targets);
-}
-
-export function appendWriteTarget<C extends string>(plan: WritePlan<C>, target: WriteTarget): WritePlan<C> {
-  return { commandType: plan.commandType, targets: [...plan.targets, target] };
 }
 
 export function normalizeCommandEnvelope<A extends ActorIdentity>(input: {
