@@ -12,6 +12,7 @@ import type {
   TaskProjection,
 } from "@harness-anything/kernel";
 import { makeSquadCoordinator } from "../src/squad-coordinator.ts";
+import { rejectedSquadAttemptChildren } from "../src/squad-run-state.ts";
 import { appendRuntimeWorkerRecord, dispatchStreamPath, openDispatchStream } from "../src/dispatch-stream.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 
@@ -1105,3 +1106,98 @@ for (const matchingRuntime of [true, false]) {
     });
   });
 }
+
+test("rejectedSquadAttemptChildren names only ended runs' rejected children that no dispatch ever landed on", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-squad-rejected-children-"));
+  try {
+    const binding = { actor: { principal: { personId: "person-squad" }, executor: null }, source: "local" },
+      base = {
+        schema: "squad-run/v1",
+        squadRunId: SQUAD_RUN_ID,
+        stateDispatchId: LEADER_DISPATCH_ID,
+        squadId: "core-squad",
+        taskId: TASK_ID,
+        runtimeInstanceId: INSTANCE_ID,
+        cwd: rootDir,
+        mission: "Finish the work",
+        model: null,
+        effort: null,
+        baseSha: "1".repeat(40),
+        leaderAgentId: "leader",
+        roster: "leader -> sol",
+        workers: ["sol"],
+        leaderTurnBudget: 4,
+        binding,
+        leaderTurns: [],
+        leaderProviderSessionId: null,
+        currentLeaderRuntimeSessionId: null,
+        observedWorkerRuntimeSessionIds: [],
+        workerWaits: [],
+        pendingLeaderTriggers: [],
+        revision: 1,
+        error: null,
+      };
+    const attempt = (workerId: string, taskId: string, rejection: string | null, runtimeSessionId: string | null) => ({
+      attemptId: `worker-${workerId}`,
+      workerId,
+      leaderTurnId: "leader-1",
+      taskId,
+      executionId: taskId === null ? null : `execution-${taskId}`,
+      ownedPaths: [],
+      ownershipCheck: null,
+      dispatchId: null,
+      runtimeSessionId,
+      worktree: null,
+      rejection,
+    });
+    openDispatchStream(rootDir, {
+      dispatchId: LEADER_DISPATCH_ID,
+      taskId: TASK_ID,
+      executionId: `execution-${TASK_ID}`,
+      agentId: "leader",
+      runtimeSessionId: LEADER_SESSION_ID,
+      instanceId: INSTANCE_ID,
+      startedAt: "2026-08-27T00:00:00.000Z",
+    });
+    // A run still working through its triggers keeps its rejected children: the leader may still be re-planning.
+    appendRuntimeWorkerRecord(rootDir, LEADER_DISPATCH_ID, {
+      kind: "squad_run_state",
+      squadRunId: SQUAD_RUN_ID,
+      revision: 1,
+      state: {
+        ...base,
+        phase: "planning",
+        workerAttempts: [attempt("sol", "task-orphan-1", "spawn rejected: no runtime", null)],
+      },
+    });
+    assert.deepEqual(rejectedSquadAttemptChildren(rootDir), []);
+    // The run ends: the rejected, never-dispatched child is named; a dispatched attempt and a clean one are not.
+    appendRuntimeWorkerRecord(rootDir, LEADER_DISPATCH_ID, {
+      kind: "squad_run_state",
+      squadRunId: SQUAD_RUN_ID,
+      revision: 2,
+      state: {
+        ...base,
+        revision: 2,
+        phase: "failed",
+        error: "leader budget exhausted",
+        workerAttempts: [
+          attempt("sol", "task-orphan-1", "spawn rejected: no runtime", null),
+          attempt("terra", "task-live-2", "state write failed after a landed dispatch", "runtime-worker-2"),
+          attempt("luna", "task-clean-3", null, null),
+        ],
+      },
+    });
+    assert.deepEqual(rejectedSquadAttemptChildren(rootDir), [
+      {
+        squadRunId: SQUAD_RUN_ID,
+        taskId: "task-orphan-1",
+        workerId: "sol",
+        rejection: "spawn rejected: no runtime",
+        binding,
+      },
+    ]);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});

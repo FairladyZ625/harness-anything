@@ -10,6 +10,7 @@ import {
   applyTaskWorktreeLifecycle,
   materializeTaskWorktree,
   prepareTaskStartWorktree,
+  reconcileClosedTaskWorktrees,
   taskWorkspaceView,
 } from "../src/task-worktree.ts";
 import { prepareWorkerWorktree, reclaimWorkerWorktree } from "../src/squad-worker-checkout.ts";
@@ -433,6 +434,68 @@ test("a worktree retained at close is reclaimed by a later close on this node on
         if (clean)
           assert.match(String((later as { summary?: string }).summary), new RegExp(`${taskId} and branch`, "u"));
         assert.equal(later.warnings, undefined);
+      } finally {
+        rmSync(fixture.base, { recursive: true, force: true });
+      }
+    });
+});
+
+test("the standalone reconciliation reclaims what a failed close left behind once it is clean", async (t) => {
+  // The daemon-start pass and the close pass run the same function; only the report differs.
+  for (const clean of [true, false])
+    await t.test(clean ? "cleaned: reclaimed with a note" : "still dirty: retained row only", async () => {
+      const fixture = repositoryFixture(),
+        otherId = "task_87654321",
+        openId = "task_55555555",
+        tasks = new Map<string, TaskV2>([
+          [taskId, boundTask("active")],
+          [otherId, { ...boundTask("active"), taskId: otherId }],
+          [openId, { ...boundTask("active"), taskId: openId }],
+        ]),
+        readTask = (id: string) => tasks.get(id) ?? null;
+      try {
+        const cwd = (await materializeTaskWorktree(fixture.root, readTask(taskId), repositoryDiff, []))!.cwd,
+          otherCwd = (await materializeTaskWorktree(fixture.root, readTask(otherId), repositoryDiff, []))!.cwd,
+          openCwd = (await materializeTaskWorktree(fixture.root, readTask(openId), repositoryDiff, []))!.cwd;
+        writeFileSync(path.join(cwd, "draft.txt"), "draft\n");
+        writeFileSync(path.join(otherCwd, "draft.txt"), "draft\n");
+        // Both tasks close while dirty: the close-time reclaim fails once, both worktrees stay.
+        for (const id of [taskId, otherId]) {
+          tasks.set(id, { ...tasks.get(id)!, status: "cancelled" });
+          await lifecycle(fixture.root, readTask, { kind: "task-transition", taskId: id }, {});
+        }
+        assert.equal(existsSync(cwd) && existsSync(otherCwd), true);
+        // The daemon-start pass runs once the dirt is gone; the still-dirty task keeps its worktree.
+        rmSync(path.join(otherCwd, "draft.txt"));
+        if (clean) rmSync(path.join(cwd, "draft.txt"));
+        const rows = await reconcileClosedTaskWorktrees({
+            rootDir: fixture.root,
+            readTask,
+            readPresetSnapshot: repositoryDiff,
+            readSetup: () => [],
+          }),
+          rowOf = (id: string) => rows.find((row) => row.taskId === id);
+        assert.deepEqual(
+          rows.map((row) => [row.taskId, row.named, row.result.outcome]).sort(),
+          clean
+            ? [
+                [taskId, false, "removed"],
+                [otherId, false, "removed"],
+              ]
+            : [
+                [taskId, false, "retained"],
+                [otherId, false, "removed"],
+              ],
+        );
+        if (clean) assert.equal(rowOf(taskId)!.detail, null, "a plain removal says nothing by itself");
+        else assert.match(String(rowOf(taskId)!.detail), /retained .*uncommitted changes/u);
+        // A named close passes its own task in, so a retained worktree is that write's warning to carry.
+        assert.equal(rowOf(otherId)!.named, false);
+        assert.equal(existsSync(otherCwd), false, "the clean closed task's worktree is reclaimed");
+        assert.equal(existsSync(cwd), !clean, "the dirty one is still kept");
+        assert.equal(existsSync(openCwd), true, "an open task's worktree is not this pass's to touch");
+        assert.equal(git(fixture.root, "branch", "--list", otherId).length, 0);
+        assert.equal(git(fixture.root, "branch", "--list", openId).length > 0, true);
       } finally {
         rmSync(fixture.base, { recursive: true, force: true });
       }

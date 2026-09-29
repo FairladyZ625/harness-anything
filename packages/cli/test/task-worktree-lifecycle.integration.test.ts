@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import {
@@ -108,6 +108,37 @@ test("a task's worktree is bound at create, checked out on start or dispatch, an
     mission,
     new RegExp(`^Worker repository root: ${escapeRegExp(realpathSync(dispatchedTree.cwd))}$`, "mu"),
   );
+
+  // A close-time reclaim that fails is not the end: once the worktree is clean, a daemon start reconciles it away.
+  const missed = seedTask(root, env, "wt-restart");
+  run(root, env, ["task", "start", missed.taskId, "--execution-id", missed.executionId]);
+  const missedTree = worktreeOf(missed.taskId);
+  writeFileSync(path.join(missedTree.cwd, "draft.txt"), "draft\n");
+  run(root, env, ["task", "release", missed.taskId]);
+  const retainedAtClose = text(root, env, [
+    "task",
+    "transition",
+    missed.taskId,
+    "cancelled",
+    "--reason",
+    "demo",
+    "--force",
+  ]);
+  assert.match(retainedAtClose, /warning: Worktree retained at .+ \(uncommitted changes\)\./u);
+  assert.equal(existsSync(missedTree.cwd), true, "the dirty close keeps the worktree once more");
+  rmSync(path.join(missedTree.cwd, "draft.txt"));
+  assert.equal(run(root, env, ["daemon", "stop"]).ok, true);
+  assert.equal(run(root, env, ["daemon", "start", "--service"]).ok, true);
+  // The restarted daemon attaches the repository and runs the same reconciliation a close runs; poll the disk.
+  const gone = () => !existsSync(missedTree.cwd);
+  let reclaimed = gone();
+  for (let attempt = 0; !reclaimed && attempt < 300; attempt += 1) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
+    reclaimed = gone();
+  }
+  assert.equal(reclaimed, true, "the daemon start reclaimed the worktree the failed close left behind");
+  assert.equal(git(root, "branch", "--list", missedTree.branch), "");
+  assert.equal(worktreeOf(missed.taskId).state, "reclaimed");
 
   const help = spawnSync(process.execPath, [cli, "--root", root, "task", "create", "--help"], {
     encoding: "utf8",
