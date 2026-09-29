@@ -1,12 +1,14 @@
 import { TextDecoder } from "node:util";
 import {
   CONTRACT_VERSION_1_0,
+  getExecutableEntityAction,
   isContractVersion,
   sha256Text,
   stableStringify,
   type ContractVersion,
   type LedgerCutIdentity,
 } from "@harness-anything/kernel";
+import { daemonProtocolCommands } from "../protocol/daemon-protocol-commands.ts";
 import { isUtcTimestamp } from "../protocol/json-rpc-types.ts";
 
 export const currentFleetProtocolVersion = CONTRACT_VERSION_1_0;
@@ -23,22 +25,7 @@ export type FleetCut = Readonly<{ revision: number; headDigest: string }>;
 export type FleetMirrorBaseCut = FleetCut;
 export type FleetBlob = Readonly<{ sha256: string; size: number; mediaType: string }>;
 export type FleetDescriptor = FleetBlob & Readonly<{ ref: string }>;
-export const FLEET_TASK_COMMAND_KINDS = Object.freeze([
-  "task-create",
-  "task-start",
-  "task-progress-append",
-  "task-submit",
-  "task-settle",
-  "task-adjudicate",
-  "task-complete",
-  "task-review-execution",
-  "task-review-consent",
-  "task-dispatch-review",
-  "task-release",
-  "task-transition",
-  "task-show",
-] as const);
-export type FleetTaskCommandKind = (typeof FLEET_TASK_COMMAND_KINDS)[number];
+export type FleetTaskCommandKind = string;
 export type FleetTaskAction = Readonly<Record<string, unknown>> & { readonly kind: FleetTaskCommandKind };
 // Closed per-kind action surface: every field of a fleet task command must be
 // declared for its kind. The daemon re-binds principal authority server-side,
@@ -355,8 +342,48 @@ const optionalShape =
     record(value) &&
     required.every((field) => Object.hasOwn(value, field)) &&
     Object.entries(value).every(([field, entry]) => Object.hasOwn(fields, field) && fields[field]!(entry));
+/* The command declaration is the fleet surface: admission chooses the route and
+ * its input contract closes the wire object. Adding a command never requires a
+ * second fleet list or validator. */
+const fieldName = (name: string) => name.slice(2).replace(/-([a-z])/gu, (_, letter: string) => letter.toUpperCase()),
+  fleetCommand = (kind: string) =>
+    daemonProtocolCommands.find(
+      (command) =>
+        ("actionKind" in command ? command.actionKind : command.id) === kind &&
+        command.admission["remote-edge"] === "via-center-forward" &&
+        command.path[0] !== "doc" &&
+        command.path[0] !== "schedule",
+    ),
+  declaredActionFields = (kind: string): ReadonlySet<string> | null => {
+    const command = fleetCommand(kind);
+    if (!command) return null;
+    const fields = new Set<string>(["kind"]),
+      entity = getExecutableEntityAction(kind);
+    for (const input of entity?.input.fields ?? []) fields.add(input.field);
+    for (const input of command.inputs) {
+      if ("jsonAllowedFields" in input && Array.isArray(input.jsonAllowedFields)) {
+        fields.delete("field" in input && typeof input.field === "string" ? input.field : fieldName(input.name));
+        for (const field of input.jsonAllowedFields) fields.add(field);
+      } else fields.add("field" in input && typeof input.field === "string" ? input.field : fieldName(input.name));
+    }
+    for (const token of command.syntaxPath ?? command.path) {
+      const match = token.match(/^<?\[?([a-z][a-z0-9-]*)[>\]]?$/u);
+      if (match && (token.startsWith("<") || token.startsWith("["))) fields.add(fieldName(`--${match[1]}`));
+    }
+    if ("actionDefaults" in command && command.actionDefaults)
+      for (const field of Object.keys(command.actionDefaults)) fields.add(field);
+    return fields;
+  };
+const taskAction: Check = (value) => {
+  if (!record(value) || typeof value.kind !== "string") return false;
+  if (Object.hasOwn(fleetActionChecks, value.kind))
+    return fleetActionChecks[value.kind as FleetTaskCommandKind]!(value);
+  const fields = declaredActionFields(value.kind);
+  return fields !== null && Object.keys(value).every((field) => fields.has(field));
+};
+export const isFleetTaskAction = taskAction;
 const taskEvidence = shape({ type: text, path: logicalPath, summary: text });
-const taskActionShapes: Readonly<Record<FleetTaskCommandKind, Check>> = {
+const fleetActionChecks: Readonly<Record<FleetTaskCommandKind, Check>> = {
   "task-create": optionalShape(
     {
       kind: one("task-create"),
@@ -428,11 +455,12 @@ const taskActionShapes: Readonly<Record<FleetTaskCommandKind, Check>> = {
       taskId: id,
       executionId: id,
       reviewId: id,
-      fromFile: text,
-      jsonInput: text,
+      verdict: one("approved", "changes_requested", "dismissed"),
+      reason: text,
+      evidenceChecked: array(text),
       commandType: one("RecordReview"),
     },
-    ["kind", "taskId", "reviewId"],
+    ["kind", "taskId", "reviewId", "verdict", "reason", "evidenceChecked"],
   ),
   "task-review-consent": optionalShape(
     {
@@ -494,11 +522,6 @@ const taskActionShapes: Readonly<Record<FleetTaskCommandKind, Check>> = {
   ]),
   "task-show": optionalShape({ kind: one("task-show"), taskId: id }, ["kind", "taskId"]),
 };
-const taskAction: Check = (value) =>
-  record(value) &&
-  typeof value.kind === "string" &&
-  Object.hasOwn(taskActionShapes, value.kind) &&
-  taskActionShapes[value.kind as FleetTaskCommandKind]!(value);
 const taskLease = shape({
   taskId: id,
   executionId: nullable(id),

@@ -292,12 +292,24 @@ test("Fleet transport union round-trips every closed wire variant", () => {
       executionId: "exe_abc",
     },
     { kind: "task-complete", taskId: "task_abc", consent: true },
-    { kind: "task-review-execution", taskId: "task_abc", reviewId: "review_abc", jsonInput: "{}" },
+    {
+      kind: "task-review-execution",
+      taskId: "task_abc",
+      reviewId: "review_abc",
+      verdict: "approved",
+      reason: "checked",
+      evidenceChecked: ["tests"],
+    },
     { kind: "task-review-consent", taskId: "task_abc", reviewId: "review_abc" },
     { kind: "task-release", taskId: "task_abc", reason: "handoff" },
     { kind: "task-transition", taskId: "task_abc", status: "blocked", reason: "manual review required" },
-  ])
-    assert.deepEqual(parseFleetFrame({ ...taskCommand, taskId: "task_abc", action }).action, action);
+  ]) {
+    let parsed: ReturnType<typeof parseFleetFrame> | undefined;
+    assert.doesNotThrow(() => {
+      parsed = parseFleetFrame({ ...taskCommand, taskId: "task_abc", action });
+    }, action.kind);
+    assert.deepEqual((parsed as typeof taskCommand).action, action);
+  }
   const scheduleCommand = frames.find((frame) => frame.schema === "fleet.schedule.command/v1")!;
   for (const action of [
     { kind: "schedule-show", scheduleId: "probe" },

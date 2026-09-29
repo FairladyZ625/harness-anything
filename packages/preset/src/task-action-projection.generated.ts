@@ -69,6 +69,7 @@ export const taskActionDescriptorProjection = {
       execution: {
         ingress: "task-start",
         topology: "center-forward-write",
+        remoteEdgeAdmission: "via-center-forward",
         lifecycle: {
           transitionId: "start_execution",
           commandType: "StartExecution",
@@ -110,6 +111,7 @@ export const taskActionDescriptorProjection = {
       execution: {
         ingress: "task-transition",
         topology: "ledger-write",
+        remoteEdgeAdmission: "via-center-forward",
         lifecycle: {
           transitionId: "transition_task",
           commandType: "TransitionTask",
@@ -166,6 +168,7 @@ export const taskActionDescriptorProjection = {
       execution: {
         ingress: "task-submit",
         topology: "ledger-write",
+        remoteEdgeAdmission: "via-center-forward",
         lifecycle: {
           transitionId: "submit_execution",
           commandType: "SubmitExecution",
@@ -244,6 +247,7 @@ export const taskActionDescriptorProjection = {
       execution: {
         ingress: "task-adjudicate",
         topology: "ledger-write",
+        remoteEdgeAdmission: "via-center-forward",
         lifecycle: {
           transitionId: "adjudicate_submission",
           commandType: "AdjudicateSubmission",
@@ -316,6 +320,7 @@ export const taskActionDescriptorProjection = {
       execution: {
         ingress: "task-review-execution",
         topology: "local-arbiter",
+        remoteEdgeAdmission: "via-center-forward",
         lifecycle: {
           transitionId: "record_execution_review",
           commandType: "RecordReview",
@@ -363,6 +368,7 @@ export const taskActionDescriptorProjection = {
       execution: {
         ingress: "task-review-consent",
         topology: "ledger-write",
+        remoteEdgeAdmission: "via-center-forward",
         lifecycle: {
           transitionId: "record_review_consent",
           commandType: "RecordReviewConsent",
@@ -396,6 +402,7 @@ export const taskActionDescriptorProjection = {
       execution: {
         ingress: "task-code-doc-reconcile",
         topology: "ledger-write",
+        remoteEdgeAdmission: "via-center-forward",
         lifecycle: {
           transitionId: "reconcile_code_doc",
           commandType: "ReconcileCodeDoc",
@@ -439,6 +446,7 @@ export const taskActionDescriptorProjection = {
       execution: {
         ingress: "task-code-doc-repoint",
         topology: "ledger-write",
+        remoteEdgeAdmission: "rejected",
         lifecycle: {
           transitionId: "repoint_code_doc",
           commandType: "RepointCodeDoc",
@@ -484,6 +492,7 @@ export const taskActionDescriptorProjection = {
       execution: {
         ingress: "task-complete",
         topology: "ledger-write",
+        remoteEdgeAdmission: "via-center-forward",
         lifecycle: {
           transitionId: "complete_task",
           commandType: "CompleteTask",

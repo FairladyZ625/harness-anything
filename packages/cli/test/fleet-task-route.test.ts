@@ -129,6 +129,30 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     env,
   );
   assert.deepEqual(complete?.action, { kind: "task-complete", taskId: "task_one", consent: true });
+  for (const action of [
+    { kind: "fact-record", taskId: "task_one", statement: "observed", source: "test", confidence: "high" },
+    { kind: "task-declare-executor", taskId: "task_one", reason: "repair" },
+    { kind: "task-code-doc-reconcile", taskId: "task_one", paths: ["packages/cli/src/index.ts"] },
+  ])
+    assert.deepEqual((await fleetTaskRoute(command("repo.task.run", action), env))?.action, action);
+  const review = await fleetTaskRoute(
+    command("repo.task.run", {
+      kind: "task-review-execution",
+      taskId: "task_one",
+      reviewId: "review_one",
+      jsonInput: '{"verdict":"approved","reason":"checked","evidenceChecked":["tests"]}',
+      commandType: "RecordReview",
+    }),
+    env,
+  );
+  assert.deepEqual(review?.action, {
+    kind: "task-review-execution",
+    taskId: "task_one",
+    reviewId: "review_one",
+    verdict: "approved",
+    reason: "checked",
+    evidenceChecked: ["tests"],
+  });
   writeFileSync(path.join(root, "task.json"), '{"title":"Structured edge task","riskTier":"high"}\n');
   const structured = await fleetTaskRoute(
     command("repo.task.create", { kind: "task-create", fromFile: "task.json", presetId: "standard-task" }),

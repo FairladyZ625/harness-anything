@@ -45,6 +45,7 @@ export interface EntityActionExecutionContract {
     | "task-lifecycle"
     | "task-completion";
   readonly topology?: "center-forward-write" | "ledger-write" | "local-arbiter";
+  readonly remoteEdgeAdmission?: "via-center-forward" | "rejected";
   readonly localOnlyFields?: readonly string[];
   readonly targetIdField?: string;
   readonly lifecycle?: {

@@ -261,6 +261,7 @@ export const taskCreateDescriptorProjection = {
     execution: {
       ingress: "task-create",
       topology: "center-forward-write",
+      remoteEdgeAdmission: "via-center-forward",
       lifecycle: {
         transitionId: "create_replay_task",
         commandType: "CreateReplayTask",

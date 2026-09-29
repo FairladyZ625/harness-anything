@@ -155,15 +155,6 @@ export function taskWorktreeCheckoutNote(checkout: TaskWorktreeCheckout): string
   ].join("");
 }
 
-const closingActions = new Set([
-  "task-complete",
-  "task-settle",
-  "task-transition",
-  "task-archive",
-  "task-supersede",
-  "task-delete",
-]);
-
 export interface TaskWorktreeLifecycleInput {
   readonly rootDir: string;
   readonly readTask: (taskId: string) => TaskV2 | null | undefined;
@@ -211,14 +202,20 @@ export async function applyTaskWorktreeLifecycle(
   write: () => Promise<WriteReceipt>,
 ): Promise<WriteReceipt> {
   const receipt = await write();
-  if (receipt.outcome !== "applied" || source !== "local" || action.dryRun === true || !closingActions.has(action.kind))
-    return receipt;
+  if (receipt.outcome !== "applied" || source !== "local" || action.dryRun === true) return receipt;
   const taskIds =
     typeof action.taskId === "string"
       ? [action.taskId]
       : Array.isArray(action.taskIds)
         ? action.taskIds.filter((id): id is string => typeof id === "string")
         : [];
+  if (
+    !taskIds.some((taskId) => {
+      const task = input.readTask(taskId);
+      return task ? taskClosed(task) : false;
+    })
+  )
+    return receipt;
   let settled = receipt;
   for (const row of await reconcileClosedTaskWorktrees(input, taskIds)) {
     if (row.result.outcome === "retained" && row.named) settled = withNotes(settled, [], [row.detail!]);

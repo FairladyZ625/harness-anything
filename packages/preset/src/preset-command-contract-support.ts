@@ -60,7 +60,10 @@ export interface GeneratedTaskActionProtocolDeclaration {
     readonly exactlyOneOf: readonly (readonly string[])[];
   };
   readonly explain: string;
-  readonly execution: Pick<NonNullable<EntityActionContract["execution"]>, "ingress" | "topology"> & {
+  readonly execution: Pick<
+    NonNullable<EntityActionContract["execution"]>,
+    "ingress" | "topology" | "remoteEdgeAdmission"
+  > & {
     readonly lifecycle: Pick<
       NonNullable<NonNullable<EntityActionContract["execution"]>["lifecycle"]>,
       "transitionId" | "commandType" | "targetIdField" | "coordination"

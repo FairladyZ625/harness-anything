@@ -2,6 +2,7 @@ import {
   defineCenterForwardReadCommand,
   defineCenterForwardWriteCommand,
   cliInput,
+  defineCliCommand,
   defineLedgerWriteCommand,
   defineLocalArbiterCommand,
   defineRepoReadCommand,
@@ -72,7 +73,19 @@ function taskActionProtocolCommand(action: GeneratedTaskActionProtocolDeclaratio
     },
     actionConstraints: action.input.exactlyOneOf,
   } as const;
-  if (execution.topology === "center-forward-write") return defineCenterForwardWriteCommand(declaration);
+  if (execution.remoteEdgeAdmission === "via-center-forward")
+    return execution.topology === "local-arbiter"
+      ? defineCliCommand({
+          ...declaration,
+          commandClass: "arbiter" as const,
+          admission: {
+            local: "direct" as const,
+            "remote-proxy": "rejected" as const,
+            "remote-center": "rejected" as const,
+            "remote-edge": "via-center-forward" as const,
+          },
+        })
+      : defineCenterForwardWriteCommand(declaration);
   if (execution.topology === "local-arbiter") return defineLocalArbiterCommand(declaration);
   return defineLedgerWriteCommand(declaration);
 }

@@ -236,6 +236,7 @@ const lifecycleSpecs = Object.freeze({
     transitionId: "create_replay_task",
     implementation: "task-lifecycle",
     topology: "center-forward-write",
+    remoteEdgeAdmission: "via-center-forward",
     coordination: "execute",
     eventType: "task_created",
     proof: ["taskIdUnique", "actorBinding", "validGraph"],
@@ -246,6 +247,7 @@ const lifecycleSpecs = Object.freeze({
     transitionId: "start_execution",
     implementation: "task-lifecycle",
     topology: "center-forward-write",
+    remoteEdgeAdmission: "via-center-forward",
     coordination: "reserve",
     eventType: "execution_started",
     proof: ["actorBinding", "deliveryBaseline", "reservation"],
@@ -256,6 +258,7 @@ const lifecycleSpecs = Object.freeze({
     transitionId: "transition_task",
     implementation: "task-lifecycle",
     topology: "ledger-write",
+    remoteEdgeAdmission: "via-center-forward",
     coordination: "execute",
     eventType: "task_transitioned",
     proof: ["auditedReasonWhenRequired"],
@@ -266,6 +269,7 @@ const lifecycleSpecs = Object.freeze({
     transitionId: "submit_execution",
     implementation: "task-lifecycle",
     topology: "ledger-write",
+    remoteEdgeAdmission: "via-center-forward",
     coordination: "execute",
     eventType: "execution_submitted",
     proof: ["actorBinding", "leaseVersion-or-submitted-cut", "submission"],
@@ -276,6 +280,7 @@ const lifecycleSpecs = Object.freeze({
     transitionId: "adjudicate_submission",
     implementation: "task-lifecycle",
     topology: "ledger-write",
+    remoteEdgeAdmission: "via-center-forward",
     coordination: "execute",
     // The decision chooses the event: forward records submission_forwarded, return records
     // submission_returned. The descriptor names both; the transition's matches/validate is the
@@ -289,6 +294,7 @@ const lifecycleSpecs = Object.freeze({
     transitionId: "record_execution_review",
     implementation: "task-lifecycle",
     topology: "local-arbiter",
+    remoteEdgeAdmission: "via-center-forward",
     coordination: "execute",
     eventType: "review_recorded",
     proof: ["independentActor", "execution-review@v1", "contentCut"],
@@ -299,6 +305,7 @@ const lifecycleSpecs = Object.freeze({
     transitionId: "record_review_consent",
     implementation: "task-lifecycle",
     topology: "ledger-write",
+    remoteEdgeAdmission: "via-center-forward",
     coordination: "execute",
     eventType: "review_consent_recorded" as "review_consent_recorded" | "review_consent_overridden",
     proof: ["ownerActor", "execution-consent@v1", "reviewDigest", "contentDigest", "submissionDigest"],
@@ -309,6 +316,7 @@ const lifecycleSpecs = Object.freeze({
     transitionId: "reconcile_code_doc",
     implementation: "task-lifecycle",
     topology: "ledger-write",
+    remoteEdgeAdmission: "via-center-forward",
     coordination: "execute",
     eventType: "code_doc_reconciled",
     proof: ["actorBinding", "code-doc-reconcile@v1", "commitPaths"],
@@ -319,6 +327,7 @@ const lifecycleSpecs = Object.freeze({
     transitionId: "repoint_code_doc",
     implementation: "task-lifecycle",
     topology: "ledger-write",
+    remoteEdgeAdmission: "rejected",
     coordination: "execute",
     eventType: "code_doc_repointed",
     proof: ["actorBinding", "code-doc-repoint@v1", "commitPaths"],
@@ -329,6 +338,7 @@ const lifecycleSpecs = Object.freeze({
     transitionId: "complete_task",
     implementation: "task-completion",
     topology: "ledger-write",
+    remoteEdgeAdmission: "via-center-forward",
     coordination: "execute",
     eventType: "task_completed",
     proof: ["ownerOrCommander", "reviewConsent", "typedGateReceipts", "noActiveLease"],
@@ -344,6 +354,7 @@ interface Declaration {
   readonly transitionId: LifecycleSpec["transitionId"] | null;
   readonly implementation: LifecycleSpec["implementation"] | "catalog-runtime";
   readonly topology: LifecycleSpec["topology"];
+  readonly remoteEdgeAdmission: LifecycleSpec["remoteEdgeAdmission"];
   readonly coordination: LifecycleSpec["coordination"] | null;
   readonly eventType: LifecycleSpec["eventType"] | null;
   readonly proof: LifecycleSpec["proof"] | readonly [];
@@ -381,6 +392,7 @@ const mutation = (
     transitionId: null,
     implementation: "catalog-runtime",
     topology: id === "release" ? "center-forward-write" : "ledger-write",
+    remoteEdgeAdmission: id === "release" ? "via-center-forward" : "rejected",
     coordination: null,
     eventType: null,
     proof: Object.freeze([] as const),
@@ -1001,6 +1013,7 @@ export function createTaskActionCatalog(baseAction: (id: string) => EntityAction
               read: false,
               implementation: declaration.implementation,
               topology: declaration.topology,
+              remoteEdgeAdmission: declaration.remoteEdgeAdmission,
               targetIdField: declaration.targetIdField,
               ...(declaration.transitionId && declaration.commandType && declaration.coordination
                 ? {
