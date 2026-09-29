@@ -614,6 +614,8 @@ describe("工作页(S2):工作内 Decision 按评审信号分组", () => {
         onNavigateEntity,
       }),
     );
+    // 原型 v2:Decision 评审分组住在「决策与事实」页签下。
+    await click(view.querySelector("#workspace-tab-decisions"));
     const section = view.querySelector("[data-testid='work-decision-review']")!;
     expect(section).toBeTruthy();
     const group = (id: string) => section.querySelector(`[data-testid='work-decision-review-group-${id}']`);

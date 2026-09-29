@@ -4,35 +4,22 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CadenceFeedEvent, CadenceFeedState } from "../src/renderer/model/cadence.ts";
+import type { CadenceFeedEvent } from "../src/renderer/model/cadence.ts";
 import type { WorkspaceScopeRead } from "../src/api/renderer-dto.ts";
 import type { FactRef, RelationEdge } from "../src/renderer/model/types.ts";
 
 /**
- * S6 可读性判据(真实台账下三处读不懂的修后契约):
- *  - 证据与产物三列:长无空格串在自己的列内断行,列不被 min-content 顶开;
- *  - 关键经过:事件 type 说人话、任务显示标题(原始 id 退到悬停)、
+ * S6 可读性判据(真实台账下三处读不懂的修后契约),落在原型 v2 的新标签上:
+ *  - 检修页:事件 type 说人话、任务显示标题(原始 id 退到悬停)、
  *    「没有可读 payload」整段至多一句,不再逐行重复;不认识的 type 如实显示原名;
- *  - 局部关系图:节点是实体类型 + 标题,边的 kind 说人话,原始引用退到悬停。
- * 事件窗口用固定 feed 替身注入(视图侧的 observe.tail follow 循环不在本判据内)。
+ *  - 决策与事实页:事实长无空格串在自己的列内断行,列不被 min-content 顶开。
+ * 事件窗口用 scope 摘要注入(服务端按工作取窗,前端不再拉全仓事件)。
  */
 
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 beforeEach(() => setActiveLocale("zh-CN"));
 
 const FEED_EVENTS: CadenceFeedEvent[] = [];
-
-vi.mock("../src/renderer/cadence-feed.ts", () => ({
-  useCadenceFeed: (): CadenceFeedState => ({
-    status: "live",
-    error: null,
-    unavailableReason: null,
-    mode: "local",
-    events: FEED_EVENTS,
-    historyComplete: true,
-    now: "2026-09-21T02:00:00.000Z",
-  }),
-}));
 
 const { WorkspaceView } = await import("../src/renderer/views/WorkspaceView.tsx");
 
@@ -122,7 +109,7 @@ const relations: RelationEdge[] = [
   },
 ];
 
-function render(inspect?: (host: HTMLDivElement) => void): string {
+function render(tab: "inspect" | "decisions", inspect?: (host: HTMLDivElement) => void): string {
   const host = document.createElement("div"),
     root = createRoot(host);
   act(() =>
@@ -139,7 +126,7 @@ function render(inspect?: (host: HTMLDivElement) => void): string {
       </QueryClientProvider>,
     ),
   );
-  act(() => (host.querySelector("#workspace-tab-evidence") as HTMLButtonElement).click());
+  act(() => (host.querySelector(`#workspace-tab-${tab}`) as HTMLButtonElement).click());
   inspect?.(host);
   const html = host.innerHTML;
   act(() => root.unmount());
@@ -148,7 +135,7 @@ function render(inspect?: (host: HTMLDivElement) => void): string {
 
 /** 取出某个区块的 html(区块之间互不干扰地断言)。 */
 function sectionOf(html: string, labelledBy: string): string {
-  const start = html.indexOf(`<section class=`, html.indexOf(`aria-labelledby="${labelledBy}"`) - 200);
+  const start = html.indexOf(`<section`, html.indexOf(`aria-labelledby="${labelledBy}"`) - 200);
   expect(start, `section not rendered: ${labelledBy}`).toBeGreaterThan(-1);
   const end = html.indexOf("</section>", start);
   return html.slice(start, end);
@@ -157,16 +144,6 @@ function sectionOf(html: string, labelledBy: string): string {
 /** 只留下用户真正读到的字:属性值(含 title 悬停)全部剥掉。 */
 function visibleText(html: string): string {
   return html.replaceAll(/<[^>]*>/gu, " ").replaceAll(/\s+/gu, " ");
-}
-
-/** 抓住包住这段正文的那个元素的 class,用来断言收窄/断行是落在它身上的。 */
-function classesAround(html: string, text: string): string {
-  const index = html.indexOf(text);
-  expect(index, `text not rendered: ${text}`).toBeGreaterThan(-1);
-  const open = html.lastIndexOf("<", index),
-    tag = html.slice(open, index),
-    match = /class="([^"]*)"/u.exec(tag);
-  return match?.[1] ?? "";
 }
 
 describe("workspace readability under real ledger shapes", () => {
@@ -178,7 +155,7 @@ describe("workspace readability under real ledger shapes", () => {
         { ...event("execution_submitted", null), key: "a", at: "2026-09-20T23:00:00.000Z" },
         { ...event("execution_submitted", null), key: "b", at: "2026-09-21T01:00:00.000Z" },
       );
-      render((host) => {
+      render("inspect", (host) => {
         const days = host.querySelectorAll('section[aria-labelledby="workspace-history"] li > p');
         expect(days).toHaveLength(1);
         expect(days[0]!.textContent).toBe("2026-09-21");
@@ -187,12 +164,13 @@ describe("workspace readability under real ledger shapes", () => {
       localStorage.removeItem("harness:gui:time-zone");
     }
   });
+
   it("keeps all window events reachable in bounded pages", () => {
     FEED_EVENTS.length = 0;
     FEED_EVENTS.push(
       ...Array.from({ length: 85 }, (_, i) => ({ ...event("execution_submitted", `record-${i}`), key: `event-${i}` })),
     );
-    render((host) => {
+    render("inspect", (host) => {
       const history = host.querySelector('section[aria-labelledby="workspace-history"]')!;
       expect(history.querySelectorAll("li")).toHaveLength(40);
       expect(history.textContent).toContain("record-84");
@@ -207,14 +185,34 @@ describe("workspace readability under real ledger shapes", () => {
     });
   });
 
-  it("keeps full evidence readable on demand without three long columns", () => {
+  it("keeps the fact list readable on demand without long strings stretching the column", () => {
     FEED_EVENTS.length = 0;
-    const html = render(),
-      factClasses = classesAround(html, LONG_RUN);
-    expect(html).toContain('class="mt-3 min-w-0 space-y-2"');
-    expect(html).toContain("事实 · 1");
-    expect(html).toContain("打开来源");
-    expect(factClasses).toContain("break-words");
+    const host = document.createElement("div"),
+      root = createRoot(host),
+      onNavigateEntity = vi.fn();
+    act(() =>
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <WorkspaceView
+            scope={scope()}
+            repoId="harness-anything"
+            projectName="harness-anything"
+            facts={facts}
+            relations={relations}
+            onOpenTask={() => {}}
+            onNavigateEntity={onNavigateEntity}
+          />
+        </QueryClientProvider>,
+      ),
+    );
+    act(() => (host.querySelector("#workspace-tab-decisions") as HTMLButtonElement).click());
+    const factRow = host.querySelector<HTMLButtonElement>('[data-fact-row="fact/F-7E08BD10"] button')!;
+    // 长无空格串在自己的列内截断,列不被 min-content 顶开;点开看全文。
+    expect(factRow.textContent).toContain("GUI 写面 allowlist");
+    expect(factRow.querySelector("span.truncate")).not.toBeNull();
+    act(() => factRow.click());
+    expect(onNavigateEntity).toHaveBeenCalledWith("fact/F-7E08BD10");
+    act(() => root.unmount());
   });
 
   it("says history in plain words, shows task titles, and warns about payload-less rows once", () => {
@@ -225,7 +223,7 @@ describe("workspace readability under real ledger shapes", () => {
       event("fact_recorded", "已提交评审并附回执"),
       event("vertical_thing_happened", null),
     );
-    const history = sectionOf(render(), "workspace-history"),
+    const history = sectionOf(render("inspect"), "workspace-history"),
       text = visibleText(history),
       note = "其中部分事件只有索引、没有可读正文";
     expect(text).toContain("已提交评审");

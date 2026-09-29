@@ -66,7 +66,7 @@ export function DenseRow({
       type="button"
       onClick={onClick}
       data-selected={selected || undefined}
-      className={`cursor-pointer text-left ${rowCls}`}
+      className={`w-full cursor-pointer text-left ${rowCls}`}
     >
       {content}
     </button>

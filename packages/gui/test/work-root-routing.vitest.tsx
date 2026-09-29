@@ -307,7 +307,7 @@ describe("the work page absorbs the root task", () => {
     warnings: [],
   };
 
-  it("offers the root task as a section and keeps in-page root links inside the page", async () => {
+  it("offers the root task as its own tab and opens child tasks outside the page", async () => {
     const onOpenTask = vi.fn(),
       renderRootTask = vi.fn(() => createElement("p", { "data-testid": "root-detail-probe" }, "root detail"));
     const page = await render(
@@ -321,50 +321,52 @@ describe("the work page absorbs the root task", () => {
     const tab = (label: string) =>
       [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) => b.textContent === label)!;
     expect(tab("根任务")).toBeDefined();
-    // 「打开任务材料」指向根任务本身:切到根任务分区,不离开工作页。
-    act(() =>
-      [...page.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === "打开任务材料 →")!.click(),
-    );
-    expect(onOpenTask).not.toHaveBeenCalled();
+    act(() => tab("根任务").click());
     expect(page.querySelector('[data-testid="workspace-root-task"]')?.textContent).toBe("root detail");
     expect(tab("根任务").getAttribute("aria-selected")).toBe("true");
     // 子任务仍走外部打开位(App 按共享判定落任务详情)。
     act(() => tab("任务 1").click());
     act(() =>
-      [...page.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.includes("T child"))!.click(),
+      [...page.querySelectorAll<HTMLButtonElement>("[data-task-row] button")]
+        .find((b) => b.textContent?.includes("T child"))!
+        .click(),
     );
     expect(onOpenTask).toHaveBeenCalledWith("child");
   });
 
-  it("opens a sub-group that is a work into its work page and any other sub-group into task detail", async () => {
-    const nav = await mountNavigation();
-    const group = (taskId: string, taskClass: "standard" | "work") => ({
+  it("turns the subgroup tree into a filter on the tasks tab", async () => {
+    const declaredRow = {
       ...scope.tasks[0]!,
-      taskId,
-      title: `T ${taskId}`,
-      taskClass,
+      taskId: "declared",
+      title: "T declared",
+      taskClass: "work" as const,
       hasChildren: true,
-    });
+    };
     const page = await render(
       createElement(WorkspaceView, {
-        scope: { ...scope, groups: [group("declared", "work"), group("child", "standard")] },
+        scope: {
+          ...scope,
+          groups: [declaredRow],
+          memberTaskIds: ["child", "declaredChild"],
+          tasks: [
+            ...scope.tasks,
+            {
+              ...scope.tasks[0]!,
+              taskId: "declaredChild",
+              title: "T declaredChild",
+              parentTaskId: "declared",
+            },
+          ],
+        },
         projectName: "P",
-        onOpenTask: nav.api().openTaskDetail,
+        onOpenTask: () => undefined,
       }),
     );
-    act(() =>
-      [...page.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find((b) => b.textContent === "任务 1")!.click(),
-    );
-    const open = (title: string) =>
-      act(() =>
-        [...page.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.includes(title))!.click(),
-      );
-    open("T declared");
-    open("T child");
-    expect(nav.navigate.mock.calls).toEqual([
-      [{ ...WORK_PAGE, scopeRootTaskId: "declared" }],
-      [{ selectedId: "child", previewId: null, focusedEntityRef: "task/child" }],
-    ]);
+    const groupRow = page.querySelector<HTMLButtonElement>('[data-group-filter="declared"]')!;
+    expect(groupRow).not.toBeNull();
+    await act(async () => groupRow.click());
+    expect(page.querySelector<HTMLButtonElement>("#workspace-tab-tasks")!.getAttribute("aria-selected")).toBe("true");
+    expect(page.textContent).toContain("子组：T declared");
   });
 
   it("has no root section when the caller cannot render the root task", () => {
