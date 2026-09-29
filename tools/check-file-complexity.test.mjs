@@ -126,6 +126,7 @@ test("renamed paths inherit merge-base existence and keep the stage ceiling", (t
 
 test("retains empty, CRLF, trailing newline and excluded-directory counting behavior", (t) => {
   const f = fixture(t);
+  writeFileSync(path.join(f.root, ".gitignore"), "dist/\n");
   f.base();
   f.write("packages/demo/src/empty.ts", 0);
   f.write("packages/demo/src/file.ts", 1000, "\r\n");
@@ -135,6 +136,26 @@ test("retains empty, CRLF, trailing newline and excluded-directory counting beha
   const file = path.join(f.root, "packages/demo/src/file.ts");
   writeFileSync(file, readFileSync(file, "utf8") + "\r\n");
   f.check(1, /1001 lines exceeds max 1000/);
+});
+
+test("gitignored build output is not scanned while tracked and untracked files are", (t) => {
+  const f = fixture(t);
+  writeFileSync(path.join(f.root, ".gitignore"), "packages/gui/dist-electron/\n");
+  f.base();
+  f.write("packages/gui/dist-electron/preload.js", 2000);
+  f.check(0);
+  f.write("packages/gui/src/untracked.ts", 1001);
+  f.check(1, /untracked.ts: 1001 lines exceeds max 1000/);
+  f.commit();
+  f.check(1, /untracked.ts: 1001 lines exceeds max 1000/);
+});
+
+test("tracked files deleted from the worktree are skipped", (t) => {
+  const f = fixture(t);
+  f.write("packages/demo/src/gone.ts", 10);
+  f.base();
+  rmSync(path.join(f.root, "packages/demo/src/gone.ts"));
+  f.check(0);
 });
 
 test("missing origin/main fails instead of disabling the base comparison", (t) => {

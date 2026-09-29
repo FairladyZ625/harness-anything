@@ -1,6 +1,5 @@
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
-import { readdir } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -26,28 +25,6 @@ function relative(filePath) {
   return path.relative(root, filePath).split(path.sep).join("/");
 }
 
-async function walk(dir) {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch (error) {
-    if (error?.code === "ENOENT") return [];
-    throw error;
-  }
-
-  const files = [];
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (["node_modules", "dist", "out", "build-resources", ".git", ".harness"].includes(entry.name)) continue;
-      files.push(...(await walk(fullPath)));
-      continue;
-    }
-    if (sourceFile.test(entry.name) && !entry.name.endsWith(".d.ts")) files.push(fullPath);
-  }
-  return files;
-}
-
 function policyFor(filePath) {
   const rel = relative(filePath);
   if (/\/test\//u.test(rel) || /\.test\./u.test(rel)) return FILE_COMPLEXITY_POLICY.test;
@@ -63,7 +40,12 @@ const renameRecords = (await git(["diff", "-M", "--name-status", "--diff-filter=
 for (let i = 0; i < renameRecords.length; i += 3) {
   renameSources.set(renameRecords[i + 2], renameRecords[i + 1]);
 }
-const files = [...(await walk(path.join(root, "packages"))), ...(await walk(path.join(root, "tools")))];
+// Tracked plus untracked-but-not-ignored files: gitignored build output never counts.
+const files = (await git(["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "packages", "tools"]))
+  .split("\0")
+  .filter((file) => sourceFile.test(file) && !file.endsWith(".d.ts"))
+  .map((file) => path.join(root, file))
+  .filter((filePath) => existsSync(filePath));
 
 for (const filePath of files) {
   const body = readFileSync(filePath, "utf8");
