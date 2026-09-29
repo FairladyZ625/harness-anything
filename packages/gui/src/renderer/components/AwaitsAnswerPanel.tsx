@@ -156,6 +156,16 @@ export function AwaitsAnswerPanel({
                   {t("components.awaitsAnswer.openSource")}
                 </button>
               </Section>
+              <Section title={t("components.awaitsAnswer.reask")}>
+                <p className="ui-body leading-relaxed text-text-muted">{t("components.awaitsAnswer.reaskHint")}</p>
+                {/* 与 `ha agenda` 已答复行的「再次提问」同一条命令:在同一来源上向同一个人新建 awaits。 */}
+                <code
+                  data-testid="awaits-answer-reask"
+                  className="mt-2 block select-all whitespace-pre-wrap break-all rounded border border-border bg-surface px-2 py-1 font-mono ui-micro text-text"
+                >
+                  {`ha relation relate --source-ref ${row.sourceRef} --target-ref person/${row.personId} --type awaits --rationale "<kind>: <新问题>" --expected-version <revision>`}
+                </code>
+              </Section>
             </>
           )}
           <Section title={t("components.awaitsAnswer.channels")}>

@@ -1,7 +1,7 @@
 import type { TaskRow } from "./model/types.ts";
 
 /**
- * G1「开始一项工作」与「当前仓搜索」的纯派生层(S5,task_654349ce)。
+ * 「开始一项工作」的纯派生层(S5,task_654349ce)。
  *
  * 这里只做派生,不发任何请求:GUI 的写面是闭合 allowlist(`daemonGuiActionMethods`),
  * 里面**没有** task 创建 —— 唯一创建单写命令是 `ha task create`
@@ -15,66 +15,8 @@ import type { TaskRow } from "./model/types.ts";
  * 复用同一条任务;表单改了键就变,不会把两件不同的工作并成一条。
  */
 
-/** 索引行之间用它分隔再做子串匹配,避免跨字段拼出假命中。 */
+/** 幂等键原文的字段分隔符,避免跨字段拼出相同原文。 */
 const FIELD_SEPARATOR = "\u0000";
-
-/** 统一实体索引的一行(`buildPaletteIndex` 产物的结构形状),搜索按它过滤。 */
-export interface WorkSearchRow {
-  readonly ref: string;
-  readonly label: string;
-  readonly sub?: string;
-  readonly entity: string;
-}
-
-/** 搜索命中:类型与所属工作都显式带出,不让用户从标题猜这行是什么、属于谁。 */
-export interface WorkSearchHit {
-  readonly ref: string;
-  readonly label: string;
-  readonly entity: string;
-  readonly detail: string | null;
-  /** 所属工作 = daemon 工作索引给的 `TaskRow.workId`;非任务实体、不属于工作或本身就是工作根时为 null。 */
-  readonly group: { readonly taskId: string; readonly title: string } | null;
-}
-
-/**
- * 当前仓搜索:范围就是喂进来的索引,索引本身按 activeRepoId 装配,所以默认即当前仓,
- * 不另建索引也不跨仓查。过滤口径与关系图左栏、⌘K 面板一致(label / ref / sub 子串)。
- */
-export function searchCurrentRepo(
-  rows: readonly WorkSearchRow[],
-  tasks: readonly TaskRow[],
-  query: string,
-  limit: number,
-): readonly WorkSearchHit[] {
-  const needle = query.trim().toLowerCase();
-  if (needle.length === 0) return [];
-  const byTaskId = new Map(tasks.map((task) => [task.taskId, task]));
-  const hits: WorkSearchHit[] = [];
-  for (const row of rows) {
-    if (hits.length >= limit) break;
-    const haystack = [row.label, row.ref, row.sub ?? ""].join(FIELD_SEPARATOR).toLowerCase();
-    if (!haystack.includes(needle)) continue;
-    hits.push({
-      ref: row.ref,
-      label: row.label,
-      entity: row.entity,
-      detail: row.sub ?? null,
-      group: groupOf(row.ref, byTaskId),
-    });
-  }
-  return hits;
-}
-
-function groupOf(
-  ref: string,
-  byTaskId: ReadonlyMap<string, TaskRow>,
-): { readonly taskId: string; readonly title: string } | null {
-  if (!ref.startsWith("task/")) return null;
-  const task = byTaskId.get(ref.slice("task/".length));
-  const workId = task?.workId;
-  if (task === undefined || workId === undefined || workId === task.taskId) return null;
-  return { taskId: workId, title: task.workTitle ?? workId };
-}
 
 /**
  * `task create` 契约声明的两个取值面(kernel `taskClasses` / `taskWorkKinds`)。

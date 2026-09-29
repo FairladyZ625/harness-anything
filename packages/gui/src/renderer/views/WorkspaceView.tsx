@@ -16,7 +16,7 @@ import { WorkspaceGoal } from "../components/WorkspaceGoal.tsx";
 import { t } from "../i18n/index.tsx";
 import type { MessageKey } from "../i18n/core.ts";
 import { DecisionReviewBadge } from "../components/decisionReview/parts.tsx";
-import { DecisionReviewGroups } from "../components/decisionReview/DecisionReviewGroups.tsx";
+import { DECISION_REVIEW_GROUPS, DecisionReviewGroups } from "../components/decisionReview/DecisionReviewGroups.tsx";
 import { decisionReviewGroup, decisionReviewSignal, type DecisionReviewSignal } from "../model/decision-review.ts";
 import { decisionReviewRef } from "../navigation/decisionReviewRoutes.ts";
 
@@ -735,7 +735,7 @@ function WorkDecisionReview({
       ? []
       : [
           {
-            decisionId: row.decisionId,
+            id: row.decisionId,
             title: row.title,
             hint: t(REVIEW_HINTS[signal]),
             group: decisionReviewGroup(signal),
@@ -753,9 +753,10 @@ function WorkDecisionReview({
       </div>
       <DecisionReviewGroups
         rows={rows}
+        groups={DECISION_REVIEW_GROUPS}
         label={t("views.workspace.decisionReviewTitle")}
         testIdPrefix="work-decision-review"
-        onOpen={(row) => onNavigateEntity?.(decisionReviewRef(row.decisionId, "review"))}
+        onOpen={(row) => onNavigateEntity?.(decisionReviewRef(row.id, "review"))}
       />
     </section>
   );

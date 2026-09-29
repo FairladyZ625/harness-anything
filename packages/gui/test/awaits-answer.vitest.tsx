@@ -198,6 +198,10 @@ describe("awaits answer panel", () => {
     const openSource = [...container.querySelectorAll("button")].find((button) =>
       button.textContent?.includes("打开来源"),
     );
+    // 再次提问:给出与 `ha agenda` 同一条 relate 命令,指回同一个被问的人。
+    expect(byTestId(container, "awaits-answer-reask")?.textContent).toContain(
+      "ha relation relate --source-ref decision/dec_asked --target-ref person/person_me --type awaits",
+    );
     click(openSource ?? null);
     expect(onNavigateEntity).toHaveBeenCalledWith("decision/dec_asked");
   });

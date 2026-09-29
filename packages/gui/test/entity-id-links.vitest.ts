@@ -8,7 +8,6 @@ import { HomeView } from "../src/renderer/views/HomeView.tsx";
 import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
 import { AgendaView } from "../src/renderer/views/AgendaView.tsx";
 import { WorkView } from "../src/renderer/views/WorkView.tsx";
-import { OverviewNextView } from "../src/renderer/views/OverviewNextView.tsx";
 import { deriveRuntimeHealth } from "../src/renderer/model/runtime-health.ts";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
 import { AttestationPoolView } from "../src/renderer/views/AttestationPoolView.tsx";
@@ -580,44 +579,17 @@ const VIEW_RENDERERS = {
     createElement(OverviewView, {
       repoId: REPO_ID,
       project: FIXTURE_PROJECT,
-      tasks: FIXTURE_TASKS,
       agenda: FIXTURE_AGENDA,
-      decisions: FIXTURE_DECISIONS,
       workspaceSummary: FIXTURE_WORKSPACE_SUMMARY,
-      relations: FIXTURE_RELATIONS,
       health: SYSTEM_HEALTH,
       daemonReadFailed: false,
-      onSelect: noop,
-      onDrill: noop,
-      onOpenInbox: noop,
-      onOpenDecision: noop,
-      onOpenDecisionTarget: noop,
-    }),
-  agenda: () => createElement(AgendaView, { agenda: FIXTURE_AGENDA, agendaError: null, onNavigateEntity: noop }),
-  overviewNext: () =>
-    createElement(OverviewNextView, {
-      repoId: REPO_ID,
-      project: FIXTURE_PROJECT,
-      tasks: FIXTURE_TASKS,
-      agenda: FIXTURE_AGENDA,
-      agendaError: null,
-      activeSessions: FIXTURE_RUNTIME_OVERVIEW.sessions,
-      runtimeError: null,
-      health: SYSTEM_HEALTH,
-      daemonReadFailed: false,
-      ledgerRevision: { watermark: 7, sourceRevision: 7 },
-      searchRows: [],
-      catalog: undefined,
-      catalogError: null,
+      ledgerRevision: null,
       onNavigateEntity: noop,
-      onSelectRuntimeEntity: noop,
-      onOpenPool: noop,
-      onOpenSessions: noop,
-      onSwitchRepo: noop,
-      onSearchActiveChange: noop,
-      onRefreshLedger: noop,
+      onOpenDecisionTarget: noop,
       onOpenTask: noop,
     }),
+  agenda: () =>
+    createElement(AgendaView, { repoId: REPO_ID, agenda: FIXTURE_AGENDA, agendaError: null, onNavigateEntity: noop }),
   work: () =>
     createElement(WorkView, {
       tasks: FIXTURE_TASKS,
@@ -625,6 +597,10 @@ const VIEW_RENDERERS = {
       projectName: FIXTURE_PROJECT.name,
       ready: true,
       onOpenTask: noop,
+      catalog: undefined,
+      catalogError: null,
+      daemonState: "responsive",
+      onRefreshLedger: noop,
     }),
   board: () =>
     createElement(BoardView, {
@@ -830,19 +806,6 @@ describe("G10 entity-id-links 行为判据:视图渲染出的实体 ID 必须可
     );
     const findings = scanDeadEntityIds(container, viewId, ENTITY_ID_NEEDLES);
     expect(findings).toEqual([]);
-  });
-
-  it("额外表面:总览打开决策预览抽屉后无死 ID", async () => {
-    const container = await mountSurface(VIEW_RENDERERS.overview());
-    const row = container.querySelector<HTMLButtonElement>('[data-testid="decision-stream-rows"] button');
-    expect(row).not.toBeNull();
-    await act(async () => {
-      row!.click();
-    });
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(scanDeadEntityIds(container, "overview+decisionPreviewDrawer", ENTITY_ID_NEEDLES)).toEqual([]);
   });
 
   it("额外表面:总池决策域进入专注裁决模式后无死 ID", async () => {

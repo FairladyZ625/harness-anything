@@ -42,8 +42,8 @@ export function AwaitsAskStrip({
           <ChatCircleDots weight="bold" className="shrink-0 text-accent" aria-hidden />
           <span className="shrink-0 font-mono ui-micro text-accent">
             {subject.mode === "answer"
-              ? t("views.overviewNext.attentionGroup.awaitingYou")
-              : t("views.overviewNext.attentionGroup.answeredForYou")}{" "}
+              ? t("components.awaitsAnswer.awaitingYou")
+              : t("components.awaitsAnswer.answeredForYou")}{" "}
             · {AWAITS_KIND_LABEL[subject.row.askKind]()}
           </span>
           <span className="min-w-0 flex-1 truncate ui-meta text-text">

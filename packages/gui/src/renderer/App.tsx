@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { SnapshotStatus, TaskRow } from "./model/types.ts";
+import type { TaskRow } from "./model/types.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
 import { OverviewView } from "./views/OverviewView.tsx";
-import { OverviewNextView } from "./views/OverviewNextView.tsx";
 import { AgendaView } from "./views/AgendaView.tsx";
 import { BoardView } from "./views/BoardView.tsx";
 import { AttestationPoolView } from "./views/AttestationPoolView.tsx";
@@ -26,7 +25,7 @@ import { AppSidebar } from "./components/AppSidebar.tsx";
 import type { LedgerStatusBarInput } from "./components/sidebar/SystemStatusPanel.tsx";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { useEntityNavigation } from "./navigation/useEntityNavigation.ts";
-import { workTargetOf } from "./navigation/entityRoutes.ts";
+import { taskReviewRef, workTargetOf } from "./navigation/entityRoutes.ts";
 import { workIndexOf } from "./model/work-collections.ts";
 import { useAppShortcuts } from "./navigation/useAppShortcuts.ts";
 import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
@@ -50,7 +49,6 @@ import {
 import { useSearchIndex } from "./search-index-data.ts";
 import { useFavorites } from "./model/favorites.ts";
 import { deriveRuntimeHealth } from "./model/runtime-health.ts";
-import type { LaneGroupBy } from "./views/SwimlaneBoard.tsx";
 import { SessionsView } from "./views/SessionsView.tsx";
 import { SchedulesView } from "./views/SchedulesView.tsx";
 import { ArtifactsView } from "./views/ArtifactsView.tsx";
@@ -160,11 +158,8 @@ function AppShell() {
   // 回退保真(G10):导航栈恢复应用位置;这里在它旁边恢复 DOM 层的滚动与焦点。
   useLocationRestore(location, document.body);
   const { view, selectedId, previewId, focusedEntityRef, taskFilters, drill } = location;
-  const taskWipQuery = useTaskWipQuery(
-    activeRepoId,
-    view === "overview" || view === "overviewNext" || view === "board",
-  );
-  // 侧栏置顶工作、总览、总览(新)和研发态势消费 `ha agenda` 同一条 repo.agenda.read 投影；
+  const taskWipQuery = useTaskWipQuery(activeRepoId, view === "overview" || view === "board");
+  // 侧栏置顶工作、总览、议程和研发态势消费 `ha agenda` 同一条 repo.agenda.read 投影；
   // 侧栏跨视图常驻，因此读面也随仓库常驻，不建立第二份 pin 状态。
   const agendaQuery = useAgendaQuery(activeRepoId);
   // 工作根与任务所属工作只读 daemon 工作索引(dec_5F7E74F1):关系图领地、看板泳道、工作列表、
@@ -176,12 +171,11 @@ function AppShell() {
     () => combineWorkspaceScopePages(workspaceScopeQuery.data?.pages ?? []),
     [workspaceScopeQuery.data?.pages],
   );
-  // 运行 overview 读(cadence 与总览(新)共用同一 query key,react-query 去重):
-  // 「当前执行」的 live/active 分列只消费这一条的 sessions。
+  // 运行 overview 读(研发态势的在飞会话;query key 与 cadence 读面共用,react-query 去重)。
   const runtimeSessionsQuery = useQuery({
     queryKey: [...runtimeQueryKeys.overview(projectId, "cadence"), "fleet"],
     queryFn: () => agentRuntimeClient.overview(projectId),
-    enabled: activeRepoId !== null && (view === "cadence" || view === "overviewNext"),
+    enabled: activeRepoId !== null && view === "cadence",
     staleTime: 4_000,
   });
   const setTaskFilters = useCallback((next: TaskFilters) => updateLocation({ taskFilters: next }), [updateLocation]);
@@ -198,10 +192,6 @@ function AppShell() {
   const feedbackOf = useCallback((taskId: string) => taskActions.feedback.get(taskId), [taskActions.feedback]);
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
-  const [overviewDecisionPreviewId, setOverviewDecisionPreviewId] = useState<string | null>(null);
-  useEffect(() => {
-    setOverviewDecisionPreviewId(null);
-  }, [view, activeRepoId]);
   const [setupGuide, setSetupGuide] = useState<"provider" | "agent" | null>(null);
 
   // placement 不再由 renderer 二次推导:repo.tasks.list 的 row.placement 已带
@@ -253,11 +243,10 @@ function AppShell() {
   // placement.spawningDecisionIds 已是同一批 derives 边的结果。
   const fullProjectionMounted = FULL_TRIADIC_PROJECTION_VIEWS.has(view);
   const fullGraphProjectionMounted = fullProjectionMounted;
-  // 完整投影视图已经包含 decisions,不再并发读窄面。总览只读它的摘要，抽屉打开
-  // 才按 id 读取完整行，不建立第二份全量投影。
+  // 完整投影视图已经包含 decisions,不再并发读窄面;其余消费者(研发态势、任务详情、
+  // 命令面板)只读摘要，不建立第二份全量投影。
   const decisionSummary = useDecisionSummaryQuery(activeRepoId, {
-    enabled:
-      !fullProjectionMounted && (view === "overview" || view === "cadence" || selectedId !== null || paletteOpen),
+    enabled: !fullProjectionMounted && (view === "cadence" || selectedId !== null || paletteOpen),
   });
   const triadicQuery = useTriadicProjectionQuery(activeRepoId, {
     enabled: fullProjectionMounted,
@@ -269,15 +258,10 @@ function AppShell() {
   const runtimePlane = useRuntimePlaneQuery(activeRepoId, { enabled: graphRuntimeMounted });
   // 任务预览抽屉、任务详情与会话页渲染的是关系边本身;完整图已在缓存里(刚从图/
   // 决策视图过来)就直接用它,不把同一批边读两遍。
-  const edgeSurfaceMounted =
-    previewTask !== null || selected !== null || overviewDecisionPreviewId !== null || view === "sessions";
+  const edgeSurfaceMounted = previewTask !== null || selected !== null || view === "sessions";
   const activeEdges = useActiveEdgesQuery(activeRepoId, edgeSurfaceMounted && !triadicQuery.graphAvailable);
 
-  const decisionReadError = fullProjectionMounted
-    ? triadicQuery.decisionError
-    : view === "overview"
-      ? decisionSummary.error
-      : null;
+  const decisionReadError = fullProjectionMounted ? triadicQuery.decisionError : null;
   const decisions = triadicQuery.decisions;
   const facts = triadicQuery.facts;
   const coverageRows = triadicQuery.coverageRows;
@@ -377,12 +361,6 @@ function AppShell() {
     goto("overview");
   };
 
-  const drillToBoard = (lane: string, status: SnapshotStatus, dimension: "root" | "plt") => {
-    // 特殊占位 __all__ 表示不锁定 lane(只 drill 到状态维度)
-    const groupBy: LaneGroupBy = dimension === "root" ? "root" : "productLine";
-    navigate({ drill: { lane, status, groupBy }, view: "board", selectedId: null, previewId: null });
-  };
-
   // 实体导航出口(可寻址路由 + 最近访问)集中在此 hook;跨仓跳转先切仓再续导航。
   const {
     recentRefs,
@@ -454,6 +432,7 @@ function AppShell() {
           goto("terminal");
         }}
         onFocusGraph={focusEntityInGraph}
+        initialTab={!framing.embedded && focusedEntityRef === taskReviewRef(task.taskId) ? "closeout" : undefined}
       />
     );
   };
@@ -561,12 +540,9 @@ function AppShell() {
                   <OverviewView
                     repoId={projectId}
                     project={project}
-                    tasks={projectTasks}
                     wipSnapshot={taskWipQuery.data}
                     agenda={agendaQuery.data}
-                    decisions={decisionSummary.decisions}
                     workspaceSummary={workspaceSummaryQuery.data}
-                    relations={edgeRelations}
                     health={runtimeHealth}
                     daemonReadFailed={daemonReadFailed}
                     ledgerRevision={
@@ -574,80 +550,22 @@ function AppShell() {
                         ? { watermark: tasksQuery.data.watermark, sourceRevision: tasksQuery.data.sourceRevision }
                         : null
                     }
-                    onSelect={openTaskPreview}
-                    onDrill={(status) => drillToBoard("__all__", status, "root")}
-                    onOpenInbox={() =>
-                      // 决策收件箱 = 总池的决策待裁域(专注裁决从域内进入)。
-                      navigate({
-                        view: "decisionPool",
-                        poolTab: "decisions",
-                        focusedEntityRef: null,
-                        selectedId: null,
-                        previewId: null,
-                        drill: null,
-                      })
-                    }
-                    onOpenDecision={navigateToDecision}
+                    onNavigateEntity={navigateToEntity}
                     onOpenDecisionTarget={(target) =>
                       target.kind === "entity" ? navigateToEntity(target.ref) : goto(target.view)
                     }
-                    onNavigateEntity={navigateToEntity}
-                    declaredKinds={declaredKinds}
-                    onDecisionPreviewChange={setOverviewDecisionPreviewId}
-                    onSetPin={handleSetPin}
+                    onOpenTask={openTaskDetail}
                   />
                 ) : (
                   <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
                 )
               ) : view === "agenda" ? (
                 <AgendaView
+                  repoId={projectId}
                   agenda={agendaQuery.data}
                   agendaError={agendaQuery.error instanceof Error ? agendaQuery.error.message : null}
                   onNavigateEntity={navigateToEntity}
                 />
-              ) : view === "overviewNext" ? (
-                workspaceSummaryQuery.data ? (
-                  <OverviewNextView
-                    repoId={projectId}
-                    project={project}
-                    tasks={projectTasks}
-                    agenda={agendaQuery.data}
-                    agendaError={agendaQuery.error instanceof Error ? agendaQuery.error.message : null}
-                    activeSessions={runtimeSessionsQuery.data?.sessions ?? []}
-                    runtimeError={
-                      runtimeSessionsQuery.error instanceof Error ? runtimeSessionsQuery.error.message : null
-                    }
-                    health={runtimeHealth}
-                    daemonReadFailed={daemonReadFailed}
-                    ledgerRevision={
-                      tasksQuery.data
-                        ? { watermark: tasksQuery.data.watermark, sourceRevision: tasksQuery.data.sourceRevision }
-                        : null
-                    }
-                    searchRows={paletteEntries}
-                    catalog={catalogQuery.data}
-                    catalogError={catalogQuery.error instanceof Error ? catalogQuery.error.message : null}
-                    onNavigateEntity={navigateToEntity}
-                    onSelectRuntimeEntity={selectRuntimeEntity}
-                    onSwitchRepo={() => setProjectSwitcherOpen(true)}
-                    onSearchActiveChange={onSearchActiveChange}
-                    onRefreshLedger={refreshLedger}
-                    onOpenTask={openTaskDetail}
-                    onOpenPool={() =>
-                      navigate({
-                        view: "decisionPool",
-                        poolTab: "decisions",
-                        focusedEntityRef: null,
-                        selectedId: null,
-                        previewId: null,
-                        drill: null,
-                      })
-                    }
-                    onOpenSessions={() => goto("sessions")}
-                  />
-                ) : (
-                  <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
-                )
               ) : view === "work" ? (
                 <WorkView
                   tasks={tasks}
@@ -655,6 +573,10 @@ function AppShell() {
                   projectName={project.name}
                   ready={tasksQuery.data?.status === "ready"}
                   onOpenTask={openTaskDetail}
+                  catalog={catalogQuery.data}
+                  catalogError={catalogQuery.error instanceof Error ? catalogQuery.error.message : null}
+                  daemonState={runtimeHealth.daemon.state}
+                  onRefreshLedger={refreshLedger}
                 />
               ) : view === "workspace" ? (
                 workspaceScope ? (

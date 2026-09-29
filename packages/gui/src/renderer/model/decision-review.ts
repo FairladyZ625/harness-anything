@@ -1,4 +1,5 @@
 import type { AgendaSuccess } from "../api-client.ts";
+import type { AgendaAwaitsRow } from "../../api/renderer-dto.ts";
 import type { DecisionReviewState, DecisionRow } from "./types.ts";
 import { decisionReviewRef, decisionSessionsRef } from "../navigation/decisionReviewRoutes.ts";
 
@@ -61,6 +62,7 @@ export type DecisionAgendaRow = {
  * 议程读面里的 Decision 行,按待处置 / 待评审 / 评审中 / 待裁决排列:组全部来自议程读面,
  * 不逐条读 Decision、不在前端重新分组。待处置没有自己的议程组,只经「等你处理」的 awaits 行
  * 出现(PR #3053),这里取其中来源是 Decision 的行;同一 Decision 的多条 awaits 只列一次。
+ * 其余来源的 awaits 行由 `taskAwaitsRows` 给出。
  */
 export function decisionAgendaRows(agenda: AgendaSuccess): readonly DecisionAgendaRow[] {
   const dispose = new Map<string, DecisionAgendaRow>();
@@ -84,11 +86,25 @@ export function decisionAgendaRows(agenda: AgendaSuccess): readonly DecisionAgen
   ];
 }
 
-/** 总览四格(原型 S1)的计数:议程 Decision 行按组计数。 */
+/**
+ * 「等你处理」里来源不是 Decision 的 awaits 行(task 的 question / acceptance / consent / reopen,
+ * dec_DC3A1BB9 CH2):与 Decision 行同属待处置,但落点是这条 awaits 本身的答复面板,
+ * 所以原样保留读面行,不折成 Decision 行。
+ */
+export function taskAwaitsRows(agenda: AgendaSuccess): readonly AgendaAwaitsRow[] {
+  return agenda.awaitingYou.filter(({ sourceRef }) => !sourceRef.startsWith("decision/"));
+}
+
+/** 总览四格(原型 S1)的计数:议程 Decision 行按组计数;待处置另计 task 源的等你处理行,与议程页待处置组同数。 */
 export function decisionAgendaCounts(agenda: AgendaSuccess): Readonly<Record<DecisionReviewGroup, number>> {
   const rows = decisionAgendaRows(agenda);
   const count = (group: DecisionReviewGroup) => rows.filter((row) => row.group === group).length;
-  return { dispose: count("dispose"), review: count("review"), reviewing: count("reviewing"), judge: count("judge") };
+  return {
+    dispose: count("dispose") + taskAwaitsRows(agenda).length,
+    review: count("review"),
+    reviewing: count("reviewing"),
+    judge: count("judge"),
+  };
 }
 
 /**
@@ -105,12 +121,18 @@ export type DecisionTileTarget =
   | { readonly kind: "view"; readonly view: "agenda" | "sessions" };
 
 /**
- * 四格的点击落点(设计 Q6:待处置→S3,评审中→S5):一格恰好一行时直达那一行的落点;
- * 否则评审中进会话页(Decision 评审分组),其余进议程页。计数不对应单条 Decision 时不替用户挑一条。
+ * 四格的点击落点(设计 Q6:待处置→S3,评审中→S5):一格恰好一行 Decision 时直达那一行的落点;
+ * 否则评审中进会话页(Decision 评审分组),其余进议程页。计数不对应单条 Decision 时不替用户挑一条;
+ * 待处置里有 task 源等你处理行(`taskAwaits` 条数)时同样进议程页,那里就地答复。
  */
-export function decisionTileTarget(group: DecisionReviewGroup, rows: readonly DecisionAgendaRow[]): DecisionTileTarget {
+export function decisionTileTarget(
+  group: DecisionReviewGroup,
+  rows: readonly DecisionAgendaRow[],
+  taskAwaits = 0,
+): DecisionTileTarget {
   const inGroup = rows.filter((row) => row.group === group);
-  if (inGroup.length === 1) return { kind: "entity", ref: decisionAgendaRowRef(inGroup[0]!) };
+  if (inGroup.length === 1 && (group !== "dispose" || taskAwaits === 0))
+    return { kind: "entity", ref: decisionAgendaRowRef(inGroup[0]!) };
   return { kind: "view", view: group === "reviewing" ? "sessions" : "agenda" };
 }
 

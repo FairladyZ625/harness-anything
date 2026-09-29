@@ -129,7 +129,19 @@ describe("work information architecture", () => {
       task("historic-solo", { taskClass: "standard", canonicalStatus: "done", workId: undefined }),
     ];
     act(() =>
-      root.render(<WorkView tasks={rows} repoId="p" projectName="P" ready onOpenTask={(id) => opened.push(id)} />),
+      root.render(
+        <WorkView
+          tasks={rows}
+          repoId="p"
+          projectName="P"
+          ready
+          onOpenTask={(id) => opened.push(id)}
+          catalog={undefined}
+          catalogError={null}
+          daemonState="responsive"
+          onRefreshLedger={() => {}}
+        />,
+      ),
     );
     const cards = () => [...host.querySelectorAll('[data-testid="work-group-card"]')];
     expect(cards()).toHaveLength(24);

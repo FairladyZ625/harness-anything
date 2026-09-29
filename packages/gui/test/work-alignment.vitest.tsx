@@ -35,9 +35,7 @@ describe("work aggregation", () => {
     expect(result.groups.map(({ task }) => task.taskId)).toEqual(["declared_work", "group"]);
     expect(result.isolated.map((row) => row.taskId)).toEqual(["solo"]);
     const ids = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.id));
-    expect(ids).toEqual(
-      expect.arrayContaining(["overview", "overviewNext", "work", "board", "graph", "cadence", "decisionPool"]),
-    );
+    expect(ids).toEqual(expect.arrayContaining(["overview", "work", "board", "graph", "cadence", "decisionPool"]));
   });
   it("shows real counts, opens groups and isolated tasks, and searches both sections", () => {
     const host = document.createElement("div"),
@@ -46,7 +44,17 @@ describe("work aggregation", () => {
     act(() =>
       root.render(
         <QueryClientProvider client={new QueryClient()}>
-          <WorkView tasks={rows} repoId="repo" projectName="Project" ready onOpenTask={(id) => opened.push(id)} />
+          <WorkView
+            tasks={rows}
+            repoId="repo"
+            projectName="Project"
+            ready
+            onOpenTask={(id) => opened.push(id)}
+            catalog={undefined}
+            catalogError={null}
+            daemonState="responsive"
+            onRefreshLedger={() => {}}
+          />
         </QueryClientProvider>,
       ),
     );

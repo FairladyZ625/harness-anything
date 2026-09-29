@@ -1,21 +1,40 @@
 import { useMemo, useState } from "react";
+import { Plus } from "@phosphor-icons/react";
 import type { TaskRow } from "../model/types.ts";
+import type { CatalogSnapshotSuccess } from "../api-client-catalog.ts";
+import { StartWorkDialog } from "../components/StartWorkDialog.tsx";
+import { t } from "../i18n/index.tsx";
 import { collectWork, type WorkGroup } from "../model/work-collections.ts";
 import { ResultPagination } from "../components/ResultPagination.tsx";
 import { formatTime } from "../model/time.ts";
 
+/**
+ * 工作页:当前仓的工作与独立任务。顶部是「开始一项工作」的唯一入口(dec_DC3A1BB9 CH3:
+ * 建工作属于工作页,总览只负责看),向导复用 StartWorkDialog。
+ */
 export function WorkView({
   tasks,
+  repoId,
   projectName,
   ready,
   onOpenTask,
+  catalog,
+  catalogError,
+  daemonState,
+  onRefreshLedger,
 }: {
   readonly tasks: readonly TaskRow[];
   readonly repoId: string;
   readonly projectName: string;
   readonly ready: boolean;
   readonly onOpenTask: (id: string) => void;
+  /** `repo.gui.catalog.snapshot` 同一条投影(App 已挂载);创建向导的选型取值面。 */
+  readonly catalog: CatalogSnapshotSuccess | undefined;
+  readonly catalogError: string | null;
+  readonly daemonState: string;
+  readonly onRefreshLedger: () => void;
 }) {
+  const [startWorkOpen, setStartWorkOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("unfinished");
   const [sort, setSort] = useState("activity");
@@ -43,7 +62,31 @@ export function WorkView({
       <header className="flex flex-wrap items-baseline gap-3">
         <h1 className="text-xl font-semibold text-text">工作</h1>
         <span className="text-sm text-text-muted">当前仓库 · {projectName}</span>
+        <button
+          type="button"
+          onClick={() => setStartWorkOpen(true)}
+          data-testid="work-start-work"
+          className="ml-auto inline-flex items-center gap-1.5 self-center rounded-md border border-accent bg-accent px-2.5 py-1 ui-meta font-medium text-accent-fg hover:opacity-90"
+        >
+          <Plus weight="bold" aria-hidden />
+          {t("views.work.startWork.cta")}
+        </button>
       </header>
+      {startWorkOpen ? (
+        <StartWorkDialog
+          repoId={repoId}
+          catalog={catalog}
+          catalogError={catalogError}
+          daemonState={daemonState}
+          tasks={tasks}
+          onClose={() => setStartWorkOpen(false)}
+          onRefreshLedger={onRefreshLedger}
+          onOpenTask={(taskId) => {
+            setStartWorkOpen(false);
+            onOpenTask(taskId);
+          }}
+        />
+      ) : null}
       <div className="flex flex-wrap items-center gap-2 text-sm text-text">
         <input
           aria-label="搜索工作"

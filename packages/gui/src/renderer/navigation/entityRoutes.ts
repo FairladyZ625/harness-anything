@@ -33,6 +33,14 @@ export function workTargetOf(taskId: string): WorkTarget {
 }
 
 /**
+ * 任务评审的可寻址落点(议程「评审返回 / 待初审 / 任务评审中」):落任务详情并停在评审记录所在的
+ * 收口页签。读导航别名,不构成新实体;工作根同 task/<id> 一样进工作页。
+ */
+export function taskReviewRef(taskId: string): string {
+  return `taskreview/${taskId}`;
+}
+
+/**
  * decision/<id> → 决策详情页;fact/<anchor> → 事实详情页;其余 → null。
  *
  * `declaredKinds` 是已注册 kind 读面上的 kind 清单:声明出来的实体没有专页,统一落
@@ -47,10 +55,10 @@ export function entityDetailTargetOf(
   declaredKinds: readonly string[] = [],
   isWorkRoot: (taskId: string) => boolean = () => false,
 ): EntityDetailTarget | null {
-  if (ref.startsWith("task/")) {
-    const taskId = ref.split("/")[1];
+  if (ref.startsWith("task/") || ref.startsWith("taskreview/")) {
+    const [head, taskId] = ref.split("/");
     if (!taskId) return null;
-    return isWorkRoot(taskId) ? workTargetOf(taskId) : { selectedId: taskId, focusedEntityRef: `task/${taskId}` };
+    return isWorkRoot(taskId) ? workTargetOf(taskId) : { selectedId: taskId, focusedEntityRef: `${head}/${taskId}` };
   }
   if (ref.startsWith("decision/")) {
     const decisionId = ref.split("/")[1];
