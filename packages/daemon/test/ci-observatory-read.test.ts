@@ -1,6 +1,7 @@
 // harness-test-tier: contract
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -58,7 +59,7 @@ function event(
 }
 
 test("CI observatory aggregates filtered runs, retries, percentiles, shards, gates, and quarantine", () => {
-  const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observatory-"));
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ci-observatory-"));
   mkdirSync(path.join(rootDir, "tools"), { recursive: true });
   writeFileSync(
     path.join(rootDir, "tools/test-quarantine.json"),
@@ -162,7 +163,7 @@ test("CI observatory rejects out-of-range windows before reading the projection"
 });
 
 test("CI observatory does not count an advisory gate as a passing run", () => {
-  const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observatory-advisory-"));
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ci-observatory-advisory-"));
   mkdirSync(path.join(rootDir, "tools"), { recursive: true });
   writeFileSync(
     path.join(rootDir, "tools/test-quarantine.json"),
@@ -209,7 +210,7 @@ test("CI observation pull selects the newest main and main runs globally", () =>
 });
 
 test("CI observatory window retains every job from the selected workflow run", () => {
-  const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observatory-window-"));
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ci-observatory-window-"));
   mkdirSync(path.join(rootDir, "tools"), { recursive: true });
   writeFileSync(
     path.join(rootDir, "tools/test-quarantine.json"),
@@ -242,7 +243,7 @@ test("CI observatory window retains every job from the selected workflow run", (
 });
 
 test("CI observation pull writes canonical events once per run and job", async () => {
-  const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observation-pull-"));
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ci-observation-pull-"));
   const events = new Map<string, CiRunObservationEventV3>();
   let revision = 0;
   const cell = {
@@ -384,7 +385,7 @@ test("CI observation pull writes canonical events once per run and job", async (
 });
 
 test("CI observation pull collects selected GitHub runs concurrently in selection order", async () => {
-  const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observation-concurrent-"));
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ci-observation-concurrent-"));
   const viewResolvers = new Map<string, () => void>();
   const viewStarts: string[] = [];
   const runGh = (async (_command: string, args: readonly string[]) => {
@@ -444,7 +445,7 @@ test("CI observation pull collects selected GitHub runs concurrently in selectio
 });
 
 test("CI observation pull synthesizes a ledger-publication run only for private ledger commits", async () => {
-  const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observation-ledger-"));
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ci-observation-ledger-"));
   const ledgerRoot = path.join(rootDir, "harness");
   const cell = {
     rootDir,
@@ -484,7 +485,7 @@ function git(rootDir: string, ...args: readonly string[]): string {
 }
 
 test("CI observation pull imports named main runs without listing recent runs", async () => {
-  const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observation-named-")),
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ci-observation-named-")),
     events: CiRunObservationEventV3[] = [],
     calls: string[] = [];
   const cell = {
@@ -646,7 +647,7 @@ test("CI provenance comes from the completed matching GitHub run, not workflow p
     },
   ];
   for (const scenario of cases) {
-    const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-completion-verdict-")),
+    const rootDir = mkdtempSync(path.join(tmpdir(), "ci-completion-verdict-")),
       events: CiRunObservationEventV3[] = [];
     let downloads = 0;
     const cell = {
@@ -720,7 +721,7 @@ test("CI provenance comes from the completed matching GitHub run, not workflow p
 });
 
 test("CI observation pull --task imports the run the frozen contract judges: the newest covering push, red included", async () => {
-  const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observation-task-")),
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ci-observation-task-")),
     delivery = "d".repeat(40),
     events: CiRunObservationEventV3[] = [];
   const cell = {
@@ -893,7 +894,7 @@ test("CI observation pull --task imports the run the frozen contract judges: the
 });
 
 test("CI observation pull --task fails closed when no completed run covers the delivery", async () => {
-  const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observation-task-none-")),
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ci-observation-task-none-")),
     delivery = "d".repeat(40);
   const cell = {
     rootDir,
@@ -971,7 +972,7 @@ test("CI observation pull --task fails closed when no completed run covers the d
 });
 
 test("CI observation pull reports rate_limited with the reset hint instead of a raw gh 403", async () => {
-  const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observation-rate-limit-")),
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ci-observation-rate-limit-")),
     delivery = "d".repeat(40);
   const cell = {
     rootDir,
@@ -1059,7 +1060,7 @@ test("CI observation pull reports rate_limited with the reset hint instead of a 
 });
 
 test("CI observatory fails closed on malformed quarantine ownership", () => {
-  const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observatory-invalid-"));
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ci-observatory-invalid-"));
   mkdirSync(path.join(rootDir, "tools"), { recursive: true });
   writeFileSync(
     path.join(rootDir, "tools/test-quarantine.json"),
@@ -1086,7 +1087,7 @@ test("CI observatory fails closed on malformed quarantine ownership", () => {
 
 test("CI observatory rejects quarantine ownership outside the two real task id shapes", () => {
   for (const ownerTask of ["task_owner1", "task_2301", "task_f7cc215a54a194898ad733c20"]) {
-    const rootDir = mkdtempSync(path.join(process.cwd(), ".tmp-ci-observatory-shape-"));
+    const rootDir = mkdtempSync(path.join(tmpdir(), "ci-observatory-shape-"));
     mkdirSync(path.join(rootDir, "tools"), { recursive: true });
     writeFileSync(
       path.join(rootDir, "tools/test-quarantine.json"),
