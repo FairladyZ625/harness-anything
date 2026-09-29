@@ -365,6 +365,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
   assert.deepEqual(cliCapabilities, {
     agenda: ["agenda"],
     backup: ["ledger-backup"],
+    bootstrap: ["rbac-bootstrap"],
     agent: [
       "agent-create",
       "agent-delete",

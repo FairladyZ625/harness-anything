@@ -126,6 +126,7 @@ export const actionDeclarations = Object.freeze([
   canonical("preset-uninstall", null, "repo-write", "none"),
   canonical("preset-upgrade", null, "repo-write"),
   canonical("projection-rebuild", null, "repo-write", "none"),
+  hostAdmin("rbac-bootstrap"),
   canonical("relation-reconfirm", "relation/reconfirm", "repo-write"),
   canonical("relation-relate", "relation/relate", "repo-write"),
   canonical("relation-unrelate", "relation/unrelate", "repo-write"),

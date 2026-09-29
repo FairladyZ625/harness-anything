@@ -20,7 +20,12 @@ import {
   requireHostMode as requireHostModeImpl,
   settleControl as settleControlImpl,
 } from "./daemon-host-admission.ts";
-import { binding as deriveBinding, localSystemBinding, withDaemonWriterEpochFence } from "./daemon-host-binding.ts";
+import {
+  binding as deriveBinding,
+  localDefaultBinding,
+  localSystemBinding,
+  withDaemonWriterEpochFence,
+} from "./daemon-host-binding.ts";
 import { createDaemonHostControlApi } from "./daemon-host-control-api.ts";
 import {
   attachBudgetError,
@@ -61,6 +66,7 @@ import {
   requiredText,
 } from "./daemon-host-status.ts";
 import type { DaemonHost } from "./daemon-host-types.ts";
+import { requireAuthorizedHostAction } from "./host-action-authorization.ts";
 import { openFleetEdgeRuntime, type FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
 import type { FleetRoster } from "./fleet-center-admission.ts";
 import type { FleetTlsCenter } from "./fleet/center.ts";
@@ -84,6 +90,7 @@ import {
   type PersistentWriterEpoch,
   type WriterEpochLease,
 } from "./writer-epoch.ts";
+import { ManagedRbacService } from "./managed-rbac-service.ts";
 
 export interface DaemonHostOpenInput {
   readonly daemonId: string;
@@ -592,12 +599,28 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     now,
     startedAt,
   };
+  const managedRbac = new ManagedRbacService(input.userRoot),
+    lifecycle = createDaemonHostLifecycleApi(hostContext);
   const host: DaemonHost = {
     remoteProxy,
     ...createDaemonHostRepositoryApi(hostContext),
     ...createDaemonHostRuntimeApi(hostContext),
     ...createDaemonHostControlApi(hostContext),
-    ...createDaemonHostLifecycleApi(hostContext),
+    ...lifecycle,
+    manageRbac: (request, auth) => {
+      localOnly(auth);
+      requireAuthorizedHostAction({
+        kind: "rbac-bootstrap",
+        binding: localDefaultBinding(auth),
+        actionId: `rbac-bootstrap:${request.operation ?? "bootstrap"}`,
+        evaluatedAtCut: "daemon-rbac:current",
+      });
+      return managedRbac.run(request);
+    },
+    close: async () => {
+      await managedRbac.stop();
+      await lifecycle.close();
+    },
   };
   return host;
   async function closeCell(repoId: string): Promise<void> {

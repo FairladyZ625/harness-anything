@@ -129,6 +129,7 @@ function withFixture(run) {
             {
               id: "workspace.bootstrap",
               actions: [
+                "rbac-bootstrap",
                 "repo-bootstrap",
                 "daemon-repo-register",
                 "ledger-backup",

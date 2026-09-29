@@ -210,6 +210,13 @@ export function createJsonRpcProtocolServer(options: {
         return reply(method, protocolFailure("init", error));
       }
     }
+    if (request.method === "daemon.rbac.manage" && method === request.method) {
+      try {
+        return reply(method, await options.host.manageRbac(params, options.authContext));
+      } catch (error) {
+        return reply(method, protocolFailure("bootstrap", error));
+      }
+    }
     switch (call.method) {
       case "daemon.repo.register":
         try {

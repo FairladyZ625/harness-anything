@@ -141,7 +141,7 @@ export async function runCommandThroughDaemon(
         ...rest,
       )) as typeof rpc.requestLocalDaemonJsonRpcForTarget),
     autostart = options.autostart ?? command.action.kind !== "receipt-show";
-  if (command.action.kind === "repo-bootstrap") {
+  if (command.action.kind === "repo-bootstrap" || command.action.kind === "rbac-bootstrap") {
     const userRoot = daemonUserRoot(env),
       daemonId = daemonIdFromEnv(env),
       { kind: _kind, ...params } = command.action,
@@ -156,8 +156,8 @@ export async function runCommandThroughDaemon(
             daemonId,
             socketPath,
           },
-          "daemon.repo.bootstrap",
-          { rootDir: command.rootDir, ...params },
+          command.action.kind === "rbac-bootstrap" ? "daemon.rbac.manage" : "daemon.repo.bootstrap",
+          command.action.kind === "rbac-bootstrap" ? (params as JsonObject) : { rootDir: command.rootDir, ...params },
           75,
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),
@@ -428,7 +428,9 @@ export async function streamRuntimeThroughDaemon(
   command: ThinCommand,
   runtimeSessionId: string,
   onValue: (value: unknown) => void,
-  onClosed?: (failure: import("@harness-anything/daemon/internal/client/local-json-rpc-stream").DaemonStreamLost) => void,
+  onClosed?: (
+    failure: import("@harness-anything/daemon/internal/client/local-json-rpc-stream").DaemonStreamLost,
+  ) => void,
 ): Promise<() => void> {
   const target = await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId }),
     { streamAgentRuntimeAt } = await import("@harness-anything/daemon/internal/client/local-json-rpc-stream");

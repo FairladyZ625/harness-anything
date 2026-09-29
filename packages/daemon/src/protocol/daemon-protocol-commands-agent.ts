@@ -535,6 +535,29 @@ export const agentProtocolCommands = Object.freeze([
     ],
   }),
   defineHostAdminCommand({
+    id: "rbac-bootstrap",
+    phase: "W3",
+    path: ["bootstrap"],
+    summary: "Install, configure, and start the managed Keycloak and PostgreSQL authorization service.",
+    method: "daemon.rbac.manage",
+    inputs: [
+      cliInput(
+        "--operation",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          enum: ["bootstrap", "health", "start", "stop", "backup", "restore", "upgrade"],
+        },
+      ),
+      cliInput("--mode", "single", false, { code: "invalid_field" }, { enum: ["managed", "external"] }),
+      cliInput("--url", "single", false, { code: "invalid_field" }),
+      cliInput("--realm", "single", false, { code: "invalid_field" }),
+      cliInput("--client-id", "single", false, { code: "invalid_field" }, { field: "clientId" }),
+      cliInput("--backup-dir", "single", false, { code: "invalid_field" }, { field: "backupDir" }),
+    ],
+  }),
+  defineHostAdminCommand({
     id: "repo-bootstrap",
     phase: "W3",
     path: ["init"],

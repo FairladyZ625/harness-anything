@@ -16,6 +16,7 @@
     {
       "id": "workspace.bootstrap",
       "actions": [
+        "rbac-bootstrap",
         "repo-bootstrap",
         "daemon-repo-register",
         "ledger-backup",
@@ -26,6 +27,7 @@
       "authority": "packages/daemon/src/daemon-host.ts",
       "evidence": [
         "packages/daemon/src/daemon-host.ts",
+        "packages/daemon/src/managed-rbac-service.ts",
         "packages/daemon/src/repo-bootstrap.ts",
         "packages/daemon/src/schedule-action-runtime.ts",
         "packages/daemon/src/schedule-builtin-executor.ts",
@@ -72,6 +74,7 @@
     "packages/daemon/src/fleet/replica-ack-store.ts",
     "packages/daemon/src/fleet/replica-cut-store.ts",
     "packages/daemon/src/lifecycle-log.ts",
+    "packages/daemon/src/managed-rbac-service.ts",
     "packages/daemon/src/migration-import-oracle-rebuild.ts",
     "packages/daemon/src/observe-jsonl-tail.ts",
     "packages/daemon/src/repo-bootstrap.ts",

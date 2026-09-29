@@ -97,6 +97,20 @@ export const daemonProtocolMethods = Object.freeze([
     }),
   },
   {
+    id: "daemon.rbac.manage",
+    phase: "W3",
+    method: "daemon.rbac.manage",
+    requiresRepo: false,
+    params: shape({
+      operation: optionalEnum(["bootstrap", "health", "start", "stop", "backup", "restore", "upgrade"] as const),
+      mode: optionalEnum(["managed", "external"] as const),
+      url: "string?",
+      realm: "string?",
+      clientId: "string?",
+      backupDir: "string?",
+    }),
+  },
+  {
     id: "daemon.repo.register",
     phase: "W3",
     method: "daemon.repo.register",
