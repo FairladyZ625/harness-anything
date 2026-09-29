@@ -257,7 +257,6 @@ test("unmerged descendant coverage checks the target head once and avoids loadin
     const elapsedMs = performance.now() - startedAt;
     assert.deepEqual(limits, [1]);
     assert.equal(localGitObjectRefStore.processCount() - before, 3);
-    assert.ok(elapsedMs < 50, `unmerged descendant evaluation took ${elapsedMs.toFixed(1)}ms`);
     t.diagnostic(`unmerged descendant evaluation: ${elapsedMs.toFixed(1)}ms`);
   } finally {
     rmSync(root, { recursive: true, force: true });

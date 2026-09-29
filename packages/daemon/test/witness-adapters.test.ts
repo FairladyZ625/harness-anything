@@ -127,6 +127,7 @@ function cellStub(rootDir: string, execution: Snapshot["executions"][number]) {
     projection: {
       read: () => read,
       readCiRunObservations: () => ({ status: "ready", events: [], watermark: 0, sourceRevision: 0 }),
+      readRuntimeDispatchesByTaskExecution: () => [],
     },
     cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
     requiredCellText: (value: unknown) => String(value),
