@@ -406,9 +406,7 @@ function taskActionRejection(
       if (!criterion) throw new Error(`Task Action ${contract.id} criterion ${criterionRef} is not declared.`);
       return criterion;
     }),
-    nextActions = rejected?.diagnostic
-      ? Object.freeze([])
-      : Object.freeze([...new Set([...unmet.flatMap(({ nextActions: next }) => next)])]),
+    nextActions = Object.freeze([...new Set([...unmet.flatMap(({ nextActions: next }) => next)])]),
     first = unmetCriteria[0]!;
   return {
     ...(rejected ?? cell.rejected(cell.operationId(action, binding, cell.input.repoId, revision), first.failureCode)),

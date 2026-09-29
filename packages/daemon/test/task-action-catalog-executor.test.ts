@@ -109,7 +109,6 @@ test("rejected Task ActionResult preserves the exact structured criterion", asyn
   assert.deepEqual(receipt.effects, []);
   assert.equal(receipt.updatedProjection, null);
   assert.match(receipt.rejectionExplanation ?? "", /expectedVersion/u);
-  assert.deepEqual(receipt.nextActions, []);
 });
 
 test("ambiguous failure codes do not invent a criterion", async () => {

@@ -70,7 +70,7 @@ const taskCapabilityEvaluators = Object.freeze(
           : "unmet",
     ],
     [key("transition", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
-    [key("transition", "lifecycle-status/explainStatusTransition"), mutationInvocation],
+    [key("transition", "lifecycle-status/explainStatusTransition"), transitionInvocation],
     [key("submit", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("submit", "task-lifecycle-command-transitions/submit.validate"), submitValidation],
     [
@@ -172,6 +172,19 @@ function releaseAvailability({ snapshot, actor }: TaskActionCapabilityInput): "m
 }
 
 function mutationInvocation(): "invocation-required" {
+  return "invocation-required";
+}
+
+function transitionInvocation(input: TaskActionCapabilityInput): PredicateEvaluation | "invocation-required" {
+  if (
+    input.snapshot.task?.status === "planned" &&
+    input.snapshot.task.currentNode === "implementation" &&
+    input.snapshot.lease === null
+  )
+    return {
+      status: "invocation-required",
+      nextActions: [`ha task start ${invocationTaskId(input)}`],
+    };
   return "invocation-required";
 }
 
