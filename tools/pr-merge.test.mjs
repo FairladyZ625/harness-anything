@@ -125,7 +125,7 @@ function fixture(t) {
     HARNESS_ACTOR: "",
     HARNESS_CANONICAL_ROOT: "",
   };
-  return { env, headRefOid, main, prWorktree, remote, statePath, upstreamHead };
+  return { env, headRefOid, main, prWorktree, remote, seed, statePath, upstreamHead };
 }
 
 test("merges, cleans the PR branch and worktree, and fast-forwards local main", (t) => {
@@ -195,4 +195,26 @@ test("untracked files in the PR worktree pass preflight; git worktree remove ref
   assert.equal(existsSync(setup.prWorktree), true);
   assert.equal(readFileSync(path.join(setup.prWorktree, "scratch.txt"), "utf8"), "keep me\n");
   assert.equal(git(setup.main, "rev-parse", "HEAD"), initialHead);
+});
+
+test("git pull refuses when an incoming commit collides with an untracked file", (t) => {
+  const setup = fixture(t);
+  writeFileSync(path.join(setup.seed, "colliding.txt"), "from upstream\n");
+  git(setup.seed, "add", "colliding.txt");
+  git(setup.seed, "commit", "-m", "add colliding.txt");
+  const collisionHead = git(setup.seed, "rev-parse", "HEAD");
+  git(setup.seed, "push", "origin", "main");
+  writeFileSync(path.join(setup.main, "colliding.txt"), "keep me\n");
+
+  const result = run(process.execPath, [helper, "123"], {
+    cwd: setup.main,
+    env: setup.env,
+    allowFailure: true,
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /colliding\.txt/u);
+  assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
+  assert.equal(readFileSync(path.join(setup.main, "colliding.txt"), "utf8"), "keep me\n");
+  assert.notEqual(git(setup.main, "rev-parse", "HEAD"), collisionHead);
 });
