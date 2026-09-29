@@ -2,7 +2,6 @@ export default Object.freeze({
   id: "rebuild-gates",
   phases: ["P2", "P4"],
   projection: {
-    catalog: "tools/gates/contracts/gates.projection.json",
     workflow: ".github/workflows/rebuild-gates.yml",
   },
   commands: [],
