@@ -409,6 +409,38 @@ function mirrorCutFixture(
   return { root, viewRoot: path.join(root, "view"), workspace, worktree };
 }
 
+test("mirror rejects unsafe manifest paths and corrupt CAS fallback bytes", (t) => {
+  const unsafe = mirrorCutFixture("unsafe-path", [{ revision: 1, entries: [] }], 1),
+    unsafeView = path.join(unsafe.viewRoot, "repos", "repo", "views", "edge-view");
+  t.after(() => rmSync(unsafe.root, { recursive: true, force: true }));
+  writeJson(path.join(unsafeView, "cuts", "1", "manifest.json"), {
+    entries: [
+      {
+        path: "../outside.md",
+        blob: { sha256: sha("outside"), size: 7, mediaType: "text/markdown" },
+      },
+    ],
+  });
+  assert.throws(
+    () => applyFleetMirrorCut(unsafe.viewRoot, "repo", unsafe.workspace, "pull"),
+    (error: unknown) =>
+      error instanceof Error && "code" in error && (error as { code: string }).code === "unsafe_conflict_path",
+  );
+
+  const body = "expected",
+    corrupt = mirrorCutFixture("corrupt-cas", [{ revision: 1, entries: [{ path: "context/note.md", body }] }], 1),
+    viewDir = path.join(corrupt.viewRoot, "repos", "repo", "views", "edge-view"),
+    digest = sha(body);
+  t.after(() => rmSync(corrupt.root, { recursive: true, force: true }));
+  rmSync(path.join(viewDir, "cuts", "1", "files", "context", "note.md"));
+  writeBytes(path.join(corrupt.viewRoot, "repos", "repo", "cas", "sha256", digest.slice(0, 2), digest), "bad");
+  assert.throws(
+    () => applyFleetMirrorCut(corrupt.viewRoot, "repo", corrupt.workspace, "pull"),
+    (error: unknown) =>
+      error instanceof Error && "code" in error && (error as { code: string }).code === "replica_corrupt",
+  );
+});
+
 test("F3: a staged conflict keeps its base/ bytes after the base cut leaves the retention window", async (t) => {
   const logical = "context/notes.md",
     baseBody = "# Notes\n\nbase\n",
