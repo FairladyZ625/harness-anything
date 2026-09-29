@@ -1,3 +1,4 @@
+import path from "node:path";
 import type { AgentRuntimeEventV1, CanonicalEventStore, SessionIdentity } from "@harness-anything/kernel";
 import type { readDispatchStream } from "./dispatch-stream.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -22,6 +23,20 @@ export function runtimeEventHasType<T extends RuntimeEventType>(
   type: T,
 ): event is RuntimeEventOf<T> {
   return event.type === type;
+}
+
+export async function prepareTaskWorkerGitEnvironment(
+  input: RuntimeSpawnerInput,
+  instanceId: string,
+): Promise<NodeJS.ProcessEnv | undefined> {
+  const credentialEnvironment = await input.prepareWorkerGitEnvironment?.(instanceId);
+  return credentialEnvironment
+    ? {
+        ...credentialEnvironment,
+        GIT_ASKPASS: path.join(input.rootDir, "tools", "git-hooks", "git-askpass"),
+        HARNESS_TASK_BOUND: "1",
+      }
+    : undefined;
 }
 
 export interface RuntimeEventPublication<T extends RuntimeEventType> {

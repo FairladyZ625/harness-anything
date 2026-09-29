@@ -23,7 +23,6 @@ import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-type
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { fetchCiObservations, ingestCiObservations } from "./ci-observation-actions.ts";
 import { githubActionsWitnessEvidence } from "./repo-cell-ci-evidence.ts";
-import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { runProcessExitAsync, runProcessTextAsync } from "./process-port.ts";
 
 type Execution = Snapshot["executions"][number];
@@ -188,12 +187,10 @@ async function collectLocalCommand(
     );
   const candidates = [
       cell.rootDir,
-      ...readDispatchStreamHeaders(cell.rootDir)
-        .filter(
-          (dispatch) =>
-            dispatch.taskId === execution.taskId && dispatch.executionId === execution.executionId && dispatch.cwd,
-        )
-        .map((dispatch) => dispatch.cwd!),
+      ...cell.projection
+        .readRuntimeDispatchesByTaskExecution(execution.taskId, execution.executionId)
+        .map(({ event }) => event.payload.cwd)
+        .filter((cwd): cwd is string => typeof cwd === "string" && cwd.length > 0),
     ],
     root = [...new Set(candidates)].find((candidate) => localGitObjectRefStore.hasCommit(candidate, cutSha));
   if (!root)

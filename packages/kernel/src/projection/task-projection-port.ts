@@ -1,5 +1,10 @@
 import type { DecisionDocumentState } from "../domain/decision-event-types.ts";
-import type { AgentRuntimeEventV1, RuntimeInstallation, RuntimeSession } from "../domain/agent-runtime.ts";
+import type {
+  AgentRuntimeEventV1,
+  RuntimeDispatchMetrics,
+  RuntimeInstallation,
+  RuntimeSession,
+} from "../domain/agent-runtime.ts";
 import type { DecisionEventV1 } from "../domain/decision-event.ts";
 import type { CanonicalEventV1 } from "../domain/doc-sync.contract.ts";
 import type { FactEventV1 } from "../domain/fact-event.ts";
@@ -70,6 +75,18 @@ export interface PinnedEntityProjectionRow {
   readonly pinnedAt: string;
   readonly pinnedBy: string;
 }
+export interface RuntimeDispatchProjectionRow {
+  readonly event: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>;
+  readonly metrics: RuntimeDispatchMetrics | null;
+  readonly endedAt: string | null;
+  readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | null;
+}
+export interface RuntimeDispatchPage {
+  readonly rows: readonly RuntimeDispatchProjectionRow[];
+  readonly nextCursor: { readonly startedAt: string; readonly dispatchId: string } | null;
+  readonly done: boolean;
+}
+
 export interface TaskProjection {
   readonly path: string;
   readonly close: () => void;
@@ -137,6 +154,20 @@ export interface TaskProjection {
     AgentRuntimeEventV1,
     { readonly type: "runtime_dispatch_requested" }
   >[];
+  readonly readRuntimeDispatchById: (dispatchId: string) => RuntimeDispatchProjectionRow | null;
+  readonly readRuntimeDispatchByResumeSource: (dispatchId: string) => RuntimeDispatchProjectionRow | null;
+  readonly readRuntimeDispatchesBySession: (runtimeSessionId: string) => readonly RuntimeDispatchProjectionRow[];
+  readonly readRuntimeDispatchesByTaskExecution: (
+    taskId: string,
+    executionId: string,
+  ) => readonly RuntimeDispatchProjectionRow[];
+  readonly readRuntimeDispatchesByAttemptGroup: (attemptGroupId: string) => readonly RuntimeDispatchProjectionRow[];
+  readonly readRuntimeDispatchesByDecision: (decisionId: string) => readonly RuntimeDispatchProjectionRow[];
+  readonly readRuntimeDispatchPage: (query: {
+    readonly startedAtGte: string;
+    readonly cursor?: { readonly startedAt: string; readonly dispatchId: string };
+    readonly limit: number;
+  }) => RuntimeDispatchPage;
   readonly readRuntimeSessionEvents: (
     runtimeSessionIdValue: string,
     afterRevision: number,

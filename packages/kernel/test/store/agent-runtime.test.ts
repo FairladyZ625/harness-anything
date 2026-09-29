@@ -502,6 +502,85 @@ test("runtime schema rejects credential, transcript body, tool/cost stream, and 
   assert.deepEqual(forbiddenKeys(bound), []);
 });
 
+test("runtime dispatch history supports keyed reads and done-driven startedAt pages", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    initRepo(rootDir);
+    const store = makeTaskEventStore({ repoId: "runtime-history", rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore: store }),
+      requestedBase = witness("runtime_dispatch_requested"),
+      startedBase = witness("runtime_session_started"),
+      outcomeBase = witness("runtime_session_outcome_observed");
+    for (const [index, dispatchId] of ["dispatch_history_1", "dispatch_history_2"].entries()) {
+      const requested = eventFromProviderWitness(
+          {
+            ...requestedBase,
+            payload: {
+              ...requestedBase.payload,
+              dispatchId,
+              runtimeSessionId: `runtime-history-${index}`,
+              startedAt: `2026-09-0${index + 1}T00:00:00.000Z`,
+              ...(index === 1 ? { resumedFromDispatchId: "dispatch_history_1" } : {}),
+              taskId: "task-history",
+              executionId: "execution-history",
+              attemptGroupId: "attempt-history",
+              attemptIndex: index,
+            },
+          },
+          envelope(index * 3 + 1),
+        )!,
+        started = eventFromProviderWitness(
+          {
+            ...startedBase,
+            payload: { ...startedBase.payload, runtimeSessionId: `runtime-history-${index}` },
+          },
+          envelope(index * 3 + 2),
+        )!,
+        outcome = eventFromProviderWitness(
+          {
+            ...outcomeBase,
+            payload: {
+              ...outcomeBase.payload,
+              runtimeSessionId: `runtime-history-${index}`,
+              dispatchId,
+              endedAt: `2026-09-0${index + 1}T00:01:00.000Z`,
+              runtimeMetrics: {
+                inputTokens: index + 1,
+                cacheReadTokens: 0,
+                outputTokens: 2,
+                totalTokens: index + 3,
+                toolCallCount: 1,
+                usageUnavailable: false,
+              },
+            },
+          },
+          envelope(index * 3 + 3),
+        )!;
+      for (const event of [requested, started, outcome]) {
+        store.append(bundle(event));
+        projection.apply(event);
+      }
+    }
+    assert.equal(projection.readRuntimeDispatchById("dispatch_history_1")?.metrics?.totalTokens, 3);
+    assert.equal(
+      projection.readRuntimeDispatchByResumeSource("dispatch_history_1")?.event.payload.dispatchId,
+      "dispatch_history_2",
+    );
+    assert.equal(projection.readRuntimeDispatchesByTaskExecution("task-history", "execution-history").length, 2);
+    assert.equal(projection.readRuntimeDispatchesByAttemptGroup("attempt-history").length, 2);
+    const first = projection.readRuntimeDispatchPage({ startedAtGte: "2026-09-01T00:00:00.000Z", limit: 1 });
+    assert.equal(first.done, false);
+    assert.ok(first.nextCursor);
+    const second = projection.readRuntimeDispatchPage({
+      startedAtGte: "2026-09-01T00:00:00.000Z",
+      cursor: first.nextCursor,
+      limit: 1,
+    });
+    assert.equal(second.done, true);
+    assert.equal(second.nextCursor, null);
+    assert.equal(second.rows[0]?.event.payload.dispatchId, "dispatch_history_2");
+  });
+});
+
 function fixture(name: string): Fixture {
   return JSON.parse(
     readFileSync(new URL(`../fixtures/agent-runtime-witness/${name}`, import.meta.url), "utf8"),

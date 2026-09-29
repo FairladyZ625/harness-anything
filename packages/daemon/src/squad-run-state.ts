@@ -1,5 +1,5 @@
 import { isTerminalStatus, type TaskV2 } from "@harness-anything/kernel";
-import { readDispatchStreamSummaries } from "./dispatch-stream.ts";
+import { readAllDispatchStreamSummaries } from "./dispatch-stream.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { LeaderTrigger, LeaderTurn, WorkerAttempt, WorkerWaitTrigger } from "./squad-leader-decision.ts";
@@ -68,7 +68,7 @@ export function squadState(value: unknown): SquadState | null {
 /** The dispatch streams are the squad runs' ledger: the latest state per run, cancellation records applied on top. */
 export function latestSquadStates(rootDir: string): ReadonlyMap<string, SquadState> {
   const states = new Map<string, SquadState>();
-  for (const stream of readDispatchStreamSummaries(rootDir)) {
+  for (const stream of readAllDispatchStreamSummaries(rootDir)) {
     for (const record of stream.records) {
       if (record.kind === "squad_run_cancelled") {
         const squadRunId = record.squadRunId,

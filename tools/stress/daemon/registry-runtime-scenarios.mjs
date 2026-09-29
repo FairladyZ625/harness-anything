@@ -8,6 +8,7 @@ import { makeTaskEventReader } from "../../../packages/kernel/src/index.ts";
 import { localUserDaemonEndpoint } from "../../../packages/daemon/src/client/local-daemon-target.ts";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
 import { daemonProcessAlive } from "../../../packages/daemon/src/daemon-singleton.ts";
+import { readDispatchStream } from "../../../packages/daemon/src/dispatch-stream.ts";
 import { readDaemonPid, startDaemon } from "../../../packages/daemon/src/runtime.ts";
 import {
   openBootstrappedRepoCell,
@@ -378,10 +379,11 @@ async function runLiveRuntimeRestart(root) {
       dispatchId = String(spawned.dispatchId),
       beforeStatus = await waitRuntime(fixture.repoRoot, env, runtimeSessionId, "live", "initial runtime live"),
       daemonBefore = runCli(fixture.repoRoot, env, ["daemon", "status"]),
-      dispatchPath = path.join(fixture.repoRoot, ".harness/runtime/dispatches", `${dispatchId}.jsonl`),
       workerPid = await waitValue(
         () => {
-          const started = readDispatch(dispatchPath).find((record) => record.kind === "process_started");
+          const started = readDispatchStream(fixture.repoRoot, dispatchId)?.records.find(
+            (record) => record.kind === "process_started",
+          );
           return Number.isInteger(started?.pid) ? Number(started.pid) : null;
         },
         30_000,
@@ -400,8 +402,8 @@ async function runLiveRuntimeRestart(root) {
     assert.equal(cancelled.detail, "cancelled");
     await waitRuntime(fixture.repoRoot, env, runtimeSessionId, "exited", "cancelled runtime exit");
     await waitUntil(() => !daemonProcessAlive(workerPid), 30_000, "worker-host exit after cancellation");
-    const dispatchBytes = readFileSync(dispatchPath, "utf8"),
-      records = readDispatch(dispatchPath),
+    const records = readDispatchStream(fixture.repoRoot, dispatchId)?.records ?? [],
+      dispatchBytes = records.map((record) => JSON.stringify(record)).join("\n"),
       exits = records.filter((record) => record.kind === "process_exit");
     assert.equal(exits.length, 1, "runtime settlement must not be duplicated after adoption");
     assert.equal(dispatchBytes.split("provider-stress-session").length - 1 >= 1, true);

@@ -129,15 +129,81 @@ function planWindow(
  * (bounded head/tail windows, cached by mtime+size) is the whole read cost — no full-file scan. */
 function windowDispatches(
   rootDir: string,
+  projection: Pick<TaskProjection, "readRuntimeDispatchPage">,
   sinceMs: number,
   pick: (header: DispatchStreamHeader) => boolean,
 ): { readonly header: DispatchStreamHeader; readonly summary: DispatchStreamSummary | null }[] {
-  const selected: { readonly header: DispatchStreamHeader; readonly summary: DispatchStreamSummary | null }[] = [];
+  const selected = new Map<
+    string,
+    { readonly header: DispatchStreamHeader; readonly summary: DispatchStreamSummary | null }
+  >();
+  let cursor: { readonly startedAt: string; readonly dispatchId: string } | undefined;
+  for (;;) {
+    const page = projection.readRuntimeDispatchPage({
+      startedAtGte: new Date(sinceMs).toISOString(),
+      ...(cursor ? { cursor } : {}),
+      limit: 200,
+    });
+    for (const row of page.rows) {
+      const payload = row.event.payload;
+      if (!payload.startedAt || !pick(projectedHeader(row))) continue;
+      selected.set(payload.dispatchId, { header: projectedHeader(row), summary: projectedSummary(row) });
+    }
+    if (page.done) break;
+    if (!page.nextCursor) throw new Error("runtime dispatch page is incomplete without a next cursor");
+    cursor = page.nextCursor;
+  }
   for (const header of readDispatchStreamHeaders(rootDir)) {
     if (Date.parse(header.startedAt) < sinceMs || !pick(header)) continue;
-    selected.push({ header, summary: readDispatchStreamSummary(rootDir, header.dispatchId) });
+    selected.set(header.dispatchId, { header, summary: readDispatchStreamSummary(rootDir, header.dispatchId) });
   }
-  return selected;
+  return [...selected.values()];
+}
+
+function projectedHeader(
+  row: ReturnType<TaskProjection["readRuntimeDispatchPage"]>["rows"][number],
+): DispatchStreamHeader {
+  const payload = row.event.payload;
+  return {
+    schema: "runtime-dispatch-stream/v1",
+    kind: "dispatch",
+    dispatchId: payload.dispatchId,
+    runtimeSessionId: payload.runtimeSessionId,
+    instanceId: payload.instanceId,
+    startedAt: payload.startedAt ?? row.event.occurredAt,
+    eventStreamRef: `file:.harness/runtime/dispatches/${payload.dispatchId}.jsonl`,
+    taskId: payload.taskId ?? null,
+    executionId: payload.executionId ?? null,
+    ...(payload.agentId ? { agentId: payload.agentId } : {}),
+    ...(payload.agentName ? { agentName: payload.agentName } : {}),
+    ...(payload.squadId ? { squadId: payload.squadId } : {}),
+    model: payload.definitionSnapshot.model,
+  };
+}
+
+function projectedSummary(
+  row: ReturnType<TaskProjection["readRuntimeDispatchPage"]>["rows"][number],
+): DispatchStreamSummary | null {
+  if (!row.metrics) return null;
+  return {
+    header: projectedHeader(row),
+    records: row.endedAt ? [{ kind: "process_exit", occurredAt: row.endedAt }] : [],
+    lastObservedAt: row.endedAt ?? row.event.occurredAt,
+    providerSessionId: null,
+    process: row.endedAt
+      ? {
+          pid: 0,
+          exited: true,
+          exitCode: row.outcome === "succeeded" ? 0 : row.outcome === "failed" ? 1 : null,
+          signal: null,
+        }
+      : null,
+    attemptOutcome: null,
+    fallbackState: null,
+    fallbackSchedule: null,
+    runtimeMetrics: { ...row.metrics, compacted: false, raw: {} },
+    nextDispatchId: null,
+  };
 }
 
 /**
@@ -153,6 +219,7 @@ export function readAgentRuntimeTokenUsage(input: {
   readonly now: string;
   readonly range: AgentRuntimeTokenUsageRange;
   readonly entityLabel: (squadId: string) => string | null;
+  readonly projection: Pick<TaskProjection, "readRuntimeDispatchPage">;
   readonly cut: {
     readonly status: "ready" | "pending";
     readonly watermark: number;
@@ -180,7 +247,7 @@ export function readAgentRuntimeTokenUsage(input: {
       ],
     ]),
     buckets = bucketLadder(sinceMs, now.getTime(), bucketMs);
-  for (const { header, summary } of windowDispatches(input.rootDir, sinceMs, () => true)) {
+  for (const { header, summary } of windowDispatches(input.rootDir, input.projection, sinceMs, () => true)) {
     const metrics = summary?.runtimeMetrics ?? null;
     accumulateBucket(buckets, header.startedAt, metrics, sinceMs, bucketMs);
     accumulate(fleet, "", "", header, metrics);
@@ -214,6 +281,7 @@ export function readAgentRuntimeTokenUsageDetail(input: {
   readonly range: AgentRuntimeTokenUsageRange;
   readonly member: AgentRuntimeTokenUsageMemberIdentity;
   readonly entityLabel: (squadId: string) => string | null;
+  readonly projection: Pick<TaskProjection, "readRuntimeDispatchPage">;
   readonly cut: {
     readonly status: "ready" | "pending";
     readonly watermark: number;
@@ -231,7 +299,7 @@ export function readAgentRuntimeTokenUsageDetail(input: {
         ? (header: DispatchStreamHeader) => header.agentId === member.agentId
         : (header: DispatchStreamHeader) => header.squadId === member.squadId;
   let memberName: string | null = null;
-  for (const { header, summary } of windowDispatches(input.rootDir, sinceMs, pickMember)) {
+  for (const { header, summary } of windowDispatches(input.rootDir, input.projection, sinceMs, pickMember)) {
     if (memberName === null && member.kind === "agent") memberName = header.agentName ?? member.agentId;
     sessions.push(sessionRowOf(header, summary));
     const metrics = summary?.runtimeMetrics ?? null;
@@ -271,7 +339,7 @@ export function readAgentRuntimeTokenUsageDetail(input: {
 export function agentRuntimeTokenUsageHandler(context: {
   readonly rootDir: string;
   readonly now: () => string;
-  readonly projection: Pick<TaskProjection, "readCut" | "getEntity">;
+  readonly projection: Pick<TaskProjection, "readCut" | "getEntity" | "readRuntimeDispatchPage">;
   readonly range: AgentRuntimeTokenUsageRange;
 }): AgentRuntimeTokenUsageResult {
   const cut = context.projection.readCut();
@@ -281,12 +349,13 @@ export function agentRuntimeTokenUsageHandler(context: {
     range: context.range,
     entityLabel: entityLabelOf(cut, context.projection),
     cut,
+    projection: context.projection,
   });
 }
 export function agentRuntimeTokenUsageDetailHandler(context: {
   readonly rootDir: string;
   readonly now: () => string;
-  readonly projection: Pick<TaskProjection, "readCut" | "getEntity">;
+  readonly projection: Pick<TaskProjection, "readCut" | "getEntity" | "readRuntimeDispatchPage">;
   readonly range: AgentRuntimeTokenUsageRange;
   readonly member: AgentRuntimeTokenUsageMemberIdentity;
 }): AgentRuntimeTokenUsageDetailResult {
@@ -298,6 +367,7 @@ export function agentRuntimeTokenUsageDetailHandler(context: {
     member: context.member,
     entityLabel: entityLabelOf(cut, context.projection),
     cut,
+    projection: context.projection,
   });
 }
 /** Payload selector parsers for the repo-cell handlers: they return null on an invalid
@@ -324,7 +394,7 @@ export function agentRuntimeTokenUsageMemberOf(
 export function agentRuntimeTokenUsageReadHandlers(context: {
   readonly rootDir: string;
   readonly now: () => string;
-  readonly projection: Pick<TaskProjection, "readCut" | "getEntity">;
+  readonly projection: Pick<TaskProjection, "readCut" | "getEntity" | "readRuntimeDispatchPage">;
   readonly cellCodedError: (code: string, text: string) => Error;
 }): {
   readonly "repo.agentRuntime.tokenUsage": (payload: Readonly<Record<string, unknown>>) => AgentRuntimeTokenUsageResult;

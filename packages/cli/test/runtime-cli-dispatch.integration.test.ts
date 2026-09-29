@@ -16,6 +16,7 @@ import {
   eventuallyNotification,
   installIdentities,
   published,
+  readDispatchRecords,
   readPublishedDispatch,
   run,
   runMaybe,
@@ -137,7 +138,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
   assert.match(String(boundDispatch.startedAt), /^\d{4}-\d{2}-\d{2}T/u);
   assert.match(String(boundDispatch.endedAt), /^\d{4}-\d{2}-\d{2}T/u);
   assert.doesNotMatch(JSON.stringify(boundDispatch), /(?:api.?key|credential|environment|token)/iu);
-  assert.equal(existsSync(path.join(root, ".harness", "runtime", "dispatches", `${boundDispatchId}.jsonl`)), true);
+  assert.ok(readDispatchRecords(root, boundDispatchId).length > 0);
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const dispatchRow = (
     run(root, env, ["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>

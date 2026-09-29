@@ -8,6 +8,7 @@ import test from "node:test";
 import { makeTaskEventStore, registerDaemonRepo, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { readDispatchStream } from "../src/dispatch-stream.ts";
 import { validateRuntimeSpawnReceipt } from "../src/gui-s3-control.ts";
 import {
   canonicalRoot,
@@ -809,12 +810,8 @@ test("a squad-delegated worker injects selected absolute skill paths into every 
       },
       binding,
     );
-    const header = JSON.parse(
-      readFileSync(
-        path.join(root, ".harness/runtime/dispatches", `${String(leaderReceipt.dispatchId)}.jsonl`),
-        "utf8",
-      ).split(/\r?\n/u)[0]!,
-    ) as Record<string, unknown>;
+    const header = readDispatchStream(root, String(leaderReceipt.dispatchId))?.header;
+    assert.ok(header);
     assert.equal(header.squadId, "runtime-squad");
     assert.equal(header.agentId, "squad-leader");
     assert.equal(Object.hasOwn(header, "delegatedByAgentId"), false);
@@ -922,12 +919,9 @@ test("Agent skill is really read by the provider from the absolute path in its f
           break;
         assert.notEqual(event?.type, "exit", "runtime exited before the provider witness arrived");
       }
-      const streamPath = path.join(root, ".harness", "runtime", "dispatches", `${receipt.dispatchId}.jsonl`),
-        stream = readFileSync(streamPath, "utf8"),
-        records = stream
-          .trim()
-          .split(/\r?\n/u)
-          .map((line) => JSON.parse(line) as Record<string, unknown>),
+      const dispatch = readDispatchStream(root, receipt.dispatchId),
+        stream = JSON.stringify(dispatch),
+        records = dispatch?.records ?? [],
         witness = records.find(
           (record) =>
             record.kind === "provider_event" &&
@@ -1049,10 +1043,7 @@ test("Codex API-key bearer remains confined to the private provider config", asy
           repoId: "runtime-bearer-confidentiality",
           rootDir: root,
         }).read().events,
-        stream = readFileSync(
-          path.join(root, ".harness", "runtime", "dispatches", `${receipt.dispatchId}.jsonl`),
-          "utf8",
-        ),
+        stream = JSON.stringify(readDispatchStream(root, receipt.dispatchId)),
         config = readFileSync(
           path.join(userRoot, "runtime-instances", "codex-private", "home", ".codex", "config.toml"),
           "utf8",

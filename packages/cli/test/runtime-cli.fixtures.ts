@@ -332,7 +332,9 @@ export async function runtimeInvariantEvidence(
   };
 }
 export function readDispatchRecords(root: string, dispatchId: string): Record<string, unknown>[] {
-  return readFileSync(path.join(root, ".harness", "runtime", "dispatches", `${dispatchId}.jsonl`), "utf8")
+  const live = path.join(root, ".harness", "runtime", "dispatches", `${dispatchId}.jsonl`),
+    archived = path.join(root, ".harness", "runtime", "dispatches", "archive", `${dispatchId}.jsonl`);
+  return readFileSync(existsSync(live) ? live : archived, "utf8")
     .trim()
     .split(/\r?\n/u)
     .filter(Boolean)

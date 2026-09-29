@@ -6,7 +6,7 @@ import {
   type DecisionProjectionRow,
   type TaskProjection,
 } from "@harness-anything/kernel";
-import { readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
+import { readDispatchStreamSummary } from "./dispatch-stream.ts";
 import type { DaemonDecisionFullRow, DaemonDecisionReviewDispatchRow } from "./protocol/daemon-protocol-gui-types.ts";
 
 /**
@@ -70,11 +70,12 @@ export function readDecisionReviewDispatches(input: {
   readonly projection: TaskProjection;
   readonly decision: DecisionProjectionRow;
 }): readonly DaemonDecisionReviewDispatchRow[] {
-  return readDispatchStreamHeaders(input.rootDir).flatMap((header) => {
-    if (header.reviewTarget?.kind !== "decision" || header.reviewTarget.decisionId !== input.decision.decisionId)
-      return [];
-    const stream = readDispatchStreamSummary(input.rootDir, header.dispatchId),
-      outcome = input.projection.readRuntimeSession(header.runtimeSessionId)?.outcome,
+  return input.projection.readRuntimeDispatchesByDecision(input.decision.decisionId).flatMap((row) => {
+    const target = row.event.payload.reviewTarget;
+    if (target?.kind !== "decision" || target.decisionId !== input.decision.decisionId) return [];
+    const header = row.event.payload,
+      stream = readDispatchStreamSummary(input.rootDir, header.dispatchId),
+      outcome = row.outcome ?? input.projection.readRuntimeSession(header.runtimeSessionId)?.outcome,
       status =
         stream?.process?.exited === false
           ? ("running" as const)
@@ -87,7 +88,7 @@ export function readDecisionReviewDispatches(input: {
         dispatchId: header.dispatchId,
         runtimeSessionId: header.runtimeSessionId,
         status,
-        reviewContentDigest: header.reviewTarget.digest,
+        reviewContentDigest: target.digest,
         reportRef: review?.reportRef ?? null,
         reviewer: header.agentName ?? header.agentId ?? null,
         findingCount: review ? review.findings.length : null,

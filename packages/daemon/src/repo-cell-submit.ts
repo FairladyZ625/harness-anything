@@ -28,7 +28,6 @@ import {
   submissionArtifactPath,
   unparsedArtifactAnchorText,
 } from "./submission-artifacts.ts";
-import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { makeGitReadinessSource, runProcessText } from "./process-port.ts";
 import { repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
@@ -180,13 +179,10 @@ export function deriveCloseoutSubmission(
       outputs: artifacts.map((anchor) => `Artifact-Anchor: ${anchor.path}@${anchor.revision}`),
     };
   }
-  const dispatches = readDispatchStreamHeaders(cell.rootDir).filter(
-      (dispatch) =>
-        dispatch.taskId === taskId &&
-        dispatch.executionId === executionId &&
-        dispatch.role !== "reviewer" &&
-        dispatch.cwd,
-    ),
+  const dispatches = cell.projection
+      .readRuntimeDispatchesByTaskExecution(taskId, executionId)
+      .map(({ event }) => event.payload)
+      .filter((dispatch) => dispatch.role !== "reviewer" && dispatch.cwd),
     binding = taskWorktreeBinding(snapshot.task, readPresetSnapshot),
     taskRoot = binding ? path.join(cell.rootDir, binding.path) : null,
     git = makeGitReadinessSource(),

@@ -1,10 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { readDispatchStream } from "../src/dispatch-stream.ts";
 import { eventually, initIngressRepo, rpc, writeProviderStub } from "./fixtures/runtime-ingress.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 
@@ -85,7 +86,7 @@ test("a parked sessions.await does not re-read settlement for provider activity 
     });
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
     const runtimeSessionId = String(spawned.runtimeSessionId),
-      streamPath = path.join(root, ".harness/runtime/dispatches", `${String(spawned.dispatchId)}.jsonl`);
+      dispatchId = String(spawned.dispatchId);
     let settled = false;
     const wait = host
       .awaitRuntimeSessions(repoId, { runtimeSessionIds: [runtimeSessionId], mode: "any" }, auth)
@@ -103,7 +104,9 @@ test("a parked sessions.await does not re-read settlement for provider activity 
       await new Promise((resolve) => setTimeout(resolve, 2));
     }
     // Every frame has been consumed and its activity signal relayed before the count is taken.
-    await eventually(() => readFileSync(streamPath, "utf8").split("activity-frame-").length - 1 >= activityFrames);
+    await eventually(
+      () => JSON.stringify(readDispatchStream(root, dispatchId)).split("activity-frame-").length - 1 >= activityFrames,
+    );
     await new Promise((resolve) => setTimeout(resolve, 50));
     assert.equal(settled, false, "activity frames must not settle a live session");
     assert.ok(

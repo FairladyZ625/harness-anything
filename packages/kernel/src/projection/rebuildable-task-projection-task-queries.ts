@@ -19,7 +19,7 @@ import {
   readTaskExists,
   readTaskByIdempotencyKey,
 } from "./task-query-projection.ts";
-import type { TaskProjection } from "./task-projection-port.ts";
+import type { RuntimeDispatchProjectionRow, TaskProjection } from "./task-projection-port.ts";
 import type { ProjectionContext } from "./rebuildable-task-projection-types.ts";
 import { withDatabase } from "./rebuildable-task-projection-database.ts";
 import { catchUpRound } from "./rebuildable-task-projection-event-application.ts";
@@ -73,6 +73,33 @@ const RUNTIME_DISPATCHES_SQL = [
   "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
   "AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
   "ORDER BY workspace_revision",
+].join(" ");
+const RUNTIME_DISPATCH_BY_ID_SQL = `${RUNTIME_DISPATCHES_SQL.replace("ORDER BY workspace_revision", "AND json_extract(event_json, '$.payload.dispatchId') = ? ORDER BY workspace_revision")} LIMIT 1`;
+const RUNTIME_DISPATCH_BY_RESUME_SOURCE_SQL = `${RUNTIME_DISPATCHES_SQL.replace("ORDER BY workspace_revision", "AND json_extract(event_json, '$.payload.resumedFromDispatchId') = ? ORDER BY workspace_revision")} LIMIT 1`;
+const RUNTIME_DISPATCHES_BY_FIELD_SQL = (field: string) =>
+  RUNTIME_DISPATCHES_SQL.replace(
+    "ORDER BY workspace_revision",
+    `AND json_extract(event_json, '$.payload.${field}') = ? ORDER BY workspace_revision`,
+  );
+const RUNTIME_DISPATCHES_BY_TASK_EXECUTION_SQL = RUNTIME_DISPATCHES_SQL.replace(
+  "ORDER BY workspace_revision",
+  "AND json_extract(event_json, '$.payload.taskId') = ? AND json_extract(event_json, '$.payload.executionId') = ? ORDER BY workspace_revision",
+);
+const RUNTIME_DISPATCH_PAGE_SQL = [
+  "SELECT event_json FROM event_index",
+  "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+  "AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested'",
+  "AND json_extract(event_json, '$.payload.startedAt') >= ?",
+  "AND (json_extract(event_json, '$.payload.startedAt') > ? OR",
+  "(json_extract(event_json, '$.payload.startedAt') = ? AND json_extract(event_json, '$.payload.dispatchId') > ?))",
+  "ORDER BY json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.payload.dispatchId') LIMIT ?",
+].join(" ");
+const RUNTIME_OUTCOME_BY_DISPATCH_SQL = [
+  "SELECT event_json FROM event_index",
+  "WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'",
+  "AND json_extract(event_json, '$.type') = 'runtime_session_outcome_observed'",
+  "AND json_extract(event_json, '$.payload.dispatchId') = ?",
+  "ORDER BY workspace_revision DESC LIMIT 1",
 ].join(" ");
 const RUNTIME_SESSION_EVENTS_SQL = [
   "SELECT event_json FROM event_index WHERE workspace_revision > ?",
@@ -145,6 +172,13 @@ export function taskQueryApi(
   | "readTaskCompletion"
   | "readRuntimeDispatch"
   | "readRuntimeDispatches"
+  | "readRuntimeDispatchById"
+  | "readRuntimeDispatchByResumeSource"
+  | "readRuntimeDispatchesBySession"
+  | "readRuntimeDispatchesByTaskExecution"
+  | "readRuntimeDispatchesByAttemptGroup"
+  | "readRuntimeDispatchesByDecision"
+  | "readRuntimeDispatchPage"
   | "readRuntimeSessionEvents"
   | "readCanonicalEvents"
   | "readScheduleEvents"
@@ -340,6 +374,69 @@ export function taskQueryApi(
               isAgentRuntimeEvent(event) && event.type === "runtime_dispatch_requested",
           ),
       ),
+    readRuntimeDispatchById: (dispatchId) =>
+      withDatabase(projectionPath, readHead, (db) =>
+        projectedDispatch(db, queryRow(db, RUNTIME_DISPATCH_BY_ID_SQL, dispatchId)),
+      ),
+    readRuntimeDispatchByResumeSource: (dispatchId) =>
+      withDatabase(projectionPath, readHead, (db) =>
+        projectedDispatch(db, queryRow(db, RUNTIME_DISPATCH_BY_RESUME_SOURCE_SQL, dispatchId)),
+      ),
+    readRuntimeDispatchesBySession: (runtimeSessionIdValue) =>
+      withDatabase(projectionPath, readHead, (db) =>
+        queryRows(db, RUNTIME_DISPATCHES_BY_FIELD_SQL("runtimeSessionId"), runtimeSessionIdValue).flatMap((row) => {
+          const projected = projectedDispatch(db, row);
+          return projected ? [projected] : [];
+        }),
+      ),
+    readRuntimeDispatchesByTaskExecution: (taskId, executionId) =>
+      withDatabase(projectionPath, readHead, (db) =>
+        queryRows(db, RUNTIME_DISPATCHES_BY_TASK_EXECUTION_SQL, taskId, executionId).flatMap((row) => {
+          const projected = projectedDispatch(db, row);
+          return projected ? [projected] : [];
+        }),
+      ),
+    readRuntimeDispatchesByAttemptGroup: (attemptGroupId) =>
+      withDatabase(projectionPath, readHead, (db) =>
+        queryRows(db, RUNTIME_DISPATCHES_BY_FIELD_SQL("attemptGroupId"), attemptGroupId).flatMap((row) => {
+          const projected = projectedDispatch(db, row);
+          return projected ? [projected] : [];
+        }),
+      ),
+    readRuntimeDispatchesByDecision: (decisionId) =>
+      withDatabase(projectionPath, readHead, (db) =>
+        queryRows(db, RUNTIME_DISPATCHES_BY_FIELD_SQL("reviewTarget.decisionId"), decisionId).flatMap((row) => {
+          const projected = projectedDispatch(db, row);
+          return projected ? [projected] : [];
+        }),
+      ),
+    readRuntimeDispatchPage: ({ startedAtGte, cursor, limit: pageLimit }) =>
+      withDatabase(projectionPath, readHead, (db) => {
+        if (!Number.isSafeInteger(pageLimit) || pageLimit < 1 || pageLimit > 500)
+          throw new Error("runtime dispatch page requires a limit from 1 to 500");
+        const afterStartedAt = cursor?.startedAt ?? "",
+          afterDispatchId = cursor?.dispatchId ?? "",
+          raw = queryRows(
+            db,
+            RUNTIME_DISPATCH_PAGE_SQL,
+            startedAtGte,
+            afterStartedAt,
+            afterStartedAt,
+            afterDispatchId,
+            pageLimit + 1,
+          ),
+          done = raw.length <= pageLimit,
+          rows = raw.slice(0, pageLimit).flatMap((row) => {
+            const projected = projectedDispatch(db, row);
+            return projected ? [projected] : [];
+          }),
+          last = rows.at(-1)?.event.payload;
+        return {
+          rows,
+          done,
+          nextCursor: !done && last?.startedAt ? { startedAt: last.startedAt, dispatchId: last.dispatchId } : null,
+        };
+      }),
     readRuntimeSessionEvents: (runtimeSessionIdValue, afterRevision, limit) =>
       withDatabase(projectionPath, readHead, (db) => {
         if (!Number.isSafeInteger(afterRevision) || afterRevision < 0 || !Number.isSafeInteger(limit) || limit < 1)
@@ -465,5 +562,24 @@ export function taskQueryApi(
           sourceRevision: cut.sourceRevision,
         };
       }),
+  };
+}
+
+function projectedDispatch(
+  db: DatabaseSync,
+  row: Readonly<Record<string, unknown>> | undefined,
+): RuntimeDispatchProjectionRow | null {
+  if (!row) return null;
+  const event = JSON.parse(String(row.event_json)) as { readonly schema: string };
+  if (!isAgentRuntimeEvent(event) || event.type !== "runtime_dispatch_requested") return null;
+  const outcomeRow = queryRow(db, RUNTIME_OUTCOME_BY_DISPATCH_SQL, event.payload.dispatchId),
+    outcome = outcomeRow ? (JSON.parse(String(outcomeRow.event_json)) as { readonly schema: string }) : null;
+  if (!outcome || !isAgentRuntimeEvent(outcome) || outcome.type !== "runtime_session_outcome_observed")
+    return { event, metrics: null, endedAt: null, outcome: null };
+  return {
+    event,
+    metrics: outcome.payload.runtimeMetrics ?? null,
+    endedAt: outcome.payload.endedAt ?? null,
+    outcome: outcome.payload.outcome,
   };
 }

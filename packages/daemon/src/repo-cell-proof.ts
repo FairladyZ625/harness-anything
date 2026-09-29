@@ -32,7 +32,7 @@ import {
 import { cellCodedError, cellCriterionError } from "./repo-cell-errors.ts";
 import { makeGitReadinessSource } from "./process-port.ts";
 import { remoteDefaultBranch } from "./schedule-occurrence-workspace.ts";
-import { readDispatchStream } from "./dispatch-stream.ts";
+import { readDispatchStreamHeader } from "./dispatch-stream.ts";
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
 import { readTaskLineageDispatches } from "./dispatch-read.ts";
 import { reviewDispatchKey } from "./task-review-dispatch.ts";
@@ -91,7 +91,7 @@ export function runtimeSessionDispatchRole(
       session === null ? null : projection.readRuntimeDispatch(session.runtimeSessionId, session.definitionSnapshotRef);
   return {
     runtimeSessionId,
-    role: dispatch ? (readDispatchStream(rootDir, dispatch.payload.dispatchId)?.header.role ?? null) : null,
+    role: dispatch ? (readDispatchStreamHeader(rootDir, dispatch.payload.dispatchId)?.role ?? null) : null,
   };
 }
 

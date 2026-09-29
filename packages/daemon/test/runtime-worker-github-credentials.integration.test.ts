@@ -2,12 +2,13 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
+import { readDispatchStream } from "../src/dispatch-stream.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
@@ -164,10 +165,7 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
 
     const shown = instances.command({ kind: "runtime-instance-show", instanceId }),
       events = makeTaskEventReader({ repoId, rootDir: root }).read().events,
-      stream = readFileSync(
-        path.join(root, ".harness", "runtime", "dispatches", `${String(spawned.dispatchId)}.jsonl`),
-        "utf8",
-      );
+      stream = readDispatchStream(root, String(spawned.dispatchId));
     assert.equal((shown.instance as Record<string, unknown>).githubCredentialState, "configured");
     const unsetReceipt = instances.command({ kind: "runtime-instance-github-credential-unset", instanceId });
     assert.equal("githubCredentialState" in (unsetReceipt.instance as Record<string, unknown>), false);

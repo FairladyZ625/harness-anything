@@ -1,9 +1,14 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
+import type { RuntimeDispatchProjectionRow } from "@harness-anything/kernel";
+import { archiveDispatchStream, openDispatchStream } from "../src/dispatch-stream.ts";
 import { parseDaemonRpcParams } from "../src/protocol/daemon-protocol.contract.ts";
 import { validAgentRuntimeAttemptChain } from "../src/runtime-attempt-contract.ts";
-import { runtimeResumeAdmission } from "../src/runtime-resume-admission.ts";
+import { admitRuntimeResume, runtimeResumeAdmission } from "../src/runtime-resume-admission.ts";
 
 test("GUI resume spawn uses the dispatchId route", () => {
   const params = {
@@ -36,6 +41,40 @@ test("resume admission distinguishes resumable, missing-session, and already-res
     }),
     { resumable: false, reason: "already_resumed", resumedDispatchId: "dispatch_fedcba987654321001234567" },
   );
+});
+
+test("an archived resume source is rejected when the canonical projection records its prior resume", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-resume-archive-")),
+    dispatchId = "dispatch_0123456789abcdef01234567",
+    resumedDispatchId = "dispatch_fedcba987654321001234567";
+  try {
+    const writer = openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: "task-resume",
+      executionId: "execution-resume",
+      runtimeSessionId: "runtime-resume-source",
+      instanceId: "instance-1",
+      agentId: "sol",
+      startedAt: "2026-09-29T00:00:00.000Z",
+    });
+    writer.appendProviderBinding("provider-session", "2026-09-29T00:00:01.000Z");
+    archiveDispatchStream(rootDir, dispatchId);
+
+    assert.throws(
+      () =>
+        admitRuntimeResume(rootDir, dispatchId, () => ({
+          readRuntimeDispatchByResumeSource: () =>
+            ({
+              event: { payload: { dispatchId: resumedDispatchId, resumedFromDispatchId: dispatchId } },
+            }) as unknown as RuntimeDispatchProjectionRow,
+        })),
+      (error: unknown) =>
+        error instanceof Error &&
+        error.message === `Dispatch ${dispatchId} was already resumed as ${resumedDispatchId}.`,
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });
 
 test("runtime session attempt chains accept the canonical dispatch resume projection", () => {

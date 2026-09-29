@@ -125,6 +125,7 @@ function derive(
     body = closeout(summary),
     projection = {
       readPresetSnapshot: () => ({ snapshot: { profile: { outputShape } } }),
+      readRuntimeDispatchesByTaskExecution: () => [],
       read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { ...snapshot, task: {} }, packagePath }),
       readDocument: (target: string) => ({
         watermark: 1,

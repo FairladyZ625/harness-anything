@@ -222,6 +222,7 @@ function makeRecoveryFixture(
             } as Extract<AgentRuntimeEventV1, { type: "runtime_dispatch_requested" }>)
           : null;
       },
+      readRuntimeDispatchByResumeSource: () => null,
       readDocument: () => ({ status: "ready", document: null, watermark: 1, sourceRevision: 1 }),
       squadRunProjectionReady: () => rows.length > 0,
       replaceSquadRuns: (value: typeof rows) => {
