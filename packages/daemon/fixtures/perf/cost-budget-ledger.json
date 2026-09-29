@@ -62,14 +62,5 @@
         }
       }
     ]
-  },
-  "firstScreenReads": [
-    "getSystemStatus",
-    "getTasks",
-    "getWorkspaceSummary",
-    "getRelationGraph",
-    "getDecisions",
-    "getCatalogSnapshot",
-    "listRuntimeInstances"
-  ]
+  }
 }

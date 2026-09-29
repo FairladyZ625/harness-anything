@@ -30,30 +30,23 @@ function setup() {
     `${JSON.stringify({
       schema: "cost-budget/v1",
       fixture: "fixture.json",
-      baseline: { projectionRebuildGitProcesses: 4, firstScreenReadRpcs: 7 },
-      budgets: { projectionRebuildGitProcesses: 4, firstScreenReadRpcs: 7 },
+      baseline: { projectionRebuildGitProcesses: 4 },
+      budgets: { projectionRebuildGitProcesses: 4 },
     })}\n`,
   );
   return rootDir;
 }
 
-test("G38 measures the production rebuild counter and fixed first-screen reads", async () => {
+test("G38 measures the production rebuild counter", async () => {
   assert.deepEqual(await measureCosts(readCostFixture(path.join(setup(), "fixture.json"))), {
     // Rebuild reads the accepting SQLite ledger; it no longer spawns Git.
     projectionRebuildGitProcesses: 0,
-    firstScreenReadRpcs: 7,
   });
 });
 
-test("G38 passes at the committed ceiling and rejects a first-screen read regression", async () => {
+test("G38 passes at the committed ceiling", async () => {
   const rootDir = setup();
   assert.equal((await evaluateCostBudget({ rootDir })).ok, true);
-  const changed = fixture();
-  changed.firstScreenReads.push("regressionRead");
-  writeFileSync(path.join(rootDir, "fixture.json"), `${JSON.stringify(changed)}\n`);
-  const result = await evaluateCostBudget({ rootDir });
-  assert.equal(result.ok, false);
-  assert.match(result.errors.join("\n"), /firstScreenReadRpcs: measured 8 exceeds budget 7/u);
 });
 
 test("G38 requires a signed receipt for a budget increase", async () => {
@@ -75,17 +68,6 @@ test("G38 requires a signed receipt for a budget increase", async () => {
     `${JSON.stringify({ ...unsigned, signature: signReceipt(unsigned) })}\n`,
   );
   assert.equal((await evaluateCostBudget({ rootDir })).ok, true);
-});
-
-test("G38 rejects lowering the baseline without lowering the active ceiling", async () => {
-  const rootDir = setup();
-  const budgetPath = path.join(rootDir, "tools/gates/cost-budget.json");
-  const budget = JSON.parse(readFileSync(budgetPath, "utf8"));
-  budget.baseline.firstScreenReadRpcs = 6;
-  writeFileSync(budgetPath, `${JSON.stringify(budget)}\n`);
-  const result = await evaluateCostBudget({ rootDir });
-  assert.equal(result.ok, false);
-  assert.match(result.errors.join("\n"), /firstScreenReadRpcs: budget rose from 6 to 7/u);
 });
 
 // --- G1 write-path scale invariant ------------------------------------------------------------

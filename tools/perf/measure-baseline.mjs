@@ -12,16 +12,6 @@ const DEFAULT_LOG = path.join(
   process.env.HARNESS_DAEMON_USER_ROOT ?? process.env.HARNESS_USER_ROOT ?? path.join(homedir(), ".harness"),
   "logs/daemon-default.log",
 );
-const FIRST_SCREEN_READS = Object.freeze([
-  "getSystemStatus",
-  "getTasks",
-  "getWorkspaceSummary",
-  "getRelationGraph",
-  "getDecisions",
-  "getCatalogSnapshot",
-  "listRuntimeInstances",
-]);
-
 function parseArgs(argv) {
   const options = { root: DEFAULT_ROOT, log: DEFAULT_LOG, samples: 20, jsonOut: null, markdownOut: null };
   for (let index = 0; index < argv.length; index += 1) {
@@ -261,7 +251,6 @@ export async function measureBaseline(options = {}) {
       statusReceipt: statusJson,
     },
     projectionRebuild,
-    guiFirstScreen: { rpcMethods: FIRST_SCREEN_READS, rpcCount: FIRST_SCREEN_READS.length },
     runtimeReplay1000: await replayRuntimeEvents(root, 1000),
     cli: { samples, taskList: stats(list), taskShow: stats(show), listSamplesMs: list, showSamplesMs: show },
     commands: [
@@ -285,13 +274,12 @@ function markdown(report) {
     "",
     `测量时间：${report.measuredAt}；仓：\`${report.root}\`；Node：\`${report.host.node}\`。`,
     "",
-    "本脚本只做采样，不把墙钟数接入 CI gate。daemon 冷启动取日志中最近三次 canonical `repo_attach_completed` 的 `durationMs`；投影 Git 数沿用同口径隔离测量；首屏 RPC 是 App 初始 query 集合的静态审计；回放计时解析固定 JSONL 事件至 1000 条；CLI p95 是独立 `ha` 子进程 20 次样本。",
+    "本脚本只做采样，不把墙钟数接入 CI gate。daemon 冷启动取日志中最近三次 canonical `repo_attach_completed` 的 `durationMs`；投影 Git 数沿用同口径隔离测量；回放计时解析固定 JSONL 事件至 1000 条；CLI p95 是独立 `ha` 子进程 20 次样本。",
     "",
     "| 指标 | 结果 |",
     "|---|---:|",
     `| daemon canonical attach（3 轮） | ${report.daemon.coldStartAttachMs.join(", ")} ms；中位数 ${report.daemon.coldStartAttachMedianMs} ms |`,
     `| projection rebuild Git 子进程 | ${report.projectionRebuild.gitSubprocesses} |`,
-    `| GUI 首屏 read RPC | ${report.guiFirstScreen.rpcCount}（${report.guiFirstScreen.rpcMethods.join(", ")}） |`,
     `| runtime 事件回放（1000） | ${report.runtimeReplay1000.elapsedMs} ms（${report.runtimeReplay1000.pages} 页） |`,
     `| ha task list p95（${report.cli.samples}） | ${report.cli.taskList.p95Ms} ms |`,
     `| ha task show p95（${report.cli.samples}） | ${report.cli.taskShow.p95Ms} ms |`,

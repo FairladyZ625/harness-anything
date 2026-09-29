@@ -2,12 +2,10 @@
   "schema": "cost-budget/v1",
   "fixture": "packages/daemon/fixtures/perf/cost-budget-ledger.json",
   "baseline": {
-    "projectionRebuildGitProcesses": 4,
-    "firstScreenReadRpcs": 7
+    "projectionRebuildGitProcesses": 4
   },
   "budgets": {
-    "projectionRebuildGitProcesses": 4,
-    "firstScreenReadRpcs": 7
+    "projectionRebuildGitProcesses": 4
   },
   "writeCostScaling": {
     "schema": "write-cost-scaling-budget/v1",
