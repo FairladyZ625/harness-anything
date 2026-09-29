@@ -6,6 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { TaskV2, WriteReceiptDraft } from "@harness-anything/kernel";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
+import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {
   applyTaskWorktreeLifecycle,
   materializeTaskWorktree,
@@ -16,9 +18,101 @@ import {
 import { prepareWorkerWorktree, reclaimWorkerWorktree } from "../src/squad-worker-checkout.ts";
 import { remoteDefaultBranch, repositoryBaseRef } from "../src/schedule-occurrence-workspace.ts";
 import { runWorktreeSetup, worktreeSetupFailure } from "../src/worktree-setup.ts";
+import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
+import { actor, initRepo } from "./task-surface.fixtures.ts";
 
 const taskId = "task_12345678",
   binding = { branch: taskId, path: `.worktrees/${taskId}` };
+
+test("attach cancels a rejected Squad child through the task lifecycle writer", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-startup-squad-orphan-")),
+    repoId = workspaceId("startup-squad-orphan"),
+    cellBinding = { actor, source: "local" as const },
+    orphanTaskId = "task-squad-orphan",
+    squadRunId = "squad_0123456789abcdef01234567",
+    leaderDispatchId = "dispatch_000000000000000000000001";
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  initRepo(rootDir);
+  const first = await openBootstrappedRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "first-open" });
+  assert.equal(
+    (await first.run({ kind: "task-create", taskId: orphanTaskId, title: "Rejected Squad child" }, cellBinding))
+      .outcome,
+    "applied",
+  );
+  await first.close();
+  openDispatchStream(rootDir, {
+    dispatchId: leaderDispatchId,
+    taskId: "task-squad-parent",
+    executionId: "execution-squad-parent",
+    agentId: "fable",
+    runtimeSessionId: "runtime-squad-leader",
+    instanceId: "runtime-squad-instance",
+    startedAt: "2026-09-29T00:00:00.000Z",
+  });
+  appendRuntimeWorkerRecord(rootDir, leaderDispatchId, {
+    kind: "squad_run_state",
+    squadRunId,
+    revision: 1,
+    state: {
+      schema: "squad-run/v1",
+      squadRunId,
+      stateDispatchId: leaderDispatchId,
+      squadId: "core-squad",
+      taskId: "task-squad-parent",
+      runtimeInstanceId: "runtime-squad-instance",
+      cwd: rootDir,
+      baseSha: null,
+      mission: "Rejected child fixture",
+      model: null,
+      effort: null,
+      leaderAgentId: "fable",
+      roster: "fable -> sol",
+      workers: ["sol"],
+      leaderTurnBudget: 1,
+      binding: cellBinding,
+      leaderTurns: [],
+      leaderProviderSessionId: null,
+      currentLeaderRuntimeSessionId: null,
+      workerAttempts: [
+        {
+          attemptId: "worker-sol",
+          workerId: "sol",
+          leaderTurnId: "leader-1",
+          taskId: orphanTaskId,
+          executionId: "execution-squad-orphan",
+          ownedPaths: [],
+          ownershipCheck: null,
+          dispatchId: null,
+          runtimeSessionId: null,
+          worktree: null,
+          rejection: "runtime admission rejected",
+        },
+      ],
+      observedWorkerRuntimeSessionIds: [],
+      workerWaits: [],
+      pendingLeaderTriggers: [],
+      phase: "failed",
+      revision: 1,
+      error: "leader budget exhausted",
+    },
+  });
+  const reopened = await openBootstrappedRepoCell({
+    repoId,
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "startup-reconciliation",
+  });
+  t.after(() => reopened.close());
+  assert.equal(
+    (await reopened.run({ kind: "task-create", taskId: "task-after-reconcile", title: "Queue sentinel" }, cellBinding))
+      .outcome,
+    "applied",
+    "a write queued after attach waits behind startup reconciliation",
+  );
+  const shown = JSON.parse(
+    String((await reopened.run({ kind: "task-show", taskId: orphanTaskId }, cellBinding)).evidence),
+  ) as { readonly task: { readonly status: string } };
+  assert.equal(shown.task.status, "cancelled");
+});
 // The binding is derived from the task and the output shape of the preset snapshot it was compiled from.
 const repositoryDiff = () => ({ profile: { outputShape: "repository-diff" } });
 
