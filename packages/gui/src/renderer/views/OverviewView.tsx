@@ -6,7 +6,7 @@ import type { DecisionTileTarget } from "../model/decision-review.ts";
 import { OverviewStatsBar, type OverviewStatsAnomaly } from "../components/overview/OverviewStatsBar.tsx";
 import { AwaitsAnswerPanel } from "../components/AwaitsAnswerPanel.tsx";
 import type { AwaitsPanelSubject } from "../awaits-answer.ts";
-import { StatusBadge } from "../components/badges";
+import { StatusTag } from "../components/primitives/StatusTag";
 import type { RuntimeHealth } from "../model/runtime-health.ts";
 import { t } from "../i18n/index.tsx";
 import { formatTime } from "../model/time.ts";
@@ -150,7 +150,7 @@ function InFlightWork({
                 className="min-w-0 space-y-2 rounded-md border border-border bg-surface-raised px-3 py-2.5 text-left transition-colors duration-150 hover:border-accent/60"
               >
                 <p className="line-clamp-2 break-words text-sm font-semibold text-text">{work.title}</p>
-                <StatusBadge status={work.status as SnapshotStatus} />
+                <StatusTag status={work.status as SnapshotStatus} />
               </button>
             );
           })}

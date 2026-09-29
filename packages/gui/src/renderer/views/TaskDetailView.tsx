@@ -11,7 +11,8 @@ import {
   ShareNetwork,
   TerminalWindow,
 } from "@phosphor-icons/react";
-import { EngineBadge, FreshnessTag, StatusBadge } from "../components/badges.tsx";
+import { EngineBadge, FreshnessTag } from "../components/badges.tsx";
+import { StatusTag } from "../components/primitives/StatusTag";
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
 import { ViewInGraphButton } from "../components/ViewInGraphButton.tsx";
 import { TaskDispatchTab, TaskEvidenceTab, TaskOverviewTab } from "../components/taskDetail/TaskDetailSections.tsx";
@@ -321,7 +322,7 @@ export function TaskDetailView({
               {task.title}
             </h1>
             <span className="flex shrink-0 items-center gap-2 whitespace-nowrap">
-              <StatusBadge status={task.coordinationStatus} />
+              <StatusTag status={task.coordinationStatus} />
               <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
             </span>
           </div>

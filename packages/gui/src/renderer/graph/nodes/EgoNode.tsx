@@ -2,7 +2,8 @@ import type { MouseEvent } from "react";
 import { Handle, Position } from "@xyflow/react";
 import type { NodeProps } from "@xyflow/react";
 import { PushPin, X, Crosshair, ArrowsOutSimple } from "@phosphor-icons/react";
-import { StatusBadge, CloseoutBadge, FreshnessTag } from "../../components/badges";
+import { CloseoutBadge, FreshnessTag } from "../../components/badges";
+import { StatusTag } from "../../components/primitives/StatusTag";
 import type { TaskRow, DecisionRow, FactRef } from "../../model/types";
 import { EntityRefLink } from "../../components/EntityRefLink.tsx";
 import { entityKindVisual } from "../kindVisuals";
@@ -211,7 +212,7 @@ function EgoTaskBody({ task }: { task: TaskRow }) {
   return (
     <>
       <div className="flex flex-wrap items-center gap-1.5">
-        <StatusBadge status={task.coordinationStatus} />
+        <StatusTag status={task.coordinationStatus} />
         <CloseoutBadge value={task.closeoutReadiness} />
       </div>
       <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />

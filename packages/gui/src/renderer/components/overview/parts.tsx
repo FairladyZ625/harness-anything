@@ -69,32 +69,6 @@ export function AxisBar({ label, segments }: { label: string; segments: Seg[] })
   );
 }
 
-export function Card({
-  title,
-  children,
-  bodyClassName = "p-3",
-  className = "",
-  dataTestId,
-}: {
-  title: string;
-  children: React.ReactNode;
-  bodyClassName?: string;
-  className?: string;
-  dataTestId?: string;
-}) {
-  return (
-    <section
-      data-testid={dataTestId}
-      className={`${className} flex min-h-0 flex-col rounded-lg border border-border bg-surface`}
-    >
-      <div className="border-b border-border px-3 py-2 font-mono ui-micro uppercase tracking-wide text-text-faint">
-        {title}
-      </div>
-      <div className={`${bodyClassName} flex min-h-0 flex-1 flex-col overflow-hidden`}>{children}</div>
-    </section>
-  );
-}
-
 export function KpiCard({
   label,
   value,

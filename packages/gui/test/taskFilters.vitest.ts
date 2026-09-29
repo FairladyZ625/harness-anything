@@ -1637,7 +1637,7 @@ describe("task preview dismissal", () => {
           }),
         ),
       );
-      const backdrop = container.querySelector('[data-testid="task-preview-backdrop"]') as HTMLElement;
+      const backdrop = container.querySelector('[data-testid="drawer-backdrop"]') as HTMLElement;
       // 压暗层不接指针事件:它下面的看板卡照常收到那一次点击,换卡才只需点一次。
       expect(backdrop.className).toContain("pointer-events-none");
       expect((container.querySelector("aside") as HTMLElement).className).toContain("pointer-events-auto");
