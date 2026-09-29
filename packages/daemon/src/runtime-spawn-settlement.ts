@@ -91,19 +91,29 @@ export async function publishExit(
     // Keep leader control JSON and child delivery text intact. Direct dispatches retain auto-push.
     if (active.task && outcome === "succeeded" && active.publicationOwner !== "commander" && !squadLeaderControl) {
       try {
-        const env = await context.prepareWorkerGitEnvironment(active.instanceId),
+        const submittedCommitSha = context
+            .requiredRuntimeProjection(context.input)
+            .read(active.task.taskId)
+            .snapshot.executions.find((execution) => execution.executionId === active.task?.executionId)
+            ?.submission?.commitSha,
+          env = await context.prepareWorkerGitEnvironment(active.instanceId),
           push = await pushWorkerBranch({
             cwd: active.cwd,
             canonicalRoot: context.input.rootDir,
             taskId: active.task.taskId,
+            ...(submittedCommitSha ? { submittedCommitSha } : {}),
             env,
           });
         if (push.attempted)
           body = push.ok
-            ? `${body}\n\nWorker branch pushed at settlement: ${push.branch} @ ${push.head}`
+            ? `${body}\n\nWorker branch pushed at settlement: ${push.branch} @ ${push.pushedCommit}${
+                push.head === push.pushedCommit ? "" : ` (worker HEAD ${push.head})`
+              }`
             : [
                 `${body}\n\nWorker branch push failed (no retry):`,
-                `${push.branch ?? "unknown branch"} @ ${push.head ?? "unknown head"}: ${push.detail}`,
+                `${push.branch ?? "unknown branch"} @ ${push.pushedCommit ?? "unknown delivery commit"}${
+                  push.head && push.head !== push.pushedCommit ? ` (worker HEAD ${push.head})` : ""
+                }: ${push.detail}`,
               ].join(" ");
       } catch (error) {
         consumeKnownError(error);

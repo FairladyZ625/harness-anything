@@ -19,12 +19,19 @@ const execFileAsync = promisify(execFile),
 
 export type WorkerPushResult =
   | { readonly attempted: false; readonly reason: "not-a-worker-worktree" | "not-task-branch" | "detached" }
-  | { readonly attempted: true; readonly ok: true; readonly branch: string; readonly head: string }
+  | {
+      readonly attempted: true;
+      readonly ok: true;
+      readonly branch: string;
+      readonly head: string;
+      readonly pushedCommit: string;
+    }
   | {
       readonly attempted: true;
       readonly ok: false;
       readonly branch: string | null;
       readonly head: string | null;
+      readonly pushedCommit: string | null;
       readonly detail: string;
     };
 
@@ -101,6 +108,7 @@ export async function pushWorkerBranch(input: {
   readonly cwd: string;
   readonly canonicalRoot: string;
   readonly taskId: string;
+  readonly submittedCommitSha?: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly timeoutMs?: number;
 }): Promise<WorkerPushResult> {
@@ -111,7 +119,7 @@ export async function pushWorkerBranch(input: {
   try {
     branch = (await readGitText(input.cwd, ["branch", "--show-current"], env)).trim();
   } catch (error) {
-    return { attempted: true, ok: false, branch: null, head: null, detail: errorDetail(error) };
+    return { attempted: true, ok: false, branch: null, head: null, pushedCommit: null, detail: errorDetail(error) };
   }
   if (!branch) return { attempted: false, reason: "detached" };
   if (branch !== input.taskId) return { attempted: false, reason: "not-task-branch" };
@@ -120,8 +128,9 @@ export async function pushWorkerBranch(input: {
   try {
     head = (await readGitText(input.cwd, ["rev-parse", "HEAD"], env)).trim();
   } catch (error) {
-    return { attempted: true, ok: false, branch, head: null, detail: errorDetail(error) };
+    return { attempted: true, ok: false, branch, head: null, pushedCommit: null, detail: errorDetail(error) };
   }
+  const pushedCommit = input.submittedCommitSha ?? head;
 
   // Settlement is the publication boundary: the push runs only when the conventional identity
   // is readable and every commit the worker added on top of the default branch carries it. Rewriting
@@ -133,6 +142,7 @@ export async function pushWorkerBranch(input: {
       ok: false,
       branch,
       head,
+      pushedCommit,
       detail:
         `canonical repository ${input.canonicalRoot} resolves no git user.name/user.email, ` +
         "so the conventional worker identity cannot be verified",
@@ -140,14 +150,19 @@ export async function pushWorkerBranch(input: {
   const mismatch = await firstCommitOutsideConventionalIdentity(
     input.cwd,
     repositoryBaseRef(input.canonicalRoot),
+    pushedCommit,
     identity,
     env,
   );
-  if (mismatch) return { attempted: true, ok: false, branch, head, detail: mismatch };
+  if (mismatch) return { attempted: true, ok: false, branch, head, pushedCommit, detail: mismatch };
 
   const timeoutMs = input.timeoutMs ?? workerPushTimeoutMs;
   try {
-    const invocation = gitInvocation(input.cwd, ["push", "--force-with-lease", "origin", `HEAD:${branch}`], env);
+    const invocation = gitInvocation(
+      input.cwd,
+      ["push", "--force-with-lease", "origin", `${pushedCommit}:refs/heads/${branch}`],
+      env,
+    );
     await execFileAsync(invocation.command, invocation.args, {
       env,
       maxBuffer: detailLimit * 2,
@@ -155,7 +170,7 @@ export async function pushWorkerBranch(input: {
       windowsHide: true,
       ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
     });
-    return { attempted: true, ok: true, branch, head };
+    return { attempted: true, ok: true, branch, head, pushedCommit };
   } catch (error) {
     // execFile marks the child killed only when it enforced the timeout itself.
     const timedOut = typeof error === "object" && error !== null && "killed" in error && error.killed === true;
@@ -164,6 +179,7 @@ export async function pushWorkerBranch(input: {
       ok: false,
       branch,
       head,
+      pushedCommit,
       detail: timedOut ? `git push timed out after ${timeoutMs} ms` : errorDetail(error),
     };
   }
@@ -175,6 +191,7 @@ export async function pushWorkerBranch(input: {
 async function firstCommitOutsideConventionalIdentity(
   cwd: string,
   baseRef: string | null,
+  pushedCommit: string,
   identity: WorkerGitIdentity,
   env: NodeJS.ProcessEnv,
 ): Promise<string | null> {
@@ -183,7 +200,12 @@ async function firstCommitOutsideConventionalIdentity(
   try {
     // Newline-separated fields: git itself refuses newline characters inside an ident, so the
     // three-line records cannot fold into each other.
-    log = await readGitText(cwd, ["log", "--format=%H%n%ae%n%ce", `${baseRef}..HEAD`], env, workerHistoryLimit);
+    log = await readGitText(
+      cwd,
+      ["log", "--format=%H%n%ae%n%ce", `${baseRef}..${pushedCommit}`],
+      env,
+      workerHistoryLimit,
+    );
   } catch (error) {
     return `worker commits cannot be bounded against ${baseRef}: ${errorDetail(error)}`;
   }

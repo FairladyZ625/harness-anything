@@ -398,14 +398,37 @@ test("terminal settlement reports the branch and head its worker push published"
     });
   await publishExit(settleContext, runtime, 0);
   const head = git(fixture.worker, "rev-parse", "HEAD").trim(),
-    expectedBody = `worker delivery\n\nWorker branch pushed at settlement: task-owner @ ${head}`;
+    expectedBody = `worker delivery\n\nWorker branch pushed at settlement: task_owner @ ${head}`;
   assert.deepEqual(outcomeBodies, [expectedBody]);
   assert.equal(
     outcomes[0]?.resultRef,
     `artifact:runtime-result/sha256/${createHash("sha256").update(expectedBody).digest("hex")}`,
     "the push line must be inside the durable terminal result the CEO reads",
   );
-  assert.ok(git(fixture.bare, "show-ref", "--verify", "refs/heads/task-owner").trim().startsWith(`${head} `));
+  assert.ok(git(fixture.bare, "show-ref", "--verify", "refs/heads/task_owner").trim().startsWith(`${head} `));
+});
+
+test("terminal settlement publishes the submitted commit when worker HEAD advances", async (context) => {
+  const fixture = workerGitFixture(context, "settle-submission", { reachableRemote: true }),
+    submittedCommitSha = git(fixture.worker, "rev-parse", "HEAD").trim();
+  git(fixture.worker, "commit", "--allow-empty", "--quiet", "-m", "feat: post-submission change");
+  const head = git(fixture.worker, "rev-parse", "HEAD").trim(),
+    runtime = workerSettlementRuntime(fixture, { finalText: "worker delivery" }),
+    outcomeBodies: string[] = [],
+    settleContext = workerSettlementContext(
+      fixture,
+      async (type, _payload = {}, _opId?, _binding?, body?) => {
+        if (type === "runtime_session_outcome_observed") outcomeBodies.push(String(body));
+        return {};
+      },
+      "worker delivery",
+      submittedCommitSha,
+    );
+  await publishExit(settleContext, runtime, 0);
+  assert.deepEqual(outcomeBodies, [
+    `worker delivery\n\nWorker branch pushed at settlement: task_owner @ ${submittedCommitSha} (worker HEAD ${head})`,
+  ]);
+  assert.equal(git(fixture.bare, "rev-parse", "refs/heads/task_owner").trim(), submittedCommitSha);
 });
 
 test("squad leader settlement preserves its machine-readable control result", async (context) => {
@@ -466,7 +489,7 @@ test("commander-owned settlement keeps its commit local and returns the delivery
   assert.equal(outcomes[0]?.outcome, "succeeded");
   assert.deepEqual(outcomeBodies, ["worker delivery"]);
   assert.equal(credentialRequests, 0);
-  assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", "refs/heads/task-owner"), "");
+  assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", "refs/heads/task_owner"), "");
   assert.equal(git(fixture.worker, "log", "-1", "--format=%s").trim(), "feat: worker change");
 });
 
@@ -486,7 +509,7 @@ test("terminal settlement names the branch when the worker push fails", async (c
   assert.equal(outcomeBodies.length, 1);
   assert.match(
     outcomeBodies[0],
-    /^worker delivery\n\nWorker branch push failed \(no retry\): task-owner @ [0-9a-f]+: .+/u,
+    /^worker delivery\n\nWorker branch push failed \(no retry\): task_owner @ [0-9a-f]+: .+/u,
   );
   assert.equal(outcomes[0]?.outcome, "succeeded", "a push failure is reported, not turned into a task failure");
 });
@@ -522,7 +545,7 @@ test("terminal settlement refuses to publish a worker commit outside the convent
     outcomeBodies[0],
     new RegExp(
       `^worker delivery\\n\\nWorker branch push failed \\(no retry\\): ` +
-        `task-owner @ ${staleHead}: commit ${staleHead} carries author ` +
+        `task_owner @ ${staleHead}: commit ${staleHead} carries author ` +
         "<stale-worker@example.invalid> and committer <stale-worker@example.invalid>, " +
         "not the conventional identity <settle-test@example.invalid>",
       "u",
@@ -530,7 +553,7 @@ test("terminal settlement refuses to publish a worker commit outside the convent
   );
   assert.equal(outcomes[0]?.outcome, "succeeded", "an identity refusal is reported, not turned into a task failure");
   assert.notEqual(
-    spawnSync("git", ["-C", fixture.bare, "show-ref", "--verify", "--quiet", "refs/heads/task-owner"]).status,
+    spawnSync("git", ["-C", fixture.bare, "show-ref", "--verify", "--quiet", "refs/heads/task_owner"]).status,
     0,
     "the settlement refusal leaves the branch unpublished",
   );
@@ -589,8 +612,8 @@ function workerGitFixture(
   git(canonical, "remote", "add", "origin", bare);
   git(canonical, "push", "--quiet", "origin", "HEAD:main");
   if (!options.reachableRemote) git(canonical, "remote", "set-url", "origin", path.join(root, "missing.git"));
-  // Settlement publishes the branch named after the dispatched task (workerSettlementRuntime's task-owner).
-  git(canonical, "worktree", "add", "--quiet", worker, "-b", "task-owner");
+  // Settlement publishes the branch named after the dispatched task (workerSettlementRuntime's task_owner).
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", "task_owner");
   writeFileSync(path.join(worker, "change.txt"), "worker\n");
   git(worker, "add", "change.txt");
   git(worker, "commit", "--quiet", "-m", "feat: worker change");
@@ -615,7 +638,7 @@ function workerSettlementRuntime(fixture: WorkerGitFixture, overrides: Partial<A
       },
       source: "local",
     },
-    task: { taskId: "task-owner", executionId: "execution-owner", leaseVersion: 1 },
+    task: { taskId: "task_owner", executionId: "execution-owner", leaseVersion: 1 },
     schedule: null,
     squadId: null,
     delegatedBy: null,
@@ -652,6 +675,7 @@ function workerSettlementContext(
     resultBody?: string,
   ) => Promise<unknown>,
   resultText = "worker delivery",
+  submittedCommitSha?: string,
 ): RuntimeSpawnerContext {
   return {
     exiting: new Set<string>(),
@@ -668,6 +692,15 @@ function workerSettlementContext(
     markProtocolError: () => undefined,
     settleFallback: async () => undefined,
     prepareWorkerGitEnvironment: async () => ({}),
+    requiredRuntimeProjection: () => ({
+      read: () => ({
+        snapshot: {
+          executions: submittedCommitSha
+            ? [{ executionId: "execution-owner", submission: { commitSha: submittedCommitSha } }]
+            : [],
+        },
+      }),
+    }),
     publishRuntimeEvent,
   } as unknown as RuntimeSpawnerContext;
 }
