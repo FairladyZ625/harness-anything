@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HomeView } from "../src/renderer/views/HomeView.tsx";
 import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
+import { AgendaView } from "../src/renderer/views/AgendaView.tsx";
 import { WorkView } from "../src/renderer/views/WorkView.tsx";
 import { OverviewNextView } from "../src/renderer/views/OverviewNextView.tsx";
 import { deriveRuntimeHealth } from "../src/renderer/model/runtime-health.ts";
@@ -590,7 +591,9 @@ const VIEW_RENDERERS = {
       onDrill: noop,
       onOpenInbox: noop,
       onOpenDecision: noop,
+      onOpenDecisionTarget: noop,
     }),
+  agenda: () => createElement(AgendaView, { agenda: FIXTURE_AGENDA, agendaError: null, onNavigateEntity: noop }),
   overviewNext: () =>
     createElement(OverviewNextView, {
       repoId: REPO_ID,

@@ -23,6 +23,7 @@ export type ViewId =
   | "home"
   | "overview"
   | "work"
+  | "agenda"
   | "overviewNext"
   | "workspace"
   | "board"
