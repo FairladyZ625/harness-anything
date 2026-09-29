@@ -22,7 +22,11 @@ import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import { readObserveEventTail, readObserveTail } from "./observe-tail.ts";
 import { openTerminalHost } from "./terminal-host.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
-import { createRepoCellActionContext, type RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import {
+  createRepoCellActionContext,
+  type RepoCellOperationalContext,
+  type RepoCellRuntimeContext,
+} from "./repo-cell-action-context.ts";
 import { createRepoCellApi, repoCellSynchronousRead, type RepoCellApiContext } from "./repo-cell-api.ts";
 import { dispatchRead } from "./repo-cell-command.ts";
 import { executeRepoAction } from "./repo-cell-action-dispatch.ts";
@@ -177,18 +181,24 @@ export async function openRepoCellProxy(
             `and re-attaches automatically once the data verifies. Cause: ${cause}`,
           ].join(" ");
   };
-  const readAtCut = <M extends Parameters<RepoCell["read"]>[0]>(
-    projection: TaskProjectionQueries,
-    method: M,
-    payload: Readonly<Record<string, unknown>>,
-    binding?: RepoCellBinding,
-  ): Awaited<ReturnType<RepoCell["read"]>> => {
+  let hostReadRuntime:
+    | {
+        readonly projection: TaskProjectionQueries;
+        readonly api: ReturnType<typeof createRepoCellApi>;
+        readonly actionContext: RepoCellOperationalContext;
+      }
+    | undefined;
+  type HostReadRuntime = NonNullable<typeof hostReadRuntime>;
+  const readRuntime = (projection: TaskProjectionQueries): HostReadRuntime => {
+    if (hostReadRuntime?.projection === projection) return hostReadRuntime;
     const writableProjection = projection as TaskProjection,
       readStore = ledgerReadStore(),
-      unsupportedWrite = async (): Promise<never> => {
+      unsupportedWrite = (): never => {
         throw cellCodedError("repo_unavailable", "A query-only RepoCell reader cannot start writer work.");
-      },
-      squadCoordinator = makeSquadCoordinator({
+      };
+    let actionRuntimes: EntityActionCatalogRuntimes = Object.freeze({}),
+      knownTaskIds: Set<string> | null = null;
+    const squadCoordinator = makeSquadCoordinator({
         rootDir: input.rootDir,
         readWorktreeSetup: () => [],
         projection: () => writableProjection,
@@ -213,15 +223,69 @@ export async function openRepoCellProxy(
         runtimeInstances: input.runtimeInstances ?? (() => []),
         ...(input.now ? { now: input.now } : {}),
       }),
-      now = input.now ?? (() => new Date().toISOString()),
-      settings = makeRepoCellSettingsState({
+      now = input.now ?? (() => new Date().toISOString());
+    const runtimeSpawner: RepoCellRuntimeContext["runtimeSpawner"] = {
+        prepareWorktree: unsupportedWrite,
+        spawn: unsupportedWrite,
+        spawnCoordinated: unsupportedWrite,
+        spawnScheduled: unsupportedWrite,
+        adopt: unsupportedWrite,
+        cancel: unsupportedWrite,
+        close: unsupportedWrite,
+      },
+      actionContext = createRepoCellActionContext({
+        input: {
+          repoId: input.repoId,
+          ...(input.runtimeInstances ? { runtimeInstances: input.runtimeInstances } : {}),
+        },
         rootDir: input.rootDir,
-        projection: writableProjection,
-        cellCodedError,
         now,
-      } as never),
-      context = {
-        extracted: {},
+        publicPublication: unsupportedWrite,
+        getProjection: () => writableProjection,
+        getStore: () => readStore,
+        getEntityActionExecutor: () => entityActionExecutor,
+        getEntityActionRuntimes: () => actionRuntimes,
+        getService: unsupportedWrite,
+        getSettings: () => settings.read(),
+        getRecovery: unsupportedWrite,
+        getRecoveryUncertain: () => false,
+        setRecoveryUncertain: unsupportedWrite,
+        getKnownTaskIds: () => knownTaskIds,
+        setKnownTaskIds: (value) => {
+          knownTaskIds = value;
+        },
+        getSquadCoordinator: () => squadCoordinator,
+      }),
+      runtimeContext = Object.assign(actionContext, {
+        mode: input.mode ?? "local",
+        runtimeSpawner,
+      }),
+      settings = makeRepoCellSettingsState(actionContext),
+      entityActionExecutor = makeEntityActionCatalogExecutor({
+        rootDir: input.rootDir,
+        repositoryId: input.repoId,
+        store: readStore,
+        projection: writableProjection,
+        now,
+        sessionIdentity: unsupportedWrite,
+        readSettings: () => settings.readRepository(),
+      }),
+      operationalContext = Object.assign(runtimeContext, {
+        settings,
+        settleRuntimeExecutionLease: unsupportedWrite,
+      });
+    operationalContext satisfies RepoCellOperationalContext;
+    actionRuntimes = Object.freeze({
+      entity: Object.freeze({
+        agent: makeAgentActionRuntime(runtimeContext),
+        schedule: makeScheduleActionRuntime(runtimeContext, () => settings.read().worktree.setup),
+        settings: makeSettingsActionRuntime(runtimeContext, settings),
+        person: makePersonActionRuntime(runtimeContext),
+        squad: makeSquadActionRuntime(runtimeContext),
+      }),
+    });
+    const context = {
+        extracted: operationalContext,
         mode: input.mode ?? "local",
         fleetRoster: input.fleetRoster?.() ?? null,
         input: {
@@ -240,10 +304,22 @@ export async function openRepoCellProxy(
         requiredCellText,
         cellCodedError,
         latched,
-      } as unknown as RepoCellApiContext;
-    // readStore 是共享长连接,读完后不关闭;WAL 只读连接的语句级读事务自行结束,
-    // 不留快照,下次读自然看到最新提交。
-    return createRepoCellApi(context)[repoCellSynchronousRead](method, payload, binding) as Awaited<
+      } as unknown as RepoCellApiContext,
+      api = createRepoCellApi(context);
+    Object.assign(operationalContext, {
+      showTask: (taskId: string) => taskShowFromProjection(input.rootDir, writableProjection, taskId),
+    });
+    return (hostReadRuntime = { projection, api, actionContext: operationalContext });
+  };
+  const readAtCut = <M extends Parameters<RepoCell["read"]>[0]>(
+    projection: TaskProjectionQueries,
+    method: M,
+    payload: Readonly<Record<string, unknown>>,
+    binding?: RepoCellBinding,
+  ): Awaited<ReturnType<RepoCell["read"]>> => {
+    // The store, action runtimes, coordinator, and API are host-owned long-lived readers.
+    // The query-only SQLite session still scopes each synchronous read to one completed cut.
+    return readRuntime(projection).api[repoCellSynchronousRead](method, payload, binding) as Awaited<
       ReturnType<RepoCell["read"]>
     >;
   };
@@ -251,99 +327,8 @@ export async function openRepoCellProxy(
     projection: TaskProjectionQueries,
     action: RepoTaskAction,
     binding: RepoCellBinding,
-  ): Awaited<ReturnType<RepoCell["run"]>> => {
-    const writableProjection = projection as TaskProjection,
-      readStore = ledgerReadStore();
-    let actionRuntimes: EntityActionCatalogRuntimes = Object.freeze({}),
-      knownTaskIds: Set<string> | null = null;
-    const unsupportedWrite = (): never => {
-        throw cellCodedError("repo_unavailable", "A query-only RepoCell reader cannot start writer work.");
-      },
-      squadCoordinator = makeSquadCoordinator({
-        rootDir: input.rootDir,
-        readWorktreeSetup: () => [],
-        projection: () => writableProjection,
-        store: () => readStore,
-        reacquireTaskLease: unsupportedWrite,
-        releaseTaskLease: unsupportedWrite,
-        createChildTask: unsupportedWrite,
-        recordOwnershipCheck: unsupportedWrite,
-        publishSynthesisReport: unsupportedWrite,
-        runtimeSpawner: () => ({ spawn: unsupportedWrite, cancel: unsupportedWrite }),
-      }),
-      actionContext = createRepoCellActionContext({
-        input: {
-          repoId: input.repoId,
-          ...(input.runtimeInstances ? { runtimeInstances: input.runtimeInstances } : {}),
-        },
-        rootDir: input.rootDir,
-        now: input.now ?? (() => new Date().toISOString()),
-        publicPublication: unsupportedWrite,
-        getProjection: () => writableProjection,
-        getStore: () => readStore,
-        getEntityActionExecutor: () => entityActionExecutor,
-        getEntityActionRuntimes: () => actionRuntimes,
-        getService: unsupportedWrite,
-        getSettings: () => settings.read(),
-        getRecovery: unsupportedWrite,
-        getRecoveryUncertain: () => false,
-        setRecoveryUncertain: unsupportedWrite,
-        getKnownTaskIds: () => knownTaskIds,
-        setKnownTaskIds: (value) => {
-          knownTaskIds = value;
-        },
-        getSquadCoordinator: () => squadCoordinator,
-      }),
-      settings = makeRepoCellSettingsState(actionContext),
-      entityActionExecutor = makeEntityActionCatalogExecutor({
-        rootDir: input.rootDir,
-        repositoryId: input.repoId,
-        store: readStore,
-        projection: writableProjection,
-        now: input.now ?? (() => new Date().toISOString()),
-        sessionIdentity: unsupportedWrite,
-        readSettings: () => settings.readRepository(),
-      });
-    const runtimeContext = Object.assign(actionContext, {
-      mode: input.mode ?? "local",
-      runtimeSpawner: { spawn: unsupportedWrite, cancel: unsupportedWrite },
-    });
-    actionRuntimes = Object.freeze({
-      entity: Object.freeze({
-        agent: makeAgentActionRuntime(runtimeContext as never),
-        schedule: makeScheduleActionRuntime(runtimeContext as never, () => settings.read().worktree.setup),
-        settings: makeSettingsActionRuntime(runtimeContext as never, settings),
-        person: makePersonActionRuntime(runtimeContext as never),
-        squad: makeSquadActionRuntime(runtimeContext as never),
-      }),
-    });
-    Object.assign(actionContext, {
-      showTask: (taskId: string) => taskShowFromProjection(input.rootDir, writableProjection, taskId),
-      taskListQueryFromAction: taskListQuery,
-      relationQueryFromAction: (candidate: RepoTaskAction) => ({
-        ...(typeof candidate.entity === "string" ? { entity: candidate.entity } : {}),
-        ...(typeof candidate.source === "string" ? { source: candidate.source } : {}),
-        ...(typeof candidate.target === "string" ? { target: candidate.target } : {}),
-        ...(typeof candidate.relationType === "string" ? { relationType: candidate.relationType } : {}),
-        ...(typeof candidate.state === "string" ? { state: candidate.state } : {}),
-        ...(typeof candidate.freshness === "string" ? { freshness: candidate.freshness } : {}),
-        ...(typeof candidate.updatedAfter === "string" ? { updatedAfter: candidate.updatedAfter } : {}),
-        ...(typeof candidate.updatedBefore === "string" ? { updatedBefore: candidate.updatedBefore } : {}),
-        ...(candidate.limit === undefined ? {} : { limit: Number(candidate.limit) }),
-        ...(typeof candidate.cursor === "string" ? { cursor: candidate.cursor } : {}),
-      }),
-      queryRead: () =>
-        makeTaskQueryReadModel({
-          rootDir: input.rootDir,
-          projection: writableProjection,
-          readPinnedEntities: writableProjection.listPinnedEntities,
-          judgments: repoCellTaskQueryJudgmentsFor(writableProjection),
-        }),
-    });
-    return executeRepoAction(actionContext as RepoCellOperationalContext, action, binding) as Awaited<
-      ReturnType<RepoCell["run"]>
-    >;
-  };
+  ): Awaited<ReturnType<RepoCell["run"]>> =>
+    executeRepoAction(readRuntime(projection).actionContext, action, binding) as Awaited<ReturnType<RepoCell["run"]>>;
   const run: RepoCell["run"] = async (action, binding, signal) => {
     if (closed)
       return {
