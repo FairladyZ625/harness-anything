@@ -70,7 +70,10 @@ function readPr(selector, root) {
 }
 
 function requireCleanWorktree(worktree, label) {
-  const status = output("git", ["status", "--porcelain=v1", "--untracked-files=normal"], {
+  // Untracked files never block the guarded operations: `git pull --ff-only`
+  // and `git worktree remove` refuse on their own when untracked files would
+  // be lost, so only tracked-file modifications make the worktree dirty here.
+  const status = output("git", ["status", "--porcelain=v1", "--untracked-files=no"], {
     cwd: worktree.path,
   });
   if (status) {

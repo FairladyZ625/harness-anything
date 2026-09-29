@@ -147,7 +147,7 @@ test("merges, cleans the PR branch and worktree, and fast-forwards local main", 
 
 test("refuses a dirty main before merge or cleanup", (t) => {
   const setup = fixture(t);
-  writeFileSync(path.join(setup.main, "dirty.txt"), "do not discard\n");
+  writeFileSync(path.join(setup.main, "base.txt"), "do not discard\n");
   const initialHead = git(setup.main, "rev-parse", "HEAD");
 
   const result = run(process.execPath, [helper, "123"], {
@@ -162,4 +162,37 @@ test("refuses a dirty main before merge or cleanup", (t) => {
   assert.equal(existsSync(setup.prWorktree), true);
   assert.notEqual(git(setup.main, "ls-remote", "--heads", "origin", "refs/heads/codex/pr-123"), "");
   assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "OPEN");
+});
+
+test("untracked files in main do not block merge or fast-forward", (t) => {
+  const setup = fixture(t);
+  writeFileSync(path.join(setup.main, "untracked.txt"), "keep me\n");
+  const initialHead = git(setup.main, "rev-parse", "HEAD");
+  assert.notEqual(initialHead, setup.upstreamHead);
+
+  const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
+
+  assert.match(result.stdout, /Local main synchronized/u);
+  assert.equal(git(setup.main, "rev-parse", "HEAD"), setup.upstreamHead);
+  assert.equal(readFileSync(path.join(setup.main, "untracked.txt"), "utf8"), "keep me\n");
+  assert.equal(existsSync(setup.prWorktree), false);
+});
+
+test("untracked files in the PR worktree pass preflight; git worktree remove refuses", (t) => {
+  const setup = fixture(t);
+  writeFileSync(path.join(setup.prWorktree, "scratch.txt"), "keep me\n");
+  const initialHead = git(setup.main, "rev-parse", "HEAD");
+
+  const result = run(process.execPath, [helper, "123"], {
+    cwd: setup.main,
+    env: setup.env,
+    allowFailure: true,
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /untracked files/u);
+  assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
+  assert.equal(existsSync(setup.prWorktree), true);
+  assert.equal(readFileSync(path.join(setup.prWorktree, "scratch.txt"), "utf8"), "keep me\n");
+  assert.equal(git(setup.main, "rev-parse", "HEAD"), initialHead);
 });
