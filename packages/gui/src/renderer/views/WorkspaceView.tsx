@@ -7,15 +7,21 @@ import { deriveAttestationLanes } from "../model/attestation-pool.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
 import { useCadenceFeed } from "../cadence-feed.ts";
 import { artifactsClient } from "../artifacts-client.ts";
-import { workspaceGraphSlice, workspaceEvidenceOf } from "../model/workspace-evidence.ts";
+import { workDecisionsOf, workspaceGraphSlice, workspaceEvidenceOf } from "../model/workspace-evidence.ts";
 import { eventTypeLabel, workspaceTitleIndex } from "../model/workspace-readable.ts";
 import { formatTime } from "../model/time.ts";
 import { EgoNeighborhood } from "../graph/EgoNeighborhood.tsx";
 import { egoFactRefOf } from "../graph/egoCanvas.ts";
 import { WorkspaceGoal } from "../components/WorkspaceGoal.tsx";
 import { t } from "../i18n/index.tsx";
+import type { MessageKey } from "../i18n/core.ts";
 import { DecisionReviewBadge } from "../components/decisionReview/parts.tsx";
-import { decisionReviewSignal } from "../model/decision-review.ts";
+import {
+  decisionReviewGroup,
+  decisionReviewSignal,
+  type DecisionReviewGroup,
+  type DecisionReviewSignal,
+} from "../model/decision-review.ts";
 import { decisionReviewRef } from "../navigation/decisionReviewRoutes.ts";
 
 export interface WorkspaceViewProps {
@@ -204,6 +210,14 @@ export function WorkspaceView({
                   </div>
                 </section>
 
+                <WorkDecisionReview
+                  decisions={workDecisionsOf({
+                    memberTaskIds: [scope.root.taskId, ...scope.memberTaskIds],
+                    decisions,
+                    relations,
+                  })}
+                  onNavigateEntity={navigateEntity}
+                />
                 <WorkspacePending
                   tasks={scopedTasks}
                   lanes={lanes}
@@ -612,7 +626,6 @@ function WorkspaceEvidencePanel({
         {t("views.workspace.evidence")}
       </h2>
       <div className="mt-3 min-w-0 space-y-2">
-        <WorkDecisionReviewStrip decisions={evidence.decisions} onNavigateEntity={onNavigateEntity} />
         <EvidenceList
           title={t("views.workspace.decisions")}
           rows={evidence.decisions.map((row) => ({
@@ -699,37 +712,108 @@ function EvidenceList({
   );
 }
 
+const REVIEW_GROUPS: readonly (readonly [DecisionReviewGroup, MessageKey])[] = [
+  ["dispose", "views.workspace.decisionReviewGroupDispose"],
+  ["reviewing", "views.workspace.decisionReviewGroupReviewing"],
+  ["judge", "views.workspace.decisionReviewGroupJudge"],
+];
+
+const REVIEW_HINTS: Readonly<Record<DecisionReviewSignal, MessageKey>> = {
+  changesRequested: "views.workspace.decisionReviewHintChangesRequested",
+  unansweredFindings: "views.workspace.decisionReviewHintUnansweredFindings",
+  reviewing: "views.workspace.decisionReviewHintReviewing",
+  approved: "views.workspace.decisionReviewHintApproved",
+  policyUnreviewed: "views.workspace.decisionReviewHintPolicyUnreviewed",
+  unreviewed: "views.workspace.decisionReviewHintPolicyUnreviewed",
+};
+
 /**
- * 工作内 Decision 的评审信号:待处置/待回应/评审中/批准可用的 Decision 置于证据区顶部,
- * 一眼可见并直达该 Decision 的评审页签;信号取自读面 readiness 与评审派工,不另立判据。
+ * 工作内 Decision 按评审下一步分组(原型 S2):组由读面 readiness 与评审派工映射,不另立判据;
+ * 页签只改当前显示,查看直达该 Decision 的评审页签。终态 Decision 没有就绪判定,不入组。
  */
-function WorkDecisionReviewStrip({
+function WorkDecisionReview({
   decisions,
   onNavigateEntity,
 }: {
   readonly decisions: readonly DecisionRow[];
   readonly onNavigateEntity?: (ref: string) => void;
 }) {
-  const flagged = decisions.filter((row) => {
+  const [filter, setFilter] = useState<DecisionReviewGroup | "all">("all");
+  const rows = decisions.flatMap((row) => {
     const signal = decisionReviewSignal(row.review);
-    return signal !== null && signal !== "unreviewed" && signal !== "policyUnreviewed";
+    return signal === null ? [] : [{ row, signal, group: decisionReviewGroup(signal) }];
   });
-  if (flagged.length === 0) return null;
+  if (rows.length === 0) return null;
+  const tabs: readonly (readonly [DecisionReviewGroup | "all", MessageKey])[] = [
+    ["all", "views.workspace.decisionReviewAll"],
+    ...REVIEW_GROUPS,
+  ];
   return (
-    <ul data-testid="work-decision-review-strip" className="grid gap-1 border-b border-border pb-2">
-      {flagged.map((row) => (
-        <li key={row.decisionId}>
+    <section data-testid="work-decision-review" aria-labelledby="work-decision-review-title" className="space-y-4">
+      <div className="space-y-1">
+        <h2 id="work-decision-review-title" className="text-sm font-semibold text-text">
+          {t("views.workspace.decisionReviewTitle")}
+        </h2>
+        <p className="ui-meta text-text-muted">{t("views.workspace.decisionReviewNote")}</p>
+      </div>
+      <div
+        role="tablist"
+        aria-label={t("views.workspace.decisionReviewTitle")}
+        className="flex gap-5 border-b border-border"
+      >
+        {tabs.map(([id, label]) => (
           <button
+            key={id}
             type="button"
-            onClick={() => onNavigateEntity?.(decisionReviewRef(row.decisionId, "review"))}
-            className="flex w-full min-w-0 items-center gap-2 rounded px-1 py-1 text-left hover:bg-surface"
+            role="tab"
+            aria-selected={filter === id}
+            data-testid={`work-decision-review-tab-${id}`}
+            onClick={() => setFilter(id)}
+            className={`shrink-0 border-b-2 pb-2 text-sm ${filter === id ? "border-accent text-accent" : "border-transparent text-text-muted"}`}
           >
-            <DecisionReviewBadge review={row.review} />
-            <span className="min-w-0 flex-1 truncate text-sm text-text">{row.title}</span>
-            <span className="shrink-0 font-mono ui-micro text-text-faint">{row.decisionId}</span>
+            {t(label)}
           </button>
-        </li>
-      ))}
-    </ul>
+        ))}
+      </div>
+      {REVIEW_GROUPS.filter(([id]) => filter === "all" || filter === id).map(([id, label]) => {
+        const groupRows = rows.filter(({ group }) => group === id);
+        if (groupRows.length === 0 && filter === "all") return null;
+        return (
+          <section key={id} data-testid={`work-decision-review-group-${id}`} className="space-y-2">
+            <div className="flex items-baseline justify-between gap-3">
+              <h3 className="text-sm font-semibold text-text">{t(label)}</h3>
+              <span className="ui-meta text-text-muted">
+                {t("views.workspace.decisionReviewCount", { count: groupRows.length })}
+              </span>
+            </div>
+            {groupRows.length === 0 ? (
+              <p className="text-sm text-text-muted">{t("views.workspace.none")}</p>
+            ) : (
+              <ul className="space-y-2">
+                {groupRows.map(({ row, signal }) => (
+                  <li
+                    key={row.decisionId}
+                    className="flex min-w-0 items-center gap-3 rounded-lg border border-border bg-surface-raised px-4 py-3"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="break-words text-sm font-semibold text-text">{row.title}</p>
+                      <p className="mt-1 ui-meta text-text-muted">{t(REVIEW_HINTS[signal])}</p>
+                    </div>
+                    <button
+                      type="button"
+                      data-testid={`work-decision-review-open-${row.decisionId}`}
+                      onClick={() => onNavigateEntity?.(decisionReviewRef(row.decisionId, "review"))}
+                      className="shrink-0 rounded border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-text hover:border-border-strong"
+                    >
+                      {t("views.workspace.decisionReviewOpen")}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+        );
+      })}
+    </section>
   );
 }

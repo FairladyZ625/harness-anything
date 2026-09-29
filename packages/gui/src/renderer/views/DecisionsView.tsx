@@ -5,7 +5,7 @@ import { FactInspector } from "../components/FactInspector.tsx";
 import type { JudgmentOpenRequest } from "../components/DecisionJudgmentPanel.tsx";
 import type { DecisionAction, DecisionMutationFeedback } from "../decision-actions.ts";
 import { decisionCan, type DecisionRow, type FactRef, type RelationEdge, type TaskRow } from "../model/types.ts";
-import { ReviewedVerdictCard, VerdictCard, sortKey } from "./decisions-verdict.tsx";
+import { VerdictCard, sortKey } from "./decisions-verdict.tsx";
 import { t } from "../i18n/index.tsx";
 
 export type DecideAction = DecisionAction;
@@ -56,7 +56,6 @@ function JudgmentHistory({
 }
 
 export function DecisionsView({
-  repoId,
   decisions,
   tasks,
   relations,
@@ -73,8 +72,6 @@ export function DecisionsView({
   coverageRows = [],
   onExit,
 }: {
-  /** 有仓 id 时专注卡按单体读补上当前评审切面与 accept 就绪(独立挂载的测试可缺省)。 */
-  repoId?: string;
   decisions: DecisionRow[];
   tasks: readonly TaskRow[];
   relations: RelationEdge[];
@@ -227,31 +224,25 @@ export function DecisionsView({
                 <div className="mb-2 rounded-md bg-stale/10 px-3 py-1.5 ui-micro leading-relaxed text-stale">
                   只处理 canonical proposed。mutation pending 只锁当前卡；不要重放，用 opId 查询 receipt。
                 </div>
-                {(() => {
-                  const cardProps = {
-                    d: current,
-                    decisions,
-                    facts,
-                    tasks,
-                    relations,
-                    onCallAgent,
-                    onJudge,
-                    mutationFeedback: mutationFeedback?.(current.decisionId),
-                    onCheckReceipt: () => onCheckReceipt?.(current.decisionId),
-                    openRequest: openRequest?.decisionId === current.decisionId ? openRequest : undefined,
-                    onInspectFact: setInspectedFactRef,
-                    onNavigateDecision: (id: string) => onNavigateDecision?.(id),
-                    onNavigateTask: (id: string) => onNavigateTask?.(id),
-                    onNavigateEntity: (ref: string) => onNavigateEntity?.(ref),
-                    coverageRows,
-                    relationState,
-                  };
-                  return repoId ? (
-                    <ReviewedVerdictCard key={current.decisionId} repoId={repoId} {...cardProps} />
-                  ) : (
-                    <VerdictCard key={current.decisionId} {...cardProps} />
-                  );
-                })()}
+                <VerdictCard
+                  key={current.decisionId}
+                  d={current}
+                  decisions={decisions}
+                  facts={facts}
+                  tasks={tasks}
+                  relations={relations}
+                  onCallAgent={onCallAgent}
+                  onJudge={onJudge}
+                  mutationFeedback={mutationFeedback?.(current.decisionId)}
+                  onCheckReceipt={() => onCheckReceipt?.(current.decisionId)}
+                  openRequest={openRequest?.decisionId === current.decisionId ? openRequest : undefined}
+                  onInspectFact={setInspectedFactRef}
+                  onNavigateDecision={(id) => onNavigateDecision?.(id)}
+                  onNavigateTask={(id) => onNavigateTask?.(id)}
+                  onNavigateEntity={(ref) => onNavigateEntity?.(ref)}
+                  coverageRows={coverageRows}
+                  relationState={relationState}
+                />
               </>
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-3 text-center">

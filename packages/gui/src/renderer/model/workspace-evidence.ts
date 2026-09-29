@@ -13,6 +13,29 @@ export interface WorkspaceEvidence {
 
 const taskRef = (taskId: string): string => `task/${taskId}`;
 
+/** 与工作成员任务有边相连的实体引用:工作归属只取已有关系,不另立归属判据。 */
+function workRelatedRefs(memberTaskIds: readonly string[], relations: readonly RelationEdge[]): Set<string> {
+  const memberRefs = new Set(memberTaskIds.map(taskRef)),
+    relatedRefs = new Set<string>();
+  for (const edge of relations) {
+    const from = normalizedRef(edge.from),
+      to = normalizedRef(edge.to);
+    if (memberRefs.has(from)) relatedRefs.add(to);
+    if (memberRefs.has(to)) relatedRefs.add(from);
+  }
+  return relatedRefs;
+}
+
+/** 工作内的 Decision(工作页评审分组与证据区同一口径)。 */
+export function workDecisionsOf(input: {
+  readonly memberTaskIds: readonly string[];
+  readonly decisions: readonly DecisionRow[];
+  readonly relations: readonly RelationEdge[];
+}): readonly DecisionRow[] {
+  const relatedRefs = workRelatedRefs(input.memberTaskIds, input.relations);
+  return input.decisions.filter(({ decisionId }) => relatedRefs.has(`decision/${decisionId}`));
+}
+
 export function workspaceEvidenceOf(input: {
   readonly memberTaskIds: readonly string[];
   readonly events: readonly CadenceFeedEvent[];
@@ -22,14 +45,7 @@ export function workspaceEvidenceOf(input: {
   readonly artifacts: readonly ArtifactGuiRowDto[];
 }): WorkspaceEvidence {
   const members = new Set(input.memberTaskIds),
-    memberRefs = new Set(input.memberTaskIds.map(taskRef)),
-    relatedRefs = new Set<string>();
-  for (const edge of input.relations) {
-    const from = normalizedRef(edge.from),
-      to = normalizedRef(edge.to);
-    if (memberRefs.has(from)) relatedRefs.add(to);
-    if (memberRefs.has(to)) relatedRefs.add(from);
-  }
+    relatedRefs = workRelatedRefs(input.memberTaskIds, input.relations);
   const decisions = input.decisions.filter(({ decisionId }) => relatedRefs.has(`decision/${decisionId}`)),
     facts = input.facts.filter(
       ({ anchor, taskId }) => (taskId !== undefined && members.has(taskId)) || relatedRefs.has(anchor),

@@ -16,6 +16,7 @@ import {
 import type { RelationCoverageRow, WorkspaceSummaryRead } from "../../api/renderer-dto.ts";
 import { harnessClient, type DecisionProposalInput } from "../api-client.ts";
 import { DecisionJudgmentPanel } from "../components/DecisionJudgmentPanel.tsx";
+import { DecisionReviewBadge, reviewAcceptBlockedReason } from "../components/decisionReview/parts.tsx";
 import { EntityRefLink } from "../components/EntityRefLink.tsx";
 import { DecisionProposalForm } from "../components/DecisionProposalForm.tsx";
 import { AttestFeedbackRow, GateAttestForm } from "../components/taskDetail/TaskGateAttestCard.tsx";
@@ -160,7 +161,6 @@ export function AttestationPoolView({
   if (inDecisionDomain && focusMode && onJudge) {
     return (
       <DecisionsView
-        repoId={repoId}
         decisions={decisions}
         tasks={tasks}
         relations={relations}
@@ -907,6 +907,7 @@ function DecisionPoolSection({
                       <DecisionStateBadge state={decision.state} />
                       <RiskTierBadge tier={decision.riskTier} />
                       <UrgencyBadge urgency={decision.urgency} />
+                      <DecisionReviewBadge review={decision.review} />
                       <ReadinessBadge
                         decision={decision}
                         facts={facts}
@@ -959,6 +960,7 @@ function DecisionPoolSection({
                       feedback={mutationFeedback?.(decision.decisionId)}
                       onSubmit={onJudge}
                       onCheckReceipt={() => onCheckReceipt?.(decision.decisionId)}
+                      acceptBlockedReason={reviewAcceptBlockedReason(decision.review)}
                     />
                   )
                 }

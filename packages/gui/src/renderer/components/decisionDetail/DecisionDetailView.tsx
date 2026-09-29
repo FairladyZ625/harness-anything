@@ -24,8 +24,6 @@ import { ActorRef, actorsLabel, IdentityItem } from "./widgets.tsx";
 import { AwaitsAskStrip } from "../AwaitsAskStrip.tsx";
 import type { DecisionAction, DecisionMutationFeedback } from "../../decision-actions.ts";
 import { useDecisionReviewActions } from "../../decision-review-actions.ts";
-import { useDecisionShowQuery } from "../../decision-show-data.ts";
-import { withShownReview } from "../../model/decision-review.ts";
 import {
   decisionReviewRef,
   decisionSessionsRef,
@@ -136,20 +134,10 @@ export function DecisionDetailView({
       );
   };
 
-  const listed = useMemo(() => decisions.find((row) => row.decisionId === decisionId) ?? null, [decisions, decisionId]);
-  // 评审切面与 accept 就绪只有带正文的单体读算得出(与正文页签同一查询);追赶中或读失败时
-  // 评审页签逐态说明,不把「没读到」显示成「没有评审 / 可免审」。
-  const shown = useDecisionShowQuery(repoId, listed ? listed.decisionId : ""),
-    reviewRead: "loading" | "pending" | "error" | "ready" = shown.isPending
-      ? "loading"
-      : shown.isError
-        ? "error"
-        : shown.data.status === "pending"
-          ? "pending"
-          : "ready";
+  // 评审切面、accept 就绪与评审派工都在列表 full 行上(与 decision-show 同值);正文仍按需单体读。
   const decision = useMemo(
-    () => (listed && reviewRead === "ready" ? withShownReview(listed, shown.data?.decision) : listed),
-    [listed, reviewRead, shown.data],
+    () => decisions.find((row) => row.decisionId === decisionId) ?? null,
+    [decisions, decisionId],
   );
 
   if (!decision) {
@@ -358,24 +346,6 @@ export function DecisionDetailView({
               <OverviewPanel decision={decision} />
             ) : activeTab === "claims" ? (
               <ClaimsPanel decision={decision} />
-            ) : reviewTabIds.has(activeTab) && reviewRead !== "ready" ? (
-              <p
-                data-testid="decision-review-read-state"
-                data-state={reviewRead}
-                className={`rounded-md border px-3 py-2 font-mono ui-meta ${
-                  reviewRead === "error"
-                    ? "border-danger/30 bg-danger/5 text-danger"
-                    : "border-stale/40 bg-stale/5 text-stale"
-                }`}
-              >
-                {reviewRead === "loading"
-                  ? t("views.decisionReview.reviewReadLoading")
-                  : reviewRead === "pending"
-                    ? t("views.decisionReview.reviewReadPending")
-                    : t("views.decisionReview.reviewReadFailed", {
-                        detail: shown.error instanceof Error ? shown.error.message : String(shown.error),
-                      })}
-              </p>
             ) : activeTab === "review" ? (
               <ReviewPanel
                 decision={decision}
