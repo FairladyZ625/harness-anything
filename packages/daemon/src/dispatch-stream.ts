@@ -414,12 +414,6 @@ export function readDispatchStreamHeaders(rootDir: string): readonly DispatchStr
     .filter((header): header is DispatchStreamHeader => header !== null);
 }
 
-export function readDispatchStreamSummaries(rootDir: string): readonly DispatchStreamSummary[] {
-  return readDispatchStreamHeaders(rootDir)
-    .map((header) => readDispatchStreamSummary(rootDir, header.dispatchId))
-    .filter((stream): stream is DispatchStreamSummary => stream !== null);
-}
-
 /** Replay every retained stream when rebuilding projections that have no other durable source. */
 export function readAllDispatchStreamSummaries(rootDir: string): readonly DispatchStreamSummary[] {
   const root = dispatchStreamRoot(resolveHarnessLayout(rootDir)),
