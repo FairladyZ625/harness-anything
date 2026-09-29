@@ -2,6 +2,7 @@ import { existsSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
 
+import type { FleetDescriptor } from "./contract.ts";
 import { FleetFault, type FleetCenterOptions, type State, type Upload } from "./center-types.ts";
 
 export interface FleetLeaseClaimsContext {
@@ -62,20 +63,27 @@ export function verifyOwnedClaims(
   nodeId: string,
   assignmentId: string,
   changes: readonly {
-    readonly candidate: {
-      readonly ref: string;
-    };
+    readonly candidate: FleetDescriptor;
   }[],
 ): void {
   for (const change of changes) {
-    const owned = Object.entries(context.state.uploads).some(
-      ([, candidate]) =>
-        candidate.nodeId === nodeId &&
-        candidate.assignmentId === assignmentId &&
-        candidate.descriptor?.ref === change.candidate.ref,
-    );
+    const owned = findOwnedClaim(context, nodeId, assignmentId, change.candidate);
     if (!owned) throw new context.FleetFault("claim_not_owned", "Descriptor was not issued to this assignment.");
   }
+}
+
+export function findOwnedClaim(
+  context: Pick<FleetLeaseClaimsContext, "state">,
+  nodeId: string,
+  assignmentId: string,
+  descriptor: FleetDescriptor,
+): [string, Upload] | undefined {
+  return Object.entries(context.state.uploads).find(
+    ([, candidate]) =>
+      candidate.nodeId === nodeId &&
+      candidate.assignmentId === assignmentId &&
+      JSON.stringify(candidate.descriptor) === JSON.stringify(descriptor),
+  );
 }
 
 export function discardOwnedClaims(

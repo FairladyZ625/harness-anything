@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -11,6 +11,7 @@ import { connect, createServer, type TLSSocket } from "node:tls";
 import { sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
+import { digestId } from "../src/fleet/center-transport.ts";
 import {
   readFleetAssignmentClient,
   runFleetReplicaPullClient,
@@ -165,6 +166,19 @@ test(
     assert.equal(shown.evidence, secondBody);
   },
 );
+test("replica pull rejects a snapshot that has not caught up to the ledger cut", async (t) => {
+  const fixture = await fleetFixture(t);
+  t.after(() => fixture.close());
+  const center = await fixture.center(replicaQuota, true),
+    peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.assignment.nodeId, "machine-secret"),
+    response = await peer.request({
+      schema: "fleet.replica.pull/v1",
+      messageId: "replica-behind-ledger",
+      assignmentId: fixture.assignment.assignmentId,
+    });
+  assert.equal(response.schema, "fleet.error/v1");
+  if (response.schema === "fleet.error/v1") assert.equal(response.code, "replica_pending");
+});
 test("center rejects the retired full-entry/Git-cut durable transfer shape", async (t) => {
   const fixture = await fleetFixture(t);
   t.after(() => fixture.close());
@@ -364,9 +378,70 @@ test(
   async (t) => {
     const fixture = await fleetFixture(t);
     t.after(() => fixture.close());
-    const center = await fixture.center(),
+    const conflictingContent = { sha256: "d".repeat(64), size: 1, mediaType: "text/plain" },
+      conflictingUploadId = digestId(
+        fixture.assignment.nodeId,
+        fixture.assignment.assignmentId,
+        conflictingContent.sha256,
+        String(conflictingContent.size),
+        conflictingContent.mediaType,
+      );
+    mkdirSync(fixture.stateRoot, { recursive: true });
+    writeFileSync(
+      path.join(fixture.stateRoot, "state.json"),
+      JSON.stringify({
+        uploads: {
+          [conflictingUploadId]: {
+            nodeId: fixture.assignment.nodeId,
+            assignmentId: fixture.assignment.assignmentId,
+            repoId: fixture.assignment.repoId,
+            content: { ...conflictingContent, size: 2 },
+            descriptor: null,
+          },
+        },
+      }),
+    );
+    const center = await fixture.center(1),
       before = fixture.eventCount();
     let peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.assignment.nodeId, "machine-secret");
+    const replayedHello = await peer.request({
+      schema: "fleet.session.hello/v1",
+      messageId: "replayed-hello",
+      protocolVersion: { major: 1, minor: 0 },
+      nodeId: fixture.assignment.nodeId,
+      credential: "machine-secret",
+    });
+    assert.equal(replayedHello.schema, "fleet.error/v1");
+    if (replayedHello.schema === "fleet.error/v1") assert.equal(replayedHello.code, "hello_replayed");
+    const insufficientQuota = await peer.request({
+      schema: "fleet.replica.pull/v1",
+      messageId: "insufficient-quota",
+      assignmentId: fixture.assignment.assignmentId,
+    });
+    assert.equal(insufficientQuota.schema, "fleet.error/v1");
+    if (insufficientQuota.schema === "fleet.error/v1")
+      assert.equal(insufficientQuota.code, "replica_quota_insufficient");
+    const staging = path.join(fixture.repo, ".harness", "fleet-uploads"),
+      stagingTarget = path.join(fixture.root, "unsafe-staging-target");
+    mkdirSync(stagingTarget);
+    symlinkSync(stagingTarget, staging);
+    const unsafeStaging = await peer.request({
+      schema: "fleet.upload.begin/v1",
+      messageId: "unsafe-staging",
+      assignmentId: fixture.assignment.assignmentId,
+      content: { sha256: "c".repeat(64), size: 1, mediaType: "text/plain" },
+    });
+    assert.equal(unsafeStaging.schema, "fleet.error/v1");
+    if (unsafeStaging.schema === "fleet.error/v1") assert.equal(unsafeStaging.code, "unsafe_staging");
+    rmSync(staging);
+    const uploadConflict = await peer.request({
+      schema: "fleet.upload.begin/v1",
+      messageId: "upload-conflict",
+      assignmentId: fixture.assignment.assignmentId,
+      content: conflictingContent,
+    });
+    assert.equal(uploadConflict.schema, "fleet.error/v1");
+    if (uploadConflict.schema === "fleet.error/v1") assert.equal(uploadConflict.code, "upload_conflict");
     fixture.setAssignmentDelay(50);
     await assert.rejects(
       runFleetRoundTrip({
@@ -417,6 +492,18 @@ test(
       });
     assert.equal(ready.schema, "fleet.upload.ready/v1");
     if (ready.schema !== "fleet.upload.ready/v1") throw new Error("ready expected");
+    const gap = await peer.request({
+      schema: "fleet.upload.chunk/v1",
+      messageId: "gap-chunk",
+      uploadId: ready.uploadId,
+      offset: ready.resumeOffset + 1,
+      dataBase64: Buffer.from("x").toString("base64"),
+    });
+    assert.equal(gap.schema, "fleet.error/v1");
+    if (gap.schema === "fleet.error/v1") {
+      assert.equal(gap.code, "upload_gap");
+      assert.equal(gap.resumeOffset, ready.resumeOffset);
+    }
     await peer.request({
       schema: "fleet.upload.chunk/v1",
       messageId: "bad-chunk",
@@ -766,11 +853,23 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
     },
     eventCount: () => fleetLedgerRevision(repo, "fleet-repo"),
     runtimeArchiveReceipts,
-    center: () =>
+    center: (diskQuotaBytes = replicaQuota, staleReplica = false) =>
       owned.hold(
         listenFleetTls({
           host: {
             ...host,
+            replica: (repoId: string) => {
+              const replica = host.replica(repoId);
+              return staleReplica
+                ? {
+                    ...replica,
+                    waitForCut: async (revision: number) => {
+                      const cut = await replica.waitForCut(revision);
+                      return { ...cut, headDigest: `sha256:${"f".repeat(64)}` };
+                    },
+                  }
+                : replica;
+            },
             runtimeIngress: async (...args: Parameters<typeof host.runtimeIngress>) => {
               const receipt = await host.runtimeIngress(...args);
               if (args[1].kind === "archive") runtimeArchiveReceipts.push(receipt);
@@ -790,7 +889,7 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
           ...fleetHostWriterOptions(userRoot, ["fleet-repo"]),
           key,
           cert,
-          replicaDiskQuotaBytes: replicaQuota,
+          replicaDiskQuotaBytes: diskQuotaBytes,
           authenticate: (nodeId, credential) => nodeId === assignment.nodeId && credential === "machine-secret",
           isNodeActive: () => nodeActive,
           resolveAssignment: async (assignmentId) => {

@@ -19,6 +19,7 @@ import { runtimeErrorCode, runtimeErrorMessage } from "../runtime-spawn-errors.t
 import {
   brokerHost as brokerHostImpl,
   discardOwnedClaims as discardOwnedClaimsImpl,
+  findOwnedClaim as findOwnedClaimImpl,
   verifyOwnedClaims as verifyOwnedClaimsImpl,
 } from "./center-lease-claims.ts";
 import { makeOffer, offerFrames } from "./center-replica-offer.ts";
@@ -129,9 +130,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   function verifyOwnedClaims(
     nodeId: string,
     assignmentId: string,
-    changes: readonly { readonly candidate: { readonly ref: string } }[],
+    changes: Parameters<typeof verifyOwnedClaimsImpl>[3],
   ): void {
     return verifyOwnedClaimsImpl(extracted, nodeId, assignmentId, changes);
+  }
+  function findOwnedClaim(nodeId: string, assignmentId: string, descriptor: Parameters<typeof findOwnedClaimImpl>[3]) {
+    return findOwnedClaimImpl(extracted, nodeId, assignmentId, descriptor);
   }
   function discardOwnedClaims(
     nodeId: string,
@@ -347,15 +351,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       assertFrameEpoch(a.repoId, frame.writerEpoch);
       const completed: string[] = [];
       for (const change of frame.changes) {
-        const owned = Object.entries(state.uploads).find(
-            ([, candidate]) =>
-              candidate.nodeId === nodeId &&
-              candidate.assignmentId === a.assignmentId &&
-              candidate.descriptor?.ref === change.candidate.ref,
-          ),
-          upload = owned?.[1];
-        if (!owned || !upload || JSON.stringify(upload.descriptor) !== JSON.stringify(change.candidate))
-          throw new FleetFault("claim_not_owned", "Descriptor was not issued to this assignment.");
+        const owned = findOwnedClaim(nodeId, a.assignmentId, change.candidate);
+        if (!owned) throw new FleetFault("claim_not_owned", "Descriptor was not issued to this assignment.");
         completed.push(owned[0]);
       }
       // The submit names its execution channel itself: shared-surface prose
@@ -514,12 +511,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         );
       let resultBody: string | undefined, uploadId: string | undefined;
       if (frame.result) {
-        const owned = Object.entries(state.uploads).find(
-          ([, candidate]) =>
-            candidate.nodeId === nodeId &&
-            candidate.assignmentId === a.assignmentId &&
-            JSON.stringify(candidate.descriptor) === JSON.stringify(frame.result),
-        );
+        const owned = findOwnedClaim(nodeId, a.assignmentId, frame.result);
         if (!owned)
           throw new FleetFault("claim_not_owned", "Runtime result descriptor was not issued to this assignment.");
         uploadId = owned[0];

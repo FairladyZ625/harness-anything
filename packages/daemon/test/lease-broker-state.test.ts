@@ -5,6 +5,43 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openFleetLeaseBroker } from "../src/lease-broker.ts";
+import { FleetFault } from "../src/fleet/center-types.ts";
+import { verifyOwnedClaims } from "../src/fleet/center-lease-claims.ts";
+
+test("claim ownership requires the complete staged descriptor", () => {
+  const descriptor = {
+      ref: "doc-sync-claims/claim-one",
+      sha256: "a".repeat(64),
+      size: 4,
+      mediaType: "text/plain",
+    },
+    context = {
+      state: {
+        uploads: {
+          upload: {
+            nodeId: "node-one",
+            assignmentId: "assignment-one",
+            repoId: "repo-one",
+            content: descriptor,
+            descriptor,
+          },
+        },
+      },
+      persist: () => undefined,
+      FleetFault,
+      safeLocal: () => "",
+      uploadPath: () => "",
+    };
+
+  verifyOwnedClaims(context, "node-one", "assignment-one", [{ candidate: descriptor }]);
+  assert.throws(
+    () =>
+      verifyOwnedClaims(context, "node-one", "assignment-one", [
+        { candidate: { ...descriptor, sha256: "b".repeat(64) } },
+      ]),
+    (error: unknown) => error instanceof FleetFault && error.code === "claim_not_owned",
+  );
+});
 
 test("completed commands persist receipts without copying them into coordination state", async () => {
   const stateRoot = mkdtempSync(path.join(tmpdir(), "ha-lease-broker-state-"));
