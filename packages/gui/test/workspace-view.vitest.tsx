@@ -419,6 +419,10 @@ describe("tasks tab", () => {
     expect(group.textContent).toContain("已完成 / 取消 2 个 · 展开");
     // 零散任务组同样在列。
     expect(host.querySelector('[data-group="_loose"]')!.textContent).toContain("T task_p");
+    // 每行的相对时间来自行的 at 字段,不能是 NaN。
+    const row = host.querySelector('[data-task-row="task_live"]')!;
+    expect(row.textContent).not.toContain("NaN");
+    expect(row.textContent).toMatch(/\d+ (分钟|小时|天)/u);
   });
 
   it("expands a finished group on demand and exposes the next page", async () => {

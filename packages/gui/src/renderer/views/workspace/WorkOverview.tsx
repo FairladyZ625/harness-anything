@@ -437,8 +437,7 @@ export function WorkTaskRow({
   readonly task: {
     readonly taskId: string;
     readonly pinned?: boolean;
-    readonly lastKnownAt?: string;
-    readonly updatedAt?: string;
+    readonly at: string;
   };
   readonly title: ReactNode;
   readonly status: SnapshotStatus;
@@ -454,7 +453,7 @@ export function WorkTaskRow({
           {title}
         </>
       }
-      time={agoOf(task.lastKnownAt ?? task.updatedAt ?? "")}
+      time={agoOf(task.at)}
       onClick={() => onOpen(task.taskId)}
     />
   );
