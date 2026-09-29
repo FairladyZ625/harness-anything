@@ -116,6 +116,10 @@ export function createRuntimeFixture(context: TestContext) {
       HARNESS_DAEMON_ENDPOINT: _endpoint,
       HARNESS_DAEMON_REPO_ID: _repoId,
       HARNESS_DAEMON_ID: _daemonId,
+      // The calling agent session would otherwise stand in for the fixture's person principal.
+      CLAUDE_CODE_SESSION_ID: _claudeSession,
+      CODEX_THREAD_ID: _codexThread,
+      CODEX_SESSION_ID: _codexSession,
       ...baseEnv
     } = process.env;
   mkdirSync(root, { recursive: true });
