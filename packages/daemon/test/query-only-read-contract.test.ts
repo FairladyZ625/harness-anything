@@ -4,7 +4,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { daemonProtocolCommands } from "../src/protocol/daemon-protocol-commands.ts";
+import { actionForDaemonMethod, daemonProtocolCommands } from "../src/protocol/daemon-protocol-commands.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RepoTaskAction } from "../src/repo-cell.ts";
 import { initIngressRepo } from "./fixtures/runtime-ingress.ts";
@@ -32,11 +32,15 @@ test("every query-only declaration completes through the synchronous fixture rea
     initIngressRepo(rootDir, process.getuid?.() ?? 0);
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "query-only-contract" });
     for (const command of declared) {
-      const action =
+      const fixtureAction =
         actions.get(command.id) ??
         ({ kind: "actionKind" in command ? command.actionKind : command.id } as RepoTaskAction);
+      const action = actionForDaemonMethod(command.method, {
+        action: { ...fixtureAction, executor: { kind: "agent", id: "query-only-contract" } },
+      }) as RepoTaskAction;
       const receipt = await cell.run(action, binding);
       assert.ok(receipt && typeof receipt === "object", command.id);
+      assert.notEqual(receipt.code, "invalid_command", command.id);
     }
   } finally {
     await cell?.close();

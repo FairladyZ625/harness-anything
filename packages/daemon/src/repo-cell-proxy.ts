@@ -30,6 +30,7 @@ import {
 import { createRepoCellApi, repoCellSynchronousRead, type RepoCellApiContext } from "./repo-cell-api.ts";
 import { dispatchRead } from "./repo-cell-command.ts";
 import { executeRepoReadAction } from "./repo-cell-action-dispatch.ts";
+import { bindVerifiedExecutorClaim } from "./repo-cell-authorization.ts";
 import { makeEntityActionCatalogExecutor, type EntityActionCatalogRuntimes } from "./entity-action-catalog-executor.ts";
 import { makeAgentActionRuntime, makeSquadActionRuntime } from "./squad-action-runtime.ts";
 import { makeScheduleActionRuntime } from "./schedule-action-runtime.ts";
@@ -331,7 +332,8 @@ export async function openRepoCellProxy(
     binding: RepoCellBinding,
   ): Awaited<ReturnType<RepoCell["run"]>> => {
     const context = readRuntime(projection).actionContext,
-      receipt = executeRepoReadAction(context, action, binding);
+      verified = bindVerifiedExecutorClaim({ action, binding, projection, now: context.now() }),
+      receipt = executeRepoReadAction(context, verified.action, verified.binding);
     if (receipt instanceof Promise)
       throw new Error(`Query-only action ${action.kind} must complete inside its synchronous read session.`);
     return context.withHumanSummary(receipt) as Awaited<ReturnType<RepoCell["run"]>>;
