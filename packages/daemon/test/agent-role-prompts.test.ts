@@ -129,3 +129,19 @@ test("commander folds child waits and leaves Squad callbacks to Harness", () => 
   );
   assert.match(prompt, /wait on all of them in one `ha runtime status <id> <id> --wait`.*nextAction lists/su);
 });
+
+for (const role of [undefined, "worker"] as const)
+  test(`${role ?? "undeclared"} worker hands back through the closeout sections, not a duplicate report`, () => {
+    const prompt = assembleUnboundPrompt("Implement the assigned package.", role);
+    assert.match(prompt, /hand-back is that package's `closeout\.md`/u);
+    assert.match(prompt, /Summary.*full 40-character delivery commit SHA/su);
+    assert.match(prompt, /Verification.*red.*green/su);
+    assert.match(prompt, /Residual Risk.*Same Mechanism Elsewhere/su);
+    assert.match(prompt, /`ha doc sync --submit --task <task-id>`/u);
+    assert.match(prompt, /Do not restate it in `artifacts\/report\.md`/u);
+  });
+
+test("reviewer and commander output contracts do not take the worker closeout hand-back", () => {
+  for (const role of ["reviewer", "commander"] as const)
+    assert.doesNotMatch(assembleUnboundPrompt("Do the mission.", role), /closeout\.md/u, role);
+});
