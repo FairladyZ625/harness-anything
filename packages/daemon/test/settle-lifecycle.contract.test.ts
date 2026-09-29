@@ -170,6 +170,33 @@ test("settle rejoins the owner executor-less and preserves the worker's executor
   }
 });
 
+test("first submit with --as-owner rejoins a released worker execution before submitting", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-submit-owner-rejoin-")),
+    repoId = workspaceId("submit-owner-rejoin"),
+    taskId = "task_submit_owner_rejoin",
+    executionId = "exe_submit_owner_rejoin";
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "submit-owner-rejoin" });
+    await reachDeliverable(cell, rootDir, taskId, executionId);
+    assert.equal((await cell.run({ kind: "task-release", taskId }, workerBinding)).outcome, "applied");
+
+    const submitted = await cell.run({ kind: "task-submit", taskId, executionId, asOwner: true }, ownerRejoinBinding);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const event = makeTaskEventReader({ repoId, rootDir })
+      .read()
+      .events.filter((candidate) => candidate.type === "execution_submitted")
+      .at(-1);
+    if (event?.type !== "execution_submitted") throw new Error("owner submission event missing");
+    assert.equal(event.payload.execution.actor.executor?.id, "worker-runtime");
+    assert.equal(event.actor.executor, null);
+  } finally {
+    await cell?.close();
+    await removeTemporaryDirectory(rootDir);
+  }
+});
+
 test("settle replaces executor attribution on declared-executor handoff and foreign takeover", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-settle-handoff-")),
     repoId = workspaceId("settle-handoff"),
