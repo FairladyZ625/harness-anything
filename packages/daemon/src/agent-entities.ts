@@ -724,8 +724,9 @@ function agentRuntimeSelectionIssue(
     return null;
   }
   // Ambiguity between enabled compatible instances is not an install-time fault: dispatch ranks
-  // the candidates deterministically (providerPriority, then live load, then instance id) and the
-  // declaration only pins `instance` when the author wants that node-local binding.
+  // the candidates deterministically (explicit providerPriority, otherwise runtimes row order,
+  // then live load and instance id) and the declaration only pins `instance` when the author wants
+  // that node-local binding.
   if (compatible.length > 0) return null;
   if (kindCompatible.length === 0)
     return {
