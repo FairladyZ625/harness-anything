@@ -195,7 +195,8 @@ export function applyPeopleRosterAction(
     if (!merged.ok) throw new PeopleRosterContractError(merged.reason);
     next = parsePeopleRosterDocument(merged.body);
   }
-  const body = serializePeopleRosterDocument(next);
+  const body = serializePeopleRosterDocument(next),
+    roster = parsePeopleRosterDocument(body);
   assertPeopleRosterActionInvariants(current, next, action);
   const changed = currentBody === null || body !== currentBody,
     targetPersonId =
@@ -213,7 +214,7 @@ export function applyPeopleRosterAction(
   return {
     action: action.kind,
     targetPersonId,
-    roster: next,
+    roster,
     body,
     changed,
     summary: peopleActionSummary(action, targetPersonId, changed),
