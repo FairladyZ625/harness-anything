@@ -250,7 +250,7 @@
       "bypassFixtureRequired": true,
       "executionSurfaces": {
         "packageJson": { "check": true, "checkPr": true, "script": "harness:check-poll-spin-boundary" },
-        "rewriteCi": { "pullRequestJobs": ["crlf-checkout"], "nonPullRequestJobs": [] },
+        "rewriteCi": { "pullRequestJobs": ["crlf-checkout"], "nonPullRequestJobs": ["crlf-checkout"] },
         "branchProtection": { "required": true, "contexts": ["crlf-checkout"] },
         "classes": ["local", "pr"]
       },
@@ -2037,8 +2037,8 @@
       "id": "check-enforcement-debt-sunset",
       "command": "npm run harness:check-enforcement-debt-sunset",
       "category": "meta-governance",
-      "tier": "nightly-only",
-      "tierReason": "ADR-0022 D4 requires overdue enforcement debt visibility in nightly full-check without turning stale governance debt into a pull-request required merge blocker.",
+      "tier": "manual-only",
+      "tierReason": "The checker requires private canonical harness data that public CI checkouts do not contain.",
       "authoritySource": [
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d4--adr-has-text-must-have-code-enforcement-in-same-pr-accepted-but-unimplemented-enters-debt-table",
         "harness/adr/ADR-0022-gate-defense-graph-invariants-and-authority-derivation.md#d7--meta-gate-must-include-documented-bypass-fixture-gate-of-gates",
@@ -2047,12 +2047,12 @@
       "consumerScope": [
         "private harness/decisions decision-package relations derives -> task/*",
         "private harness/tasks task-package lifecycle status projection from INDEX.md",
-        "scheduled rewrite-ci full-check only"
+        "manual checks against a private canonical harness root"
       ],
       "githubContext": {
         "requiredContexts": [],
-        "workflowJobs": ["full-check"],
-        "nodeVersions": [24, 26]
+        "workflowJobs": [],
+        "nodeVersions": []
       },
       "allowlistPolicy": {
         "allowed": false,
@@ -2079,14 +2079,14 @@
         },
         "rewriteCi": {
           "pullRequestJobs": [],
-          "nonPullRequestJobs": ["full-check"],
-          "scheduleOnly": true
+          "nonPullRequestJobs": [],
+          "scheduleOnly": false
         },
         "branchProtection": {
           "required": false,
           "contexts": []
         },
-        "classes": ["local", "nightly"]
+        "classes": ["local", "manual"]
       },
       "deterministic": false,
       "positiveControl": {
