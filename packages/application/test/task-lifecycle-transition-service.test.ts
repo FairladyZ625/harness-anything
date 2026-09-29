@@ -249,6 +249,7 @@ test("canonical checker receipt becomes a content-cut gate witness before Comple
       checkerId: "standard",
       commitSha: "a".repeat(40),
       iteration: 0,
+      reviewGate: true,
       actor,
       source: "local" as const,
       opId: "op-ci",
@@ -347,6 +348,10 @@ test("canonical checker receipt becomes a content-cut gate witness before Comple
       /canonical event receipt/u,
     );
     assert.throws(() => compileCompletionGateWitness({ ...input, commitSha: "b".repeat(40) }), /execution cut/u);
+    // A submitted cut binds a witness only when its review gate is lifted: that cut completes straight off submitted.
+    const atTriage = { ...input, snapshot: { ...snapshot, task: { ...snapshot.task, status: "submitted" as const } } };
+    assert.throws(() => compileCompletionGateWitness(atTriage), /execution cut/u);
+    assert.doesNotThrow(() => compileCompletionGateWitness({ ...atTriage, reviewGate: false }));
   } finally {
     await harness.cleanup();
   }

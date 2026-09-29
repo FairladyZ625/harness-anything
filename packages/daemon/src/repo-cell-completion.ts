@@ -20,7 +20,7 @@ import {
 } from "@harness-anything/kernel";
 import type { RepoCellBinding, Snapshot } from "./repo-cell-types.ts";
 import { projectedTaskSettings, resolveTaskRootThreshold } from "./task-wip-settings.ts";
-import { readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
+import { readEffectiveCloseoutGates, readEffectiveReviewReturnBudget } from "./repo-cell-settings-state.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 import { renderEvidencePayload } from "./repo-cell-evidence.ts";
 import { failed } from "./repo-cell-settlement.ts";
@@ -92,6 +92,11 @@ export function publishGateWitness(
       checkerId: evidence.checkerId,
       commitSha: execution.submission.commitSha,
       iteration: execution.iteration,
+      reviewGate: readEffectiveCloseoutGates(
+        cell.projection,
+        snapshot.task?.completionGateIds ?? [],
+        snapshot.task?.closeoutOverrides,
+      ).review,
       actor: binding.actor,
       source: binding.source,
       opId,

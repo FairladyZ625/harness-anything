@@ -327,6 +327,14 @@ export async function proofFor(
             ].join("")
           : "Adjudication requires an existing task owner.",
       );
+    // A task whose frozen profile lifted review (lightweight) promised no review: its cut completes
+    // straight off submitted, so a forward order has no review to send it to.
+    if (command.decision === "forward" && snapshot.task.closeoutOverrides?.review === false)
+      throw cellCodedError(
+        "invalid_transition",
+        `Task ${snapshot.task.taskId} lifted review in its profile; run ha task complete ${snapshot.task.taskId} ` +
+          "instead of forwarding.",
+      );
     return {
       actorBinding: command.actor,
       capability: "task-adjudicate@v1",

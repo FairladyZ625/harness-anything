@@ -33,6 +33,8 @@ export function compileCompletionGateWitness(input: {
   readonly checkerId: string;
   readonly commitSha: string | null;
   readonly iteration: number;
+  /** The task's effective closeout review gate; a cut with review lifted completes straight off submitted. */
+  readonly reviewGate: boolean;
   readonly actor: ActorAxes;
   readonly source: WriteSource;
   readonly opId: string;
@@ -50,7 +52,8 @@ export function compileCompletionGateWitness(input: {
   if (
     !task ||
     task.taskId !== input.taskId ||
-    task.status !== "in_review" ||
+    // The witness binds wherever completion can run: in_review, or submitted when no review is owed.
+    !(task.status === "in_review" || (task.status === "submitted" && !input.reviewGate)) ||
     execution?.state !== "submitted" ||
     !execution.submission ||
     !requirement ||
