@@ -1,5 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import type { TaskProjection } from "@harness-anything/kernel";
@@ -96,6 +97,64 @@ test("runtime.run rejects a lagging task projection from a single read", async (
     (error: unknown) => (error as { readonly code?: unknown }).code === "content_not_ready",
   );
   assert.equal(projection.reads(), 1);
+});
+
+test("task-bound runtime dispatch requires an authorization decision", async () => {
+  const projection = {
+      ...projectionOf(readyTaskRead()),
+      currentLease: () => null,
+    },
+    spawner = makeRuntimeSpawner({
+      repoId: "repository",
+      rootDir: tmpdir(),
+      store: () => ({}),
+      projection: () => projection,
+      now: () => "2026-09-10T00:00:00.000Z",
+    } as unknown as RuntimeSpawnerInput);
+  await assert.rejects(
+    spawner.spawn(
+      {
+        runtimeInstanceId: "worker",
+        cwd: { scope: "repo-root" },
+        prompt: "Inspect",
+        taskId: "task_ready",
+        idempotencyKey: "missing-authorization",
+      },
+      binding,
+    ),
+    (error: unknown) =>
+      (error as { readonly code?: unknown }).code === "authorization_missing" &&
+      (error as Error).message === "Runtime dispatch requires the center AuthorizationPort decision.",
+  );
+});
+
+test("runtime dispatch rejects an opId occupied by another canonical event", async () => {
+  const repoId = "repository",
+    idempotencyKey = "occupied-dispatch-op",
+    hash = createHash("sha256").update(`${repoId}\0${idempotencyKey}`).digest("hex"),
+    dispatchOpId = `runtime-spawn-${hash.slice(0, 32)}`,
+    spawner = makeRuntimeSpawner({
+      repoId,
+      rootDir: tmpdir(),
+      store: () => ({ readEvent: (opId: string) => (opId === dispatchOpId ? { type: "task_created", opId } : null) }),
+      projection: () => ({}),
+      now: () => "2026-09-10T00:00:00.000Z",
+    } as unknown as RuntimeSpawnerInput);
+  await assert.rejects(
+    spawner.spawn(
+      {
+        runtimeInstanceId: "worker",
+        cwd: { scope: "repo-root" },
+        prompt: "Inspect",
+        taskId: null,
+        idempotencyKey,
+      },
+      binding,
+    ),
+    (error: unknown) =>
+      (error as { readonly code?: unknown }).code === "runtime_dispatch_conflict" &&
+      (error as Error).message === `Dispatch opId ${dispatchOpId} belongs to another canonical event.`,
+  );
 });
 
 test("a current task projection is returned from a single read", () => {

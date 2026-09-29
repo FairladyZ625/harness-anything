@@ -32,7 +32,7 @@ import {
 } from "../src/dispatch-stream.ts";
 import { adoptRuntimes } from "../src/runtime-spawn-adoption.ts";
 import { cancelRuntime } from "../src/runtime-spawn-control.ts";
-import { adoptNativeProcess } from "../src/runtime-spawn-process.ts";
+import { adoptNativeProcess, terminateRuntimeTree } from "../src/runtime-spawn-process.ts";
 import { readRuntimeSessionActivityEvidence } from "../src/dispatch-read.ts";
 import { runtimeBindingForDispatch } from "../src/runtime-spawn-types.ts";
 import { runtimeSessionActionPreparer } from "../src/runtime-session-action-runtime.ts";
@@ -55,6 +55,31 @@ test("runtime dispatch persistence excludes RepoCell writer transport fields", (
     } as Parameters<typeof runtimeBindingForDispatch>[0] & Record<string, unknown>,
     persisted = runtimeBindingForDispatch(binding);
   assert.deepEqual(persisted, { actor, source });
+});
+
+test("runtime cancellation rejects when descendant processes remain alive", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-cancel-survivors-")),
+    dispatchId = "dispatch_111111111111111111111111";
+  try {
+    openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId: "runtime_111111111111111111111111",
+      instanceId: "instance-1",
+      startedAt: "2026-09-29T00:00:00.000Z",
+    });
+    t.mock.method(process, "kill", () => true);
+    await assert.rejects(
+      terminateRuntimeTree(rootDir, dispatchId, process.pid),
+      (error: unknown) =>
+        (error as { readonly code?: unknown }).code === "runtime_cancel_failed" &&
+        (error as Error).message.startsWith("Runtime cancel left descendant processes alive: ") &&
+        (error as Error).message.includes(String(process.pid)),
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });
 
 test("the live index rebuilds exactly from dispatch stream headers", () => {
