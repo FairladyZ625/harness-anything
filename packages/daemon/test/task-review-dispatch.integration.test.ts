@@ -371,7 +371,7 @@ test(
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       const { dispatchId, runtimeSessionId } = dispatchesOf(receipt)[0]! as Required<DispatchStep>;
       const outcome = await f.settleReview(dispatchId, runtimeSessionId, "done", "# Review\n\nApproved.\n");
-      assert.equal(outcome, "succeeded");
+      assert.equal(outcome, "unknown", "a report file alone is not a registered review witness");
       const report = path.join(f.root, "harness", f.packagePath, "artifacts", "reports", `${dispatchId}.md`);
       assert.ok(existsSync(report), `expected the authored report at ${report}`);
       const packet = report.replace(/\.md$/u, ".json");

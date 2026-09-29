@@ -36,6 +36,24 @@ export type WorkerGitIdentity = {
   readonly email: string;
 };
 
+/** A repository-diff delivery is a task branch with at least one commit above the repository baseline. */
+export async function workerBranchHasDelivery(input: {
+  readonly cwd: string;
+  readonly canonicalRoot: string;
+  readonly taskId: string;
+}): Promise<boolean> {
+  if (samePath(input.cwd, input.canonicalRoot)) return false;
+  const env = gitEnvironment();
+  try {
+    const branch = (await readGitText(input.cwd, ["branch", "--show-current"], env)).trim(),
+      baseRef = repositoryBaseRef(input.canonicalRoot);
+    if (branch !== input.taskId || !baseRef) return false;
+    return (await readGitText(input.cwd, ["rev-list", "--count", `${baseRef}..HEAD`], env)).trim() !== "0";
+  } catch {
+    return false;
+  }
+}
+
 // The conventional worker identity has exactly one source: the git config the canonical
 // repository itself resolves (`git config user.name/user.email` at the canonical root, local
 // values over global ones). Worker worktrees share that config, so this states explicitly the

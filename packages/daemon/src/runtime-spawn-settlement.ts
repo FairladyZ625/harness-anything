@@ -4,7 +4,7 @@ import { consumeKnownError } from "@harness-anything/kernel";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
-import { pushWorkerBranch } from "./runtime-worker-push.ts";
+import { pushWorkerBranch, workerBranchHasDelivery } from "./runtime-worker-push.ts";
 import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
@@ -43,7 +43,7 @@ export async function publishExit(
     const { outcome: initialOutcome, ...classifiedAttempt } = classifyRuntimeExit(active, code);
     let outcome = initialOutcome,
       reviewResultMissing = false;
-    if (outcome === "unknown" && code === 0 && runtimeDeliveryWitness(context, active)) outcome = "succeeded";
+    if (outcome === "unknown" && code === 0 && (await runtimeDeliveryWitness(context, active))) outcome = "succeeded";
     if (outcome === "succeeded" && active.decisionReviewTarget) {
       const target = active.decisionReviewTarget,
         reviewRegistered = context
@@ -341,9 +341,20 @@ function runtimeSessionBinding(binding: ActiveRuntime["binding"], runtimeSession
   };
 }
 
-function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: ActiveRuntime): boolean {
+async function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: ActiveRuntime): Promise<boolean> {
   if (active.decisionReviewTarget) return true;
   if (!active.task) return false;
+  if (
+    await workerBranchHasDelivery({
+      cwd: active.cwd,
+      canonicalRoot: context.input.rootDir,
+      taskId: active.task.taskId,
+    })
+  )
+    return true;
+  // Remote-edge settlement has no local canonical projection. Its repo-root fixtures also have no
+  // repository-diff witness; absence must settle unknown rather than abort terminal publication.
+  if (context.input.remote) return false;
   const projection = context.requiredRuntimeProjection(context.input),
     snapshot = projection.read(active.task.taskId).snapshot;
   if (active.role === "reviewer")

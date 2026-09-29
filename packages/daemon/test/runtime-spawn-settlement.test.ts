@@ -433,7 +433,7 @@ test("terminal settlement publishes the submitted commit when worker HEAD advanc
 });
 
 test("terminal settlement keeps a clean task exit unknown without its execution delivery", async (context) => {
-  const fixture = workerGitFixture(context, "settle-no-delivery", { reachableRemote: true }),
+  const fixture = workerGitFixture(context, "settle-no-delivery", { reachableRemote: true, delivery: false }),
     runtime = workerSettlementRuntime(fixture, { finalText: "worker stopped" }),
     outcomes: Record<string, unknown>[] = [],
     settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
@@ -654,7 +654,7 @@ type WorkerGitFixture = {
 function workerGitFixture(
   context: { after(handler: () => void): unknown },
   slug: string,
-  options: { readonly reachableRemote: boolean },
+  options: { readonly reachableRemote: boolean; readonly delivery?: boolean },
 ): WorkerGitFixture {
   const root = mkdtempSync(path.join(tmpdir(), `ha-settle-${slug}-`)),
     bare = path.join(root, "remote.git"),
@@ -673,9 +673,11 @@ function workerGitFixture(
   if (!options.reachableRemote) git(canonical, "remote", "set-url", "origin", path.join(root, "missing.git"));
   // Settlement publishes the branch named after the dispatched task (workerSettlementRuntime's task_owner).
   git(canonical, "worktree", "add", "--quiet", worker, "-b", "task_owner");
-  writeFileSync(path.join(worker, "change.txt"), "worker\n");
-  git(worker, "add", "change.txt");
-  git(worker, "commit", "--quiet", "-m", "feat: worker change");
+  if (options.delivery !== false) {
+    writeFileSync(path.join(worker, "change.txt"), "worker\n");
+    git(worker, "add", "change.txt");
+    git(worker, "commit", "--quiet", "-m", "feat: worker change");
+  }
   return { root, bare, canonical, worker };
 }
 
