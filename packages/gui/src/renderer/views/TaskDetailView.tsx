@@ -62,6 +62,7 @@ export function TaskDetailView({
   onAttest,
   onSetPin,
   onFocusGraph,
+  initialTab,
 }: {
   /** 当前仓;给出时详情头下列出挂在本任务上、等你答复 / 已答复的 awaits(同一答复面板)。 */
   repoId?: string;
@@ -103,18 +104,20 @@ export function TaskDetailView({
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
   /** 统一「在关系图中查看」入口(task_89d324b5);缺省不渲染。 */
   onFocusGraph?: (ref: string) => void;
+  /** 打开时停在的页签;议程评审类落点(taskreview/<id>)传 closeout。缺省为概况。 */
+  initialTab?: TaskDetailTab;
 }) {
-  const [activeTab, setActiveTab] = useState<TaskDetailTab>("overview");
+  const [activeTab, setActiveTab] = useState<TaskDetailTab>(initialTab ?? "overview");
   const [activeDoc, setActiveDoc] = useState("task_plan.md");
   const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
   const external = isExternal(task);
   const pinned = task.pinned === true;
 
   useEffect(() => {
-    setActiveTab("overview");
+    setActiveTab(initialTab ?? "overview");
     setActiveDoc("task_plan.md");
     setFocusedSessionId(null);
-  }, [task.taskId]);
+  }, [task.taskId, initialTab]);
 
   const selectTab = (tab: TaskDetailTab) => {
     setActiveTab(tab);

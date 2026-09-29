@@ -1315,6 +1315,13 @@
   "views.agenda.note": "Who moves each decision next. Groups come from the center's criteria; the GUI does not guess from the latest opinion.",
   "views.agenda.hintJudge": "Ready to accept, reject, or defer",
   "views.agenda.loading": "Reading the agenda…",
-  "views.agenda.empty": "No Decision is waiting to move",
-  "views.agenda.error": "Agenda read failed: {message}"
+  "views.agenda.empty": "Nothing is waiting to move",
+  "views.agenda.error": "Agenda read failed: {message}",
+  "views.agenda.groupRework": "Review returned",
+  "views.agenda.groupAdjudicate": "Initial review",
+  "views.agenda.groupTaskReviewing": "Task under review",
+  "views.agenda.hintAnswered": "Answer: {answer}",
+  "views.agenda.hintRework": "The review asked for changes; fix and resubmit",
+  "views.agenda.hintAdjudicate": "Submitted; forward to independent review or return",
+  "views.agenda.hintTaskReviewing": "Under independent review; consent or return once the report is in"
 }

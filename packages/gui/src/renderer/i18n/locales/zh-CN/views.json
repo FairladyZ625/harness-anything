@@ -1315,6 +1315,13 @@
   "views.agenda.note": "下一步由谁来推进。分组由中心判据计算，GUI 不猜测最新一条意见。",
   "views.agenda.hintJudge": "可以裁决：接受、拒绝或暂缓",
   "views.agenda.loading": "正在读取议程…",
-  "views.agenda.empty": "没有待推进的 Decision",
-  "views.agenda.error": "议程读取失败：{message}"
+  "views.agenda.empty": "没有待推进的事项",
+  "views.agenda.error": "议程读取失败：{message}",
+  "views.agenda.groupRework": "评审返回",
+  "views.agenda.groupAdjudicate": "待初审",
+  "views.agenda.groupTaskReviewing": "任务评审中",
+  "views.agenda.hintAnswered": "答:{answer}",
+  "views.agenda.hintRework": "评审要求修改；修完再提交",
+  "views.agenda.hintAdjudicate": "已提交，等你初审：送独立评审或打回",
+  "views.agenda.hintTaskReviewing": "独立评审中；报告就绪后终审同意或打回"
 }

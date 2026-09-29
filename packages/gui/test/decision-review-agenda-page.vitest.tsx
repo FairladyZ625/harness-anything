@@ -5,7 +5,14 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
-import type { AgendaAwaitsRow, AgendaDecisionReviewRow, AgendaDecisionRow } from "../src/api/renderer-dto.ts";
+import type {
+  AgendaAnsweredRow,
+  AgendaAwaitsRow,
+  AgendaDecisionReviewRow,
+  AgendaDecisionRow,
+  AgendaExecutionRow,
+  AgendaTaskRow,
+} from "../src/api/renderer-dto.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import {
   decisionAgendaRows,
@@ -16,6 +23,7 @@ import { AgendaView } from "../src/renderer/views/AgendaView.tsx";
 import { DecisionReviewTiles } from "../src/renderer/components/overview/DecisionReviewTiles.tsx";
 import { DecisionReviewNow } from "../src/renderer/components/overview/DecisionReviewNow.tsx";
 import { NAV_GROUPS, navLabel } from "../src/renderer/navigation/navConfig.tsx";
+import { entityDetailTargetOf } from "../src/renderer/navigation/entityRoutes.ts";
 
 /**
  * 议程页(原型 S2 #agenda)、总览「需要我的判断 / 正在发生」(S1)与四格落点(设计 Q6):
@@ -44,6 +52,40 @@ const awaitsRow = (relationId: string, sourceRef: string): AgendaAwaitsRow => ({
   question: "has review changes to resolve.",
   askedAt: AT,
   askedBy: "person_me",
+});
+const answeredRow = (relationId: string, sourceRef: string): AgendaAnsweredRow => ({
+  relationId,
+  sourceRef,
+  title: `已答复 ${sourceRef}`,
+  status: "active",
+  personId: "person_owner",
+  askKind: "question",
+  question: "接口要不要兼容旧字段?",
+  answer: "不兼容，直接删",
+  answeredAt: AT,
+  answeredBy: "person_owner",
+});
+const blocking = { state: "clear" } as AgendaTaskRow["blockingAssessment"];
+const reworkRow = (taskId: string): AgendaTaskRow => ({
+  taskId,
+  title: `返工 ${taskId}`,
+  work: null,
+  status: "active",
+  pinned: false,
+  updatedAt: AT,
+  leaseExecutionId: null,
+  activeExecutionIds: [],
+  blockingAssessment: blocking,
+  workspace: null,
+});
+const executionRow = (taskId: string): AgendaExecutionRow => ({
+  taskId,
+  title: `送审 ${taskId}`,
+  work: null,
+  pinned: false,
+  executionId: `exec_${taskId}`,
+  submittedAt: AT,
+  blockingAssessment: blocking,
 });
 const agenda = (patch: Partial<AgendaSuccess> = {}): AgendaSuccess => ({
   ok: true,
@@ -163,7 +205,7 @@ describe("议程页(S2 #agenda)", () => {
     expect(navLabel("agenda")).toBe("议程");
   });
 
-  it("五个页签,全部页按四组列行;页签只改当前显示;查看按组落点", () => {
+  it("页签覆盖议程全部分组,全部页只列有行的组;页签只改当前显示;查看按组落点", () => {
     const opened: string[] = [];
     const host = mount(
       createElement(AgendaView, {
@@ -176,6 +218,10 @@ describe("议程页(S2 #agenda)", () => {
     expect([...host.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)).toEqual([
       "全部",
       "待处置",
+      "已答复,待你跟进",
+      "评审返回",
+      "待初审",
+      "任务评审中",
       "待评审",
       "评审中",
       "待裁决",
@@ -216,6 +262,58 @@ describe("议程页(S2 #agenda)", () => {
     const panel = document.body.querySelector('[data-testid="awaits-answer-panel"]');
     expect(panel?.textContent).toContain("has review changes to resolve.");
     expect(opened).toEqual([]);
+  });
+
+  it("已答复待跟进落源实体详情,评审返回 / 待初审 / 任务评审中落任务详情的评审(收口)页签", () => {
+    const opened: string[] = [];
+    const host = mount(
+      createElement(AgendaView, {
+        repoId: "repo",
+        agenda: agenda({
+          answeredForYou: [
+            answeredRow("rel_ans_task", "task/task_asked"),
+            answeredRow("rel_ans_dec", "decision/dec_asked"),
+          ],
+          awaitingRework: [reworkRow("task_rework")],
+          awaitingAdjudication: [executionRow("task_submitted")],
+          underReview: [executionRow("task_in_review")],
+        }),
+        agendaError: null,
+        onNavigateEntity: (ref) => opened.push(ref),
+      }),
+    );
+    expect(groupIds(host)).toEqual(["answered", "rework", "adjudicate", "taskReviewing"]);
+    const answered = host.querySelector('[data-testid="agenda-decision-group-answered"]')!;
+    expect(answered.textContent).toContain("2 项");
+    expect(answered.textContent).toContain("已答复 task/task_asked");
+    expect(answered.textContent).toContain("提问 · 答:不兼容，直接删");
+    expect(host.querySelector('[data-testid="agenda-decision-group-rework"]')?.textContent).toContain(
+      "返工 task_rework",
+    );
+    for (const id of ["rel_ans_task", "rel_ans_dec", "task_rework", "task_submitted", "task_in_review"])
+      click(host, `agenda-decision-open-${id}`);
+    expect(opened).toEqual([
+      "task/task_asked",
+      "decision/dec_asked",
+      "taskreview/task_rework",
+      "taskreview/task_submitted",
+      "taskreview/task_in_review",
+    ]);
+    // 议程为空的判定覆盖新分组:只有这些组有行时不显示「没有待推进」。
+    expect(host.textContent).not.toContain("没有待推进");
+  });
+
+  it("taskreview/<id> 落任务详情并带评审页签;工作根仍按「根任务即工作」进工作页", () => {
+    expect(entityDetailTargetOf("taskreview/task_rework")).toEqual({
+      selectedId: "task_rework",
+      focusedEntityRef: "taskreview/task_rework",
+    });
+    expect(entityDetailTargetOf("taskreview/task_root", [], (id) => id === "task_root")).toEqual({
+      view: "workspace",
+      scopeRootTaskId: "task_root",
+      focusedEntityRef: null,
+    });
+    expect(entityDetailTargetOf("taskreview/")).toBeNull();
   });
 
   it("议程没读到、读失败、追赶中各自说明,不把空当成没有", () => {

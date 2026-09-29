@@ -301,5 +301,7 @@
   "components.awaitsAnswer.kind.consent": "Consent",
   "components.awaitsAnswer.kind.reopen": "Reopen?",
   "components.awaitsAnswer.awaitingYou": "Awaiting your answer",
-  "components.awaitsAnswer.answeredForYou": "Answered, for your follow-up"
+  "components.awaitsAnswer.answeredForYou": "Answered, for your follow-up",
+  "components.awaitsAnswer.reask": "Ask again",
+  "components.awaitsAnswer.reaskHint": "If the answer is not enough, ask the same person again on the same source (a new awaits); have an Agent run the command below, taking the revision from this edge in ha relation list."
 }

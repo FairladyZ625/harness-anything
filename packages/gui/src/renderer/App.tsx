@@ -25,7 +25,7 @@ import { AppSidebar } from "./components/AppSidebar.tsx";
 import type { LedgerStatusBarInput } from "./components/sidebar/SystemStatusPanel.tsx";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { useEntityNavigation } from "./navigation/useEntityNavigation.ts";
-import { workTargetOf } from "./navigation/entityRoutes.ts";
+import { taskReviewRef, workTargetOf } from "./navigation/entityRoutes.ts";
 import { workIndexOf } from "./model/work-collections.ts";
 import { useAppShortcuts } from "./navigation/useAppShortcuts.ts";
 import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
@@ -432,6 +432,7 @@ function AppShell() {
           goto("terminal");
         }}
         onFocusGraph={focusEntityInGraph}
+        initialTab={!framing.embedded && focusedEntityRef === taskReviewRef(task.taskId) ? "closeout" : undefined}
       />
     );
   };
