@@ -22,6 +22,7 @@ export function entityKindCatalogQuery(repoId: string) {
   return {
     queryKey: entityKindQueryKeys.catalog(repoId),
     queryFn: () => readEntityKindCatalog(repoId),
+    enabled: repoId !== "unselected",
     // kind 集合只在 vertical 声明变更时改变,比投影稳定得多。
     staleTime: 60_000,
   };
@@ -60,6 +61,7 @@ export function governedEntityRowsQuery(repoId: string) {
   return {
     queryKey: entityKindQueryKeys.rows(repoId),
     queryFn: () => readGovernedEntityRows(repoId),
+    enabled: repoId !== "unselected",
     staleTime: 4_000,
   };
 }

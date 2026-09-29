@@ -56,7 +56,9 @@ export function workspaceScopeFromProjection(
   const children = new Map<string, TaskIndexProjectionRow[]>();
   for (const row of read.rows) {
     if (row.parentTaskId === null) continue;
-    children.set(row.parentTaskId, [...(children.get(row.parentTaskId) ?? []), row]);
+    const siblings = children.get(row.parentTaskId);
+    if (siblings) siblings.push(row);
+    else children.set(row.parentTaskId, [row]);
   }
   const descendants: TaskIndexProjectionRow[] = [];
   const pending = [...(children.get(root.taskId) ?? [])];
@@ -94,7 +96,7 @@ export function workspaceScopeFromProjection(
   for (const row of leaves) counts[scopeStatus(row.status)] += 1;
   const sortedLeaves = [...leaves].sort((left, right) => left.taskId.localeCompare(right.taskId));
   const limit = input.limit ?? 100;
-  const start = input.cursor ? sortedLeaves.findIndex(({ taskId }) => taskId > input.cursor!) : 0;
+  const start = input.cursor ? sortedLeaves.findIndex(({ taskId }) => taskId.localeCompare(input.cursor!) > 0) : 0;
   const pageStart = start < 0 ? sortedLeaves.length : start;
   const pageRows = sortedLeaves.slice(pageStart, pageStart + limit);
   const last = pageRows.at(-1);
