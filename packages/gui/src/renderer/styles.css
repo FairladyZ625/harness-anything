@@ -20,7 +20,7 @@
 /*
  * Harness GUI 暗色变量（OKLch）
  * 三轴视觉通道分配：
- *   coordinationStatus → 颜色徽章（六色等亮度系）
+ *   coordinationStatus → 颜色徽章（状态色 token,视觉基线 v1 映射）
  *   closeoutReadiness  → 图标 + 中性底；仅 ready 点亮 accent
  *   packageDisposition → 整卡透明度 + 角标，不占色彩通道
  *   freshness          → 边框/时间戳通道，不占色块
@@ -43,13 +43,15 @@
   --color-text-muted: oklch(0.8 0.01 285);
   --color-text-faint: oklch(0.72 0.01 285);
 
-  /* coordinationStatus 六色 + unknown，等亮度 OKLch（L≈0.78；cancelled 中性）。
+  /* coordinationStatus 状态色(gui-visual-language-standard §3 的映射,数值以本档为准):
+     完成=绿、在做=青、等人裁决/评审中=琥珀、待开工=灰蓝、取消=暗灰、阻塞/失败=红。
+     等亮度 OKLch(L≈0.78;blocked 与 danger 同族的红略深;cancelled 中性)。
      archived 是处置桶不是生命周期色：低饱和棕，弱于 stale、异于 cancelled 的紫灰。 */
   --color-status-planned: oklch(0.78 0.03 285);
-  --color-status-active: oklch(0.78 0.14 250);
-  --color-status-submitted: oklch(0.78 0.11 210);
-  --color-status-blocked: oklch(0.78 0.14 75);
-  --color-status-in-review: oklch(0.78 0.14 305);
+  --color-status-active: oklch(0.78 0.13 175);
+  --color-status-submitted: oklch(0.78 0.14 75);
+  --color-status-blocked: oklch(0.72 0.17 25);
+  --color-status-in-review: oklch(0.78 0.14 75);
   --color-status-done: oklch(0.78 0.14 150);
   --color-status-cancelled: oklch(0.68 0.02 285);
   --color-status-unknown: oklch(0.78 0.12 25);
@@ -117,10 +119,10 @@ html[data-theme="light"] {
   --color-text-faint: oklch(0.52 0.008 285);
 
   --color-status-planned: oklch(0.52 0.03 285);
-  --color-status-active: oklch(0.54 0.16 250);
-  --color-status-submitted: oklch(0.68 0.12 210);
-  --color-status-blocked: oklch(0.57 0.13 75);
-  --color-status-in-review: oklch(0.54 0.16 305);
+  --color-status-active: oklch(0.54 0.14 175);
+  --color-status-submitted: oklch(0.57 0.13 75);
+  --color-status-blocked: oklch(0.54 0.19 25);
+  --color-status-in-review: oklch(0.57 0.13 75);
   --color-status-done: oklch(0.56 0.14 150);
   --color-status-cancelled: oklch(0.6 0.01 285);
   --color-status-unknown: oklch(0.55 0.15 25);

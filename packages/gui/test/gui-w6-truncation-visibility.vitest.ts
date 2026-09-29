@@ -1,11 +1,8 @@
 // harness-test-tier: fast
-import { beforeAll, describe, expect, it, vi } from "vitest";
+// @vitest-environment happy-dom
+import { beforeAll, describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-
-vi.hoisted(() => {
-  Object.defineProperty(globalThis, "window", { configurable: true, value: {} });
-});
 
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { CommandPalette, type PaletteEntry } from "../src/renderer/components/CommandPalette.tsx";

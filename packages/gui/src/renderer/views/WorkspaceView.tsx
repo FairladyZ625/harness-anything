@@ -1,4 +1,5 @@
 import { ResultPagination } from "../components/ResultPagination.tsx";
+import { Tabs } from "../components/primitives/Tabs";
 import type { WorkspaceScopeRead } from "../../api/renderer-dto.ts";
 import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -152,28 +153,19 @@ export function WorkspaceView({
           </div>
         ) : null}
 
-        <div role="tablist" aria-label="工作分区" className="flex gap-6 overflow-x-auto border-b border-border">
-          {[
-            ["overview", "概览"],
-            ["tasks", `任务 ${scope.scope.executableLeafCount}`],
-            ["evidence", "经过与证据"],
-            ["relations", "关系"],
-            ...(renderRootTask ? [["root", t("views.workspace.rootTaskTab")]] : []),
-          ].map(([id, label]) => (
-            <button
-              key={id}
-              id={`workspace-tab-${id}`}
-              type="button"
-              role="tab"
-              aria-selected={tab === id}
-              aria-controls="workspace-panel"
-              onClick={() => setTab(id)}
-              className={`shrink-0 border-b-2 pb-2 text-sm ${tab === id ? "border-accent text-accent" : "border-transparent text-text-muted"}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+        <Tabs
+          ariaLabel="工作分区"
+          idPrefix="workspace"
+          value={tab}
+          onChange={setTab}
+          tabs={[
+            { key: "overview", label: "概览" },
+            { key: "tasks", label: "任务", count: scope.scope.executableLeafCount },
+            { key: "evidence", label: "经过与证据" },
+            { key: "relations", label: "关系" },
+            ...(renderRootTask ? [{ key: "root" as const, label: t("views.workspace.rootTaskTab") }] : []),
+          ]}
+        />
         <div
           id="workspace-panel"
           role="tabpanel"

@@ -2,7 +2,8 @@ import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from 
 import { CaretLeft, CaretRight, Lock, PushPin, Star } from "@phosphor-icons/react";
 import type { TaskRow } from "../model/types";
 import { isExternal } from "../model/types";
-import { CloseoutBadge, DecisionSourceBadge, EngineBadge, FreshnessTag, StatusBadge } from "../components/badges";
+import { CloseoutBadge, DecisionSourceBadge, EngineBadge, FreshnessTag } from "../components/badges";
+import { StatusTag } from "../components/primitives/StatusTag";
 import { TaskFilterBar } from "../components/TaskFilterBar";
 import { ColumnResizeHandle } from "../components/ColumnResizeHandle.tsx";
 import {
@@ -177,7 +178,7 @@ const AuditRow = memo(function AuditRow({
         {/* flex 列 cross 轴上的 truncate 没有盒宽可裁(2026-09-09 二次 Electron 验收:
             节点/lease 行画进相邻列),必须配 max-w-full 让列宽成为截断上限。 */}
         <div className="flex flex-col items-start gap-1">
-          <StatusBadge status={task.canonicalStatus ?? task.coordinationStatus} />
+          <StatusTag status={task.canonicalStatus ?? task.coordinationStatus} />
           {task.canonicalStatus && task.canonicalStatus !== task.coordinationStatus && (
             <span className="max-w-full truncate font-mono ui-micro text-text-faint">
               coordination={task.coordinationStatus}

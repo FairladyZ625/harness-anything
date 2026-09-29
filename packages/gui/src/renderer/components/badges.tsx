@@ -90,21 +90,8 @@ export const STATUS_META: Record<SnapshotStatus, { label: string; color: string;
   },
 };
 
-export function StatusBadge({ status }: { status: SnapshotStatus }) {
-  const meta = STATUS_META[status];
-  return (
-    <span
-      className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 ui-body font-medium"
-      style={{
-        color: meta.color,
-        background: `color-mix(in oklch, ${meta.color} 12%, transparent)`,
-      }}
-    >
-      <span className="ui-body">{meta.icon}</span>
-      {meta.label}
-    </span>
-  );
-}
+// 状态标签的渲染已收敛到 primitives/StatusTag(视觉基线 v1,dec_AF44708E CH2):
+// STATUS_META 仍是状态→{label,color,icon} 的唯一映射,供图例、画布与筛选面板取色。
 
 const CLOSEOUT_META: Record<CloseoutReadiness, { label: string; icon: ReactNode; accent?: boolean; tone?: "danger" }> =
   {

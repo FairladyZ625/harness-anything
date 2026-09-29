@@ -1,7 +1,8 @@
 import { PinButton } from "../components/PinButton.tsx";
 import { X, GitBranch, ArrowSquareOut, ArrowsOutSimple } from "@phosphor-icons/react";
 import type { RelationEdge, TaskRow } from "../model/types";
-import { StatusBadge, CloseoutBadge, EngineBadge, FreshnessTag } from "../components/badges";
+import { CloseoutBadge, EngineBadge, FreshnessTag } from "../components/badges";
+import { StatusTag } from "../components/primitives/StatusTag";
 import { isExternal } from "../model/types";
 import { KIND_LABEL, KIND_LABEL_IN } from "./constants";
 import type { NodePos } from "./endpoint";
@@ -160,7 +161,7 @@ export function GraphDrawer({
         {focusTask ? (
           <>
             <div className="flex flex-wrap items-center gap-1.5">
-              <StatusBadge status={focusTask.coordinationStatus} />
+              <StatusTag status={focusTask.coordinationStatus} />
               <CloseoutBadge value={focusTask.closeoutReadiness} />
               <EngineBadge engine={focusTask.engine} locked={isExternal(focusTask)} />
             </div>
