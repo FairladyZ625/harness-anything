@@ -20,6 +20,21 @@ const input = workerData as ProbeInput,
       "repo.task.read",
       { repo: { repoId: input.repoId }, payload: { action: { kind: "task-list", limit: 1 } } },
     ],
+    [
+      "decisionList",
+      "repo.task.read",
+      { repo: { repoId: input.repoId }, payload: { action: { kind: "decision-list" } } },
+    ],
+    [
+      "factTypeList",
+      "repo.task.read",
+      { repo: { repoId: input.repoId }, payload: { action: { kind: "fact-type-list" } } },
+    ],
+    [
+      "relationList",
+      "repo.task.read",
+      { repo: { repoId: input.repoId }, payload: { action: { kind: "relation-list" } } },
+    ],
   ] as const,
   values: Record<string, number[]> = Object.fromEntries(calls.map(([name]) => [name, []]));
 

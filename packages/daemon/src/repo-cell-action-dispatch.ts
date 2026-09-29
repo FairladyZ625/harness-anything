@@ -42,7 +42,7 @@ export async function executeAction(
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
   return applyTaskWorktreeLifecycle(taskWorktreeInput(cell), action, binding.source, () =>
-    executeRepoAction(cell, action, binding),
+    Promise.resolve(executeRepoAction(cell, action, binding)),
   );
 }
 
@@ -57,11 +57,11 @@ export function taskWorktreeInput(
   };
 }
 
-async function executeRepoAction(
+export function executeRepoAction(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
-): Promise<WriteReceipt> {
+): WriteReceipt | Promise<WriteReceipt> {
   validateCanonicalIdentityInputs(cell, action);
   if (
     [
@@ -300,47 +300,48 @@ async function executeRepoAction(
     action.kind.startsWith("preset-") ||
     /^(?:vertical-validate|template-(?:list|render)|script-(?:list|inspect))$/u.test(action.kind)
   ) {
-    const result = await runPresetAction({
-        rootDir: cell.rootDir,
-        action,
-        settings: cell.settings.read(),
-      }),
-      revision = cell.store.readHead()?.revision ?? 0,
-      opId = cell.operationId(action, binding, cell.input.repoId, revision),
-      // Install, seed, and uninstall write the local preset store, never the ledger: a finished
-      // write carries no committed proof and settles as a determinate no-write; only a dry run stays a preview.
-      preview = action.dryRun === true && ["preset-install", "preset-seed", "preset-uninstall"].includes(action.kind);
-    if (!preview) {
-      const cut = cell.projection.readCut(),
-        base = { opId, revision, evidence: JSON.stringify(result), visibility: "center" as const };
-      return cut.status === "ready"
-        ? { outcome: "applied", ...base }
-        : {
-            outcome: "pending",
-            ...base,
-            proof: {
-              committedRevision: revision,
-              appliedCut: cut.watermark,
-              durable: false,
-              canonicalVisible: false,
-              worktreeVisible: null,
-            },
-          };
-    }
-    return {
-      outcome: "pending",
-      opId,
-      revision,
-      evidence: JSON.stringify(result),
-      visibility: "center",
-      proof: {
-        committedRevision: revision,
-        appliedCut: cell.projection.readCut().watermark,
-        durable: false,
-        canonicalVisible: false,
-        worktreeVisible: false,
-      },
-    };
+    return runPresetAction({
+      rootDir: cell.rootDir,
+      action,
+      settings: cell.settings.read(),
+    }).then((result) => {
+      const revision = cell.store.readHead()?.revision ?? 0,
+        opId = cell.operationId(action, binding, cell.input.repoId, revision),
+        // Install, seed, and uninstall write the local preset store, never the ledger: a finished
+        // write carries no committed proof and settles as a determinate no-write; only a dry run stays a preview.
+        preview = action.dryRun === true && ["preset-install", "preset-seed", "preset-uninstall"].includes(action.kind);
+      if (!preview) {
+        const cut = cell.projection.readCut(),
+          base = { opId, revision, evidence: JSON.stringify(result), visibility: "center" as const };
+        return cut.status === "ready"
+          ? { outcome: "applied", ...base }
+          : {
+              outcome: "pending",
+              ...base,
+              proof: {
+                committedRevision: revision,
+                appliedCut: cut.watermark,
+                durable: false,
+                canonicalVisible: false,
+                worktreeVisible: null,
+              },
+            };
+      }
+      return {
+        outcome: "pending",
+        opId,
+        revision,
+        evidence: JSON.stringify(result),
+        visibility: "center",
+        proof: {
+          committedRevision: revision,
+          appliedCut: cell.projection.readCut().watermark,
+          durable: false,
+          canonicalVisible: false,
+          worktreeVisible: false,
+        },
+      };
+    });
   }
   if (isDocAction(action.kind))
     return runDocAction({
