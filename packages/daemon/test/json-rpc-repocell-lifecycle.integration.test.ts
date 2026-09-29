@@ -178,6 +178,20 @@ test("GUI and CLI submit derive the same canonical event from closeout", async (
 });
 // prettier-ignore
 
+test("owner return distinguishes submitted triage from an already-forwarded cut", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-owner-triage-return-")), taskId = "task-owner-triage-return", firstExecutionId = "execution-owner-triage-first", secondExecutionId = "execution-owner-triage-second", binding = repoWriteBinding;
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir); cell = await openRepoCell({ repoId: workspaceId("owner-triage-return"), rootDir: canonicalRoot(rootDir), ownerId: "owner-triage-return" });
+    const created = await cell.run({ kind: "task-create", taskId, title: "Owner triage return" }, binding); assert.equal(created.outcome, "applied", JSON.stringify(created)); await waitForAcceptedReceipt(cell, created, binding); const packagePath = String((created as Record<string, unknown>).packagePath); await realizeTaskPlanFixture(rootDir, packagePath, (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding));
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId: firstExecutionId }, binding)).outcome, "applied"); await writeCloseout(() => cell!.settlePendingMaterialization("owner triage closeout"), rootDir, path.join(rootDir, ".worktrees", taskId), packagePath, "Owner triage return fixture."); assert.equal((await cell.run({ kind: "task-submit", taskId, executionId: firstExecutionId }, binding)).outcome, "applied");
+    const returned = await cell.run({ kind: "task-adjudicate", taskId, executionId: firstExecutionId, return: true, reason: "Owner found a defect before review." }, binding); assert.equal(returned.outcome, "applied", JSON.stringify(returned)); assert.equal((returned.transition as { to: string }).to, "active/implementation");
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId: secondExecutionId }, binding)).outcome, "applied"); assert.equal((await cell.run({ kind: "task-submit", taskId, executionId: secondExecutionId }, binding)).outcome, "applied"); assert.equal((await cell.run({ kind: "task-adjudicate", taskId, executionId: secondExecutionId, forward: true, reason: "Forward the corrected cut." }, binding)).outcome, "applied");
+    const unprovenReturn = await cell.run({ kind: "task-adjudicate", taskId, executionId: secondExecutionId, return: true, reason: "Do not bypass the review verdict." }, binding); assert.equal(unprovenReturn.outcome, "op_rejected", JSON.stringify(unprovenReturn)); assert.equal(unprovenReturn.code, "invalid_proof"); assert.match(String(unprovenReturn.rejectionExplanation), /in-review return must name a recorded review/u);
+  } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
+});
+// prettier-ignore
+
 test("lifecycle commands publish typed events, machine files, rebuildable L2, and complete receipts in one cut", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lifecycle-files-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   const taskId = "task-life", executionId = "execution-life", packagePath = "tasks/task-life-lifecycle-files", binding = repoWriteBinding;

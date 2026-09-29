@@ -56,15 +56,11 @@ export const adjudicate: Transition = {
             "a return order requires the current submitted cut at the review gate (status submitted or in_review)",
           ),
         );
-      else if (
-        task.status === "in_review" &&
-        command.reviewId === undefined &&
-        snapshot.reviews.some((value) => value.executionId === command.executionId)
-      )
+      else if (task.status === "in_review" && command.reviewId === undefined)
         issues.push(
           lifecycleContractIssue(
             "invalid_proof",
-            "an in-review return must name the recorded review that the owner is adjudicating",
+            "an in-review return must name a recorded review that the owner is adjudicating",
           ),
         );
       else if (
