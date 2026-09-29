@@ -370,6 +370,7 @@ describe("overview task stream", () => {
         onDrill: noop,
         onOpenInbox: noop,
         onOpenDecision: noop,
+        onOpenDecisionTarget: noop,
         onSetPin: noop,
       }),
     );
@@ -548,6 +549,7 @@ describe("overview task stream: archived tab alignment (task_8928cf1e)", () => {
         onDrill: noop,
         onOpenInbox: noop,
         onOpenDecision: noop,
+        onOpenDecisionTarget: noop,
         onNavigateEntity: noop,
       }),
     );

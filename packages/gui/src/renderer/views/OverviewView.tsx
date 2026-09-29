@@ -4,6 +4,8 @@ import type { Project, RelationEdge, SnapshotStatus, TaskRow } from "../model/ty
 import { Card } from "../components/overview/parts";
 import { DecisionStream } from "../components/overview/DecisionStream.tsx";
 import { DecisionReviewTiles } from "../components/overview/DecisionReviewTiles.tsx";
+import { DecisionReviewNow } from "../components/overview/DecisionReviewNow.tsx";
+import type { DecisionTileTarget } from "../model/decision-review.ts";
 import { TaskStream } from "../components/overview/TaskStream.tsx";
 import { PinnedStream } from "../components/overview/PinnedStream.tsx";
 import { OverviewStatsBar, type OverviewStatsAnomaly } from "../components/overview/OverviewStatsBar.tsx";
@@ -44,6 +46,7 @@ export function OverviewView({
   onDrill,
   onOpenInbox,
   onOpenDecision,
+  onOpenDecisionTarget,
   declaredKinds,
   onSetPin,
   onDecisionPreviewChange,
@@ -69,6 +72,8 @@ export function OverviewView({
   onOpenInbox: () => void;
   /** 决策抽屉「打开详情」出口。 */
   onOpenDecision: (decisionId: string) => void;
+  /** 四格与「需要我的判断 / 正在发生」的落点:单条 Decision 的评审落点,或议程页 / 会话页。 */
+  onOpenDecisionTarget: (target: DecisionTileTarget) => void;
   /** G10 实体互链:决策预览抽屉里的 agent/task ID 的导航出口。 */
   onNavigateEntity: (ref: string) => void;
   /** 已注册 kind 清单:置顶流用它判定非任务实体 ref 是否有可寻址落点。 */
@@ -105,6 +110,15 @@ export function OverviewView({
         <TaskWipSummary snapshot={wipSnapshot} />
       </header>
 
+      <section
+        data-testid="overview-decision-review"
+        className="shrink-0 space-y-3 border-b border-border px-5 py-3"
+        aria-label={t("views.overviewView.decisionTilesLabel")}
+      >
+        <DecisionReviewTiles agenda={agenda} onOpen={onOpenDecisionTarget} />
+        <DecisionReviewNow agenda={agenda} onOpen={onOpenDecisionTarget} />
+      </section>
+
       <div
         className={[
           "grid min-h-0 flex-1 grid-cols-1 auto-rows-[22rem] gap-4 overflow-y-auto p-5",
@@ -113,7 +127,6 @@ export function OverviewView({
         ].join(" ")}
       >
         <Card title={t("views.overviewView.decisionStreamTitle")} bodyClassName="gap-3 p-3" className="xl:col-start-1">
-          <DecisionReviewTiles agenda={agenda} onOpen={onOpenInbox} />
           <DecisionStream
             decisions={decisions}
             summary={workspaceSummary.decisions}

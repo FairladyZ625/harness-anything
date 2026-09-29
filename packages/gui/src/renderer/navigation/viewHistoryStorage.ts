@@ -32,6 +32,7 @@ const VIEW_ID_LIST = [
   "home",
   "overview",
   "work",
+  "agenda",
   "overviewNext",
   "workspace",
   "board",

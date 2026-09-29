@@ -1,5 +1,6 @@
 import type { AgendaSuccess } from "../api-client.ts";
 import type { DecisionReviewState, DecisionRow } from "./types.ts";
+import { decisionReviewRef, decisionSessionsRef } from "../navigation/decisionReviewRoutes.ts";
 
 /**
  * Decision 评审的展示级派生(dec_A64B14D6 CH6/CH7):输入全部是 daemon 读面原样结果——
@@ -45,17 +46,63 @@ export function decisionReviewGroup(signal: DecisionReviewSignal): DecisionRevie
   return signal === "reviewing" ? "reviewing" : "judge";
 }
 
+/** 议程页(原型 S2)与总览(S1)共用的一行 Decision:只有议程读面给的 id、标题与组。 */
+export type DecisionAgendaRow = {
+  readonly decisionId: string;
+  readonly title: string;
+  readonly group: DecisionReviewGroup;
+};
+
 /**
- * 总览四格(原型 S1)的计数:全部是议程读面分组的长度,不逐条读 Decision、不在前端重新分组。
- * 待处置没有自己的议程组,只经「等你处理」的 awaits 行出现(PR #3053),这里取其中来源是 Decision 的行。
+ * 议程读面里的 Decision 行,按待处置 / 待评审 / 评审中 / 待裁决排列:组全部来自议程读面,
+ * 不逐条读 Decision、不在前端重新分组。待处置没有自己的议程组,只经「等你处理」的 awaits 行
+ * 出现(PR #3053),这里取其中来源是 Decision 的行;同一 Decision 的多条 awaits 只列一次。
  */
+export function decisionAgendaRows(agenda: AgendaSuccess): readonly DecisionAgendaRow[] {
+  const dispose = new Map<string, DecisionAgendaRow>();
+  for (const { sourceRef, title } of agenda.awaitingYou) {
+    const [kind, decisionId] = sourceRef.split("/");
+    if (kind === "decision" && decisionId && !dispose.has(decisionId))
+      dispose.set(decisionId, { decisionId, title, group: "dispose" });
+  }
+  const rowsOf = (rows: AgendaSuccess["awaitingDecision"], group: DecisionReviewGroup) =>
+    rows.map(({ decisionId, title }) => ({ decisionId, title, group }));
+  return [
+    ...dispose.values(),
+    ...rowsOf(agenda.awaitingDecisionReview, "review"),
+    ...rowsOf(agenda.decisionReviewInProgress, "reviewing"),
+    ...rowsOf(agenda.awaitingDecision, "judge"),
+  ];
+}
+
+/** 总览四格(原型 S1)的计数:议程 Decision 行按组计数。 */
 export function decisionAgendaCounts(agenda: AgendaSuccess): Readonly<Record<DecisionReviewGroup, number>> {
-  return {
-    dispose: agenda.awaitingYou.filter(({ sourceRef }) => sourceRef.startsWith("decision/")).length,
-    review: agenda.awaitingDecisionReview.length,
-    reviewing: agenda.decisionReviewInProgress.length,
-    judge: agenda.awaitingDecision.length,
-  };
+  const rows = decisionAgendaRows(agenda);
+  const count = (group: DecisionReviewGroup) => rows.filter((row) => row.group === group).length;
+  return { dispose: count("dispose"), review: count("review"), reviewing: count("reviewing"), judge: count("judge") };
+}
+
+/**
+ * 一行议程 Decision 的落点(原型 S2 各组的「查看」):待处置→逐项回应,待评审→评审页签,
+ * 评审中→该 Decision 的评审会话,待裁决→裁决页签。
+ */
+export function decisionAgendaRowRef({ decisionId, group }: DecisionAgendaRow): string {
+  if (group === "reviewing") return decisionSessionsRef(decisionId);
+  return decisionReviewRef(decisionId, group === "dispose" ? "respond" : group === "judge" ? "judge" : "review");
+}
+
+export type DecisionTileTarget =
+  | { readonly kind: "entity"; readonly ref: string }
+  | { readonly kind: "view"; readonly view: "agenda" | "sessions" };
+
+/**
+ * 四格的点击落点(设计 Q6:待处置→S3,评审中→S5):一格恰好一行时直达那一行的落点;
+ * 否则评审中进会话页(Decision 评审分组),其余进议程页。计数不对应单条 Decision 时不替用户挑一条。
+ */
+export function decisionTileTarget(group: DecisionReviewGroup, rows: readonly DecisionAgendaRow[]): DecisionTileTarget {
+  const inGroup = rows.filter((row) => row.group === group);
+  if (inGroup.length === 1) return { kind: "entity", ref: decisionAgendaRowRef(inGroup[0]!) };
+  return { kind: "view", view: group === "reviewing" ? "sessions" : "agenda" };
 }
 
 /** 当前切面与历史切面:按评审自身的 reviewContentDigest 与读面给出的当前摘要比较。 */

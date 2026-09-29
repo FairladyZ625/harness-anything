@@ -5,6 +5,7 @@ import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
 import { OverviewView } from "./views/OverviewView.tsx";
 import { OverviewNextView } from "./views/OverviewNextView.tsx";
+import { AgendaView } from "./views/AgendaView.tsx";
 import { BoardView } from "./views/BoardView.tsx";
 import { AttestationPoolView } from "./views/AttestationPoolView.tsx";
 import { FactDetailView } from "./views/EntityDetailView.tsx";
@@ -587,6 +588,9 @@ function AppShell() {
                       })
                     }
                     onOpenDecision={navigateToDecision}
+                    onOpenDecisionTarget={(target) =>
+                      target.kind === "entity" ? navigateToEntity(target.ref) : goto(target.view)
+                    }
                     onNavigateEntity={navigateToEntity}
                     declaredKinds={declaredKinds}
                     onDecisionPreviewChange={setOverviewDecisionPreviewId}
@@ -595,6 +599,12 @@ function AppShell() {
                 ) : (
                   <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />
                 )
+              ) : view === "agenda" ? (
+                <AgendaView
+                  agenda={agendaQuery.data}
+                  agendaError={agendaQuery.error instanceof Error ? agendaQuery.error.message : null}
+                  onNavigateEntity={navigateToEntity}
+                />
               ) : view === "overviewNext" ? (
                 workspaceSummaryQuery.data ? (
                   <OverviewNextView
