@@ -158,6 +158,8 @@ const relationGraph = {
     awaitingRework: [],
     awaitingAdjudication: [],
     underReview: [],
+    decisionReviewInProgress: [],
+    awaitingDecisionReview: [],
     awaitingDecision: [],
     waitingOnOthers: [],
     dispatchable: [],
