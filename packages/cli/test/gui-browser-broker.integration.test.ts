@@ -132,7 +132,7 @@ test("ordinary Chromium reaches the task shell through authenticated browser RPC
       const taskRow = page.getByTestId("board-task-card").filter({ hasText: "Browser E2E task" });
       await taskRow.waitFor();
       await taskRow.click();
-      await page.getByTestId("task-preview-backdrop").locator("footer button").first().click();
+      await page.getByRole("dialog").locator("footer button").first().click();
       await page.getByTestId("task-detail-view").waitFor();
       assert.ok(rpcStatuses.includes(200), `expected a 200 POST /rpc, saw ${rpcStatuses.join(",")}`);
 
