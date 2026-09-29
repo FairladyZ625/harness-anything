@@ -371,18 +371,14 @@ function readDeclaredSettings(
     settings = settingsValueFromDeclarations(declarations) as SettingsRecord;
   assertDeclaredNestedKeys(authored, declarations);
   for (const declaration of declarations) {
-    const value = readDeclaredField(authored, declaration, document);
+    const value = readDeclaredField(authored, declaration);
     if (value === undefined) deleteValueAtPath(settings, declaration.path);
     else setValueAtPath(settings, declaration.path, value);
   }
   return settings;
 }
 
-function readDeclaredField(
-  authored: Readonly<SettingsRecord>,
-  declaration: SettingsFieldDeclaration,
-  document?: ReturnType<typeof parseDocument>,
-): unknown {
+function readDeclaredField(authored: Readonly<SettingsRecord>, declaration: SettingsFieldDeclaration): unknown {
   const declaredValue = valueAtPath(authored, declaration.path),
     value =
       declaredValue !== undefined
@@ -403,15 +399,6 @@ function readDeclaredField(
     case "string-array":
       if (!Array.isArray(value))
         throw new SettingsDeclarationError(`settings.${declaration.path.join(".")} must be an array of strings`);
-      if (document) {
-        const sourcePath =
-            declaredValue === undefined && declaration.legacyPath ? declaration.legacyPath : declaration.path,
-          node = document.getIn(["settings", ...sourcePath], true);
-        if (isSeq(node) && declaration.yamlStyle === "block-list" && node.flow && node.items.length > 0)
-          throw new SettingsDeclarationError(`settings.${declaration.path.join(".")} must hold a setup: block list`);
-        if (isSeq(node) && declaration.yamlStyle !== "block-list" && !node.flow)
-          throw new SettingsDeclarationError(`settings.${declaration.path.join(".")} must be an inline array`);
-      }
       return parseDeclaredStringArray(
         value.map((entry) => {
           if (typeof entry === "string") return entry;
@@ -454,7 +441,7 @@ function writeDeclaredRepositorySettings(
   for (const declaration of declarations) {
     if (declaration.ownership !== "repository") continue;
     const value = valueAtPath(settings, declaration.path);
-    writeDeclaredValue(document, declaration, value, readDeclaredField(authored, declaration, document));
+    writeDeclaredValue(document, declaration, value, readDeclaredField(authored, declaration));
     if (declaration.legacyPath) deleteDocumentPath(document, declaration.legacyPath);
   }
   for (const declaration of declarations)
@@ -486,6 +473,9 @@ function writeDeclaredValue(
   }
   if (!exists && stableStringify(value) === stableStringify(declaration.defaultValue)) return;
   if (!document.has("settings")) throw new Error("Missing settings block in harness.yaml.");
+  ensureSettingsMap(document);
+  const existingNode = exists ? document.getIn(path, true) : undefined,
+    sequenceFlow = isSeq(existingNode) ? existingNode.flow : declaration.yamlStyle !== "block-list";
   const authoredValue =
     declaration.valueKind === "gate-mappings"
       ? gateMappingsValue(value)
@@ -494,9 +484,9 @@ function writeDeclaredValue(
             typeof entry === "string" && entry.startsWith("run: ") ? { run: entry.slice("run: ".length) } : entry,
           )
         : value;
-  document.setIn(path, authoredValue);
+  document.setIn(path, Array.isArray(authoredValue) ? document.createNode(authoredValue) : authoredValue);
   const node = document.getIn(path, true);
-  if (isSeq(node)) node.flow = declaration.yamlStyle !== "block-list";
+  if (isSeq(node)) node.flow = sequenceFlow;
 }
 
 function applyDeclaredRepositoryAction(
@@ -667,9 +657,14 @@ function deleteValueAtPath(target: SettingsRecord, path: readonly string[]): voi
 export function writeGatesFacet(body: string, gates: readonly GateWitnessMappingV1[]): string {
   const document = parseAuthoredDocument(body);
   if (!document.has("settings")) throw new Error("Missing settings block in harness.yaml.");
+  ensureSettingsMap(document);
   if (gates.length) document.setIn(["settings", "gates"], gateMappingsValue(gates));
   else deleteDocumentPath(document, ["gates"]);
   return stringifyAuthoredDocument(document, body);
+}
+
+function ensureSettingsMap(document: ReturnType<typeof parseDocument>): void {
+  if (document.get("settings") == null) document.set("settings", document.createNode({}));
 }
 
 function parseAuthoredDocument(body: string): ReturnType<typeof parseDocument> {

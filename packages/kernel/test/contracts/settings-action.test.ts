@@ -52,6 +52,32 @@ test("Settings updates preserve unrelated authored YAML bytes", () => {
   assert.equal(written, authoredBody.replace("defaultPreset: standard-task", "defaultPreset: docs-task"));
 });
 
+test("Settings updates populate an empty settings mapping", () => {
+  const authoredBody = "schema: harness-anything/v1\nsettings:\n",
+    settings = repositorySettings(readSettingsFacet(authoredBody)),
+    written = writeRepositorySettingsFacet(authoredBody, { ...settings, agenda: { pinLimit: 3 } });
+  assert.equal(readSettingsFacet(written).agenda.pinLimit, 3);
+  assert.match(written, /^settings:\n  agenda:\n    pinLimit: 3$/mu);
+});
+
+test("Settings arrays accept both YAML sequence styles and preserve the authored style on update", () => {
+  const blockWorkflows = `${documentBody}  ci:\n    workflows:\n      - ci\n`,
+    blockSettings = repositorySettings(readSettingsFacet(blockWorkflows)),
+    blockWritten = writeRepositorySettingsFacet(blockWorkflows, {
+      ...blockSettings,
+      ci: { workflows: ["ci", "nightly"] },
+    });
+  assert.match(blockWritten, /workflows:\n      - ci\n      - nightly/u);
+
+  const inlineSetup = `${documentBody}  worktree:\n    setup: [node-modules]\n`,
+    inlineSettings = repositorySettings(readSettingsFacet(inlineSetup)),
+    inlineWritten = writeRepositorySettingsFacet(inlineSetup, {
+      ...inlineSettings,
+      worktree: { setup: ["node-modules", "run: npm run build"] },
+    });
+  assert.match(inlineWritten, /setup: \[node-modules, \{run: npm run build\}\]/u);
+});
+
 test("one temporary declaration reaches update, YAML read/write, CLI help metadata, and GUI field data", () => {
   const temporary = defineSettingsField({
       path: ["temporary", "contractLimit"],
