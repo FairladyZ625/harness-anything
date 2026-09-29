@@ -6,7 +6,6 @@ import { useQuery } from "@tanstack/react-query";
 import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "../model/types.ts";
 import { deriveAttestationLanes } from "../model/attestation-pool.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
-import { useCadenceFeed } from "../cadence-feed.ts";
 import { artifactsClient } from "../artifacts-client.ts";
 import { workDecisionsOf, workspaceGraphSlice, workspaceEvidenceOf } from "../model/workspace-evidence.ts";
 import { eventTypeLabel, workspaceTitleIndex } from "../model/workspace-readable.ts";
@@ -20,6 +19,7 @@ import { DecisionReviewBadge } from "../components/decisionReview/parts.tsx";
 import { DECISION_REVIEW_GROUPS, DecisionReviewGroups } from "../components/decisionReview/DecisionReviewGroups.tsx";
 import { decisionReviewGroup, decisionReviewSignal, type DecisionReviewSignal } from "../model/decision-review.ts";
 import { decisionReviewRef } from "../navigation/decisionReviewRoutes.ts";
+import { cadenceEventOf } from "../model/cadence.ts";
 
 export interface WorkspaceViewProps {
   readonly scope: WorkspaceScopeRead;
@@ -244,7 +244,9 @@ export function WorkspaceView({
             {tab === "evidence" && repoId !== "unselected" ? (
               <WorkspaceEvidenceSections
                 repoId={repoId}
-                memberTaskIds={scope.memberTaskIds}
+                memberTaskIds={[scope.root.taskId, ...scope.memberTaskIds]}
+                eventSummaries={scope.eventSummaries}
+                eventWindowComplete={scope.eventWindowComplete}
                 decisions={decisions}
                 facts={facts}
                 relations={relations}
@@ -316,7 +318,9 @@ export function WorkspaceView({
                 <WorkspaceEvidenceSections
                   historyOnly
                   repoId={repoId}
-                  memberTaskIds={scope.memberTaskIds}
+                  memberTaskIds={[scope.root.taskId, ...scope.memberTaskIds]}
+                  eventSummaries={scope.eventSummaries}
+                  eventWindowComplete={scope.eventWindowComplete}
                   decisions={decisions}
                   facts={facts}
                   relations={relations}
@@ -336,6 +340,8 @@ function WorkspaceEvidenceSections({
   historyOnly = false,
   repoId,
   memberTaskIds,
+  eventSummaries,
+  eventWindowComplete,
   decisions,
   facts,
   relations,
@@ -345,13 +351,15 @@ function WorkspaceEvidenceSections({
   readonly historyOnly?: boolean;
   readonly repoId: string;
   readonly memberTaskIds: readonly string[];
+  readonly eventSummaries: WorkspaceScopeRead["eventSummaries"];
+  readonly eventWindowComplete: boolean;
   readonly decisions: readonly DecisionRow[];
   readonly facts: readonly FactRef[];
   readonly relations: readonly RelationEdge[];
   readonly titles: ReadonlyMap<string, string>;
   readonly onNavigateEntity?: (ref: string) => void;
 }) {
-  const feed = useCadenceFeed(repoId),
+  const events = useMemo(() => eventSummaries.map(cadenceEventOf), [eventSummaries]),
     artifactsQuery = useQuery({
       queryKey: ["artifacts", repoId, "md"],
       queryFn: () => artifactsClient.list(repoId, "md"),
@@ -362,19 +370,19 @@ function WorkspaceEvidenceSections({
       () =>
         workspaceEvidenceOf({
           memberTaskIds,
-          events: feed.events,
+          events,
           decisions,
           facts,
           relations,
           artifacts: artifactsQuery.data?.artifacts ?? [],
         }),
-      [memberTaskIds, feed.events, decisions, facts, relations, artifactsQuery.data],
+      [memberTaskIds, events, decisions, facts, relations, artifactsQuery.data],
     );
   return (
     <>
       <WorkspaceHistory
         evidence={historyOnly ? { ...evidence, events: evidence.events.slice(0, 3) } : evidence}
-        feed={feed}
+        feed={{ mode: "work", historyComplete: eventWindowComplete }}
         titles={titles}
         onNavigateEntity={onNavigateEntity}
       />
@@ -524,7 +532,7 @@ function WorkspaceHistory({
   onNavigateEntity,
 }: {
   readonly evidence: ReturnType<typeof workspaceEvidenceOf>;
-  readonly feed: ReturnType<typeof useCadenceFeed>;
+  readonly feed: { readonly mode: string | null; readonly historyComplete: boolean };
   readonly titles: ReadonlyMap<string, string>;
   readonly onNavigateEntity?: (ref: string) => void;
 }) {

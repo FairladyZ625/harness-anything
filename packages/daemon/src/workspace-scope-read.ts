@@ -1,4 +1,9 @@
 import type { TaskProjection, TaskIndexProjectionRow, TaskV2 } from "@harness-anything/kernel";
+import { canonicalEventSummary, type CanonicalEventSummary } from "./event-summary-read.ts";
+
+const WORKSPACE_EVENT_LIMIT = 120,
+  WORKSPACE_EVENT_SCAN_PAGE = 64,
+  WORKSPACE_EVENT_SCAN_LIMIT = 2_048;
 
 export interface WorkspaceScopeStatusCounts {
   readonly done: number;
@@ -36,6 +41,9 @@ export interface WorkspaceScopeRead {
   readonly groups: readonly WorkspaceScopeTaskRow[];
   /** Canonical membership for consumers that join an existing task projection. */
   readonly memberTaskIds: readonly string[];
+  /** Most recent event list rows for the root and descendants; canonical payloads stay server-side. */
+  readonly eventSummaries: readonly CanonicalEventSummary[];
+  readonly eventWindowComplete: boolean;
   readonly tasks: readonly WorkspaceScopeTaskRow[];
   readonly page: { readonly limit: number; readonly cursor: string | null; readonly nextCursor: string | null };
   readonly incompleteParentRefs: readonly string[];
@@ -44,10 +52,25 @@ export interface WorkspaceScopeRead {
   readonly warnings: readonly string[];
 }
 
+export type WorkspaceStructureRead = Omit<WorkspaceScopeRead, "eventSummaries" | "eventWindowComplete">;
+
+/** The GUI scope read: the work's structure plus its newest event summaries on the first page. */
 export function workspaceScopeFromProjection(
   projection: TaskProjection,
   input: { readonly rootTaskId: string; readonly limit?: number; readonly cursor?: string },
 ): WorkspaceScopeRead {
+  const structure = workspaceStructureFromProjection(projection, input),
+    eventWindow = input.cursor
+      ? { summaries: [] as readonly CanonicalEventSummary[], complete: false }
+      : workspaceEventSummaries(projection, new Set([structure.root.taskId, ...structure.memberTaskIds]));
+  return { ...structure, eventSummaries: eventWindow.summaries, eventWindowComplete: eventWindow.complete };
+}
+
+/** Structure only; agenda and work show call this and never scan events. */
+export function workspaceStructureFromProjection(
+  projection: TaskProjection,
+  input: { readonly rootTaskId: string; readonly limit?: number; readonly cursor?: string },
+): WorkspaceStructureRead {
   const read = projection.readTaskIndex({});
   const byId = new Map(read.rows.map((row) => [row.taskId, row]));
   const root = byId.get(input.rootTaskId);
@@ -133,6 +156,29 @@ export function workspaceScopeFromProjection(
     sourceRevision: read.sourceRevision,
     warnings: read.warnings,
   };
+}
+
+function workspaceEventSummaries(
+  projection: TaskProjection,
+  memberTaskIds: ReadonlySet<string>,
+): { readonly summaries: readonly CanonicalEventSummary[]; readonly complete: boolean } {
+  const probe = projection.readCanonicalEvents(0, 1);
+  let before = probe.watermark + 1,
+    scanned = 0;
+  const selected: CanonicalEventSummary[] = [];
+  while (before > 1 && scanned < WORKSPACE_EVENT_SCAN_LIMIT && selected.length < WORKSPACE_EVENT_LIMIT) {
+    const after = Math.max(0, before - WORKSPACE_EVENT_SCAN_PAGE - 1),
+      page = projection.readCanonicalEvents(after, WORKSPACE_EVENT_SCAN_PAGE + 1),
+      eligible = page.events.filter(({ workspaceRevision }) => workspaceRevision < before);
+    if (eligible.length === 0) break;
+    scanned += eligible.length;
+    before = eligible[0]!.workspaceRevision;
+    for (let index = eligible.length - 1; index >= 0 && selected.length < WORKSPACE_EVENT_LIMIT; index -= 1) {
+      const summary = canonicalEventSummary(eligible[index]!);
+      if (typeof summary.taskId === "string" && memberTaskIds.has(summary.taskId)) selected.push(summary);
+    }
+  }
+  return { summaries: selected.reverse(), complete: before <= 1 };
 }
 
 export function emptyScopeCounts(): Record<keyof WorkspaceScopeStatusCounts, number> {

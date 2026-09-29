@@ -24,6 +24,17 @@ const task = (
   updatedAt: "2026-09-20T00:00:00.000Z",
 });
 
+const projection = (rows: readonly ReturnType<typeof task>[], events: readonly Record<string, unknown>[] = []) =>
+  ({
+    readTaskIndex: () => ({ status: "ready", rows, watermark: 12, sourceRevision: 12, warnings: [] }),
+    readCanonicalEvents: (afterRevision: number, limit: number) => ({
+      status: "ready",
+      events: events.filter((event) => Number(event.workspaceRevision) > afterRevision).slice(0, limit),
+      watermark: events.at(-1)?.workspaceRevision ?? 0,
+      sourceRevision: events.at(-1)?.workspaceRevision ?? 0,
+    }),
+  }) as never;
+
 test("workspace scope counts only executable leaves and keeps cancellation separate", () => {
   const rows = [
     task("root", null, "active", "work"),
@@ -33,12 +44,7 @@ test("workspace scope counts only executable leaves and keeps cancellation separ
     task("cancelled", "root", "cancelled", "standard", "archived"),
     task("outside", null, "done"),
   ];
-  const result = workspaceScopeFromProjection(
-    {
-      readTaskIndex: () => ({ status: "ready", rows, watermark: 12, sourceRevision: 12, warnings: [] }),
-    } as never,
-    { rootTaskId: "root", limit: 2 },
-  );
+  const result = workspaceScopeFromProjection(projection(rows), { rootTaskId: "root", limit: 2 });
 
   assert.deepEqual(result.counts, { done: 1, executing: 1, pending: 0, blocked: 0, planned: 0, cancelled: 1 });
   assert.equal(result.scope.descendantCount, 4);
@@ -66,6 +72,7 @@ test("workspace scope reports a missing ancestor instead of inventing a breadcru
         sourceRevision: 9,
         warnings: ["projection_missing"],
       }),
+      readCanonicalEvents: () => ({ status: "pending", events: [], watermark: 0, sourceRevision: 0 }),
     } as never,
     { rootTaskId: "root" },
   );
@@ -80,14 +87,12 @@ test("workspace scope cursor drains mixed-case task ids in sort order", () => {
     task("task_A", "root", "planned"),
     task("task_a", "root", "planned"),
   ];
-  const projection = {
-    readTaskIndex: () => ({ status: "ready", rows, watermark: 12, sourceRevision: 12, warnings: [] }),
-  } as never;
+  const source = projection(rows);
   const taskIds: string[] = [];
   let cursor: string | undefined;
 
   do {
-    const page = workspaceScopeFromProjection(projection, {
+    const page = workspaceScopeFromProjection(source, {
       rootTaskId: "root",
       limit: 1,
       ...(cursor ? { cursor } : {}),
@@ -97,4 +102,35 @@ test("workspace scope cursor drains mixed-case task ids in sort order", () => {
   } while (cursor !== undefined);
 
   assert.deepEqual(taskIds, ["task_a", "task_A"]);
+});
+
+test("workspace scope returns only bounded summaries and drops large event payload fields", () => {
+  const rows = [task("root", null, "active", "work"), task("member", "root", "active")],
+    largeTests = Array.from({ length: 2_407 }, (_, index) => ({ name: `test-${index}`, output: "x".repeat(200) })),
+    events = [
+      {
+        eventId: "outside",
+        schema: "ci-run-observation-event/v3",
+        type: "ci_run_observed",
+        occurredAt: "2026-09-20T00:00:00.000Z",
+        workspaceRevision: 1,
+        taskId: "outside",
+        payload: { title: "outside", tests: largeTests },
+      },
+      {
+        eventId: "inside",
+        schema: "ci-run-observation-event/v3",
+        type: "ci_run_observed",
+        occurredAt: "2026-09-20T00:01:00.000Z",
+        workspaceRevision: 2,
+        taskId: "member",
+        payload: { title: "inside", tests: largeTests },
+      },
+    ];
+  const result = workspaceScopeFromProjection(projection(rows, events), { rootTaskId: "root" });
+
+  assert.equal(result.eventSummaries.length, 1);
+  assert.equal(result.eventSummaries[0]?.eventId, "inside");
+  assert.equal(JSON.stringify(result.eventSummaries).includes("test-2406"), false);
+  assert.ok(Buffer.byteLength(JSON.stringify(result.eventSummaries)) < 2_000);
 });

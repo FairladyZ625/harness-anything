@@ -10,7 +10,7 @@ import {
   emptyScopeCounts,
   scopeStatus,
   workRootWalk,
-  workspaceScopeFromProjection,
+  workspaceStructureFromProjection,
   type WorkspaceScopeStatusCounts,
   type WorkspaceScopeTaskRow,
 } from "./workspace-scope-read.ts";
@@ -123,7 +123,7 @@ function workRows(rows: readonly TaskIndexProjectionRow[]): WorkListRow[] {
 }
 
 export function workShowFromProjection(projection: TaskProjection, input: { readonly taskId: string }) {
-  const scope = workspaceScopeFromProjection(projection, { rootTaskId: input.taskId, limit: 500 }),
+  const scope = workspaceStructureFromProjection(projection, { rootTaskId: input.taskId, limit: 500 }),
     packagePath = projection.read(input.taskId).packagePath,
     plan = packagePath === null ? null : projection.readDocument(`${packagePath}/task_plan.md`).document;
   return {
