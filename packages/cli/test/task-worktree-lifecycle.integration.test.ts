@@ -130,14 +130,14 @@ test("a task's worktree is bound at create, checked out on start or dispatch, an
   assert.equal(run(root, env, ["daemon", "stop"]).ok, true);
   assert.equal(run(root, env, ["daemon", "start", "--service"]).ok, true);
   // The restarted daemon attaches the repository and runs the same reconciliation a close runs; poll the disk.
-  const gone = () => !existsSync(missedTree.cwd);
+  // The reconciliation removes the worktree before it deletes the branch, so wait for both.
+  const gone = () => !existsSync(missedTree.cwd) && git(root, "branch", "--list", missedTree.branch) === "";
   let reclaimed = gone();
   for (let attempt = 0; !reclaimed && attempt < 300; attempt += 1) {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
     reclaimed = gone();
   }
-  assert.equal(reclaimed, true, "the daemon start reclaimed the worktree the failed close left behind");
-  assert.equal(git(root, "branch", "--list", missedTree.branch), "");
+  assert.equal(reclaimed, true, "the daemon start reclaimed the worktree and branch the failed close left behind");
   assert.equal(worktreeOf(missed.taskId).state, "reclaimed");
 
   const help = spawnSync(process.execPath, [cli, "--root", root, "task", "create", "--help"], {
