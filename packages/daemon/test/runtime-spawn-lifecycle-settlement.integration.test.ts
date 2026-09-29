@@ -832,7 +832,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         outcome: settled.outcome,
         exitCode: settled.exitCode,
       },
-      { liveness: "exited", outcome: "unknown", exitCode: 0 },
+      { liveness: "exited", outcome: "succeeded", exitCode: 0 },
     );
     assert.match(String(settled.resultRef), /^artifact:runtime-result\/sha256\//u);
     await eventually(() => {
@@ -905,7 +905,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         outcome: daemonlessSettlement.outcome,
         exitCode: daemonlessSettlement.exitCode,
       },
-      { liveness: "exited", outcome: "unknown", exitCode: 0 },
+      { liveness: "exited", outcome: "succeeded", exitCode: 0 },
     );
     assert.match(String(daemonlessSettlement.resultRef), /^artifact:runtime-result\/sha256\//u);
     const nextReceipt = await cell.spawnRuntime(

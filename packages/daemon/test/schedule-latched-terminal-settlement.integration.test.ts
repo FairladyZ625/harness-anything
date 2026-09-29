@@ -177,7 +177,7 @@ test("runtime attempt-terminal asynchronously settles the claimed Schedule occur
 
       const settled = await eventuallyAsync(async () => {
         const schedule = await listedSettlementSchedule(cell, scheduleId);
-        return schedule.status.activeRun === null && schedule.status.lastRun?.outcome === "unknown";
+        return schedule.status.activeRun === null && schedule.status.lastRun?.outcome === "failed";
       });
       assert.equal(settled, true);
       assert.equal(prompts[0]?.endsWith("HARNESS-OUTCOME: failed"), true);
@@ -207,7 +207,7 @@ test("runtime attempt-terminal asynchronously settles the claimed Schedule occur
         runtimeSessionId,
       );
 
-      await runOccurrence(cell, scheduleId, "run-success-verdict", "done\nHARNESS-OUTCOME: succeeded", "unknown", {
+      await runOccurrence(cell, scheduleId, "run-success-verdict", "done\nHARNESS-OUTCOME: succeeded", "succeeded", {
         output: () => output,
         exit: () => exit,
       });
@@ -474,7 +474,7 @@ test("runtime attempt-terminal settles the Schedule occurrence while the RepoCel
       assert.equal(cell.status().state, "attached");
       const observed = await listedSchedule(cell, scheduleId);
       assert.equal(observed.status.activeRun, null);
-      assert.equal(observed.status.lastRun?.outcome, "unknown");
+      assert.equal(observed.status.lastRun?.outcome, "succeeded");
       assert.equal(observed.status.lastRun?.runtimeSessionId, runtimeSessionId);
     } finally {
       await cell.close();

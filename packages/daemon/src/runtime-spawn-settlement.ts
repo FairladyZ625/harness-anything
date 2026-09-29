@@ -343,7 +343,10 @@ function runtimeSessionBinding(binding: ActiveRuntime["binding"], runtimeSession
 
 async function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: ActiveRuntime): Promise<boolean> {
   if (active.decisionReviewTarget) return true;
-  if (!active.task) return false;
+  // Taskless runs have no declared repository or task-package output. Their positive delivery is
+  // the provider's completed turn and final result, both durably replayed from the worker stream
+  // when a successor daemon adopts the runtime.
+  if (!active.task) return active.providerOutcome === "succeeded" && active.finalText !== null;
   if (
     await workerBranchHasDelivery({
       cwd: active.cwd,
