@@ -1137,7 +1137,12 @@ test("rejectedSquadAttemptChildren names only ended runs' rejected children that
         revision: 1,
         error: null,
       };
-    const attempt = (workerId: string, taskId: string, rejection: string | null, runtimeSessionId: string | null) => ({
+    const attempt = (
+      workerId: string,
+      taskId: string | null | undefined,
+      rejection: string | null,
+      runtimeSessionId: string | null,
+    ) => ({
       attemptId: `worker-${workerId}`,
       workerId,
       leaderTurnId: "leader-1",
@@ -1185,6 +1190,7 @@ test("rejectedSquadAttemptChildren names only ended runs' rejected children that
           attempt("sol", "task-orphan-1", "spawn rejected: no runtime", null),
           attempt("terra", "task-live-2", "state write failed after a landed dispatch", "runtime-worker-2"),
           attempt("luna", "task-clean-3", null, null),
+          attempt("legacy", undefined, "legacy stream omitted taskId", null),
         ],
       },
     });

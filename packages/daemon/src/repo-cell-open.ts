@@ -979,7 +979,7 @@ export async function openRepoWriterCell(
           rootDir,
           readTask: (taskId) => projection.read(taskId).snapshot.task,
           cancel: (action, binding, actionId) =>
-            extracted.taskSurfaceWrite(action, authorizeRuntimeAction(action, binding, actionId)),
+            operationalContext.lifecycleAction(action, authorizeRuntimeAction(action, binding, actionId)),
         }),
     }),
   );

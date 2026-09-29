@@ -116,7 +116,13 @@ export function rejectedSquadAttemptChildren(rootDir: string): readonly Rejected
   for (const state of latestSquadStates(rootDir).values()) {
     if (!terminal(state)) continue;
     for (const attempt of state.workerAttempts) {
-      if (attempt.rejection === null || attempt.taskId === null || attempt.runtimeSessionId !== null) continue;
+      if (
+        attempt.rejection === null ||
+        attempt.taskId === null ||
+        attempt.taskId === undefined ||
+        attempt.runtimeSessionId !== null
+      )
+        continue;
       byTask.set(attempt.taskId, {
         squadRunId: state.squadRunId,
         taskId: attempt.taskId,
@@ -137,7 +143,7 @@ export interface SquadOrphanCancellation {
     action: RepoTaskAction,
     binding: RuntimeBinding,
     actionId: string,
-  ) => { readonly outcome: string; readonly code?: string };
+  ) => Promise<{ readonly outcome: string; readonly code?: string }>;
 }
 
 /**
@@ -155,11 +161,20 @@ export async function cancelRejectedSquadChildren(input: SquadOrphanCancellation
       status: "cancelled",
       reason: `Squad run ${child.squadRunId} ended; worker ${child.workerId} was rejected before dispatch.`,
     };
-    const receipt = input.cancel(action, child.binding, `squad-rejected-child:${child.taskId}`);
-    if (receipt.outcome !== "applied")
+    const [settled] = await Promise.allSettled([
+      input.cancel(action, child.binding, `squad-rejected-child:${child.taskId}`),
+    ]);
+    if (settled?.status === "fulfilled") {
+      if (settled.value.outcome === "applied") continue;
       console.warn(
-        `[task-worktree] cancelling rejected Squad child ${child.taskId} was ${receipt.outcome}` +
-          `${receipt.code ? ` (${receipt.code})` : ""}; retrying on the next reconciliation.`,
+        `[task-worktree] cancelling rejected Squad child ${child.taskId} was ${settled.value.outcome}` +
+          `${settled.value.code ? ` (${settled.value.code})` : ""}; retrying on the next reconciliation.`,
       );
+    } else if (settled) {
+      console.warn(
+        `[task-worktree] cancelling rejected Squad child ${child.taskId} failed: ${settled.reason instanceof Error ? settled.reason.message : String(settled.reason)}; ` +
+          "retrying on the next reconciliation.",
+      );
+    }
   }
 }
