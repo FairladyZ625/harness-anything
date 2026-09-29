@@ -167,11 +167,11 @@ export class JsonRpcLineClient {
     this.lines.on("line", (line) => this.onLine(line));
     this.lines.on("close", () => this.onClosed());
     this.output.on("error", this.handleOutputError);
-    this.output.once("close", () => this.output.off("error", this.handleOutputError));
   }
   async request(method: string, params: JsonObject, responseTimeoutMs?: number): Promise<JsonObject> {
-    const id = this.nextId++,
-      responsePromise = this.readResponse(id);
+    const id = this.nextId++;
+    if (this.closed) throw this.failure ?? daemonClosedError(id);
+    const responsePromise = this.readResponse(id);
     this.output.write(
       `${JSON.stringify({ jsonrpc: "2.0", id, method, params } satisfies JsonRpcRequest)}\n`,
       (error) => {

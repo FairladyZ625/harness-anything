@@ -95,8 +95,8 @@ test("a reused connection keeps its socket listener counts flat across read roun
       await new Promise((resolve) => setTimeout(resolve, 25));
       assert.deepEqual(
         { data: socket.listenerCount("data"), end: socket.listenerCount("end"), error: socket.listenerCount("error") },
-        { data: 0, end: flat.end - 1, error: flat.error - 2 },
-        "close must detach the reader's listener set",
+        { data: 0, end: flat.end - 1, error: flat.error - 1 },
+        "close must detach the reader listeners while retaining the output error listener for late write failures",
       );
     } finally {
       clientClose(client);
@@ -215,6 +215,49 @@ test("a socket write failure rejects the request as daemon unavailable", async (
   try {
     await assert.rejects(
       () => client.request("protocol.hello", { protocolVersion: { major: 1, minor: 0 } }, 5_000),
+      (error: unknown) =>
+        (error as { readonly code?: string }).code === "daemon_unavailable" &&
+        (error as { readonly cause?: unknown }).cause === failure,
+    );
+  } finally {
+    clientClose(client);
+  }
+});
+
+test("a request after the input closes does not write to the closed output", async () => {
+  const input = new PassThrough();
+  let writes = 0;
+  const output = new Writable({
+      write: (_chunk, _encoding, callback) => {
+        writes += 1;
+        callback(Object.assign(new Error("write EPIPE"), { code: "EPIPE" }));
+      },
+    }),
+    client = new JsonRpcLineClient(input, output);
+  input.end();
+  await new Promise<void>((resolve) => input.once("end", resolve));
+  try {
+    await assert.rejects(
+      () => client.request("repo.agentRuntime.sessions.read", {}, 5_000),
+      (error: unknown) => (error as { readonly code?: string }).code === "daemon_closed",
+    );
+    assert.equal(writes, 0, "a reader-close signal must prevent the later socket write");
+  } finally {
+    clientClose(client);
+  }
+});
+
+test("a socket error delivered after close remains handled as daemon unavailable", async () => {
+  const input = new PassThrough(),
+    output = new PassThrough(),
+    client = new JsonRpcLineClient(input, output),
+    failure = Object.assign(new Error("write EPIPE"), { code: "EPIPE" }),
+    request = client.request("repo.agentRuntime.sessions.read", {}, 5_000);
+  output.emit("close");
+  assert.doesNotThrow(() => output.emit("error", failure), "a late socket error must retain its error listener");
+  try {
+    await assert.rejects(
+      request,
       (error: unknown) =>
         (error as { readonly code?: string }).code === "daemon_unavailable" &&
         (error as { readonly cause?: unknown }).cause === failure,
