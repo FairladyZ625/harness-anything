@@ -70,6 +70,36 @@
   --color-axis-assoc: oklch(0.62 0.01 285);
 
   --color-success: oklch(0.78 0.13 150);
+
+  /* S2 视觉基础(dec_B3D40712A6B050D83F1C2EF78D CH3):锐利圆角,token 全程 2-4px。
+     Tailwind v4 的 rounded-* 工具类全部读本档;md/lg/xl 从默认 6/8/12px 收进
+     3/3/4px,存量调用点零改动换锐利语言。rounded-full(圆点/胶囊)不受此档约束。 */
+  --radius-xs: 2px;
+  --radius-sm: 3px;
+  --radius-md: 3px;
+  --radius-lg: 4px;
+  --radius-xl: 4px;
+  --radius-2xl: 4px;
+  --radius-3xl: 4px;
+  --radius-4xl: 4px;
+
+  /* 玻璃层级:半透明面 + backdrop-filter 模糊/饱和度 + 发丝描边 + 内高光。
+     面色主题相关(亮色在下方覆盖);模糊/饱和度两档主题无关(面档/scrim 档)。 */
+  --color-glass: oklch(0.25 0.008 285 / 0.52);
+  --color-glass-border: oklch(1 0 0 / 0.07);
+  --color-glass-highlight: oklch(1 0 0 / 0.1);
+  --color-scrim: oklch(0.22 0.01 285 / 0.28);
+  --glass-blur: 26px;
+  --glass-saturate: 170%;
+  --scrim-blur: 18px;
+  --scrim-saturate: 140%;
+
+  /* 环境光与缓动:blob 色值原样保留业主认可的样张(overview-prototype.html v4) */
+  --aurora-1: #134e4a;
+  --aurora-2: #1e2a5a;
+  --aurora-3: #3b1d2e;
+  --aurora-opacity: 0.55;
+  --ease: cubic-bezier(0.2, 0.85, 0.25, 1);
 }
 
 /*
@@ -108,6 +138,113 @@ html[data-theme="light"] {
   --color-axis-assoc: oklch(0.55 0.01 285);
 
   --color-success: oklch(0.56 0.14 150);
+
+  /* 玻璃与环境光的亮色档:白玻璃 + 深色发丝描边,环境光换低饱和浅色并减强度 */
+  --color-glass: oklch(0.99 0.002 285 / 0.6);
+  --color-glass-border: oklch(0.2 0.01 285 / 0.08);
+  --color-glass-highlight: oklch(1 0 0 / 0.55);
+  --color-scrim: oklch(0.3 0.01 285 / 0.2);
+
+  --aurora-1: #b9e6de;
+  --aurora-2: #c6cfef;
+  --aurora-3: #eccad9;
+  --aurora-opacity: 0.4;
+}
+
+/*
+ * S2 视觉基础(dec_B3D40712A6B050D83F1C2EF78D CH3):环境光、玻璃层、状态竖线。
+ * 权威样张是业主认可的 overview-prototype.html v4(.aurora/.tile/.scrim/.focus.lq)。
+ * 玻璃是「半透明面 + 模糊/饱和度 + 描边 + 内高光」的成对形状,工具类表达不动,落这里。
+ */
+
+/* 环境光:玻璃背后要有可折射的内容,否则 backdrop-filter 只糊一层纯色。
+   z-index:-1 挂在画布底色之上、全部内容之下;漂移只动 transform(合成器路径)。 */
+.aurora {
+  position: fixed;
+  inset: -20%;
+  z-index: -1;
+  pointer-events: none;
+  filter: blur(80px);
+  opacity: var(--aurora-opacity);
+}
+.aurora i {
+  position: absolute;
+  border-radius: 50%;
+  animation: drift 26s var(--ease) infinite alternate;
+}
+.aurora i:nth-child(1) {
+  width: 42vw;
+  height: 42vw;
+  left: 8%;
+  top: 6%;
+  background: var(--aurora-1);
+}
+.aurora i:nth-child(2) {
+  width: 36vw;
+  height: 36vw;
+  right: 4%;
+  top: 0;
+  background: var(--aurora-2);
+  animation-duration: 32s;
+  animation-direction: alternate-reverse;
+}
+.aurora i:nth-child(3) {
+  width: 30vw;
+  height: 30vw;
+  left: 40%;
+  bottom: -4%;
+  background: var(--aurora-3);
+  animation-duration: 38s;
+}
+@keyframes drift {
+  to {
+    transform: translate(6vw, 4vh) scale(1.12);
+  }
+}
+
+/* 玻璃面(原型 .tile 档):同一能力只此一个生产实现,散点 backdrop-blur 已并入。 */
+.glass {
+  background: var(--color-glass);
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
+  border: 1px solid var(--color-glass-border);
+  box-shadow:
+    inset 0 1px 0 var(--color-glass-highlight),
+    0 8px 30px oklch(0 0 0 / 0.25);
+}
+
+/* 模态压暗层(原型 .scrim.on 档) */
+.glass-scrim {
+  background: var(--color-scrim);
+  backdrop-filter: blur(var(--scrim-blur)) saturate(var(--scrim-saturate));
+}
+
+/* 放大层液态折射(原型 .focus.lq 档):与 .glass 同用;滤镜 def 见 GlassFoundation.tsx */
+.glass-liquid {
+  backdrop-filter: url(#liquid) blur(30px) saturate(190%);
+}
+
+/* 状态色竖线(原型 .tile::after):容器自定 --status-edge 即点亮,默认透明不占位。 */
+.status-edge::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--status-edge, transparent);
+  box-shadow: 0 0 12px var(--status-edge, transparent);
+  pointer-events: none;
+}
+
+/* 减少动态效果:与 motion 的 reducedMotion="user"(motion-config.tsx)同向,
+   CSS 与 JS 动画在同一系统偏好下一起关。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 html,
@@ -177,7 +314,7 @@ html[data-ui-scale="comfortable"] {
 :focus-visible {
   outline: 2px solid color-mix(in oklch, var(--color-accent) 70%, transparent);
   outline-offset: 1px;
-  border-radius: 4px;
+  border-radius: var(--radius-lg);
 }
 button:not(:disabled),
 [role="button"]:not(:disabled),
@@ -310,13 +447,13 @@ html[data-theme="light"] ::selection {
   font-size: 0.85em;
   background: var(--color-surface-raised);
   border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0.1em 0.35em;
 }
 .prose-harness pre {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 0.75rem 1rem;
   overflow-x: auto;
   margin: 0.75rem 0;
@@ -367,7 +504,7 @@ html[data-theme="light"] ::selection {
 .prose-harness img {
   max-width: 100%;
   border: 1px solid var(--color-border);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
 }
 .prose-harness input[type="checkbox"] {
   accent-color: var(--color-accent);
@@ -407,7 +544,7 @@ html[data-theme="light"] ::selection {
   background: var(--color-surface-raised);
   color: var(--color-text);
   border: 1px solid var(--color-border-strong);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 5px 8px;
   font-size: 11px;
   line-height: 1.4;
@@ -437,7 +574,7 @@ html[data-theme="light"] ::selection {
   line-height: 1.55;
   min-height: 320px;
   padding: 12px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--color-surface);
   border: 1px solid var(--color-border-strong);
   color: var(--color-text);
@@ -452,7 +589,7 @@ html[data-theme="light"] ::selection {
   line-height: 1.6;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 10px 12px;
   white-space: pre;
   overflow-x: auto;
@@ -498,16 +635,11 @@ html[data-theme="light"] ::selection {
     box-shadow: 0 0 0 6px transparent;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .rt-pulse {
-    animation: none;
-  }
-}
 
 .control {
   min-height: 1.75rem;
   border: 1px solid var(--color-border);
-  border-radius: 0.25rem;
+  border-radius: var(--radius-md);
   background: var(--color-surface-raised);
   padding: 0.25rem 0.5rem;
   color: var(--color-text);

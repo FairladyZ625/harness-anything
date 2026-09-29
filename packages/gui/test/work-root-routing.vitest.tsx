@@ -286,6 +286,8 @@ describe("the work page absorbs the root task", () => {
     scope: { descendantCount: 1, executableLeafCount: 1, archivedCount: 0 },
     groups: [],
     memberTaskIds: ["child"],
+    eventSummaries: [],
+    eventWindowComplete: true,
     tasks: [
       {
         taskId: "child",
