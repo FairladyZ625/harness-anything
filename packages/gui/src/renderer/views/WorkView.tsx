@@ -268,7 +268,7 @@ function WorkRow({
         data-testid="work-row-toggle"
         aria-expanded={open}
         onClick={onToggle}
-        className="flex w-full flex-wrap items-center gap-x-3 gap-y-1.5 px-3 py-2 text-left hover:border-accent/60"
+        className={`flex w-full flex-wrap gap-x-3 gap-y-1.5 px-3 py-2 text-left hover:border-accent/60 ${hits.length > 0 ? "items-start" : "items-center"}`}
       >
         <span className="flex min-w-[220px] flex-1 flex-col gap-1">
           <span className="truncate text-sm font-semibold text-text" title={task.title}>
@@ -294,7 +294,7 @@ function WorkRow({
             </span>
           </span>
         ) : null}
-        <span className="flex shrink-0 flex-wrap items-center gap-1">
+        <span data-testid="work-flags" className="flex w-60 shrink-0 flex-wrap items-center gap-1">
           {health.mine.length > 0 ? (
             <StatusTag tone="bad" label={t("views.work.flag.mine", { count: health.mine.length })} />
           ) : null}
