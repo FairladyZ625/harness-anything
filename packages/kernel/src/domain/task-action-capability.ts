@@ -10,6 +10,7 @@ import type { TaskLifecycleSnapshot } from "./task-lifecycle-contract-internal-t
 import type { ActorIdentity } from "./actor-identity.ts";
 import type { CloseoutGate } from "./settings-closeout.ts";
 import { taskCompletionNext, type CompletionReadinessContext } from "./completion-readiness.ts";
+import { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle-transitions.ts";
 
 export interface TaskActionCapabilityCriterionResult {
   readonly criterionRef: string;
@@ -70,7 +71,7 @@ const taskCapabilityEvaluators = Object.freeze(
           : "unmet",
     ],
     [key("transition", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
-    [key("transition", "lifecycle-status/explainStatusTransition"), transitionInvocation],
+    [key("transition", "lifecycle-status/explainStatusTransition"), mutationInvocation],
     [key("submit", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("submit", "task-lifecycle-command-transitions/submit.validate"), submitValidation],
     [
@@ -172,19 +173,6 @@ function releaseAvailability({ snapshot, actor }: TaskActionCapabilityInput): "m
 }
 
 function mutationInvocation(): "invocation-required" {
-  return "invocation-required";
-}
-
-function transitionInvocation(input: TaskActionCapabilityInput): PredicateEvaluation | "invocation-required" {
-  if (
-    input.snapshot.task?.status === "planned" &&
-    input.snapshot.task.currentNode === "implementation" &&
-    input.snapshot.lease === null
-  )
-    return {
-      status: "invocation-required",
-      nextActions: [`ha task start ${invocationTaskId(input)}`],
-    };
   return "invocation-required";
 }
 
@@ -349,6 +337,38 @@ export function taskActionUsage(action: EntityActionContract, taskId = "<task-id
           ? ["ha", "task", "code-doc", action.id, taskId]
           : ["ha", "task", ingress.slice("task-".length), taskId];
   return [...path, ...flags].join(" ");
+}
+
+export function taskLifecycleNextActions(input: {
+  readonly snapshot: TaskLifecycleSnapshot;
+  readonly actor: ActorIdentity;
+  readonly taskId: string;
+  readonly rejectedActionId: string;
+  readonly actions: readonly EntityActionContract[];
+}): readonly string[] {
+  if (!input.snapshot.task || ["done", "cancelled"].includes(input.snapshot.task.status)) return [];
+  const lifecycleActionIds = new Set(
+    TASK_LIFECYCLE_TRANSITIONS.filter(({ actionId }) => actionId !== "create").map(({ actionId }) => actionId),
+  );
+  return input.actions.flatMap((action) => {
+    if (!lifecycleActionIds.has(action.id) || action.id === input.rejectedActionId) return [];
+    const evaluations = evaluateTaskActionCapability({
+      action,
+      snapshot: input.snapshot,
+      actor: input.actor,
+      invocation: { taskId: input.taskId },
+    });
+    if (evaluations.some(({ status }) => status === "unmet")) return [];
+    const unresolved = evaluations.filter(({ status }) => status === "invocation-required");
+    if (
+      unresolved.some(
+        ({ criterionRef }) =>
+          action.criteria.find(({ ref }) => ref === criterionRef)?.failureCode !== "invalid_transition",
+      )
+    )
+      return [];
+    return [taskActionUsage(action, input.taskId)];
+  });
 }
 
 function invocationNextActions(action: EntityActionContract): readonly string[] {

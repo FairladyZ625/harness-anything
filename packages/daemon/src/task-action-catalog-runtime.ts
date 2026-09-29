@@ -2,8 +2,11 @@ import {
   canStartExecution,
   evaluateTaskActionCapability,
   getExecutableEntityAction,
+  getTaskActionForTransition,
   heldLeaseForExecutionActor,
   revisionIssues,
+  TASK_LIFECYCLE_TRANSITIONS,
+  taskLifecycleNextActions,
   type EntityActionContract,
   type EntityActionUnmetCriterionV1,
   type TaskLifecycleCommand,
@@ -109,7 +112,7 @@ export async function runTaskActionCatalogRuntime(
           `held by ${actorHint(activeLease.actor)} until ${activeLease.expiresAt}; wait until it expires or ask ` +
           `that holder to run ha task release ${taskId}.`,
       };
-    return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [leaseEvaluation], rejected);
+    return taskActionRejection(cell, action, binding, current.snapshot, contract, [leaseEvaluation], rejected);
   }
   const submitValidationEvaluation = evaluations.find(
       ({ criterionRef }) => criterionRef === SUBMIT_VALIDATION_CRITERION,
@@ -151,7 +154,7 @@ export async function runTaskActionCatalogRuntime(
       cell,
       action,
       binding,
-      current.snapshot.revision,
+      current.snapshot,
       contract,
       evaluations,
       contract ? attributeCellCriterion(error, contract.id, invocationCriterionRef(contract)) : error,
@@ -171,7 +174,7 @@ export async function runTaskActionCatalogRuntime(
     const criterion = contract.criteria.find(({ ref }) => ref === REVISION_CRITERION);
     if (!criterion)
       throw new Error(`Task Action ${contract.id} does not declare its existing revisionIssues predicate.`);
-    return taskActionRejection(cell, action, binding, current.snapshot.revision, contract, [
+    return taskActionRejection(cell, action, binding, current.snapshot, contract, [
       {
         criterionRef: criterion.ref,
         nextActions: [`${criterion.explain} Then retry with --expected-version ${String(current.snapshot.revision)}.`],
@@ -215,7 +218,7 @@ export async function runTaskActionCatalogRuntime(
         cell,
         action,
         binding,
-        current.snapshot.revision,
+        current.snapshot,
         contract,
         [criterionEvaluation(evaluations, START_CRITERION)],
         rejected,
@@ -249,7 +252,7 @@ export async function runTaskActionCatalogRuntime(
   try {
     authorityProof = await cell.proofFor(command, current.snapshot, binding, cell.projection);
   } catch (error) {
-    const rejection = taskActionFailure(cell, action, binding, current.snapshot.revision, contract, evaluations, error);
+    const rejection = taskActionFailure(cell, action, binding, current.snapshot, contract, evaluations, error);
     if (rejection) return rejection;
     throw error;
   }
@@ -266,7 +269,7 @@ export async function runTaskActionCatalogRuntime(
       cell,
       action,
       binding,
-      current.snapshot.revision,
+      current.snapshot,
       contract,
       evaluations,
       attributeCellCriterion(error, contract.id, invocationCriterionRef(contract)),
@@ -330,7 +333,7 @@ function submitActionRejection(
       action,
     );
   return {
-    ...taskActionRejection(cell, action, binding, snapshot.revision, contract, [evaluation], rejected),
+    ...taskActionRejection(cell, action, binding, snapshot, contract, [evaluation], rejected),
     nextActions: Object.freeze([...new Set(evaluation.nextActions)]),
   };
 }
@@ -339,7 +342,7 @@ function taskActionFailure(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
-  revision: number,
+  snapshot: Snapshot,
   contract: EntityActionContract | undefined,
   evaluations: readonly {
     readonly criterionRef: string;
@@ -352,7 +355,7 @@ function taskActionFailure(
   if (!contract || failure?.actionId !== contract.id) return null;
   const evaluation = evaluations.find(({ criterionRef }) => criterionRef === failure.criterionRef),
     failed = cell.failed(
-      cell.errorOperationId(error) ?? cell.operationId(action, binding, cell.input.repoId, revision),
+      cell.errorOperationId(error) ?? cell.operationId(action, binding, cell.input.repoId, snapshot.revision),
       error,
       contract,
       action,
@@ -377,7 +380,7 @@ function taskActionFailure(
     cell,
     action,
     binding,
-    revision,
+    snapshot,
     contract,
     [
       {
@@ -393,7 +396,7 @@ function taskActionRejection(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
-  revision: number,
+  snapshot: Snapshot,
   contract: EntityActionContract,
   unmet: readonly {
     readonly criterionRef: string;
@@ -406,10 +409,18 @@ function taskActionRejection(
       if (!criterion) throw new Error(`Task Action ${contract.id} criterion ${criterionRef} is not declared.`);
       return criterion;
     }),
-    nextActions = Object.freeze([...new Set([...unmet.flatMap(({ nextActions: next }) => next)])]),
+    declaredNextActions = unmet.flatMap(({ nextActions: next }) => next),
+    nextActions = Object.freeze([
+      ...new Set(
+        declaredNextActions.length > 0
+          ? declaredNextActions
+          : lifecycleNextActions(action.kind, binding, snapshot, contract, taskIdFromAction(action)),
+      ),
+    ]),
     first = unmetCriteria[0]!;
   return {
-    ...(rejected ?? cell.rejected(cell.operationId(action, binding, cell.input.repoId, revision), first.failureCode)),
+    ...(rejected ??
+      cell.rejected(cell.operationId(action, binding, cell.input.repoId, snapshot.revision), first.failureCode)),
 
     evidence: `criterion:${first.ref}`,
     unmetCriteria,
@@ -417,6 +428,31 @@ function taskActionRejection(
     rejectionExplanation: rejected?.rejectionExplanation || first.explain,
     nextActions,
   };
+}
+
+function lifecycleNextActions(
+  rejectedKind: RepoTaskAction["kind"],
+  binding: RepoCellBinding,
+  snapshot: Snapshot,
+  rejectedContract: EntityActionContract,
+  taskId: string,
+): readonly string[] {
+  const actions = [...new Set(TASK_LIFECYCLE_TRANSITIONS.map(({ actionId }) => actionId))].flatMap((actionId) => {
+    const action = getTaskActionForTransition(actionId);
+    return action && action.execution?.ingress !== rejectedKind ? [action] : [];
+  });
+  return taskLifecycleNextActions({
+    snapshot,
+    actor: binding.actor,
+    taskId,
+    rejectedActionId: rejectedContract.id,
+    actions,
+  });
+}
+
+function taskIdFromAction(action: RepoTaskAction): string {
+  if (typeof action.taskId !== "string" || !action.taskId.trim()) throw new Error("Task Action requires taskId.");
+  return action.taskId;
 }
 
 function criterionEvaluation(

@@ -97,6 +97,7 @@ test("rejected Task ActionResult preserves the exact structured criterion", asyn
             explain: "The command expectedVersion matches the current Task aggregate revision.",
           },
         ],
+        nextActions: ["ha task start task_contract"],
       }),
     });
   assert.deepEqual(receipt.unmetCriteria, [
@@ -109,6 +110,7 @@ test("rejected Task ActionResult preserves the exact structured criterion", asyn
   assert.deepEqual(receipt.effects, []);
   assert.equal(receipt.updatedProjection, null);
   assert.match(receipt.rejectionExplanation ?? "", /expectedVersion/u);
+  assert.deepEqual(receipt.nextActions, ["ha task start task_contract"]);
 });
 
 test("ambiguous failure codes do not invent a criterion", async () => {
