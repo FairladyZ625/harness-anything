@@ -735,7 +735,7 @@ function WorkDecisionReview({
       ? []
       : [
           {
-            decisionId: row.decisionId,
+            id: row.decisionId,
             title: row.title,
             hint: t(REVIEW_HINTS[signal]),
             group: decisionReviewGroup(signal),
@@ -755,7 +755,7 @@ function WorkDecisionReview({
         rows={rows}
         label={t("views.workspace.decisionReviewTitle")}
         testIdPrefix="work-decision-review"
-        onOpen={(row) => onNavigateEntity?.(decisionReviewRef(row.decisionId, "review"))}
+        onOpen={(row) => onNavigateEntity?.(decisionReviewRef(row.id, "review"))}
       />
     </section>
   );

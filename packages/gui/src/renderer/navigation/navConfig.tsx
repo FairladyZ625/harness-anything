@@ -1,7 +1,6 @@
 import {
   Kanban,
   SquaresFour,
-  GridNine,
   Graph,
   Stack,
   PlugsConnected,
@@ -34,14 +33,12 @@ import type { ViewId } from "./viewHistory.ts";
 // 动作,再叫「决策」会重现"决策/签发是不是同一个东西"的歧义。
 // 研发态势(cadence)入组并置顶:项目研发心跳(节奏/摩擦/堵点/产出)是治理域的
 // 日常主阵地,decision 裁决与 task 签发是它下钻后的动作面。
-// S3 总览(新):并列新增的一级入口(dec_E98F9EE0 已批准实施要求第 3 条),
-// 紧随旧「总览」;旧入口不改名、不改向、不隐藏,退役只由业主裁定。
+// 总览只有一个(dec_DC3A1BB9 CH1,业主 2026-09-29 裁定退役并列的「总览(新)」):按原型 S1 收敛。
 // 议程(Decision 评审设计原型 S2 #agenda):原型左栏本身有「议程」一项,按原型加入,
 // 不是设计 Q6 所说的新增全局导航架构(CEO 2026-09-29 裁定)。
 const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
   home: "shell.nav.home",
   overview: "shell.nav.overview",
-  overviewNext: "shell.nav.overviewNext",
   workspace: "shell.nav.workspaceScope",
   work: "shell.nav.work",
   agenda: "shell.nav.agenda",
@@ -82,7 +79,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     labelKey: "shell.nav.workspace",
     items: [
       { id: "overview", icon: <SquaresFour weight="duotone" /> },
-      { id: "overviewNext", icon: <GridNine weight="duotone" /> },
       { id: "work", icon: <Stack weight="duotone" /> },
       { id: "agenda", icon: <ListChecks weight="duotone" /> },
       { id: "board", icon: <Kanban weight="duotone" /> },

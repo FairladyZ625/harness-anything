@@ -11,26 +11,29 @@ const REVIEW_GROUPS: readonly (readonly [DecisionReviewGroup, MessageKey])[] = [
 ];
 
 export type DecisionReviewGroupRow = {
-  readonly decisionId: string;
+  /** 行主键与测试 id 后缀:Decision 行是 decisionId,等你处理行是 awaits relationId。 */
+  readonly id: string;
   readonly title: string;
   readonly hint: string;
   readonly group: DecisionReviewGroup;
+  /** 行按钮文案;缺省为「查看」。 */
+  readonly action?: string;
 };
 
 /**
  * Decision 按评审下一步分组的列表(原型 S2):全部 / 待处置 / 待评审 / 评审中 / 待裁决五个页签,
  * 页签只改当前显示。工作页与议程页共用,组由调用方从各自读面映射好传入,这里不另立判据。
  */
-export function DecisionReviewGroups({
+export function DecisionReviewGroups<Row extends DecisionReviewGroupRow>({
   rows,
   label,
   testIdPrefix,
   onOpen,
 }: {
-  readonly rows: readonly DecisionReviewGroupRow[];
+  readonly rows: readonly Row[];
   readonly label: string;
   readonly testIdPrefix: string;
-  readonly onOpen: (row: DecisionReviewGroupRow) => void;
+  readonly onOpen: (row: Row) => void;
 }) {
   const [filter, setFilter] = useState<DecisionReviewGroup | "all">("all");
   const tabs: readonly (readonly [DecisionReviewGroup | "all", MessageKey])[] = [
@@ -71,7 +74,7 @@ export function DecisionReviewGroups({
               <ul className="space-y-2">
                 {groupRows.map((row) => (
                   <li
-                    key={row.decisionId}
+                    key={`${row.group}:${row.id}`}
                     className="flex min-w-0 items-center gap-3 rounded-lg border border-border bg-surface-raised px-4 py-3"
                   >
                     <div className="min-w-0 flex-1">
@@ -80,11 +83,11 @@ export function DecisionReviewGroups({
                     </div>
                     <button
                       type="button"
-                      data-testid={`${testIdPrefix}-open-${row.decisionId}`}
+                      data-testid={`${testIdPrefix}-open-${row.id}`}
                       onClick={() => onOpen(row)}
                       className="shrink-0 rounded border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-text hover:border-border-strong"
                     >
-                      {t("views.workspace.decisionReviewOpen")}
+                      {row.action ?? t("views.workspace.decisionReviewOpen")}
                     </button>
                   </li>
                 ))}

@@ -299,5 +299,7 @@
   "components.awaitsAnswer.kind.question": "Question",
   "components.awaitsAnswer.kind.acceptance": "Acceptance",
   "components.awaitsAnswer.kind.consent": "Consent",
-  "components.awaitsAnswer.kind.reopen": "Reopen?"
+  "components.awaitsAnswer.kind.reopen": "Reopen?",
+  "components.awaitsAnswer.awaitingYou": "Awaiting your answer",
+  "components.awaitsAnswer.answeredForYou": "Answered, for your follow-up"
 }

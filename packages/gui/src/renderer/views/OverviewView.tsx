@@ -1,89 +1,60 @@
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import type { Project, RelationEdge, SnapshotStatus, TaskRow } from "../model/types";
-import { Card } from "../components/overview/parts";
-import { DecisionStream } from "../components/overview/DecisionStream.tsx";
+import { useState } from "react";
+import type { Project, SnapshotStatus } from "../model/types";
 import { DecisionReviewTiles } from "../components/overview/DecisionReviewTiles.tsx";
 import { DecisionReviewNow } from "../components/overview/DecisionReviewNow.tsx";
 import type { DecisionTileTarget } from "../model/decision-review.ts";
-import { TaskStream } from "../components/overview/TaskStream.tsx";
-import { PinnedStream } from "../components/overview/PinnedStream.tsx";
 import { OverviewStatsBar, type OverviewStatsAnomaly } from "../components/overview/OverviewStatsBar.tsx";
-import { DecisionPreviewDrawer } from "../components/DecisionPreviewDrawer.tsx";
-import { decisionStateLabel } from "../components/badges";
+import { AwaitsAnswerPanel } from "../components/AwaitsAnswerPanel.tsx";
+import type { AwaitsPanelSubject } from "../awaits-answer.ts";
+import { StatusBadge } from "../components/badges";
 import type { RuntimeHealth } from "../model/runtime-health.ts";
 import { t } from "../i18n/index.tsx";
 import { formatTime } from "../model/time.ts";
 import type { WorkspaceSummaryRead } from "../../api/renderer-dto.ts";
-import { harnessClient, type AgendaSuccess, type DecisionSummaryRow } from "../api-client.ts";
+import type { AgendaSuccess } from "../api-client.ts";
 import type { TaskWipRead } from "../../api/renderer-dto.ts";
 import { TaskWipSummary } from "../components/TaskWipSummary.tsx";
-import { adaptDecisionRows } from "../triadic-data.ts";
 
 const timeOf = (iso: string) => formatTime(iso, { style: "time" }) ?? "—";
 
 /**
- * 总览 = 三条流(2026-08-21 泽宇反馈重构;2026-08-31 收纳后运行时健康移出主区):
- * 决策流 / 任务流 / Pin 在做。系统运行状态(事件水位、刷新、健康)常驻侧栏左下角,
- * 本页不再占一行渲染近乎全空的健康区块,腾出的高度归决策流/任务流。
- * 交互规则:点击先开抽屉不跳页;状态切换是就地筛选;时间倒序;
- * 「去批准 / 去看板」是仅有的显式路由出口。
+ * 总览(原型 S1,dec_DC3A1BB9 CH1):头部、四格计数、「需要我的判断 / 正在发生」两栏、
+ * 下方「推进中的工作」(置顶的工作)。行与计数全部取已挂载的同一条议程读面(repo.agenda.read),
+ * 本页不另发请求。系统运行状态常驻侧栏左下角;底部统计条只给台账计数与异常口径。
  */
 export function OverviewView({
   repoId,
   project,
-  tasks,
   wipSnapshot,
   agenda,
-  decisions,
   workspaceSummary,
-  relations,
   health,
   daemonReadFailed,
   ledgerRevision,
-  onSelect,
   onNavigateEntity,
-  onDrill,
-  onOpenInbox,
-  onOpenDecision,
   onOpenDecisionTarget,
-  declaredKinds,
-  onSetPin,
-  onDecisionPreviewChange,
+  onOpenTask,
 }: {
   repoId: string;
   project: Project;
-  tasks: readonly TaskRow[];
   wipSnapshot?: TaskWipRead;
-  /** `ha agenda` 同一条 repo.agenda.read 投影;PIN 区不从 task list 二次猜。 */
+  /** `ha agenda` 同一条 repo.agenda.read 投影;undefined = 尚未读到。 */
   agenda?: AgendaSuccess;
-  decisions: ReadonlyArray<DecisionSummaryRow>;
   workspaceSummary: WorkspaceSummaryRead;
-  relations: RelationEdge[];
   /** 侧栏系统运行区同一份派生(App 折算,见 model/runtime-health.ts);这里只喂底部统计条的异常口径。 */
   health: RuntimeHealth;
   /** systemQuery 直接读失败(与「观测年龄超时」分开点名)。 */
   daemonReadFailed: boolean;
   /** 底部统计条的版本对(null = 台账切面还没读到过);同一份 repo.tasks.read 切面。 */
   ledgerRevision: { readonly watermark: number; readonly sourceRevision: number } | null;
-  onSelect: (id: string) => void;
-  /** 显式「去看板」出口:带任务流当前状态预置。 */
-  onDrill: (status: SnapshotStatus) => void;
-  onOpenInbox: () => void;
-  /** 决策抽屉「打开详情」出口。 */
-  onOpenDecision: (decisionId: string) => void;
+  /** 答复面板里来源实体链接的导航出口。 */
+  onNavigateEntity: (ref: string) => void;
   /** 四格与「需要我的判断 / 正在发生」的落点:单条 Decision 的评审落点,或议程页 / 会话页。 */
   onOpenDecisionTarget: (target: DecisionTileTarget) => void;
-  /** G10 实体互链:决策预览抽屉里的 agent/task ID 的导航出口。 */
-  onNavigateEntity: (ref: string) => void;
-  /** 已注册 kind 清单:置顶流用它判定非任务实体 ref 是否有可寻址落点。 */
-  declaredKinds?: readonly string[];
-  onSetPin?: (task: Pick<TaskRow, "taskId">, pinned: boolean) => void;
-  /** 让 App 只在决策抽屉实际打开时挂载 active-edge 窄面。 */
-  onDecisionPreviewChange?: (decisionId: string | null) => void;
+  /** 推进中的工作的落点:App 按「根任务即工作」分流到工作页或任务详情。 */
+  onOpenTask: (taskId: string) => void;
 }) {
-  // 决策预览抽屉:本页局部状态,不开抽屉不进导航栈(不改导航契约)。
-  const [previewDecisionId, setPreviewDecisionId] = useState<string | null>(null);
+  const [panel, setPanel] = useState<AwaitsPanelSubject | null>(null);
   // 底部统计条的异常口径(task_b2fb4bc7):daemon 断连 / 投影落后 / 读失败。
   // 只消费本页已经拿到的读面,不为此新增任何查询。
   const statsAnomalies: OverviewStatsAnomaly[] = [];
@@ -110,122 +81,86 @@ export function OverviewView({
         <TaskWipSummary snapshot={wipSnapshot} />
       </header>
 
-      <section
-        data-testid="overview-decision-review"
-        className="shrink-0 space-y-3 border-b border-border px-5 py-3"
-        aria-label={t("views.overviewView.decisionTilesLabel")}
-      >
-        <DecisionReviewTiles agenda={agenda} onOpen={onOpenDecisionTarget} />
-        <DecisionReviewNow agenda={agenda} onOpen={onOpenDecisionTarget} />
-      </section>
-
-      <div
-        className={[
-          "grid min-h-0 flex-1 grid-cols-1 auto-rows-[22rem] gap-4 overflow-y-auto p-5",
-          "xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]",
-          "xl:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] xl:overflow-hidden",
-        ].join(" ")}
-      >
-        <Card title={t("views.overviewView.decisionStreamTitle")} bodyClassName="gap-3 p-3" className="xl:col-start-1">
-          <DecisionStream
-            decisions={decisions}
-            summary={workspaceSummary.decisions}
-            stateLabel={decisionStateLabel}
-            onOpenPreview={(decisionId) => {
-              setPreviewDecisionId(decisionId);
-              onDecisionPreviewChange?.(decisionId);
-            }}
-            onOpenInbox={onOpenInbox}
-          />
-        </Card>
-
-        <Card
-          title={t("views.overviewView.taskStreamTitle")}
-          bodyClassName="p-3"
-          className="xl:col-start-2 xl:row-start-1 xl:row-span-2"
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-5 py-4">
+        <section
+          data-testid="overview-decision-review"
+          className="space-y-3"
+          aria-label={t("views.overviewView.decisionTilesLabel")}
         >
-          <TaskStream
-            tasks={tasks}
-            summary={workspaceSummary.tasks}
-            onOpenPreview={onSelect}
-            onGoBoard={onDrill}
-            onSetPin={onSetPin}
-          />
-        </Card>
-
-        <Card
-          title={t("views.overviewView.pinnedStreamTitle")}
-          bodyClassName="p-3"
-          className="xl:col-start-1 xl:row-start-2"
-        >
-          <PinnedStream
+          <DecisionReviewTiles agenda={agenda} onOpen={onOpenDecisionTarget} />
+          <DecisionReviewNow
             agenda={agenda}
-            onOpenPreview={onSelect}
-            onNavigateEntity={onNavigateEntity}
-            declaredKinds={declaredKinds}
-            onSetPin={onSetPin}
+            onOpen={onOpenDecisionTarget}
+            onAnswer={(row) => setPanel({ mode: "answer", row })}
           />
-        </Card>
+        </section>
+        <InFlightWork agenda={agenda} onOpenTask={onOpenTask} />
       </div>
 
       <OverviewStatsBar summary={workspaceSummary} revision={ledgerRevision} anomalies={statsAnomalies} />
 
-      {previewDecisionId ? (
-        <OverviewDecisionPreview
+      {panel ? (
+        <AwaitsAnswerPanel
           repoId={repoId}
-          decisionId={previewDecisionId}
-          tasks={tasks}
-          relations={relations}
-          onClose={() => {
-            setPreviewDecisionId(null);
-            onDecisionPreviewChange?.(null);
+          subject={panel}
+          onClose={() => setPanel(null)}
+          onNavigateEntity={(ref) => {
+            setPanel(null);
+            onNavigateEntity(ref);
           }}
-          onOpenDetail={(decisionId) => {
-            setPreviewDecisionId(null);
-            onDecisionPreviewChange?.(null);
-            onOpenDecision(decisionId);
-          }}
-          onNavigateEntity={onNavigateEntity}
         />
       ) : null}
     </div>
   );
 }
 
-function OverviewDecisionPreview({
-  repoId,
-  decisionId,
-  tasks,
-  relations,
-  onClose,
-  onOpenDetail,
-  onNavigateEntity,
+/**
+ * 「推进中的工作」(原型 S1):置顶的工作,取议程读面的 pinnedEntities 里的 task 行——与侧栏
+ * 「置顶工作」同一份,不另立 pin 状态。卡片写标题与阶段(读面给的状态词),点击进工作。
+ */
+function InFlightWork({
+  agenda,
+  onOpenTask,
 }: {
-  repoId: string;
-  decisionId: string;
-  tasks: readonly TaskRow[];
-  relations: RelationEdge[];
-  onClose: () => void;
-  onOpenDetail: (decisionId: string) => void;
-  onNavigateEntity: (ref: string) => void;
+  agenda: AgendaSuccess | undefined;
+  onOpenTask: (taskId: string) => void;
 }) {
-  const previewQuery = useQuery({
-    queryKey: ["overview-decision-preview", repoId, decisionId],
-    queryFn: () => harnessClient.showDecision({ repoId, decisionId }),
-    staleTime: 10_000,
-  });
-  const decision = useMemo(
-    () => (previewQuery.data ? (adaptDecisionRows([previewQuery.data.decision], relations, [])[0] ?? null) : null),
-    [previewQuery.data, relations],
-  );
+  const works = agenda?.pinnedEntities.filter(({ kind }) => kind === "task") ?? null;
   return (
-    <DecisionPreviewDrawer
-      decision={decision}
-      tasks={tasks}
-      relations={relations}
-      onClose={onClose}
-      onOpenDetail={onOpenDetail}
-      onNavigateEntity={onNavigateEntity}
-    />
+    <section data-testid="overview-in-flight-work" className="space-y-2">
+      <h2 className="text-sm font-semibold text-text">{t("views.overviewView.inFlightWorkTitle")}</h2>
+      {works === null ? (
+        <p className="ui-meta text-text-muted">{t("views.overviewView.pinnedLoading")}</p>
+      ) : works.length === 0 ? (
+        <p className="ui-meta text-text-muted">
+          {t("views.overviewView.inFlightWorkEmpty")}{" "}
+          <span className="font-mono text-text-faint">{t("views.overviewView.pinnedHint")}</span>
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+          {works.map((work) => {
+            const taskId = work.ref.replace(/^task\//u, "");
+            return (
+              <button
+                key={work.ref}
+                type="button"
+                data-testid={`overview-in-flight-work-${taskId}`}
+                onClick={() => onOpenTask(taskId)}
+                title={work.ref}
+                className="min-w-0 space-y-2 rounded-md border border-border bg-surface-raised px-3 py-2.5 text-left transition-colors duration-150 hover:border-accent/60"
+              >
+                <p className="line-clamp-2 break-words text-sm font-semibold text-text">{work.title}</p>
+                <StatusBadge status={work.status as SnapshotStatus} />
+              </button>
+            );
+          })}
+        </div>
+      )}
+      {agenda && agenda.pinnedEntityOverflow > 0 ? (
+        <p className="font-mono ui-micro text-text-faint">
+          {t("views.overviewView.pinnedOverflow", { count: agenda.pinnedEntityOverflow })}
+        </p>
+      ) : null}
+    </section>
   );
 }

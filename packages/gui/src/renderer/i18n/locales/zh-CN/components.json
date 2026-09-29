@@ -299,5 +299,7 @@
   "components.awaitsAnswer.kind.question": "提问",
   "components.awaitsAnswer.kind.acceptance": "请你验收",
   "components.awaitsAnswer.kind.consent": "请你同意",
-  "components.awaitsAnswer.kind.reopen": "要不要重开"
+  "components.awaitsAnswer.kind.reopen": "要不要重开",
+  "components.awaitsAnswer.awaitingYou": "等你答复",
+  "components.awaitsAnswer.answeredForYou": "已答复,待你跟进"
 }

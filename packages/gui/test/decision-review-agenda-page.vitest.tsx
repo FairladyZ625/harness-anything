@@ -3,6 +3,7 @@
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
 import type { AgendaAwaitsRow, AgendaDecisionReviewRow, AgendaDecisionRow } from "../src/api/renderer-dto.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
@@ -101,9 +102,13 @@ function mount(element: ReturnType<typeof createElement>): HTMLElement {
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
-  act(() => root!.render(element));
+  act(() => root!.render(withQueries(element)));
   return container;
 }
+
+/** 答复面板的写动作挂在 react-query 上;只渲染不发请求。 */
+const withQueries = (element: ReturnType<typeof createElement>) =>
+  createElement(QueryClientProvider, { client: new QueryClient() }, element);
 
 const click = (host: HTMLElement, testId: string) => {
   const button = host.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`);
@@ -132,6 +137,8 @@ describe("议程读面 → Decision 行", () => {
       kind: "entity",
       ref: "decisionreview/dec_dispose/respond",
     });
+    // 待处置里另有 task 源等你处理时不替用户挑那一条 Decision,进议程页就地答复。
+    expect(decisionTileTarget("dispose", rows, 1)).toEqual({ kind: "view", view: "agenda" });
     expect(decisionTileTarget("review", rows)).toEqual({ kind: "view", view: "agenda" });
     expect(decisionTileTarget("reviewing", rows)).toEqual({ kind: "entity", ref: "decisionsessions/dec_running" });
     expect(decisionTileTarget("judge", rows)).toEqual({ kind: "entity", ref: "decisionreview/dec_judge/judge" });
@@ -144,6 +151,12 @@ describe("议程读面 → Decision 行", () => {
 });
 
 describe("议程页(S2 #agenda)", () => {
+  it("侧栏只有一个总览入口(dec_DC3A1BB9 CH1)", () => {
+    const ids = NAV_GROUPS.flatMap((group) => group.items.map(({ id }) => id));
+    expect(ids.filter((id) => id.startsWith("overview"))).toEqual(["overview"]);
+    expect(ids.map(navLabel).filter((label) => label.startsWith("总览"))).toEqual(["总览"]);
+  });
+
   it("左侧导航在「工作」之后有「议程」一项", () => {
     const items = NAV_GROUPS.find((group) => group.id === "workspace")!.items.map(({ id }) => id);
     expect(items.indexOf("agenda")).toBe(items.indexOf("work") + 1);
@@ -153,7 +166,12 @@ describe("议程页(S2 #agenda)", () => {
   it("五个页签,全部页按四组列行;页签只改当前显示;查看按组落点", () => {
     const opened: string[] = [];
     const host = mount(
-      createElement(AgendaView, { agenda: seeded, agendaError: null, onNavigateEntity: (ref) => opened.push(ref) }),
+      createElement(AgendaView, {
+        repoId: "repo",
+        agenda: seeded,
+        agendaError: null,
+        onNavigateEntity: (ref) => opened.push(ref),
+      }),
     );
     expect([...host.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)).toEqual([
       "全部",
@@ -179,23 +197,56 @@ describe("议程页(S2 #agenda)", () => {
     ]);
   });
 
+  it("待处置组含 task 源等你处理,答复就地打开这条 awaits 的答复面板(dec_DC3A1BB9 CH2)", () => {
+    const opened: string[] = [];
+    const host = mount(
+      createElement(AgendaView, {
+        repoId: "repo",
+        agenda: seeded,
+        agendaError: null,
+        onNavigateEntity: (ref) => opened.push(ref),
+      }),
+    );
+    const dispose = host.querySelector('[data-testid="agenda-decision-group-dispose"]')!;
+    expect(dispose.textContent).toContain("2 项");
+    expect(dispose.textContent).toContain("提案 task/task_x");
+    expect(dispose.textContent).toContain("请你同意 · has review changes to resolve.");
+    expect(host.querySelector('[data-testid="agenda-decision-open-rel_task"]')?.textContent).toBe("答复");
+    click(host, "agenda-decision-open-rel_task");
+    const panel = document.body.querySelector('[data-testid="awaits-answer-panel"]');
+    expect(panel?.textContent).toContain("has review changes to resolve.");
+    expect(opened).toEqual([]);
+  });
+
   it("议程没读到、读失败、追赶中各自说明,不把空当成没有", () => {
     const loading = mount(
-      createElement(AgendaView, { agenda: undefined, agendaError: null, onNavigateEntity: () => {} }),
+      createElement(AgendaView, { repoId: "repo", agenda: undefined, agendaError: null, onNavigateEntity: () => {} }),
     );
     expect(loading.textContent).toContain("正在读取议程");
     expect(groupIds(loading)).toEqual([]);
     act(() =>
-      root!.render(createElement(AgendaView, { agenda: undefined, agendaError: "boom", onNavigateEntity: () => {} })),
+      root!.render(
+        withQueries(
+          createElement(AgendaView, {
+            repoId: "repo",
+            agenda: undefined,
+            agendaError: "boom",
+            onNavigateEntity: () => {},
+          }),
+        ),
+      ),
     );
     expect(loading.textContent).toContain("议程读取失败：boom");
     act(() =>
       root!.render(
-        createElement(AgendaView, {
-          agenda: { ...seeded, status: "pending", page: { sourceLimit: 100, cursor: null, nextCursor: "c2" } },
-          agendaError: null,
-          onNavigateEntity: () => {},
-        }),
+        withQueries(
+          createElement(AgendaView, {
+            repoId: "repo",
+            agenda: { ...seeded, status: "pending", page: { sourceLimit: 100, cursor: null, nextCursor: "c2" } },
+            agendaError: null,
+            onNavigateEntity: () => {},
+          }),
+        ),
       ),
     );
     expect(loading.textContent).toContain("正在追赶台账切面(r7)");
@@ -210,7 +261,7 @@ describe("总览(S1):四格落点与「需要我的判断 / 正在发生」", ()
     );
     for (const id of ["dispose", "review", "reviewing", "judge"]) click(host, `overview-decision-tile-${id}`);
     expect(targets).toEqual([
-      { kind: "entity", ref: "decisionreview/dec_dispose/respond" },
+      { kind: "view", view: "agenda" },
       { kind: "view", view: "agenda" },
       { kind: "entity", ref: "decisionsessions/dec_running" },
       { kind: "entity", ref: "decisionreview/dec_judge/judge" },
@@ -233,12 +284,23 @@ describe("总览(S1):四格落点与「需要我的判断 / 正在发生」", ()
     ]);
   });
 
-  it("需要我的判断 = 待处置 + 待裁决;正在发生 = 评审中,直达该 Decision 的评审会话", () => {
+  it("需要我的判断 = task 源等你处理 + 待处置 + 待裁决;正在发生 = 评审中,直达该 Decision 的评审会话", () => {
     const targets: DecisionTileTarget[] = [];
-    const host = mount(createElement(DecisionReviewNow, { agenda: seeded, onOpen: (target) => targets.push(target) }));
+    const answered: string[] = [];
+    const host = mount(
+      createElement(DecisionReviewNow, {
+        agenda: seeded,
+        onOpen: (target) => targets.push(target),
+        onAnswer: (row) => answered.push(row.relationId),
+      }),
+    );
     const judgment = host.querySelector('[data-testid="overview-judgment"]')!;
     const happening = host.querySelector('[data-testid="overview-happening"]')!;
     expect(judgment.textContent).toContain("需要我的判断");
+    expect(judgment.textContent).toContain("提案 task/task_x");
+    expect(judgment.textContent).toContain("请你同意 · has review changes to resolve.");
+    click(host, "overview-awaits-open-rel_task");
+    expect(answered).toEqual(["rel_task"]);
     expect(judgment.textContent).toContain("提案 decision/dec_dispose");
     expect(judgment.textContent).toContain("打开提案");
     expect(judgment.textContent).toContain("决策 dec_judge");
@@ -263,7 +325,9 @@ describe("总览(S1):四格落点与「需要我的判断 / 正在发生」", ()
       awaitingDecision: ["a", "b", "c", "d"].map((id) => decisionRow(`dec_${id}`)),
       decisionReviewInProgress: ["e", "f", "g", "h", "i"].map((id) => reviewingRow(`dec_${id}`)),
     });
-    const host = mount(createElement(DecisionReviewNow, { agenda: many, onOpen: (target) => targets.push(target) }));
+    const host = mount(
+      createElement(DecisionReviewNow, { agenda: many, onOpen: (target) => targets.push(target), onAnswer: () => {} }),
+    );
     const more = [...host.querySelectorAll("button")].filter((button) => button.textContent?.includes("全部"));
     expect(more.map((button) => button.textContent)).toEqual(["全部 4 项 · 去议程 →", "全部 5 项 · 去会话 →"]);
     for (const button of more) act(() => button.click());
@@ -274,7 +338,7 @@ describe("总览(S1):四格落点与「需要我的判断 / 正在发生」", ()
   });
 
   it("议程没读到时两栏只写读取中", () => {
-    const host = mount(createElement(DecisionReviewNow, { agenda: undefined, onOpen: () => {} }));
+    const host = mount(createElement(DecisionReviewNow, { agenda: undefined, onOpen: () => {}, onAnswer: () => {} }));
     expect(host.querySelectorAll("li")).toHaveLength(0);
     expect(host.textContent).toContain("正在读取议程");
   });

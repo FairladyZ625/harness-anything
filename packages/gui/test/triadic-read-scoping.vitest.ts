@@ -338,7 +338,7 @@ const relationGraphCalls = (calls: readonly RecordedCall[]) =>
 const decisionCalls = (calls: readonly RecordedCall[]) => calls.filter(({ method }) => method === "getDecisions");
 
 describe("决策读失败不能冒充空台账", () => {
-  it.each(["overview", "decisionPool", "graph"])("%s 显示拒绝码与原因", async (view) => {
+  it.each(["decisionPool", "graph"])("%s 显示拒绝码与原因", async (view) => {
     const { container } = await mountApp({
       view,
       decisionResult: { ok: false, error: { code: "unknown_field", hint: "Rejected projection selector" } },
@@ -348,7 +348,7 @@ describe("决策读失败不能冒充空台账", () => {
     expect(container.textContent).not.toContain("该状态下暂无决策");
   });
 
-  it.each(["overview", "decisionPool", "graph"])("%s 明示不匹配的决策响应形状", async (view) => {
+  it.each(["decisionPool", "graph"])("%s 明示不匹配的决策响应形状", async (view) => {
     const { container } = await mountApp({
       view,
       decisionResult: { ok: true, projection: "summary", decisions: [{ decisionId: "dec_probe" }], warnings: [] },
@@ -360,14 +360,14 @@ describe("决策读失败不能冒充空台账", () => {
 });
 
 describe("三元读取按挂载域分层", () => {
-  it("总览只读决策摘要与 ha agenda,决策抽屉关闭时不读图或完整决策", async () => {
+  it("总览只读 ha agenda,不读决策摘要、图或完整决策(dec_DC3A1BB9 退役决策流后)", async () => {
     const { calls, mark, advanceLedger } = await mountApp({ view: "overview" });
     expect(relationGraphCalls(calls())).toEqual([]);
-    expect(decisionCalls(calls()).map(({ payload }) => payload?.projection)).toEqual(["summary"]);
+    expect(decisionCalls(calls())).toEqual([]);
     expect(calls().filter(({ method }) => method === "getAgenda")).toHaveLength(1);
     const atOverview = mark();
     await advanceLedger();
-    expect(decisionCalls(calls().slice(atOverview)).map(({ payload }) => payload?.projection)).toEqual(["summary"]);
+    expect(decisionCalls(calls().slice(atOverview))).toEqual([]);
   });
 
   it("任务看板不读任何关系切面,也不为关闭的 ⌘K 读决策摘要", async () => {

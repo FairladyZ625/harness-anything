@@ -4,8 +4,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
 import type { AgendaAwaitsRow, AgendaDecisionRow } from "../src/api/renderer-dto.ts";
-import { decisionAgendaCounts } from "../src/renderer/model/decision-review.ts";
-import { attentionItemsOf, ATTENTION_GROUP_ORDER } from "../src/renderer/model/overview-next.ts";
+import { decisionAgendaCounts, taskAwaitsRows } from "../src/renderer/model/decision-review.ts";
 import { DecisionReviewTiles } from "../src/renderer/components/overview/DecisionReviewTiles.tsx";
 
 /**
@@ -63,8 +62,8 @@ const seeded = agenda({
 });
 
 describe("总览四格(S1):计数是议程分组的长度", () => {
-  it("待处置 = 等你处理里的 Decision 行;待评审/评审中/待裁决 = 议程三组", () => {
-    expect(decisionAgendaCounts(seeded)).toEqual({ dispose: 1, review: 2, reviewing: 1, judge: 1 });
+  it("待处置 = 等你处理里的 Decision 行 + task 源等你处理;待评审/评审中/待裁决 = 议程三组", () => {
+    expect(decisionAgendaCounts(seeded)).toEqual({ dispose: 2, review: 2, reviewing: 1, judge: 1 });
   });
 
   it("四格按原型顺序渲染计数;点击走决策收件箱出口", () => {
@@ -78,7 +77,7 @@ describe("总览四格(S1):计数是议程分组的长度", () => {
           .replace(/\s+/g, " ")
           .trim(),
       ),
-    ).toEqual(["1 待处置 →", "2 待评审 →", "1 评审中 →", "1 待裁决 →"]);
+    ).toEqual(["2 待处置 →", "2 待评审 →", "1 评审中 →", "1 待裁决 →"]);
   });
 
   it("议程还没读到或还在追赶时不冒充总数", () => {
@@ -96,16 +95,9 @@ describe("总览四格(S1):计数是议程分组的长度", () => {
   });
 });
 
-describe("议程(S2):Decision 按议程读面分组", () => {
-  it("评审中、待评审、待裁各成一组,顺序照设计 Q5,行不重复", () => {
-    const items = attentionItemsOf(seeded)!;
-    const groupOf = (ref: string) => items.filter((item) => item.ref === ref).map(({ group }) => group);
-    expect(groupOf("decision/dec_running")).toEqual(["decisionReviewing"]);
-    expect(groupOf("decision/dec_review_a")).toEqual(["decisionReview"]);
-    expect(groupOf("decision/dec_judge")).toEqual(["decision"]);
-    // 待处置只经「等你处理」的 awaits 行出现,不再复制到 Decision 组。
-    expect(groupOf("decision/dec_dispose")).toEqual(["awaitingYou"]);
-    const order = ATTENTION_GROUP_ORDER.filter((group) => group.startsWith("decision"));
-    expect(order).toEqual(["decisionReviewing", "decisionReview", "decision"]);
+describe("等你处理的 task 源行(dec_DC3A1BB9 CH2)", () => {
+  it("来源不是 Decision 的 awaits 行原样保留,Decision 源的不重复列入", () => {
+    expect(taskAwaitsRows(seeded).map(({ relationId }) => relationId)).toEqual(["rel_task"]);
+    expect(taskAwaitsRows(agenda())).toEqual([]);
   });
 });

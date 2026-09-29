@@ -1,9 +1,9 @@
 import { useMemo, useState } from "react";
 import { CheckCircle, Question, WarningCircle } from "@phosphor-icons/react";
-import type { CatalogSnapshotSuccess } from "../../api-client-catalog.ts";
-import { useCatalogPreset } from "../../catalog-data.ts";
-import { t } from "../../i18n/index.tsx";
-import type { TaskRow } from "../../model/types.ts";
+import type { CatalogSnapshotSuccess } from "../api-client-catalog.ts";
+import { useCatalogPreset } from "../catalog-data.ts";
+import { t } from "../i18n/index.tsx";
+import type { TaskRow } from "../model/types.ts";
 import {
   locateCreatedTask,
   START_WORK_TASK_CLASSES,
@@ -14,9 +14,9 @@ import {
   startWorkPublishCommand,
   type StartWorkDraft,
   type StartWorkPrecondition,
-} from "../../start-work-flow.ts";
-import { CopyContextButton } from "../CopyContextButton.tsx";
-import { Btn, CfgRow, Hint, Modal, PlannedBox, Sect, TextInput, WarnBar } from "../runtime/parts.tsx";
+} from "../start-work-flow.ts";
+import { CopyContextButton } from "./CopyContextButton.tsx";
+import { Btn, CfgRow, Hint, Modal, PlannedBox, Sect, TextInput, WarnBar } from "./runtime/parts.tsx";
 
 /**
  * G1「开始一项工作」(S5):选目标类型 → 写目标与交付要求 → 确认执行资源与必要条件。
@@ -31,21 +31,21 @@ const STEPS = ["type", "intent", "resources"] as const;
 type Step = (typeof STEPS)[number];
 
 const STEP_LABEL: Record<Step, () => string> = {
-  type: () => t("views.overviewNext.startWork.stepType"),
-  intent: () => t("views.overviewNext.startWork.stepIntent"),
-  resources: () => t("views.overviewNext.startWork.stepResources"),
+  type: () => t("views.work.startWork.stepType"),
+  intent: () => t("views.work.startWork.stepIntent"),
+  resources: () => t("views.work.startWork.stepResources"),
 };
 
 const PRECONDITION_LABEL: Record<StartWorkPrecondition["id"], () => string> = {
-  daemon: () => t("views.overviewNext.startWork.preconditionDaemon"),
-  preset: () => t("views.overviewNext.startWork.preconditionPreset"),
-  completionGates: () => t("views.overviewNext.startWork.preconditionGates"),
+  daemon: () => t("views.work.startWork.preconditionDaemon"),
+  preset: () => t("views.work.startWork.preconditionPreset"),
+  completionGates: () => t("views.work.startWork.preconditionGates"),
 };
 
 const BLOCKER_LABEL: Record<"title" | "intent" | "preset", () => string> = {
-  title: () => t("views.overviewNext.startWork.blockerTitle"),
-  intent: () => t("views.overviewNext.startWork.blockerIntent"),
-  preset: () => t("views.overviewNext.startWork.blockerPreset"),
+  title: () => t("views.work.startWork.blockerTitle"),
+  intent: () => t("views.work.startWork.blockerIntent"),
+  preset: () => t("views.work.startWork.blockerPreset"),
 };
 
 export function StartWorkDialog({
@@ -111,8 +111,8 @@ export function StartWorkDialog({
     <Modal
       wide
       testId="start-work-dialog"
-      title={t("views.overviewNext.startWork.dialogTitle")}
-      hint={t("views.overviewNext.startWork.dialogHint")}
+      title={t("views.work.startWork.dialogTitle")}
+      hint={t("views.work.startWork.dialogHint")}
       onClose={onClose}
       footer={
         <div className="flex flex-wrap items-center gap-2">
@@ -126,15 +126,15 @@ export function StartWorkDialog({
               onClick={() => setStep(STEPS[Math.max(0, stepIndex - 1)])}
               testId="start-work-back"
             >
-              {t("views.overviewNext.startWork.back")}
+              {t("views.work.startWork.back")}
             </Btn>
             {stepIndex === STEPS.length - 1 ? (
               <Btn size="sm" onClick={onClose} testId="start-work-close">
-                {t("views.overviewNext.startWork.close")}
+                {t("views.work.startWork.close")}
               </Btn>
             ) : (
               <Btn size="sm" variant="primary" onClick={() => setStep(STEPS[stepIndex + 1])} testId="start-work-next">
-                {t("views.overviewNext.startWork.next")}
+                {t("views.work.startWork.next")}
               </Btn>
             )}
           </span>
@@ -142,9 +142,9 @@ export function StartWorkDialog({
       }
     >
       {catalogError !== null ? (
-        <WarnBar>{t("views.overviewNext.startWork.catalogError", { error: catalogError })}</WarnBar>
+        <WarnBar>{t("views.work.startWork.catalogError", { error: catalogError })}</WarnBar>
       ) : catalog === undefined ? (
-        <PlannedBox>{t("views.overviewNext.startWork.catalogLoading")}</PlannedBox>
+        <PlannedBox>{t("views.work.startWork.catalogLoading")}</PlannedBox>
       ) : step === "type" ? (
         <TypeStep
           catalog={catalog}
@@ -190,10 +190,10 @@ function TypeStep({
   readonly onChange: (draft: StartWorkDraft) => void;
 }) {
   return (
-    <Sect title={t("views.overviewNext.startWork.stepType")} desc={t("views.overviewNext.startWork.typeDesc")}>
-      <CfgRow label={t("views.overviewNext.startWork.presetLabel")}>
+    <Sect title={t("views.work.startWork.stepType")} desc={t("views.work.startWork.typeDesc")}>
+      <CfgRow label={t("views.work.startWork.presetLabel")}>
         <select
-          aria-label={t("views.overviewNext.startWork.presetLabel")}
+          aria-label={t("views.work.startWork.presetLabel")}
           data-testid="start-work-preset"
           value={draft.presetId}
           onChange={(event) => onChange({ ...draft, presetId: event.target.value, profileId: null })}
@@ -212,15 +212,15 @@ function TypeStep({
           {presetRow.description} · vertical {presetRow.verticalId} · {presetRow.sourceKind}
         </p>
       ) : null}
-      <CfgRow label={t("views.overviewNext.startWork.profileLabel")}>
+      <CfgRow label={t("views.work.startWork.profileLabel")}>
         <select
-          aria-label={t("views.overviewNext.startWork.profileLabel")}
+          aria-label={t("views.work.startWork.profileLabel")}
           data-testid="start-work-profile"
           value={draft.profileId ?? ""}
           onChange={(event) => onChange({ ...draft, profileId: event.target.value === "" ? null : event.target.value })}
           className="min-w-[240px] rounded border border-border bg-surface px-2 py-1 font-mono ui-micro text-text"
         >
-          <option value="">{t("views.overviewNext.startWork.profileDefault")}</option>
+          <option value="">{t("views.work.startWork.profileDefault")}</option>
           {(presetRow?.profiles ?? []).map((profile) => (
             <option key={profile.id} value={profile.id}>
               {profile.title} · {profile.id}
@@ -228,9 +228,9 @@ function TypeStep({
           ))}
         </select>
       </CfgRow>
-      <CfgRow label={t("views.overviewNext.startWork.taskClassLabel")}>
+      <CfgRow label={t("views.work.startWork.taskClassLabel")}>
         <select
-          aria-label={t("views.overviewNext.startWork.taskClassLabel")}
+          aria-label={t("views.work.startWork.taskClassLabel")}
           data-testid="start-work-task-class"
           value={draft.taskClass}
           onChange={(event) => onChange({ ...draft, taskClass: event.target.value })}
@@ -243,9 +243,9 @@ function TypeStep({
           ))}
         </select>
       </CfgRow>
-      <CfgRow label={t("views.overviewNext.startWork.workKindLabel")}>
+      <CfgRow label={t("views.work.startWork.workKindLabel")}>
         <select
-          aria-label={t("views.overviewNext.startWork.workKindLabel")}
+          aria-label={t("views.work.startWork.workKindLabel")}
           data-testid="start-work-work-kind"
           value={draft.workKind}
           onChange={(event) => onChange({ ...draft, workKind: event.target.value })}
@@ -258,9 +258,9 @@ function TypeStep({
           ))}
         </select>
       </CfgRow>
-      <CfgRow label={t("views.overviewNext.startWork.parentLabel")}>
+      <CfgRow label={t("views.work.startWork.parentLabel")}>
         <select
-          aria-label={t("views.overviewNext.startWork.parentLabel")}
+          aria-label={t("views.work.startWork.parentLabel")}
           data-testid="start-work-parent"
           value={draft.parentTaskId ?? ""}
           onChange={(event) =>
@@ -268,7 +268,7 @@ function TypeStep({
           }
           className="min-w-[240px] rounded border border-border bg-surface px-2 py-1 font-mono ui-micro text-text"
         >
-          <option value="">{t("views.overviewNext.startWork.parentNone")}</option>
+          <option value="">{t("views.work.startWork.parentNone")}</option>
           {groupOptions.map((task) => (
             <option key={task.taskId} value={task.taskId}>
               {task.title}
@@ -288,31 +288,31 @@ function IntentStep({
   readonly onChange: (draft: StartWorkDraft) => void;
 }) {
   return (
-    <Sect title={t("views.overviewNext.startWork.stepIntent")} desc={t("views.overviewNext.startWork.intentDesc")}>
-      <CfgRow label={t("views.overviewNext.startWork.titleLabel")}>
+    <Sect title={t("views.work.startWork.stepIntent")} desc={t("views.work.startWork.intentDesc")}>
+      <CfgRow label={t("views.work.startWork.titleLabel")}>
         <span className="min-w-[320px] flex-1">
           <TextInput
-            label={t("views.overviewNext.startWork.titleLabel")}
+            label={t("views.work.startWork.titleLabel")}
             testId="start-work-title"
             value={draft.title}
-            placeholder={t("views.overviewNext.startWork.titlePlaceholder")}
+            placeholder={t("views.work.startWork.titlePlaceholder")}
             onChange={(value) => onChange({ ...draft, title: value })}
           />
         </span>
       </CfgRow>
       <label className="mt-2 block ui-micro text-text-muted" htmlFor="start-work-intent">
-        {t("views.overviewNext.startWork.intentLabel")}
+        {t("views.work.startWork.intentLabel")}
       </label>
       <textarea
         id="start-work-intent"
         data-testid="start-work-intent"
         rows={7}
         value={draft.intent}
-        placeholder={t("views.overviewNext.startWork.intentPlaceholder")}
+        placeholder={t("views.work.startWork.intentPlaceholder")}
         onChange={(event) => onChange({ ...draft, intent: event.target.value })}
         className="mt-1 w-full rounded border border-border bg-surface px-2 py-1.5 ui-micro text-text outline-none focus:border-border-strong"
       />
-      <WarnBar>{t("views.overviewNext.startWork.intentNote")}</WarnBar>
+      <WarnBar>{t("views.work.startWork.intentNote")}</WarnBar>
     </Sect>
   );
 }
@@ -348,10 +348,7 @@ function ResourcesStep({
 }) {
   return (
     <>
-      <Sect
-        title={t("views.overviewNext.startWork.preconditionsTitle")}
-        desc={t("views.overviewNext.startWork.preconditionsDesc")}
-      >
+      <Sect title={t("views.work.startWork.preconditionsTitle")} desc={t("views.work.startWork.preconditionsDesc")}>
         <ul className="space-y-1" data-testid="start-work-preconditions">
           {preconditions.map((precondition) => (
             <li key={precondition.id} className="flex flex-wrap items-baseline gap-2 ui-micro">
@@ -360,43 +357,36 @@ function ResourcesStep({
               <span className="font-mono text-text-faint">
                 {precondition.state === "unknown"
                   ? precondition.id === "completionGates" && gatesPending
-                    ? t("views.overviewNext.startWork.gatesLoading")
-                    : t("views.overviewNext.startWork.preconditionUnknown")
+                    ? t("views.work.startWork.gatesLoading")
+                    : t("views.work.startWork.preconditionUnknown")
                   : precondition.value}
               </span>
             </li>
           ))}
         </ul>
       </Sect>
-      <Sect
-        title={t("views.overviewNext.startWork.executorTitle")}
-        desc={t("views.overviewNext.startWork.executorDesc")}
-      >
+      <Sect title={t("views.work.startWork.executorTitle")} desc={t("views.work.startWork.executorDesc")}>
         {catalog.bundledAgents.length > 0 ? (
           <p className="font-mono ui-micro text-text-faint" data-testid="start-work-executors">
             {catalog.bundledAgents.join(" · ")}
           </p>
         ) : (
-          <PlannedBox>{t("views.overviewNext.startWork.executorNone")}</PlannedBox>
+          <PlannedBox>{t("views.work.startWork.executorNone")}</PlannedBox>
         )}
-        <WarnBar>{t("views.overviewNext.startWork.executorNote")}</WarnBar>
+        <WarnBar>{t("views.work.startWork.executorNote")}</WarnBar>
       </Sect>
       <Sect
-        title={t("views.overviewNext.startWork.commandTitle")}
-        desc={t("views.overviewNext.startWork.commandDesc")}
+        title={t("views.work.startWork.commandTitle")}
+        desc={t("views.work.startWork.commandDesc")}
         right={
           blockers.length === 0 ? (
-            <CopyContextButton
-              compact
-              label={t("views.overviewNext.startWork.commandCopy")}
-              buildText={() => command.text}
-            />
+            <CopyContextButton compact label={t("views.work.startWork.commandCopy")} buildText={() => command.text} />
           ) : null
         }
       >
         {blockers.length > 0 ? (
           <WarnBar>
-            {t("views.overviewNext.startWork.commandBlocked", {
+            {t("views.work.startWork.commandBlocked", {
               fields: blockers.map((blocker) => BLOCKER_LABEL[blocker]()).join(" / "),
             })}
           </WarnBar>
@@ -409,9 +399,9 @@ function ResourcesStep({
               {command.text}
             </pre>
             <p className="mt-1.5 ui-micro text-text-faint" data-testid="start-work-idempotency">
-              {t("views.overviewNext.startWork.idempotencyNote", { key: command.idempotencyKey })}
+              {t("views.work.startWork.idempotencyNote", { key: command.idempotencyKey })}
             </p>
-            <p className="mt-2 ui-micro text-text-muted">{t("views.overviewNext.startWork.planLabel")}</p>
+            <p className="mt-2 ui-micro text-text-muted">{t("views.work.startWork.planLabel")}</p>
             <pre
               data-testid="start-work-plan-body"
               className="mt-1 max-h-40 overflow-auto rounded border border-border bg-surface px-2.5 py-2 ui-micro whitespace-pre-wrap text-text-muted"
@@ -427,20 +417,20 @@ function ResourcesStep({
           </>
         )}
       </Sect>
-      <Sect title={t("views.overviewNext.startWork.verifyTitle")} desc={t("views.overviewNext.startWork.verifyDesc")}>
+      <Sect title={t("views.work.startWork.verifyTitle")} desc={t("views.work.startWork.verifyDesc")}>
         <span className="flex flex-wrap items-center gap-2">
           <Btn size="sm" onClick={onVerify} testId="start-work-verify">
-            {t("views.overviewNext.startWork.verify")}
+            {t("views.work.startWork.verify")}
           </Btn>
           {created ? (
             <>
-              <Hint>{t("views.overviewNext.startWork.verifyFound", { taskId: created.taskId })}</Hint>
+              <Hint>{t("views.work.startWork.verifyFound", { taskId: created.taskId })}</Hint>
               <Btn size="sm" variant="primary" onClick={() => onOpenTask(created.taskId)} testId="start-work-open">
-                {t("views.overviewNext.startWork.verifyOpen")}
+                {t("views.work.startWork.verifyOpen")}
               </Btn>
             </>
           ) : lookupRequested ? (
-            <Hint>{t("views.overviewNext.startWork.verifyMissing", { title: draft.title })}</Hint>
+            <Hint>{t("views.work.startWork.verifyMissing", { title: draft.title })}</Hint>
           ) : null}
         </span>
       </Sect>

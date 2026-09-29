@@ -6,7 +6,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type { SnapshotStatus, TaskRow } from "../src/renderer/model/types.ts";
 import { BOARD_COLUMNS } from "../src/renderer/model/types.ts";
 import { TaskPreviewDrawer } from "../src/renderer/components/TaskPreviewDrawer.tsx";
-import { TaskStream } from "../src/renderer/components/overview/TaskStream.tsx";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
 import { SwimlaneBoard } from "../src/renderer/views/SwimlaneBoard.tsx";
 import {
@@ -600,64 +599,6 @@ describe("board status pills and dynamic column rendering (task_8928cf1e)", () =
     const searchLabel = markup.match(/<label[^>]*class="[^"]*w-\[240px\][^"]*"/u);
     expect(searchLabel).not.toBeNull();
     expect(searchLabel![0]).not.toContain("flex-1");
-  });
-});
-
-/** 总览任务流的 archived 页签(task_8928cf1e):页签交互后行集切换,须真实 DOM 点击。 */
-describe("overview task stream archived tab (task_8928cf1e)", () => {
-  const summary = {
-    total: 1,
-    byStatus: { planned: 0, active: 1, submitted: 0, blocked: 0, in_review: 0, done: 0, cancelled: 0, unknown: 0 },
-  };
-
-  it("streams archived rows under the archived tab; lifecycle tabs stay active-package only", async () => {
-    const rows = [
-      makeTask({ taskId: "t_live", title: "stream-live", coordinationStatus: "active" }),
-      makeTask({
-        taskId: "t_arch_done",
-        title: "stream-arch-done",
-        coordinationStatus: "done",
-        packageDisposition: "archived",
-      }),
-      makeTask({
-        taskId: "t_arch_active",
-        title: "stream-arch-active",
-        coordinationStatus: "active",
-        packageDisposition: "archived",
-      }),
-    ];
-    const container = document.createElement("div");
-    document.body.append(container);
-    const root = createRoot(container);
-    try {
-      await act(async () => {
-        root.render(
-          createElement(TaskStream, {
-            tasks: rows,
-            summary,
-            onOpenPreview: noop,
-            onGoBoard: noop,
-          }),
-        );
-      });
-      // 默认 active 页签:只有活跃包 active 行。
-      expect(container.textContent).toContain("stream-live");
-      expect(container.textContent).not.toContain("stream-arch-done");
-      const tab = container.querySelector('[data-testid="overview-status-archived"]') as HTMLButtonElement;
-      expect(tab.textContent).toMatch(/Archived\s*2/u); // 计数从行集本地数出。
-      act(() => {
-        tab.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      });
-      // archived 页签:归档行流式可见,生命周期词不再硬丢弃。
-      expect(container.textContent).toContain("stream-arch-done");
-      expect(container.textContent).toContain("stream-arch-active");
-      expect(container.textContent).not.toContain("stream-live");
-    } finally {
-      act(() => {
-        root.unmount();
-      });
-      container.remove();
-    }
   });
 });
 

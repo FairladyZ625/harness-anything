@@ -10,8 +10,8 @@ import {
 import { cadenceEventOf, mergeCadenceEvents, type CadenceFeedEvent } from "./model/cadence.ts";
 
 /**
- * `observe.tail` events 流的聚合 follow 循环。原为研发态势视图私有,总览(新)的
- * 「最近变化」复用同一读取与刷新机制(不另造第二条事件读路):初始沿 history 游标
+ * `observe.tail` events 流的聚合 follow 循环。研发态势与工作区视图复用同一读取与
+ * 刷新机制(不另造第二条事件读路):初始沿 history 游标
  * 最多回看 CADENCE_HISTORY_PAGE_BUDGET 页(64/页),此后 live cursor 每
  * CADENCE_FOLLOW_MS 追一次;窗口滚动封顶 CADENCE_EVENT_LIMIT(丢最旧端),
  * `unavailable`(远端 edge 无事件流)显式呈现并慢速重试,不冒充空窗口。

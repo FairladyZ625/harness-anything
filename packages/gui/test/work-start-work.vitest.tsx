@@ -6,15 +6,13 @@ import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { daemonGuiActionMethods } from "@harness-anything/daemon/protocol";
 import { presetCommands } from "../../preset/src/preset-command-contract.ts";
-import { OverviewNextView } from "../src/renderer/views/OverviewNextView.tsx";
+import { WorkView } from "../src/renderer/views/WorkView.tsx";
 import { harnessClient } from "../src/renderer/api-client.ts";
 import type { CatalogPresetSuccess, CatalogSnapshotSuccess } from "../src/renderer/api-client-catalog.ts";
-import type { ObserveTailRead } from "../src/api/renderer-dto.ts";
 import type { TaskRow } from "../src/renderer/model/types.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import {
-  searchCurrentRepo,
   START_WORK_TASK_CLASSES,
   START_WORK_WORK_KINDS,
   startWorkCommand,
@@ -23,9 +21,8 @@ import {
 } from "../src/renderer/start-work-flow.ts";
 
 /**
- * G1「工作范围与入口」(S5,task_654349ce)的判据:
- *  - 三个入口都接着真东西:切仓走壳层那一份切换器;搜索走统一实体索引且每行带类型与
- *    所属工作;「开始一项工作」走到真实 `ha task create` 命令。
+ * 「开始一项工作」(S5,task_654349ce;dec_DC3A1BB9 CH3 迁到工作页顶部)的判据:
+ *  - 入口在工作页顶部,走到真实 `ha task create` 命令。
  *  - 「不画没有接线的按钮」有对照:命令里出现的每个 flag 都在 task-create 契约里声明过,
  *    两个取值面与 kernel 的真实词表逐词相等;GUI 写面里确实没有 task 创建 ingress
  *    (所以这一步只能是 CLI 指引,这是事实不是偷懒)。
@@ -33,7 +30,7 @@ import {
  *  - 创建后核对按真实任务投影判定:没找到就说没找到,不假成功。
  */
 
-const REPO_ID = "work-entry-probe",
+const REPO_ID = "work-start-probe",
   NOW = "2026-09-21T02:00:00.000Z";
 
 function taskRow(patch: Partial<TaskRow> & { readonly taskId: string }): TaskRow {
@@ -69,12 +66,6 @@ const TASKS = [
     workId: "task_root",
     workTitle: "统一工作体验",
   }),
-];
-
-const SEARCH_ROWS = [
-  { ref: "task/task_root", label: "统一工作体验", sub: "active", entity: "task" },
-  { ref: "task/task_child", label: "首次工作与入口", sub: "active", entity: "task" },
-  { ref: "decision/dec_probe", label: "并列新增总览(新)", sub: "in_effect", entity: "decision" },
 ];
 
 const CATALOG: CatalogSnapshotSuccess = {
@@ -154,25 +145,9 @@ const PRESET_DETAIL: CatalogPresetSuccess = {
   },
 };
 
-const PROJECT = {
-  id: REPO_ID,
-  name: "harness-anything",
-  path: "/tmp/work-entry-probe",
-  preset: "standard-task",
-  engines: ["kernel"],
-  watermarkAt: NOW,
-};
-
-const HEALTH = {
-  daemon: { state: "responsive", observedAgeSec: 1, uptimeMs: 60_000 },
-  cell: { state: "ok", queueDepth: 0, problem: null },
-  projection: { status: "ready", lag: 0 },
-  ledgerChange: { at: NOW, ageSec: 1 },
-} as Parameters<typeof OverviewNextView>[0]["health"];
-
 const DRAFT: StartWorkDraft = {
-  title: "接上总览(新)的开始一项工作",
-  intent: "目标:冷用户能从总览(新)建出第一项工作。交付:入口三件套 + 定向测试。",
+  title: "接上工作页的开始一项工作",
+  intent: "目标:冷用户能从工作页建出第一项工作。交付:入口 + 定向测试。",
   presetId: "standard-task",
   profileId: "baseline",
   taskClass: "standard",
@@ -201,26 +176,18 @@ afterEach(() => {
 
 interface Mounted {
   readonly container: HTMLElement;
-  readonly switchRepo: ReturnType<typeof vi.fn>;
-  readonly searchActive: ReturnType<typeof vi.fn>;
-  readonly navigateEntity: ReturnType<typeof vi.fn>;
   readonly refreshLedger: ReturnType<typeof vi.fn>;
   readonly openTask: ReturnType<typeof vi.fn>;
   readonly presetReads: ReturnType<typeof vi.fn>;
   rerender: (tasks: readonly TaskRow[]) => Promise<void>;
 }
 
-async function mountOverviewNext(
+async function mountWorkView(
   options: { readonly tasks?: readonly TaskRow[]; readonly catalog?: CatalogSnapshotSuccess | null } = {},
 ): Promise<Mounted> {
-  const switchRepo = vi.fn(),
-    searchActive = vi.fn(),
-    navigateEntity = vi.fn(),
-    refreshLedger = vi.fn(),
+  const refreshLedger = vi.fn(),
     openTask = vi.fn(),
     presetReads = vi.fn(async () => PRESET_DETAIL);
-  // observe.tail 永不结算:G5 停在读取中,本套用例只判 G1。
-  vi.spyOn(harnessClient, "tailObservability").mockImplementation(() => new Promise<ObserveTailRead>(() => undefined));
   vi.spyOn(harnessClient, "getCatalogPreset").mockImplementation(presetReads);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const container = document.createElement("div");
@@ -233,44 +200,23 @@ async function mountOverviewNext(
         createElement(
           QueryClientProvider,
           { client },
-          createElement(OverviewNextView, {
-            repoId: REPO_ID,
-            project: PROJECT,
+          createElement(WorkView, {
             tasks,
-            agenda: undefined,
-            agendaError: null,
-            activeSessions: [],
-            runtimeError: null,
-            health: HEALTH,
-            daemonReadFailed: false,
-            ledgerRevision: { watermark: 12, sourceRevision: 3 },
-            searchRows: SEARCH_ROWS,
+            repoId: REPO_ID,
+            projectName: "harness-anything",
+            ready: true,
+            onOpenTask: openTask,
             catalog: options.catalog === undefined ? CATALOG : (options.catalog ?? undefined),
             catalogError: null,
-            onNavigateEntity: navigateEntity,
-            onSelectRuntimeEntity: () => undefined,
-            onOpenPool: () => undefined,
-            onOpenSessions: () => undefined,
-            onSwitchRepo: switchRepo,
-            onSearchActiveChange: searchActive,
+            daemonState: "responsive",
             onRefreshLedger: refreshLedger,
-            onOpenTask: openTask,
           }),
         ),
       );
     });
   };
   await render(options.tasks ?? TASKS);
-  return {
-    container,
-    switchRepo,
-    searchActive,
-    navigateEntity,
-    refreshLedger,
-    openTask,
-    presetReads,
-    rerender: render,
-  };
+  return { container, refreshLedger, openTask, presetReads, rerender: render };
 }
 
 function byTestId(container: HTMLElement, testId: string): HTMLElement {
@@ -397,65 +343,23 @@ describe("G1 开始一项工作:幂等键", () => {
   });
 });
 
-describe("G1 搜索:类型与所属工作", () => {
-  it("命中带实体类型;子任务带所属工作,根任务与非任务行没有上层工作", () => {
-    const hits = searchCurrentRepo(SEARCH_ROWS, TASKS, "统一", 12);
-    expect(hits.map((hit) => hit.ref)).toEqual(["task/task_root"]);
-    expect(hits[0].entity).toBe("task");
-    expect(hits[0].group).toBeNull();
-    const child = searchCurrentRepo(SEARCH_ROWS, TASKS, "首次", 12)[0];
-    expect(child.group).toEqual({ taskId: "task_root", title: "统一工作体验" });
-    const decision = searchCurrentRepo(SEARCH_ROWS, TASKS, "并列", 12)[0];
-    expect(decision.entity).toBe("decision");
-    expect(decision.group).toBeNull();
-  });
-
-  it("空查询不出结果;上限生效", () => {
-    expect(searchCurrentRepo(SEARCH_ROWS, TASKS, "   ", 12)).toEqual([]);
-    expect(searchCurrentRepo(SEARCH_ROWS, TASKS, "a", 1).length).toBeLessThanOrEqual(1);
-  });
-});
-
-describe("G1 区域:三个入口", () => {
-  it("渲染切仓、当前仓搜索与开始一项工作三个入口", async () => {
-    const view = await mountOverviewNext();
-    const bar = byTestId(view.container, "overview-next-work-entry");
-    expect(bar.textContent).toContain("切换仓库");
-    expect(bar.textContent).toContain("开始一项工作");
-    expect(byTestId(view.container, "overview-next-search-input")).toBeTruthy();
-    expect(bar.textContent).toContain(PROJECT.name);
-  });
-
-  it("切仓按钮走壳层那一份切换器", async () => {
-    const view = await mountOverviewNext();
-    await click(byTestId(view.container, "overview-next-switch-repo"));
-    expect(view.switchRepo).toHaveBeenCalledTimes(1);
-  });
-
-  it("有输入才启用事实索引读面,结果显式标类型与所属工作,点击走实体导航", async () => {
-    const view = await mountOverviewNext();
-    expect(view.searchActive.mock.calls.at(-1)?.[0]).toBe(false);
-    expect(queryTestId(view.container, "overview-next-search-results")).toBeNull();
-    await type(byTestId(view.container, "overview-next-search-input"), "首次");
-    expect(view.searchActive.mock.calls.at(-1)?.[0]).toBe(true);
-    const results = byTestId(view.container, "overview-next-search-results");
-    expect(results.textContent).toContain("task");
-    expect(results.textContent).toContain("所属工作:统一工作体验");
-    await click(results.querySelector("button")!);
-    expect(view.navigateEntity).toHaveBeenCalledWith("task/task_child");
-  });
-
-  it("查无此项时给诚实空态,不冒充有结果", async () => {
-    const view = await mountOverviewNext();
-    await type(byTestId(view.container, "overview-next-search-input"), "不存在的东西");
-    expect(byTestId(view.container, "overview-next-search-results").textContent).toContain("没有匹配");
+describe("工作页顶部:开始一项工作(dec_DC3A1BB9 CH3)", () => {
+  it("入口在工作页页头,点开是创建向导", async () => {
+    const view = await mountWorkView();
+    const header = view.container.querySelector("header")!;
+    const entry = byTestId(view.container, "work-start-work");
+    expect(header.contains(entry)).toBe(true);
+    expect(entry.textContent).toContain("开始一项工作");
+    expect(queryTestId(document.body, "start-work-dialog")).toBeNull();
+    await click(entry);
+    expect(dialogTestId("start-work-dialog").textContent).toContain("开始一项工作");
   });
 });
 
 describe("G1 开始一项工作:向导走到真实创建命令", () => {
   async function openWizard(tasks?: readonly TaskRow[]) {
-    const view = await mountOverviewNext(tasks ? { tasks } : {});
-    await click(byTestId(view.container, "overview-next-start-work"));
+    const view = await mountWorkView(tasks ? { tasks } : {});
+    await click(byTestId(view.container, "work-start-work"));
     return view;
   }
 
@@ -522,8 +426,8 @@ describe("G1 开始一项工作:向导走到真实创建命令", () => {
   });
 
   it("目录快照还没到时不画选型面,如实说在读", async () => {
-    const view = await mountOverviewNext({ catalog: null });
-    await click(byTestId(view.container, "overview-next-start-work"));
+    const view = await mountWorkView({ catalog: null });
+    await click(byTestId(view.container, "work-start-work"));
     expect(dialogTestId("start-work-dialog").textContent).toContain("正在读取目录快照");
     expect(queryTestId(document.body, "start-work-preset")).toBeNull();
   });
