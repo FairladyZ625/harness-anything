@@ -119,7 +119,7 @@ export async function seedRuntime(
       [
         "runtime_dispatch_requested",
         {
-          dispatchId: "dispatch-gui",
+          dispatchId: "dispatch_0123456789abcdef01234567",
           runtimeSessionId: "runtime-gui",
           instanceId: "codex-gui",
           installationId: "installation-gui",

@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
+import { readDispatchRecords } from "./runtime-cli.fixtures.ts";
 
 const cli = path.resolve("packages/cli/src/index.ts");
 const ontologySquad = {
@@ -334,10 +335,7 @@ test("agent create runs and ontology-squad reinstall stays on the canonical Enti
     const mission = readFileSync(path.join(root, "harness", String(dispatch.missionRef)), "utf8");
     assert.equal(dispatch.agentId, "mechanic-agent");
     assert.match(mission, /MECHANIC_INSTRUCTIONS_WITNESS/u);
-    const stream = readFileSync(path.join(root, String(dispatch.eventStreamRef).slice("file:".length)), "utf8")
-      .trim()
-      .split("\n")
-      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const stream = readDispatchRecords(root, String((child.spawn as Record<string, unknown>).dispatchId));
     assert.equal(
       stream.some((row) => row.kind === "provider_event"),
       true,

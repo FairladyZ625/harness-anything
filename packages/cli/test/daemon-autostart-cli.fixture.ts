@@ -317,7 +317,7 @@ async function seedAttachableRuntime(
       source: "local",
       occurredAt: at(2),
       payload: {
-        dispatchId: "dispatch-runtime-attach-live",
+        dispatchId: "dispatch_0123456789abcdef01234567",
         runtimeSessionId,
         instanceId: definition.instanceId,
         installationId: definition.installationId,

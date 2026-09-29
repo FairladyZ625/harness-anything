@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -871,10 +872,11 @@ test("retry completes the awaits write after the review write response is interr
 });
 
 test("the in-progress agenda row names each running reviewer and the findings its review recorded", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-review-in-progress-"));
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-review-in-progress-")),
+    repoId = workspaceId("decision-review-in-progress");
   initRepo(rootDir);
   const cell = await openRepoCell({
-    repoId: workspaceId("decision-review-in-progress"),
+    repoId,
     rootDir: canonicalRoot(rootDir),
     ownerId: "decision-review-in-progress-test",
   });
@@ -893,23 +895,64 @@ test("the in-progress agenda row names each running reviewer and the findings it
           readonly currentReviewContentDigest: `sha256:${string}`;
         }
       ).currentReviewContentDigest;
-    for (const [dispatchId, agentName] of [
-      ["dispatch_aaaaaaaaaaaaaaaaaaaaaaaa", "独立评审甲"],
-      ["dispatch_bbbbbbbbbbbbbbbbbbbbbbbb", undefined],
-    ] as const) {
-      openDispatchStream(rootDir, {
-        dispatchId,
-        taskId: null,
-        executionId: null,
-        reviewTarget: { kind: "decision", decisionId, digest },
-        runtimeSessionId: `runtime_${dispatchId.slice("dispatch_".length)}`,
-        instanceId: "instance-1",
-        startedAt: "2026-09-29T00:00:00.000Z",
-        agentId: dispatchId.endsWith("a") ? "reviewer-a" : "reviewer-b",
-        ...(agentName ? { agentName } : {}),
-      });
-      appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
-    }
+    const reviewers = await Promise.all(
+      (
+        [
+          ["decision-review-a", "reviewer-a", "独立评审甲"],
+          ["decision-review-b", "reviewer-b", undefined],
+        ] as const
+      ).map(async ([idempotencyKey, agentId, agentName]) => {
+        const hash = createHash("sha256").update(`${repoId}\0${idempotencyKey}`).digest("hex"),
+          dispatchId = `dispatch_${hash.slice(0, 24)}`,
+          runtimeSessionId = `runtime_${hash.slice(24, 48)}`;
+        const ingress = await cell.runtimeIngress(
+          {
+            kind: "event",
+            type: "runtime_dispatch_requested",
+            opId: `runtime-spawn-${hash.slice(0, 32)}`,
+            payload: {
+              dispatchId,
+              runtimeSessionId,
+              instanceId: "instance-1",
+              installationId: "installation-1",
+              kindId: "codex",
+              idempotencyKey,
+              definitionSnapshotRef: `artifact:runtime-definition/${agentId}`,
+              definitionSnapshot: {
+                schema: "agent-definition-snapshot/v1",
+                configVersion: 1,
+                instanceId: "instance-1",
+                installationId: "installation-1",
+                kindId: "codex",
+                providerId: "openai",
+                model: "review-model",
+                reasoningEffort: null,
+                baseUrl: null,
+                authMode: "subscription",
+              },
+              reviewTarget: { kind: "decision", decisionId, digest },
+              agentId,
+              ...(agentName ? { agentName } : {}),
+            },
+          },
+          proposer,
+        );
+        assert.equal(ingress.outcome, "applied", JSON.stringify(ingress));
+        openDispatchStream(rootDir, {
+          dispatchId,
+          taskId: null,
+          executionId: null,
+          reviewTarget: { kind: "decision", decisionId, digest },
+          runtimeSessionId,
+          instanceId: "instance-1",
+          startedAt: "2026-09-29T00:00:00.000Z",
+          agentId,
+          ...(agentName ? { agentName } : {}),
+        });
+        appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
+        return { dispatchId, reviewer: agentName ?? agentId };
+      }),
+    );
     const reviewersOf = async () =>
       (await cell.read("repo.agenda.read", { limit: 50 }, proposer)).decisionReviewInProgress.map(
         (row: { readonly decisionId: string; readonly reviewers: unknown }) => [row.decisionId, row.reviewers],
@@ -918,18 +961,18 @@ test("the in-progress agenda row names each running reviewer and the findings it
       [
         decisionId,
         [
-          { dispatchId: "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa", reviewer: "独立评审甲", findingCount: null },
-          { dispatchId: "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb", reviewer: "reviewer-b", findingCount: null },
+          { ...reviewers[0], findingCount: null },
+          { ...reviewers[1], findingCount: null },
         ],
       ],
     ]);
-    const reportRef = `decisions/decision-${decisionId}/artifacts/reports/dispatch_aaaaaaaaaaaaaaaaaaaaaaaa.md`;
+    const reportRef = `decisions/decision-${decisionId}/artifacts/reports/${reviewers[0]!.dispatchId}.md`;
     writeReport(rootDir, reportRef);
     const reviewed = await cell.run(
       {
         kind: "decision-review",
         decisionId,
-        reviewId: "review-dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
+        reviewId: `review-${reviewers[0]!.dispatchId}`,
         reviewContentDigest: digest,
         verdict: "approved",
         reason: "The current cut is acceptable.",
@@ -949,8 +992,8 @@ test("the in-progress agenda row names each running reviewer and the findings it
         [
           decisionId,
           [
-            { dispatchId: "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa", reviewer: "独立评审甲", findingCount: 0 },
-            { dispatchId: "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb", reviewer: "reviewer-b", findingCount: null },
+            { ...reviewers[0], findingCount: 0 },
+            { ...reviewers[1], findingCount: null },
           ],
         ],
       ],
