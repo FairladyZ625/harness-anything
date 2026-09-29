@@ -96,7 +96,7 @@ test("doctor reports stale invocations per file:line and accepts the live surfac
   }
 });
 
-test("doctor skips placeholder templates and shell substitutions instead of misparsing them", () => {
+test("doctor validates placeholder command paths and skips shell substitutions", () => {
   const root = fixtureRepo({
     "docs-release/guide.md": [
       "```bash",
@@ -108,8 +108,32 @@ test("doctor skips placeholder templates and shell substitutions instead of misp
   });
   try {
     const report = runDoctor(root);
-    assert.equal(report.checked, 1);
+    assert.equal(report.checked, 2);
     assert.deepEqual(report.findings, []);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("doctor scans preset templates and kernel rejection commands", () => {
+  const root = fixtureRepo({
+    "packages/preset/assets/software-coding/templates/task.plan/en-US.md": [
+      "Use `ha relation relate --source-ref decision/<decision-id>/<claim-id> --target-ref fact/F-X --type evidenced-by --rationale <why> --expected-version 0`.",
+      "Retired: `ha decision relate <decision-id> --anchor <claim-id> --type evidenced-by --target fact/F-X`.",
+    ].join("\n"),
+    "packages/kernel/src/domain/task-lifecycle-review-transitions.ts":
+      'const hint = "run ha decision relate <decision-id> --anchor <claim-id> --type derives";\n',
+  });
+  try {
+    const report = runDoctor(root);
+    assert.equal(report.checked, 3);
+    assert.deepEqual(
+      report.findings.map(({ path: file, line, code }) => `${file}:${line}:${code}`),
+      [
+        "packages/kernel/src/domain/task-lifecycle-review-transitions.ts:1:command_not_found",
+        "packages/preset/assets/software-coding/templates/task.plan/en-US.md:2:command_not_found",
+      ],
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

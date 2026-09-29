@@ -51,8 +51,14 @@ const doctorLocalRoots: readonly string[] = [
       .map((command) => command.path.filter((token) => !token.startsWith("-"))),
   ]);
 
-const doctorDocDirs = ["harness/context", "harness/governance", "docs-release"],
+const doctorDocDirs = [
+    "harness/context",
+    "harness/governance",
+    "docs-release",
+    "packages/preset/assets/software-coding/templates",
+  ],
   doctorDocFiles = ["AGENTS.md", "CLAUDE.md"],
+  doctorSourceFiles = ["packages/kernel/src/domain/task-lifecycle-review-transitions.ts"],
   doctorSkipDirs: readonly string[] = [
     ".git",
     ".harness",
@@ -105,14 +111,23 @@ export function renderDoctorReport(report: DoctorReport, json: boolean): number 
 export function runDoctor(rootDir: string): DoctorReport {
   const findings: DoctorFinding[] = [];
   let checked = 0;
-  for (const file of authoredMarkdownFiles(rootDir)) {
+  for (const file of authoredCommandReferenceFiles(rootDir)) {
     const relative = path.relative(rootDir, file),
       source = readFileSync(file, "utf8");
-    for (const hit of extractDoctorCommands(source)) {
+    for (const hit of file.endsWith(".md") ? extractDoctorCommands(source) : extractSourceDoctorCommands(source)) {
       const args = tokenizeCommand(hit.command).slice(1);
-      if (args.length === 0 || args.some((token) => /[<>`$*|…]/u.test(token) || token === "...")) continue;
+      if (args.length === 0 || args.some((token) => /[`$*|…]/u.test(token) || token === "...")) continue;
       checked += 1;
       const verdict = validateInvocation(args, rootDir);
+      if (
+        !verdict.ok &&
+        (/[<>]/u.test(args[0] ?? "") ||
+          ((relative.startsWith("packages/preset/assets/software-coding/templates/") ||
+            doctorSourceFiles.includes(relative)) &&
+            verdict.code !== "command_not_found") ||
+          (args.some((token) => /[<>]/u.test(token)) && verdict.code !== "command_not_found"))
+      )
+        continue;
       if (!verdict.ok)
         findings.push({
           path: relative,
@@ -126,7 +141,7 @@ export function runDoctor(rootDir: string): DoctorReport {
   return { checked, findings };
 }
 
-function authoredMarkdownFiles(rootDir: string): readonly string[] {
+function authoredCommandReferenceFiles(rootDir: string): readonly string[] {
   const files = new Set<string>();
   for (const relative of doctorDocDirs) {
     const directory = path.join(rootDir, relative);
@@ -136,8 +151,21 @@ function authoredMarkdownFiles(rootDir: string): readonly string[] {
     const file = path.join(rootDir, name);
     if (existsSync(file)) files.add(file);
   }
+  for (const name of doctorSourceFiles) {
+    const file = path.join(rootDir, name);
+    if (existsSync(file)) files.add(file);
+  }
   collectAgentsDirs(rootDir, files);
   return [...files].sort();
+}
+
+function extractSourceDoctorCommands(source: string): readonly DoctorCommand[] {
+  const commands: DoctorCommand[] = [];
+  for (const [index, line] of source.split(/\r?\n/u).entries()) {
+    for (const match of line.matchAll(/\bha\s+[^"'`\n]+/gu))
+      commands.push({ line: index + 1, command: match[0].trim() });
+  }
+  return commands;
 }
 
 function collectMarkdown(directory: string, files: Set<string>): void {
