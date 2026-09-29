@@ -39,7 +39,7 @@ test("G30 resolves workspace links inside the archive tree", () => {
   const scope = path.join(rootDir, "node_modules/@harness-anything");
   mkdirSync(scope, { recursive: true });
   symlinkSync(path.join(rootDir, "packages/example"), path.join(scope, "example"), "dir");
-  assert.equal(realpathSync(path.join(scope, "example")), path.join(rootDir, "packages/example"));
+  assert.equal(realpathSync(path.join(scope, "example")), realpathSync(path.join(rootDir, "packages/example")));
 
   const result = evaluateCleanBuild(rootDir);
 
