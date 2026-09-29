@@ -172,7 +172,20 @@ function renderTaskShow(receipt: Record<string, unknown>): string {
 function workspaceLine(workspace: Record<string, unknown>, setup: unknown): string {
   if (workspace.kind !== "worktree")
     return `workspace: ${String(workspace.path)} (task package; this task does not change repository files)`;
-  const steps = Array.isArray(setup) && setup.length ? setup.map(String).join("; ") : "none";
+  const declared = isRecord(setup) && Array.isArray(setup.declared) ? setup.declared.map(String) : [],
+    succeeded = isRecord(setup) && Array.isArray(setup.succeeded) ? setup.succeeded.map(String) : null,
+    rows =
+      succeeded === null
+        ? declared.length
+          ? [`${declared.join("; ")} (unknown: no checkout on this node)`]
+          : []
+        : [
+            ...declared.map((step) =>
+              succeeded.includes(step) ? `${step} (done)` : `${step} (pending, runs at next start)`,
+            ),
+            ...succeeded.filter((step) => !declared.includes(step)).map((step) => `${step} (done)`),
+          ],
+    steps = rows.length ? rows.join("; ") : "none";
   return (
     `workspace: ${String(workspace.path)} (worktree on branch ${String(workspace.branch)}, ` +
     `${String(workspace.state)}; setup: ${steps}; managed by Harness, no command needed)`

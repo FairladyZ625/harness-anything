@@ -17,7 +17,7 @@ import {
 } from "../src/task-worktree.ts";
 import { prepareWorkerWorktree, reclaimWorkerWorktree } from "../src/squad-worker-checkout.ts";
 import { remoteDefaultBranch, repositoryBaseRef } from "../src/schedule-occurrence-workspace.ts";
-import { runWorktreeSetup, worktreeSetupFailure } from "../src/worktree-setup.ts";
+import { readWorktreeSetupSucceeded, runWorktreeSetup, worktreeSetupFailure } from "../src/worktree-setup.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
 
@@ -258,6 +258,19 @@ test("a failing setup step refuses the start, keeps the worktree, and a retry re
     assert.equal(writes, 1);
     assert.match(String((started as { summary?: unknown }).summary), /Setup ran: run: echo checking/u);
     assert.equal(readFileSync(counter, "utf8"), "x\n", "the step that succeeded does not run again");
+  } finally {
+    rmSync(fixture.base, { recursive: true, force: true });
+  }
+});
+
+test("a task read sees only the setup steps that succeeded in this worktree, not the ones Settings declares", async () => {
+  const fixture = repositoryFixture();
+  try {
+    const checkout = await materializeTaskWorktree(fixture.root, boundTask("active"), repositoryDiff, []);
+    // Checked out before Settings declared anything: nothing has run here yet.
+    assert.deepEqual(readWorktreeSetupSucceeded(checkout!.cwd), []);
+    await runWorktreeSetup({ rootDir: fixture.root, cwd: checkout!.cwd, taskId, steps: ["run: true", "run: false"] });
+    assert.deepEqual(readWorktreeSetupSucceeded(checkout!.cwd), ["run: true"]);
   } finally {
     rmSync(fixture.base, { recursive: true, force: true });
   }
