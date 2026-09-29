@@ -242,11 +242,14 @@ test("a worker push that never answers ends as a timed-out push failure", async 
       setTimeout(() => reject(new Error("the hanging push never settled")), 10_000).unref();
     }),
   ]);
+  // This dispatch never submitted, so the delivery commit the push would publish is the HEAD itself.
+  const workerHead = git(worker, "rev-parse", "HEAD").trim();
   assert.deepEqual(result, {
     attempted: true,
     ok: false,
     branch: "task_push_hang",
-    head: git(worker, "rev-parse", "HEAD").trim(),
+    head: workerHead,
+    pushedCommit: workerHead,
     detail: "git push timed out after 300 ms",
   });
 });
