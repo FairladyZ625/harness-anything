@@ -16,6 +16,7 @@ function boundedWait(ms) {
 }
 import {
   collectSlowTests,
+  coverageReporterArgs,
   filterTestFilesByNames,
   filterTestFilesByPrefixes,
   formatSlowTestSummary,
@@ -45,9 +46,23 @@ test("parseRunnerArgs accepts tier and slow summary options", () => {
     slowLimit: 3,
     concurrency: undefined,
     shard: undefined,
+    coverage: undefined,
     prefixes: [],
     files: [],
   });
+});
+
+test("parseRunnerArgs accepts an lcov destination", () => {
+  assert.equal(
+    parseRunnerArgs(["--coverage", "/tmp/integration.lcov"], testTierNames).coverage,
+    "/tmp/integration.lcov",
+  );
+  assert.deepEqual(coverageReporterArgs("/tmp/integration.lcov"), [
+    "--experimental-test-coverage",
+    "--test-reporter=lcov",
+    "--test-reporter-destination=/tmp/integration.lcov",
+  ]);
+  assert.deepEqual(coverageReporterArgs(undefined), []);
 });
 
 test("parseRunnerArgs accepts a concurrency cap", () => {

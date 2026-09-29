@@ -64,6 +64,12 @@ export const dispatchIsolatedTestCommand = command({
       validate: validateTestFile,
       description: "POSIX repository-relative test file.",
     },
+    {
+      name: "--coverage",
+      placeholder: "<local-lcov-file>",
+      missingValue: "--coverage requires a local destination",
+      description: "Return Node test coverage as one lcov file.",
+    },
   ],
   exactlyOne: Object.freeze([
     { names: Object.freeze(["--tier", "--file"]), error: "choose exactly one of --tier or --file" },
@@ -153,6 +159,13 @@ export const runNodeTestsCommand = command({
       missingValue: "--file requires a value",
       validate: validateTestFile,
       description: "Exact POSIX repository-relative test file.",
+    },
+    {
+      name: "--coverage",
+      placeholder: "<lcov-file>",
+      allowEquals: true,
+      missingValue: "--coverage requires a destination",
+      description: "Write Node test coverage as lcov.",
     },
     {
       name: "--shard",

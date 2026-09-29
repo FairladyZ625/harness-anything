@@ -2,7 +2,7 @@
 
 import { randomUUID } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -31,7 +31,11 @@ export function parseDispatchArgs(argv) {
     target: toolValue(parsed, "--target") ?? toolOption(dispatchIsolatedTestCommand, "--target").defaultValue,
     tier: toolValue(parsed, "--tier"),
     file: toolValue(parsed, "--file"),
+    coverage: toolValue(parsed, "--coverage"),
   };
+  if (options.coverage !== undefined && isGuiVitestFile(options.file)) {
+    throw new Error("--coverage is only supported for Node test files and tiers");
+  }
   return options;
 }
 
@@ -52,7 +56,12 @@ export function testRunnerArgs(options) {
     "node",
     "tools/run-node-tests.mjs",
     ...(options.tier === undefined ? ["--file", options.file] : ["--tier", options.tier]),
+    ...(options.coverageTarget === undefined ? [] : ["--coverage", options.coverageTarget]),
   ];
+}
+
+function coveragePath(workspaceRoot) {
+  return path.join(workspaceRoot, ".test-coverage", "lcov.info");
 }
 
 // GUI vitest files are routed to the vitest lane by shape; the runner discovers
@@ -122,7 +131,12 @@ export function prepareSource(sourceRoot, snapshotRoot) {
 }
 
 export function posixTestScript(workspaceRoot, stateRoot, options) {
-  const command = testRunnerArgs(options).map(shellQuote).join(" ");
+  const command = testRunnerArgs({
+    ...options,
+    coverageTarget: options.coverage === undefined ? undefined : coveragePath(workspaceRoot),
+  })
+    .map(shellQuote)
+    .join(" ");
   return [
     "set -eu",
     `cd ${shellQuote(workspaceRoot)}`,
@@ -133,7 +147,12 @@ export function posixTestScript(workspaceRoot, stateRoot, options) {
 }
 
 export function powerShellTestScript(workspaceRoot, stateRoot, options) {
-  const command = testRunnerArgs(options).map(powerShellLiteral).join(" ");
+  const command = testRunnerArgs({
+    ...options,
+    coverageTarget: options.coverage === undefined ? undefined : coveragePath(workspaceRoot),
+  })
+    .map(powerShellLiteral)
+    .join(" ");
   return [
     "$ErrorActionPreference = 'Stop'",
     "$ProgressPreference = 'SilentlyContinue'",
@@ -203,6 +222,9 @@ async function runUbuntu(options, runId, snapshotRoot, files) {
       )) === 0
     ) {
       exitCode = await run("ssh", ["ubuntu", posixTestScript(workspaceRoot, stateRoot, options)]);
+      if (exitCode === 0 && options.coverage !== undefined) {
+        exitCode = await returnCoverage(options.coverage, "rsync", ["-a", `ubuntu:${coveragePath(workspaceRoot)}`]);
+      }
     }
   } finally {
     const cleanupCode = await run("ssh", ["ubuntu", `rm -rf -- ${shellQuote(workspaceRoot)}`], { quiet: true });
@@ -236,6 +258,12 @@ async function runDocker(options, runId, snapshotRoot, files) {
       console.log(`[test-isolation] sync=tar destination=docker:${container}:${workspaceRoot}`);
       if ((await copyArchive(["docker", "cp", "-", `${container}:${workspaceRoot}`], snapshotRoot, files)) === 0)
         exitCode = await run("docker", ["start", "-a", container]);
+      if (exitCode === 0 && options.coverage !== undefined) {
+        exitCode = await returnCoverage(options.coverage, "docker", [
+          "cp",
+          `${container}:${coveragePath(workspaceRoot)}`,
+        ]);
+      }
     }
   } finally {
     if (created) {
@@ -268,6 +296,11 @@ async function runWindows(options, runId, snapshotRoot, files) {
           "ssh",
           powerShellArgs(powerShellTestScript(workspaceRoot, `${workspaceRoot}\\.test-isolation-state`, options)),
         );
+        if (exitCode === 0 && options.coverage !== undefined) {
+          const readScript = `[Console]::Out.Write([Convert]::ToBase64String([IO.File]::ReadAllBytes(${powerShellLiteral(coveragePath(workspaceRoot))})))`;
+          const encoded = (await runCapture("ssh", powerShellArgs(readScript))).trim();
+          exitCode = encoded.length === 0 ? 1 : writeCoverage(options.coverage, Buffer.from(encoded, "base64"));
+        }
       }
     }
   } finally {
@@ -278,6 +311,17 @@ async function runWindows(options, runId, snapshotRoot, files) {
     }
   }
   return exitCode;
+}
+
+async function returnCoverage(destination, command, args) {
+  mkdirSync(path.dirname(path.resolve(destination)), { recursive: true });
+  return run(command, [...args, path.resolve(destination)]);
+}
+
+function writeCoverage(destination, content) {
+  mkdirSync(path.dirname(path.resolve(destination)), { recursive: true });
+  writeFileSync(path.resolve(destination), content);
+  return 0;
 }
 
 function powerShellArgs(script) {

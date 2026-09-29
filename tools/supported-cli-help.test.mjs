@@ -30,6 +30,7 @@ test("sample tool parsers accept every documented flag and reject an undocumente
     target: "docker",
     tier: "fast",
     file: undefined,
+    coverage: undefined,
   });
   assert.equal(parseRunnerArgs(["--tier=integration", "--prefix", "tools", "--slow-limit=3"]).tier, "integration");
   for (const [descriptor, parse, invocations] of [
@@ -37,7 +38,7 @@ test("sample tool parsers accept every documented flag and reject an undocumente
       dispatchIsolatedTestCommand,
       parseIsolatedDispatchArgs,
       [
-        ["--target", "docker", "--tier", "fast"],
+        ["--target", "docker", "--tier", "fast", "--coverage", "/tmp/fast.lcov"],
         ["--file", "tools/run-node-tests.test.mjs"],
       ],
     ],
@@ -57,6 +58,8 @@ test("sample tool parsers accept every documented flag and reject an undocumente
           "tools",
           "--shard",
           "1",
+          "--coverage",
+          "/tmp/integration.lcov",
         ],
         ["--file=tools/run-node-tests.test.mjs"],
       ],
