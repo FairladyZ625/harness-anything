@@ -5,6 +5,44 @@ import { getExecutableEntityAction } from "../../src/domain/index.ts";
 
 const compile = getExecutableEntityAction("decision-propose")?.execution?.compile;
 
+test("Decision proposal requires authored prose at admission", () => {
+  assert.ok(compile);
+  assert.throws(
+    () =>
+      compile({
+        action: {
+          title: "Decision",
+          question: "Should prose be required before proposal?",
+          riskTier: "medium",
+          urgency: "medium",
+          vertical: "software/coding",
+          preset: "standard-task",
+          decisionClass: "ordinary",
+          appliesTo: { modules: ["kernel"], productLines: [] },
+          chosen: [{ id: "CH1", text: "Require prose" }],
+          rejected: [{ id: "RJ1", text: "Defer prose", whyNot: "It delays validation" }],
+          claims: [{ id: "C1", text: "Proposal admission enforces authored prose.", loadBearing: false }],
+          fulfillments: [],
+        },
+        actor: { principal: { personId: "person-owner" }, executor: null },
+        source: "local",
+        session: {
+          runtime: "codex",
+          sessionId: "decision-proposal-body-required",
+          transcriptReachability: "by_session_id",
+        },
+        opId: "decision-proposal-body-required",
+        occurredAt: "2026-09-01T00:00:00.000Z",
+        workspaceRevision: 1,
+      }),
+    (error: unknown) => {
+      assert.equal((error as { code?: string }).code, "body_placeholder");
+      assert.match(error instanceof Error ? error.message : String(error), /--body or --body-file/u);
+      return true;
+    },
+  );
+});
+
 test("Decision proposal validation reports every independent packet violation in one failure", () => {
   assert.ok(compile);
   assert.throws(

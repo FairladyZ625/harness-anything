@@ -177,6 +177,7 @@ test("an orphan work task stops at completion until the prescribed decision rela
     const proposed = await cell.run(
       {
         kind: "decision-propose",
+        body: "# Milestone lineage\n\n## 背景\n\nWork needs traceable lineage.\n\n## 权衡\n\nCompare durable lineage with implicit grouping.\n\n## 结论\n\nRetain milestone lineage.\n",
         jsonInput: JSON.stringify({
           title: "Authorise the lineage work",
           question: "Does this work proceed?",

@@ -215,7 +215,16 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
         claims: [],
         fulfillments: [],
       }),
-      decisionPropose = run(fixture.alpha, fixture.userRoot, ["decision", "propose", "--json-input", decisionPacket]);
+      decisionPropose = run(fixture.alpha, fixture.userRoot, [
+        "decision",
+        "propose",
+        "--json-input",
+        decisionPacket,
+        "--body",
+        "\n# Canonical Decision from CLI\n\n## 背景\n\nThe real CLI must exercise the decision lifecycle.\n\n" +
+          "## 权衡\n\nUse the event-backed path instead of direct document writes.\n\n" +
+          "## 结论\n\nUse the event-backed lifecycle selected by this fixture.\n",
+      ]);
     assert.equal(decisionPropose.outcome, "applied", JSON.stringify(decisionPropose));
     const decision = JSON.parse(String(decisionPropose.evidence)) as {
         decisionId: string;
@@ -229,9 +238,9 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     assert.match(String(decisionPropose.documentSha256), /^[0-9a-f]{64}$/u);
     const scaffoldPattern = new RegExp(
       "^---\\nschema: decision-package/v1[\\s\\S]*\\nstate: proposed[\\s\\S]*\\n---\\n\\n" +
-        "# Canonical Decision from CLI\\n\\n## 背景\\n\\n说明需要裁定的问题与已知事实。\\n\\n" +
-        "## 权衡\\n\\n说明所选方案、被拒方案与取舍理由。\\n\\n" +
-        "## 结论\\n\\n说明最终裁定及其适用范围。\\n\\n" +
+        "# Canonical Decision from CLI\\n\\n## 背景\\n\\nThe real CLI must exercise the decision lifecycle.\\n\\n" +
+        "## 权衡\\n\\nUse the event-backed path instead of direct document writes.\\n\\n" +
+        "## 结论\\n\\nUse the event-backed lifecycle selected by this fixture.\\n\\n" +
         "<!-- harness:relation-neighborhood:start -->\\n## 关联图谱 \\(Causal Graph\\)\\n\\n- none\\n\\n\\n" +
         "<!-- harness:relation-neighborhood:end -->\\n$",
       "u",

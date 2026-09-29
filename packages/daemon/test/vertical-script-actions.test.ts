@@ -147,7 +147,7 @@ test("RepoCell runs only declared vertical scripts and dry-run publishes the sam
         ],
         claims: [],
         fulfillments: [],
-        body: "\n# Script decision\n",
+        body: "\n# Script decision\n\nUse the typed script to inspect canonical decisions.\n",
       },
       binding,
     );

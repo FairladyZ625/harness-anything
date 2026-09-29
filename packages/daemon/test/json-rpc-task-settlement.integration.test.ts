@@ -282,7 +282,14 @@ test("Decision proposal packet defaults optional fields, checks boundaries befor
       }
       assert.equal(makeTaskEventReader({ repoId: "decision-packet", rootDir }).readHead()?.revision, before);
     }
-    const defaulted = await cell.run({ kind: "decision-propose", jsonInput: JSON.stringify(minimalPacket) }, binding) as Record<string, unknown>;
+    const defaulted = await cell.run(
+      {
+        kind: "decision-propose",
+        jsonInput: JSON.stringify(minimalPacket),
+        body: realizedDecisionBody("Defaulted proposal"),
+      },
+      binding,
+    ) as Record<string, unknown>;
     assert.equal(defaulted.outcome, "applied", JSON.stringify(defaulted));
     assert.deepEqual(JSON.parse(String(defaulted.evidence)).defaultedFields, ["vertical", "preset", "appliesTo", "fulfillments", "relations"]);
     const defaultedEvent = makeTaskEventReader({ repoId: "decision-packet", rootDir }).readEvent(String(defaulted.opId));

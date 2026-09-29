@@ -129,10 +129,13 @@ test("Decision prose is an explicit idempotent doc-sync region in the canonical 
   const fixture = await docCell("decision-prose");
   try {
     await startLease(fixture.cell, fixture.rootDir, "local");
-    const binding = localBinding;
+    const binding = localBinding,
+      initialBody =
+        "# Body join\n\n## 背景\n\nThe authored body needs one owner.\n\n## 权衡\n\nCompare doc-sync ownership with duplicate inline storage.\n\n## 结论\n\nKeep the body doc-sync owned.\n";
     const proposed = await fixture.cell.run(
       {
         kind: "decision-propose",
+        body: initialBody,
         jsonInput: JSON.stringify({
           title: "Body join",
           question: "Should the body remain doc-sync owned?",
@@ -156,10 +159,7 @@ test("Decision prose is an explicit idempotent doc-sync region in the canonical 
     const relativePath = `decisions/decision-${decisionId}/decision.md`,
       initial = JSON.parse(
         (await fixture.cell.run({ kind: "decision-show", decisionId, includeBody: true }, binding)).evidence,
-      ) as { decision: { body: { body: string } } },
-      initialBody =
-        "\n# Body join\n\n## 背景\n\n说明需要裁定的问题与已知事实。\n\n## 权衡\n\n" +
-        "说明所选方案、被拒方案与取舍理由。\n\n## 结论\n\n说明最终裁定及其适用范围。\n";
+      ) as { decision: { body: { body: string } } };
     assert.equal(initial.decision.body.body, initialBody);
     // The authored document is frontmatter, doc-sync owned prose, then the daemon-managed relation block;
     // an editor keeps the block in place and only rewrites the prose between them.

@@ -26,6 +26,7 @@ import {
   type FactMemoryClass,
 } from "./fact-event.ts";
 import { timestamp } from "./timestamp.ts";
+import { assertTransitionDocumentReady } from "./transition-document-readiness.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
 import type { ScheduleActionDraft } from "./schedule-action-contract.ts";
 import type { AgentActionDraft } from "./agent-action-contract.ts";
@@ -389,6 +390,7 @@ function decisionEvent(id: DecisionActionCompilerId, input: EntityActionCompileI
       },
       issues = proposalIssues(proposal, [], decisionId);
     if (issues.length > 0) invalid(input, issues.join("; "));
+    assertTransitionDocumentReady("decision.body", proposal.body);
     return {
       ...base,
       type: "decision_proposed",
@@ -423,7 +425,8 @@ function decisionEvent(id: DecisionActionCompilerId, input: EntityActionCompileI
     return { ...base, type: "decision_superseded", payload: { reason: short(input, action.reason, "reason") } };
   if (id === "retire")
     return { ...base, type: "decision_retired", payload: { reason: short(input, action.reason, "reason") } };
-  if (id === "amend")
+  if (id === "amend") {
+    if (typeof action.body === "string") assertTransitionDocumentReady("decision.body", action.body);
     return {
       ...base,
       type: "decision_amended",
@@ -433,6 +436,7 @@ function decisionEvent(id: DecisionActionCompilerId, input: EntityActionCompileI
         body: typeof action.body === "string" ? action.body : null,
       },
     };
+  }
   if (id === "repin")
     return {
       ...base,

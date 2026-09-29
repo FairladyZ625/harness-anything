@@ -76,6 +76,7 @@ test("task create, fact record, and decision propose project the canonical runti
     const proposed = await cell.run(
       {
         kind: "decision-propose",
+        body: "# Runtime session identity\n\n## 背景\n\nWrites need runtime attribution.\n\n## 权衡\n\nCompare retaining and dropping identity.\n\n## 结论\n\nRetain canonical session identity.\n",
         jsonInput: JSON.stringify({
           title: "Retain session identity",
           question: "Should authored writes retain the canonical runtime session?",

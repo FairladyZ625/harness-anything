@@ -81,7 +81,19 @@ test("interactive CLI Task, Fact, and Decision writes carry resolver-owned sessi
       claims: [],
       fulfillments: [],
     });
-    const proposed = run(fixture, ["decision", "propose", "--json-input", "@-"], claude, proposal),
+    const proposed = run(
+        fixture,
+        [
+          "decision",
+          "propose",
+          "--json-input",
+          "@-",
+          "--body",
+          "# Session identity\n\n## 背景\n\nWrites need attribution.\n\n## 权衡\n\nCompare retaining and discarding identity.\n\n## 结论\n\nRetain session identity.\n",
+        ],
+        claude,
+        proposal,
+      ),
       proposedEvidence = evidence(proposed),
       decisionId = String(proposedEvidence.decisionId);
 
