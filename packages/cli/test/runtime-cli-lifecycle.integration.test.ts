@@ -640,6 +640,18 @@ test("Read-only dispatch contracts and closed batch and wire payloads are enforc
     },
     { kind: "validation", field: "force" },
   );
+  const decisionList = await runCommandThroughDaemon(
+    {
+      rootDir: safePath(root),
+      repoId: "runtime-cli",
+      json: true,
+      method: "repo.task.read",
+      action: { kind: "decision-list" },
+    },
+    undefined,
+    { env },
+  );
+  assert.equal(decisionList.outcome, "applied");
   const unknownRead = await runCommandThroughDaemon(
     {
       rootDir: safePath(root),
