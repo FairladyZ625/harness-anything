@@ -54,7 +54,7 @@ test("repo prose channel blocks artifacts under an unregistered tasks/ package d
     assert.equal(ghostRow?.mediaType, "text/markdown");
     // Batch tolerance: the eligible sibling in the registered package publishes in
     // the same submit that reports the blocked ghost — no whole-batch rejection.
-    const submitted = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as {
+    const submitted = (await cell.run({ kind: "doc-submit", paths: [ghost, real] }, binding)) as {
       readonly outcome: string;
       readonly opId: string;
       readonly summary: string | null;
@@ -81,7 +81,10 @@ test("repo prose channel blocks artifacts under an unregistered tasks/ package d
     assert.equal(existsSync(path.join(rootDir, "harness", ghost)), true);
     // A submit whose only candidates are ghosts refuses with the recovery route.
     write(rootDir, `${impostor}/artifacts/second.md`, "# Second ghost\n");
-    const rejected = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as {
+    const rejected = (await cell.run(
+      { kind: "doc-submit", paths: [ghost, `${impostor}/artifacts/second.md`] },
+      binding,
+    )) as {
       readonly outcome: string;
       readonly code: string;
       readonly detail: {

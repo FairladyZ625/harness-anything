@@ -388,7 +388,15 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     settleFollower(fixture.alpha, fixture.userRoot, stableSubmit);
     writeFileSync(blockedFile, "---\nschema: changed\n---\n# Stable\n");
     writeFileSync(path.join(fixture.alpha, "harness", eligiblePath), "# Eligible\n");
-    const partial = runMaybe(fixture.alpha, fixture.userRoot, ["doc", "sync", "--submit", "--all"]);
+    const partial = runMaybe(fixture.alpha, fixture.userRoot, [
+      "doc",
+      "sync",
+      "--submit",
+      "--path",
+      eligiblePath,
+      "--path",
+      blockedPath,
+    ]);
     assert.equal(partial.status, 0, partial.stderr);
     assert.equal(partial.receipt.outcome, "applied", JSON.stringify(partial.receipt));
     assert.match(

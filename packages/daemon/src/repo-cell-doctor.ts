@@ -285,7 +285,7 @@ async function docDebtCheck(cell: RepoCellOperationalContext, binding: RepoCellB
         : "No caller-visible eligible documents are waiting to be submitted.",
       count: eligible.length,
       next: eligible.length
-        ? "Run ha doc sync --submit, or ha task settle <task-id> for task-bound documents."
+        ? "Run ha doc sync --submit --task <task-id>, or ha task settle <task-id> for task-bound documents."
         : "Nothing to do.",
     };
   } catch (error) {

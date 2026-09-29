@@ -41,7 +41,13 @@ import {
 import { publishDocIntent } from "./doc-sync-publication.ts";
 import { readAction, readDocReceipt } from "./doc-sync-reads.ts";
 import { runDocMaterialize } from "./doc-sync-materialize-action.ts";
-import { noOp, scanDetail, scanRejectionSummary, scannerSettlement } from "./doc-sync-settlement.ts";
+import {
+  noOp,
+  scanDetail,
+  scanRejectionSummary,
+  scannerSettlement,
+  scopeRequiredRejection,
+} from "./doc-sync-settlement.ts";
 import type { FleetAssignmentScope } from "./fleet/contract.ts";
 
 export const DOC_COMMAND_FRAME_MAX_BYTES = DOC_SYNC_INLINE_MAX_BYTES;
@@ -102,6 +108,7 @@ export async function runDocAction(input: Input): Promise<DocSettlementReceipt> 
   if (input.action.kind === "doc-retire") return runDocRetire(input);
   if (input.action.kind !== "doc-submit") return readAction(input);
   const scan = localProseSource(input.binding.source) ? scannerSubmit(input) : null;
+  if (scan && isScopelessSubmit(input.action)) return scopeRequiredRejection(input, scan);
   if (scan) {
     const explicitSelection = Array.isArray(input.action.paths) && input.action.paths.length > 0;
     if (explicitSelection && scan.rows.some((row) => row.state === "conflict")) {
@@ -153,6 +160,12 @@ export async function runDocAction(input: Input): Promise<DocSettlementReceipt> 
   return scan && (receipt.outcome === "applied" || receipt.outcome === "pending")
     ? scannerSettlement(input, scan, receipt)
     : receipt;
+}
+
+// A local doc-submit that names neither a task nor a path is the deleted submit-all shape;
+// `all: true` only spells the same whole-tree sweep, so it rides the same refusal.
+function isScopelessSubmit(action: Action): boolean {
+  return !Object.hasOwn(action, "taskId") && Array.isArray(action.paths) && action.paths.length === 0;
 }
 
 function scanRejectionCode(scan: DocCandidateScan): string | null {

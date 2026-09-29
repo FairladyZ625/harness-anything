@@ -318,7 +318,7 @@ test("scanner routes multi-megabyte JSONL to artifact add without reading it and
       "unsupported JSONL remains visible with a reason without loading its bytes",
     );
     write(rootDir, "events/segments/manifest.json", "{}\n");
-    const submitted = await cell.run({ kind: "doc-submit", paths: [] }, binding);
+    const submitted = await cell.run({ kind: "doc-submit", paths: [prose, "events/segments/manifest.json"] }, binding);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     const event = makeTaskEventReader({ repoId, rootDir }).readEvent(submitted.opId);
     assert.equal(event?.schema, "doc-event/v1");
@@ -333,7 +333,10 @@ test("scanner routes multi-megabyte JSONL to artifact add without reading it and
       "the batch commits every eligible candidate and reports the blocked manifest with its route",
     );
 
-    const residual = await cell.run({ kind: "doc-submit", paths: [], all: true }, binding);
+    const residual = (await cell.run(
+      { kind: "doc-submit", paths: ["events/segments/manifest.json"] },
+      binding,
+    )) as Record<string, unknown>;
     assert.equal(residual.outcome, "op_rejected", JSON.stringify(residual));
     assert.equal(residual.code, "preview_blocked");
     assert.deepEqual(
@@ -397,7 +400,19 @@ test("batch submit commits eligible candidates and reports blocked rows instead 
       ],
       JSON.stringify(rows(status.evidence)),
     );
-    const submitted = await cell.run({ kind: "doc-submit", paths: [] }, binding);
+    const submitted = await cell.run(
+      {
+        kind: "doc-submit",
+        paths: [
+          "context/data.json",
+          "context/notes.md",
+          "context/oversized.md",
+          "context/script.py",
+          "context/table.tsv",
+        ],
+      },
+      binding,
+    );
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     const event = makeTaskEventReader({ repoId, rootDir }).readEvent(submitted.opId);
     assert.equal(event?.schema, "doc-event/v1");
@@ -454,7 +469,10 @@ test("blocked-only submit names the scanner-first machine-region recovery", asyn
     assert.equal(submitted.outcome, "applied");
     await waitForWorktree(cell, submitted);
     write(rootDir, laterBlocked, "---\nowner: changed\n---\n# Removed\n\nbase\n");
-    const rejected = (await cell.run({ kind: "doc-submit", paths: [] }, binding)) as Record<string, unknown>;
+    const rejected = (await cell.run({ kind: "doc-submit", paths: [laterBlocked] }, binding)) as Record<
+      string,
+      unknown
+    >;
     assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
     assert.equal(rejected.code, "preview_blocked");
     const detail = rejected.detail as {

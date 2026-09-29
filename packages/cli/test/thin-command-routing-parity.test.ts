@@ -799,8 +799,8 @@ test("human preset and task receipts print resolved completion contracts byte-fo
         'completionGates: ["ci","code-doc-reconciliation"]',
         expectedContract,
         "next: run ha task start task-one once the plan is canonical — a plan passed as --plan-file is " +
-          "already in this write; a hand-edited task_plan.md still needs ha doc sync --submit from the " +
-          "task's executor or a human principal first",
+          "already in this write; a hand-edited task_plan.md still needs ha doc sync --submit --task <task-id> " +
+          "from the task's executor or a human principal first",
         "plan: ha task create --plan-file <markdown> lands the plan in the same create write; or hand-edit " +
           "harness/tasks/task-one/task_plan.md; keep every section heading the preset template ships",
         "artifacts: persist supplementary context, research notes, design drafts, worker prompts, and review " +
