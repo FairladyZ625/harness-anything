@@ -43,7 +43,7 @@ State when to stop and report or request a ruling: stop-on-hit conditions (out-o
 - Inspect existing code, documents, and contracts.
 - Record key progress with `ha task progress append <task-id> --text "..." --evidence type:PATH:summary`.
 - Explicitly promote load-bearing observations needed for later decisions or cross-task reasoning with `ha fact record --task <task-id> --statement "..." --source "..." --confidence high`; Facts remain `0..N`, while delivery evidence belongs in Execution outputs.
-- For route choices, reversals, long-lived boundaries, or choices that derive follow-up work, run `ha decision propose ...`; when facts support decisions or decisions derive tasks, connect them with `ha decision relate ...`.
+- For route choices, reversals, long-lived boundaries, or choices that derive follow-up work, run `ha decision propose ...`; when facts support decisions or decisions derive tasks, connect them with `ha relation relate ...`.
 - Verify behavior with tests and checks.
 
 ## Deliverable Contract
@@ -54,7 +54,7 @@ State the deliverable shape, destination, recipient, first consumer, and every t
 
 State the required evidence granularity, negative controls or mutation checks, and reviewer rejection conditions. This section defines how to prove the result; `Verification` defines what must be true.
 
-Close the loop before closeout: record at least one observation with `ha fact record --task <task-id> ...` and preserve its receipt in the Execution outputs. A fact is an evidence input to a decision, so attach it to the relevant claim with `ha decision relate <decision-id> --anchor <claim-id> --type evidenced-by --target fact/F-XXXXXXXX --rationale "<why>"` before accepting or reckoning that decision. If a proposal has no fact evidence yet, `ha decision propose` still succeeds, but its receipt points to these two commands.
+Close the loop before closeout: record at least one observation with `ha fact record --task <task-id> ...` and preserve its receipt in the Execution outputs. A fact is an evidence input to a decision, so attach it to the relevant claim with `ha relation relate --source-ref decision/<decision-id>/<claim-id> --target-ref fact/F-XXXXXXXX --type evidenced-by --rationale "<why>" --expected-version 0` before accepting or reckoning that decision. If a proposal has no fact evidence yet, `ha decision propose` still succeeds, but its receipt points to these two commands.
 
 ## Verification
 
