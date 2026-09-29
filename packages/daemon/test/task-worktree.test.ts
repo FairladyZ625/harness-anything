@@ -339,7 +339,13 @@ function alive(pid: number): boolean {
   } catch {
     return false;
   }
-  return process.platform !== "linux" || !/^\d+ \(.*\) Z /u.test(readFileSync(`/proc/${pid}/stat`, "utf8"));
+  if (process.platform !== "linux") return true;
+  try {
+    return !/^\d+ \(.*\) Z /u.test(readFileSync(`/proc/${pid}/stat`, "utf8"));
+  } catch {
+    // Reaped between the signal probe and this read: gone.
+    return false;
+  }
 }
 
 test("the node-modules adapter mirrors the root store and removes its mirror before the worktree is reclaimed", async () => {
