@@ -198,6 +198,11 @@ export function commandClassForAction(kind: string): "repo-read" | "repo-write" 
   return commandDescriptorForAction(kind).commandClass;
 }
 
+export function repoCellExecutionForAction(kind: string): "query-only" | "writer" {
+  const descriptor = commandDescriptorForAction(kind);
+  return "repoCellExecution" in descriptor && descriptor.repoCellExecution === "query-only" ? "query-only" : "writer";
+}
+
 export function actionForDaemonMethod(method: string, payload: JsonObject): JsonObject & { readonly kind: string } {
   if (method === "repo.task.run" || method === "repo.task.read") {
     const action = payload.action as JsonObject & { readonly kind: string },

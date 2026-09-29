@@ -29,9 +29,11 @@ const commandTopology = (
   commandClass: CommandTopology["commandClass"],
   center: CommandAdmissionRoute,
   edge: CommandAdmissionRoute,
+  repoCellExecution: CommandTopology["repoCellExecution"] = "writer",
 ): CommandTopology =>
   Object.freeze({
     commandClass,
+    repoCellExecution,
     admission: Object.freeze({
       local: "direct",
       "remote-proxy": "rejected",
@@ -40,6 +42,7 @@ const commandTopology = (
     }),
   });
 export const repoReadCommandTopology = commandTopology("repo-read", "direct", "direct"),
+  queryOnlyRepoReadCommandTopology = commandTopology("repo-read", "direct", "direct", "query-only"),
   ledgerWriteCommandTopology = commandTopology("repo-write", "via-assignment", "rejected"),
   centerForwardReadCommandTopology = commandTopology("repo-read", "direct", "via-center-forward"),
   centerForwardWriteCommandTopology = commandTopology("repo-write", "via-assignment", "via-center-forward"),
@@ -163,6 +166,7 @@ const defineTopologyCommand =
   <const Command extends CliCommandDeclaration>(declaration: Command) =>
     defineCliCommand({ ...declaration, ...topology });
 export const defineRepoReadCommand = defineTopologyCommand(repoReadCommandTopology),
+  defineQueryOnlyRepoReadCommand = defineTopologyCommand(queryOnlyRepoReadCommandTopology),
   defineLedgerWriteCommand = defineTopologyCommand(ledgerWriteCommandTopology),
   defineCenterForwardReadCommand = defineTopologyCommand(centerForwardReadCommandTopology),
   defineCenterForwardWriteCommand = defineTopologyCommand(centerForwardWriteCommandTopology),

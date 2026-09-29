@@ -29,6 +29,7 @@ import { readCompletionContext } from "./task-completion-read.ts";
 import { dispatchDecisionReview, dispatchTaskReview } from "./task-review-dispatch.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { runFactAction } from "./repo-cell-fact-action.ts";
+import { deriveActionResult } from "./entity-action-catalog-executor.ts";
 import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts";
 import { runVerticalDeclarationAction } from "./vertical-declaration-action.ts";
 import { attestGateWitness } from "./repo-cell-witness-adapters.ts";
@@ -42,7 +43,7 @@ export async function executeAction(
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
   return applyTaskWorktreeLifecycle(taskWorktreeInput(cell), action, binding.source, () =>
-    executeRepoAction(cell, action, binding),
+    Promise.resolve(executeRepoAction(cell, action, binding)),
   );
 }
 
@@ -57,11 +58,11 @@ export function taskWorktreeInput(
   };
 }
 
-async function executeRepoAction(
+export function executeRepoAction(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
-): Promise<WriteReceipt> {
+): WriteReceipt | Promise<WriteReceipt> {
   validateCanonicalIdentityInputs(cell, action);
   if (
     [
@@ -300,47 +301,48 @@ async function executeRepoAction(
     action.kind.startsWith("preset-") ||
     /^(?:vertical-validate|template-(?:list|render)|script-(?:list|inspect))$/u.test(action.kind)
   ) {
-    const result = await runPresetAction({
-        rootDir: cell.rootDir,
-        action,
-        settings: cell.settings.read(),
-      }),
-      revision = cell.store.readHead()?.revision ?? 0,
-      opId = cell.operationId(action, binding, cell.input.repoId, revision),
-      // Install, seed, and uninstall write the local preset store, never the ledger: a finished
-      // write carries no committed proof and settles as a determinate no-write; only a dry run stays a preview.
-      preview = action.dryRun === true && ["preset-install", "preset-seed", "preset-uninstall"].includes(action.kind);
-    if (!preview) {
-      const cut = cell.projection.readCut(),
-        base = { opId, revision, evidence: JSON.stringify(result), visibility: "center" as const };
-      return cut.status === "ready"
-        ? { outcome: "applied", ...base }
-        : {
-            outcome: "pending",
-            ...base,
-            proof: {
-              committedRevision: revision,
-              appliedCut: cut.watermark,
-              durable: false,
-              canonicalVisible: false,
-              worktreeVisible: null,
-            },
-          };
-    }
-    return {
-      outcome: "pending",
-      opId,
-      revision,
-      evidence: JSON.stringify(result),
-      visibility: "center",
-      proof: {
-        committedRevision: revision,
-        appliedCut: cell.projection.readCut().watermark,
-        durable: false,
-        canonicalVisible: false,
-        worktreeVisible: false,
-      },
-    };
+    return runPresetAction({
+      rootDir: cell.rootDir,
+      action,
+      settings: cell.settings.read(),
+    }).then((result) => {
+      const revision = cell.store.readHead()?.revision ?? 0,
+        opId = cell.operationId(action, binding, cell.input.repoId, revision),
+        // Install, seed, and uninstall write the local preset store, never the ledger: a finished
+        // write carries no committed proof and settles as a determinate no-write; only a dry run stays a preview.
+        preview = action.dryRun === true && ["preset-install", "preset-seed", "preset-uninstall"].includes(action.kind);
+      if (!preview) {
+        const cut = cell.projection.readCut(),
+          base = { opId, revision, evidence: JSON.stringify(result), visibility: "center" as const };
+        return cut.status === "ready"
+          ? { outcome: "applied", ...base }
+          : {
+              outcome: "pending",
+              ...base,
+              proof: {
+                committedRevision: revision,
+                appliedCut: cut.watermark,
+                durable: false,
+                canonicalVisible: false,
+                worktreeVisible: null,
+              },
+            };
+      }
+      return {
+        outcome: "pending",
+        opId,
+        revision,
+        evidence: JSON.stringify(result),
+        visibility: "center",
+        proof: {
+          committedRevision: revision,
+          appliedCut: cell.projection.readCut().watermark,
+          durable: false,
+          canonicalVisible: false,
+          worktreeVisible: false,
+        },
+      };
+    });
   }
   if (isDocAction(action.kind))
     return runDocAction({
@@ -382,6 +384,25 @@ async function executeRepoAction(
   if (action.kind === "task-attest") return attestGateWitness(cell, action, binding);
   if (action.kind === "task-declare-executor") return cell.declareExecutionExecutor(action, binding);
   return cell.lifecycleAction(action, binding);
+}
+
+export function executeRepoReadAction(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): WriteReceipt | Promise<WriteReceipt> {
+  try {
+    return executeRepoAction(cell, action, binding);
+  } catch (error) {
+    const contract = getExecutableEntityAction(action.kind),
+      receipt = cell.failed(
+        cell.errorOperationId(error) ?? cell.operationId(action, binding, cell.input.repoId, 0),
+        error,
+        contract,
+        contract ? action : undefined,
+      );
+    return contract ? deriveActionResult(contract, action, receipt) : receipt;
+  }
 }
 
 export function validateCanonicalIdentityInputs(cell: RepoCellOperationalContext, action: RepoTaskAction): void {

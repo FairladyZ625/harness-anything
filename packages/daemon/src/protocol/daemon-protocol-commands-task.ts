@@ -1,11 +1,11 @@
 import {
   defineCenterForwardReadCommand,
+  defineRepoReadCommand,
   defineCenterForwardWriteCommand,
   cliInput,
   defineCliCommand,
   defineLedgerWriteCommand,
   defineLocalArbiterCommand,
-  defineRepoReadCommand,
   generatedTaskActionProtocolDeclarations,
   generatedTaskCreateResultFields,
   generatedWriteReceiptFields,

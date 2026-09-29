@@ -65,6 +65,9 @@ test("runtime discovery write load keeps independent read clients within the sto
       ["workspaceSummary", "repo.workspace.summary.read", { repo: { repoId } }],
       ["guiTaskList", "repo.tasks.list", { repo: { repoId }, payload: { limit: 1 } }],
       ["legacyTaskList", "repo.task.read", { repo: { repoId }, payload: { action: { kind: "task-list", limit: 1 } } }],
+      ["decisionList", "repo.task.read", { repo: { repoId }, payload: { action: { kind: "decision-list" } } }],
+      ["factTypeList", "repo.task.read", { repo: { repoId }, payload: { action: { kind: "fact-type-list" } } }],
+      ["relationList", "repo.task.read", { repo: { repoId }, payload: { action: { kind: "relation-list" } } }],
     ] as const;
   await transport.start();
   try {
@@ -186,10 +189,17 @@ test("WAL Git materialization leaves an independent socket client within the iso
     await host.settleMaterialization(repoId, "read-isolation-probe");
     const walSegment = path.join(root, ".harness/wal/seg-000000.log");
     await eventually(() => !existsSync(walSegment) || statSync(walSegment).size === 0);
-    assert.deepEqual(Object.keys(loaded).sort(), ["guiTaskList", "legacyTaskList", "workspaceSummary"]);
+    assert.deepEqual(Object.keys(loaded).sort(), [
+      "decisionList",
+      "factTypeList",
+      "guiTaskList",
+      "legacyTaskList",
+      "relationList",
+      "workspaceSummary",
+    ]);
     for (const samples of Object.values(loaded)) assert.equal(samples.length, 120);
     assert.equal(!existsSync(walSegment) || statSync(walSegment).size === 0, true);
-    t.diagnostic("all three independent read surfaces completed 120 requests while WAL materialization converged");
+    t.diagnostic("all six independent read surfaces completed 120 requests while WAL materialization converged");
   } finally {
     await transport.stop();
     await host.close();

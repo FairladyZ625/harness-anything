@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { daemonProtocolCommands } from "../src/protocol/daemon-protocol-commands.ts";
+import { daemonProtocolCommands, repoCellExecutionForAction } from "../src/protocol/daemon-protocol-commands.ts";
 import { observeTailReadMethod } from "../src/protocol/daemon-protocol-observe-tail-read.ts";
 import { daemonRepoModeWords } from "../src/protocol/daemon-protocol-vocabulary.ts";
 import { admitRepoMode, entityActionCommandTopology } from "../src/repo-mode.ts";
@@ -43,6 +43,21 @@ test("legacy repo reads have no descriptor left on the serialized write method",
     if (command.commandClass === "repo-read") assert.notEqual(command.method, "repo.task.run", command.id);
   for (const id of legacyReadIds)
     assert.equal(daemonProtocolCommands.find((command) => command.id === id)?.method, "repo.task.read", id);
+});
+
+test("RepoCell execution context is declared independently from read authorization", () => {
+  const byId = new Map(daemonProtocolCommands.map((command) => [command.id, command]));
+  for (const id of ["receipt-show", "task-show", "doctor-health", "preset-list", "agent-list", "doc-status"]) {
+    assert.equal(byId.get(id)?.commandClass, "repo-read", id);
+    assert.equal(byId.get(id)?.repoCellExecution, "writer", id);
+  }
+  for (const command of daemonProtocolCommands)
+    if (command.commandClass !== "repo-read")
+      assert.equal(
+        repoCellExecutionForAction("actionKind" in command ? command.actionKind : command.id),
+        "writer",
+        command.id,
+      );
 });
 
 test("observe.tail declares direct admission and named source residency for every tail kind", () => {
