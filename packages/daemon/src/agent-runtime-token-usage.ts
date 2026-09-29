@@ -171,7 +171,7 @@ function projectedHeader(
     runtimeSessionId: payload.runtimeSessionId,
     instanceId: payload.instanceId,
     startedAt: payload.startedAt ?? row.event.occurredAt,
-    eventStreamRef: `file:.harness/runtime/dispatches/archive/${payload.dispatchId}.jsonl`,
+    eventStreamRef: `file:.harness/runtime/dispatches/${payload.dispatchId}.jsonl`,
     taskId: payload.taskId ?? null,
     executionId: payload.executionId ?? null,
     ...(payload.agentId ? { agentId: payload.agentId } : {}),

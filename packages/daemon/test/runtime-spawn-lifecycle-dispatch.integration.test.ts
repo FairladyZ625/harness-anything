@@ -13,7 +13,7 @@ import {
   type AgentDefinitionSnapshot,
 } from "@harness-anything/kernel";
 import { type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
-import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
@@ -532,13 +532,7 @@ test(
       });
       const hostPid = await eventuallyValue(() => {
         try {
-          const records = readFileSync(
-              path.join(root, ".harness", "runtime", "dispatches", `${String(spawned.dispatchId)}.jsonl`),
-              "utf8",
-            )
-              .trim()
-              .split(/\r?\n/u)
-              .map((line) => JSON.parse(line) as Record<string, unknown>),
+          const records = readDispatchStream(root, String(spawned.dispatchId))?.records ?? [],
             pid = records.find((record) => record.kind === "process_started")?.pid;
           return Number.isInteger(pid) && Number(pid) > 0 ? Number(pid) : null;
         } catch {
@@ -566,14 +560,12 @@ test(
         return read.session.activity.outcome === "cancelled" ? read.session : null;
       });
       assert.equal(cancelledSession.activity.outcome, "cancelled");
-      const streamPath = path.join(root, ".harness", "runtime", "dispatches", `${String(spawned.dispatchId)}.jsonl`),
-        descendants = await eventuallyValue(() => {
-          const records = readFileSync(streamPath, "utf8")
-            .trim()
-            .split(/\r?\n/u)
-            .map((line) => JSON.parse(line) as Record<string, unknown>);
-          return records.find((record) => record.kind === "process_descendants") ?? null;
-        });
+      const descendants = await eventuallyValue(
+        () =>
+          readDispatchStream(root, String(spawned.dispatchId))?.records.find(
+            (record) => record.kind === "process_descendants",
+          ) ?? null,
+      );
       assert.deepEqual(
         (descendants.pids as number[]).slice().sort((left, right) => left - right),
         pids.slice().sort((left, right) => left - right),

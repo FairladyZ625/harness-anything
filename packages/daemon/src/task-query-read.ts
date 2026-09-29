@@ -730,7 +730,7 @@ function projectedRuntimeHeaders(projection: TaskProjection): DispatchStreamHead
         runtimeSessionId: value.runtimeSessionId,
         instanceId: value.instanceId,
         startedAt: value.startedAt ?? event.occurredAt,
-        eventStreamRef: `file:.harness/runtime/dispatches/archive/${value.dispatchId}.jsonl`,
+        eventStreamRef: `file:.harness/runtime/dispatches/${value.dispatchId}.jsonl`,
         ...(value.agentId ? { agentId: value.agentId } : {}),
       });
     }

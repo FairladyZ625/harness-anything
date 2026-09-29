@@ -600,7 +600,7 @@ export function openDispatchStreamAppender(target: string): DispatchStreamAppend
 export function dispatchStreamRef(rootDir: string, dispatchId: string): string {
   const layout = resolveHarnessLayout(rootDir);
   const relative = path
-    .relative(layout.rootDir, archivedDispatchStreamPath(rootDir, dispatchId))
+    .relative(layout.rootDir, dispatchStreamPathForLayout(layout, dispatchId))
     .split(path.sep)
     .join("/");
   return `file:${relative}`;
