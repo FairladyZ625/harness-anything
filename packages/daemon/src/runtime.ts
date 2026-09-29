@@ -8,7 +8,7 @@ import { createJsonRpcProtocolServer } from "./protocol/json-rpc-server.ts";
 import { openDaemonRequestLog } from "./request-log.ts";
 import { openDaemonLifecycleLog } from "./lifecycle-log.ts";
 import { openDaemonConnLog } from "./conn-log.ts";
-import { daemonBuildStamp, observeDaemonBuild } from "./build-identity.ts";
+import { daemonBuildStamp, observeDaemonBuild, type DaemonBuildObserver } from "./build-identity.ts";
 import { runtimePidIsAlive } from "./runtime-process-liveness.ts";
 import { createUnixSocketTransportServer } from "./transport/unix-socket.ts";
 import type { DaemonHostOpenInput } from "./daemon-host-open.ts";
@@ -41,6 +41,7 @@ export async function startDaemon(input: {
   readonly userRoot: string;
   readonly endpoint?: string;
   readonly runtimeFile?: string;
+  readonly buildObserver?: DaemonBuildObserver;
   readonly shutdownRequested?: () => boolean;
   readonly requestShutdown?: () => void;
   readonly attachTimeoutMs?: number;
@@ -49,7 +50,10 @@ export async function startDaemon(input: {
   readonly runtimeEnv?: NodeJS.ProcessEnv;
   /** Called after a build-superseded exit released everything, so the resident entry can hand the
    * slot to the disk build. */
-  readonly onSupersededExit?: () => void;
+  readonly onSupersededExit?: () => void | Promise<void>;
+  readonly buildSupersessionEnabled?: boolean;
+  readonly shutdownDeadlineMs?: number;
+  readonly shutdownDeadlineExceeded?: () => void;
 }): Promise<DaemonServeStart> {
   const endpoint = input.endpoint ?? localUserDaemonEndpoint(input.userRoot, input.daemonId);
   // The singleton claim precedes every workspace attachment and the socket
@@ -62,7 +66,7 @@ export async function startDaemon(input: {
   writeFileSync(pidPath, `${process.pid}\n`, "utf8");
   const lifecycle = openDaemonLifecycleLog({ userRoot: input.userRoot, daemonId: input.daemonId });
   const build = daemonBuildStamp();
-  const buildObserver = observeDaemonBuild(input.runtimeFile);
+  const buildObserver = input.buildObserver ?? observeDaemonBuild(input.runtimeFile);
   lifecycle.record({ event: "process_start", endpoint, ...buildObserver.status() });
   // Connection- and request-level traffic sink; async by design so the socket hot path never waits on disk.
   const connLog = openDaemonConnLog({ userRoot: input.userRoot, daemonId: input.daemonId });
@@ -96,6 +100,11 @@ export async function startDaemon(input: {
     if (stopPromise) return stopPromise;
     stopping = true;
     stopPromise = (async () => {
+      const deadline = setTimeout(
+        input.shutdownDeadlineExceeded ?? (() => process.abort()),
+        input.shutdownDeadlineMs ?? 30_000,
+      );
+      deadline.unref();
       // Only the drain belongs in `try`; everything below it is teardown and the invariant above is
       // unconditional. These used to sit after the awaits, so any rejection on the way down — most
       // easily a long migration replay failing inside RepoCell.close — left the socket bound, the pid
@@ -114,15 +123,17 @@ export async function startDaemon(input: {
         // Same shape for the pid file: an unremovable pid file must not strand the lock behind it.
         await settleTeardownStep(async () => rmSync(pidPath, { force: true }));
         singleton.release();
-        // Only the supersession outcome restarts itself: an operator stop means stop, and the
-        // stopped marker the CLI wrote for it blocks autostart until the operator says otherwise.
-        if (outcome === "build_superseded") input.onSupersededExit?.();
+        clearTimeout(deadline);
       }
+      // Only the supersession outcome restarts itself: an operator stop means stop, and the
+      // stopped marker the CLI wrote for it blocks autostart until the operator says otherwise.
+      if (outcome === "build_superseded") await input.onSupersededExit?.();
     })();
     return stopPromise;
   };
   const requestDrainCheck = (): void => {
-    if (!buildSupersessionObserved || drainCheckScheduled || stopPromise) return;
+    if (input.buildSupersessionEnabled === false || !buildSupersessionObserved || drainCheckScheduled || stopPromise)
+      return;
     drainCheckScheduled = true;
     setImmediate(() => {
       drainCheckScheduled = false;
