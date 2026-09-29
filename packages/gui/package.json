@@ -69,7 +69,7 @@
     "@xyflow/react": "^12.11.2",
     "dockview": "8.2.0",
     "dockview-react": "8.2.0",
-    "electron": "42.5.1",
+    "electron": "42.11.9",
     "motion": "^13.4.5",
     "react": "19.2.7",
     "react-dom": "19.2.7",
