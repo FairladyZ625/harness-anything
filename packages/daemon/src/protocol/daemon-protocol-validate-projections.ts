@@ -152,6 +152,32 @@ export function agendaAnsweredRow(value: unknown): boolean {
   );
 }
 
+function agendaAttentionItem(value: unknown): boolean {
+  return (
+    exactRecord(value, ["ref", "title", "kind", "region", "workTaskId", "attention"]) &&
+    nonEmpty(value.ref) &&
+    nonEmpty(value.title) &&
+    ["awaiting-you", "rework", "adjudication", "decision", "blocked", "stalled", "answered", "archive"].includes(
+      String(value.kind),
+    ) &&
+    ["mine", "stuck"].includes(String(value.region)) &&
+    (value.workTaskId === null || nonEmpty(value.workTaskId)) &&
+    isJsonObject(value.attention) &&
+    exactRecord(value.attention, ["score", "reasons"]) &&
+    Number.isSafeInteger(value.attention.score) &&
+    Number(value.attention.score) >= 0 &&
+    Array.isArray(value.attention.reasons) &&
+    value.attention.reasons.length > 0 &&
+    value.attention.reasons.every(
+      (reason) =>
+        exactRecord(reason, ["label", "contribution"]) &&
+        nonEmpty(reason.label) &&
+        Number.isSafeInteger(reason.contribution) &&
+        Number(reason.contribution) >= 0,
+    )
+  );
+}
+
 export function validateDaemonAgenda(value: unknown): readonly string[] {
   const entityId = validationEntityId(value, ["command"], "agenda"),
     shapeError = recordShapeError(entityId, value, DAEMON_AGENDA_SCHEMA.required, [
@@ -201,7 +227,7 @@ export function validateDaemonAgenda(value: unknown): readonly string[] {
     ],
   ] as const)
     if (!valid) return [validationError(entityId, field, actual, expectation)];
-  for (const field of ["inFlight", "awaitingRework", "waitingOnOthers", "dispatchable"] as const) {
+  for (const field of ["inFlight", "stalled", "awaitingRework", "waitingOnOthers", "dispatchable"] as const) {
     if (!Array.isArray(value[field])) return [validationError(entityId, field, value[field], "must be an array")];
     const invalidIndex = value[field].findIndex((row) => !agendaTask(row));
     if (invalidIndex >= 0)
@@ -214,6 +240,17 @@ export function validateDaemonAgenda(value: unknown): readonly string[] {
         ),
       ];
   }
+  if (!Array.isArray(value.attentionItems) || value.attentionItems.some((row) => !agendaAttentionItem(row)))
+    return [validationError(entityId, "attentionItems", value.attentionItems, "must contain valid attention items")];
+  const regionWeights = value.regionWeights;
+  if (
+    !isJsonObject(regionWeights) ||
+    !exactRecord(regionWeights, ["mine", "stuck", "run", "review", "queue", "recent", "works"]) ||
+    !["mine", "stuck", "run", "review", "queue", "recent", "works"].every(
+      (field) => typeof regionWeights[field] === "number" && Number.isFinite(regionWeights[field]),
+    )
+  )
+    return [validationError(entityId, "regionWeights", regionWeights, "must contain finite region weights")];
   for (const [field, row, idFields] of [
     ["awaitingYou", agendaAwaitsRow, ["relationId"]],
     ["answeredForYou", agendaAnsweredRow, ["relationId"]],
