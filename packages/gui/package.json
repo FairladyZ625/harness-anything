@@ -73,7 +73,7 @@
     "react-dom": "19.2.7",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
-    "electron": "42.5.1"
+    "electron": "42.11.9"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.2",
