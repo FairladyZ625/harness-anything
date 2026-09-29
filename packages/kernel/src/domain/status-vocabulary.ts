@@ -464,14 +464,6 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     note: "Append-only policy evaluation result carried by a write receipt.",
   },
   {
-    id: "recovery.state",
-    entity: "Recovery",
-    field: "state",
-    module: "packages/kernel/src/domain/write-chain.contract.ts",
-    anchor: "recoveryStates",
-    words: ["queued", "running", "exhausted", "failed", "drained"],
-  },
-  {
     id: "materialization.state",
     entity: "Materialization",
     field: "state",

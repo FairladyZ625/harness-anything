@@ -15,7 +15,7 @@ import {
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { readDocReceipt } from "../src/doc-sync-actions.ts";
 import { detail, touch } from "../src/doc-sync-details.ts";
-import { scanAuthoredCandidateInventory, scanDocCandidates } from "../src/doc-sync-candidate-scanner.ts";
+import { scanDocCandidates } from "../src/doc-sync-candidate-scanner.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
@@ -294,16 +294,6 @@ test("scanner routes multi-megabyte JSONL to artifact add without reading it and
   write(rootDir, secondLog, jsonl);
   write(rootDir, prose, "# Notes\n");
   write(rootDir, oversized, `# Oversized\n${"x".repeat(DOC_SYNC_INLINE_MAX_BYTES)}`);
-  const store = makeTaskEventReader({ repoId, rootDir }),
-    inventory = scanAuthoredCandidateInventory({ rootDir, store }),
-    inventoryByPath = new Map(inventory.rows.map((row) => [row.path, row]));
-  await store.drain();
-  for (const logical of [firstLog, secondLog]) {
-    assert.equal(inventoryByPath.get(logical)?.size, Buffer.byteLength(jsonl));
-    assert.equal(inventoryByPath.get(logical)?.bytes, null, `${logical} must not enter inventory bytes`);
-  }
-  assert.equal(inventoryByPath.get(oversized)?.bytes, null, "oversized prose must not enter inventory bytes");
-  assert.equal(inventoryByPath.get(prose)?.bytes?.byteLength, Buffer.byteLength("# Notes\n"));
   rmSync(path.join(rootDir, "harness", oversized));
 
   const cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "size-type-daemon" }),

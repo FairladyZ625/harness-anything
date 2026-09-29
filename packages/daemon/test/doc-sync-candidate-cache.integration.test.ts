@@ -1,6 +1,5 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import fs, { mkdtempSync, rmSync, statSync, utimesSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
@@ -9,13 +8,12 @@ import test from "node:test";
 import {
   localGitWorktreeSettlement,
   makeTaskEventReader,
-  makeTaskEventStore,
   makeTaskProjection,
   resolveHarnessLayout,
   sha256Text,
 } from "@harness-anything/kernel";
 import { runDocAction } from "../src/doc-sync-command-actions.ts";
-import { scanAuthoredCandidateInventory, scanDocCandidates } from "../src/doc-sync-candidate-scanner.ts";
+import { scanDocCandidates } from "../src/doc-sync-candidate-scanner.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { actor, initRepo, rows, write } from "./doc-sync-slice-a.fixtures.ts";
@@ -161,31 +159,6 @@ test("doc status reuses unchanged file inputs and observes accepted updates, dra
   }
 });
 
-test("candidate inventory obtains tracked, deleted, and untracked paths", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-inventory-git-"));
-  initRepo(rootDir);
-  const repoId = workspaceId("inventory-git"),
-    store = makeTaskEventStore({ repoId, rootDir });
-  try {
-    write(rootDir, "context/tracked.md", "# Tracked\n");
-    write(rootDir, "context/deleted.md", "# Deleted\n");
-    execFileSync("git", ["-C", rootDir, "add", "harness"]);
-    execFileSync("git", ["-C", rootDir, "commit", "-qm", "tracked documents"]);
-    write(rootDir, "context/tracked.md", "# Updated\n");
-    rmSync(path.join(rootDir, "harness", "context/deleted.md"));
-    write(rootDir, "context/untracked.md", "# Untracked\n");
-
-    const inventory = scanAuthoredCandidateInventory({ rootDir, store });
-    assert.deepEqual(
-      inventory.rows.map((row) => row.path),
-      ["context/deleted.md", "context/tracked.md", "context/untracked.md"],
-    );
-  } finally {
-    await store.drain();
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-
 test("discovery preserves unknown files and owners and isolates repositories and cut identities", async (t) => {
   const roots = [0, 1].map(() => mkdtempSync(path.join(tmpdir(), "ha-doc-cache-repo-"))),
     stores: ReturnType<typeof makeTaskEventReader>[] = [],
@@ -277,11 +250,7 @@ test("discovery preserves unknown files and owners and isolates repositories and
     assert.notEqual(first.rows[0]?.candidateBlobSha256, second.rows[0]?.candidateBlobSha256);
     assert.equal(second.rows[0]?.candidateBlobSha256, sha256Text("# Repository 1\n"));
     assert.equal(fileLoads, 5);
-    const inventoried = scanAuthoredCandidateInventory({ rootDir: roots[1]!, store: stores[1]! });
-    assert.equal(fileLoads, 5, "inventory shares the preceding scanner inputs at the same cut");
-    assert.deepEqual(scanAuthoredCandidateInventory({ rootDir: roots[1]!, store: stores[1]! }), inventoried);
-    assert.equal(fileLoads, 5, "warm inventory does not reload unchanged file inputs");
-    t.diagnostic("generation and same-revision head replacement each force a reload; warm inventory adds zero loads");
+    t.diagnostic("generation and same-revision head replacement each force a reload");
   } finally {
     for (const projection of projections) projection.close();
     for (const store of stores) await store.drain();

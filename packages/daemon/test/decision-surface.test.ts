@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { deriveRelationId, makeTaskEventReader } from "@harness-anything/kernel";
-import { readColdRebuildSource } from "@harness-anything/kernel/internal/projection/cold-rebuild-source";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -111,16 +110,6 @@ test("Decision F06 surface preserves amend, transition, relation, repin, validat
     assert.match(body, /amendments: \[/u);
     assert.match(body, /contentPins: \[/u);
     assert.match(body, /A second prose correction preserves the first amendment/u);
-    const cold = readColdRebuildSource({ rootDir }),
-      coldDecision = cold.decisions.find((row) => row.decisionId === decisionId);
-    assert.equal(coldDecision?.title, "Lifecycle surface amended");
-    assert.equal(coldDecision?.chosen.includes("Preserve correction history"), true);
-    assert.equal(
-      cold.truth.decisionAnchors
-        .find((row) => row.decisionId === decisionId)
-        ?.anchorRefs.includes(`decision/${decisionId}/C2`),
-      true,
-    );
     const beforePreviewRevision = makeTaskEventReader({ repoId: "decision-surface", rootDir }).read().revision,
       preview = await cell.run(
         {

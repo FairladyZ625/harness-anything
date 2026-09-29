@@ -196,11 +196,9 @@ export interface CanonicalEventStore {
   readonly currentCut: () => LedgerCutIdentity;
   readonly currentCommit: () => LedgerCommitSha;
   readonly publication: (event: CanonicalEventV1) => CanonicalPublicationIdentity;
-  readonly revisionAt: (commit: LedgerCommitSha) => number | null;
   readonly readEvent: (opId: string) => CanonicalEventV1 | null;
   readonly readEventAtRevision?: (revision: number) => CanonicalEventV1 | null;
   readonly readEventById?: (eventId: string) => CanonicalEventV1 | null;
-  readonly readEventsBefore?: (revision: number, maxItems: number) => readonly CanonicalEventV1[];
   readonly queryEvents?: (query: CanonicalEventQuery) => readonly CanonicalEventV1[];
   readonly readTaskEvent: (opId: string) => TaskEventV1 | null;
   readonly readCommandOutcome: (opId: string) => CanonicalCommandOutcome | null;

@@ -124,21 +124,11 @@ interface AuthoredEventRead {
   readonly issues: readonly ColdRebuildIssue[];
 }
 
-/** Read authored L1 plus current canonical event envelopes for a cold projection.
- * Current event rows win over matching task-local Fact snapshots; migration-only
- * identity re-keying remains confined to the legacy reader below. */
-export function readColdRebuildSource(
-  rootInput: HarnessLayoutInput,
-  seedTruth: EventBackedRelationTruth = emptyRelationTruth,
-): ColdRebuildSource {
-  return readColdRebuildSourceInternal(rootInput, false, seedTruth);
-}
-
 /** Migration-only source reader for pre-canonical task-local fact documents and
  * event envelopes. This boundary keeps the legacy parser out of resident
  * projection and post-merge paths. */
 export function readLegacyMigrationSource(rootInput: HarnessLayoutInput): ColdRebuildSource {
-  return readColdRebuildSourceInternal(rootInput, true, emptyRelationTruth);
+  return readLegacyMigrationSourceInternal(rootInput, true, emptyRelationTruth);
 }
 
 const emptyRelationTruth: EventBackedRelationTruth = {
@@ -148,7 +138,7 @@ const emptyRelationTruth: EventBackedRelationTruth = {
   coverageRows: [],
 };
 
-function readColdRebuildSourceInternal(
+function readLegacyMigrationSourceInternal(
   rootInput: HarnessLayoutInput,
   migrationMode: boolean,
   seedTruth: EventBackedRelationTruth,

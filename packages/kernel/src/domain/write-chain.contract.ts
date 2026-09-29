@@ -59,66 +59,6 @@ export const writeReceiptOutcomes = Object.freeze([
 ] as const);
 export type WriteReceiptOutcome = (typeof writeReceiptOutcomes)[number];
 
-export interface RecoveryBudget {
-  readonly deadline: number;
-  readonly maxItems: number;
-  readonly retry: number;
-}
-export const RECOVERY_BUDGET: Readonly<RecoveryBudget> = Object.freeze({ deadline: 100, maxItems: 64, retry: 1 });
-export const recoveryStates = Object.freeze(["queued", "running", "exhausted", "failed", "drained"] as const);
-export type RecoveryState = (typeof recoveryStates)[number];
-export interface RecoveryWindow {
-  readonly elapsed: number;
-  readonly attempt: number;
-}
-
-export interface RecoveryBatch<T> {
-  readonly items: readonly T[];
-  readonly deferred: number;
-  readonly nextCursor: number;
-  readonly state: RecoveryState;
-}
-
-export function nextRecoveryBatch<T>(
-  items: readonly T[],
-  cursor = 0,
-  budget: RecoveryBudget = RECOVERY_BUDGET,
-  window: RecoveryWindow = { elapsed: 0, attempt: 0 },
-): RecoveryBatch<T> {
-  if (
-    !Number.isInteger(cursor) ||
-    cursor < 0 ||
-    !Number.isInteger(budget.deadline) ||
-    budget.deadline < 0 ||
-    !Number.isInteger(budget.maxItems) ||
-    budget.maxItems < 1 ||
-    !Number.isInteger(budget.retry) ||
-    budget.retry < 0 ||
-    !Number.isInteger(window.elapsed) ||
-    window.elapsed < 0 ||
-    !Number.isInteger(window.attempt) ||
-    window.attempt < 0
-  ) {
-    throw new WriteChainContractError(
-      "invalid_contract",
-      "recovery cursor, budget, and window must be non-negative integers with a positive item limit",
-    );
-  }
-  const stopped: RecoveryState | null =
-    window.attempt > budget.retry ? "failed" : window.elapsed >= budget.deadline ? "exhausted" : null;
-  if (stopped !== null)
-    return Object.freeze({
-      items: Object.freeze([]) as readonly T[],
-      deferred: Math.max(0, items.length - cursor),
-      nextCursor: cursor,
-      state: stopped,
-    });
-  const batch = Object.freeze(items.slice(cursor, cursor + budget.maxItems));
-  const nextCursor = cursor + batch.length;
-  const deferred = Math.max(0, items.length - nextCursor);
-  return Object.freeze({ items: batch, deferred, nextCursor, state: deferred === 0 ? "drained" : "exhausted" });
-}
-
 export interface EventEnvelope<S extends string, T extends string, A extends ActorIdentity, P> {
   readonly schema: S;
   readonly eventId: string;
