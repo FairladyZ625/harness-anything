@@ -1,6 +1,5 @@
 import {
   bindWriterGenerationToken,
-  compileVerticalDeclarationEvent,
   consumeKnownError,
   createEntityStore,
   isSameExecution,
@@ -33,11 +32,11 @@ import { readRuntimeSessionActivityEvidence } from "./dispatch-read.ts";
 import { createRuntimeOutcomeWaiters } from "./runtime-settlement.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import type { FleetRoster } from "./fleet-center-admission.ts";
-import { readDefaultVerticalDefinition } from "./vertical-declaration-action.ts";
 import { type CanonicalRoot, type WorkspaceId } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
 import { bootstrapRepo, type RepoBootstrapInput, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
+import { initializeBootstrapLedger } from "./repo-cell-bootstrap-ledger.ts";
 import {
   createRepoCellActionContext,
   type RepoCellOperationalContext,
@@ -856,45 +855,7 @@ export async function openRepoWriterCell(
     return startBinding;
   };
   if (input.bootstrap && !input.bootstrap.configureOnly) {
-    const roleBindings = declaredRoleBindingsForActor(rootDir, input.bootstrap.actor),
-      baseBinding = {
-        actor: input.bootstrap.actor,
-        source: "local" as const,
-        ...(roleBindings === undefined
-          ? { authorizationBindingMode: "default" as const }
-          : { authorizationBindingMode: "declared" as const, roleBindings }),
-      },
-      revision = store.readHead()?.revision ?? 0,
-      authorizationDecision = authorizeRepoCellAction({
-        action: { kind: "repo-bootstrap" },
-        binding: baseBinding,
-        actionId: `repo-bootstrap:${input.repoId}:${revision}`,
-        revision,
-        now: now(),
-      });
-    if (authorizationDecision.outcome === "denied")
-      throw cellCodedError(
-        "authorization_denied",
-        authorizationDecision.nextActions.join(" ") || "Repository bootstrap requires owner authority.",
-      );
-    const appended = settings.initialize(...input.bootstrap.settingsBootstrap, {
-      ...baseBinding,
-      authorizationDecision,
-    });
-    const verticalRevision = (store.readHead()?.revision ?? 0) + 1,
-      verticalBundle = compileVerticalDeclarationEvent({
-        type: "vertical_declared",
-        definition: readDefaultVerticalDefinition(),
-        eventId: `event-vertical-declaration-${verticalRevision}`,
-        opId: `vertical-declaration-initialize-${verticalRevision}`,
-        workspaceRevision: verticalRevision,
-        actor: baseBinding.actor,
-        source: baseBinding.source,
-        occurredAt: now(),
-      });
-    store.append(verticalBundle);
-    projection.apply(verticalBundle.event, verticalBundle.plan);
-    await store.settlePendingMaterialization?.("repository vertical initialization");
+    const appended = await initializeBootstrapLedger(extracted, settings, input.bootstrap);
     if (appended && bootstrapReceipt) {
       bootstrapReceipt = { ...bootstrapReceipt, outcome: "applied" };
       input.onBootstrap?.(bootstrapReceipt);

@@ -18,7 +18,7 @@ test("every production local binding is covered by a request or cell-default wri
       ["daemon-host-binding.ts", 2],
       ["host-action-authorization.ts", 1],
       ["repo-cell-authorization.ts", 1],
-      ["repo-cell-open.ts", 1],
+      ["repo-cell-bootstrap-ledger.ts", 1],
     ],
     `unclassified production source:local use:\n${uses.map((use) => `${use.file}:${use.line}`).join("\n")}`,
   );
