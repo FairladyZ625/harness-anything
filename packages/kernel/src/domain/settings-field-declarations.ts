@@ -264,6 +264,7 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
       format: "workflow names, or none to disable CI witnessing (unconfigured repositories witness none)",
     },
     noneMeansEmpty: true,
+    yamlStyle: "inline",
   }),
   defineSettingsField({
     path: ["gates"],

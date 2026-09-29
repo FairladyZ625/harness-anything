@@ -371,11 +371,25 @@ function readDeclaredSettings(
     settings = settingsValueFromDeclarations(declarations) as SettingsRecord;
   assertDeclaredNestedKeys(authored, declarations);
   for (const declaration of declarations) {
+    assertDeclaredSequenceStyle(document, declaration);
     const value = readDeclaredField(authored, declaration);
     if (value === undefined) deleteValueAtPath(settings, declaration.path);
     else setValueAtPath(settings, declaration.path, value);
   }
   return settings;
+}
+
+function assertDeclaredSequenceStyle(
+  document: ReturnType<typeof parseDocument>,
+  declaration: SettingsFieldDeclaration,
+): void {
+  if (declaration.valueKind !== "string-array" || declaration.yamlStyle === undefined) return;
+  const node = document.getIn(["settings", ...declaration.path], true);
+  if (!isSeq(node)) return;
+  if (declaration.yamlStyle === "inline" && !node.flow)
+    throw new SettingsDeclarationError(`settings.${declaration.path.join(".")} must be an inline array`);
+  if (declaration.yamlStyle === "block-list" && node.flow && node.items.length > 0)
+    throw new SettingsDeclarationError(`settings.${declaration.path.join(".")} must hold a setup: block list`);
 }
 
 function readDeclaredField(authored: Readonly<SettingsRecord>, declaration: SettingsFieldDeclaration): unknown {
@@ -474,8 +488,6 @@ function writeDeclaredValue(
   if (!exists && stableStringify(value) === stableStringify(declaration.defaultValue)) return;
   if (!document.has("settings")) throw new Error("Missing settings block in harness.yaml.");
   ensureSettingsMap(document);
-  const existingNode = exists ? document.getIn(path, true) : undefined,
-    sequenceFlow = isSeq(existingNode) ? existingNode.flow : declaration.yamlStyle !== "block-list";
   const authoredValue =
     declaration.valueKind === "gate-mappings"
       ? gateMappingsValue(value)
@@ -486,7 +498,7 @@ function writeDeclaredValue(
         : value;
   document.setIn(path, Array.isArray(authoredValue) ? document.createNode(authoredValue) : authoredValue);
   const node = document.getIn(path, true);
-  if (isSeq(node)) node.flow = sequenceFlow;
+  if (isSeq(node) && declaration.yamlStyle !== undefined) node.flow = declaration.yamlStyle === "inline";
 }
 
 function applyDeclaredRepositoryAction(
