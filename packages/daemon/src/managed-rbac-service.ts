@@ -17,6 +17,7 @@ import { createServer } from "node:net";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { runProcessText } from "./process-port.ts";
+import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 
 export const managedRbacVersions = Object.freeze({
   keycloak: "26.7.3",
@@ -118,6 +119,7 @@ export class ManagedRbacService {
     if (operation === "bootstrap" || operation === "upgrade") await this.#install();
     await this.start();
     const health = await this.#waitUntilReady();
+    await this.#syncBasePolicy();
     return {
       ok: true,
       command: `rbac-${operation}`,
@@ -259,6 +261,7 @@ export class ManagedRbacService {
           enabled: true,
           publicClient: false,
           serviceAccountsEnabled: true,
+          authorizationServicesEnabled: true,
           secret: readFileSync(secretFile, "utf8").trim(),
         },
         {
@@ -400,6 +403,29 @@ export class ManagedRbacService {
       await new Promise<void>((resolve) => setTimeout(resolve, 250));
     }
     throw managedRbacError("rbac_health_failed", `Keycloak realm health returned HTTP ${String(result.status)}.`);
+  }
+
+  async #syncBasePolicy(): Promise<void> {
+    const config = this.#readManagedConfig(),
+      tokenResponse = await this.#ports.fetch(`${config.url}/realms/master/protocol/openid-connect/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "password",
+          client_id: "admin-cli",
+          username: "harness-bootstrap",
+          password: readOrCreateSecret(path.join(this.#root, "bootstrap-admin-password")),
+        }),
+      });
+    if (!tokenResponse.ok)
+      throw managedRbacError("rbac_policy_sync_failed", `Keycloak admin token returned HTTP ${tokenResponse.status}.`);
+    const payload = (await tokenResponse.json()) as { readonly access_token?: unknown };
+    if (typeof payload.access_token !== "string" || !payload.access_token)
+      throw managedRbacError("rbac_policy_sync_failed", "Keycloak admin token response omitted access_token.");
+    await new KeycloakPolicyAdapter(
+      { url: config.url, realm: config.realm, resourceServerClientId: config.clientId },
+      this.#ports.fetch,
+    ).syncBasePolicy(payload.access_token);
   }
 
   async #configureExternal(request: ManagedRbacRequest): Promise<Record<string, unknown>> {
