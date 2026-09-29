@@ -2,6 +2,7 @@ import {
   cliInput,
   defineCliCommand,
   defineRepoReadCommand,
+  defineWriterReadCommand,
   generatedSettingsFieldProtocolProjection,
   presetCommands,
   presetMethods,
@@ -103,7 +104,7 @@ const settingsWriteTopology = {
   ]);
 
 const doctorProtocolCommands = Object.freeze([
-  defineRepoReadCommand({
+  defineWriterReadCommand({
     id: "doctor-health",
     actionKind: "doctor-health",
     phase: "W3",
@@ -196,6 +197,11 @@ export function commandDescriptorForAction(kind: string) {
 
 export function commandClassForAction(kind: string): "repo-read" | "repo-write" | "arbiter" | "admin" {
   return commandDescriptorForAction(kind).commandClass;
+}
+
+export function repoCellExecutionForAction(kind: string): "query-only" | "writer" {
+  const descriptor = commandDescriptorForAction(kind);
+  return "repoCellExecution" in descriptor && descriptor.repoCellExecution === "query-only" ? "query-only" : "writer";
 }
 
 export function actionForDaemonMethod(method: string, payload: JsonObject): JsonObject & { readonly kind: string } {

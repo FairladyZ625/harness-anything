@@ -29,7 +29,7 @@ import {
 } from "./repo-cell-action-context.ts";
 import { createRepoCellApi, repoCellSynchronousRead, type RepoCellApiContext } from "./repo-cell-api.ts";
 import { dispatchRead } from "./repo-cell-command.ts";
-import { executeRepoAction } from "./repo-cell-action-dispatch.ts";
+import { executeRepoReadAction } from "./repo-cell-action-dispatch.ts";
 import { makeEntityActionCatalogExecutor, type EntityActionCatalogRuntimes } from "./entity-action-catalog-executor.ts";
 import { makeAgentActionRuntime, makeSquadActionRuntime } from "./squad-action-runtime.ts";
 import { makeScheduleActionRuntime } from "./schedule-action-runtime.ts";
@@ -48,7 +48,7 @@ import { makeSquadCoordinator } from "./squad-coordinator.ts";
 import { makeTaskQueryReadModel } from "./task-query-read.ts";
 import { openWriterSupervisor } from "./writer-supervisor.ts";
 import { runtimeOutcomeSettled, runtimeSettlementGraceMs } from "./runtime-settlement.ts";
-import { commandClassForAction } from "./protocol/daemon-protocol-commands.ts";
+import { repoCellExecutionForAction } from "./protocol/daemon-protocol-commands.ts";
 import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
 import { workspaceScopeFromProjection } from "./workspace-scope-read.ts";
 
@@ -328,7 +328,9 @@ export async function openRepoCellProxy(
     action: RepoTaskAction,
     binding: RepoCellBinding,
   ): Awaited<ReturnType<RepoCell["run"]>> =>
-    executeRepoAction(readRuntime(projection).actionContext, action, binding) as Awaited<ReturnType<RepoCell["run"]>>;
+    executeRepoReadAction(readRuntime(projection).actionContext, action, binding) as Awaited<
+      ReturnType<RepoCell["run"]>
+    >;
   const run: RepoCell["run"] = async (action, binding, signal) => {
     if (closed)
       return {
@@ -336,7 +338,7 @@ export async function openRepoCellProxy(
         opId: operationId(action, binding, input.repoId, 0),
         code: "repo_unavailable",
       } as never;
-    if (commandClassForAction(action.kind) === "repo-read")
+    if (repoCellExecutionForAction(action.kind) === "query-only")
       return query((projection) => runReadAtCut(projection, action, binding));
     // Writes must yield once so a close started in the same turn wins admission.
     // Host-owned projection reads do not need that scheduling boundary.

@@ -29,6 +29,7 @@ import { readCompletionContext } from "./task-completion-read.ts";
 import { dispatchDecisionReview, dispatchTaskReview } from "./task-review-dispatch.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { runFactAction } from "./repo-cell-fact-action.ts";
+import { deriveActionResult } from "./entity-action-catalog-executor.ts";
 import type { TaskCommandWithDocsAction } from "./repo-cell-task-command-docs.ts";
 import { runVerticalDeclarationAction } from "./vertical-declaration-action.ts";
 import { attestGateWitness } from "./repo-cell-witness-adapters.ts";
@@ -383,6 +384,25 @@ export function executeRepoAction(
   if (action.kind === "task-attest") return attestGateWitness(cell, action, binding);
   if (action.kind === "task-declare-executor") return cell.declareExecutionExecutor(action, binding);
   return cell.lifecycleAction(action, binding);
+}
+
+export function executeRepoReadAction(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): WriteReceipt | Promise<WriteReceipt> {
+  try {
+    return executeRepoAction(cell, action, binding);
+  } catch (error) {
+    const contract = getExecutableEntityAction(action.kind),
+      receipt = cell.failed(
+        cell.errorOperationId(error) ?? cell.operationId(action, binding, cell.input.repoId, 0),
+        error,
+        contract,
+        contract ? action : undefined,
+      );
+    return contract ? deriveActionResult(contract, action, receipt) : receipt;
+  }
 }
 
 export function validateCanonicalIdentityInputs(cell: RepoCellOperationalContext, action: RepoTaskAction): void {

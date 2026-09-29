@@ -9,6 +9,7 @@ export type CommandAdmission = Readonly<
 >;
 export interface CommandTopology {
   readonly commandClass: "admin" | "repo-write" | "repo-read" | "arbiter";
+  readonly repoCellExecution?: "query-only" | "writer";
   readonly admission: CommandAdmission;
 }
 export interface CliInputFacet {
