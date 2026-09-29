@@ -39,7 +39,7 @@ import { acquireWorkspaceLock } from "./repo-cell-lock.ts";
 import type { RepoCellOpenInput } from "./repo-cell-open.ts";
 import { operationId } from "./repo-cell-proof.ts";
 import { admitRepoMode } from "./repo-mode.ts";
-import { requiredCellText } from "./repo-cell-settlement.ts";
+import { failed, requiredCellText } from "./repo-cell-settlement.ts";
 import { readRepoInFlightWork } from "./repo-in-flight-work.ts";
 import { makeRepoCellSettingsState } from "./repo-cell-settings-state.ts";
 import type { RepoCell, RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
@@ -154,7 +154,7 @@ export async function openRepoCellProxy(
   const query = <T>(read: (projection: TaskProjectionQueries) => T): T => {
     if (closed) throw cellCodedError("repo_unavailable", "RepoCell is closed.");
     const status = supervisor.status();
-    if (!writerServing(status))
+    if (!writerServing(status) || status.causeClass === "projection")
       throw cellCodedError("repo_unavailable", status.lastError ?? "RepoWriterCell is not ready.");
     // An unavailable writer never causes a repair from a serving read. SQLite either
     // returns the last completed transaction or an explicit read error.
@@ -343,8 +343,13 @@ export async function openRepoCellProxy(
         opId: operationId(action, binding, input.repoId, 0),
         code: "repo_unavailable",
       } as never;
-    if (repoCellExecutionForAction(action.kind) === "query-only")
-      return query((projection) => runReadAtCut(projection, action, binding));
+    if (repoCellExecutionForAction(action.kind) === "query-only") {
+      try {
+        return query((projection) => runReadAtCut(projection, action, binding));
+      } catch (error) {
+        return failed(operationId(action, binding, input.repoId, 0), error) as Awaited<ReturnType<RepoCell["run"]>>;
+      }
+    }
     // Writes must yield once so a close started in the same turn wins admission.
     // Host-owned projection reads do not need that scheduling boundary.
     await Promise.resolve();
