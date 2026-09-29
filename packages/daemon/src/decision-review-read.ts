@@ -2,6 +2,7 @@ import {
   decisionAcceptReviewReadiness,
   decisionReviewContentDigest,
   type DecisionAcceptReviewReadiness,
+  type DecisionReviewRequirement,
   type DecisionProjectionRow,
   type TaskProjection,
 } from "@harness-anything/kernel";
@@ -12,14 +13,18 @@ import type { DaemonDecisionFullRow, DaemonDecisionReviewDispatchRow } from "./p
  * The review cut and accept readiness a reader sees. Computed only on read surfaces: the accept write
  * path runs the same kernel judgment itself, and other writes never need it.
  */
-export function decisionReviewState(row: DecisionProjectionRow): {
+export function decisionReviewState(
+  row: DecisionProjectionRow,
+  requirement: DecisionReviewRequirement,
+): {
   readonly currentReviewContentDigest: `sha256:${string}` | null;
   readonly acceptReviewReadiness: DecisionAcceptReviewReadiness | null;
 } {
   if (row.body === null) return { currentReviewContentDigest: null, acceptReviewReadiness: null };
   return {
     currentReviewContentDigest: decisionReviewContentDigest(row, row.body.body),
-    acceptReviewReadiness: row.state === "proposed" ? decisionAcceptReviewReadiness(row, row.body.body) : null,
+    acceptReviewReadiness:
+      row.state === "proposed" ? decisionAcceptReviewReadiness(row, row.body.body, requirement) : null,
   };
 }
 
@@ -45,6 +50,7 @@ export function decisionFullListRows(input: {
   readonly projection: TaskProjection;
   readonly decisions: readonly DecisionProjectionRow[];
   readonly readiness: readonly NonNullable<DecisionProjectionRow["readiness"]>[];
+  readonly requirement: DecisionReviewRequirement;
 }): readonly DaemonDecisionFullRow[] {
   const withBodies = new Map(
     input.projection
@@ -53,7 +59,7 @@ export function decisionFullListRows(input: {
   );
   return input.decisions.map((decision, index) => ({
     ...decision,
-    ...decisionReviewState(withBodies.get(decision.decisionId) ?? decision),
+    ...decisionReviewState(withBodies.get(decision.decisionId) ?? decision, input.requirement),
     readiness: input.readiness[index]!,
     reviewDispatches: readDecisionReviewDispatches({ rootDir: input.rootDir, projection: input.projection, decision }),
   }));

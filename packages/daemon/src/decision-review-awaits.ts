@@ -8,6 +8,7 @@ import {
   type EventPublicationKillpoint,
   type SessionIdentity,
   type TaskProjection,
+  type RepositorySettingsV1,
 } from "@harness-anything/kernel";
 import { decisionReviewAwaitRationale } from "./decision-review-read.ts";
 import { executeRelationAction, reject } from "./entity-action-relation.ts";
@@ -25,6 +26,7 @@ interface DecisionReviewAwaitInput {
   readonly now: () => string;
   readonly sessionIdentity: (binding: RepoCellBinding) => SessionIdentity;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
+  readonly readSettings: () => RepositorySettingsV1;
 }
 
 interface DecisionWriteContext {
@@ -35,6 +37,7 @@ interface DecisionWriteContext {
   readonly now: () => string;
   readonly sessionIdentity: (binding: RepoCellBinding) => SessionIdentity;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
+  readonly readSettings: () => RepositorySettingsV1;
 }
 
 /**
@@ -66,6 +69,7 @@ export function reconcileDecisionReviewAwaitAfterWrite(
     projection: context.projection,
     now: context.now,
     sessionIdentity: context.sessionIdentity,
+    readSettings: context.readSettings,
     ...(context.killpoint ? { killpoint: context.killpoint } : {}),
   });
 }
@@ -87,7 +91,8 @@ function reconcileDecisionReviewAwait(input: DecisionReviewAwaitInput): void {
     shouldAwait =
       decision.state === "proposed" &&
       decision.body !== null &&
-      decisionAcceptReviewReadiness(decision, decision.body.body).blocker?.code === "changes_requested";
+      decisionAcceptReviewReadiness(decision, decision.body.body, input.readSettings().decisionReviewRequirement)
+        .blocker?.code === "changes_requested";
   if (shouldAwait) {
     if (current?.state === "active") return;
     runRelation(input, "relation-relate", {

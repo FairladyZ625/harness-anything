@@ -42,6 +42,7 @@ test("Task Action transport has one current build-time projection", async () => 
       "defaultProfile",
       "roles",
       "reviewIndependence",
+      "decisionReviewRequirement",
       "reviewReturnBudget",
       "locale",
       "taskScaffold",

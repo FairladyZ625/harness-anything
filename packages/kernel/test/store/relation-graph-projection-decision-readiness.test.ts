@@ -113,6 +113,7 @@ test("Replay accepts a document today's renderer no longer reproduces, as long a
     const fixture = projectionFixture(rootDir),
       draft = proposal(1, "dec_LEGACY_RENDER"),
       compiled = compileDecisionWrite({
+        decisionReviewRequirement: "off",
         event: draft,
         currentDecision: null,
         currentRelations: [],
@@ -150,6 +151,7 @@ test("Decision projection requires an exact plan, consent pin, and document base
     const fixture = projectionFixture(rootDir),
       draft = proposal(1, "dec_EXACT"),
       compiled = compileDecisionWrite({
+        decisionReviewRequirement: "off",
         event: draft,
         currentDecision: null,
         currentRelations: [],
@@ -201,6 +203,7 @@ test("Decision projection preserves authored option and claim order across two-d
       },
     },
     compiled = compileDecisionWrite({
+      decisionReviewRequirement: "off",
       event,
       currentDecision: null,
       currentRelations: [],

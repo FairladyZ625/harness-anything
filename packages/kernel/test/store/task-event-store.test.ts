@@ -644,5 +644,11 @@ function replacementCommand(revision: number) {
 
 function decisionBundle(opId: string): ReturnType<typeof compileDecisionWrite> {
   const proposal = { ...decisionProposal(), opId, eventId: `event-${opId}` };
-  return compileDecisionWrite({ event: proposal, currentDecision: null, currentRelations: [], currentDocument: null });
+  return compileDecisionWrite({
+    decisionReviewRequirement: "off",
+    event: proposal,
+    currentDecision: null,
+    currentRelations: [],
+    currentDocument: null,
+  });
 }

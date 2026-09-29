@@ -24,7 +24,7 @@ import {
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
 import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
-import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
+import { readEffectiveCloseoutGates, readRepositorySettings } from "./repo-cell-settings-state.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type { RepoCellAttachProgress, RepoCellBinding } from "./repo-cell-types.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
@@ -171,6 +171,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       projection,
       now: context.now,
       sessionIdentity: currentSessionIdentity,
+      readSettings: () => readRepositorySettings(projection!),
       killpoint: context.input.killpoint,
     });
     const runtimeReads = makeAgentRuntimeReadModel({

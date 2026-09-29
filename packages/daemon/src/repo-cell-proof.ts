@@ -10,7 +10,6 @@ import {
   gateResults,
   heldLeaseForExecutionActor,
   getTaskActionForTransition,
-  isIndependentFrom,
   isNativeExecution,
   isSameExecution,
   isSamePerson,
@@ -39,6 +38,7 @@ import { readTaskLineageDispatches } from "./dispatch-read.ts";
 import { reviewDispatchKey } from "./task-review-dispatch.ts";
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { leaseTtlMs } from "./repo-cell-types.ts";
+import { reviewActorsIndependent } from "./decision-review-authorization.ts";
 
 const START_VALIDATION_CRITERION = "task-lifecycle-command-transitions/start.validate";
 const SUBMIT_PROOF_CRITERION = "repo-cell-proof/proofFor.SubmitExecution";
@@ -244,14 +244,11 @@ export async function proofFor(
         );
     }
     const independentActor =
-        execution !== undefined &&
-        (settings.reviewIndependence === "execution"
-          ? isIndependentFrom(execution.actor, command.actor)
-          : !isSamePerson(execution.actor, command.actor)),
+        execution !== undefined && reviewActorsIndependent(execution.actor, command.actor, settings.reviewIndependence),
       principalIndependenceRequired =
         settings.reviewIndependence === "principal" &&
         execution !== undefined &&
-        isSamePerson(execution.actor, command.actor),
+        !reviewActorsIndependent(execution.actor, command.actor, settings.reviewIndependence),
       externalCompletionEvidence = independentActor
         ? false
         : validExternalCompletionEvidence(command, projection, rootDir),

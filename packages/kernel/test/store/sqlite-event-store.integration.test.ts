@@ -398,6 +398,7 @@ test("SQLite Decision append refuses a stale canonical document base before reco
   const store = makeTaskEventStore({ repoId, rootDir }),
     proposal = decisionProposal(),
     compiled = compileDecisionWrite({
+      decisionReviewRequirement: "off",
       event: proposal,
       currentDecision: null,
       currentRelations: [],
@@ -444,6 +445,7 @@ test("SQLite Decision append refuses a stale canonical document base before reco
         },
       },
       accepted = compileDecisionWrite({
+        decisionReviewRequirement: "off",
         event: acceptedDraft,
         currentDecision: current,
         currentRelations: [],

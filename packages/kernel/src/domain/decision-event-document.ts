@@ -18,6 +18,7 @@ import {
 import { type EntityRelationRecord } from "./entity-relation.ts";
 import { parseEntityRef } from "./entity-ref.ts";
 import { describeReviewConsentConflicts, reviewConsentConflicts } from "./review-consent-validity.ts";
+import type { DecisionReviewRequirement } from "./settings-field-declarations.ts";
 import { assertTransitionDocumentReady, requireTransitionDocumentKind } from "./transition-document-readiness.ts";
 import {
   freezeDeclaredWritePlan,
@@ -37,6 +38,7 @@ export function compileDecisionWrite(input: {
     readonly blobSha256: string;
     readonly body: string;
   } | null;
+  readonly decisionReviewRequirement: DecisionReviewRequirement;
 }): CompiledDecisionWrite {
   const proposal = input.event.type === "decision_proposed";
   if (
@@ -51,6 +53,7 @@ export function compileDecisionWrite(input: {
       { ...input.currentDecision!, relations: input.currentRelations },
       input.currentDocument!.body,
       input.event,
+      input.approval?.approvedBy === undefined ? input.decisionReviewRequirement : "off",
     );
   }
   if (input.currentDecision && input.currentDocument)
@@ -548,9 +551,13 @@ export interface DecisionAcceptReviewReadiness {
         readonly findings: readonly { readonly reviewId: string; readonly findingId: string }[];
         readonly reason: string;
       }
+    | {
+        readonly code: "review_required";
+        readonly reason: string;
+      }
     | null;
   readonly next: {
-    readonly action: "accept" | "override-review" | "respond-review";
+    readonly action: "accept" | "override-review" | "respond-review" | "dispatch-review";
     readonly actor: "owner" | "proposer";
     readonly reason: string;
   };
@@ -559,6 +566,7 @@ export interface DecisionAcceptReviewReadiness {
 export function decisionAcceptReviewReadiness(
   current: DecisionDocumentState,
   documentBody: string,
+  requirement: DecisionReviewRequirement,
 ): DecisionAcceptReviewReadiness {
   const currentDigest = decisionReviewContentDigest(current, documentBody),
     blocking = current.reviews
@@ -592,6 +600,10 @@ export function decisionAcceptReviewReadiness(
   const approved = current.reviews.some(
       (review) => review.reviewContentDigest === currentDigest && review.verdict === "approved",
     ),
+    reviewRequired =
+      requirement === "all" ||
+      (requirement === "high" && current.riskTier === "high") ||
+      (requirement === "medium_and_high" && current.riskTier !== "low"),
     unanswered = approved
       ? []
       : current.reviews
@@ -606,6 +618,21 @@ export function decisionAcceptReviewReadiness(
               )
               .map(({ findingId }) => ({ reviewId: review.reviewId, findingId })),
           );
+  if (!approved && reviewRequired)
+    return {
+      ready: false,
+      currentDigest,
+      basis: null,
+      blocker: {
+        code: "review_required",
+        reason: `Repository policy requires an approved review for ${current.riskTier}-risk Decisions.`,
+      },
+      next: {
+        action: "dispatch-review",
+        actor: "proposer",
+        reason: "The proposer must request an independent review of the current content before acceptance.",
+      },
+    };
   if (unanswered.length > 0)
     return {
       ready: false,
@@ -634,8 +661,9 @@ export function assertDecisionAcceptReview(
   current: DecisionDocumentState,
   documentBody: string,
   event: Extract<DecisionEventDraftV1, { readonly type: "decision_accepted" }>,
+  requirement: DecisionReviewRequirement,
 ): void {
-  const readiness = decisionAcceptReviewReadiness(current, documentBody),
+  const readiness = decisionAcceptReviewReadiness(current, documentBody, requirement),
     currentDigest = readiness.currentDigest;
   if (event.payload.expectedDigest !== undefined && event.payload.expectedDigest !== currentDigest)
     invalidDecision(
@@ -677,9 +705,11 @@ export function assertDecisionAcceptReview(
     invalidDecision(
       blocker.code === "changes_requested"
         ? `Decision has unresolved changes_requested reviews: ${blocker.reviewIds.join(", ")}.`
-        : `Decision has unanswered review findings: ${blocker.findings
-            .map(({ reviewId, findingId }) => `${reviewId}/${findingId}`)
-            .join(", ")}.`,
+        : blocker.code === "unanswered_findings"
+          ? `Decision has unanswered review findings: ${blocker.findings
+              .map(({ reviewId, findingId }) => `${reviewId}/${findingId}`)
+              .join(", ")}.`
+          : blocker.reason,
     );
 }
 export function assertDecisionReviewMutation(

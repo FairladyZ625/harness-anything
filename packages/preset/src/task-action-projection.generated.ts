@@ -523,6 +523,13 @@ export const settingsFieldProtocolProjection = {
       enum: ["execution", "principal"],
     },
     {
+      field: "decisionReviewRequirement",
+      description: "Decision risk tiers that require a current approved review before acceptance.",
+      type: "string",
+      required: false,
+      enum: ["off", "high", "medium_and_high", "all"],
+    },
+    {
       field: "reviewReturnBudget",
       description: "Maximum task review return count before escalation.",
       type: "number",
@@ -668,6 +675,13 @@ export const settingsFieldProtocolProjection = {
       name: "--review-independence",
       kind: "single",
       enum: ["execution", "principal"],
+    },
+    {
+      field: "decisionReviewRequirement",
+      description: "Decision risk tiers that require a current approved review before acceptance.",
+      name: "--decision-review-requirement",
+      kind: "single",
+      enum: ["off", "high", "medium_and_high", "all"],
     },
     {
       field: "reviewReturnBudget",
