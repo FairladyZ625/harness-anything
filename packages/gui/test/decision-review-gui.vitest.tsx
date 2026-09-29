@@ -588,6 +588,8 @@ describe("工作页(S2):工作内 Decision 按评审信号分组", () => {
     scope: { descendantCount: 1, executableLeafCount: 1, archivedCount: 0 },
     groups: [],
     memberTaskIds: ["task_leaf"],
+    eventSummaries: [],
+    eventWindowComplete: true,
     tasks: [],
     page: { limit: 100, cursor: null, nextCursor: null },
     incompleteParentRefs: [],
