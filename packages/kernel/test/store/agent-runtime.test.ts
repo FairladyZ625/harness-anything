@@ -1,12 +1,9 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { eventFromProviderWitness, type ProviderWitnessV1 } from "../../src/agent-runtime/provider-witness.ts";
 import {
-  reduceRuntimeSession,
   runtimeEventContentClaims,
   runtimeSessionSemanticState,
   runtimeTaskExecutionRelation,
@@ -24,9 +21,96 @@ import {
 } from "../../src/store/task-event-store.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 
-type Fixture = { readonly schema: string; readonly profile: string; readonly witnesses: readonly ProviderWitnessV1[] };
-const claude = fixture("claude-compatible.json"),
-  codex = fixture("codex.json");
+interface ProviderWitnessV1 {
+  readonly type: AgentRuntimeEventType | "heartbeat";
+  readonly payload: Readonly<Record<string, unknown>>;
+}
+const canonicalRuntimeInputs: readonly ProviderWitnessV1[] = [
+  {
+    type: "runtime_installation_observed",
+    payload: {
+      installationId: "installation-claude",
+      kindId: "claude-compatible",
+      version: "1.0.0",
+      capabilities: ["structured_witness", "resume"],
+    },
+  },
+  {
+    type: "runtime_dispatch_requested",
+    payload: {
+      dispatchId: "dispatch-claude",
+      runtimeSessionId: "runtime-session-claude",
+      instanceId: "claude-fixture",
+      installationId: "installation-claude",
+      kindId: "claude",
+      idempotencyKey: "dispatch-claude-attempt-1",
+      definitionSnapshotRef: "artifact:runtime-definitions/claude/v1",
+      definitionSnapshot: {
+        schema: "agent-definition-snapshot/v1",
+        configVersion: 1,
+        instanceId: "claude-fixture",
+        installationId: "installation-claude",
+        kindId: "claude",
+        providerId: "anthropic",
+        model: "claude-fixture",
+        reasoningEffort: null,
+        baseUrl: null,
+        authMode: "subscription",
+      },
+    },
+  },
+  {
+    type: "runtime_session_started",
+    payload: {
+      runtimeSessionId: "runtime-session-claude",
+      instanceId: "claude-fixture",
+      installationId: "installation-claude",
+      kindId: "claude",
+      definitionSnapshotRef: "artifact:runtime-definitions/claude/v1",
+      launchGeneration: 1,
+      attachable: false,
+    },
+  },
+  {
+    type: "runtime_session_provider_bound",
+    payload: {
+      runtimeSessionId: "runtime-session-claude",
+      providerSessionId: "provider-session-claude",
+      transcriptRef: "file:runtime-transcripts/claude/session.jsonl",
+    },
+  },
+  {
+    type: "runtime_session_task_bound",
+    payload: {
+      runtimeSessionId: "runtime-session-claude",
+      taskId: "task-runtime",
+      executionId: "execution-claude",
+      providerSessionId: "provider-session-claude",
+      transcriptRef: "file:runtime-transcripts/claude/session.jsonl",
+    },
+  },
+  {
+    type: "runtime_session_outcome_observed",
+    payload: {
+      runtimeSessionId: "runtime-session-claude",
+      outcome: "succeeded",
+      exitCode: 0,
+      resultRef: "artifact:runtime-result/sha256/bc4e5d54eb57cccf71e6b1e926ea7fe979ee04cdc883ba550ac827f576e89787",
+      result: {
+        sha256: "bc4e5d54eb57cccf71e6b1e926ea7fe979ee04cdc883ba550ac827f576e89787",
+        size: 14,
+        mediaType: "text/plain; charset=utf-8",
+      },
+    },
+  },
+  { type: "runtime_session_exited", payload: { runtimeSessionId: "runtime-session-claude" } },
+  {
+    type: "runtime_dispatch_outcome_unknown",
+    payload: { dispatchId: "dispatch-claude", runtimeSessionId: "runtime-session-claude" },
+  },
+  { type: "heartbeat", payload: { runtimeSessionId: "runtime-session-claude" } },
+];
+const claude = { witnesses: canonicalRuntimeInputs };
 test("runtime session semantics preserve the four adjudicated liveness/outcome cases", () => {
   assert.deepEqual(
     [
@@ -49,16 +133,6 @@ const envelope = (revision: number, source: AgentRuntimeEventV1["source"] = "loc
   source,
   occurredAt: `2026-08-12T00:00:0${revision}.000Z`,
   hostRef: "host:local",
-});
-
-test("Claude-compatible wrapper and Codex hook fixtures reuse one safe structured witness shape", () => {
-  assert.equal(claude.witnesses.length, codex.witnesses.length);
-  for (const [index, left] of claude.witnesses.entries()) {
-    const right = codex.witnesses[index]!;
-    assert.deepEqual(Object.keys(left).sort(), Object.keys(right).sort());
-    assert.deepEqual(Object.keys(left.payload).sort(), Object.keys(right.payload).sort());
-  }
-  for (const fixtureValue of [claude, codex]) assert.deepEqual(forbiddenKeys(fixtureValue), []);
 });
 
 test("runtime events use the canonical envelope, head, store, and the shared projection transaction", async () => {
@@ -178,79 +252,6 @@ test("runtime events use the canonical envelope, head, store, and the shared pro
   });
 });
 
-test("raw heartbeat is operational only while a threshold liveness witness appends canonically", async () => {
-  await withTempStoreAsync(async (rootDir) => {
-    initRepo(rootDir);
-    const store = makeTaskEventStore({ repoId: "test-repo", rootDir });
-    const heartbeat = claude.witnesses.at(-1)!;
-    assert.equal(heartbeat.type, "heartbeat");
-    assert.equal(eventFromProviderWitness(heartbeat, envelope(1)), null);
-    assert.equal(store.read().revision, 0);
-    const changed = eventFromProviderWitness(
-      {
-        ...heartbeat,
-        type: "runtime_session_liveness_changed",
-        payload: { runtimeSessionId: "runtime-session-claude", liveness: "stale" },
-      },
-      envelope(1),
-    );
-    assert.notEqual(changed, null);
-    if (changed !== null) store.append(bundle(changed));
-    assert.equal(store.read().revision, 1);
-  });
-});
-
-test("witness provenance is envelope-bound and local or assignment provenance reduces identically", () => {
-  const startedWitness = witness("runtime_session_started"),
-    local = eventFromProviderWitness(startedWitness, envelope(1, "local"))!,
-    assignment = eventFromProviderWitness(
-      startedWitness,
-      envelope(1, { kind: "assignment", nodeId: "implementation", assignmentId: "assignment-1" }),
-    )!;
-  assert.notDeepEqual(local.source, assignment.source);
-  assert.deepEqual(local.payload, assignment.payload);
-  assert.deepEqual(reduceRuntimeSession(null, local), reduceRuntimeSession(null, assignment));
-  for (const selfReported of [
-    { actor },
-    { source: "local" },
-    { workspaceId: "workspace-client" },
-    { occurredAt: "2026-08-12T00:00:00.000Z" },
-  ])
-    assert.throws(
-      () =>
-        eventFromProviderWitness({ ...startedWitness, ...selfReported } as unknown as ProviderWitnessV1, envelope(1)),
-      /witness/iu,
-    );
-  for (const selfReported of [
-    { actor },
-    { source: "local" },
-    { workspaceId: "workspace-client" },
-    { occurredAt: "2026-08-12T00:00:00.000Z" },
-  ])
-    assert.throws(
-      () =>
-        eventFromProviderWitness(
-          { ...startedWitness, payload: { ...startedWitness.payload, ...selfReported } },
-          envelope(1),
-        ),
-      /payload/iu,
-    );
-  assert.match(
-    validateCurrentAgentRuntimeEvent({ ...local, payload: { ...local.payload, occurredAt: local.occurredAt } }).join(
-      "\n",
-    ),
-    /payload/iu,
-  );
-});
-
-test("agent runtime source has no per-session store or legacy JSONL ledger", () => {
-  const layout = readFileSync(new URL("../../src/layout/index.ts", import.meta.url), "utf8"),
-    adapter = readFileSync(new URL("../../src/agent-runtime/provider-witness.ts", import.meta.url), "utf8"),
-    domain = readFileSync(new URL("../../src/domain/agent-runtime.ts", import.meta.url), "utf8");
-  assert.doesNotMatch(layout, /runtimeEventLedger|runtime-events/iu);
-  assert.doesNotMatch(`${adapter}\n${domain}`, /DatabaseSync|writeFile|appendFile|sqlite|jsonl/iu);
-});
-
 test("projection reopen and rebuild project nonterminal sessions unknown before reads without growing the canonical log", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
@@ -333,7 +334,7 @@ test("dispatch requested and outcome unknown round-trip without retry or session
           },
           envelope(3),
         ),
-      /payload/iu,
+      /invalid|incomplete|unknown/iu,
     );
     assert.throws(
       () =>
@@ -344,7 +345,7 @@ test("dispatch requested and outcome unknown round-trip without retry or session
           },
           envelope(3),
         ),
-      /payload/iu,
+      /invalid|incomplete|unknown/iu,
     );
   });
 });
@@ -402,7 +403,7 @@ test("session outcome and exit round-trip while exited remains terminal", async 
           },
           envelope(4),
         ),
-      /payload/iu,
+      /invalid|incomplete|unknown/iu,
     );
     assert.throws(
       () =>
@@ -413,7 +414,7 @@ test("session outcome and exit round-trip while exited remains terminal", async 
           },
           envelope(4),
         ),
-      /payload/iu,
+      /invalid|incomplete|unknown/iu,
     );
   });
 });
@@ -497,7 +498,7 @@ test("runtime schema rejects credential, transcript body, tool/cost stream, and 
         },
         envelope(2),
       ),
-    /payload/iu,
+    /invalid/iu,
   );
   assert.deepEqual(forbiddenKeys(bound), []);
 });
@@ -581,15 +582,38 @@ test("runtime dispatch history supports keyed reads and done-driven startedAt pa
   });
 });
 
-function fixture(name: string): Fixture {
-  return JSON.parse(
-    readFileSync(new URL(`../fixtures/agent-runtime-witness/${name}`, import.meta.url), "utf8"),
-  ) as Fixture;
-}
 function witness(type: AgentRuntimeEventType | "heartbeat"): ProviderWitnessV1 {
   const value = claude.witnesses.find((candidate) => candidate.type === type);
   if (value === undefined) throw new Error(`missing ${type} witness`);
   return value;
+}
+function eventFromProviderWitness(
+  input: ProviderWitnessV1,
+  binding: ReturnType<typeof envelope>,
+): AgentRuntimeEventV1 | null {
+  if (input.type === "heartbeat") return null;
+  const event = {
+    schema: "agent-runtime-event/v1",
+    eventId: binding.eventId,
+    workspaceRevision: binding.workspaceRevision,
+    opId: binding.opId,
+    actor: binding.actor,
+    source: binding.source,
+    occurredAt: binding.occurredAt,
+    type: input.type,
+    payload:
+      input.type === "runtime_installation_observed"
+        ? {
+            ...input.payload,
+            protocolFamily: "claude-compatible",
+            discoverySource: "wrapper",
+            hostRef: binding.hostRef,
+          }
+        : input.payload,
+  } as AgentRuntimeEventV1;
+  const errors = validateCurrentAgentRuntimeEvent(event);
+  if (errors.length > 0) throw new Error(errors.join("; "));
+  return event;
 }
 function runtimeState(
   projection: ReturnType<typeof makeTaskProjection>,

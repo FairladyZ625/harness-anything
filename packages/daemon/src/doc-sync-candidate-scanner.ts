@@ -453,37 +453,6 @@ function baseDocumentIsNew(projected: ReturnType<TaskProjection["readDocument"]>
   return projected.document === null;
 }
 
-export function scanAuthoredCandidateInventory(input: {
-  readonly rootDir: string;
-  readonly store: CanonicalEventStore;
-}): AuthoredCandidateInventoryV1 {
-  const layout = resolveHarnessLayout(input.rootDir),
-    ledger = resolveLedgerGitLayout(input.rootDir),
-    conflictsByPath = localDocConflictsByPath(layout),
-    paths = dirtyPaths(ledger.rootDir, ledger.authoredPrefix, conflictsByPath.keys()).sort(),
-    baseLedgerSha = input.store.currentCut(),
-    readCandidate = candidateByteReader(input.store, baseLedgerSha, layout.authoredRoot);
-  return {
-    schema: "harness-authored-candidate-inventory/v1",
-    baseLedgerSha,
-    rows: paths.map((logical) => {
-      const safe = directFile(layout.authoredRoot, logical),
-        classification = classifyTextualArtifactPath(logical),
-        target = path.join(layout.authoredRoot, ...logical.split("/")),
-        size = safe && existsSync(target) ? lstatSync(target).size : null,
-        rawBytes = size !== null && size <= DOC_SYNC_INLINE_MAX_BYTES ? readCandidate(target) : null,
-        bytes = rawBytes === null ? null : canonicalProseBytes(rawBytes, classification?.policyId);
-      return {
-        path: logical,
-        safe,
-        size,
-        bytes,
-        conflicts: conflictsByPath.get(logical) ?? [],
-      };
-    }),
-  };
-}
-
 export function validateSelectedDocPaths(selected: readonly string[], scan: DocCandidateScan): void {
   if (selected.length === 0) return;
   const missing = scan.rows

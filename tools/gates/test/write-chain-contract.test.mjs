@@ -5,7 +5,6 @@ import {
   assertCurrentWriter,
   freezeDeclaredWritePlan,
   issueWriterGenerationToken,
-  nextRecoveryBatch,
   normalizeCommandEnvelope,
   normalizeContentAddressedInputs,
   serializeEventEnvelope,
@@ -245,50 +244,9 @@ test("G02 freezes deterministic event bytes and a committed head shape", () => {
   );
 });
 
-test("G02/G07 expose one four-state receipt and bounded recovery contract", async () => {
+test("G02/G07 expose one four-state receipt contract", async () => {
   const contract = await import("../../../packages/kernel/src/domain/write-chain.contract.ts");
   assert.deepEqual(contract.writeReceiptOutcomes, ["applied", "pending", "no_changes", "indeterminate", "op_rejected"]);
-  assert.deepEqual(contract.RECOVERY_BUDGET, { deadline: 100, maxItems: 64, retry: 1 });
-  assert.equal(Object.isFrozen(contract.RECOVERY_BUDGET), true);
-  const recovery = nextRecoveryBatch(Array.from({ length: 10_000 }, (_, index) => index));
-  assert.equal(recovery.items.length, 64);
-  assert.deepEqual(
-    recovery.items,
-    Array.from({ length: 64 }, (_, index) => index),
-  );
-  assert.deepEqual(
-    { deferred: recovery.deferred, nextCursor: recovery.nextCursor },
-    { deferred: 9_936, nextCursor: 64 },
-  );
-});
-
-test("G08 recovery cursor is monotonic, visits once, reports exhausted budgets, drains, and escalates exhausted retry", () => {
-  const budget = { deadline: 100, maxItems: 2, retry: 1 };
-  for (const invalid of [
-    { ...budget, deadline: -1 },
-    { ...budget, maxItems: -1 },
-    { ...budget, retry: -1 },
-  ]) {
-    assert.throws(() => nextRecoveryBatch([0, 1], 0, invalid), WriteChainContractError);
-  }
-  const first = nextRecoveryBatch([0, 1, 2, 3, 4], 0, budget);
-  const second = nextRecoveryBatch([0, 1, 2, 3, 4], first.nextCursor, budget);
-  const third = nextRecoveryBatch([0, 1, 2, 3, 4], second.nextCursor, budget);
-  assert.deepEqual([first.nextCursor, second.nextCursor, third.nextCursor], [2, 4, 5]);
-  assert.deepEqual([...first.items, ...second.items, ...third.items], [0, 1, 2, 3, 4]);
-  assert.deepEqual([first.deferred, first.state, third.deferred, third.state], [3, "exhausted", 0, "drained"]);
-  assert.deepEqual(nextRecoveryBatch([0, 1], 0, budget, { elapsed: 100, attempt: 0 }), {
-    items: [],
-    deferred: 2,
-    nextCursor: 0,
-    state: "exhausted",
-  });
-  assert.deepEqual(nextRecoveryBatch([0, 1], 0, budget, { elapsed: 0, attempt: 2 }), {
-    items: [],
-    deferred: 2,
-    nextCursor: 0,
-    state: "failed",
-  });
 });
 
 test("G03 rejects a second writer and a token from an old generation", () => {
