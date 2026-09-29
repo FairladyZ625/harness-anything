@@ -287,7 +287,9 @@ export async function openRepoCellProxy(
     const context = {
         extracted: operationalContext,
         mode: input.mode ?? "local",
-        fleetRoster: input.fleetRoster?.() ?? null,
+        get fleetRoster() {
+          return input.fleetRoster?.() ?? null;
+        },
         input: {
           repoId: input.repoId,
           ...(input.runtimeInstances ? { runtimeInstances: input.runtimeInstances } : {}),
@@ -327,10 +329,13 @@ export async function openRepoCellProxy(
     projection: TaskProjectionQueries,
     action: RepoTaskAction,
     binding: RepoCellBinding,
-  ): Awaited<ReturnType<RepoCell["run"]>> =>
-    executeRepoReadAction(readRuntime(projection).actionContext, action, binding) as Awaited<
-      ReturnType<RepoCell["run"]>
-    >;
+  ): Awaited<ReturnType<RepoCell["run"]>> => {
+    const context = readRuntime(projection).actionContext,
+      receipt = executeRepoReadAction(context, action, binding);
+    if (receipt instanceof Promise)
+      throw new Error(`Query-only action ${action.kind} must complete inside its synchronous read session.`);
+    return context.withHumanSummary(receipt) as Awaited<ReturnType<RepoCell["run"]>>;
+  };
   const run: RepoCell["run"] = async (action, binding, signal) => {
     if (closed)
       return {

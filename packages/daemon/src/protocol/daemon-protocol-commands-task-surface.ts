@@ -341,7 +341,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
     method: "repo.task.read",
     inputs: [],
   }),
-  defineRepoReadCommand({
+  defineQueryOnlyRepoReadCommand({
     id: "task-list",
     phase: "W3",
     path: ["task", "list"],
