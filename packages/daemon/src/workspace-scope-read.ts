@@ -52,10 +52,25 @@ export interface WorkspaceScopeRead {
   readonly warnings: readonly string[];
 }
 
+export type WorkspaceStructureRead = Omit<WorkspaceScopeRead, "eventSummaries" | "eventWindowComplete">;
+
+/** The GUI scope read: the work's structure plus its newest event summaries on the first page. */
 export function workspaceScopeFromProjection(
   projection: TaskProjection,
   input: { readonly rootTaskId: string; readonly limit?: number; readonly cursor?: string },
 ): WorkspaceScopeRead {
+  const structure = workspaceStructureFromProjection(projection, input),
+    eventWindow = input.cursor
+      ? { summaries: [] as readonly CanonicalEventSummary[], complete: false }
+      : workspaceEventSummaries(projection, new Set([structure.root.taskId, ...structure.memberTaskIds]));
+  return { ...structure, eventSummaries: eventWindow.summaries, eventWindowComplete: eventWindow.complete };
+}
+
+/** Structure only; agenda and work show call this and never scan events. */
+export function workspaceStructureFromProjection(
+  projection: TaskProjection,
+  input: { readonly rootTaskId: string; readonly limit?: number; readonly cursor?: string },
+): WorkspaceStructureRead {
   const read = projection.readTaskIndex({});
   const byId = new Map(read.rows.map((row) => [row.taskId, row]));
   const root = byId.get(input.rootTaskId);
@@ -119,9 +134,6 @@ export function workspaceScopeFromProjection(
     pinned: task.pinned,
     hasChildren: children.has(task.taskId),
   });
-  const eventWindow = input.cursor
-    ? { summaries: [] as readonly CanonicalEventSummary[], complete: false }
-    : workspaceEventSummaries(projection, new Set([root.taskId, ...descendants.map(({ taskId }) => taskId)]));
   return {
     schema: "daemon.workspace-scope/v1",
     ok: true,
@@ -137,8 +149,6 @@ export function workspaceScopeFromProjection(
     },
     groups: groups.map(row),
     memberTaskIds: descendants.map(({ taskId }) => taskId).sort(),
-    eventSummaries: eventWindow.summaries,
-    eventWindowComplete: eventWindow.complete,
     tasks: pageRows.map(row),
     page: { limit, cursor: input.cursor ?? null, nextCursor },
     incompleteParentRefs,

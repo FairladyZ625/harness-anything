@@ -54,7 +54,7 @@ import {
   type ExecutionEvidenceProjection,
   type TaskPlacementSupplement,
 } from "./protocol/daemon-protocol.contract.ts";
-import { workRootOf, workspaceScopeFromProjection } from "./workspace-scope-read.ts";
+import { workRootOf, workspaceStructureFromProjection } from "./workspace-scope-read.ts";
 
 /**
  * The daemon's task query read model. Extracted verbatim from repo-cell so the
@@ -365,7 +365,7 @@ export function makeTaskQueryReadModel(input: {
    */
   function agendaWorkScope(workId: string | undefined): AgendaWorkScope {
     const works = new Map<string, AgendaWorkRef | null>(),
-      subtree = workId === undefined ? null : workspaceScopeFromProjection(projection, { rootTaskId: workId });
+      subtree = workId === undefined ? null : workspaceStructureFromProjection(projection, { rootTaskId: workId });
     return {
       members: subtree === null ? null : new Set([subtree.root.taskId, ...subtree.memberTaskIds]),
       reads: subtree === null ? [] : [subtree],
