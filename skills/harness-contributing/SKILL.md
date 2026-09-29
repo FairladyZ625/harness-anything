@@ -202,8 +202,7 @@ on the PR.
 > 时才使用 `--workflow-job`，该模式会跑完所选门并一次报告全部失败；CI 始终全跑。
 > 本地只有 `check-github-required-contexts` 的精确报错
 > `repository must be provided as owner/name` 可在确认缺 GitHub 上下文后单独排除；
-> 该排除不适用于 CI，也不能掩盖其他失败。`--resume` 只复用同一 worktree 最近一次
-> 失败运行的已绿命令；成功后删除断点，所选 gate 或命令变化后必须重新完整执行。
+> 该排除不适用于 CI，也不能掩盖其他失败。
 
 ## Commit with the contributor identity
 
