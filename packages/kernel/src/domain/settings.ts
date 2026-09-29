@@ -1,8 +1,8 @@
 import { stableStringify } from "../integrity/stable-hash.ts";
+import { isMap, isSeq, parseDocument } from "yaml";
 import type { EntityDocumentJsonSchema, EntityJsonSchemaNode } from "./entity-json-schema.ts";
 import {
   gateAppliesTo,
-  gateGovernanceFields,
   gateWitnessMappingIssues,
   mappedWitnessAdapterIds,
   type GateWitnessMappingV1,
@@ -349,30 +349,8 @@ function withGateMappingIssues(errors: readonly string[], value: unknown): reado
  * `    ci:` followed by six-space `appliesTo:`/`adapter:`/adapter option lines.
  */
 export function readGateSettings(body: string): readonly GateWitnessMappingV1[] {
-  if (!/^  gates:/mu.test(body)) return INITIAL_SETTINGS_V1.gates;
-  const section = /^  gates:[^\S\r\n]*(?:#[^\r\n]*)?\r?\n((?:    [^\r\n]*(?:\r?\n|$))*)/mu.exec(body)?.[1];
-  if (section === undefined) throw new Error("settings.gates must be a block of gate witness mappings");
-  const gates: Record<string, string | boolean>[] = [];
-  for (const line of section.split(/\r?\n/u)) {
-    const content = line.replace(/[^\S\r\n]*#.*$/u, "");
-    if (!content.trim()) continue;
-    const gate = /^    ([^\s:]+):[^\S\r\n]*(\S*)$/u.exec(content),
-      field = /^      ([A-Za-z]+):[^\S\r\n]*(\S.*?)[^\S\r\n]*$/u.exec(content),
-      current = gates.at(-1);
-    if (gate && (gate[2] === "" || gate[2] === "none"))
-      gates.push({ gateId: gate[1]!, ...(gate[2] === "none" ? { adapter: "none" } : {}) });
-    else if (field && current && current.adapter !== "none" && !Object.hasOwn(current, field[1]!))
-      current[field[1]!] = governanceFlag(field[1]!, field[2]!);
-    else throw new Error(`settings.gates cannot read line: ${content.trim()}`);
-  }
-  return gates as unknown as readonly GateWitnessMappingV1[];
-}
-
-/** Governance modifiers are YAML booleans; any other spelling stays a string for the schema to reject. */
-function governanceFlag(field: string, raw: string): string | boolean {
-  return (gateGovernanceFields as readonly string[]).includes(field) && (raw === "true" || raw === "false")
-    ? raw === "true"
-    : raw;
+  const settings = authoredSettings(body);
+  return readGateMappings(settings.gates);
 }
 
 /** One key order for every mapping, so snapshots from YAML, events, and projections compare byte-equal. */
@@ -388,72 +366,70 @@ function readDeclaredSettings(
   body: string,
   declarations: readonly SettingsFieldDeclaration[],
 ): Readonly<SettingsRecord> {
-  const settings = settingsValueFromDeclarations(declarations) as SettingsRecord;
-  assertDeclaredNestedKeys(body, declarations);
+  const document = parseAuthoredDocument(body),
+    authored = authoredSettings(document),
+    settings = settingsValueFromDeclarations(declarations) as SettingsRecord;
+  assertDeclaredNestedKeys(authored, declarations);
   for (const declaration of declarations) {
-    const value = readDeclaredField(body, declaration);
+    assertDeclaredSequenceStyle(document, declaration);
+    const value = readDeclaredField(authored, declaration);
     if (value === undefined) deleteValueAtPath(settings, declaration.path);
     else setValueAtPath(settings, declaration.path, value);
   }
   return settings;
 }
 
-function readDeclaredField(body: string, declaration: SettingsFieldDeclaration): unknown {
-  if (declaration.valueKind === "gate-mappings") return readGateSettings(body);
-  if (declaration.valueKind === "string-array" && declaration.yamlStyle === "block-list")
-    return readDeclaredBlockList(body, declaration);
-  const raw =
-    settingsScalar(body, declaration.path) ??
-    (declaration.legacyPath ? settingsScalar(body, declaration.legacyPath) : undefined);
-  if (raw === undefined) {
-    if (declaration.valueKind === "string-array" && settingsPathExists(body, declaration.path))
-      throw new SettingsDeclarationError(`settings.${declaration.path.join(".")} must be an inline array`);
-    return declaration.defaultValue;
-  }
+function assertDeclaredSequenceStyle(
+  document: ReturnType<typeof parseDocument>,
+  declaration: SettingsFieldDeclaration,
+): void {
+  if (declaration.valueKind !== "string-array" || declaration.yamlStyle === undefined) return;
+  const node = document.getIn(["settings", ...declaration.path], true);
+  if (!isSeq(node)) return;
+  if (declaration.yamlStyle === "inline" && !node.flow)
+    throw new SettingsDeclarationError(`settings.${declaration.path.join(".")} must be an inline array`);
+  if (declaration.yamlStyle === "block-list" && node.flow && node.items.length > 0)
+    throw new SettingsDeclarationError(`settings.${declaration.path.join(".")} must hold a setup: block list`);
+}
+
+function readDeclaredField(authored: Readonly<SettingsRecord>, declaration: SettingsFieldDeclaration): unknown {
+  const declaredValue = valueAtPath(authored, declaration.path),
+    value =
+      declaredValue !== undefined
+        ? declaredValue
+        : declaration.legacyPath
+          ? valueAtPath(authored, declaration.legacyPath)
+          : undefined;
+  if (value === undefined) return declaration.defaultValue;
+  if (declaration.valueKind === "gate-mappings") return readGateMappings(value);
   switch (declaration.valueKind) {
     case "string":
     case "enum":
-      return raw;
+      return value;
     case "integer":
-      return Number(raw);
+      return value;
     case "boolean":
-      if (raw !== "true" && raw !== "false")
-        throw new SettingsDeclarationError(`settings.${declaration.path.join(".")} must be true or false`);
-      return raw === "true";
+      return value;
     case "string-array":
-      return parseInlineStringArray(raw, declaration);
+      if (!Array.isArray(value))
+        throw new SettingsDeclarationError(`settings.${declaration.path.join(".")} must be an array of strings`);
+      return parseDeclaredStringArray(
+        value.map((entry) => {
+          if (typeof entry === "string") return entry;
+          if (
+            declaration.yamlStyle === "block-list" &&
+            entry &&
+            typeof entry === "object" &&
+            !Array.isArray(entry) &&
+            Object.keys(entry).length === 1 &&
+            typeof (entry as Readonly<SettingsRecord>).run === "string"
+          )
+            return `run: ${(entry as Readonly<SettingsRecord>).run as string}`;
+          throw new SettingsDeclarationError(`settings.${declaration.path.join(".")} must be an array of strings`);
+        }),
+        declaration,
+      );
   }
-}
-
-function readDeclaredBlockList(body: string, declaration: SettingsFieldDeclaration): readonly string[] {
-  const lines = body.split(/\r?\n/u),
-    location = locateSettingsPath(lines, declaration.path);
-  if (!location) return declaration.defaultValue as readonly string[];
-  const inline = lines[location.index]!.slice(location.indent + location.key.length + 1).trim();
-  if (inline === "[]") return [];
-  if (inline)
-    throw new SettingsDeclarationError(`settings.${declaration.path.join(".")} must hold a setup: block list`);
-  const end = subtreeEnd(lines, location.index, location.indent),
-    values = lines.slice(location.index + 1, end).flatMap((line) => {
-      if (!line.trim() || line.trimStart().startsWith("#")) return [];
-      const value = new RegExp(`^${" ".repeat(location.indent + 2)}- (\\S.*?)\\s*$`, "u").exec(line)?.[1];
-      if (value === undefined)
-        throw new SettingsDeclarationError(`settings.${declaration.path.join(".")} cannot read line: ${line.trim()}`);
-      return [value];
-    });
-  return parseDeclaredStringArray(values, declaration);
-}
-
-function parseInlineStringArray(raw: string, declaration: SettingsFieldDeclaration): readonly string[] {
-  if (!raw.startsWith("[") || !raw.endsWith("]"))
-    throw new SettingsDeclarationError(`settings.${declaration.path.join(".")} must be an inline array`);
-  const values = raw.slice(1, -1).trim()
-    ? raw
-        .slice(1, -1)
-        .split(",")
-        .map((value) => value.trim())
-    : [];
-  return parseDeclaredStringArray(values, declaration);
 }
 
 function parseDeclaredStringArray(values: readonly string[], declaration: SettingsFieldDeclaration): readonly string[] {
@@ -474,75 +450,55 @@ function writeDeclaredRepositorySettings(
   settings: Readonly<SettingsRecord>,
   declarations: readonly SettingsFieldDeclaration[],
 ): string {
-  let next = body;
+  const document = parseAuthoredDocument(body),
+    authored = authoredSettings(document);
   for (const declaration of declarations) {
     if (declaration.ownership !== "repository") continue;
     const value = valueAtPath(settings, declaration.path);
-    next =
-      declaration.valueKind === "gate-mappings"
-        ? writeGatesFacet(next, value as readonly GateWitnessMappingV1[])
-        : writeSettingsScalar(next, declaration, value);
-    if (declaration.legacyPath) next = removeSettingsScalar(next, declaration.legacyPath);
+    writeDeclaredValue(document, declaration, value, readDeclaredField(authored, declaration));
+    if (declaration.legacyPath) deleteDocumentPath(document, declaration.legacyPath);
   }
   for (const declaration of declarations)
-    if (declaration.ownership === "local") next = removeSettingsScalar(next, declaration.path);
-  return next;
+    if (declaration.ownership === "local") deleteDocumentPath(document, declaration.path);
+  if (!document.has("settings")) return body;
+  return stringifyAuthoredDocument(document, body);
 }
 
-function writeSettingsScalar(body: string, declaration: SettingsFieldDeclaration, value: unknown): string {
-  if (declaration.valueKind === "string-array" && declaration.yamlStyle === "block-list")
-    return writeDeclaredBlockList(body, declaration, value as readonly string[]);
-  const fallback = serializedDeclaredValue(declaration, declaration.defaultValue),
-    serialized = serializedDeclaredValue(declaration, value),
-    existing = settingsScalar(body, declaration.path);
-  if (serialized === undefined) return existing === undefined ? body : removeSettingsScalar(body, declaration.path);
-  if (existing === undefined && serialized === fallback) return body;
-  return upsertSettingsScalar(body, declaration.path, serialized);
-}
-
-function writeDeclaredBlockList(
-  body: string,
+function writeDeclaredValue(
+  document: ReturnType<typeof parseDocument>,
   declaration: SettingsFieldDeclaration,
-  values: readonly string[],
-): string {
-  const lines = body.split(/\r?\n/u),
-    location = locateSettingsPath(lines, declaration.path),
-    fallback = declaration.defaultValue as readonly string[];
-  if (!values.length && !fallback.length) return location ? removeSettingsSubtree(body, declaration.path) : body;
-  const rendered = values.map((value) => `${" ".repeat(declaration.path.length * 2 + 2)}- ${value}`);
-  if (location) {
-    const end = subtreeEnd(lines, location.index, location.indent);
-    lines.splice(location.index, end - location.index, `${" ".repeat(location.indent)}${location.key}:`, ...rendered);
-    return `${lines.join("\n")}${body.endsWith("\n") ? "\n" : ""}`;
+  value: unknown,
+  current: unknown,
+): void {
+  const path = ["settings", ...declaration.path],
+    exists = document.hasIn(path);
+  if (exists && stableStringify(value) === stableStringify(current)) return;
+  if (
+    value === undefined ||
+    (declaration.valueKind === "gate-mappings" && Array.isArray(value) && value.length === 0) ||
+    (declaration.yamlStyle === "block-list" &&
+      Array.isArray(value) &&
+      value.length === 0 &&
+      Array.isArray(declaration.defaultValue) &&
+      declaration.defaultValue.length === 0)
+  ) {
+    if (exists) deleteDocumentPath(document, declaration.path);
+    return;
   }
-  const next = upsertSettingsScalar(body, declaration.path, "[]"),
-    nextLines = next.split(/\r?\n/u),
-    inserted = locateSettingsPath(nextLines, declaration.path)!;
-  nextLines.splice(inserted.index, 1, `${" ".repeat(inserted.indent)}${inserted.key}:`, ...rendered);
-  return `${nextLines.join("\n").replace(/\n$/u, "")}${body.endsWith("\n") ? "\n" : ""}`;
-}
-
-function removeSettingsSubtree(body: string, path: readonly string[]): string {
-  const trailingNewline = body.endsWith("\n"),
-    lines = body.split(/\r?\n/u);
-  if (trailingNewline) lines.pop();
-  const located = locateSettingsPath(lines, path);
-  if (!located) return body;
-  lines.splice(located.index, subtreeEnd(lines, located.index, located.indent) - located.index);
-  for (let depth = path.length - 1; depth > 0; depth -= 1) {
-    const parent = locateSettingsPath(lines, path.slice(0, depth));
-    if (!parent) continue;
-    const end = subtreeEnd(lines, parent.index, parent.indent),
-      hasContent = lines.slice(parent.index + 1, end).some((line) => line.trim() && !line.trimStart().startsWith("#"));
-    if (!hasContent) lines.splice(parent.index, end - parent.index);
-  }
-  return `${lines.join("\n")}${trailingNewline ? "\n" : ""}`;
-}
-
-function serializedDeclaredValue(declaration: SettingsFieldDeclaration, value: unknown): string | undefined {
-  if (value === undefined) return undefined;
-  if (declaration.valueKind === "string-array") return `[${(value as readonly string[]).join(", ")}]`;
-  return String(value);
+  if (!exists && stableStringify(value) === stableStringify(declaration.defaultValue)) return;
+  if (!document.has("settings")) throw new Error("Missing settings block in harness.yaml.");
+  ensureSettingsMap(document);
+  const authoredValue =
+    declaration.valueKind === "gate-mappings"
+      ? gateMappingsValue(value)
+      : declaration.yamlStyle === "block-list" && Array.isArray(value)
+        ? value.map((entry) =>
+            typeof entry === "string" && entry.startsWith("run: ") ? { run: entry.slice("run: ".length) } : entry,
+          )
+        : value;
+  document.setIn(path, Array.isArray(authoredValue) ? document.createNode(authoredValue) : authoredValue);
+  const node = document.getIn(path, true);
+  if (isSeq(node) && declaration.yamlStyle !== undefined) node.flow = declaration.yamlStyle === "inline";
 }
 
 function applyDeclaredRepositoryAction(
@@ -711,45 +667,60 @@ function deleteValueAtPath(target: SettingsRecord, path: readonly string[]): voi
  * canonical key order so the read-back is byte-equal to the entity value.
  */
 export function writeGatesFacet(body: string, gates: readonly GateWitnessMappingV1[]): string {
-  const section = /^  gates:[^\r\n]*(?:\r?\n)(?:    [^\r\n]*(?:\r?\n|$))*/mu;
-  if (gates.length === 0) return section.test(body) ? body.replace(section, "") : body;
-  const rendered =
-    "  gates:\n" +
-    gates
-      .map((gate) =>
-        gate.adapter === "none"
-          ? `    ${gate.gateId}: none`
-          : [
-              `    ${gate.gateId}:`,
-              `      adapter: ${gate.adapter}`,
-              ...Object.entries(gate)
-                .filter(([key]) => key !== "gateId" && key !== "adapter")
-                .sort(([left], [right]) => left.localeCompare(right))
-                .map(([key, value]) => `      ${key}: ${String(value)}`),
-            ].join("\n"),
-      )
-      .join("\n") +
-    "\n";
-  if (section.test(body)) return body.replace(section, rendered);
-  const header = /^settings:[^\r\n]*(?:\r?\n|$)/mu;
-  if (!header.test(body)) throw new Error("Missing settings block in harness.yaml.");
-  return body.replace(header, (match) => `${match}${rendered}`);
+  const document = parseAuthoredDocument(body);
+  if (!document.has("settings")) throw new Error("Missing settings block in harness.yaml.");
+  ensureSettingsMap(document);
+  if (gates.length) document.setIn(["settings", "gates"], gateMappingsValue(gates));
+  else deleteDocumentPath(document, ["gates"]);
+  return stringifyAuthoredDocument(document, body);
 }
 
-function settingsScalar(body: string, path: readonly string[]): string | undefined {
-  const lines = body.split(/\r?\n/u),
-    location = locateSettingsPath(lines, path);
-  if (!location) return undefined;
-  const content = lines[location.index]!.slice(location.indent + location.key.length + 1),
-    value = content.replace(/[^\S\r\n]*#.*$/u, "").trim();
-  return value || undefined;
+function ensureSettingsMap(document: ReturnType<typeof parseDocument>): void {
+  if (document.get("settings") == null) document.set("settings", document.createNode({}));
 }
 
-function settingsPathExists(body: string, path: readonly string[]): boolean {
-  return locateSettingsPath(body.split(/\r?\n/u), path) !== undefined;
+function parseAuthoredDocument(body: string): ReturnType<typeof parseDocument> {
+  const document = parseDocument(body);
+  if (document.errors.length) throw new SettingsDeclarationError(`cannot read line: ${document.errors[0]!.message}`);
+  return document;
 }
 
-function assertDeclaredNestedKeys(body: string, declarations: readonly SettingsFieldDeclaration[]): void {
+function authoredSettings(body: string | ReturnType<typeof parseDocument>): Readonly<SettingsRecord> {
+  const value = (
+    typeof body === "string" ? parseAuthoredDocument(body) : body
+  ).toJS() as Readonly<SettingsRecord> | null;
+  return value?.settings && typeof value.settings === "object" && !Array.isArray(value.settings)
+    ? (value.settings as Readonly<SettingsRecord>)
+    : {};
+}
+
+function readGateMappings(value: unknown): readonly GateWitnessMappingV1[] {
+  if (value === undefined) return INITIAL_SETTINGS_V1.gates;
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    throw new SettingsDeclarationError(
+      "settings.gates must be a block of gate witness mappings; cannot read line as a mapping",
+    );
+  return Object.entries(value).map(([gateId, mapping]) => {
+    if (mapping === "none") return { gateId, adapter: "none" };
+    if (!mapping || typeof mapping !== "object" || Array.isArray(mapping))
+      throw new SettingsDeclarationError(`settings.gates cannot read line: ${gateId} must be none or a mapping`);
+    return { gateId, ...(mapping as Readonly<Record<string, unknown>>) } as GateWitnessMappingV1;
+  });
+}
+
+function gateMappingsValue(value: unknown): Readonly<SettingsRecord> {
+  return Object.fromEntries(
+    (value as readonly GateWitnessMappingV1[]).map(({ gateId, adapter, ...options }) => [
+      gateId,
+      adapter === "none" ? "none" : { adapter, ...options },
+    ]),
+  );
+}
+
+function assertDeclaredNestedKeys(
+  authored: Readonly<SettingsRecord>,
+  declarations: readonly SettingsFieldDeclaration[],
+): void {
   const groups = new Map<string, { readonly path: readonly string[]; readonly children: Set<string> }>();
   for (const declaration of declarations) {
     for (let depth = 1; depth < declaration.path.length; depth += 1) {
@@ -760,114 +731,30 @@ function assertDeclaredNestedKeys(body: string, declarations: readonly SettingsF
       groups.set(id, group);
     }
   }
-  const lines = body.split(/\r?\n/u);
   for (const { path, children } of groups.values()) {
-    const parent = locateSettingsPath(lines, path);
-    if (!parent) continue;
-    const end = subtreeEnd(lines, parent.index, parent.indent),
-      childIndent = parent.indent + 2;
-    for (let index = parent.index + 1; index < end; index += 1) {
-      const line = lines[index]!,
-        indent = line.length - line.trimStart().length;
-      if (indent !== childIndent || !line.trim() || line.trimStart().startsWith("#")) continue;
-      const key = /^([^\s:#]+):/u.exec(line.trimStart())?.[1];
-      if (key && !children.has(key))
+    const parent = valueAtPath(authored, path);
+    if (!parent || typeof parent !== "object" || Array.isArray(parent)) continue;
+    for (const key of Object.keys(parent))
+      if (!children.has(key))
         throw new SettingsDeclarationError(`settings.${path.join(".")} field ${key} is not declared`);
-    }
   }
 }
 
-function upsertSettingsScalar(body: string, path: readonly string[], value: string): string {
-  const trailingNewline = body.endsWith("\n"),
-    lines = body.split(/\r?\n/u);
-  if (trailingNewline) lines.pop();
-  const settingsIndex = lines.findIndex((line) => /^settings:[^\r\n]*$/u.test(line));
-  if (settingsIndex < 0) throw new Error("Missing settings block in harness.yaml.");
-  const located = locateSettingsPath(lines, path);
-  if (located) {
-    const line = lines[located.index]!,
-      comment = /([^\S\r\n]+#[^\r\n]*)$/u.exec(line)?.[1] ?? "";
-    lines[located.index] = `${" ".repeat(located.indent)}${located.key}: ${value}${comment}`;
-    return `${lines.join("\n")}${trailingNewline ? "\n" : ""}`;
-  }
-  const insertion = missingPathInsertion(lines, settingsIndex, path, value);
-  lines.splice(insertion.index, 0, ...insertion.lines);
-  return `${lines.join("\n")}${trailingNewline ? "\n" : ""}`;
-}
-
-function removeSettingsScalar(body: string, path: readonly string[]): string {
-  const trailingNewline = body.endsWith("\n"),
-    lines = body.split(/\r?\n/u);
-  if (trailingNewline) lines.pop();
-  const located = locateSettingsPath(lines, path);
-  if (!located) return body;
-  lines.splice(located.index, 1);
+function deleteDocumentPath(document: ReturnType<typeof parseDocument>, path: readonly string[]): void {
+  const fullPath = ["settings", ...path];
+  if (!document.hasIn(fullPath)) return;
+  document.deleteIn(fullPath);
   for (let depth = path.length - 1; depth > 0; depth -= 1) {
-    const parent = locateSettingsPath(lines, path.slice(0, depth));
-    if (!parent) continue;
-    const end = subtreeEnd(lines, parent.index, parent.indent),
-      hasContent = lines.slice(parent.index + 1, end).some((line) => line.trim() && !line.trimStart().startsWith("#"));
-    if (!hasContent) lines.splice(parent.index, end - parent.index);
+    const parentPath = ["settings", ...path.slice(0, depth)],
+      parent = document.getIn(parentPath, true);
+    if (isMap(parent) && parent.items.length === 0) document.deleteIn(parentPath);
   }
-  return `${lines.join("\n")}${trailingNewline ? "\n" : ""}`;
 }
 
-function locateSettingsPath(
-  lines: readonly string[],
-  path: readonly string[],
-): { readonly index: number; readonly indent: number; readonly key: string } | undefined {
-  const settingsIndex = lines.findIndex((line) => /^settings:[^\r\n]*$/u.test(line));
-  if (settingsIndex < 0) return undefined;
-  let start = settingsIndex + 1,
-    end = subtreeEnd(lines, settingsIndex, 0);
-  for (let depth = 0; depth < path.length; depth += 1) {
-    const indent = (depth + 1) * 2,
-      key = path[depth]!,
-      index = findDirectChild(lines, start, end, indent, key);
-    if (index < 0) return undefined;
-    if (depth === path.length - 1) return { index, indent, key };
-    start = index + 1;
-    end = subtreeEnd(lines, index, indent);
-  }
-  return undefined;
-}
-
-function findDirectChild(lines: readonly string[], start: number, end: number, indent: number, key: string): number {
-  const prefix = `${" ".repeat(indent)}${key}:`;
-  for (let index = start; index < end; index += 1) if (lines[index]!.startsWith(prefix)) return index;
-  return -1;
-}
-
-function subtreeEnd(lines: readonly string[], index: number, indent: number): number {
-  for (let cursor = index + 1; cursor < lines.length; cursor += 1) {
-    const line = lines[cursor]!;
-    if (!line.trim() || line.trimStart().startsWith("#")) continue;
-    const nextIndent = line.length - line.trimStart().length;
-    if (nextIndent <= indent) return cursor;
-  }
-  return lines.length;
-}
-
-function missingPathInsertion(
-  lines: readonly string[],
-  settingsIndex: number,
-  path: readonly string[],
-  value: string,
-): { readonly index: number; readonly lines: readonly string[] } {
-  let parentIndex = settingsIndex,
-    parentIndent = 0,
-    depth = 0;
-  for (; depth < path.length - 1; depth += 1) {
-    const located = locateSettingsPath(lines, path.slice(0, depth + 1));
-    if (!located) break;
-    parentIndex = located.index;
-    parentIndent = located.indent;
-  }
-  const inserted = path.slice(depth).map((key, offset) => {
-    const indent = (depth + offset + 1) * 2;
-    return `${" ".repeat(indent)}${key}:${depth + offset === path.length - 1 ? ` ${value}` : ""}`;
-  });
-  return { index: subtreeEnd(lines, parentIndex, parentIndent), lines: inserted };
+function stringifyAuthoredDocument(document: ReturnType<typeof parseDocument>, original: string): string {
+  const trailing = /(?:\r?\n)*$/u.exec(original)?.[0] ?? "",
+    rendered = document.toString({ lineWidth: 0, flowCollectionPadding: false }).replace(/(?:\r?\n)*$/u, "");
+  return `${rendered}${trailing}`;
 }
 
 export function validateRepositorySettings(value: unknown): readonly string[] {

@@ -12,6 +12,7 @@ import {
   defineSettingsField,
   readSettingsFacet,
   repositorySettings,
+  writeRepositorySettingsFacet,
 } from "../../src/domain/settings.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 
@@ -30,6 +31,45 @@ const documentBody = [
   "",
 ].join("\n");
 const current = repositorySettings(readSettingsFacet(documentBody));
+
+test("Settings updates preserve unrelated authored YAML bytes", () => {
+  const authoredBody = [
+      "schema: harness-anything/v1",
+      "name: settings-byte-fidelity",
+      "layout:",
+      "  authoredRoot: harness",
+      "settings:",
+      "  ci:",
+      "    workflows: [rewrite-ci]",
+      '  defaultVertical: "software/coding"',
+      "  defaultPreset: standard-task",
+      "  defaultProfile: baseline",
+      "",
+      "",
+    ].join("\n"),
+    settings = repositorySettings(readSettingsFacet(authoredBody)),
+    written = writeRepositorySettingsFacet(authoredBody, { ...settings, defaultPreset: "docs-task" });
+  assert.equal(written, authoredBody.replace("defaultPreset: standard-task", "defaultPreset: docs-task"));
+});
+
+test("Settings updates populate an empty settings mapping", () => {
+  const authoredBody = "schema: harness-anything/v1\nsettings:\n",
+    settings = repositorySettings(readSettingsFacet(authoredBody)),
+    written = writeRepositorySettingsFacet(authoredBody, { ...settings, agenda: { pinLimit: 3 } });
+  assert.equal(readSettingsFacet(written).agenda.pinLimit, 3);
+  assert.match(written, /^settings:\n  agenda:\n    pinLimit: 3$/mu);
+});
+
+test("Settings arrays are written in their declared YAML sequence styles", () => {
+  const settings = repositorySettings(readSettingsFacet(documentBody)),
+    written = writeRepositorySettingsFacet(documentBody, {
+      ...settings,
+      ci: { workflows: ["ci", "nightly"] },
+      worktree: { setup: ["node-modules", "run: npm run build"] },
+    });
+  assert.match(written, /workflows: \[ci, nightly\]/u);
+  assert.match(written, /setup:\n      - node-modules\n      - run: npm run build/u);
+});
 
 test("one temporary declaration reaches update, YAML read/write, CLI help metadata, and GUI field data", () => {
   const temporary = defineSettingsField({

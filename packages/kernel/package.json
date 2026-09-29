@@ -75,6 +75,7 @@
     "./internal/projection/cold-rebuild-source": "./src/projection/cold-rebuild-source.ts"
   },
   "dependencies": {
-    "cron-parser": "5.10.0"
+    "cron-parser": "5.10.0",
+    "yaml": "2.9.0"
   }
 }
