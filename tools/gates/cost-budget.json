@@ -96,7 +96,7 @@
         "sha256Calls": 0,
         "sha256Bytes": 0,
         "gitProcesses": 0,
-        "fileReadBytes": 164
+        "fileReadBytes": 201
       },
       "agenda": {
         "sqlRowsRead": 181,
@@ -196,7 +196,7 @@
         "sha256Calls": 0,
         "sha256Bytes": 0,
         "gitProcesses": 0,
-        "fileReadBytes": 164
+        "fileReadBytes": 201
       },
       "agenda": {
         "sqlRowsRead": 181,
