@@ -54,6 +54,8 @@ export interface RepoBootstrapInput {
   readonly repoId: WorkspaceId;
   readonly machineDocuments: readonly BootstrapDocument[];
   readonly settingsBootstrap: readonly [settings: SettingsV1, documentBody: string];
+  /** The people.yaml body init wrote; RepoCell open publishes it as the first canonical People document. */
+  readonly peopleBootstrap: string;
   readonly repositoryPlan: RepositoryScaffoldPlan;
   readonly actor: ActorIdentity;
   readonly configureOnly?: boolean;
@@ -157,7 +159,8 @@ export function resolveRepoBootstrap(
       configuredBody(layout) ?? config,
       request.name,
     ),
-    identityDocuments = [harnessDocument, machineDocument(rootDir, `${machineRoot}/people.yaml`, people)],
+    peopleDocument = machineDocument(rootDir, `${machineRoot}/people.yaml`, people),
+    identityDocuments = [harnessDocument, peopleDocument],
     initialized = identityDocuments.every(({ existingSha256 }) => existingSha256 !== null);
   if (initialized !== identityDocuments.some(({ existingSha256 }) => existingSha256 !== null))
     throw repoBootstrapError(
@@ -183,6 +186,7 @@ export function resolveRepoBootstrap(
     actor: { principal: { personId }, executor: null },
     machineDocuments,
     settingsBootstrap: [settings, harnessDocument.body],
+    peopleBootstrap: peopleDocument.body,
     repositoryPlan: compileRepoRepositoryScaffold(rootDir, settings),
     ...(request.configureOnly ? { configureOnly: true } : {}),
   };

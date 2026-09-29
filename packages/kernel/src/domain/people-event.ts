@@ -96,9 +96,11 @@ export function compilePeopleRosterActionEvent(input: {
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
   readonly occurredAt: string;
+  /** Publish the roster even when unchanged: the first canonical claim of the authored people.yaml init wrote. */
+  readonly claimAuthoredBaseline?: boolean;
 }): CompiledPeopleRosterAction {
   const applied = applyPeopleRosterAction(input.currentBody, input.action);
-  if (!applied.changed) return { ...applied, bundle: null };
+  if (!applied.changed && !input.claimAuthoredBaseline) return { ...applied, bundle: null };
   const claim: PeopleDocumentClaim = {
       path: PEOPLE_ROSTER_PATH,
       sha256: sha256Text(applied.body),
