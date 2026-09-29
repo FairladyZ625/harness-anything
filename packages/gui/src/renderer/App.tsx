@@ -598,6 +598,9 @@ function AppShell() {
                     onConsent={(task, reviewId) => {
                       void taskActions.consentReview(task, reviewId);
                     }}
+                    onAdjudicate={(task, decision, reason, reviewId) => {
+                      void taskActions.adjudicateTask(task, decision, reason, reviewId);
+                    }}
                     feedback={feedbackOf}
                     onLoadMore={() => {
                       void workspaceScopeQuery.fetchNextPage();

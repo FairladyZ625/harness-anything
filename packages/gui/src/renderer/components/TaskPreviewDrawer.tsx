@@ -36,7 +36,7 @@ export function TaskPreviewDrawer({
 }: {
   task: TaskRow | null;
   tasks: readonly TaskRow[];
-  relations: RelationEdge[];
+  relations: readonly RelationEdge[];
   onClose: () => void;
   onOpenDetail: (id: string) => void;
   onPreviewTask: (id: string) => void;
@@ -79,7 +79,7 @@ function TaskPreviewBody({
 }: {
   task: TaskRow;
   tasks: readonly TaskRow[];
-  relations: RelationEdge[];
+  relations: readonly RelationEdge[];
   onClose: () => void;
   onOpenDetail: (id: string) => void;
   onPreviewTask: (id: string) => void;

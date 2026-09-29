@@ -1,56 +1,69 @@
-import { ResultPagination } from "../components/ResultPagination.tsx";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { SegBar } from "../components/primitives/SegBar";
 import { Tabs } from "../components/primitives/Tabs";
+import { TaskPreviewDrawer } from "../components/TaskPreviewDrawer.tsx";
 import type { WorkspaceScopeRead } from "../../api/renderer-dto.ts";
-import { useCallback, useMemo, useState, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
-import type { DecisionRow, FactRef, RelationEdge, TaskRow } from "../model/types.ts";
-import { deriveAttestationLanes } from "../model/attestation-pool.ts";
+import type { DecisionRow, FactRef, RelationEdge, SnapshotStatus, TaskRow } from "../model/types.ts";
+import { deriveAttestationLanes, type AttestationPoolLanes } from "../model/attestation-pool.ts";
 import type { TaskMutationFeedback } from "../task-actions.ts";
-import { artifactsClient } from "../artifacts-client.ts";
-import { workDecisionsOf, workspaceGraphSlice, workspaceEvidenceOf } from "../model/workspace-evidence.ts";
-import { eventTypeLabel, workspaceTitleIndex } from "../model/workspace-readable.ts";
-import { formatTime } from "../model/time.ts";
-import { EgoNeighborhood } from "../graph/EgoNeighborhood.tsx";
-import { egoFactRefOf } from "../graph/egoCanvas.ts";
-import { WorkspaceGoal } from "../components/WorkspaceGoal.tsx";
-import { t } from "../i18n/index.tsx";
-import type { MessageKey } from "../i18n/core.ts";
-import { DecisionReviewBadge } from "../components/decisionReview/parts.tsx";
-import { DECISION_REVIEW_GROUPS, DecisionReviewGroups } from "../components/decisionReview/DecisionReviewGroups.tsx";
-import { decisionReviewGroup, decisionReviewSignal, type DecisionReviewSignal } from "../model/decision-review.ts";
-import { decisionReviewRef } from "../navigation/decisionReviewRoutes.ts";
+import { useTaskDocumentQuery } from "../task-data.ts";
 import { cadenceEventOf } from "../model/cadence.ts";
+import { workDecisionsOf, workspaceEvidenceOf } from "../model/workspace-evidence.ts";
+import { workspaceTitleIndex } from "../model/workspace-readable.ts";
+import {
+  noAgentRunning,
+  relativeAgo,
+  workDayGroups,
+  workspaceGoalLine,
+  workSubgroups,
+} from "../model/workspace-narrative.ts";
+import { formatTime } from "../model/time.ts";
+import { t, type MessageKey } from "../i18n/index.tsx";
+import { WorkDayList, WorkOverview } from "./workspace/WorkOverview.tsx";
+import { WorkTasksTab, type WorkLeafRow } from "./workspace/WorkTasksTab.tsx";
+import { WorkDecisionsTab } from "./workspace/WorkDecisionsTab.tsx";
+import { WorkInspectTab } from "./workspace/WorkInspectTab.tsx";
+
+/**
+ * 工作详情页(原型 v2,dec_AF44708E8F70F04E59FF751F9C/CH1):顶部身份 + 一行目标 +
+ * 状态分段进度 + 标签栏(概况/任务/进展/决策与事实/检修) + 页内搜索;主栏按叙事
+ * 排列,右栏结构与统计;实体细节进右侧抽屉;原始事件流只在检修页。
+ */
+
+type WorkspaceTab = "overview" | "tasks" | "progress" | "decisions" | "inspect" | "root";
 
 export interface WorkspaceViewProps {
   readonly scope: WorkspaceScopeRead;
   readonly repoId?: string;
   readonly projectName: string;
-  /** 任务行与子组共用:经共享路由判定,子组是工作就进工作页,不是就进任务详情。 */
+  /** 行点击进抽屉;抽屉里的「打开完整详情」仍走这里(工作根由共享路由落回本页)。 */
   readonly onOpenTask: (taskId: string) => void;
   readonly tasks?: readonly TaskRow[];
   readonly decisions?: readonly DecisionRow[];
   readonly facts?: readonly FactRef[];
   readonly relations?: readonly RelationEdge[];
   readonly onNavigateEntity?: (ref: string) => void;
-  /** 图抽屉里的置顶开关。关系图页早已传它;不传,工作页的同一个抽屉就静默少一个动作。 */
+  /** 图抽屉与任务抽屉共用的置顶开关。 */
   readonly onSetTaskPin?: (task: TaskRow, pinned: boolean) => void;
   readonly onAttest?: (task: Pick<TaskRow, "taskId">, gateId: string, mode: "approve" | "override") => void;
   readonly onConsent?: (task: TaskRow, reviewId: string) => void;
+  readonly onAdjudicate?: (task: TaskRow, decision: "forward" | "return", reason: string, reviewId?: string) => void;
   readonly feedback?: (taskId: string) => TaskMutationFeedback | undefined;
   readonly onLoadMore?: () => void;
   readonly loadingMore?: boolean;
-  /** 根任务即工作:根任务自己的详情(计划、状态、收口、关系、执行记录与写动作)是本页一个分区。 */
+  /** 根任务即工作:根任务自己的详情是本页一个分区。 */
   readonly renderRootTask?: (onBack: () => void) => ReactNode;
 }
 
-const COUNT_LABELS = {
-  done: "已完成",
-  executing: "执行中",
-  pending: "待处理",
-  blocked: "阻塞",
-  planned: "计划",
-  cancelled: "取消",
-} as const;
+interface MemberRow {
+  readonly taskId: string;
+  readonly title: string;
+  readonly status: SnapshotStatus;
+  readonly pinned: boolean;
+  readonly at: string;
+  readonly parentTaskId: string | null;
+  readonly row: TaskRow | null;
+}
 
 export function WorkspaceView({
   scope,
@@ -65,699 +78,426 @@ export function WorkspaceView({
   onSetTaskPin,
   onAttest,
   onConsent,
+  onAdjudicate,
   feedback,
   onLoadMore,
   loadingMore = false,
   renderRootTask,
 }: WorkspaceViewProps) {
-  const [tab, setTab] = useState("overview");
-  // 页内指向根任务的入口切到根任务分区,不再离开工作页。
+  const [tab, setTab] = useState<WorkspaceTab>("overview");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [groupFilter, setGroupFilter] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [drawerTaskId, setDrawerTaskId] = useState<string | null>(null);
+  const searchRef = useRef<HTMLInputElement | null>(null);
+
+  // 页内指向根任务的入口切到根任务分区,不离开工作页。
   const rootRef = `task/${scope.root.taskId}`;
-  const openTask = (taskId: string) =>
-    renderRootTask && taskId === scope.root.taskId ? setTab("root") : onOpenTask(taskId);
+  const openTask = (taskId: string) => {
+    if (renderRootTask !== undefined && taskId === scope.root.taskId) {
+      setTab("root");
+      return;
+    }
+    // 抽屉吃完整 TaskRow;行还没投影到(读面未落地)就退到任务详情页。
+    if (tasks.some(({ taskId: id }) => id === taskId)) setDrawerTaskId(taskId);
+    else onOpenTask(taskId);
+  };
+  const openFullDetail = (taskId: string) =>
+    renderRootTask !== undefined && taskId === scope.root.taskId ? setTab("root") : onOpenTask(taskId);
   const navigateEntity = (ref: string) =>
-    renderRootTask && ref === rootRef ? setTab("root") : onNavigateEntity?.(ref);
-  const [focusRef, setFocusRef] = useState(`task/${scope.root.taskId}`);
-  const [graphStats, setGraphStats] = useState({ nodes: 0, edges: 0, focusLabel: null as string | null });
-  const onGraphStats = useCallback((next: typeof graphStats) => {
-    setGraphStats((current) =>
-      current.nodes === next.nodes && current.edges === next.edges && current.focusLabel === next.focusLabel
-        ? current
-        : next,
-    );
-  }, []);
-  const graph = useMemo(() => {
-    const slice = workspaceGraphSlice([scope.root.taskId, ...scope.memberTaskIds], relations);
-    const refs = new Set(slice.nodeRefs);
-    return {
-      tasks: tasks.filter(({ taskId }) => refs.has(`task/${taskId}`)),
-      decisions: decisions.filter(({ decisionId }) => refs.has(`decision/${decisionId}`)),
-      facts: facts.filter((fact) => refs.has(egoFactRefOf(fact))),
-      relations: [...slice.edges],
+    renderRootTask !== undefined && ref === rootRef ? setTab("root") : onNavigateEntity?.(ref);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "/") return;
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLElement &&
+        (active.tagName === "INPUT" ||
+          active.tagName === "TEXTAREA" ||
+          active.tagName === "SELECT" ||
+          active.isContentEditable)
+      )
+        return;
+      event.preventDefault();
+      searchRef.current?.focus();
     };
-  }, [scope.root.taskId, scope.memberTaskIds, tasks, decisions, facts, relations]);
-  const members = new Set(scope.memberTaskIds),
-    scopedTasks = tasks.filter(({ taskId }) => members.has(taskId)),
-    lanes = deriveAttestationLanes(scopedTasks),
-    // 标题只从本视图已经拿到的投影行里查,不为了可读性多开一个读面。
-    titles = useMemo(
-      () =>
-        workspaceTitleIndex({
-          tasks: [scope.root, ...scope.ancestors, ...scope.groups, ...scope.tasks, ...tasks],
-          facts,
-          decisions,
-        }),
-      [scope, tasks, facts, decisions],
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const nowIso = useMemo(() => new Date().toISOString(), []),
+    agoOf = useMemo(() => {
+      const agoKeyOf = (unit: "minute" | "hour" | "day"): MessageKey => `views.workspace.ago.${unit}` as MessageKey;
+      return (iso: string) => {
+        const { count, unit } = relativeAgo(iso, nowIso);
+        return t(agoKeyOf(unit), { count });
+      };
+    }, [nowIso]),
+    dateKeyOf = useMemo(() => (iso: string) => formatTime(iso, { style: "date" }), []),
+    todayKey = dateKeyOf(nowIso),
+    yesterdayKey = dateKeyOf(new Date(Date.parse(nowIso) - 24 * 3_600_000).toISOString()),
+    dayLabelOf = (dateKey: string) =>
+      dateKey === todayKey
+        ? t("views.workspace.progress.today")
+        : dateKey === yesterdayKey
+          ? t("views.workspace.progress.yesterday")
+          : dateKey.slice(5);
+
+  const members = useMemo(() => new Set(scope.memberTaskIds), [scope.memberTaskIds]),
+    scopedTasks = useMemo(() => tasks.filter(({ taskId }) => members.has(taskId)), [tasks, members]),
+    groupIds = useMemo(() => new Set(scope.groups.map(({ taskId }) => taskId)), [scope.groups]);
+
+  // 成员行:TaskRow 优先(有 lease/execution 投影),scope 行补缺(读面未落地时);
+  // 父链两边都可能知道,TaskRow 没写就用 scope 行的。
+  const memberRows = useMemo(() => {
+    const rows = new Map<string, MemberRow>();
+    for (const row of [...scope.groups, ...scope.tasks])
+      rows.set(row.taskId, {
+        taskId: row.taskId,
+        title: row.title,
+        status: row.status,
+        pinned: row.pinned,
+        at: row.updatedAt,
+        parentTaskId: row.parentTaskId,
+        row: null,
+      });
+    for (const task of scopedTasks) {
+      const existing = rows.get(task.taskId);
+      rows.set(task.taskId, {
+        taskId: task.taskId,
+        title: task.title,
+        status: task.coordinationStatus,
+        pinned: task.pinned === true,
+        at: task.lastKnownAt,
+        parentTaskId: task.parentTaskId ?? existing?.parentTaskId ?? null,
+        row: task,
+      });
+    }
+    return rows;
+  }, [scope.groups, scope.tasks, scopedTasks]);
+
+  const { subgroups, leafRows } = useMemo(() => {
+    const leaves = [...memberRows.values()].filter(
+      ({ taskId }) => taskId !== scope.root.taskId && !groupIds.has(taskId),
     );
-  return (
-    <div data-testid="workspace-view" className="min-h-0 flex-1 overflow-y-auto p-4 md:p-5">
-      <div className="min-w-0 space-y-3">
-        <nav className="ui-meta text-text-muted" aria-label="工作范围">
-          {[projectName, ...scope.ancestors.map(({ title }) => title), scope.root.title].join(" / ")}
-        </nav>
-        <header className="space-y-2">
-          <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-            <h1 className="min-w-0 break-words text-xl font-semibold text-text">{scope.root.title}</h1>
-            <span className="ui-meta text-text-muted">
-              {scope.root.taskClass} · {scope.root.status}
-            </span>
-            <span className="text-sm text-text-muted">
-              任务完成{" "}
-              <strong className="text-text">
-                {scope.counts.done} / {scope.scope.executableLeafCount}
-              </strong>
-            </span>
-            <span className="text-sm text-text-muted">
-              等待处理 {lanes.gates.length + lanes.breakGlass.length + lanes.consents.length}
-            </span>
-          </div>
-          <details key={tab} open={tab === "overview"} className="ui-meta text-text-muted">
-            <summary className="cursor-pointer">统计口径与范围</summary>
-            <p>
-              统计范围：{scope.scope.descendantCount} 个后代，{scope.scope.executableLeafCount} 个可执行叶子任务。
-              父组与子组不重复计入；取消单列；归档 {scope.scope.archivedCount} 项。
-            </p>
-          </details>
-        </header>
+    const groups = workSubgroups({
+      rootTaskId: scope.root.taskId,
+      groups: scope.groups.map(({ taskId, parentTaskId, title }) => ({ taskId, parentTaskId, title })),
+      leaves: leaves.map(({ taskId, parentTaskId, status }) => ({ taskId, parentTaskId, status })),
+    });
+    const groupKeyByTask = new Map(
+      groups.flatMap((group) => group.memberTaskIds.map((taskId) => [taskId, group.key] as const)),
+    );
+    return {
+      subgroups: groups,
+      leafRows: leaves.map<WorkLeafRow>((leaf) => ({
+        taskId: leaf.taskId,
+        title: leaf.title,
+        status: leaf.status,
+        pinned: leaf.pinned,
+        at: leaf.at,
+        groupKey: groupKeyByTask.get(leaf.taskId) ?? "_loose",
+      })),
+    };
+  }, [memberRows, groupIds, scope.root.taskId, scope.groups]);
 
-        {scope.status === "pending" || scope.warnings.length ? (
-          <div className="rounded border border-warning/50 bg-warning/10 p-3 text-sm text-text">
-            范围数据尚未完整：显示 r{scope.watermark}，来源 r{scope.sourceRevision}
-            {scope.warnings.length ? ` · ${scope.warnings.join("；")}` : ""}
-          </div>
-        ) : null}
+  const leafCounts = useMemo(() => {
+    const counts: Partial<Record<SnapshotStatus, number>> = {};
+    for (const { status } of leafRows) counts[status] = (counts[status] ?? 0) + 1;
+    return counts;
+  }, [leafRows]);
 
-        {scope.incompleteParentRefs.length ? (
-          <div className="rounded border border-warning/50 bg-warning/10 p-3 text-sm text-text">
-            父链不完整：{scope.incompleteParentRefs.join("、")}
-          </div>
-        ) : null}
-
-        <Tabs
-          ariaLabel="工作分区"
-          idPrefix="workspace"
-          value={tab}
-          onChange={setTab}
-          tabs={[
-            { key: "overview", label: "概览" },
-            { key: "tasks", label: "任务", count: scope.scope.executableLeafCount },
-            { key: "evidence", label: "经过与证据" },
-            { key: "relations", label: "关系" },
-            ...(renderRootTask ? [{ key: "root" as const, label: t("views.workspace.rootTaskTab") }] : []),
-          ]}
-        />
-        <div
-          id="workspace-panel"
-          role="tabpanel"
-          aria-labelledby={`workspace-tab-${tab}`}
-          className={
-            tab === "overview"
-              ? "grid min-w-0 gap-9 min-[1101px]:grid-cols-[minmax(0,1fr)_314px] min-[1750px]:grid-cols-[minmax(0,1fr)_370px]"
-              : "min-w-0"
-          }
-        >
-          <div className="min-w-0 space-y-6">
-            {tab === "overview" ? (
-              <>
-                <section
-                  aria-labelledby="workspace-situation"
-                  className="rounded-lg border border-border bg-surface-raised p-4"
-                >
-                  <h2 id="workspace-situation" className="mb-3 text-sm font-semibold text-text">
-                    本组现在的局面
-                  </h2>
-                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
-                    {Object.entries(COUNT_LABELS).map(([key, label]) => (
-                      <div key={key} className="rounded border border-border bg-surface px-3 py-2">
-                        <div className="text-xl font-semibold text-text">
-                          {scope.counts[key as keyof typeof scope.counts]}
-                        </div>
-                        <div className="ui-meta text-text-muted">{label}</div>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-
-                <WorkDecisionReview
-                  decisions={workDecisionsOf({
-                    memberTaskIds: [scope.root.taskId, ...scope.memberTaskIds],
-                    decisions,
-                    relations,
-                  })}
-                  onNavigateEntity={navigateEntity}
-                />
-                <WorkspacePending
-                  tasks={scopedTasks}
-                  lanes={lanes}
-                  onOpenTask={openTask}
-                  onAttest={onAttest}
-                  onConsent={onConsent}
-                  feedback={feedback}
-                />
-                <WorkspaceRows
-                  title="正在推进"
-                  rows={scope.tasks.filter(({ status }) => status === "active" || status === "blocked")}
-                  onOpen={openTask}
-                />
-                <button type="button" className="text-sm text-accent" onClick={() => setTab("tasks")}>
-                  查看全部任务 →
-                </button>
-              </>
-            ) : null}
-            {tab === "tasks" ? (
-              <>
-                <WorkspaceRows title="子组" rows={scope.groups} onOpen={openTask} />
-                <WorkspaceRows title="任务" rows={scope.tasks} onOpen={openTask} />
-                {scope.page.nextCursor ? (
-                  <button
-                    type="button"
-                    data-testid="workspace-load-more"
-                    disabled={loadingMore}
-                    onClick={onLoadMore}
-                    className="rounded border border-border bg-surface-raised px-3 py-2 text-sm text-text disabled:opacity-60"
-                  >
-                    {loadingMore ? "正在加载…" : "加载更多"}
-                  </button>
-                ) : null}
-              </>
-            ) : null}
-            {tab === "evidence" && repoId !== "unselected" ? (
-              <WorkspaceEvidenceSections
-                repoId={repoId}
-                memberTaskIds={[scope.root.taskId, ...scope.memberTaskIds]}
-                eventSummaries={scope.eventSummaries}
-                eventWindowComplete={scope.eventWindowComplete}
-                decisions={decisions}
-                facts={facts}
-                relations={relations}
-                titles={titles}
-                onNavigateEntity={navigateEntity}
-              />
-            ) : null}
-            {tab === "root" && renderRootTask ? (
-              <section
-                data-testid="workspace-root-task"
-                className="h-[calc(100vh-240px)] min-h-[520px] overflow-hidden rounded-lg border border-border"
-              >
-                {renderRootTask(() => setTab("overview"))}
-              </section>
-            ) : null}
-            <section hidden={tab !== "relations"} className="space-y-2" aria-labelledby="workspace-graph">
-              <h2 id="workspace-graph" className="sr-only">
-                {t("views.workspace.localGraph")}
-              </h2>
-              <p className="text-sm text-text-muted">
-                {t("views.workspace.localGraphNote")} · {graphStats.nodes} 节点 / {graphStats.edges} 关系。
-                单击展开，双击设为画布中心；详情打开实体。
-              </p>
-              <div
-                data-testid="workspace-graph-scroll"
-                className="max-w-full overflow-x-auto rounded-lg border border-border"
-              >
-                <div data-testid="workspace-graph-canvas" className="h-[calc(100vh-240px)] min-h-[420px] min-w-[52rem]">
-                  <EgoNeighborhood
-                    {...graph}
-                    focusRef={focusRef}
-                    factAnchors={[]}
-                    onNavigateEntity={navigateEntity}
-                    onSetTaskPin={onSetTaskPin}
-                    onRefocus={setFocusRef}
-                    onLayoutStats={onGraphStats}
-                    active={tab === "relations"}
-                  />
-                </div>
-              </div>
-            </section>
-          </div>
-          {tab === "overview" ? (
-            <aside data-testid="workspace-sidebar" className="min-w-0 space-y-8">
-              <WorkspaceGoal scope={scope} repoId={repoId} onOpenTask={openTask} />
-              <section className="space-y-3">
-                <h2 className="text-sm font-semibold text-text">参与执行</h2>
-                {scopedTasks.filter((task) => task.canonicalStatus === "active").length ? (
-                  scopedTasks
-                    .filter((task) => task.canonicalStatus === "active")
-                    .map((task) => (
-                      <button
-                        key={task.taskId}
-                        type="button"
-                        onClick={() => openTask(task.taskId)}
-                        className="block w-full break-words border-b border-border pb-3 text-left text-sm text-text"
-                      >
-                        {task.title}
-                        <span className="mt-1 block text-text-muted">
-                          任务执行中 · {task.leaseHolder ?? "执行者未投影"}
-                        </span>
-                      </button>
-                    ))
-                ) : (
-                  <p className="text-sm text-text-muted">当前没有执行中的任务。</p>
-                )}
-              </section>
-              {repoId !== "unselected" ? (
-                <WorkspaceEvidenceSections
-                  historyOnly
-                  repoId={repoId}
-                  memberTaskIds={[scope.root.taskId, ...scope.memberTaskIds]}
-                  eventSummaries={scope.eventSummaries}
-                  eventWindowComplete={scope.eventWindowComplete}
-                  decisions={decisions}
-                  facts={facts}
-                  relations={relations}
-                  titles={titles}
-                  onNavigateEntity={navigateEntity}
-                />
-              ) : null}
-            </aside>
-          ) : null}
-        </div>
-      </div>
-    </div>
+  const titles = useMemo(
+    () =>
+      workspaceTitleIndex({
+        tasks: [scope.root, ...scope.ancestors, ...scope.groups, ...scope.tasks, ...tasks],
+        facts,
+        decisions,
+      }),
+    [scope, tasks, facts, decisions],
   );
-}
 
-function WorkspaceEvidenceSections({
-  historyOnly = false,
-  repoId,
-  memberTaskIds,
-  eventSummaries,
-  eventWindowComplete,
-  decisions,
-  facts,
-  relations,
-  titles,
-  onNavigateEntity,
-}: {
-  readonly historyOnly?: boolean;
-  readonly repoId: string;
-  readonly memberTaskIds: readonly string[];
-  readonly eventSummaries: WorkspaceScopeRead["eventSummaries"];
-  readonly eventWindowComplete: boolean;
-  readonly decisions: readonly DecisionRow[];
-  readonly facts: readonly FactRef[];
-  readonly relations: readonly RelationEdge[];
-  readonly titles: ReadonlyMap<string, string>;
-  readonly onNavigateEntity?: (ref: string) => void;
-}) {
-  const events = useMemo(() => eventSummaries.map(cadenceEventOf), [eventSummaries]),
-    artifactsQuery = useQuery({
-      queryKey: ["artifacts", repoId, "md"],
-      queryFn: () => artifactsClient.list(repoId, "md"),
-      staleTime: 10_000,
-      enabled: !historyOnly,
-    }),
+  const submitted = useMemo(
+    () =>
+      scopedTasks
+        .filter(({ taskId, coordinationStatus }) => coordinationStatus === "submitted" && !groupIds.has(taskId))
+        .sort((left, right) => left.lastKnownAt.localeCompare(right.lastKnownAt)),
+    [scopedTasks, groupIds],
+  );
+  const lanes: AttestationPoolLanes = useMemo(() => deriveAttestationLanes(scopedTasks), [scopedTasks]);
+  const heroCount = submitted.length + lanes.gates.length + lanes.breakGlass.length + lanes.consents.length;
+  const stalled = useMemo(
+    () =>
+      scopedTasks
+        .filter(({ taskId }) => !groupIds.has(taskId))
+        .filter(noAgentRunning)
+        .sort((left, right) => right.lastKnownAt.localeCompare(left.lastKnownAt)),
+    [scopedTasks, groupIds],
+  );
+  const planned = useMemo(
+    () =>
+      scopedTasks
+        .filter(({ taskId, coordinationStatus }) => coordinationStatus === "planned" && !groupIds.has(taskId))
+        .sort(
+          (left, right) =>
+            Number(right.pinned === true) - Number(left.pinned === true) ||
+            right.lastKnownAt.localeCompare(left.lastKnownAt),
+        ),
+    [scopedTasks, groupIds],
+  );
+
+  const events = useMemo(() => scope.eventSummaries.map(cadenceEventOf), [scope.eventSummaries]),
     evidence = useMemo(
       () =>
         workspaceEvidenceOf({
-          memberTaskIds,
+          memberTaskIds: [scope.root.taskId, ...scope.memberTaskIds],
           events,
           decisions,
           facts,
           relations,
-          artifacts: artifactsQuery.data?.artifacts ?? [],
         }),
-      [memberTaskIds, events, decisions, facts, relations, artifactsQuery.data],
+      [scope, events, decisions, facts, relations],
+    ),
+    dayGroups = useMemo(() => workDayGroups({ events, titles, dateKeyOf }), [events, titles, dateKeyOf]),
+    workDecisions = useMemo(
+      () =>
+        workDecisionsOf({
+          memberTaskIds: [scope.root.taskId, ...scope.memberTaskIds],
+          decisions,
+          relations,
+        }),
+      [scope, decisions, relations],
     );
-  return (
-    <>
-      <WorkspaceHistory
-        evidence={historyOnly ? { ...evidence, events: evidence.events.slice(0, 3) } : evidence}
-        feed={{ mode: "work", historyComplete: eventWindowComplete }}
-        titles={titles}
-        onNavigateEntity={onNavigateEntity}
-      />
-      {historyOnly ? null : <WorkspaceEvidencePanel evidence={evidence} onNavigateEntity={onNavigateEntity} />}
-    </>
-  );
-}
 
-function WorkspacePending({
-  tasks,
-  lanes,
-  onOpenTask,
-  onAttest,
-  onConsent,
-  feedback,
-}: {
-  readonly tasks: readonly TaskRow[];
-  readonly lanes: ReturnType<typeof deriveAttestationLanes>;
-  readonly onOpenTask: (taskId: string) => void;
-  readonly onAttest?: WorkspaceViewProps["onAttest"];
-  readonly onConsent?: WorkspaceViewProps["onConsent"];
-  readonly feedback?: WorkspaceViewProps["feedback"];
-}) {
-  const taskById = new Map(tasks.map((task) => [task.taskId, task]));
-  const count = lanes.gates.length + lanes.breakGlass.length + lanes.consents.length;
+  const drawerTask = drawerTaskId === null ? null : (tasks.find(({ taskId }) => taskId === drawerTaskId) ?? null),
+    effectiveTotal = Math.max(1, scope.scope.executableLeafCount),
+    lastActivityAt = events.at(-1)?.at ?? scope.root.updatedAt,
+    tabs = [
+      {
+        key: "overview" as const,
+        label: t("views.workspace.tab.overview"),
+        ...(heroCount > 0 ? { hint: t("views.workspace.tab.awaitingHint", { count: heroCount }) } : {}),
+      },
+      { key: "tasks" as const, label: t("views.workspace.tab.tasks"), count: scope.scope.executableLeafCount },
+      { key: "progress" as const, label: t("views.workspace.tab.progress") },
+      { key: "decisions" as const, label: t("views.workspace.tab.decisions") },
+      { key: "inspect" as const, label: t("views.workspace.tab.inspect") },
+      ...(renderRootTask !== undefined ? [{ key: "root" as const, label: t("views.workspace.rootTaskTab") }] : []),
+    ];
+
   return (
-    <section className="space-y-2" aria-labelledby="workspace-pending">
-      <h2 id="workspace-pending" className="text-sm font-semibold text-text">
-        需要处理 · {count}
-      </h2>
-      {count === 0 ? (
-        <p className="rounded border border-dashed border-border p-4 text-sm text-text-muted">
-          本组当前没有待签发或待收口事项。
-        </p>
-      ) : (
-        <div className="space-y-2">
-          {[...lanes.gates, ...lanes.breakGlass].map((item) => {
-            const state = feedback?.(item.taskId);
-            return (
-              <article
-                key={`${item.taskId}:${item.gateId}:${item.mode}`}
-                className="rounded-lg border border-border bg-surface-raised p-3"
-              >
-                <button
-                  type="button"
-                  className="text-left text-sm font-medium text-text"
-                  onClick={() => onOpenTask(item.taskId)}
-                >
-                  {item.taskTitle}
-                </button>
-                <p className="mt-1 ui-meta text-text-muted">
-                  门禁 {item.gateId} · {item.gateStatus} · execution {item.executionId ?? "未知"}
-                </p>
-                {item.detail ? <p className="mt-1 text-sm text-text-muted">{item.detail}</p> : null}
-                <button
-                  type="button"
-                  disabled={!onAttest || state?.state === "pending"}
-                  onClick={() => onAttest?.({ taskId: item.taskId }, item.gateId, item.mode)}
-                  className="mt-2 rounded border border-border px-2 py-1 ui-meta text-text disabled:opacity-60"
-                >
-                  {item.mode === "approve" ? "签注" : "特批放行"}
-                </button>
-                {state ? (
-                  <p className="mt-2 ui-meta text-text-muted">
-                    {state.state} · {state.code ?? state.hint}
-                  </p>
-                ) : null}
-              </article>
-            );
-          })}
-          {lanes.consents.map((item) => {
-            const task = taskById.get(item.taskId),
-              approved = task?.reviews?.find((review) => review.verdict === "approved"),
-              state = feedback?.(item.taskId);
-            return (
-              <article key={`${item.taskId}:consent`} className="rounded-lg border border-border bg-surface-raised p-3">
-                <button
-                  type="button"
-                  className="text-left text-sm font-medium text-text"
-                  onClick={() => onOpenTask(item.taskId)}
-                >
-                  {item.taskTitle}
-                </button>
-                <p className="mt-1 ui-meta text-text-muted">待同意本轮交付 · review {approved?.reviewId ?? "未投影"}</p>
-                <button
-                  type="button"
-                  disabled={!task || !approved || !onConsent || state?.state === "pending"}
-                  onClick={() => task && approved && onConsent?.(task, approved.reviewId)}
-                  className="mt-2 rounded border border-border px-2 py-1 ui-meta text-text disabled:opacity-60"
-                >
-                  同意本轮交付
-                </button>
-                {state ? (
-                  <p className="mt-2 ui-meta text-text-muted">
-                    {state.state} · {state.code ?? state.hint}
-                  </p>
-                ) : null}
-              </article>
-            );
-          })}
+    <div data-testid="workspace-view" className="flex h-full min-h-0 flex-1 flex-col">
+      <header className="flex-none px-5 pt-3.5 md:px-7">
+        <nav className="text-text-muted ui-meta" aria-label="工作范围">
+          {[projectName, ...scope.ancestors.map(({ title }) => title), scope.root.title].join(" / ")}
+        </nav>
+        <h1 className="mt-0.5 text-[19px] font-semibold leading-snug text-text">{scope.root.title}</h1>
+        {repoId !== "unselected" && scope.goalMaterial !== null ? (
+          <WorkMission repoId={repoId} taskId={scope.goalMaterial.taskId} path={scope.goalMaterial.path} />
+        ) : null}
+        <div className="mt-2.5 flex items-center gap-3.5">
+          <SegBar
+            counts={{
+              done: scope.counts.done,
+              active: scope.counts.executing,
+              submitted: scope.counts.pending,
+              blocked: scope.counts.blocked,
+              planned: scope.counts.planned,
+              cancelled: scope.counts.cancelled,
+            }}
+            className="h-[5px] max-w-[520px] flex-1"
+          />
+          <span className="whitespace-nowrap font-mono text-text-muted ui-meta">
+            <b className="text-text">{scope.counts.done}</b>
+            {t("views.workspace.progressNumbers", {
+              done: "",
+              total: scope.scope.executableLeafCount,
+              percent: Math.round((scope.counts.done / effectiveTotal) * 100),
+            })}
+            {" · "}
+            {t("views.workspace.lastActivity", { ago: agoOf(lastActivityAt) })}
+          </span>
         </div>
-      )}
-    </section>
-  );
-}
+        <div className="mt-2 flex items-end gap-4">
+          <div className="min-w-0 flex-1">
+            <Tabs ariaLabel="工作分区" idPrefix="workspace" value={tab} onChange={setTab} tabs={tabs} />
+          </div>
+          <input
+            ref={searchRef}
+            type="search"
+            data-testid="workspace-search"
+            value={query}
+            placeholder={t("views.workspace.tasks.search")}
+            onChange={(event) => {
+              const next = event.target.value;
+              setQuery(next);
+              if (next.trim() !== "") setTab((current) => (current === "tasks" ? current : "tasks"));
+            }}
+            className="mb-1.5 h-[26px] w-[260px] flex-none rounded-xs border border-border bg-bg/30 px-2.5 text-text ui-meta"
+          />
+        </div>
+      </header>
 
-function WorkspaceRows({
-  title,
-  rows,
-  onOpen,
-}: {
-  readonly title: string;
-  readonly rows: WorkspaceScopeRead["tasks"];
-  readonly onOpen: (taskId: string) => void;
-}) {
-  return (
-    <section className="space-y-2">
-      <h2 className="text-sm font-semibold text-text">{title}</h2>
-      {rows.length ? (
-        rows.map((row) => (
-          <button
-            key={row.taskId}
-            type="button"
-            onClick={() => onOpen(row.taskId)}
-            className="grid w-full grid-cols-[1fr_auto] gap-3 rounded-lg border border-border bg-surface-raised p-3 text-left hover:border-accent/60"
-          >
-            <span className="min-w-0">
-              <span className="block truncate text-sm font-medium text-text">{row.title}</span>
-              <span className="block truncate font-mono ui-meta text-text-faint">{row.taskId}</span>
-            </span>
-            <span className="ui-meta text-text-muted">{row.status}</span>
-          </button>
-        ))
-      ) : (
-        <p className="rounded border border-dashed border-border p-4 text-sm text-text-muted">暂无{title}</p>
-      )}
-    </section>
-  );
-}
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <div
+          id="workspace-panel"
+          role="tabpanel"
+          aria-labelledby={`workspace-tab-${tab}`}
+          className="grid grid-cols-1 gap-9 px-5 pb-16 pt-4 md:px-7 lg:grid-cols-[minmax(0,1fr)_340px]"
+        >
+          {(scope.status === "pending" || scope.warnings.length > 0) && (
+            <div className="col-span-full rounded-xs border border-warning/50 bg-warning/10 p-3 text-text ui-body">
+              {t("views.workspace.pendingCut", { watermark: scope.watermark, sourceRevision: scope.sourceRevision })}
+              {scope.warnings.length > 0 ? ` · ${scope.warnings.join("；")}` : ""}
+            </div>
+          )}
+          {scope.incompleteParentRefs.length > 0 ? (
+            <div className="col-span-full rounded-xs border border-warning/50 bg-warning/10 p-3 text-text ui-body">
+              {t("views.workspace.incompleteParents", { refs: scope.incompleteParentRefs.join("、") })}
+            </div>
+          ) : null}
 
-const WORKSPACE_HISTORY_ROWS = 40;
-
-function WorkspaceHistory({
-  evidence,
-  feed,
-  titles,
-  onNavigateEntity,
-}: {
-  readonly evidence: ReturnType<typeof workspaceEvidenceOf>;
-  readonly feed: { readonly mode: string | null; readonly historyComplete: boolean };
-  readonly titles: ReadonlyMap<string, string>;
-  readonly onNavigateEntity?: (ref: string) => void;
-}) {
-  const [page, setPage] = useState(0);
-  const currentPage = Math.min(page, Math.max(0, Math.ceil(evidence.events.length / WORKSPACE_HISTORY_ROWS) - 1));
-  const rows = evidence.events.slice(currentPage * WORKSPACE_HISTORY_ROWS, (currentPage + 1) * WORKSPACE_HISTORY_ROWS),
-    // 「只有索引、没有正文」是整个窗口的一个性质,不是每一行各自的新闻:整段至多说一次。
-    anyPayloadLess = rows.some(({ summary }) => summary === null);
-  return (
-    <section className="rounded-lg border border-border bg-surface-raised p-4" aria-labelledby="workspace-history">
-      <h2 id="workspace-history" className="text-sm font-semibold text-text">
-        {t("views.workspace.history")}
-      </h2>
-      <p className="mt-1 ui-meta text-text-muted">
-        {t("views.workspace.eventWindow", {
-          mode: feed.mode ?? t("views.workspace.sourcePending"),
-          coverage: t(feed.historyComplete ? "views.workspace.windowComplete" : "views.workspace.windowPartial"),
-        })}
-      </p>
-      {anyPayloadLess ? <p className="mt-1 ui-meta text-text-muted">{t("views.workspace.payloadMissing")}</p> : null}
-      {rows.length === 0 ? (
-        <p className="mt-3 text-sm text-text-muted">{t("views.workspace.historyEmpty")}</p>
-      ) : (
-        <ol className="mt-3">
-          {rows.map((event, index) => {
-            const taskRef = event.taskId === null ? null : `task/${event.taskId}`,
-              // 标题在读面里就用标题,没有就如实退回原始 task id——不猜。
-              taskName = (taskRef === null ? undefined : titles.get(taskRef)) ?? event.taskId,
-              day = event.at ? formatTime(event.at, { style: "date" }) : null,
-              previousAt = rows[index - 1]?.at,
-              previousDay = previousAt ? formatTime(previousAt, { style: "date" }) : null;
-            return (
-              <li key={event.key} className="min-w-0">
-                {index === 0 || day !== previousDay ? (
-                  <p className="border-b border-border py-2 ui-meta font-semibold text-text-muted">
-                    {day ?? t("views.workspace.timeMissing")}
-                  </p>
-                ) : null}
-                <div className="flex items-baseline gap-3 border-b border-border/50 py-1.5">
-                  <time className="shrink-0 font-mono ui-meta text-text-muted">
-                    {event.at ? formatTime(event.at, { style: "month-day-time" }) : "—"}
-                  </time>
-                  <div className="min-w-0 flex-1">
-                    <button
-                      type="button"
-                      title={`${event.type} · ${event.taskId ?? ""}`}
-                      className="block w-full break-words text-left text-sm text-text"
-                      onClick={() => taskRef !== null && onNavigateEntity?.(taskRef)}
-                    >
-                      <span className="font-medium">{eventTypeLabel(event.type)}</span>
-                      <span className="text-text-muted"> · {taskName ?? t("views.workspace.entityMissing")}</span>
-                    </button>
-                    {event.summary === null ? null : (
-                      <details className="ui-meta text-text-muted">
-                        <summary className="cursor-pointer">查看记录摘要</summary>
-                        <p className="break-words py-1 text-sm">{event.summary}</p>
-                      </details>
-                    )}
-                  </div>
-                </div>
-              </li>
-            );
-          })}
-        </ol>
-      )}
-      <ResultPagination
-        label="经过"
-        page={currentPage}
-        total={evidence.events.length}
-        size={WORKSPACE_HISTORY_ROWS}
-        onChange={setPage}
-      />
-    </section>
-  );
-}
-
-function WorkspaceEvidencePanel({
-  evidence,
-  onNavigateEntity,
-}: {
-  readonly evidence: ReturnType<typeof workspaceEvidenceOf>;
-  readonly onNavigateEntity?: (ref: string) => void;
-}) {
-  return (
-    <section className="rounded-lg border border-border bg-surface-raised p-4" aria-labelledby="workspace-evidence">
-      <h2 id="workspace-evidence" className="text-sm font-semibold text-text">
-        {t("views.workspace.evidence")}
-      </h2>
-      <div className="mt-3 min-w-0 space-y-2">
-        <EvidenceList
-          title={t("views.workspace.decisions")}
-          rows={evidence.decisions.map((row) => ({
-            ref: `decision/${row.decisionId}`,
-            title: row.title,
-            meta: row.state,
-            badge: <DecisionReviewBadge review={row.review} />,
-          }))}
-          onOpen={onNavigateEntity}
-        />
-        <EvidenceList
-          title={t("views.workspace.facts")}
-          rows={evidence.facts.map((row) => ({
-            ref: row.anchor,
-            title: row.text,
-            meta: row.invalidated
-              ? t("views.workspace.superseded")
-              : row.archived
-                ? t("views.workspace.archived")
-                : row.confidence,
-          }))}
-          onOpen={onNavigateEntity}
-        />
-        <EvidenceList
-          title={t("views.workspace.artifacts")}
-          rows={evidence.artifacts.map((row) => ({
-            ref: row.taskId ? `task/${row.taskId}` : row.path,
-            title: row.path,
-            meta: `${row.timeSource} · ${row.time}`,
-          }))}
-          onOpen={onNavigateEntity}
-        />
-      </div>
-      {evidence.missingRefs.length ? (
-        <p className="mt-3 break-words text-sm text-warning">
-          {t("views.workspace.missingRefs", { refs: evidence.missingRefs.join("、") })}
-        </p>
-      ) : null}
-    </section>
-  );
-}
-
-function EvidenceList({
-  title,
-  rows,
-  onOpen,
-}: {
-  readonly title: string;
-  readonly rows: readonly { ref: string; title: string; meta: string; badge?: ReactNode }[];
-  readonly onOpen?: (ref: string) => void;
-}) {
-  const [page, setPage] = useState(0);
-  const currentPage = Math.min(page, Math.max(0, Math.ceil(rows.length / 20) - 1));
-  return (
-    <details className="min-w-0 border-b border-border pb-2">
-      <summary className="cursor-pointer text-sm font-semibold text-text">
-        {title} · {rows.length}
-      </summary>
-      {rows.length ? (
-        <ul className="mt-2">
-          {rows.slice(currentPage * 20, (currentPage + 1) * 20).map((row) => (
-            <li key={`${row.ref}:${row.title}`} className="min-w-0 border-t border-border/50 py-2">
-              <details className="min-w-0">
-                <summary className="cursor-pointer break-words text-sm text-text">
-                  {row.title.length > 100 ? `${row.title.slice(0, 100)}…` : row.title}
-                </summary>
-                <p className="my-2 break-words text-sm text-text-muted">{row.title}</p>
-                <button type="button" className="text-sm text-accent" onClick={() => onOpen?.(row.ref)}>
-                  打开来源 →
-                </button>
-              </details>
-              <p className="flex flex-wrap items-center gap-1.5 break-words ui-meta text-text-muted">
-                {row.meta}
-                {row.badge}
+          {tab === "overview" ? (
+            <WorkOverview
+              submitted={submitted}
+              stalled={stalled}
+              planned={planned}
+              lanes={lanes}
+              dayGroups={dayGroups}
+              dayLabelOf={dayLabelOf}
+              timeOf={(iso) => formatTime(iso, { style: "time" }) ?? "—"}
+              subgroups={subgroups}
+              leafCounts={leafCounts}
+              leafTotal={leafRows.length}
+              agoOf={agoOf}
+              feedback={feedback}
+              onAdjudicate={
+                onAdjudicate === undefined
+                  ? undefined
+                  : (task, decision, reason) => void onAdjudicate(task, decision, reason)
+              }
+              onAttest={onAttest}
+              onConsent={onConsent}
+              onOpenTask={openTask}
+              onOpenProgress={() => setTab("progress")}
+              onFilterStatus={(status) => {
+                setStatusFilter(status);
+                setTab("tasks");
+              }}
+              onFilterGroup={(group) => {
+                // 点一组是「看这组的任务」这个新意图,不再叠着上一个状态过滤。
+                setGroupFilter(group);
+                setStatusFilter("");
+                setTab("tasks");
+              }}
+            />
+          ) : null}
+          {tab === "tasks" ? (
+            <div className="col-span-full">
+              <WorkTasksTab
+                leaves={leafRows}
+                subgroups={subgroups}
+                statusFilter={statusFilter}
+                groupFilter={groupFilter}
+                query={query}
+                agoOf={agoOf}
+                onStatusFilter={setStatusFilter}
+                onGroupFilter={setGroupFilter}
+                onOpenTask={openTask}
+                onLoadMore={scope.page.nextCursor === null ? undefined : onLoadMore}
+                loadingMore={loadingMore}
+              />
+            </div>
+          ) : null}
+          {tab === "progress" ? (
+            <div className="col-span-full max-w-[900px]">
+              {dayGroups.length > 0 ? (
+                <WorkDayList
+                  dayGroups={dayGroups}
+                  dayLabelOf={dayLabelOf}
+                  timeOf={(iso) => formatTime(iso, { style: "time" }) ?? "—"}
+                  onOpenTask={openTask}
+                />
+              ) : (
+                <p className="py-5 text-text-faint ui-body">{t("views.workspace.historyEmpty")}</p>
+              )}
+              <p className="mt-3 text-text-muted ui-meta">
+                {t(scope.eventWindowComplete ? "views.workspace.windowComplete" : "views.workspace.windowPartial")}
               </p>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="mt-2 text-sm text-text-muted">{t("views.workspace.none")}</p>
-      )}
-      <ResultPagination label={title} page={currentPage} total={rows.length} size={20} onChange={setPage} />
-    </details>
+            </div>
+          ) : null}
+          {tab === "decisions" ? (
+            <div className="col-span-full">
+              <WorkDecisionsTab
+                decisions={workDecisions}
+                facts={evidence.facts}
+                missingRefs={evidence.missingRefs}
+                onNavigateEntity={navigateEntity}
+              />
+            </div>
+          ) : null}
+          {tab === "inspect" ? (
+            <div className="col-span-full">
+              <WorkInspectTab
+                events={evidence.events}
+                historyComplete={scope.eventWindowComplete}
+                titles={titles}
+                onNavigateEntity={navigateEntity}
+              />
+            </div>
+          ) : null}
+          {tab === "root" && renderRootTask !== undefined ? (
+            <section
+              data-testid="workspace-root-task"
+              className="col-span-full h-[calc(100vh-260px)] min-h-[520px] overflow-hidden rounded-sm border border-border"
+            >
+              {renderRootTask(() => setTab("overview"))}
+            </section>
+          ) : null}
+        </div>
+      </div>
+
+      <TaskPreviewDrawer
+        task={drawerTask}
+        tasks={tasks}
+        relations={relations}
+        onClose={() => setDrawerTaskId(null)}
+        onOpenDetail={openFullDetail}
+        onPreviewTask={openTask}
+        onSetPin={onSetTaskPin}
+      />
+    </div>
   );
 }
 
-const REVIEW_HINTS: Readonly<Record<DecisionReviewSignal, MessageKey>> = {
-  changesRequested: "views.workspace.decisionReviewHintChangesRequested",
-  unansweredFindings: "views.workspace.decisionReviewHintUnansweredFindings",
-  reviewing: "views.workspace.decisionReviewHintReviewing",
-  reviewRequired: "views.workspace.decisionReviewHintReviewRequired",
-  approved: "views.workspace.decisionReviewHintApproved",
-  policyUnreviewed: "views.workspace.decisionReviewHintPolicyUnreviewed",
-  unreviewed: "views.workspace.decisionReviewHintPolicyUnreviewed",
-};
-
-/**
- * 工作内 Decision 按评审下一步分组(原型 S2):组由读面 readiness 与评审派工映射,不另立判据;
- * 查看直达该 Decision 的评审页签。终态 Decision 没有就绪判定,不入组。
- */
-function WorkDecisionReview({
-  decisions,
-  onNavigateEntity,
+/** 一行目标(可展开):task_plan.md 的 Brief 段,收起时一行截断,点开看全文。 */
+function WorkMission({
+  repoId,
+  taskId,
+  path,
 }: {
-  readonly decisions: readonly DecisionRow[];
-  readonly onNavigateEntity?: (ref: string) => void;
+  readonly repoId: string;
+  readonly taskId: string;
+  readonly path: string;
 }) {
-  const rows = decisions.flatMap((row) => {
-    const signal = decisionReviewSignal(row.review);
-    return signal === null
-      ? []
-      : [
-          {
-            id: row.decisionId,
-            title: row.title,
-            hint: t(REVIEW_HINTS[signal]),
-            group: decisionReviewGroup(signal),
-          },
-        ];
-  });
-  if (rows.length === 0) return null;
+  const query = useTaskDocumentQuery(repoId, taskId, path),
+    [open, setOpen] = useState(false);
+  if (query.data === undefined || query.data.status !== "ready") return null;
+  const body = query.data.uncommitted && query.data.worktreeBody !== null ? query.data.worktreeBody : query.data.body,
+    goal = body === null ? null : workspaceGoalLine(body);
+  if (goal === null) return null;
   return (
-    <section data-testid="work-decision-review" aria-labelledby="work-decision-review-title" className="space-y-4">
-      <div className="space-y-1">
-        <h2 id="work-decision-review-title" className="text-sm font-semibold text-text">
-          {t("views.workspace.decisionReviewTitle")}
-        </h2>
-        <p className="ui-meta text-text-muted">{t("views.workspace.decisionReviewNote")}</p>
-      </div>
-      <DecisionReviewGroups
-        rows={rows}
-        groups={DECISION_REVIEW_GROUPS}
-        label={t("views.workspace.decisionReviewTitle")}
-        testIdPrefix="work-decision-review"
-        onOpen={(row) => onNavigateEntity?.(decisionReviewRef(row.id, "review"))}
-      />
-    </section>
+    <div
+      data-testid="workspace-mission"
+      role="button"
+      tabIndex={0}
+      aria-expanded={open}
+      title={t("views.workspace.missionTitle")}
+      onClick={() => setOpen((value) => !value)}
+      className={`mt-1 max-w-[110ch] cursor-pointer whitespace-pre-line text-text-muted ui-body ${open ? "" : "line-clamp-1"}`}
+    >
+      {goal}
+    </div>
   );
 }

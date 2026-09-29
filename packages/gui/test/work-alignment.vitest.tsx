@@ -3,7 +3,7 @@
 import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { WorkView } from "../src/renderer/views/WorkView.tsx";
 import { collectWork } from "../src/renderer/model/work-collections.ts";
 import type { TaskRow } from "../src/renderer/model/types.ts";
@@ -73,45 +73,4 @@ describe("work aggregation", () => {
     expect(host.textContent).toContain("solo");
     act(() => root.unmount());
   });
-});
-
-it("loads actual goal material only after the user opens it", async () => {
-  vi.useFakeTimers();
-  const { WorkspaceGoal } = await import("../src/renderer/components/WorkspaceGoal.tsx");
-  const { harnessClient } = await import("../src/renderer/api-client.ts");
-  const read = vi.spyOn(harnessClient, "getTaskDocument").mockResolvedValue({
-    status: "ready",
-    body: "# Verification\nA real delivery condition",
-    worktreeBody: null,
-    uncommitted: false,
-  } as never);
-  const host = document.createElement("div"),
-    root = createRoot(host);
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  act(() =>
-    root.render(
-      <QueryClientProvider client={client}>
-        <WorkspaceGoal
-          scope={{ goalMaterial: { taskId: "group", path: "task_plan.md" } } as never}
-          repoId="repo"
-          onOpenTask={() => {}}
-        />
-      </QueryClientProvider>,
-    ),
-  );
-  expect(read).not.toHaveBeenCalled();
-  await act(async () => host.querySelector<HTMLButtonElement>("button")!.click());
-  expect(read).toHaveBeenCalledWith({ repoId: "repo", taskId: "group", path: "task_plan.md" });
-  // The read promise settles the fetch; React Query still schedules its observer notification.
-  // Drain that scheduler deterministically instead of waiting for wall-clock time.
-  await act(async () => {
-    await read.mock.results[0]!.value;
-    await vi.runAllTimersAsync();
-  });
-  expect(host.textContent).toContain("A real delivery condition");
-  expect(host.querySelector('input[type="checkbox"]')).toBeNull();
-  act(() => root.unmount());
-  client.clear();
-  read.mockRestore();
-  vi.useRealTimers();
 });
