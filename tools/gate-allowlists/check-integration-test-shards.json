@@ -822,6 +822,11 @@
         "value": "packages/daemon/test/review-execution-selection.integration.test.ts",
         "ref": "task_2c42314f552452ad44d90f8dfe",
         "reason": "Consolidated into packages/daemon/test/review-consent.integration.test.ts under the 1,200-line test file limit; assertions preserved verbatim."
+      },
+      {
+        "value": "packages/daemon/test/runtime-orphan-settlement.integration.test.ts",
+        "ref": "task_038b4d6f3f596f842702719458",
+        "reason": "The retired descendantsAlive heuristic and its orphan-settlement-only coverage were removed after positive delivery witnesses became the success criterion."
       }
     ]
   }
