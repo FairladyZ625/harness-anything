@@ -12,6 +12,7 @@ import {
   defineSettingsField,
   readSettingsFacet,
   repositorySettings,
+  writeRepositorySettingsFacet,
 } from "../../src/domain/settings.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 
@@ -30,6 +31,26 @@ const documentBody = [
   "",
 ].join("\n");
 const current = repositorySettings(readSettingsFacet(documentBody));
+
+test("Settings updates preserve unrelated authored YAML bytes", () => {
+  const authoredBody = [
+      "schema: harness-anything/v1",
+      "name: settings-byte-fidelity",
+      "layout:",
+      "  authoredRoot: harness",
+      "settings:",
+      "  ci:",
+      "    workflows: [rewrite-ci]",
+      '  defaultVertical: "software/coding"',
+      "  defaultPreset: standard-task",
+      "  defaultProfile: baseline",
+      "",
+      "",
+    ].join("\n"),
+    settings = repositorySettings(readSettingsFacet(authoredBody)),
+    written = writeRepositorySettingsFacet(authoredBody, { ...settings, defaultPreset: "docs-task" });
+  assert.equal(written, authoredBody.replace("defaultPreset: standard-task", "defaultPreset: docs-task"));
+});
 
 test("one temporary declaration reaches update, YAML read/write, CLI help metadata, and GUI field data", () => {
   const temporary = defineSettingsField({
