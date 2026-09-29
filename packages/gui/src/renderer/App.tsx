@@ -159,7 +159,7 @@ function AppShell() {
   // 回退保真(G10):导航栈恢复应用位置;这里在它旁边恢复 DOM 层的滚动与焦点。
   useLocationRestore(location, document.body);
   const { view, selectedId, previewId, focusedEntityRef, taskFilters, drill } = location;
-  const taskWipQuery = useTaskWipQuery(activeRepoId, view === "overview" || view === "board");
+  const taskWipQuery = useTaskWipQuery(activeRepoId, view === "board");
   // 侧栏置顶工作、总览、议程和研发态势消费 `ha agenda` 同一条 repo.agenda.read 投影；
   // 侧栏跨视图常驻，因此读面也随仓库常驻，不建立第二份 pin 状态。
   const agendaQuery = useAgendaQuery(activeRepoId);
@@ -312,7 +312,6 @@ function AppShell() {
   // 系统运行区输入(口径见 model/runtime-health.ts;原总览第四格,2026-08-31 收纳进
   // 侧栏后改为常驻派生):daemon 响应折算自 systemQuery 成败 + observedAt 年龄;
   // 投影落后取 tasksQuery 的同一对数字。读面不变,只是消费点从总览页移到外壳。
-  const daemonReadFailed = systemQuery.isError;
   const runtimeHealth = useMemo(() => {
     const lastSnapshotAt = projectTasks.reduce(
       (latest, task) => (task.lastKnownAt > latest ? task.lastKnownAt : latest),
@@ -540,22 +539,15 @@ function AppShell() {
                 workspaceSummaryQuery.data ? (
                   <OverviewView
                     repoId={projectId}
-                    project={project}
-                    wipSnapshot={taskWipQuery.data}
                     agenda={agendaQuery.data}
+                    works={workIndexQuery.data}
                     workspaceSummary={workspaceSummaryQuery.data}
                     health={runtimeHealth}
-                    daemonReadFailed={daemonReadFailed}
-                    ledgerRevision={
-                      tasksQuery.data
-                        ? { watermark: tasksQuery.data.watermark, sourceRevision: tasksQuery.data.sourceRevision }
-                        : null
-                    }
                     onNavigateEntity={navigateToEntity}
-                    onOpenDecisionTarget={(target) =>
-                      target.kind === "entity" ? navigateToEntity(target.ref) : goto(target.view)
-                    }
                     onOpenTask={openTaskDetail}
+                    onOpenSearch={() => setPaletteOpen(true)}
+                    onOpenSessions={() => goto("sessions")}
+                    onUnpin={(taskId) => handleSetPin({ taskId }, false)}
                   />
                 ) : (
                   <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />

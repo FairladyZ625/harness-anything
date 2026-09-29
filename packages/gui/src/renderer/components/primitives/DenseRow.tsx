@@ -33,7 +33,7 @@ export function DenseRow({
     : onClick === undefined
       ? ""
       : "hover:bg-text/5";
-  const rowCls = `grid items-center gap-[7px] border-t border-border px-3 ${cols} ${
+  const rowCls = `grid w-full items-center gap-[7px] border-t border-border px-3 ${cols} ${
     relaxed ? "min-h-11 py-1" : "h-[25px]"
   } ${stateCls}`;
   const content = (

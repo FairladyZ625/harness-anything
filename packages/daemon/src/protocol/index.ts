@@ -76,6 +76,11 @@ export type {
 } from "../agent-entities.ts";
 export type { RuntimeInstanceSummary } from "../agent-runtime-instance-types.ts";
 export { agentRuntimeSearchMatches } from "../agent-runtime-search.ts";
+/**
+ * 注意力打分(S1)的合并原语:agenda 读面按 cursor 分页时,每页的 attentionItems/regionWeights
+ * 只覆盖本页;GUI 续读合并用同一对函数(而不是重推公式),保证 CLI 与 GUI 同序只有一份实现。
+ */
+export { attentionRegionWeights, compareAttention } from "../agenda-attention.ts";
 export type {
   AgentRuntimeTokenUsageAgentRow,
   AgentRuntimeTokenUsageBucket,

@@ -508,6 +508,29 @@ const SYSTEM_HEALTH = deriveRuntimeHealth({
 
 const runtimeTasks = [{ taskId: TASK_A_ID, title: "G10 探针任务甲" }];
 
+/** 工作索引一页:总览「工作」区域与死 ID 扫描共用。 */
+const FIXTURE_WORK_INDEX = {
+  schema: "daemon.work-index/v1" as const,
+  ok: true as const,
+  status: "ready" as const,
+  works: [
+    {
+      taskId: TASK_A_ID,
+      title: "G10 探针任务甲",
+      status: "active",
+      root: "derived" as const,
+      parentTaskId: null,
+      taskCount: 1,
+      counts: { done: 1, executing: 0, pending: 0, blocked: 0, planned: 0, cancelled: 0 },
+      lastActivityAt: AT,
+      memberTaskIds: [TASK_B_ID],
+    },
+  ],
+  watermark: 7,
+  sourceRevision: 7,
+  warnings: [],
+};
+
 /**
  * 总览 PIN 分区 fixture:`repo.agenda.read` 一页的形状。PIN 卡片与 `ha agenda`
  * 共用这条投影,死 ID 扫描据此覆盖 pinned task 行。
@@ -515,6 +538,17 @@ const runtimeTasks = [{ taskId: TASK_A_ID, title: "G10 探针任务甲" }];
 const FIXTURE_AGENDA = {
   ok: true as const,
   status: "ready" as const,
+  attentionItems: [
+    {
+      ref: `execution/execution-g10-review`,
+      title: "G10 探针任务乙",
+      kind: "adjudication",
+      region: "mine",
+      workTaskId: null,
+      attention: { score: 90, reasons: [{ label: "待裁决", contribution: 60 }] },
+    },
+  ],
+  regionWeights: { mine: 12.4, stuck: 3, run: 5.5, review: 5, queue: 0, recent: 4, works: 8 },
   inFlight: [
     {
       taskId: TASK_A_ID,
@@ -555,6 +589,7 @@ const FIXTURE_AGENDA = {
     },
   ],
   waitingOnOthers: [],
+  stalled: [],
   dispatchable: [
     {
       taskId: TASK_B_ID,
@@ -578,15 +613,15 @@ const VIEW_RENDERERS = {
   overview: () =>
     createElement(OverviewView, {
       repoId: REPO_ID,
-      project: FIXTURE_PROJECT,
       agenda: FIXTURE_AGENDA,
+      works: FIXTURE_WORK_INDEX,
       workspaceSummary: FIXTURE_WORKSPACE_SUMMARY,
       health: SYSTEM_HEALTH,
-      daemonReadFailed: false,
-      ledgerRevision: null,
       onNavigateEntity: noop,
-      onOpenDecisionTarget: noop,
       onOpenTask: noop,
+      onOpenSearch: noop,
+      onOpenSessions: noop,
+      onUnpin: noop,
     }),
   agenda: () =>
     createElement(AgendaView, { repoId: REPO_ID, agenda: FIXTURE_AGENDA, agendaError: null, onNavigateEntity: noop }),

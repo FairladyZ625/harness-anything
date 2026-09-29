@@ -116,26 +116,6 @@ export function decisionAgendaRowRef({ decisionId, group }: DecisionAgendaRow): 
   return decisionReviewRef(decisionId, group === "dispose" ? "respond" : group === "judge" ? "judge" : "review");
 }
 
-export type DecisionTileTarget =
-  | { readonly kind: "entity"; readonly ref: string }
-  | { readonly kind: "view"; readonly view: "agenda" | "sessions" };
-
-/**
- * 四格的点击落点(设计 Q6:待处置→S3,评审中→S5):一格恰好一行 Decision 时直达那一行的落点;
- * 否则评审中进会话页(Decision 评审分组),其余进议程页。计数不对应单条 Decision 时不替用户挑一条;
- * 待处置里有 task 源等你处理行(`taskAwaits` 条数)时同样进议程页,那里就地答复。
- */
-export function decisionTileTarget(
-  group: DecisionReviewGroup,
-  rows: readonly DecisionAgendaRow[],
-  taskAwaits = 0,
-): DecisionTileTarget {
-  const inGroup = rows.filter((row) => row.group === group);
-  if (inGroup.length === 1 && (group !== "dispose" || taskAwaits === 0))
-    return { kind: "entity", ref: decisionAgendaRowRef(inGroup[0]!) };
-  return { kind: "view", view: group === "reviewing" ? "sessions" : "agenda" };
-}
-
 /** 当前切面与历史切面:按评审自身的 reviewContentDigest 与读面给出的当前摘要比较。 */
 export function reviewCuts(review: DecisionReviewState): {
   readonly current: readonly DecisionReview[];

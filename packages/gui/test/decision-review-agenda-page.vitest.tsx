@@ -14,20 +14,15 @@ import type {
   AgendaTaskRow,
 } from "../src/api/renderer-dto.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
-import {
-  decisionAgendaRows,
-  decisionTileTarget,
-  type DecisionTileTarget,
-} from "../src/renderer/model/decision-review.ts";
+import { decisionAgendaRows } from "../src/renderer/model/decision-review.ts";
 import { AgendaView } from "../src/renderer/views/AgendaView.tsx";
-import { DecisionReviewTiles } from "../src/renderer/components/overview/DecisionReviewTiles.tsx";
-import { DecisionReviewNow } from "../src/renderer/components/overview/DecisionReviewNow.tsx";
 import { NAV_GROUPS, navLabel } from "../src/renderer/navigation/navConfig.tsx";
 import { entityDetailTargetOf } from "../src/renderer/navigation/entityRoutes.ts";
 
 /**
- * 议程页(原型 S2 #agenda)、总览「需要我的判断 / 正在发生」(S1)与四格落点(设计 Q6):
- * 行全部取议程读面,落点按组分流到 Decision 评审页签、逐项回应、裁决页签与评审会话。
+ * 议程页(原型 S2 #agenda)与 Decision 行落点:行全部取议程读面,落点按组分流到
+ * Decision 评审页签、逐项回应、裁决页签与评审会话。(总览四格/两栏已随 S3 区域板重做删除,
+ * 新总览的测试在 overview-board.vitest.tsx。)
  */
 const AT = "2026-09-29T01:00:00.000Z";
 const decisionRow = (decisionId: string): AgendaDecisionRow => ({
@@ -171,24 +166,6 @@ describe("议程读面 → Decision 行", () => {
       "reviewing:dec_running",
       "judge:dec_judge",
     ]);
-  });
-
-  it("四格落点:恰好一行直达那一行,否则评审中进会话页、其余进议程页", () => {
-    const rows = decisionAgendaRows(seeded);
-    expect(decisionTileTarget("dispose", rows)).toEqual({
-      kind: "entity",
-      ref: "decisionreview/dec_dispose/respond",
-    });
-    // 待处置里另有 task 源等你处理时不替用户挑那一条 Decision,进议程页就地答复。
-    expect(decisionTileTarget("dispose", rows, 1)).toEqual({ kind: "view", view: "agenda" });
-    expect(decisionTileTarget("review", rows)).toEqual({ kind: "view", view: "agenda" });
-    expect(decisionTileTarget("reviewing", rows)).toEqual({ kind: "entity", ref: "decisionsessions/dec_running" });
-    expect(decisionTileTarget("judge", rows)).toEqual({ kind: "entity", ref: "decisionreview/dec_judge/judge" });
-    const many = decisionAgendaRows(
-      agenda({ decisionReviewInProgress: [reviewingRow("dec_r1"), reviewingRow("dec_r2")] }),
-    );
-    expect(decisionTileTarget("reviewing", many)).toEqual({ kind: "view", view: "sessions" });
-    expect(decisionTileTarget("dispose", many)).toEqual({ kind: "view", view: "agenda" });
   });
 });
 
@@ -348,96 +325,5 @@ describe("议程页(S2 #agenda)", () => {
       ),
     );
     expect(loading.textContent).toContain("正在追赶台账切面(r7)");
-  });
-});
-
-describe("总览(S1):四格落点与「需要我的判断 / 正在发生」", () => {
-  it("四格点击按格分流", () => {
-    const targets: DecisionTileTarget[] = [];
-    const host = mount(
-      createElement(DecisionReviewTiles, { agenda: seeded, onOpen: (target) => targets.push(target) }),
-    );
-    for (const id of ["dispose", "review", "reviewing", "judge"]) click(host, `overview-decision-tile-${id}`);
-    expect(targets).toEqual([
-      { kind: "view", view: "agenda" },
-      { kind: "view", view: "agenda" },
-      { kind: "entity", ref: "decisionsessions/dec_running" },
-      { kind: "entity", ref: "decisionreview/dec_judge/judge" },
-    ]);
-  });
-
-  it("追赶中的半个切面不直达单条", () => {
-    const targets: DecisionTileTarget[] = [];
-    const host = mount(
-      createElement(DecisionReviewTiles, {
-        agenda: { ...seeded, status: "pending", page: { sourceLimit: 100, cursor: null, nextCursor: "c2" } },
-        onOpen: (target) => targets.push(target),
-      }),
-    );
-    click(host, "overview-decision-tile-dispose");
-    click(host, "overview-decision-tile-reviewing");
-    expect(targets).toEqual([
-      { kind: "view", view: "agenda" },
-      { kind: "view", view: "sessions" },
-    ]);
-  });
-
-  it("需要我的判断 = task 源等你处理 + 待处置 + 待裁决;正在发生 = 评审中,直达该 Decision 的评审会话", () => {
-    const targets: DecisionTileTarget[] = [];
-    const answered: string[] = [];
-    const host = mount(
-      createElement(DecisionReviewNow, {
-        agenda: seeded,
-        onOpen: (target) => targets.push(target),
-        onAnswer: (row) => answered.push(row.relationId),
-      }),
-    );
-    const judgment = host.querySelector('[data-testid="overview-judgment"]')!;
-    const happening = host.querySelector('[data-testid="overview-happening"]')!;
-    expect(judgment.textContent).toContain("需要我的判断");
-    expect(judgment.textContent).toContain("提案 task/task_x");
-    expect(judgment.textContent).toContain("请你同意 · has review changes to resolve.");
-    click(host, "overview-awaits-open-rel_task");
-    expect(answered).toEqual(["rel_task"]);
-    expect(judgment.textContent).toContain("提案 decision/dec_dispose");
-    expect(judgment.textContent).toContain("打开提案");
-    expect(judgment.textContent).toContain("决策 dec_judge");
-    expect(judgment.textContent).toContain("看裁决依据");
-    expect(judgment.textContent).not.toContain("dec_review_a");
-    expect(happening.textContent).toContain("正在发生");
-    expect(happening.textContent).toContain("决策 dec_running");
-    // 原型 S1「独立评审乙提出 2 项意见」:评审人与意见数取议程读面;评审未登记时如实写进行中。
-    expect(happening.textContent).toContain("独立评审乙 提出 2 项意见 · 独立评审甲 评审进行中");
-    expect(happening.textContent).toContain("查看会话");
-    for (const id of ["dec_dispose", "dec_judge", "dec_running"]) click(host, `overview-decision-open-${id}`);
-    expect(targets).toEqual([
-      { kind: "entity", ref: "decisionreview/dec_dispose/respond" },
-      { kind: "entity", ref: "decisionreview/dec_judge/judge" },
-      { kind: "entity", ref: "decisionsessions/dec_running" },
-    ]);
-  });
-
-  it("超出首屏的行不静默截断:写出总数并去议程页 / 会话页", () => {
-    const targets: DecisionTileTarget[] = [];
-    const many = agenda({
-      awaitingDecision: ["a", "b", "c", "d"].map((id) => decisionRow(`dec_${id}`)),
-      decisionReviewInProgress: ["e", "f", "g", "h", "i"].map((id) => reviewingRow(`dec_${id}`)),
-    });
-    const host = mount(
-      createElement(DecisionReviewNow, { agenda: many, onOpen: (target) => targets.push(target), onAnswer: () => {} }),
-    );
-    const more = [...host.querySelectorAll("button")].filter((button) => button.textContent?.includes("全部"));
-    expect(more.map((button) => button.textContent)).toEqual(["全部 4 项 · 去议程 →", "全部 5 项 · 去会话 →"]);
-    for (const button of more) act(() => button.click());
-    expect(targets).toEqual([
-      { kind: "view", view: "agenda" },
-      { kind: "view", view: "sessions" },
-    ]);
-  });
-
-  it("议程没读到时两栏只写读取中", () => {
-    const host = mount(createElement(DecisionReviewNow, { agenda: undefined, onOpen: () => {}, onAnswer: () => {} }));
-    expect(host.querySelectorAll("li")).toHaveLength(0);
-    expect(host.textContent).toContain("正在读取议程");
   });
 });

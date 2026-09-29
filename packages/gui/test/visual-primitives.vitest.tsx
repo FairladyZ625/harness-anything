@@ -165,6 +165,17 @@ describe("DenseRow", () => {
     expect(onClick).toHaveBeenCalledTimes(1);
     act(() => root.unmount());
   });
+
+  it("行根节点带 w-full:高亮/选中态撑满所在列表列宽,不随内容收缩", () => {
+    // S3 移交缺陷的回归锚:行高亮曾止于内容宽度。happy-dom 无布局,断言结构保证
+    // (display:grid + width:100%),真实宽度由总览 e2e 截图复核。
+    const clickable = mount(createElement(DenseRow, { title: "可点行", onClick: () => undefined }));
+    expect(clickable.container.querySelector("button")?.className).toContain("w-full");
+    act(() => clickable.root.unmount());
+    const plain = mount(createElement(DenseRow, { title: "静态行" }));
+    expect(plain.container.querySelector(".grid")?.className).toContain("w-full");
+    act(() => plain.root.unmount());
+  });
 });
 
 describe("SegBar", () => {
@@ -256,6 +267,14 @@ describe("FocusLayer", () => {
     const closed = mountOverlay(createElement(FocusLayer, { ...base, open: false }));
     expect(closed.container.querySelector('[role="dialog"]')).toBeNull();
     act(() => closed.root.unmount());
+  });
+
+  it("左列表是纵向 flex 列:直接子行被默认拉伸撑满列宽(S3 移交缺陷的结构保证)", () => {
+    const { container, root } = mountOverlay(createElement(FocusLayer, base));
+    const list = container.querySelector("[data-focus-list]");
+    expect(list?.className).toContain("flex");
+    expect(list?.className).toContain("flex-col");
+    act(() => root.unmount());
   });
 
   it("Esc 与点 scrim 收回", () => {

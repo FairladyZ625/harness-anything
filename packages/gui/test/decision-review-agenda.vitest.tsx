@@ -1,11 +1,8 @@
 // harness-test-tier: integration
-import { describe, expect, it, vi } from "vitest";
-import { createElement } from "react";
-import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
 import type { AgendaAwaitsRow, AgendaDecisionRow } from "../src/api/renderer-dto.ts";
 import { decisionAgendaCounts, taskAwaitsRows } from "../src/renderer/model/decision-review.ts";
-import { DecisionReviewTiles } from "../src/renderer/components/overview/DecisionReviewTiles.tsx";
 
 /**
  * Decision 评审在总览(S1)与议程(S2)上的呈现(task_8ffe94dd):计数与分组全部取议程读面
@@ -61,37 +58,9 @@ const seeded = agenda({
   awaitingDecision: [decisionRow("dec_judge")],
 });
 
-describe("总览四格(S1):计数是议程分组的长度", () => {
+describe("议程分组计数(S1):计数是议程分组的长度", () => {
   it("待处置 = 等你处理里的 Decision 行 + task 源等你处理;待评审/评审中/待裁决 = 议程三组", () => {
     expect(decisionAgendaCounts(seeded)).toEqual({ dispose: 2, review: 2, reviewing: 1, judge: 1 });
-  });
-
-  it("四格按原型顺序渲染计数;点击走决策收件箱出口", () => {
-    const html = renderToStaticMarkup(createElement(DecisionReviewTiles, { agenda: seeded, onOpen: vi.fn() }));
-    const tile = (id: string) =>
-      html.match(new RegExp(`data-testid="overview-decision-tile-${id}"[^>]*>(.*?)</button>`))?.[1];
-    expect(
-      ["dispose", "review", "reviewing", "judge"].map((id) =>
-        tile(id)
-          ?.replace(/<[^>]+>/g, " ")
-          .replace(/\s+/g, " ")
-          .trim(),
-      ),
-    ).toEqual(["2 待处置 →", "2 待评审 →", "1 评审中 →", "1 待裁决 →"]);
-  });
-
-  it("议程还没读到或还在追赶时不冒充总数", () => {
-    const missing = renderToStaticMarkup(createElement(DecisionReviewTiles, { agenda: undefined, onOpen: vi.fn() }));
-    expect(missing).not.toMatch(/>\d+</);
-    expect(missing).toContain("—");
-    const pending = renderToStaticMarkup(
-      createElement(DecisionReviewTiles, {
-        agenda: { ...seeded, status: "pending", page: { sourceLimit: 100, cursor: null, nextCursor: "c2" } },
-        onOpen: vi.fn(),
-      }),
-    );
-    expect(pending).not.toMatch(/>\d+</);
-    expect(pending).toContain("正在追赶台账切面(r7)");
   });
 });
 
