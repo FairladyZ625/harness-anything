@@ -655,6 +655,28 @@ function invalidExecutorBindingFor(
       taskId !== null &&
       runtimeSession !== null &&
       !runtimeSession.taskBindings.some((candidate) => candidate.taskId === taskId),
+    // Identity and write source already answer to the lease holder, so the only unmet requirement is
+    // the phase; the expectation must name that phase (and, past submit, the frozen cut), never echo
+    // the claimant's own executor id back as the missing party.
+    leaseTargetTaskId =
+      taskId ??
+      (runtimeSession !== null && runtimeSession.taskBindings.length === 1
+        ? runtimeSession.taskBindings[0]!.taskId
+        : null),
+    claimantLease = leaseTargetTaskId === null ? null : input.projection.currentLease(leaseTargetTaskId, input.now),
+    claimantHoldsLeaseIdentity =
+      claimantLease !== null &&
+      claimantLease.phase !== "held" &&
+      runtimeSessionId !== null &&
+      isSameExecution(claimantLease.actor, {
+        principal: input.binding.actor.principal,
+        executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
+      }) &&
+      stableStringify(claimantLease.source) === stableStringify(input.binding.source),
+    claimantTaskStatus =
+      claimantHoldsLeaseIdentity && leaseTargetTaskId !== null
+        ? (input.projection.read(leaseTargetTaskId).snapshot.task?.status ?? null)
+        : null,
     expectation = canonicalTaskId
       ? `The supplied taskId matches the bound package basename; use canonical taskId ${canonicalTaskId}, then retry ` +
         executorRetryCommand(input.action, canonicalTaskId, executionId)
@@ -668,10 +690,18 @@ function invalidExecutorBindingFor(
             : missingRequestedBinding
               ? `Expected the claimed RuntimeSession to have canonical Task/Execution binding ` +
                 `${taskId}/${executionId ?? "<execution-id>"}; retry ${retry} from that bound session`
-              : expected
-                ? `Expected ${expected} from the held execution lease; run from that executor, then retry ${retry}`
-                : "Expected a task-bound executor with a matching held execution lease; run ha task start " +
-                  `${taskId ?? "<task-id>"}, then retry ${retry}`,
+              : claimantHoldsLeaseIdentity
+                ? claimantTaskStatus === "submitted" || claimantTaskStatus === "in_review"
+                  ? `Expected a held execution lease, but task ${leaseTargetTaskId} already left implementation: the ` +
+                    `round was submitted and its cut is frozen — worker writes happen BEFORE ha task submit; if ` +
+                    `artifacts must still land, the owner returns the cut with ha task adjudicate ` +
+                    `${leaseTargetTaskId} --return and the work is resubmitted with them`
+                  : `Expected a held execution lease, but the lease on task ${leaseTargetTaskId} is ` +
+                    `${claimantLease!.phase}; reacquire it with ha task start ${leaseTargetTaskId}, then retry ${retry}`
+                : expected
+                  ? `Expected ${expected} from the held execution lease; run from that executor, then retry ${retry}`
+                  : "Expected a task-bound executor with a matching held execution lease; run ha task start " +
+                    `${taskId ?? "<task-id>"}, then retry ${retry}`,
     diagnostic: ReceiptDiagnostic = {
       kind: "validation",
       entity: [taskId ? `task ${taskId}` : "repository", executionId ? `execution ${executionId}` : ""]

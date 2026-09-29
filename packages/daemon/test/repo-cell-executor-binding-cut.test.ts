@@ -114,6 +114,66 @@ test("ordinary writes reject absent, released and other-runtime leases", async (
   }
 });
 
+test("post-submit claimant writes name the frozen cut, not the claimant's own executor id", async () => {
+  for (const postSubmit of [
+    { kind: "doc-submit", taskId },
+    { kind: "fact-record", taskId },
+  ] as const) {
+    const receipt = await createRepoCellApi(
+      contextFor(
+        Promise.resolve(),
+        () => runtimeSession,
+        () => ({ ...lease, phase: "released" as const }),
+        () => "submitted",
+      ),
+    ).run({ ...postSubmit, executor: runtimeActor.executor }, binding);
+
+    assert.equal(receipt.outcome, "op_rejected");
+    assert.equal(receipt.code, "executor_binding_invalid");
+    assert.equal(receipt.diagnostic?.actual, `agent:${runtimeActor.executor.id}`);
+    const expectation = String(receipt.diagnostic?.expectation);
+    assert.match(expectation, /is frozen/u);
+    assert.match(expectation, new RegExp(`ha task adjudicate ${taskId} --return`));
+    assert.ok(
+      !expectation.includes(`agent:${runtimeActor.executor.id}`),
+      `expectation must not echo the claimant's executor id: ${expectation}`,
+    );
+  }
+});
+
+test("a released lease on an unsubmitted round points at reacquisition, not the executor identity", async () => {
+  const receipt = await createRepoCellApi(
+    contextFor(
+      Promise.resolve(),
+      () => runtimeSession,
+      () => ({ ...lease, phase: "released" as const }),
+      () => "active",
+    ),
+  ).run({ kind: "doc-submit", taskId, executor: runtimeActor.executor }, binding);
+
+  assert.equal(receipt.code, "executor_binding_invalid");
+  const expectation = String(receipt.diagnostic?.expectation);
+  assert.match(expectation, new RegExp(`is released.*ha task start ${taskId}`));
+  assert.ok(!expectation.includes(`agent:${runtimeActor.executor.id}`), expectation);
+});
+
+test("a taskless post-submit claimant write still names the frozen round of its only binding", async () => {
+  const receipt = await createRepoCellApi(
+    contextFor(
+      Promise.resolve(),
+      () => runtimeSession,
+      () => ({ ...lease, phase: "released" as const }),
+      () => "submitted",
+    ),
+  ).run({ kind: "fact-record", executor: runtimeActor.executor }, binding);
+
+  assert.equal(receipt.code, "executor_binding_invalid");
+  const expectation = String(receipt.diagnostic?.expectation);
+  assert.match(expectation, new RegExp(`task ${taskId}.*is frozen`));
+  assert.match(expectation, new RegExp(`ha task adjudicate ${taskId} --return`));
+  assert.ok(!expectation.includes(`agent:${runtimeActor.executor.id}`), expectation);
+});
+
 test("lease acquisition reaches lifecycle admission without a stored execution target", async () => {
   for (const phase of ["released", "orphaned"] as const) {
     const receipt = await createRepoCellApi(
@@ -421,6 +481,7 @@ function contextFor(
   tail: Promise<void>,
   readRuntimeSession: () => RuntimeSession | null,
   currentLease: () => LeaseV1 | null,
+  taskStatus?: () => string,
 ): RepoCellApiContext & {
   readonly observedActor: RepoCellBinding["actor"] | null;
   readonly tailAssignments: number;
@@ -505,10 +566,16 @@ function contextFor(
       projection: {
         read: (candidateTaskId: string) => {
           fixture.taskReads += 1;
+          const status = taskStatus?.();
           return {
             packagePath: candidateTaskId === taskId ? `tasks/${packageBasenameFor(taskId)}` : null,
             snapshot: {
-              task: { taskId: candidateTaskId, iteration: 1, completionGateIds: [] },
+              task: {
+                taskId: candidateTaskId,
+                iteration: 1,
+                completionGateIds: [],
+                ...(status === undefined ? {} : { status }),
+              },
               executions: [{ iteration: 1, executionId, submission: { commitSha: null } }],
             },
           };
