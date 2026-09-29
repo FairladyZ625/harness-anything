@@ -1,5 +1,6 @@
 import {
   REPLAY_TASK_GRAPH,
+  assertTransitionDocumentReady,
   classifyTextualArtifactPath,
   currentTaskForWrite,
   getExecutableEntityAction,
@@ -137,8 +138,17 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       planBody === null
         ? null
         : (resolved.documents.find(({ slot }) => slot === "task.plan")?.body.replaceAll("{{title}}", input.title) ??
-          null),
-    prose = resolved.documents.map((document): CompiledTaskDocument => {
+          null);
+  if (planBody !== null && planScaffoldBody !== null) {
+    try {
+      assertTransitionDocumentReady("task.plan", planBody, transitionDocumentContract(planScaffoldBody));
+    } catch (error) {
+      if (error && typeof error === "object" && "missingSections" in error)
+        Object.assign(error, { documentPath: `${packagePath}/task_plan.md`, diskDiffers: false });
+      throw error;
+    }
+  }
+  const prose = resolved.documents.map((document): CompiledTaskDocument => {
       const scaffoldBody = document.body.replaceAll("{{title}}", input.title),
         body = document.slot === "task.plan" && planBody !== null ? planBody : scaffoldBody;
       return {

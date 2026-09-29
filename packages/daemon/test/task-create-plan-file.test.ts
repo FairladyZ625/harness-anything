@@ -49,7 +49,7 @@ test("create with a plan file lands the authored plan in the same write and stay
   }
 });
 
-test("a plan file missing a template section keeps the task unstartable", async () => {
+test("create rejects a plan file missing a template section", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-create-plan-gap-"));
   initRepo(rootDir);
   const incomplete = realizedTaskPlan("Incomplete at create").replace(
@@ -69,15 +69,10 @@ test("a plan file missing a template section keeps the task unstartable", async 
       { kind: "task-create", taskId: "task-plan-gap", title: "Plan Gap", planFile: "plans/incomplete.md" },
       binding,
     );
-    assert.equal(created.outcome, "applied", JSON.stringify(created));
-    const started = await cell.run(
-      { kind: "task-start", taskId: "task-plan-gap", executionId: "exec-plan-gap" },
-      binding,
-    );
-    assert.equal(started.outcome, "op_rejected", JSON.stringify(started));
-    assert.equal(started.code, "plan_placeholder");
-    assert.equal(started.diagnostic?.kind, "missing-sections");
-    assert.match(JSON.stringify(started.diagnostic ?? {}), /Verification/u);
+    assert.equal(created.outcome, "op_rejected", JSON.stringify(created));
+    assert.equal(created.code, "plan_placeholder");
+    assert.equal(created.diagnostic?.kind, "missing-sections");
+    assert.match(JSON.stringify(created.diagnostic ?? {}), /Verification/u);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
