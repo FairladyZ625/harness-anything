@@ -76,6 +76,22 @@ export function agendaDecisionRow(value: unknown): boolean {
   );
 }
 
+export function agendaDecisionReviewRow(value: unknown): boolean {
+  if (!isJsonObject(value) || !Array.isArray(value.reviewers)) return false;
+  const { reviewers, ...row } = value;
+  return (
+    agendaDecisionRow(row) &&
+    reviewers.every(
+      (reviewer) =>
+        exactRecord(reviewer, ["dispatchId", "reviewer", "findingCount"]) &&
+        nonEmpty(reviewer.dispatchId) &&
+        (reviewer.reviewer === null || nonEmpty(reviewer.reviewer)) &&
+        (reviewer.findingCount === null ||
+          (Number.isSafeInteger(reviewer.findingCount) && Number(reviewer.findingCount) >= 0)),
+    )
+  );
+}
+
 export function agendaAwaitsRow(value: unknown): boolean {
   return (
     exactRecord(value, [
@@ -203,7 +219,7 @@ export function validateDaemonAgenda(value: unknown): readonly string[] {
     ["answeredForYou", agendaAnsweredRow, ["relationId"]],
     ["awaitingAdjudication", agendaExecutionRow, ["taskId"]],
     ["underReview", agendaExecutionRow, ["taskId"]],
-    ["decisionReviewInProgress", agendaDecisionRow, ["decisionId"]],
+    ["decisionReviewInProgress", agendaDecisionReviewRow, ["decisionId"]],
     ["awaitingDecisionReview", agendaDecisionRow, ["decisionId"]],
     ["awaitingDecision", agendaDecisionRow, ["decisionId"]],
   ] as const) {

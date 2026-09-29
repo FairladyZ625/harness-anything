@@ -4,7 +4,7 @@ import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
-import type { AgendaAwaitsRow, AgendaDecisionRow } from "../src/api/renderer-dto.ts";
+import type { AgendaAwaitsRow, AgendaDecisionReviewRow, AgendaDecisionRow } from "../src/api/renderer-dto.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import {
   decisionAgendaRows,
@@ -28,6 +28,10 @@ const decisionRow = (decisionId: string): AgendaDecisionRow => ({
   urgency: "medium",
   proposedAt: AT,
 });
+const reviewingRow = (
+  decisionId: string,
+  reviewers: AgendaDecisionReviewRow["reviewers"] = [],
+): AgendaDecisionReviewRow => ({ ...decisionRow(decisionId), reviewers });
 const awaitsRow = (relationId: string, sourceRef: string): AgendaAwaitsRow => ({
   relationId,
   relationRevision: 1,
@@ -69,7 +73,12 @@ const seeded = agenda({
     awaitsRow("rel_task", "task/task_x"),
   ],
   awaitingDecisionReview: [decisionRow("dec_review_a"), decisionRow("dec_review_b")],
-  decisionReviewInProgress: [decisionRow("dec_running")],
+  decisionReviewInProgress: [
+    reviewingRow("dec_running", [
+      { dispatchId: "dispatch_b", reviewer: "独立评审乙", findingCount: 2 },
+      { dispatchId: "dispatch_a", reviewer: "独立评审甲", findingCount: null },
+    ]),
+  ],
   awaitingDecision: [decisionRow("dec_judge")],
 });
 
@@ -127,7 +136,7 @@ describe("议程读面 → Decision 行", () => {
     expect(decisionTileTarget("reviewing", rows)).toEqual({ kind: "entity", ref: "decisionsessions/dec_running" });
     expect(decisionTileTarget("judge", rows)).toEqual({ kind: "entity", ref: "decisionreview/dec_judge/judge" });
     const many = decisionAgendaRows(
-      agenda({ decisionReviewInProgress: [decisionRow("dec_r1"), decisionRow("dec_r2")] }),
+      agenda({ decisionReviewInProgress: [reviewingRow("dec_r1"), reviewingRow("dec_r2")] }),
     );
     expect(decisionTileTarget("reviewing", many)).toEqual({ kind: "view", view: "sessions" });
     expect(decisionTileTarget("dispose", many)).toEqual({ kind: "view", view: "agenda" });
@@ -237,6 +246,8 @@ describe("总览(S1):四格落点与「需要我的判断 / 正在发生」", ()
     expect(judgment.textContent).not.toContain("dec_review_a");
     expect(happening.textContent).toContain("正在发生");
     expect(happening.textContent).toContain("决策 dec_running");
+    // 原型 S1「独立评审乙提出 2 项意见」:评审人与意见数取议程读面;评审未登记时如实写进行中。
+    expect(happening.textContent).toContain("独立评审乙 提出 2 项意见 · 独立评审甲 评审进行中");
     expect(happening.textContent).toContain("查看会话");
     for (const id of ["dec_dispose", "dec_judge", "dec_running"]) click(host, `overview-decision-open-${id}`);
     expect(targets).toEqual([
@@ -250,7 +261,7 @@ describe("总览(S1):四格落点与「需要我的判断 / 正在发生」", ()
     const targets: DecisionTileTarget[] = [];
     const many = agenda({
       awaitingDecision: ["a", "b", "c", "d"].map((id) => decisionRow(`dec_${id}`)),
-      decisionReviewInProgress: ["e", "f", "g", "h", "i"].map((id) => decisionRow(`dec_${id}`)),
+      decisionReviewInProgress: ["e", "f", "g", "h", "i"].map((id) => reviewingRow(`dec_${id}`)),
     });
     const host = mount(createElement(DecisionReviewNow, { agenda: many, onOpen: (target) => targets.push(target) }));
     const more = [...host.querySelectorAll("button")].filter((button) => button.textContent?.includes("全部"));

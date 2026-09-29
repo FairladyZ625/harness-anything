@@ -58,7 +58,7 @@ const agenda = (patch: Partial<AgendaSuccess> = {}): AgendaSuccess => ({
 const seeded = agenda({
   awaitingYou: [awaitsRow("rel_dec", "decision/dec_dispose"), awaitsRow("rel_task", "task/task_x")],
   awaitingDecisionReview: [decisionRow("dec_review_a"), decisionRow("dec_review_b")],
-  decisionReviewInProgress: [decisionRow("dec_running")],
+  decisionReviewInProgress: [{ ...decisionRow("dec_running"), reviewers: [] }],
   awaitingDecision: [decisionRow("dec_judge")],
 });
 
