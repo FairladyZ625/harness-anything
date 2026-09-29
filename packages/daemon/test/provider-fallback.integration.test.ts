@@ -105,7 +105,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       },
       binding,
     );
-    const succeeded = await eventually(async () => {
+    const completed = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_fallback_success" })).dispatches;
       assert.equal(
         rows.some((row) => row.fallbackState === "exhausted"),
@@ -114,14 +114,14 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       );
       return rows.length === 2 && rows[1]?.status === "succeeded" ? rows : null;
     });
-    assertAttemptChain(succeeded, ["provider-rate-first", "provider-success-second"]);
+    assertAttemptChain(completed, ["provider-rate-first", "provider-success-second"]);
     assert.deepEqual(
-      succeeded.map(({ classification }) => classification),
+      completed.map(({ classification }) => classification),
       ["provider_quota", "worker_stop"],
     );
-    assert.match(succeeded[0]?.reason ?? "", /HTTP 429/u);
-    assert.match(succeeded[1]?.reason ?? "", /successfully/u);
-    assert.doesNotMatch(JSON.stringify(succeeded), /sk-provider-fallback-secret/u);
+    assert.match(completed[0]?.reason ?? "", /HTTP 429/u);
+    assert.match(completed[1]?.reason ?? "", /outcome is unknown/u);
+    assert.doesNotMatch(JSON.stringify(completed), /sk-provider-fallback-secret/u);
     assert.match(prompts.get("provider-success-second")?.[0] ?? "", /# Provider fallback continuation/u);
     assert.match(
       prompts.get("provider-success-second")?.[0] ?? "",
@@ -129,7 +129,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     );
     assert.doesNotMatch(prompts.get("provider-success-second")?.[0] ?? "", /sk-provider-fallback-secret/u);
     const runtimeStatus = await cell.read("repo.agentRuntime.sessions.read", {
-      runtimeSessionId: succeeded[0]!.runtimeSessionId,
+      runtimeSessionId: completed[0]!.runtimeSessionId,
     });
     assert.deepEqual(
       runtimeStatus.session.attemptChain?.attempts.map(({ attemptIndex, provider, classification }) => ({
@@ -278,7 +278,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     });
     assert.equal(emptySuccess.outcome, "succeeded");
     assert.equal(emptySuccess.exitCode, 0);
-    assert.match(emptySuccess.reason ?? "", /successfully/u);
+    assert.match(emptySuccess.reason ?? "", /outcome is unknown/u);
 
     await installAgent(
       cell,

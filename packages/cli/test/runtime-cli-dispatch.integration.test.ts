@@ -124,7 +124,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     providerSessionId: "provider-cli-session",
     startedAt: boundDispatch.startedAt,
     endedAt: boundDispatch.endedAt,
-    outcome: "succeeded",
+    outcome: "unknown",
     exitCode: 0,
     resultRef: (bound.result as Record<string, unknown>).ref,
     eventStreamRef: `file:.harness/runtime/dispatches/${boundDispatchId}.jsonl`,
@@ -132,7 +132,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     attemptIndex: 0,
     provider: { instance: "cli-worker", model: "runtime-test-model" },
     classification: "worker_stop",
-    reason: "Worker completed the attempt successfully.",
+    reason: "Worker exited without a structured provider outcome; outcome is unknown.",
   });
   assert.match(String(boundDispatch.startedAt), /^\d{4}-\d{2}-\d{2}T/u);
   assert.match(String(boundDispatch.endedAt), /^\d{4}-\d{2}-\d{2}T/u);
@@ -794,7 +794,7 @@ test("Missing and nonzero callbacks preserve runtime outcome and redact callback
   assert.deepEqual(callbackPayload, {
     schema: "runtime-session-exited/v1",
     runtimeSessionId: nonzeroNotification.runtimeSessionId,
-    outcome: "succeeded",
+    outcome: "unknown",
     exitCode: 0,
   });
   assert.doesNotMatch(JSON.stringify(callbackPayload), /notification nonzero|final:|credential|token|api.?key/iu);
