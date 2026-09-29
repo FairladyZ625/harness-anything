@@ -14,6 +14,7 @@ import {
 } from "@harness-anything/kernel";
 import { OPAQUE_TEXTUAL_POLICY_ID } from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { readDocReceipt } from "../src/doc-sync-actions.ts";
+import { adjudicateDocIntent } from "../src/doc-sync-adjudication.ts";
 import { detail, touch } from "../src/doc-sync-details.ts";
 import { scanDocCandidates } from "../src/doc-sync-candidate-scanner.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -654,6 +655,43 @@ test("doc retire deletes one projected document and returns an auditable retirem
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
+});
+
+test("doc retire refuses to discard a locally modified canonical document", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-retire-modified-"));
+  initRepo(rootDir);
+  const logical = "context/locally-modified.md",
+    cell = await openRepoCell({
+      repoId: workspaceId("retire-modified"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "retire-modified-daemon",
+    }),
+    binding = { actor, source: "local" as const };
+  try {
+    write(rootDir, logical, "# Canonical\n");
+    const submitted = await cell.run({ kind: "doc-submit", paths: [logical] }, binding);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    await waitForWorktree(cell, submitted);
+    write(rootDir, logical, "# Local edit that must survive\n");
+
+    const retired = await cell.run(
+      { kind: "doc-retire", path: logical, reason: "must not discard local work" },
+      binding,
+    );
+    assert.equal(retired.outcome, "op_rejected", JSON.stringify(retired));
+    assert.equal(retired.code, "retirement_local_modified");
+    assert.equal(readFileSync(path.join(rootDir, "harness", logical), "utf8"), "# Local edit that must survive\n");
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("doc adjudication refuses to proceed without a center authorization decision", () => {
+  assert.throws(
+    () => adjudicateDocIntent({ binding: {} } as never, {} as never, [], null, "missing-authorization"),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "authorization_missing",
+  );
 });
 
 function unresolvedDetail(...unresolvedTouches: ReturnType<typeof touch>[]) {

@@ -193,6 +193,13 @@ test("artifact add still rejects escapes, symlinked path segments, and undecodab
       binding,
     )) as Record<string, unknown>;
     assert.equal(viaSymlink.code, "invalid_artifact_path");
+    writeFileSync(path.join(rootDir, "direct-source.mjs"), "export const direct = true;\n");
+    symlinkSync(path.join(rootDir, "direct-source.mjs"), path.join(rootDir, "source-link.mjs"));
+    const indirectSource = (await cell.run(
+      { kind: "task-artifact-add", taskId: "task-guards", source: "source-link.mjs", destination: "scripts/link.mjs" },
+      binding,
+    )) as Record<string, unknown>;
+    assert.equal(indirectSource.code, "artifact_source_invalid");
     // A name that claims a textual format keeps its UTF-8 requirement: a broken report is an error,
     // not a binary. Names that never promised text take the raw route (doc-sync-artifact-raw-bytes).
     writeFileSync(path.join(rootDir, "broken.md"), Buffer.from([0x23, 0x20, 0xff, 0xfe, 0x0a]));
