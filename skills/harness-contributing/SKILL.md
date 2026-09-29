@@ -189,16 +189,12 @@ repository/token context is available. Preserve that output and rerun the same
 job with only that gate excluded:
 
 ```bash
-node tools/run-manifest-gates.mjs --workflow-job boundaries --changed origin/main --exclude check-github-required-contexts --resume
+node tools/run-manifest-gates.mjs --workflow-job boundaries --changed origin/main --exclude check-github-required-contexts
 ```
 
 If that exact message is not the sole failure, do not exclude the gate. Never
 treat the exclusion as a CI waiver; the required GitHub context must still pass
-on the PR. `--resume` uses only the checkpoint from the latest failed run in the
-same worktree, skips commands that already passed, and removes the checkpoint
-after success. If the selected gates or their commands changed, the runner
-rejects the checkpoint; rerun without `--resume` so affected checks are not
-skipped. Results are never cached across successful runs.
+on the PR.
 
 > 中文：worker 停止点统一运行 `node tools/run-manifest-gates.mjs --changed
 > origin/main`；它从 manifest 中派生带 `localPathGlobs` 的本地、PR、确定性门，不维护
@@ -206,8 +202,7 @@ skipped. Results are never cached across successful runs.
 > 时才使用 `--workflow-job`，该模式会跑完所选门并一次报告全部失败；CI 始终全跑。
 > 本地只有 `check-github-required-contexts` 的精确报错
 > `repository must be provided as owner/name` 可在确认缺 GitHub 上下文后单独排除；
-> 该排除不适用于 CI，也不能掩盖其他失败。`--resume` 只复用同一 worktree 最近一次
-> 失败运行的已绿命令；成功后删除断点，所选 gate 或命令变化后必须重新完整执行。
+> 该排除不适用于 CI，也不能掩盖其他失败。
 
 ## Commit with the contributor identity
 
