@@ -336,10 +336,11 @@ test(
 function alive(pid: number): boolean {
   try {
     process.kill(pid, 0);
+    // The process can be reaped between the signal probe and the stat read; a missing stat means it is gone.
+    return process.platform !== "linux" || !/^\d+ \(.*\) Z /u.test(readFileSync(`/proc/${pid}/stat`, "utf8"));
   } catch {
     return false;
   }
-  return process.platform !== "linux" || !/^\d+ \(.*\) Z /u.test(readFileSync(`/proc/${pid}/stat`, "utf8"));
 }
 
 test("the node-modules adapter mirrors the root store and removes its mirror before the worktree is reclaimed", async () => {
