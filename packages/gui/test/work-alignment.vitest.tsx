@@ -8,6 +8,9 @@ import { WorkView } from "../src/renderer/views/WorkView.tsx";
 import { collectWork } from "../src/renderer/model/work-collections.ts";
 import type { TaskRow } from "../src/renderer/model/types.ts";
 import { NAV_GROUPS } from "../src/renderer/navigation/navConfig.tsx";
+import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+
+setActiveLocale("zh-CN");
 
 // workId 是 daemon 工作索引(`repo.works.index`)盖在行上的所属工作;renderer 不自己判定。
 const task = (taskId: string, parentTaskId?: string, workId?: string, taskClass = "standard") =>
@@ -37,7 +40,7 @@ describe("work aggregation", () => {
     const ids = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.id));
     expect(ids).toEqual(expect.arrayContaining(["overview", "work", "board", "graph", "cadence", "decisionPool"]));
   });
-  it("shows real counts, opens groups and isolated tasks, and searches both sections", () => {
+  it("shows real counts, opens work rows, and searches by work title", () => {
     const host = document.createElement("div"),
       root = createRoot(host),
       opened: string[] = [];
@@ -47,30 +50,36 @@ describe("work aggregation", () => {
           <WorkView
             tasks={rows}
             repoId="repo"
-            projectName="Project"
             ready
             onOpenTask={(id) => opened.push(id)}
             catalog={undefined}
             catalogError={null}
             daemonState="responsive"
             onRefreshLedger={() => {}}
+            agenda={undefined}
           />
         </QueryClientProvider>,
       ),
     );
-    expect(host.querySelector("progress")?.value).toBe(0);
-    expect(host.querySelector("progress")?.max).toBe(1);
-    act(() => [...host.querySelectorAll("button")].find((button) => button.textContent?.startsWith("group"))!.click());
-    act(() => host.querySelector<HTMLButtonElement>('[data-testid="isolated-work"] button')!.click());
-    act(() => host.querySelector<HTMLButtonElement>('[data-testid="isolated-work"] button:nth-of-type(2)')!.click());
-    expect(opened).toEqual(["group", "solo"]);
-    const input = host.querySelector("input")!;
+    // S4:每个工作一行;两件工作都安静(无活动/无阻塞/24h 无变化),默认折叠,点开全部。
+    const workRows = () => [...host.querySelectorAll('[data-testid="work-row"]')];
+    expect(workRows()).toHaveLength(0);
+    act(() => host.querySelector<HTMLButtonElement>('[data-testid="work-quiet"]')!.click());
+    expect(workRows().map((row) => row.getAttribute("data-work-id"))).toEqual(["declared_work", "group"]);
+    // 独立任务(solo)不在工作页,归任务列表页。
+    expect(host.textContent).not.toContain("solo");
+    const groupRow = host.querySelector('[data-testid="work-row"][data-work-id="group"]')!;
+    act(() => groupRow.querySelector<HTMLButtonElement>('[data-testid="work-row-toggle"]')!.click());
+    const body = groupRow.querySelector('[data-testid="work-row-body"]')!;
+    expect(body.textContent).toContain("计划中 1");
+    act(() => body.querySelector<HTMLButtonElement>('[data-testid="work-open"]')!.click());
+    expect(opened).toEqual(["group"]);
+    const input = host.querySelector<HTMLInputElement>('input[aria-label="搜索工作"]')!;
     act(() => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "solo");
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "declared_work");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    expect(host.querySelectorAll("progress")).toHaveLength(0);
-    expect(host.textContent).toContain("solo");
+    expect(workRows().map((row) => row.getAttribute("data-work-id"))).toEqual(["declared_work"]);
     act(() => root.unmount());
   });
 });

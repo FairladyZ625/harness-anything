@@ -571,13 +571,13 @@ function AppShell() {
                 <WorkView
                   tasks={tasks}
                   repoId={projectId}
-                  projectName={project.name}
                   ready={tasksQuery.data?.status === "ready"}
                   onOpenTask={openTaskDetail}
                   catalog={catalogQuery.data}
                   catalogError={catalogQuery.error instanceof Error ? catalogQuery.error.message : null}
                   daemonState={runtimeHealth.daemon.state}
                   onRefreshLedger={refreshLedger}
+                  agenda={agendaQuery.data}
                 />
               ) : view === "workspace" ? (
                 workspaceScope ? (

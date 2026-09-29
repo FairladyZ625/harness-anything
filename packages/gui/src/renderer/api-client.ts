@@ -106,6 +106,7 @@ export interface AgendaSuccess
     | "waitingOnOthers"
     | "dispatchable"
     | "summary"
+    | "attentionItems"
   > {
   readonly ok: true;
   readonly status: "ready" | "pending";
