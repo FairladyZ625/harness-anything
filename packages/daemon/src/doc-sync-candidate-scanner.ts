@@ -37,6 +37,8 @@ import {
 } from "@harness-anything/kernel";
 import { blockedCandidateNextAction, formatShellCommand } from "./doc-sync-details.ts";
 import { docSyncError } from "./doc-sync-files.ts";
+import { artifactAnchors, readSubmissionArtifact, submissionArtifactPath } from "./submission-artifacts.ts";
+import { taskTransitionDocumentState } from "./transition-document-access.ts";
 
 export type DocCandidateState = "clean" | "eligible" | "inapplicable" | "blocked" | "deletion" | "conflict";
 type TextualArtifactMediaType = NonNullable<ReturnType<typeof classifyTextualArtifactPath>>["mediaType"];
@@ -348,6 +350,18 @@ export function scanDocCandidates(input: {
         projected.document ? "deletion_forbidden" : null,
         projected.document ? "deletion_forbidden" : null,
       );
+    const invalidCloseoutAnchor = validateCloseoutArtifactRevisions(claimingTaskId, logical, bytes);
+    if (invalidCloseoutAnchor !== null)
+      return scannedCandidateRow(
+        "blocked",
+        invalidCloseoutAnchor,
+        bytes,
+        base,
+        candidate,
+        effective.mediaType,
+        "document_invalid",
+        "correct the closeout artifact anchor",
+      );
     const { mediaType, policyId } = effective;
     if (candidate === base)
       return scannedCandidateRow(
@@ -446,6 +460,33 @@ export function scanDocCandidates(input: {
         regionId,
       };
     }
+  }
+
+  function validateCloseoutArtifactRevisions(taskId: string | null, logical: string, bytes: Uint8Array): string | null {
+    if (taskId === null) return null;
+    const closeout = taskTransitionDocumentState({ projection: input.projection, taskId, slot: "task.closeout" });
+    if (closeout.state === "undeclared" || closeout.path !== logical) return null;
+    const owner = input.projection.read(taskId);
+    if (!owner.packagePath) return null;
+    const body = new TextDecoder().decode(bytes);
+    for (const anchor of artifactAnchors(body)) {
+      if (anchor.revision === undefined) continue;
+      const artifact = submissionArtifactPath(owner.packagePath, anchor.path);
+      try {
+        readSubmissionArtifact(
+          {
+            store: input.store,
+            cellCodedError: (code, message) => Object.assign(new Error(message), { code }),
+          },
+          owner.packagePath,
+          artifact,
+          anchor.revision,
+        );
+      } catch (error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+    }
+    return null;
   }
 }
 

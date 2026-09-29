@@ -65,6 +65,29 @@ test("closeout submit preserves holder authority and resumes one cut after a dis
       "Delivered the private report.",
       `Delivered the private report. artifact:${packagePath}/artifacts/report.md`,
     );
+    writeFileSync(
+      closeoutPath,
+      completeBody.replace(
+        `artifact:${packagePath}/artifacts/report.md`,
+        `artifact:${packagePath}/artifacts/report.md@${String(started.revision)}`,
+      ),
+    );
+    const invalidAnchor = await cell.run({ kind: "doc-submit", taskId }, holder);
+    assert.equal(invalidAnchor.outcome, "op_rejected", JSON.stringify(invalidAnchor));
+    assert.equal(invalidAnchor.code, "preview_blocked", JSON.stringify(invalidAnchor));
+    assert.match(
+      JSON.stringify(invalidAnchor),
+      /revision is not a document acceptance.*artifact:artifacts\/report\.md/u,
+    );
+    writeFileSync(
+      closeoutPath,
+      completeBody.replace(
+        `artifact:${packagePath}/artifacts/report.md`,
+        `artifact:${packagePath}/artifacts/report.md@${String(artifactReceipt.revision)}`,
+      ),
+    );
+    const acceptedAnchor = await cell.run({ kind: "doc-submit", taskId }, holder);
+    assert.equal(acceptedAnchor.outcome, "applied", JSON.stringify(acceptedAnchor));
     writeFileSync(closeoutPath, completeBody.replace(/## Verification\n[\s\S]*?(?=## Residual Risk)/u, ""));
     const submit = async () => {
       let receipt = await cell.run({ kind: "task-submit", taskId, executionId }, holder);
