@@ -354,6 +354,10 @@ export async function submitTask(
       "invalid_command",
       "Write closeout.md, then run ha task submit without a submission packet.",
     );
+  // Owner recovery retains the ordinary lease proof: rejoin the active execution through the
+  // existing settle path, then return here as a normal lease holder. `--as-owner` does not grant
+  // a lease-free write or replace the worker's recorded execution attribution.
+  if (action.asOwner === true && action.amend !== true) return settleTask(cell, { ...action, asOwner: false }, binding);
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
     current = await cell.service.read(taskId),
     held = heldLeaseForExecutionActor(current.snapshot, undefined, binding.actor),
