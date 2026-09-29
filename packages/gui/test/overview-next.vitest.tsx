@@ -147,6 +147,8 @@ function agendaFixture(patch: Partial<AgendaSuccess> = {}): AgendaSuccess {
         },
       },
     ],
+    decisionReviewInProgress: [],
+    awaitingDecisionReview: [],
     awaitingDecision: [
       {
         decisionId: "dec_probe",
@@ -389,6 +391,8 @@ describe("overview next: attention region (G2)", () => {
         awaitingRework: [],
         awaitingAdjudication: [],
         underReview: [],
+        decisionReviewInProgress: [],
+        awaitingDecisionReview: [],
         awaitingDecision: [],
       }),
     });
@@ -513,6 +517,8 @@ describe("overview next: attention region (G2)", () => {
         awaitingRework: [],
         awaitingAdjudication: [],
         underReview: [],
+        decisionReviewInProgress: [],
+        awaitingDecisionReview: [],
         awaitingDecision: [],
       }),
     )!;

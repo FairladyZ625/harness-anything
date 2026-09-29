@@ -24,6 +24,8 @@ export type AttentionGroup =
   | "reviewReturned"
   | "initialReview"
   | "underReview"
+  | "decisionReviewing"
+  | "decisionReview"
   | "decision";
 
 export interface AttentionItem {
@@ -52,6 +54,8 @@ export const ATTENTION_GROUP_ORDER: readonly AttentionGroup[] = [
   "reviewReturned",
   "initialReview",
   "underReview",
+  "decisionReviewing",
+  "decisionReview",
   "decision",
 ];
 
@@ -61,7 +65,8 @@ export const ATTENTION_GROUP_ORDER: readonly AttentionGroup[] = [
  * 分组取数(读面已按下一步动作分组):等你答复 = `awaitingYou`(指向你的 active awaits 边);
  * 已答复待你跟进 = `answeredForYou`(你名下源实体上已答复、源实体此后未再写入的 awaits 边);
  * 待初审 = `awaitingAdjudication`(提交待派审);
- * 评审中/等 consent = `underReview`;决策待裁 = `awaitingDecision`(纯 decision 行);
+ * 评审中/等 consent = `underReview`;Decision 评审中 = `decisionReviewInProgress`;
+ * 待评审 Decision = `awaitingDecisionReview`;决策待裁 = `awaitingDecision`(纯 decision 行);
  * 评审返回 = `awaitingRework`。排序:置顶优先 → 阻塞当前工作(blockingAssessment=blocked)
  * → 进入队列时间倒序。
  */
@@ -72,7 +77,9 @@ export function attentionItemsOf(agenda: AgendaSuccess | undefined): readonly At
     ...agenda.answeredForYou.map(attentionOfAnswered),
     ...agenda.awaitingAdjudication.map((row) => attentionOfExecution(row, "initialReview")),
     ...agenda.underReview.map((row) => attentionOfExecution(row, "underReview")),
-    ...agenda.awaitingDecision.map(attentionOfDecision),
+    ...agenda.decisionReviewInProgress.map((row) => attentionOfDecision(row, "decisionReviewing")),
+    ...agenda.awaitingDecisionReview.map((row) => attentionOfDecision(row, "decisionReview")),
+    ...agenda.awaitingDecision.map((row) => attentionOfDecision(row, "decision")),
     ...agenda.awaitingRework.map(attentionOfRework),
   ];
   return items.sort(compareAttention);
@@ -122,10 +129,13 @@ function attentionOfExecution(row: AgendaExecutionRow, group: "initialReview" | 
   };
 }
 
-function attentionOfDecision(row: AgendaDecisionRow): AttentionItem {
+function attentionOfDecision(
+  row: AgendaDecisionRow,
+  group: "decisionReviewing" | "decisionReview" | "decision",
+): AttentionItem {
   return {
     key: `decision/${row.decisionId}`,
-    group: "decision",
+    group,
     title: row.title,
     ref: `decision/${row.decisionId}`,
     queuedAt: row.proposedAt,

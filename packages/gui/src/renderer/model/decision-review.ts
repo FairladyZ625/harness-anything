@@ -1,3 +1,4 @@
+import type { AgendaSuccess } from "../api-client.ts";
 import type { DecisionReviewState, DecisionRow } from "./types.ts";
 
 /**
@@ -15,6 +16,7 @@ export type DecisionReviewSignal =
   | "reviewing"
   | "changesRequested"
   | "unansweredFindings"
+  | "reviewRequired"
   | "approved"
   | "policyUnreviewed"
   | "unreviewed";
@@ -28,16 +30,32 @@ export function decisionReviewSignal(review: DecisionReviewState | undefined): D
   // 评审中:当前切面上有仍在运行的评审派工(派工状态与切面摘要都来自读面)。
   if (review.dispatches?.some((row) => row.status === "running" && row.reviewContentDigest === review.currentDigest))
     return "reviewing";
+  // 待评审:仓库必审策略要求当前切面有有效批准而还没有(读面 blocker 与议程「待评审」同源)。
+  if (readiness.blocker?.code === "review_required") return "reviewRequired";
   if (readiness.basis === "review") return "approved";
   return review.reviews.length === 0 ? "unreviewed" : "policyUnreviewed";
 }
 
-/** 工作页与总览的下一步分组(原型 S1/S2):待处置、评审中、待裁决;信号为 null 的行不入组。 */
-export type DecisionReviewGroup = "dispose" | "reviewing" | "judge";
+/** 工作页的下一步分组(原型 S2):待处置、待评审、评审中、待裁决;信号为 null 的行不入组。 */
+export type DecisionReviewGroup = "dispose" | "review" | "reviewing" | "judge";
 
 export function decisionReviewGroup(signal: DecisionReviewSignal): DecisionReviewGroup {
   if (signal === "changesRequested" || signal === "unansweredFindings") return "dispose";
+  if (signal === "reviewRequired") return "review";
   return signal === "reviewing" ? "reviewing" : "judge";
+}
+
+/**
+ * 总览四格(原型 S1)的计数:全部是议程读面分组的长度,不逐条读 Decision、不在前端重新分组。
+ * 待处置没有自己的议程组,只经「等你处理」的 awaits 行出现(PR #3053),这里取其中来源是 Decision 的行。
+ */
+export function decisionAgendaCounts(agenda: AgendaSuccess): Readonly<Record<DecisionReviewGroup, number>> {
+  return {
+    dispose: agenda.awaitingYou.filter(({ sourceRef }) => sourceRef.startsWith("decision/")).length,
+    review: agenda.awaitingDecisionReview.length,
+    reviewing: agenda.decisionReviewInProgress.length,
+    judge: agenda.awaitingDecision.length,
+  };
 }
 
 /** 当前切面与历史切面:按评审自身的 reviewContentDigest 与读面给出的当前摘要比较。 */

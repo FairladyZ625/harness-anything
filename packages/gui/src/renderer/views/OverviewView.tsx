@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { Project, RelationEdge, SnapshotStatus, TaskRow } from "../model/types";
 import { Card } from "../components/overview/parts";
 import { DecisionStream } from "../components/overview/DecisionStream.tsx";
+import { DecisionReviewTiles } from "../components/overview/DecisionReviewTiles.tsx";
 import { TaskStream } from "../components/overview/TaskStream.tsx";
 import { PinnedStream } from "../components/overview/PinnedStream.tsx";
 import { OverviewStatsBar, type OverviewStatsAnomaly } from "../components/overview/OverviewStatsBar.tsx";
@@ -111,7 +112,8 @@ export function OverviewView({
           "xl:grid-rows-[minmax(0,1fr)_minmax(0,1fr)] xl:overflow-hidden",
         ].join(" ")}
       >
-        <Card title={t("views.overviewView.decisionStreamTitle")} bodyClassName="p-3" className="xl:col-start-1">
+        <Card title={t("views.overviewView.decisionStreamTitle")} bodyClassName="gap-3 p-3" className="xl:col-start-1">
+          <DecisionReviewTiles agenda={agenda} onOpen={onOpenInbox} />
           <DecisionStream
             decisions={decisions}
             summary={workspaceSummary.decisions}

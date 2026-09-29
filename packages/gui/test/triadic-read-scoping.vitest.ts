@@ -223,6 +223,8 @@ async function mountApp(options: { readonly view: string; readonly decisionResul
         underReview: [],
         awaitingYou: [],
         answeredForYou: [],
+        decisionReviewInProgress: [],
+        awaitingDecisionReview: [],
         awaitingDecision: [],
         waitingOnOthers: [],
         dispatchable: [],

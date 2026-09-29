@@ -99,6 +99,8 @@ export interface AgendaSuccess
     | "awaitingRework"
     | "awaitingAdjudication"
     | "underReview"
+    | "decisionReviewInProgress"
+    | "awaitingDecisionReview"
     | "awaitingDecision"
     | "waitingOnOthers"
     | "dispatchable"
@@ -659,6 +661,10 @@ function readAgendaResult(value: unknown): AgendaSuccess {
     !result.awaitingAdjudication.every(isAgendaExecutionRow) ||
     !Array.isArray(result.underReview) ||
     !result.underReview.every(isAgendaExecutionRow) ||
+    !Array.isArray(result.decisionReviewInProgress) ||
+    !result.decisionReviewInProgress.every(isAgendaDecisionRow) ||
+    !Array.isArray(result.awaitingDecisionReview) ||
+    !result.awaitingDecisionReview.every(isAgendaDecisionRow) ||
     !Array.isArray(result.awaitingDecision) ||
     !result.awaitingDecision.every(isAgendaDecisionRow) ||
     !Array.isArray(result.waitingOnOthers) ||

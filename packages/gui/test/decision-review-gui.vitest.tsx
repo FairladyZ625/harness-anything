@@ -257,6 +257,29 @@ describe("评审展示模型:只映射读面结果", () => {
       ),
     ).toBe("changesRequested");
     expect(decisionReviewSignal(reviewState({ readiness: { ...ready, basis: "review" } }))).toBe("approved");
+    // 必审未审:读面 blocker 为 review_required(下一步 dispatch-review)即「待评审」,不以「没评审过」近似。
+    const reviewRequired = {
+      ready: false,
+      currentDigest: CUT_B,
+      basis: null,
+      blocker: { code: "review_required", reason: "Repository policy requires an approved review." },
+      next: { action: "dispatch-review", actor: "proposer", reason: "Request an independent review." },
+    } as const;
+    expect(decisionReviewSignal(reviewState({ readiness: reviewRequired }))).toBe("reviewRequired");
+    expect(decisionReviewSignal(reviewState({ readiness: reviewRequired, reviews: [], dispatches: [] }))).toBe(
+      "reviewRequired",
+    );
+    // 已有当前切面评审在跑时仍是「评审中」(设计 Q5:评审中先于待评审)。
+    expect(
+      decisionReviewSignal(
+        reviewState({
+          readiness: reviewRequired,
+          dispatches: [
+            { dispatchId: "d", runtimeSessionId: "r", status: "running", reviewContentDigest: CUT_B, reportRef: null },
+          ],
+        }),
+      ),
+    ).toBe("reviewing");
     expect(
       decisionReviewSignal(reviewState({ readiness: { ...ready, basis: "policy_unreviewed" }, reviews: [] })),
     ).toBe("unreviewed");
@@ -528,6 +551,21 @@ describe("工作页(S2):工作内 Decision 按评审信号分组", () => {
       }),
     ),
     row("dec_c", "可免审裁决的提案", reviewState({ reviews: [], readiness: ready, dispatches: [] })),
+    row(
+      "dec_e",
+      "必审未审的提案",
+      reviewState({
+        reviews: [],
+        dispatches: [],
+        readiness: {
+          ready: false,
+          currentDigest: CUT_B,
+          basis: null,
+          blocker: { code: "review_required", reason: "Repository policy requires an approved review." },
+          next: { action: "dispatch-review", actor: "proposer", reason: "Request an independent review." },
+        },
+      }),
+    ),
     row("dec_d", "已生效的提案", reviewState({ readiness: null }), "in_effect"),
   ];
   const scope = {
@@ -558,7 +596,7 @@ describe("工作页(S2):工作内 Decision 按评审信号分组", () => {
     warnings: [],
   } as const;
 
-  it("待处置/评审中/待裁决各成一组并带计数;页签只改当前显示;查看直达评审页签", async () => {
+  it("待处置/待评审/评审中/待裁决各成一组并带计数;页签只改当前显示;查看直达评审页签", async () => {
     const onNavigateEntity = vi.fn();
     const view = await mount(
       createElement(WorkspaceView, {
@@ -581,6 +619,16 @@ describe("工作页(S2):工作内 Decision 按评审信号分组", () => {
     expect(group("dispose")?.textContent).toContain("1 项");
     expect(group("reviewing")?.textContent).toContain("评审进行中的提案");
     expect(group("judge")?.textContent).toContain("可免审裁决的提案");
+    // review_required 的 Decision 进「待评审」,不落进待裁决。
+    expect(group("review")?.textContent).toContain("必审未审的提案");
+    expect(group("judge")?.textContent).not.toContain("必审未审的提案");
+    expect([...section.querySelectorAll("[role='tab']")].map((tab) => tab.textContent)).toEqual([
+      "全部",
+      "待处置",
+      "待评审",
+      "评审中",
+      "待裁决",
+    ]);
     // 终态 Decision 没有就绪判定,不进任何组。
     expect(section.textContent).not.toContain("已生效的提案");
     await click(section.querySelector("[data-testid='work-decision-review-tab-reviewing']"));

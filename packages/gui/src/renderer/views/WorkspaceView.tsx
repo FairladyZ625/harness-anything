@@ -714,6 +714,7 @@ function EvidenceList({
 
 const REVIEW_GROUPS: readonly (readonly [DecisionReviewGroup, MessageKey])[] = [
   ["dispose", "views.workspace.decisionReviewGroupDispose"],
+  ["review", "views.workspace.decisionReviewGroupReview"],
   ["reviewing", "views.workspace.decisionReviewGroupReviewing"],
   ["judge", "views.workspace.decisionReviewGroupJudge"],
 ];
@@ -722,6 +723,7 @@ const REVIEW_HINTS: Readonly<Record<DecisionReviewSignal, MessageKey>> = {
   changesRequested: "views.workspace.decisionReviewHintChangesRequested",
   unansweredFindings: "views.workspace.decisionReviewHintUnansweredFindings",
   reviewing: "views.workspace.decisionReviewHintReviewing",
+  reviewRequired: "views.workspace.decisionReviewHintReviewRequired",
   approved: "views.workspace.decisionReviewHintApproved",
   policyUnreviewed: "views.workspace.decisionReviewHintPolicyUnreviewed",
   unreviewed: "views.workspace.decisionReviewHintPolicyUnreviewed",

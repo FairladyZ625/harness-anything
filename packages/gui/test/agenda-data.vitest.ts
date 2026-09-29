@@ -71,6 +71,8 @@ const page = (over: Partial<AgendaRead> = {}): AgendaSuccess => {
     awaitingRework: [],
     awaitingAdjudication: [],
     underReview: [],
+    decisionReviewInProgress: [],
+    awaitingDecisionReview: [],
     awaitingDecision: [],
     waitingOnOthers: [],
     dispatchable: [],
@@ -150,6 +152,8 @@ describe("agenda read discipline", () => {
         awaitingRework: [row("task_rework")],
         awaitingAdjudication: [executionRow("task_sub", "exe_sub")],
         underReview: [executionRow("task_rev", "exe_rev")],
+        decisionReviewInProgress: [decisionRow("dec_running")],
+        awaitingDecisionReview: [decisionRow("dec_needs_review")],
         awaitingDecision: [decisionRow("dec_one")],
         page: { sourceLimit: 100, cursor: null, nextCursor: "agenda-next" },
       }),
@@ -162,6 +166,8 @@ describe("agenda read discipline", () => {
         awaitingRework: [row("task_rework")],
         awaitingAdjudication: [executionRow("task_sub2", "exe_sub2")],
         underReview: [executionRow("task_rev", "exe_rev")],
+        decisionReviewInProgress: [decisionRow("dec_running")],
+        awaitingDecisionReview: [decisionRow("dec_needs_review"), decisionRow("dec_needs_review_2")],
         awaitingDecision: [decisionRow("dec_one"), decisionRow("dec_two")],
         page: { sourceLimit: 100, cursor: "agenda-next", nextCursor: null },
       }),
@@ -177,6 +183,12 @@ describe("agenda read discipline", () => {
     expect(joined.awaitingAdjudication.map(({ executionId }) => executionId)).toEqual(["exe_sub", "exe_sub2"]);
     expect(joined.underReview.map(({ executionId }) => executionId)).toEqual(["exe_rev"]);
     expect(joined.awaitingDecision.map(({ decisionId }) => decisionId)).toEqual(["dec_one", "dec_two"]);
+    // Decision 评审两组(PR #3053)同样按 decisionId 去重合并,不在前端重分组。
+    expect(joined.decisionReviewInProgress.map(({ decisionId }) => decisionId)).toEqual(["dec_running"]);
+    expect(joined.awaitingDecisionReview.map(({ decisionId }) => decisionId)).toEqual([
+      "dec_needs_review",
+      "dec_needs_review_2",
+    ]);
   });
 });
 
@@ -190,5 +202,27 @@ describe("agenda refresh cadence", () => {
     );
     expect(interval({ state: { data: { page: { nextCursor: null } } as Partial<AgendaSuccess> } })).toBe(false);
     expect(interval({ state: {} })).toBe(false);
+  });
+});
+
+describe("agenda bridge validation", () => {
+  it("passes the Decision review groups through and rejects a result that omits them", async () => {
+    vi.restoreAllMocks();
+    const wire = page({
+      decisionReviewInProgress: [decisionRow("dec_running")],
+      awaitingDecisionReview: [decisionRow("dec_needs_review")],
+    });
+    const request = vi.fn(async () => wire);
+    vi.stubGlobal("window", { harness: { request } });
+    try {
+      const read = await harnessClient.getAgenda({ repoId: "repo-a" });
+      expect(read.decisionReviewInProgress.map(({ decisionId }) => decisionId)).toEqual(["dec_running"]);
+      expect(read.awaitingDecisionReview.map(({ decisionId }) => decisionId)).toEqual(["dec_needs_review"]);
+      const { awaitingDecisionReview: _omitted, ...missing } = wire;
+      request.mockResolvedValueOnce(missing as AgendaSuccess);
+      await expect(harnessClient.getAgenda({ repoId: "repo-a" })).rejects.toThrow("Agenda bridge");
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

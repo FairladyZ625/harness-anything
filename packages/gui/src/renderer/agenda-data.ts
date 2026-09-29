@@ -79,6 +79,16 @@ function joinAgendaCut(previous: AgendaSuccess | undefined, read: AgendaSuccess)
       ({ executionId }) => executionId,
     ),
     underReview: merge(previous.underReview, read.underReview, ({ executionId }) => executionId),
+    decisionReviewInProgress: merge(
+      previous.decisionReviewInProgress,
+      read.decisionReviewInProgress,
+      ({ decisionId }) => decisionId,
+    ),
+    awaitingDecisionReview: merge(
+      previous.awaitingDecisionReview,
+      read.awaitingDecisionReview,
+      ({ decisionId }) => decisionId,
+    ),
     awaitingDecision: merge(previous.awaitingDecision, read.awaitingDecision, ({ decisionId }) => decisionId),
     waitingOnOthers: merge(previous.waitingOnOthers, read.waitingOnOthers, ({ taskId }) => taskId),
     dispatchable: merge(previous.dispatchable, read.dispatchable, ({ taskId }) => taskId),
