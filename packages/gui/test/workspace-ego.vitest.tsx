@@ -67,6 +67,8 @@ const scope: WorkspaceScopeRead = {
   groups: [],
   tasks: [],
   memberTaskIds: ["member"],
+  eventSummaries: [],
+  eventWindowComplete: true,
   counts: { done: 0, executing: 0, pending: 0, blocked: 0, planned: 1, cancelled: 0 },
   scope: { descendantCount: 1, executableLeafCount: 1, archivedCount: 0 },
   page: { limit: 1, cursor: null, nextCursor: "member" },

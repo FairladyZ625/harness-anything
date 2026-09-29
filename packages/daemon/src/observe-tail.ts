@@ -20,6 +20,7 @@ import {
   type ObserveTailPayload,
   type ObserveTailResult,
 } from "./protocol/daemon-protocol-gui-types.ts";
+import { canonicalEventSummary } from "./event-summary-read.ts";
 
 export { DAEMON_OBSERVE_TAIL_SCHEMA };
 export type { ObserveTailCursor, ObserveTailPayload, ObserveTailResult };
@@ -155,7 +156,7 @@ function readEventTail(
       sourceCursor = { kind: "events" as const, revision: page.sourceRevision };
     return {
       status: page.status,
-      items: selected,
+      items: selected.map(canonicalEventSummary),
       historyCursor: null,
       liveCursor,
       sourceCursor,
@@ -178,7 +179,7 @@ function readEventTail(
     lastRevision = selected.at(-1)?.workspaceRevision ?? Math.min(probe.watermark, Math.max(0, before - 1));
   return {
     status: page.status,
-    items: selected,
+    items: selected.map(canonicalEventSummary),
     historyCursor: { kind: "events", revision: firstRevision },
     liveCursor: { kind: "events", revision: lastRevision },
     sourceCursor: { kind: "events", revision: page.sourceRevision },

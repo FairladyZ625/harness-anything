@@ -31,6 +31,8 @@ function scope(overrides: Partial<WorkspaceScopeRead> = {}): WorkspaceScopeRead 
     scope: { descendantCount: 0, executableLeafCount: 0, archivedCount: 0 },
     groups: [],
     memberTaskIds: [],
+    eventSummaries: [],
+    eventWindowComplete: true,
     tasks: [],
     page: { limit: 100, cursor: null, nextCursor: null },
     incompleteParentRefs: [],
