@@ -329,7 +329,7 @@ test("symptom task_5df51336056c76d54946b231a7: decision propose packet issues na
     const rejected = await cell.run(
       {
         kind: "decision-propose",
-        body: "# Over-length whyNot\n",
+        body: "# Over-length whyNot\n\nKeep packet diagnostics specific to the rejected field.\n",
         jsonInput: JSON.stringify({
           title: "Over-length whyNot",
           question: "Does the packet validator name the problem?",
