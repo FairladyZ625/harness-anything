@@ -111,6 +111,8 @@ const AGENDA: AgendaSuccess = {
   underReview: [],
   awaitingYou: [],
   answeredForYou: [],
+  decisionReviewInProgress: [],
+  awaitingDecisionReview: [],
   awaitingDecision: [
     {
       decisionId: "dec_probe",

@@ -156,6 +156,7 @@ const BANNER_KEY = {
   reviewing: "views.decisionReview.bannerReviewing",
   changesRequested: "views.decisionReview.bannerChangesRequested",
   unansweredFindings: "views.decisionReview.bannerUnansweredFindings",
+  reviewRequired: "views.decisionReview.bannerReviewRequired",
   approved: "views.decisionReview.bannerApproved",
   policyUnreviewed: "views.decisionReview.bannerPolicyUnreviewed",
   unreviewed: "views.decisionReview.bannerPolicyUnreviewed",

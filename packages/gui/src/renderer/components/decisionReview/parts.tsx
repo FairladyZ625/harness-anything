@@ -20,6 +20,10 @@ const SIGNAL_META: Readonly<Record<DecisionReviewSignal, { readonly key: Message
     key: "views.decisionReview.signalUnansweredFindings",
     cls: "border-stale/50 bg-stale/10 text-stale",
   },
+  reviewRequired: {
+    key: "views.decisionReview.signalReviewRequired",
+    cls: "border-status-blocked/40 bg-status-blocked/10 text-status-blocked",
+  },
   approved: { key: "views.decisionReview.signalApproved", cls: "border-success/40 bg-success/10 text-success" },
   policyUnreviewed: {
     key: "views.decisionReview.signalPolicyUnreviewed",
