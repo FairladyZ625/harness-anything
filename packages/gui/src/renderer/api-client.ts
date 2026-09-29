@@ -4,6 +4,7 @@ import type {
   AgendaTaskRow,
   AgendaExecutionRow,
   AgendaDecisionRow,
+  AgendaDecisionReviewRow,
   AgendaAnsweredRow,
   AgendaAwaitsRow,
   ContractVersion,
@@ -662,7 +663,7 @@ function readAgendaResult(value: unknown): AgendaSuccess {
     !Array.isArray(result.underReview) ||
     !result.underReview.every(isAgendaExecutionRow) ||
     !Array.isArray(result.decisionReviewInProgress) ||
-    !result.decisionReviewInProgress.every(isAgendaDecisionRow) ||
+    !result.decisionReviewInProgress.every(isAgendaDecisionReviewRow) ||
     !Array.isArray(result.awaitingDecisionReview) ||
     !result.awaitingDecisionReview.every(isAgendaDecisionRow) ||
     !Array.isArray(result.awaitingDecision) ||
@@ -719,6 +720,21 @@ function isAgendaDecisionRow(value: unknown): value is AgendaDecisionRow {
     ["low", "medium", "high"].includes(String(value.riskTier)) &&
     ["low", "medium", "high"].includes(String(value.urgency)) &&
     typeof value.proposedAt === "string"
+  );
+}
+
+function isAgendaDecisionReviewRow(value: unknown): value is AgendaDecisionReviewRow {
+  return (
+    isRendererRecord(value) &&
+    isAgendaDecisionRow(value) &&
+    Array.isArray(value.reviewers) &&
+    value.reviewers.every(
+      (row) =>
+        isRendererRecord(row) &&
+        typeof row.dispatchId === "string" &&
+        (row.reviewer === null || typeof row.reviewer === "string") &&
+        (row.findingCount === null || Number.isSafeInteger(row.findingCount)),
+    )
   );
 }
 

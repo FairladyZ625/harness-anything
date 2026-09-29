@@ -644,6 +644,10 @@ export interface DaemonDecisionReviewDispatchRow {
   readonly status: "running" | "succeeded" | "failed" | "unknown";
   readonly reviewContentDigest: string;
   readonly reportRef: string | null;
+  /** 评审人显示名:派工头的 agentName,缺名时为 agentId。 */
+  readonly reviewer: string | null;
+  /** 该派工登记的评审提出的意见数;评审尚未登记为 null。 */
+  readonly findingCount: number | null;
 }
 
 export type DaemonDecisionFullRow = DecisionProjectionRow & {
@@ -869,6 +873,10 @@ export interface AgendaDecisionRow {
   readonly urgency: "low" | "medium" | "high";
   readonly proposedAt: string;
 }
+/** 评审中的 Decision 行:另带当前切面上在飞的每位评审人与其已登记的意见数。 */
+export interface AgendaDecisionReviewRow extends AgendaDecisionRow {
+  readonly reviewers: readonly Pick<DaemonDecisionReviewDispatchRow, "dispatchId" | "reviewer" | "findingCount">[];
+}
 /**
  * 「等你处理」行:一条指向读者本人的 active awaits 边(dec_DF67F23066BAFE444190A191B5/CH2)。
  * 答复 = `ha relation unrelate <relationId> --reason <答复> --expected-version <relationRevision>`。
@@ -934,7 +942,7 @@ export type DaemonAgendaResult = {
   /** 评审中/等 consent:task 状态 in_review、未被 approved 评审了结的 execution 行;报告就绪后 `ha task review-consent`。 */
   readonly underReview: readonly AgendaExecutionRow[];
   /** 当前切面已有在飞 reviewer；下一步等待或查看 runtime。 */
-  readonly decisionReviewInProgress: readonly AgendaDecisionRow[];
+  readonly decisionReviewInProgress: readonly AgendaDecisionReviewRow[];
   /** 当前策略要求独立评审且没有在飞 reviewer；下一步 `ha decision dispatch-review <id>`。 */
   readonly awaitingDecisionReview: readonly AgendaDecisionRow[];
   /** 待裁 decision 行;下一步 `ha decision accept|reject|defer`。 */

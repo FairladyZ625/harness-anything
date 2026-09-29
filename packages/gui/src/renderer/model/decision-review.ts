@@ -46,11 +46,15 @@ export function decisionReviewGroup(signal: DecisionReviewSignal): DecisionRevie
   return signal === "reviewing" ? "reviewing" : "judge";
 }
 
-/** 议程页(原型 S2)与总览(S1)共用的一行 Decision:只有议程读面给的 id、标题与组。 */
+/**
+ * 议程页(原型 S2)与总览(S1)共用的一行 Decision:只有议程读面给的 id、标题与组;
+ * 评审中的行另带读面给出的在飞评审人与其已登记的意见数。
+ */
 export type DecisionAgendaRow = {
   readonly decisionId: string;
   readonly title: string;
   readonly group: DecisionReviewGroup;
+  readonly reviewers?: AgendaSuccess["decisionReviewInProgress"][number]["reviewers"];
 };
 
 /**
@@ -70,7 +74,12 @@ export function decisionAgendaRows(agenda: AgendaSuccess): readonly DecisionAgen
   return [
     ...dispose.values(),
     ...rowsOf(agenda.awaitingDecisionReview, "review"),
-    ...rowsOf(agenda.decisionReviewInProgress, "reviewing"),
+    ...agenda.decisionReviewInProgress.map(({ decisionId, title, reviewers }) => ({
+      decisionId,
+      title,
+      group: "reviewing" as const,
+      reviewers,
+    })),
     ...rowsOf(agenda.awaitingDecision, "judge"),
   ];
 }

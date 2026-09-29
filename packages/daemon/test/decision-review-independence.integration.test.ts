@@ -12,6 +12,7 @@ import {
   serializeCanonicalEvent,
   type DecisionDocumentState,
 } from "@harness-anything/kernel";
+import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
@@ -862,6 +863,98 @@ test("retry completes the awaits write after the review write response is interr
     assert.equal(
       relationRows(await cell.run({ kind: "relation-list", entity: `decision/${decisionId}` }, proposer))[0]?.state,
       "active",
+    );
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("the in-progress agenda row names each running reviewer and the findings its review recorded", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-review-in-progress-"));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId: workspaceId("decision-review-in-progress"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "decision-review-in-progress-test",
+  });
+  try {
+    const settingsUpdated = await cell.run(
+      { kind: "settings-update", decisionReviewRequirement: "high", idempotencyKey: "decision-review-in-progress" },
+      withRoleBinding(
+        { actor: { principal: proposer.actor.principal, executor: null }, source: "local" as const },
+        "repo-write",
+      ),
+    );
+    assert.equal(settingsUpdated.outcome, "applied", JSON.stringify(settingsUpdated));
+    const decisionId = receiptJson(await cell.run(decisionProposal(), proposer)).decisionId as string,
+      digest = (
+        receiptJson(await cell.run({ kind: "decision-show", decisionId, includeBody: true }, proposer)).decision as {
+          readonly currentReviewContentDigest: `sha256:${string}`;
+        }
+      ).currentReviewContentDigest;
+    for (const [dispatchId, agentName] of [
+      ["dispatch_aaaaaaaaaaaaaaaaaaaaaaaa", "独立评审甲"],
+      ["dispatch_bbbbbbbbbbbbbbbbbbbbbbbb", undefined],
+    ] as const) {
+      openDispatchStream(rootDir, {
+        dispatchId,
+        taskId: null,
+        executionId: null,
+        reviewTarget: { kind: "decision", decisionId, digest },
+        runtimeSessionId: `runtime_${dispatchId.slice("dispatch_".length)}`,
+        instanceId: "instance-1",
+        startedAt: "2026-09-29T00:00:00.000Z",
+        agentId: dispatchId.endsWith("a") ? "reviewer-a" : "reviewer-b",
+        ...(agentName ? { agentName } : {}),
+      });
+      appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: process.pid });
+    }
+    const reviewersOf = async () =>
+      (await cell.read("repo.agenda.read", { limit: 50 }, proposer)).decisionReviewInProgress.map(
+        (row: { readonly decisionId: string; readonly reviewers: unknown }) => [row.decisionId, row.reviewers],
+      );
+    assert.deepEqual(await reviewersOf(), [
+      [
+        decisionId,
+        [
+          { dispatchId: "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa", reviewer: "独立评审甲", findingCount: null },
+          { dispatchId: "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb", reviewer: "reviewer-b", findingCount: null },
+        ],
+      ],
+    ]);
+    const reportRef = `decisions/decision-${decisionId}/artifacts/reports/dispatch_aaaaaaaaaaaaaaaaaaaaaaaa.md`;
+    writeReport(rootDir, reportRef);
+    const reviewed = await cell.run(
+      {
+        kind: "decision-review",
+        decisionId,
+        reviewId: "review-dispatch_aaaaaaaaaaaaaaaaaaaaaaaa",
+        reviewContentDigest: digest,
+        verdict: "approved",
+        reason: "The current cut is acceptable.",
+        findings: [],
+        evidenceChecked: [],
+        reportRef,
+      },
+      withRoleBinding(
+        { actor: { principal: { personId: "person-reviewer" }, executor: null }, source: "local" as const },
+        "repo-write",
+      ),
+    );
+    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+    assert.deepEqual(
+      await reviewersOf(),
+      [
+        [
+          decisionId,
+          [
+            { dispatchId: "dispatch_aaaaaaaaaaaaaaaaaaaaaaaa", reviewer: "独立评审甲", findingCount: 0 },
+            { dispatchId: "dispatch_bbbbbbbbbbbbbbbbbbbbbbbb", reviewer: "reviewer-b", findingCount: null },
+          ],
+        ],
+      ],
+      "a recorded review reports its finding count; a reviewer still running reports none yet",
     );
   } finally {
     await cell.close();

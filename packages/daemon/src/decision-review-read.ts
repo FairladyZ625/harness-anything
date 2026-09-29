@@ -89,6 +89,8 @@ export function readDecisionReviewDispatches(input: {
         status,
         reviewContentDigest: header.reviewTarget.digest,
         reportRef: review?.reportRef ?? null,
+        reviewer: header.agentName ?? header.agentId ?? null,
+        findingCount: review ? review.findings.length : null,
       },
     ];
   });

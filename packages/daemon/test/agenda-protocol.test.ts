@@ -129,6 +129,26 @@ test("agenda result schema rejects mistyped pin state and misgrouped awaiting ro
   // Each awaiting group admits only its own row shape: an execution row in the decision
   // group (the old mixed shape) and vice versa are both refused.
   assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingDecision: [execution] }), []);
+  // In-progress Decision rows name each running reviewer and its recorded finding count (null until recorded).
+  const reviewing = {
+    ...decision,
+    reviewers: [
+      { dispatchId: "dispatch_a", reviewer: "独立评审乙", findingCount: 2 },
+      { dispatchId: "dispatch_b", reviewer: null, findingCount: null },
+    ],
+  };
+  assert.deepEqual(validateDaemonAgenda({ ...agenda, decisionReviewInProgress: [reviewing] }), []);
+  assert.notDeepEqual(validateDaemonAgenda({ ...agenda, decisionReviewInProgress: [decision] }), []);
+  assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingDecision: [reviewing] }), []);
+  for (const reviewer of [
+    { dispatchId: "dispatch_a", reviewer: "", findingCount: 0 },
+    { dispatchId: "dispatch_a", reviewer: "r", findingCount: -1 },
+    { dispatchId: "dispatch_a", reviewer: "r" },
+  ])
+    assert.notDeepEqual(
+      validateDaemonAgenda({ ...agenda, decisionReviewInProgress: [{ ...decision, reviewers: [reviewer] }] }),
+      [],
+    );
   assert.notDeepEqual(validateDaemonAgenda({ ...agenda, awaitingAdjudication: [decision] }), []);
   assert.notDeepEqual(validateDaemonAgenda({ ...agenda, underReview: [{ ...execution, pinned: "true" }] }), []);
   assert.notDeepEqual(

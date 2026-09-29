@@ -32,6 +32,10 @@ const decisionRow = (decisionId: string) => ({
   urgency: "high" as const,
   proposedAt: AT,
 });
+const reviewingRow = (decisionId: string) => ({
+  ...decisionRow(decisionId),
+  reviewers: [{ dispatchId: "dispatch_a", reviewer: "独立评审甲", findingCount: null }],
+});
 const awaitsRow = (relationId: string, relationRevision = 1) => ({
   relationId,
   relationRevision,
@@ -152,7 +156,7 @@ describe("agenda read discipline", () => {
         awaitingRework: [row("task_rework")],
         awaitingAdjudication: [executionRow("task_sub", "exe_sub")],
         underReview: [executionRow("task_rev", "exe_rev")],
-        decisionReviewInProgress: [decisionRow("dec_running")],
+        decisionReviewInProgress: [reviewingRow("dec_running")],
         awaitingDecisionReview: [decisionRow("dec_needs_review")],
         awaitingDecision: [decisionRow("dec_one")],
         page: { sourceLimit: 100, cursor: null, nextCursor: "agenda-next" },
@@ -166,7 +170,7 @@ describe("agenda read discipline", () => {
         awaitingRework: [row("task_rework")],
         awaitingAdjudication: [executionRow("task_sub2", "exe_sub2")],
         underReview: [executionRow("task_rev", "exe_rev")],
-        decisionReviewInProgress: [decisionRow("dec_running")],
+        decisionReviewInProgress: [reviewingRow("dec_running")],
         awaitingDecisionReview: [decisionRow("dec_needs_review"), decisionRow("dec_needs_review_2")],
         awaitingDecision: [decisionRow("dec_one"), decisionRow("dec_two")],
         page: { sourceLimit: 100, cursor: "agenda-next", nextCursor: null },
@@ -209,7 +213,7 @@ describe("agenda bridge validation", () => {
   it("passes the Decision review groups through and rejects a result that omits them", async () => {
     vi.restoreAllMocks();
     const wire = page({
-      decisionReviewInProgress: [decisionRow("dec_running")],
+      decisionReviewInProgress: [reviewingRow("dec_running")],
       awaitingDecisionReview: [decisionRow("dec_needs_review")],
     });
     const request = vi.fn(async () => wire);
@@ -218,6 +222,12 @@ describe("agenda bridge validation", () => {
       const read = await harnessClient.getAgenda({ repoId: "repo-a" });
       expect(read.decisionReviewInProgress.map(({ decisionId }) => decisionId)).toEqual(["dec_running"]);
       expect(read.awaitingDecisionReview.map(({ decisionId }) => decisionId)).toEqual(["dec_needs_review"]);
+      expect(read.decisionReviewInProgress[0]?.reviewers).toEqual([
+        { dispatchId: "dispatch_a", reviewer: "独立评审甲", findingCount: null },
+      ]);
+      // 评审中的行缺评审人列表时整份读面被拒,不把缺字段读成没有评审人。
+      request.mockResolvedValueOnce({ ...wire, decisionReviewInProgress: [decisionRow("dec_running")] });
+      await expect(harnessClient.getAgenda({ repoId: "repo-a" })).rejects.toThrow("Agenda bridge");
       const { awaitingDecisionReview: _omitted, ...missing } = wire;
       request.mockResolvedValueOnce(missing as AgendaSuccess);
       await expect(harnessClient.getAgenda({ repoId: "repo-a" })).rejects.toThrow("Agenda bridge");

@@ -13,7 +13,8 @@ const PANEL_ROWS = 3;
 /**
  * 总览(原型 S1)的「需要我的判断」与「正在发生」两栏:行取总览已挂载的议程读面,不另发请求。
  * 需要我的判断 = 待处置(等你处理里的 Decision 行)+ 待裁决;正在发生 = 评审中的 Decision,
- * 每行直达该 Decision 的评审会话。议程还没读到时只写读取中,不把空当成没有。
+ * 每行写出读面给的评审人与已登记的意见数,直达该 Decision 的评审会话。议程还没读到时只写读取中,
+ * 不把空当成没有。
  */
 export function DecisionReviewNow({
   agenda,
@@ -53,13 +54,25 @@ export function DecisionReviewNow({
           empty={t("views.overviewView.happeningEmpty")}
           more={{ view: "sessions", label: t("views.overviewView.happeningMore", { count: happening?.length ?? 0 }) }}
           action={() => t("views.overviewView.happeningOpenSessions")}
-          hint={() => t("views.overviewView.happeningHint")}
+          hint={reviewerLine}
           onOpen={onOpen}
         />
         <p className="ui-meta text-text-faint">{t("views.overviewView.happeningNotice")}</p>
       </section>
     </div>
   );
+}
+
+/** 原型 S1「独立评审乙提出 2 项意见」:每位在飞评审人一段;评审尚未登记时如实写进行中。 */
+function reviewerLine(row: DecisionAgendaRow): string {
+  return (row.reviewers ?? [])
+    .map(({ reviewer, findingCount }) => {
+      const name = reviewer ?? t("views.overviewView.happeningReviewerUnnamed");
+      return findingCount === null
+        ? t("views.overviewView.happeningReviewerRunning", { reviewer: name })
+        : t("views.overviewView.happeningReviewerFindings", { reviewer: name, count: findingCount });
+    })
+    .join(" · ");
 }
 
 function Rows({

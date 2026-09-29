@@ -469,11 +469,19 @@ export function makeTaskQueryReadModel(input: {
         if (!readiness) return { decision, signal: "ready" as const };
         if (readiness.next.action === "override-review" || readiness.next.action === "respond-review")
           return { decision, signal: "awaitingOwner" as const };
-        const dispatches = readDecisionReviewDispatches({ rootDir, projection, decision: full }).filter(
-            ({ reviewContentDigest }) => reviewContentDigest === readiness.currentDigest,
-          ),
-          active = dispatches.some(({ status }) => status === "running");
-        if (active) return { decision, signal: "inProgress" as const };
+        const running = readDecisionReviewDispatches({ rootDir, projection, decision: full }).filter(
+          ({ reviewContentDigest, status }) => reviewContentDigest === readiness.currentDigest && status === "running",
+        );
+        if (running.length > 0)
+          return {
+            decision,
+            signal: "inProgress" as const,
+            reviewers: running.map(({ dispatchId, reviewer, findingCount }) => ({
+              dispatchId,
+              reviewer,
+              findingCount,
+            })),
+          };
         return {
           decision,
           signal: readiness.next.action === "dispatch-review" ? ("needsReview" as const) : ("ready" as const),
@@ -486,10 +494,12 @@ export function makeTaskQueryReadModel(input: {
         urgency: decision.urgency,
         proposedAt: decision.proposedAt,
       }),
-      sortDecisions = (rows: AgendaDecisionRow[]) =>
+      sortDecisions = <Row extends AgendaDecisionRow>(rows: Row[]) =>
         rows.sort((left, right) => left.decisionId.localeCompare(right.decisionId)),
       decisionReviewInProgress = sortDecisions(
-        decisionSignals.filter(({ signal }) => signal === "inProgress").map(decisionRow),
+        decisionSignals.flatMap((signal) =>
+          signal.signal === "inProgress" ? [{ ...decisionRow(signal), reviewers: signal.reviewers }] : [],
+        ),
       ),
       awaitingDecisionReview = sortDecisions(
         decisionSignals.filter(({ signal }) => signal === "needsReview").map(decisionRow),
