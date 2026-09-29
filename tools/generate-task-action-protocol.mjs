@@ -60,6 +60,7 @@ export function projectTaskActions() {
       execution: {
         ingress: execution.ingress,
         topology: execution.topology,
+        remoteEdgeAdmission: execution.remoteEdgeAdmission,
         lifecycle: {
           transitionId: execution.lifecycle.transitionId,
           commandType: execution.lifecycle.commandType,

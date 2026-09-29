@@ -38,7 +38,7 @@ export const taskSurfaceProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "task-declare-executor",
     phase: "W3",
     path: ["task", "declare-executor", "<task-id>"],

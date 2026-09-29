@@ -16,7 +16,7 @@ import path from "node:path";
 import { consumeKnownError, getExecutableEntityAction, sha256Text, stableStringify } from "@harness-anything/kernel";
 import type { DaemonHost } from "./daemon-host.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
-import { FLEET_TASK_COMMAND_KINDS, type FleetFrameV1, type FleetTaskAction } from "./fleet/contract.ts";
+import { isFleetTaskAction, type FleetFrameV1, type FleetTaskAction } from "./fleet/contract.ts";
 import type { FleetAssignmentRecord } from "./fleet/center.ts";
 import { loadBrokerReceipts, loadBrokerState, writeBrokerFile } from "./lease-broker-state.ts";
 
@@ -491,8 +491,10 @@ export function openFleetLeaseBroker(options: {
             expiresAt: state.leases[key]!.expiresAt,
           };
         } else delete state.leases[key];
-      } else if (applied && ["task-submit", "task-settle", "task-release"].includes(action.kind))
-        delete state.leases[key];
+      } else if (applied && state.leases[key]) {
+        const canonical = await domainLease(assignment.repoId, taskId, assignment);
+        if (canonical.available && (!canonical.lease || canonical.lease.phase === "released")) delete state.leases[key];
+      }
     }
     recordReceipt(
       opId,
@@ -535,7 +537,7 @@ export function openFleetLeaseBroker(options: {
     const action = frame.action,
       kind = action.kind,
       coordination = lifecycleCoordination(action);
-    if (!(FLEET_TASK_COMMAND_KINDS as readonly string[]).includes(kind))
+    if (!isFleetTaskAction(action))
       return {
         ...failure("op_rejected", "task_command_rejected"),
         opId: frame.opId,

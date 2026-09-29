@@ -79,14 +79,19 @@ export async function fleetEdgeRegistration(
 // commands route through the fleet channel instead of a local cell. The
 // operator never runs a lease command — acquisition, queueing, and renewal are
 // the center's job (dec_9E7AC30E/CH2).
-// task-create rides its own preset method; legacy reads and lifecycle commands ride task action methods.
-const fleetTaskMethods = ["repo.task.run", "repo.task.read", "repo.task.create"];
 const fleetRuntimeMethods = [
   "repo.agentRuntime.spawn",
   "repo.agentRuntime.cancel",
   "repo.agentRuntime.overview",
   "repo.agentRuntime.sessions.read",
 ] as const;
+
+function hasCommandDescriptor(actionKind: string): boolean {
+  return daemonProtocolCommands.some(
+    (descriptor) => ("actionKind" in descriptor ? descriptor.actionKind : descriptor.id) === actionKind,
+  );
+}
+
 export async function fleetRuntimeRoute(
   command: ThinCommand,
   env: NodeJS.ProcessEnv = process.env,
@@ -126,13 +131,20 @@ export async function fleetTaskRoute(
   command: ThinCommand,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<Record<string, unknown> | null> {
-  if (!fleetTaskMethods.includes(command.method)) return null;
+  const actionKind = command.action.kind;
+  if (!hasCommandDescriptor(actionKind)) return null;
+  const descriptor = commandDescriptorForAction(actionKind);
+  if (
+    !("path" in descriptor) ||
+    !("inputs" in descriptor) ||
+    descriptor.method !== command.method ||
+    descriptor.admission["remote-edge"] !== "via-center-forward" ||
+    descriptor.path[0] === "doc" ||
+    descriptor.path[0] === "schedule"
+  )
+    return null;
   const config = await fleetEdgeRegistration(command, env);
   if (!config) return null;
-  const { FLEET_TASK_COMMAND_KINDS } = await import("@harness-anything/daemon/internal/fleet/contract");
-  if (!(FLEET_TASK_COMMAND_KINDS as readonly string[]).includes(command.action.kind)) return null;
-  const actionKind = command.action.kind,
-    descriptor = commandDescriptorForAction(actionKind);
   const {
     executor: _executor,
     createMode,
@@ -208,11 +220,15 @@ export async function fleetTaskRoute(
     }
     if (packet === null || typeof packet !== "object" || Array.isArray(packet))
       throw Object.assign(new Error(`${source} must contain one JSON object.`), { code: "invalid_field" });
-    if (actionKind === "task-create" || ("path" in descriptor && descriptor.path[0] === "schedule")) {
+    const packetInput = (
+      descriptor.inputs as readonly {
+        readonly name: string;
+        readonly jsonAllowedFields?: readonly string[];
+      }[]
+    ).find((input) => input.name === (typeof fromFile === "string" ? "--from-file" : "--json-input"));
+    if (packetInput?.jsonAllowedFields) {
       const fields = packet as Record<string, unknown>;
-      const unsupported = Object.keys(fields).filter((field) =>
-        ["fromFile", "jsonInput", "kind", "createMode"].includes(field),
-      );
+      const unsupported = Object.keys(fields).filter((field) => !packetInput.jsonAllowedFields!.includes(field));
       if (unsupported.length)
         throw Object.assign(new Error(`--from-file cannot carry ${unsupported.join(", ")} over the fleet channel.`), {
           code: "invalid_field",
@@ -225,21 +241,17 @@ export async function fleetTaskRoute(
 // Class-B surface on a remote-edge workspace: `ha doc sync` becomes one
 // compare→push/pull fleet round, and the three conflict exits become fleet
 // conflict-exit rounds. Everything else keeps its local receipt path.
-const fleetDocSyncKinds = new Map([
-  ["doc-status", { method: "daemon.fleet.doc.sync", dryRun: true }],
-  ["doc-dry-run", { method: "daemon.fleet.doc.sync", dryRun: true }],
-  ["doc-submit", { method: "daemon.fleet.doc.sync", dryRun: false }],
-  ["doc-conflict-resolve", { method: "daemon.fleet.conflict.exit", action: "resolve" }],
-  ["doc-conflict-discard-local", { method: "daemon.fleet.conflict.exit", action: "discard-local" }],
-  ["doc-conflict-overwrite-center", { method: "daemon.fleet.conflict.exit", action: "overwrite-center" }],
-]);
 export async function fleetDocRoute(
   command: ThinCommand,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<{ readonly method: string; readonly payload: Record<string, unknown> } | null> {
-  const kind = command.action.kind,
-    route = fleetDocSyncKinds.get(kind);
-  if (route === undefined || (command.method !== "repo.task.run" && command.method !== "repo.task.read")) return null;
+  const kind = command.action.kind;
+  if (!hasCommandDescriptor(kind)) return null;
+  const descriptor = commandDescriptorForAction(kind);
+  if (descriptor.method !== command.method || descriptor.admission["remote-edge"] !== "via-center-forward") return null;
+  const sync = kind === "doc-status" || kind === "doc-dry-run" || kind === "doc-submit",
+    conflict = kind.startsWith("doc-conflict-");
+  if (!sync && !conflict) return null;
   const config = await fleetEdgeRegistration(command, env);
   if (!config) return null;
   const payload: Record<string, unknown> = {
@@ -256,15 +268,15 @@ export async function fleetDocRoute(
     quotaBytes: config.quotaBytes,
     workspaceRoot: config.workspaceRoot,
   };
-  if ("dryRun" in route) {
-    payload.dryRun = route.dryRun;
+  if (sync) {
+    payload.dryRun = kind !== "doc-submit";
     payload.paths = Array.isArray(command.action.paths)
       ? command.action.paths.filter((value): value is string => typeof value === "string")
       : [];
     if (command.action.all === true) payload.all = true;
   } else {
-    payload.action = route.action;
+    payload.action = kind.slice("doc-conflict-".length);
     payload.conflictId = command.action.conflictId;
   }
-  return { method: route.method, payload };
+  return { method: sync ? "daemon.fleet.doc.sync" : "daemon.fleet.conflict.exit", payload };
 }

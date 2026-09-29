@@ -265,7 +265,7 @@ export const docFactProtocolCommands = Object.freeze([
     method: "repo.task.read",
     inputs: [],
   }),
-  defineLedgerWriteCommand({
+  defineCenterForwardWriteCommand({
     id: "fact-record",
     phase: "DecisionFact-A",
     path: ["fact", "record"],
