@@ -380,7 +380,7 @@ export function AttestationPoolView({
 
 function LaneHeading({ title, count }: { readonly title: string; readonly count: number }) {
   return (
-    <div className="flex items-center gap-2 rounded-md border border-border bg-surface/95 px-2.5 py-1.5 font-mono ui-meta text-text-muted backdrop-blur">
+    <div className="glass flex items-center gap-2 rounded-md px-2.5 py-1.5 font-mono ui-meta text-text-muted">
       <span className="font-semibold text-text">{title}</span>
       <span className="text-text-faint">{t("views.attestationPoolView.laneCount", { count })}</span>
     </div>
@@ -872,7 +872,7 @@ function DecisionPoolSection({
             {groupBy !== "none" && (
               <div
                 data-testid={`decision-pool-group-${group.key}`}
-                className="sticky top-0 z-10 flex items-center gap-2 rounded-md border border-border bg-surface/95 px-2.5 py-1.5 font-mono ui-meta text-text-muted backdrop-blur"
+                className="glass sticky top-0 z-10 flex items-center gap-2 rounded-md px-2.5 py-1.5 font-mono ui-meta text-text-muted"
               >
                 <span className="font-semibold text-text">{group.title}</span>
                 <span className="text-text-faint">

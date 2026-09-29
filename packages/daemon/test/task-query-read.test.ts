@@ -157,7 +157,10 @@ test("task control narrows graph, status, and decision reads to the selected lif
   assert.equal(result.rows.length, 1);
   assert.deepEqual(result.invalidRows, []);
   assert.deepEqual(dependencyCalls, [["task/task_event"]]);
-  assert.deepEqual(targetCalls, [{ targetRefs: ["task/task_event"], relationType: "derives" }]);
+  assert.deepEqual(targetCalls, [
+    { targetRefs: ["task/task_event"], relationType: "depends-on" },
+    { targetRefs: ["task/task_event"], relationType: "derives" },
+  ]);
   assert.deepEqual(statusCalls, [["task_event", "task_blocker"]]);
   assert.deepEqual(decisionCalls, [["dec_event"]]);
 });
@@ -363,6 +366,55 @@ test("agenda groups a changes_requested return into awaiting rework, not the in-
     /等我修 \(1\) — status=active 且最新 execution=changes_requested[\s\S]*- task_returned/u,
   );
   // The produced result passes the same wire validator the GUI-side parser uses.
+  assert.deepEqual(validateDaemonAgenda(result), []);
+});
+
+test("agenda adds idle active tasks after seven days and ranks indexed downstream blockers", () => {
+  const stale = protocolTaskRow("task_stale", [], { status: "active" }),
+    recent = { ...protocolTaskRow("task_recent", [], { status: "active" }), updatedAt: "2026-09-25T00:00:00.000Z" },
+    downstream = (id: string) => ({
+      ...secondEventEdge,
+      relationId: `rel_${id}`,
+      sourceRef: `task/${id}`,
+      targetRef: "task/task_stale",
+    }),
+    targetCalls: { targetRefs: readonly string[]; relationType: string }[] = [],
+    baseProjection = projectionStub({
+      taskRows: [stale, recent],
+      edges: [downstream("child_a"), downstream("child_b")],
+      targetCalls,
+    }),
+    projection = {
+      ...baseProjection,
+      readTaskStatuses: (taskIds: readonly string[]) => ({
+        ...readyCut,
+        rows: taskIds.map((taskId) => ({ taskId, status: "active" as const })),
+      }),
+    } as unknown as TaskProjection,
+    result = makeTaskQueryReadModel({
+      rootDir: canonicalRoot(process.cwd()),
+      projection,
+      readPinnedEntities: () => [],
+      now: () => new Date("2026-09-29T12:00:00.000Z"),
+      judgments: {
+        closeout: (() => ({ readiness: "missing", blocker: "execution", gates: [] })) as never,
+        blocking: ((tasks: readonly { taskId: string }[]) =>
+          tasks.map(({ taskId }) => ({ taskId, state: "clear", label: "none", blockers: [], warnings: [] }))) as never,
+      },
+    }).agenda();
+
+  assert.deepEqual(
+    result.stalled.map(({ taskId }) => taskId),
+    ["task_stale"],
+  );
+  assert.equal(result.attentionItems[0]?.ref, "task/task_stale");
+  assert.deepEqual(result.attentionItems[0]?.attention.reasons, [
+    { label: "进行中停滞", contribution: 40 },
+    { label: "阻塞 2 个下游任务", contribution: 24 },
+    { label: "31 天无活动（每天 +2，封顶 20）", contribution: 20 },
+  ]);
+  assert.match(result.summary, /注意力顺序（前 7 条） \(1\)[\s\S]*\[84\] task_stale/u);
+  assert.ok(targetCalls.some(({ relationType }) => relationType === "depends-on"));
   assert.deepEqual(validateDaemonAgenda(result), []);
 });
 
