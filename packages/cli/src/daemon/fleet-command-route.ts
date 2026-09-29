@@ -85,6 +85,13 @@ const fleetRuntimeMethods = [
   "repo.agentRuntime.overview",
   "repo.agentRuntime.sessions.read",
 ] as const;
+
+function hasCommandDescriptor(actionKind: string): boolean {
+  return daemonProtocolCommands.some(
+    (descriptor) => ("actionKind" in descriptor ? descriptor.actionKind : descriptor.id) === actionKind,
+  );
+}
+
 export async function fleetRuntimeRoute(
   command: ThinCommand,
   env: NodeJS.ProcessEnv = process.env,
@@ -124,8 +131,9 @@ export async function fleetTaskRoute(
   command: ThinCommand,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<Record<string, unknown> | null> {
-  const actionKind = command.action.kind,
-    descriptor = commandDescriptorForAction(actionKind);
+  const actionKind = command.action.kind;
+  if (!hasCommandDescriptor(actionKind)) return null;
+  const descriptor = commandDescriptorForAction(actionKind);
   if (
     !("path" in descriptor) ||
     !("inputs" in descriptor) ||
@@ -237,8 +245,9 @@ export async function fleetDocRoute(
   command: ThinCommand,
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<{ readonly method: string; readonly payload: Record<string, unknown> } | null> {
-  const kind = command.action.kind,
-    descriptor = commandDescriptorForAction(kind);
+  const kind = command.action.kind;
+  if (!hasCommandDescriptor(kind)) return null;
+  const descriptor = commandDescriptorForAction(kind);
   if (descriptor.method !== command.method || descriptor.admission["remote-edge"] !== "via-center-forward") return null;
   const sync = kind === "doc-status" || kind === "doc-dry-run" || kind === "doc-submit",
     conflict = kind.startsWith("doc-conflict-");

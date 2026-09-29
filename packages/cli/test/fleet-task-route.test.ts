@@ -63,6 +63,12 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     "a remote-edge registration for another root cannot authorize this workspace",
   );
   registry("remote-edge");
+  const undeclaredRead = command("repo.tasks.documents.list", {
+    kind: "task-documents-list",
+    taskId: "task_one",
+  });
+  assert.equal(await fleetTaskRoute(undeclaredRead, env), null);
+  assert.equal(await fleetDocRoute(undeclaredRead, env), null);
   const routed = await fleetTaskRoute(command("repo.task.run", { kind: "task-start", taskId: "task_one" }), env);
   assert.deepEqual(routed?.action, { kind: "task-start", taskId: "task_one" });
   assert.deepEqual(
