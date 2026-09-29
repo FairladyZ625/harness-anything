@@ -452,3 +452,47 @@ test(
     }
   },
 );
+
+test(
+  "amending an in-review cut dispatches the reviewer for the replaced cut once, through the forward's path",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false);
+    try {
+      await f.install();
+      assert.equal(f.launches.length, 1, "the forward dispatches the first cut's reviewer");
+      const closeoutPath = path.join(f.root, "harness", f.packagePath, "closeout.md");
+      writeFileSync(
+        closeoutPath,
+        readFileSync(closeoutPath, "utf8").replace("Reviewed delivery ", "Amended reviewed delivery "),
+      );
+      const amend = async () => {
+        let amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
+        for (let attempt = 0; amended.outcome === "pending" && attempt < 4; attempt += 1) {
+          await waitForFixturePublication(f.cell(), amended.opId, owner);
+          amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
+        }
+        assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+        return amended as Record<string, unknown>;
+      };
+      const amended = await amend(),
+        reviewDispatches = () =>
+          f
+            .events()
+            .filter(
+              (event) =>
+                event.type === "runtime_dispatch_requested" && event.payload.idempotencyKey.startsWith("task-review:"),
+            );
+      assert.equal(f.launches.length, 2, "the amended in-review cut gets its own reviewer dispatch");
+      assert.equal(reviewDispatches().length, 2);
+      const step = (amended.steps as readonly Record<string, unknown>[]).at(-1)!;
+      assert.equal(typeof step.dispatchId, "string", JSON.stringify(amended));
+      assert.match(f.launches.at(-1)!.prompt, /Amended reviewed delivery/u);
+      await amend();
+      assert.equal(f.launches.length, 2, "re-amending the same cut never opens a second concurrent review");
+      assert.equal(reviewDispatches().length, 2);
+    } finally {
+      await f.close();
+    }
+  },
+);

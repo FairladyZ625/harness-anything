@@ -319,6 +319,67 @@ export async function spawnCutReviewDispatch(
 }
 
 /**
+ * The automatic reviewer dispatch for a task's in-review cut, after a durable write that left the
+ * cut without a current review: the owner's forward, and an amendment of an in-review cut (which
+ * replaces the submission digest and so the dispatch key). Returns null when the task is not at
+ * the in-review gate — an amendment before owner triage waits for the forward. A dispatch failure
+ * never undoes the durable write: it lands as the returned step with the idempotent
+ * `ha task dispatch-review` retry lane.
+ */
+export async function dispatchInReviewCutReview(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  receipt: WriteReceiptDraft,
+): Promise<{ readonly selection: ReturnType<typeof selectReviewAgent>; readonly step: WriteReceiptDraft } | null> {
+  const current = await cell.service.read(taskId);
+  if (current.snapshot.task?.status !== "in_review") return null;
+  const execution = current.snapshot.executions.find(
+    (value) => value.iteration === current.snapshot.task?.iteration && value.state === "submitted",
+  );
+  if (!execution?.submission || !current.packagePath) return null;
+  const selection = selectReviewAgent(
+      execution.submission.completionContract?.reviewer?.agentId,
+      typeof action.reviewer === "string" ? action.reviewer : undefined,
+      cell.settings.readRepository().roles?.defaultReviewer,
+    ),
+    { reviewerId } = selection,
+    dispatch = await spawnCutReviewDispatch(cell, {
+      taskId,
+      execution,
+      packagePath: current.packagePath,
+      binding,
+      revision: cell.store.readHead()?.revision ?? 0,
+      reviewerId,
+      // The same reviewer-resource pins dispatch-review takes: an unpinned reviewer declaration
+      // would otherwise land on an unpredictable default instance.
+      extras: {
+        ...(typeof action.runtimeInstanceId === "string" ? { runtimeInstanceId: action.runtimeInstanceId } : {}),
+        ...(typeof action.model === "string" ? { model: action.model } : {}),
+      },
+    }),
+    // The step mirrors the historical review-dispatch receipt shape (dispatchId/runtimeSessionId
+    // ride the draft the same way dispatch-review's steps do).
+    step: WriteReceiptDraft =
+      dispatch.outcome === "failed"
+        ? cell.failed(
+            receipt.opId,
+            cell.cellCodedError(
+              "review_dispatch_failed",
+              `Task ${taskId} is already in_review. Reviewer ${reviewerId} dispatch failed: ${dispatch.error} ` +
+                `Recover with ha task dispatch-review ${taskId} --agent ${reviewerId}; do not repeat adjudicate.`,
+            ),
+          )
+        : ({
+            ...receipt,
+            dispatchId: dispatch.ids.dispatchId,
+            runtimeSessionId: dispatch.ids.runtimeSessionId,
+          } as WriteReceiptDraft);
+  return { selection, step };
+}
+
+/**
  * `ha task dispatch-review`: expand one batch invocation into one independent reviewer dispatch per
  * task. Each dispatch is keyed by the task's submitted cut and binds to that execution only — never
  * to the task's active implementation lease — so a review cannot open or claim an implementation

@@ -39,6 +39,7 @@ import {
   upgradeDriftedPresetSnapshot,
 } from "./repo-cell-task-progress.ts";
 import { actionWitnessCollections } from "./repo-cell-witness-adapters.ts";
+import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";
 import { presetSnapshotReader, taskOutputShape, taskWorktreeBinding } from "./task-worktree.ts";
 
 /** Git resolves the empty-tree object id virtually; it exists in every repository. */
@@ -330,6 +331,23 @@ export function submissionAnchorDriftWarnings(
   ];
 }
 
+/**
+ * An amendment replaces the in-review cut, so the prior review no longer covers it: the center
+ * dispatches the reviewer for the new cut through the forward's own path. Before owner triage the
+ * amendment dispatches nothing; the forward will.
+ */
+async function amendedCutReview(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  receipt: WriteReceiptDraft,
+): Promise<readonly WriteReceiptDraft[]> {
+  if (action.amend !== true) return [];
+  const dispatched = await dispatchInReviewCutReview(cell, taskId, action, binding, receipt);
+  return dispatched ? [dispatched.step] : [];
+}
+
 export async function submitTask(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
@@ -412,11 +430,12 @@ export async function submitTask(
     );
     if (receipt.outcome !== "applied") return receipt;
     // The submitted cut now waits for the owning CEO's triage (owner adjudication 2026-09-19):
-    // submit dispatches nothing; evidence preparation still rides with the worker.
-    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding, actionWitnessCollections(action));
+    // a first submit dispatches nothing; evidence preparation still rides with the worker.
+    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding, actionWitnessCollections(action)),
+      review = await amendedCutReview(cell, taskId, action, binding, receipt);
     return {
       ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
-      steps,
+      steps: [...steps, ...review],
     } as WriteReceiptDraft;
   }
   // Assignment callers carry their changed documents above. With no carried changes,
@@ -498,11 +517,12 @@ export async function submitTask(
     return submitTask(cell, { ...action, amend: false }, binding);
   const receipt = await cell.lifecycleAction({ ...action, executionId, submission }, binding);
   if (receipt.outcome !== "applied") return receipt;
-  const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding, actionWitnessCollections(action));
+  const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding, actionWitnessCollections(action)),
+    review = await amendedCutReview(cell, taskId, action, binding, receipt);
   return {
     ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
     ...(anchorDriftWarnings.length ? { warnings: anchorDriftWarnings } : {}),
-    steps: [...(synced ? [synced] : []), ...steps],
+    steps: [...(synced ? [synced] : []), ...steps, ...review],
   } as WriteReceiptDraft;
 }
 

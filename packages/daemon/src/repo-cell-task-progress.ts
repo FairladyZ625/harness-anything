@@ -37,7 +37,7 @@ import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
 import { readCompletionContext, factRetirementAssessment } from "./task-completion-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
-import { selectReviewAgent, spawnCutReviewDispatch } from "./task-review-dispatch.ts";
+import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";
 
 import {
   acceptedGateWitness,
@@ -700,7 +700,7 @@ export function completionContext(
 /**
  * The owner's adjudication (owner ruling 2026-09-19): one command, two orders. `--forward`
  * applies the kernel transition and then dispatches the independent reviewer for the forwarded
- * cut — the single dispatch point in the new lifecycle; `--return` applies the owner's rework
+ * cut through `dispatchInReviewCutReview`, shared with an in-review amendment; `--return` applies the owner's rework
  * order. A dispatch failure never undoes the durable forward: it lands as the receipt's step
  * with the manual `ha task dispatch-review` retry lane, which is idempotent on the same key.
  */
@@ -712,53 +712,13 @@ export async function adjudicateTask(
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
     receipt = await cell.lifecycleAction(action, binding);
   if (receipt.outcome !== "applied" || action.forward !== true) return receipt;
-  const current = await cell.service.read(taskId),
-    execution = current.snapshot.executions.find(
-      (value) => value.iteration === current.snapshot.task?.iteration && value.state === "submitted",
-    );
-  if (!execution?.submission || !current.packagePath)
+  const dispatched = await dispatchInReviewCutReview(cell, taskId, action, binding, receipt);
+  if (!dispatched)
     throw cell.cellCodedError("invalid_transition", `The forwarded cut on task ${taskId} has no submitted execution.`);
-  const selection = selectReviewAgent(
-      execution.submission.completionContract?.reviewer?.agentId,
-      typeof action.reviewer === "string" ? action.reviewer : undefined,
-      cell.settings.readRepository().roles?.defaultReviewer,
-    ),
-    { reviewerId } = selection,
-    dispatch = await spawnCutReviewDispatch(cell, {
-      taskId,
-      execution,
-      packagePath: current.packagePath,
-      binding,
-      revision: cell.store.readHead()?.revision ?? 0,
-      reviewerId,
-      // The same reviewer-resource pins dispatch-review takes: an unpinned reviewer declaration
-      // would otherwise land on an unpredictable default instance.
-      extras: {
-        ...(typeof action.runtimeInstanceId === "string" ? { runtimeInstanceId: action.runtimeInstanceId } : {}),
-        ...(typeof action.model === "string" ? { model: action.model } : {}),
-      },
-    }),
-    // The step mirrors the historical review-dispatch receipt shape (dispatchId/runtimeSessionId
-    // ride the draft the same way dispatch-review's steps do).
-    step: WriteReceipt =
-      dispatch.outcome === "failed"
-        ? cell.failed(
-            receipt.opId,
-            cell.cellCodedError(
-              "review_dispatch_failed",
-              `Task ${taskId} is already in_review. Reviewer ${reviewerId} dispatch failed: ${dispatch.error} ` +
-                `Recover with ha task dispatch-review ${taskId} --agent ${reviewerId}; do not repeat adjudicate.`,
-            ),
-          )
-        : ({
-            ...receipt,
-            dispatchId: dispatch.ids.dispatchId,
-            runtimeSessionId: dispatch.ids.runtimeSessionId,
-          } as WriteReceipt);
   const result = {
     ...receipt,
-    ...selection,
-    steps: [...((receipt as { readonly steps?: readonly WriteReceipt[] }).steps ?? []), step],
+    ...dispatched.selection,
+    steps: [...((receipt as { readonly steps?: readonly WriteReceipt[] }).steps ?? []), dispatched.step],
   };
   return result;
 }
