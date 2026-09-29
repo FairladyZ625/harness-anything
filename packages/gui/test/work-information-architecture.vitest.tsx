@@ -117,13 +117,19 @@ describe("work information architecture", () => {
     }
   });
 
-  it("bounds pages, exposes historical independent work, and sorts by leaf task volume without queries", () => {
+  it("renders every work as one row without queries, keeps terminal works reachable, and sorts by progress", () => {
     const host = document.createElement("div"),
       root = createRoot(host),
       opened: string[] = [];
     const rows = [
       ...Array.from({ length: 30 }, (_, i) => task(`group-${String(i).padStart(2, "0")}`)),
-      task("done-group", { canonicalStatus: "done" }),
+      task("done-group"),
+      task("done-group-child", {
+        parentTaskId: "done-group",
+        taskClass: "standard",
+        workId: "done-group",
+        canonicalStatus: "done",
+      }),
       task("cancel-group", { canonicalStatus: "cancelled" }),
       task("child", { parentTaskId: "group-29", taskClass: "standard", workId: "group-29" }),
       task("historic-solo", { taskClass: "standard", canonicalStatus: "done", workId: undefined }),
@@ -133,38 +139,38 @@ describe("work information architecture", () => {
         <WorkView
           tasks={rows}
           repoId="p"
-          projectName="P"
           ready
           onOpenTask={(id) => opened.push(id)}
           catalog={undefined}
           catalogError={null}
           daemonState="responsive"
           onRefreshLedger={() => {}}
+          agenda={undefined}
         />,
       ),
     );
-    const cards = () => [...host.querySelectorAll('[data-testid="work-group-card"]')];
-    expect(cards()).toHaveLength(24);
-    expect(cards().some((c) => c.textContent?.includes("done-group"))).toBe(false);
-    act(() => host.querySelector<HTMLButtonElement>('nav[aria-label="工作分页"] button:last-child')!.click());
-    expect(cards()).toHaveLength(6);
+    // S4:一行一个工作、不再分页;终端工作与历史工作不再被状态筛选藏起来。
+    const rowIds = () =>
+      [...host.querySelectorAll('[data-testid="work-row"]')].map((row) => row.getAttribute("data-work-id"));
+    expect(rowIds()).toHaveLength(32);
+    expect(rowIds()).toContain("done-group");
+    expect(rowIds()).toContain("cancel-group");
+    // 独立任务不在工作页;它属于任务列表页。
+    expect(host.textContent).not.toContain("historic-solo");
     const select = (label: string, value: string) =>
       act(() => {
         const el = host.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)!;
         el.value = value;
         el.dispatchEvent(new Event("change", { bubbles: true }));
       });
-    select("工作排序", "size");
-    expect(cards()[0]?.textContent).toContain("group-29");
-    select("工作状态", "all");
-    act(() => host.querySelector<HTMLButtonElement>('[data-testid="isolated-work"] button')!.click());
-    act(() =>
-      [...host.querySelectorAll<HTMLButtonElement>('[data-testid="isolated-work"] button')]
-        .find((b) => b.textContent === "historic-solodone")!
-        .click(),
-    );
-    expect(opened).toEqual(["historic-solo"]);
-    expect(host.textContent).toContain("执行 · 评审 · 签发 · 门见证");
+    select("工作排序", "progress");
+    // 进度升序:唯一还有未完成叶子的 group-29(0/1)排在已全部完成的 done-group(1/1)之前。
+    expect(rowIds()?.indexOf("group-29")).toBeLessThan(rowIds()?.indexOf("done-group") ?? -1);
+    const doneGroupRow = host.querySelector('[data-testid="work-row"][data-work-id="done-group"]')!;
+    expect(doneGroupRow.textContent).toContain("1 / 1");
+    act(() => doneGroupRow.querySelector<HTMLButtonElement>('[data-testid="work-row-toggle"]')!.click());
+    act(() => doneGroupRow.querySelector<HTMLButtonElement>('[data-testid="work-open"]')!.click());
+    expect(opened).toEqual(["done-group"]);
     act(() => root.unmount());
   });
 
