@@ -29,6 +29,7 @@ test("dispatcher defaults to Ubuntu and requires exactly one test selector", () 
     target: "ubuntu",
     tier: "integration",
     file: undefined,
+    coverage: undefined,
   });
   assert.throws(() => parseDispatchArgs([]), /choose exactly one/u);
   assert.throws(() => parseDispatchArgs(["--tier", "fast", "--file", "tools/a.test.mjs"]), /choose exactly one/u);
@@ -42,6 +43,7 @@ test("dispatcher accepts all isolated targets and validates exact file paths", (
         target,
         tier: undefined,
         file: "packages/cli/test/daemon-autostart-cli.test.ts",
+        coverage: undefined,
       },
     );
   }
@@ -71,6 +73,31 @@ test("dispatcher builds runner commands for Node selectors and registered GUI fi
     "--",
     "test/task-pin-actions.vitest.ts",
   ]);
+});
+
+test("dispatcher sends coverage to an isolated path and rejects GUI coverage", () => {
+  assert.deepEqual(parseDispatchArgs(["--file", "tools/run-node-tests.test.mjs", "--coverage", "/tmp/result.lcov"]), {
+    target: "ubuntu",
+    tier: undefined,
+    file: "tools/run-node-tests.test.mjs",
+    coverage: "/tmp/result.lcov",
+  });
+  assert.deepEqual(
+    testRunnerArgs({ file: "tools/run-node-tests.test.mjs", coverageTarget: "/tmp/run/.test-coverage/lcov.info" }),
+    [
+      "node",
+      "tools/run-node-tests.mjs",
+      "--file",
+      "tools/run-node-tests.test.mjs",
+      "--coverage",
+      "/tmp/run/.test-coverage/lcov.info",
+    ],
+  );
+  assert.throws(
+    () =>
+      parseDispatchArgs(["--file", "packages/gui/test/task-pin-actions.vitest.ts", "--coverage", "/tmp/result.lcov"]),
+    /only supported for Node/u,
+  );
 });
 
 test("dispatcher rejects unregistered GUI files", () => {

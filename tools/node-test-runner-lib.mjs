@@ -11,28 +11,43 @@ export function parseRunnerArgs(args) {
   const options = {
     tier: toolValue(parsed, "--tier") ?? toolOption(runNodeTestsCommand, "--tier").defaultValue,
     list: parsed.booleans.has("--list"),
-    slowThresholdMs: Number(toolValue(parsed, "--slow-threshold-ms") ?? toolOption(runNodeTestsCommand, "--slow-threshold-ms").defaultValue),
-    slowLimit: Number(toolValue(parsed, "--slow-limit") ?? toolOption(runNodeTestsCommand, "--slow-limit").defaultValue),
+    slowThresholdMs: Number(
+      toolValue(parsed, "--slow-threshold-ms") ?? toolOption(runNodeTestsCommand, "--slow-threshold-ms").defaultValue,
+    ),
+    slowLimit: Number(
+      toolValue(parsed, "--slow-limit") ?? toolOption(runNodeTestsCommand, "--slow-limit").defaultValue,
+    ),
     concurrency: optionalNumber(toolValue(parsed, "--concurrency")),
     shard: toolValue(parsed, "--shard"),
+    coverage: toolValue(parsed, "--coverage"),
     prefixes: toolValues(parsed, "--prefix").map(normalizeTestPrefix),
-    files: toolValues(parsed, "--file").map(normalizeTestFile)
+    files: toolValues(parsed, "--file").map(normalizeTestFile),
   };
   return options;
 }
 
-function optionalNumber(value) { return value === undefined ? undefined : Number(value); }
+export function coverageReporterArgs(coveragePath) {
+  return coveragePath === undefined
+    ? []
+    : ["--experimental-test-coverage", "--test-reporter=lcov", `--test-reporter-destination=${coveragePath}`];
+}
+
+function optionalNumber(value) {
+  return value === undefined ? undefined : Number(value);
+}
 
 function normalizeTestPrefix(value) {
   return value.endsWith("/") ? value : `${value}/`;
 }
 
-function normalizeTestFile(value) { return value; }
+function normalizeTestFile(value) {
+  return value;
+}
 
 export async function collectTestFiles(repoRoot, roots) {
-  const testFiles = (
-    await Promise.all(roots.map((root) => collectFromDirectory(resolve(repoRoot, root), repoRoot)))
-  ).flat().sort();
+  const testFiles = (await Promise.all(roots.map((root) => collectFromDirectory(resolve(repoRoot, root), repoRoot))))
+    .flat()
+    .sort();
 
   return testFiles;
 }
@@ -48,7 +63,7 @@ async function collectFromDirectory(directory, repoRoot) {
 
     const entryPath = resolve(directory, entry.name);
     if (entry.isDirectory()) {
-      files.push(...await collectFromDirectory(entryPath, repoRoot));
+      files.push(...(await collectFromDirectory(entryPath, repoRoot)));
       continue;
     }
 
@@ -172,6 +187,6 @@ export function formatSlowTestSummary(slowTests, thresholdMs, limit) {
 
   return [
     `Slow test summary: top ${visible.length} tests at or above ${thresholdMs}ms`,
-    ...visible.map((test, index) => `${index + 1}. ${test.durationMs.toFixed(3)}ms ${test.name}`)
+    ...visible.map((test, index) => `${index + 1}. ${test.durationMs.toFixed(3)}ms ${test.name}`),
   ].join("\n");
 }

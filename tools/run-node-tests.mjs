@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { selectIntegrationShardFiles } from "./integration-test-shards.mjs";
 import {
   collectSlowTests,
+  coverageReporterArgs,
   filterTestFilesByNames,
   filterTestFilesByPrefixes,
   formatSlowTestSummary,
@@ -144,6 +145,8 @@ const stallReportUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-sta
 // Stall reports stay on for the bounded files of a run; only a run made solely of unbounded
 // stress files has nothing to report at 90% of a timeout.
 const stallReportMs = finiteTimeouts.length === 0 ? undefined : Math.max(1_000, Math.floor(fileTimeoutMs * 0.9));
+const coveragePath = options.coverage === undefined ? undefined : resolve(options.coverage);
+if (coveragePath !== undefined) mkdirSync(dirname(coveragePath), { recursive: true });
 const childEnvironment = { ...process.env, HARNESS_TEST_TEMP_ROOT: testTemporaryRoot };
 for (const name of DAEMON_ROUTE_ENVIRONMENT_VARIABLES) delete childEnvironment[name];
 const child = spawn(
@@ -152,6 +155,7 @@ const child = spawn(
     "--test",
     "--test-reporter=spec",
     "--test-reporter-destination=stdout",
+    ...coverageReporterArgs(coveragePath),
     `--test-reporter=${reporterUrl}`,
     `--test-reporter-destination=${activityPath}`,
     ...(process.env.HARNESS_CI_NODE_TEST_RESULTS || process.env.HARNESS_CI_OBSERVATION_RAW
