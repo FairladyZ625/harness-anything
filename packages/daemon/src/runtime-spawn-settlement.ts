@@ -3,15 +3,15 @@ import type { AgentRuntimeEventV1, CanonicalEventStore, RuntimeResultClaim } fro
 import { consumeKnownError } from "@harness-anything/kernel";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
-import { runtimeDescendantsAlive } from "./runtime-spawn-process.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
-import { pushWorkerBranch, workerWorktreeDirty } from "./runtime-worker-push.ts";
+import { pushWorkerBranch, workerBranchHasDelivery } from "./runtime-worker-push.ts";
 import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "./runtime-spawn-errors.ts";
 import { scheduleOutcomeFromRuntime } from "./schedule-runtime-outcome.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
+import { presetSnapshotReader, taskOutputShape } from "./task-worktree.ts";
 
 export async function publishExit(
   context: RuntimeSpawnerContext,
@@ -40,27 +40,10 @@ export async function publishExit(
         (code === 0 && (active.finalText === null || active.providerOutcome === null)))
     )
       context.markProtocolError(active);
-    // Only a clean provider exit can still be claimed as success, so only that exit is worth the
-    // two observations that can take the claim away (`runtimeExitOutcome` reads them nowhere else).
-    if (!cancelled && code === 0) {
-      active.descendantsAlive = await runtimeDescendantsAlive(active.process.pid);
-      if (active.task)
-        active.worktreeDirty = await workerWorktreeDirty({
-          cwd: active.cwd,
-          canonicalRoot: context.input.rootDir,
-        });
-    }
-    const { outcome: initialOutcome, ...classifiedAttempt } = classifyRuntimeExit(active, code),
-      attemptOutcome = {
-        ...classifiedAttempt,
-        // Provider failures are the classifications a fallback continuation carries forward, and
-        // their reason is a raw diagnostic excerpt — shape those into one line plus the dispatch
-        // stream reference. Worker-stop and gate-red reasons stay byte-identical to before.
-        reason: isProviderFailureClassification(classifiedAttempt.classification)
-          ? attemptOutcomeReason(classifiedAttempt.reason, active.stream.ref)
-          : String(scrubProviderValue(classifiedAttempt.reason)).slice(0, 1024),
-      };
-    let outcome = initialOutcome;
+    const { outcome: initialOutcome, ...classifiedAttempt } = classifyRuntimeExit(active, code);
+    let outcome = initialOutcome,
+      reviewResultMissing = false;
+    if (outcome === "unknown" && code === 0 && (await runtimeDeliveryWitness(context, active))) outcome = "succeeded";
     if (outcome === "succeeded" && active.decisionReviewTarget) {
       const target = active.decisionReviewTarget,
         reviewRegistered = context
@@ -70,8 +53,22 @@ export async function publishExit(
             (review) =>
               review.reviewId === `review-${active.dispatchId}` && review.reviewContentDigest === target.digest,
           );
-      if (!reviewRegistered) outcome = "failed";
+      if (!reviewRegistered) {
+        outcome = "failed";
+        reviewResultMissing = true;
+      }
     }
+    const attemptOutcome = {
+      ...classifiedAttempt,
+      // Provider failures are the classifications a fallback continuation carries forward, and
+      // their reason is a raw diagnostic excerpt — shape those into one line plus the dispatch
+      // stream reference. Worker-stop and gate-red reasons stay byte-identical to before.
+      reason: isProviderFailureClassification(classifiedAttempt.classification)
+        ? attemptOutcomeReason(classifiedAttempt.reason, active.stream.ref)
+        : outcome === "succeeded"
+          ? "Worker completed the attempt successfully."
+          : String(scrubProviderValue(classifiedAttempt.reason)).slice(0, 1024),
+    };
     active.stream.appendAttemptOutcome(attemptOutcome, context.input.now());
     active.stream.appendRuntimeMetrics?.(
       {
@@ -121,10 +118,7 @@ export async function publishExit(
         body = `${body}\n\nWorker branch push failed (no retry): ${detail || "GitHub credential resolution failed."}`;
       }
     }
-    let reasonCode: string | null =
-        initialOutcome === "succeeded" && outcome === "failed" && active.decisionReviewTarget
-          ? "review_result_missing"
-          : null,
+    let reasonCode: string | null = reviewResultMissing ? "review_result_missing" : null,
       sha256 = createHash("sha256").update(body).digest("hex"),
       result: RuntimeResultClaim = {
         sha256,
@@ -345,6 +339,37 @@ function runtimeSessionBinding(binding: ActiveRuntime["binding"], runtimeSession
       executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` },
     },
   };
+}
+
+async function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: ActiveRuntime): Promise<boolean> {
+  if (active.decisionReviewTarget) return true;
+  // Taskless runs have no declared repository or task-package output. Their positive delivery is
+  // the provider's completed turn and final result, both durably replayed from the worker stream
+  // when a successor daemon adopts the runtime.
+  if (!active.task) return active.providerOutcome === "succeeded" && active.finalText !== null;
+  if (
+    await workerBranchHasDelivery({
+      cwd: active.cwd,
+      canonicalRoot: context.input.rootDir,
+      taskId: active.task.taskId,
+    })
+  )
+    return true;
+  // Remote-edge settlement has no local canonical projection. Its repo-root fixtures also have no
+  // repository-diff witness; absence must settle unknown rather than abort terminal publication.
+  if (context.input.remote) return false;
+  const projection = context.requiredRuntimeProjection(context.input),
+    snapshot = projection.read(active.task.taskId).snapshot;
+  if (active.role === "reviewer")
+    return snapshot.reviews.some((review) => review.reviewId === `review-${active.dispatchId}`);
+  const submission = snapshot.executions.find(
+      (execution) => execution.executionId === active.task?.executionId,
+    )?.submission,
+    outputShape = taskOutputShape(snapshot.task, presetSnapshotReader(projection));
+  if (!submission) return false;
+  if (outputShape === "repository-diff") return submission.commitSha !== null;
+  if (outputShape === "task-package-artifact") return (submission.artifacts?.length ?? 0) > 0;
+  return false;
 }
 
 export function runtimeResultText(

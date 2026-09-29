@@ -107,7 +107,6 @@
   "packages/daemon/test/review-consent.integration.test.ts": 10500,
   "packages/daemon/test/review-independence-diagnostics.integration.test.ts": 21000,
   "packages/daemon/test/runtime-auth-ingress.integration.test.ts": 3000,
-  "packages/daemon/test/runtime-orphan-settlement.integration.test.ts": 4700,
   "packages/daemon/test/runtime-session-action.integration.test.ts": 2300,
   "packages/daemon/test/runtime-spawn-handoff.integration.test.ts": 4800,
   "packages/daemon/test/runtime-spawn-ingress-binding.integration.test.ts": 19400,

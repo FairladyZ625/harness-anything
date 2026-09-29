@@ -1,7 +1,6 @@
 import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { promisify } from "node:util";
-import { consumeKnownError } from "@harness-anything/kernel";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
 
@@ -9,9 +8,6 @@ const execFileAsync = promisify(execFile),
   detailLimit = 512,
   // One formatted line per commit; a rebased worker branch carries every recreated commit again.
   workerHistoryLimit = 1 << 20,
-  // Porcelain output grows with the worktree, and the dirty worktrees this answers about are the
-  // large ones. Anything past this bound is still an answer: a worktree that says that much is dirty.
-  worktreeStatusLimit = 1 << 20,
   // Settlement pushes inside the repository write queue, so a stalled remote or a credential dialog
   // nobody answers holds every write to the repo. A code-only worker branch pushes in seconds; this
   // is the bound the fleet edge gives its own network transfers.
@@ -39,6 +35,24 @@ export type WorkerGitIdentity = {
   readonly name: string;
   readonly email: string;
 };
+
+/** A repository-diff delivery is a task branch with at least one commit above the repository baseline. */
+export async function workerBranchHasDelivery(input: {
+  readonly cwd: string;
+  readonly canonicalRoot: string;
+  readonly taskId: string;
+}): Promise<boolean> {
+  if (samePath(input.cwd, input.canonicalRoot)) return false;
+  const env = gitEnvironment();
+  try {
+    const branch = (await readGitText(input.cwd, ["branch", "--show-current"], env)).trim(),
+      baseRef = repositoryBaseRef(input.canonicalRoot);
+    if (branch !== input.taskId || !baseRef) return false;
+    return (await readGitText(input.cwd, ["rev-list", "--count", `${baseRef}..HEAD`], env)).trim() !== "0";
+  } catch {
+    return false;
+  }
+}
 
 // The conventional worker identity has exactly one source: the git config the canonical
 // repository itself resolves (`git config user.name/user.email` at the canonical root, local
@@ -73,31 +87,6 @@ export function workerGitIdentityEnvironment(identity: WorkerGitIdentity): NodeJ
 export async function conventionalWorkerGitEnvironment(canonicalRoot: string): Promise<NodeJS.ProcessEnv> {
   const identity = await readWorkerGitIdentity({ cwd: canonicalRoot });
   return identity ? workerGitIdentityEnvironment(identity) : {};
-}
-
-// Read-only: settlement observes the worktree, it never commits, stashes or cleans it. A worktree
-// git refuses to describe is not a clean worktree, so an unreadable one answers "dirty" rather than
-// letting the failure escape and strand the dispatch without a terminal outcome.
-export async function workerWorktreeDirty(input: {
-  readonly cwd: string;
-  readonly canonicalRoot: string;
-  readonly env?: NodeJS.ProcessEnv;
-}): Promise<boolean> {
-  if (samePath(input.cwd, input.canonicalRoot)) return false;
-  try {
-    const env = { ...process.env, ...input.env, GIT_TERMINAL_PROMPT: "0" },
-      invocation = gitInvocation(input.cwd, ["status", "--porcelain"], env),
-      result = await execFileAsync(invocation.command, invocation.args, {
-        env,
-        maxBuffer: worktreeStatusLimit,
-        windowsHide: true,
-        ...(invocation.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
-      });
-    return String(result.stdout).trim().length > 0;
-  } catch (error) {
-    consumeKnownError(error);
-    return true;
-  }
 }
 
 /**

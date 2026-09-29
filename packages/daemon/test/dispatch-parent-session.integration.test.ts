@@ -168,7 +168,7 @@ test("a leader-only squad decision keeps attribution and settles success or fail
       })) as { readonly body: string },
       archived = JSON.parse(document.body) as Record<string, unknown>;
     assert.equal(archived.squadId, "parent-squad");
-    assert.equal(archived.outcome, "succeeded");
+    assert.equal(archived.outcome, "unknown");
     assert.equal(Object.hasOwn(archived, "parentRuntimeSessionId"), false);
     assert.equal(Object.hasOwn(archived, "delegatedByAgentId"), false);
     await assertLeaseReleasedBeforeOutcome(root, taskId, executionId, String(receipt.runtimeSessionId));

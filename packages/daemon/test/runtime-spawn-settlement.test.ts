@@ -14,6 +14,8 @@ import { publishExit, runtimeResultText } from "../src/runtime-spawn-settlement.
 import type { RuntimeSpawnerContext } from "../src/runtime-spawn-context.ts";
 import type { ActiveRuntime } from "../src/runtime-spawn-types.ts";
 
+const fixtureTaskId = "task_0123456789abcdef01234567";
+
 test("path-like runtime missions produce an actionable receipt without exposing the path", (context) => {
   let error: unknown;
   try {
@@ -35,22 +37,57 @@ test("path-like runtime missions produce an actionable receipt without exposing 
   context.diagnostic(`invalid_runtime_mission receipt=${JSON.stringify(receipt)}`);
 });
 
-test("exit zero is success evidence even when provider protocol evidence is incomplete", () => {
+test("exit zero without a declared delivery witness is unknown", () => {
   const result = classifyRuntimeExit(active({ protocolError: true }), 0);
-  assert.equal(result.outcome, "succeeded");
-  assert.match(result.reason, /successfully/u);
+  assert.equal(result.outcome, "unknown");
 });
 
-test("exit zero does not require a separate write or plan declaration", () => {
+test("exit zero is not promoted by write or plan heuristics", () => {
   const result = classifyRuntimeExit(active({ writeItemObserved: false, planObserved: false }), 0);
-  assert.equal(result.outcome, "succeeded");
+  assert.equal(result.outcome, "unknown");
 });
 
 test("exit zero does not turn an internal plan heuristic into an unknown outcome", () => {
   assert.equal(
     classifyRuntimeExit(active({ writeItemObserved: true, planObserved: true, planIncomplete: true }), 0).outcome,
-    "succeeded",
+    "unknown",
   );
+});
+
+test("taskless settlement requires the provider's completed turn and final result", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-taskless-witness-"));
+  try {
+    for (const sample of [
+      { finalText: "completed result", expected: "succeeded" },
+      { finalText: null, expected: "unknown" },
+    ] as const) {
+      const outcomes: Record<string, unknown>[] = [],
+        runtime = tasklessSettlementRuntime(rootDir, sample.finalText),
+        context = {
+          exiting: new Set<string>(),
+          processes: new Map([[runtime.runtimeSessionId, runtime]]),
+          input: {
+            repoId: "canonical",
+            rootDir,
+            now: () => "2026-09-29T00:01:00.000Z",
+            stream: { publish: () => ({}) },
+            remote: { archive: async () => ({ outcome: "applied" }) },
+          },
+          resultMediaType: "text/markdown",
+          runtimeResultText: () => sample.finalText ?? "",
+          markProtocolError: () => undefined,
+          publishRuntimeEvent: async (type: string, payload: Record<string, unknown>) => {
+            if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+            return {};
+          },
+          settleFallback: async () => undefined,
+        } as unknown as RuntimeSpawnerContext;
+      await publishExit(context, runtime, 0);
+      assert.equal(outcomes[0]?.outcome, sample.expected);
+    }
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });
 
 test("scheduled missions receive the daemon-owned outcome protocol", () => {
@@ -173,7 +210,7 @@ test("runtime result text caps provider frame failure text", () => {
   assert.ok(text.length <= 1200, String(text.length));
 });
 
-test("a write-capable squad leader converged decision settles as succeeded without per-turn write evidence", () => {
+test("a taskless squad leader result is not a delivery witness", () => {
   const result = classifyRuntimeExit(
     active({
       squadId: "core-squad",
@@ -184,7 +221,7 @@ test("a write-capable squad leader converged decision settles as succeeded witho
     }),
     0,
   );
-  assert.equal(result.outcome, "succeeded");
+  assert.equal(result.outcome, "unknown");
 });
 
 test("a non-zero squad leader exit is failed even when its final text declares convergence", () => {
@@ -275,6 +312,7 @@ test("terminal settlement reports a runtime archive failure and still publishes 
         return {};
       },
       settleFallback: async () => undefined,
+      requiredRuntimeProjection: () => deliveryProjection(null),
     } as unknown as RuntimeSpawnerContext;
   console.error = (...values: unknown[]) => errors.push(values.map(String).join(" "));
   try {
@@ -398,14 +436,15 @@ test("terminal settlement reports the branch and head its worker push published"
     });
   await publishExit(settleContext, runtime, 0);
   const head = git(fixture.worker, "rev-parse", "HEAD").trim(),
-    expectedBody = `worker delivery\n\nWorker branch pushed at settlement: task_owner @ ${head}`;
+    expectedBody = `worker delivery\n\nWorker branch pushed at settlement: ${fixtureTaskId} @ ${head}`;
   assert.deepEqual(outcomeBodies, [expectedBody]);
+  assert.equal(outcomes[0]?.outcome, "succeeded");
   assert.equal(
     outcomes[0]?.resultRef,
     `artifact:runtime-result/sha256/${createHash("sha256").update(expectedBody).digest("hex")}`,
     "the push line must be inside the durable terminal result the CEO reads",
   );
-  assert.ok(git(fixture.bare, "show-ref", "--verify", "refs/heads/task_owner").trim().startsWith(`${head} `));
+  assert.ok(git(fixture.bare, "show-ref", "--verify", `refs/heads/${fixtureTaskId}`).trim().startsWith(`${head} `));
 });
 
 test("terminal settlement publishes the submitted commit when worker HEAD advances", async (context) => {
@@ -426,9 +465,68 @@ test("terminal settlement publishes the submitted commit when worker HEAD advanc
     );
   await publishExit(settleContext, runtime, 0);
   assert.deepEqual(outcomeBodies, [
-    `worker delivery\n\nWorker branch pushed at settlement: task_owner @ ${submittedCommitSha} (worker HEAD ${head})`,
+    `worker delivery\n\nWorker branch pushed at settlement: ${fixtureTaskId} @ ${submittedCommitSha} (worker HEAD ${head})`,
   ]);
-  assert.equal(git(fixture.bare, "rev-parse", "refs/heads/task_owner").trim(), submittedCommitSha);
+  assert.equal(git(fixture.bare, "rev-parse", `refs/heads/${fixtureTaskId}`).trim(), submittedCommitSha);
+});
+
+test("terminal settlement keeps a clean task exit unknown without its execution delivery", async (context) => {
+  const fixture = workerGitFixture(context, "settle-no-delivery", { reachableRemote: true, delivery: false }),
+    runtime = workerSettlementRuntime(fixture, { finalText: "worker stopped" }),
+    outcomes: Record<string, unknown>[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
+      if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+      return {};
+    });
+  await publishExit({ ...settleContext, requiredRuntimeProjection: () => deliveryProjection(null) }, runtime, 0);
+  assert.equal(outcomes[0]?.outcome, "unknown");
+  assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", `refs/heads/${fixtureTaskId}`), "");
+});
+
+test("terminal settlement accepts a center-accepted task-package artifact", async (context) => {
+  const fixture = workerGitFixture(context, "settle-artifact-delivery", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, { finalText: "artifact delivered", publicationOwner: "commander" }),
+    outcomes: Record<string, unknown>[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
+      if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+      return {};
+    });
+  await publishExit(
+    {
+      ...settleContext,
+      requiredRuntimeProjection: () =>
+        deliveryProjection(null, "task-package-artifact", [
+          { path: "artifacts/report.md", revision: 42, blobSha256: "a".repeat(64) },
+        ]),
+    },
+    runtime,
+    0,
+  );
+  assert.equal(outcomes[0]?.outcome, "succeeded");
+});
+
+test("terminal settlement accepts a review registered for the dispatch role", async (context) => {
+  const fixture = workerGitFixture(context, "settle-review-delivery", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, {
+      finalText: "review registered",
+      publicationOwner: "commander",
+      role: "reviewer",
+    }),
+    outcomes: Record<string, unknown>[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
+      if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+      return {};
+    });
+  await publishExit(
+    {
+      ...settleContext,
+      requiredRuntimeProjection: () =>
+        deliveryProjection(null, "repository-diff", [], [{ reviewId: `review-${runtime.dispatchId}` }]),
+    },
+    runtime,
+    0,
+  );
+  assert.equal(outcomes[0]?.outcome, "succeeded");
 });
 
 test("squad leader settlement preserves its machine-readable control result", async (context) => {
@@ -489,7 +587,7 @@ test("commander-owned settlement keeps its commit local and returns the delivery
   assert.equal(outcomes[0]?.outcome, "succeeded");
   assert.deepEqual(outcomeBodies, ["worker delivery"]);
   assert.equal(credentialRequests, 0);
-  assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", "refs/heads/task_owner"), "");
+  assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", `refs/heads/${fixtureTaskId}`), "");
   assert.equal(git(fixture.worker, "log", "-1", "--format=%s").trim(), "feat: worker change");
 });
 
@@ -509,7 +607,7 @@ test("terminal settlement names the branch when the worker push fails", async (c
   assert.equal(outcomeBodies.length, 1);
   assert.match(
     outcomeBodies[0],
-    /^worker delivery\n\nWorker branch push failed \(no retry\): task_owner @ [0-9a-f]+: .+/u,
+    new RegExp(`^worker delivery\\n\\nWorker branch push failed \\(no retry\\): ${fixtureTaskId} @ [0-9a-f]+: .+`, "u"),
   );
   assert.equal(outcomes[0]?.outcome, "succeeded", "a push failure is reported, not turned into a task failure");
 });
@@ -545,7 +643,7 @@ test("terminal settlement refuses to publish a worker commit outside the convent
     outcomeBodies[0],
     new RegExp(
       `^worker delivery\\n\\nWorker branch push failed \\(no retry\\): ` +
-        `task_owner @ ${staleHead}: commit ${staleHead} carries author ` +
+        `${fixtureTaskId} @ ${staleHead}: commit ${staleHead} carries author ` +
         "<stale-worker@example.invalid> and committer <stale-worker@example.invalid>, " +
         "not the conventional identity <settle-test@example.invalid>",
       "u",
@@ -553,7 +651,7 @@ test("terminal settlement refuses to publish a worker commit outside the convent
   );
   assert.equal(outcomes[0]?.outcome, "succeeded", "an identity refusal is reported, not turned into a task failure");
   assert.notEqual(
-    spawnSync("git", ["-C", fixture.bare, "show-ref", "--verify", "--quiet", "refs/heads/task_owner"]).status,
+    spawnSync("git", ["-C", fixture.bare, "show-ref", "--verify", "--quiet", `refs/heads/${fixtureTaskId}`]).status,
     0,
     "the settlement refusal leaves the branch unpublished",
   );
@@ -575,7 +673,6 @@ function active(overrides: Partial<ActiveRuntime>): ActiveRuntime {
     toolCallObserved: false,
     failureText: null,
     lossReason: null,
-    toolStepSettled: new Map(),
     planIncomplete: false,
     planObserved: true,
     protocolError: false,
@@ -583,6 +680,49 @@ function active(overrides: Partial<ActiveRuntime>): ActiveRuntime {
     writeItemObserved: true,
     ...overrides,
   } as ActiveRuntime;
+}
+
+function tasklessSettlementRuntime(rootDir: string, finalText: string | null): ActiveRuntime {
+  return active({
+    process: {
+      pid: process.pid,
+      onOutput: () => undefined,
+      onErrorOutput: () => undefined,
+      onExit: () => undefined,
+      terminate: () => undefined,
+    },
+    runtimeSessionId: `runtime-taskless-${finalText === null ? "missing" : "complete"}`,
+    dispatchOpId: `dispatch-taskless-${finalText === null ? "missing" : "complete"}`,
+    binding: {
+      actor: {
+        principal: { kind: "human", id: "operator" },
+        executor: { kind: "agent", id: "runtime-session:runtime-taskless" },
+      },
+      source: "local",
+    },
+    task: null,
+    schedule: null,
+    squadId: null,
+    delegatedBy: null,
+    cwd: rootDir,
+    prompt: "settle taskless result",
+    onExitCommand: null,
+    reasoningEffort: null,
+    fast: false,
+    startedAt: "2026-09-29T00:00:00.000Z",
+    stream: {
+      ref: "runtime-stream:dispatch-taskless",
+      appendAttemptOutcome: () => undefined,
+    } as never,
+    buffer: "",
+    durableOutputCount: 0,
+    stdoutObserved: true,
+    providerSessionId: "provider-session",
+    resumeProviderSessionId: null,
+    finalText,
+    cancelBinding: null,
+    cancelOpId: null,
+  });
 }
 
 type WorkerGitFixture = {
@@ -595,7 +735,7 @@ type WorkerGitFixture = {
 function workerGitFixture(
   context: { after(handler: () => void): unknown },
   slug: string,
-  options: { readonly reachableRemote: boolean },
+  options: { readonly reachableRemote: boolean; readonly delivery?: boolean },
 ): WorkerGitFixture {
   const root = mkdtempSync(path.join(tmpdir(), `ha-settle-${slug}-`)),
     bare = path.join(root, "remote.git"),
@@ -612,11 +752,13 @@ function workerGitFixture(
   git(canonical, "remote", "add", "origin", bare);
   git(canonical, "push", "--quiet", "origin", "HEAD:main");
   if (!options.reachableRemote) git(canonical, "remote", "set-url", "origin", path.join(root, "missing.git"));
-  // Settlement publishes the branch named after the dispatched task (workerSettlementRuntime's task_owner).
-  git(canonical, "worktree", "add", "--quiet", worker, "-b", "task_owner");
-  writeFileSync(path.join(worker, "change.txt"), "worker\n");
-  git(worker, "add", "change.txt");
-  git(worker, "commit", "--quiet", "-m", "feat: worker change");
+  // Settlement publishes the branch named after the dispatched task.
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", fixtureTaskId);
+  if (options.delivery !== false) {
+    writeFileSync(path.join(worker, "change.txt"), "worker\n");
+    git(worker, "add", "change.txt");
+    git(worker, "commit", "--quiet", "-m", "feat: worker change");
+  }
   return { root, bare, canonical, worker };
 }
 
@@ -638,7 +780,7 @@ function workerSettlementRuntime(fixture: WorkerGitFixture, overrides: Partial<A
       },
       source: "local",
     },
-    task: { taskId: "task_owner", executionId: "execution-owner", leaseVersion: 1 },
+    task: { taskId: fixtureTaskId, executionId: "execution-owner", leaseVersion: 1 },
     schedule: null,
     squadId: null,
     delegatedBy: null,
@@ -692,17 +834,33 @@ function workerSettlementContext(
     markProtocolError: () => undefined,
     settleFallback: async () => undefined,
     prepareWorkerGitEnvironment: async () => ({}),
-    requiredRuntimeProjection: () => ({
-      read: () => ({
-        snapshot: {
-          executions: submittedCommitSha
-            ? [{ executionId: "execution-owner", submission: { commitSha: submittedCommitSha } }]
-            : [],
-        },
-      }),
-    }),
+    requiredRuntimeProjection: () =>
+      deliveryProjection(submittedCommitSha ?? git(fixture.worker, "rev-parse", "HEAD").trim()),
     publishRuntimeEvent,
   } as unknown as RuntimeSpawnerContext;
+}
+
+function deliveryProjection(
+  commitSha: string | null,
+  outputShape = "repository-diff",
+  artifacts: readonly Record<string, unknown>[] = [],
+  reviews: readonly Record<string, unknown>[] = [],
+) {
+  return {
+    read: () => ({
+      snapshot: {
+        task: { presetSnapshotDigest: "sha256:preset" },
+        reviews,
+        executions: [
+          {
+            executionId: "execution-owner",
+            submission: commitSha === null && artifacts.length === 0 ? null : { commitSha, artifacts },
+          },
+        ],
+      },
+    }),
+    readPresetSnapshot: () => ({ snapshot: { profile: { outputShape } } }),
+  } as never;
 }
 
 function git(root: string, ...args: string[]): string {

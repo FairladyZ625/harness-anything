@@ -263,7 +263,7 @@ test("attached task runtime settlement releases its execution lease before publi
           outcome: settled.outcome,
           exitCode: settled.exitCode,
         },
-        { liveness: "exited", outcome: "succeeded", exitCode: 0 },
+        { liveness: "exited", outcome: "unknown", exitCode: 0 },
       );
       assert.deepEqual(
         events

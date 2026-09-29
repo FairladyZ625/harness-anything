@@ -126,8 +126,6 @@ export async function consumeProviderLine(
   if (parsed.outcome) active.providerOutcome = parsed.outcome;
   active.writeItemObserved ||= parsed.writeItemObserved === true;
   // Older AGY builds re-emit settled steps as ACTIVE, so a step that once settled stays settled.
-  if (parsed.toolStep && active.toolStepSettled.get(parsed.toolStep.id) !== true)
-    active.toolStepSettled.set(parsed.toolStep.id, parsed.toolStep.settled);
   active.planObserved ||=
     parsed.planObserved === true ||
     (parsed.finalText !== undefined && context.isStructuredSuccessResult(parsed.finalText));
