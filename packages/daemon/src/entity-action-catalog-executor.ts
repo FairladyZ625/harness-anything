@@ -488,7 +488,7 @@ export function makeEntityActionCatalogExecutor(input: {
         occurredAt,
       },
       decisionApproval(action, binding),
-      input.readSettings().decisionReviewRequirement,
+      () => input.readSettings().decisionReviewRequirement,
     );
   };
 
@@ -601,7 +601,8 @@ function compileDraft(
   draft: EntityActionDraft,
   event: Omit<Parameters<typeof compileEntityUpsert>[0], "entityKind" | "entity">,
   approval: Parameters<typeof compileDecisionWrite>[0]["approval"] | undefined,
-  decisionReviewRequirement: RepositorySettingsV1["decisionReviewRequirement"],
+  // Only Decision writes consult the review requirement; other entity writes must not depend on Settings.
+  readDecisionReviewRequirement: () => RepositorySettingsV1["decisionReviewRequirement"],
 ): CatalogBundle {
   if (draft.kind === "fact")
     return compileFactWrite({
@@ -658,7 +659,7 @@ function compileDraft(
     currentIncomingRelations: incomingRelations,
     resolveLink: decisionRelationLinkResolver(projection),
     currentDocument: document.document,
-    decisionReviewRequirement,
+    decisionReviewRequirement: readDecisionReviewRequirement(),
   });
 }
 
