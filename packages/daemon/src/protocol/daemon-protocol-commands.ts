@@ -2,7 +2,6 @@ import {
   cliInput,
   defineCliCommand,
   defineRepoReadCommand,
-  defineWriterReadCommand,
   generatedSettingsFieldProtocolProjection,
   presetCommands,
   presetMethods,
@@ -104,7 +103,7 @@ const settingsWriteTopology = {
   ]);
 
 const doctorProtocolCommands = Object.freeze([
-  defineWriterReadCommand({
+  defineRepoReadCommand({
     id: "doctor-health",
     actionKind: "doctor-health",
     phase: "W3",

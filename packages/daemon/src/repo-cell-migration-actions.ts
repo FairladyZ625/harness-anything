@@ -9,7 +9,7 @@ import {
   sqliteLedgerPath,
 } from "@harness-anything/kernel";
 
-export function runLedgerReconcileAction(
+export async function runLedgerReconcileAction(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,

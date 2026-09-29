@@ -8,6 +8,16 @@ export function runFactAction(
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): WriteReceipt | Promise<WriteReceipt> {
+  if (action.kind !== "fact-show" && action.kind !== "fact-type-list")
+    return Promise.resolve().then(() => runFactActionNow(cell, action, binding));
+  return runFactActionNow(cell, action, binding);
+}
+
+function runFactActionNow(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+): WriteReceipt | Promise<WriteReceipt> {
   // Fact admission itself requires the complete projection cut; the linked task is checked here.
   const taskId =
     action.kind === "fact-record" && typeof action.taskId === "string" && action.taskId.trim() ? action.taskId : null;

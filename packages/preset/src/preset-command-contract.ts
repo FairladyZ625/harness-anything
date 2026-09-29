@@ -29,7 +29,7 @@ const commandTopology = (
   commandClass: CommandTopology["commandClass"],
   center: CommandAdmissionRoute,
   edge: CommandAdmissionRoute,
-  repoCellExecution: CommandTopology["repoCellExecution"] = commandClass === "repo-read" ? "query-only" : "writer",
+  repoCellExecution: CommandTopology["repoCellExecution"] = "writer",
 ): CommandTopology =>
   Object.freeze({
     commandClass,
@@ -42,10 +42,9 @@ const commandTopology = (
     }),
   });
 export const repoReadCommandTopology = commandTopology("repo-read", "direct", "direct"),
-  writerReadCommandTopology = commandTopology("repo-read", "direct", "direct", "writer"),
+  queryOnlyRepoReadCommandTopology = commandTopology("repo-read", "direct", "direct", "query-only"),
   ledgerWriteCommandTopology = commandTopology("repo-write", "via-assignment", "rejected"),
   centerForwardReadCommandTopology = commandTopology("repo-read", "direct", "via-center-forward"),
-  writerCenterForwardReadCommandTopology = commandTopology("repo-read", "direct", "via-center-forward", "writer"),
   centerForwardWriteCommandTopology = commandTopology("repo-write", "via-assignment", "via-center-forward"),
   runtimeLocalWriteCommandTopology = commandTopology("repo-write", "via-assignment", "direct"),
   centerRepairWriteCommandTopology = commandTopology("repo-write", "direct", "rejected"),
@@ -167,10 +166,9 @@ const defineTopologyCommand =
   <const Command extends CliCommandDeclaration>(declaration: Command) =>
     defineCliCommand({ ...declaration, ...topology });
 export const defineRepoReadCommand = defineTopologyCommand(repoReadCommandTopology),
-  defineWriterReadCommand = defineTopologyCommand(writerReadCommandTopology),
+  defineQueryOnlyRepoReadCommand = defineTopologyCommand(queryOnlyRepoReadCommandTopology),
   defineLedgerWriteCommand = defineTopologyCommand(ledgerWriteCommandTopology),
   defineCenterForwardReadCommand = defineTopologyCommand(centerForwardReadCommandTopology),
-  defineWriterCenterForwardReadCommand = defineTopologyCommand(writerCenterForwardReadCommandTopology),
   defineCenterForwardWriteCommand = defineTopologyCommand(centerForwardWriteCommandTopology),
   defineRuntimeLocalWriteCommand = defineTopologyCommand(runtimeLocalWriteCommandTopology),
   defineCenterRepairWriteCommand = defineTopologyCommand(centerRepairWriteCommandTopology),

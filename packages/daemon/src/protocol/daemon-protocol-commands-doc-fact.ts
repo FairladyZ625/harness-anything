@@ -1,5 +1,6 @@
 import {
   defineCenterForwardReadCommand,
+  defineQueryOnlyRepoReadCommand,
   defineCenterForwardWriteCommand,
   cliInput,
   defineLedgerWriteCommand,
@@ -257,7 +258,7 @@ export const docFactProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineRepoReadCommand({
+  defineQueryOnlyRepoReadCommand({
     id: "fact-type-list",
     phase: "DecisionFact-A",
     path: ["fact", "type", "list"],
@@ -352,7 +353,7 @@ export const docFactProtocolCommands = Object.freeze([
       ),
     ],
   }),
-  defineRepoReadCommand({
+  defineQueryOnlyRepoReadCommand({
     id: "fact-show",
     phase: "DecisionFact-A",
     path: ["fact", "show", "<fact-id>"],

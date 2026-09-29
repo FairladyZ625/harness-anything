@@ -1,6 +1,6 @@
 import {
-  defineWriterCenterForwardReadCommand,
-  defineWriterReadCommand,
+  defineCenterForwardReadCommand,
+  defineRepoReadCommand,
   defineCenterForwardWriteCommand,
   cliInput,
   defineCliCommand,
@@ -219,7 +219,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
       }),
     ],
   }),
-  defineWriterCenterForwardReadCommand({
+  defineCenterForwardReadCommand({
     id: "task-show",
     phase: "W3",
     path: ["task", "show", "<task-id>"],
@@ -228,7 +228,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
     // <task-id> and --id are the same field in two spellings; the parser rejects both-at-once.
     inputs: [cliInput("--id", "single", false, { code: "invalid_field" }, { field: "taskId" })],
   }),
-  defineWriterReadCommand({
+  defineRepoReadCommand({
     id: "receipt-show",
     phase: "W3",
     path: ["receipt", "show", "<op-id>"],
