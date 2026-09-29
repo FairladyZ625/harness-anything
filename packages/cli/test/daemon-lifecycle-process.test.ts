@@ -245,6 +245,27 @@ test("force refuses to signal a pid the daemon slot no longer claims", async () 
   }
 });
 
+test("force refuses while the daemon reports queued writes or live runtimes", async () => {
+  const fixture = await spawnLegacyDaemon("in-use");
+  try {
+    const refused = runRaw(fixture, ["daemon", "stop", "--force", "--json"]);
+    assert.equal(refused.status, 1);
+    const receipt = JSON.parse(refused.stdout) as {
+      readonly code?: string;
+      readonly usage?: {
+        readonly queuedWrites?: readonly { readonly repoId?: string; readonly queueDepth?: number }[];
+        readonly liveRuntimes?: readonly { readonly repoId?: string; readonly runtimeSessionId?: string }[];
+      };
+    };
+    assert.equal(receipt.code, "daemon_in_use", JSON.stringify(receipt));
+    assert.deepEqual(receipt.usage?.queuedWrites, [{ repoId: "busy-repo", queueDepth: 2 }]);
+    assert.deepEqual(receipt.usage?.liveRuntimes, [{ repoId: "busy-repo", runtimeSessionId: "runtime-session-live" }]);
+    assert.equal(await alive(fixture.daemonPid), true, "refusal must leave the daemon running");
+  } finally {
+    await stopCleanup(fixture);
+  }
+});
+
 // Codex uses stdin EOF to delimit its `-` prompt, so the provider stand-in starts emitting only
 // after EOF. A second child deliberately keeps daemon-owned stdio open and must exit when those
 // pipes close; that positive control proves the fixture can distinguish process-group survival
@@ -797,11 +818,10 @@ async function spawnLegacyDaemon(daemonId: string): Promise<StopFixture> {
   );
   const socketPath = localUserDaemonEndpoint(userRoot, daemonId);
   mkdirSync(path.dirname(socketPath), { recursive: true });
-  const launched = spawnSync(
-    process.execPath,
-    [launcher, daemonId === "wedge" ? "wedge" : "legacy", socketPath, daemonPidPath(userRoot, daemonId)],
-    { encoding: "utf8", timeout: 10_000 },
-  );
+  const launched = spawnSync(process.execPath, [launcher, daemonId, socketPath, daemonPidPath(userRoot, daemonId)], {
+    encoding: "utf8",
+    timeout: 10_000,
+  });
   assert.equal(launched.status, 0, launched.stderr);
   const daemonPid = await new Promise<number>((resolve, reject) => {
     const deadline = Date.now() + 10_000;
@@ -832,9 +852,11 @@ const server = net.createServer((socket) => {
       if (!line.startsWith("{")) continue;
       const request = JSON.parse(line);
       const answer = request.method === "protocol.hello"
-        ? { jsonrpc: "2.0", id: request.id, result: { ok: true, protocolVersion: { major: 1, minor: 0 }, methods: ["protocol.hello", "daemon.status"] } }
+        ? { jsonrpc: "2.0", id: request.id, result: { ok: true, protocolVersion: { major: 1, minor: 0 }, methods: ["protocol.hello", "daemon.status", "repo.agentRuntime.overview"] } }
         : request.method === "daemon.status"
-          ? { jsonrpc: "2.0", id: request.id, result: { ok: true, daemonId: "legacy", pid: process.pid, repos: [], summary: "daemon status: pid=" + process.pid + " repos=0" } }
+          ? { jsonrpc: "2.0", id: request.id, result: { ok: true, daemonId: mode, pid: process.pid, repos: mode === "in-use" ? [{ repoId: "busy-repo", state: "attached", queueDepth: 2 }] : [], summary: "daemon status: pid=" + process.pid } }
+          : request.method === "repo.agentRuntime.overview" && mode === "in-use"
+            ? { jsonrpc: "2.0", id: request.id, result: { ok: true, sessions: [{ runtimeSessionId: "runtime-session-live", liveness: "live" }] } }
           : { jsonrpc: "2.0", id: request.id, error: { code: -32601, message: "Method not found" } };
       socket.write(JSON.stringify(answer) + "\\n");
     }
