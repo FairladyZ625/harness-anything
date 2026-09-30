@@ -164,6 +164,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         "onExitCommand",
         "taskId",
         "executionId",
+        "reviewTarget",
         "idempotencyKey",
         "providerSessionId",
         "dryRun",

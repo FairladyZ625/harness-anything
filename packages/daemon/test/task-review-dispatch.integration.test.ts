@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { realizedDecisionBody, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
 
 const reviewerActor = (runtimeSessionId: string) => ({
@@ -12,6 +12,48 @@ const reviewerActor = (runtimeSessionId: string) => ({
     executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
   },
   source: "local" as const,
+});
+
+test("decision dispatch-review passes spawn admission and launches once for the current digest", async () => {
+  const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
+  try {
+    await f.install();
+    const proposed = await f.run({
+      kind: "decision-propose",
+      body: realizedDecisionBody("Independent dispatch review"),
+      jsonInput: JSON.stringify({
+        title: "Independent dispatch review",
+        question: "Should the proposal receive independent review?",
+        riskTier: "high",
+        urgency: "high",
+        vertical: "software/coding",
+        preset: "standard-task",
+        decisionClass: "ordinary",
+        appliesTo: { modules: ["daemon"], productLines: [] },
+        chosen: [{ id: "CH1", text: "Require independent review" }],
+        rejected: [{ id: "RJ1", text: "Self-review", whyNot: "Independent review is required" }],
+        claims: [{ id: "C1", text: "The reviewer is independent.", loadBearing: true }],
+        fulfillments: [],
+      }),
+    });
+    assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
+    const decisionId = JSON.parse(String(proposed.evidence)).decisionId as string,
+      shown = await f.run({ kind: "decision-show", decisionId, includeBody: true }),
+      digest = JSON.parse(String(shown.evidence)).decision.currentReviewContentDigest as string,
+      receipt = await f.run({ kind: "decision-dispatch-review", decisionId, runtimeInstanceId: "review-first" });
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    assert.equal(f.launches.length, 1);
+    assert.match(f.launches[0]!.prompt, new RegExp(decisionId, "u"));
+    assert.ok(f.launches[0]!.prompt.includes(digest));
+    const requested = f.events().filter((event) => event.type === "runtime_dispatch_requested");
+    assert.equal(requested.length, 1);
+    assert.deepEqual(requested[0]!.payload.reviewTarget, { kind: "decision", decisionId, digest });
+    const retry = await f.run({ kind: "decision-dispatch-review", decisionId });
+    assert.equal(retry.outcome, "applied", JSON.stringify(retry));
+    assert.equal(f.launches.length, 1);
+  } finally {
+    await f.close();
+  }
 });
 
 type DispatchStep = {
