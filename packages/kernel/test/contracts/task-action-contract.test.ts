@@ -286,50 +286,33 @@ test("pinnable entity creation actions derive one optional agenda follow-up", ()
   }
 });
 
-test("nested vocabularies retain identity and state projections select one declared branch", () => {
+test("nested vocabularies retain identity and guarded lifecycle actions omit static state projections", () => {
   const actions = getEntityKindContract("task")?.actionCatalog?.actions ?? [],
     review = actions.find(({ id }) => id === "review")!,
     verdict = review.input.fields
       .find(({ field }) => field === "fromFile")
       ?.cli?.jsonSchema?.fields.find(({ field }) => field === "verdict");
   assert.strictEqual(verdict?.value?.kind === "string" ? verdict.value.enumRef : undefined, REVIEW_V1_SCHEMA.verdicts);
-  // A changes_requested verdict reports to the adjudicating owner; the cut stays at the gate.
-  assert.deepEqual(projectActionState(review, { verdict: "changes_requested" }, {}), {
-    status: "in_review",
-    currentNode: "review",
-    executionState: "submitted",
-  });
+  assert.equal(projectActionState(review, { verdict: "changes_requested" }, {}), null);
   const adjudicate = actions.find(({ id }) => id === "adjudicate")!;
-  assert.deepEqual(projectActionState(adjudicate, { forward: true }, {}), {
-    status: "in_review",
-    currentNode: "review",
-    executionState: "submitted",
-  });
-  assert.deepEqual(projectActionState(adjudicate, { return: true }, {}), {
-    status: "active",
-    currentNode: "implementation",
-    executionState: "changes_requested",
-  });
+  assert.equal(projectActionState(adjudicate, { forward: true }, {}), null);
+  assert.equal(projectActionState(adjudicate, { return: true }, {}), null);
   const complete = actions.find(({ id }) => id === "complete")!;
-  assert.deepEqual(projectActionState(complete, {}, {}), {
-    status: "done",
-    currentNode: "review",
-    executionState: "accepted",
-  });
+  assert.equal(projectActionState(complete, {}, {}), null);
+  const lifecycleActionIds = new Set(TASK_LIFECYCLE_TRANSITIONS.map(({ actionId }) => actionId));
+  for (const action of actions)
+    if (action.id !== "create" && lifecycleActionIds.has(action.id))
+      assert.equal(action.stateTransition, null, action.id);
   for (const transition of TASK_LIFECYCLE_TRANSITIONS)
     assert.deepEqual(Object.keys(transition).sort(), ["actionId", "matches", "reduce", "validate"]);
   assert.equal(new Set(actions.flatMap(({ returns }) => returns.guidance.map(({ kind }) => kind))).size, 8);
 });
 
-test("CompleteTask reducer output equals its declared terminal projection", () => {
+test("CompleteTask reducer output is not advertised as an unguarded static projection", () => {
   const complete = getEntityKindContract("task")?.actionCatalog?.actions.find(({ id }) => id === "complete");
   assert.ok(complete);
-  const snapshot = lifecycleFixture().snapshot,
-    execution = snapshot.executions.find(({ executionId }) => executionId === "execution-1")!;
-  assert.deepEqual(
-    { status: snapshot.task?.status, currentNode: snapshot.task?.currentNode, executionState: execution.state },
-    projectActionState(complete, {}, {}),
-  );
+  const snapshot = lifecycleFixture().snapshot;
+  assert.equal(projectActionState(complete, {}, {}), null);
   assert.equal(snapshot.task?.status, "done");
   assert.equal(snapshot.task?.currentNode, "review");
 });
