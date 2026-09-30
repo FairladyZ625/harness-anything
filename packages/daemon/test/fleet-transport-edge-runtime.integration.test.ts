@@ -21,6 +21,7 @@ import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-set
 import { evidence } from "./task-surface.fixtures.ts";
 import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/fleet/contract.ts";
 import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
+import { definition as settlementDefinition, scheduleRuntimePorts, eventually } from "./schedule-actions.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 const replicaQuota = 64 * 1024 * 1024;
 // A `node --test` timeout suspends the test body at its current await and never resumes it, so `try…finally`
@@ -810,6 +811,199 @@ test(
     assert.match(taskBoundBlock, /CENTERFRESH-ZQ decision/u);
   },
 );
+// Each damaged local mirror retains the preceding admission conditions. These are
+// edge task-context assertions, independent of the center ingress scope checks.
+for (const probe of [
+  { name: "task scope", code: "assignment_scope_mismatch", message: /outside assignment/u },
+  { name: "package absent", code: "runtime_task_package_unavailable", message: /exactly one/u },
+  { name: "plan unreadable", code: "runtime_task_package_unavailable", message: /readable mirrored task plan/u },
+  { name: "mission absent", code: "runtime_mission_unavailable", message: /no current mirrored mission/u },
+  { name: "mission unreadable", code: "runtime_mission_unavailable", message: /is unreadable/u },
+  { name: "mission empty", code: "runtime_mission_unavailable", message: /is empty/u },
+  {
+    name: "contract unreadable",
+    code: "runtime_task_package_unavailable",
+    message: /readable mirrored task contract/u,
+  },
+  { name: "contract unresolved", code: "runtime_task_package_unavailable", message: /scaffold is not resolvable/u },
+]) {
+  test(`edge task context rejects ${probe.name}`, { timeout: 60_000 }, async (t) => {
+    const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
+    t.after(() => fixture.close());
+    const missionLogical = "tasks/task-fleet-fleet/artifacts/missions/probe.md";
+    mkdirSync(path.join(fixture.repo, "harness/tasks/task-fleet-fleet/artifacts/missions"), { recursive: true });
+    writeFileSync(path.join(fixture.repo, "harness", missionLogical), "Run the probe.\n");
+    const published = await fixture.host.run(
+      fixture.assignment.repoId,
+      { kind: "doc-submit", paths: [missionLogical] },
+      localAuthFixture(),
+    );
+    assert.equal(published.outcome, "applied", JSON.stringify(published));
+    await waitForFleetPublication(fixture.host, fixture.assignment.repoId, published.opId, localAuthFixture());
+    const center = await fixture.center(),
+      workspaceRoot = path.join(fixture.root, "counterexample-edge"),
+      viewRoot = path.join(fixture.root, "counterexample-view");
+    mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true });
+    writeFileSync(
+      path.join(workspaceRoot, "harness/harness.yaml"),
+      "schema: harness-anything/v1\nname: counterexample-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    );
+    await runFleetReplicaPullClient({
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.assignment.nodeId,
+      credential: "machine-secret",
+      assignmentId: fixture.assignment.assignmentId,
+      viewRoot,
+      diskQuotaBytes: replicaQuota,
+    });
+    applyFleetMirrorCut(viewRoot, fixture.assignment.repoId, workspaceRoot, "pull");
+    const packageRoot = path.join(workspaceRoot, "harness/tasks/task-fleet-fleet"),
+      missionPath = path.join(packageRoot, "artifacts/missions/probe.md"),
+      contractPath = path.join(packageRoot, "task-contract.json");
+    assert.match(readFileSync(path.join(packageRoot, "task_plan.md"), "utf8"), /Fleet/u);
+    assert.equal(readFileSync(missionPath, "utf8"), "Run the probe.\n");
+    if (probe.name === "package absent") writeFileSync(path.join(packageRoot, "INDEX.md"), "task_id: another-task\n");
+    if (probe.name === "plan unreadable") rmSync(path.join(packageRoot, "task_plan.md"));
+    if (probe.name === "mission unreadable") rmSync(missionPath);
+    if (probe.name === "mission empty") writeFileSync(missionPath, " \n");
+    if (probe.name === "contract unreadable") writeFileSync(contractPath, "{");
+    if (probe.name === "contract unresolved") writeFileSync(contractPath, JSON.stringify({ documents: [] }));
+    // An absent mission is requested under a different name, preserving the
+    // current manifest and every readable local file before that guard.
+    const runtime = openFleetEdgeRuntime({
+      request: {
+        host: "127.0.0.1",
+        port: center.port,
+        caPath: fixture.certFile,
+        nodeId: fixture.assignment.nodeId,
+        credential: "machine-secret",
+        assignmentId: fixture.assignment.assignmentId,
+        repoId: fixture.assignment.repoId,
+        viewRoot,
+        quotaBytes: replicaQuota,
+        workspaceRoot,
+        method: "repo.agentRuntime.spawn",
+        action: {},
+      },
+      daemonGeneration: 1,
+      daemonRoute: {
+        userRoot: path.join(fixture.root, "counterexample-user"),
+        daemonId: "counterexample-edge",
+        endpoint: path.join(fixture.root, "counterexample.sock"),
+      },
+      ports: {
+        runtimeInstances: () => [],
+        prepareWorkerGitEnvironment: async () => null,
+        prepareRuntimeLaunch: async () => {
+          throw new Error("rejected mirror must never launch");
+        },
+      },
+    });
+    fixture.track(() => runtime.close());
+    await assert.rejects(
+      runtime.run("repo.agentRuntime.spawn", {
+        taskId: probe.name === "task scope" ? "task-other" : fixture.assignment.taskId,
+        missionName: probe.name === "mission absent" ? "missing" : "probe",
+        runtimeInstanceId: "unavailable-instance",
+        cwd: { scope: "repo-root" },
+        idempotencyKey: "mirror-probe",
+      }),
+      (error: unknown) => {
+        assert.equal((error as { code?: string }).code, probe.code);
+        assert.match((error as Error).message, probe.message);
+        return true;
+      },
+    );
+  });
+}
+test("edge terminal task settlement rejects a changed assignment holder", { timeout: 60_000 }, async (t) => {
+  const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
+  t.after(() => fixture.close());
+  const center = await fixture.center(),
+    workspaceRoot = path.join(fixture.root, "settlement-edge"),
+    viewRoot = path.join(fixture.root, "settlement-view");
+  mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true });
+  writeFileSync(
+    path.join(workspaceRoot, "harness/harness.yaml"),
+    "schema: harness-anything/v1\nname: settlement-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+  );
+  await runFleetReplicaPullClient({
+    port: center.port,
+    ca: fixture.cert,
+    nodeId: fixture.assignment.nodeId,
+    credential: "machine-secret",
+    assignmentId: fixture.assignment.assignmentId,
+    viewRoot,
+    diskQuotaBytes: replicaQuota,
+  });
+  applyFleetMirrorCut(viewRoot, fixture.assignment.repoId, workspaceRoot, "pull");
+  let terminal: (() => void) | undefined;
+  const runtime = openFleetEdgeRuntime({
+    request: {
+      host: "127.0.0.1",
+      port: center.port,
+      caPath: fixture.certFile,
+      nodeId: fixture.assignment.nodeId,
+      credential: "machine-secret",
+      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.assignment.repoId,
+      viewRoot,
+      quotaBytes: replicaQuota,
+      workspaceRoot,
+      method: "repo.agentRuntime.spawn",
+      action: {},
+    },
+    daemonGeneration: 1,
+    daemonRoute: {
+      userRoot: path.join(fixture.root, "settlement-user"),
+      daemonId: "settlement-edge",
+      endpoint: path.join(fixture.root, "settlement.sock"),
+    },
+    ports: scheduleRuntimePorts(),
+    launch: () => {
+      let output: ((chunk: string) => void) | undefined;
+      return {
+        pid: 81234,
+        onOutput: (listener) => {
+          output = listener;
+        },
+        onErrorOutput: () => undefined,
+        onExit: (listener) => {
+          terminal = () => {
+            output?.(`${JSON.stringify({ type: "turn.completed" })}\n`);
+            listener(0);
+          };
+        },
+        terminate: () => undefined,
+      };
+    },
+  });
+  fixture.track(() => runtime.close());
+  const launched = await runtime.run("repo.agentRuntime.spawn", {
+    taskId: fixture.assignment.taskId,
+    runtimeInstanceId: settlementDefinition.instanceId,
+    cwd: { scope: "repo-root" },
+    prompt: "Finish this task.",
+    idempotencyKey: "holder-change",
+  });
+  assert.equal(launched.outcome, "applied", JSON.stringify(launched));
+  assert.ok(terminal);
+  fixture.setExecutor("replacement-worker");
+  terminal();
+  const outcomes = () =>
+    makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo })
+      .read()
+      .events.filter(
+        (event) =>
+          event.type === "runtime_session_outcome_observed" &&
+          event.payload.runtimeSessionId === launched.runtimeSessionId,
+      )
+      .map((event) => event.payload);
+  assert.equal(await eventually(async () => outcomes().length > 0), true);
+  assert.equal(outcomes()[0]?.reasonCode, "runtime_lease_release_failed", JSON.stringify(outcomes()));
+  assert.equal(outcomes()[0]?.outcome, "failed", JSON.stringify(outcomes()));
+});
 async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/task-fleet-fleet/notes.md"]) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-one-")),
     repo = path.join(root, "repo"),
@@ -822,6 +1016,7 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
   let nodeActive = true,
     expiresAt = "2099-01-01T00:00:00.000Z",
     assignmentDelayMs = 0,
+    assignmentExecutor = "fleet-edge",
     taskReleaseBarrier: { readonly started: () => void; readonly wait: Promise<void> } | null = null;
   const runtimeArchiveReceipts: Readonly<Record<string, unknown>>[] = [];
   mkdirSync(path.join(repo, "harness"), { recursive: true });
@@ -924,6 +1119,9 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
     emptyPath,
     track: owned.track,
     hold: owned.hold,
+    setExecutor: (value: string) => {
+      assignmentExecutor = value;
+    },
     setActive: (value: boolean) => {
       nodeActive = value;
     },
@@ -976,7 +1174,11 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
           resolveAssignment: async (assignmentId) => {
             if (assignmentDelayMs) await new Promise((resolve) => setTimeout(resolve, assignmentDelayMs));
             return assignmentId === assignment.assignmentId
-              ? { ...assignment, expiresAt }
+              ? {
+                  ...assignment,
+                  expiresAt,
+                  actor: { ...assignment.actor, executor: { kind: "agent" as const, id: assignmentExecutor } },
+                }
               : assignmentId === slowAssignment.assignmentId
                 ? { ...slowAssignment, expiresAt }
                 : null;

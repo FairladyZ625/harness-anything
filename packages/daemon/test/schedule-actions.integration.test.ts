@@ -539,8 +539,8 @@ test("run-now launches only after an applied claim, stays single-flight, and set
 
 test(
   "Fleet Schedule forwarding fences a stale disabled view and lets only one edge launch",
-  { timeout: 30_000 },
-  async () => {
+  { timeout: 60_000 },
+  async (t) => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-schedule-fleet-")),
       repo = path.join(root, "center-repo"),
       userRoot = path.join(root, "center-user"),
@@ -649,7 +649,9 @@ test(
         authenticate: (nodeId, credential) => credential === `credential-${nodeId}`,
         resolveAssignment: (assignmentId) => byId.get(assignmentId) ?? null,
       });
-      const launches = [0, 0],
+      const terminalCallbacks: Array<(() => void) | undefined> = [],
+        settlementErrors = t.mock.method(Object, "assign"),
+        launches = [0, 0],
         workspaces = assignments.map((assignment, index) => {
           const workspaceRoot = path.join(root, `edge-${index + 1}`),
             viewRoot = path.join(root, `view-${index + 1}`);
@@ -679,11 +681,19 @@ test(
             ports: scheduleRuntimePorts(),
             launch: () => {
               launches[index] += 1;
+              let output: ((chunk: string) => void) | undefined;
               return {
                 pid: 4300 + index,
-                onOutput: () => undefined,
+                onOutput: (listener) => {
+                  output = listener;
+                },
                 onErrorOutput: () => undefined,
-                onExit: () => undefined,
+                onExit: (listener) => {
+                  terminalCallbacks[index] = () => {
+                    output?.(`${JSON.stringify({ type: "turn.completed" })}\n`);
+                    listener(0);
+                  };
+                },
                 terminate: () => undefined,
               };
             },
@@ -691,6 +701,18 @@ test(
           edgeRuntimes.push(runtime);
           return { assignment, runtime, workspaceRoot, viewRoot };
         });
+      await t.test("edge schedule requires action kind", async () => {
+        await assert.rejects(workspaces[0]!.runtime.run("repo.schedule.run", {}), {
+          code: "invalid_field",
+          message: "kind is required.",
+        });
+      });
+      await t.test("edge schedule rejects another assignment scope", async () => {
+        await assert.rejects(
+          workspaces[0]!.runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId: "other-schedule" }),
+          { code: "assignment_scope_mismatch", message: /outside assignment/u },
+        );
+      });
       const created = await workspaces[0]!.runtime.run("repo.schedule.run", {
         kind: "schedule-create",
         scheduleId,
@@ -768,6 +790,53 @@ test(
           localAuth,
         );
       assert.equal(centerLocal.outcome, "op_rejected");
+      const winnerEdge = workspaces[winner]!,
+        claim = raced[winner]!;
+      const settled = await winnerEdge.runtime.run("repo.schedule.run", {
+        kind: "schedule-settle",
+        scheduleId,
+        claimFence: claim.claimFence,
+        outcome: "succeeded",
+        endedAt: "2026-09-30T00:00:00.000Z",
+        idempotencyKey: "settle-before-terminal",
+      });
+      assert.equal(settled.outcome, "applied", JSON.stringify(settled));
+      await t.test("edge schedule rejects a settled claim replay", async () => {
+        await assert.rejects(
+          winnerEdge.runtime.run("repo.schedule.run", {
+            kind: "schedule-run-now",
+            scheduleId,
+            idempotencyKey: `dual-edge-${winner + 1}`,
+          }),
+          { code: "schedule_claim_invalid", message: /owner, fence, mission, or target/u },
+        );
+      });
+      await t.test("edge schedule detects rejected terminal settlement", async () => {
+        assert.ok(terminalCallbacks[winner]);
+        terminalCallbacks[winner]!();
+        // The edge serial tail consumes this scheduled rejection. Observe the
+        // coded error at its construction boundary, without replacing any port.
+        assert.equal(
+          await eventually(async () =>
+            settlementErrors.mock.calls.some(
+              ({ arguments: args }) => args[0] instanceof Error && args[1]?.code === "schedule_settlement_pending",
+            ),
+          ),
+          true,
+        );
+      });
+      await t.test("edge schedule rejects a blocked definition pull", async () => {
+        const localPath = path.join(winnerEdge.workspaceRoot, "harness/schedules/e2e-probe.json");
+        writeFileSync(localPath, `${readFileSync(localPath, "utf8")}\nlocal divergence\n`);
+        await assert.rejects(
+          winnerEdge.runtime.run("repo.schedule.run", {
+            kind: "schedule-disable",
+            scheduleId,
+            idempotencyKey: "dirty-definition-disable",
+          }),
+          { code: "pull_blocked", message: /canonical but its edge mirror is blocked/u },
+        );
+      });
     } finally {
       for (const runtime of edgeRuntimes) runtime.close();
       await center?.close();
