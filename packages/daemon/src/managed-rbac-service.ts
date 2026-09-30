@@ -37,6 +37,7 @@ type ManagedRbacOperation =
   | "login-complete"
   | "session"
   | "logout"
+  | "bootstrap-status"
   | "bootstrap-admin"
   | "invite";
 
@@ -169,7 +170,9 @@ export class ManagedRbacService {
       realm: config.realm,
       clientId: config.clientId,
       status: response.status,
-      versions: config.versions,
+      ...(config.mode === "managed"
+        ? { versions: config.versions }
+        : { version: response.headers.get("x-keycloak-version") ?? response.headers.get("server") ?? "unknown" }),
     };
   }
 
@@ -399,7 +402,7 @@ export class ManagedRbacService {
     throw managedRbacError("rbac_health_failed", `Keycloak realm health returned HTTP ${String(result.status)}.`);
   }
 
-  #configureExternal(request: ManagedRbacRequest): Record<string, unknown> {
+  async #configureExternal(request: ManagedRbacRequest): Promise<Record<string, unknown>> {
     if (!request.url || !request.realm || !request.clientId)
       throw managedRbacError(
         "rbac_external_config_incomplete",
@@ -408,15 +411,22 @@ export class ManagedRbacService {
     const url = new URL(request.url);
     if (url.protocol !== "https:" && url.hostname !== "127.0.0.1" && url.hostname !== "localhost")
       throw managedRbacError("rbac_external_url_insecure", "External Keycloak must use HTTPS unless it is loopback.");
+    const normalizedUrl = url.toString().replace(/\/$/u, ""),
+      probe = await this.#ports.fetch(`${normalizedUrl}/realms/${encodeURIComponent(request.realm)}`);
+    if (!probe.ok)
+      throw managedRbacError(
+        "rbac_external_probe_failed",
+        `External Keycloak realm probe returned HTTP ${probe.status}; configuration was not changed.`,
+      );
     this.#writeConfig({
       schema: "harness-managed-rbac/v1",
       mode: "external",
-      url: url.toString().replace(/\/$/u, ""),
+      url: normalizedUrl,
       realm: request.realm,
       clientId: request.clientId,
       versions: managedRbacVersions,
     });
-    return { ok: true, command: "rbac-configure", mode: "external", url: url.toString(), realm: request.realm };
+    return { ok: true, command: "rbac-configure", mode: "external", url: normalizedUrl, realm: request.realm };
   }
 
   async #backup(request: ManagedRbacRequest): Promise<Record<string, unknown>> {
