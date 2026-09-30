@@ -1,5 +1,10 @@
 import { composeDurableActionEnvelope } from "@harness-anything/application/internal/durable-action-envelope";
-import { type AuthorizationContext, type AuthorizationDecision, type ReceiptJsonValue } from "@harness-anything/kernel";
+import {
+  DEFAULT_POLICY,
+  type AuthorizationContext,
+  type AuthorizationDecision,
+  type ReceiptJsonValue,
+} from "@harness-anything/kernel";
 import { authorizeAction } from "./authorization.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 
@@ -48,7 +53,7 @@ export function authorizeHostAction(input: {
       target: "settings/repository",
       actor: input.binding.actor,
     });
-  return authorizeAction(envelope, context);
+  return authorizeAction({ ...envelope, authorizationRef: `${DEFAULT_POLICY.id}@${DEFAULT_POLICY.version}` }, context);
 }
 
 export function requireAuthorizedHostAction(input: Parameters<typeof authorizeHostAction>[0]): AuthorizationDecision {

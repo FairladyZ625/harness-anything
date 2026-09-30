@@ -52,7 +52,7 @@ export async function localSystemActionBinding(
       auth.transportKind === "unix-socket" &&
       typeof ownerUid === "number" &&
       (typeof daemonUid === "number" ? ownerUid === daemonUid : process.platform === "win32" && ownerUid === 0);
-  return isDaemonSocketOwner ? localSystemBinding(rootDir) : principalBinding();
+  return isDaemonSocketOwner ? defaultLocalBinding(ownerUid!, null) : principalBinding();
 }
 
 export function withDaemonWriterEpochFence(

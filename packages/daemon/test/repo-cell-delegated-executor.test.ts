@@ -104,7 +104,16 @@ function bindingFor(principalPersonId = issuerPersonId): RepoCellBinding {
   return {
     actor,
     source: "local",
-    authorizationBindingMode: "default",
+    authorizationBindingMode: "declared",
+    roleBindings: [
+      {
+        actor: { kind: "person", id: principalPersonId },
+        role: "owner",
+        target: "settings/repository",
+        source: "declared",
+        expiresAt: null,
+      },
+    ],
     authorizationDecision: {
       policyRef: "keycloak-policy@1",
       actor,

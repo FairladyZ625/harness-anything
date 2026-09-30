@@ -47,18 +47,20 @@ export class KeycloakPolicyAdapter {
   async syncBasePolicy(adminAccessToken: string): Promise<KeycloakPolicySyncReceipt> {
     const groups = deriveBasePolicyGroups();
     assertAcyclicPolicyGroups(groups);
-    const clientUuid = await this.#clientUuid(adminAccessToken);
+    const clientUuid = await this.#clientUuid(adminAccessToken),
+      scopesPath = `/clients/${clientUuid}/authz/resource-server/scope`,
+      rolesPath = `/clients/${clientUuid}/roles`,
+      scopeByName = await this.#collection(adminAccessToken, scopesPath),
+      roleByName = await this.#collection(adminAccessToken, rolesPath);
     for (const scope of [...this.#knownScopes].sort())
-      await this.#ensure(adminAccessToken, `/clients/${clientUuid}/authz/resource-server/scope`, scope, {
+      await this.#ensure(adminAccessToken, scopesPath, scopeByName, scope, {
         name: scope,
       });
     for (const group of groups)
-      await this.#ensure(adminAccessToken, `/clients/${clientUuid}/roles`, group.id, {
+      await this.#ensure(adminAccessToken, rolesPath, roleByName, group.id, {
         name: group.id,
         description: `Harness Base policy group ${group.id}; generated from ActionDeclaration policyTier.`,
       });
-    const roles = await this.#json<KeycloakRole[]>(adminAccessToken, `/clients/${clientUuid}/roles`),
-      roleByName = new Map(roles.map((role) => [role.name, role] as const));
     for (const group of groups) {
       const role = roleByName.get(group.id);
       if (!role) throw new Error(`Keycloak did not return generated Base role ${group.id}.`);
@@ -74,10 +76,11 @@ export class KeycloakPolicyAdapter {
           },
         );
     }
-    const rolePoliciesPath = `/clients/${clientUuid}/authz/resource-server/policy/role`;
+    const rolePoliciesPath = `/clients/${clientUuid}/authz/resource-server/policy/role`,
+      policyByName = await this.#collection(adminAccessToken, rolePoliciesPath);
     for (const group of groups.filter((item) => item.id !== "viewer")) {
       const role = roleByName.get(group.id)!;
-      await this.#ensure(adminAccessToken, rolePoliciesPath, `base-${group.id}`, {
+      await this.#ensure(adminAccessToken, rolePoliciesPath, policyByName, `base-${group.id}`, {
         name: `base-${group.id}`,
         type: "role",
         logic: "POSITIVE",
@@ -85,29 +88,15 @@ export class KeycloakPolicyAdapter {
         roles: [{ id: role.id, required: true }],
       });
     }
-    const scopes = await this.#json<NamedRepresentation[]>(
-        adminAccessToken,
-        `/clients/${clientUuid}/authz/resource-server/scope`,
-      ),
-      scopeByName = new Map(
-        scopes.flatMap((scope) =>
-          typeof scope.name === "string" && typeof scope.id === "string" ? [[scope.name, scope.id] as const] : [],
-        ),
-      ),
-      rolePolicies = await this.#json<NamedRepresentation[]>(adminAccessToken, rolePoliciesPath),
-      policyByName = new Map(
-        rolePolicies.flatMap((policy) =>
-          typeof policy.name === "string" && typeof policy.id === "string" ? [[policy.name, policy.id] as const] : [],
-        ),
-      ),
-      permissionsPath = `/clients/${clientUuid}/authz/resource-server/permission/scope`;
+    const permissionsPath = `/clients/${clientUuid}/authz/resource-server/permission/scope`,
+      permissionByName = await this.#collection(adminAccessToken, permissionsPath);
     for (const group of groups) {
-      const policyId = policyByName.get(`base-${group.id}`);
+      const policyId = policyByName.get(`base-${group.id}`)?.id;
       if (group.scopes.length && !policyId) throw new Error(`Keycloak Base policy ${group.id} is missing.`);
       for (const scope of group.scopes) {
-        const scopeId = scopeByName.get(scope);
+        const scopeId = scopeByName.get(scope)?.id;
         if (!scopeId) throw new Error(`Keycloak action scope ${scope} is missing after sync.`);
-        await this.#ensure(adminAccessToken, permissionsPath, `base-${group.id}-${scope}`, {
+        await this.#ensure(adminAccessToken, permissionsPath, permissionByName, `base-${group.id}-${scope}`, {
           name: `base-${group.id}-${scope}`,
           type: "scope",
           logic: "POSITIVE",
@@ -170,15 +159,32 @@ export class KeycloakPolicyAdapter {
     return id;
   }
 
+  async #collection(token: string, path: string): Promise<Map<string, KeycloakRole>> {
+    const entries = new Map<string, KeycloakRole>();
+    for (let first = 0; ; first += 100) {
+      const page = await this.#json<NamedRepresentation[]>(token, `${path}?first=${first}&max=100`);
+      for (const item of page)
+        if (typeof item.name === "string" && typeof item.id === "string")
+          entries.set(item.name, { ...item, name: item.name, id: item.id });
+      if (page.length < 100) return entries;
+    }
+  }
+
   async #ensure(
     token: string,
     collection: string,
+    entries: Map<string, KeycloakRole>,
     name: string,
     body: Readonly<Record<string, unknown>>,
   ): Promise<void> {
-    const existing = await this.#json<readonly { readonly name?: unknown }[]>(token, collection);
-    if (existing.some((item) => item.name === name)) return;
-    await this.#request(token, collection, { method: "POST", body: JSON.stringify(body) });
+    if (entries.has(name)) return;
+    const response = await this.#request(token, collection, { method: "POST", body: JSON.stringify(body) });
+    // Client-role POST returns a Location containing the name, not the role id.
+    const item = collection.endsWith("/roles")
+      ? await this.#json<NamedRepresentation>(token, `${collection}/${encodeURIComponent(name)}`)
+      : ((await response.json()) as NamedRepresentation);
+    if (typeof item.id !== "string" || !item.id) throw new Error(`Keycloak did not return an id for ${name}.`);
+    entries.set(name, { ...item, id: item.id, name });
   }
 
   async #json<T>(token: string, path: string): Promise<T> {

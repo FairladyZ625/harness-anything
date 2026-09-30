@@ -17,6 +17,8 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
+import { writeOwnerRoster } from "./role-binding.fixtures.ts";
+
 const bindingSessionId = "runtime_89abcdef0123456789abcdef",
   personBinding = {
     actor: { principal: { personId: "person-parent-session" }, executor: null },
@@ -41,6 +43,7 @@ test("a local binding executor names the parent runtime session when the caller 
   const parent = mkdtempSync(path.join(tmpdir(), "ha-parent-session-binding-")),
     root = path.join(parent, "repo");
   mkdirSync(root);
+  writeOwnerRoster(root, ["person-parent-session"]);
   git(root, "init", "-q");
   git(root, "config", "user.name", "Parent Session Test");
   git(root, "config", "user.email", "parent-session@example.invalid");
@@ -93,6 +96,7 @@ test("a leader-only squad decision keeps attribution and settles success or fail
     executionId = "execution-parent-session-archive";
   let launches = 0;
   mkdirSync(root);
+  writeOwnerRoster(root, ["person-parent-session"]);
   git(root, "init", "-q");
   git(root, "config", "user.name", "Parent Session Test");
   git(root, "config", "user.email", "parent-session@example.invalid");

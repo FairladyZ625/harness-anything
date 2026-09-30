@@ -17,7 +17,6 @@ test("every production local binding is covered by a request or cell-default wri
     [
       ["daemon-host-binding.ts", 3],
       ["host-action-authorization.ts", 1],
-      ["repo-cell-authorization.ts", 1],
       ["repo-cell-bootstrap-ledger.ts", 1],
     ],
     `unclassified production source:local use:\n${uses.map((use) => `${use.file}:${use.line}`).join("\n")}`,
@@ -48,12 +47,16 @@ test("every production local binding is covered by a request or cell-default wri
   );
   assert.match(source("writer-supervisor.ts"), /defaultWriterEpochFence: input\.defaultWriterEpochFence/u);
 
-  for (const authorizationFile of ["host-action-authorization.ts", "repo-cell-authorization.ts"])
-    assert.match(
-      source(authorizationFile),
-      /defaultBinding:\s*\{\s*principalPersonId:[\s\S]*?source: "local" as const/u,
-      `${authorizationFile} source:local must remain authorization context, not a write binding`,
-    );
+  assert.match(
+    source("host-action-authorization.ts"),
+    /defaultBinding:\s*\{\s*principalPersonId:[\s\S]*?source: "local" as const/u,
+    "socket owner binding remains a host authorization context, not a write binding",
+  );
+  assert.doesNotMatch(
+    source("repo-cell-authorization.ts"),
+    /defaultBinding:/u,
+    "repository writes require explicit RoleBinding, assignment or Keycloak identity",
+  );
 });
 
 function localSourceUses(): readonly { readonly file: string; readonly line: number }[] {

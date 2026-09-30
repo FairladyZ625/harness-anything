@@ -10,6 +10,8 @@ import { openDispatchStream } from "../src/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 
+import { writeOwnerRoster } from "./role-binding.fixtures.ts";
+
 test("a provider-rejected local resume leaves its source available for another admission", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-resume-rejected-retry-"));
   const definition: AgentDefinitionSnapshot = {
@@ -34,6 +36,7 @@ test("a provider-rejected local resume leaves its source available for another a
       ["commit", "--allow-empty", "-qm", "base"],
     ])
       execFileSync("git", ["-C", root, ...args]);
+    writeOwnerRoster(root, ["fixture"]);
     const writer = openDispatchStream(root, {
       dispatchId,
       taskId: null,

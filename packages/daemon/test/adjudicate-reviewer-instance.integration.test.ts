@@ -13,6 +13,8 @@ import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
+import { writeOwnerRoster } from "./role-binding.fixtures.ts";
+
 const ciBin = mkdtempSync(path.join(tmpdir(), "ha-adjudicate-instance-bin-"));
 const originalPath = process.env.PATH;
 before(() => {
@@ -51,6 +53,7 @@ test("adjudicate --forward pins the reviewer dispatch instance and model", async
   let pid = 9100;
   mkdirSync(root);
   initRepo(root);
+  writeOwnerRoster(root, [binding.actor.principal.personId]);
   const cell = await openRepoCell({
     repoId: workspaceId("adjudicate-instance"),
     rootDir: canonicalRoot(root),

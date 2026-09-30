@@ -23,7 +23,7 @@ export { evaluateTaskActionCapability, taskLifecycleNextActions } from "./task-a
 export { actionDeclarations } from "./action-declaration.ts";
 export { assertAcyclicPolicyGroups, deriveBasePolicyGroups, encodeAuthorizationResource } from "./policy-groups.ts";
 export type { AuthorizationResource, PolicyGroup } from "./policy-groups.ts";
-export { durablePolicyActions } from "./default-policy.ts";
+export { DEFAULT_POLICY, durablePolicyActions } from "./default-policy.ts";
 export { REPLAY_TASK_GRAPH } from "./task-graph.ts";
 export { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle.contract.ts";
 export type { CompleteTaskCommand } from "./task-lifecycle.contract.ts";

@@ -23,6 +23,8 @@ import {
   type WriterEpochFenceDescriptor,
 } from "../src/writer-epoch.ts";
 
+import { withRoleBinding } from "./role-binding.fixtures.ts";
+
 const seededSettings = new Set<string>();
 
 function settingsBase(rootDir: string): string {
@@ -148,23 +150,24 @@ export const openBootstrappedRepoCell: typeof openProductRepoCell = async (input
 };
 
 function authorizeFixtureCell(cell: RepoCell): RepoCell {
+  const explicitIdentity = (binding: RepoCellBinding): RepoCellBinding =>
+    binding.roleBindings?.length || binding.assignmentScope || binding.keycloakAuthorization
+      ? binding
+      : withRoleBinding(binding, "owner");
   return new Proxy(cell, {
     get(target, property, receiver) {
-      if (property !== "run") return Reflect.get(target, property, receiver) as unknown;
-      return (action: Readonly<Record<string, unknown>> & { readonly kind: string }, binding: RepoCellBinding) =>
-        target.run(action, {
-          ...binding,
-          authorizationDecision: {
-            policyRef: "keycloak-policy@1",
-            actor: binding.actor,
-            subject: "settings/repository",
-            bindingsUsed: [{ authority: "keycloak", scope: action.kind }],
-            outcome: "allowed",
-            reasonCodes: ["keycloak_allowed"],
-            nextActions: [],
-            evaluatedAtCut: "fixture:keycloak",
-          },
-        });
+      if (property === "run")
+        return (...[action, binding]: Parameters<RepoCell["run"]>) => target.run(action, explicitIdentity(binding));
+      if (property === "spawnRuntime")
+        return (...[payload, binding]: Parameters<RepoCell["spawnRuntime"]>) =>
+          target.spawnRuntime(payload, explicitIdentity(binding));
+      if (property === "cancelRuntime")
+        return (...[payload, binding]: Parameters<RepoCell["cancelRuntime"]>) =>
+          target.cancelRuntime(payload, explicitIdentity(binding));
+      if (property === "presetRun")
+        return (...[action, binding]: Parameters<RepoCell["presetRun"]>) =>
+          target.presetRun(action, explicitIdentity(binding));
+      return Reflect.get(target, property, receiver) as unknown;
     },
   });
 }

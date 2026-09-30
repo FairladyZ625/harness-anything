@@ -20,6 +20,8 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { TASK_WIP_LIMIT_ENV } from "../src/task-wip-settings.ts";
 
+import { writeOwnerRoster } from "./role-binding.fixtures.ts";
+
 const definition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",
   configVersion: 1,
@@ -47,6 +49,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
     git(root, "config", "user.name", "Spawn Test");
     git(root, "config", "user.email", "spawn@example.invalid");
     git(root, "commit", "--allow-empty", "-qm", "base");
+    writeOwnerRoster(root, ["person-spawn"]);
     let launched: unknown,
       intentWasDurable = false,
       observerSawUnknown = false,
@@ -490,6 +493,7 @@ test(
       pids: number[] = [];
     try {
       initIngressRepo(root, 4310);
+      writeOwnerRoster(root, ["person-cancel-tree"]);
       cell = await openRepoCell({
         repoId: workspaceId(repoId),
         rootDir: canonicalRoot(root),
@@ -613,6 +617,7 @@ test("dispatch reclaims an orphaned task lease instead of requiring a manual rel
   let clock = "2026-09-11T00:00:00.000Z";
   try {
     initIngressRepo(root, 4313);
+    writeOwnerRoster(root, ["person-orphan-lease", "person-orphan-stranger"]);
     const cell = await openRepoCell({
       repoId: workspaceId("runtime-orphan-lease"),
       rootDir: canonicalRoot(root),
@@ -755,6 +760,7 @@ test("runtime dispatch of a planned task is rejected at a full worktable", async
   let launchCount = 0;
   try {
     initIngressRepo(root, 4312);
+    writeOwnerRoster(root, ["person-wip-full"]);
     const cell = await openRepoCell({
       repoId: workspaceId("runtime-wip-full"),
       rootDir: canonicalRoot(root),

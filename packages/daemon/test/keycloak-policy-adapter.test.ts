@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { actionDeclarations } from "@harness-anything/kernel";
+import { actionDeclarations, deriveBasePolicyGroups } from "@harness-anything/kernel";
 import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
 import { authorizeRepoCellAction, evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
 
@@ -14,32 +14,42 @@ test("sync derives every Keycloak scope and four composite Base roles from decla
     policies = new Map<string, { id: string; name: string }>(),
     permissions = new Set<string>();
   const fetchPort = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
-    const url = String(input),
+    const url = new URL(String(input)).pathname,
       body = init?.body ? (JSON.parse(String(init.body)) as { name?: string }) : null;
-    if (url.includes("/clients?clientId=")) return Response.json([{ id: "client-1" }]);
+    if (url.endsWith("/clients")) return Response.json([{ id: "client-1" }]);
     if (url.endsWith("/authz/resource-server/scope")) {
       if (init?.method === "POST" && body?.name) scopes.add(body.name);
       return init?.method === "POST"
-        ? new Response(null, { status: 201 })
+        ? Response.json({ id: `generated-${body?.name}`, name: body?.name }, { status: 201 })
         : Response.json([...scopes].map((name) => ({ id: `scope-${name}`, name })));
     }
     if (url.endsWith("/roles")) {
       if (init?.method === "POST" && body?.name) roles.set(body.name, { id: `role-${body.name}`, name: body.name });
-      return init?.method === "POST" ? new Response(null, { status: 201 }) : Response.json([...roles.values()]);
+      return init?.method === "POST"
+        ? new Response(null, { status: 201, headers: { location: `${config.url}${url}/${body?.name}` } })
+        : Response.json([...roles.values()]);
     }
     if (url.includes("/composites")) {
+      const members = JSON.parse(String(init?.body)) as { id: string }[];
+      assert.ok(
+        members.every((member) => [...roles.values()].some((role) => role.id === member.id)),
+        "composites must use actual role ids, not Location role names",
+      );
       composites.push(url);
       return new Response(null, { status: 204 });
     }
+    if (url.includes("/roles/")) return Response.json(roles.get(decodeURIComponent(url.split("/").at(-1)!)));
     if (url.endsWith("/policy/role")) {
       if (init?.method === "POST" && body?.name)
         policies.set(body.name, { id: `policy-${body.name}`, name: body.name });
-      return init?.method === "POST" ? new Response(null, { status: 201 }) : Response.json([...policies.values()]);
+      return init?.method === "POST"
+        ? Response.json({ id: `generated-${body?.name}`, name: body?.name }, { status: 201 })
+        : Response.json([...policies.values()]);
     }
     if (url.endsWith("/permission/scope")) {
       if (init?.method === "POST" && body?.name) permissions.add(body.name);
       return init?.method === "POST"
-        ? new Response(null, { status: 201 })
+        ? Response.json({ id: `generated-${body?.name}`, name: body?.name }, { status: 201 })
         : Response.json([...permissions].map((name) => ({ name })));
     }
     return new Response(null, { status: 404 });
@@ -51,6 +61,51 @@ test("sync derives every Keycloak scope and four composite Base roles from decla
   assert.equal(composites.length, 3);
   assert.equal(policies.size, 3);
   assert.equal(permissions.size, actionDeclarations.length);
+});
+
+test("sync reads complete paginated collections once and does not recreate existing entries", async () => {
+  const groups = deriveBasePolicyGroups(),
+    collections = new Map([
+      ["/scope", actionDeclarations.map(({ policyAction }) => ({ id: `scope-${policyAction}`, name: policyAction }))],
+      [
+        "/roles",
+        [
+          ...Array.from({ length: 100 }, (_, i) => ({ id: `extra-${i}`, name: `extra-${i}` })),
+          ...groups.map(({ id }) => ({ id: `role-${id}`, name: id })),
+        ],
+      ],
+      [
+        "/policy/role",
+        [
+          ...Array.from({ length: 100 }, (_, i) => ({ id: `extra-${i}`, name: `extra-${i}` })),
+          ...groups.filter(({ id }) => id !== "viewer").map(({ id }) => ({ id: `policy-${id}`, name: `base-${id}` })),
+        ],
+      ],
+      [
+        "/permission/scope",
+        groups.flatMap((group) =>
+          group.scopes.map((scope) => ({ id: `permission-${scope}`, name: `base-${group.id}-${scope}` })),
+        ),
+      ],
+    ]),
+    reads = new Map<string, number>(),
+    adapter = new KeycloakPolicyAdapter(config, async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/clients")) return Response.json([{ id: "client-1" }]);
+      if (url.pathname.endsWith("/composites")) return new Response(null, { status: 204 });
+      const entry = [...collections]
+        .sort(([a], [b]) => b.length - a.length)
+        .find(([suffix]) => url.pathname.endsWith(suffix));
+      assert.ok(entry, url.pathname);
+      assert.notEqual(init?.method, "POST", `existing collection entry must not be recreated: ${url}`);
+      const [suffix, items] = entry;
+      assert.equal(url.searchParams.get("max"), "100");
+      const first = Number(url.searchParams.get("first"));
+      reads.set(suffix, (reads.get(suffix) ?? 0) + 1);
+      return Response.json(items.slice(first, first + 100));
+    });
+  assert.deepEqual(await adapter.syncBasePolicy("admin"), { scopeCount: actionDeclarations.length, groupCount: 4 });
+  for (const [suffix, items] of collections) assert.equal(reads.get(suffix), Math.floor(items.length / 100) + 1);
 });
 
 test("online evaluation returns explicit allow and denies unknown, negative, and unavailable scopes", async () => {

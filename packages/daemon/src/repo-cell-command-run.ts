@@ -75,7 +75,7 @@ export function makeRepoCellCommandRunner(context: RepoCellApiContext) {
     if (claimAtPublication) {
       const { executor: _claim, ...unclaimed } = action;
       action = unclaimed as RepoTaskAction;
-    } else {
+    } else if (action.executor != null) {
       const claimRejected = await bindExecutorClaim();
       if (claimRejected) return claimRejected;
     }
