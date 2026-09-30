@@ -913,7 +913,20 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       "--model",
       "review-model",
     ]),
-    reviewDispatchOne = parseThinCommand(["task", "dispatch-review", "task-1", "--execution-id", "exec-1"]);
+    reviewDispatchOne = parseThinCommand(["task", "dispatch-review", "task-1", "--execution-id", "exec-1"]),
+    reviewDispatchFlagOnly = parseThinCommand([
+      "task",
+      "dispatch-review",
+      "--task",
+      "task-1",
+      "--task",
+      "task-2",
+      "--agent",
+      "closeout-reviewer",
+    ]);
+  assert.equal(reviewDispatch.ok, true, JSON.stringify(reviewDispatch));
+  assert.equal(reviewDispatchOne.ok, true, JSON.stringify(reviewDispatchOne));
+  assert.equal(reviewDispatchFlagOnly.ok, true, JSON.stringify(reviewDispatchFlagOnly));
   if (reviewDispatch.ok)
     assert.deepEqual(reviewDispatch.command.action, {
       kind: "task-dispatch-review",
@@ -926,6 +939,12 @@ test("runtime work commands parse into closed daemon facade actions", () => {
       kind: "task-dispatch-review",
       taskIds: ["task-1"],
       executionId: "exec-1",
+    });
+  if (reviewDispatchFlagOnly.ok)
+    assert.deepEqual(reviewDispatchFlagOnly.command.action, {
+      kind: "task-dispatch-review",
+      taskIds: ["task-1", "task-2"],
+      agentId: "closeout-reviewer",
     });
   if (mission.ok)
     assert.deepEqual(mission.command.action, {

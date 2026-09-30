@@ -140,13 +140,15 @@ function parseTaskDispatchReview(
   json: boolean,
   inputs: ThinCliInputDirectory,
 ): ThinParseResult {
-  const first = args[2];
-  if (!nonEmpty(first)) return rejected("missing_field", "Run ha task dispatch-review <task-id>.", json);
-  const f = readFlags("task-dispatch-review", args.slice(3), inputs);
+  const positional = args[2]?.startsWith("--") ? undefined : args[2],
+    f = readFlags("task-dispatch-review", args.slice(positional ? 3 : 2), inputs);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
+  const taskIds = [...(nonEmpty(positional) ? [positional] : []), ...(f.many.get("--task") ?? [])];
+  if (taskIds.length === 0)
+    return rejected("missing_field", "Run ha task dispatch-review <task-id> or --task <task-id>.", json);
   return accepted(rootDir, repoId, json, {
     kind: "task-dispatch-review",
-    taskIds: [first, ...(f.many.get("--task") ?? [])],
+    taskIds,
     ...(f.one.get("--agent") ? { agentId: f.one.get("--agent") } : {}),
     ...(f.one.get("--execution-id") ? { executionId: f.one.get("--execution-id") } : {}),
     ...(f.one.get("--instance") ? { runtimeInstanceId: f.one.get("--instance") } : {}),
