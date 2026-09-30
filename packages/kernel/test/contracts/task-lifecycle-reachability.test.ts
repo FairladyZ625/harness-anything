@@ -231,11 +231,13 @@ function coordinate(snapshot: TaskLifecycleSnapshot): string {
 }
 
 test("every registry-reachable non-terminal task coordinate can reach done without cancellation", (t) => {
-  assert.equal(
-    stateTransition("transition"),
-    null,
-    "the action catalog must not publish a lossy TransitionTask state projection",
-  );
+  for (const actionId of new Set(TASK_LIFECYCLE_TRANSITIONS.map(({ actionId }) => actionId)))
+    if (actionId !== "create")
+      assert.equal(
+        stateTransition(actionId),
+        null,
+        `the action catalog must not publish a lossy ${actionId} state projection`,
+      );
   const root = emptyTaskLifecycleSnapshot(),
     rootKey = coordinate(root),
     snapshots = new Map([[rootKey, root]]),
