@@ -12,7 +12,8 @@ export default {
     await terminal.waitFor();
     await terminal.click();
     await page.keyboard.type("printf '\\e[32mGUI_E2E_COLOUR\\e[0m\\n'\n");
-    await page.getByText("GUI_E2E_COLOUR", { exact: false }).waitFor();
+    // The command echo contains the same marker; only the output line is exactly the marker.
+    await page.getByText("GUI_E2E_COLOUR", { exact: true }).waitFor();
     const family = await terminal
       .locator(".xterm-rows > div")
       .last()

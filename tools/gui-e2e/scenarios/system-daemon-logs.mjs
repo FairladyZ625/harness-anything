@@ -22,7 +22,7 @@ export default {
   description:
     "The System tab keeps its resident daemon log panel at the declared 24rem height, shows real lifecycle rows, and the request kind switch does not fail.",
   async run({ page }) {
-    await page.getByRole("button", { name: /^(?:系统|System)$/u }).click();
+    await page.getByRole("button", { name: /^(?:Daemon 状态|Daemon status)$/u }).click();
     const panel = page.getByTestId("system-daemon-logs");
     await panel.waitFor();
     await page.getByTestId("system-daemon-logs-scope").waitFor();
