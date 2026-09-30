@@ -169,7 +169,7 @@ export function ReadinessBanner({ decision }: { readonly decision: DecisionRow }
     readiness = review?.readiness ?? null;
   if (signal === null || readiness === null)
     return (
-      <p className="rounded-md border border-border bg-surface-raised px-3 py-2 ui-meta text-text-muted">
+      <p className="rounded-xs border border-border bg-surface-raised px-3 py-2 ui-meta text-text-muted">
         {t("views.decisionReview.bannerNotPending")}
       </p>
     );
@@ -187,7 +187,7 @@ export function ReadinessBanner({ decision }: { readonly decision: DecisionRow }
           ? "border-success/40 bg-success/10 text-success"
           : "border-accent/40 bg-accent/10 text-accent";
   return (
-    <div data-testid="decision-review-banner" data-signal={signal} className={`rounded-md border px-3 py-2 ${tone}`}>
+    <div data-testid="decision-review-banner" data-signal={signal} className={`rounded-xs border px-3 py-2 ${tone}`}>
       <p className="ui-meta font-medium">{t(BANNER_KEY[signal], { count })}</p>
       <p className="mt-1 ui-micro opacity-90">
         {t("views.decisionReview.nextStep", {

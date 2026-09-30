@@ -459,12 +459,13 @@ describe("renderer app model", () => {
       ),
     );
 
-    // 完整渲染(2026-08-25 泽宇裁决):全部 35 张卡都在,聚焦卡天然可见,不需要任何点击。
+    // 完整渲染(2026-08-25 泽宇裁决):全部 35 行都在,聚焦行天然可见,不需要任何点击。
     expect(markup.match(/id="decision-card-/gu)).toHaveLength(35);
     expect(markup).toContain(`id="decision-card-${focused.decisionId}"`);
     expect(markup).toContain('data-focused="true"');
     expect(markup).not.toContain('data-testid="decision-pool-more"');
-    expect(markup).toMatch(/proposed\s*·\s*35/);
+    // 分组 chips 的计数与列表同源(proposed 组 35 行);剥掉标签后按文本断言。
+    expect(markup.replace(/<[^>]+>/g, "")).toMatch(/proposed\s*35/);
   });
 
   it("renders the exact proposal surface with human-selected risk and urgency", () => {
