@@ -352,6 +352,40 @@ test("fleet runtime adoption keeps every overview response below the negotiated 
     );
   }));
 
+test("fleet runtime pagination rejects malformed pages and repeated cursors", () =>
+  withRuntime(async ({ store, projection, stream }) => {
+    const base = makeAgentRuntimeReadModel({ store, projection, stream }).overview({ limit: 16 });
+    await assert.rejects(
+      readFleetRuntimeSessionsPaged(async () => ({ ...base, status: "invalid" })),
+      (error: unknown) => (error as { readonly code?: string }).code === "runtime_read_invalid",
+    );
+    await assert.rejects(
+      readFleetRuntimeSessionsPaged(async () => ({ ...base, page: undefined })),
+      (error: unknown) =>
+        (error as { readonly code?: string }).code === "runtime_read_invalid" &&
+        /omitted its page receipt/u.test((error as Error).message),
+    );
+    let repeatedCursorReads = 0;
+    await assert.rejects(
+      readFleetRuntimeSessionsPaged(async (payload) => {
+        repeatedCursorReads += 1;
+        return {
+          ...base,
+          page: {
+            limit: 16,
+            cursor: typeof payload.cursor === "string" ? payload.cursor : null,
+            nextCursor: "runtime-session:repeat",
+            remainingCount: 1,
+          },
+        };
+      }),
+      (error: unknown) =>
+        (error as { readonly code?: string }).code === "runtime_read_invalid" &&
+        /repeated cursor runtime-session:repeat/u.test((error as Error).message),
+    );
+    assert.equal(repeatedCursorReads, 2);
+  }));
+
 test("attach catches up from cursor, gaps require snapshot, and unsupported is typed", async () =>
   withRuntime(async ({ stream, session }) => {
     for (let index = 0; index < 3; index += 1)
