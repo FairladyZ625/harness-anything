@@ -12,15 +12,7 @@ import {
 } from "../model/taskFilters";
 import { t } from "../i18n/index.tsx";
 
-const CLOSEOUTS: (CloseoutReadiness | "all")[] = [
-  "all",
-  "ready",
-  "missing",
-  "incomplete",
-  "failed",
-  "passed",
-  "not_required",
-];
+const CLOSEOUTS: (CloseoutReadiness | "all")[] = ["all", "ready", "missing", "incomplete", "failed", "passed"];
 const FRESHNESS: (Freshness | "all")[] = ["all", "fresh", "stale-but-usable", "unavailable-no-cache"];
 
 function Select<T extends string>({

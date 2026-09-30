@@ -18,7 +18,7 @@ import { DayDigest } from "../src/renderer/components/primitives/DayDigest";
 import { PillFlow } from "../src/renderer/components/primitives/PillFlow";
 import { Tabs } from "../src/renderer/components/primitives/Tabs";
 import { FilterChips } from "../src/renderer/components/primitives/FilterChips";
-import { STATUS_META } from "../src/renderer/components/badges";
+import { CloseoutBadge, STATUS_META } from "../src/renderer/components/badges";
 
 /**
  * 视觉基线 v1 共享原语(gui-visual-language-standard §4,dec_AF44708E CH2)的行为面:
@@ -117,6 +117,14 @@ describe("StatusTag", () => {
     for (const value of Object.values(TONE_COLOR)) {
       expect(value.startsWith("var(--color-")).toBe(true);
     }
+  });
+});
+
+describe("CloseoutBadge", () => {
+  it("does not render outside the closeout stage, while actionable readiness remains visible", () => {
+    expect(renderToStaticMarkup(createElement(CloseoutBadge, { value: "not_required" }))).toBe("");
+    expect(renderToStaticMarkup(createElement(CloseoutBadge, { value: "missing" }))).toContain("Material missing");
+    expect(renderToStaticMarkup(createElement(CloseoutBadge, { value: "ready" }))).toContain("Ready for archiving");
   });
 });
 

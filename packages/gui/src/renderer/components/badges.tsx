@@ -18,7 +18,6 @@ import {
   Lock,
   ClockCounterClockwise,
   WarningCircle,
-  MinusCircle,
   HourglassMedium,
   Seal,
   SealCheck,
@@ -93,21 +92,23 @@ export const STATUS_META: Record<SnapshotStatus, { label: string; color: string;
 // 状态标签的渲染已收敛到 primitives/StatusTag(视觉基线 v1,dec_AF44708E CH2):
 // STATUS_META 仍是状态→{label,color,icon} 的唯一映射,供图例、画布与筛选面板取色。
 
-const CLOSEOUT_META: Record<CloseoutReadiness, { label: string; icon: ReactNode; accent?: boolean; tone?: "danger" }> =
-  {
-    not_required: { ...localizedLabel("components.badges.noNeedCloseUp"), icon: <MinusCircle weight="duotone" /> },
-    missing: { ...localizedLabel("components.badges.materialMissing"), icon: <Seal weight="duotone" /> },
-    incomplete: { ...localizedLabel("components.badges.notFinished"), icon: <HourglassMedium weight="duotone" /> },
-    ready: { ...localizedLabel("components.badges.readyArchiving"), icon: <SealCheck weight="fill" />, accent: true },
-    passed: { ...localizedLabel("components.badges.passed"), icon: <SealCheck weight="duotone" /> },
-    failed: { ...localizedLabel("components.badges.failed"), icon: <SealWarning weight="duotone" />, tone: "danger" },
-  };
+const CLOSEOUT_META: Record<
+  Exclude<CloseoutReadiness, "not_required">,
+  { label: string; icon: ReactNode; accent?: boolean; tone?: "danger" }
+> = {
+  missing: { ...localizedLabel("components.badges.materialMissing"), icon: <Seal weight="duotone" /> },
+  incomplete: { ...localizedLabel("components.badges.notFinished"), icon: <HourglassMedium weight="duotone" /> },
+  ready: { ...localizedLabel("components.badges.readyArchiving"), icon: <SealCheck weight="fill" />, accent: true },
+  passed: { ...localizedLabel("components.badges.passed"), icon: <SealCheck weight="duotone" /> },
+  failed: { ...localizedLabel("components.badges.failed"), icon: <SealWarning weight="duotone" />, tone: "danger" },
+};
 
 export function CloseoutBadge({ value }: { value: CloseoutReadiness }) {
+  if (value === "not_required") return null;
   const meta = CLOSEOUT_META[value];
   if (meta.accent) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-md bg-accent px-2 py-0.5 ui-body font-semibold text-accent-fg">
+      <span className="inline-flex items-center gap-1 rounded-sm bg-accent px-2 py-0.5 ui-body font-semibold text-accent-fg">
         <span className="ui-body">{meta.icon}</span>
         {meta.label}
       </span>
@@ -115,7 +116,7 @@ export function CloseoutBadge({ value }: { value: CloseoutReadiness }) {
   }
   return (
     <span
-      className="inline-flex items-center gap-1 rounded-md bg-surface-raised px-2 py-0.5 ui-body font-medium"
+      className="inline-flex items-center gap-1 rounded-sm bg-surface-raised px-2 py-0.5 ui-body font-medium"
       style={{ color: meta.tone === "danger" ? "var(--color-danger)" : "var(--color-text-muted)" }}
     >
       <span className="ui-body">{meta.icon}</span>
