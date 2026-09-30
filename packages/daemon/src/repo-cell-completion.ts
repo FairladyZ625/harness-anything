@@ -1,3 +1,4 @@
+import { taskPresentationReads } from "./task-presentation-read.ts";
 import { readTaskCompletion } from "./task-completion-read.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -180,7 +181,7 @@ export function taskShowFromProjection(
       );
     return failed(`read:${taskId}`, notFound);
   }
-  const task = read.snapshot.task,
+  const task = taskPresentationReads(projection).read(taskId).snapshot.task,
     execution = read.snapshot.executions.find(
       (candidate) => candidate.iteration === task?.iteration && candidate.submission !== null,
     ),

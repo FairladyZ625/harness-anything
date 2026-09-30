@@ -1,3 +1,4 @@
+import { taskPresentationReads } from "./task-presentation-read.ts";
 import type {
   TaskIndexProjectionRow,
   TaskProjection,
@@ -8,7 +9,6 @@ import { planGoalSummary } from "./dispatch-causal-context.ts";
 import type { TaskQueryCell } from "./repo-cell-task-query.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import {
-  derivedWorkRootStatus,
   emptyScopeCounts,
   scopeStatus,
   workRootWalk,
@@ -38,7 +38,7 @@ export function workListFromProjection(
   projection: TaskProjection,
   input: { readonly all?: boolean; readonly limit?: number },
 ) {
-  const read = projection.readTaskIndex({ activePackagesOnly: true }),
+  const read = taskPresentationReads(projection).readTaskIndex({ activePackagesOnly: true }),
     rows = workRows(read.rows).filter((row) => input.all === true || !isTerminalStatus(row.status));
   return {
     schema: "work-list/v1" as const,
@@ -60,7 +60,7 @@ export interface WorkIndexRow extends WorkListRow {
  * not re-derive the rule (the GUI): `ha work list --all`'s roots, each task assigned by `workRootOf`'s walk.
  */
 export function workIndexFromProjection(projection: TaskProjection) {
-  const read = projection.readTaskIndex({ activePackagesOnly: true }),
+  const read = taskPresentationReads(projection).readTaskIndex({ activePackagesOnly: true }),
     byId = new Map(read.rows.map((row) => [row.taskId, row])),
     works = workRows(read.rows),
     members = new Map(works.map(({ taskId }) => [taskId, [] as string[]]));
@@ -109,7 +109,7 @@ function workRows(rows: readonly TaskIndexProjectionRow[]): WorkListRow[] {
       return {
         taskId: row.taskId,
         title: row.title,
-        status: derivedWorkRootStatus(row, members, true),
+        status: row.status,
         root: row.taskClass === "work" ? "declared" : "derived",
         parentTaskId: row.parentTaskId,
         taskCount: members.length,

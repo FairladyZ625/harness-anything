@@ -176,7 +176,7 @@ test("an unparameterized guiTasks read serves one default-bounded page, never th
 
   const result = queryRead(process.cwd(), projection).guiTasks();
 
-  assert.deepEqual(listCalls, [{ limit: 500 }]);
+  assert.deepEqual(listCalls, [{ limit: 500, presentationStatus: true }]);
   assert.equal(result.rows.length, 500);
   assert.deepEqual(result.page, { limit: 500, cursor: null, nextCursor: "task_page_0499" });
 });
@@ -239,11 +239,11 @@ test("agenda reads one narrow lifecycle page per status and no wide-assembly rea
   const result = queryRead(process.cwd(), projection).agenda();
 
   assert.deepEqual(listCalls, [
-    { status: "active", activePackagesOnly: true, limit: 100, pinnedFirst: true },
-    { status: "blocked", activePackagesOnly: true, limit: 100, pinnedFirst: true },
-    { status: "planned", activePackagesOnly: true, limit: 100, pinnedFirst: true },
-    { status: "submitted", activePackagesOnly: true, limit: 100, pinnedFirst: true },
-    { status: "in_review", activePackagesOnly: true, limit: 100, pinnedFirst: true },
+    { status: "active", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: true },
+    { status: "blocked", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: true },
+    { status: "planned", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: true },
+    { status: "submitted", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: true },
+    { status: "in_review", activePackagesOnly: true, limit: 100, pinnedFirst: true, presentationStatus: true },
   ]);
   assert.deepEqual(decisionCalls, []);
   assert.deepEqual(
@@ -815,6 +815,31 @@ function projectionStub(
     taskRows = options.taskRows ?? [],
     decisionAgendaRows = options.decisionAgenda ?? [];
   return {
+    readTaskIndex: () => ({
+      ...cut,
+      page: null,
+      warnings: [],
+      rows: (taskRows as ReturnType<typeof protocolTaskRow>[]).flatMap((row) =>
+        row.snapshot.task
+          ? [
+              {
+                taskId: row.taskId,
+                title: row.snapshot.task.title,
+                status: row.snapshot.task.status,
+                taskClass: row.snapshot.task.taskClass,
+                parentTaskId: row.snapshot.task.metadata?.parentTaskId ?? null,
+                pinned: row.snapshot.task.pinned,
+                packageDisposition: row.snapshot.task.packageDisposition,
+                packagePath: row.packagePath,
+                updatedAt: row.updatedAt,
+                workKind: null,
+                riskTier: null,
+                urgency: null,
+              },
+            ]
+          : [],
+      ),
+    }),
     list: (query: TaskProjectionListQuery = {}) => {
       options.listCalls?.push(query);
       const selected = query.status

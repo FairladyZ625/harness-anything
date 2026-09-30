@@ -1,10 +1,5 @@
-import {
-  isTerminalStatus,
-  isWorkRoot,
-  type TaskProjection,
-  type TaskIndexProjectionRow,
-  type TaskV2,
-} from "@harness-anything/kernel";
+import { taskPresentationReads } from "./task-presentation-read.ts";
+import { type TaskProjection, type TaskIndexProjectionRow, type TaskV2 } from "@harness-anything/kernel";
 import { canonicalEventSummary, type CanonicalEventSummary } from "./event-summary-read.ts";
 
 const WORKSPACE_EVENT_LIMIT = 120,
@@ -77,7 +72,7 @@ export function workspaceStructureFromProjection(
   projection: TaskProjection,
   input: { readonly rootTaskId: string; readonly limit?: number; readonly cursor?: string },
 ): WorkspaceStructureRead {
-  const read = projection.readTaskIndex({});
+  const read = taskPresentationReads(projection).readTaskIndex({});
   const byId = new Map(read.rows.map((row) => [row.taskId, row]));
   const root = byId.get(input.rootTaskId);
   if (!root) throw new Error(`Workspace root task not found: ${input.rootTaskId}`);
@@ -140,14 +135,11 @@ export function workspaceStructureFromProjection(
     pinned: task.pinned,
     hasChildren: children.has(task.taskId),
   });
-  // The root is presented through the work rule when it is one (the same predicate workRows uses),
-  // so `ha work show` and the GUI scope read agree with `ha work list` on a derived-terminal root.
-  const rootIsWork = isWorkRoot(root.taskClass, root.parentTaskId, children.get(root.taskId)?.length ?? 0);
   return {
     schema: "daemon.workspace-scope/v1",
     ok: true,
     status: read.status,
-    root: row({ ...root, status: derivedWorkRootStatus(root, descendants, rootIsWork) }),
+    root: row(root),
     ancestors: ancestors.map(row),
     goalMaterial: root.packagePath ? { taskId: root.taskId, path: "task_plan.md" } : null,
     counts,
@@ -192,27 +184,6 @@ function workspaceEventSummaries(
 
 export function emptyScopeCounts(): Record<keyof WorkspaceScopeStatusCounts, number> {
   return { done: 0, executing: 0, pending: 0, blocked: 0, planned: 0, cancelled: 0 };
-}
-
-/**
- * dec_mr7v4h6t: a work root's status is a read-side projection of its subtree, never a write. When
- * every member is terminal, at least one done derives done and all cancelled derives cancelled; an
- * open member, an empty subtree, or an already-terminal root keeps the root's own status. The
- * canonical status stays untouched — no execution chain runs on the root.
- */
-export function derivedWorkRootStatus(
-  root: TaskIndexProjectionRow,
-  members: readonly TaskIndexProjectionRow[],
-  isWorkRoot: boolean,
-): TaskIndexProjectionRow["status"] {
-  if (
-    !isWorkRoot ||
-    isTerminalStatus(root.status) ||
-    members.length === 0 ||
-    !members.every(({ status }) => isTerminalStatus(status))
-  )
-    return root.status;
-  return members.some(({ status }) => status === "done") ? "done" : "cancelled";
 }
 
 export function scopeStatus(status: TaskIndexProjectionRow["status"]): keyof WorkspaceScopeStatusCounts {

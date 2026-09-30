@@ -102,7 +102,7 @@ export interface TaskProjection {
   readonly listEntities: (entityKind: string) => readonly EntityProjectionRow[];
   readonly getEntity: (entityKind: string, entityId: string) => EntityProjectionRow | null;
   readonly listPinnedEntities: () => readonly PinnedEntityProjectionRow[];
-  readonly read: (taskId: string) => TaskProjectionRead;
+  readonly read: (taskId: string, presentationStatus?: boolean) => TaskProjectionRead;
   readonly list: (query?: TaskProjectionListQuery) => TaskProjectionListRead;
   readonly readTaskIndex: (
     query?: TaskProjectionListQuery,

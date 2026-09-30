@@ -107,13 +107,13 @@ test("work index assigns every task to the work root ha work list names; nested 
   );
 });
 
-test("a work root's presented status derives from its subtree; an open member keeps the root's own status", () => {
+test("work reads consume the kernel's presented root status while open and childless roots stay open", () => {
   const rows = [
-    task("all-done", null, "planned", "work"),
+    task("all-done", null, "done", "work"),
     task("done-group", "all-done", "done"),
     task("done-leaf", "done-group", "done"),
     task("cancelled-leaf", "all-done", "cancelled"),
-    task("all-cancelled", null, "planned"),
+    task("all-cancelled", null, "cancelled"),
     task("cancelled-leaf-a", "all-cancelled", "cancelled"),
     task("cancelled-leaf-b", "all-cancelled", "cancelled"),
     task("open", null, "planned", "work"),
