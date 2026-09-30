@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { guiHostBridge } from "../gui-transport.ts";
+import { t } from "../i18n/index.tsx";
 
 type RecordValue = Record<string, unknown>;
 
@@ -11,16 +12,22 @@ export function IdentityAccessView() {
   const authCandidate = guiHostBridge()?.auth,
     auth = authCandidate && typeof authCandidate.status === "function" ? authCandidate : undefined,
     [session, setSession] = useState<RecordValue | null>(null),
-    [binding, setBinding] = useState<RecordValue | null>(null),
+    [binding, setBinding] = useState<RecordValue | null | undefined>(undefined),
     [bootstrapRequired, setBootstrapRequired] = useState(false),
     [busy, setBusy] = useState(false),
     [feedback, setFeedback] = useState("");
 
   const refresh = async () => {
     if (!auth) return;
-    const [nextSession, nextBinding] = await Promise.all([auth.status(), auth.bindingStatus()]);
+    const nextSession = await auth.status();
     setSession(nextSession as RecordValue);
-    setBinding(nextBinding as RecordValue);
+    const nextBinding = (await auth.bindingStatus()) as RecordValue;
+    if (nextBinding.configured === false) {
+      setBinding(null);
+      setBootstrapRequired(false);
+      return;
+    }
+    setBinding(nextBinding);
     if (nextBinding && (nextBinding as RecordValue).mode === "managed") {
       const bootstrap = (await auth.bootstrapStatus()) as RecordValue;
       setBootstrapRequired(bootstrap.required === true);
@@ -47,26 +54,29 @@ export function IdentityAccessView() {
       );
   };
 
-  if (!auth) return <p role="alert">身份管理仅在 Electron 桌面应用中可用。</p>;
+  if (!auth) return <p role="alert">{t("identityAccess.electronOnly")}</p>;
   const authenticated = session?.authenticated === true;
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 p-6" data-testid="identity-access-view">
       <header>
-        <h1 className="text-xl font-semibold">身份与存取</h1>
-        <p className="text-sm text-text-muted">Keycloak 是账号、凭据与授权的运行权威。</p>
+        <h1 className="text-xl font-semibold">{t("identityAccess.title")}</h1>
+        <p className="text-sm text-text-muted">{t("identityAccess.description")}</p>
       </header>
 
       <section className="rounded-lg border border-border bg-surface p-4">
-        <h2 className="font-semibold">当前身份</h2>
+        <h2 className="font-semibold">{t("identityAccess.currentIdentity")}</h2>
         <p data-testid="identity-session" className="mt-2 text-sm">
-          {authenticated ? `已登入 · ${String(session?.personId)}` : "尚未登入"}
+          {authenticated
+            ? t("identityAccess.signedInAs", { personId: String(session?.personId) })
+            : t("identityAccess.signedOut")}
         </p>
         <button
           className="mt-3 rounded border border-border px-3 py-1.5"
-          disabled={busy}
+          disabled={busy || (!authenticated && binding?.ready !== true)}
+          title={!authenticated && binding?.ready !== true ? t("identityAccess.signInDisabled") : undefined}
           onClick={() => void run(authenticated ? auth.logout : auth.login)}
         >
-          {authenticated ? "登出" : "使用 Keycloak 登入"}
+          {authenticated ? t("identityAccess.signOut") : t("identityAccess.signIn")}
         </button>
       </section>
 
@@ -77,26 +87,41 @@ export function IdentityAccessView() {
       <section className="rounded-lg border border-border bg-surface p-4">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h2 className="font-semibold">Keycloak 綁定</h2>
-            <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-              <dt>模式</dt>
-              <dd>{String(binding?.mode ?? "—")}</dd>
-              <dt>URL</dt>
-              <dd>{String(binding?.url ?? "—")}</dd>
-              <dt>Realm</dt>
-              <dd>{String(binding?.realm ?? "—")}</dd>
-              <dt>健康</dt>
-              <dd>{binding?.ready === true ? "正常" : "不可用"}</dd>
-              <dt>版本</dt>
-              <dd>{String((binding?.versions as RecordValue | undefined)?.keycloak ?? binding?.version ?? "未知")}</dd>
-            </dl>
+            <h2 className="font-semibold">{t("identityAccess.bindingTitle")}</h2>
+            {binding === null ? (
+              <div className="mt-2 text-sm">
+                <p>{t("identityAccess.unbound")}</p>
+                <p className="text-text-muted">{t("identityAccess.unboundNextStep")}</p>
+              </div>
+            ) : binding ? (
+              <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+                <dt>{t("identityAccess.mode")}</dt>
+                <dd>{String(binding?.mode ?? "—")}</dd>
+                <dt>{t("identityAccess.url")}</dt>
+                <dd>{String(binding?.url ?? "—")}</dd>
+                <dt>{t("identityAccess.realm")}</dt>
+                <dd>{String(binding?.realm ?? "—")}</dd>
+                <dt>{t("identityAccess.health")}</dt>
+                <dd>{binding?.ready === true ? t("identityAccess.healthy") : t("identityAccess.unavailable")}</dd>
+                <dt>{t("identityAccess.version")}</dt>
+                <dd>
+                  {String(
+                    (binding?.versions as RecordValue | undefined)?.keycloak ??
+                      binding?.version ??
+                      t("identityAccess.unknown"),
+                  )}
+                </dd>
+              </dl>
+            ) : (
+              <p className="mt-2 text-sm text-text-muted">{t("identityAccess.loading")}</p>
+            )}
           </div>
           <button
             className="rounded border border-border px-3 py-1.5"
             disabled={busy || binding?.ready !== true}
             onClick={() => void run(auth.openConsole)}
           >
-            在瀏覽器開啟管理控制台
+            {t("identityAccess.openConsole")}
           </button>
         </div>
       </section>
@@ -107,7 +132,7 @@ export function IdentityAccessView() {
         className="self-start rounded border border-border px-3 py-1.5"
         onClick={() => void run(() => auth.configure({ mode: "managed" }))}
       >
-        切換至 Harness 托管 Keycloak
+        {t("identityAccess.useManaged")}
       </button>
       {feedback ? (
         <p role="alert" className="text-sm text-danger">
@@ -137,26 +162,31 @@ function ExternalBindingForm({
   };
   return (
     <form className="rounded-lg border border-border bg-surface p-4" onSubmit={onSubmit}>
-      <h2 className="font-semibold">改接外部 Keycloak</h2>
-      <p className="mt-1 text-sm text-text-muted">連線與 realm 探測成功後才會生效。</p>
+      <h2 className="font-semibold">{t("identityAccess.externalTitle")}</h2>
+      <p className="mt-1 text-sm text-text-muted">{t("identityAccess.externalDescription")}</p>
       <div className="mt-3 grid gap-2 md:grid-cols-3">
         <input
           required
           name="url"
           type="url"
-          placeholder="https://identity.example.com"
+          placeholder={t("identityAccess.urlPlaceholder")}
           className="rounded border border-border bg-bg px-2 py-1.5"
         />
-        <input required name="realm" placeholder="Realm" className="rounded border border-border bg-bg px-2 py-1.5" />
+        <input
+          required
+          name="realm"
+          placeholder={t("identityAccess.realm")}
+          className="rounded border border-border bg-bg px-2 py-1.5"
+        />
         <input
           required
           name="clientId"
-          placeholder="Client ID"
+          placeholder={t("identityAccess.clientId")}
           className="rounded border border-border bg-bg px-2 py-1.5"
         />
       </div>
       <button disabled={busy} className="mt-3 rounded border border-border px-3 py-1.5">
-        驗證並套用
+        {t("identityAccess.applyExternal")}
       </button>
     </form>
   );
@@ -193,32 +223,32 @@ function BootstrapAdminForm({
       onSubmit={onSubmit}
       data-testid="bootstrap-admin-form"
     >
-      <h2 className="font-semibold">建立首位管理員</h2>
-      <p className="mt-1 text-sm text-text-muted">此 realm 尚無 Harness 管理員；建立成功後本入口永久關閉。</p>
+      <h2 className="font-semibold">{t("identityAccess.bootstrapTitle")}</h2>
+      <p className="mt-1 text-sm text-text-muted">{t("identityAccess.bootstrapDescription")}</p>
       <div className="mt-3 grid gap-2 md:grid-cols-2">
         <input
           required
           name="username"
-          placeholder="使用者名稱"
+          placeholder={t("identityAccess.username")}
           className="rounded border border-border bg-bg px-2 py-1.5"
         />
         <input
           required
           name="email"
           type="email"
-          placeholder="Email"
+          placeholder={t("identityAccess.email")}
           className="rounded border border-border bg-bg px-2 py-1.5"
         />
         <input
           required
           name="displayName"
-          placeholder="顯示名稱"
+          placeholder={t("identityAccess.displayName")}
           className="rounded border border-border bg-bg px-2 py-1.5"
         />
         <input
           required
           name="personId"
-          placeholder="Person ID"
+          placeholder={t("identityAccess.personId")}
           className="rounded border border-border bg-bg px-2 py-1.5"
         />
         <input
@@ -226,12 +256,12 @@ function BootstrapAdminForm({
           name="password"
           type="password"
           autoComplete="new-password"
-          placeholder="密碼"
+          placeholder={t("identityAccess.password")}
           className="rounded border border-border bg-bg px-2 py-1.5 md:col-span-2"
         />
       </div>
       <button disabled={busy} className="mt-3 rounded border border-border px-3 py-1.5">
-        建立管理員
+        {t("identityAccess.createAdmin")}
       </button>
     </form>
   );

@@ -32,30 +32,32 @@ export function registerOidcAuthIpc(
     readonly openExternal: (url: string) => Promise<void>;
   },
 ): void {
+  const daemonRequest = async (params: JsonObject) => requireSuccessfulAuthReply(await ports.daemonRequest(params));
   registrar.handle(OIDC_STATUS_CHANNEL, async (event) => {
     assertTrustedIpcSender(event, trustPolicy);
-    return ports.daemonRequest({ operation: "session" });
+    return daemonRequest({ operation: "session" });
   });
   registrar.handle(OIDC_LOGOUT_CHANNEL, async (event) => {
     assertTrustedIpcSender(event, trustPolicy);
-    return ports.daemonRequest({ operation: "logout" });
+    return daemonRequest({ operation: "logout" });
   });
   registrar.handle(OIDC_LOGIN_CHANNEL, async (event) => {
     assertTrustedIpcSender(event, trustPolicy);
-    return systemBrowserLogin(ports);
+    return systemBrowserLogin({ ...ports, daemonRequest });
   });
   registrar.handle(OIDC_BINDING_STATUS_CHANNEL, async (event) => {
     assertTrustedIpcSender(event, trustPolicy);
-    return ports.daemonRequest({ operation: "health" });
+    const reply = await ports.daemonRequest({ operation: "health" });
+    return normalizeBindingStatusReply(reply);
   });
   registrar.handle(OIDC_BOOTSTRAP_STATUS_CHANNEL, async (event) => {
     assertTrustedIpcSender(event, trustPolicy);
-    return ports.daemonRequest({ operation: "bootstrap-status" });
+    return daemonRequest({ operation: "bootstrap-status" });
   });
   registrar.handle(OIDC_BOOTSTRAP_ADMIN_CHANNEL, async (event, rawInput) => {
     assertTrustedIpcSender(event, trustPolicy);
     const input = rawInput as BootstrapAdminInput;
-    return ports.daemonRequest({
+    return daemonRequest({
       operation: "bootstrap-admin",
       username: input.username,
       email: input.email,
@@ -67,19 +69,38 @@ export function registerOidcAuthIpc(
   registrar.handle(OIDC_CONFIGURE_CHANNEL, async (event, rawInput) => {
     assertTrustedIpcSender(event, trustPolicy);
     const input = rawInput as RbacBindingInput;
-    if (input?.mode === "managed") return ports.daemonRequest({ operation: "bootstrap", mode: "managed" });
+    if (input?.mode === "managed") return daemonRequest({ operation: "bootstrap", mode: "managed" });
     if (input?.mode !== "external") throw new Error("Keycloak mode must be managed or external.");
-    return ports.daemonRequest({ mode: input.mode, url: input.url, realm: input.realm, clientId: input.clientId });
+    return daemonRequest({ mode: input.mode, url: input.url, realm: input.realm, clientId: input.clientId });
   });
   registrar.handle(OIDC_OPEN_CONSOLE_CHANNEL, async (event) => {
     assertTrustedIpcSender(event, trustPolicy);
-    const binding = await ports.daemonRequest({ operation: "health" });
+    const binding = await daemonRequest({ operation: "health" });
     if (typeof binding.url !== "string" || typeof binding.realm !== "string")
       throw new Error("Daemon did not return a Keycloak binding.");
     const consoleUrl = `${binding.url.replace(/\/$/u, "")}/admin/${encodeURIComponent(binding.realm)}/console/`;
     await ports.openExternal(consoleUrl);
     return { ok: true };
   });
+}
+
+export function requireSuccessfulAuthReply(reply: JsonObject): JsonObject {
+  if (reply.ok !== false) return reply;
+  const code = typeof reply.code === "string" ? reply.code : "auth_request_failed",
+    explanation =
+      typeof reply.rejectionExplanation === "string"
+        ? reply.rejectionExplanation
+        : "The authentication request failed.";
+  throw Object.assign(new Error(`${code}: ${explanation}`), {
+    code,
+    rejectionExplanation: explanation,
+  });
+}
+
+export function normalizeBindingStatusReply(reply: JsonObject): JsonObject {
+  return reply.ok === false && reply.code === "rbac_not_configured"
+    ? { ok: true, configured: false }
+    : requireSuccessfulAuthReply(reply);
 }
 
 export async function systemBrowserLogin(ports: {
@@ -118,7 +139,7 @@ export async function systemBrowserLogin(ports: {
   try {
     const address = server.address() as AddressInfo,
       redirectUri = `http://127.0.0.1:${address.port}/oidc/callback`,
-      begun = await ports.daemonRequest({ operation: "login-begin", redirectUri });
+      begun = requireSuccessfulAuthReply(await ports.daemonRequest({ operation: "login-begin", redirectUri }));
     if (typeof begun.authorizationUrl !== "string") throw new Error("Daemon did not return an OIDC authorization URL.");
     await ports.openExternal(begun.authorizationUrl);
     const result = await Promise.race([
@@ -131,7 +152,7 @@ export async function systemBrowserLogin(ports: {
           )),
       ),
     ]);
-    return await ports.daemonRequest({ operation: "login-complete", ...result });
+    return requireSuccessfulAuthReply(await ports.daemonRequest({ operation: "login-complete", ...result }));
   } finally {
     if (timeout) clearTimeout(timeout);
     await new Promise<void>((resolve) => server.close(() => resolve()));

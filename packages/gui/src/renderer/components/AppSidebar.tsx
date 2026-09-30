@@ -76,8 +76,9 @@ export function AppSidebar({
   const projectSwitcherAnchor = useRef<HTMLButtonElement>(null);
   const [pinnedOpen, setPinnedOpen] = useState(true);
   const [identity, setIdentity] = useState<{ readonly authenticated: boolean; readonly personId?: string }>({
-    authenticated: false,
-  });
+      authenticated: false,
+    }),
+    [bindingReady, setBindingReady] = useState(false);
   const authCandidate = guiHostBridge()?.auth,
     auth = authCandidate && typeof authCandidate.status === "function" ? authCandidate : undefined;
   const refreshIdentity = () => {
@@ -91,6 +92,13 @@ export function AppSidebar({
     }, consumeKnownError);
   };
   useEffect(refreshIdentity, []);
+  useEffect(() => {
+    if (!auth) return;
+    void auth.bindingStatus().then(
+      (value) => setBindingReady((value as { readonly ready?: boolean }).ready === true),
+      () => setBindingReady(false),
+    );
+  }, []);
   // 当前仓的模式徽标与端点(PLT-EdgeGUI-W3,设计稿 §3.4):端点来自连接表,
   // local 仓挂在隐含本机连接下、无端点,不显示端点行。
   const activeRepo = repos.find((repo) => repo.repoId === activeRepoId) ?? null,
@@ -234,8 +242,14 @@ export function AppSidebar({
       />
       <div className="hidden shrink-0 border-t border-border px-3 py-2.5 md:block">
         <button
-          disabled={!auth}
-          title={identity.authenticated ? "登出 Keycloak" : "登入 Keycloak"}
+          disabled={!auth || (!identity.authenticated && !bindingReady)}
+          title={
+            identity.authenticated
+              ? t("identityAccess.signOut")
+              : bindingReady
+                ? t("identityAccess.signIn")
+                : t("identityAccess.signInDisabled")
+          }
           onClick={() => {
             if (!auth) return;
             void (identity.authenticated ? auth.logout() : auth.login()).then(refreshIdentity, consumeKnownError);
@@ -250,10 +264,10 @@ export function AppSidebar({
           </span>
           <span className="min-w-0">
             <span className="block truncate text-xs text-text">
-              {identity.authenticated ? identity.personId : "尚未登入"}
+              {identity.authenticated ? identity.personId : t("identityAccess.signedOut")}
             </span>
             <span className="block truncate ui-micro text-text-faint">
-              {identity.authenticated ? "Keycloak 身份" : "使用 Keycloak 登入"}
+              {identity.authenticated ? t("identityAccess.keycloakIdentity") : t("identityAccess.signIn")}
             </span>
           </span>
         </button>
