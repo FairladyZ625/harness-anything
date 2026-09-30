@@ -9,7 +9,6 @@ import {
   effectivePolicyGroupScopes,
   encodeAuthorizationResource,
   minimumBasePolicyGroup,
-  type ActionDeclaration,
   type PolicyGroup,
 } from "../../src/domain/policy-groups.ts";
 import type { ActionDeclaration } from "../../src/domain/action-declaration.ts";
