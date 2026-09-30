@@ -38,6 +38,7 @@ import { readCompletionContext, factRetirementAssessment } from "./task-completi
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
 import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";
+import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 
 import {
   acceptedGateWitness,
@@ -137,6 +138,12 @@ export async function prepareSubmissionEvidence(
     steps.push(step);
     if (step.outcome !== "applied") return steps;
   }
+  // Code-doc preparation belongs to submit; gate publication waits for owner forward.
+  if (
+    snapshot.task?.status === "submitted" &&
+    readEffectiveCloseoutGates(cell.projection, snapshot.task.completionGateIds, snapshot.task.closeoutOverrides).review
+  )
+    return steps;
   const refreshed = cell.projection.read(taskId);
   for (const [gateId, evidence] of evidenceByGate)
     if (!acceptedGateWitness(refreshed.snapshot, execution, gateId))

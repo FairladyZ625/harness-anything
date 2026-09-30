@@ -28,6 +28,7 @@ import { runProcessExitAsync } from "../src/process-port.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import type { RepoCellBinding, Snapshot } from "../src/repo-cell-types.ts";
 import { projectionReady } from "../src/repo-cell-settlement.ts";
+import { prepareSubmissionEvidence } from "../src/repo-cell-task-progress.ts";
 
 const actor = { principal: { personId: "owner" }, executor: null } as const;
 const binding = { actor, source: "local" } as RepoCellBinding;
@@ -670,6 +671,76 @@ function automatedEvidence(
     provenance: { source: "runner", adapterId: "local-command", runId, rawResult: `exit ${result === "pass" ? 0 : 1}` },
   };
 }
+
+test("submission preparation reconciles code-doc before deferring gate publication until owner forward", async () => {
+  const { snapshot, execution } = governedFixture(localRequirement("true"));
+  execution.submission = {
+    ...execution.submission!,
+    completionContract: {
+      gates: [
+        localRequirement("true"),
+        {
+          gateId: "code-doc-reconciliation",
+          appliesTo: "code",
+          witness: { adapterId: "code-doc-reconciliation", adapterOptions: {} },
+        },
+      ],
+    },
+  };
+  snapshot.task = {
+    ...snapshot.task!,
+    status: "submitted",
+    currentNode: "implementation",
+    completionGateIds: ["lint", "code-doc-reconciliation"],
+    closeoutOverrides: { review: true },
+  };
+  const read = { snapshot, packagePath: null },
+    published: CompletionEvidenceV1[] = [],
+    reconciled: unknown[] = [],
+    cell = {
+      service: { read: async () => read },
+      projection: { read: () => read, getEntity: () => undefined },
+      lifecycleAction: async (action: unknown) => {
+        reconciled.push(action);
+        return { outcome: "applied", opId: "code-doc" };
+      },
+      publishGateWitness: (
+        _taskId: string,
+        _executionId: string,
+        current: Snapshot,
+        _packagePath: unknown,
+        _binding: unknown,
+        evidence: CompletionEvidenceV1,
+      ) => {
+        compileWitness(current, execution, evidence);
+        published.push(evidence);
+        return { outcome: "applied", opId: "witness" };
+      },
+    } as unknown as RepoCellOperationalContext,
+    collections = new Map([
+      [
+        "lint",
+        {
+          kind: "local-command",
+          submissionDigest: submissionDigest(execution.submission!),
+          cutSha: execution.submission!.commitSha,
+          exitCode: 0,
+          outputDigest: `sha256:${"a".repeat(64)}`,
+          outputTail: "passed",
+        },
+      ],
+    ]);
+  assert.deepEqual(await prepareSubmissionEvidence(cell, "task", execution.executionId, binding, collections), [
+    { outcome: "applied", opId: "code-doc" },
+  ]);
+  assert.deepEqual(reconciled, [
+    { kind: "task-code-doc-reconcile", taskId: "task", paths: execution.submission!.deliverables },
+  ]);
+  assert.equal(published.length, 0);
+  snapshot.task = { ...snapshot.task!, status: "in_review", currentNode: "review" };
+  assert.equal((await prepareSubmissionEvidence(cell, "task", execution.executionId, binding, collections)).length, 2);
+  assert.equal(published.length, 1);
+});
 
 function overrideEvidence(
   execution: SubmittedExecutionRef,
