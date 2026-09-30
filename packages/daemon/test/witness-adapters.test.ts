@@ -672,19 +672,38 @@ function automatedEvidence(
   };
 }
 
-test("submission preparation defers passing evidence until owner forward opens review", async () => {
+test("submission preparation reconciles code-doc before deferring gate publication until owner forward", async () => {
   const { snapshot, execution } = governedFixture(localRequirement("true"));
+  execution.submission = {
+    ...execution.submission!,
+    completionContract: {
+      gates: [
+        localRequirement("true"),
+        {
+          gateId: "code-doc-reconciliation",
+          appliesTo: "code",
+          witness: { adapterId: "code-doc-reconciliation", adapterOptions: {} },
+        },
+      ],
+    },
+  };
   snapshot.task = {
     ...snapshot.task!,
     status: "submitted",
     currentNode: "implementation",
+    completionGateIds: ["lint", "code-doc-reconciliation"],
     closeoutOverrides: { review: true },
   };
   const read = { snapshot, packagePath: null },
     published: CompletionEvidenceV1[] = [],
+    reconciled: unknown[] = [],
     cell = {
       service: { read: async () => read },
       projection: { read: () => read, getEntity: () => undefined },
+      lifecycleAction: async (action: unknown) => {
+        reconciled.push(action);
+        return { outcome: "applied", opId: "code-doc" };
+      },
       publishGateWitness: (
         _taskId: string,
         _executionId: string,
@@ -711,10 +730,15 @@ test("submission preparation defers passing evidence until owner forward opens r
         },
       ],
     ]);
-  assert.deepEqual(await prepareSubmissionEvidence(cell, "task", execution.executionId, binding, collections), []);
+  assert.deepEqual(await prepareSubmissionEvidence(cell, "task", execution.executionId, binding, collections), [
+    { outcome: "applied", opId: "code-doc" },
+  ]);
+  assert.deepEqual(reconciled, [
+    { kind: "task-code-doc-reconcile", taskId: "task", paths: execution.submission!.deliverables },
+  ]);
   assert.equal(published.length, 0);
   snapshot.task = { ...snapshot.task!, status: "in_review", currentNode: "review" };
-  assert.equal((await prepareSubmissionEvidence(cell, "task", execution.executionId, binding, collections)).length, 1);
+  assert.equal((await prepareSubmissionEvidence(cell, "task", execution.executionId, binding, collections)).length, 2);
   assert.equal(published.length, 1);
 });
 

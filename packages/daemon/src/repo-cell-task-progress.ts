@@ -108,12 +108,6 @@ export async function prepareSubmissionEvidence(
     );
   if (!execution?.submission)
     throw cell.cellCodedError("invalid_transition", "Evidence preparation requires a submitted execution.");
-  // A review-required cut awaits owner triage; completion collects its evidence after forward.
-  if (
-    snapshot.task?.status === "submitted" &&
-    readEffectiveCloseoutGates(cell.projection, snapshot.task.completionGateIds, snapshot.task.closeoutOverrides).review
-  )
-    return [];
   const steps: WriteReceipt[] = [],
     gates = completionGateIds(snapshot.task?.completionGateIds ?? [], execution.submission),
     evidenceByGate = evaluateGateEvidence(
@@ -144,6 +138,12 @@ export async function prepareSubmissionEvidence(
     steps.push(step);
     if (step.outcome !== "applied") return steps;
   }
+  // Code-doc preparation belongs to submit; gate publication waits for owner forward.
+  if (
+    snapshot.task?.status === "submitted" &&
+    readEffectiveCloseoutGates(cell.projection, snapshot.task.completionGateIds, snapshot.task.closeoutOverrides).review
+  )
+    return steps;
   const refreshed = cell.projection.read(taskId);
   for (const [gateId, evidence] of evidenceByGate)
     if (!acceptedGateWitness(refreshed.snapshot, execution, gateId))
