@@ -51,6 +51,74 @@ test("decision dispatch-review passes spawn admission and launches once for the 
     const retry = await f.run({ kind: "decision-dispatch-review", decisionId });
     assert.equal(retry.outcome, "applied", JSON.stringify(retry));
     assert.equal(f.launches.length, 1);
+    const first = requested[0]!.payload;
+    f.failPending();
+    await f.awaitOutcome(first.runtimeSessionId);
+    const redispatched = await f.run({ kind: "decision-dispatch-review", decisionId });
+    assert.equal(redispatched.outcome, "applied", JSON.stringify(redispatched));
+    assert.equal(f.launches.length, 2, "an ended session without a review needs a new attempt");
+    const second = f
+      .events()
+      .filter((event) => event.type === "runtime_dispatch_requested")
+      .at(-1)!.payload;
+    assert.notEqual(second.runtimeSessionId, first.runtimeSessionId);
+    const reportRef = `decisions/decision-${decisionId}/artifacts/reports/${second.dispatchId}.md`;
+    const reportPath = path.join(f.root, "harness", reportRef);
+    mkdirSync(path.dirname(reportPath), { recursive: true });
+    writeFileSync(reportPath, "# Review\n\nThe current Decision cut was reviewed.\n");
+    const review = {
+      kind: "decision-review",
+      decisionId,
+      reviewId: `review-${second.dispatchId}`,
+      reviewContentDigest: digest,
+      verdict: "approved",
+      reason: "Independent dispatch review supports acceptance.",
+      findings: [],
+      evidenceChecked: [],
+      reportRef,
+    };
+    await expectCoded(f.run(review), "actor_unauthorized");
+    await expectCoded(
+      f.run({
+        ...review,
+        decisionId: "decision-unrelated",
+        executor: { kind: "agent", id: `runtime-session:${second.runtimeSessionId}` },
+      }),
+      "executor_binding_invalid",
+    );
+    await expectCoded(
+      f.run({
+        ...review,
+        reviewContentDigest: `sha256:${"0".repeat(64)}`,
+        executor: { kind: "agent", id: `runtime-session:${second.runtimeSessionId}` },
+      }),
+      "invalid_transition",
+    );
+    const { kind, decisionId: reviewedDecisionId, ...packet } = review;
+    const packetRef = `decisions/decision-${decisionId}/artifacts/reviews/${second.dispatchId}.json`;
+    mkdirSync(path.dirname(path.join(f.root, "harness", packetRef)), { recursive: true });
+    writeFileSync(path.join(f.root, "harness", packetRef), JSON.stringify(packet));
+    const reviewed = await f.run({
+      kind,
+      decisionId: reviewedDecisionId,
+      fromFile: `harness/${packetRef}`,
+      executor: { kind: "agent", id: `runtime-session:${second.runtimeSessionId}` },
+    });
+    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+    f.failPending();
+    await f.awaitOutcome(second.runtimeSessionId);
+    const registeredRetry = await f.run({ kind: "decision-dispatch-review", decisionId });
+    assert.equal(registeredRetry.outcome, "applied", JSON.stringify(registeredRetry));
+    assert.equal(f.launches.length, 2, "a registered review must keep its ended dispatch idempotent");
+    const accepted = await f.run({
+      kind: "decision-accept",
+      decisionId,
+      reviewId: review.reviewId,
+      expectedDigest: digest,
+      rationale: "Independent review approved this cut.",
+      judgmentOnlyRationale: "The reviewed decision needs no task.",
+    });
+    assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
   } finally {
     await f.close();
   }

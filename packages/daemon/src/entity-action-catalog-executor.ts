@@ -61,6 +61,7 @@ import { attachDecisionReviewerArtifact } from "./reviewer-artifact-publication.
 import { decisionReviewState } from "./decision-review-read.ts";
 import { assertDecisionReviewerIndependent } from "./decision-review-authorization.ts";
 import { reconcileDecisionReviewAwaitAfterWrite } from "./decision-review-awaits.ts";
+import { resolveDecisionReviewAction } from "./repo-cell-action-parse.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 type FactBundle = ReturnType<typeof compileFactWrite>;
@@ -281,6 +282,7 @@ export function makeEntityActionCatalogExecutor(input: {
     binding: RepoCellBinding,
     opId: string,
   ): WriteReceipt => {
+    rawAction = resolveDecisionReviewAction(input.rootDir ?? "", rawAction);
     const authorizationDecision = decisionAuthorization(rawAction, binding, opId, input),
       action = (
         contract.id === "amend"

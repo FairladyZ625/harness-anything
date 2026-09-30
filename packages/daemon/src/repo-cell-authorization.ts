@@ -360,7 +360,10 @@ export function authorizeDurableRepoCellAction(
 export function bindVerifiedExecutorClaim(input: {
   readonly action: RepoTaskAction;
   readonly binding: RepoCellBinding;
-  readonly projection: Pick<TaskProjection, "read" | "readRuntimeSession" | "currentLease" | "readDocument">;
+  readonly projection: Pick<
+    TaskProjection,
+    "read" | "readRuntimeSession" | "readRuntimeDispatch" | "currentLease" | "readDocument"
+  >;
   readonly now: string;
 }): { readonly action: RepoTaskAction; readonly binding: RepoCellBinding } {
   if (!Object.hasOwn(input.action, "executor")) return { action: input.action, binding: input.binding };
@@ -425,6 +428,13 @@ export function bindVerifiedExecutorClaim(input: {
     executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
   };
   // Review identity pins a submitted target, never ordinary write authority.
+  if (action.kind === "decision-review") {
+    const dispatch = input.projection.readRuntimeDispatch(runtimeSessionId),
+      target = dispatch?.payload.reviewTarget;
+    if (dispatch?.payload.role === "reviewer" && target?.kind === "decision" && target.decisionId === action.decisionId)
+      return { action, binding: { ...input.binding, actor: runtimeActor } };
+    throw invalidExecutorBindingFor(input, raw, "The reviewer is not dispatched to this Decision cut.");
+  }
   if (action.kind === "task-review-execution" && taskId !== null && executionId !== null) {
     const target = input.projection
       .read(taskId)
