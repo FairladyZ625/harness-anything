@@ -35,7 +35,7 @@ function decision(decisionId: string): DecisionRow {
   return {
     decisionId,
     title: `决策 ${decisionId}`,
-    state: "active",
+    state: "proposed",
     question: "Q?",
     chosen: [],
     rejected: [],
@@ -192,39 +192,23 @@ describe("EgoNeighborhood standalone reuse (W4)", () => {
   });
 });
 
-/**
- * 详情抽屉的布局契约(2026-08-24 回归):GraphDrawer 是**画布右侧的定宽栏**,
- * 不是底部横条。抽屉 aside 自带 `w-[26rem] shrink-0 border-l`,只有当它与画布
- * 同处一个**行轴**容器时才成立;宿主一旦写成 flex-col,shrink-0 就改为拒绝纵向
- * 收缩 —— 抽屉变成占满整条带宽的底部横条,自身只填 26rem,带内其余部分是纯空区,
- * 同时把画布高度吃掉(实测 1440×900 下画布 828→401;内容一多直接吃到 0)。
- *
- * happy-dom 没有布局引擎量不出像素,所以这里守的是**产生该像素结果的三个结构条件**:
- * 行轴 + 定宽不收缩 + 溢出可滚。像素级前后对比见任务包 artifacts 的 Electron 实测。
- */
+/** 视觉基线 §2.6:画布始终铺满,详情只在选中后以覆盖式共享 Drawer 出现。 */
 describe("detail drawer layout contract", () => {
-  function drawerAndHost(div: HTMLElement) {
-    const drawer = div.querySelector("[data-testid='graph-detail-drawer']") as HTMLElement;
-    return { drawer, host: drawer?.parentElement as HTMLElement };
-  }
-
-  it("docks the drawer on a row axis beside the canvas, never as a bottom band", async () => {
+  it("keeps the canvas full-size and opens an overlay drawer only after selection", async () => {
     const { div, root } = await mount();
-    const { drawer, host } = drawerAndHost(div);
-    expect(drawer).not.toBeNull();
-    // 画布与抽屉是同一个容器的兄弟 —— 该容器决定二者的排布轴。
-    expect(host.querySelector(".react-flow")).not.toBeNull();
-    expect(host.classList.contains("flex")).toBe(true);
-    expect(host.classList.contains("flex-col")).toBe(false);
-    // 定宽 + 不收缩:在行轴上这是「右侧栏」,在列轴上这正是撑出空区的那一条。
-    expect(drawer.classList.contains("shrink-0")).toBe(true);
-    expect(drawer.className).toMatch(/\bw-\[26rem\]/u);
+    expect(div.querySelector("[data-testid='graph-detail-drawer']")).toBeNull();
+    expect(div.querySelector(".react-flow")).not.toBeNull();
+    const focusCard = div.querySelector<HTMLElement>("[data-testid='ego-card']")!;
+    await act(async () => focusCard.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    const drawer = div.querySelector("[data-testid='graph-detail-drawer']")!;
+    expect(drawer.closest("[role='dialog']")?.className).toContain("fixed");
+    expect(div.querySelector(".react-flow")).not.toBeNull();
     await act(async () => {
       root.unmount();
     });
   });
 
-  it("keeps the same docked shape when the node has far more edges than fit", async () => {
+  it("keeps all relationship rows scrollable when the selected node has many edges", async () => {
     const many: RelationEdge[] = Array.from({ length: 60 }, (_, i) => ({
       from: "decision/d1",
       to: `task/t${i}`,
@@ -235,12 +219,10 @@ describe("detail drawer layout contract", () => {
       tasks: Array.from({ length: 60 }, (_, i) => task(`t${i}`, `任务 ${i}`)),
       relations: many,
     });
-    const { drawer, host } = drawerAndHost(div);
-    // 内容量不改变布局形态:仍是行轴右侧栏,不因内容多而改吃画布。
-    expect(host.classList.contains("flex-col")).toBe(false);
-    expect(drawer.classList.contains("shrink-0")).toBe(true);
-    // 溢出走滚动而不是撑高/截断:60 条出边全部进 DOM,一条不少。
-    expect(drawer.classList.contains("overflow-y-auto")).toBe(true);
+    const focusCard = div.querySelector<HTMLElement>("[data-testid='ego-card']")!;
+    await act(async () => focusCard.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    const drawer = div.querySelector("[data-testid='graph-detail-drawer']")!;
+    expect(drawer.closest("[role='dialog']")?.className).toContain("overflow-y-auto");
     expect(drawer.textContent).toContain("60");
     await act(async () => {
       root.unmount();

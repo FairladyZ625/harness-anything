@@ -254,7 +254,8 @@ describe("renderer app model", () => {
     );
 
     expect(markup).toContain("triadic-graph-empty-state");
-    expect(markup).toContain("暂无三元语关系数据");
+    expect(markup).toContain("当前 ledger 没有可投影的 task、decision 或 fact");
+    expect(markup).toContain("⌘K 搜索实体");
   });
 
   it("renders the task plan body from the daemon document projection", async () => {

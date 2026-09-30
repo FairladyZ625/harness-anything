@@ -326,7 +326,9 @@ function EgoNeighborhoodInner({
   }, [canvas]);
 
   // ---- Drawer ----
-  const drawerNodeId = canvas.selectId ?? canvas.focusId;
+  // 视觉基线 v1 §2.6:画布铺满内容区,抽屉只在用户选中节点/边时出现(选中驱动),
+  // 不再随焦点常驻 —— 焦点实体的信息就在画布中央的焦点卡上。
+  const drawerNodeId = canvas.selectId;
 
   const drawerNodesMap = useMemo(() => {
     const map = new Map<string, NodePos>();
@@ -372,9 +374,7 @@ function EgoNeighborhoodInner({
   if (!active) return null;
 
   return (
-    // 行轴:画布吃剩余宽,GraphDrawer 是它右侧的定宽栏(w-[26rem] shrink-0 border-l)。
-    // 写成 flex-col 会把这个侧栏压成底部横条 —— 横条按 shrink-0 占满整条带宽的高度,
-    // 却只填得下 26rem,带内其余部分是纯空区,同时把画布高度吃掉(内容一多吃到 0)。
+    // 画布铺满内容区(§2.6);GraphDrawer 是 fixed 定位的右侧覆盖抽屉,不占布局流。
     <div className="relative flex h-full min-h-0 min-w-0 flex-1">
       <ReactFlow<EgoFlowNode, EgoFlowEdge>
         nodes={displayNodes}

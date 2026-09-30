@@ -42,6 +42,7 @@ const decision = (decisionId: string): DecisionRow =>
   ({
     decisionId,
     title: `决策 ${decisionId}`,
+    state: "proposed",
     question: "Q",
     chosen: [],
     rejected: [],
@@ -178,6 +179,11 @@ it("hands the shared drawer its pin toggle, so the workspace canvas offers the s
     ),
   );
   await act(async () => host.querySelector<HTMLButtonElement>("#workspace-tab-graph")!.click());
+  await act(async () =>
+    host
+      .querySelector<HTMLElement>('.react-flow__node[data-id="root"] [data-testid="ego-card"]')!
+      .dispatchEvent(new MouseEvent("click", { bubbles: true })),
+  );
   const toggle = host.querySelector<HTMLButtonElement>('[data-testid="graph-drawer-pin-toggle-root"]');
   expect(toggle).not.toBeNull();
   expect(toggle!.textContent).toBe("置顶");
