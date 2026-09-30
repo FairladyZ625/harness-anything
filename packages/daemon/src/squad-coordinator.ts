@@ -38,7 +38,13 @@ import {
   type WorkerAttempt,
   type WorkerPlan,
 } from "./squad-leader-decision.ts";
-import { latestSquadStates, squadState, terminal, validSquadRunId, type SquadState } from "./squad-run-state.ts";
+import {
+  ensureSquadRunProjection as ensureRunProjection,
+  squadState,
+  terminal,
+  validSquadRunId,
+  type SquadState,
+} from "./squad-run-state.ts";
 import {
   activePhase,
   detailDto,
@@ -921,15 +927,7 @@ export function makeSquadCoordinator(input: {
   }
 
   function ensureSquadRunProjection(): void {
-    const projection = input.projection();
-    if (projection.squadRunProjectionReady()) return;
-    projection.replaceSquadRuns(
-      [...latestSquadStates(input.rootDir).values()].map((state) => ({
-        squadRunId: state.squadRunId,
-        revision: state.revision,
-        state,
-      })),
-    );
+    ensureRunProjection(input.rootDir, input.projection());
   }
 
   function writeState(state: SquadState): void {

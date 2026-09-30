@@ -5,7 +5,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, wr
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { TaskV2, WriteReceiptDraft } from "@harness-anything/kernel";
+import { makeTaskEventReader, makeTaskProjection, type TaskV2, type WriteReceiptDraft } from "@harness-anything/kernel";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {
@@ -40,6 +40,10 @@ test("attach cancels a rejected Squad child through the task lifecycle writer", 
     "applied",
   );
   await first.close();
+  // Model a coordinator crash after marking dirty and appending its authoritative stream.
+  const projection = makeTaskProjection({ rootDir, eventStore: makeTaskEventReader({ repoId, rootDir }) });
+  projection.markSquadRunProjectionDirty();
+  projection.close();
   openDispatchStream(rootDir, {
     dispatchId: leaderDispatchId,
     taskId: "task-squad-parent",
