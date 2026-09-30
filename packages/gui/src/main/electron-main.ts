@@ -35,6 +35,7 @@ import {
   assertDevRendererUrl,
   createGuiContentSecurityPolicy,
   createPackagedRendererUrl,
+  guiPlatformWindowOptions,
   isNavigableAppDocumentUrl,
   packagedRendererIndexPath,
   resolveGuiPackageRoot,
@@ -54,6 +55,9 @@ export function createMainWindow(): BrowserWindow {
     title: "Harness Anything",
     // 只作用于 Windows/Linux 的窗口与任务栏图标;macOS Dock 走上面的 app.dock.setIcon。
     icon: appIconPath(),
+    // macOS 隐藏系统标题栏,红绿灯嵌进应用自己的顶行(窗口拖拽区见 renderer 侧
+    // styles.css 的 titlebar 规则);其余平台展开为空,参数不变。
+    ...guiPlatformWindowOptions(),
     width: 1440,
     height: 920,
     minWidth: 1120,

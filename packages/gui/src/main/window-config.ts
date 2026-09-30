@@ -21,6 +21,18 @@ export interface GuiWindowOptions {
   readonly webPreferences: GuiWebPreferences;
 }
 
+/**
+ * 平台相关的窗口参数(task_e2786fc223f0a039317cc649d2):仅 darwin 隐藏系统标题栏
+ * (hiddenInset,红绿灯嵌进应用自己的顶行);其余平台返回空对象,窗口参数一个不动。
+ * BrowserWindow 构造点的安全 flag 必须字面内联(check-implementation-contracts
+ * 静态扫描构造点),所以这里只承载平台分叉这一件事。
+ */
+export type GuiPlatformWindowOptions = { readonly titleBarStyle: "hiddenInset" } | Readonly<Record<string, never>>;
+
+export function guiPlatformWindowOptions(platform: NodeJS.Platform = process.platform): GuiPlatformWindowOptions {
+  return platform === "darwin" ? { titleBarStyle: "hiddenInset" } : {};
+}
+
 const defaultDevRendererOrigin = "http://127.0.0.1:5173";
 
 /** dev renderer 只接受 loopback 上的 http 源;端口跟随 dev 脚本经 ELECTRON_RENDERER_URL 传入的地址。 */

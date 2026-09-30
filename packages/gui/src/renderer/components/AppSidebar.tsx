@@ -114,7 +114,7 @@ export function AppSidebar({
     >
       {/* 导航滚动区:侧栏唯一纵向滚动容器;窗口够高时不出现滚动条。 */}
       <div data-testid="app-sidebar-scroll" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-        <div className="flex items-center gap-2 px-3 pt-3 pb-1">
+        <div className="titlebar-drag titlebar-traffic-top flex items-center gap-2 px-3 pt-3 pb-1">
           <span className="font-mono ui-micro font-semibold tracking-wide text-text-muted">HARNESS</span>
           <span
             title={t("components.appSidebar.localModeNotSynchronizedV2MultiTerminal")}
@@ -124,7 +124,7 @@ export function AppSidebar({
             <CloudSlash weight="bold" />
             {t("components.appSidebar.local")}
           </span>
-          <div className="ml-auto">
+          <div className="titlebar-no-drag ml-auto">
             <ThemeToggle />
           </div>
         </div>
