@@ -227,13 +227,26 @@ export function buildCommand(
     const execution = snapshot.executions.find((value) => value.executionId === executionId);
     if (!execution?.submission)
       throw cellCodedError("invalid_transition", `Adjudication requires a submitted execution cut: ${executionId}.`);
+    const reviewId =
+      typeof action.reviewId === "string" && action.reviewId
+        ? action.reviewId
+        : returned
+          ? snapshot.reviews
+              .filter(
+                (review) =>
+                  review.executionId === executionId &&
+                  review.iteration === execution.iteration &&
+                  review.submissionDigest === submissionDigest(execution.submission!),
+              )
+              .at(-1)?.reviewId
+          : undefined;
     return normalizeTaskLifecycleCommand(bound, {
       type: "AdjudicateSubmission",
       taskId,
       executionId,
       decision: forward ? "forward" : "return",
       reason,
-      ...(typeof action.reviewId === "string" && action.reviewId ? { reviewId: action.reviewId } : {}),
+      ...(reviewId ? { reviewId } : {}),
     });
   }
   if (action.kind === "task-review-consent") {

@@ -68,7 +68,7 @@ const workerDiscipline = `# Worker Role
 - Own the bounded implementation or research package you were assigned; do not silently change its goal.
 - Follow task-specific stop conditions and raise one evidence-backed objection when the proposed route conflicts with code or established decisions.
 - Complete proportionate verification, leave a local commit when code changes are requested, and hand back changed paths, evidence, residual risks, and unverified items.
-- When the mission assigns you a task package and you are not a Squad child, your hand-back is that package's \`closeout.md\`: replace every placeholder in its four sections (Summary names the full 40-character delivery commit SHA; Verification carries the before-fix red and after-fix green output you observed; Residual Risk; Same Mechanism Elsewhere), then submit it with \`ha doc sync --submit --task <task-id>\`. Do not restate it in \`artifacts/report.md\`; write a separate report only for material the closeout cannot hold.`;
+- When the mission assigns you a task package and you are not a Squad child, your hand-back is that package's \`closeout.md\`: replace every placeholder in its four sections with human-readable delivery, verification, residual-risk, and same-mechanism evidence. Do not hand-copy delivery SHA, baseline SHA, or production delta: the execution cut and gate calculation freeze those values. Then submit it with \`ha doc sync --submit --task <task-id>\`. Do not restate it in \`artifacts/report.md\`; write a separate report only for material the closeout cannot hold.`;
 
 const commanderDiscipline = `<very_important>
 # Commander Context

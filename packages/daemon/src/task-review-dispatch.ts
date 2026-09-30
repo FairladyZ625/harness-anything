@@ -190,6 +190,9 @@ export function reviewDispatchPrompt(input: {
     `Independently review task ${taskId}, execution ${execution.executionId}, ` + `iteration ${execution.iteration}.`,
     `The exact submission digest is ${submissionDigest(execution.submission!)}; ` +
       `delivery ${JSON.stringify(execution.submission!)}.`,
+    `The execution-frozen delivery baseline is ${JSON.stringify(execution.deliveryBaseline ?? null)}; ` +
+      "treat it and the submission delivery as authoritative. Read the G33 production-delta result for this cut; " +
+      "do not compare either machine-derived value against closeout prose.",
     ...(execution.submission!.artifacts ?? []).map((anchor) =>
       JSON.stringify(
         reviewArtifactRecord(

@@ -406,22 +406,18 @@ test("review-execution without --execution-id derives the sole current submitted
     assert.equal(returnedEvent.payload.execution.state, "submitted");
     assert.equal(returnedEvent.payload.execution.iteration, 0);
     assert.equal(returnedEvent.payload.task.iteration, 0);
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId: firstExecutionId,
-            return: true,
-            reviewId: "review-selection-r1",
-            reason: "Owner accepts the review findings and returns the cut.",
-          },
-          owner,
-        )
-      ).outcome,
-      "applied",
-    );
+    const ownerReturn = (await cell.run(
+      {
+        kind: "task-adjudicate",
+        taskId,
+        executionId: firstExecutionId,
+        return: true,
+        reason: "Owner accepts the review findings and returns the cut.",
+      },
+      owner,
+    )) as Record<string, unknown>;
+    assert.equal(ownerReturn.outcome, "applied", JSON.stringify(ownerReturn));
+    assert.equal(ownerReturn.reviewId, "review-selection-r1");
 
     await cell.run({ kind: "task-start", taskId, executionId: secondExecutionId }, owner);
     writeSelectionCloseout(rootDir, (created as Record<string, unknown>).packagePath);
@@ -470,6 +466,20 @@ test("review-execution without --execution-id derives the sole current submitted
     if (reviewedEvent?.type !== "review_recorded") throw new Error("second review event missing");
     assert.equal(reviewedEvent.payload.review.executionId, secondExecutionId);
     assert.equal(reviewedEvent.payload.review.iteration, 1);
+
+    // An approved cut can still be returned (for example when CI is red); the latest review on the cut is used.
+    const approvedReturn = (await cell.run(
+      {
+        kind: "task-adjudicate",
+        taskId,
+        executionId: secondExecutionId,
+        return: true,
+        reason: "Owner returns an approved cut after red CI.",
+      },
+      owner,
+    )) as Record<string, unknown>;
+    assert.equal(approvedReturn.outcome, "applied", JSON.stringify(approvedReturn));
+    assert.equal(approvedReturn.reviewId, "review-selection-r2");
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

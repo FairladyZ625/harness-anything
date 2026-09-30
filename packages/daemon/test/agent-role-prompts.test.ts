@@ -134,9 +134,9 @@ for (const role of [undefined, "worker"] as const)
   test(`${role ?? "undeclared"} worker hands back through the closeout sections, not a duplicate report`, () => {
     const prompt = assembleUnboundPrompt("Implement the assigned package.", role);
     assert.match(prompt, /hand-back is that package's `closeout\.md`/u);
-    assert.match(prompt, /Summary.*full 40-character delivery commit SHA/su);
-    assert.match(prompt, /Verification.*red.*green/su);
-    assert.match(prompt, /Residual Risk.*Same Mechanism Elsewhere/su);
+    assert.match(prompt, /human-readable delivery, verification, residual-risk, and same-mechanism evidence/su);
+    assert.match(prompt, /Do not hand-copy delivery SHA, baseline SHA, or production delta/u);
+    assert.doesNotMatch(prompt, /full 40-character delivery commit SHA/u);
     assert.match(prompt, /`ha doc sync --submit --task <task-id>`/u);
     assert.match(prompt, /Do not restate it in `artifacts\/report\.md`/u);
   });
