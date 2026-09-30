@@ -71,10 +71,27 @@ export async function dispatchDecisionReview(
       "version_conflict",
       `Decision review content changed: expected=${action.expectedDigest} current=${digest}.`,
     );
-  const key = decisionReviewDispatchKey(decisionId, digest),
-    ids = reviewDispatchIds(cell.input.repoId, key),
+  const baseKey = decisionReviewDispatchKey(decisionId, digest),
     revision = cell.store.readHead()?.revision ?? 0;
-  if (cell.store.readEvent(ids.dispatchOpId) !== null)
+  let attempt = 0,
+    key = reviewAttemptKey(baseKey, attempt),
+    ids = reviewDispatchIds(cell.input.repoId, key),
+    existing = cell.store.readEvent(ids.dispatchOpId);
+  while (
+    existing !== null &&
+    reviewAttemptEnded(cell, ids.runtimeSessionId) &&
+    !current.reviews.some(
+      (review) =>
+        review.reviewContentDigest === digest &&
+        review.actor.executor?.id === `runtime-session:${ids.runtimeSessionId}`,
+    )
+  ) {
+    attempt += 1;
+    key = reviewAttemptKey(baseKey, attempt);
+    ids = reviewDispatchIds(cell.input.repoId, key);
+    existing = cell.store.readEvent(ids.dispatchOpId);
+  }
+  if (existing !== null)
     return {
       outcome: "applied",
       opId: ids.dispatchOpId,

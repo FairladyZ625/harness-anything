@@ -1,3 +1,4 @@
+import { decisionLifecycleProtocolCommands } from "./protocol/daemon-protocol-commands-decision-lifecycle.ts";
 import {
   decisionProposalJsonFields,
   decisionProposalRequiredJsonFields,
@@ -187,4 +188,24 @@ function tryParseJsonObject(source: string): Record<string, unknown> | null {
     consumeKnownError(error);
     return null;
   }
+}
+
+export function resolveDecisionReviewAction(rootDir: string, action: RepoTaskAction): RepoTaskAction {
+  if (action.kind !== "decision-review") return action;
+  const fields = decisionLifecycleProtocolCommands
+    .find((command) => command.id === "decision-review")!
+    .inputs.find((field) => field.name === "--from-file")!.jsonFields!;
+  return resolvePacketAction(rootDir, action, {
+    allowed: fields,
+    required: fields,
+    invalid: (message) => cellCodedError("invalid_command", message),
+    messages: {
+      unsupportedAction: (fields) => `Unsupported Decision review fields: ${fields.join(", ")}.`,
+      parse: "Decision review input must be valid JSON.",
+      object: "Decision review input must be one object.",
+      unsupportedInput: (fields) => `Unsupported Decision review input: ${fields.join(", ")}.`,
+      missingInput: (fields) => `Missing Decision review input: ${fields.join(", ")}.`,
+    },
+    merge: (action, packet) => ({ ...action, ...packet }),
+  });
 }
