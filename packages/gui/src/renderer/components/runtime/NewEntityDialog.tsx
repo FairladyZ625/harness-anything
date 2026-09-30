@@ -25,6 +25,7 @@ export function NewEntityDialog({
   squads,
   busy,
   taken,
+  initialId,
   actionError = null,
   onCancel,
   onCreate,
@@ -34,6 +35,8 @@ export function NewEntityDialog({
   readonly squads: readonly SquadEntityAvailableRow[];
   readonly busy: boolean;
   readonly taken: readonly string[];
+  /** 重新声明修复入口:降级声明的 id 预填并锁定,新声明以同 id 覆盖坏的那份。 */
+  readonly initialId?: string;
   /** 创建被拒(如 instructions 占位符未换)时的原因:就在创建按钮旁显示(标准 §2.5)。 */
   readonly actionError?: string | null;
   readonly onCancel: () => void;
@@ -41,7 +44,7 @@ export function NewEntityDialog({
 }) {
   const [templateId, setTemplateId] = useState<string | null>(null),
     [picked, setPicked] = useState(false),
-    [id, setId] = useState(""),
+    [id, setId] = useState(initialId ?? ""),
     [name, setName] = useState(""),
     [leaderTurnBudget, setLeaderTurnBudget] = useState("");
   const collision = taken.includes(id.trim()),
@@ -143,8 +146,10 @@ export function NewEntityDialog({
               mono
               value={id}
               onChange={setId}
+              disabled={initialId !== undefined}
               placeholder="kebab-case"
             />
+            {initialId !== undefined && <Badge>{t("agentRuntime.redeclareIdLocked")}</Badge>}
             {collision && <Badge status="blocked">{t("agentRuntime.idTaken")}</Badge>}
             {!collision && id.trim() !== "" && !entitySlug(id) && (
               <Badge status="blocked">{t("agentRuntime.idInvalid")}</Badge>

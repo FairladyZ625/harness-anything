@@ -13,11 +13,14 @@ import {
   hasActiveAgentSquadFilters,
   type AgentSquadFilters,
 } from "../model/agentSquadFilters.ts";
+import { formatTime } from "../model/time.ts";
+import { useSettingsQuery } from "../settings-data.ts";
 import { AgentCard, agentDeclarationFrom, agentDraftFrom } from "../components/runtime/AgentCard.tsx";
 import { ActionError } from "../components/runtime/ActionError.tsx";
+import { DegradedEntityCard, type SettingsRoleRef } from "../components/runtime/DegradedEntityCard.tsx";
 import { NewEntityDialog, type NewEntityRequest } from "../components/runtime/NewEntityDialog.tsx";
 import { Badge, Btn, Empty, Hint } from "../components/runtime/parts.tsx";
-import { IdentityRail } from "../components/runtime/RuntimeRail.tsx";
+import { IdentityRail, RoleLabel } from "../components/runtime/RuntimeRail.tsx";
 import { IdentityInspector } from "../components/runtime/RuntimeInspector.tsx";
 import { SquadCard, squadDeclarationFrom, squadDraftFrom } from "../components/runtime/SquadCard.tsx";
 import { SquadCockpit } from "../components/runtime/SquadCockpit.tsx";
@@ -26,12 +29,13 @@ import {
   runtimeSelectionRef,
   useAgentDetail,
   useAgentSquadWorkspace,
+  useRelatedDispatches,
   useSquadDetail,
   type RuntimeSelection,
 } from "../components/runtime/useRuntimeWorkspace.ts";
 
 type Dialog =
-  | { readonly kind: "new-entity"; readonly entity: "agent" | "squad" }
+  | { readonly kind: "new-entity"; readonly entity: "agent" | "squad"; readonly initialId?: string }
   | {
       readonly kind: "dispatch";
       readonly subject: DispatchSubject;
@@ -44,6 +48,10 @@ type Dialog =
 // 入口。派工(agent dispatch / squad launch)从这页发起;settle 后跳会话入口看它跑
 // (session/<id>,可寻址,回撤原路返回)。跨页出口:兼容 Runtime 实例 → Provider,
 // 相关会话 → 会话;页内 Agent↔Squad 互跳同样走可寻址选择,推导航栈。
+//
+// 目录版式(标准 §2.5):页头结论行直说 N 个声明无效并给修复入口;进入页面默认选中
+// 第一个异常项(无异常则第一项);右侧详情按 2.2 文档型——先一行结论(可用否及原因、
+// 被哪些设置/任务引用、最近一次派工结果),再是声明字段。
 export function AgentSquadView({
   repoId,
   tasks,
@@ -59,15 +67,9 @@ export function AgentSquadView({
   readonly onFocusGraph?: (ref: string) => void;
 }) {
   const refSelection = runtimeSelectionFromRef(focusedEntityRef);
-  // inspector 相关会话的检索面:深链选中谁就查谁(agent/squad id 进 daemon 精确
-  // 过滤,再读取命中任务组的全部派工轮次)。
-  const workspace = useAgentSquadWorkspace(
-      repoId,
-      refSelection !== null && (refSelection.type === "agent" || refSelection.type === "squad")
-        ? { kind: refSelection.type, id: refSelection.id }
-        : null,
-    ),
+  const workspace = useAgentSquadWorkspace(repoId),
     catalog = useCatalogSnapshot(repoId),
+    settings = useSettingsQuery(repoId),
     skills = useQuery({
       queryKey: ["agent-skills", repoId],
       queryFn: () => agentEntityClient.listAgentSkills(repoId),
@@ -83,23 +85,50 @@ export function AgentSquadView({
     squadRows = workspace.squads.data ?? [],
     agents = agentRows.filter(isAvailableAgentEntityRow),
     squads = squadRows.filter(isAvailableSquadEntityRow),
+    degradedAgents = agentRows.filter((row) => !isAvailableAgentEntityRow(row)),
+    degradedSquads = squadRows.filter((row) => !isAvailableSquadEntityRow(row)),
+    invalidCount = degradedAgents.length + degradedSquads.length,
     filteredAgentRows = filterAgents(agentRows, squadRows, effectiveFilters),
     filteredSquadRows = filterSquads(squadRows, effectiveFilters),
     filtering = hasActiveAgentSquadFilters(effectiveFilters);
-  // 深链指向的实体可能已被删除(或仍在读取):存在才采用,否则回落首项 Agent、再
+  // 深链指向的实体可能已被删除(或仍在读取):存在才采用(降级行同样可选——它就是
+  // 目录要暴露的异常);否则默认选第一个异常项(§2.5),无异常回落首项 Agent、再
   // 回落首项 Squad——派生选择,不写回导航栈。
+  const entityExists = (type: "agent" | "squad", id: string) =>
+    type === "agent" ? agentRows.some((row) => row.id === id) : squadRows.some((row) => row.id === id);
+  const fallback =
+    (degradedAgents[0] ? { type: "agent", id: degradedAgents[0].id } : null) ??
+    (agents[0] ? { type: "agent", id: agents[0].id } : null) ??
+    (degradedSquads[0] ? { type: "squad", id: degradedSquads[0].id } : null) ??
+    (squads[0] ? { type: "squad", id: squads[0].id } : null);
   const current: RuntimeSelection | null =
-    refSelection?.type === "agent" && agents.some((agent) => agent.id === refSelection.id)
-      ? refSelection
-      : refSelection?.type === "squad" && squads.some((squad) => squad.id === refSelection.id)
+    refSelection?.type === "agent" || refSelection?.type === "squad"
+      ? entityExists(refSelection.type, refSelection.id)
         ? refSelection
-        : agents[0]
-          ? { type: "agent", id: agents[0].id }
-          : squads[0]
-            ? { type: "squad", id: squads[0].id }
-            : null;
-  const agentDetail = useAgentDetail(repoId, current?.type === "agent" ? current.id : null),
-    squadDetail = useSquadDetail(repoId, current?.type === "squad" ? current.id : null);
+        : fallback
+      : fallback;
+  // 相关派工轮次跟随有效选择(含降级行):结论行的「最近一次派工结果」不能因为
+  // 选择是派生的(非深链)就查不到。
+  const { dockRows } = useRelatedDispatches(
+    repoId,
+    current !== null && (current.type === "agent" || current.type === "squad")
+      ? { kind: current.type, id: current.id }
+      : null,
+  );
+  const agentDetail = useAgentDetail(
+      repoId,
+      current?.type === "agent" && agents.some((agent) => agent.id === current.id) ? current.id : null,
+    ),
+    squadDetail = useSquadDetail(
+      repoId,
+      current?.type === "squad" && squads.some((squad) => squad.id === current.id) ? current.id : null,
+    ),
+    currentRow =
+      current === null
+        ? null
+        : current.type === "agent"
+          ? (agentRows.find((row) => row.id === current.id) ?? null)
+          : (squadRows.find((row) => row.id === current.id) ?? null);
   // 过滤命中不含当前选中项时不改派生选择(详情不跳走),只在列表上显形提示 +
   // 一键清除——选中态的裁决权仍在导航栈,过滤只是查看者的镜头。
   const selectionHidden =
@@ -197,6 +226,9 @@ export function AgentSquadView({
   // the identity reads with it.
   const readError = [workspace.overview.error, workspace.agents.error, workspace.squads.error].find(Boolean);
   const catalogsPending = workspace.agents.isPending && workspace.squads.isPending;
+  const firstInvalid =
+    (degradedAgents[0] ? { kind: "agent" as const, id: degradedAgents[0].id } : null) ??
+    (degradedSquads[0] ? { kind: "squad" as const, id: degradedSquads[0].id } : null);
   return (
     <section data-testid="agent-squad-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <header className="flex h-[42px] shrink-0 items-center gap-3 border-b border-border bg-surface-raised px-3.5">
@@ -209,6 +241,35 @@ export function AgentSquadView({
           ▐
         </Btn>
       </header>
+      {/* 页头结论行(标准 §2.5):全部可用一句话带过;有无效声明直说 N 个并给修复入口。 */}
+      <section
+        data-testid="agent-squad-conclusion"
+        className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border px-3.5 py-2"
+      >
+        {invalidCount > 0 ? (
+          <StatusTagLine
+            tone="bad"
+            label={t("agentRuntime.conclusionInvalid", { count: invalidCount })}
+            text={t("agentRuntime.conclusionCounts", { agents: agents.length, squads: squads.length })}
+          >
+            <button
+              type="button"
+              data-testid="agent-squad-conclusion-fix"
+              onClick={() => firstInvalid && onSelectEntity(`${firstInvalid.kind}/${firstInvalid.id}`)}
+              className="rounded border border-status-blocked/40 px-1.5 py-px ui-micro text-status-blocked
+              hover:bg-status-blocked/10"
+            >
+              {t("agentRuntime.conclusionFix")}
+            </button>
+          </StatusTagLine>
+        ) : (
+          <StatusTagLine
+            tone="done"
+            label={t("agentRuntime.conclusionAllHealthy")}
+            text={t("agentRuntime.conclusionCounts", { agents: agents.length, squads: squads.length })}
+          />
+        )}
+      </section>
       {readError !== undefined && (
         <p
           role="alert"
@@ -297,47 +358,82 @@ export function AgentSquadView({
               <Empty>{t(catalogsPending ? "agentRuntime.loading" : "agentRuntime.emptyAgents")}</Empty>
             </>
           ) : current.type === "agent" ? (
-            agentDetail.data ? (
-              <AgentCard
-                detail={agentDetail.data}
-                row={agents.find((agent) => agent.id === current.id) ?? null}
-                squads={squads}
-                instances={workspace.instances}
-                availableSkills={skills.data ?? []}
-                presets={catalog.data?.presets ?? []}
-                busy={workspace.busy}
-                actionError={workspace.error}
-                onSave={(declaration) => void workspace.saveAgent(declaration)}
-                onDispatch={(mission) => void openAgentDispatch(current.id, mission)}
+            isAvailableAgentEntityRow(currentRow) ? (
+              agentDetail.data ? (
+                <>
+                  <EntityConclusion
+                    refs={settingsRoleRefs(settings.data?.values, currentRow.id)}
+                    squads={squads.filter(
+                      (squad) => squad.leader === currentRow.id || squad.workers.includes(currentRow.id),
+                    )}
+                    declaredRole={currentRow.role}
+                    lastDispatch={dockRows[0] ?? null}
+                  />
+                  <AgentCard
+                    detail={agentDetail.data}
+                    row={currentRow}
+                    squads={squads}
+                    instances={workspace.instances}
+                    availableSkills={skills.data ?? []}
+                    presets={catalog.data?.presets ?? []}
+                    busy={workspace.busy}
+                    actionError={workspace.error}
+                    onSave={(declaration) => void workspace.saveAgent(declaration)}
+                    onDispatch={(mission) => void openAgentDispatch(current.id, mission)}
+                    onSelectSquad={(squadId) => onSelectEntity(`squad/${squadId}`)}
+                    onSelectRuntime={(instanceId) => onSelectEntity(`provider/${instanceId}`)}
+                    onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)}
+                    onFocusGraph={onFocusGraph}
+                  />
+                </>
+              ) : (
+                <Empty>{t("agentRuntime.loading")}</Empty>
+              )
+            ) : (
+              <DegradedEntityCard
+                kind="agent"
+                row={currentRow}
+                settingsRefs={settingsRoleRefs(settings.data?.values, currentRow.id)}
+                referencingSquads={squads.filter(
+                  (squad) => squad.leader === currentRow.id || squad.workers.includes(currentRow.id),
+                )}
+                onRedeclare={() => setDialog({ kind: "new-entity", entity: "agent", initialId: currentRow.id })}
                 onSelectSquad={(squadId) => onSelectEntity(`squad/${squadId}`)}
-                onSelectRuntime={(instanceId) => onSelectEntity(`provider/${instanceId}`)}
-                onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)}
-                onFocusGraph={onFocusGraph}
               />
+            )
+          ) : isAvailableSquadEntityRow(currentRow) ? (
+            squadDetail.data ? (
+              <>
+                <SquadConclusion squad={currentRow} lastDispatch={dockRows[0] ?? null} />
+                <SquadCockpit
+                  squad={squadDetail.data}
+                  rows={dockRows.filter((row) => row.squadId === current.id)}
+                  busy={workspace.busy}
+                  onLaunch={() => void openSquadDispatch(current.id)}
+                  onOpenSession={(runtimeSessionId) => onSelectEntity(`session/${runtimeSessionId}`)}
+                />
+                <SquadCard
+                  detail={squadDetail.data}
+                  agents={agents}
+                  busy={workspace.busy}
+                  actionError={workspace.error}
+                  onSave={(declaration) => void workspace.saveSquad(declaration)}
+                  onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)}
+                  onSelectSquad={(squadId) => onSelectEntity(`squad/${squadId}`)}
+                />
+              </>
             ) : (
               <Empty>{t("agentRuntime.loading")}</Empty>
             )
-          ) : squadDetail.data ? (
-            <>
-              <SquadCockpit
-                squad={squadDetail.data}
-                rows={workspace.dockRows.filter((row) => row.squadId === current.id)}
-                busy={workspace.busy}
-                onLaunch={() => void openSquadDispatch(current.id)}
-                onOpenSession={(runtimeSessionId) => onSelectEntity(`session/${runtimeSessionId}`)}
-              />
-              <SquadCard
-                detail={squadDetail.data}
-                agents={agents}
-                busy={workspace.busy}
-                actionError={workspace.error}
-                onSave={(declaration) => void workspace.saveSquad(declaration)}
-                onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)}
-                onSelectSquad={(squadId) => onSelectEntity(`squad/${squadId}`)}
-              />
-            </>
           ) : (
-            <Empty>{t("agentRuntime.loading")}</Empty>
+            <DegradedEntityCard
+              kind="squad"
+              row={currentRow}
+              settingsRefs={[]}
+              referencingSquads={[]}
+              onRedeclare={() => setDialog({ kind: "new-entity", entity: "squad", initialId: currentRow.id })}
+              onSelectSquad={(squadId) => onSelectEntity(`squad/${squadId}`)}
+            />
           )}
         </main>
         {inspector && current !== null && (
@@ -345,7 +441,7 @@ export function AgentSquadView({
             selection={current}
             agents={agents}
             squads={squads}
-            rows={workspace.dockRows}
+            rows={dockRows}
             onSelect={(selection) => onSelectEntity(runtimeSelectionRef(selection))}
             onOpenSession={(runtimeSessionId) => onSelectEntity(`session/${runtimeSessionId}`)}
           />
@@ -358,6 +454,7 @@ export function AgentSquadView({
           squads={squads}
           busy={workspace.busy}
           actionError={workspace.error}
+          initialId={dialog.initialId}
           taken={dialog.entity === "agent" ? agents.map((agent) => agent.id) : squads.map((squad) => squad.id)}
           onCancel={() => setDialog(null)}
           onCreate={(request) => void createEntity(request)}
@@ -390,4 +487,147 @@ export function AgentSquadView({
       )}
     </section>
   );
+}
+
+/** 可用 Agent 的详情结论行(标准 §2.2:结论在上,声明字段在下)。 */
+function EntityConclusion({
+  refs,
+  squads,
+  declaredRole,
+  lastDispatch,
+}: {
+  readonly refs: readonly SettingsRoleRef[];
+  readonly squads: readonly { readonly id: string; readonly name: string; readonly leader: string }[];
+  readonly declaredRole: "worker" | "reviewer" | "commander";
+  readonly lastDispatch: {
+    readonly status: string;
+    readonly taskTitle: string | null;
+    readonly startedAt: string;
+  } | null;
+}) {
+  // 声明角色与被当作什么角色调用:设置键(defaultWorker/…)与 Squad 位次是两处调用面;
+  // 声明与调用不一致时用琥珀标签点出,一致的引用不额外强调。
+  const calledAs: readonly { readonly label: string; readonly role: "worker" | "reviewer" | "commander" }[] = [
+    ...refs.map((ref) => ({ label: `roles.${ref.key}`, role: ref.role })),
+    ...squads.map((squad) => ({
+      label: squad.name,
+      role: squad.leader === declaredRoleLeaderId(squads, squad) ? ("commander" as const) : ("worker" as const),
+    })),
+  ];
+  const mismatch = calledAs.some((call) => call.role !== declaredRole);
+  return (
+    <section
+      data-testid="agent-detail-conclusion"
+      className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xs border border-border bg-surface px-3.5 py-2"
+    >
+      <StatusTagLine tone="done" label={t("agentRuntime.detailAvailable")} />
+      <span className="flex items-center gap-1.5 ui-meta">
+        {t("agentRuntime.declaredRole")}
+        <RoleLabel role={declaredRole} />
+      </span>
+      <span className="flex flex-wrap items-center gap-1.5 ui-meta text-text-muted">
+        {calledAs.length === 0 ? (
+          t("agentRuntime.notReferenced")
+        ) : (
+          <>
+            {t("agentRuntime.calledAsPrefix")}
+            {calledAs.map((call) => (
+              <span key={call.label} className="flex items-center gap-1 rounded-xs border border-border px-1.5 py-px">
+                <span className="font-mono ui-micro">{call.label}</span>
+                <span className="ui-micro text-text-faint">· {roleWord(call.role)}</span>
+              </span>
+            ))}
+          </>
+        )}
+      </span>
+      {mismatch ? (
+        <StatusTagLine
+          tone="wait"
+          label={t("agentRuntime.roleMismatch", {
+            declared: roleWord(declaredRole),
+            called: roleWord(calledAs.find((call) => call.role !== declaredRole)!.role),
+          })}
+        />
+      ) : null}
+      <span className="ml-auto font-mono ui-micro text-text-faint">
+        {lastDispatch === null
+          ? t("agentRuntime.noDispatch")
+          : t("agentRuntime.lastDispatch", {
+              status: lastDispatch.status,
+              task: lastDispatch.taskTitle ?? "",
+              time: formatTime(lastDispatch.startedAt) ?? lastDispatch.startedAt,
+            })}
+      </span>
+    </section>
+  );
+}
+
+/** 可用 Squad 的详情结论行:成员规模与最近一次派工。 */
+function SquadConclusion({
+  squad,
+  lastDispatch,
+}: {
+  readonly squad: {
+    readonly id: string;
+    readonly name: string;
+    readonly leader: string;
+    readonly workers: readonly string[];
+  };
+  readonly lastDispatch: {
+    readonly status: string;
+    readonly taskTitle: string | null;
+    readonly startedAt: string;
+  } | null;
+}) {
+  return (
+    <section
+      data-testid="squad-detail-conclusion"
+      className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xs border border-border bg-surface px-3.5 py-2"
+    >
+      <StatusTagLine tone="done" label={t("agentRuntime.detailAvailable")} />
+      <span className="ui-meta text-text-muted">
+        {t("agentRuntime.memberCount", { count: squad.workers.length + 1 })}
+      </span>
+      <span className="ml-auto font-mono ui-micro text-text-faint">
+        {lastDispatch === null
+          ? t("agentRuntime.noDispatch")
+          : t("agentRuntime.lastDispatch", {
+              status: lastDispatch.status,
+              task: lastDispatch.taskTitle ?? "",
+              time: formatTime(lastDispatch.startedAt) ?? lastDispatch.startedAt,
+            })}
+      </span>
+    </section>
+  );
+}
+
+// Squad 引用行的「被当作什么角色」:leader 位次 = commander。传入的 squads 是引用者
+// 清单,位次判定对每个引用自己的 squad 用它自己的 leader 字段。
+function declaredRoleLeaderId(
+  squads: readonly { readonly leader: string }[],
+  squad: { readonly leader: string },
+): string {
+  return squads.includes(squad as never) ? squad.leader : squad.leader;
+}
+
+const roleWord = (role: "worker" | "reviewer" | "commander"): string =>
+  t(
+    role === "commander"
+      ? "agentRuntime.roleCommander"
+      : role === "reviewer"
+        ? "agentRuntime.roleReviewer"
+        : "agentRuntime.roleWorker",
+  );
+
+const ROLE_REF_KEYS = [
+  { key: "defaultWorker", role: "worker" },
+  { key: "defaultCommander", role: "commander" },
+  { key: "defaultReviewer", role: "reviewer" },
+] as const;
+
+/** 设置读面(values.roles)里引用该实体 id 的角色键——业主关心的「被当作什么角色调用」。 */
+function settingsRoleRefs(values: Readonly<Record<string, unknown>> | undefined, entityId: string): SettingsRoleRef[] {
+  const roles = values?.roles as Partial<Record<(typeof ROLE_REF_KEYS)[number]["key"], string | null>> | undefined;
+  if (roles === undefined) return [];
+  return ROLE_REF_KEYS.filter(({ key }) => roles[key] === entityId).map(({ key, role }) => ({ key, role }));
 }
