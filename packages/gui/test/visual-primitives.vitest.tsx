@@ -139,9 +139,8 @@ describe("DenseRow", () => {
     act(() => root.unmount());
 
     const bare = mount(createElement(DenseRow, { title: "无序号行" }));
-    expect(bare.container.querySelector(".grid")?.className).toContain(
-      "grid-cols-[minmax(3rem,auto)_minmax(0,1fr)_auto]",
-    );
+    // 没有标签就不留标签列,行首不空出缩进。
+    expect(bare.container.querySelector(".grid")?.className).toContain("grid-cols-[minmax(0,1fr)_auto]");
     act(() => bare.root.unmount());
   });
 

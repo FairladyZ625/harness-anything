@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CadenceFeedEvent } from "../src/renderer/model/cadence.ts";
 import type { WorkspaceScopeRead } from "../src/api/renderer-dto.ts";
-import type { FactRef, RelationEdge } from "../src/renderer/model/types.ts";
+import type { DecisionRow, FactRef, RelationEdge } from "../src/renderer/model/types.ts";
 
 /**
  * S6 可读性判据(真实台账下三处读不懂的修后契约),落在原型 v2 的新标签上:
@@ -207,11 +207,148 @@ describe("workspace readability under real ledger shapes", () => {
     );
     act(() => (host.querySelector("#workspace-tab-decisions") as HTMLButtonElement).click());
     const factRow = host.querySelector<HTMLButtonElement>('[data-fact-row="fact/F-7E08BD10"] button')!;
-    // 长无空格串在自己的列内截断,列不被 min-content 顶开;点开看全文。
+    // 长无空格串在自己的列内截断,列不被 min-content 顶开;点行进抽屉看全文。
     expect(factRow.textContent).toContain("GUI 写面 allowlist");
     expect(factRow.querySelector("span.truncate")).not.toBeNull();
     act(() => factRow.click());
+    const detail = host.querySelector('[data-testid="work-fact-detail"]')!;
+    expect(detail.textContent).toContain("完整原文");
+    expect(detail.textContent).toContain(LONG_RUN);
+    act(() => (host.querySelector('[data-testid="work-fact-open-detail"]') as HTMLButtonElement).click());
     expect(onNavigateEntity).toHaveBeenCalledWith("fact/F-7E08BD10");
+    act(() => root.unmount());
+  });
+
+  it("groups facts by owning task, collapses older groups behind one line, and summarizes on top", () => {
+    FEED_EVENTS.length = 0;
+    const sha = "3c6e75936ad4a368edd8be89590ab12c3d4e5f60",
+      members = ["task_a", "task_b", "task_c", "task_d", "task_e"],
+      digestScope = {
+        ...scope(),
+        memberTaskIds: members,
+        tasks: members.map((taskId) => scopeRow(taskId, `组 ${taskId}`)),
+      },
+      digestFacts: FactRef[] = [
+        ...members.map((taskId, index) => ({
+          anchor: `fact/F-${index}`,
+          taskId,
+          category: "finding" as const,
+          text: `At commit ${sha} 后 ${taskId} 门禁绿了;复测三次。`,
+          at: `2026-09-2${members.length - index}T08:00:00.000Z`,
+          confidence: "high" as const,
+        })),
+        { ...facts[0]!, anchor: "fact/F-related", taskId: undefined, at: "2026-09-30T12:00:00.000Z" },
+      ],
+      // 无任务归属的事实由关系边连入工作,否则读面收束时会被过滤。
+      digestRelations: RelationEdge[] = [
+        ...relations,
+        {
+          relationId: "rel-related",
+          from: "task/task_a",
+          to: "fact/F-related",
+          kind: "produces",
+          provenance: "local-document",
+        },
+      ],
+      host = document.createElement("div"),
+      root = createRoot(host);
+    act(() =>
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <WorkspaceView
+            scope={digestScope}
+            repoId="harness-anything"
+            projectName="harness-anything"
+            facts={digestFacts}
+            relations={digestRelations}
+            onOpenTask={() => {}}
+          />
+        </QueryClientProvider>,
+      ),
+    );
+    act(() => (host.querySelector("#workspace-tab-decisions") as HTMLButtonElement).click());
+    // 顶部摘要:条数、任务数、最近一条。
+    expect(host.textContent).toContain("6 条事实，来自 5 个任务");
+    // 6 组只展开最近 3 组,其余收进一行「更早 3 组 · 展开」。
+    expect(host.querySelectorAll("[data-fact-group]")).toHaveLength(3);
+    const older = host.querySelector<HTMLButtonElement>('[data-testid="work-facts-older-toggle"]')!;
+    expect(older.textContent).toContain("更早 3 组 · 展开");
+    act(() => older.click());
+    expect(host.querySelectorAll("[data-fact-group]")).toHaveLength(6);
+    // 组标题用任务标题;行只露结论句,40 位 SHA 缩到 7 位。
+    expect(host.querySelector('[data-fact-group="task_a"]')!.textContent).toContain("组 task_a");
+    const row = host.querySelector<HTMLButtonElement>('[data-fact-row="fact/F-0"] button')!;
+    expect(row.textContent).toContain("task_a 门禁绿了");
+    expect(row.textContent).toContain(sha.slice(0, 7));
+    expect(row.textContent).not.toContain(sha);
+    act(() => root.unmount());
+  });
+
+  it("segments decisions by state and keeps the page search on the decisions tab", () => {
+    FEED_EVENTS.length = 0;
+    const decision = (decisionId: string, state: DecisionRow["state"], title: string): DecisionRow =>
+        ({
+          decisionId,
+          title,
+          state,
+          question: "承重选择",
+          chosen: [],
+          rejected: [],
+          claims: [],
+          judgmentConsents: [],
+          capabilities: {},
+          claimsOpen: state === "proposed",
+          lastChangedAt: "2026-09-29T08:00:00.000Z",
+        }) as DecisionRow,
+      host = document.createElement("div"),
+      root = createRoot(host);
+    act(() =>
+      root.render(
+        <QueryClientProvider client={new QueryClient()}>
+          <WorkspaceView
+            scope={scope()}
+            repoId="harness-anything"
+            projectName="harness-anything"
+            facts={facts}
+            relations={[
+              ...relations,
+              // 工作成员与这三条 Decision 有边,决策才进「决策与事实」的口径。
+              ...(["dec_effect", "dec_old", "dec_old2"] as const).map((decisionId) => ({
+                relationId: `rel-${decisionId}`,
+                from: `task/${MEMBER}`,
+                to: `decision/${decisionId}`,
+                kind: "derives",
+                provenance: "local-document",
+              })),
+            ]}
+            decisions={[
+              decision("dec_effect", "in_effect", "生效中的决策"),
+              decision("dec_old", "superseded", "已取代的决策"),
+              decision("dec_old2", "rejected", "已否决的决策"),
+            ]}
+            onOpenTask={() => {}}
+          />
+        </QueryClientProvider>,
+      ),
+    );
+    act(() => (host.querySelector("#workspace-tab-decisions") as HTMLButtonElement).click());
+    // 生效中平铺;已退场折叠成一行计数,点开才平铺。
+    expect(host.textContent).toContain("生效中");
+    expect(host.textContent).toContain("生效中的决策");
+    expect(host.textContent).not.toContain("已取代的决策");
+    const retired = host.querySelector<HTMLButtonElement>('[data-testid="work-decisions-retired-toggle"]')!;
+    expect(retired.textContent).toContain("2 条已退场 · 展开");
+    act(() => retired.click());
+    expect(host.textContent).toContain("已取代的决策");
+    // 页内搜索停在决策与事实页,命中事实原文(不只结论句)。
+    const search = host.querySelector<HTMLInputElement>('[data-testid="workspace-search"]')!;
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, LONG_RUN);
+      search.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(host.querySelector("#workspace-tab-decisions")!.getAttribute("aria-selected")).toBe("true");
+    expect(host.querySelector('[data-fact-row="fact/F-7E08BD10"]')).not.toBeNull();
+    expect(host.querySelector('[data-testid="work-facts-older-toggle"]')).toBeNull();
     act(() => root.unmount());
   });
 
