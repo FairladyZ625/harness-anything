@@ -39,6 +39,19 @@ const streamMethods: ReadonlySet<string> = new Set(daemonGuiStreamFacets.map(({ 
 const actionMethods: ReadonlySet<string> = new Set(
   daemonGuiActionMethods.map(({ guiBridgeMethod }) => guiBridgeMethod),
 );
+const electronInvokeErrorPrefix = /^Error invoking remote method '[^']+': Error: /u;
+
+async function invoke(channel: string, payload: unknown): Promise<unknown> {
+  try {
+    return await ipcRenderer.invoke(channel, payload);
+  } catch (cause) {
+    if (!(cause instanceof Error)) throw cause;
+    const message = cause.message.replace(electronInvokeErrorPrefix, "");
+    if (message === cause.message) throw cause;
+    throw new Error(message);
+  }
+}
+
 const exposedApi = Object.fromEntries(
   preloadAllowlist
     .filter((method) => !streamMethods.has(method) && !actionMethods.has(method))
@@ -46,52 +59,52 @@ const exposedApi = Object.fromEntries(
       method,
       (payload: unknown = null) => {
         assertPreloadPayload(method, payload);
-        return ipcRenderer.invoke(`harness:${method}`, payload);
+        return invoke(`harness:${method}`, payload);
       },
     ]),
 ) as Record<PreloadApiMethod, (payload?: unknown) => Promise<unknown>>;
 const exposedHarnessApi = {
   request: (method: string, payload: unknown = null) => {
     assertPreloadPayload(method, payload);
-    return ipcRenderer.invoke(`harness:${method}`, payload);
+    return invoke(`harness:${method}`, payload);
   },
   ...exposedApi,
   ...agentRuntimePreloadApi(ipcRenderer),
   firstRun: {
-    chooseRepository: () => ipcRenderer.invoke(FIRST_RUN_CHOOSE_CHANNEL, null),
-    bootstrap: (input) => ipcRenderer.invoke(FIRST_RUN_BOOTSTRAP_CHANNEL, input),
+    chooseRepository: () => invoke(FIRST_RUN_CHOOSE_CHANNEL, null),
+    bootstrap: (input) => invoke(FIRST_RUN_BOOTSTRAP_CHANNEL, input),
   } satisfies FirstRunApi,
   artifacts: {
-    openExternal: (input) => ipcRenderer.invoke(ARTIFACT_OPEN_EXTERNAL_CHANNEL, input),
+    openExternal: (input) => invoke(ARTIFACT_OPEN_EXTERNAL_CHANNEL, input),
   } satisfies ArtifactOpenApi,
   // GUI 内读本机文档(task_89d324b5)与写回 SKILL.md(task_5dfe382f):主进程收窄见 main/local-doc-ipc.ts。
   localDoc: {
-    read: (input) => ipcRenderer.invoke(LOCAL_DOC_READ_CHANNEL, input),
-    write: (input) => ipcRenderer.invoke(LOCAL_DOC_WRITE_CHANNEL, input),
+    read: (input) => invoke(LOCAL_DOC_READ_CHANNEL, input),
+    write: (input) => invoke(LOCAL_DOC_WRITE_CHANNEL, input),
   } satisfies LocalDocApi,
   // Settings → 仓库与连接(PLT-EdgeGUI-W3):连接/仓库 admin,主进程收窄见 main/connection-admin-ipc.ts。
   connections: {
-    status: () => ipcRenderer.invoke(CONNECTION_STATUS_CHANNEL, null),
-    probe: (input) => ipcRenderer.invoke(CONNECTION_PROBE_CHANNEL, input),
-    register: (input) => ipcRenderer.invoke(CONNECTION_REGISTER_CHANNEL, input),
-    update: (input) => ipcRenderer.invoke(CONNECTION_UPDATE_CHANNEL, input),
-    unregister: (input) => ipcRenderer.invoke(CONNECTION_UNREGISTER_CHANNEL, input),
+    status: () => invoke(CONNECTION_STATUS_CHANNEL, null),
+    probe: (input) => invoke(CONNECTION_PROBE_CHANNEL, input),
+    register: (input) => invoke(CONNECTION_REGISTER_CHANNEL, input),
+    update: (input) => invoke(CONNECTION_UPDATE_CHANNEL, input),
+    unregister: (input) => invoke(CONNECTION_UNREGISTER_CHANNEL, input),
   } satisfies ConnectionAdminApi,
   repoAdmin: {
-    register: (input) => ipcRenderer.invoke(REPO_REGISTER_CHANNEL, input),
-    update: (input) => ipcRenderer.invoke(REPO_UPDATE_CHANNEL, input),
-    unregister: (input) => ipcRenderer.invoke(REPO_UNREGISTER_CHANNEL, input),
-    inspectWorkspace: (input) => ipcRenderer.invoke(WORKSPACE_INSPECT_CHANNEL, input),
+    register: (input) => invoke(REPO_REGISTER_CHANNEL, input),
+    update: (input) => invoke(REPO_UPDATE_CHANNEL, input),
+    unregister: (input) => invoke(REPO_UNREGISTER_CHANNEL, input),
+    inspectWorkspace: (input) => invoke(WORKSPACE_INSPECT_CHANNEL, input),
   } satisfies RepoAdminApi,
   auth: {
-    login: () => ipcRenderer.invoke(OIDC_LOGIN_CHANNEL, null),
-    logout: () => ipcRenderer.invoke(OIDC_LOGOUT_CHANNEL, null),
-    status: () => ipcRenderer.invoke(OIDC_STATUS_CHANNEL, null),
-    bindingStatus: () => ipcRenderer.invoke(OIDC_BINDING_STATUS_CHANNEL, null),
-    openConsole: () => ipcRenderer.invoke(OIDC_OPEN_CONSOLE_CHANNEL, null),
-    configure: (input) => ipcRenderer.invoke(OIDC_CONFIGURE_CHANNEL, input),
-    bootstrapStatus: () => ipcRenderer.invoke(OIDC_BOOTSTRAP_STATUS_CHANNEL, null),
-    bootstrapAdmin: (input) => ipcRenderer.invoke(OIDC_BOOTSTRAP_ADMIN_CHANNEL, input),
+    login: () => invoke(OIDC_LOGIN_CHANNEL, null),
+    logout: () => invoke(OIDC_LOGOUT_CHANNEL, null),
+    status: () => invoke(OIDC_STATUS_CHANNEL, null),
+    bindingStatus: () => invoke(OIDC_BINDING_STATUS_CHANNEL, null),
+    openConsole: () => invoke(OIDC_OPEN_CONSOLE_CHANNEL, null),
+    configure: (input) => invoke(OIDC_CONFIGURE_CHANNEL, input),
+    bootstrapStatus: () => invoke(OIDC_BOOTSTRAP_STATUS_CHANNEL, null),
+    bootstrapAdmin: (input) => invoke(OIDC_BOOTSTRAP_ADMIN_CHANNEL, input),
   } satisfies OidcAuthApi,
   capabilities: preloadApiCapabilities,
 };
