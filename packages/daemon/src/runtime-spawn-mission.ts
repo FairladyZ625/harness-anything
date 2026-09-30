@@ -171,13 +171,16 @@ export function resolveRuntimeInstanceCandidates(input: {
   for (const session of input.sessions)
     if (session.liveness === "live" && active.has(session.instanceId))
       active.set(session.instanceId, (active.get(session.instanceId) ?? 0) + 1);
-  const providerPriority = input.agent?.fallback?.providerPriority ?? [];
-  const providerRank = new Map(providerPriority.map((provider, index) => [provider, index]));
+  const providerPriority = input.agent?.fallback?.providerPriority,
+    providerRank = new Map(providerPriority?.map((provider, index) => [provider, index])),
+    runtimeRank = new Map(declaredTargets?.map((target, index) => [target.type, index]));
   return [...ready]
     .sort(
       (a, b) =>
-        (providerRank.get(a.providerId) ?? providerPriority.length) -
-          (providerRank.get(b.providerId) ?? providerPriority.length) ||
+        (providerPriority === undefined
+          ? (runtimeRank.get(a.kindId) ?? runtimeRank.size) - (runtimeRank.get(b.kindId) ?? runtimeRank.size)
+          : (providerRank.get(a.providerId) ?? providerPriority.length) -
+            (providerRank.get(b.providerId) ?? providerPriority.length)) ||
         (active.get(a.instanceId) ?? 0) - (active.get(b.instanceId) ?? 0) ||
         a.instanceId.localeCompare(b.instanceId),
     )
