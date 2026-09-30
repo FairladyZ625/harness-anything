@@ -210,11 +210,7 @@ export function GraphFilterPanel({
         : t("components.graphFilterPanel.flowFocus");
 
   return (
-    <div
-      className={`flex flex-col rounded-lg border border-border bg-surface shadow-sm pointer-events-auto ${
-        open ? "gap-3 w-[300px]" : ""
-      }`}
-    >
+    <div className={`glass pointer-events-auto flex flex-col rounded-sm ${open ? "gap-3 w-[300px]" : ""}`}>
       <div className={`flex items-center ${open ? "border-b border-border" : ""}`}>
         <button
           type="button"
@@ -225,7 +221,7 @@ export function GraphFilterPanel({
               : t("components.graphFilterPanel.expandFilterPanel")
           }
           className={`flex flex-1 items-center gap-2 px-3 py-2 text-left hover:bg-surface-raised ${
-            open ? "rounded-t-lg" : "rounded-l-lg"
+            open ? "rounded-t-sm" : "rounded-l-sm"
           }`}
         >
           {open ? (
@@ -244,7 +240,7 @@ export function GraphFilterPanel({
           onClick={cycleFlow}
           title={t("components.graphFilterPanel.flowToggleHint")}
           className={`flex items-center gap-1 border-l border-border px-2.5 py-2 ui-micro font-mono text-text-muted hover:bg-surface-raised hover:text-text ${
-            open ? "rounded-tr-lg" : "rounded-r-lg"
+            open ? "rounded-tr-sm" : "rounded-r-sm"
           }`}
         >
           <WaveSine weight="bold" className="ui-meta" />
@@ -268,7 +264,7 @@ export function GraphFilterPanel({
                   key={axis}
                   onClick={() => toggleAxis(axis)}
                   title={AXIS_SUBLABEL[axis]}
-                  className={`flex items-center gap-2 rounded-md px-2 py-1.5 text-left ui-micro transition-colors ${
+                  className={`flex items-center gap-2 rounded-xs px-2 py-1.5 text-left ui-micro transition-colors ${
                     active
                       ? "border border-border bg-surface-raised text-text"
                       : "border border-border/40 bg-surface text-text-faint opacity-60"
@@ -294,13 +290,13 @@ export function GraphFilterPanel({
             <span className="ml-auto flex gap-1 normal-case tracking-normal">
               <button
                 onClick={() => setAllKinds(true)}
-                className="rounded px-1 py-0.5 ui-micro text-text-faint hover:bg-surface-raised hover:text-text"
+                className="rounded-xs px-1 py-0.5 ui-micro text-text-faint hover:bg-surface-raised hover:text-text"
               >
                 {t("components.graphFilterPanel.kindsAll")}
               </button>
               <button
                 onClick={() => setAllKinds(false)}
-                className="rounded px-1 py-0.5 ui-micro text-text-faint hover:bg-surface-raised hover:text-text"
+                className="rounded-xs px-1 py-0.5 ui-micro text-text-faint hover:bg-surface-raised hover:text-text"
               >
                 {t("components.graphFilterPanel.kindsNone")}
               </button>
@@ -359,7 +355,7 @@ export function GraphFilterPanel({
                     key={kind}
                     data-testid={`graph-filter-entity-type-${kind}`}
                     onClick={() => toggleType(kind)}
-                    className={`rounded-md px-2 py-1 ui-micro font-medium transition-colors ${
+                    className={`rounded-xs px-2 py-1 ui-micro font-medium transition-colors ${
                       active
                         ? "border border-stale/30 bg-stale/10 text-stale"
                         : "border border-border bg-surface-raised text-text-muted hover:bg-border/50"
@@ -390,7 +386,7 @@ export function GraphFilterPanel({
                     aria-pressed={active}
                     onClick={() => setDensity(mode)}
                     title={t("components.graphFilterPanel.densityHint")}
-                    className={`flex-1 rounded-md px-2 py-1 ui-micro font-medium transition-colors ${
+                    className={`flex-1 rounded-xs px-2 py-1 ui-micro font-medium transition-colors ${
                       active
                         ? "border border-accent/30 bg-accent/10 text-accent"
                         : "border border-border bg-surface-raised text-text-muted hover:bg-border/50"
@@ -431,13 +427,13 @@ export function GraphFilterPanel({
               <span className="ml-auto flex gap-1 normal-case tracking-normal">
                 <button
                   onClick={() => setAllTaskStatuses(true)}
-                  className="rounded px-1 py-0.5 ui-micro text-text-faint hover:bg-surface-raised hover:text-text"
+                  className="rounded-xs px-1 py-0.5 ui-micro text-text-faint hover:bg-surface-raised hover:text-text"
                 >
                   {t("components.graphFilterPanel.kindsAll")}
                 </button>
                 <button
                   onClick={() => setAllTaskStatuses(false)}
-                  className="rounded px-1 py-0.5 ui-micro text-text-faint hover:bg-surface-raised hover:text-text"
+                  className="rounded-xs px-1 py-0.5 ui-micro text-text-faint hover:bg-surface-raised hover:text-text"
                 >
                   {t("components.graphFilterPanel.kindsNone")}
                 </button>
@@ -483,13 +479,13 @@ export function GraphFilterPanel({
               <span className="ml-auto flex gap-1 normal-case tracking-normal">
                 <button
                   onClick={() => setAllDecisionStates(true)}
-                  className="rounded px-1 py-0.5 ui-micro text-text-faint hover:bg-surface-raised hover:text-text"
+                  className="rounded-xs px-1 py-0.5 ui-micro text-text-faint hover:bg-surface-raised hover:text-text"
                 >
                   {t("components.graphFilterPanel.kindsAll")}
                 </button>
                 <button
                   onClick={() => setAllDecisionStates(false)}
-                  className="rounded px-1 py-0.5 ui-micro text-text-faint hover:bg-surface-raised hover:text-text"
+                  className="rounded-xs px-1 py-0.5 ui-micro text-text-faint hover:bg-surface-raised hover:text-text"
                 >
                   {t("components.graphFilterPanel.kindsNone")}
                 </button>

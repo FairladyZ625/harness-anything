@@ -1,5 +1,6 @@
 {
   "graph.graphDrawer.exitFocusEsc": "Exit focus (Esc)",
+  "graph.graphDrawer.ariaLabel": "Relation details",
   "graph.graphDrawer.jumpSourceNode": "Jump source node",
   "graph.graphDrawer.jumpTargetNode": "Jump target node",
   "graph.graphDrawer.openSidebarTaskDetailsDecisionDecisionPool": "Open details (task · decision · fact)",

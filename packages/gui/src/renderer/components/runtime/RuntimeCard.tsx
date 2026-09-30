@@ -28,6 +28,7 @@ import {
 } from "../../runtime-provider-planes.ts";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
+import { ActionError } from "./ActionError.tsx";
 import {
   Avatar,
   Badge,
@@ -70,6 +71,8 @@ type Props = {
   readonly onUpdate: (input: RuntimeInstanceUpdateInput) => void;
   readonly onDelete: () => void;
   readonly onSelfTest: (model: string) => Promise<string | null>;
+  /** 更新/auth/self-test 等动作的失败原因:在卡首就地显示(标准 §2.5 表单)。 */
+  readonly actionError?: string | null;
 };
 // The carrier card. Provider plane decides which sections exist at all: agy has no API
 // section because agy has no API mode; claude shows the single-instance API override;
@@ -89,6 +92,7 @@ export function RuntimeCard({
   onUpdate,
   onDelete,
   onSelfTest,
+  actionError = null,
 }: Props) {
   const [confirm, setConfirm] = useState(false),
     [editing, setEditing] = useState(false),
@@ -123,6 +127,7 @@ export function RuntimeCard({
           className="font-mono text-text-muted hover:text-accent hover:underline"
         />
       </Crumbs>
+      {actionError ? <ActionError>{actionError}</ActionError> : null}
       <Card testId="runtime-card-provider">
         <CardHead>
           <KindDot kind={instance.kindId} />

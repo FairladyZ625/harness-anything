@@ -1,4 +1,4 @@
-import { isTerminalStatus, type TaskV2 } from "@harness-anything/kernel";
+import { isTerminalStatus, type TaskProjection, type TaskV2 } from "@harness-anything/kernel";
 import { readAllDispatchStreamSummaries } from "./dispatch-stream.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
@@ -97,6 +97,20 @@ export function latestSquadStates(rootDir: string): ReadonlyMap<string, SquadSta
   return states;
 }
 
+type SquadRunProjection = Pick<TaskProjection, "squadRunProjectionReady" | "replaceSquadRuns" | "readSquadRuns">;
+
+/** Rebuild only when missing or interrupted; the dispatch streams remain the authority. */
+export function ensureSquadRunProjection(rootDir: string, projection: SquadRunProjection): void {
+  if (projection.squadRunProjectionReady()) return;
+  projection.replaceSquadRuns(
+    [...latestSquadStates(rootDir).values()].map((state) => ({
+      squadRunId: state.squadRunId,
+      revision: state.revision,
+      state,
+    })),
+  );
+}
+
 /** A child task a rejected attempt left behind, with the run's binding — the authority that created it. */
 export interface RejectedSquadChild {
   readonly squadRunId: string;
@@ -111,9 +125,9 @@ export interface RejectedSquadChild {
  * any dispatch landed (no runtime session). The worktree reconciliation cancels them, so they do not sit in planned
  * or active forever. Attempts of runs that are still going stay out — their leader is still working through triggers.
  */
-export function rejectedSquadAttemptChildren(rootDir: string): readonly RejectedSquadChild[] {
+export function rejectedSquadAttemptChildren(states: Iterable<SquadState>): readonly RejectedSquadChild[] {
   const byTask = new Map<string, RejectedSquadChild>();
-  for (const state of latestSquadStates(rootDir).values()) {
+  for (const state of states) {
     if (!terminal(state)) continue;
     for (const attempt of state.workerAttempts) {
       if (
@@ -138,6 +152,7 @@ export function rejectedSquadAttemptChildren(rootDir: string): readonly Rejected
 /** How a caller with the cell's write surface cancels one orphan: the action to apply, with its run's own binding. */
 export interface SquadOrphanCancellation {
   readonly rootDir: string;
+  readonly projection: SquadRunProjection;
   readonly readTask: (taskId: string) => TaskV2 | null | undefined;
   readonly cancel: (
     action: RepoTaskAction,
@@ -152,7 +167,12 @@ export interface SquadOrphanCancellation {
  * unattended at attach, and one child's failure must not strand the rest or the worktree sweep behind it.
  */
 export async function cancelRejectedSquadChildren(input: SquadOrphanCancellation): Promise<void> {
-  for (const child of rejectedSquadAttemptChildren(input.rootDir)) {
+  ensureSquadRunProjection(input.rootDir, input.projection);
+  const states = input.projection.readSquadRuns().flatMap((row) => {
+    const state = squadState(row.state);
+    return state ? [state] : [];
+  });
+  for (const child of rejectedSquadAttemptChildren(states)) {
     const task = input.readTask(child.taskId);
     if (!task || isTerminalStatus(task.status)) continue;
     const action: RepoTaskAction = {

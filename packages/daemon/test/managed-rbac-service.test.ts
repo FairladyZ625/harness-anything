@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -22,14 +22,14 @@ test("managed RBAC pins supported platform artifacts and published checksums", (
   }
 });
 
-test("external Keycloak writes the same connection contract without downloading runtimes", async () => {
+test("external Keycloak writes the connection contract only after probing the realm", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-external-"));
   let fetches = 0;
   try {
     const service = new ManagedRbacService(root, {
       fetch: (() => {
         fetches += 1;
-        return Promise.resolve(new Response(null, { status: 204 }));
+        return Promise.resolve(new Response("{}", { status: 200 }));
       }) as typeof fetch,
     });
     const result = await service.run({
@@ -39,13 +39,29 @@ test("external Keycloak writes the same connection contract without downloading 
       clientId: "center",
     });
     assert.equal(result.mode, "external");
-    assert.equal(fetches, 0);
+    assert.equal(fetches, 1);
     const config = JSON.parse(readFileSync(path.join(root, "rbac", "config.json"), "utf8"));
     assert.deepEqual(
       { mode: config.mode, url: config.url, realm: config.realm, clientId: config.clientId },
       { mode: "external", url: "https://identity.example.test", realm: "fleet", clientId: "center" },
     );
     assert.deepEqual(config.versions, managedRbacVersions);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("failed external Keycloak probe does not replace the active configuration", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-external-probe-"));
+  try {
+    const service = new ManagedRbacService(root, {
+      fetch: (() => Promise.resolve(new Response(null, { status: 503 }))) as typeof fetch,
+    });
+    await assert.rejects(
+      service.run({ mode: "external", url: "https://identity.example.test", realm: "fleet", clientId: "center" }),
+      (error: unknown) => (error as { code?: string }).code === "rbac_external_probe_failed",
+    );
+    assert.equal(existsSync(path.join(root, "rbac", "config.json")), false);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

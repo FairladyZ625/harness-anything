@@ -84,7 +84,7 @@ export function DecisionReviewGroups<Group extends string, Row extends DecisionR
                   {groupRows.map((row) => (
                     <li
                       key={`${row.group}:${row.id}`}
-                      className="flex min-w-0 items-center gap-3 rounded-lg border border-border bg-surface-raised px-4 py-3"
+                      className="flex min-w-0 items-center gap-3 rounded-sm border border-border bg-surface-raised px-4 py-3"
                     >
                       <div className="min-w-0 flex-1">
                         <p className="break-words text-sm font-semibold text-text">
@@ -96,7 +96,7 @@ export function DecisionReviewGroups<Group extends string, Row extends DecisionR
                         type="button"
                         data-testid={`${testIdPrefix}-open-${row.id}`}
                         onClick={() => onOpen(row)}
-                        className="shrink-0 rounded border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-text hover:border-border-strong"
+                        className="shrink-0 rounded-xs border border-border bg-surface px-3 py-1.5 text-sm font-semibold text-text hover:border-border-strong"
                       >
                         {row.action ?? t("views.workspace.decisionReviewOpen")}
                       </button>

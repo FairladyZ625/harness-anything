@@ -16,6 +16,7 @@ import {
   ChartLine,
   Pulse,
   ListChecks,
+  IdentificationCard,
 } from "@phosphor-icons/react";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import type { ViewId } from "./viewHistory.ts";
@@ -63,6 +64,7 @@ const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
   system: "shell.nav.system",
   daemonObserve: "shell.nav.daemonObserve",
   settings: "shell.nav.settings",
+  identityAccess: "shell.nav.identityAccess",
 };
 
 export const navLabel = (id: ViewId): string => t(NAV_LABEL_KEY[id]);
@@ -116,6 +118,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { id: "tokenUsage", icon: <ChartLine weight="duotone" /> },
       { id: "system", icon: <Pulse weight="duotone" /> },
       { id: "settings", icon: <GearSix weight="duotone" /> },
+      { id: "identityAccess", icon: <IdentificationCard weight="duotone" /> },
     ],
   },
 ];

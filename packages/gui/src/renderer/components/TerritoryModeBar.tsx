@@ -25,7 +25,7 @@ export function TerritoryModeBar({
       data-testid="entity-workspace-mode-bar"
       className="flex items-center gap-2 border-b border-border bg-surface/60 px-3 py-1.5"
     >
-      <div className="flex overflow-hidden rounded-md border border-border bg-surface-raised">
+      <div className="flex overflow-hidden rounded-xs border border-border bg-surface-raised">
         <ModeBtn active={mode === "territory"} onClick={() => onModeChange("territory")}>
           领地
         </ModeBtn>
@@ -57,7 +57,7 @@ export function TerritorySkelToggle({
 }) {
   return (
     <Panel position="top-center">
-      <div className="flex overflow-hidden rounded-md border border-border bg-surface-raised shadow-sm">
+      <div className="flex overflow-hidden rounded-xs border border-border bg-surface-raised shadow-sm">
         <ModeBtn active={skel === "task"} onClick={() => onSkelChange("task")}>
           任务
         </ModeBtn>

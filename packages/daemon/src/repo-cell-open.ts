@@ -938,6 +938,7 @@ export async function openRepoWriterCell(
       cancelSquadOrphans: () =>
         cancelRejectedSquadChildren({
           rootDir,
+          projection,
           readTask: (taskId) => projection.read(taskId).snapshot.task,
           cancel: (action, binding, actionId) =>
             operationalContext.lifecycleAction(action, authorizeRuntimeAction(action, binding, actionId)),

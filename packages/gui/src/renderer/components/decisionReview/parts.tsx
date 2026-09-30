@@ -41,7 +41,7 @@ export function DecisionReviewBadge({ review }: { readonly review: DecisionRevie
     <span
       data-testid="decision-review-signal"
       data-signal={signal}
-      className={`inline-flex shrink-0 items-center rounded-md border px-1.5 py-0.5 ui-micro font-semibold ${meta.cls}`}
+      className={`inline-flex shrink-0 items-center rounded-xs border px-1.5 py-0.5 ui-micro font-semibold ${meta.cls}`}
     >
       {t(meta.key)}
     </span>
@@ -57,11 +57,11 @@ export function reviewAcceptBlockedReason(review: DecisionReviewState | undefine
 
 export function VerdictBadge({ verdict }: { readonly verdict: DecisionReview["verdict"] }) {
   return verdict === "approved" ? (
-    <span className="rounded-md border border-success/40 bg-success/10 px-1.5 py-0.5 ui-micro font-semibold text-success">
+    <span className="rounded-xs border border-success/40 bg-success/10 px-1.5 py-0.5 ui-micro font-semibold text-success">
       {t("views.decisionReview.verdictApproved")}
     </span>
   ) : (
-    <span className="rounded-md border border-stale/50 bg-stale/10 px-1.5 py-0.5 ui-micro font-semibold text-stale">
+    <span className="rounded-xs border border-stale/50 bg-stale/10 px-1.5 py-0.5 ui-micro font-semibold text-stale">
       {t("views.decisionReview.verdictChangesRequested")}
     </span>
   );
@@ -97,12 +97,12 @@ export function ReviewSection({
   );
 }
 
-export const cardClass = "rounded-lg border border-border bg-surface p-3";
+export const cardClass = "rounded-sm border border-border bg-surface p-3";
 export const primaryButtonClass =
-  "rounded-md bg-accent px-2.5 py-1 ui-micro font-semibold text-accent-fg transition-colors duration-100 " +
+  "rounded-xs bg-accent px-2.5 py-1 ui-micro font-semibold text-accent-fg transition-colors duration-100 " +
   "hover:bg-accent/85 disabled:pointer-events-none disabled:opacity-40";
 export const secondaryButtonClass =
-  "rounded-md border border-border px-2.5 py-1 ui-micro text-text transition-colors duration-100 " +
+  "rounded-xs border border-border px-2.5 py-1 ui-micro text-text transition-colors duration-100 " +
   "hover:border-border-strong hover:bg-surface-raised disabled:pointer-events-none disabled:opacity-40";
 
 const DISPATCH_STATUS_KEY = {

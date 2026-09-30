@@ -228,6 +228,12 @@ describe("W6 Goal 第三项:只显示前 N 条必须显形", () => {
     expect(markup.match(/consent-\d+/gu)).toHaveLength(20);
     expect(markup).not.toContain('data-testid="decisions-history-more"');
     expect(markup).not.toContain("remaining");
+    // 终态沉底折叠(视觉基线 §1.4):历史默认收起成一行计数,details 不带 open;
+    // 全部条目仍在 DOM(完整渲染裁决不变),点开即见。(本文件 locale=en-US)
+    expect(markup).toContain("<details");
+    expect(markup).not.toContain("<details open");
+    expect(markup).toMatch(/canonical judgment history/i);
+    expect(markup).toMatch(/20 entries/);
   });
 
   it("判定历史不满一批时也没有批量按钮", () => {

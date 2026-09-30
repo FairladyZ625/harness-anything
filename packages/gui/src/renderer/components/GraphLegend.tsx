@@ -11,7 +11,8 @@ import { t } from "../i18n/index.tsx";
  *
  * 三行语义:实体着色(task/decision/fact)、关系视觉词表样例(色=语义轴,
  * 线型=kind)、claim 兑现三形态(evidenced/delivered/standing-policy +
- * uncovered)。默认折叠,不抢画布空间;数据全部来自现有投影字段。
+ * uncovered)。默认折叠成一个贴边小钮;展开体是面板级玻璃浮层(§2.6 周边控件),
+ * 绝对定位,不推挤页头其余控件。数据全部来自现有投影字段。
  */
 
 const FULFILLMENT_ORDER = ["evidenced", "delivered", "standing-policy", "unknown"] as const;
@@ -26,18 +27,21 @@ export function GraphLegend({
 }) {
   const [open, setOpen] = useState(false);
   return (
-    <div data-testid="graph-legend" className="contents">
+    <span data-testid="graph-legend" className="relative inline-flex">
       <button
         onClick={() => setOpen((value) => !value)}
         title="图例:实体着色 / 语义轴 / 关系线型 / claim 兑现形态"
         aria-expanded={open}
-        className="inline-flex items-center gap-1 rounded px-1 font-mono ui-micro text-text-muted hover:bg-surface-raised hover:text-text"
+        className="inline-flex items-center gap-1 rounded-xs border border-border bg-surface-raised px-1.5 py-0.5 font-mono ui-micro text-text-muted hover:border-border-strong hover:text-text"
       >
         图例
         {open ? <CaretUp weight="bold" className="ui-micro" /> : <CaretDown weight="bold" className="ui-micro" />}
       </button>
       {open && (
-        <div data-testid="graph-legend-body" className="flex w-full basis-full flex-col gap-x-4 gap-y-1 pt-1">
+        <div
+          data-testid="graph-legend-body"
+          className="glass absolute right-0 top-[calc(100%+6px)] z-30 flex w-[min(560px,60vw)] flex-col gap-x-4 gap-y-1.5 rounded-sm p-3"
+        >
           <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
             <span className="text-text-faint">实体</span>
             {entityKinds.map(({ kind, label }) => (
@@ -101,6 +105,6 @@ export function GraphLegend({
           )}
         </div>
       )}
-    </div>
+    </span>
   );
 }

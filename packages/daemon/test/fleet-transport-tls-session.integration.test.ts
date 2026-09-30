@@ -391,6 +391,13 @@ test(
       path.join(fixture.stateRoot, "state.json"),
       JSON.stringify({
         uploads: {
+          "foreign-upload": {
+            nodeId: "node-two",
+            assignmentId: fixture.assignment.assignmentId,
+            repoId: fixture.assignment.repoId,
+            content: { sha256: "e".repeat(64), size: 1, mediaType: "text/plain" },
+            descriptor: null,
+          },
           [conflictingUploadId]: {
             nodeId: fixture.assignment.nodeId,
             assignmentId: fixture.assignment.assignmentId,
@@ -403,6 +410,10 @@ test(
     );
     const center = await fixture.center(1),
       before = fixture.eventCount();
+    await assert.rejects(
+      rawPeer(fixture.track, center.port, fixture.cert, fixture.assignment.nodeId, "wrong-machine-secret"),
+      /authentication_failed/u,
+    );
     let peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.assignment.nodeId, "machine-secret");
     const replayedHello = await peer.request({
       schema: "fleet.session.hello/v1",
@@ -465,6 +476,15 @@ test(
     });
     assert.equal(spoofed.schema, "fleet.error/v1");
     if (spoofed.schema === "fleet.error/v1") assert.equal(spoofed.code, "invalid_frame");
+    const unknownUpload = await peer.request({
+      schema: "fleet.upload.chunk/v1",
+      messageId: "unknown-upload",
+      uploadId: "foreign-upload",
+      offset: 0,
+      dataBase64: Buffer.from("x").toString("base64"),
+    });
+    assert.equal(unknownUpload.schema, "fleet.error/v1");
+    if (unknownUpload.schema === "fleet.error/v1") assert.equal(unknownUpload.code, "upload_unknown");
     for (let index = 0; index < 9; index += 1) {
       const response = await peer.request({
         schema: "fleet.upload.begin/v1",

@@ -1,7 +1,38 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { systemBrowserLogin } from "../src/main/oidc-auth-ipc.ts";
+import {
+  normalizeBindingStatusReply,
+  requireSuccessfulAuthReply,
+  systemBrowserLogin,
+} from "../src/main/oidc-auth-ipc.ts";
+
+test("auth IPC rejects daemon failure receipts with their code and explanation", () => {
+  assert.throws(
+    () =>
+      requireSuccessfulAuthReply({
+        ok: false,
+        code: "bootstrap_failed",
+        rejectionExplanation: "fetch failed",
+      }),
+    (error: unknown) => {
+      assert.equal((error as { code?: string }).code, "bootstrap_failed");
+      assert.equal((error as Error).message, "bootstrap_failed: fetch failed");
+      return true;
+    },
+  );
+});
+
+test("binding IPC projects an unconfigured receipt as an explicit state", () => {
+  assert.deepEqual(
+    normalizeBindingStatusReply({
+      ok: false,
+      code: "rbac_not_configured",
+      rejectionExplanation: "Run ha bootstrap first.",
+    }),
+    { ok: true, configured: false },
+  );
+});
 
 test("system-browser login opens only after the loopback callback is listening", async () => {
   const calls: Record<string, unknown>[] = [];

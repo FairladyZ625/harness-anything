@@ -245,12 +245,10 @@ export function useSessionsWorkspace(
 }
 
 /** Agent 入口(含 Squad 面):身份层读写 + 派工。兼容 Runtime 实例列表来自 machine
- * 目录;dispatch 的实例校验来自 overview;inspector 先由 sessionGroups 精确筛出
- * agent/squad 的任务组,再批量读取这些组的全部派工轮次。 */
-export function useAgentSquadWorkspace(
-  repoId: string,
-  related: { readonly kind: "agent" | "squad"; readonly id: string } | null,
-) {
+ * 目录;dispatch 的实例校验来自 overview。选中者的相关派工轮次拆到
+ * useRelatedDispatches——选择现在是视图派生的(默认落在第一个异常项,含降级行),
+ * 不再只跟随导航栈深链。 */
+export function useAgentSquadWorkspace(repoId: string) {
   const client = useQueryClient();
   const overview = useQuery({
     queryKey: ["runtime-control", repoId, "overview"],
@@ -268,64 +266,6 @@ export function useAgentSquadWorkspace(
     staleTime: 4_000,
   });
   const machine = useQuery(runtimeInstanceCatalogQuery());
-  const relatedGroups = useQuery({
-    queryKey: [...runtimeQueryKeys.sessionGroupsAll(repoId), "related", related?.kind ?? "", related?.id ?? ""],
-    queryFn: () =>
-      agentRuntimeClient.sessionGroups(repoId, {
-        groupBy: "task",
-        since: "1970-01-01T00:00:00.000Z",
-        ...(related?.kind === "agent" ? { agentId: related.id } : {}),
-        ...(related?.kind === "squad" ? { squadId: related.id } : {}),
-        limit: SESSION_GROUPS_PAGE_LIMIT,
-      }),
-    enabled: related !== null,
-    staleTime: 4_000,
-  });
-  // 该执行者的全部轮次行(G12 §4a):精确过滤后的任务组分批读 task.dispatches,
-  // 行内 agentId/squadId 用台账真实值(不再盖戳);没有派工行的会话无执行者归属,
-  // 天然不在其列。sessionGroups 最多 1000 组,每批遵守 task.dispatches 的 500 上限。
-  const relatedTaskIds = [...new Set((relatedGroups.data?.groups ?? []).map((group) => group.taskId ?? ""))].filter(
-      (taskId): taskId is string => taskId !== "",
-    ),
-    relatedLabels = new Map(
-      (relatedGroups.data?.groups ?? []).flatMap((group) =>
-        group.taskId ? [[group.taskId, group.label] as const] : [],
-      ),
-    ),
-    relatedTaskBatches = Array.from(
-      { length: Math.ceil(relatedTaskIds.length / RELATED_TASK_BATCH_LIMIT) },
-      (_, index) => relatedTaskIds.slice(index * RELATED_TASK_BATCH_LIMIT, (index + 1) * RELATED_TASK_BATCH_LIMIT),
-    ),
-    relatedDispatches = useQueries({
-      queries: relatedTaskBatches.map((taskIds) => ({
-        queryKey: [...runtimeQueryKeys.relatedDispatchesAll(repoId), related?.kind ?? "", related?.id ?? "", taskIds],
-        queryFn: () => harnessClient.getTaskDispatches({ repoId, taskIds, limit: RELATED_TASK_BATCH_LIMIT }),
-        staleTime: 4_000,
-      })),
-    });
-  const matchesRelated = (row: { readonly agentId?: string; readonly squadId?: string }): boolean =>
-    related === null ? false : related.kind === "agent" ? row.agentId === related.id : row.squadId === related.id;
-  const dockRows: readonly RuntimeDockRow[] = relatedDispatches
-    .flatMap((query) => query.data?.dispatches ?? [])
-    .filter(matchesRelated)
-    .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
-    .map((row) => ({
-      runtimeSessionId: row.runtimeSessionId,
-      agentId: row.agentId ?? null,
-      agentName: row.agentName ?? row.agentId ?? null,
-      delegatedByAgentId: row.delegatedByAgentId ?? null,
-      squadId: row.squadId ?? null,
-      squadName: null,
-      parentRuntimeSessionId: row.parentRuntimeSessionId ?? null,
-      instanceId: row.instanceId,
-      taskId: row.taskId,
-      taskTitle: relatedLabels.get(row.taskId) ?? null,
-      startedAt: row.startedAt,
-      status: row.status,
-      liveness: null,
-      dispatchId: row.dispatchId,
-      delegation: sessionDelegation(row),
-    }));
   const channel = useRuntimeChannel(repoId, async () => {
     await Promise.all([
       client.invalidateQueries({
@@ -341,8 +281,6 @@ export function useAgentSquadWorkspace(
     squads,
     machine,
     instances: machine.data?.instances ?? [],
-    relatedGroups,
-    dockRows,
     busy: channel.busy,
     feedback: channel.feedback,
     error: channel.error,
@@ -450,6 +388,72 @@ export function useAgentSquadWorkspace(
       }
     },
   };
+}
+
+/** 选中 agent/squad 的相关派工轮次(G12 §4a/§4b):sessionGroups 精确筛出该执行者的
+ * 任务组,再分批读 task.dispatches,行内 agentId/squadId 用台账真实值(不盖戳);
+ * 没有派工行的会话无执行者归属,天然不在其列。related 跟随视图的有效选择(含降级行,
+ * 降级 id 命中的历史轮次照常返回),null 不发。 */
+export function useRelatedDispatches(
+  repoId: string,
+  related: { readonly kind: "agent" | "squad"; readonly id: string } | null,
+) {
+  const relatedGroups = useQuery({
+    queryKey: [...runtimeQueryKeys.sessionGroupsAll(repoId), "related", related?.kind ?? "", related?.id ?? ""],
+    queryFn: () =>
+      agentRuntimeClient.sessionGroups(repoId, {
+        groupBy: "task",
+        since: "1970-01-01T00:00:00.000Z",
+        ...(related?.kind === "agent" ? { agentId: related.id } : {}),
+        ...(related?.kind === "squad" ? { squadId: related.id } : {}),
+        limit: SESSION_GROUPS_PAGE_LIMIT,
+      }),
+    enabled: related !== null,
+    staleTime: 4_000,
+  });
+  const relatedTaskIds = [...new Set((relatedGroups.data?.groups ?? []).map((group) => group.taskId ?? ""))].filter(
+      (taskId): taskId is string => taskId !== "",
+    ),
+    relatedLabels = new Map(
+      (relatedGroups.data?.groups ?? []).flatMap((group) =>
+        group.taskId ? [[group.taskId, group.label] as const] : [],
+      ),
+    ),
+    relatedTaskBatches = Array.from(
+      { length: Math.ceil(relatedTaskIds.length / RELATED_TASK_BATCH_LIMIT) },
+      (_, index) => relatedTaskIds.slice(index * RELATED_TASK_BATCH_LIMIT, (index + 1) * RELATED_TASK_BATCH_LIMIT),
+    ),
+    relatedDispatches = useQueries({
+      queries: relatedTaskBatches.map((taskIds) => ({
+        queryKey: [...runtimeQueryKeys.relatedDispatchesAll(repoId), related?.kind ?? "", related?.id ?? "", taskIds],
+        queryFn: () => harnessClient.getTaskDispatches({ repoId, taskIds, limit: RELATED_TASK_BATCH_LIMIT }),
+        staleTime: 4_000,
+      })),
+    });
+  const matchesRelated = (row: { readonly agentId?: string; readonly squadId?: string }): boolean =>
+    related === null ? false : related.kind === "agent" ? row.agentId === related.id : row.squadId === related.id;
+  const dockRows: readonly RuntimeDockRow[] = relatedDispatches
+    .flatMap((query) => query.data?.dispatches ?? [])
+    .filter(matchesRelated)
+    .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+    .map((row) => ({
+      runtimeSessionId: row.runtimeSessionId,
+      agentId: row.agentId ?? null,
+      agentName: row.agentName ?? row.agentId ?? null,
+      delegatedByAgentId: row.delegatedByAgentId ?? null,
+      squadId: row.squadId ?? null,
+      squadName: null,
+      parentRuntimeSessionId: row.parentRuntimeSessionId ?? null,
+      instanceId: row.instanceId,
+      taskId: row.taskId,
+      taskTitle: relatedLabels.get(row.taskId) ?? null,
+      startedAt: row.startedAt,
+      status: row.status,
+      liveness: null,
+      dispatchId: row.dispatchId,
+      delegation: sessionDelegation(row),
+    }));
+  return { dockRows };
 }
 
 // Provider 入口:实例目录 + auth 探测 + 实例读写。live 计数取 overview 的 session
