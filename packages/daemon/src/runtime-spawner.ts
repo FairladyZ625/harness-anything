@@ -101,6 +101,7 @@ import {
   resolveDispatchCwd,
 } from "./runtime-resume-admission.ts";
 import { taskWorktreeCheckoutNote, type TaskWorktreeCheckout } from "./task-worktree.ts";
+import { assertTaskDispatchPrerequisites } from "./task-dispatch-admission.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
   resumeAdmissionTimeoutMs = 30_000,
@@ -290,6 +291,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           "authorization_missing",
           "Runtime dispatch requires the center AuthorizationPort decision.",
         );
+      if (!dryRun) assertTaskDispatchPrerequisites(projection!, taskId);
       if (!dryRun && !leaseQualifies && reviewExecution === null)
         throw runtimeSpawnError(
           "runtime_task_lease_required",

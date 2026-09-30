@@ -55,6 +55,17 @@ export interface BlockingProjectionState {
   readonly state?: BlockingAvailabilityState;
   readonly hardFailWarnings?: readonly string[];
 }
+export interface DispatchDecision {
+  readonly decisionId: string;
+  readonly state: string;
+}
+export interface DispatchPrerequisiteAssessment {
+  readonly taskId: string;
+  readonly state: BlockingAssessmentState;
+  readonly proposedDecisionIds: readonly string[];
+  readonly unfinishedDependencyIds: readonly string[];
+  readonly warnings: readonly string[];
+}
 
 /**
  * Canonical direction: `A depends-on B` blocks A until B is done; `A awaits person/P` blocks A until
@@ -158,6 +169,55 @@ export function blockingOf(
       warnings: taskWarnings,
     };
   });
+}
+
+/** Canonical admission judgment for the machine-readable prerequisites of a task dispatch. */
+export function dispatchPrerequisitesOf(
+  taskId: string,
+  tasks: readonly BlockingTask[],
+  relations: readonly BlockingRelation[],
+  decisions: readonly DispatchDecision[],
+  projection: BlockingProjectionState = {},
+): DispatchPrerequisiteAssessment {
+  const blocking = blockingOf(tasks, relations, projection).find((row) => row.taskId === taskId),
+    decisionById = new Map(decisions.map((decision) => [decision.decisionId, decision])),
+    warnings = [
+      ...(blocking?.warnings ?? []),
+      ...(!tasks.some((task) => task.taskId === taskId) ? [`task ${taskId} is missing from projection`] : []),
+    ],
+    proposedDecisionIds: string[] = [];
+  for (const edge of relations.filter(
+    ({ relationType, targetRef }) => relationType === "derives" && targetRef === `task/${taskId}`,
+  )) {
+    const decisionId = /^decision\/([^/]+)\/[^/]+$/u.exec(edge.sourceRef)?.[1];
+    if (edge.state === "retired") continue;
+    if (!decisionId || edge.direction !== "directed") {
+      warnings.push(`invalid derives relation ${edge.relationId}`);
+      continue;
+    }
+    const decision = decisionById.get(decisionId);
+    if (!decision) warnings.push(`deriving decision ${decisionId} is missing from projection`);
+    else if (decision.state === "proposed") {
+      if (!relationIsCurrent(edge) || relationConsumability(edge) === "refuse")
+        warnings.push(`derives relation ${edge.relationId} is ${edge.freshness}`);
+      proposedDecisionIds.push(decisionId);
+    }
+  }
+  const unfinishedDependencyIds = (blocking?.blockers ?? []).flatMap((blocker) =>
+    blocker.kind === "depends-on" ? [blocker.targetTaskId] : [],
+  );
+  return {
+    taskId,
+    state:
+      proposedDecisionIds.length || unfinishedDependencyIds.length
+        ? "blocked"
+        : warnings.length || blocking?.state === "unknown"
+          ? "unknown"
+          : "clear",
+    proposedDecisionIds: [...new Set(proposedDecisionIds)],
+    unfinishedDependencyIds: [...new Set(unfinishedDependencyIds)],
+    warnings: [...new Set(warnings)],
+  };
 }
 
 function taskId(ref: string): string | null {

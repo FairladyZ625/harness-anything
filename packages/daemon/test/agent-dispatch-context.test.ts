@@ -16,6 +16,7 @@ import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { actor, evidence, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 
 const binding: RepoCellBinding = { actor, source: "local" as const },
   definition: AgentDefinitionSnapshot = {
@@ -91,6 +92,20 @@ async function relate(cell: Cell, sourceRef: string, targetRef: string, relation
   );
   assert.equal(related.outcome, "applied", JSON.stringify(related));
   await waitForFixturePublication(cell, related.opId, binding);
+}
+
+async function acceptDecision(cell: Cell, decisionId: string): Promise<void> {
+  const accepted = await cell.run(
+    {
+      kind: "decision-accept",
+      decisionId,
+      rationale: "Fixture prerequisites are ready.",
+      judgmentOnlyRationale: "This fixture tests dispatch admission, not decision evidence readiness.",
+    },
+    withRoleBinding(binding, "arbiter"),
+  );
+  assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+  await waitForFixturePublication(cell, accepted.opId, binding);
 }
 
 function causalBlock(prompt: string): string | null {
@@ -186,6 +201,23 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     for (const taskId of ["task_ctx_leaf", "task_ctx_explicit", "task_ctx_agent"])
       await relate(cell, `decision/${decisionId}/CH1`, `task/${taskId}`, "derives");
     await relate(cell, `decision/${decisionId}/C1`, "fact/F-00CA05A1", "evidenced-by");
+    await assert.rejects(
+      cell.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          cwd: { scope: "repo-root" },
+          taskId: "task_ctx_leaf",
+          idempotencyKey: "dispatch-context-proposed",
+        },
+        binding,
+      ),
+      (error: unknown) =>
+        error instanceof Error &&
+        "code" in error &&
+        error.code === "task_dispatch_prerequisite_unmet" &&
+        error.message.includes(`ha decision accept ${decisionId}`),
+    );
+    await acceptDecision(cell, decisionId);
 
     const receipt = await cell.spawnRuntime(
       {
@@ -401,6 +433,7 @@ test("dry-run preview returns the injected prompt byte-for-byte with zero dispat
     );
 
     // The real dispatch with the same inputs injects exactly the previewed prompt.
+    await acceptDecision(cell, String(evidence(proposed).decisionId));
     const real = await cell.spawnRuntime(spawnPayload, binding);
     assert.equal(real.outcome, "applied", JSON.stringify(real));
     assert.equal(launchCalls, 1);
@@ -529,6 +562,7 @@ test("oversized CJK causal context stays inside the byte budget on a real dispat
       await waitForFixturePublication(cell, fact.opId, binding);
       await relate(cell, `decision/${decisionId}/CH1`, "task/task_cjk_leaf", "derives");
       await relate(cell, `decision/${decisionId}/C1`, `fact/F-CJK${"AB"[index]!}AAA0`, "evidenced-by");
+      await acceptDecision(cell, decisionId);
     }
     const receipt = await cell.spawnRuntime(
       {
