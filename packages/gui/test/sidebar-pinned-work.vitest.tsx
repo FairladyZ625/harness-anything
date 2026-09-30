@@ -75,6 +75,15 @@ it("每个置顶项都带解除置顶入口,点击用该 task 调 onUnpinWork", 
   // 解除置顶不应顺带打开该工作。
   expect(onOpenPinned).not.toHaveBeenCalled();
 
+  // 置顶列表限高内联滚动,不把下面的导航挤下去;标题行给数量,可收起。
+  const list = host.querySelector('[data-testid="sidebar-pinned-list"]')!;
+  expect(list.className).toContain("max-h-[168px]");
+  expect(list.className).toContain("overflow-y-auto");
+  const toggle = host.querySelector<HTMLButtonElement>('[data-testid="sidebar-pinned-toggle"]')!;
+  expect(toggle.textContent).toContain("2");
+  await act(async () => toggle.click());
+  expect(host.querySelector('[data-testid="sidebar-pinned-list"]')!.className).toContain("hidden");
+
   act(() => root.unmount());
   client.clear();
 });
