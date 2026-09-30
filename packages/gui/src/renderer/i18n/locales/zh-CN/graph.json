@@ -1,5 +1,6 @@
 {
   "graph.graphDrawer.exitFocusEsc": "退出聚焦 (Esc)",
+  "graph.graphDrawer.ariaLabel": "关系详情",
   "graph.graphDrawer.jumpSourceNode": "跳转源节点",
   "graph.graphDrawer.jumpTargetNode": "跳转目标节点",
   "graph.graphDrawer.openSidebarTaskDetailsDecisionDecisionPool": "打开详情(task · decision · fact)",

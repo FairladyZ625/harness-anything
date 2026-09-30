@@ -17,6 +17,7 @@ import { TerritoryZoneNode, TerritoryChipNode } from "../graph/nodes/TerritoryNo
 import { GraphFilterPanel, type EntityTypeOption, type GraphFilters } from "../components/GraphFilterPanel";
 import type { GovernedEntityRow } from "../graph/governedEntities";
 import { GraphLegend } from "../components/GraphLegend.tsx";
+import { StatusTag } from "../components/primitives/StatusTag";
 import { GraphRelationBasis, GraphRelationReadGate } from "../components/GraphRelationState.tsx";
 import { FocusHistoryBar } from "../components/FocusHistoryBar";
 import { FocusSwitcher } from "../components/FocusSwitcher";
@@ -432,19 +433,35 @@ function GraphViewInner({
   }
 
   if (tasks.length === 0 && decisions.length === 0 && facts.length === 0 && (factAnchors?.length ?? 0) === 0) {
+    // 空态只一行说明与一个入口动作(§2.6),不画居中大框。
     return (
       <div
         data-testid="triadic-graph-empty-state"
-        className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-surface px-6 text-center"
+        className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6"
       >
-        <div className="ui-body font-semibold text-text">暂无三元语关系数据</div>
-        <div className="max-w-md ui-meta leading-relaxed text-text-faint">
-          当前 ledger 没有可投影的 task、decision 或 fact。记录出现后,领地与聚光灯会自动显示真实节点与 kernel relation
-          边。
-        </div>
+        <p className="ui-meta text-text-faint">
+          当前 ledger 没有可投影的 task、decision 或 fact;记录出现后,领地与聚光灯会自动显示。
+        </p>
+        <button
+          type="button"
+          onClick={onOpenPalette}
+          className="rounded-xs border border-border bg-text/5 px-2.5 py-1 ui-meta text-text hover:bg-text/10"
+        >
+          ⌘K 搜索实体
+        </button>
       </div>
     );
   }
+
+  // 页头统一(§2.3):页名 + 一句话(当前模式回答什么问题)+ 关键计数;右侧贴边放
+  // 本页周边控件(图例、跳数、归档开关)与操作提示 —— 画布铺满内容区,控件不占画布。
+  const headerNote = viewMode === "territory" ? "全部实体分成哪几摊、各摊推到哪了" : "这个实体和谁相连、因果链怎么走";
+  const hint =
+    viewMode === "spotlight"
+      ? focusRef
+        ? "单击展开/收起 · 双击设为中心 · Esc 清选"
+        : "从领地选实体,或在命令面板(⌘K)搜索"
+      : "块内 chip 单击 → 聚光灯";
 
   const filterPanel = (
     <GraphFilterPanel
@@ -460,67 +477,63 @@ function GraphViewInner({
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
-      <header className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-border px-4 py-2 ui-micro text-text-muted">
-        <span className="font-mono text-text-faint">
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2">
+        <h1 className="flex-none text-sm font-semibold text-text">关系图</h1>
+        <span className="min-w-0 flex-1 truncate ui-meta text-text-muted">{headerNote}</span>
+        <span className="flex-none font-mono ui-micro tabular-nums text-text-muted">
           {viewMode === "territory"
             ? `领地 · ${territory?.zones.length ?? 0} 块`
             : `聚光灯 · ${spotlightStats.nodes} 节点 · ${spotlightStats.edges} 边`}
         </span>
         {viewMode === "territory" && <GraphRelationBasis count={relations.length} />}
-        <GraphLegend showFulfillment={(coverageRows?.length ?? 0) > 0} entityKinds={entityKinds} />
-        {viewMode === "spotlight" && <EgoHopsControl hops={hops} onHopsChange={setHops} />}
-        {viewMode === "territory" && (
-          <span
-            className="inline-flex items-center gap-1 rounded bg-surface-raised px-1.5 py-0.5 font-mono text-text-muted"
-            title="与看板同一条降噪规则:status=cancelled 或 package disposition≠active 的 task 默认不画;点击切回全量(本机记忆)"
-          >
-            已归档
-            <button
-              data-testid="territory-archive-toggle"
-              onClick={() => setShowArchived((v) => !v)}
-              className="rounded px-1 ui-micro text-text hover:bg-surface"
-            >
-              {showArchived ? "显示" : "隐藏"}
-            </button>
-          </span>
-        )}
-        <span
-          className="inline-flex items-center gap-1 rounded bg-surface-raised px-1.5 py-0.5 font-mono text-text-muted"
-          title="已归档 Fact 默认不进图(与 ha graph 同口径);点击切回全量并带标记,本机记忆"
-        >
-          已归档 Fact
-          <button
-            data-testid="fact-archive-toggle"
-            onClick={() => setShowArchivedFacts((v) => !v)}
-            className="rounded px-1 ui-micro text-text hover:bg-surface"
-          >
-            {showArchivedFacts ? "显示" : "隐藏"}
-          </button>
-        </span>
         {viewMode === "territory" && territory && territory.deferredCount !== undefined && (
           <span
             data-testid="territory-deferred-count"
-            className="inline-flex items-center gap-1 rounded bg-accent/10 px-1.5 py-0.5 font-mono text-accent"
             title="重点模式:pinned ∪ 非终态 ∪ 最近 14 天变更 + 一跳邻域之外的实体折叠在各块的「重点外 N 项」徽章;筛选面板可切回全部"
           >
-            重点外 {territory.deferredCount}
-            {focusSelection ? ` · 重点 ${focusSelection.seedCount} task` : ""}
+            <StatusTag
+              tone="wait"
+              label={`重点外 ${territory.deferredCount}${focusSelection ? ` · 重点 ${focusSelection.seedCount} task` : ""}`}
+            />
           </span>
         )}
         {territory && territory.noWorkCount > 0 && (
-          <span
-            className="inline-flex items-center gap-1 rounded bg-stale/10 px-1.5 py-0.5 font-mono text-stale"
-            title="不属于任何工作的实体(独立任务,或 fact 无宿主 task、宿主不属于工作)归入「独立任务」块 —— 沉底,但绝不隐藏"
-          >
-            {NO_WORK_TITLE} · {territory.noWorkCount}
+          <span title="不属于任何工作的实体(独立任务,或 fact 无宿主 task、宿主不属于工作)归入「独立任务」块 —— 沉底,但绝不隐藏">
+            <StatusTag tone="neutral" label={`${NO_WORK_TITLE} · ${territory.noWorkCount}`} />
           </span>
         )}
-        <span className="ml-auto text-text-faint">
-          {viewMode === "spotlight"
-            ? focusRef
-              ? "单击展开/收起 · 双击设为中心 · Esc 清选"
-              : "从领地选实体,或在命令面板(⌘K)搜索"
-            : "块内 chip 单击 → 聚光灯"}
+        <span className="ml-auto flex flex-wrap items-center gap-x-2 gap-y-1">
+          <GraphLegend showFulfillment={(coverageRows?.length ?? 0) > 0} entityKinds={entityKinds} />
+          {viewMode === "spotlight" && <EgoHopsControl hops={hops} onHopsChange={setHops} />}
+          {viewMode === "territory" && (
+            <span
+              className="inline-flex items-center gap-1 rounded-xs bg-surface-raised px-1.5 py-0.5 font-mono ui-micro text-text-muted"
+              title="与看板同一条降噪规则:status=cancelled 或 package disposition≠active 的 task 默认不画;点击切回全量(本机记忆)"
+            >
+              已归档
+              <button
+                data-testid="territory-archive-toggle"
+                onClick={() => setShowArchived((v) => !v)}
+                className="rounded-xs px-1 text-text hover:bg-surface"
+              >
+                {showArchived ? "显示" : "隐藏"}
+              </button>
+            </span>
+          )}
+          <span
+            className="inline-flex items-center gap-1 rounded-xs bg-surface-raised px-1.5 py-0.5 font-mono ui-micro text-text-muted"
+            title="已归档 Fact 默认不进图(与 ha graph 同口径);点击切回全量并带标记,本机记忆"
+          >
+            已归档 Fact
+            <button
+              data-testid="fact-archive-toggle"
+              onClick={() => setShowArchivedFacts((v) => !v)}
+              className="rounded-xs px-1 text-text hover:bg-surface"
+            >
+              {showArchivedFacts ? "显示" : "隐藏"}
+            </button>
+          </span>
+          <span className="font-mono ui-micro text-text-faint">{hint}</span>
         </span>
       </header>
 

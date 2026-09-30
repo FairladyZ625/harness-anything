@@ -9,18 +9,20 @@ import {
   KIND_META,
   timeMsOf,
 } from "../graph/genealogy";
+import { StatusTag } from "../components/primitives/StatusTag";
+import { TitleText } from "../components/primitives/TitleText";
 import { DecisionDetailPanel } from "./genealogy/DecisionDetailPanel";
 import { ParticipantsSidebar } from "./genealogy/ParticipantsSidebar";
 import { TimelinePlot } from "./genealogy/TimelinePlot";
 
 /**
- * 决策谱系「演化史」视图(REQ-GUI-05)。
+ * 决策谱系「演化史」视图(REQ-GUI-05,视觉基线 v1 §2.6 工具型页面)。
  *
  * 纯前端派生:从 relations 筛谱系四类边(refines/narrows/supersedes/supports —— 均为
  * decision↔decision),焦点上溯/下溯。布局 = DAG 拓扑(x = 谱系深度),同列同日
- * 节点过多自动折成簇(time cluster)。
- *
- * 必填 focusRef —— 无焦点 / 非 decision 焦点 → 空态(引导用户先在聚光灯里选 decision)。
+ * 节点过多自动折成簇(time cluster)。页头统一(§2.3):页名 + 一句话 + 关键计数 +
+ * 环警告;主画布(时间轴)铺满内容区,边类图例贴边;详情进右侧 Drawer;空态只一行
+ * 说明,无焦点时侧栏即入口(点任意参与者换焦点)。
  */
 export function GenealogyTimelineView({
   decisions,
@@ -120,84 +122,45 @@ export function GenealogyTimelineView({
   );
 
   if (edges.length === 0) {
+    // 空态只一行说明(§2.6),不画大框。
     return (
-      <div
-        data-testid="genealogy-empty"
-        className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-surface px-6 text-center"
-      >
-        <div className="ui-body font-semibold text-text">暂无决策谱系边</div>
-        <div className="max-w-md ui-meta leading-relaxed text-text-faint">
-          当前投影没有 refines / narrows / supersedes / supports 关系。决策出现谱系边后,演化史会自动展示祖先与后代。
-        </div>
+      <div data-testid="genealogy-empty" className="flex min-h-0 flex-1 items-center justify-center px-6">
+        <p className="ui-meta text-text-faint">
+          当前投影没有 refines / narrows / supersedes / supports 关系;决策出现谱系边后,演化史会自动展示祖先与后代。
+        </p>
       </div>
     );
   }
 
-  if (!focus) {
-    return (
-      <div
-        data-testid="genealogy-no-focus"
-        className="flex h-full min-h-0 flex-1 flex-col items-center justify-center gap-2 bg-surface px-6 text-center"
-      >
-        <div className="ui-body font-semibold text-text">演化史需要 decision 焦点</div>
-        <div className="max-w-md ui-meta leading-relaxed text-text-faint">
-          先在聚光灯里选中一个 decision,演化史会展示它的谱系(祖先 / 后代 / 同日 cluster)。
-        </div>
-      </div>
-    );
-  }
-
-  const ancestorCount = layout.nodes.filter((n) => !n.isCluster && n.depth < 0).length;
-  const descendantCount = layout.nodes.filter((n) => !n.isCluster && n.depth > 0).length;
+  const ancestorCount = focus ? layout.nodes.filter((n) => !n.isCluster && n.depth < 0).length : 0;
+  const descendantCount = focus ? layout.nodes.filter((n) => !n.isCluster && n.depth > 0).length : 0;
   const visibleClusters = layout.nodes.filter((n) => n.isCluster).length;
   const selected = selectedId ? (byId.get(selectedId) ?? null) : null;
 
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col" data-testid="genealogy-timeline">
-      <div className="flex flex-col gap-0.5 border-b border-border px-4 py-1.5">
-        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
-          <span className="min-w-0 truncate font-mono ui-meta tabular-nums text-text-faint">
-            {edges.length} 条谱系边 · {participants.length} 参与者
+      <header className="flex flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2">
+        <h1 className="flex-none text-sm font-semibold text-text">演化史</h1>
+        <span className="min-w-0 flex-1 truncate ui-meta text-text-muted">这条决策线是怎么一步步演化来的</span>
+        {focus && (
+          <span className="min-w-0 max-w-[36%] truncate ui-meta text-text" title={focus.title}>
+            <TitleText title={focus.title} />
           </span>
-          {cycleWarning.count > 0 && (
-            <span
-              className="inline-flex shrink-0 items-center gap-1 rounded bg-danger/10 px-1.5 py-0.5 font-mono text-danger"
-              title={cycleWarning.cycles.map((c) => c.join(" → ")).join("\n")}
-            >
-              环警告 · {cycleWarning.count}
-            </span>
-          )}
-          <span className="min-w-0 truncate font-mono ui-micro tabular-nums text-text-faint">
-            焦点谱系 · {ancestorCount} 祖先 / {descendantCount} 后代
-            {visibleClusters > 0 ? ` · ${visibleClusters} 同日簇` : ""}
+        )}
+        <span className="flex-none font-mono ui-micro tabular-nums text-text-muted">
+          {edges.length} 条谱系边 · {participants.length} 参与者
+          {focus
+            ? ` · 焦点谱系 ${ancestorCount} 祖先 / ${descendantCount} 后代${
+                visibleClusters > 0 ? ` · ${visibleClusters} 同日簇` : ""
+              }`
+            : ""}
+        </span>
+        {cycleWarning.count > 0 && (
+          <span title={cycleWarning.cycles.map((c) => c.join(" → ")).join("\n")}>
+            <StatusTag tone="bad" label={`环警告 · ${cycleWarning.count}`} />
           </span>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-3 border-b border-border px-4 py-1.5">
-        <span className="font-mono ui-micro text-text-faint">DAG 拓扑(谱系深度排序,同日自动折簇)</span>
-        <div className="ml-auto flex flex-wrap items-center gap-2 ui-micro">
-          {(["refines", "narrows", "supersedes", "supports"] as const).map((kind) => {
-            const meta = KIND_META[kind];
-            return (
-              <span key={kind} className="inline-flex items-center gap-1 text-text-muted">
-                <svg width="22" height="8" aria-hidden>
-                  <line
-                    x1="0"
-                    y1="4"
-                    x2="22"
-                    y2="4"
-                    stroke={meta.color}
-                    strokeWidth={meta.strokeWidth}
-                    strokeDasharray={meta.dash || undefined}
-                  />
-                </svg>
-                {meta.label}
-              </span>
-            );
-          })}
-        </div>
-      </div>
+        )}
+      </header>
 
       <div className="flex min-h-0 flex-1">
         <ParticipantsSidebar
@@ -211,11 +174,17 @@ export function GenealogyTimelineView({
         />
 
         <div ref={plotRef} className="relative min-h-0 min-w-0 flex-1 overflow-auto bg-bg">
-          {layout.nodes.length <= 1 && !layout.nodes[0]?.isCluster ? (
-            <div className="flex h-full items-center justify-center px-6 text-center">
-              <div className="max-w-sm ui-meta leading-relaxed text-text-faint">
+          {!focus ? (
+            <div data-testid="genealogy-no-focus" className="flex h-full items-center justify-center px-6">
+              <p className="max-w-sm ui-meta leading-relaxed text-text-faint">
+                演化史需要 decision 焦点 —— 在左侧点一个参与者,或先在聚光灯里选中一个 decision。
+              </p>
+            </div>
+          ) : layout.nodes.length <= 1 && !layout.nodes[0]?.isCluster ? (
+            <div className="flex h-full items-center justify-center px-6">
+              <p className="max-w-sm ui-meta leading-relaxed text-text-faint">
                 该 decision 暂无谱系连接(没有 refines/narrows/supersedes/supports 邻居)。
-              </div>
+              </p>
             </div>
           ) : (
             <div className="p-4">
@@ -237,6 +206,32 @@ export function GenealogyTimelineView({
               />
             </div>
           )}
+
+          {/* 边类图例:贴边玻璃(§2.6 周边控件),不遮挡主体内容。 */}
+          <div className="glass pointer-events-none absolute bottom-3 left-3 z-10 flex flex-col gap-1 rounded-sm px-3 py-2">
+            <span className="font-mono ui-micro text-text-faint">DAG 拓扑 · 谱系深度排序 · 同日自动折簇</span>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              {(["refines", "narrows", "supersedes", "supports"] as const).map((kind) => {
+                const meta = KIND_META[kind];
+                return (
+                  <span key={kind} className="inline-flex items-center gap-1 ui-micro text-text-muted">
+                    <svg width="22" height="8" aria-hidden>
+                      <line
+                        x1="0"
+                        y1="4"
+                        x2="22"
+                        y2="4"
+                        stroke={meta.color}
+                        strokeWidth={meta.strokeWidth}
+                        strokeDasharray={meta.dash || undefined}
+                      />
+                    </svg>
+                    {meta.label}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
         </div>
 
         {selected && (

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { MagnifyingGlass } from "@phosphor-icons/react";
 import type { PaletteEntry } from "./CommandPalette.tsx";
+import { DenseRow } from "./primitives/DenseRow.tsx";
 import { t } from "../i18n/index.tsx";
 
 /**
@@ -112,19 +113,21 @@ export function FocusSwitcher({ recentRefs, entries, focusRef, onFocus, onOpenPa
     }
   };
 
+  // 行用 DenseRow(视觉基线 v1):种类列 + 标题(经 TitleText 冒号拆分)+ 等宽补充;
+  // 键盘/悬停选中态复用 DenseRow 的选中样式。testid 落在 li 上,命中仍是整行可点。
   const renderItem = (hit: PaletteEntry, i: number, focused: boolean) => (
-    <li key={hit.ref}>
-      <button
-        type="button"
-        data-testid="focus-switcher-item"
-        onMouseEnter={() => setActiveIndex(i)}
+    <li key={hit.ref} data-testid="focus-switcher-item" onMouseEnter={() => setActiveIndex(i)}>
+      <DenseRow
+        tag={
+          hit.entity ? (
+            <span className="w-14 truncate text-left font-mono ui-micro uppercase text-text-faint">{hit.entity}</span>
+          ) : undefined
+        }
+        title={hit.label}
+        time={hit.sub}
+        selected={focused}
         onClick={() => selectHit(hit)}
-        className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left ui-meta ${focused ? "bg-surface-raised text-text" : "text-text-muted hover:bg-surface-raised"}`}
-      >
-        <span className="w-14 shrink-0 truncate font-mono ui-micro uppercase text-text-faint">{hit.entity}</span>
-        <span className="min-w-0 flex-1 truncate">{hit.label}</span>
-        {hit.sub ? <span className="shrink-0 truncate font-mono ui-micro text-text-faint">{hit.sub}</span> : null}
-      </button>
+      />
     </li>
   );
 
@@ -136,7 +139,7 @@ export function FocusSwitcher({ recentRefs, entries, focusRef, onFocus, onOpenPa
         </span>
       </div>
       <div className="m-2">
-        <label className="flex items-center gap-2 rounded-md border border-border bg-surface-raised px-2.5 py-1.5 transition-colors focus-within:border-border-strong">
+        <label className="flex items-center gap-2 rounded-xs border border-border bg-surface-raised px-2.5 py-1.5 transition-colors focus-within:border-border-strong">
           <MagnifyingGlass weight="bold" className="size-3.5 shrink-0 text-text-faint" />
           <input
             type="search"
