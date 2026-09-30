@@ -67,7 +67,10 @@ const page = (over: Partial<AgendaRead> = {}): AgendaSuccess => {
     ok: true as const,
     command: "agenda",
     status: "ready" as const,
+    attentionItems: [],
+    regionWeights: { mine: 1.5, stuck: 3, run: 3, review: 3, queue: 0, recent: 4, works: 8 },
     inFlight: [],
+    stalled: [],
     pinnedEntities: [],
     pinnedEntityOverflow: 0,
     awaitingYou: [],
@@ -227,6 +230,51 @@ describe("agenda read discipline", () => {
       "dec_needs_review",
       "dec_needs_review_2",
     ]);
+  });
+
+  it("merges attention items by ref keeping the higher score and recomputes region weights over the joined cut", async () => {
+    const attention = (ref: string, score: number, region: "mine" | "stuck", workTaskId: string | null = null) => ({
+      ref,
+      title: `条目 ${ref}`,
+      kind: region === "mine" ? "awaiting-you" : "stalled",
+      region,
+      workTaskId,
+      attention: { score, reasons: [{ label: "等你答复", contribution: score }] },
+    });
+    pages.push(
+      page({
+        status: "pending",
+        inFlight: [row("task_live")],
+        attentionItems: [attention("relation/rel_a", 90, "mine", "task_w"), attention("task/task_s", 44, "stuck")],
+        regionWeights: { mine: 6.4, stuck: 3.9, run: 3, review: 3, queue: 0, recent: 4, works: 8 },
+        page: { sourceLimit: 100, cursor: null, nextCursor: "agenda-next" },
+      }),
+    );
+    const first = await readAgenda("repo-a");
+    pages.push(
+      page({
+        attentionItems: [
+          attention("relation/rel_a", 130, "mine", "task_w"),
+          attention("relation/rel_b", 60, "mine"),
+          attention("task/task_s", 44, "stuck"),
+        ],
+        regionWeights: { mine: 6.4, stuck: 3, run: 3, review: 3, queue: 0, recent: 4, works: 8 },
+        page: { sourceLimit: 100, cursor: "agenda-next", nextCursor: null },
+      }),
+    );
+    const joined = await readAgenda("repo-a", first);
+    // 同 ref 两页都出现时保分高者(与 daemon buildAttentionItems 的 highest 同判据),全局按分数排序。
+    expect(joined.attentionItems.map(({ ref, attention }) => [ref, attention.score])).toEqual([
+      ["relation/rel_a", 130],
+      ["relation/rel_b", 60],
+      ["task/task_s", 44],
+    ]);
+    // 权重用 daemon 同一函数在合并切面上重算:mine = 6 + (130+60)/14,stuck = 3 + 44/45,
+    // run = 3 + 1×2.5(合并后 inFlight=1),works = 8 + 1×0.8(唯一一个有事的工作)。
+    expect(joined.regionWeights.mine).toBeCloseTo(6 + 190 / 14, 5);
+    expect(joined.regionWeights.stuck).toBeCloseTo(3 + 44 / 45, 5);
+    expect(joined.regionWeights.run).toBeCloseTo(5.5, 5);
+    expect(joined.regionWeights.works).toBeCloseTo(8.8, 5);
   });
 });
 

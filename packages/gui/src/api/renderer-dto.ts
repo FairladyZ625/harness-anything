@@ -41,13 +41,16 @@ export type WorkIndexRead = DaemonGuiReadResultMap["repo.works.index"];
 export type TaskCompletionRead = DaemonGuiReadResultMap["repo.tasks.completion.read"];
 /** `repo.agenda.read`: the same supervisory agenda projection the CEO CLI tick reads. */
 export type AgendaRead = DaemonGuiReadResultMap["repo.agenda.read"];
+export type AgendaAttentionItem = AgendaRead["attentionItems"][number];
+export type AgendaRegionWeights = AgendaRead["regionWeights"];
+/** `repo.ci.observatory.read`: main-branch CI run window for the overview's CI region. */
+export type CiObservatoryRead = DaemonGuiReadResultMap["repo.ci.observatory.read"];
 export type AgendaTaskRow = AgendaRead["inFlight"][number];
 export type AgendaExecutionRow = AgendaRead["awaitingAdjudication"][number];
 export type AgendaDecisionRow = AgendaRead["awaitingDecision"][number];
 export type AgendaDecisionReviewRow = AgendaRead["decisionReviewInProgress"][number];
 export type AgendaAwaitsRow = AgendaRead["awaitingYou"][number];
 export type AgendaAnsweredRow = AgendaRead["answeredForYou"][number];
-export type AgendaAttentionItem = AgendaRead["attentionItems"][number];
 export type SettingsRead = DaemonGuiReadResultMap["repo.settings.read"];
 export type WorkspaceSummaryRead = DaemonGuiReadResultMap["repo.workspace.summary.read"];
 export type WorkspaceScopeRead = DaemonGuiReadResultMap["repo.workspace.scope.read"];

@@ -109,7 +109,9 @@ export function FocusLayer({
             <div className="flex flex-none flex-wrap items-center gap-1.5 px-[18px] pb-2.5">{toolbar}</div>
           )}
           <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[minmax(0,1.5fr)_minmax(20rem,1fr)]">
-            <div className="min-h-0 overflow-y-auto border-t border-border" data-focus-list>
+            {/* flex 列的默认拉伸让每个直接子行占满列宽:调用方传入的行/包装层不再依赖
+                自身 display 参与块级流(行高亮曾止于内容宽度,S3 移交缺陷)。 */}
+            <div className="flex min-h-0 flex-col overflow-y-auto border-t border-border" data-focus-list>
               {list}
             </div>
             <div

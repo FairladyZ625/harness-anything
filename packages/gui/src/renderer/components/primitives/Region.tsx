@@ -39,9 +39,13 @@ export function Region({
   useLayoutEffect(() => {
     const body = bodyRef.current;
     if (body === null) return;
-    const hidden = [...body.children].filter(
-      (child) => (child as HTMLElement).offsetTop + (child as HTMLElement).offsetHeight > body.clientHeight + 1,
-    ).length;
+    // 放不完整的行整行隐藏(不画半截),只计入页脚的「+N 条」;第一项总是显示(区域内容可能只有一个整块)。
+    let hidden = 0;
+    for (const [index, child] of ([...body.children] as HTMLElement[]).entries()) {
+      const cut = index > 0 && child.offsetTop + child.offsetHeight > body.clientHeight + 1;
+      child.style.visibility = cut ? "hidden" : "";
+      if (cut) hidden += 1;
+    }
     setOverflow(hidden);
   });
 
@@ -71,9 +75,6 @@ export function Region({
         <div ref={bodyRef} className="h-full overflow-hidden">
           {children}
         </div>
-        {overflow > 0 && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[22px] bg-gradient-to-t from-bg/85 to-transparent" />
-        )}
       </div>
       {(overflow > 0 || footer !== undefined) && (
         <div className="flex flex-none items-center gap-1.5 px-3 pb-[7px] pt-1 text-text-faint ui-meta">

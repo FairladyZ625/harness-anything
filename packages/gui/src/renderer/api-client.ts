@@ -7,6 +7,9 @@ import type {
   AgendaDecisionReviewRow,
   AgendaAnsweredRow,
   AgendaAwaitsRow,
+  AgendaAttentionItem,
+  AgendaRegionWeights,
+  CiObservatoryRead,
   ContractVersion,
   FactAnchorRow,
   RelationFactRow,
@@ -96,7 +99,10 @@ export interface AgendaSuccess
     | "pinnedEntityOverflow"
     | "awaitingYou"
     | "answeredForYou"
+    | "attentionItems"
+    | "regionWeights"
     | "inFlight"
+    | "stalled"
     | "awaitingRework"
     | "awaitingAdjudication"
     | "underReview"
@@ -106,7 +112,6 @@ export interface AgendaSuccess
     | "waitingOnOthers"
     | "dispatchable"
     | "summary"
-    | "attentionItems"
   > {
   readonly ok: true;
   readonly status: "ready" | "pending";
@@ -293,6 +298,19 @@ export const harnessClient = {
   },
   async getAgenda(payload: RepoScope & { readonly limit?: number; readonly cursor?: string }): Promise<AgendaSuccess> {
     return readAgendaResult(await invoke("repo.agenda.read", payload, "getAgenda"));
+  },
+  /** main 分支 CI 观察窗(dec_B3D40712 CH1 的 CI 区域只在这份读红时出现);window 有界 1..100。 */
+  async getCiObservatory(payload: RepoScope & { readonly window?: number }): Promise<CiObservatoryRead> {
+    const result = await invoke("repo.ci.observatory.read", payload, "getCiObservatory");
+    if (
+      !result ||
+      result.schema !== "daemon.ci-observatory/v1" ||
+      result.ok !== true ||
+      (result.status !== "ready" && result.status !== "pending") ||
+      !Array.isArray(result.runs)
+    )
+      throw new Error(localErrorHint(result, "CI observatory bridge returned an invalid result."));
+    return result;
   },
   async getSettings(payload: RepoScope): Promise<SettingsSuccess> {
     return readSettingsResult(await invoke("repo.settings.read", payload, "getSettings"));
@@ -671,8 +689,13 @@ function readAgendaResult(value: unknown): AgendaSuccess {
     !result.awaitingDecision.every(isAgendaDecisionRow) ||
     !Array.isArray(result.waitingOnOthers) ||
     !result.waitingOnOthers.every(isAgendaTaskRow) ||
+    !Array.isArray(result.stalled) ||
+    !result.stalled.every(isAgendaTaskRow) ||
     !Array.isArray(result.dispatchable) ||
     !result.dispatchable.every(isAgendaTaskRow) ||
+    !Array.isArray(result.attentionItems) ||
+    !result.attentionItems.every(isAgendaAttentionItem) ||
+    !isRegionWeights(result.regionWeights) ||
     typeof result.summary !== "string" ||
     !isRendererRecord(result.page) ||
     !Number.isInteger(result.page.sourceLimit) ||
@@ -683,6 +706,33 @@ function readAgendaResult(value: unknown): AgendaSuccess {
   )
     throw new Error(localErrorHint(value, "Agenda bridge returned an invalid result."));
   return result as AgendaSuccess;
+}
+
+/** 注意力行(S1)同样只验形状:分数与原因的推导全在 daemon。 */
+function isAgendaAttentionItem(value: unknown): value is AgendaAttentionItem {
+  return (
+    isRendererRecord(value) &&
+    typeof value.ref === "string" &&
+    typeof value.title === "string" &&
+    typeof value.kind === "string" &&
+    typeof value.region === "string" &&
+    (value.workTaskId === null || typeof value.workTaskId === "string") &&
+    isRendererRecord(value.attention) &&
+    typeof value.attention.score === "number" &&
+    Array.isArray(value.attention.reasons) &&
+    value.attention.reasons.every(
+      (reason) =>
+        isRendererRecord(reason) && typeof reason.label === "string" && typeof reason.contribution === "number",
+    )
+  );
+}
+
+/** 区域权重:七个区域各一个有限数(空区域为 0,布局算法按 0 剔除)。 */
+function isRegionWeights(value: unknown): value is AgendaRegionWeights {
+  if (!isRendererRecord(value)) return false;
+  return ["mine", "stuck", "run", "review", "queue", "recent", "works"].every(
+    (key) => typeof value[key] === "number" && Number.isFinite(value[key]),
+  );
 }
 
 /** 分组判据不在 renderer 重建:这里只验形状,分组语义全部来自 daemon 投影。 */
