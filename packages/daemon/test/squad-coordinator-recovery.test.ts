@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { appendFileSync, mkdtempSync, rmSync, truncateSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { appendFileSync, mkdtempSync, rmSync, truncateSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -75,6 +76,7 @@ function makeRecoveryFixture(
     readonly pendingChildLeaseActor?: ActorIdentity;
     readonly observedWorkerRuntimeSessionIds?: readonly string[];
     readonly permissionMode?: "bypass" | "workspace-write" | "read-only";
+    readonly baseSha?: string;
   },
 ): RecoveryFixture {
   const workers = options.workers ?? [],
@@ -139,7 +141,7 @@ function makeRecoveryFixture(
     model: null,
     effort: null,
     permissionMode: options.permissionMode ?? "read-only",
-    baseSha: "1".repeat(40),
+    baseSha: options.baseSha ?? "1".repeat(40),
     leaderAgentId: "leader",
     roster: "leader -> sol, terra\nsynthesis -> artifacts/reports/{squadRunId}.md",
     workers: ["sol", "terra"],
@@ -664,6 +666,35 @@ test("redispatch of an active worker waits while non-overlapping work still star
       reason,
     });
     assert.match(String(fixture.spawns[1]?.prompt), /Wait completed: Worker sol already has running attempt worker-1/u);
+  });
+});
+
+test("a later-stage worker starts from the commits earlier stages delivered to the Commander branch", async () => {
+  await withRootDir(async (rootDir) => {
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: rootDir, encoding: "utf8" }).trim();
+    git("init", "-q", "-b", "task_0123456789abcdef0123456789");
+    git("config", "user.name", "Fixture");
+    git("config", "user.email", "fixture@example.com");
+    git("commit", "-q", "--allow-empty", "-m", "run baseline");
+    const runBaseline = git("rev-parse", "HEAD");
+    writeFileSync(path.join(rootDir, "stage-one.txt"), "delivered\n");
+    git("add", "stage-one.txt");
+    git("commit", "-q", "-m", "stage one delivery");
+    const delivered = git("rev-parse", "HEAD"),
+      fixture = makeRecoveryFixture(rootDir, {
+        leaderOutcome: "succeeded",
+        leaderResult: JSON.stringify({ schema: "runtime-batch/v1", dispatches: [{ to: "sol", prompt: "stage two" }] }),
+        leaderTurnBudget: 3,
+        permissionMode: "workspace-write",
+        baseSha: runBaseline,
+      });
+    await fixture.coordinator.observeOutcome(outcomeEvent(LEADER_SESSION_ID));
+
+    const cwd = fixture.spawns[0]?.cwd as { readonly path: string };
+    assert.equal(
+      execFileSync("git", ["rev-parse", "HEAD"], { cwd: path.join(rootDir, cwd.path), encoding: "utf8" }).trim(),
+      delivered,
+    );
   });
 });
 

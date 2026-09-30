@@ -626,33 +626,30 @@ export function makeSquadCoordinator(input: {
         await input.reacquireTaskLease(taskId, state.binding);
       const executionId = input.projection().read(taskId).snapshot.lease?.executionId;
       if (!executionId) throw new Error(`Child ${taskId} has no execution lease.`);
-      const dispatchState =
-        state.permissionMode === "read-only" || state.baseSha !== null
-          ? state
-          : revise(state, {
-              baseSha: localGitObjectRefStore.headCommit(state.cwd),
-            });
       const worktree =
-        dispatchState.permissionMode === "read-only"
+        state.permissionMode === "read-only"
           ? null
-          : await prepareWorkerWorktree(dispatchState, plan.workerId, attemptId, {
-              rootDir: input.rootDir,
-              taskId,
-              steps: input.readWorktreeSetup(),
-            });
+          : await prepareWorkerWorktree(
+              state,
+              // Stages share the Commander branch: a later worker starts from what earlier stages delivered there.
+              attempt.worktree?.baseSha ?? localGitObjectRefStore.headCommit(state.cwd),
+              plan.workerId,
+              attemptId,
+              { rootDir: input.rootDir, taskId, steps: input.readWorktreeSetup() },
+            );
       attempt = { ...attempt, worktree, executionId };
-      state = save(dispatchState);
+      state = save(state);
       const receipt = await input.runtimeSpawner().spawn(
           {
-            agentId: dispatchState.leaderAgentId,
-            squadId: dispatchState.squadId,
+            agentId: state.leaderAgentId,
+            squadId: state.squadId,
             targetAgentId: plan.workerId,
             prompt: workerPrompt(plan.prompt, worktree, attempt.ownedPaths),
-            cwd: cwdPayload(input.rootDir, worktree?.cwd ?? dispatchState.cwd),
+            cwd: cwdPayload(input.rootDir, worktree?.cwd ?? state.cwd),
             taskId,
-            ...(dispatchState.effort ? { effort: dispatchState.effort } : {}),
-            ...(dispatchState.permissionMode ? { permissionMode: dispatchState.permissionMode } : {}),
-            idempotencyKey: `${dispatchState.squadRunId}:${leaderTurnId}:${attemptId}`,
+            ...(state.effort ? { effort: state.effort } : {}),
+            ...(state.permissionMode ? { permissionMode: state.permissionMode } : {}),
+            idempotencyKey: `${state.squadRunId}:${leaderTurnId}:${attemptId}`,
           },
           state.binding,
         ),

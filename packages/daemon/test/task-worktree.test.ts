@@ -633,7 +633,8 @@ test("a finished Squad run's worker checkout is reclaimed against the Commander 
       git(fixture.root, "switch", "-q", "-c", taskId);
       const baseSha = git(fixture.root, "rev-parse", "HEAD"),
         worker = (await prepareWorkerWorktree(
-          { squadRunId: "squad_0123456789abcdef01234567", cwd: fixture.root, baseSha },
+          { squadRunId: "squad_0123456789abcdef01234567", cwd: fixture.root },
+          baseSha,
           "writer",
           "a1",
           { rootDir: fixture.root, taskId: "task_child", steps: [] },
