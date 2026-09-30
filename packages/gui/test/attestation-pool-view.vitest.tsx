@@ -154,6 +154,7 @@ async function mountPool(
   initialTab: AttestationPoolTabId = "taskCloseout",
   tasks: readonly TaskRow[] = [attestTask, failedTask, consentTask],
   decisions: readonly DecisionRow[] = [proposedDecision],
+  inboxCount = summary.inboxCount,
 ): Promise<PoolHarness> {
   const harness: PoolHarness = { tabChanges: [], attestCalls: [], consentCalls: [], completeCalls: [], judged: [] };
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
@@ -169,7 +170,7 @@ async function mountPool(
         createElement(AttestationPoolView, {
           repoId: "repo-a",
           decisions: [...decisions],
-          summary,
+          summary: { ...summary, inboxCount },
           facts: [],
           relations: [],
           tasks,
@@ -327,6 +328,17 @@ describe("AttestationPoolView", () => {
     expect(harness.tabChanges).toEqual(["consents"]);
     // 受控组件:poolTab 仍是 "taskCloseout" 时 UI 不自行切换渲染。
     expect(byTestId("pool-gate-row-task-attest-ux-signoff")).toBeTruthy();
+  });
+
+  it("默认页签:决策待裁决 0、任务收口有待办 → 落到任务收口;决策有待办则留在决策", async () => {
+    const empty = await mountPool("decisions", [attestTask, failedTask, consentTask], [], 0);
+    expect(empty.tabChanges).toEqual(["taskCloseout"]);
+    await unmountAll();
+    const busy = await mountPool("decisions", [attestTask, failedTask, consentTask], [proposedDecision]);
+    expect(busy.tabChanges).toEqual([]);
+    await unmountAll();
+    const explicit = await mountPool("gates", [attestTask], [], 0);
+    expect(explicit.tabChanges).toEqual([]);
   });
 
   it("renders only the requested lane on a focused tab", async () => {

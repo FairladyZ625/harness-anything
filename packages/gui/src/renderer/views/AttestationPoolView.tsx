@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowRight, Crosshair, Handshake, Scales, SealCheck } from "@phosphor-icons/react";
 import type { RelationCoverageRow, WorkspaceSummaryRead } from "../../api/renderer-dto.ts";
 import type { DecisionProposalInput } from "../api-client.ts";
@@ -126,6 +126,23 @@ export function AttestationPoolView({
   useEffect(() => {
     if (focusedDecisionId && poolTab !== "decisions") onPoolTabChange("decisions");
   }, [focusedDecisionId, onPoolTabChange, poolTab]);
+  // 默认落点先回答问题(业主 2026-09-30 截图验收):定位携带的页签落在没有任何待办
+  // 的决策域、而任务收口域确实有待办时,默认改开有待办的页签——打开这页的人要看的是
+  // 待办,不是空列表。用户亲手切过页签或深链聚焦决策后本效果不再介入;显式落在
+  // 任务收口域的定位不受影响(条件只在 decisions 域起判)。
+  const orientedRef = useRef(false);
+  useEffect(() => {
+    if (orientedRef.current || focusedDecisionId) return;
+    if (poolTab === "decisions" && counts.decisions === 0 && counts.taskCloseout > 0) {
+      orientedRef.current = true;
+      onPoolTabChange("taskCloseout");
+    }
+  }, [counts.decisions, counts.taskCloseout, focusedDecisionId, onPoolTabChange, poolTab]);
+  /** 用户亲手选页签(Tabs/FilterChips):此后的页签完全按用户来,默认定向不再介入。 */
+  const pickTab = (tab: AttestationPoolTabId) => {
+    orientedRef.current = true;
+    onPoolTabChange(tab);
+  };
 
   const inDecisionDomain = poolTab === "decisions",
     // 专注裁决是决策域的模式:整个池体让位给 DecisionsView(J/K 键盘流 + 判定历史)。
@@ -185,7 +202,7 @@ export function AttestationPoolView({
             ariaLabel={t("views.attestationPoolView.tablist")}
             idPrefix="pool-domain"
             value={inDecisionDomain ? "decisions" : "taskCloseout"}
-            onChange={(key) => onPoolTabChange(key)}
+            onChange={(key) => pickTab(key)}
             tabs={[
               {
                 key: "decisions" as const,
@@ -236,7 +253,7 @@ export function AttestationPoolView({
           <div className="flex-none px-5 pt-3 md:px-7" data-testid="attestation-pool-lane-chips">
             <FilterChips
               value={poolTab}
-              onChange={onPoolTabChange}
+              onChange={pickTab}
               chips={TASK_CLOSEOUT_TABS.map((id) => ({
                 key: id,
                 label: t(LANE_LABEL_KEY[id]),

@@ -11,19 +11,28 @@ import type { DecisionAction, DecisionMutationFeedback } from "../decision-actio
 import { computeReadinessSignals, worstColor } from "../model/readiness-signals.ts";
 import { decisionCan, type DecisionRow, type DecisionState, type FactRef, type RelationEdge } from "../model/types.ts";
 import { sortDecisionQueue, supersedeChain } from "../model/triadic.ts";
-import { DecisionStateBadge, RiskTierBadge, UrgencyBadge } from "../components/badges.tsx";
+import { DecisionStateBadge, RiskTierBadge, UrgencyBadge, decisionStateLabel } from "../components/badges.tsx";
 import { triadicQueryKeys } from "../triadic-data.ts";
 import { groupDecisions, type PoolGroupBy } from "../model/decision-pool-grouping.ts";
 import { Drawer } from "../components/primitives/Drawer.tsx";
 import { FilterChips } from "../components/primitives/FilterChips.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { TitleText } from "../components/primitives/TitleText.tsx";
-import { t } from "../i18n/index.tsx";
+import { t, type MessageKey } from "../i18n/index.tsx";
 import { formatTime } from "../model/time.ts";
 
 type PoolGroupTab = WorkspaceSummaryRead["decisions"]["groups"][number]["id"];
 type TimeRange = "all" | "14d" | "30d";
 type RelationState = "ready" | "loading" | "error";
+
+/** 分组 chips 的显示名走 i18n(与全站状态词表同源),不再裸显投影组 id。 */
+const POOL_GROUP_LABEL_KEY: Record<PoolGroupTab, MessageKey> = {
+  proposed: "views.decisionPoolView.poolGroup.proposed",
+  in_effect: "views.decisionPoolView.poolGroup.in_effect",
+  rejected: "views.decisionPoolView.poolGroup.rejected",
+  deferred: "views.decisionPoolView.poolGroup.deferred",
+  retired: "views.decisionPoolView.poolGroup.retired",
+};
 const selectClass =
   "rounded-xs border border-border bg-surface px-2 py-1 font-mono ui-meta text-text-muted outline-none transition-colors duration-100 hover:border-border-strong focus-visible:border-border-strong";
 
@@ -359,7 +368,9 @@ export function DecisionPoolSection({
           >
             <option value="all">{t("views.decisionPoolView.stateAll")}</option>
             {currentGroup.states.map((state) => (
-              <option key={state}>{state}</option>
+              <option key={state} value={state}>
+                {decisionStateLabel(state)}
+              </option>
             ))}
           </select>
           <Filter
@@ -424,7 +435,7 @@ export function DecisionPoolSection({
           }}
           chips={summary.groups.map((item) => ({
             key: item.id,
-            label: item.id.replaceAll("_", " "),
+            label: t(POOL_GROUP_LABEL_KEY[item.id]),
             count: item.count,
           }))}
         />

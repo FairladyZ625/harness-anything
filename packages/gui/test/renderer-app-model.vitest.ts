@@ -464,8 +464,8 @@ describe("renderer app model", () => {
     expect(markup).toContain(`id="decision-card-${focused.decisionId}"`);
     expect(markup).toContain('data-focused="true"');
     expect(markup).not.toContain('data-testid="decision-pool-more"');
-    // 分组 chips 的计数与列表同源(proposed 组 35 行);剥掉标签后按文本断言。
-    expect(markup.replace(/<[^>]+>/g, "")).toMatch(/proposed\s*35/);
+    // 分组 chips 的计数与列表同源(待裁决组 35 行);剥掉标签后按文本断言。
+    expect(markup.replace(/<[^>]+>/g, "")).toMatch(/待裁决\s*35/);
   });
 
   it("renders the exact proposal surface with human-selected risk and urgency", () => {

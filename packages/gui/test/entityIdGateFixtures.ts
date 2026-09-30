@@ -168,7 +168,12 @@ export const FIXTURE_WORKSPACE_SUMMARY: WorkspaceSummaryRead = {
     inboxCount: 0,
     byState: Object.fromEntries(DECISION_STATES.map((state) => [state, state === "in_effect" ? 1 : 0])),
     groups: [
-      { id: "g10-group", states: ["proposed", "in_effect"], count: 2, decisionIds: [DECISION_B_ID, DECISION_ID] },
+      // 组词表与 kernel workspace-summary 同构:五个已注册组,每组恰覆盖一次。
+      { id: "proposed", states: ["proposed"], count: 1, decisionIds: [DECISION_B_ID] },
+      { id: "in_effect", states: ["in_effect"], count: 1, decisionIds: [DECISION_ID] },
+      { id: "rejected", states: ["rejected"], count: 0, decisionIds: [] },
+      { id: "deferred", states: ["deferred"], count: 0, decisionIds: [] },
+      { id: "retired", states: ["superseded", "outcome_retired"], count: 0, decisionIds: [] },
     ],
   },
   watermark: 1,
