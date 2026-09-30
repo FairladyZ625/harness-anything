@@ -6,6 +6,23 @@ export function requiredRuntimeSpawnText(value: unknown, field: string): string 
   throw runtimeSpawnError("invalid_runtime_spawn", `${field} is required.`);
 }
 
+export function runtimeTaskExecutionFrozenError(taskId: string, status: string): Error {
+  return runtimeSpawnError(
+    "execution_frozen",
+    `Task ${taskId} is ${status}: the round was submitted and its cut is frozen, so an implementation runtime ` +
+      "cannot write to it.",
+    {
+      kind: "validation",
+      entity: `task ${taskId}`,
+      field: "taskId",
+      actual: status,
+      expectation:
+        `Expected a task in implementation; the owner returns the cut with ha task adjudicate ${taskId} --return, ` +
+        `then retry the dispatch, or review it with ha task dispatch-review ${taskId} --agent <reviewer-agent-id>`,
+    },
+  );
+}
+
 export function runtimeTaskLeaseRequiredMessage(
   taskId: string,
   lease: ReturnType<TaskProjection["currentLease"]>,

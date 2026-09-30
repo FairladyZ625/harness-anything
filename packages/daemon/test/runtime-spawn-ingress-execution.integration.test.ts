@@ -447,74 +447,52 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       assert.match(launchedPrompt, /# Reviewer Role/u);
       assert.doesNotMatch(launchedPrompt, /# Implementation Permissions|# Worker Role|temporary WIP commit/u);
     });
-    await t.test("an in-review task dispatches a closeout continuation without reopening execution", async () => {
-      const taskId = "task-runtime-review-continuation",
-        executionId = "exec-runtime-review-continuation";
-      await createReadyTask(taskId, "Runtime review continuation");
+    await t.test("a submitted or in-review task rejects an implementation dispatch at admission", async () => {
+      const taskId = "task-runtime-frozen-cut",
+        executionId = "exec-runtime-frozen-cut";
+      await createReadyTask(taskId, "Runtime frozen cut");
       assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId }, auth)).outcome, "applied");
       writeCloseout(taskId, "The runtime execution is ready for review.");
-      assert.equal(
-        (
-          await host.run(
-            repoId,
-            {
-              kind: "task-submit",
-              taskId,
-              executionId,
-            },
-            auth,
-          )
-        ).outcome,
-        "applied",
-      );
-      assert.equal(
-        (
-          await host.run(
-            repoId,
-            {
-              kind: "task-adjudicate",
-              taskId,
-              executionId,
-              forward: true,
-              reason: "Forward runtime continuation cut.",
-            },
-            auth,
-          )
-        ).outcome,
-        "applied",
-      );
-      const before = makeTaskEventReader({ repoId, rootDir: root })
-        .read()
-        .events.filter((event) => event.type === "execution_started" && event.taskId === taskId).length;
-      const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
-        repo: { repoId },
-        payload: {
-          runtimeInstanceId: ingressDefinition.instanceId,
-          cwd: { scope: "repo-root" },
-          prompt: "Continue review and closeout.",
-          taskId,
-          idempotencyKey: "runtime-review-continuation",
-        },
-      });
-      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-      const events = makeTaskEventReader({ repoId, rootDir: root }).read().events;
-      assert.equal(
-        events.filter((event) => event.type === "execution_started" && event.taskId === taskId).length,
-        before,
-        "review continuation must not reopen or replace the submitted execution",
-      );
-      const bound = await eventuallyValue(
-        async () =>
+      assert.equal((await host.run(repoId, { kind: "task-submit", taskId, executionId }, auth)).outcome, "applied");
+      const dispatch = (status: string) =>
+        rpc(host, auth, "repo.agentRuntime.spawn", {
+          repo: { repoId },
+          payload: {
+            runtimeInstanceId: ingressDefinition.instanceId,
+            cwd: { scope: "repo-root" },
+            prompt: "Continue the implementation.",
+            taskId,
+            idempotencyKey: `runtime-frozen-cut-${status}`,
+          },
+        });
+      const assertFrozen = async (status: string): Promise<void> => {
+        const launchesBefore = launchCount,
+          receipt = await dispatch(status);
+        assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
+        assert.equal(receipt.code, "execution_frozen", JSON.stringify(receipt));
+        assert.match(String(receipt.rejectionExplanation), /round was submitted and its cut is frozen/u);
+        assert.match(JSON.stringify(receipt), new RegExp(`ha task adjudicate ${taskId} --return`, "u"));
+        assert.equal(launchCount, launchesBefore, "a frozen cut must not launch a runtime");
+        assert.equal(
           makeTaskEventReader({ repoId, rootDir: root })
             .read()
-            .events.find(
-              (event) =>
-                event.type === "runtime_session_task_bound" &&
-                event.payload.runtimeSessionId === receipt.runtimeSessionId,
-            ) ?? null,
+            .events.filter((event) => event.type === "runtime_session_task_bound" && event.taskId === taskId).length,
+          0,
+          "a frozen cut must not bind a runtime session",
+        );
+      };
+      await assertFrozen("submitted");
+      assert.equal(
+        (
+          await host.run(
+            repoId,
+            { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward the frozen cut." },
+            auth,
+          )
+        ).outcome,
+        "applied",
       );
-      assert.equal(bound?.type, "runtime_session_task_bound");
-      if (bound?.type === "runtime_session_task_bound") assert.equal(bound.payload.executionId, executionId);
+      await assertFrozen("in_review");
     });
     await t.test(
       "the bound runtime appends attributed progress while an unrelated executor stays rejected",

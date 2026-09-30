@@ -3,7 +3,6 @@ import path from "node:path";
 import type { AgentRuntimeEventV1, CanonicalEventStore, SessionIdentity } from "@harness-anything/kernel";
 import {
   consumeKnownError,
-  currentSubmittedExecutions,
   isSameExecution,
   isSamePerson,
   runtimeDefinitionSnapshotArtifact,
@@ -37,6 +36,7 @@ import {
   requiredRuntimeSpawnText,
   runtimeErrorMessage,
   runtimeSpawnError,
+  runtimeTaskExecutionFrozenError,
   runtimeTaskLeaseRequiredMessage,
 } from "./runtime-spawn-errors.ts";
 import {
@@ -249,13 +249,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const taskSnapshot =
         taskId && !input.remote ? requireCurrentTaskProjection(projection!, taskId, "runtime.run").snapshot : null,
       leaseAtAdmission = taskId && !input.remote ? projection!.currentLease(taskId) : null,
-      reviewExecutions =
-        taskSnapshot?.task?.status === "in_review" &&
-        taskSnapshot.task.currentNode === "review" &&
-        taskSnapshot.lease === null
-          ? currentSubmittedExecutions(taskSnapshot)
-          : [],
-      reviewExecution = reviewExecutions.length === 1 ? reviewExecutions[0]! : null,
       // A reviewer dispatch binds to the submitted cut under review — never to the task's active
       // implementation execution or lease — so it cannot observe, open, or mutate an implementation
       // iteration. Selection happens here so every entry (task dispatch-review, completion facade)
@@ -292,7 +285,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           "Runtime dispatch requires the center AuthorizationPort decision.",
         );
       if (!dryRun) assertTaskDispatchPrerequisites(projection!, taskId);
-      if (!dryRun && !leaseQualifies && reviewExecution === null)
+      // A submitted round's cut is frozen: an implementation runtime dispatched now could never
+      // write under its lease, so the conflict is rejected here instead of after the work is done.
+      const frozenStatus = taskSnapshot?.task?.status;
+      if (!dryRun && (frozenStatus === "submitted" || frozenStatus === "in_review"))
+        throw runtimeTaskExecutionFrozenError(taskId, frozenStatus);
+      if (!dryRun && !leaseQualifies)
         throw runtimeSpawnError(
           "runtime_task_lease_required",
           runtimeTaskLeaseRequiredMessage(taskId, leaseAtAdmission),
@@ -514,8 +512,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       workerIdentityEnvironment =
         taskId || trustedSchedule || reviewerBinding ? await conventionalWorkerGitEnvironment(input.rootDir) : {};
     // Every implementation runtime, including squad leaders, takes the actual lease.
-    const taskLeaseHandoff =
-        taskId && !input.remote && !reviewerBinding && reviewExecution === null ? input.handoffTaskLease : undefined,
+    const taskLeaseHandoff = taskId && !input.remote && !reviewerBinding ? input.handoffTaskLease : undefined,
       activeBinding = taskLeaseHandoff
         ? await taskLeaseHandoff({
             taskId: taskId!,
@@ -568,9 +565,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const taskBinding = taskId
         ? {
             taskId,
-            executionId:
-              remoteTask?.executionId ??
-              (reviewerBinding ? reviewTarget!.executionId : (lease?.executionId ?? reviewExecution!.executionId)),
+            executionId: remoteTask?.executionId ?? (reviewerBinding ? reviewTarget!.executionId : lease!.executionId),
             // A reviewer holds no lease; carrying another executor's leaseVersion would misstate
             // the session's write authority in every downstream binding check.
             leaseVersion: reviewerBinding ? null : (lease?.version ?? null),
