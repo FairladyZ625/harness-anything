@@ -1,5 +1,4 @@
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
-import { runAgentCreate } from "./cli-agent-create.ts";
 import { renderRuntimeStatus, runRuntimeAuthCommand } from "./cli-runtime-auth.ts";
 import { runRuntimeBatch } from "./cli-runtime-batch.ts";
 import { detachedWaitGuidance, waitForRuntimeSessions, waitForSquadRun } from "./cli-runtime-wait.ts";
@@ -13,7 +12,6 @@ export function isRuntimeFacadeCommand(command: ThinCommand): boolean {
     command.action.kind === "squad-run" ||
     (command.action.kind === "squad-status" && command.action.wait === true) ||
     command.method.startsWith("repo.agentRuntime.") ||
-    command.method === "repo.agent.create" ||
     command.method.startsWith("repo.runtimeInstance.auth.")
   );
 }
@@ -27,7 +25,6 @@ export async function runRuntimeFacadeCommand(
   if (action.kind === "runtime-batch") return runRuntimeBatch(command);
   if (action.kind === "squad-run") return runSquadRun(command, writeActivity);
   if (action.kind === "squad-status") return waitForSquadRun(command, String(action.squadRunId));
-  if (action.kind === "agent-create") return runAgentCreate(command);
   if (action.kind === "runtime-sessions-await") return waitForRuntimeSessions(command, writeActivity);
   if (action.kind === "runtime-status") {
     const { wait: _wait, noStream: _noStream, ...readAction } = action,

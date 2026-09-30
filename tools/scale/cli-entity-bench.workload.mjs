@@ -254,18 +254,6 @@ export function benchContext(f, n, writes, samples) {
           roster: `bench-agent-${(s + 1) % samples} -> work`,
         }),
       ),
-    kindFile: (s) =>
-      writeJson(path.join(dir("kinds"), `kind-${s}.json`), {
-        id: `bench-kind-${s}`,
-        entityType: "artifact",
-        idPrefix: `BK${s}`,
-        display: { singular: `Bench kind ${s}`, plural: `Bench kinds ${s}` },
-        descriptorSchemaRef: "schema://artifact-descriptor",
-        store: { pathTemplate: `entities/bench-kind-${s}/{id}.json` },
-        locatorKinds: ["repository-path"],
-        attributes: {},
-      }),
-    schemaFile: (s) => writeJson(path.join(dir("kinds"), `schema-${s}.json`), { owner: { type: "string" } }),
     presetSource: () => path.resolve("packages/preset/assets/software-coding/presets/docs-task"),
     scriptId: () => deepFind(receiptOf("script-list", 0), ["id"]).id,
     backupDir: (s) => path.join(f.parent, "backups", `backup-${s}`),

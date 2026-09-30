@@ -47,16 +47,5 @@ export type SquadRunAction = {
   readonly detach?: boolean;
 };
 
-export type AgentCreateAction = {
-  readonly kind: "agent-create";
-  readonly runtimeInstanceId: string;
-  readonly agentId: string;
-  readonly prompt: string;
-  readonly effort?: string;
-  readonly model?: string;
-  readonly cwd: Readonly<Record<string, string>>;
-  readonly taskId?: string;
-};
-
 export const runtimeBatchDefaultConcurrency = 2,
   runtimeBatchMaxConcurrency = 32;

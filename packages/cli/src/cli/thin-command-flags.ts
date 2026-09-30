@@ -192,10 +192,6 @@ export function accepted(
   action: ThinCommand["action"],
   method = taskActionMethodFor(action.kind),
 ): ThinParseResult {
-  const normalized =
-    action.kind === "agent-create" && !Object.hasOwn(action, "cwd")
-      ? { ...action, cwd: { scope: "repo-root" } }
-      : action;
   return {
     ok: true,
     command: {
@@ -203,7 +199,7 @@ export function accepted(
       ...(repoId ? { repoId } : {}),
       json,
       method,
-      action: normalized,
+      action,
     },
   };
 }

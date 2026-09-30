@@ -3,7 +3,6 @@ import { cliErrorMessage } from "./cli-error.ts";
 import { cliFailure, emitMeta, taskCreateHelpCatalog } from "./cli-meta.ts";
 import { cliDispatchError } from "./cli-render.ts";
 import { isRuntimeFacadeCommand, runRuntimeFacadeCommand } from "./cli-runtime-command.ts";
-import { isVerticalKindFacadeCommand, runVerticalKindFacadeCommand } from "./cli-vertical-kind.ts";
 import {
   cliCommandDomains,
   firstCliCommand,
@@ -144,16 +143,14 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
   let returnedReceipt: Record<string, unknown> | undefined;
   try {
     const receipt = withFactStatementGuidance(
-      isVerticalKindFacadeCommand(typedCommand)
-        ? await runVerticalKindFacadeCommand(typedCommand)
-        : isRuntimeFacadeCommand(typedCommand)
-          ? await runRuntimeFacadeCommand(typedCommand)
-          : await runCommandThroughDaemon(
-              typedCommand,
-              (phase) => emit(phase, typedCommand.json),
-              undefined,
-              daemonRequestTimer,
-            ),
+      isRuntimeFacadeCommand(typedCommand)
+        ? await runRuntimeFacadeCommand(typedCommand)
+        : await runCommandThroughDaemon(
+            typedCommand,
+            (phase) => emit(phase, typedCommand.json),
+            undefined,
+            daemonRequestTimer,
+          ),
       typedCommand.action,
     );
     returnedReceipt = receipt;

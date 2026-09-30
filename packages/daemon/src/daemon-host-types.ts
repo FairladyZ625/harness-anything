@@ -63,7 +63,6 @@ export interface DaemonHost {
     payload: JsonObject,
     auth: DaemonAuthenticationContext,
   ) => Promise<JsonObject>;
-  readonly createAgent: (repoId: string, payload: JsonObject, auth: DaemonAuthenticationContext) => Promise<JsonObject>;
   readonly runtimeIngress: (
     repoId: string,
     action: RuntimeIngressAction,

@@ -310,42 +310,20 @@ test("entity update and archive preserve the entity revision fence", () => {
     });
 });
 
-test("vertical entity-kind commands coexist with the existing vertical command surface", () => {
-  const validate = parseThinCommand(["vertical", "validate", "--source", "software/coding"]),
-    upsert = parseThinCommand(["vertical", "entity-kind", "upsert", "--from-file", "kind.json"]);
+test("vertical exposes validate while entity-kind writes stay GUI and daemon RPC only", () => {
+  const validate = parseThinCommand(["vertical", "validate", "--source", "software/coding"]);
   assert.equal(validate.ok, true);
   if (validate.ok)
     assert.deepEqual(validate.command.action, {
       kind: "vertical-validate",
       verticalSource: "software/coding",
     });
-  assert.equal(upsert.ok, true);
-  if (upsert.ok) assert.deepEqual(upsert.command.action, { kind: "vertical-kind-upsert", fromFile: "kind.json" });
-  const retire = parseThinCommand(["vertical", "entity-kind", "retire", "runbook", "--reason", "Superseded"]);
-  assert.equal(retire.ok, true);
-  if (retire.ok)
-    assert.deepEqual(retire.command.action, {
-      kind: "vertical-kind-retire",
-      kindId: "runbook",
-      reason: "Superseded",
-    });
-  assert.equal(parseThinCommand(["vertical", "entity-kind", "retire", "runbook"]).ok, false);
-  const publish = parseThinCommand([
-    "vertical",
-    "entity-kind",
-    "publish-schema",
-    "runbook",
-    "--from-file",
-    "attributes.json",
-  ]);
-  assert.equal(publish.ok, true, JSON.stringify(publish));
-  if (publish.ok)
-    assert.deepEqual(publish.command.action, {
-      kind: "vertical-kind-publish-schema",
-      kindId: "runbook",
-      fromFile: "attributes.json",
-    });
-  assert.equal(parseThinCommand(["vertical", "entity-kind", "publish-schema", "runbook"]).ok, false);
+  for (const argv of [
+    ["vertical", "entity-kind", "upsert", "--from-file", "kind.json"],
+    ["vertical", "entity-kind", "publish-schema", "runbook", "--from-file", "attributes.json"],
+    ["vertical", "entity-kind", "retire", "runbook", "--reason", "Superseded"],
+  ])
+    assert.equal(parseThinCommand(argv).ok, false, argv.join(" "));
 });
 
 test("retired mutation migrations are explicitly absent from the thin router", () => {
@@ -366,15 +344,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     agenda: ["agenda"],
     backup: ["ledger-backup"],
     bootstrap: ["rbac-bootstrap"],
-    agent: [
-      "agent-create",
-      "agent-delete",
-      "agent-inspect",
-      "agent-install",
-      "agent-list",
-      "agent-run",
-      "agent-validate",
-    ],
+    agent: ["agent-delete", "agent-inspect", "agent-install", "agent-list", "agent-run", "agent-validate"],
     ci: ["ci-observe-pull"],
     daemon: [
       "daemon-connection-add",
@@ -543,12 +513,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
     ],
     template: ["template-list", "template-render"],
     unpin: ["entity-unpin"],
-    vertical: [
-      "vertical-kind-publish-schema-cli",
-      "vertical-kind-retire-cli",
-      "vertical-kind-upsert-cli",
-      "vertical-validate",
-    ],
+    vertical: ["vertical-validate"],
     work: ["work-create", "work-list", "work-show"],
   });
 });
@@ -1272,7 +1237,6 @@ const reviewedExecutorSurface = Object.freeze([
   "repo.preset.run.status",
   "repo.agentRuntime.spawn",
   "repo.agentRuntime.batch",
-  "repo.agent.create",
   "repo.entity.actions.explain",
 ] as const);
 const agent = Object.freeze({ kind: "agent", id: "parity-probe" });

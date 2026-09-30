@@ -541,25 +541,6 @@ export const runtimeInstanceMethods = Object.freeze([
     }),
   },
   {
-    id: "repo.agent.create",
-    phase: "Runtime-B",
-    method: "repo.agent.create",
-    requiresRepo: true,
-    params: shape({
-      repo: shape({ repoId: "string" }),
-      payload: shape({
-        runtimeInstanceId: "string",
-        agentId: "string",
-        prompt: "string",
-        effort: "string?",
-        model: "string?",
-        cwd: "json?",
-        taskId: "string-null?",
-        executor: "json?",
-      }),
-    }),
-  },
-  {
     id: "daemon.runtimeInstance.create",
     phase: "Runtime-Instances-S1",
     method: "daemon.runtimeInstance.create",

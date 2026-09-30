@@ -156,8 +156,6 @@ export function parseRouted(
       route.id === "distill-promote" ? { confidence: "medium", memoryClass: "semantic" } : {},
     );
   if (rootCommand === "relation") return parseRelationRouted(route, args, rootDir, repoId, json, inputs);
-  if (rootCommand === "vertical" && args[1] === "entity-kind")
-    return parseVerticalKindRouted(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "entity") return parseEntityRouted(route, args, rootDir, repoId, json, inputs);
   if (route.phase.startsWith("Preset-") || rootCommand === "agent" || rootCommand === "squad")
     return parsePreset(route, args, rootDir, repoId, json, inputs);
@@ -342,36 +340,6 @@ function parseLedgerReconcileRouted(
   const generation = f.one.get("--generation");
   if (generation !== "1") return rejected("invalid_field", "--generation currently requires 1.", json);
   return accepted(rootDir, repoId, json, { kind: "ledger-reconcile", generation: 1 }, route.method);
-}
-
-function parseVerticalKindRouted(
-  route: ProtocolCommand,
-  args: readonly string[],
-  rootDir: SafePath,
-  repoId: string | undefined,
-  json: boolean,
-  inputs: ThinCliInputDirectory,
-): ThinParseResult {
-  const positional = route.id === "vertical-kind-upsert-cli" ? undefined : args[3],
-    offset = route.id === "vertical-kind-upsert-cli" ? 3 : 4,
-    projected = parseProjected(route.id, args.slice(offset), rootDir, repoId, json, inputs, {}, {}, route.method);
-  if (!projected.ok) return projected;
-  if (route.id === "vertical-kind-upsert-cli")
-    return accepted(rootDir, repoId, json, { ...projected.command.action, kind: "vertical-kind-upsert" });
-  const retire = route.id === "vertical-kind-retire-cli";
-  return nonEmpty(positional)
-    ? accepted(rootDir, repoId, json, {
-        ...projected.command.action,
-        kind: retire ? "vertical-kind-retire" : "vertical-kind-publish-schema",
-        kindId: positional,
-      })
-    : rejected(
-        "missing_field",
-        retire
-          ? "Use ha vertical entity-kind retire <kind> --reason <reason>."
-          : "Use ha vertical entity-kind publish-schema <kind> --from-file <attributes>.",
-        json,
-      );
 }
 
 const peopleRequiredInputs: Readonly<Record<string, readonly string[]>> = Object.freeze({
