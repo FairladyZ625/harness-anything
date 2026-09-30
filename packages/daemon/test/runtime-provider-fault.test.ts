@@ -48,6 +48,17 @@ test("structured provider errors classify rate limits, server faults, quota, mod
   );
 });
 
+test("ACP serving capacity errors remain provider faults after tool activity", () => {
+  const providerFault = providerFaultFromFrame("devin", {
+      type: "acp.error",
+      message: "Protocol error (unimplemented): We are currently experiencing capacity issues with this serving model",
+    }),
+    result = classifyRuntimeExit(active({ kindId: "devin", toolCallObserved: true, providerFault }), 1);
+
+  assert.equal(providerFault?.code, "server_error");
+  assert.equal(result.classification, "provider_fault");
+});
+
 test("claude api_error 429 preserves quota classification and reset header", () => {
   const fault = providerFaultFromFrame("claude", {
     type: "result",
