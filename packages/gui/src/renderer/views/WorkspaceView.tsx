@@ -345,7 +345,9 @@ export function WorkspaceView({
             onChange={(event) => {
               const next = event.target.value;
               setQuery(next);
-              if (next.trim() !== "") setTab((current) => (current === "tasks" ? current : "tasks"));
+              // 任务页与「决策与事实」页都吃页内搜索;搜索时停在原页,其余页跳去任务页。
+              if (next.trim() !== "")
+                setTab((current) => (current === "tasks" || current === "decisions" ? current : "tasks"));
             }}
             className="mb-1.5 h-[26px] w-[260px] flex-none rounded-xs border border-border bg-bg/30 px-2.5 text-text ui-meta"
           />
@@ -446,6 +448,10 @@ export function WorkspaceView({
                 decisions={workDecisions}
                 facts={evidence.facts}
                 missingRefs={evidence.missingRefs}
+                relations={relations}
+                titles={titles}
+                query={query}
+                agoOf={agoOf}
                 onNavigateEntity={navigateEntity}
               />
             </div>

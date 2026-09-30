@@ -6,6 +6,9 @@ import { availableParallelism, loadavg } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
+import { daemonStoppedMarkerPath } from "@harness-anything/daemon/internal/client/daemon-autostart";
+import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
+import { readDaemonPid } from "@harness-anything/daemon/internal/runtime";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
@@ -40,6 +43,54 @@ import {
   setupEmpty,
   stop,
 } from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
+
+test("daemon stop requires a mounted root unless --daemon-id is explicit", async () => {
+  const fixture = setup();
+  try {
+    assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
+    await register(fixture.alpha, fixture.userRoot, "alpha");
+    const pid = readDaemonPid(fixture.userRoot, "default"),
+      socket = localUserDaemonEndpoint(fixture.userRoot, "default"),
+      marker = daemonStoppedMarkerPath(fixture.userRoot, "default");
+    assert.ok(pid, "the fixture daemon must publish its pid");
+
+    for (const extra of [[], ["--force"]]) {
+      const refused = runMaybe(fixture.beta, fixture.userRoot, ["daemon", "stop", ...extra]);
+      assert.equal(refused.status, 1);
+      assert.equal(refused.receipt.code, "workspace_not_registered", JSON.stringify(refused.receipt));
+      assert.equal(readDaemonPid(fixture.userRoot, "default"), pid, "refusal must preserve daemon ownership");
+      assert.equal(existsSync(socket), true, "refusal must preserve the daemon socket");
+      assert.equal(existsSync(marker), false, "refusal must not write the stopped marker");
+    }
+
+    const inherited = spawnSync(process.execPath, [cli, "--root", fixture.beta, "--json", "daemon", "stop"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        HOME: path.join(fixture.beta, ".home"),
+        GIT_CONFIG_GLOBAL: "/dev/null",
+        HARNESS_DAEMON_USER_ROOT: fixture.userRoot,
+        HARNESS_DAEMON_ID: "default",
+      },
+    });
+    assert.equal(inherited.status, 1);
+    assert.equal(JSON.parse(inherited.stdout).code, "workspace_not_registered");
+    assert.equal(readDaemonPid(fixture.userRoot, "default"), pid, "an inherited daemon id is not explicit intent");
+    assert.equal(existsSync(marker), false, "an inherited daemon id must not write the stopped marker");
+
+    const explicit = run(fixture.beta, fixture.userRoot, ["daemon", "stop", "--daemon-id", "default"]);
+    assert.equal(explicit.ok, true, JSON.stringify(explicit));
+    assert.equal(existsSync(marker), true, "an explicit daemon target remains stoppable from another root");
+
+    assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
+    const attached = run(fixture.alpha, fixture.userRoot, ["daemon", "stop"]);
+    assert.equal(attached.ok, true, JSON.stringify(attached));
+  } finally {
+    stop(fixture.alpha, fixture.userRoot);
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
 test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite before Git follower verification", async () => {
   const fixture = setup(),
     ledgerReaders = trackLedgerReaders();

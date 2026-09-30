@@ -13,7 +13,14 @@ import {
 } from "@harness-anything/daemon/internal/receipt-guidance";
 import { completionGuidance, resolveHarnessLayout, type CanonicalEventStore } from "@harness-anything/kernel";
 import { workspacePathResolutionRule } from "@harness-anything/preset/internal/preset-command-contract";
-import { humanError, renderReceiptGuidance } from "../src/cli/guidance-plane.ts";
+import {
+  displayColumns,
+  FACT_FIRST_SENTENCE_LIMIT,
+  factFirstSentence,
+  humanError,
+  renderReceiptGuidance,
+  withFactStatementGuidance,
+} from "../src/cli/guidance-plane.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { daemonFailure } from "../src/daemon/control-support.ts";
 
@@ -57,6 +64,56 @@ test("successful Decision proposals point to the canonical action explanation", 
   });
   assert.equal(renderCliReceipt({ ...receipt, ok: false, code: "invalid_command" }).stream, "stderr");
   assert.equal(renderCliReceipt({ ...receipt, command: "decision-show" }).text, "Decision proposed");
+});
+
+test("fact record receipts advise conclusion-first statements and leave tight ones alone", () => {
+  // The first sentence is the conclusion the work page surfaces; cut at the first terminator.
+  assert.equal(factFirstSentence("门禁绿了。At commit 3c6e7594 下复测三次。"), "门禁绿了");
+  assert.equal(factFirstSentence("首句;分号即止"), "首句");
+  assert.equal(factFirstSentence("一行\n另一行"), "一行");
+  assert.equal(factFirstSentence("。取证细节"), "。取证细节");
+  // East Asian glyphs count two columns, ASCII one.
+  assert.equal(displayColumns("修事实提示"), 10);
+  assert.equal(displayColumns("fix facts"), 9);
+  const forensic = "At commit 3c6e75936ad4a368edd8be895 the gate suite passed; rerun to confirm.",
+    wide = "这次改动把工作详情页的决策与事实页签从平铺原始句子改成按任务分组收束,每条只露结论句。",
+    width = displayColumns(factFirstSentence(wide));
+  assert.ok(width > FACT_FIRST_SENTENCE_LIMIT, String(width));
+  const hinted = withFactStatementGuidance(
+    { command: "fact-record", guidance: [] },
+    { kind: "fact-record", statement: wide },
+  );
+  assert.deepEqual(hinted.guidance, [{ kind: "fact-statement", args: { width, limit: FACT_FIRST_SENTENCE_LIMIT } }]);
+  assert.deepEqual(renderReceiptGuidance(hinted), [
+    `fact: lead with one checkable conclusion — the first sentence spans ${width} columns or opens with a commit ` +
+      `SHA/path (guide: within ${FACT_FIRST_SENTENCE_LIMIT}); move commit SHAs, commands, and file paths into --source`,
+  ]);
+  // A daemon-declared guidance entry is joined, not replaced.
+  assert.equal(
+    withFactStatementGuidance(
+      { command: "fact-record", guidance: [{ kind: "no-action", args: {} }] },
+      { kind: "fact-record", statement: forensic },
+    ).guidance.length,
+    2,
+  );
+  // Forensic leads trip the hint even when the sentence is short.
+  for (const statement of [
+    forensic,
+    "3c6e75936ad4a368edd8be895 修好了",
+    "packages/gui/src/renderer/views/workspace/WorkDecisionsTab.tsx 收束了",
+  ]) {
+    const led = withFactStatementGuidance({ command: "fact-record" }, { kind: "fact-record", statement });
+    assert.ok(Array.isArray(led.guidance) && led.guidance.length === 1, statement);
+  }
+  // A tight conclusion sentence, other commands, and statement-less actions stay untouched.
+  assert.deepEqual(
+    withFactStatementGuidance({ command: "fact-record" }, { kind: "fact-record", statement: "门禁绿了" }),
+    { command: "fact-record" },
+  );
+  assert.deepEqual(withFactStatementGuidance({}, { kind: "task-create", title: wide }), {});
+  assert.deepEqual(withFactStatementGuidance({ command: "fact-record" }, { kind: "fact-record" }), {
+    command: "fact-record",
+  });
 });
 
 test("settled_no_write receipts report a determinate no-op instead of an open acceptance", () => {
