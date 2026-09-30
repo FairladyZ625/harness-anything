@@ -186,6 +186,16 @@ function evaluateCompletion(
       "The execution lease was released and the execution is still active; start reconnects to that execution. " +
         `To abandon the round instead, run ha task transition ${task.taskId} planned --reason <why>.`,
     );
+  // A work root is a map, not an execution (dec_mr7v4h6t): its status derives from the subtree at
+  // read time, so a root off the corridor never reaches completion — say so instead of pointing at start.
+  if (task.taskClass === "work" && !["active", "submitted", "in_review"].includes(task.status))
+    return one(
+      "not_in_review",
+      "lifecycle",
+      `ha work show ${task.taskId}`,
+      "A work root's status derives from its subtree; complete or cancel its child tasks instead. " +
+        "The root itself runs no execution chain.",
+    );
   if (!task || task.currentNode !== "review" || execution?.state !== "submitted" || !execution.submission)
     return one(
       "not_in_review",

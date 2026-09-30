@@ -38,6 +38,13 @@ test("completion next is one pure judgment across lifecycle and unavailable-inpu
       "not_in_review",
       "ha task submit task-1",
     ],
+    [
+      "planned work root derives its status instead of starting an execution",
+      { ...at(1), task: { ...at(1).task!, taskClass: "work" as const } },
+      context,
+      "not_in_review",
+      "ha work show task-1",
+    ],
     // A settled worker releases its lease and leaves the execution active; start reconnects to that execution
     // (dec_E5103E62F80728C06AFCFCD133), so completion resumes rather than abandoning the round.
     ["active released lease", { ...active, lease: null }, context, "not_in_review", "ha task start task-1"],
