@@ -19,16 +19,26 @@ test("ha explain and Task help overlay share one typed read, renderer, cut, and 
     userRoot = path.join(parent, "user");
   try {
     initialize(root);
-    await seedTasks(root);
+    const seeded = await seedTasks(root);
     startDaemon(root, userRoot);
     assert.equal(
       runJson(root, userRoot, ["daemon", "repo", "register", "--repo-id", repoId, "--root", root, "--no-link"]).status,
       0,
     );
 
-    // Attach seeds the system presets and their Git materialization lands a moment later; the
-    // zero-write baseline is taken once no tracked path is mid-publication.
-    await gitWorktreeSettled(root);
+    // Task creation returns at durable acceptance. Wait for its followers before taking the
+    // zero-write baseline, rather than sampling Git on a wall-clock budget.
+    const published = runJson(root, userRoot, [
+      "receipt",
+      "show",
+      String(seeded.opId),
+      "--wait",
+      "git_verified,worktree_visible",
+      "--timeout-ms",
+      "5000",
+    ]);
+    assert.equal(published.status, 0, published.stderr);
+    assert.deepEqual(published.value.wait, { state: "satisfied", unsatisfied: [] }, JSON.stringify(published.value));
     const store = makeTaskEventReader({ repoId: workspaceId(repoId), rootDir: canonicalRoot(root) }),
       beforeStream = store.read(),
       beforeGit = git(root, "status", "--porcelain=v1"),
@@ -179,7 +189,7 @@ type Explanation = {
   }[];
 };
 
-async function seedTasks(root: string): Promise<void> {
+async function seedTasks(root: string): Promise<Record<string, unknown>> {
   const cell = await openRepoCell({
       repoId: workspaceId(repoId),
       rootDir: canonicalRoot(root),
@@ -212,6 +222,7 @@ async function seedTasks(root: string): Promise<void> {
     const started = await cell.run({ kind: "task-start", taskId: "task-active" }, binding);
     assert.equal(started.outcome, "applied", JSON.stringify(started));
     await cell.read("repo.tasks.list");
+    return started as Record<string, unknown>;
   } finally {
     await cell.close();
   }
@@ -321,16 +332,6 @@ function environment(root: string, userRoot: string): NodeJS.ProcessEnv {
   };
 }
 
-async function gitWorktreeSettled(root: string): Promise<void> {
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    const tracked = git(root, "status", "--porcelain=v1")
-      .split("\n")
-      .filter((line) => line !== "" && !line.startsWith("??"));
-    if (tracked.length === 0) return;
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  throw new Error("Git materialization did not settle");
-}
 function git(root: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
 }
