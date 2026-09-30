@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useState, type CSSProperties, type ReactNode } from "react";
 import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
 import {
   isAvailableAgentEntityRow,
@@ -12,7 +12,9 @@ import {
   runtimeAuthPresentationText,
   type RuntimeAuthProbeState,
 } from "../../runtime-auth-presentation.ts";
-import { Avatar, Badge, CapDot, KindDot, LiveDot } from "./parts.tsx";
+import { DenseRow } from "../primitives/DenseRow.tsx";
+import { StatusTag, TONE_COLOR } from "../primitives/StatusTag.tsx";
+import { Avatar, KindDot } from "./parts.tsx";
 import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
 
 // W6 IA 拆分:原四段聚合 rail 随「Agent 运行时」入口撤销,拆成页级 rail——
@@ -21,6 +23,29 @@ import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
 // (sessionGroups),组件在 components/sessions/ 下。行渲染与 testid
 // (rail-runtime-*/rail-agent-*/rail-squad-*/runtime-new-*)原样保留;跨页不再
 // 共享选中态,互跳走可寻址路由。
+//
+// 目录版式(标准 §2.5):行用 DenseRow,健康/可用状态用有底色 StatusTag,异常项
+// 置顶并用 .status-edge 红竖线强调,正常项不加强调;降级行可选中——右侧详情就地
+// 解释为什么无效,不再把「无效」只留在 tooltip 里。
+
+/** 行级红竖线:异常项点亮,正常项不占位(styles.css 的 .status-edge::after)。 */
+const badEdge = { "--status-edge": TONE_COLOR.bad } as CSSProperties;
+
+/**
+ * 探测态(authProbeStates)与目录行合并一次:排序、行渲染与页面默认选中用同一份呈现,
+ * 异常项(停用或不可达)置顶。
+ */
+export function orderProviderRows(
+  instances: readonly RuntimeInstanceSummary[],
+  authProbeStates?: ReadonlyMap<string, RuntimeAuthProbeState>,
+) {
+  const rows = instances.map((instance) => {
+    const auth = runtimeAuthPresentation(instance, authProbeStates?.get(instance.instanceId));
+    return { instance, auth, abnormal: !instance.enabled || auth.cap === "none" };
+  });
+  return rows.sort((left, right) => Number(right.abnormal) - Number(left.abnormal));
+}
+
 export function ProviderRail({
   instances,
   authProbeStates,
@@ -37,6 +62,7 @@ export function ProviderRail({
   readonly onNew: () => void;
 }) {
   const [open, setOpen] = useState(true);
+  const ordered = orderProviderRows(instances, authProbeStates);
   return (
     <nav
       data-testid="runtime-rail"
@@ -52,28 +78,49 @@ export function ProviderRail({
         onToggle={() => setOpen(!open)}
         onNew={onNew}
       >
-        {instances.map((instance) => {
-          const auth = runtimeAuthPresentation(instance, authProbeStates?.get(instance.instanceId)),
-            authTip = runtimeAuthPresentationText(instance, auth);
+        {ordered.map(({ instance, auth, abnormal }) => {
+          const authTip = runtimeAuthPresentationText(instance, auth),
+            live = liveByInstance.get(instance.instanceId) ?? 0,
+            tone = !instance.enabled ? "cancel" : auth.cap === "none" ? "bad" : auth.cap === "part" ? "wait" : "done";
           return (
-            <Row
+            <button
+              type="button"
               key={instance.instanceId}
-              tip={instance.instanceId}
-              testId={`rail-runtime-${instance.instanceId}`}
-              selected={selectedId === instance.instanceId}
-              onSelect={() => onSelect(instance.instanceId)}
+              data-testid={`rail-runtime-${instance.instanceId}`}
+              aria-current={selectedId === instance.instanceId || undefined}
+              className="status-edge relative w-full text-left"
+              style={abnormal ? badEdge : undefined}
+              onClick={() => onSelect(instance.instanceId)}
             >
-              <KindDot kind={instance.kindId} />
-              <span className="min-w-0 flex-1 truncate ui-meta">{instance.name}</span>
-              <span className="shrink-0 font-mono ui-micro text-text-faint">{instance.defaultModel}</span>
-              <CapDot state={auth.cap} tip={authTip} size={9} />
-              <LiveDot
-                state={
-                  (liveByInstance.get(instance.instanceId) ?? 0) > 0 ? "live" : instance.enabled ? "idle" : "failed"
+              <DenseRow
+                tag={
+                  <StatusTag
+                    tone={tone}
+                    label={t(
+                      !instance.enabled
+                        ? "agentRuntime.providerDisabledTag"
+                        : auth.cap === "none"
+                          ? "agentRuntime.providerUnreachable"
+                          : auth.cap === "part"
+                            ? auth.state === "probing"
+                              ? "agentRuntime.providerAuthChecking"
+                              : "agentRuntime.providerNotChecked"
+                            : "agentRuntime.providerUsable",
+                    )}
+                  />
                 }
-                tip={instance.enabled ? t("agentRuntime.instanceEnabled") : t("agentRuntime.instanceDisabled")}
+                title={
+                  <span className="flex min-w-0 items-baseline gap-1.5">
+                    <KindDot kind={instance.kindId} />
+                    <span className="min-w-0 truncate">{instance.name}</span>
+                  </span>
+                }
+                reason={tone === "done" ? undefined : authTip}
+                time={live > 0 ? t("agentRuntime.liveCount", { count: live }) : instance.defaultModel}
+                relaxed={tone !== "done"}
+                selected={selectedId === instance.instanceId}
               />
-            </Row>
+            </button>
           );
         })}
       </Segment>
@@ -117,6 +164,9 @@ export function IdentityRail({
 }) {
   const [segments, setSegments] = useState<Readonly<Record<string, boolean>>>({ agents: true, squads: true });
   const onToggle = (segment: string) => setSegments((value) => ({ ...value, [segment]: !(value[segment] ?? true) }));
+  // 异常置顶:降级行(invalid/missing)排到段首,顺序其余保持 catalog 序。
+  const degradedFirst = <T extends AgentEntityRow | SquadEntityRow>(rows: readonly T[]): T[] =>
+    [...rows].sort((left, right) => Number(isDegraded(right)) - Number(isDegraded(left)));
   const picked = (type: "agent" | "squad", id: string) => selection?.type === type && selection.id === id;
   return (
     <nav
@@ -137,44 +187,42 @@ export function IdentityRail({
         onNew={() => onNew("agents")}
         emptyHint={agentsEmpty}
       >
-        {agents.map((agent) => {
-          if (!isAvailableAgentEntityRow(agent))
-            return (
-              <Row
-                key={agent.id}
-                tip={agent.error.hint}
-                testId={`rail-agent-${agent.id}`}
-                selected={false}
-                disabled
-                onSelect={() => undefined}
-              >
-                <Avatar id={agent.id} />
-                <span className="min-w-0 flex-1 truncate font-mono ui-meta text-text-faint">{agent.id}</span>
-                <Badge tip={agent.error.hint}>{degradedStateLabels()[agent.state]}</Badge>
-              </Row>
-            );
-          return (
-            <Row
+        {degradedFirst(agents).map((agent) =>
+          isAvailableAgentEntityRow(agent) ? (
+            <button
+              type="button"
               key={agent.id}
-              tip={agent.id}
-              testId={`rail-agent-${agent.id}`}
+              data-testid={`rail-agent-${agent.id}`}
+              aria-current={picked("agent", agent.id) || undefined}
+              className="w-full text-left"
+              onClick={() => onSelect({ type: "agent", id: agent.id })}
+            >
+              <DenseRow
+                tag={<RoleLabel role={agent.role} />}
+                title={
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <Avatar id={agent.id} />
+                    <span className="min-w-0 truncate">{agent.name}</span>
+                  </span>
+                }
+                time={
+                  <span data-tip={t("agentRuntime.layerTip", { layer: agent.layer })} className="font-mono">
+                    {agent.layer}
+                  </span>
+                }
+                selected={picked("agent", agent.id)}
+              />
+            </button>
+          ) : (
+            <RailDegradedRow
+              key={agent.id}
+              kind="agent"
+              row={agent}
               selected={picked("agent", agent.id)}
               onSelect={() => onSelect({ type: "agent", id: agent.id })}
-            >
-              <Avatar id={agent.id} />
-              <span className="min-w-0 flex-1 truncate ui-meta">{agent.name}</span>
-              <span
-                data-tip={t("agentRuntime.layerTip", { layer: agent.layer })}
-                className={[
-                  "shrink-0 rounded-[3px] border border-border-strong px-1 font-mono",
-                  "ui-micro tracking-[0.04em] text-text-faint",
-                ].join(" ")}
-              >
-                {agent.layer}
-              </span>
-            </Row>
-          );
-        })}
+            />
+          ),
+        )}
       </Segment>
       <Segment
         segment="squads"
@@ -187,49 +235,103 @@ export function IdentityRail({
         onNew={() => onNew("squads")}
         emptyHint={squadsEmpty}
       >
-        {squads.map((squad) => {
-          if (!isAvailableSquadEntityRow(squad))
-            return (
-              <Row
-                key={squad.id}
-                tip={squad.error.hint}
-                testId={`rail-squad-${squad.id}`}
-                selected={false}
-                disabled
-                onSelect={() => undefined}
-              >
-                <KindDot kind="any" />
-                <span className="min-w-0 flex-1 truncate font-mono ui-meta text-text-faint">{squad.id}</span>
-                <Badge tip={squad.error.hint}>{degradedStateLabels()[squad.state]}</Badge>
-              </Row>
-            );
-          return (
-            <Row
+        {degradedFirst(squads).map((squad) =>
+          isAvailableSquadEntityRow(squad) ? (
+            <button
+              type="button"
               key={squad.id}
-              tip={squad.id}
-              testId={`rail-squad-${squad.id}`}
+              data-testid={`rail-squad-${squad.id}`}
+              aria-current={picked("squad", squad.id) || undefined}
+              className="w-full text-left"
+              onClick={() => onSelect({ type: "squad", id: squad.id })}
+            >
+              <DenseRow
+                tag={<span className="font-mono ui-micro text-text-faint">{squad.workers.length + 1}</span>}
+                title={
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <KindDot kind="any" />
+                    <span className="min-w-0 truncate">{squad.name}</span>
+                  </span>
+                }
+                selected={picked("squad", squad.id)}
+              />
+            </button>
+          ) : (
+            <RailDegradedRow
+              key={squad.id}
+              kind="squad"
+              row={squad}
               selected={picked("squad", squad.id)}
               onSelect={() => onSelect({ type: "squad", id: squad.id })}
-            >
-              <KindDot kind="any" />
-              <span className="min-w-0 flex-1 truncate ui-meta">{squad.name}</span>
-              <span
-                className={[
-                  "shrink-0 rounded-[3px] border border-border-strong px-1 font-mono",
-                  "ui-micro text-text-faint",
-                ].join(" ")}
-              >
-                {t("agentRuntime.memberCount", { count: squad.workers.length + 1 })}
-              </span>
-            </Row>
-          );
-        })}
+            />
+          ),
+        )}
       </Segment>
       <details className="px-2.5 py-2 ui-micro leading-[1.5] text-text-faint">
         <summary className="cursor-pointer list-none">{t("agentRuntime.thesisSummary")}</summary>
         <p className="mt-1">{t("agentRuntime.thesisBody")}</p>
       </details>
     </nav>
+  );
+}
+
+const isDegraded = (row: AgentEntityRow | SquadEntityRow): boolean => "state" in row;
+
+type DegradedEntityRow = Extract<AgentEntityRow, { readonly state: "invalid" | "missing" }>;
+
+/** 降级行:目录健康信号不是禁用项——可选中,原因(声明校验结果)直接写在行上。 */
+function RailDegradedRow({
+  kind,
+  row,
+  selected,
+  onSelect,
+}: {
+  readonly kind: "agent" | "squad";
+  readonly row: DegradedEntityRow;
+  readonly selected: boolean;
+  readonly onSelect: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={`rail-${kind}-${row.id}`}
+      aria-current={selected || undefined}
+      className="status-edge relative w-full text-left"
+      style={badEdge}
+      onClick={onSelect}
+    >
+      <DenseRow
+        tag={
+          <StatusTag
+            tone="bad"
+            label={t(row.state === "missing" ? "agentRuntime.catalogMissing" : "agentRuntime.catalogInvalid")}
+          />
+        }
+        title={<span className="font-mono">{row.id}</span>}
+        reason={row.error.hint}
+        selected={selected}
+      />
+    </button>
+  );
+}
+
+/** 角色标签(worker/reviewer/commander):目录与详情共用同一份呈现。 */
+export function RoleLabel({ role }: { readonly role: "worker" | "reviewer" | "commander" }) {
+  return (
+    <span
+      className={["shrink-0 rounded-[3px] border px-1 font-mono ui-micro tracking-[0.04em]", "text-text-muted"].join(
+        " ",
+      )}
+      style={{ borderColor: "var(--color-border-strong)" }}
+    >
+      {t(
+        role === "commander"
+          ? "agentRuntime.roleCommander"
+          : role === "reviewer"
+            ? "agentRuntime.roleReviewer"
+            : "agentRuntime.roleWorker",
+      )}
+    </span>
   );
 }
 
@@ -291,47 +393,4 @@ function Segment({
       {open && <div className="px-1.5 pb-2">{count === 0 && emptyHint !== undefined ? emptyHint : children}</div>}
     </section>
   );
-}
-function Row({
-  tip,
-  testId,
-  selected,
-  onSelect,
-  disabled = false,
-  children,
-}: {
-  readonly tip: string;
-  readonly testId?: string;
-  readonly selected: boolean;
-  readonly onSelect: () => void;
-  readonly disabled?: boolean;
-  readonly children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      data-tip={tip}
-      data-testid={testId}
-      aria-current={selected}
-      disabled={disabled}
-      onClick={onSelect}
-      className={[
-        "flex w-full items-center gap-[7px] rounded border px-2 py-1 text-left",
-        disabled
-          ? "cursor-not-allowed border-transparent opacity-70"
-          : selected
-            ? "border-accent/40 bg-accent/[0.14]"
-            : "border-transparent hover:bg-surface-raised",
-      ].join(" ")}
-    >
-      {children}
-    </button>
-  );
-}
-
-function degradedStateLabels(): Readonly<Record<"invalid" | "missing", string>> {
-  return {
-    invalid: t("agentRuntime.catalogInvalid"),
-    missing: t("agentRuntime.catalogMissing"),
-  };
 }

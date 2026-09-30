@@ -4,6 +4,7 @@ import { agentRuntimeTargetSummary } from "@harness-anything/daemon/protocol";
 import type { AgentEntityAvailableRow, SquadEntityDetail } from "../../agent-entity-client.ts";
 import { t } from "../../i18n/index.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
+import { ActionError } from "./ActionError.tsx";
 import {
   Avatar,
   Badge,
@@ -69,8 +70,10 @@ type Props = {
   readonly onSave: (declaration: SquadDeclarationV1) => void;
   readonly onSelectAgent: (agentId: string) => void;
   readonly onSelectSquad: (squadId: string) => void;
+  /** 声明保存等动作的失败原因:就在保存按钮旁显示(标准 §2.5 表单)。 */
+  readonly actionError?: string | null;
 };
-export function SquadCard({ detail, agents, busy, onSave, onSelectAgent, onSelectSquad }: Props) {
+export function SquadCard({ detail, agents, busy, onSave, onSelectAgent, onSelectSquad, actionError = null }: Props) {
   const [draft, setDraft] = useState<SquadDraft>(() => squadDraftFrom(detail)),
     [slot, setSlot] = useState<SquadSlot | null>(null);
   useEffect(() => {
@@ -206,6 +209,7 @@ export function SquadCard({ detail, agents, busy, onSave, onSelectAgent, onSelec
               {t(dirty ? "agentRuntime.saveDeclaration" : "agentRuntime.saved")}
             </Btn>
           </div>
+          {actionError ? <ActionError>{actionError}</ActionError> : null}
         </Sect>
       </Card>
     </div>

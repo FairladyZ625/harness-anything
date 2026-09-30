@@ -1,13 +1,16 @@
+import type { CSSProperties } from "react";
 import { useMemo } from "react";
-import { PlugsConnected } from "@phosphor-icons/react";
 import { useCatalogSnapshot } from "../catalog-data.ts";
 import type { TaskRow } from "../model/types.ts";
 import { t } from "../i18n/index.tsx";
+import { DenseRow } from "../components/primitives/DenseRow.tsx";
+import { StatusTag, TONE_COLOR } from "../components/primitives/StatusTag.tsx";
 
 /**
- * Adapter registry 只读视图。每 engine 显示 projectedCount(REQ-GUI-09;
- * 参考老 main 线 AdapterContextRail):按现有 task 投影的 engine 字段聚合,
- * 纯前端派生,不新增后端读面。
+ * Adapter 注册表目录页(标准 §2.5):回答「有哪些引擎适配器、哪个不可用、谁在用它」。
+ * 每 engine 一行 DenseRow——可用性用有底色的 StatusTag,不可用的置顶并带红竖线,
+ * 投影任务数(REQ-GUI-09,按现有 task 投影的 engine 字段聚合)回答「谁在用它」;
+ * 纯前端派生,不新增后端读面。安装、卸载与配置由 CLI 管理,本页只读。
  */
 export function AdaptersView({ repoId, tasks = [] }: { readonly repoId: string; readonly tasks?: readonly TaskRow[] }) {
   const catalog = useCatalogSnapshot(repoId);
@@ -25,65 +28,65 @@ export function AdaptersView({ repoId, tasks = [] }: { readonly repoId: string; 
         {catalog.error instanceof Error ? catalog.error.message : t("views.adaptersView.unknownNotProjected")}
       </div>
     );
+  const adapters = catalog.data.adapters,
+    unavailable = adapters.filter((adapter) => adapter.unavailableReason !== null),
+    available = adapters.filter((adapter) => adapter.unavailableReason === null),
+    ordered = [...unavailable, ...available];
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       <header className="border-b border-border px-4 py-3">
-        <div className="flex items-center gap-2">
-          <PlugsConnected className="text-text-faint" />
+        <div className="flex flex-wrap items-baseline gap-2">
           <h1 className="ui-title font-semibold">{t("views.adaptersView.registryTitle")}</h1>
           <span className="font-mono ui-micro text-text-faint">
-            {repoId} · {catalog.data.adapters.length}
+            {repoId} · {adapters.length}
           </span>
+          {unavailable.length > 0 ? (
+            <StatusTag tone="bad" label={t("views.adaptersView.unavailableCount", { count: unavailable.length })} />
+          ) : null}
         </div>
         <p className="mt-1 ui-meta text-text-faint">{t("views.adaptersView.readOnlyDescription")}</p>
       </header>
-      <div
-        data-testid="adapters-content"
-        className="grid w-full grid-cols-[repeat(auto-fill,minmax(290px,1fr))] gap-3 p-4"
-      >
-        {catalog.data.adapters.map((adapter) => {
-          const projectedCount = projectedByEngine.get(adapter.adapterId) ?? 0;
+      <div data-testid="adapters-content" className="w-full p-4">
+        {ordered.map((adapter) => {
+          const projectedCount = projectedByEngine.get(adapter.adapterId) ?? 0,
+            blocked = adapter.unavailableReason !== null;
           return (
-            <article
+            <div
               key={adapter.adapterId}
-              data-testid={`adapter-card-${adapter.adapterId}`}
-              className="rounded-lg border border-border bg-surface p-3"
+              className="status-edge relative"
+              style={blocked ? ({ "--status-edge": TONE_COLOR.bad } as CSSProperties) : undefined}
             >
-              <div className="flex items-center gap-2">
-                <b className="font-mono ui-body">{adapter.adapterId}</b>
-                {adapter.defaultProvider && (
-                  <span className="rounded bg-accent/10 px-1.5 py-0.5 font-mono ui-micro text-accent">
-                    {t("views.adaptersView.default")}
+              <DenseRow
+                tag={
+                  <StatusTag
+                    tone={blocked ? "bad" : "done"}
+                    label={blocked ? adapter.unavailableReason : t("views.adaptersView.registeredAvailable")}
+                  />
+                }
+                title={
+                  <span className="flex min-w-0 items-baseline gap-2">
+                    <span className="truncate font-mono">{adapter.adapterId}</span>
+                    {adapter.defaultProvider ? (
+                      <span className="shrink-0 rounded-xs border border-accent/60 px-1.5 py-px font-mono ui-micro text-accent">
+                        {t("views.adaptersView.default")}
+                      </span>
+                    ) : null}
+                    <span className="shrink-0 rounded-xs border border-border px-1.5 py-px font-mono ui-micro text-text-muted">
+                      {adapter.writability}
+                    </span>
                   </span>
-                )}
-                <span className="ml-auto rounded border border-border px-1.5 py-0.5 font-mono ui-micro text-text-muted">
-                  {adapter.writability}
-                </span>
-              </div>
-              <div className="mt-2 flex items-baseline gap-2">
-                <span
-                  className="font-mono ui-title font-semibold tabular-nums text-text"
-                  data-testid={`adapter-projected-count-${adapter.adapterId}`}
-                >
-                  {projectedCount}
-                </span>
-                <span className="ui-micro text-text-faint">{t("views.adaptersView.projectedTasks")}</span>
-              </div>
-              <p className="mt-2 ui-meta text-text-muted">
-                {t("views.adaptersView.capabilities")}:{" "}
-                {adapter.capabilities.join(", ") || t("views.adaptersView.unknownNotProjected")}
-              </p>
-              <p className={`mt-2 ui-micro ${adapter.unavailableReason ? "text-status-blocked" : "text-status-done"}`}>
-                {adapter.unavailableReason ?? t("views.adaptersView.registeredAvailable")}
-              </p>
-            </article>
+                }
+                reason={
+                  adapter.capabilities.length > 0
+                    ? `${t("views.adaptersView.capabilities")}: ${adapter.capabilities.join(", ")}`
+                    : t("views.adaptersView.unknownNotProjected")
+                }
+                time={t("views.adaptersView.tasksInUse", { count: projectedCount })}
+              />
+            </div>
           );
         })}
-        {catalog.data.adapters.length === 0 && (
-          <p className="rounded-lg border border-dashed border-border p-5 text-text-faint">
-            {t("views.adaptersView.registryEmpty")}
-          </p>
-        )}
+        {adapters.length === 0 && <p className="ui-meta text-text-faint">{t("views.adaptersView.registryEmpty")}</p>}
       </div>
     </div>
   );

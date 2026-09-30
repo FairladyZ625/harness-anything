@@ -45,7 +45,8 @@ export type ViewId =
   | "browser"
   | "system"
   | "daemonObserve"
-  | "settings";
+  | "settings"
+  | "identityAccess";
 
 export interface DrillState {
   lane: string;

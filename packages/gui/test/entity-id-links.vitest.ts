@@ -35,6 +35,7 @@ import { artifactsClient } from "../src/renderer/artifacts-client.ts";
 import { SystemView } from "../src/renderer/views/SystemView.tsx";
 import { DaemonObserveView } from "../src/renderer/views/DaemonObserveView.tsx";
 import { SettingsView } from "../src/renderer/views/SettingsView.tsx";
+import { IdentityAccessView } from "../src/renderer/views/IdentityAccessView.tsx";
 import { TaskDetailView } from "../src/renderer/views/TaskDetailView.tsx";
 import { TaskPreviewDrawer } from "../src/renderer/components/TaskPreviewDrawer.tsx";
 import { CommandPalette, buildPaletteIndex } from "../src/renderer/components/CommandPalette.tsx";
@@ -814,6 +815,7 @@ const VIEW_RENDERERS = {
       onNavigateEntity: noop,
     }),
   settings: () => createElement(SettingsView, { repoId: REPO_ID }),
+  identityAccess: () => createElement(IdentityAccessView),
 } satisfies Record<ViewId, () => ReturnType<typeof createElement>>;
 
 const navViewIds: readonly ViewId[] = NAV_GROUPS.flatMap((group: { items: readonly { id: ViewId }[] }) =>
@@ -1144,6 +1146,8 @@ describe("风化视图(O-08):uncovered 承重论点的聚合与跳转", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]!.textContent).toContain("判据必须是机制不是文案");
     expect(container.querySelector("[data-testid='freshness-reason-refuted']")).not.toBeNull();
+    // 状态标签是有底色的块(反驳 → 红 bad 档),不只靠小字颜色区分。
+    expect(rows[0]!.querySelector("[data-status-tone='bad']")).not.toBeNull();
     const buttons = [...container.querySelectorAll("button")];
     await act(async () => {
       buttons.find((button) => button.textContent === DECISION_ID)!.click();
@@ -1157,6 +1161,11 @@ describe("风化视图(O-08):uncovered 承重论点的聚合与跳转", () => {
     expect(empty.querySelectorAll("[data-testid='freshness-row']")).toHaveLength(0);
     expect(empty.querySelector("[data-testid='freshness-rows']")).toBeNull();
     expect(empty.textContent).toContain("一切正常");
+    // 空态是一条细状态行(标准 §1.5),不渲染带边框的大框。
+    const clearLine = empty.querySelector<HTMLElement>("[data-testid='freshness-status-line']");
+    expect(clearLine).not.toBeNull();
+    expect(clearLine!.className).not.toContain("border");
+    expect(clearLine!.querySelector("[data-status-tone='done']")).not.toBeNull();
 
     const loading = await mountFreshness({ relationState: "loading" });
     expect(loading.textContent).toContain("正在读取关联数据");
@@ -1165,6 +1174,41 @@ describe("风化视图(O-08):uncovered 承重论点的聚合与跳转", () => {
     for (const container of [loading, error]) {
       expect(container.querySelectorAll("[data-testid='freshness-row']")).toHaveLength(0);
     }
+  });
+
+  it("分档:三档按严重度排序,只有「必须处置」用 warn 强调,各档行用对应色档状态标签", async () => {
+    const container = await mountFreshness({
+      coverageRows: [
+        freshnessCoverage({ status: "uncovered", refutingFactRefs: [FACT_REF], freshnessReason: "refuted" }),
+        freshnessCoverage({
+          claimRef: `decision/${DECISION_ID}/CH8`,
+          status: "uncovered",
+          fulfillment: "evidenced",
+          refutingFactRefs: [],
+          freshnessReason: "no-live-evidence",
+        }),
+        freshnessCoverage({
+          claimRef: `decision/${DECISION_ID}/CH7`,
+          status: "uncovered",
+          fulfillment: null,
+          refutingFactRefs: [],
+          freshnessReason: "fulfillment-undeclared",
+        }),
+      ],
+    });
+    const sections = [...container.querySelectorAll("section")];
+    expect(sections.map((section) => section.querySelector("h2")?.textContent)).toEqual([
+      "必须处置",
+      "建议补证",
+      "自然老化",
+    ]);
+    // warn(红左粗边)只给最危险的「必须处置」;其余两档不加强调。
+    expect(sections[0]!.className).toContain("border-l-[3px]");
+    expect(sections[1]!.className).not.toContain("border-l-[3px]");
+    const tones = [...container.querySelectorAll("[data-testid='freshness-row'] [data-status-tone]")].map((tag) =>
+      tag.getAttribute("data-status-tone"),
+    );
+    expect(tones).toEqual(["bad", "wait", "plan"]);
   });
 
   it("规模:全部候选一次完整渲染,不再有「再显示」按钮", async () => {

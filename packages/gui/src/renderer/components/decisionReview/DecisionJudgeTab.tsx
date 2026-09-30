@@ -140,7 +140,7 @@ export function DecisionJudgeTab({
                     value={reason}
                     onChange={(event) => setReason(event.target.value)}
                     rows={2}
-                    className="mt-1 w-full rounded-md border border-border bg-surface p-2 ui-meta text-text outline-none focus:border-accent"
+                    className="mt-1 w-full rounded-xs border border-border bg-surface p-2 ui-meta text-text outline-none focus:border-accent"
                   />
                 </label>
               </fieldset>

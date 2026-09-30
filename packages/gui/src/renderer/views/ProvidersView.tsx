@@ -1,11 +1,14 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 import { isAvailableAgentEntityRow } from "../agent-entity-client.ts";
 import { t } from "../i18n/index.tsx";
+import { ActionError } from "../components/runtime/ActionError.tsx";
 import { Btn, CapDot, Empty, Hint } from "../components/runtime/parts.tsx";
 import { NewRuntimeDialog } from "../components/runtime/NewRuntimeDialog.tsx";
-import { ProviderRail } from "../components/runtime/RuntimeRail.tsx";
+import { orderProviderRows, ProviderRail } from "../components/runtime/RuntimeRail.tsx";
 import { ProviderInspector } from "../components/runtime/RuntimeInspector.tsx";
 import { RuntimeCard } from "../components/runtime/RuntimeCard.tsx";
+import { StatusTag } from "../components/primitives/StatusTag.tsx";
+import { runtimeAuthPresentation } from "../runtime-auth-presentation.ts";
 import { runtimeSelectionFromRef, useProviderWorkspace } from "../components/runtime/useRuntimeWorkspace.ts";
 
 // Provider 入口(W6 IA 拆分):承运者(Runtime 实例)的完整工作区——目录 rail、
@@ -28,12 +31,12 @@ export function ProvidersView({
     [inspector, setInspector] = useState(true);
   const installations = workspace.machine.data?.installations ?? [];
   const instances = workspace.instances;
-  // 深链指向的实例可能已被删除(或仍在读取):存在才采用,否则回落首项——派生选择,
-  // 不写回导航栈。
+  // 深链指向的实例可能已被删除(或仍在读取):存在才采用,否则回落目录首项(异常置顶后的
+  // 第一项,标准 §2.5)——派生选择,不写回导航栈。
   const selectedId =
     refId !== null && instances.some((candidate) => candidate.instanceId === refId)
       ? refId
-      : (instances[0]?.instanceId ?? null);
+      : (orderProviderRows(instances, workspace.authProbeStates)[0]?.instance.instanceId ?? null);
   const instance =
     selectedId === null ? null : (instances.find((candidate) => candidate.instanceId === selectedId) ?? null);
   const liveSessions = selectedId === null ? 0 : (workspace.liveByInstance.get(selectedId) ?? 0);
@@ -78,15 +81,13 @@ export function ProvidersView({
           })}
         </p>
       )}
-      {(workspace.error ?? workspace.feedback) && (
+      {workspace.feedback && !workspace.error && (
         <p
           role="status"
           onClick={workspace.clearFeedback}
-          className={`shrink-0 border-b border-border px-3.5 py-1.5 font-mono ui-micro ${
-            workspace.error ? "bg-status-blocked/10 text-status-blocked" : "text-text-muted"
-          }`}
+          className="shrink-0 border-b border-border px-3.5 py-1.5 font-mono ui-micro text-text-muted"
         >
-          {workspace.error ?? workspace.feedback}
+          {workspace.feedback}
         </p>
       )}
       <div className="flex min-h-0 flex-1">
@@ -100,26 +101,42 @@ export function ProvidersView({
         />
         <main className="min-w-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6">
           {instance === null ? (
-            <Empty>{t(workspace.machine.isPending ? "agentRuntime.loading" : "agentRuntime.emptyProviders")}</Empty>
+            <>
+              {workspace.error ? <ActionError>{workspace.error}</ActionError> : null}
+              <Empty>{t(workspace.machine.isPending ? "agentRuntime.loading" : "agentRuntime.emptyProviders")}</Empty>
+            </>
           ) : (
-            <RuntimeCard
-              instance={instance}
-              installations={installations}
-              authProbeState={workspace.authProbeStates.get(instance.instanceId)}
-              agents={(workspace.agents.data ?? []).filter(isAvailableAgentEntityRow)}
-              liveSessions={liveSessions}
-              busy={workspace.busy}
-              onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)}
-              onSelectRuntime={(instanceId) => onSelectEntity(`provider/${instanceId}`)}
-              onAuth={(action) => void workspace.authInstance(instance.instanceId, action)}
-              onValidate={() => void workspace.validateInstance(instance.instanceId)}
-              onSetEnabled={(enabled) => void workspace.setInstanceEnabled(instance.instanceId, enabled)}
-              onUpdate={(input) => void workspace.updateInstance(input)}
-              onDelete={() => {
-                void workspace.deleteInstance(instance.instanceId);
-              }}
-              onSelfTest={(model) => workspace.selfTest(instance.instanceId, model)}
-            />
+            <>
+              <ProviderConclusion
+                instance={instance}
+                liveSessions={liveSessions}
+                compatibleAgents={
+                  (workspace.agents.data ?? [])
+                    .filter(isAvailableAgentEntityRow)
+                    .filter((agent) => agent.runtimes.some((runtime) => runtime.type === instance.kindId)).length
+                }
+                authProbeState={workspace.authProbeStates.get(instance.instanceId)}
+              />
+              <RuntimeCard
+                instance={instance}
+                installations={installations}
+                authProbeState={workspace.authProbeStates.get(instance.instanceId)}
+                agents={(workspace.agents.data ?? []).filter(isAvailableAgentEntityRow)}
+                liveSessions={liveSessions}
+                busy={workspace.busy}
+                actionError={workspace.error}
+                onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)}
+                onSelectRuntime={(instanceId) => onSelectEntity(`provider/${instanceId}`)}
+                onAuth={(action) => void workspace.authInstance(instance.instanceId, action)}
+                onValidate={() => void workspace.validateInstance(instance.instanceId)}
+                onSetEnabled={(enabled) => void workspace.setInstanceEnabled(instance.instanceId, enabled)}
+                onUpdate={(input) => void workspace.updateInstance(input)}
+                onDelete={() => {
+                  void workspace.deleteInstance(instance.instanceId);
+                }}
+                onSelfTest={(model) => workspace.selfTest(instance.instanceId, model)}
+              />
+            </>
           )}
         </main>
         {inspector && (
@@ -136,6 +153,7 @@ export function ProvidersView({
           installations={installations}
           existingInstanceIds={instances.map((row) => row.instanceId)}
           busy={workspace.busy}
+          actionError={workspace.error}
           onCancel={() => setDialog(false)}
           onCreate={(input) => {
             void workspace.createInstance(input).then((created) => {
@@ -158,6 +176,46 @@ export function ProvidersView({
           </Hint>
         </p>
       )}
+    </section>
+  );
+}
+
+/** Provider 目录详情结论(标准 §2.5):先说明能否派工、谁在用和现在是否有运行。 */
+function ProviderConclusion({
+  instance,
+  authProbeState,
+  liveSessions,
+  compatibleAgents,
+}: {
+  readonly instance: Parameters<typeof runtimeAuthPresentation>[0];
+  readonly authProbeState: Parameters<typeof runtimeAuthPresentation>[1];
+  readonly liveSessions: number;
+  readonly compatibleAgents: number;
+}) {
+  const auth = runtimeAuthPresentation(instance, authProbeState);
+  const unavailable = !instance.enabled || auth.cap === "none";
+  return (
+    <section
+      data-testid="provider-detail-conclusion"
+      className="status-edge relative mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xs border border-border bg-surface px-3.5 py-2"
+      style={unavailable ? ({ "--status-edge": "var(--color-status-blocked)" } as CSSProperties) : undefined}
+    >
+      <StatusTag
+        tone={unavailable ? "bad" : auth.cap === "part" ? "wait" : "done"}
+        label={t(
+          !instance.enabled
+            ? "agentRuntime.providerDisabledTag"
+            : auth.cap === "none"
+              ? "agentRuntime.providerUnreachable"
+              : auth.cap === "part"
+                ? "agentRuntime.providerNotChecked"
+                : "agentRuntime.providerUsable",
+        )}
+      />
+      <span className="ui-meta text-text-muted">{t("agentRuntime.providerUsedBy", { count: compatibleAgents })}</span>
+      <span className="font-mono ui-micro text-text-faint">
+        {liveSessions > 0 ? t("agentRuntime.liveSessions", { count: liveSessions }) : t("agentRuntime.idle")}
+      </span>
     </section>
   );
 }

@@ -16,8 +16,9 @@ type JudgmentHistoryRow = {
 };
 
 /**
- * 判定历史完整渲染,不分批(2026-08-25 泽宇裁决:性能顾虑用按需渲染解决,不转嫁给用户
- * 点击):每条带 content-visibility:auto,离屏行的布局与绘制由渲染器跳过。
+ * 判定历史:终态记录默认折叠成一行计数(标准 §1.4 收束),点开平铺;完整渲染
+ * 不分批(2026-08-25 泽宇裁决:性能顾虑用按需渲染解决,不转嫁给用户点击):每条
+ * 带 content-visibility:auto,离屏行的布局与绘制由渲染器跳过。
  */
 function JudgmentHistory({
   history,
@@ -28,10 +29,13 @@ function JudgmentHistory({
 }) {
   if (history.length === 0) return null;
   return (
-    <section className="mt-4 rounded-lg border border-border bg-surface p-3">
-      <h2 className="font-mono ui-micro font-semibold uppercase tracking-wide text-text-faint">
+    <details className="mt-4 rounded-xs border border-border bg-surface px-3 py-2">
+      <summary className="cursor-pointer select-none font-mono ui-micro font-semibold uppercase tracking-wide text-text-faint hover:text-text-muted">
         {t("views.decisionsView.canonicalJudgmentHistory")}
-      </h2>
+        <span className="ml-2 text-text-faint/70">
+          {t("views.decisionsView.historyCount", { count: history.length })}
+        </span>
+      </summary>
       <ul className="mt-1.5 space-y-1">
         {history.map(({ decision, consent }) => {
           const receipt = mutationFeedback?.(decision.decisionId)?.receipt;
@@ -51,7 +55,7 @@ function JudgmentHistory({
           );
         })}
       </ul>
-    </section>
+    </details>
   );
 }
 
@@ -147,82 +151,84 @@ export function DecisionsView({
   }, [current, queue.length, skip]);
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b border-border px-4 py-2.5">
-        {onExit && (
-          <button
-            onClick={onExit}
-            title={t("views.decisionsView.exitPool")}
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 ui-micro text-text-muted transition-colors duration-100 hover:bg-surface-raised hover:text-text"
-          >
-            <CaretLeft />
-            {t("views.decisionsView.exitPool")}
-          </button>
-        )}
-        <ChatCircleDots weight="bold" className="text-accent" />
-        <span className="ui-body font-semibold text-text">{t("views.decisionsView.title")}</span>
-        <span className="rounded bg-surface-raised px-1.5 font-mono ui-micro tabular-nums text-text-muted">
-          {queue.length ? `${idx + 1} / ${queue.length}` : "0 / 0"}
-        </span>
-        <span className="truncate ui-micro text-text-faint">riskTier × urgency · canonical reread</span>
-        <div className="ml-auto flex items-center gap-1">
-          <button
-            onClick={() => setCursor((value) => Math.max(0, value - 1))}
-            disabled={idx === 0}
-            title="上一条 · K"
-            className="grid size-6 place-items-center rounded-md text-text-muted transition-colors duration-100 hover:bg-surface-raised hover:text-text disabled:pointer-events-none disabled:opacity-30"
-          >
-            <CaretLeft />
-          </button>
-          <button
-            onClick={() => setCursor((value) => Math.min(queue.length - 1, value + 1))}
-            disabled={idx >= queue.length - 1}
-            title="下一条 · J"
-            className="grid size-6 place-items-center rounded-md text-text-muted transition-colors duration-100 hover:bg-surface-raised hover:text-text disabled:pointer-events-none disabled:opacity-30"
-          >
-            <CaretRight />
-          </button>
-          <button
-            onClick={skip}
-            disabled={!current}
-            title="跳过 · S（不改 canonical 状态）"
-            className="inline-flex items-center gap-1 rounded-md px-2 py-1 ui-micro text-text-faint transition-colors duration-100 hover:bg-surface-raised hover:text-text disabled:pointer-events-none disabled:opacity-30"
-          >
-            <SkipForward />
-            跳过
-          </button>
-          {skipped.size > 0 && (
+    <div className="flex h-full min-h-0 flex-col" data-testid="decisions-focus-view">
+      <header className="flex-none px-5 pt-3.5 md:px-7">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {onExit && (
             <button
-              onClick={() => {
-                setSkipped(new Set());
-                setCursor(0);
-              }}
-              className="inline-flex items-center gap-1 rounded-md px-2 py-1 ui-micro tabular-nums text-accent transition-colors duration-100 hover:bg-accent/10"
+              onClick={onExit}
+              title={t("views.decisionsView.exitPool")}
+              className="inline-flex items-center gap-1 rounded-xs px-2 py-1 ui-micro text-text-muted transition-colors duration-100 hover:bg-surface-raised hover:text-text"
             >
-              <ArrowsClockwise />
-              恢复{skipped.size}
+              <CaretLeft aria-hidden />
+              {t("views.decisionsView.exitPool")}
             </button>
           )}
-          <button
-            onClick={() => setHelp((value) => !value)}
-            className="rounded-md px-2 py-1 font-mono ui-micro text-text-faint transition-colors duration-100 hover:bg-surface-raised hover:text-text"
-          >
-            ?
-          </button>
+          <ChatCircleDots weight="bold" className="text-accent" aria-hidden />
+          <h1 className="text-[19px] font-semibold text-text">{t("views.decisionsView.title")}</h1>
+          <span className="rounded-xs bg-text/10 px-[5px] font-mono tabular-nums text-text-faint ui-micro">
+            {queue.length ? `${idx + 1} / ${queue.length}` : "0 / 0"}
+          </span>
+          <span className="truncate ui-micro text-text-faint">riskTier × urgency · canonical reread</span>
+          <div className="ml-auto flex items-center gap-1">
+            <button
+              onClick={() => setCursor((value) => Math.max(0, value - 1))}
+              disabled={idx === 0}
+              title="上一条 · K"
+              className="grid size-6 place-items-center rounded-xs text-text-muted transition-colors duration-100 hover:bg-surface-raised hover:text-text disabled:pointer-events-none disabled:opacity-30"
+            >
+              <CaretLeft aria-hidden />
+            </button>
+            <button
+              onClick={() => setCursor((value) => Math.min(queue.length - 1, value + 1))}
+              disabled={idx >= queue.length - 1}
+              title="下一条 · J"
+              className="grid size-6 place-items-center rounded-xs text-text-muted transition-colors duration-100 hover:bg-surface-raised hover:text-text disabled:pointer-events-none disabled:opacity-30"
+            >
+              <CaretRight aria-hidden />
+            </button>
+            <button
+              onClick={skip}
+              disabled={!current}
+              title="跳过 · S(不改 canonical 状态)"
+              className="inline-flex items-center gap-1 rounded-xs px-2 py-1 ui-micro text-text-faint transition-colors duration-100 hover:bg-surface-raised hover:text-text disabled:pointer-events-none disabled:opacity-30"
+            >
+              <SkipForward aria-hidden />
+              跳过
+            </button>
+            {skipped.size > 0 && (
+              <button
+                onClick={() => {
+                  setSkipped(new Set());
+                  setCursor(0);
+                }}
+                className="inline-flex items-center gap-1 rounded-xs px-2 py-1 ui-micro tabular-nums text-accent transition-colors duration-100 hover:bg-accent/10"
+              >
+                <ArrowsClockwise aria-hidden />
+                恢复{skipped.size}
+              </button>
+            )}
+            <button
+              onClick={() => setHelp((value) => !value)}
+              className="rounded-xs px-2 py-1 font-mono ui-micro text-text-faint transition-colors duration-100 hover:bg-surface-raised hover:text-text"
+            >
+              ?
+            </button>
+          </div>
         </div>
-      </div>
+      </header>
       {help && (
-        <div className="border-b border-border bg-surface-raised px-4 py-2 font-mono ui-micro leading-relaxed text-text-muted">
-          J/K 下一条/上一条 · S 跳过 · A/R/D 打开 Accept/Reject/Defer rationale · ? 帮助；编辑字段内快捷键停用。
+        <div className="mx-5 mt-2 rounded-xs border border-border bg-surface-raised px-4 py-2 font-mono ui-micro leading-relaxed text-text-muted md:mx-7">
+          J/K 下一条/上一条 · S 跳过 · A/R/D 打开 Accept/Reject/Defer rationale · ? 帮助;编辑字段内快捷键停用。
         </div>
       )}
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
-          <div className="flex-1 overflow-auto p-4">
+          <div className="flex-1 overflow-auto px-5 pb-4 pt-3 md:px-7">
             {current ? (
               <>
-                <div className="mb-2 rounded-md bg-stale/10 px-3 py-1.5 ui-micro leading-relaxed text-stale">
-                  只处理 canonical proposed。mutation pending 只锁当前卡；不要重放，用 opId 查询 receipt。
+                <div className="mb-2 rounded-xs bg-stale/10 px-3 py-1.5 ui-micro leading-relaxed text-stale">
+                  只处理 canonical proposed。mutation pending 只锁当前卡;不要重放,用 opId 查询 receipt。
                 </div>
                 <VerdictCard
                   key={current.decisionId}
@@ -247,7 +253,7 @@ export function DecisionsView({
             ) : (
               <div className="flex h-full flex-col items-center justify-center gap-3 text-center">
                 <div className="grid size-14 place-items-center rounded-full bg-surface-raised">
-                  <SealCheck weight="duotone" className="ui-heading text-success" />
+                  <SealCheck weight="duotone" className="ui-heading text-success" aria-hidden />
                 </div>
                 <div>
                   <div className="ui-prose font-semibold text-text">当前无待决策批准</div>
@@ -258,14 +264,14 @@ export function DecisionsView({
             <JudgmentHistory history={history} mutationFeedback={mutationFeedback} />
           </div>
           {queue.length > 0 && (
-            <div className="border-t border-border bg-surface-raised/50 px-4 py-2">
+            <div className="border-t border-border bg-surface-raised/50 px-5 py-2 md:px-7">
               <div className="flex gap-1.5 overflow-x-auto pb-0.5">
                 {queue.map((decision, index) => (
                   <button
                     key={decision.decisionId}
                     onClick={() => setCursor(index)}
                     title={decision.title}
-                    className={`shrink-0 rounded-md px-2 py-1 font-mono ui-micro transition-colors duration-100 ${index === idx ? "bg-accent font-semibold text-accent-fg" : skipped.has(decision.decisionId) ? "bg-surface text-text-faint line-through hover:text-text-muted" : "bg-surface text-text-muted hover:text-text"}`}
+                    className={`shrink-0 rounded-xs px-2 py-1 font-mono ui-micro transition-colors duration-100 ${index === idx ? "bg-accent font-semibold text-accent-fg" : skipped.has(decision.decisionId) ? "bg-surface text-text-faint line-through hover:text-text-muted" : "bg-surface text-text-muted hover:text-text"}`}
                   >
                     {decision.decisionId}
                   </button>
