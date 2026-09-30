@@ -34,6 +34,12 @@ export default defineConfig({
   build: {
     rollupOptions: {
       input: "index.html",
+      // Rollup keeps an import it cannot resolve as an external bare specifier and only warns; the
+      // renderer then fails to load it at runtime and the window stays black. Fail the build instead.
+      onwarn(warning, warn) {
+        if (warning.code === "UNRESOLVED_IMPORT") throw new Error(warning.message);
+        warn(warning);
+      },
     },
   },
 });
