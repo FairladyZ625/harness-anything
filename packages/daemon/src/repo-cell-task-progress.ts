@@ -38,6 +38,7 @@ import { readCompletionContext, factRetirementAssessment } from "./task-completi
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
 import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";
+import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 
 import {
   acceptedGateWitness,
@@ -107,6 +108,12 @@ export async function prepareSubmissionEvidence(
     );
   if (!execution?.submission)
     throw cell.cellCodedError("invalid_transition", "Evidence preparation requires a submitted execution.");
+  // A review-required cut awaits owner triage; completion collects its evidence after forward.
+  if (
+    snapshot.task?.status === "submitted" &&
+    readEffectiveCloseoutGates(cell.projection, snapshot.task.completionGateIds, snapshot.task.closeoutOverrides).review
+  )
+    return [];
   const steps: WriteReceipt[] = [],
     gates = completionGateIds(snapshot.task?.completionGateIds ?? [], execution.submission),
     evidenceByGate = evaluateGateEvidence(
