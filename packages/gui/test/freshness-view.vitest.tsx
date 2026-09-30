@@ -178,4 +178,9 @@ describe("FreshnessView:按决策分组收束(标准 §1.4 收束不堆叠)", ()
     expect(container.querySelectorAll('[data-testid="freshness-row"]')).toHaveLength(15);
     expect(container.querySelector('[data-testid="freshness-more-no-live-evidence"]')).toBeNull();
   });
+
+  it("无候选时页头不渲染结论行(不出现空的「先处理「」」)", async () => {
+    const container = await mountFreshness([], []);
+    expect(container.querySelector('[data-testid="freshness-counts"]')).toBeNull();
+  });
 });

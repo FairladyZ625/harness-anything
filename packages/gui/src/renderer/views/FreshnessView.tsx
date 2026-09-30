@@ -293,14 +293,16 @@ export function FreshnessView({
       <header className="shrink-0 border-b border-border px-5 py-3.5 md:px-7">
         <div className="flex flex-wrap items-baseline gap-2.5">
           <h1 className="text-[19px] font-semibold text-text">{t("views.freshnessView.title")}</h1>
-          <span className="ui-meta text-text-muted" data-testid="freshness-counts">
-            {t("views.freshnessView.headline", {
-              claims: candidates.length,
-              total: inScopeTotal,
-              decisions: decisionsInvolved,
-              first: firstUrgent?.decisionTitle ?? firstUrgent?.decisionId ?? "",
-            })}
-          </span>
+          {candidates.length > 0 ? (
+            <span className="ui-meta text-text-muted" data-testid="freshness-counts">
+              {t("views.freshnessView.headline", {
+                claims: candidates.length,
+                total: inScopeTotal,
+                decisions: decisionsInvolved,
+                first: firstUrgent?.decisionTitle ?? firstUrgent?.decisionId ?? "",
+              })}
+            </span>
+          ) : null}
           {basis !== null && (
             <span className="ml-auto shrink-0 font-mono ui-meta text-text-faint">
               {t("views.freshnessView.basis", { value: basis })}
