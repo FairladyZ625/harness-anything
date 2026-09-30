@@ -2,23 +2,23 @@ import { consumeKnownError } from "../api/error-consumption.ts";
 import { isRendererRecord } from "./result-validation.ts";
 
 /**
- * 看板列宽的本地持久化(W11):三种布局(列/泳道/列表)各一份「列 key → px 宽度」
+ * 看板列宽的本地持久化(W11):两种布局(列/泳道)各一份「列 key → px 宽度」
  * 映射,存 renderer localStorage(同 favorites/graph-density,不进台账、不进 URL)。
  * 模型刻意保持「每列一个数字」:未设置的列走各视图的 CSS 默认(列模式等分、
- * 泳道 180/230、列表 table-fixed 自动分配),设置了才输出显式宽度。
+ * 泳道 180/230),设置了才输出显式宽度。列表布局已按视觉基线重做为 DenseRow
+ * 行列表,不再有可调列宽,旧存储里的 list 分量读取时直接丢弃。
  */
 const storageKey = "harness:gui:board-column-widths";
 
-export type BoardLayoutId = "column" | "swimlane" | "list";
+export type BoardLayoutId = "column" | "swimlane";
 export type BoardColumnWidthMap = Record<string, number>;
 
 export interface BoardColumnWidths {
   readonly column: BoardColumnWidthMap;
   readonly swimlane: BoardColumnWidthMap;
-  readonly list: BoardColumnWidthMap;
 }
 
-export const emptyBoardColumnWidths: BoardColumnWidths = { column: {}, swimlane: {}, list: {} };
+export const emptyBoardColumnWidths: BoardColumnWidths = { column: {}, swimlane: {} };
 
 /** 存储层的全局 sanity 区间;各视图在交互时再按自己的列做更紧的 clamp。 */
 const storedWidthRange = { min: 40, max: 1200 } as const;
@@ -55,7 +55,6 @@ export function readBoardColumnWidths(
     return {
       column: widthMap(parsed.column),
       swimlane: widthMap(parsed.swimlane),
-      list: widthMap(parsed.list),
     };
   } catch (cause) {
     consumeKnownError(cause);

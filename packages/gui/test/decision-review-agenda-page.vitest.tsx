@@ -20,9 +20,10 @@ import { NAV_GROUPS, navLabel } from "../src/renderer/navigation/navConfig.tsx";
 import { entityDetailTargetOf } from "../src/renderer/navigation/entityRoutes.ts";
 
 /**
- * 议程页(原型 S2 #agenda)与 Decision 行落点:行全部取议程读面,落点按组分流到
- * Decision 评审页签、逐项回应、裁决页签与评审会话。(总览四格/两栏已随 S3 区域板重做删除,
- * 新总览的测试在 overview-board.vitest.tsx。)
+ * 议程页(标准 §2.4 列表页)与行落点:行全部取议程读面,FilterChips 带计数 +
+ * 页内搜索,默认「需要关注」不默认全量;行用 DenseRow、状态用 StatusTag;点行
+ * 开抽屉,抽屉里答复(awaits 源)或「打开完整详情」落 Decision 评审页签、逐项
+ * 回应、评审会话、裁决页签与源实体详情。
  */
 const AT = "2026-09-29T01:00:00.000Z";
 const decisionRow = (decisionId: string): AgendaDecisionRow => ({
@@ -88,6 +89,17 @@ const agenda = (patch: Partial<AgendaSuccess> = {}): AgendaSuccess => ({
   inFlight: [],
   pinnedEntities: [],
   pinnedEntityOverflow: 0,
+  attentionItems: [],
+  regionWeights: {
+    ci: 0,
+    mine: 0,
+    stuck: 0,
+    run: 0,
+    review: 0,
+    queue: 0,
+    recent: 0,
+    works: 0,
+  },
   awaitingRework: [],
   awaitingAdjudication: [],
   underReview: [],
@@ -152,9 +164,21 @@ const click = (host: HTMLElement, testId: string) => {
   if (!button) throw new Error(`missing ${testId}`);
   act(() => button.click());
 };
-const groupIds = (host: HTMLElement) =>
-  [...host.querySelectorAll('[data-testid^="agenda-decision-group-"]')].map((node) =>
-    node.getAttribute("data-testid")!.replace("agenda-decision-group-", ""),
+/** 点议程行:行壳是包装 div,DenseRow 的 button 在里面。 */
+const clickRow = (host: HTMLElement, id: string) => {
+  const button = host.querySelector<HTMLButtonElement>(`[data-testid="agenda-row-${id}"] button`);
+  if (!button) throw new Error(`missing agenda-row-${id}`);
+  act(() => button.click());
+};
+const typeInto = (input: HTMLInputElement, value: string) => {
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, value);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+};
+const rowIds = (host: HTMLElement) =>
+  [...host.querySelectorAll('[data-testid^="agenda-row-"]')].map((node) =>
+    node.getAttribute("data-testid")!.replace("agenda-row-", ""),
   );
 
 describe("议程读面 → Decision 行", () => {
@@ -169,7 +193,7 @@ describe("议程读面 → Decision 行", () => {
   });
 });
 
-describe("议程页(S2 #agenda)", () => {
+describe("议程页(标准 §2.4 列表页)", () => {
   it("侧栏只有一个总览入口(dec_DC3A1BB9 CH1)", () => {
     const ids = NAV_GROUPS.flatMap((group) => group.items.map(({ id }) => id));
     expect(ids.filter((id) => id.startsWith("overview"))).toEqual(["overview"]);
@@ -182,7 +206,64 @@ describe("议程页(S2 #agenda)", () => {
     expect(navLabel("agenda")).toBe("议程");
   });
 
-  it("页签覆盖议程全部分组,全部页只列有行的组;页签只改当前显示;查看按组落点", () => {
+  it("筛选按钮带计数且默认「需要关注」,不默认展示全量;空组不渲染", () => {
+    const host = mount(
+      createElement(AgendaView, {
+        repoId: "repo",
+        agenda: seeded,
+        agendaError: null,
+        onNavigateEntity: () => {},
+      }),
+    );
+    const chips = [...host.querySelectorAll('[data-testid="agenda-filter-chips"] button')];
+    expect(chips.map((chip) => chip.textContent)).toEqual(["需要关注5", "待跟进1", "全部6"]);
+    expect(chips[0]!.getAttribute("aria-pressed")).toBe("true");
+    // 默认(需要关注):dispose/review/judge 的行都在,reviewing(待跟进)不出现。
+    expect(rowIds(host)).toEqual(["rel_task", "dec_dispose", "dec_review_a", "dec_review_b", "dec_judge"]);
+    act(() => chips[2]!.click());
+    expect(rowIds(host)).toEqual([
+      "rel_task",
+      "dec_dispose",
+      "dec_review_a",
+      "dec_review_b",
+      "dec_judge",
+      "dec_running",
+    ]);
+  });
+
+  it("行是 DenseRow:状态用有底色 StatusTag、标题经 TitleText 拆分、原因与时长同行", () => {
+    const host = mount(
+      createElement(AgendaView, {
+        repoId: "repo",
+        agenda: seeded,
+        agendaError: null,
+        onNavigateEntity: () => {},
+      }),
+    );
+    const row = host.querySelector('[data-testid="agenda-row-rel_task"]')!;
+    const tag = row.querySelector("[data-status-tone]")!;
+    expect(tag.getAttribute("data-status-tone")).toBe("bad"); // 待处置 = 等你,红档
+    expect(tag.textContent).toContain("待处置");
+    // 标题拆分:「提案 task/task_x」冒号前不足 4 字符,整条按原文渲染(不私拆)。
+    expect(row.textContent).toContain("提案 task/task_x");
+    expect(row.textContent).toContain("请你同意 · has review changes to resolve.");
+    expect(row.textContent).toMatch(/\d+\s*(分|时|天)/u); // 右侧等宽时长
+    const colonHost = mount(
+      createElement(AgendaView, {
+        repoId: "repo",
+        agenda: agenda({
+          awaitingDecisionReview: [{ ...decisionRow("dec_split"), title: "重构看板:按状态分列" }],
+        }),
+        agendaError: null,
+        onNavigateEntity: () => {},
+      }),
+    );
+    const title = colonHost.querySelector('[data-testid="agenda-row-dec_split"]')!;
+    expect(title.textContent).toBe("待评审重构看板:按状态分列· 需要当前内容的一次独立评审"); // TitleText 不丢字
+    expect(title.querySelector(".text-text-faint")?.textContent).toBe(":按状态分列"); // 冒号后补充弱色
+  });
+
+  it("点行打开抽屉;awaitingYou 行在抽屉里就地答复,decision 行给「打开完整详情」落评审页签", () => {
     const opened: string[] = [];
     const host = mount(
       createElement(AgendaView, {
@@ -192,53 +273,30 @@ describe("议程页(S2 #agenda)", () => {
         onNavigateEntity: (ref) => opened.push(ref),
       }),
     );
-    expect([...host.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent)).toEqual([
-      "全部",
-      "待处置",
-      "已答复,待你跟进",
-      "评审返回",
-      "待初审",
-      "任务评审中",
-      "待评审",
-      "评审中",
-      "待裁决",
-    ]);
-    expect(groupIds(host)).toEqual(["dispose", "review", "reviewing", "judge"]);
-    expect(host.querySelector('[data-testid="agenda-decision-group-review"]')?.textContent).toContain("2 项");
+    clickRow(host, "rel_task");
+    let dialog = host.querySelector('[role="dialog"]');
+    expect(dialog?.textContent).toMatch(/已等待\s*\d+\s*(分|时|天)/u);
+    expect(dialog?.textContent).toContain("提案 task/task_x");
+    expect(dialog?.textContent).toContain("has review changes to resolve.");
+    click(host, "agenda-drawer-answer");
+    const panel = document.body.querySelector('[data-testid="awaits-answer-panel"]');
+    expect(panel?.textContent).toContain("has review changes to resolve.");
+    expect(opened).toEqual([]);
 
-    click(host, "agenda-decision-tab-reviewing");
-    expect(groupIds(host)).toEqual(["reviewing"]);
-
-    click(host, "agenda-decision-open-dec_running");
-    click(host, "agenda-decision-tab-all");
-    for (const id of ["dec_dispose", "dec_review_a", "dec_judge"]) click(host, `agenda-decision-open-${id}`);
+    // reviewing(待跟进桶)切到「全部」后可达。
+    act(() => [...host.querySelectorAll('[data-testid="agenda-filter-chips"] button')][2]!.click());
+    for (const id of ["dec_running", "dec_dispose", "dec_review_a", "dec_judge"]) {
+      clickRow(host, id);
+      dialog = host.querySelector('[role="dialog"]');
+      expect(dialog).not.toBeNull();
+      click(host, "agenda-drawer-open");
+    }
     expect(opened).toEqual([
       "decisionsessions/dec_running",
       "decisionreview/dec_dispose/respond",
       "decisionreview/dec_review_a/review",
       "decisionreview/dec_judge/judge",
     ]);
-  });
-
-  it("待处置组含 task 源等你处理,答复就地打开这条 awaits 的答复面板(dec_DC3A1BB9 CH2)", () => {
-    const opened: string[] = [];
-    const host = mount(
-      createElement(AgendaView, {
-        repoId: "repo",
-        agenda: seeded,
-        agendaError: null,
-        onNavigateEntity: (ref) => opened.push(ref),
-      }),
-    );
-    const dispose = host.querySelector('[data-testid="agenda-decision-group-dispose"]')!;
-    expect(dispose.textContent).toContain("2 项");
-    expect(dispose.textContent).toContain("提案 task/task_x");
-    expect(dispose.textContent).toContain("请你同意 · has review changes to resolve.");
-    expect(host.querySelector('[data-testid="agenda-decision-open-rel_task"]')?.textContent).toBe("答复");
-    click(host, "agenda-decision-open-rel_task");
-    const panel = document.body.querySelector('[data-testid="awaits-answer-panel"]');
-    expect(panel?.textContent).toContain("has review changes to resolve.");
-    expect(opened).toEqual([]);
   });
 
   it("已答复待跟进落源实体详情,评审返回 / 待初审 / 任务评审中落任务详情的评审(收口)页签", () => {
@@ -259,16 +317,36 @@ describe("议程页(S2 #agenda)", () => {
         onNavigateEntity: (ref) => opened.push(ref),
       }),
     );
-    expect(groupIds(host)).toEqual(["answered", "rework", "adjudicate", "taskReviewing"]);
-    const answered = host.querySelector('[data-testid="agenda-decision-group-answered"]')!;
-    expect(answered.textContent).toContain("2 项");
-    expect(answered.textContent).toContain("已答复 task/task_asked");
-    expect(answered.textContent).toContain("提问 · 答:不兼容，直接删");
-    expect(host.querySelector('[data-testid="agenda-decision-group-rework"]')?.textContent).toContain(
-      "返工 task_rework",
+    // 默认「需要关注」:answered 与 taskReviewing(评审中,等别人)都在「待跟进」桶。
+    expect(rowIds(host)).toEqual(["task_rework", "task_submitted"]);
+    const answered = mount(
+      createElement(AgendaView, {
+        repoId: "repo",
+        agenda: agenda({
+          answeredForYou: [
+            answeredRow("rel_ans_task", "task/task_asked"),
+            answeredRow("rel_ans_dec", "decision/dec_asked"),
+          ],
+        }),
+        agendaError: null,
+        onNavigateEntity: (ref) => opened.push(ref),
+      }),
     );
-    for (const id of ["rel_ans_task", "rel_ans_dec", "task_rework", "task_submitted", "task_in_review"])
-      click(host, `agenda-decision-open-${id}`);
+    // answered(待跟进桶)切到「全部」后可达。
+    act(() => [...answered.querySelectorAll('[data-testid="agenda-filter-chips"] button')][2]!.click());
+    const answeredRow0 = answered.querySelector('[data-testid="agenda-row-rel_ans_task"]')!;
+    expect(answeredRow0.textContent).toContain("已答复 task/task_asked");
+    expect(answeredRow0.textContent).toContain("提问 · 答:不兼容，直接删");
+    for (const id of ["rel_ans_task", "rel_ans_dec"]) {
+      clickRow(answered, id);
+      click(answered, "agenda-drawer-open");
+    }
+    // taskReviewing(待跟进桶)同样切「全部」后可达。
+    act(() => [...host.querySelectorAll('[data-testid="agenda-filter-chips"] button')][2]!.click());
+    for (const id of ["task_rework", "task_submitted", "task_in_review"]) {
+      clickRow(host, id);
+      click(host, "agenda-drawer-open");
+    }
     expect(opened).toEqual([
       "task/task_asked",
       "decision/dec_asked",
@@ -278,6 +356,26 @@ describe("议程页(S2 #agenda)", () => {
     ]);
     // 议程为空的判定覆盖新分组:只有这些组有行时不显示「没有待推进」。
     expect(host.textContent).not.toContain("没有待推进");
+  });
+
+  it("页内搜索跨筛选桶匹配标题或原因", () => {
+    const host = mount(
+      createElement(AgendaView, {
+        repoId: "repo",
+        agenda: seeded,
+        agendaError: null,
+        onNavigateEntity: () => {},
+      }),
+    );
+    const search = host.querySelector<HTMLInputElement>('[data-testid="agenda-search"]')!;
+    typeInto(search, "has review changes");
+    expect(rowIds(host)).toEqual(["rel_task"]); // 匹配原因(问题原文)
+    // 搜索覆盖筛选桶:reviewing 行(待跟进桶)在默认「需要关注」下也能搜到。
+    typeInto(search, "dec_running");
+    expect(rowIds(host)).toEqual(["dec_running"]);
+    typeInto(search, "不存在的内容");
+    expect(rowIds(host)).toEqual([]);
+    expect(host.textContent).toContain("没有待推进的事项");
   });
 
   it("taskreview/<id> 落任务详情并带评审页签;工作根仍按「根任务即工作」进工作页", () => {
@@ -298,7 +396,7 @@ describe("议程页(S2 #agenda)", () => {
       createElement(AgendaView, { repoId: "repo", agenda: undefined, agendaError: null, onNavigateEntity: () => {} }),
     );
     expect(loading.textContent).toContain("正在读取议程");
-    expect(groupIds(loading)).toEqual([]);
+    expect(rowIds(loading)).toEqual([]);
     act(() =>
       root!.render(
         withQueries(
