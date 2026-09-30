@@ -25,7 +25,20 @@ export const managedRbacVersions = Object.freeze({
 });
 
 type SupportedPlatform = "darwin-arm64" | "darwin-x64" | "linux-x64";
-type ManagedRbacOperation = "bootstrap" | "health" | "start" | "stop" | "backup" | "restore" | "upgrade";
+type ManagedRbacOperation =
+  | "bootstrap"
+  | "health"
+  | "start"
+  | "stop"
+  | "backup"
+  | "restore"
+  | "upgrade"
+  | "login-begin"
+  | "login-complete"
+  | "session"
+  | "logout"
+  | "bootstrap-admin"
+  | "invite";
 
 export interface ManagedRbacRequest {
   readonly operation?: ManagedRbacOperation;
@@ -34,6 +47,14 @@ export interface ManagedRbacRequest {
   readonly realm?: string;
   readonly clientId?: string;
   readonly backupDir?: string;
+  readonly redirectUri?: string;
+  readonly code?: string;
+  readonly state?: string;
+  readonly username?: string;
+  readonly email?: string;
+  readonly displayName?: string;
+  readonly password?: string;
+  readonly personId?: string;
 }
 
 interface ManagedRbacConfig {
@@ -244,6 +265,14 @@ export class ManagedRbacService {
           standardFlowEnabled: true,
           redirectUris: ["http://127.0.0.1/*"],
           attributes: { "pkce.code.challenge.method": "S256" },
+        },
+      ],
+      users: [
+        {
+          username: "service-account-harness-center",
+          enabled: true,
+          serviceAccountClientId: "harness-center",
+          clientRoles: { "realm-management": ["manage-users", "view-users", "manage-realm"] },
         },
       ],
     };
@@ -464,6 +493,28 @@ export class ManagedRbacService {
     renameSync(temporary, file);
     chmodSync(file, 0o600);
   }
+}
+
+export function managedRbacSessionStore(userRoot: string): {
+  readonly read: () => string | undefined;
+  readonly write: (value: string) => void;
+  readonly delete: () => void;
+  readonly retireBootstrap: () => void;
+} {
+  const root = path.join(userRoot, "rbac"),
+    file = path.join(root, "oidc-session.json");
+  return {
+    read: () => (existsSync(file) ? readFileSync(file, "utf8") : undefined),
+    write: (value) => {
+      mkdirSync(root, { recursive: true, mode: 0o700 });
+      const temporary = `${file}.tmp`;
+      writeFileSync(temporary, value, { mode: 0o600 });
+      renameSync(temporary, file);
+      chmodSync(file, 0o600);
+    },
+    delete: () => rmSync(file, { force: true }),
+    retireBootstrap: () => rmSync(path.join(root, "bootstrap-admin-password"), { force: true }),
+  };
 }
 
 export function artifactManifest(platform: SupportedPlatform): readonly Artifact[] {

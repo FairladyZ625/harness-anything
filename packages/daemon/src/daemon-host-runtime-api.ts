@@ -15,7 +15,7 @@ import type { FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
 import { canonicalRoot, commandDescriptorForAction } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
-import { localDefaultBinding } from "./daemon-host-binding.ts";
+import { localDefaultBinding, localSystemActionBinding } from "./daemon-host-binding.ts";
 import { requireAuthorizedHostAction } from "./host-action-authorization.ts";
 import {
   orchestrateRuntimeBatch,
@@ -275,14 +275,16 @@ export function createDaemonHostRuntimeApi(
       if (!actionKind)
         throw context.hostCodedError("unsupported_command", `Unsupported runtime instance method: ${method}.`);
       const authorityRepo = [...readDaemonRegistry({ userRoot: context.input.userRoot }).repos]
-        .filter(
-          (repo): repo is typeof repo & { readonly canonicalRoot: string } =>
-            repo.state === "enabled" && repo.mode !== "remote-proxy" && repo.canonicalRoot !== null,
-        )
-        .sort((left, right) => left.repoId.localeCompare(right.repoId))[0];
-      const serverBinding = authorityRepo
-        ? await context.binding(authorityRepo.canonicalRoot, auth)
-        : localDefaultBinding(auth);
+          .filter(
+            (repo): repo is typeof repo & { readonly canonicalRoot: string } =>
+              repo.state === "enabled" && repo.mode !== "remote-proxy" && repo.canonicalRoot !== null,
+          )
+          .sort((left, right) => left.repoId.localeCompare(right.repoId))[0],
+        serverBinding = await localSystemActionBinding(context.input.userRoot, actionKind, auth, () =>
+          authorityRepo
+            ? context.binding(authorityRepo.canonicalRoot, auth)
+            : Promise.resolve(localDefaultBinding(auth)),
+        );
       const authorizationDecision = requireAuthorizedHostAction({
         kind: actionKind,
         binding: serverBinding,

@@ -3,6 +3,7 @@ import { homedir } from "node:os";
 import path from "node:path";
 import { readDaemonRegistry } from "@harness-anything/kernel";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
+import { registerOidcAuthIpc } from "./oidc-auth-ipc.ts";
 import { registerArtifactOpenIpc } from "./artifact-open-ipc.ts";
 import { registerLocalDocIpc } from "./local-doc-ipc.ts";
 import {
@@ -207,6 +208,10 @@ export async function startGuiApp(): Promise<void> {
       },
     };
   registerHarnessIpcHandlers(ipcMain, controlled, trustPolicy);
+  registerOidcAuthIpc(ipcMain, trustPolicy, {
+    daemonRequest: (params) => requestDaemonAdminRpc("daemon.rbac.manage", params),
+    openExternal: (url) => shell.openExternal(url),
+  });
   // 「在默认浏览器打开」(task_7e713fee;W3 扩 remote-proxy 物化副本):主进程收窄见 artifact-open-ipc.ts。
   registerArtifactOpenIpc(
     ipcMain,

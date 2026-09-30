@@ -31,7 +31,7 @@ import { isJsonObject } from "./protocol/json-rpc-types.ts";
 import { resolveRepoBootstrap, type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { openRepoCell, type RepoCell, type RepoCellReadMethod, type RepoTaskAction } from "./repo-cell.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
-import { localDefaultBinding } from "./daemon-host-binding.ts";
+import { localDefaultBinding, localSystemActionBinding } from "./daemon-host-binding.ts";
 import { requireAuthorizedHostAction } from "./host-action-authorization.ts";
 import { entityActionCommandTopology } from "./repo-mode.ts";
 import { resolveVerticalKindCommandAction } from "./vertical-kind-command-action.ts";
@@ -225,8 +225,11 @@ export function createDaemonHostRepositoryApi(
           actionKind = request.kind === "backup" ? "ledger-backup" : "ledger-restore-drill",
           authorizationDecision = requireAuthorizedHostAction({
             kind: actionKind,
-            binding:
-              repo && repo.mode !== "remote-proxy" ? await context.binding(rootDir, auth) : localDefaultBinding(auth),
+            binding: await localSystemActionBinding(context.input.userRoot, actionKind, auth, () =>
+              repo && repo.mode !== "remote-proxy"
+                ? context.binding(rootDir, auth)
+                : Promise.resolve(localDefaultBinding(auth)),
+            ),
             actionId: `${actionKind}:${rootDir}:${request.backupDir}`,
             evaluatedAtCut: repo ? `daemon-registry:${repo.repoId}` : "daemon-registry:unregistered",
             now: context.now(),
@@ -279,9 +282,11 @@ export function createDaemonHostRepositoryApi(
       }
       if (request.kind === "register") {
         const remoteProxy = request.mode === "remote-proxy",
-          adminBinding = remoteProxy
-            ? localDefaultBinding(auth)
-            : await context.binding(context.requiredText(request.rootDir, "rootDir"), auth),
+          adminBinding = await localSystemActionBinding(context.input.userRoot, "daemon-repo-register", auth, () =>
+            remoteProxy
+              ? Promise.resolve(localDefaultBinding(auth))
+              : context.binding(context.requiredText(request.rootDir, "rootDir"), auth),
+          ),
           authorizationDecision = requireAuthorizedHostAction({
             kind: "daemon-repo-register",
             binding: adminBinding,
@@ -326,12 +331,13 @@ export function createDaemonHostRepositoryApi(
         const existing = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
             (repo) => repo.repoId === request.repoId,
           ),
-          adminBinding =
+          adminBinding = await localSystemActionBinding(context.input.userRoot, "daemon-repo-update", auth, () =>
             existing?.canonicalRoot === null || existing === undefined
-              ? localDefaultBinding(auth)
-              : await context.binding(existing.canonicalRoot, auth),
+              ? Promise.resolve(localDefaultBinding(auth))
+              : context.binding(existing.canonicalRoot, auth),
+          ),
           authorizationDecision = requireAuthorizedHostAction({
-            kind: "daemon-repo-register",
+            kind: "daemon-repo-update",
             binding: adminBinding,
             actionId: `daemon-repo-update:${request.repoId}`,
             evaluatedAtCut: "daemon-registry:current",
@@ -360,8 +366,7 @@ export function createDaemonHostRepositoryApi(
         request.kind === "connection-unregister" ||
         request.kind === "connection-probe"
       ) {
-        const removing = request.kind === "connection-unregister",
-          connectionSubject = "connectionId" in request ? request.connectionId : request.endpoint,
+        const connectionSubject = "connectionId" in request ? request.connectionId : request.endpoint,
           command =
             request.kind === "connection-register"
               ? "daemon-connection-add"
@@ -370,9 +375,19 @@ export function createDaemonHostRepositoryApi(
                 : request.kind === "connection-unregister"
                   ? "daemon-connection-remove"
                   : "daemon-connection-probe",
+          authorityRepo = [...readDaemonRegistry({ userRoot: context.input.userRoot }).repos]
+            .filter(
+              (repo): repo is typeof repo & { readonly canonicalRoot: string } =>
+                repo.state === "enabled" && repo.mode !== "remote-proxy" && repo.canonicalRoot !== null,
+            )
+            .sort((left, right) => left.repoId.localeCompare(right.repoId))[0],
           authorizationDecision = requireAuthorizedHostAction({
-            kind: removing ? "repo-unbind" : "daemon-repo-register",
-            binding: localDefaultBinding(auth),
+            kind: command,
+            binding: await localSystemActionBinding(context.input.userRoot, command, auth, () =>
+              authorityRepo
+                ? context.binding(authorityRepo.canonicalRoot, auth)
+                : Promise.resolve(localDefaultBinding(auth)),
+            ),
             actionId: `${command}:${connectionSubject}`,
             evaluatedAtCut: "daemon-registry:current",
             now: context.now(),
@@ -439,13 +454,18 @@ export function createDaemonHostRepositoryApi(
               confirm: request.confirm,
             })
           : null,
-        adminBinding = registeredRepo?.canonicalRoot
-          ? await context.binding(registeredRepo.canonicalRoot, auth)
-          : localDefaultBinding(auth),
+        actionKind = purging ? "repo-purge" : "repo-unbind",
+        adminBinding = purging
+          ? await context.binding(registeredRepo!.canonicalRoot!, auth)
+          : await localSystemActionBinding(context.input.userRoot, actionKind, auth, () =>
+              registeredRepo?.canonicalRoot
+                ? context.binding(registeredRepo.canonicalRoot, auth)
+                : Promise.resolve(localDefaultBinding(auth)),
+            ),
         authorizationDecision = requireAuthorizedHostAction({
-          kind: purging ? "repo-purge" : "repo-unbind",
+          kind: actionKind,
           binding: adminBinding,
-          actionId: `${purging ? "repo-purge" : "repo-unbind"}:${request.repoId}`,
+          actionId: `${actionKind}:${request.repoId}`,
           evaluatedAtCut: "daemon-registry:current",
           now: context.now(),
         }),

@@ -2,6 +2,7 @@ import type { DaemonRpcMethodMap, DaemonRpcResult } from "@harness-anything/daem
 import type { FirstRunApi } from "../api/first-run-contract.ts";
 import type { ArtifactOpenApi } from "../api/artifact-open-contract.ts";
 import type { ConnectionAdminApi, RepoAdminApi } from "../api/connection-admin-contract.ts";
+import type { OidcAuthApi } from "../api/oidc-auth-contract.ts";
 import { loadBrowserGuiTransport } from "../browser/browser-gui-transport.ts";
 
 type GuiMethod = keyof DaemonRpcMethodMap;
@@ -13,6 +14,7 @@ type GuiBridge = {
   readonly artifacts?: ArtifactOpenApi;
   readonly connections?: ConnectionAdminApi;
   readonly repoAdmin?: RepoAdminApi;
+  readonly auth?: OidcAuthApi;
 };
 declare global {
   interface Window {

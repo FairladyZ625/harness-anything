@@ -14,6 +14,7 @@ import { createUnixSocketTransportServer } from "./transport/unix-socket.ts";
 import type { DaemonHostOpenInput } from "./daemon-host-open.ts";
 import type { DaemonLifecycleEntry, DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type { DaemonBuildDrainStatus } from "./protocol/daemon-protocol.contract.ts";
+import { OidcSessionService } from "./oidc-session-service.ts";
 
 export interface RunningDaemon {
   readonly endpoint: string;
@@ -162,6 +163,7 @@ export async function startDaemon(input: {
     requestLog = openDaemonRequestLog({
       resolveRootDir: (repoId) => host!.status().repos.find((repo) => repo.repoId === repoId)?.rootDir,
     });
+    const oidc = new OidcSessionService(input.userRoot);
     transport = createUnixSocketTransportServer({
       daemonId: input.daemonId,
       socketPath: endpoint,
@@ -170,7 +172,7 @@ export async function startDaemon(input: {
           host: host!,
           build,
           buildObserver,
-          authContext: { ...authContext, connectionSignal: signal },
+          authContext: { ...oidc.bind(authContext), connectionSignal: signal },
           emit,
           connectionId: connLog.connectionOpened(connectionId, authContext.transportKind),
           recordRequest: requestLog!.record,

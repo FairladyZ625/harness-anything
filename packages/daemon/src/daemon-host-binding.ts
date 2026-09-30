@@ -1,5 +1,6 @@
 /** @daemon-transport-authority Transport-derived actor and assignment binding. */
 import os from "node:os";
+import { actionDeclarations } from "@harness-anything/kernel";
 import { hostCodedError } from "./daemon-host-errors.ts";
 import { loadPeopleRosterIfPresent } from "./identity/people-roster.ts";
 import { makeTransportDerivedIdentityProvider } from "./identity/transport-derived-provider.ts";
@@ -33,6 +34,25 @@ export function localSystemBinding(
   }
   const actor = { principal: { personId: resolved.actor.personId }, executor };
   return deriveLocalBinding(rootDir, actor, roster);
+}
+
+/** Daemon socket-owner authority for actions whose declaration keeps all writes outside a repository cell. */
+export async function localSystemActionBinding(
+  rootDir: string,
+  kind: string,
+  auth: DaemonAuthenticationContext,
+  principalBinding: () => Promise<RepoCellBinding>,
+): Promise<RepoCellBinding> {
+  const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);
+  if (!declaration || declaration.residency.scope === "canonical")
+    throw hostCodedError("authentication_required", `Action ${kind} requires an authenticated repository principal.`);
+  const daemonUid = process.getuid?.(),
+    ownerUid = auth.unixSocketOwnerBoundary?.ownerUid,
+    isDaemonSocketOwner =
+      auth.transportKind === "unix-socket" &&
+      typeof ownerUid === "number" &&
+      (typeof daemonUid === "number" ? ownerUid === daemonUid : process.platform === "win32" && ownerUid === 0);
+  return isDaemonSocketOwner ? localSystemBinding(rootDir) : principalBinding();
 }
 
 export function withDaemonWriterEpochFence(
@@ -74,10 +94,17 @@ export function localDefaultBinding(
   auth: DaemonAuthenticationContext,
   executor: RepoCellBinding["actor"]["executor"] = null,
 ): RepoCellBinding {
-  const ownerUid = auth.unixSocketOwnerBoundary?.ownerUid;
-  if (auth.transportKind !== "unix-socket" || typeof ownerUid !== "number")
-    throw hostCodedError("credential_unavailable", "Local default binding requires a Unix socket owner boundary.");
-  return withSessionEnvironment(defaultLocalBinding(ownerUid, executor), auth);
+  if (!auth.oidcPrincipal || auth.oidcPrincipal.expiresAt <= Date.now())
+    throw hostCodedError("authentication_required", "Sign in with Keycloak before performing this action.");
+  return withSessionEnvironment(
+    {
+      actor: { principal: { personId: auth.oidcPrincipal.personId }, executor },
+      roleBindings: [],
+      authorizationBindingMode: "declared",
+      source: "local",
+    },
+    auth,
+  );
 }
 
 function withSessionEnvironment(binding: RepoCellBinding, auth: DaemonAuthenticationContext): RepoCellBinding {
