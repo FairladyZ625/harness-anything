@@ -61,10 +61,14 @@ describe("work aggregation", () => {
         </QueryClientProvider>,
       ),
     );
-    // S4:每个工作一行;两件工作都安静(无活动/无阻塞/24h 无变化),默认折叠,点开全部。
+    // S4/v2:每个工作一行;两件工作都安静(无活动/无阻塞/24h 无变化),默认筛选不列,
+    // 顶部「全部」筛选钮带计数负责显形(不再有「其余 N 个安静」折叠行)。
     const workRows = () => [...host.querySelectorAll('[data-testid="work-row"]')];
     expect(workRows()).toHaveLength(0);
-    act(() => host.querySelector<HTMLButtonElement>('[data-testid="work-quiet"]')!.click());
+    const allChip = [...host.querySelectorAll('[data-testid="work-filter-chips"] button')].find((button) =>
+      button.textContent?.startsWith("全部"),
+    )!;
+    act(() => allChip.click());
     expect(workRows().map((row) => row.getAttribute("data-work-id"))).toEqual(["declared_work", "group"]);
     // 独立任务(solo)不在工作页,归任务列表页。
     expect(host.textContent).not.toContain("solo");

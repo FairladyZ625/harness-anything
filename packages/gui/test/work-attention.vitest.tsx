@@ -137,14 +137,12 @@ const type = (host: HTMLElement, value: string) => {
 };
 
 describe("S4 工作页:默认只看需要关注", () => {
-  it("默认筛选「需要关注」,其余工作折叠成一行,点开转到全部", () => {
+  it("默认筛选「需要关注」,其余工作由顶部「全部」筛选显形(v2:不再有安静折叠行)", () => {
     const view = mountWorkView({ agenda: AGENDA });
     expect(rowIds(view.host)).toEqual(["w-urgent", "w-stale", "w-running"]);
-    const quiet = view.host.querySelector('[data-testid="work-quiet"]')!;
-    expect(quiet.textContent).toContain("其余 2 个工作近期安静");
-    click(quiet);
+    expect(view.host.querySelector('[data-testid="work-quiet"]')).toBeNull();
+    click(chip(view.host, "全部"));
     expect(rowIds(view.host)).toEqual(["w-urgent", "w-stale", "w-running", "w-finished", "w-quiet"]);
-    expect(view.host.textContent).not.toContain("近期安静");
     view.unmount();
   });
 

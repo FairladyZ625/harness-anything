@@ -233,12 +233,8 @@ export function WorkOverview({
             </button>
           }
         >
-          <WorkDayList
-            dayGroups={dayGroups.slice(0, 2)}
-            dayLabelOf={dayLabelOf}
-            timeOf={timeOf}
-            onOpenTask={onOpenTask}
-          />
+          {/* v2(标准 §1.8):全部天直接铺开(每天一条 DayDigest 摘要行),不截前两天;整块超出可视高度时随页面滚动。 */}
+          <WorkDayList dayGroups={dayGroups} dayLabelOf={dayLabelOf} timeOf={timeOf} onOpenTask={onOpenTask} />
         </Section>
       ) : null}
 
@@ -377,7 +373,8 @@ function DaySummary({ group }: { readonly group: WorkDayGroup }) {
   );
 }
 
-/** 带就地动作的行:整行点开抽屉,右侧等宽时间与动作按钮(标准 §5);动作拦下冒泡。 */
+/** 带就地动作的行:整行点开抽屉,右侧等宽时间与动作按钮(标准 §5);动作拦下冒泡。
+ * 行高不低于 40px(标准 §3 v2 单行条目底线),与 DenseRow 同一档。 */
 function ActionRow({
   taskId,
   title,
@@ -399,7 +396,7 @@ function ActionRow({
     <div
       data-task-row={taskId}
       onClick={() => onOpen(taskId)}
-      className="grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 rounded-xs px-2.5 py-[7px] hover:bg-text/5"
+      className="grid min-h-10 cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 rounded-xs px-2.5 py-2 hover:bg-text/5"
     >
       <span className="min-w-0 truncate text-text ui-body">
         <TitleText title={title} />
@@ -427,7 +424,8 @@ function ActionRow({
   );
 }
 
-/** 任务页与检修页共用的状态行(DenseRow 原语 + 状态标签);标题由调用方给,可带搜索高亮。 */
+/** 任务页与检修页共用的状态行(DenseRow 原语 + 状态标签);标题由调用方给,可带搜索高亮。
+ * 有执行者时用宽松两行(§2.2 v2):第二行弱色报执行者,其余信息留在一行/详情。 */
 export function WorkTaskRow({
   task,
   title,
@@ -439,12 +437,14 @@ export function WorkTaskRow({
     readonly taskId: string;
     readonly pinned?: boolean;
     readonly at: string;
+    readonly executor?: string;
   };
   readonly title: ReactNode;
   readonly status: SnapshotStatus;
   readonly agoOf: (iso: string) => string;
   readonly onOpen: (taskId: string) => void;
 }) {
+  const executor = task.executor ? `${t("views.workspace.tasks.executor")} ${task.executor}` : undefined;
   return (
     <DenseRow
       tag={<StatusTag status={status} />}
@@ -458,6 +458,8 @@ export function WorkTaskRow({
           title
         )
       }
+      relaxed={executor !== undefined}
+      reason={executor}
       time={agoOf(task.at)}
       onClick={() => onOpen(task.taskId)}
     />

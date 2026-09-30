@@ -16,6 +16,7 @@ import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { DENSE_ROW_RELAXED_PX, DenseRow } from "../primitives/DenseRow.tsx";
+import { CompletedDivider } from "../primitives/CompletedDivider.tsx";
 import { StatusTag, type StatusTone } from "../primitives/StatusTag.tsx";
 import type { DecisionReviewRound } from "../../model/decision-review.ts";
 import { decisionReviewRef, decisionSessionsRef } from "../../navigation/decisionReviewRoutes.ts";
@@ -266,7 +267,7 @@ const GroupSection = memo(function GroupSection({
             ))}
           {[...visibleRounds, ...visibleOrphans].some((row) => isCompleted(row.status)) && (
             <>
-              <CompletedDivider
+              <CompletedCount
                 count={[...visibleRounds, ...visibleOrphans].filter((row) => isCompleted(row.status)).length}
               />
               {visibleRounds
@@ -423,12 +424,8 @@ function OrphanRow({
 }
 
 /** 已完成分隔线(标准 §1.4):终态沉底、照常显示,不收进「展开」。 */
-function CompletedDivider({ count }: { readonly count: number }) {
-  return (
-    <p className="border-t border-border px-3.5 pt-3 pb-1.5 ui-meta text-text-faint">
-      {t("agentRuntime.sessionsCompleted", { count })}
-    </p>
-  );
+function CompletedCount({ count }: { readonly count: number }) {
+  return <CompletedDivider>{t("agentRuntime.sessionsCompleted", { count })}</CompletedDivider>;
 }
 
 const isCompleted = (status: SessionStatus) => status === "succeeded" || status === "cancelled";
@@ -495,7 +492,7 @@ function DecisionGroupBody({
       {rows?.rounds?.filter((round) => round.dispatch.status !== "succeeded").map(renderRound)}
       {completed.length > 0 && (
         <>
-          <CompletedDivider count={completed.length} />
+          <CompletedCount count={completed.length} />
           {completed.map(renderRound)}
         </>
       )}

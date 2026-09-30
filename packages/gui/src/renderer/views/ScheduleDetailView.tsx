@@ -13,6 +13,7 @@ import {
   time,
 } from "../components/scheduleRun/runMeta.ts";
 import { DenseRow } from "../components/primitives/DenseRow.tsx";
+import { CompletedDivider } from "../components/primitives/CompletedDivider.tsx";
 import { Section } from "../components/primitives/Section.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { Tabs } from "../components/primitives/Tabs.tsx";
@@ -669,9 +670,8 @@ function ScheduleRunsTab({
   readonly error: string | null;
   readonly onOpenRun: (occurrenceId: string) => void;
 }) {
-  const [settledOpen, setSettledOpen] = useState(false);
-  // 终态沉底折叠(标准 §2.4):成功/取消的 occurrence 不占注意力,折成一行计数;
-  // running/failed/missed 留在注意力区,保持 daemon 投影顺序。
+  // 终态沉底(标准 §1.4/§2.4 v2):成功/取消的 occurrence 沉到「已收口 N」分隔线
+  // 之后照常显示,不折叠;running/failed/missed 留在注意力区,保持 daemon 投影顺序。
   const inFlight = rows.filter((row) => row.outcome !== "succeeded" && row.outcome !== "cancelled"),
     settled = rows.filter((row) => row.outcome === "succeeded" || row.outcome === "cancelled"),
     missed = rows.filter((row) => row.outcome === "missed").length,
@@ -700,35 +700,16 @@ function ScheduleRunsTab({
           {inFlight.map((occurrence) => (
             <RunRow key={occurrence.occurrenceId || "aggregate"} occurrence={occurrence} onOpenRun={onOpenRun} />
           ))}
-          {settled.length > 0 &&
-            (settledOpen ? (
-              <>
-                {settled.map((occurrence) => (
-                  <RunRow key={occurrence.occurrenceId} occurrence={occurrence} onOpenRun={onOpenRun} />
-                ))}
-                <li>
-                  <button
-                    type="button"
-                    data-testid="schedule-runs-folded"
-                    onClick={() => setSettledOpen(false)}
-                    className="w-full rounded-xs border border-border bg-surface/40 px-3 py-2 text-left ui-meta text-text-muted hover:text-text"
-                  >
-                    ▾ {t("schedules.runs.foldHide", { count: String(settled.length) })}
-                  </button>
-                </li>
-              </>
-            ) : (
-              <li>
-                <button
-                  type="button"
-                  data-testid="schedule-runs-folded"
-                  onClick={() => setSettledOpen(true)}
-                  className="w-full rounded-xs border border-border bg-surface/40 px-3 py-2 text-left ui-meta text-text-muted hover:text-text"
-                >
-                  ▸ {t("schedules.runs.foldDone", { count: String(settled.length) })}
-                </button>
-              </li>
-            ))}
+          {settled.length > 0 && (
+            <li data-testid="schedule-runs-settled" className="border-t border-border">
+              <CompletedDivider>
+                {t("schedules.runs.settledDivider", { count: String(settled.length) })}
+              </CompletedDivider>
+            </li>
+          )}
+          {settled.map((occurrence) => (
+            <RunRow key={occurrence.occurrenceId} occurrence={occurrence} onOpenRun={onOpenRun} />
+          ))}
         </ol>
       )}
     </div>

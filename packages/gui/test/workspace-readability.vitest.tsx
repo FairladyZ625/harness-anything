@@ -269,12 +269,9 @@ describe("workspace readability under real ledger shapes", () => {
     act(() => (host.querySelector("#workspace-tab-decisions") as HTMLButtonElement).click());
     // 顶部摘要:条数、任务数、最近一条。
     expect(host.textContent).toContain("6 条事实，来自 5 个任务");
-    // 6 组只展开最近 3 组,其余收进一行「更早 3 组 · 展开」。
-    expect(host.querySelectorAll("[data-fact-group]")).toHaveLength(3);
-    const older = host.querySelector<HTMLButtonElement>('[data-testid="work-facts-older-toggle"]')!;
-    expect(older.textContent).toContain("更早 3 组 · 展开");
-    act(() => older.click());
+    // v2(标准 §1.8):事实分组全部铺开,没有「更早 N 组 · 展开」。
     expect(host.querySelectorAll("[data-fact-group]")).toHaveLength(6);
+    expect(host.querySelector('[data-testid="work-facts-older-toggle"]')).toBeNull();
     // 组标题用任务标题;行只露结论句,40 位 SHA 缩到 7 位。
     expect(host.querySelector('[data-fact-group="task_a"]')!.textContent).toContain("组 task_a");
     const row = host.querySelector<HTMLButtonElement>('[data-fact-row="fact/F-0"] button')!;
@@ -332,14 +329,11 @@ describe("workspace readability under real ledger shapes", () => {
       ),
     );
     act(() => (host.querySelector("#workspace-tab-decisions") as HTMLButtonElement).click());
-    // 生效中平铺;已退场折叠成一行计数,点开才平铺。
+    // v2(标准 §1.4):生效中平铺;已退场沉到自己的分区照常显示,不再折叠成「展开」。
     expect(host.textContent).toContain("生效中");
     expect(host.textContent).toContain("生效中的决策");
-    expect(host.textContent).not.toContain("已取代的决策");
-    const retired = host.querySelector<HTMLButtonElement>('[data-testid="work-decisions-retired-toggle"]')!;
-    expect(retired.textContent).toContain("2 条已退场 · 展开");
-    act(() => retired.click());
     expect(host.textContent).toContain("已取代的决策");
+    expect(host.querySelector('[data-testid="work-decisions-retired-toggle"]')).toBeNull();
     // 页内搜索停在决策与事实页,命中事实原文(不只结论句)。
     const search = host.querySelector<HTMLInputElement>('[data-testid="workspace-search"]')!;
     act(() => {

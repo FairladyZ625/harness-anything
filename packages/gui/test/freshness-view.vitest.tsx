@@ -93,11 +93,9 @@ const GROUPED_ROWS: readonly RelationCoverageRow[] = [
 ];
 
 const claimRows = (container: HTMLElement, decisionId: string) =>
-    [...container.querySelectorAll('[data-testid="freshness-row"]')].filter((row) =>
-      row.textContent?.includes(decisionId),
-    ),
-  groupHeader = (container: HTMLElement, decisionId: string) =>
-    container.querySelector(`[data-testid="freshness-group-${decisionId}"]`);
+  [...container.querySelectorAll('[data-testid="freshness-row"]')].filter((row) =>
+    row.textContent?.includes(decisionId),
+  );
 
 describe("FreshnessView:按决策分组收束(标准 §1.4 收束不堆叠)", () => {
   it("页头结论行说清多少条决策、多少条断言、先处理哪条", async () => {
@@ -116,40 +114,35 @@ describe("FreshnessView:按决策分组收束(标准 §1.4 收束不堆叠)", ()
     );
     expect(section).toBeTruthy();
     const headers = [...section!.querySelectorAll('[data-testid^="freshness-group-dec-"]')];
-    // 默认只露前 3 组(缺证最多):dec-a(4)→dec-b(3)→dec-c(2);dec-d/dec-e 收进展开行。
+    // v2(标准 §1.8):全部组直接铺开,不截前 3 组;排序按缺证断言数降序。
     expect(headers.map((node) => node.getAttribute("data-testid"))).toEqual([
       "freshness-group-dec-a",
       "freshness-group-dec-b",
       "freshness-group-dec-c",
+      "freshness-group-dec-d",
+      "freshness-group-dec-e",
     ]);
     expect(headers[0]!.textContent).toContain("4 条断言");
   });
 
-  it("默认只展开最急的前 3 组,其余收成一行「还有 N 组 · 展开」;点开才露组", async () => {
+  it("组默认全部展开、断言行直接可见;组头可收起(结构导航),不再有「还有 N 组 · 展开」", async () => {
     const container = await mountFreshness(GROUPED_DECISIONS, GROUPED_ROWS);
-    // 前 3 组的断言行默认可见;后 2 组连组头都不渲染。
+    // v2(标准 §1.8):没有「还有 N 组」截断行——空间让给组本身。
+    expect(container.querySelector('[data-testid="freshness-more-no-live-evidence"]')).toBeNull();
     expect(claimRows(container, "dec-a")).toHaveLength(4);
     expect(claimRows(container, "dec-c")).toHaveLength(2);
-    expect(groupHeader(container, "dec-d")).toBeNull();
-    expect(claimRows(container, "dec-d")).toHaveLength(0);
-    const more = container.querySelector('[data-testid="freshness-more-no-live-evidence"]');
-    expect(more?.textContent).toContain("还有 2 组 · 展开");
-    await act(async () => {
-      more!.click();
-    });
-    expect(groupHeader(container, "dec-d")).not.toBeNull();
-    expect(groupHeader(container, "dec-e")).not.toBeNull();
-    // 展开露出的组默认收起(断言行不可见),点组头才展开自己的断言行。
-    expect(claimRows(container, "dec-d")).toHaveLength(0);
-    await act(async () => {
-      container.querySelector<HTMLButtonElement>('[data-testid="freshness-group-toggle-dec-d"]')!.click();
-    });
     expect(claimRows(container, "dec-d")).toHaveLength(1);
-    // 用户收起过前 3 组中的某一组:该组断言行消失(用户选择优先于默认展开)。
+    expect(claimRows(container, "dec-e")).toHaveLength(1);
+    // 组头收起是结构导航:用户收起后该组断言行消失,其余组不受影响。
     await act(async () => {
       container.querySelector<HTMLButtonElement>('[data-testid="freshness-group-toggle-dec-a"]')!.click();
     });
     expect(claimRows(container, "dec-a")).toHaveLength(0);
+    expect(claimRows(container, "dec-b")).toHaveLength(3);
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="freshness-group-toggle-dec-a"]')!.click();
+    });
+    expect(claimRows(container, "dec-a")).toHaveLength(4);
   });
 
   it("断言行用宽松两行形态:断言结论一行、id 元数据第二行,不再叠进 25px 单行", async () => {

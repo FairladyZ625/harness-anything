@@ -155,7 +155,7 @@ export const taskFilterSummary = (filters: TaskFilters): string[] => {
   if (filters.closeout !== "all") parts.push(`closeout=${filters.closeout}`);
   if (filters.freshness !== "all") parts.push(`freshness=${filters.freshness}`);
   if (filters.favoritesOnly) parts.push("仅看收藏");
-  if (filters.expandColdTerminal) parts.push("已展开冷终态");
+  if (filters.expandColdTerminal) parts.push("已显示冷终态");
   return parts;
 };
 

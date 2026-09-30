@@ -316,19 +316,15 @@ describe("schedule detail hub (M2)", () => {
     const container = await renderDetail("schedule/heartbeat-probe");
     await click(container, "schedule-tab-runs");
     await settle();
+    // v2(标准 §1.4):终态沉到「已收口 N」分隔线之后照常显示,不再折叠成「展开」。
     const rows = [...container.querySelectorAll("li[data-testid^='schedule-run-row-']")];
     expect(rows.map((element) => element.getAttribute("data-testid"))).toEqual([
       "schedule-run-row-occurrence_3f9c",
       "schedule-run-row-occurrence_5a22",
-    ]);
-    // 终态默认沉底折叠(标准 §2.4):点击展开后显形。
-    await click(container, "schedule-runs-folded");
-    const allRows = [...container.querySelectorAll("li[data-testid^='schedule-run-row-']")];
-    expect(allRows.map((element) => element.getAttribute("data-testid"))).toEqual([
-      "schedule-run-row-occurrence_3f9c",
-      "schedule-run-row-occurrence_5a22",
       "schedule-run-row-occurrence_71d0",
     ]);
+    expect(container.querySelector('[data-testid="schedule-runs-settled"]')?.textContent).toContain("Settled 1");
+    expect(container.querySelector('[data-testid="schedule-runs-folded"]')).toBeNull();
     const missedRow = container.querySelector('[data-testid="schedule-run-row-occurrence_5a22"]');
     expect(missedRow?.textContent).toContain("Missed");
     expect(missedRow?.textContent).toContain("not executed");

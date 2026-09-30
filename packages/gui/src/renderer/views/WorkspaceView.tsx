@@ -201,6 +201,7 @@ export function WorkspaceView({
         pinned: leaf.pinned,
         at: leaf.at,
         groupKey: groupKeyByTask.get(leaf.taskId) ?? "_loose",
+        executor: leaf.row?.leaseHolder ?? undefined,
       })),
     };
   }, [memberRows, groupIds, scope.root.taskId, scope.groups]);
@@ -349,7 +350,7 @@ export function WorkspaceView({
               if (next.trim() !== "")
                 setTab((current) => (current === "tasks" || current === "decisions" ? current : "tasks"));
             }}
-            className="mb-1.5 h-[26px] w-[260px] flex-none rounded-xs border border-border bg-bg/30 px-2.5 text-text ui-meta"
+            className="mb-1.5 w-[260px] flex-none rounded-xs border border-border bg-surface-raised px-3 py-1.5 text-text ui-meta outline-none placeholder:text-text-faint focus:border-border-strong"
           />
         </div>
       </header>

@@ -184,8 +184,8 @@ export function TaskFilterBar({
             }`}
           >
             {filters.expandColdTerminal
-              ? t("components.taskFilterBar.collapseColdTerminalCount", { count: coldTerminalCount })
-              : t("components.taskFilterBar.expandColdTerminalCount", { count: coldTerminalCount })}
+              ? t("components.taskFilterBar.hideColdTerminalCount", { count: coldTerminalCount })
+              : t("components.taskFilterBar.showColdTerminalCount", { count: coldTerminalCount })}
           </button>
         )}
 

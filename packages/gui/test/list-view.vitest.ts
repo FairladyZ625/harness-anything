@@ -146,7 +146,7 @@ describe("task list rows (视觉基线 §2.4)", () => {
   });
 });
 
-describe("terminal collapse (标准 §2.4)", () => {
+describe("terminal sink (标准 §1.4/§2.4 v2)", () => {
   const fixture = (): TaskRow[] => [
     makeTask({ taskId: "t_open", title: "Still moving", coordinationStatus: "active" }),
     makeTask({ taskId: "t_done", title: "Recently done", coordinationStatus: "done" }),
@@ -159,26 +159,17 @@ describe("terminal collapse (标准 §2.4)", () => {
     }),
   ];
 
-  it("sinks terminal rows behind one 已完成/已取消 line; expanding reveals them", async () => {
+  it("sinks terminal rows behind one 已完成/已取消 divider and keeps them visible", async () => {
     const view = await mountList(fixture());
     try {
-      // 折叠态:开放行与 pinned 终态行可见,其余终态行只在折叠行后面。
-      expect(rowOrder(view)).toEqual(["t_pinned_done", "t_open"]);
-      const toggle = view.container.querySelector<HTMLButtonElement>('[data-testid="list-terminal-toggle"]')!;
-      expect(toggle.getAttribute("aria-expanded")).toBe("false");
-      expect(toggle.textContent).toContain("1 completed"); // pinned 终态行不在折叠里
-      expect(toggle.textContent).toContain("1 cancelled");
-      expect(toggle.textContent).toContain("expand");
-      expect(view.html()).not.toContain("Recently done");
-      expect(view.html()).not.toContain("Cancelled work");
-
-      await act(async () => {
-        toggle.click();
-      });
-      expect(toggle.getAttribute("aria-expanded")).toBe("true");
-      expect(rowOrder(view)).toEqual(["t_pinned_done", "t_open", "t_done", "t_cancelled"]);
+      // v2(标准 §1.8):终态行不折叠进「展开」——分隔线计数如实,行照常渲染。
+      const divider = view.container.querySelector('[data-testid="list-terminal-divider"]')!;
+      expect(divider.textContent).toContain("1 completed"); // pinned 终态行不在分隔线后
+      expect(divider.textContent).toContain("1 cancelled");
       expect(view.html()).toContain("Recently done");
       expect(view.html()).toContain("Cancelled work");
+      // 开放行与 pinned 终态行在前,终态行沉底(§2.4)。
+      expect(rowOrder(view)).toEqual(["t_pinned_done", "t_open", "t_done", "t_cancelled"]);
     } finally {
       await unmount(view);
     }
@@ -229,7 +220,7 @@ describe("activation and empty state", () => {
       expect(view.html()).not.toContain("list-column-resize-");
       expect(view.html()).not.toContain("Previous page");
       expect(view.html()).not.toContain('type="checkbox"');
-      expect(view.html()).not.toContain("list-terminal-toggle"); // 没有终态就没有折叠行。
+      expect(view.html()).not.toContain("list-terminal-divider"); // 没有终态就没有分隔线。
     } finally {
       await unmount(view);
     }

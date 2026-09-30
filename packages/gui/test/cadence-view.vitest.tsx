@@ -336,6 +336,25 @@ describe("CadenceView", () => {
     expect(blockers?.textContent).toContain("待裁决执行 1");
   });
 
+  it("renders every blocker item — no silent slice(0,5) cap (v2 §1.8)", async () => {
+    const seven = Array.from({ length: 7 }, (_, index) => ({
+      taskId: `task_wait_${index}`,
+      title: `待裁决 ${index}`,
+      pinned: false,
+      executionId: `exec_${index}`,
+      submittedAt: NOW,
+      blockingAssessment: { state: "clear", contributors: [], warnings: [] },
+    }));
+    const { container } = await mountCadence({
+      page: historyPage([]),
+      agenda: { ...AGENDA, awaitingAdjudication: seven },
+    });
+    const blockers = container.querySelector('[data-testid="cadence-blockers-groups"]');
+    for (const item of seven) {
+      expect(blockers?.textContent).toContain(item.title);
+    }
+  });
+
   it("supports fleet time window switching and quick switch when active window is empty", async () => {
     const exitedSession = {
       runtimeSessionId: "runtime_historical",

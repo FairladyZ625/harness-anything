@@ -20,9 +20,9 @@ import type { MessageKey } from "../../i18n/core.ts";
 import { t } from "../../i18n/index.tsx";
 
 /**
- * 决策与事实页(业主 2026-09-30 收束重做):事实按所属任务分组、每条只露结论句
- * (完整原文、取证与关联决策进抽屉),默认只展开最近 3 组;决策按状态分段——
- * 待裁决(评审分组)在前、生效中平铺、已退场折叠成一行计数。
+ * 决策与事实页(业主 2026-09-30 收束重做;v2 铺开 2026-10-01):事实按所属任务分组、
+ * 每条只露结论句(完整原文、取证与关联决策进抽屉),组全部铺开不折「更早 N 组」;
+ * 决策按状态分段——待裁决(评审分组)在前、生效中平铺、已退场沉到自己的分区照常显示。
  */
 
 const REVIEW_HINTS: Readonly<Record<DecisionReviewSignal, MessageKey>> = {
@@ -34,9 +34,6 @@ const REVIEW_HINTS: Readonly<Record<DecisionReviewSignal, MessageKey>> = {
   policyUnreviewed: "views.workspace.decisionReviewHintPolicyUnreviewed",
   unreviewed: "views.workspace.decisionReviewHintPolicyUnreviewed",
 };
-
-/** 事实分组默认展开的最近组数;更早的组折叠成一行计数(标准 §1.4 收束)。 */
-const OPEN_FACT_GROUPS = 3;
 
 export interface WorkDecisionsTabProps {
   readonly decisions: readonly DecisionRow[];
@@ -111,8 +108,8 @@ function segmentDecisions(
 }
 
 /**
- * 已退场的决策(已取代 / 已否决 / 已暂缓):折叠成一行计数,点开才平铺;
- * 搜索时如实展开,只显示命中行。
+ * 已退场的决策(已取代 / 已否决 / 已暂缓):终态沉底(标准 §1.4 v2),在自己的
+ * 分区里照常平铺——分区标题带计数即分隔,不折叠成「展开」;搜索时同样只显示命中行。
  */
 function RetiredDecisions({
   rows,
@@ -123,36 +120,24 @@ function RetiredDecisions({
   readonly query: string;
   readonly onNavigateEntity?: (ref: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  if (rows.length === 0) return null;
   const needle = query.trim().toLowerCase();
+  if (rows.length === 0) return null;
+  const visible = needle === "" ? rows : rows.filter((row) => row.title.toLowerCase().includes(needle));
   return (
     <Section title={t("views.workspace.decisionsRetired")} count={rows.length}>
-      {open || needle !== "" ? (
-        rows.map((row) => (
-          <DenseRow
-            key={row.decisionId}
-            title={highlightText(row.title, needle)}
-            time={(row.lastChangedAt ?? row.decidedAt)?.slice(0, 10)}
-            onClick={() => onNavigateEntity?.(`decision/${row.decisionId}`)}
-          />
-        ))
-      ) : (
-        <button
-          type="button"
-          data-testid="work-decisions-retired-toggle"
-          onClick={() => setOpen(true)}
-          className="grid w-full grid-cols-[minmax(3rem,auto)_minmax(0,1fr)_auto] items-center gap-[7px] border-t border-border px-3 text-left text-text-faint ui-meta h-[25px]"
-        >
-          <span />
-          <span className="truncate">{t("views.workspace.decisionsRetiredCollapsed", { count: rows.length })}</span>
-        </button>
-      )}
+      {visible.map((row) => (
+        <DenseRow
+          key={row.decisionId}
+          title={highlightText(row.title, needle)}
+          time={(row.lastChangedAt ?? row.decidedAt)?.slice(0, 10)}
+          onClick={() => onNavigateEntity?.(`decision/${row.decisionId}`)}
+        />
+      ))}
     </Section>
   );
 }
 
-/** 事实区:一行摘要 + 按任务分组(默认展开最近 3 组)+ 点行进抽屉看全文。 */
+/** 事实区:一行摘要 + 按任务分组全部铺开(标准 §1.8 v2,不折「更早 N 组」)+ 点行进抽屉看全文。 */
 function WorkFactDigest({
   facts,
   relations,
@@ -170,16 +155,13 @@ function WorkFactDigest({
   readonly agoOf: (iso: string) => string;
   readonly onNavigateEntity?: (ref: string) => void;
 }) {
-  const [expandedOlder, setExpandedOlder] = useState(false);
   const [drawerAnchor, setDrawerAnchor] = useState<string | null>(null);
   const needle = query.trim().toLowerCase(),
-    // 搜索命中事实原文(全文,不只结论句),命中行所在的组全部可见。
+    // 搜索命中事实原文(全文,不只结论句)。
     matched = needle === "" ? facts : facts.filter(({ text }) => text.toLowerCase().includes(needle)),
     groups = workFactGroups({ facts: matched, titles }),
     taskCount = new Set(facts.flatMap(({ taskId }) => (taskId === undefined ? [] : [taskId]))).size,
     latestAt = facts.reduce((latest, { at }) => (at.localeCompare(latest) > 0 ? at : latest), facts[0]?.at ?? ""),
-    older = needle === "" && !expandedOlder ? Math.max(0, groups.length - OPEN_FACT_GROUPS) : 0,
-    visibleGroups = older > 0 ? groups.slice(0, OPEN_FACT_GROUPS) : groups,
     decisionLinks = factDecisionLinks({ relations, decisions }),
     drawerFact = drawerAnchor === null ? null : (facts.find(({ anchor }) => anchor === drawerAnchor) ?? null);
   if (facts.length === 0) return null;
@@ -193,7 +175,7 @@ function WorkFactDigest({
         ago: agoOf(latestAt),
       })}
     >
-      {visibleGroups.map((group) => (
+      {groups.map((group) => (
         <div key={group.key} data-fact-group={group.key}>
           <div className="flex items-baseline gap-2.5 border-t border-border py-2">
             <h3 className="min-w-0 truncate font-semibold text-text ui-body">
@@ -221,17 +203,6 @@ function WorkFactDigest({
           ))}
         </div>
       ))}
-      {older > 0 ? (
-        <button
-          type="button"
-          data-testid="work-facts-older-toggle"
-          onClick={() => setExpandedOlder(true)}
-          className="grid w-full grid-cols-[minmax(3rem,auto)_minmax(0,1fr)_auto] items-center gap-[7px] border-t border-border px-3 text-left text-text-faint ui-meta h-[25px]"
-        >
-          <span />
-          <span className="truncate">{t("views.workspace.factsOlder", { count: older })}</span>
-        </button>
-      ) : null}
       <Drawer
         open={drawerFact !== null}
         onClose={() => setDrawerAnchor(null)}

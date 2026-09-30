@@ -223,16 +223,8 @@ export function WorkView({
         {ready && !rows.length && !quietCount ? (
           <p className="text-sm text-text-muted">{t("views.work.empty")}</p>
         ) : null}
-        {quietCount > 0 ? (
-          <button
-            type="button"
-            data-testid="work-quiet"
-            onClick={() => setFilter("all")}
-            className="w-full rounded-sm border border-border bg-surface/40 px-3 py-2 text-left ui-meta text-text-muted hover:text-text"
-          >
-            ▸ {t("views.work.quiet", { count: quietCount })}
-          </button>
-        ) : null}
+        {/* 安静的工作由顶部筛选负责(标准 §2.4「需要关注」默认 + 全部 N 筛选钮),
+            不再另设「其余 N 个安静」折叠行(v2 反例:有空间却藏条目)。 */}
       </section>
     </div>
   );
