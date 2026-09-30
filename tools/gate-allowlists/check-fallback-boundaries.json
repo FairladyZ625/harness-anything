@@ -200,8 +200,6 @@
       "packages/gui/src/renderer/components/entityDoc/VerticalKindSchemaForm.tsx#describeAttributesIssue",
       "packages/gui/src/renderer/components/observe/DaemonTailPane.tsx#run",
       "packages/gui/src/renderer/components/observe/DaemonTailPane.tsx#useObserveTail",
-      "packages/gui/src/renderer/components/overview/OverviewStatsBar.tsx#readExpanded",
-      "packages/gui/src/renderer/components/overview/OverviewStatsBar.tsx#writeExpanded",
       "packages/gui/src/renderer/components/runtime/SessionsPanel.tsx#SessionsPanel",
       "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#dispatch",
       "packages/gui/src/renderer/components/runtime/useRuntimeWorkspace.ts#preview",
