@@ -4,7 +4,7 @@ import { t } from "../i18n/index.tsx";
 import { ActionError } from "../components/runtime/ActionError.tsx";
 import { Btn, CapDot, Empty, Hint } from "../components/runtime/parts.tsx";
 import { NewRuntimeDialog } from "../components/runtime/NewRuntimeDialog.tsx";
-import { ProviderRail } from "../components/runtime/RuntimeRail.tsx";
+import { orderProviderRows, ProviderRail } from "../components/runtime/RuntimeRail.tsx";
 import { ProviderInspector } from "../components/runtime/RuntimeInspector.tsx";
 import { RuntimeCard } from "../components/runtime/RuntimeCard.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
@@ -31,12 +31,12 @@ export function ProvidersView({
     [inspector, setInspector] = useState(true);
   const installations = workspace.machine.data?.installations ?? [];
   const instances = workspace.instances;
-  // 深链指向的实例可能已被删除(或仍在读取):存在才采用,否则回落首项——派生选择,
-  // 不写回导航栈。
+  // 深链指向的实例可能已被删除(或仍在读取):存在才采用,否则回落目录首项(异常置顶后的
+  // 第一项,标准 §2.5)——派生选择,不写回导航栈。
   const selectedId =
     refId !== null && instances.some((candidate) => candidate.instanceId === refId)
       ? refId
-      : (instances[0]?.instanceId ?? null);
+      : (orderProviderRows(instances, workspace.authProbeStates)[0]?.instance.instanceId ?? null);
   const instance =
     selectedId === null ? null : (instances.find((candidate) => candidate.instanceId === selectedId) ?? null);
   const liveSessions = selectedId === null ? 0 : (workspace.liveByInstance.get(selectedId) ?? 0);

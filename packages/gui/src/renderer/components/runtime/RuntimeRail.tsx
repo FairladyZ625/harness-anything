@@ -31,6 +31,21 @@ import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
 /** 行级红竖线:异常项点亮,正常项不占位(styles.css 的 .status-edge::after)。 */
 const badEdge = { "--status-edge": TONE_COLOR.bad } as CSSProperties;
 
+/**
+ * 探测态(authProbeStates)与目录行合并一次:排序、行渲染与页面默认选中用同一份呈现,
+ * 异常项(停用或不可达)置顶。
+ */
+export function orderProviderRows(
+  instances: readonly RuntimeInstanceSummary[],
+  authProbeStates?: ReadonlyMap<string, RuntimeAuthProbeState>,
+) {
+  const rows = instances.map((instance) => {
+    const auth = runtimeAuthPresentation(instance, authProbeStates?.get(instance.instanceId));
+    return { instance, auth, abnormal: !instance.enabled || auth.cap === "none" };
+  });
+  return rows.sort((left, right) => Number(right.abnormal) - Number(left.abnormal));
+}
+
 export function ProviderRail({
   instances,
   authProbeStates,
@@ -47,12 +62,7 @@ export function ProviderRail({
   readonly onNew: () => void;
 }) {
   const [open, setOpen] = useState(true);
-  // 探测态(authProbeStates)与目录行合并一次,排序与行渲染用同一份呈现。
-  const rows = instances.map((instance) => {
-    const auth = runtimeAuthPresentation(instance, authProbeStates?.get(instance.instanceId));
-    return { instance, auth, abnormal: !instance.enabled || auth.cap === "none" };
-  });
-  const ordered = [...rows].sort((left, right) => Number(right.abnormal) - Number(left.abnormal));
+  const ordered = orderProviderRows(instances, authProbeStates);
   return (
     <nav
       data-testid="runtime-rail"
@@ -107,6 +117,7 @@ export function ProviderRail({
                 }
                 reason={tone === "done" ? undefined : authTip}
                 time={live > 0 ? t("agentRuntime.liveCount", { count: live }) : instance.defaultModel}
+                relaxed={tone !== "done"}
                 selected={selectedId === instance.instanceId}
               />
             </button>
