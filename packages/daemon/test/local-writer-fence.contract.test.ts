@@ -15,7 +15,7 @@ test("every production local binding is covered by a request or cell-default wri
   assert.deepEqual(
     [...counts].sort(([left], [right]) => left.localeCompare(right)),
     [
-      ["daemon-host-binding.ts", 2],
+      ["daemon-host-binding.ts", 3],
       ["host-action-authorization.ts", 1],
       ["repo-cell-authorization.ts", 1],
       ["repo-cell-bootstrap-ledger.ts", 1],

@@ -4,6 +4,7 @@ import type { IpcMainInvokeEvent } from "electron";
 import { OIDC_LOGIN_CHANNEL, OIDC_LOGOUT_CHANNEL, OIDC_STATUS_CHANNEL } from "../api/oidc-auth-contract.ts";
 import { assertTrustedIpcSender } from "./ipc-handlers.ts";
 import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
+import type { JsonObject } from "@harness-anything/daemon";
 
 interface Registrar {
   readonly handle: (channel: string, listener: (event: IpcMainInvokeEvent) => Promise<unknown>) => void;
@@ -13,7 +14,7 @@ export function registerOidcAuthIpc(
   registrar: Registrar,
   trustPolicy: IpcWebContentsTrustPolicy,
   ports: {
-    readonly daemonRequest: (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+    readonly daemonRequest: (params: JsonObject) => Promise<JsonObject>;
     readonly openExternal: (url: string) => Promise<void>;
   },
 ): void {
@@ -32,7 +33,7 @@ export function registerOidcAuthIpc(
 }
 
 export async function systemBrowserLogin(ports: {
-  readonly daemonRequest: (params: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  readonly daemonRequest: (params: JsonObject) => Promise<JsonObject>;
   readonly openExternal: (url: string) => Promise<void>;
 }): Promise<unknown> {
   let settle!: (value: { readonly code: string; readonly state: string }) => void, reject!: (error: Error) => void;

@@ -1,5 +1,8 @@
 import { readDaemonRegistry } from "@harness-anything/kernel";
-import { ledgerWriteCommandTopology, repoReadCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
+import {
+  ledgerWriteCommandTopology,
+  repoReadCommandTopology,
+} from "@harness-anything/preset/internal/preset-command-contract";
 import type { DaemonHost } from "./daemon-host.ts";
 import {
   startFleetCenterAdmission,
@@ -16,7 +19,7 @@ import {
 } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
-import { localDefaultBinding } from "./daemon-host-binding.ts";
+import { localSystemActionBinding } from "./daemon-host-binding.ts";
 import { requireAuthorizedHostAction } from "./host-action-authorization.ts";
 import {
   orchestrateAgentCreate,
@@ -275,7 +278,7 @@ export function createDaemonHostRuntimeApi(
       },
     },
     system: context.system,
-    runtimeInstance: async (method, payload, auth) => {
+    runtimeInstance: async (method, payload, _auth) => {
       const operation = method.replace("daemon.runtimeInstance.", ""),
         actionKind =
           operation === "githubCredential.set"
@@ -287,15 +290,7 @@ export function createDaemonHostRuntimeApi(
                 : null;
       if (!actionKind)
         throw context.hostCodedError("unsupported_command", `Unsupported runtime instance method: ${method}.`);
-      const authorityRepo = [...readDaemonRegistry({ userRoot: context.input.userRoot }).repos]
-        .filter(
-          (repo): repo is typeof repo & { readonly canonicalRoot: string } =>
-            repo.state === "enabled" && repo.mode !== "remote-proxy" && repo.canonicalRoot !== null,
-        )
-        .sort((left, right) => left.repoId.localeCompare(right.repoId))[0];
-      const serverBinding = authorityRepo
-        ? await context.binding(authorityRepo.canonicalRoot, auth)
-        : localDefaultBinding(auth);
+      const serverBinding = localSystemActionBinding(context.input.userRoot, actionKind);
       const authorizationDecision = requireAuthorizedHostAction({
         kind: actionKind,
         binding: serverBinding,

@@ -1,5 +1,6 @@
 /** @daemon-transport-authority Transport-derived actor and assignment binding. */
 import os from "node:os";
+import { actionDeclarations } from "@harness-anything/kernel";
 import { hostCodedError } from "./daemon-host-errors.ts";
 import { loadPeopleRosterIfPresent } from "./identity/people-roster.ts";
 import { makeTransportDerivedIdentityProvider } from "./identity/transport-derived-provider.ts";
@@ -33,6 +34,14 @@ export function localSystemBinding(
   }
   const actor = { principal: { personId: resolved.actor.personId }, executor };
   return deriveLocalBinding(rootDir, actor, roster);
+}
+
+/** Socket-owner authority for actions whose declaration keeps all writes outside a repository cell. */
+export function localSystemActionBinding(rootDir: string, kind: string): RepoCellBinding {
+  const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);
+  if (!declaration || declaration.residency.scope === "canonical")
+    throw hostCodedError("authentication_required", `Action ${kind} requires an authenticated repository principal.`);
+  return localSystemBinding(rootDir);
 }
 
 export function withDaemonWriterEpochFence(

@@ -32,6 +32,7 @@
     "src/api/first-run-contract.ts",
     "src/api/html-artifact-policy.ts",
     "src/api/local-doc-contract.ts",
+    "src/api/oidc-auth-contract.ts",
     "src/api/renderer-dto.ts"
   ],
   "references": [
