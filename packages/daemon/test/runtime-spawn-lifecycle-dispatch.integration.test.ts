@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
@@ -140,10 +141,13 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
       },
     });
     try {
-      const binding = {
-        actor: { principal: { personId: "person-spawn" }, executor: null },
-        source: "local" as const,
-      };
+      const binding = withRoleBinding(
+        {
+          actor: { principal: { personId: "person-spawn" }, executor: null },
+          source: "local" as const,
+        },
+        "owner",
+      );
       await assert.rejects(
         cell.spawnRuntime(
           {
@@ -183,10 +187,13 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           taskId: null,
           idempotencyKey: "spawn-once",
         },
-        {
-          actor: { principal: { personId: "person-spawn" }, executor: null },
-          source: "local",
-        },
+        withRoleBinding(
+          {
+            actor: { principal: { personId: "person-spawn" }, executor: null },
+            source: "local",
+          },
+          "owner",
+        ),
       );
       assert.equal(receipt.outcome, "applied");
       assert.equal(intentWasDurable, true);
@@ -321,10 +328,13 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           taskId: null,
           idempotencyKey: "spawn-terra",
         },
-        {
-          actor: { principal: { personId: "person-spawn" }, executor: null },
-          source: "local",
-        },
+        withRoleBinding(
+          {
+            actor: { principal: { personId: "person-spawn" }, executor: null },
+            source: "local",
+          },
+          "owner",
+        ),
       );
       assert.equal(alternate.outcome, "applied");
       assert.deepEqual(launched, {
@@ -348,10 +358,13 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           taskId: null,
           idempotencyKey: "spawn-low",
         },
-        {
-          actor: { principal: { personId: "person-spawn" }, executor: null },
-          source: "local",
-        },
+        withRoleBinding(
+          {
+            actor: { principal: { personId: "person-spawn" }, executor: null },
+            source: "local",
+          },
+          "owner",
+        ),
       );
       assert.equal(low.outcome, "applied");
       assert.deepEqual(launched, {
@@ -375,10 +388,13 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           taskId: null,
           idempotencyKey: "spawn-locked",
         },
-        {
-          actor: { principal: { personId: "person-spawn" }, executor: null },
-          source: "local",
-        },
+        withRoleBinding(
+          {
+            actor: { principal: { personId: "person-spawn" }, executor: null },
+            source: "local",
+          },
+          "owner",
+        ),
       );
       assert.equal(locked.outcome, "applied");
       assert.deepEqual((launched as { args: string[] }).args, [
@@ -399,10 +415,13 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           taskId: null,
           idempotencyKey: "spawn-xhigh",
         },
-        {
-          actor: { principal: { personId: "person-spawn" }, executor: null },
-          source: "local",
-        },
+        withRoleBinding(
+          {
+            actor: { principal: { personId: "person-spawn" }, executor: null },
+            source: "local",
+          },
+          "owner",
+        ),
       );
       assert.equal(xhigh.outcome, "applied");
       assert.deepEqual(launched, {
@@ -431,10 +450,13 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
             taskId: null,
             idempotencyKey: "legacy",
           },
-          {
-            actor: { principal: { personId: "person-spawn" }, executor: null },
-            source: "local",
-          },
+          withRoleBinding(
+            {
+              actor: { principal: { personId: "person-spawn" }, executor: null },
+              source: "local",
+            },
+            "owner",
+          ),
         ),
         (error: unknown) => error instanceof Error && "code" in error && error.code === "invalid_runtime_spawn",
       );
@@ -517,13 +539,16 @@ test(
           taskId: null,
           idempotencyKey: "cancel-tree",
         },
-        {
-          actor: {
-            principal: { personId: "person-cancel-tree" },
-            executor: null,
+        withRoleBinding(
+          {
+            actor: {
+              principal: { personId: "person-cancel-tree" },
+              executor: null,
+            },
+            source: "local",
           },
-          source: "local",
-        },
+          "owner",
+        ),
       );
       runtimeSessionId = String(spawned.runtimeSessionId);
       pids = await eventuallyValue(() => {
@@ -548,13 +573,16 @@ test(
         (
           await cell.cancelRuntime(
             { runtimeSessionId },
-            {
-              actor: {
-                principal: { personId: "person-cancel-tree" },
-                executor: null,
+            withRoleBinding(
+              {
+                actor: {
+                  principal: { personId: "person-cancel-tree" },
+                  executor: null,
+                },
+                source: "local",
               },
-              source: "local",
-            },
+              "owner",
+            ),
           )
         ).detail,
         "cancelled",
@@ -589,13 +617,16 @@ test(
         try {
           await cell?.cancelRuntime(
             { runtimeSessionId },
-            {
-              actor: {
-                principal: { personId: "person-cancel-tree" },
-                executor: null,
+            withRoleBinding(
+              {
+                actor: {
+                  principal: { personId: "person-cancel-tree" },
+                  executor: null,
+                },
+                source: "local",
               },
-              source: "local",
-            },
+              "owner",
+            ),
           );
         } catch (error) {
           consumeKnownError(error);
@@ -667,10 +698,13 @@ test("dispatch reclaims an orphaned task lease instead of requiring a manual rel
     try {
       const taskId = "task-runtime-orphan-lease",
         executionId = "execution-runtime-orphan-lease",
-        binding = {
-          actor: { principal: { personId: "person-orphan-lease" }, executor: null },
-          source: "local" as const,
-        };
+        binding = withRoleBinding(
+          {
+            actor: { principal: { personId: "person-orphan-lease" }, executor: null },
+            source: "local" as const,
+          },
+          "owner",
+        );
       const created = await cell.run({ kind: "task-create", taskId, title: "Orphan lease dispatch" }, binding);
       assert.equal(created.outcome, "applied");
       await waitForFixturePublication(cell, created.opId, binding);
@@ -810,10 +844,13 @@ test("runtime dispatch of a planned task is rejected at a full worktable", async
       },
     });
     try {
-      const binding = {
-        actor: { principal: { personId: "person-wip-full" }, executor: null },
-        source: "local" as const,
-      };
+      const binding = withRoleBinding(
+        {
+          actor: { principal: { personId: "person-wip-full" }, executor: null },
+          source: "local" as const,
+        },
+        "owner",
+      );
       const occupant = await cell.run(
         { kind: "task-create", taskId: "task-wip-full-occupant", title: "Occupant" },
         binding,

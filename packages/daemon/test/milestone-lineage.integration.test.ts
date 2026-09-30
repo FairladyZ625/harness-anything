@@ -42,7 +42,7 @@ async function reachGreenInReview(
   title: string,
   taskClass: "work" | "standard" = "standard",
 ): Promise<void> {
-  const binding = { actor, source: "local" as const };
+  const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   await createRealizedTaskPlanFixture(
     rootDir,
     async () => {
@@ -138,7 +138,7 @@ test("an orphan work task stops at completion until the prescribed decision rela
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   const taskId = "task_m_line",
     executionId = "exe_m_line",
-    binding = { actor, source: "local" as const };
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   try {
     initRepo(rootDir);
     cell = await openRepoCell({
@@ -230,7 +230,7 @@ test("a standard task still completes with no decision relations at all", async 
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   const taskId = "task_s_line",
     executionId = "exe_s_line",
-    binding = { actor, source: "local" as const };
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   try {
     initRepo(rootDir);
     cell = await openRepoCell({

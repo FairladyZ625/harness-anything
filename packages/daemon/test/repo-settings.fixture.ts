@@ -23,8 +23,6 @@ import {
   type WriterEpochFenceDescriptor,
 } from "../src/writer-epoch.ts";
 
-import { withRoleBinding } from "./role-binding.fixtures.ts";
-
 const seededSettings = new Set<string>();
 
 function settingsBase(rootDir: string): string {
@@ -117,7 +115,7 @@ export const openFencedRepoCell: typeof openProductRepoCell = async (input) => {
       input.rootDir,
       path.join(resolveHarnessLayout(input.rootDir).localRoot, "fixture-writer-epochs"),
     );
-  return authorizeFixtureCell(await openProductRepoCell({ ...input, defaultWriterEpochFence }));
+  return openProductRepoCell({ ...input, defaultWriterEpochFence });
 };
 
 export async function waitForFixturePublication(cell: RepoCell, opId: string, binding: RepoCellBinding): Promise<void> {
@@ -138,7 +136,7 @@ export const openBootstrappedRepoCell: typeof openProductRepoCell = async (input
       path.join(resolveHarnessLayout(input.rootDir).localRoot, "fixture-writer-epochs"),
     );
   await settleSettingsEvent({ ...input, writerEpochFence: defaultWriterEpochFence });
-  const cell = authorizeFixtureCell(await openProductRepoCell({ ...input, defaultWriterEpochFence }));
+  const cell = await openProductRepoCell({ ...input, defaultWriterEpochFence });
   try {
     await cell.read("repo.settings.read");
   } catch (error) {
@@ -148,29 +146,6 @@ export const openBootstrappedRepoCell: typeof openProductRepoCell = async (input
   }
   return cell;
 };
-
-function authorizeFixtureCell(cell: RepoCell): RepoCell {
-  const explicitIdentity = (binding: RepoCellBinding): RepoCellBinding =>
-    binding.roleBindings?.length || binding.assignmentScope || binding.keycloakAuthorization
-      ? binding
-      : withRoleBinding(binding, "owner");
-  return new Proxy(cell, {
-    get(target, property, receiver) {
-      if (property === "run")
-        return (...[action, binding]: Parameters<RepoCell["run"]>) => target.run(action, explicitIdentity(binding));
-      if (property === "spawnRuntime")
-        return (...[payload, binding]: Parameters<RepoCell["spawnRuntime"]>) =>
-          target.spawnRuntime(payload, explicitIdentity(binding));
-      if (property === "cancelRuntime")
-        return (...[payload, binding]: Parameters<RepoCell["cancelRuntime"]>) =>
-          target.cancelRuntime(payload, explicitIdentity(binding));
-      if (property === "presetRun")
-        return (...[action, binding]: Parameters<RepoCell["presetRun"]>) =>
-          target.presetRun(action, explicitIdentity(binding));
-      return Reflect.get(target, property, receiver) as unknown;
-    },
-  });
-}
 
 async function settleSettingsEvent(input: {
   readonly repoId: string;

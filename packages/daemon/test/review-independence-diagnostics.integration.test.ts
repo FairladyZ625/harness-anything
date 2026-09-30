@@ -54,8 +54,14 @@ test("#1541: each Execution Review refusal names its own cause and its own repai
     const collapsed = { personId: "0" } as const;
     const agentActor = { principal: collapsed, executor: { kind: "agent" as const, id: "windows-tester" } };
     const humanActor = { principal: collapsed, executor: null };
-    const agent = withRoleBinding({ actor: agentActor, source: "local" as const }, "arbiter");
-    const human = withRoleBinding({ actor: humanActor, source: "local" as const }, "arbiter");
+    const agent = withRoleBinding(
+      withRoleBinding({ actor: agentActor, source: "local" as const }, "arbiter"),
+      "repo-write",
+    );
+    const human = withRoleBinding(
+      withRoleBinding({ actor: humanActor, source: "local" as const }, "arbiter"),
+      "repo-write",
+    );
     const taskId = "task-review-axis",
       executionId = "exec-1";
     const created = await cell.run({ kind: "task-create", taskId, title: "Review axis" }, agent);
@@ -147,14 +153,23 @@ test("principal review independence rejects a different executor owned by the su
       ownerId: "daemon-test",
     });
     const principal = { personId: "person-review-principal" } as const,
-      person = withRoleBinding({ actor: { principal, executor: null }, source: "local" as const }, "arbiter"),
+      person = withRoleBinding(
+        withRoleBinding({ actor: { principal, executor: null }, source: "local" as const }, "arbiter"),
+        "repo-write",
+      ),
       agent = withRoleBinding(
-        { actor: { principal, executor: { kind: "agent" as const, id: "worker" } }, source: "local" as const },
-        "arbiter",
+        withRoleBinding(
+          { actor: { principal, executor: { kind: "agent" as const, id: "worker" } }, source: "local" as const },
+          "arbiter",
+        ),
+        "repo-write",
       ),
       reviewer = withRoleBinding(
-        { actor: { principal, executor: { kind: "agent" as const, id: "reviewer" } }, source: "local" as const },
-        "arbiter",
+        withRoleBinding(
+          { actor: { principal, executor: { kind: "agent" as const, id: "reviewer" } }, source: "local" as const },
+          "arbiter",
+        ),
+        "repo-write",
       );
     const updated = await cell.run(
       { kind: "settings-update", reviewIndependence: "principal", idempotencyKey: "strict-review-independence" },
@@ -273,11 +288,14 @@ test("a lightweight child bare-invocation execution closes without a review disp
       }),
     });
     const bare = withRoleBinding(
-      {
-        actor: { principal: { personId: "0" }, executor: null },
-        source: "local" as const,
-      },
-      "arbiter",
+      withRoleBinding(
+        {
+          actor: { principal: { personId: "0" }, executor: null },
+          source: "local" as const,
+        },
+        "arbiter",
+      ),
+      "repo-write",
     );
     const parentTaskId = "task-bare-parent",
       parentExecutionId = "exec-bare-parent",
@@ -346,14 +364,17 @@ test("a lightweight child bare-invocation execution closes without a review disp
         event.type === "runtime_session_task_bound" && event.payload.runtimeSessionId === worker.runtimeSessionId,
     );
     const agent = withRoleBinding(
-      {
-        actor: {
-          principal: { personId: "0" },
-          executor: { kind: "agent" as const, id: `runtime-session:${worker.runtimeSessionId}` },
+      withRoleBinding(
+        {
+          actor: {
+            principal: { personId: "0" },
+            executor: { kind: "agent" as const, id: `runtime-session:${worker.runtimeSessionId}` },
+          },
+          source: "local" as const,
         },
-        source: "local" as const,
-      },
-      "arbiter",
+        "arbiter",
+      ),
+      "repo-write",
     );
     writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     const submitted = await cell.run({ kind: "task-submit", taskId, executionId: priorExecutionId }, bare);
@@ -387,14 +408,17 @@ test("a lightweight child bare-invocation execution closes without a review disp
       }),
     );
     const priorReviewer = withRoleBinding(
-      {
-        actor: {
-          principal: { personId: "person-prior-reviewer" },
-          executor: { kind: "agent" as const, id: "prior-reviewer-agent" },
+      withRoleBinding(
+        {
+          actor: {
+            principal: { personId: "person-prior-reviewer" },
+            executor: { kind: "agent" as const, id: "prior-reviewer-agent" },
+          },
+          source: "local" as const,
         },
-        source: "local" as const,
-      },
-      "arbiter",
+        "arbiter",
+      ),
+      "repo-write",
     );
     assert.equal(
       (
@@ -497,11 +521,14 @@ test("a lightweight child bare-invocation execution closes without a review disp
     assert.equal(dispatchCannotUseWeakMarker.code, "actor_unauthorized", JSON.stringify(dispatchCannotUseWeakMarker));
 
     const wrongPrincipal = withRoleBinding(
-      {
-        actor: { principal: { personId: "1" }, executor: null },
-        source: "local" as const,
-      },
-      "arbiter",
+      withRoleBinding(
+        {
+          actor: { principal: { personId: "1" }, executor: null },
+          source: "local" as const,
+        },
+        "arbiter",
+      ),
+      "repo-write",
     );
     const denied = await cell.run(
       {
@@ -516,11 +543,14 @@ test("a lightweight child bare-invocation execution closes without a review disp
     assert.equal(denied.code, "invalid_proof");
 
     const impersonatingAgent = withRoleBinding(
-        {
-          actor: { principal: { personId: "0" }, executor: { kind: "agent" as const, id: "another-runtime" } },
-          source: "local" as const,
-        },
-        "arbiter",
+        withRoleBinding(
+          {
+            actor: { principal: { personId: "0" }, executor: { kind: "agent" as const, id: "another-runtime" } },
+            source: "local" as const,
+          },
+          "arbiter",
+        ),
+        "repo-write",
       ),
       impersonationDenied = await cell.run(
         {
@@ -564,10 +594,13 @@ test("a lightweight child bare-invocation execution closes without a review disp
       bare,
     );
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
-    const wrongOwner = {
-      actor: { principal: { personId: "person-outsider" }, executor: { kind: "agent" as const, id: "outsider" } },
-      source: "local" as const,
-    };
+    const wrongOwner = withRoleBinding(
+      {
+        actor: { principal: { personId: "person-outsider" }, executor: { kind: "agent" as const, id: "outsider" } },
+        source: "local" as const,
+      },
+      "owner",
+    );
     const consent = await cell.run({ kind: "task-review-consent", taskId, executionId, reviewId: "r3" }, wrongOwner);
     assert.equal(consent.code, "actor_unauthorized");
   } finally {
@@ -584,11 +617,14 @@ test("a lightweight reviewed child closes without declaring a review executor", 
     taskId = "task-bare-reviewed",
     executionId = "exec-bare-reviewed",
     bare = withRoleBinding(
-      {
-        actor: { principal: { personId: "person-owner" }, executor: null },
-        source: "local" as const,
-      },
-      "arbiter",
+      withRoleBinding(
+        {
+          actor: { principal: { personId: "person-owner" }, executor: null },
+          source: "local" as const,
+        },
+        "arbiter",
+      ),
+      "repo-write",
     );
   try {
     initRepo(rootDir);
@@ -755,14 +791,17 @@ test("a lightweight reviewed child closes without declaring a review executor", 
       ],
     );
     const reviewer = withRoleBinding(
-      {
-        actor: {
-          principal: { personId: "person-reviewer" },
-          executor: { kind: "agent" as const, id: "reviewer-agent" },
+      withRoleBinding(
+        {
+          actor: {
+            principal: { personId: "person-reviewer" },
+            executor: { kind: "agent" as const, id: "reviewer-agent" },
+          },
+          source: "local" as const,
         },
-        source: "local" as const,
-      },
-      "arbiter",
+        "arbiter",
+      ),
+      "repo-write",
     );
     assert.equal(
       (
@@ -861,17 +900,23 @@ test("review binding permits independent runtimes but still rejects the executio
       },
     });
     const principal = { personId: "person-worker" } as const,
-      implementer = {
-        actor: { principal, executor: { kind: "agent" as const, id: "implementer" } },
-        source: "local" as const,
-      },
+      implementer = withRoleBinding(
+        {
+          actor: { principal, executor: { kind: "agent" as const, id: "implementer" } },
+          source: "local" as const,
+        },
+        "owner",
+      ),
       arbiter = (id: string) =>
         withRoleBinding(
-          {
-            actor: { principal, executor: { kind: "agent" as const, id } },
-            source: "local" as const,
-          },
-          "arbiter",
+          withRoleBinding(
+            {
+              actor: { principal, executor: { kind: "agent" as const, id } },
+              source: "local" as const,
+            },
+            "arbiter",
+          ),
+          "repo-write",
         );
     const taskId = "task-runtime-bound";
     const created = await cell.run(
@@ -943,13 +988,16 @@ test("review binding permits independent runtimes but still rejects the executio
     writeFileSync(path.join(workerRoot, "README.md"), "# Runtime closeout chain\n");
     git(workerRoot, "add", "README.md");
     git(workerRoot, "commit", "--quiet", "-m", "runtime implementation");
-    const resumedImplementer = {
-      actor: {
-        principal,
-        executor: { kind: "agent" as const, id: `runtime-session:${resumed.runtimeSessionId}` },
+    const resumedImplementer = withRoleBinding(
+      {
+        actor: {
+          principal,
+          executor: { kind: "agent" as const, id: `runtime-session:${resumed.runtimeSessionId}` },
+        },
+        source: "local" as const,
       },
-      source: "local" as const,
-    };
+      "owner",
+    );
     const closeoutPath = `${String((created as Record<string, unknown>).packagePath)}/closeout.md`;
     writeFileSync(
       path.join(rootDir, "harness", closeoutPath),

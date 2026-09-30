@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { openWriterSupervisor } from "../src/writer-supervisor.ts";
@@ -100,7 +101,10 @@ test("writer supervisor observes internal runtime work draining to zero", async 
         if (event.type === "runtime_session_outcome_observed") runtimeExited.resolve();
       },
     });
-    const binding = { actor, source: "local" as const, writerEpoch: fence.epoch, writerEpochFence: fence },
+    const binding = withRoleBinding(
+        { actor, source: "local" as const, writerEpoch: fence.epoch, writerEpochFence: fence },
+        "repo-write",
+      ),
       spawned = await supervisor.request<{ readonly runtimeSessionId: string }>(
         "spawnRuntime",
         {

@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { existsSync } from "node:fs";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -26,7 +27,7 @@ test("repo prose channel blocks artifacts under an unregistered tasks/ package d
       rootDir: canonicalRoot(rootDir),
       ownerId: "ghost-package-daemon",
     }),
-    binding = { actor, source: "local" as const };
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   try {
     const created = (await cell.run(
       { kind: "task-create", taskId: "task-ghost", title: "Ghost Package" },
@@ -117,7 +118,7 @@ test("the --task channel keeps its package-prefix enumeration and admits its own
       rootDir: canonicalRoot(rootDir),
       ownerId: "ghost-package-scoped-daemon",
     }),
-    binding = { actor, source: "local" as const };
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   try {
     const created = (await cell.run(
       { kind: "task-create", taskId: "task-scoped", title: "Scoped Ghost" },

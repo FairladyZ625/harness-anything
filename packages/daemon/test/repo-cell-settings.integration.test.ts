@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -33,7 +34,7 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
       rootDir: canonicalRoot(root),
       ownerId: "settings-catalog-test",
     });
-    const binding = { actor, source: "local" as const },
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
       configPath = path.join(root, "harness/harness.yaml"),
       before = readFileSync(configPath, "utf8");
     const read = await cell.run({ kind: "settings-read" }, binding);
@@ -284,7 +285,7 @@ test("settings update --gates-from-document mints authored harness.yaml gate map
       rootDir: canonicalRoot(root),
       ownerId: "settings-gates-test",
     });
-    const binding = { actor, source: "local" as const },
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
       configPath = path.join(root, "harness/harness.yaml"),
       before = await cell.run({ kind: "settings-read" }, binding);
     assert.equal(before.outcome, "applied", JSON.stringify(before));
@@ -349,7 +350,7 @@ test("settings update gatesDraft splices the declared facet into the authored do
       rootDir: canonicalRoot(root),
       ownerId: "settings-gates-draft-test",
     });
-    const binding = { actor, source: "local" as const },
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
       configPath = path.join(root, "harness/harness.yaml"),
       before = await cell.run({ kind: "settings-read" }, binding);
     assert.equal(before.outcome, "applied", JSON.stringify(before));
@@ -447,7 +448,7 @@ test("settings update commits an authored harness.yaml that drifted from the led
       rootDir: canonicalRoot(root),
       ownerId: "settings-authored-test",
     });
-    const binding = { actor, source: "local" as const },
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
       configPath = path.join(root, "harness/harness.yaml"),
       authored = readFileSync(configPath, "utf8"),
       // Same settings, different text: the kind of drift that left the ledger permanently dirty.
@@ -491,7 +492,7 @@ test("settings writes from a runtime executor are refused and must escalate to t
       rootDir: canonicalRoot(root),
       ownerId: "settings-principal-test",
     });
-    const agent = { actor: agentActor, source: "local" as const },
+    const agent = withRoleBinding({ actor: agentActor, source: "local" as const }, "owner"),
       configPath = path.join(root, "harness/harness.yaml"),
       before = readFileSync(configPath, "utf8");
     // Reads stay open to runtime actors; only the write path is principal-gated.
@@ -513,7 +514,7 @@ test("settings writes from a runtime executor are refused and must escalate to t
     // The same write from the principal (no executor) still applies.
     const applied = await cell.run(
       { kind: "settings-update", defaultPreset: "docs-task", idempotencyKey: "principal-settings-update" },
-      { actor, source: "local" as const },
+      withRoleBinding({ actor, source: "local" as const }, "owner"),
     );
     assert.equal(applied.outcome, "applied", JSON.stringify(applied));
   } finally {
@@ -571,7 +572,7 @@ test("settingsLastChanged resolves in O(1) through projection entity and matches
       rootDir: canonicalRoot(root),
       ownerId: "settings-perf-test",
     });
-    const binding = { actor, source: "local" as const };
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
     // Trigger an update so we have a distinct settings_changed event
     await cell.run(
       {

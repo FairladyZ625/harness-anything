@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
@@ -31,7 +32,7 @@ test("Person Actions share catalog execution, exact refusal attribution, and exp
           throw new Error("fixture holds the authored mirror behind acceptance");
       },
     });
-    const ownerBinding = { actor: ownerActor, source: "local" as const },
+    const ownerBinding = withRoleBinding({ actor: ownerActor, source: "local" as const }, "owner"),
       added = await cell.run(
         {
           kind: "people-add",
@@ -120,10 +121,13 @@ test("Person Actions share catalog execution, exact refusal attribution, and exp
     writeFileSync(peoplePath, beforeDelegationBody);
     now = "2026-09-01T01:30:00.000Z";
     const beforeRevokeRefusal = peopleEventCount(root),
-      aliceBinding = {
-        actor: { principal: { personId: "person_alice" }, executor: null },
-        source: "local" as const,
-      },
+      aliceBinding = withRoleBinding(
+        {
+          actor: { principal: { personId: "person_alice" }, executor: null },
+          source: "local" as const,
+        },
+        "owner",
+      ),
       foreignRevoke = await cell.run(
         {
           kind: "people-revoke-delegation",

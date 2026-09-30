@@ -4,15 +4,19 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { compileEntityUpsert, openSqliteEventStore, sha256Bytes } from "@harness-anything/kernel";
+import { compileEntityUpsert, makeTaskEventReader, openSqliteEventStore, sha256Bytes } from "@harness-anything/kernel";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
 
-const binding = {
-  actor: { principal: { personId: "person-agent-action" }, executor: null },
-  source: "local" as const,
-};
+const binding = withRoleBinding(
+  {
+    actor: { principal: { personId: "person-agent-action" }, executor: null },
+    source: "local" as const,
+  },
+  "repo-write",
+);
 // A remote edge with no role binding: neither a declared repo-write role nor the local default binding holds
 // for it, so the policy is the only thing standing between this caller and a durable delete.
 const unauthorized = {
@@ -441,6 +445,30 @@ test("owned-content objects preserve raw bytes and reject absent or oversized co
     assert.equal(store.revision(), 2);
   } finally {
     store.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("RepoCell fixtures preserve an unnamed local caller's missing authority", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-action-no-authority-")),
+    repoId = workspaceId("agent-action-no-authority");
+  initRepo(rootDir);
+  const cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "no-authority-test" }),
+    reader = makeTaskEventReader({ repoId, rootDir });
+  try {
+    const local = { actor: binding.actor, source: "local" as const };
+    for (const caller of [local, { ...local, roleBindings: [] }]) {
+      const denied = await cell.run({ kind: "agent-install", declaration }, caller);
+      assert.equal(denied.code, "authorization_denied", JSON.stringify(denied));
+      assert.equal(denied.authorizationDecision?.outcome, "denied");
+      assert.equal(denied.acceptance, null);
+      assert.equal(reader.readEvent(denied.opId), null);
+    }
+    const allowed = await cell.run({ kind: "agent-install", declaration }, binding);
+    assert.equal(allowed.outcome, "applied", JSON.stringify(allowed));
+  } finally {
+    await reader.drain();
+    await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });

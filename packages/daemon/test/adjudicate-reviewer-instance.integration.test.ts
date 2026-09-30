@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,10 +31,13 @@ after(() => {
   rmSync(ciBin, { recursive: true, force: true });
 });
 
-const binding = {
-  actor: { principal: { personId: "person-adjudicate-instance" }, executor: null },
-  source: "local" as const,
-};
+const binding = withRoleBinding(
+  {
+    actor: { principal: { personId: "person-adjudicate-instance" }, executor: null },
+    source: "local" as const,
+  },
+  "owner",
+);
 const installation: RuntimeInstallationWitness = {
   installationId: "installation-adjudicate-instance",
   kindId: "codex",

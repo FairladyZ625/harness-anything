@@ -15,7 +15,7 @@ test("every production local binding is covered by a request or cell-default wri
   assert.deepEqual(
     [...counts].sort(([left], [right]) => left.localeCompare(right)),
     [
-      ["daemon-host-binding.ts", 3],
+      ["daemon-host-binding.ts", 4],
       ["host-action-authorization.ts", 1],
       ["repo-cell-bootstrap-ledger.ts", 1],
     ],
@@ -36,6 +36,13 @@ test("every production local binding is covered by a request or cell-default wri
   assert.match(
     source("daemon-host-open.ts"),
     /return writerRepoId \? daemonWriterBinding\(writerRepoId, base\) : base/u,
+  );
+  // CEO R7: the explicit daemon Schedule principal is a new local binding construction;
+  // both seeding and occurrence writes must still enter the daemon writer fence.
+  assert.match(source("daemon-host-open.ts"), /binding: daemonWriterBinding\(repoId, localScheduleBinding\(\)\)/u);
+  assert.match(
+    source("daemon-host-open.ts"),
+    /const base = localScheduleBinding\(\);[\s\S]*?daemonWriterBinding\(repoId, base\)/u,
   );
   assert.match(
     source("daemon-host-registry.ts"),

@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -123,7 +124,7 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
     });
 
     const actor = { principal: { personId: "person-github-worker" }, executor: null },
-      binding = { actor, source: "local" as const },
+      binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
       unbound = await cell.spawnRuntime(
         {
           runtimeInstanceId: instanceId,

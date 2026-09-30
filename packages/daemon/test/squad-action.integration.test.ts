@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -16,20 +17,26 @@ import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } f
 import { evidence, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
-const owner = {
-    actor: {
-      principal: { personId: "person-squad-owner" },
-      executor: { kind: "agent" as const, id: "squad-owner" },
+const owner = withRoleBinding(
+    {
+      actor: {
+        principal: { personId: "person-squad-owner" },
+        executor: { kind: "agent" as const, id: "squad-owner" },
+      },
+      source: "local" as const,
     },
-    source: "local" as const,
-  },
-  contender = {
-    actor: {
-      principal: { personId: "person-squad-contender" },
-      executor: { kind: "agent" as const, id: "squad-contender" },
+    "owner",
+  ),
+  contender = withRoleBinding(
+    {
+      actor: {
+        principal: { personId: "person-squad-contender" },
+        executor: { kind: "agent" as const, id: "squad-contender" },
+      },
+      source: "local" as const,
     },
-    source: "local" as const,
-  },
+    "owner",
+  ),
   leader = {
     schema: "agent-declaration/v1",
     id: "squad-leader",

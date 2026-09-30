@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
@@ -119,10 +120,13 @@ test("attached task runtime settlement releases its execution lease before publi
     try {
       const taskId = "task-runtime-attached-tail",
         executionId = "execution-runtime-attached-tail",
-        binding = {
-          actor: { principal: { personId: "person-attached-tail" }, executor: null },
-          source: "local" as const,
-        };
+        binding = withRoleBinding(
+          {
+            actor: { principal: { personId: "person-attached-tail" }, executor: null },
+            source: "local" as const,
+          },
+          "owner",
+        );
       const created = await cell.run(
         { kind: "task-create", taskId, title: "Attached tail lease", presetId: "docs-task" },
         binding,
@@ -538,10 +542,13 @@ test("terminal settlement leaves an execution lease generation it never dispatch
     try {
       const taskId = "task-runtime-lease-generation",
         executionId = "execution-runtime-lease-generation",
-        binding = {
-          actor: { principal: { personId: "person-lease-generation" }, executor: null },
-          source: "local" as const,
-        },
+        binding = withRoleBinding(
+          {
+            actor: { principal: { personId: "person-lease-generation" }, executor: null },
+            source: "local" as const,
+          },
+          "owner",
+        ),
         start = async () =>
           (
             await cell.run(
@@ -688,14 +695,17 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         epoch: oldLease.epoch,
       },
       actor = { principal: { personId: "person-re-adopt" }, executor: null },
-      oldBinding = {
-        actor,
-        source: "local" as const,
-        writerEpoch: oldLease.epoch,
-        writerEpochFence: oldFence,
-        withWriterEpochFence: <T>(operation: () => T) =>
-          oldAuthority!.withAppendFence(repoId, oldLease.epoch, oldLease.holderId, operation),
-      },
+      oldBinding = withRoleBinding(
+        {
+          actor,
+          source: "local" as const,
+          writerEpoch: oldLease.epoch,
+          writerEpochFence: oldFence,
+          withWriterEpochFence: <T>(operation: () => T) =>
+            oldAuthority!.withAppendFence(repoId, oldLease.epoch, oldLease.holderId, operation),
+        },
+        "owner",
+      ),
       open = (ownerId: string, defaultWriterEpochFence: WriterEpochFenceDescriptor) =>
         openRepoCell({
           repoId: workspaceId(repoId),
@@ -781,14 +791,17 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         holderId: newLease.holderId,
         epoch: newLease.epoch,
       },
-      newBinding = {
-        actor,
-        source: "local" as const,
-        writerEpoch: newLease.epoch,
-        writerEpochFence: newFence,
-        withWriterEpochFence: <T>(operation: () => T) =>
-          newAuthority!.withAppendFence(repoId, newLease.epoch, newLease.holderId, operation),
-      };
+      newBinding = withRoleBinding(
+        {
+          actor,
+          source: "local" as const,
+          writerEpoch: newLease.epoch,
+          writerEpochFence: newFence,
+          withWriterEpochFence: <T>(operation: () => T) =>
+            newAuthority!.withAppendFence(repoId, newLease.epoch, newLease.holderId, operation),
+        },
+        "owner",
+      );
     assert.equal(newLease.epoch, 2);
     cell = await open("re-adopt-after", newFence);
     await assert.rejects(
@@ -915,10 +928,13 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
 
     const taskId = "task-runtime-lost",
       executionId = "execution-runtime-lost",
-      binding = {
-        actor: { principal: { personId: "owner" }, executor: null },
-        source: "local" as const,
-      };
+      binding = withRoleBinding(
+        {
+          actor: { principal: { personId: "owner" }, executor: null },
+          source: "local" as const,
+        },
+        "owner",
+      );
     const taskCreateReceipt = await cell.run({ kind: "task-create", taskId, title: "Runtime Lost" }, binding);
     assert.equal(taskCreateReceipt.outcome, "applied", JSON.stringify(taskCreateReceipt));
     await waitForFixturePublication(cell, taskCreateReceipt.opId, binding);

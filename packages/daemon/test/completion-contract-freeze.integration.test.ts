@@ -21,7 +21,10 @@ const worker = withRoleBinding(
   { actor: { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } }, source: "local" },
   "repo-write",
 );
-const owner = { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" } as const;
+const owner = withRoleBinding(
+  { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" },
+  "owner",
+) as const;
 const githubCiMapping =
   "  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n";
 

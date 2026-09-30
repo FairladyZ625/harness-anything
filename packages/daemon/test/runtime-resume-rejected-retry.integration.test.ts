@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -85,7 +86,10 @@ test("a provider-rejected local resume leaves its source available for another a
         await assert.rejects(
           cell.spawnRuntime(
             { dispatchId, idempotencyKey, prompt: "Continue work" },
-            { actor: { principal: { personId: "fixture" }, executor: null }, source: "local" },
+            withRoleBinding(
+              { actor: { principal: { personId: "fixture" }, executor: null }, source: "local" },
+              "owner",
+            ),
           ),
           (error: unknown) =>
             error instanceof Error && (error as Error & { code?: string }).code === "runtime_resume_failed",

@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,17 +21,23 @@ import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { writeOwnerRoster } from "./role-binding.fixtures.ts";
 
 const bindingSessionId = "runtime_89abcdef0123456789abcdef",
-  personBinding = {
-    actor: { principal: { personId: "person-parent-session" }, executor: null },
-    source: "local" as const,
-  },
-  executorBinding = {
-    actor: {
-      principal: { personId: "person-parent-session" },
-      executor: { kind: "agent" as const, id: `runtime-session:${bindingSessionId}` },
+  personBinding = withRoleBinding(
+    {
+      actor: { principal: { personId: "person-parent-session" }, executor: null },
+      source: "local" as const,
     },
-    source: "local" as const,
-  },
+    "owner",
+  ),
+  executorBinding = withRoleBinding(
+    {
+      actor: {
+        principal: { personId: "person-parent-session" },
+        executor: { kind: "agent" as const, id: `runtime-session:${bindingSessionId}` },
+      },
+      source: "local" as const,
+    },
+    "owner",
+  ),
   installation: RuntimeInstallationWitness = {
     installationId: "installation-parent-session",
     kindId: "codex",

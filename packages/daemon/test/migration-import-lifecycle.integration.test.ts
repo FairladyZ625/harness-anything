@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import {
   lstatSync,
   mkdirSync,
@@ -116,7 +117,7 @@ test("legacy copy -> initialized repository -> migration import -> reconciliatio
         }).readHead()?.revision ?? 0,
       dryRun = (await cell.run(
         { kind: "migrate-import", sourceRoots: sources(source), dryRun: true },
-        { actor, source: "local" },
+        withRoleBinding({ actor, source: "local" }, "owner"),
       )) as Record<string, unknown>;
     const commitsBeforeApply = Number(git(destination, "rev-list", "--count", "HEAD"));
     assert.equal(dryRun.exitCode, 0, JSON.stringify(dryRun));
@@ -135,10 +136,10 @@ test("legacy copy -> initialized repository -> migration import -> reconciliatio
     assert.equal(before, 0, "the fenced destination must have no bootstrapped events");
     const applied = (await cell.run(
       { kind: "migrate-import", sourceRoots: sources(source) },
-      { actor, source: "local" },
+      withRoleBinding({ actor, source: "local" }, "owner"),
     )) as Record<string, unknown>;
     assert.equal(applied.exitCode, 0, JSON.stringify(applied));
-    await waitForFixturePublication(cell, String(applied.opId), { actor, source: "local" });
+    await waitForFixturePublication(cell, String(applied.opId), withRoleBinding({ actor, source: "local" }, "owner"));
     assert.equal(Number(git(destination, "rev-list", "--count", "HEAD")), commitsBeforeApply + 1);
     assert.match(String(applied.idMapPath), /^migrations\//u);
     assert.match(String(applied.summary), /Authored directory audit \(informational\): complete/u);
@@ -177,7 +178,7 @@ test("authored audit preserves ordinary documents and leaves source-only runtime
         }).readHead()?.revision ?? 0,
       result = (await cell.run(
         { kind: "migrate-import", sourceRoots: sources(source) },
-        { actor, source: "local" },
+        withRoleBinding({ actor, source: "local" }, "owner"),
       )) as Record<string, unknown>;
     assert.equal(result.exitCode, 0, JSON.stringify(result));
     assert.equal(result.outcome, "applied");
@@ -216,7 +217,7 @@ test("non-UTF-8 attachments stay explicit in authored coverage as owner-excluded
     });
     const result = (await cell.run(
       { kind: "migrate-import", sourceRoots: sources(source) },
-      { actor, source: "local" },
+      withRoleBinding({ actor, source: "local" }, "owner"),
     )) as Record<string, unknown>;
     assert.equal(result.exitCode, 0, JSON.stringify(result));
     assert.equal(result.outcome, "applied");
@@ -257,12 +258,12 @@ test(
       });
       const result = (await cell.run(
           { kind: "migrate-import", sourceRoots: sources(source) },
-          { actor, source: "local" },
+          withRoleBinding({ actor, source: "local" }, "owner"),
         )) as Record<string, unknown>,
         target = path.join(destination, "harness/field-notes/latest.md");
       assert.equal(result.exitCode, 0, JSON.stringify(result));
       assert.equal(result.outcome, "applied");
-      await waitForFixturePublication(cell, String(result.opId), { actor, source: "local" });
+      await waitForFixturePublication(cell, String(result.opId), withRoleBinding({ actor, source: "local" }, "owner"));
       assert.equal(lstatSync(target).isSymbolicLink(), true);
       assert.equal(readlinkSync(target), linkTarget);
       // The follower may already have verified Git before the import response arrives.
@@ -323,12 +324,12 @@ test("an authored document in an unfamiliar directory migrates as a repo documen
     });
     const result = (await cell.run(
       { kind: "migrate-import", sourceRoots: sources(source) },
-      { actor, source: "local" },
+      withRoleBinding({ actor, source: "local" }, "owner"),
     )) as Record<string, unknown>;
     assert.equal(result.exitCode, 0, JSON.stringify(result));
     assert.equal(result.outcome, "applied");
     assert.match(String(result.summary), /\| repo-document \| migrated \| 1 \| PASS \|/u);
-    await waitForFixturePublication(cell, String(result.opId), { actor, source: "local" });
+    await waitForFixturePublication(cell, String(result.opId), withRoleBinding({ actor, source: "local" }, "owner"));
     assert.equal(
       readFileSync(path.join(destination, "harness/field-notes/2024/xyz.md"), "utf8"),
       "# Field observation\n\nUnknown directories are ordinary authored content.\n",
@@ -403,7 +404,7 @@ test("migration imports a taskless Fact without inventing an owner relation", as
     });
     const result = (await cell.run(
       { kind: "migrate-import", sourceRoots: sources(source) },
-      { actor, source: "local" },
+      withRoleBinding({ actor, source: "local" }, "owner"),
     )) as Record<string, unknown>;
     assert.equal(result.exitCode, 0, JSON.stringify(result));
     const events = makeTaskEventReader({ repoId: "migration-taskless-fact-target", rootDir: destination })
@@ -477,7 +478,7 @@ test("same-id legacy Facts under different tasks are deterministically re-keyed 
     });
     const result = (await cell.run(
       { kind: "migrate-import", sourceRoots: sources(source) },
-      { actor, source: "local" },
+      withRoleBinding({ actor, source: "local" }, "owner"),
     )) as Record<string, unknown>;
     assert.equal(result.exitCode, 0, JSON.stringify(result));
     assert.match(String(result.summary), /REMAP fact fact\/task-beta\/F-DEADBEEF -> fact\/F-[0-9A-HJKMNP-TV-Z]{8}/u);
@@ -546,7 +547,7 @@ test("every historical canonical format fixture dry-runs through one-command ora
         });
         const result = (await cell.run(
           { kind: "migrate-import", sourceRoots: [source], dryRun: true },
-          { actor, source: "local" },
+          withRoleBinding({ actor, source: "local" }, "owner"),
         )) as Record<string, unknown>;
         assert.equal(result.exitCode, 0, JSON.stringify(result));
         assert.match(String(result.summary), /Oracle: rebuilt-source/u);
@@ -879,7 +880,7 @@ test("task hierarchy and task-side relations replay into the event stream", asyn
     });
     const dryRun = (await cell.run(
       { kind: "migrate-import", sourceRoots: sources(source), dryRun: true },
-      { actor, source: "local" },
+      withRoleBinding({ actor, source: "local" }, "owner"),
     )) as Record<string, unknown>;
     assert.equal(dryRun.exitCode, 0, JSON.stringify(dryRun));
     assert.match(String(dryRun.summary), /\| task \| 2 \| 0 \| 2 \| 2 \| PASS \|/u);
@@ -887,7 +888,7 @@ test("task hierarchy and task-side relations replay into the event stream", asyn
 
     const applied = (await cell.run(
       { kind: "migrate-import", sourceRoots: sources(source) },
-      { actor, source: "local" },
+      withRoleBinding({ actor, source: "local" }, "owner"),
     )) as Record<string, unknown>;
     assert.equal(applied.exitCode, 0, JSON.stringify(applied));
     const events = makeTaskEventStore({
@@ -958,10 +959,10 @@ test("each ratified legacy relation type replays canonically and reruns idempote
       now: () => "2026-08-31T00:00:00.000Z",
     });
     const sourceRoots = sourcesWithoutProjection(source),
-      applied = (await cell.run({ kind: "migrate-import", sourceRoots }, { actor, source: "local" })) as Record<
-        string,
-        unknown
-      >;
+      applied = (await cell.run(
+        { kind: "migrate-import", sourceRoots },
+        withRoleBinding({ actor, source: "local" }, "owner"),
+      )) as Record<string, unknown>;
     assert.equal(applied.exitCode, 0, JSON.stringify(applied));
     const store = makeTaskEventStore({
         repoId: "migration-relation-type-target",
@@ -991,10 +992,10 @@ test("each ratified legacy relation type replays canonically and reruns idempote
       );
     }
 
-    const rerun = (await cell.run({ kind: "migrate-import", sourceRoots }, { actor, source: "local" })) as Record<
-        string,
-        unknown
-      >,
+    const rerun = (await cell.run(
+        { kind: "migrate-import", sourceRoots },
+        withRoleBinding({ actor, source: "local" }, "owner"),
+      )) as Record<string, unknown>,
       second = store.read();
     assert.equal(rerun.exitCode, 0, JSON.stringify(rerun));
     assert.equal(second.head?.revision, first.head?.revision);
@@ -1021,7 +1022,7 @@ test("a canonical relation snapshot wins over its later retired legacy alias", a
     });
     const applied = (await cell.run(
       { kind: "migrate-import", sourceRoots: sourcesWithoutProjection(source) },
-      { actor, source: "local" },
+      withRoleBinding({ actor, source: "local" }, "owner"),
     )) as Record<string, unknown>;
     assert.equal(applied.exitCode, 0, JSON.stringify(applied));
     const events = makeTaskEventStore({
@@ -1063,7 +1064,7 @@ test("unmapped legacy relation triples fail the row into the manual table", asyn
     });
     const dryRun = (await cell.run(
       { kind: "migrate-import", sourceRoots: sources(source), dryRun: true },
-      { actor, source: "local" },
+      withRoleBinding({ actor, source: "local" }, "owner"),
     )) as Record<string, unknown>;
     assert.equal(dryRun.exitCode, 0, JSON.stringify(dryRun));
     assert.match(String(dryRun.summary), /\| relation \| 2 \| 1 \| 2 \| 2 \| PASS \|/u);
@@ -1095,7 +1096,7 @@ test("a relation whose endpoint has no same-cut witness is retired with a receip
     });
     const dryRun = (await cell.run(
       { kind: "migrate-import", sourceRoots: sources(source), dryRun: true },
-      { actor, source: "local" },
+      withRoleBinding({ actor, source: "local" }, "owner"),
     )) as Record<string, unknown>;
     assert.equal(dryRun.exitCode, 0, JSON.stringify(dryRun));
     assert.deepEqual((dryRun.reconciliation as Record<string, unknown>).relation, {
@@ -1142,7 +1143,7 @@ test("migrated entities keep the actor recorded in the source repository, not th
     });
     const applied = (await cell.run(
       { kind: "migrate-import", sourceRoots: sources(source) },
-      { actor, source: "local" },
+      withRoleBinding({ actor, source: "local" }, "owner"),
     )) as Record<string, unknown>;
     assert.equal(applied.exitCode, 0, JSON.stringify(applied));
     // task_owned has an attribution record; task_unowned has none and falls back to the importer.

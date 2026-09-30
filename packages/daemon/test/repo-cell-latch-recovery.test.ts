@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -101,7 +102,7 @@ test("Git event-layout corruption cannot revoke SQLite acceptance or reads", asy
   try {
     initRepo(rootDir);
     const repoId = workspaceId("sqlite-ignores-git-layout"),
-      binding = { actor, source: "local" as const };
+      binding = withRoleBinding({ actor, source: "local" as const }, "owner");
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "sqlite-git-one" });
     const accepted = await cell.run(
       { kind: "task-create", taskId: "task_sqlite_truth", title: "SQLite truth" },
@@ -134,7 +135,7 @@ test("SQLite malformed canonical rows fail closed during operator activation val
   try {
     initRepo(rootDir);
     const repoId = workspaceId("sqlite-invalid-activation"),
-      binding = { actor, source: "local" as const };
+      binding = withRoleBinding({ actor, source: "local" as const }, "owner");
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "sqlite-invalid-one" });
     assert.equal(
       (await cell.run({ kind: "task-create", taskId: "task_before_corruption", title: "Before" }, binding)).outcome,
@@ -201,7 +202,7 @@ test("projection rebuild is executable from a projection latch and settles it", 
   let cell: RepoCell | undefined;
   try {
     initRepo(rootDir);
-    const binding = { actor, source: "local" as const };
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
     cell = await openRepoCell({
       repoId: workspaceId("latch-projection-rebuild"),
       rootDir: canonicalRoot(rootDir),
@@ -275,7 +276,7 @@ test("a queued write rechecks Cell state after close begins", async () => {
       rootDir: canonicalRoot(rootDir),
       ownerId: "cell-close-queue",
     });
-    const binding = { actor, source: "local" as const };
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
     const headBeforeClose = makeTaskEventReader({ repoId: "cell-close-queue", rootDir }).readHead();
     const pending = cell.run(
         { kind: "task-create", taskId: "task_must_not_publish", title: "Must not publish" },

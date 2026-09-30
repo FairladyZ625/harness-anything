@@ -1,6 +1,6 @@
 /** @daemon-transport-authority Transport-derived actor and assignment binding. */
 import os from "node:os";
-import { actionDeclarations } from "@harness-anything/kernel";
+import { actionDeclarations, projectDeclaredRoleBindings } from "@harness-anything/kernel";
 import { hostCodedError } from "./daemon-host-errors.ts";
 import { loadPeopleRosterIfPresent } from "./identity/people-roster.ts";
 import { makeTransportDerivedIdentityProvider } from "./identity/transport-derived-provider.ts";
@@ -34,6 +34,16 @@ export function localSystemBinding(
   }
   const actor = { principal: { personId: resolved.actor.personId }, executor };
   return deriveLocalBinding(rootDir, actor, roster);
+}
+
+/** Internal Schedule writes run as the daemon, independently of the socket owner's roster. */
+export function localScheduleBinding(): RepoCellBinding {
+  const actor = { principal: { personId: "system:daemon-scheduler" }, executor: null };
+  return {
+    actor,
+    source: "local",
+    roleBindings: projectDeclaredRoleBindings({ actor, roleIds: ["repo-write"], target: "settings/repository" }),
+  };
 }
 
 /** Daemon socket-owner authority for actions whose declaration keeps all writes outside a repository cell. */

@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -21,7 +22,7 @@ test("create with a plan file lands the authored plan in the same write and stay
     rootDir: canonicalRoot(rootDir),
     ownerId: "create-plan",
   });
-  const binding = { actor, source: "local" as const };
+  const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   try {
     const created = await cell.run(
       { kind: "task-create", taskId: "task-create-plan", title: "Create Plan", planFile: "plans/authored.md" },
@@ -63,7 +64,7 @@ test("create rejects a plan file missing a template section", async () => {
     rootDir: canonicalRoot(rootDir),
     ownerId: "create-plan-gap",
   });
-  const binding = { actor, source: "local" as const };
+  const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   try {
     const created = await cell.run(
       { kind: "task-create", taskId: "task-plan-gap", title: "Plan Gap", planFile: "plans/incomplete.md" },

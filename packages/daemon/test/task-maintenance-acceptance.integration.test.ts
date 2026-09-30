@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,7 +13,7 @@ import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixtur
 test("task archive accepts two members atomically and retries after pre-outcome failure", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-maintenance-batch-")),
     repoId = workspaceId("maintenance-batch"),
-    binding = { actor, source: "local" as const },
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
     action = {
       kind: "task-archive" as const,
       taskIds: ["task_batch_one", "task_batch_two"],
@@ -95,7 +96,7 @@ test("task archive accepts two members atomically and retries after pre-outcome 
 test("queued command retains acceptance when receipt assembly fails after the store returns", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-post-accept-receipt-")),
     repoId = workspaceId("post-accept-receipt"),
-    binding = { actor, source: "local" as const };
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
     armed = false,
     commitCallbacks = 0;

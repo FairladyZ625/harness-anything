@@ -28,20 +28,26 @@ after(() => {
   rmSync(ciBin, { recursive: true, force: true });
 });
 
-const owner = {
-    actor: {
-      principal: { personId: "person-failure-owner" },
-      executor: { kind: "agent" as const, id: "failure-owner" },
+const owner = withRoleBinding(
+    {
+      actor: {
+        principal: { personId: "person-failure-owner" },
+        executor: { kind: "agent" as const, id: "failure-owner" },
+      },
+      source: "local" as const,
     },
-    source: "local" as const,
-  },
-  otherWriter = {
-    actor: {
-      principal: { personId: "person-failure-other" },
-      executor: { kind: "agent" as const, id: "failure-other" },
+    "repo-write",
+  ),
+  otherWriter = withRoleBinding(
+    {
+      actor: {
+        principal: { personId: "person-failure-other" },
+        executor: { kind: "agent" as const, id: "failure-other" },
+      },
+      source: "local" as const,
     },
-    source: "local" as const,
-  },
+    "repo-write",
+  ),
   reviewer = withRoleBinding(
     {
       actor: { principal: { personId: "person-failure-reviewer" }, executor: null },

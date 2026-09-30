@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -8,7 +9,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { actor, evidence, initRepo } from "./task-surface.fixtures.ts";
 
-const binding = { actor, source: "local" as const };
+const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
 
 interface GraphNode {
   readonly ref: string;

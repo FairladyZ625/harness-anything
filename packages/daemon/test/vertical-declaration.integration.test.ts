@@ -19,7 +19,7 @@ test("repository vertical migration, upsert conflict, and retirement fence on th
   initRepo(rootDir);
   const store = makeTaskEventStore({ repoId, rootDir }),
     projection = makeTaskProjection({ rootDir, eventStore: store }),
-    binding = { actor, source: "local" as const },
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
     run = (action: Readonly<Record<string, unknown>> & { readonly kind: string }) =>
       runVerticalDeclarationAction({
         action,

@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -23,7 +24,7 @@ test("repo.artifacts.list joins the ledger timeline across task packages", { tim
     rootDir: canonicalRoot(rootDir),
     ownerId: `daemon-${repoId}`,
   });
-  const binding: RepoCellBinding = { actor, source: "local" };
+  const binding: RepoCellBinding = withRoleBinding({ actor, source: "local" }, "owner");
   try {
     const created = (await cell.run({ kind: "task-create", taskId: "task-artifact", title: "Artifacts" }, binding)) as {
       readonly outcome: string;

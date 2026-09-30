@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -16,7 +17,7 @@ test("create then immediately replace and submit a plan five times", async () =>
     rootDir: canonicalRoot(rootDir),
     ownerId: "create-immediate",
   });
-  const binding = { actor, source: "local" as const };
+  const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   try {
     for (let index = 0; index < 5; index += 1) {
       const taskId = `task-immediate-${index}`;
@@ -64,7 +65,7 @@ test("create reports pending materialization when a concurrent edit prevents set
       }
     },
   });
-  const binding = { actor, source: "local" as const };
+  const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   try {
     const preview = await cell.run(
       { kind: "task-create", taskId: "task-concurrent", title: "Concurrent", dryRun: true },

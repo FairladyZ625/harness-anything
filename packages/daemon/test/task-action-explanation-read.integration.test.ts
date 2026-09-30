@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -18,7 +19,7 @@ const method = "repo.entity.actions.explain" as const,
 test("typed Entity Action read preserves one cut for 1..500 refs and has no write side effects", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-action-explain-")),
     repoId = workspaceId("action-explain"),
-    binding = { actor, source: "local" as const };
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);

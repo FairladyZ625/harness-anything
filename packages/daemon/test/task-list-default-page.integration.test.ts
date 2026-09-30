@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import test from "node:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -19,7 +20,7 @@ test("task list defaults to 50 rows and exposes a continuation cursor", async ()
       ownerId: "task-list-default-page",
       now: () => "2026-08-15T03:00:00.000Z",
     });
-    const binding = { actor, source: "local" as const };
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
     for (let index = 0; index < 51; index += 1)
       assert.equal(
         (
@@ -51,7 +52,7 @@ test("completed work presentation agrees across reads while transitions retain r
       ownerId: "task-work-presentation",
       now: () => "2026-09-30T03:00:00.000Z",
     });
-    const binding = { actor, source: "local" as const };
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
     for (const [taskId, parentTaskId] of [
       ["task_a_root", null],
       ["task_b_leaf", "task_a_root"],

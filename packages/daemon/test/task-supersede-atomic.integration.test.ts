@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -12,7 +13,7 @@ import { actor, initRepo } from "./task-surface.fixtures.ts";
 test("supersede with a new task accepts both events atomically and retries after rollback", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-supersede-atomic-")),
     repoId = workspaceId("task-supersede-atomic"),
-    binding = { actor, source: "local" as const },
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
     action = {
       kind: "task-supersede",
       oldTaskId: "task_atomic_old",
