@@ -15,8 +15,8 @@ export interface AgentRuntimeTokenUsageCounters {
 }
 /** How many dispatches settled with usage numbers versus a provider that reported none, so the
  * renderer can tell "0 tokens consumed" from "provider never reported usage" (runtime_metrics
- * carries `usageUnavailable` for the latter; dispatches with no metrics record yet count in
- * neither). */
+ * carries `usageUnavailable` for the latter; settled dispatches without metrics are also
+ * unavailable, while live dispatches without metrics remain pending). */
 export interface AgentRuntimeTokenUsageReporting {
   readonly usageReportedDispatches: number;
   readonly usageUnavailableDispatches: number;
@@ -67,7 +67,7 @@ export type AgentRuntimeTokenUsageMemberIdentity =
   | { readonly kind: "agent"; readonly agentId: string }
   | { readonly kind: "squad"; readonly squadId: string };
 /** One dispatch of the member: what it consumed, which task it served, how it ended. `usage` is
- * "pending" while no runtime_metrics record exists yet (typically still running). */
+ * "pending" while no runtime_metrics record exists and the process has not exited. */
 export interface AgentRuntimeTokenUsageSessionRow {
   readonly dispatchId: string;
   readonly runtimeSessionId: string;
@@ -147,14 +147,17 @@ function windowDispatches(
     for (const row of page.rows) {
       const payload = row.event.payload;
       if (!payload.startedAt || !pick(projectedHeader(row))) continue;
-      selected.set(payload.dispatchId, { header: projectedHeader(row), summary: projectedSummary(row) });
+      selected.set(payload.dispatchId, {
+        header: projectedHeader(row),
+        summary: readDispatchStreamSummary(rootDir, payload.dispatchId),
+      });
     }
     if (page.done) break;
     if (!page.nextCursor) throw new Error("runtime dispatch page is incomplete without a next cursor");
     cursor = page.nextCursor;
   }
   for (const header of readDispatchStreamHeaders(rootDir)) {
-    if (Date.parse(header.startedAt) < sinceMs || !pick(header)) continue;
+    if (selected.has(header.dispatchId) || Date.parse(header.startedAt) < sinceMs || !pick(header)) continue;
     selected.set(header.dispatchId, { header, summary: readDispatchStreamSummary(rootDir, header.dispatchId) });
   }
   return [...selected.values()];
@@ -178,31 +181,6 @@ function projectedHeader(
     ...(payload.agentName ? { agentName: payload.agentName } : {}),
     ...(payload.squadId ? { squadId: payload.squadId } : {}),
     model: payload.definitionSnapshot.model,
-  };
-}
-
-function projectedSummary(
-  row: ReturnType<TaskProjection["readRuntimeDispatchPage"]>["rows"][number],
-): DispatchStreamSummary | null {
-  if (!row.metrics) return null;
-  return {
-    header: projectedHeader(row),
-    records: row.endedAt ? [{ kind: "process_exit", occurredAt: row.endedAt }] : [],
-    lastObservedAt: row.endedAt ?? row.event.occurredAt,
-    providerSessionId: null,
-    process: row.endedAt
-      ? {
-          pid: 0,
-          exited: true,
-          exitCode: row.outcome === "succeeded" ? 0 : row.outcome === "failed" ? 1 : null,
-          signal: null,
-        }
-      : null,
-    attemptOutcome: null,
-    fallbackState: null,
-    fallbackSchedule: null,
-    runtimeMetrics: { ...row.metrics, compacted: false, raw: {} },
-    nextDispatchId: null,
   };
 }
 
@@ -248,12 +226,11 @@ export function readAgentRuntimeTokenUsage(input: {
     ]),
     buckets = bucketLadder(sinceMs, now.getTime(), bucketMs);
   for (const { header, summary } of windowDispatches(input.rootDir, input.projection, sinceMs, () => true)) {
-    const metrics = summary?.runtimeMetrics ?? null;
-    accumulateBucket(buckets, header.startedAt, metrics, sinceMs, bucketMs);
-    accumulate(fleet, "", "", header, metrics);
-    if (header.agentId) accumulate(agents, header.agentId, header.agentName ?? header.agentId, header, metrics);
+    accumulateBucket(buckets, header.startedAt, summary, sinceMs, bucketMs);
+    accumulate(fleet, "", "", header, summary);
+    if (header.agentId) accumulate(agents, header.agentId, header.agentName ?? header.agentId, header, summary);
     if (header.squadId)
-      accumulate(squads, header.squadId, input.entityLabel(header.squadId) ?? header.squadId, header, metrics);
+      accumulate(squads, header.squadId, input.entityLabel(header.squadId) ?? header.squadId, header, summary);
   }
   return {
     ok: true,
@@ -302,8 +279,7 @@ export function readAgentRuntimeTokenUsageDetail(input: {
   for (const { header, summary } of windowDispatches(input.rootDir, input.projection, sinceMs, pickMember)) {
     if (memberName === null && member.kind === "agent") memberName = header.agentName ?? member.agentId;
     sessions.push(sessionRowOf(header, summary));
-    const metrics = summary?.runtimeMetrics ?? null;
-    accumulateBucket(buckets, header.startedAt, metrics, sinceMs, bucketMs);
+    accumulateBucket(buckets, header.startedAt, summary, sinceMs, bucketMs);
   }
   sessions.sort(
     (left, right) =>
@@ -475,11 +451,12 @@ function bucketOf(
 function accumulateBucket(
   buckets: readonly MutableBucket[],
   startedAt: string,
-  metrics: DispatchStreamSummary["runtimeMetrics"],
+  summary: DispatchStreamSummary | null,
   sinceMs: number,
   bucketMs: number,
 ): void {
-  const bucket = bucketOf(buckets, startedAt, sinceMs, bucketMs);
+  const metrics = summary?.runtimeMetrics,
+    bucket = bucketOf(buckets, startedAt, sinceMs, bucketMs);
   if (bucket === null) return;
   bucket.dispatchCount += 1;
   if (metrics) {
@@ -488,9 +465,10 @@ function accumulateBucket(
     bucket.outputTokens += metrics.outputTokens;
     bucket.totalTokens += metrics.totalTokens;
     bucket.toolCallCount += metrics.toolCallCount;
-    if (metrics.usageUnavailable === true) bucket.usageUnavailableDispatches += 1;
-    else bucket.usageReportedDispatches += 1;
   }
+  const usage = usageOf(summary);
+  if (usage === "unavailable") bucket.usageUnavailableDispatches += 1;
+  else if (usage === "reported") bucket.usageReportedDispatches += 1;
 }
 
 function accumulate(
@@ -498,8 +476,9 @@ function accumulate(
   key: string,
   name: string,
   header: DispatchStreamHeader,
-  metrics: DispatchStreamSummary["runtimeMetrics"],
+  summary: DispatchStreamSummary | null,
 ): void {
+  const metrics = summary?.runtimeMetrics;
   const accumulator = map.get(key) ?? {
     name,
     sessions: new Set<string>(),
@@ -514,10 +493,17 @@ function accumulate(
     accumulator.counters.outputTokens += metrics.outputTokens;
     accumulator.counters.totalTokens += metrics.totalTokens;
     accumulator.counters.toolCallCount += metrics.toolCallCount;
-    if (metrics.usageUnavailable === true) accumulator.usageUnavailableDispatches += 1;
-    else accumulator.usageReportedDispatches += 1;
   }
+  const usage = usageOf(summary);
+  if (usage === "unavailable") accumulator.usageUnavailableDispatches += 1;
+  else if (usage === "reported") accumulator.usageReportedDispatches += 1;
   map.set(key, accumulator);
+}
+
+function usageOf(summary: DispatchStreamSummary | null): AgentRuntimeTokenUsageSessionRow["usage"] {
+  const metrics = summary?.runtimeMetrics;
+  if (metrics) return metrics.usageUnavailable === true ? "unavailable" : "reported";
+  return summary?.process?.exited === true ? "unavailable" : "pending";
 }
 
 function sessionRowOf(
@@ -545,7 +531,7 @@ function sessionRowOf(
     outputTokens: metrics?.outputTokens ?? 0,
     totalTokens: metrics?.totalTokens ?? 0,
     toolCallCount: metrics?.toolCallCount ?? 0,
-    usage: metrics === null ? "pending" : metrics.usageUnavailable === true ? "unavailable" : "reported",
+    usage: usageOf(summary),
   };
 }
 /** Coarse outcome from the stream's own lifecycle records: the process record says whether the

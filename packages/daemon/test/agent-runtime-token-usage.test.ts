@@ -4,7 +4,8 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
+import type { TaskProjection } from "@harness-anything/kernel";
+import { appendRuntimeWorkerRecord, archiveDispatchStream, openDispatchStream } from "../src/dispatch-stream.ts";
 import {
   agentRuntimeTokenUsageRanges,
   readAgentRuntimeTokenUsage,
@@ -121,6 +122,117 @@ function read(rootDir: string, now = NOW, range: (typeof agentRuntimeTokenUsageR
     projection: EMPTY_PROJECTION,
   });
 }
+
+test("archived settlements retain usage without a projected outcome", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-token-usage-archive-"));
+  try {
+    seedToday(rootDir);
+    const ids = ["dispatch_00000000000000000000aa01", "dispatch_00000000000000000000aa03"];
+    for (const id of ids) archiveDispatchStream(rootDir, id);
+    const rows: ReturnType<TaskProjection["readRuntimeDispatchPage"]>["rows"] = ids.map((dispatchId, index) => ({
+      event: {
+        schema: "agent-runtime-event/v1",
+        eventId: dispatchId,
+        workspaceRevision: index + 1,
+        opId: dispatchId,
+        actor: { principal: { personId: "fixture" }, executor: null },
+        source: "local",
+        occurredAt: NOW,
+        type: "runtime_dispatch_requested",
+        payload: {
+          dispatchId,
+          runtimeSessionId: index === 0 ? "runtime-terra" : "runtime-sol",
+          instanceId: "instance-codex",
+          installationId: "installation-test",
+          kindId: "codex",
+          idempotencyKey: dispatchId,
+          definitionSnapshotRef: "artifact:runtime-definition/test",
+          startedAt: NOW,
+          agentId: index === 0 ? "terra" : "sol",
+          squadId: "core-squad",
+          definitionSnapshot: {
+            schema: "agent-definition-snapshot/v1",
+            configVersion: 1,
+            instanceId: "instance-codex",
+            installationId: "installation-test",
+            kindId: "codex",
+            providerId: "openai",
+            model: "gpt-test",
+            reasoningEffort: null,
+            baseUrl: null,
+            authMode: "subscription",
+          },
+        },
+      },
+      metrics: null,
+      endedAt: null,
+      outcome: null,
+    }));
+    const projection = { readRuntimeDispatchPage: () => ({ rows, done: true, nextCursor: null }) };
+    const input = { rootDir, now: NOW, range: "today" as const, entityLabel: () => null, cut: CUT, projection };
+    const aggregate = readAgentRuntimeTokenUsage(input);
+    assert.equal(aggregate.totals.totalTokens, 225);
+    assert.equal(aggregate.totals.usageUnavailableDispatches, 1);
+    assert.equal(aggregate.agents.find(({ agentId }) => agentId === "terra")?.totalTokens, 210);
+    const detail = readAgentRuntimeTokenUsageDetail({ ...input, member: { kind: "agent", agentId: "sol" } });
+    assert.equal(detail.sessions[0]?.usage, "unavailable");
+    assert.equal(detail.totals.usageUnavailableDispatches, 1);
+    assert.equal(
+      detail.buckets.reduce((n, bucket) => n + bucket.usageUnavailableDispatches, 0),
+      1,
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("settled dispatches without metrics are unavailable while live dispatches remain pending", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-token-usage-missing-"));
+  try {
+    const dispatchId = "dispatch_00000000000000000000bb01";
+    openDispatchStream(rootDir, {
+      dispatchId,
+      runtimeSessionId: "runtime-missing",
+      instanceId: "instance-test",
+      taskId: null,
+      executionId: null,
+      startedAt: NOW,
+      agentId: "sol",
+      squadId: "core-squad",
+    });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 123 });
+    const input = {
+      rootDir,
+      now: NOW,
+      range: "today" as const,
+      entityLabel: () => null,
+      projection: EMPTY_PROJECTION,
+      cut: CUT,
+    };
+    const member = { kind: "agent" as const, agentId: "sol" };
+    assert.equal(readAgentRuntimeTokenUsageDetail({ ...input, member }).sessions[0]?.usage, "pending");
+    assert.equal(read(rootDir).totals.usageUnavailableDispatches, 0);
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_exit", exitCode: 0, signal: null });
+    const result = read(rootDir);
+    assert.equal(result.totals.totalTokens, 0);
+    assert.equal(result.totals.usageUnavailableDispatches, 1);
+    assert.equal(result.agents[0]?.usageUnavailableDispatches, 1);
+    assert.equal(result.squads[0]?.usageUnavailableDispatches, 1);
+    assert.equal(
+      result.buckets.reduce((n, b) => n + b.usageUnavailableDispatches, 0),
+      1,
+    );
+    const detail = readAgentRuntimeTokenUsageDetail({ ...input, member });
+    assert.equal(detail.sessions[0]?.usage, "unavailable");
+    assert.equal(detail.totals.usageUnavailableDispatches, 1);
+    assert.equal(
+      detail.buckets.reduce((n, b) => n + b.usageUnavailableDispatches, 0),
+      1,
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
 
 test("readAgentRuntimeTokenUsage aggregates today per agent and squad from dispatch streams", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-token-usage-"));
