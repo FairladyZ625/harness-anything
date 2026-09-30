@@ -3,6 +3,68 @@ import { AGENDA_PIN_CRITERIA } from "@harness-anything/daemon/internal/protocol/
 type GuidanceArgs = Readonly<Record<string, unknown>>;
 type GuidanceTemplate = (args: GuidanceArgs) => string;
 
+// 结论句先行的记录纪律(业主 2026-09-30):Agent 总把「At commit 3c6e7594…」这类取证
+// 细节写进 fact 的第一句,工作页收束后每条只露第一句,取证细节应放 --source。
+// 74 列(CJK 2 列、ASCII 1 列)是 canonical 台账 2659 条存量事实首句宽度的 p25——
+// 最短的四分之一过关,其余连同 SHA/路径领起的一律被提醒,只提示不拒绝。
+export const FACT_FIRST_SENTENCE_LIMIT = 74;
+
+/**
+ * `ha fact record` receipts advise conclusion-first statements: the hint rides the receipt's
+ * guidance array, so `--json` readers and the rendered receipt see one shape. It fires when the
+ * first sentence spans more display columns than the guide, or opens with forensic detail
+ * (a bare commit SHA, a path, or an "At commit/base/merged/HEAD" lead) — the statement itself is
+ * never rejected.
+ */
+export function withFactStatementGuidance(
+  receipt: Record<string, unknown>,
+  action: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  if (String(action.kind) !== "fact-record") return receipt;
+  const statement = action.statement;
+  if (typeof statement !== "string" || statement.length === 0) return receipt;
+  const firstSentence = factFirstSentence(statement);
+  if (displayColumns(firstSentence) <= FACT_FIRST_SENTENCE_LIMIT && !opensWithForensicDetail(firstSentence))
+    return receipt;
+  const guidance = Array.isArray(receipt.guidance) ? receipt.guidance : [];
+  return {
+    ...receipt,
+    guidance: [
+      ...guidance,
+      { kind: "fact-statement", args: { width: displayColumns(firstSentence), limit: FACT_FIRST_SENTENCE_LIMIT } },
+    ],
+  };
+}
+
+/** The conclusion sentence shown first: up to the first 。/；/;/./newline; empty falls back whole. */
+export function factFirstSentence(statement: string): string {
+  const cut = statement.split(/[。；;.\n]/u, 1)[0] ?? statement;
+  const trimmed = cut.trim();
+  return trimmed === "" ? statement.trim() : trimmed;
+}
+
+/** Display columns: East Asian wide/fullwidth glyphs count 2, everything else 1. */
+export function displayColumns(text: string): number {
+  let width = 0;
+  for (const glyph of text)
+    width +=
+      /[\u1100-\u115F\u2E80-\u303E\u3041-\u33FF\u3400-\u4DBF\u4E00-\u9FFF\uA000-\uA4CF\uA960-\uA97F\uAC00-\uD7A3\uF900-\uFAFF\uFE10-\uFE19\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/u.test(
+        glyph,
+      )
+        ? 2
+        : 1;
+  return width;
+}
+
+/** Forensic detail leading the sentence: a bare SHA, a path token, or an "At commit …" lead. */
+function opensWithForensicDetail(sentence: string): boolean {
+  return (
+    /^[0-9a-f]{7,40}(?![0-9a-f])/iu.test(sentence) ||
+    /^at\s+(commit|base|merged|head|sha)\b/iu.test(sentence) ||
+    /^[^\s]*\//u.test(sentence)
+  );
+}
+
 const guidanceTemplates = new Map<string, GuidanceTemplate>([
   [
     "task-create:repository-diff-contract",
@@ -101,6 +163,13 @@ const guidanceTemplates = new Map<string, GuidanceTemplate>([
   ["*:run-command", (args) => `next: ${textArg(args, "command")}`],
   ["*:remove-dry-run", (args) => `next: remove --dry-run and rerun ${textArg(args, "command")}`],
   ["*:no-action", () => "next: no action required"],
+  [
+    "*:fact-statement",
+    (args) =>
+      `fact: lead with one checkable conclusion — the first sentence spans ${numberArg(args, "width")} columns ` +
+      `or opens with a commit SHA/path (guide: within ${numberArg(args, "limit")}); move commit SHAs, commands, ` +
+      "and file paths into --source",
+  ],
   [
     "failure:fact-type-unregistered",
     () =>
