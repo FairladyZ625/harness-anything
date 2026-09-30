@@ -41,8 +41,8 @@ export interface TaskProjectionListQuery {
   readonly search?: string;
   readonly slug?: string;
   readonly activePackagesOnly?: boolean;
-  /** Only nonterminal work roots and their complete subtrees, for display derivation. */
-  readonly workSubtreesOnly?: boolean;
+  /** Derive work-root display status without changing event snapshots. */
+  readonly presentationStatus?: boolean;
 }
 export interface TaskRelationQuery {
   readonly direction?: EntityRelationRecord["direction"];
@@ -94,6 +94,43 @@ export interface NarrowTaskRow {
   readonly created_at: string | null;
   readonly updated_at: string;
   readonly pinned: number;
+  readonly presentation_status: TaskV2["status"] | null;
+}
+
+/** dec_mr7v4h6t: the only production work-status derivation. The correlated
+ * recursion visits this root's descendants using the existing parent index.
+ * Unary + removes TEXT affinity so SQLite can search the JSON parent index.
+ * UNION terminates cycles; the root itself is never a member. No writes. */
+const PRESENTATION_STATUS_SQL = `CASE
+  WHEN task_snapshot.status IN ('done', 'cancelled') THEN task_snapshot.status
+  WHEN json_extract(task_snapshot.snapshot_json, '$.task.taskClass') = 'work' OR (
+    json_extract(task_snapshot.snapshot_json, '$.task.metadata.parentTaskId') IS NULL AND EXISTS (
+      SELECT 1 FROM task_snapshot AS child
+      WHERE json_extract(child.snapshot_json, '$.task.metadata.parentTaskId') = +task_snapshot.task_id
+    )
+  ) THEN COALESCE((
+    WITH RECURSIVE members(task_id, status) AS (
+      SELECT child.task_id, child.status FROM task_snapshot AS child
+      WHERE json_extract(child.snapshot_json, '$.task.metadata.parentTaskId') = +task_snapshot.task_id
+        AND child.task_id <> task_snapshot.task_id
+      UNION
+      SELECT child.task_id, child.status FROM task_snapshot AS child JOIN members AS parent
+        ON json_extract(child.snapshot_json, '$.task.metadata.parentTaskId') = +parent.task_id
+      WHERE child.task_id <> task_snapshot.task_id
+    )
+    SELECT CASE WHEN COUNT(*) > 0 AND MIN(COALESCE(status IN ('done', 'cancelled'), 0)) = 1
+      THEN CASE WHEN MAX(status = 'done') = 1 THEN 'done' ELSE 'cancelled' END END FROM members
+  ), task_snapshot.status)
+  ELSE task_snapshot.status END`;
+
+export function readTaskPresentationStatus(db: DatabaseSync, taskId: string): TaskV2["status"] | null {
+  return (
+    queryRows<{ readonly status: TaskV2["status"] }>(
+      db,
+      `SELECT ${PRESENTATION_STATUS_SQL} AS status FROM task_snapshot WHERE task_id = ?`,
+      taskId,
+    )[0]?.status ?? null
+  );
 }
 
 /** One projection scan for the CLI task index. The row is intentionally limited
@@ -127,7 +164,7 @@ export function readTaskIndexRows(
     where: string[] = [],
     field = (jsonPath: string) => `json_extract(task_snapshot.snapshot_json, '${jsonPath}')`;
   for (const [value, expression] of [
-    [query.status, "task_snapshot.status"],
+    [query.status, query.presentationStatus ? PRESENTATION_STATUS_SQL : "task_snapshot.status"],
     [query.workKind, field("$.task.metadata.workKind")],
     [query.riskTier, field("$.task.metadata.riskTier")],
     [query.urgency, field("$.task.metadata.urgency")],
@@ -136,23 +173,6 @@ export function readTaskIndexRows(
       where.push(`${expression} = ?`);
       values.push(value);
     }
-  if (query.workSubtreesOnly)
-    where.push(`task_snapshot.task_id IN (
-      WITH RECURSIVE work_members(task_id) AS (
-        SELECT root.task_id FROM task_snapshot AS root
-        WHERE root.status NOT IN ('done', 'cancelled') AND (
-          json_extract(root.snapshot_json, '$.task.taskClass') = 'work' OR (
-            json_extract(root.snapshot_json, '$.task.metadata.parentTaskId') IS NULL AND EXISTS (
-              SELECT 1 FROM task_snapshot AS child
-              WHERE json_extract(child.snapshot_json, '$.task.metadata.parentTaskId') = root.task_id
-            )
-          )
-        )
-        UNION
-        SELECT child.task_id FROM task_snapshot AS child JOIN work_members AS parent
-          ON json_extract(child.snapshot_json, '$.task.metadata.parentTaskId') = parent.task_id
-      ) SELECT task_id FROM work_members
-    )`);
   if (query.parentTaskId !== undefined) {
     where.push(`${field("$.task.metadata.parentTaskId")} IS ?`);
     values.push(query.parentTaskId);
@@ -190,11 +210,12 @@ export function readTaskIndexRows(
     readonly package_path: string | null;
     readonly updated_at: string;
     readonly snapshot_json: string;
+    readonly presentation_status: TaskV2["status"];
   }>(
     db,
     [
       "SELECT task_snapshot.task_id, task_package.package_path, task_snapshot.updated_at,",
-      "task_snapshot.snapshot_json FROM task_snapshot",
+      `${query.presentationStatus ? PRESENTATION_STATUS_SQL : "task_snapshot.status"} AS presentation_status, task_snapshot.snapshot_json FROM task_snapshot`,
       `LEFT JOIN task_package USING(task_id)${where.length ? ` WHERE ${where.join(" AND ")}` : ""}`,
       `ORDER BY task_snapshot.task_id${limit === null ? "" : " LIMIT ?"}`,
     ].join(" "),
@@ -214,7 +235,7 @@ export function readTaskIndexRows(
         {
           taskId: row.task_id,
           title: task.title,
-          status: task.status,
+          status: query.presentationStatus ? row.presentation_status : task.status,
           pinned: task.pinned,
           parentTaskId: task.metadata?.parentTaskId ?? null,
           workKind: task.metadata?.workKind ?? null,
@@ -679,7 +700,7 @@ export function listTaskRowsNarrow(
   const values: (string | number)[] = [],
     where: string[] = [];
   if (query.status !== undefined) {
-    where.push("task_snapshot.status = ?");
+    where.push(`${query.presentationStatus ? PRESENTATION_STATUS_SQL : "task_snapshot.status"} = ?`);
     values.push(query.status);
   }
   if (query.changedAfterRevision !== undefined) {
@@ -709,7 +730,7 @@ export function listTaskRowsNarrow(
   }
   const paged = query.limit !== undefined || query.cursor !== undefined,
     pageLimit = query.limit === undefined ? (paged ? 100 : null) : checkedPageLimit(query.limit);
-  const sql = `SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path, COALESCE(task_generation.generation, 'v1') AS generation, task_snapshot.workspace_revision AS workspace_revision, ${taskCreatedAtSql("task_snapshot.task_id")} AS created_at, task_snapshot.updated_at AS updated_at, task_snapshot.pinned AS pinned FROM task_snapshot LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id)${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY ${query.pinnedFirst ? "task_snapshot.pinned DESC, " : ""}task_snapshot.task_id${pageLimit === null ? "" : " LIMIT ?"}`;
+  const sql = `SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path, COALESCE(task_generation.generation, 'v1') AS generation, task_snapshot.workspace_revision AS workspace_revision, ${taskCreatedAtSql("task_snapshot.task_id")} AS created_at, task_snapshot.updated_at AS updated_at, task_snapshot.pinned AS pinned, ${query.presentationStatus ? PRESENTATION_STATUS_SQL : "task_snapshot.status"} AS presentation_status FROM task_snapshot LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id)${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY ${query.pinnedFirst ? "task_snapshot.pinned DESC, " : ""}task_snapshot.task_id${pageLimit === null ? "" : " LIMIT ?"}`;
   if (pageLimit !== null) values.push(pageLimit + 1);
   const raw = queryRows<NarrowTaskRow & ProjectionSqlRow>(db, sql, ...values),
     visible = pageLimit === null ? raw : raw.slice(0, pageLimit);

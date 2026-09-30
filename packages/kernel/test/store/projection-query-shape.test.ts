@@ -25,6 +25,7 @@ import {
   readTaskChildCounts,
   readTaskDependencyClosureRows,
   readTaskIndexRows,
+  readTaskPresentationStatus,
   readTaskRelationPage,
   readTaskRelationsBySources,
   readTaskRelationsByTargets,
@@ -804,7 +805,7 @@ function queryPlan(db: DatabaseSync, read: { readonly sql: string; readonly args
     .join("\n");
 }
 
-test("work derivation index contains whole subtrees but excludes unrelated standalone tasks", () => {
+test("work derivation uses complete raw subtrees, including archived and nested work members", () => {
   const db = new DatabaseSync(":memory:");
   try {
     db.exec(
@@ -860,10 +861,98 @@ test("work derivation index contains whole subtrees but excludes unrelated stand
       );
     }
     assert.deepEqual(
-      readTaskIndexRows(db, { workSubtreesOnly: true }).rows.map(({ taskId }) => taskId),
-      ["archived", "group", "leaf", "nested", "nested-leaf", "root"],
+      readTaskIndexRows(db, { presentationStatus: true, status: "done" }).rows.map(({ taskId }) => taskId),
+      ["leaf", "nested", "nested-leaf", "outside"],
     );
     assert.equal(readTaskIndexRows(db).rows.find(({ taskId }) => taskId === "root")!.status, "planned");
+  } finally {
+    db.close();
+  }
+});
+
+test("one root status query stays indexed and constant as unrelated works grow", (t) => {
+  const { db, executions, reads } = countingDatabase();
+  try {
+    db.exec(
+      "CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, status TEXT, snapshot_json TEXT); CREATE INDEX task_snapshot_parent ON task_snapshot(json_extract(snapshot_json, '$.task.metadata.parentTaskId'))",
+    );
+    const insert = db.prepare("INSERT INTO task_snapshot VALUES (?, ?, ?)");
+    const add = (id: string, status: string, parentTaskId: string | null, taskClass = "standard") =>
+      insert.run(id, status, JSON.stringify({ task: { taskClass, metadata: { parentTaskId } } }));
+    add("root", "planned", null);
+    add("member", "cancelled", "root");
+    const counts: number[] = [];
+    for (const size of [20, 2000]) {
+      for (let index = size === 20 ? 0 : 20; index < size; index += 1) {
+        add(`work-${index}`, "planned", null, "work");
+        add(`leaf-${index}`, "done", `work-${index}`);
+      }
+      const before = executions();
+      assert.equal(readTaskPresentationStatus(db, "root"), "cancelled");
+      counts.push(executions() - before);
+      const read = reads().at(-1)!;
+      assert.deepEqual(read.args, ["root"]);
+      const plan = queryPlan(db, read);
+      assert.match(plan, /SEARCH task_snapshot USING INDEX .*\(task_id=\?\)/u);
+      assert.match(plan, /SEARCH child USING (?:COVERING )?INDEX task_snapshot_parent/u);
+      assert.doesNotMatch(plan, /SCAN (?:task_snapshot|child)/u);
+    }
+    assert.deepEqual(counts, [1, 1]);
+    t.diagnostic(
+      `20/2000 unrelated works: root derivation statements ${counts.join("/")}, primary-key root and indexed descendants`,
+    );
+    add("grandchild", "done", "member");
+    assert.equal(readTaskPresentationStatus(db, "root"), "done");
+    add("open", "active", "member");
+    assert.equal(readTaskPresentationStatus(db, "root"), "planned");
+    add("empty", "planned", null, "work");
+    assert.equal(readTaskPresentationStatus(db, "empty"), "planned");
+    add("terminal", "cancelled", null, "work");
+    add("terminal-child", "done", "terminal");
+    assert.equal(readTaskPresentationStatus(db, "terminal"), "cancelled");
+    assert.equal(readTaskPresentationStatus(db, "missing"), null);
+    add("cycle", "planned", "cycle-member", "work");
+    add("cycle-member", "done", "cycle");
+    assert.equal(readTaskPresentationStatus(db, "cycle"), "done");
+  } finally {
+    db.close();
+  }
+});
+
+test("pinned presentation pages keep kernel cursors when roots become terminal between reads", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(`CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, status TEXT, snapshot_json TEXT, pinned INTEGER, workspace_revision INTEGER, updated_at TEXT);
+      CREATE TABLE task_package (task_id TEXT PRIMARY KEY, package_path TEXT);
+      CREATE TABLE task_generation (task_id TEXT PRIMARY KEY, generation TEXT);
+      CREATE TABLE event_index (task_id TEXT, workspace_revision INTEGER, event_json TEXT);
+      CREATE INDEX task_snapshot_parent ON task_snapshot(json_extract(snapshot_json, '$.task.metadata.parentTaskId'));`);
+    const insert = db.prepare("INSERT INTO task_snapshot VALUES (?, ?, ?, ?, 1, '2026-09-30T00:00:00.000Z')");
+    for (const [id, status, parent, pinned] of [
+      ["a-root", "planned", null, 1],
+      ["b-leaf", "planned", "a-root", 0],
+      ["c-done", "done", null, 0],
+    ] as const)
+      insert.run(
+        id,
+        status,
+        JSON.stringify({ task: { taskClass: "standard", metadata: { parentTaskId: parent } } }),
+        pinned,
+      );
+    const query = { presentationStatus: true, pinnedFirst: true, limit: 1 };
+    const first = listTaskRowsNarrow(db, query);
+    assert.equal(first.rows[0]!.task_id, "a-root");
+    db.prepare("UPDATE task_snapshot SET status = 'cancelled' WHERE task_id = 'b-leaf'").run();
+    const second = listTaskRowsNarrow(db, { ...query, cursor: first.page!.nextCursor! });
+    assert.equal(second.rows[0]!.task_id, "b-leaf");
+    const last = listTaskRowsNarrow(db, { ...query, cursor: second.page!.nextCursor! });
+    assert.equal(last.rows[0]!.task_id, "c-done");
+    assert.equal(last.page!.nextCursor, null);
+    assert.deepEqual(
+      listTaskRowsNarrow(db, { ...query, status: "cancelled" }).rows.map((row) => row.task_id),
+      ["a-root"],
+    );
+    assert.deepEqual(listTaskRowsNarrow(db, { ...query, status: "planned" }).rows, []);
   } finally {
     db.close();
   }

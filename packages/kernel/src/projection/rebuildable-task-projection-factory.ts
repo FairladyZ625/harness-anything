@@ -165,7 +165,8 @@ export function makeTaskProjection(options: {
     readStateDigest: () =>
       withDatabase(projectionPath, readHead, (db) => readStateDigest(db, readHead()?.revision ?? 0)),
     readCut: () => withDatabase(projectionPath, readHead, (db) => readProjectionCut(db, readHead)),
-    read: (taskId) => readProjection(projectionPath, readHead, options.eventStore, taskId, limit, now),
+    read: (taskId, presentationStatus) =>
+      readProjection(projectionPath, readHead, options.eventStore, taskId, limit, now, presentationStatus),
     list: (query) => listProjection(projectionPath, readHead, options.eventStore, limit, now, query),
     ...entityQueryApi(context),
     ...taskQueryApi(context),
@@ -205,7 +206,8 @@ export function makeTaskProjectionReader(options: {
       readStateDigest: () =>
         withDatabase(projectionPath, readHead, (db) => readStateDigest(db, readHead()?.revision ?? 0)),
       readCut: () => withDatabase(projectionPath, readHead, (db) => readProjectionCut(db, readHead)),
-      read: (taskId) => readProjection(projectionPath, readHead, unavailableSource, taskId, 4096, now),
+      read: (taskId, presentationStatus) =>
+        readProjection(projectionPath, readHead, unavailableSource, taskId, 4096, now, presentationStatus),
       list: (query) => listProjection(projectionPath, readHead, unavailableSource, 4096, now, query),
       ...entityQueryApi(context),
       readTaskIndex: taskQueries.readTaskIndex,

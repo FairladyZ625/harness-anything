@@ -1,8 +1,15 @@
 // @write-boundary-exemption rebuildable-projection
+import type { TaskLifecycleSnapshot } from "../domain/task-lifecycle.contract.ts";
+import type { TaskV2 } from "../domain/task.ts";
 import type { DatabaseSync } from "node:sqlite";
 import { type DocumentState } from "../domain/doc-sync.contract.ts";
 import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
-import { listTaskRowsNarrow, taskCreatedAtSql, type TaskProjectionListQuery } from "./task-query-projection.ts";
+import {
+  listTaskRowsNarrow,
+  readTaskPresentationStatus,
+  taskCreatedAtSql,
+  type TaskProjectionListQuery,
+} from "./task-query-projection.ts";
 import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
 import type {
   DocumentProjectionRead,
@@ -58,7 +65,8 @@ export function listProjection(
       query.limit === undefined &&
       query.cursor === undefined &&
       query.pinnedFirst !== true &&
-      query.activePackagesOnly !== true
+      query.activePackagesOnly !== true &&
+      query.presentationStatus !== true
     ) {
       const rows = queryPreparedRows<{
           readonly task_id: string;
@@ -108,7 +116,9 @@ export function listProjection(
         workspaceRevision: row.workspace_revision,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
-        snapshot: snapshots.get(row.task_id)!,
+        snapshot: query.presentationStatus
+          ? presentSnapshot(snapshots.get(row.task_id)!, row.presentation_status)
+          : snapshots.get(row.task_id)!,
       })),
       watermark: cut.watermark,
       sourceRevision: cut.sourceRevision,
@@ -166,13 +176,15 @@ export function readProjection(
   taskId: string,
   limit: number,
   now: () => string,
+  presentationStatus = false,
 ): TaskProjectionRead {
   const existed = localRuntimeStateFileSystem.exists(projectionPath);
   return withDatabase(projectionPath, readHead, (db) => {
-    const cut = readProjectionCut(db, readHead);
+    const cut = readProjectionCut(db, readHead),
+      snapshot = readSnapshot(db, taskId, now());
     return {
       status: cut.status,
-      snapshot: readSnapshot(db, taskId, now()),
+      snapshot: presentationStatus ? presentSnapshot(snapshot, readTaskPresentationStatus(db, taskId)) : snapshot,
       packagePath:
         (
           prepareQuery(db, "SELECT package_path FROM task_package WHERE task_id = ?", (sql) =>
@@ -189,6 +201,12 @@ export function readProjection(
       },
     };
   });
+}
+
+function presentSnapshot(snapshot: TaskLifecycleSnapshot, status: TaskV2["status"] | null): TaskLifecycleSnapshot {
+  return snapshot.task && status !== null && status !== snapshot.task.status
+    ? { ...snapshot, task: { ...snapshot.task, status } }
+    : snapshot;
 }
 
 export function rebuildProjection(

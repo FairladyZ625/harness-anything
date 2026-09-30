@@ -1,5 +1,6 @@
 // harness-test-tier: fast
 import test from "node:test";
+import { presentationQueryFixture } from "../../kernel/test/store/presentation-query.fixture.ts";
 import assert from "node:assert/strict";
 import { type TaskProjection, type TaskProjectionListQuery, allowsTaskStatusMove } from "@harness-anything/kernel";
 import { listTasks, type TaskQueryCell } from "../src/repo-cell-task-query.ts";
@@ -24,32 +25,11 @@ export function presentationFixture() {
     riskTier: null,
     urgency: null,
   }));
+  const { db, readIndex, readStatus } = presentationQueryFixture(snapshot, rows);
   const cut = { status: "ready", watermark: 7, sourceRevision: 7, warnings: [] };
   const projection = {
-    readTaskIndex: (query: TaskProjectionListQuery = {}) => {
-      let selected = rows.filter((row) => query.status === undefined || row.status === query.status);
-      if (query.cursor) {
-        const [after] = JSON.parse(Buffer.from(query.cursor, "base64url").toString("utf8"));
-        selected = selected.filter((row) => row.taskId > after);
-      }
-      const visible = query.limit === undefined ? selected : selected.slice(0, query.limit);
-      return {
-        ...cut,
-        rows: visible,
-        page:
-          query.limit === undefined
-            ? null
-            : {
-                limit: query.limit,
-                cursor: query.cursor ?? null,
-                nextCursor:
-                  selected.length > query.limit
-                    ? Buffer.from(JSON.stringify([visible.at(-1)!.taskId])).toString("base64url")
-                    : null,
-              },
-      };
-    },
-    read: (id: string) => ({
+    readTaskIndex: (query: TaskProjectionListQuery = {}) => ({ ...cut, ...readIndex(query) }),
+    read: (id: string, presentationStatus = false) => ({
       ...cut,
       packagePath: null,
       snapshot: {
@@ -57,6 +37,7 @@ export function presentationFixture() {
         task: {
           ...snapshot.task,
           ...rows.find((row) => row.taskId === id),
+          ...(presentationStatus ? { status: readStatus(id) } : {}),
           metadata: { parentTaskId: rows.find((row) => row.taskId === id)?.parentTaskId ?? null },
         },
       },
@@ -67,7 +48,7 @@ export function presentationFixture() {
         ...index,
         rows: index.rows.map((row) => ({
           ...row,
-          snapshot: projection.read(row.taskId).snapshot,
+          snapshot: projection.read(row.taskId, query.presentationStatus).snapshot,
           workspaceRevision: 7,
         })),
         ...(index.page ? { page: index.page } : {}),
@@ -80,7 +61,7 @@ export function presentationFixture() {
     readPresetSnapshot: () => ({ snapshot: null }),
     readTaskCompletionContract: () => ({ ...cut, contract: null }),
   } as unknown as TaskProjection;
-  return { projection, rows };
+  return { projection, rows, db };
 }
 
 function taskList(projection: TaskProjection, status: "planned" | "done", limit = 1, cursor?: string) {
@@ -98,7 +79,8 @@ function taskList(projection: TaskProjection, status: "planned" | "done", limit 
 }
 
 test("task list filters the work root's presented status before paging, leaving lifecycle state intact", () => {
-  const { projection } = presentationFixture();
+  const { projection, db } = presentationFixture();
+  test.after(() => db.close());
   const work = workListFromProjection(projection, { all: true }).rows[0]!;
   const planned = taskList(projection, "planned");
   assert.deepEqual(
@@ -120,7 +102,8 @@ test("task list filters the work root's presented status before paging, leaving 
 });
 
 test("presentation snapshots page on derived status and never mutate the raw snapshot", () => {
-  const { projection } = presentationFixture();
+  const { projection, db } = presentationFixture();
+  test.after(() => db.close());
   const reads = taskPresentationReads(projection);
   assert.equal(reads.read("a-root").snapshot.task!.status, "done");
   assert.equal(projection.read("a-root").snapshot.task!.status, "planned");
@@ -139,4 +122,36 @@ test("presentation snapshots page on derived status and never mutate the raw sna
     reads.list({ status: "planned", limit: 1 }).rows.map(({ taskId }) => taskId),
     ["c-open"],
   );
+});
+
+test("single task presentation does not open a repository-wide index", () => {
+  const { projection, db } = presentationFixture();
+  test.after(() => db.close());
+  let indexReads = 0;
+  const reads = taskPresentationReads({
+    ...projection,
+    readTaskIndex: (...args) => {
+      indexReads += 1;
+      return projection.readTaskIndex(...args);
+    },
+  });
+  reads.read("a-root");
+  assert.equal(indexReads, 0);
+});
+
+test("a page cursor survives the derived root set disappearing between pages", () => {
+  const { projection, db } = presentationFixture();
+  test.after(() => db.close());
+  const reads = taskPresentationReads(projection);
+  for (const method of ["list", "readTaskIndex"] as const) {
+    const first = reads[method]({ limit: 1 });
+    assert.equal(first.rows[0]!.taskId, "a-root");
+    db.prepare("UPDATE task_snapshot SET status = 'planned' WHERE task_id = 'b-leaf'").run();
+    const second = reads[method]({ limit: 1, cursor: first.page!.nextCursor! });
+    assert.equal(second.rows[0]!.taskId, "b-leaf");
+    const last = reads[method]({ limit: 1, cursor: second.page!.nextCursor! });
+    assert.equal(last.rows[0]!.taskId, "c-open");
+    assert.equal(last.page!.nextCursor, null);
+    db.prepare("UPDATE task_snapshot SET status = 'done' WHERE task_id = 'b-leaf'").run();
+  }
 });

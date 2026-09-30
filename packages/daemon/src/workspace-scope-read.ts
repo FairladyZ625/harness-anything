@@ -1,10 +1,5 @@
 import { taskPresentationReads } from "./task-presentation-read.ts";
-import {
-  isTerminalStatus,
-  type TaskProjection,
-  type TaskIndexProjectionRow,
-  type TaskV2,
-} from "@harness-anything/kernel";
+import { type TaskProjection, type TaskIndexProjectionRow, type TaskV2 } from "@harness-anything/kernel";
 import { canonicalEventSummary, type CanonicalEventSummary } from "./event-summary-read.ts";
 
 const WORKSPACE_EVENT_LIMIT = 120,
@@ -189,27 +184,6 @@ function workspaceEventSummaries(
 
 export function emptyScopeCounts(): Record<keyof WorkspaceScopeStatusCounts, number> {
   return { done: 0, executing: 0, pending: 0, blocked: 0, planned: 0, cancelled: 0 };
-}
-
-/**
- * dec_mr7v4h6t: a work root's status is a read-side projection of its subtree, never a write. When
- * every member is terminal, at least one done derives done and all cancelled derives cancelled; an
- * open member, an empty subtree, or an already-terminal root keeps the root's own status. The
- * canonical status stays untouched — no execution chain runs on the root.
- */
-export function derivedWorkRootStatus(
-  root: TaskIndexProjectionRow,
-  members: readonly TaskIndexProjectionRow[],
-  isWorkRoot: boolean,
-): TaskIndexProjectionRow["status"] {
-  if (
-    !isWorkRoot ||
-    isTerminalStatus(root.status) ||
-    members.length === 0 ||
-    !members.every(({ status }) => isTerminalStatus(status))
-  )
-    return root.status;
-  return members.some(({ status }) => status === "done") ? "done" : "cancelled";
 }
 
 export function scopeStatus(status: TaskIndexProjectionRow["status"]): keyof WorkspaceScopeStatusCounts {
