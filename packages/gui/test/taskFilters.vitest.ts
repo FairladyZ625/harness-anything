@@ -424,6 +424,142 @@ describe("board visual language (视觉基线 §2.4)", () => {
   });
 });
 
+/**
+ * 泳道视图 CEO 回修 r1(交付 cut bc7f7eac9d 截图验收打回的四点):
+ *  - lane 标题走 TitleText(§2.3):sans 正文、最多 2 行 clamp、完整标签进 title
+ *    悬停、计数右对齐——不再是等宽字体整段折断;
+ *  - 表头与第一条泳道之间不留空白:行窗口从容器顶起排(渲染偏移减回 scrollMargin);
+ *  - 底部常驻下钻面板删除:点单元格开右侧 Drawer(§2.4),未选中不渲染任何占位;
+ *  - 0 计数状态列折叠成带列名 tooltip 的细竖线,不再占整列宽(§2.4)。
+ */
+describe("swimlane visual rework (CEO 回修 r1)", () => {
+  const LONG_LANE_TITLE = "偶发红队列:runtime-wait-reconnect 与外发执行绪的对齐残留问题追踪";
+
+  const reworkFixture = (): TaskRow[] => [
+    makeTask({
+      taskId: "t_a1",
+      title: "drawer-a1",
+      coordinationStatus: "planned",
+      workId: "root-a",
+      workTitle: LONG_LANE_TITLE,
+    }),
+    makeTask({
+      taskId: "t_b1",
+      title: "drawer-b1",
+      coordinationStatus: "planned",
+      workId: "root-b",
+      workTitle: "Lane B",
+      lastKnownAt: "2026-07-08T00:00:00.000Z",
+    }),
+  ];
+
+  const swimlaneElement = (tasks: TaskRow[], drill: ConstructorParameters<typeof Object> | null = null) =>
+    createElement(SwimlaneBoard, {
+      columns: BOARD_COLUMNS,
+      tasks,
+      groupBy: "root",
+      onSelect: noop,
+      drill,
+      favorites: new Set<string>(),
+      onToggleFavorite: noop,
+      onSetPin: noop,
+    });
+
+  it("lane 标题走 TitleText:sans 正文、2 行 clamp、完整标签进悬停、计数右对齐", async () => {
+    const board = await mountLive(swimlaneElement(reworkFixture()));
+    try {
+      const row = board.container.querySelector('[data-testid="swimlane-row"]')!;
+      const label = row.querySelector("p.line-clamp-2") as HTMLElement;
+      expect(label).not.toBeNull();
+      expect(label.className).not.toContain("font-mono"); // 等宽字体整段折断的旧写法已删
+      expect(label.className).toContain("flex-1");
+      expect(label.getAttribute("title")).toBe(LONG_LANE_TITLE); // 完整标签放悬停
+      expect(label.textContent).toBe(LONG_LANE_TITLE); // TitleText 不丢字
+      // 冒号前重点继承字色,冒号后补充弱色(focus ≥ 4 字符才拆)。
+      expect(label.querySelector(".text-text-faint")?.textContent).toBe(
+        LONG_LANE_TITLE.slice(LONG_LANE_TITLE.indexOf(":")),
+      );
+      const count = label.parentElement!.querySelector("span.font-mono");
+      expect(count?.textContent).toBe("1");
+      expect(count?.className).toContain("shrink-0"); // 计数钉在标签列右缘
+    } finally {
+      await unmountLive(board);
+    }
+  });
+
+  it("第一条泳道紧贴表头:行窗口从容器顶起排,不再被推下一个表头高", async () => {
+    // 表头高度经 ResizeObserver 实测进 scrollMargin;桩成同步回调后表头
+    // offsetHeight 走本文件 600px 桩。修复前首行 translateY=600px(整整一个
+    // 表头高的空块),修复后为 0。virtualizer 自己的观察器观察到带 data-index
+    // 的行,桩不对它触发回调。
+    const originalObserver = globalThis.ResizeObserver;
+    class SyncHeaderResizeObserver {
+      private readonly callback: ResizeObserverCallback;
+      constructor(callback: ResizeObserverCallback) {
+        this.callback = callback;
+      }
+      observe(target: Element): void {
+        if (!(target instanceof HTMLElement && target.hasAttribute("data-index"))) {
+          this.callback([], this as unknown as ResizeObserver);
+        }
+      }
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+    globalThis.ResizeObserver = SyncHeaderResizeObserver as unknown as typeof ResizeObserver;
+    let board: MountedBoard | null = null;
+    try {
+      board = await mountLive(swimlaneElement(reworkFixture()));
+      const first = board.container.querySelector('[data-testid="swimlane-row"]') as HTMLElement;
+      expect(first).not.toBeNull();
+      expect(first.style.transform).toBe("translateY(0px)");
+    } finally {
+      if (board) await unmountLive(board);
+      globalThis.ResizeObserver = originalObserver;
+    }
+  });
+
+  it("点单元格开右侧抽屉列出该组任务;未选中时不渲染任何占位", async () => {
+    const board = await mountLive(swimlaneElement(reworkFixture()));
+    try {
+      // 旧常驻面板的占位文案已删:不选单元格时页面只有泳道矩阵,没有 dialog。
+      expect(board.html()).not.toContain("选择上方泳道单元格");
+      expect(board.container.querySelector('[role="dialog"]')).toBeNull();
+
+      const cell = [...board.container.querySelectorAll('[data-testid="swimlane-row"] button')].find((button) =>
+        button.textContent?.includes("drawer-a1"),
+      )!;
+      expect(cell).toBeDefined();
+      act(() => cell.click());
+      const dialog = board.container.querySelector('[role="dialog"]');
+      expect(dialog).not.toBeNull();
+      expect(dialog?.getAttribute("aria-label")).toContain("偶发红队列"); // 抽屉定位到该泳道
+      expect(dialog?.textContent).toContain("drawer-a1");
+      expect(dialog?.textContent).not.toContain("drawer-b1"); // 只装被点单元格的任务
+      expect(board.container.querySelector('[data-testid="swimlane-drilldown"]')).not.toBeNull();
+
+      act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
+      expect(board.container.querySelector('[role="dialog"]')).toBeNull(); // Esc 收抽屉
+    } finally {
+      await unmountLive(board);
+    }
+  });
+
+  it("0 计数状态列折叠成带列名 tooltip 的细竖线,不再占整列宽", () => {
+    // reworkFixture 只有 planned 2 条:done/cancelled/unknown 等 7 列全空。
+    const markup = renderToStaticMarkup(swimlaneElement(reworkFixture()));
+    const doneColumn = markup.match(/<div[^>]*data-testid="swimlane-column-done"[^>]*>/u)![0];
+    expect(doneColumn).toContain("w-[3px]");
+    expect(doneColumn).toMatch(/title="[^"]+ · 0"/u);
+    expect(markup).not.toContain('data-testid="swimlane-column-resize-done"'); // 竖线没有宽手柄
+    expect(markup).not.toContain('data-testid="swimlane-status-done-count"'); // 也不再渲染「Done 0」
+    // 模板里 0 计数列是 3px 轨道(planned 230px 在前,空列全部收窄)。
+    expect(markup).toContain("grid-template-columns:180px 230px 3px");
+    // 非空列保持标题行 + 计数徽章(计数显形面不受折叠影响)。
+    expect(markup).toContain('data-testid="swimlane-status-planned-count">2</span>');
+  });
+});
+
 describe("cold terminal collapse in BoardView (W8)", () => {
   const fixture = (): TaskRow[] => [
     makeTask({ taskId: "t_open", title: "card-open", coordinationStatus: "active", lastKnownAt: daysAgo(5) }),
@@ -695,7 +831,7 @@ describe("swimlane default order (W8)", () => {
     expect(orderedIds(markup, ["Lane B", "Lane A", "Lane C"])).toEqual(["Lane B", "Lane A", "Lane C"]);
   });
 
-  it("orders drilldown cards recent-desc with pinned/favorited lifted, per cell", () => {
+  it("orders drilldown cards recent-desc with pinned/favorited lifted, per cell", async () => {
     const drillStatus: SnapshotStatus = "done";
     const tasks = [
       makeTask({
@@ -732,7 +868,8 @@ describe("swimlane default order (W8)", () => {
         lastKnownAt: daysAgo(1),
       }),
     ];
-    const markup = renderToStaticMarkup(
+    // 下钻自 CEO 回修起是右侧 Drawer(mountLive:createRoot 下抽屉随挂载出现)。
+    const board = await mountLive(
       createElement(SwimlaneBoard, {
         columns: BOARD_COLUMNS,
         tasks,
@@ -744,11 +881,16 @@ describe("swimlane default order (W8)", () => {
         onSetPin: noop,
       }),
     );
-    const drilldown = markup.slice(markup.indexOf("drill-pin"));
-    // 下钻面板内:pin 置顶,其余按 lastKnownAt 倒序;active 卡不在 done 单元格里。
-    const order = orderedIds(drilldown, ["drill-pin", "drill-new", "drill-old"]);
-    expect(order).toEqual(["drill-pin", "drill-new", "drill-old"]);
-    expect(drilldown).not.toContain("drill-active");
+    try {
+      const drilldown = board.container.querySelector('[role="dialog"]')?.innerHTML ?? "";
+      expect(drilldown).not.toBe("");
+      // 下钻抽屉内:pin 置顶,其余按 lastKnownAt 倒序;active 卡不在 done 单元格里。
+      const order = orderedIds(drilldown, ["drill-pin", "drill-new", "drill-old"]);
+      expect(order).toEqual(["drill-pin", "drill-new", "drill-old"]);
+      expect(drilldown).not.toContain("drill-active");
+    } finally {
+      await unmountLive(board);
+    }
   });
 });
 
@@ -1167,14 +1309,18 @@ describe("swimlane single-pass grouping (W9)", () => {
     expect(markup).toContain('data-testid="swimlane-status-planned-count">2</span>');
     expect(markup).toContain('data-testid="swimlane-status-active-count">1</span>');
     expect(markup).toContain('data-testid="swimlane-status-in_review-count">1</span>');
-    expect(markup).toContain('data-testid="swimlane-status-done-count">0</span>');
+    // 0 计数列(CEO 回修 §2.4)不再渲染「Done 0」标题行:折叠成带列名 tooltip 的细竖线。
+    const doneColumn = markup.match(/<div[^>]*data-testid="swimlane-column-done"[^>]*>/u)![0];
+    expect(doneColumn).toContain("w-[3px]");
+    expect(doneColumn).toMatch(/title="[^"]+ · 0"/u);
+    expect(markup).not.toContain('data-testid="swimlane-status-done-count"');
     // 泳道行计数仍然可见:lane A 3 张、lane B 1 张。
     expect(markup).toContain("3");
     expect(markup).toContain("1");
   });
 
-  it("keeps lane order and drilldown cells after regrouping", () => {
-    const markup = renderToStaticMarkup(
+  it("keeps lane order and drilldown cells after regrouping", async () => {
+    const board = await mountLive(
       createElement(SwimlaneBoard, {
         columns: BOARD_COLUMNS,
         tasks: laneTasks(),
@@ -1186,12 +1332,17 @@ describe("swimlane single-pass grouping (W9)", () => {
         onSetPin: noop,
       }),
     );
-    // 下钻面板打开时,root-a/planned 单元格的两张卡都渲染;lane B 的卡只出现在
-    // 单元格预览里(预览标题是合法内容),不进下钻面板。
-    expect(markup).toContain("lane-card-p1");
-    expect(markup).toContain("lane-card-p2");
-    const drilldown = markup.slice(markup.indexOf("下钻结果"));
-    expect(drilldown).not.toContain("lane-card-b1");
+    try {
+      // 下钻抽屉打开时,root-a/planned 单元格的两张卡都渲染;lane B 的卡只出现在
+      // 单元格预览里(预览标题是合法内容),不进抽屉。
+      const drilldown = board.container.querySelector('[role="dialog"]');
+      expect(drilldown).not.toBeNull();
+      expect(drilldown!.textContent).toContain("lane-card-p1");
+      expect(drilldown!.textContent).toContain("lane-card-p2");
+      expect(drilldown!.textContent).not.toContain("lane-card-b1");
+    } finally {
+      await unmountLive(board);
+    }
   });
 });
 
@@ -1551,9 +1702,19 @@ describe("swimlane column resize (W11)", () => {
     localStorage.removeItem(WIDTH_KEY);
   });
 
-  const laneResizeFixture = (): TaskRow[] => [
-    makeTask({ taskId: "t_p1", workId: "root-a", workTitle: "Lane A", coordinationStatus: "planned" }),
-  ];
+  // 0 计数列折叠成 3px 竖线(CEO 回修)后,「默认 230px 等宽模板」要覆盖每个
+  // 状态列各放一张卡才成立;折叠轨道本身由回修 describe 单独钉住。
+  const laneResizeFixture = (): TaskRow[] =>
+    BOARD_COLUMNS.map((status) =>
+      status === "archived"
+        ? makeTask({ taskId: "t_arc", workId: "root-a", workTitle: "Lane A", packageDisposition: "archived" })
+        : makeTask({
+            taskId: `t_${status}`,
+            workId: "root-a",
+            workTitle: "Lane A",
+            coordinationStatus: status,
+          }),
+    );
 
   // 泳道行是 windowing(W10):行在挂载后按视口窗口出现,SSR markup 里没有行,
   // 「表头 + 行都带模板」的断言必须走真实 DOM 挂载。

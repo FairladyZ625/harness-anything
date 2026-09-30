@@ -13,6 +13,7 @@ import {
   writeBoardColumnWidths,
   type BoardColumnWidths,
 } from "../board-column-preferences.ts";
+import { Drawer } from "../components/primitives/Drawer.tsx";
 import { SegBar } from "../components/primitives/SegBar.tsx";
 import { StatusTag, STATUS_TONE } from "../components/primitives/StatusTag.tsx";
 import { TitleText } from "../components/primitives/TitleText.tsx";
@@ -28,6 +29,8 @@ const LANE_WIDTH_DEFAULT = 180;
 const LANE_WIDTH_RANGE = { min: 120, max: 480 } as const;
 const STATUS_WIDTH_DEFAULT = 230;
 const STATUS_WIDTH_RANGE = { min: 160, max: 640 } as const;
+/** 0 计数状态列折叠后的轨道宽(标准 §2.4 空列收窄成一条竖线),与列模式竖线同宽。 */
+const EMPTY_STATUS_WIDTH_PX = 3;
 
 /** 泳道行 windowing(W10):估算行高 = 单元格 min-h 62px + py-2.5 + border,实测收敛。 */
 const LANE_ROW_ESTIMATE_PX = 84;
@@ -194,8 +197,8 @@ const LaneCard = memo(function LaneCard({
  * 单条泳道行(windowing 后的挂载单元):结构不变——lane 标签 + 状态格(列集
  * 跟随筛选,task_8928cf1e 起含 archived 桶);外层由 windowing 定位(absolute +
  * translateY),data-index 供 virtualizer 的 measureElement 反查行号,行高实测
- * 收敛(标签换行时行会高于估算)。列模板跟随表头的 gridTemplateColumns(W11):
- * 表头/行同一份宽度偏好。
+ * 收敛(标签最多 2 行,行高仍以实测为准)。列模板跟随表头的 gridTemplateColumns
+ * (W11):表头/行同一份宽度偏好。
  */
 function LaneRow({
   lane,
@@ -205,7 +208,6 @@ function LaneRow({
   columns,
   measureRef,
   model,
-  groupBy,
   activeCell,
   highlighted,
   onPickCell,
@@ -217,11 +219,11 @@ function LaneRow({
   columns: readonly SnapshotStatus[];
   measureRef: (element: Element | null) => void;
   model: SwimlaneModel;
-  groupBy: LaneGroupBy;
   activeCell: ActiveCell | null;
   highlighted: string | null;
   onPickCell: (cell: ActiveCell) => void;
 }) {
+  const label = model.labels.get(lane) ?? lane;
   return (
     <div
       data-index={index}
@@ -230,11 +232,13 @@ function LaneRow({
       className="absolute inset-x-0 top-0 grid items-stretch gap-2 border-b border-border py-2.5"
       style={{ gridTemplateColumns: gridTemplate, transform: `translateY(${offset}px)` }}
     >
-      <div className="flex items-baseline gap-2 self-start px-1.5 pt-1.5">
-        <span className="font-mono ui-prose font-semibold text-text" title={groupBy === "root" ? lane : undefined}>
-          {model.labels.get(lane) ?? lane}
-        </span>
-        <span className="font-mono ui-body text-text-faint">{model.laneSizes.get(lane) ?? 0}</span>
+      {/* 泳道标签走 TitleText(标准 §2.3):正文sans字体、最多 2 行 clamp、
+          完整标签放 title 悬停,计数右对齐——不再等宽字体整段折断。 */}
+      <div className="flex items-start gap-2 self-start px-1.5 pt-1.5">
+        <p className="min-w-0 flex-1 line-clamp-2 ui-body leading-snug text-text" title={label}>
+          <TitleText title={label} />
+        </p>
+        <span className="shrink-0 font-mono ui-body text-text-faint">{model.laneSizes.get(lane) ?? 0}</span>
       </div>
       {columns.map((status) => {
         const key = cellKey(lane, status);
@@ -275,7 +279,7 @@ function LaneCell({
   return (
     <button
       onClick={onPick}
-      title="在下方查看下钻任务"
+      title="点开右侧抽屉查看该组任务"
       className={`min-h-[62px] w-full rounded-md border px-3 py-2 text-left transition ${
         selected
           ? "border-accent bg-surface-raised"
@@ -291,65 +295,55 @@ function LaneCell({
   );
 }
 
-function DrilldownPanel({
+/**
+ * 泳道下钻抽屉(标准 §2.4 点单元格开 Drawer):点单元格在右侧抽屉里列出该组
+ * 任务,未选中时抽屉不渲染任何占位(空了就消失)。抽屉内序与列表布局同构:
+ * lastKnownAt 倒序打底,pin → 收藏稳定置顶(W8),终态沉底(§2.4)。
+ */
+function DrilldownDrawer({
   active,
   tasks,
-  groupBy,
   laneLabel,
   onSelect,
   favorites,
   onToggleFavorite,
   onSetPin,
+  onClose,
 }: {
-  active: ActiveCell | null;
+  active: ActiveCell;
   tasks: readonly TaskRow[];
-  groupBy: LaneGroupBy;
   laneLabel: string;
   onSelect: (id: string) => void;
   favorites: ReadonlySet<string>;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
+  onClose: () => void;
 }) {
-  if (!active) {
-    return (
-      <section className="flex min-h-0 flex-1 flex-col bg-bg px-4 py-3">
-        <p className="ui-meta text-text-faint">选择上方泳道单元格后，在这里查看该组任务。</p>
-      </section>
-    );
-  }
-
-  // 下钻默认序(W8):lastKnownAt 倒序打底,pin → 收藏稳定置顶,与列模式同构;
-  // 终态沉底(标准 §2.4),打开时先看到仍在推进的行。
   const sorted = sortByRecentThenPinAndFavoritesFirst(tasks, favorites).sort(
     (a, b) => Number(isTerminal(a)) - Number(isTerminal(b)),
   );
-
   return (
-    <section className="flex min-h-0 flex-1 flex-col bg-bg px-4 py-3">
-      <div className="mb-3 flex flex-wrap items-baseline gap-2">
-        <span className="font-mono ui-meta uppercase tracking-wide text-text-faint">下钻结果</span>
-        <span className="font-mono ui-prose font-semibold text-text">
-          {groupBy}: {laneLabel}
-        </span>
-        <StatusTag status={active.status} />
-        <span className="font-mono ui-body text-text-faint">{tasks.length} tasks</span>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-auto pr-1">
-        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2 2xl:grid-cols-3">
-          {sorted.map((t) => (
-            <LaneCard
-              key={t.taskId}
-              task={t}
-              onSelect={onSelect}
-              isFavorite={favorites.has(t.taskId)}
-              onToggleFavorite={onToggleFavorite}
-              onSetPin={onSetPin}
-            />
-          ))}
+    <Drawer open onClose={onClose} ariaLabel={`${laneLabel} · ${STATUS_META[active.status].label}`}>
+      <div className="flex flex-col gap-3" data-testid="swimlane-drilldown">
+        <div className="flex flex-wrap items-baseline gap-2">
+          <span className="min-w-0 flex-1 truncate ui-prose font-semibold text-text" title={laneLabel}>
+            {laneLabel}
+          </span>
+          <StatusTag status={active.status} />
+          <span className="font-mono ui-body text-text-faint">{tasks.length}</span>
         </div>
+        {sorted.map((task) => (
+          <LaneCard
+            key={task.taskId}
+            task={task}
+            onSelect={onSelect}
+            isFavorite={favorites.has(task.taskId)}
+            onToggleFavorite={onToggleFavorite}
+            onSetPin={onSetPin}
+          />
+        ))}
       </div>
-    </section>
+    </Drawer>
   );
 }
 
@@ -393,6 +387,9 @@ export function SwimlaneBoard({
   // 视口 ± overscan 后 DOM 行数与泳道总量解耦。行高不定(lane 标签换行),
   // estimateSize 起步、measureElement 实测收敛;sticky 表头在滚动容器内、
   // 位于行容器上方,scrollMargin = 表头实测高度让可视窗口换算进行坐标系。
+  // 行容器在文档流里位于表头之后,而 virtual item 的 start 含 scrollMargin,
+  // 渲染偏移要减回去——否则第一条泳道被推下整整一个表头高(空块,基线
+  // §1.5 反例),这是官方 sticky-header 模式的固定拼法。
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLDivElement | null>(null);
   const [headerHeight, setHeaderHeight] = useState(0);
@@ -411,8 +408,9 @@ export function SwimlaneBoard({
     getItemKey: (index) => lanes[index],
     scrollMargin: headerHeight,
   });
-  // 泳道列宽偏好(W11):泳道标签列 + 7 个状态列各一个数字,默认 180/230 等宽;
-  // 表头是唯一手柄面(sticky,滚动时仍可达),行模板跟着表头走。
+  // 泳道列宽偏好(W11):泳道标签列 + 各状态列一个数字,默认 180/230 等宽;
+  // 表头是唯一手柄面(sticky,滚动时仍可达),行模板跟着表头走;0 计数列
+  // 折叠成 3px 轨道后不放手柄(竖线没有可调的面)。
   const [widths, setWidths] = useState<BoardColumnWidths>(() => readBoardColumnWidths(boardColumnPreferenceStorage()));
   const resizeColumn = useCallback(
     (key: string, px: number) => {
@@ -431,8 +429,13 @@ export function SwimlaneBoard({
     [widths],
   );
   const laneWidth = widths.swimlane[LANE_COLUMN_KEY] ?? LANE_WIDTH_DEFAULT;
+  // 0 计数状态列折叠成 3px 轨道(标准 §2.4):表头渲染细竖线,行内格子本就全空。
+  const statusWidth = (status: SnapshotStatus): number => {
+    if ((model.totals.get(status) ?? 0) === 0) return EMPTY_STATUS_WIDTH_PX;
+    return widths.swimlane[status] ?? STATUS_WIDTH_DEFAULT;
+  };
   const gridStyle = {
-    gridTemplateColumns: [laneWidth, ...columns.map((status) => widths.swimlane[status] ?? STATUS_WIDTH_DEFAULT)]
+    gridTemplateColumns: [laneWidth, ...columns.map((status) => statusWidth(status))]
       .map((px) => `${Math.round(px)}px`)
       .join(" "),
   };
@@ -450,7 +453,7 @@ export function SwimlaneBoard({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div ref={scrollRef} data-testid="swimlane-scroll" className="max-h-[48vh] overflow-auto border-b border-border">
+      <div ref={scrollRef} data-testid="swimlane-scroll" className="min-h-0 flex-1 overflow-auto">
         <div className="min-w-max px-4 pb-4">
           <div
             ref={headerRef}
@@ -472,6 +475,20 @@ export function SwimlaneBoard({
             </div>
             {columns.map((status) => {
               const meta = STATUS_META[status];
+              const total = model.totals.get(status) ?? 0;
+              // 0 计数状态列折叠成细竖线(标准 §2.4):列名与计数进 tooltip,
+              // 不渲染标题行/SegBar/宽手柄,行内格子在 3px 轨道里本就为空。
+              if (total === 0) {
+                return (
+                  <div
+                    key={status}
+                    data-testid={`swimlane-column-${status}`}
+                    title={`${meta.label} · 0`}
+                    className="w-[3px] shrink-0 self-stretch overflow-hidden rounded-full transition-colors"
+                    style={{ background: `color-mix(in oklch, ${meta.color} 45%, transparent)` }}
+                  />
+                );
+              }
               return (
                 <div key={status} className="relative flex flex-col gap-1 px-1.5 pb-0.5">
                   <ColumnResizeHandle
@@ -487,10 +504,10 @@ export function SwimlaneBoard({
                   <div className="flex items-baseline gap-1.5">
                     <span className="ui-body font-semibold">{meta.label}</span>
                     <span className="font-mono ui-body text-text-faint" data-testid={`swimlane-status-${status}-count`}>
-                      {model.totals.get(status) ?? 0}
+                      {total}
                     </span>
                   </div>
-                  <SegBar counts={{ [status]: model.totals.get(status) ?? 0 }} />
+                  <SegBar counts={{ [status]: total }} />
                 </div>
               );
             })}
@@ -506,12 +523,11 @@ export function SwimlaneBoard({
                   key={row.key}
                   lane={lanes[row.index]}
                   index={row.index}
-                  offset={row.start}
+                  offset={row.start - laneVirtualizer.options.scrollMargin}
                   gridTemplate={gridStyle.gridTemplateColumns}
                   columns={columns}
                   measureRef={laneVirtualizer.measureElement}
                   model={model}
-                  groupBy={groupBy}
                   activeCell={activeCell}
                   highlighted={highlight}
                   onPickCell={setActiveCell}
@@ -524,16 +540,18 @@ export function SwimlaneBoard({
           )}
         </div>
       </div>
-      <DrilldownPanel
-        active={activeCell}
-        tasks={activeTasks}
-        groupBy={groupBy}
-        laneLabel={activeCell ? (model.labels.get(activeCell.lane) ?? activeCell.lane) : ""}
-        onSelect={onSelect}
-        favorites={favorites}
-        onToggleFavorite={onToggleFavorite}
-        onSetPin={onSetPin}
-      />
+      {activeCell !== null && (
+        <DrilldownDrawer
+          active={activeCell}
+          tasks={activeTasks}
+          laneLabel={model.labels.get(activeCell.lane) ?? activeCell.lane}
+          onSelect={onSelect}
+          favorites={favorites}
+          onToggleFavorite={onToggleFavorite}
+          onSetPin={onSetPin}
+          onClose={() => setActiveCell(null)}
+        />
+      )}
     </div>
   );
 }
