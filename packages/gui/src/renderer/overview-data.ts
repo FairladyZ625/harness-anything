@@ -3,9 +3,8 @@ import type { CiObservatoryRead } from "../api/renderer-dto.ts";
 import type { AgentRuntimeOverviewResult } from "@harness-anything/daemon/protocol";
 import { harnessClient } from "./api-client.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "./agent-runtime-client.ts";
-import { cadenceEventOf } from "./model/cadence.ts";
+import { cadenceEventOf, type CadenceFeedEvent } from "./model/cadence.ts";
 import { observeTailRequest } from "./daemon-observe-model.ts";
-import type { RecentEventSource } from "./views/overview-model.ts";
 
 /**
  * 总览(S3)自持的两条读面 + 复用的 runtime overview 读:都只挂在总览页挂载期间,
@@ -33,16 +32,16 @@ const eventsQueryKeys = {
   recent: (repoId: string) => ["overview-recent-events", repoId] as const,
 };
 
-/** 最近变化:一页 history(最新端),不跟流——总览不做事件 follow 循环(cadence 页才做)。 */
+/** 最近变化:一页 history(最新端,升序),不跟流——总览不做事件 follow 循环(cadence 页才做)。
+ * 事件页只喂给与工作页共用的 workDayGroups 收束;runtime_* 等内部事件不产步骤,不进总览。 */
 export function useOverviewRecentEvents(repoId: string | null) {
   const selectedRepoId = repoId ?? "unselected";
   return useQuery({
     queryKey: eventsQueryKeys.recent(selectedRepoId),
     queryFn: async () => {
       const page = await harnessClient.tailObservability(observeTailRequest(selectedRepoId, "events", "history", null));
-      if (page.status === "unavailable") return [] as readonly RecentEventSource[];
-      const events = page.items.map((item) => cadenceEventOf(item));
-      return events as readonly RecentEventSource[];
+      if (page.status === "unavailable") return [] as readonly CadenceFeedEvent[];
+      return page.items.map((item) => cadenceEventOf(item)) as readonly CadenceFeedEvent[];
     },
     enabled: repoId !== null,
     staleTime: 30_000,

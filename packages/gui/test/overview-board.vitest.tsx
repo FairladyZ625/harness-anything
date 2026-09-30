@@ -185,6 +185,14 @@ const WORKS: WorkIndexRead = {
   warnings: [],
 };
 
+const WORKS_EMPTY: WorkIndexRead = { ...WORKS, works: [] };
+
+const TITLES = new Map([
+  ["task/task_w1", "代码质量长期检验"],
+  ["task/task_r1", "网关读面加缓存"],
+  ["task/task_r2", "修复 401 重定向循环"],
+]);
+
 let root: Root | null = null;
 let host: HTMLElement | null = null;
 
@@ -207,6 +215,7 @@ function mount(props: Partial<Parameters<typeof OverviewView>[0]> = {}): HTMLEle
             repoId: "probe-repo",
             agenda: agenda(),
             works: WORKS,
+            titles: TITLES,
             workspaceSummary: SUMMARY,
             health: HEALTH,
             onNavigateEntity: noop,
@@ -225,6 +234,16 @@ function mount(props: Partial<Parameters<typeof OverviewView>[0]> = {}): HTMLEle
 }
 
 const textOf = (element: Element | null | undefined) => element?.textContent ?? "";
+
+/** 自持读面(queryFn 走微任务链)落定的确定性等待:谓词成立即停,上限轮数内不成立即原样返回,
+ * 由调用方的断言报红。不用假定时器(react-query 调度依赖真定时器)。 */
+async function flushUntil(predicate: () => boolean, rounds = 200): Promise<void> {
+  for (let round = 0; round < rounds && !predicate(); round += 1) {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
+}
 
 describe("总览区域板(S3)", () => {
   it("顶栏只放系统状态与全局搜索:状态点 + ⌘K 搜索入口,无仓库名大标题", () => {
@@ -319,6 +338,102 @@ describe("总览区域板(S3)", () => {
     act(() => root?.unmount());
   });
 
+  it("空了就消失:行数为 0 的区域即使 daemon 给了最小权重也不落位(返工 1 第 3 点)", () => {
+    // daemon 的 attentionRegionWeights 对空区域也给最小权重(mine 1.5、stuck 3、run 3、
+    // review 3、works 8…)——透传会让「工作 0」「阻塞与停滞 0」占成大框;视图层必须归 0。
+    const container = mount({
+      agenda: agenda({
+        attentionItems: [agenda().attentionItems[0]!], // 只留 mine 行,stuck 行清空
+        stalled: [],
+        regionWeights: { mine: 15.4, stuck: 3, run: 3, review: 3, queue: 0, recent: 4, works: 8 },
+      }),
+      works: WORKS_EMPTY,
+    });
+    expect(container.querySelector('[data-testid="overview-region-stuck"]')).toBeNull();
+    expect(container.querySelector('[data-testid="overview-region-run"]')).toBeNull();
+    expect(container.querySelector('[data-testid="overview-region-review"]')).toBeNull();
+    expect(container.querySelector('[data-testid="overview-region-recent"]')).toBeNull();
+    expect(container.querySelector('[data-testid="overview-region-works"]')).toBeNull();
+    // 有内容的区域不受影响:mine 还有一行,照常落位。
+    const mine = container.querySelector('[data-testid="overview-region-mine"]')!;
+    expect(textOf(mine)).toContain("边缘 RBAC 设计裁决");
+    act(() => root?.unmount());
+  });
+
+  it("空行区域不可放大成空壳:点 slim 的等我处理不打开放大层(返工 1 第 4 点)", () => {
+    const container = mount({
+      agenda: agenda({
+        attentionItems: [],
+        awaitingYou: [],
+        regionWeights: { mine: 1.5, stuck: 3, run: 3, review: 3, queue: 0, recent: 4, works: 8 },
+      }),
+      works: WORKS_EMPTY,
+    });
+    // mine 空集收成一行「清空」(原型 v4 slim 样张,「一切正常」的唯一保留形态)。
+    const mine = container.querySelector('[data-testid="overview-region-mine"]')!;
+    expect(textOf(mine)).toContain("清空");
+    act(() => (mine.querySelector("section") as HTMLElement).click());
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    act(() => root?.unmount());
+  });
+
+  it("最近变化与工作页同一派生:按任务收束成一行,原始事件类型名不进总览(返工 1 第 2 点)", async () => {
+    const item = (patch: Record<string, unknown>) => ({
+      eventId: `evt-${Math.random().toString(36).slice(2, 8)}`,
+      occurredAt: "2026-09-29T10:00:00.000Z",
+      workspaceRevision: 1,
+      type: "execution_started",
+      taskId: "task_r1",
+      payload: {},
+      ...patch,
+    });
+    vi.stubGlobal("harness", {
+      request: (method: string) =>
+        method === "tailObservability"
+          ? Promise.resolve({
+              schema: "daemon.observe-tail/v3",
+              ok: true,
+              repoId: "probe-repo",
+              mode: "local",
+              kind: "events",
+              direction: "history",
+              status: "ready",
+              items: [
+                // runtime_* / documents_written 这类内部事件不产步骤,不进总览。
+                item({ type: "runtime_session_started", taskId: "task_r1" }),
+                item({ type: "documents_written", taskId: "task_r1", payload: { documentClaims: [] } }),
+                item({ type: "execution_started", occurredAt: "2026-09-29T10:05:00.000Z" }),
+                item({ type: "execution_submitted", occurredAt: "2026-09-29T10:20:00.000Z" }),
+                item({
+                  type: "review_recorded",
+                  occurredAt: "2026-09-29T10:30:00.000Z",
+                  payload: { review: { verdict: "approved" } },
+                }),
+                item({ type: "task_completed", taskId: "task_r2", occurredAt: "2026-09-29T10:40:00.000Z" }),
+              ],
+              historyCursor: null,
+              liveCursor: null,
+              sourceCursor: null,
+              done: true,
+            })
+          : Promise.reject(new Error("no bridge in test")),
+    });
+    const container = mount({ works: WORKS_EMPTY });
+    await flushUntil(() => container.querySelector('[data-testid="overview-region-recent"]') !== null);
+    const recent = container.querySelector('[data-testid="overview-region-recent"]')!;
+    // 按任务收束成一行:任务标题 + 箭头串起的步骤(与工作页 DayDigest 同一派生)。
+    expect(textOf(recent)).toContain("网关读面加缓存");
+    expect(textOf(recent)).toContain("提交");
+    expect(textOf(recent)).toContain("评审通过");
+    expect(textOf(recent)).toContain("修复 401 重定向循环");
+    expect(textOf(recent)).toContain("完成");
+    // 原始事件类型名(标准 §8 反例)一个都不出现。
+    for (const raw of ["runtime_session_started", "documents_written", "execution_submitted", "review_recorded"]) {
+      expect(textOf(recent)).not.toContain(raw);
+    }
+    act(() => root?.unmount());
+  });
+
   it("main CI 红:CI 区域出现并压在最前(左上),顶栏点名红", async () => {
     vi.stubGlobal("harness", {
       request: (method: string) =>
@@ -353,12 +468,8 @@ describe("总览区域板(S3)", () => {
           : Promise.reject(new Error("no bridge in test")),
     });
     const container = mount();
-    // CI 读面异步落定后区域才落位:冲若干轮微任务(react-query 的取数链不止一跳)。
-    for (let round = 0; round < 10; round += 1) {
-      await act(async () => {
-        await Promise.resolve();
-      });
-    }
+    // CI 读面异步落定后区域才落位:等到 CI 区域出现再断言落位顺序。
+    await flushUntil(() => container.querySelector('[data-testid="overview-region-ci"]') !== null);
     const board = container.querySelector('[data-testid="overview-board"]')!;
     expect((board.firstElementChild as HTMLElement).dataset.region).toBe("ci");
     const ci = container.querySelector('[data-testid="overview-region-ci"]')!;

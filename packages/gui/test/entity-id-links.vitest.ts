@@ -509,6 +509,7 @@ const SYSTEM_HEALTH = deriveRuntimeHealth({
 const runtimeTasks = [{ taskId: TASK_A_ID, title: "G10 探针任务甲" }];
 
 /** 工作索引一页:总览「工作」区域与死 ID 扫描共用。 */
+const FIXTURE_TASK_TITLES = new Map([[`task/${TASK_A_ID}`, "G10 探针任务甲"]]);
 const FIXTURE_WORK_INDEX = {
   schema: "daemon.work-index/v1" as const,
   ok: true as const,
@@ -615,6 +616,7 @@ const VIEW_RENDERERS = {
       repoId: REPO_ID,
       agenda: FIXTURE_AGENDA,
       works: FIXTURE_WORK_INDEX,
+      titles: FIXTURE_TASK_TITLES,
       workspaceSummary: FIXTURE_WORKSPACE_SUMMARY,
       health: SYSTEM_HEALTH,
       onNavigateEntity: noop,

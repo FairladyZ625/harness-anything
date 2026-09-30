@@ -18,12 +18,16 @@ import { layoutRegions, regionNeed, regionNeedRelaxed, type RegionBox, type Regi
  * S1 的区域权重决定,布局照原型 `layout()`(overview-layout.ts 的纯函数移植);点区域或
  * 行原位放大(FocusLayer 与 Region 共享 layoutId,Esc/点背景收回);顶栏只放系统状态与
  * 全局搜索。数据全部来自已挂载读面:agenda(attentionItems/regionWeights)、工作索引、
- * runtime overview、CI 观察窗与事件一页(overview-data),页面不另发请求。
+ * 常驻任务列表的标题索引、runtime overview、CI 观察窗与事件一页(overview-data),
+ * 页面不另发请求。空了就消失(标准 §1.5):行数为 0 的区域权重归 0 不落位,唯一例外是
+ * mine 空集收成 slim 一行「清空」(v4 样张);最近变化与工作页 DayDigest 同一派生
+ * (workDayGroups)与同一原语,按任务收束成一行,原始事件类型名不进总览。
  */
 export function OverviewView({
   repoId,
   agenda,
   works,
+  titles,
   workspaceSummary,
   health,
   onNavigateEntity,
@@ -37,6 +41,8 @@ export function OverviewView({
   readonly agenda: AgendaSuccess | undefined;
   /** daemon 工作索引(repo.works.index):「工作」区域的行。 */
   readonly works: WorkIndexRead | undefined;
+  /** `task/<id>` → 标题(App 常驻任务列表投影);最近变化的路径行显示任务标题。 */
+  readonly titles: ReadonlyMap<string, string>;
   readonly workspaceSummary: WorkspaceSummaryRead;
   /** 侧栏系统运行区同一份派生(App 折算,见 model/runtime-health.ts);这里喂顶栏状态。 */
   readonly health: RuntimeHealth;
@@ -63,6 +69,7 @@ export function OverviewView({
       buildOverviewRegions({
         agenda,
         works,
+        titles,
         runtime: runtimeQuery.data,
         ci: ciQuery.data,
         events: eventsQuery.data ?? [],
@@ -88,6 +95,7 @@ export function OverviewView({
     [
       agenda,
       works,
+      titles,
       runtimeQuery.data,
       ciQuery.data,
       eventsQuery.data,
@@ -114,7 +122,7 @@ export function OverviewView({
 
   const layout = useMemo(() => {
     if (boardSize === null) return null;
-    const weights = overviewWeightsOf(agenda, ciQuery.data),
+    const weights = overviewWeightsOf(agenda, ciQuery.data, regions),
       need: Partial<Record<RegionKey, number>> = {},
       relaxed: Partial<Record<RegionKey, number>> = {};
     for (const key of Object.keys(weights) as RegionKey[]) {
@@ -133,8 +141,11 @@ export function OverviewView({
 
   const openFocus = useCallback(
     (key: RegionKey, rowId?: string) => {
+      const spec = regions[key];
+      // 没有行的区域不放大(返工 1 第 4 点):空壳不进聚焦层,slim 的 mine 同理。
+      if (spec === undefined || spec.rowIds.length === 0) return;
       setSelected((current) => {
-        const next = rowId ?? regions[key]?.rowIds[0];
+        const next = rowId ?? spec.rowIds[0];
         return next === undefined ? current : { ...current, [key]: next };
       });
       setFocus(key);
@@ -210,8 +221,10 @@ export function OverviewView({
                 const spec = regions[key],
                   box = layout.boxes[key];
                 if (spec === undefined || box === undefined) return null;
-                // slim(mine 清空):高度不足 60px 时只留标题行(标准 §1.5:空了就收成一行)。
-                const slim = layout.slim.has(key);
+                // slim(mine 清空):高度不足 60px 时只留标题行(标准 §1.5:空了就收成一行,
+                // 标题行的「清空」状态标签保留——原型 v4 的 slim 样张)。
+                const slim = layout.slim.has(key),
+                  zoomable = spec.rowIds.length > 0;
                 return (
                   <div
                     key={key}
@@ -225,14 +238,20 @@ export function OverviewView({
                     <Region
                       focusId={key}
                       title={spec.title}
-                      tag={slim ? undefined : spec.tag}
+                      tag={spec.tag}
                       big={spec.big}
                       bigTone={spec.bigTone}
                       edge={spec.edge}
                       footer={slim ? undefined : spec.footer}
-                      onOpen={() => openFocus(key)}
+                      onOpen={zoomable ? () => openFocus(key) : undefined}
                     >
-                      {slim ? null : (
+                      {slim ? null : spec.renderList !== undefined ? (
+                        spec.renderList({
+                          selectedId: null,
+                          onSelect: (id) => openFocus(key, id),
+                          inFocus: false,
+                        })
+                      ) : (
                         <>
                           {spec.top}
                           {spec.rowIds.map((id) =>
@@ -240,6 +259,7 @@ export function OverviewView({
                               relaxed: layout.tall.has(key),
                               selected: false,
                               onSelect: () => openFocus(key, id),
+                              inFocus: false,
                             }),
                           )}
                         </>
@@ -264,8 +284,12 @@ export function OverviewView({
           onSelect={(id) => setSelected((current) => ({ ...current, [focus]: id }))}
           onClose={() => setFocus(null)}
           list={
-            focusSpec.rowIds.length === 0 ? (
-              <p className="px-4 py-4 ui-meta text-text-faint">{t("views.overviewView.focusEmpty")}</p>
+            focusSpec.renderList !== undefined ? (
+              focusSpec.renderList({
+                selectedId: focusSelected,
+                onSelect: (id) => setSelected((current) => ({ ...current, [focus!]: id })),
+                inFocus: true,
+              })
             ) : (
               <>
                 {focusSpec.top}
@@ -274,6 +298,7 @@ export function OverviewView({
                     relaxed: false,
                     selected: focusSelected === id,
                     onSelect: () => setSelected((current) => ({ ...current, [focus!]: id })),
+                    inFocus: true,
                   }),
                 )}
               </>
@@ -298,21 +323,28 @@ export function OverviewView({
   );
 }
 
-/** S1 区域权重 + CI 红时 60(绿时 0,区域不落位)。 */
+/**
+ * S1 区域权重 → 落位权重:main CI 红时 60(绿时 0,区域不落位)。空了就消失(标准 §1.5):
+ * 行数为 0 的区域权重归 0 不落位——daemon 对空区域也给最小权重(mine 1.5、stuck 3、
+ * works 8…),直接透传会让空区域占大框;mine 是唯一例外,空集时保持 1.5 收成 slim 一行
+ * 「清空」(原型 v4 的样张,表达「一切正常」;与 daemon 空集公式同值)。
+ */
 function overviewWeightsOf(
   agenda: AgendaSuccess | undefined,
   ci: CiObservatoryRead | undefined,
+  regions: Partial<Record<RegionKey, OverviewRegionSpec>>,
 ): Record<RegionKey, number> {
   const base = agenda?.regionWeights;
+  const empty = (key: RegionKey): boolean => (regions[key]?.rowIds.length ?? 0) === 0;
   return {
     ci: mainCiFailure(ci) === null ? 0 : 60,
-    mine: base?.mine ?? 0,
-    stuck: base?.stuck ?? 0,
-    run: base?.run ?? 0,
-    review: base?.review ?? 0,
-    queue: base?.queue ?? 0,
-    recent: base?.recent ?? 0,
-    works: base?.works ?? 0,
+    mine: empty("mine") ? 1.5 : (base?.mine ?? 0),
+    stuck: empty("stuck") ? 0 : (base?.stuck ?? 0),
+    run: empty("run") ? 0 : (base?.run ?? 0),
+    review: empty("review") ? 0 : (base?.review ?? 0),
+    queue: empty("queue") ? 0 : (base?.queue ?? 0),
+    recent: empty("recent") ? 0 : (base?.recent ?? 0),
+    works: empty("works") ? 0 : (base?.works ?? 0),
   };
 }
 

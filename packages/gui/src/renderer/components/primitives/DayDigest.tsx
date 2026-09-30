@@ -12,12 +12,21 @@ export interface DayPath {
   readonly name: string;
   readonly steps: readonly DayPathStep[];
   readonly onClick?: () => void;
+  /** 外部列表(如放大层)的选中态,与 DenseRow 同一高亮语汇;平铺场景不传。 */
+  readonly selected?: boolean;
 }
 
 /**
  * 按天收束的进展(标准 §4):一句话摘要,点开是每个任务一行的路径,
  * StatusTag 用箭头串起(收束,不堆叠——标准 §1)。
  */
+
+/** 选中行的高亮与 DenseRow.selected 同一语汇(左侧 2px 强调竖线 + 轻底)。 */
+function pathRowCls(selected: boolean | undefined): string {
+  return `flex items-baseline gap-2 py-[3px] ${
+    selected === true ? "bg-accent/10 shadow-[inset_2px_0_0_var(--color-accent)]" : ""
+  }`;
+}
 export function DayDigest({
   day,
   summary,
@@ -67,7 +76,7 @@ export function DayDigest({
             );
             if (path.onClick === undefined) {
               return (
-                <div key={index} className="flex items-baseline gap-2 py-[3px]">
+                <div key={index} data-selected={path.selected || undefined} className={pathRowCls(path.selected)}>
                   {content}
                 </div>
               );
@@ -77,7 +86,8 @@ export function DayDigest({
                 key={index}
                 type="button"
                 onClick={path.onClick}
-                className="group flex w-full cursor-pointer items-baseline gap-2 py-[3px] text-left"
+                data-selected={path.selected || undefined}
+                className={`group w-full cursor-pointer text-left ${pathRowCls(path.selected)}`}
               >
                 {content}
               </button>

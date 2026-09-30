@@ -3,7 +3,6 @@ import type {
   AgendaAwaitsRow,
   AgendaDecisionRow,
   AgendaExecutionRow,
-  AgendaRegionWeights,
   AgendaTaskRow,
   AgendaAttentionItem,
   CiObservatoryRead,
@@ -11,7 +10,9 @@ import type {
 } from "../../api/renderer-dto.ts";
 import type { AgentRuntimeOverviewResult } from "@harness-anything/daemon/protocol";
 import type { AgendaSuccess } from "../api-client.ts";
+import type { CadenceFeedEvent } from "../model/cadence.ts";
 import type { SnapshotStatus } from "../model/types";
+import { workDayGroups, type WorkDayGroup } from "../model/workspace-narrative.ts";
 
 /**
  * 总览(S3)的纯派生层:从已挂载的读面(repo.agenda.read 的 attentionItems/regionWeights、
@@ -125,26 +126,6 @@ export function mainCiFailure(ci: CiObservatoryRead | undefined): {
   return { job: latest.job, occurredAt: latest.occurredAt, failing };
 }
 
-/** CI 区域权重:红时 60(压过一切常规区域),绿时 0(不落位)。 */
-export const CI_REGION_WEIGHT = 60;
-
-export function overviewWeights(
-  weights: AgendaRegionWeights | undefined,
-  ci: CiObservatoryRead | undefined,
-): {
-  readonly mine: number;
-  readonly stuck: number;
-  readonly run: number;
-  readonly review: number;
-  readonly queue: number;
-  readonly recent: number;
-  readonly works: number;
-  readonly ci: number;
-} {
-  const base = weights ?? { mine: 0, stuck: 0, run: 0, review: 0, queue: 0, recent: 0, works: 0 };
-  return { ...base, ci: mainCiFailure(ci) === null ? 0 : CI_REGION_WEIGHT };
-}
-
 /** 执行中区域:live 会话一行(who = kind · model,what = 关联任务标题)。 */
 export interface RunRow {
   readonly runtimeSessionId: string;
@@ -256,40 +237,19 @@ export function pinnedDispatchable(agenda: AgendaSuccess | undefined): readonly 
   return (agenda?.dispatchable ?? []).filter((row) => row.pinned);
 }
 
-/** 最近变化:observe.tail 事件页 → 一行一事件(时间、类型、摘要、可跳实体)。 */
-export interface RecentEventRow {
-  readonly key: string;
-  readonly at: string;
-  readonly type: string;
-  readonly summary: string;
-  readonly ref: string | null;
-}
-
-export type RecentEventSource = {
-  readonly key: string;
-  readonly at: string | null;
-  readonly type: string;
-  readonly summary: string | null;
-  readonly taskId: string | null;
-  readonly decisionId: string | null;
-};
-
-export function recentEventRows(events: readonly RecentEventSource[], limit = 16): readonly RecentEventRow[] {
-  return events
-    .filter((event) => event.at !== null)
-    .slice(0, limit)
-    .map((event) => ({
-      key: event.key,
-      at: event.at!,
-      type: event.type,
-      summary: event.summary ?? event.type,
-      ref:
-        event.taskId !== null
-          ? `task/${event.taskId}`
-          : event.decisionId !== null
-            ? `decision/${event.decisionId}`
-            : null,
-    }));
+/** 最近变化:与工作页 DayDigest 同一派生(model/workspace-narrative.ts 的 workDayGroups)
+ * ——按天收束、每任务一条路径;只有对人有意义的步骤(提交/评审结论/打回/完成/开工/派发/
+ * 事实/门禁/重开)进步骤,runtime_* 与 documents_written 这类内部事件不在派生的 curated
+ * 集里,天然不进总览(标准 §1.2:原始事件流只在检修页)。这里只做总览侧的窗口裁剪:
+ * 丢没有可收束步骤的天(空了就消失,标准 §1.5),天序倒排(新的一天在前)。 */
+export function recentDayGroups(input: {
+  readonly events: readonly CadenceFeedEvent[];
+  readonly titles: ReadonlyMap<string, string>;
+  readonly dateKeyOf: (iso: string) => string | null;
+}): readonly WorkDayGroup[] {
+  return workDayGroups(input)
+    .filter((group) => group.paths.length > 0)
+    .reverse();
 }
 
 /** 评审与合并区域的行:打回/待初审/任务评审中/决策评审中/待点头,按读面分组顺序。 */

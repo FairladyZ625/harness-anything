@@ -70,6 +70,7 @@ import { initialLocation, resetViewHistory } from "./navigation/viewHistoryStora
 import type { ViewId } from "./navigation/viewHistory.ts";
 import { navLabel } from "./navigation/navConfig.tsx";
 import { useWorkspaceSummaryQuery } from "./workspace-summary-data.ts";
+import { workspaceTitleIndex } from "./model/workspace-readable.ts";
 import { WorkspaceSummaryPending } from "./components/WorkspaceSummaryPending.tsx";
 import { WorkView } from "./views/WorkView.tsx";
 import { WorkspaceView } from "./views/WorkspaceView.tsx";
@@ -124,6 +125,20 @@ function AppShell() {
     activeRepoId !== null && tasksQuery.data?.status !== "ready",
   );
   const workspaceSummaryQuery = useWorkspaceSummaryQuery(activeRepoId);
+  // `task/<id>` → 标题索引(常驻任务列表投影,不另发读面):总览最近变化的路径行用它
+  // 显示任务标题,与工作页的标题索引同一 helper。
+  const taskTitles = useMemo(
+    () =>
+      workspaceTitleIndex({
+        tasks: (tasksQuery.data?.rows ?? []).map(({ taskId, snapshot }) => ({
+          taskId,
+          title: snapshot.task?.title ?? "",
+        })),
+        facts: [],
+        decisions: [],
+      }),
+    [tasksQuery.data],
+  );
 
   // 侧栏左下角系统运行区的第一行输入(原左上角状态栏,task_b2fb4bc7):
   // 全部来自上面两条既有查询,不加第二条读路。
@@ -541,6 +556,7 @@ function AppShell() {
                     repoId={projectId}
                     agenda={agendaQuery.data}
                     works={workIndexQuery.data}
+                    titles={taskTitles}
                     workspaceSummary={workspaceSummaryQuery.data}
                     health={runtimeHealth}
                     onNavigateEntity={navigateToEntity}
