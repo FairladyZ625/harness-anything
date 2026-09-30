@@ -63,7 +63,7 @@ export function WorkDecisionsTab({
 }: WorkDecisionsTabProps) {
   const segments = segmentDecisions(decisions, query);
   return (
-    <div className="min-w-0 max-w-[900px] space-y-[26px]">
+    <div className="min-w-0 space-y-[26px]">
       <WorkDecisionReview decisions={segments.pending} onNavigateEntity={onNavigateEntity} />
       {segments.inEffect.length > 0 ? (
         <Section title={t("views.workspace.decisionsInEffect")} count={segments.inEffect.length}>

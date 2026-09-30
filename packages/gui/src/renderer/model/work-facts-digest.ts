@@ -16,8 +16,11 @@ export const LOOSE_FACT_GROUP = "_related";
  * 不拿空串冒充「有结论」。
  */
 export function factConclusion(statement: string): string {
-  const cut = statement.split(/[。；;.\n]/u, 1)[0] ?? statement;
-  return cut.trim() === "" ? statement.trim() : cut.trim();
+  // 「At commit <sha>,」是取证锚,不是结论:剥掉后首字母大写。
+  const body = statement.trim().replace(/^at commit [0-9a-f]{7,40}[,:，]\s*/iu, "");
+  const lead = body.charAt(0).toUpperCase() + body.slice(1);
+  const cut = lead.split(/[。；;\n]|\.(?:\s|$)/u, 1)[0] ?? lead;
+  return cut.trim() === "" ? lead : cut.trim();
 }
 
 /** 40 位十六进制提交号缩到 7 位;短哈希与普通词原样保留。 */

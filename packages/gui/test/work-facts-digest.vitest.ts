@@ -48,6 +48,13 @@ describe("factConclusion", () => {
     expect(factConclusion("  带空白  。后续")).toBe("带空白");
   });
 
+  it("drops the leading At commit anchor so the conclusion leads", () => {
+    expect(factConclusion("At commit 6dbeec3, an unauthorized dispatch is rejected. Suites pass.")).toBe(
+      "An unauthorized dispatch is rejected",
+    );
+    expect(factConclusion("version 1.2 ships the fix. More detail")).toBe("Version 1.2 ships the fix");
+  });
+
   it("falls back to the whole statement when the first sentence is empty", () => {
     expect(factConclusion("。取证细节")).toBe("。取证细节");
   });
