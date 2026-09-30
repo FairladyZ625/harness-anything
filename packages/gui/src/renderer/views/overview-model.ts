@@ -110,20 +110,31 @@ export function staleDaysOf(iso: string, now: string): string {
   return days < 1 ? "<1 天" : `${Math.round(days)} 天`;
 }
 
-/** main CI 状态:观察窗里 main 分支最新一次 run 失败即红(区域只在这时出现)。 */
-export function mainCiFailure(ci: CiObservatoryRead | undefined): {
+export interface MainCiFailingJob {
+  readonly runId: string;
   readonly job: string;
+  readonly sha: string;
   readonly occurredAt: string;
-  readonly failing: number;
-} | null {
-  if (ci?.status !== "ready") return null;
-  const mainRuns = ci.runs
-    .filter((run) => run.branch === "main")
+}
+
+/**
+ * main CI 红的唯一判据:某个 job 在 main 上最近一次观测失败,且这个 job 也在 PR 上跑过(观察窗内)。
+ * 只在 main 上跑的 job(如 Windows 夜间矩阵,dec_630DB4EB 永不 required)不挡合入,不算 main 红。
+ * 每个 job 一行,不按 run 重复。
+ */
+export function mainCiFailingJobs(ci: CiObservatoryRead | undefined): readonly MainCiFailingJob[] {
+  if (ci?.status !== "ready") return [];
+  const prJobs = new Set(ci.runs.filter((run) => run.branch !== "main").map((run) => run.job)),
+    latestOnMain = new Map<string, CiObservatoryRead["runs"][number]>();
+  for (const run of ci.runs) {
+    if (run.branch !== "main" || !prJobs.has(run.job)) continue;
+    const seen = latestOnMain.get(run.job);
+    if (seen === undefined || Date.parse(run.occurredAt) > Date.parse(seen.occurredAt)) latestOnMain.set(run.job, run);
+  }
+  return [...latestOnMain.values()]
+    .filter((run) => !run.pass)
+    .map(({ runId, job, sha, occurredAt }) => ({ runId, job, sha, occurredAt }))
     .sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt));
-  const latest = mainRuns[0];
-  if (latest === undefined || latest.pass) return null;
-  const failing = mainRuns.filter((run) => !run.pass).length;
-  return { job: latest.job, occurredAt: latest.occurredAt, failing };
 }
 
 /** 执行中区域:live 会话一行(who = kind · model,what = 关联任务标题)。 */
@@ -140,7 +151,15 @@ export function runRows(
   agenda: AgendaSuccess | undefined,
 ): readonly RunRow[] {
   if (overview === undefined) return [];
-  const titleOf = new Map<string, string>((agenda?.inFlight ?? []).map((row) => [row.taskId, row.title] as const));
+  // 会话关联的任务不一定还在「在飞」里(评审中、刚提交的也有 live 会话):从议程所有带标题的行里找标题。
+  const titleOf = new Map<string, string>();
+  for (const rows of Object.values(agenda ?? {})) {
+    if (!Array.isArray(rows)) continue;
+    for (const row of rows as readonly { readonly taskId?: unknown; readonly title?: unknown }[]) {
+      if (typeof row?.taskId === "string" && typeof row.title === "string" && !titleOf.has(row.taskId))
+        titleOf.set(row.taskId, row.title);
+    }
+  }
   return overview.sessions
     .filter((session) => session.liveness === "live")
     .map((session) => {

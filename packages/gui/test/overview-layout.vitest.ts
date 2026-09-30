@@ -148,13 +148,18 @@ describe("layoutRegions 高度", () => {
     }
   });
 
-  it("列内有富余时整列恰好填满板高(列尾吸收剩余)", () => {
+  it("富余充足时区域高度只取单行或两行所需两档,不留半截空白", () => {
     const { need, relaxed } = fourRows();
-    const layout = layoutRegions({ weights: WEIGHTS, need, needRelaxed: relaxed, board: { width: 1200, height: 600 } });
-    for (const left of new Set(layout.order.map((key) => layout.boxes[key]!.left))) {
-      const column = layout.order.filter((key) => layout.boxes[key]!.left === left);
-      const bottom = Math.max(...column.map((key) => layout.boxes[key]!.top + layout.boxes[key]!.height));
-      expect(Math.abs(bottom - 600)).toBeLessThanOrEqual(1);
+    const layout = layoutRegions({
+      weights: WEIGHTS,
+      need,
+      needRelaxed: relaxed,
+      board: { width: 1200, height: 2000 },
+    });
+    for (const key of layout.order) {
+      const height = layout.boxes[key]!.height;
+      expect([need[key], relaxed[key]]).toContain(height);
+      expect(height === relaxed[key] && relaxed[key] !== need[key]).toBe(layout.tall.has(key));
     }
   });
 

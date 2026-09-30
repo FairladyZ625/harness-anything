@@ -110,11 +110,9 @@ export function layoutRegions(input: {
     clampedTotal = clamped.reduce((sum, value) => sum + value, 0),
     widths = clamped.map((share) => (share / clampedTotal) * available);
 
-  // 3) 列内富余按权重分给各区域;每个区域最多长到宽松行能用满的 1.08 倍,再分不动的给列尾。
-  const capacity = (key: RegionKey): number =>
-    (key === "mine" || key === "stuck"
-      ? (input.needRelaxed[key] ?? regionNeedRelaxed(0))
-      : (need[key] ?? regionNeed(0))) * 1.08;
+  // 3) 列内富余按权重分给各区域,每个区域最多长到内容所需;剩下的富余足够时,把 mine/stuck
+  //    整个升到宽松两行形态。高度只取「单行所需」或「两行所需」两档,不留半截空白;分不完的留在列尾。
+  const capacity = (key: RegionKey): number => need[key] ?? regionNeed(0);
   let left = 0;
   cols.forEach((column, index) => {
     let spare = Math.max(0, input.board.height - (column.bottom - gap)),
@@ -138,18 +136,21 @@ export function layoutRegions(input: {
       spare -= used;
       open = next;
     }
-    if (spare > 1 && column.keys.length > 0) {
-      const last = column.keys[column.keys.length - 1]!;
-      heights.set(last, heights.get(last)! + spare);
+    for (const key of column.keys) {
+      if (key !== "mine" && key !== "stuck") continue;
+      const current = heights.get(key)!,
+        relaxedNeed = input.needRelaxed[key] ?? regionNeedRelaxed(0);
+      if (current >= need[key]! && relaxedNeed - current <= spare) {
+        spare -= relaxedNeed - current;
+        heights.set(key, relaxedNeed);
+        tall.add(key);
+      }
     }
     let top = 0;
     for (const key of column.keys) {
       const height = heights.get(key)!,
         width = widths[index]!;
       if (height < 60) slim.add(key);
-      if ((key === "mine" || key === "stuck") && height >= (input.needRelaxed[key] ?? regionNeedRelaxed(0))) {
-        tall.add(key);
-      }
       boxes[key] = { left, top, width, height };
       top += height + gap;
     }

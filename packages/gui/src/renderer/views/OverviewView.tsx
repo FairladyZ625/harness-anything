@@ -9,7 +9,7 @@ import type { AwaitsPanelSubject } from "../awaits-answer.ts";
 import { useOverviewCi, useOverviewRecentEvents, useOverviewRuntime } from "../overview-data.ts";
 import type { RuntimeHealth } from "../model/runtime-health.ts";
 import { t } from "../i18n/index.tsx";
-import { mainCiFailure } from "./overview-model.ts";
+import { mainCiFailingJobs } from "./overview-model.ts";
 import { buildOverviewRegions, type OverviewRegionSpec } from "./overview-regions.tsx";
 import { layoutRegions, regionNeed, regionNeedRelaxed, type RegionBox, type RegionKey } from "./overview-layout.ts";
 
@@ -164,10 +164,10 @@ export function OverviewView({
             ? t("views.overviewView.topDaemonDown")
             : t("views.overviewView.topDaemonOk")}
         </StatusPill>
-        <StatusPill tone={ciQuery.isError ? "warn" : mainCiFailure(ciQuery.data) === null ? "ok" : "bad"}>
+        <StatusPill tone={ciQuery.isError ? "warn" : mainCiFailingJobs(ciQuery.data).length === 0 ? "ok" : "bad"}>
           {ciQuery.isError
             ? t("views.overviewView.topCiUnknown")
-            : mainCiFailure(ciQuery.data) === null
+            : mainCiFailingJobs(ciQuery.data).length === 0
               ? t("views.overviewView.topCiGreen")
               : t("views.overviewView.topCiRed")}
         </StatusPill>
@@ -175,10 +175,7 @@ export function OverviewView({
           {t("views.overviewView.topAgentsRunning", { count: String(liveAgents(runtimeQuery.data)) })}
         </StatusPill>
         <StatusPill>
-          {t("views.overviewView.topActive", {
-            active: String(workspaceSummary.tasks.byStatus.active ?? 0),
-            total: String(workspaceSummary.tasks.total),
-          })}
+          {t("views.overviewView.topActive", { active: String(workspaceSummary.tasks.byStatus.active ?? 0) })}
         </StatusPill>
         {(health.projection.lag ?? 0) > 0 && (
           <StatusPill tone="warn">
@@ -337,7 +334,7 @@ function overviewWeightsOf(
   const base = agenda?.regionWeights;
   const empty = (key: RegionKey): boolean => (regions[key]?.rowIds.length ?? 0) === 0;
   return {
-    ci: mainCiFailure(ci) === null ? 0 : 60,
+    ci: mainCiFailingJobs(ci).length === 0 ? 0 : 60,
     mine: empty("mine") ? 1.5 : (base?.mine ?? 0),
     stuck: empty("stuck") ? 0 : (base?.stuck ?? 0),
     run: empty("run") ? 0 : (base?.run ?? 0),

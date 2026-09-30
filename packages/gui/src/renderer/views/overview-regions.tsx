@@ -20,7 +20,7 @@ import {
   ageOf,
   attentionEntries,
   idleInFlightCount,
-  mainCiFailure,
+  mainCiFailingJobs,
   pinnedDispatchable,
   recentDayGroups,
   reviewCounts,
@@ -116,7 +116,7 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
       dateKeyOf: (iso) => formatTime(iso, { style: "date" }),
     }),
     recentPaths = recentDays.flatMap((group) => group.paths.map((path) => ({ group, path }))),
-    ciFailure = mainCiFailure(deps.ci);
+    failingRows = mainCiFailingJobs(deps.ci);
 
   const attentionRow =
     (region: "mine" | "stuck", entries: readonly AttentionEntry[]) =>
@@ -536,12 +536,11 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
     },
   };
 
-  if (ciFailure !== null) {
-    const failingRows = failingCiRows(deps.ci);
+  if (failingRows.length > 0) {
     regions.ci = {
       title: t("views.overviewView.regionCi"),
       tag: <StatusTag tone="bad" label={t("views.overviewView.ciBlocking")} />,
-      big: ciFailure.failing,
+      big: failingRows.length,
       bigTone: "bad",
       edge: "bad",
       footer: t("views.overviewView.ciFooter"),
@@ -582,7 +581,7 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
                 </tr>
                 <tr>
                   <td className="py-1 pr-2 ui-meta text-text-muted">{t("views.overviewView.ciWindowFailing")}</td>
-                  <td className="py-1 text-right font-mono ui-meta text-text">{ciFailure.failing}</td>
+                  <td className="py-1 text-right font-mono ui-meta text-text">{failingRows.length}</td>
                 </tr>
               </tbody>
             </table>
@@ -675,18 +674,6 @@ function reviewRegion(reviews: readonly ReviewRow[], deps: OverviewRegionDeps): 
 }
 
 /** main 分支失败的 run(按 job 去重取最新一次)。 */
-function failingCiRows(
-  ci: CiObservatoryRead | undefined,
-): readonly { runId: string; job: string; sha: string; occurredAt: string }[] {
-  if (ci?.status !== "ready") return [];
-  const byJob = new Map<string, { runId: string; job: string; sha: string; occurredAt: string }>();
-  for (const run of ci.runs.filter((run) => run.branch === "main" && !run.pass)) {
-    if (!byJob.has(run.job))
-      byJob.set(run.job, { runId: run.runId, job: run.job, sha: run.sha, occurredAt: run.occurredAt });
-  }
-  return [...byJob.values()].sort((left, right) => Date.parse(right.occurredAt) - Date.parse(left.occurredAt));
-}
-
 /** 就地动作按钮(标准 §5:能在当前视图完成的动作直接给按钮,接真实动作)。 */
 function OverviewActionButton({
   primary = false,

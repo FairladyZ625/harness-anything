@@ -252,7 +252,7 @@ describe("总览区域板(S3)", () => {
     expect(textOf(topbar)).toContain("daemon 正常");
     expect(textOf(topbar)).toContain("main CI 绿");
     expect(textOf(topbar)).toContain("agent 在跑");
-    expect(textOf(topbar)).toContain("进行中 2/9");
+    expect(textOf(topbar)).toContain("进行中 2");
     const search = topbar.querySelector('[data-testid="overview-global-search"]')! as HTMLButtonElement;
     expect(textOf(search)).toContain("⌘K");
     expect(host?.querySelector("h1")).toBeNull();
@@ -461,6 +461,34 @@ describe("总览区域板(S3)", () => {
                   testCount: 10,
                   gateCount: 2,
                 },
+                // 同一 job 在 PR 上跑过 → 它挡合入,main 上失败才算 main 红。
+                {
+                  runId: "run-pr",
+                  sha: "aaaaaaaaffffffffffffffffffffffffffffffff",
+                  branch: "task_x",
+                  prNumber: 3000,
+                  job: "integration-shard-6",
+                  wallclockMs: 600000,
+                  runner: "ubuntu",
+                  occurredAt: "2026-09-29T06:00:00.000Z",
+                  pass: true,
+                  testCount: 10,
+                  gateCount: 2,
+                },
+                // 只在 main 上跑的夜间 job(Windows 矩阵,永不 required)失败,不算 main 红,也不进区域。
+                ...[1, 2, 3].map((index) => ({
+                  runId: `run-win-${index}`,
+                  sha: "e82729a4ffffffffffffffffffffffffffffffff",
+                  branch: "main",
+                  prNumber: null,
+                  job: "windows-integration-shard (6)",
+                  wallclockMs: 600000,
+                  runner: "windows",
+                  occurredAt: `2026-09-29T08:0${index}:00.000Z`,
+                  pass: false,
+                  testCount: 10,
+                  gateCount: 2,
+                })),
               ],
               watermark: 7,
               sourceRevision: 7,
@@ -475,6 +503,7 @@ describe("总览区域板(S3)", () => {
     const ci = container.querySelector('[data-testid="overview-region-ci"]')!;
     expect(textOf(ci)).toContain("阻断合入");
     expect(textOf(ci)).toContain("integration-shard-6");
+    expect(textOf(ci)).not.toContain("windows-integration-shard");
     expect(textOf(container.querySelector('[data-testid="overview-topbar"]'))).toContain("main CI 红");
     act(() => root?.unmount());
   });
