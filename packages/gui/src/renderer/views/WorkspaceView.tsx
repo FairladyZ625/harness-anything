@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { SegBar } from "../components/primitives/SegBar";
 import { Tabs } from "../components/primitives/Tabs";
 import { TaskPreviewDrawer } from "../components/TaskPreviewDrawer.tsx";
+import { PinButton } from "../components/PinButton.tsx";
 import type { WorkspaceScopeRead } from "../../api/renderer-dto.ts";
 import type { DecisionRow, FactRef, RelationEdge, SnapshotStatus, TaskRow } from "../model/types.ts";
 import { deriveAttestationLanes, type AttestationPoolLanes } from "../model/attestation-pool.ts";
@@ -144,6 +145,7 @@ export function WorkspaceView({
           ? t("views.workspace.progress.yesterday")
           : dateKey.slice(5);
 
+  const rootRow = tasks.find(({ taskId }) => taskId === scope.root.taskId);
   const members = useMemo(() => new Set(scope.memberTaskIds), [scope.memberTaskIds]),
     scopedTasks = useMemo(() => tasks.filter(({ taskId }) => members.has(taskId)), [tasks, members]),
     groupIds = useMemo(() => new Set(scope.groups.map(({ taskId }) => taskId)), [scope.groups]);
@@ -292,7 +294,16 @@ export function WorkspaceView({
         <nav className="text-text-muted ui-meta" aria-label="工作范围">
           {[projectName, ...scope.ancestors.map(({ title }) => title), scope.root.title].join(" / ")}
         </nav>
-        <h1 className="mt-0.5 text-[19px] font-semibold leading-snug text-text">{scope.root.title}</h1>
+        <div className="mt-0.5 flex items-start gap-3">
+          <h1 className="min-w-0 flex-1 text-[19px] font-semibold leading-snug text-text">{scope.root.title}</h1>
+          {rootRow !== undefined && onSetTaskPin !== undefined ? (
+            <PinButton
+              testId="workspace-root-pin"
+              pinned={rootRow.pinned === true}
+              onClick={() => onSetTaskPin(rootRow, rootRow.pinned !== true)}
+            />
+          ) : null}
+        </div>
         {repoId !== "unselected" && scope.goalMaterial !== null ? (
           <WorkMission repoId={repoId} taskId={scope.goalMaterial.taskId} path={scope.goalMaterial.path} />
         ) : null}

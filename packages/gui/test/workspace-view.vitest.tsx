@@ -140,6 +140,23 @@ describe("work page header", () => {
     expect(html).toContain('placeholder="搜本工作的任务…  /"');
   });
 
+  it("offers a pin toggle for the work itself next to the title", async () => {
+    const setPin = vi.fn();
+    const host = await mount(
+      <WorkspaceView
+        scope={scope()}
+        projectName="Harness"
+        tasks={[row("task_root", { pinned: false })]}
+        onOpenTask={() => {}}
+        onSetTaskPin={setPin}
+      />,
+    );
+    const toggle = host.querySelector<HTMLButtonElement>('[data-testid="workspace-root-pin"]');
+    expect(toggle?.textContent).toContain("置顶");
+    await act(async () => toggle!.click());
+    expect(setPin).toHaveBeenCalledWith(expect.objectContaining({ taskId: "task_root" }), true);
+  });
+
   it("renders pending cuts and incomplete parents", () => {
     const html = renderToStaticMarkup(
       <WorkspaceView
