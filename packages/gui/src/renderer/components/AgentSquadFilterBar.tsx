@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { CaretDown, Check, MagnifyingGlass, X } from "@phosphor-icons/react";
-import type { AgentEntityRow, SquadEntityRow } from "../agent-entity-client.ts";
+import { isAvailableAgentEntityRow, type AgentEntityRow, type SquadEntityRow } from "../agent-entity-client.ts";
 import { t } from "../i18n/index.tsx";
 import {
   agentSquadFilterOptions,
@@ -8,8 +8,11 @@ import {
   DEFAULT_AGENT_SQUAD_FILTERS,
   type AgentSquadFilters,
 } from "../model/agentSquadFilters.ts";
+import { FilterChips } from "./primitives/FilterChips.tsx";
 
-// Agent·Squad rail 顶部工具栏:搜索(name/id 子串)+ 按当前 catalog 聚合的多选筛选。
+// Agent·Squad rail 顶部工具栏:角色 FilterChips(带计数)+ 搜索(name/id 子串)+ 按当前
+// catalog 聚合的运行时/层级多选。角色、层级、运行时是多数行重复的值,只在这里筛,
+// 不进列表行(标准 §2.4「重复值不进行」)。
 // 纯查看者状态——组件只管输入与派发,过滤本身在 model/agentSquadFilters.ts。
 // 键盘:输入框外按 "/" 聚焦(Cmd/Ctrl+K 已被全局命令面板占用,见 useAppShortcuts);
 // 框内 Esc 清空查询。
@@ -52,7 +55,7 @@ function FacetSelect({
         aria-expanded={open}
         aria-haspopup="listbox"
         onClick={() => setOpen((value) => !value)}
-        className={`inline-flex items-center gap-1 rounded border px-1.5 py-px ui-micro outline-none
+        className={`inline-flex h-7 items-center gap-1 rounded border px-2.5 ui-meta outline-none
           hover:border-border-strong focus-visible:border-border-strong ${
             selected.length > 0
               ? "border-accent/60 bg-accent/10 text-accent"
@@ -60,7 +63,7 @@ function FacetSelect({
           }`}
       >
         <span className="text-text-faint">{label}</span>
-        <span className="max-w-[72px] truncate font-mono">{text}</span>
+        <span className="max-w-[96px] truncate font-mono">{text}</span>
         <CaretDown weight="bold" aria-hidden />
       </button>
       {open && (
@@ -80,7 +83,7 @@ function FacetSelect({
                 aria-selected={checked}
                 data-testid={`${testId}-option-${option}`}
                 onClick={() => toggle(option)}
-                className="flex w-full items-center gap-2 rounded px-2 py-1 text-left ui-micro hover:bg-surface"
+                className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left ui-meta hover:bg-surface"
               >
                 <span
                   aria-hidden
@@ -118,6 +121,15 @@ export function AgentSquadFilterBar({
     fieldRef = inputRef ?? ownRef,
     active = hasActiveAgentSquadFilters(filters);
   const patch = (next: Partial<AgentSquadFilters>) => onChange({ ...filters, ...next });
+  const available = agents.filter(isAvailableAgentEntityRow);
+  const roleChips = [
+    { key: "all", label: t("agentRuntime.filterAll"), count: available.length },
+    ...options.roles.map((role) => ({
+      key: role,
+      label: roleChipLabel(role),
+      count: available.filter((agent) => agent.role === role).length,
+    })),
+  ];
 
   // "/" 聚焦搜索:仅在焦点不在任何可输入元素时生效;Cmd/Ctrl+K 归全局命令面板。
   useEffect(() => {
@@ -140,8 +152,17 @@ export function AgentSquadFilterBar({
   }, [fieldRef]);
 
   return (
-    <div data-testid="agent-squad-filter-bar" className="shrink-0 border-b border-border px-1.5 py-1.5">
-      <label className="flex items-center gap-1 rounded border border-border bg-surface-raised px-1.5 py-0.5 focus-within:border-border-strong">
+    <div data-testid="agent-squad-filter-bar" className="shrink-0 space-y-2 border-b border-border px-3 py-3">
+      {options.roles.length > 1 && (
+        <div role="group" aria-label={t("agentRuntime.filterRole")} data-testid="agent-squad-filter-role">
+          <FilterChips
+            chips={roleChips}
+            value={filters.roles.length === 1 ? filters.roles[0]! : "all"}
+            onChange={(key) => patch({ roles: key === "all" ? [] : [key] })}
+          />
+        </div>
+      )}
+      <label className="flex h-8 items-center gap-1.5 rounded border border-border bg-surface-raised px-2 focus-within:border-border-strong">
         <MagnifyingGlass weight="bold" aria-hidden className="shrink-0 text-text-faint" />
         <input
           ref={fieldRef}
@@ -156,7 +177,7 @@ export function AgentSquadFilterBar({
             }
           }}
           placeholder={t("agentRuntime.filterSearchPlaceholder")}
-          className="min-w-0 flex-1 bg-transparent ui-micro text-text outline-none placeholder:text-text-faint"
+          className="min-w-0 flex-1 bg-transparent ui-meta text-text outline-none placeholder:text-text-faint"
         />
         {filters.query !== "" && (
           <button
@@ -170,16 +191,7 @@ export function AgentSquadFilterBar({
           </button>
         )}
       </label>
-      <div className="mt-1 flex flex-wrap items-center gap-1">
-        {options.roles.length > 0 && (
-          <FacetSelect
-            testId="agent-squad-filter-role"
-            label={t("agentRuntime.filterRole")}
-            options={options.roles}
-            selected={filters.roles}
-            onChange={(roles) => patch({ roles })}
-          />
-        )}
+      <div className="flex flex-wrap items-center gap-1.5">
         {options.runtimeKinds.length > 0 && (
           <FacetSelect
             testId="agent-squad-filter-runtime"
@@ -204,7 +216,7 @@ export function AgentSquadFilterBar({
           aria-checked={filters.inSquadOnly}
           data-testid="agent-squad-filter-in-squad"
           onClick={() => patch({ inSquadOnly: !filters.inSquadOnly })}
-          className={`rounded border px-1.5 py-px ui-micro transition-colors duration-100 ${
+          className={`h-7 rounded border px-2.5 ui-meta transition-colors duration-100 ${
             filters.inSquadOnly
               ? "border-accent/60 bg-accent/10 text-accent"
               : "border-border text-text-muted hover:bg-surface-raised"
@@ -217,7 +229,7 @@ export function AgentSquadFilterBar({
             type="button"
             data-testid="agent-squad-filter-clear"
             onClick={() => onChange(DEFAULT_AGENT_SQUAD_FILTERS)}
-            className="inline-flex items-center gap-0.5 rounded border border-border px-1.5 py-px ui-micro
+            className="inline-flex h-7 items-center gap-0.5 rounded border border-border px-2.5 ui-meta
               text-text-muted hover:bg-surface-raised hover:text-text"
           >
             <X weight="bold" aria-hidden />
@@ -228,3 +240,12 @@ export function AgentSquadFilterBar({
     </div>
   );
 }
+
+const roleChipLabel = (role: string): string =>
+  role === "commander"
+    ? t("agentRuntime.roleCommander")
+    : role === "reviewer"
+      ? t("agentRuntime.roleReviewer")
+      : role === "worker"
+        ? t("agentRuntime.roleWorker")
+        : role;

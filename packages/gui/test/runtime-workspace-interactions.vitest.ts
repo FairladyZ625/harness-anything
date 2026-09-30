@@ -436,12 +436,59 @@ describe("runtime entry split (W6 IA)", () => {
     ]);
   });
 
-  it("does not auto-select or mount a drawer when sessions arrive without a selection", async () => {
+  it("lands the resident detail on the first session needing attention, with no drawer", async () => {
     const container = await mountSessions(null);
+    // 标准 §2.5 v2:会话页与 Agent 页同构(左列表、右常驻详情),不用抽屉;无显式选中时
+    // 右侧落第一条需要关注的会话(在跑/失败/丢失)。
     expect(container.querySelector('[role="dialog"]')).toBeNull();
-    expect(container.querySelector('[data-testid="session-detail"]')).toBeNull();
-    expect(agentRuntimeClient.session).not.toHaveBeenCalled();
+    expect(agentRuntimeClient.session).toHaveBeenCalledWith("repo-a", "runtime-bound");
+    expect(byTestId("sessions-detail").contains(byTestId("session-detail"))).toBe(true);
     expect(container.querySelector('[data-testid="sessions-status-filter"]')?.textContent).not.toMatch(/\d/u);
+  });
+
+  it("titles a collapsed decision-review group from the decision read, not its raw id", async () => {
+    // daemon 的 decision 组 label 就是 decisionId;组头标题取 Decision 读面,不必先展开。
+    const getDecisions = vi.spyOn(harnessClient, "getDecisions").mockResolvedValue({
+      ok: true,
+      warnings: [],
+      decisions: [
+        {
+          decisionId: "dec_reviewed",
+          title: "Scope narrowing must not wash gates green",
+          state: "proposed",
+          path: "decisions/decision-dec_reviewed/decision.md",
+          question: "Q",
+          capabilities: [],
+          claimsOpen: true,
+          chosen: [],
+          rejected: [],
+          claims: [],
+          judgmentConsents: [],
+          appliesTo: { modules: [], productLines: [] },
+          proposer: { executor: { id: "fable" } },
+          proposedAt: "2026-08-23T00:00:00.000Z",
+        },
+      ],
+    } as never);
+    const decisionGroup = {
+      ...sessionGroups.groups[0]!,
+      key: "dec_reviewed",
+      kind: "decision" as const,
+      label: "dec_reviewed",
+      taskId: undefined,
+      decisionId: "dec_reviewed",
+    };
+    await mountSessions(null, {}, undefined, {
+      ...sessionGroups,
+      totals: { groups: 2, sessions: 3 },
+      groups: [decisionGroup, sessionGroups.groups[0]!],
+    } as never);
+
+    expect(getDecisions).toHaveBeenCalledWith({ repoId: "repo-a" });
+    const toggle = byTestId("session-group-toggle-dec_reviewed");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.textContent).toContain("Scope narrowing must not wash gates green");
+    expect(toggle.textContent).not.toContain("dec_reviewed");
   });
 
   it("expands a task group and selects its round row into the sessions workspace main area", async () => {
@@ -451,7 +498,8 @@ describe("runtime entry split (W6 IA)", () => {
     expect(byTestId("rail-session-runtime-bound").getAttribute("aria-current")).toBe("true");
     expect(byTestId("rail-session-runtime-sibling")).toBeTruthy();
     expect(byTestId("session-detail").textContent).toContain("runtime-bound");
-    expect(byTestId("session-detail").closest('[role="dialog"]')).not.toBeNull();
+    expect(byTestId("session-detail").closest('[role="dialog"]')).toBeNull();
+    expect(byTestId("session-detail").closest('[data-testid="sessions-detail"]')).not.toBeNull();
   });
 
   it("resolves a session deep link before the target task group is expanded", async () => {

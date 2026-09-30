@@ -8,7 +8,7 @@ import {
   type SessionTranscriptItemType,
 } from "../../session-transcript-model.ts";
 import { t } from "../../i18n/index.tsx";
-import { Badge, Btn, LiveDot } from "../runtime/parts.tsx";
+import { Badge, Btn, Card, CardBody, CardHead, CardTitle, LiveDot } from "../runtime/parts.tsx";
 
 type DispatchCursorValue = Extract<NonNullable<ObserveTailRead["historyCursor"]>, { readonly kind: "dispatch" }>;
 type DispatchCursor = DispatchCursorValue | null;
@@ -18,11 +18,14 @@ export function SessionTranscript({
   dispatchId,
   live,
   onSettled,
+  title,
 }: {
   readonly repoId: string;
   readonly dispatchId: string | null;
   readonly live: boolean;
   readonly onSettled: () => void;
+  /** 给了标题就自带卡片:加载中或没有记录时整块不渲染(规范 1.5「空了就消失」)。 */
+  readonly title?: string;
 }) {
   const [records, setRecords] = useState<readonly Readonly<Record<string, unknown>>[]>([]),
     [historyCursor, setHistoryCursor] = useState<DispatchCursor>(null),
@@ -149,20 +152,18 @@ export function SessionTranscript({
   }, [dispatchId, historyCursor, historyDone, loadingHistory, repoId]);
 
   const turns = sessionTranscriptTurns(records);
-  if (!initialized) return <p className="px-2.5 py-2 ui-micro text-text-faint">{t("agentRuntime.loading")}</p>;
-  if (error)
-    return (
-      <p role="alert" className="px-2.5 py-2 ui-micro text-status-blocked">
-        {error}
-      </p>
-    );
-  if (turns.length === 0)
-    return (
-      <p data-testid="session-transcript-empty" className="px-2.5 py-2 ui-micro text-text-faint">
-        {t("agentRuntime.transcriptNoRecord")}
-      </p>
-    );
-  return (
+  if (title !== undefined && (!initialized || (!error && turns.length === 0))) return null;
+  const content = !initialized ? (
+    <p className="px-2.5 py-2 ui-micro text-text-faint">{t("agentRuntime.loading")}</p>
+  ) : error ? (
+    <p role="alert" className="px-2.5 py-2 ui-micro text-status-blocked">
+      {error}
+    </p>
+  ) : turns.length === 0 ? (
+    <p data-testid="session-transcript-empty" className="px-2.5 py-2 ui-micro text-text-faint">
+      {t("agentRuntime.transcriptNoRecord")}
+    </p>
+  ) : (
     <div
       ref={scrollRef}
       data-testid="session-transcript"
@@ -186,6 +187,15 @@ export function SessionTranscript({
         {t(live ? "agentRuntime.transcriptFollowing" : "agentRuntime.transcriptEnded")}
       </div>
     </div>
+  );
+  if (title === undefined) return content;
+  return (
+    <Card>
+      <CardHead>
+        <CardTitle>{title}</CardTitle>
+      </CardHead>
+      <CardBody>{content}</CardBody>
+    </Card>
   );
 }
 

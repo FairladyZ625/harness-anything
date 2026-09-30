@@ -92,6 +92,12 @@ export function AgentSquadView({
     filteredAgentRows = filterAgents(agentRows, squadRows, effectiveFilters),
     filteredSquadRows = filterSquads(squadRows, effectiveFilters),
     filtering = hasActiveAgentSquadFilters(effectiveFilters);
+  // 目录行第二行的说明取全目录(不随筛选变):leader 名称与 Agent 所在 Squad。
+  const agentNames = new Map(agents.map((agent) => [agent.id, agent.name])),
+    squadsByAgent = new Map<string, string[]>();
+  for (const squad of squads)
+    for (const member of new Set([squad.leader, ...squad.workers]))
+      squadsByAgent.set(member, [...(squadsByAgent.get(member) ?? []), squad.name]);
   // 深链指向的实体可能已被删除(或仍在读取):存在才采用(降级行同样可选——它就是
   // 目录要暴露的异常);否则默认选第一个异常项(§2.5),无异常回落首项 Agent、再
   // 回落首项 Squad——派生选择,不写回导航栈。
@@ -228,9 +234,9 @@ export function AgentSquadView({
     (degradedSquads[0] ? { kind: "squad" as const, id: degradedSquads[0].id } : null);
   return (
     <section data-testid="agent-squad-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="flex h-[42px] shrink-0 items-center gap-3 border-b border-border bg-surface-raised px-3.5">
-        <b className="ui-body tracking-[0.02em]">{t("agentRuntime.agentsTitle")}</b>
-        <span className="truncate font-mono ui-micro text-text-faint">{t("agentRuntime.agentsSubtitle")}</span>
+      <header className="flex min-h-[52px] shrink-0 items-center gap-3 border-b border-border bg-surface-raised px-4">
+        <b className="ui-heading font-semibold">{t("agentRuntime.agentsTitle")}</b>
+        <span className="truncate ui-meta text-text-faint">{t("agentRuntime.agentsSubtitle")}</span>
         <span className="flex-1" />
         <Badge>{t("agentRuntime.agentCount", { count: agentRows.length })}</Badge>
         <Badge>{t("agentRuntime.squadCount", { count: squadRows.length })}</Badge>
@@ -241,7 +247,7 @@ export function AgentSquadView({
       {/* 页头结论行(标准 §2.5):全部可用一句话带过;有无效声明直说 N 个并给修复入口。 */}
       <section
         data-testid="agent-squad-conclusion"
-        className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border px-3.5 py-2"
+        className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border px-4 py-2.5"
       >
         {invalidCount > 0 ? (
           <StatusTagLine
@@ -253,7 +259,7 @@ export function AgentSquadView({
               type="button"
               data-testid="agent-squad-conclusion-fix"
               onClick={() => firstInvalid && onSelectEntity(`${firstInvalid.kind}/${firstInvalid.id}`)}
-              className="rounded border border-status-blocked/40 px-1.5 py-px ui-micro text-status-blocked
+              className="rounded border border-status-blocked/40 px-1.5 py-px ui-meta text-status-blocked
               hover:bg-status-blocked/10"
             >
               {t("agentRuntime.conclusionFix")}
@@ -271,7 +277,7 @@ export function AgentSquadView({
         <p
           role="alert"
           data-testid="runtime-read-error"
-          className="shrink-0 border-b border-border bg-status-blocked/10 px-3.5 py-1.5 font-mono ui-micro
+          className="shrink-0 border-b border-border bg-status-blocked/10 px-3.5 py-1.5 font-mono ui-meta
         text-status-blocked"
         >
           {t("agentRuntime.readFailed", { error: readError instanceof Error ? readError.message : String(readError) })}
@@ -281,7 +287,7 @@ export function AgentSquadView({
         <p
           role="status"
           onClick={workspace.clearFeedback}
-          className="shrink-0 border-b border-border px-3.5 py-1.5 font-mono ui-micro text-text-muted"
+          className="shrink-0 border-b border-border px-3.5 py-1.5 font-mono ui-meta text-text-muted"
         >
           {workspace.feedback}
         </p>
@@ -292,6 +298,8 @@ export function AgentSquadView({
           squads={filteredSquadRows}
           agentsTotal={agentRows.length}
           squadsTotal={squadRows.length}
+          agentNames={agentNames}
+          squadsByAgent={squadsByAgent}
           selection={current}
           onSelect={(selection) => onSelectEntity(runtimeSelectionRef(selection))}
           onNew={(segment) => setDialog({ kind: "new-entity", entity: segment === "agents" ? "agent" : "squad" })}
@@ -303,7 +311,7 @@ export function AgentSquadView({
               <p
                 role="status"
                 data-testid="agent-squad-selection-hidden"
-                className="shrink-0 border-b border-border px-2.5 py-1.5 ui-micro text-text-muted"
+                className="shrink-0 border-b border-border px-3.5 py-2 ui-meta text-text-muted"
               >
                 {t("agentRuntime.filterSelectionHidden")}{" "}
                 <button
@@ -319,7 +327,7 @@ export function AgentSquadView({
           }
           agentsEmpty={
             filtering ? (
-              <p data-testid="agent-squad-agents-empty" className="px-2 py-1 ui-micro text-text-faint">
+              <p data-testid="agent-squad-agents-empty" className="px-3.5 py-2 ui-meta text-text-faint">
                 {t("agentRuntime.filterNoMatches")}{" "}
                 <button
                   type="button"
@@ -334,7 +342,7 @@ export function AgentSquadView({
           }
           squadsEmpty={
             filtering ? (
-              <p data-testid="agent-squad-squads-empty" className="px-2 py-1 ui-micro text-text-faint">
+              <p data-testid="agent-squad-squads-empty" className="px-3.5 py-2 ui-meta text-text-faint">
                 {t("agentRuntime.filterNoMatches")}{" "}
                 <button
                   type="button"
@@ -348,7 +356,7 @@ export function AgentSquadView({
             ) : undefined
           }
         />
-        <main className="min-w-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6">
+        <main className="min-w-0 flex-1 overflow-y-auto px-5 pt-4 pb-6">
           {current === null ? (
             <>
               {workspace.error ? <ActionError>{workspace.error}</ActionError> : null}
@@ -475,7 +483,7 @@ export function AgentSquadView({
       {workspace.settlement && (
         <p
           role="status"
-          className="shrink-0 border-t border-border px-3.5 py-1 font-mono ui-micro
+          className="shrink-0 border-t border-border px-3.5 py-1 font-mono ui-meta
         text-text-faint"
         >
           <Hint>
@@ -533,8 +541,8 @@ function EntityConclusion({
             {t("agentRuntime.calledAsPrefix")}
             {calledAs.map((call) => (
               <span key={call.label} className="flex items-center gap-1 rounded-xs border border-border px-1.5 py-px">
-                <span className="font-mono ui-micro">{call.label}</span>
-                <span className="ui-micro text-text-faint">· {roleWord(call.role)}</span>
+                <span className="font-mono ui-meta">{call.label}</span>
+                <span className="ui-meta text-text-faint">· {roleWord(call.role)}</span>
               </span>
             ))}
           </>
@@ -549,7 +557,7 @@ function EntityConclusion({
           })}
         />
       ) : null}
-      <span className="ml-auto font-mono ui-micro text-text-faint">
+      <span className="ml-auto font-mono ui-meta text-text-faint">
         {lastDispatch === null
           ? t("agentRuntime.noDispatch")
           : t("agentRuntime.lastDispatch", {
@@ -588,7 +596,7 @@ function SquadConclusion({
       <span className="ui-meta text-text-muted">
         {t("agentRuntime.memberCount", { count: squad.workers.length + 1 })}
       </span>
-      <span className="ml-auto font-mono ui-micro text-text-faint">
+      <span className="ml-auto font-mono ui-meta text-text-faint">
         {lastDispatch === null
           ? t("agentRuntime.noDispatch")
           : t("agentRuntime.lastDispatch", {

@@ -128,6 +128,10 @@ export function ProviderRail({
   );
 }
 
+// 目录行两行(标准 §2.5 v2):第一行只放名称(完整可读,不挂角色前缀),第二行一句
+// 弱色说明——Agent 是模型与所在 Squad,Squad 是 leader 与成员数。角色、层级、运行时
+// 是多数行重复的值,只在顶部筛选里出现。
+//
 // The identity rail: Agents and Squads share one page because a Squad has no lifecycle
 // apart from its agents (proposal P2) — organisation is a facet of identity here, not a
 // fourth entry. The design-thesis note stays at this rail's foot: dispatch is authored
@@ -145,6 +149,8 @@ export function IdentityRail({
   notice,
   agentsEmpty,
   squadsEmpty,
+  agentNames,
+  squadsByAgent,
 }: {
   readonly agents: readonly AgentEntityRow[];
   readonly squads: readonly SquadEntityRow[];
@@ -161,6 +167,9 @@ export function IdentityRail({
   /** 段内零命中时的占位行(仅在对应段为空时渲染)。 */
   readonly agentsEmpty?: ReactNode;
   readonly squadsEmpty?: ReactNode;
+  /** 全目录(不受筛选影响)的 Agent 名称与所在 Squad 名称,供第二行说明使用。 */
+  readonly agentNames: ReadonlyMap<string, string>;
+  readonly squadsByAgent: ReadonlyMap<string, readonly string[]>;
 }) {
   const [segments, setSegments] = useState<Readonly<Record<string, boolean>>>({ agents: true, squads: true });
   const onToggle = (segment: string) => setSegments((value) => ({ ...value, [segment]: !(value[segment] ?? true) }));
@@ -172,7 +181,7 @@ export function IdentityRail({
     <nav
       data-testid="runtime-rail"
       aria-label={t("agentRuntime.railLabel")}
-      className="flex basis-1/5 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface"
+      className="flex w-[26%] min-w-[320px] max-w-[440px] shrink-0 flex-col overflow-y-auto border-r border-border"
     >
       {toolbar}
       {notice}
@@ -198,18 +207,21 @@ export function IdentityRail({
               onClick={() => onSelect({ type: "agent", id: agent.id })}
             >
               <DenseRow
-                tag={<RoleLabel role={agent.role} />}
                 title={
-                  <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="flex min-w-0 items-center gap-2">
                     <Avatar id={agent.id} />
-                    <span className="min-w-0 truncate">{agent.name}</span>
+                    <span className="min-w-0 truncate font-medium">{agent.name}</span>
                   </span>
                 }
-                time={
-                  <span data-tip={t("agentRuntime.layerTip", { layer: agent.layer })} className="font-mono">
-                    {agent.layer}
-                  </span>
+                reason={
+                  [
+                    agent.runtimes.map((target) => target.model ?? target.type).join(" / "),
+                    ...(squadsByAgent.get(agent.id) ?? []),
+                  ]
+                    .filter(Boolean)
+                    .join(" · ") || agent.id
                 }
+                relaxed
                 selected={picked("agent", agent.id)}
               />
             </button>
@@ -246,13 +258,16 @@ export function IdentityRail({
               onClick={() => onSelect({ type: "squad", id: squad.id })}
             >
               <DenseRow
-                tag={<span className="font-mono ui-micro text-text-faint">{squad.workers.length + 1}</span>}
                 title={
-                  <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="flex min-w-0 items-center gap-2">
                     <KindDot kind="any" />
-                    <span className="min-w-0 truncate">{squad.name}</span>
+                    <span className="min-w-0 truncate font-medium">{squad.name}</span>
                   </span>
                 }
+                reason={`${agentNames.get(squad.leader) ?? squad.leader} · ${t("agentRuntime.memberCount", {
+                  count: squad.workers.length + 1,
+                })}`}
+                relaxed
                 selected={picked("squad", squad.id)}
               />
             </button>
@@ -267,7 +282,7 @@ export function IdentityRail({
           ),
         )}
       </Segment>
-      <details className="px-2.5 py-2 ui-micro leading-[1.5] text-text-faint">
+      <details className="px-3.5 py-3 ui-meta text-text-faint">
         <summary className="cursor-pointer list-none">{t("agentRuntime.thesisSummary")}</summary>
         <p className="mt-1">{t("agentRuntime.thesisBody")}</p>
       </details>
@@ -309,6 +324,7 @@ function RailDegradedRow({
         }
         title={<span className="font-mono">{row.id}</span>}
         reason={row.error.hint}
+        relaxed
         selected={selected}
       />
     </button>
@@ -359,8 +375,8 @@ function Segment({
   readonly children: ReactNode;
 }) {
   return (
-    <section className="border-b border-border">
-      <div className="flex items-center gap-1.5 px-2.5 pt-2 pb-1.5 hover:bg-surface-raised">
+    <section className="pb-5">
+      <div className="flex items-center gap-2 px-3.5 pt-3 pb-2 hover:bg-surface-raised">
         <button
           type="button"
           aria-expanded={open}
@@ -373,9 +389,9 @@ function Segment({
           >
             ▶
           </span>
-          <span className="ui-micro font-bold uppercase tracking-[0.09em] text-text-faint">{title}</span>
-          <span className="truncate ui-micro text-text-faint">{sub}</span>
-          <span className="ml-auto shrink-0 font-mono ui-micro text-text-faint">
+          <span className="ui-meta font-semibold text-text-muted">{title}</span>
+          <span className="truncate ui-meta text-text-faint">{sub}</span>
+          <span className="ml-auto shrink-0 font-mono ui-meta text-text-faint">
             {total !== undefined && total !== count ? `${count}/${total}` : count}
           </span>
         </button>
@@ -384,13 +400,13 @@ function Segment({
             type="button"
             data-testid={`runtime-new-${segment}`}
             onClick={onNew}
-            className="shrink-0 rounded border border-border px-1.5 ui-micro text-text-faint hover:border-accent hover:text-accent"
+            className="h-7 shrink-0 rounded border border-border px-2.5 ui-meta text-text-muted hover:border-accent hover:text-accent"
           >
             {t("agentRuntime.new")}
           </button>
         )}
       </div>
-      {open && <div className="px-1.5 pb-2">{count === 0 && emptyHint !== undefined ? emptyHint : children}</div>}
+      {open && <div>{count === 0 && emptyHint !== undefined ? emptyHint : children}</div>}
     </section>
   );
 }

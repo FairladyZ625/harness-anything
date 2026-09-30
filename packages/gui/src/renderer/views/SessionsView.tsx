@@ -6,7 +6,6 @@ import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts
 import { harnessClient } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
 import { Btn, Empty, SegCtl } from "../components/runtime/parts.tsx";
-import { Drawer } from "../components/primitives/Drawer.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import {
   runtimeSelectionFromRef,
@@ -37,7 +36,7 @@ import {
 } from "../sessions-model.ts";
 
 /**
- * 会话页(设计稿 §2–§5):顶层两大段——单会话(默认,按 Task 分组)与小队编排
+ * 会话页(设计稿 §2–§5;标准 §2.5 v2 与 Agent 页同构:左列表、右常驻详情,不用抽屉):顶层两大段——单会话(默认,按 Task 分组)与小队编排
  * (一次 `ha squad run` 一个编排单元)。分组、范围与检索都在 daemon 侧完成
  * (sessionGroups / squad.runs.list),前端一次 RPC 拿组,不再翻 overview 分页、不再
  * 前端 join 派工台账。选择可寻址:session/<id>、tasksessions/<taskId>,导航回撤
@@ -50,6 +49,8 @@ const RANGE_SPAN: Readonly<Record<Range, number>> = { "24h": 86_400, "7d": 7 * 8
 // 的一次 `ha squad run` 是长生命周期单元,terminal run 只靠 latestActivityAt 过窗,
 // 默认 24h 会把已收敛/已失败的编排整段滤成无解释的空列表,默认放宽到 30d。
 const DEFAULT_RANGE: Readonly<Record<Segment, Range>> = { sessions: "24h", squads: "30d" };
+// 无显式选中时右侧落在第一条需要关注的会话(在跑/失败/丢失),没有则落最新一条。
+const ATTENTION_STATUSES: ReadonlySet<SessionStatus> = new Set(["running", "failed", "lost"]);
 const GROUP_ROWS_PENDING = { rounds: [] as readonly SessionRound[], orphans: [] as readonly SessionOrphan[] };
 const rangeToSince = (range: Range): string => {
   const span = RANGE_SPAN[range];
@@ -78,7 +79,7 @@ export function SessionsView({
   // 状态筛选是集合:排障常要「失败或丢失」,而检索框的词之间是 AND,写不出这个。
   const [statusFilter, setStatusFilter] = useState<ReadonlySet<SessionStatus>>(new Set());
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [inspector, setInspector] = useState(false);
+  const [inspector, setInspector] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(new Set());
   const [selectedSquadRunId, setSelectedSquadRunId] = useState<string | null>(null);
   const [sessionTaskScope, setSessionTaskScope] = useState<{
@@ -222,21 +223,19 @@ export function SessionsView({
     return rows;
   }, [expandedTasks, roundsQueries, taskSessionQueries]);
 
-  // Decision 组展开行:该组的评审派工在 Decision full 行上(reviewDispatches),与决策池/详情
-  // 共用同一缓存键;只有展开 Decision 组或落 Decision 会话深链时才读,着陆不增加读请求。
-  const expandedDecisionIds = useMemo(
+  // Decision 组:daemon 组行只带 decisionId,组头标题与展开行都取 Decision full 行(标题、
+  // reviewDispatches),与决策池/详情共用同一缓存键;列表里有 Decision 组或落 Decision 会话深链时才读。
+  const decisionGroupIds = useMemo(
     () =>
       groups.flatMap((group) =>
-        group.kind === "decision" && group.decisionId !== undefined && expandedGroups.has(group.key)
-          ? [group.decisionId]
-          : [],
+        group.kind === "decision" && group.decisionId !== undefined ? [group.decisionId] : [],
       ),
-    [groups, expandedGroups],
+    [groups],
   );
   const decisionRowsQuery = useQuery({
     queryKey: triadicQueryKeys.decisions(repoId),
     queryFn: () => harnessClient.getDecisions({ repoId }),
-    enabled: expandedDecisionIds.length > 0 || decisionFocus?.runtimeSessionId != null,
+    enabled: decisionGroupIds.length > 0 || decisionFocus?.runtimeSessionId != null,
     staleTime: 10_000,
   });
   const reviewedDecisions = useMemo(
@@ -245,7 +244,7 @@ export function SessionsView({
   );
   const decisionGroupRows = useMemo(() => {
     const rows = new Map<string, DecisionGroupRows>();
-    for (const decisionId of expandedDecisionIds) {
+    for (const decisionId of decisionGroupIds) {
       const decision = reviewedDecisions.find((row) => row.decisionId === decisionId);
       rows.set(decisionId, {
         title: decision?.title ?? null,
@@ -260,7 +259,7 @@ export function SessionsView({
     }
     return rows;
   }, [
-    expandedDecisionIds,
+    decisionGroupIds,
     reviewedDecisions,
     decisionRowsQuery.isPending,
     decisionRowsQuery.isError,
@@ -282,10 +281,12 @@ export function SessionsView({
     () => [...groupRows.values()].flatMap(({ rounds, orphans }) => [...rounds, ...orphans]),
     [groupRows],
   );
-  const selectedSessionId = decisionFocus?.runtimeSessionId ?? focusedSessionId;
-  useEffect(() => {
-    setInspector(selectedSessionId !== null);
-  }, [selectedSessionId]);
+  const defaultSessionId =
+      (
+        groups.find((group) => group.latestRound !== null && ATTENTION_STATUSES.has(group.latestStatus)) ??
+        groups.find((group) => group.latestRound !== null)
+      )?.latestRound?.runtimeSessionId ?? null,
+    selectedSessionId = decisionFocus?.runtimeSessionId ?? focusedSessionId ?? defaultSessionId;
   const selectedSession = useQuery({
     queryKey: runtimeQueryKeys.session(repoId, selectedSessionId ?? ""),
     queryFn: () => agentRuntimeClient.session(repoId, selectedSessionId!),
@@ -351,10 +352,7 @@ export function SessionsView({
   // 重渲染,行级 memo(SessionGroupList 的 GroupSection)靠这些稳定引用跳过未变组。
   const groupDecisionRefsFor = useCallback((taskId: string) => sessionDecisionRefs(relations, taskId), [relations]);
   const selectSessionFromRail = useCallback(
-    (runtimeSessionId: string) => {
-      setInspector(true);
-      onSelectEntity(`session/${runtimeSessionId}`);
-    },
+    (runtimeSessionId: string) => onSelectEntity(`session/${runtimeSessionId}`),
     [onSelectEntity],
   );
   const toggleGroup = useCallback((key: string) => {
@@ -386,9 +384,9 @@ export function SessionsView({
   const visibleReadError = visibleRead.error instanceof Error ? visibleRead.error.message : String(visibleRead.error);
   return (
     <section data-testid="sessions-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="glass mx-2 mt-2 flex min-h-[42px] shrink-0 items-center gap-3 rounded-sm border border-border px-3.5">
+      <header className="glass mx-2 mt-2 flex min-h-[52px] shrink-0 items-center gap-3 rounded-sm border border-border px-4">
         <div className="min-w-0">
-          <b className="block ui-body tracking-[0.02em]">{t("agentRuntime.sessionsTitle")}</b>
+          <b className="block ui-heading font-semibold">{t("agentRuntime.sessionsTitle")}</b>
         </div>
         <SegCtl
           label={t("agentRuntime.sessionsSegmentLabel")}
@@ -399,7 +397,7 @@ export function SessionsView({
             { value: "squads", label: t("agentRuntime.sessionsSegmentSquad") },
           ]}
         />
-        <span data-testid="sessions-counts" className="ml-auto truncate font-mono ui-micro text-text-faint">
+        <span data-testid="sessions-counts" className="ml-auto truncate font-mono ui-meta text-text-faint">
           {segment === "sessions"
             ? t("agentRuntime.sessionsCounts", {
                 range: rangeLabel[range],
@@ -439,7 +437,7 @@ export function SessionsView({
       </header>
       <div
         data-testid="sessions-toolbar"
-        className="glass mx-2 flex min-h-10 shrink-0 flex-nowrap items-center gap-2 overflow-x-auto border-b border-border px-1.5 [&>span[role=group]]:flex-nowrap [&>span[role=group]]:shrink-0 [&_button]:whitespace-nowrap"
+        className="glass mx-2 mb-4 flex min-h-12 shrink-0 flex-nowrap items-center gap-2.5 overflow-x-auto border-b border-border px-2.5 [&>span[role=group]]:flex-nowrap [&>span[role=group]]:shrink-0 [&_button]:whitespace-nowrap"
       >
         {segment === "sessions" && (
           <SegCtl
@@ -482,7 +480,7 @@ export function SessionsView({
                     return next;
                   })
                 }
-                className={`h-6 whitespace-nowrap rounded-xs border px-2.5 ui-micro ${
+                className={`h-7 whitespace-nowrap rounded-xs border px-3 ui-meta ${
                   statusFilter.has(word)
                     ? "border-accent/40 bg-accent/15 font-semibold text-accent"
                     : "border-border bg-text/5 text-text-muted hover:bg-surface"
@@ -501,7 +499,7 @@ export function SessionsView({
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           className={
-            "w-48 shrink-0 rounded-xs border border-border-strong bg-surface px-2 py-1 ui-micro text-text " +
+            "w-56 shrink-0 rounded-xs border border-border-strong bg-surface px-2.5 py-1 ui-meta text-text " +
             "outline-none focus-visible:border-accent"
           }
         />
@@ -546,51 +544,50 @@ export function SessionsView({
             onOpenTask={onOpenTask}
             onSelectEntity={onSelectEntity}
           />
-          {selectedSessionId !== null && (
-            <Drawer
-              open={inspector}
-              onClose={() => setInspector(false)}
-              ariaLabel={t("agentRuntime.inspectorSession")}
-              modal={false}
-            >
-              {selectedReviewRound && (
-                <DecisionReviewSessionCard round={selectedReviewRound} onNavigateEntity={onSelectEntity} />
-              )}
-              <SessionsPanel
-                repoId={repoId}
-                runtimeSessionId={selectedSessionId}
-                snapshot={selectedSession.data ?? null}
-                snapshotError={
-                  selectedSession.isError
-                    ? selectedSession.error instanceof Error
-                      ? selectedSession.error.message
-                      : String(selectedSession.error)
-                    : null
-                }
-                row={selectedRow}
-                squadNames={squadNames}
-                decisionRefs={selectedTaskId === null ? [] : sessionDecisionRefs(relations, selectedTaskId)}
-                busy={workspace.busy}
-                onCancel={(runtimeSessionId) => void workspace.cancelSession(runtimeSessionId)}
-                onResume={async (dispatchId) => {
-                  const settled = await workspace.resumeDispatch(dispatchId);
-                  if (settled?.state === "applied" && settled.runtimeSessionId)
-                    onSelectEntity(`session/${settled.runtimeSessionId}`);
-                }}
-                onOpenTask={onOpenTask}
-                onNavigateEntity={onSelectEntity}
-              />
-              {selectedRow !== null && (
-                <SessionInspector
+          <main data-testid="sessions-detail" className="min-w-0 flex-1 overflow-y-auto px-5 pt-4 pb-6">
+            {selectedSessionId === null ? (
+              <Empty>{t(workspace.groups.isPending ? "agentRuntime.loading" : "agentRuntime.noSessions")}</Empty>
+            ) : (
+              <>
+                {selectedReviewRound && (
+                  <DecisionReviewSessionCard round={selectedReviewRound} onNavigateEntity={onSelectEntity} />
+                )}
+                <SessionsPanel
+                  repoId={repoId}
+                  runtimeSessionId={selectedSessionId}
+                  snapshot={selectedSession.data ?? null}
+                  snapshotError={
+                    selectedSession.isError
+                      ? selectedSession.error instanceof Error
+                        ? selectedSession.error.message
+                        : String(selectedSession.error)
+                      : null
+                  }
                   row={selectedRow}
-                  siblings={siblings}
                   squadNames={squadNames}
-                  onSelectSession={(runtimeSessionId) => onSelectEntity(`session/${runtimeSessionId}`)}
+                  decisionRefs={selectedTaskId === null ? [] : sessionDecisionRefs(relations, selectedTaskId)}
+                  busy={workspace.busy}
+                  onCancel={(runtimeSessionId) => void workspace.cancelSession(runtimeSessionId)}
+                  onResume={async (dispatchId) => {
+                    const settled = await workspace.resumeDispatch(dispatchId);
+                    if (settled?.state === "applied" && settled.runtimeSessionId)
+                      onSelectEntity(`session/${settled.runtimeSessionId}`);
+                  }}
                   onOpenTask={onOpenTask}
-                  onSelectEntity={onSelectEntity}
+                  onNavigateEntity={onSelectEntity}
                 />
-              )}
-            </Drawer>
+              </>
+            )}
+          </main>
+          {inspector && selectedRow !== null && (
+            <SessionInspector
+              row={selectedRow}
+              siblings={siblings}
+              squadNames={squadNames}
+              onSelectSession={(runtimeSessionId) => onSelectEntity(`session/${runtimeSessionId}`)}
+              onOpenTask={onOpenTask}
+              onSelectEntity={onSelectEntity}
+            />
           )}
         </div>
       ) : (

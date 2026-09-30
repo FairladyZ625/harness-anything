@@ -227,11 +227,14 @@ describe("session consumption panel (P1.3)", () => {
     expect(markup).toContain("Compacted");
   });
 
-  it("keeps the panel present and honest when the dispatch has not reported consumption", () => {
-    const markup = detailView();
-    expect(markup).toContain('data-testid="session-metrics-none"');
-    // 撇号在 static markup 里会被转义,断言避开它。
-    expect(markup).toContain("not reported consumption yet.");
+  it("drops empty blocks instead of drawing placeholder boxes (standard §1.5)", () => {
+    // 未上报消耗、无结果文本、未绑定任务:整块不渲染,不画虚线占位框。
+    const markup = detailView({ session: { ...sessionDto, associations: [] }, row: null, transcript: null });
+    expect(markup).not.toContain("Session consumption");
+    expect(markup).not.toContain("session-metrics");
+    expect(markup).not.toContain("Output / result");
+    expect(markup).not.toContain("session-open-task");
+    expect(markup).not.toContain("border-dashed");
   });
 });
 
@@ -453,6 +456,19 @@ describe("session transcript replay", () => {
     expect(markup).toContain("No dispatch record is available for this session.");
     expect(markup).toContain('data-testid="session-transcript-empty"');
   });
+
+  it("renders nothing as a titled detail block when there is no dispatch record", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SessionTranscript, {
+        repoId: "repo-a",
+        dispatchId: null,
+        live: false,
+        onSettled: noop,
+        title: "Transcript",
+      }),
+    );
+    expect(markup).toBe("");
+  });
 });
 
 describe("sessions page: single-session groups", () => {
@@ -472,21 +488,26 @@ describe("sessions page: single-session groups", () => {
     expect(markup).toContain("ha runtime resume dispatch_000000000000000000000003");
   });
 
-  it("folds completed sessions while keeping failed sessions visible for attention", () => {
+  it("sinks completed sessions below a divider and keeps them visible, with no expand fold", () => {
     const markup = groupList({ selectedId: null });
-    expect(markup).toContain("<details>");
-    expect(markup).toContain("Completed / cancelled");
+    // 标准 §1.8 v2:有空间就铺开,终态沉底在「已完成 N」分隔线之后照常显示,不收进 <details>。
+    expect(markup).not.toContain("<details");
+    expect(markup).toMatch(/Completed \/ cancelled \d+</u);
+    expect(markup).not.toContain("· expand");
     expect(markup).toContain('data-status-tone="done"');
   });
 
-  it("renders group headers from the daemon read: title, short task id, status, rounds, activity", () => {
+  it("renders group headers as two lines: title, then executor · rounds · activity in the weak line", () => {
     const markup = groupList({ expandedKeys: new Set() });
     expect(markup).toContain("GUI 会话页重构");
-    expect(markup).toContain(shortRef("task_1994d52c", 11));
     expect(markup).toContain("Running");
     expect(markup).toContain("2 rounds");
     expect(markup).toContain("3 sessions");
     expect(markup).toContain("No squad");
+    // 标准 §2.4:编号不进行,只进详情;组头是宽松两行条目(56px 档)。
+    expect(markup).not.toContain(shortRef("task_1994d52c", 11));
+    expect(markup).toContain("min-h-14");
+    expect(markup).not.toContain("h-[25px]");
   });
 
   it("names each unattributed bucket after the thing that is missing, not one shared word", () => {

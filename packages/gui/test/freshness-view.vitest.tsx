@@ -155,9 +155,9 @@ describe("FreshnessView:按决策分组收束(标准 §1.4 收束不堆叠)", ()
   it("断言行用宽松两行形态:断言结论一行、id 元数据第二行,不再叠进 25px 单行", async () => {
     const container = await mountFreshness(GROUPED_DECISIONS, GROUPED_ROWS);
     const row = claimRows(container, "dec-a")[0]!;
-    // DenseRow 宽松档:min-h-11(约 44px)两行,而非固定 h-[25px] 单行。
+    // DenseRow 宽松档:min-h-14(56px,标准 §3 v2)两行,而非固定 h-[25px] 单行。
     const dense = row.firstElementChild as HTMLElement;
-    expect(dense.className).toContain("min-h-11");
+    expect(dense.className).toContain("min-h-14");
     expect(dense.className).not.toContain("h-[25px]");
     // 第一行断言结论,第二行 决策 id · 断言 id(两条信息都在,各自占行不叠加)。
     expect(dense.querySelector(".block.truncate.text-text")?.textContent).toContain("断言 dec-a/C1");

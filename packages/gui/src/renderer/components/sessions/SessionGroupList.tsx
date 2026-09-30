@@ -15,15 +15,16 @@ import {
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
-import { DenseRow } from "../primitives/DenseRow.tsx";
+import { DENSE_ROW_RELAXED_PX, DenseRow } from "../primitives/DenseRow.tsx";
 import { StatusTag, type StatusTone } from "../primitives/StatusTag.tsx";
 import type { DecisionReviewRound } from "../../model/decision-review.ts";
 import { decisionReviewRef, decisionSessionsRef } from "../../navigation/decisionReviewRoutes.ts";
 import { dispatchStatusText, VerdictBadge } from "../decisionReview/parts.tsx";
 
 /**
- * 单会话段的组列表(设计稿 §3/§7.1):组头一行(标题/短码、最新状态、轮数、最新
- * 活动),组内行整组渲染不分批——单组轮数典型 ≤30。数据由页级持有并传入:组头来自
+ * 单会话段的组列表(设计稿 §3/§7.1;标准 §2.5 v2):左列目录,组头两行——标题一行,
+ * 执行者·轮数·最新活动一行弱色;组内行整组渲染不分批,已完成沉到「已完成 N」分隔线
+ * 之后照常显示——单组轮数典型 ≤30。数据由页级持有并传入:组头来自
  * sessionGroups,展开任务组的轮次来自 task.dispatches,「无派工记录」小节来自
  * overview { taskId } 的绑定会话。检索词在展示层对轮次行做同口径过滤(daemon 已对
  * 组成员过滤,这里复用同一匹配函数让轮次行与命中口径一致)。
@@ -43,8 +44,8 @@ export type DecisionGroupRows = {
 };
 
 const NO_DECISION_ROWS: ReadonlyMap<string, DecisionGroupRows> = new Map();
-/** 折叠组头为 DenseRow + 边框;展开组行高由 measureElement 实测收敛。 */
-export const GROUP_HEADER_ESTIMATE_PX = 26;
+/** 折叠组头为宽松两行 DenseRow + 1px 边框;展开组行高由 measureElement 实测收敛。 */
+export const GROUP_HEADER_ESTIMATE_PX = DENSE_ROW_RELAXED_PX + 1;
 export const GROUP_OVERSCAN = 10;
 /** 无布局环境(静态渲染/happy-dom)的视口兜底:ResizeObserver 上报前按 800px 高出首屏。 */
 const GROUP_INITIAL_RECT = { width: 400, height: 800 } as const;
@@ -95,10 +96,10 @@ export function SessionGroupList({
       ref={scrollRef}
       data-testid="sessions-group-list"
       aria-label={t("agentRuntime.segSessions")}
-      className="flex min-w-0 flex-1 flex-col overflow-y-auto"
+      className="flex w-[26%] min-w-[320px] max-w-[440px] shrink-0 flex-col overflow-y-auto border-r border-border"
     >
       {groups.length === 0 ? (
-        <p className="px-3 py-3 ui-micro text-text-faint">
+        <p className="px-3.5 py-3 ui-meta text-text-faint">
           {t(
             pending
               ? "agentRuntime.loading"
@@ -139,7 +140,7 @@ export function SessionGroupList({
       {truncated && (
         <p
           data-testid="sessions-groups-truncated"
-          className="border-t border-border px-3 py-2 ui-micro text-text-faint"
+          className="border-t border-border px-3.5 py-2.5 ui-meta text-text-faint"
         >
           {t("agentRuntime.sessionsGroupsTruncated", { count: groups.length })}
         </p>
@@ -188,6 +189,7 @@ const GroupSection = memo(function GroupSection({
     );
   // 展开是 Task 组的能力(一次 task.dispatches 拿全部轮次,设计稿 §6.5 预算);
   // Squad/Agent/时间组没有单次往返的成员读面,头部按静态行呈现,不提供假展开。
+  // 两行:标题一行;执行者·轮数·最新活动一行弱色。任务短码只进详情,不进行。
   const headerBody = (
     <DenseRow
       index={expandable ? (open ? "▾" : "▸") : undefined}
@@ -198,18 +200,20 @@ const GroupSection = memo(function GroupSection({
           : (decisionRows?.title ?? group.label)
       }
       reason={[
-        t("agentRuntime.sessionsRoundCount", { count: group.roundCount }),
-        t("agentRuntime.sessionsSessionCount", { count: group.sessionCount }),
-        group.taskId ? shortRef(group.taskId, 11) : undefined,
         group.latestRound?.agentName,
+        t("agentRuntime.sessionsRoundCount", { count: group.roundCount }),
+        group.sessionCount > group.roundCount
+          ? t("agentRuntime.sessionsSessionCount", { count: group.sessionCount })
+          : undefined,
+        relativeTime(group.latestActivityAt),
       ]
         .filter(Boolean)
         .join(" · ")}
-      time={relativeTime(group.latestActivityAt)}
+      relaxed
     />
   );
   return (
-    <section data-testid={`session-group-${group.key}`} className="border-b border-border">
+    <section data-testid={`session-group-${group.key}`} className={open ? "pb-5" : undefined}>
       {expandable ? (
         <button
           type="button"
@@ -232,11 +236,11 @@ const GroupSection = memo(function GroupSection({
         />
       )}
       {open && !decisionGroup && (
-        <div className="cv-auto-10r px-1.5 pb-2">
-          {rows === undefined && <p className="px-1.5 py-1 ui-micro text-text-faint">{t("agentRuntime.loading")}</p>}
-          {rows?.pending && <p className="px-1.5 py-1 ui-micro text-text-faint">{t("agentRuntime.loading")}</p>}
+        <div className="cv-auto-10r pl-3">
+          {rows === undefined && <p className="px-3.5 py-2 ui-meta text-text-faint">{t("agentRuntime.loading")}</p>}
+          {rows?.pending && <p className="px-3.5 py-2 ui-meta text-text-faint">{t("agentRuntime.loading")}</p>}
           {rows?.error && (
-            <p role="alert" className="px-1.5 py-1 font-mono ui-micro text-status-blocked">
+            <p role="alert" className="px-3.5 py-2 font-mono ui-meta text-status-blocked">
               {t("agentRuntime.readFailed", { error: rows.error })}
             </p>
           )}
@@ -261,19 +265,10 @@ const GroupSection = memo(function GroupSection({
               />
             ))}
           {[...visibleRounds, ...visibleOrphans].some((row) => isCompleted(row.status)) && (
-            <details
-              open={
-                query !== "" ||
-                [...visibleRounds, ...visibleOrphans].some(
-                  (row) => isCompleted(row.status) && row.runtimeSessionId === selectedId,
-                )
-              }
-            >
-              <summary className="cursor-pointer px-3 py-1 ui-meta text-text-faint">
-                {t("agentRuntime.sessionsCompleted", {
-                  count: [...visibleRounds, ...visibleOrphans].filter((row) => isCompleted(row.status)).length,
-                })}
-              </summary>
+            <>
+              <CompletedDivider
+                count={[...visibleRounds, ...visibleOrphans].filter((row) => isCompleted(row.status)).length}
+              />
               {visibleRounds
                 .filter((row) => isCompleted(row.status))
                 .map((row) => (
@@ -294,16 +289,16 @@ const GroupSection = memo(function GroupSection({
                     onSelectSession={onSelectSession}
                   />
                 ))}
-            </details>
+            </>
           )}
           {group.taskId && (
-            <div className="mt-1.5 flex flex-wrap items-center gap-1.5 px-1.5">
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 px-2">
               <EntityRefLink
                 entityRef={`task/${group.taskId}`}
                 onNavigate={(ref) => onOpenTask(ref.slice("task/".length))}
                 title={t("agentRuntime.openTask")}
                 className={
-                  "rounded border border-border px-1.5 py-0.5 ui-micro text-text-muted " +
+                  "rounded border border-border px-2 py-0.5 ui-meta text-text-muted " +
                   "hover:border-accent hover:text-accent"
                 }
               >
@@ -316,7 +311,7 @@ const GroupSection = memo(function GroupSection({
                   onNavigate={onSelectEntity}
                   title={decisionRef}
                   className={
-                    "rounded border border-border px-1.5 py-0.5 font-mono ui-micro text-text-muted " +
+                    "rounded border border-border px-2 py-0.5 font-mono ui-meta text-text-muted " +
                     "hover:border-accent hover:text-accent"
                   }
                 >
@@ -372,7 +367,6 @@ function RoundRow({
       onClick={() => onSelectSession(row.runtimeSessionId)}
     >
       <DenseRow
-        index={row.roundIndex}
         tag={
           <span data-testid={`runtime-outcome-${row.runtimeSessionId}`}>
             <SessionStatusTag status={row.status} />
@@ -386,13 +380,13 @@ function RoundRow({
               row.classification,
               row.nextAction,
               row.delegation,
-              shortRef(row.dispatchId, 14),
             ]
               .filter(Boolean)
               .join(" · ")}
           </span>
         }
         time={formatTime(row.startedAt, { style: "time" }) ?? row.startedAt}
+        relaxed
         selected={selected}
       />
     </button>
@@ -421,9 +415,19 @@ function OrphanRow({
         title={row.instanceId}
         reason={t("agentRuntime.sessionsNoDispatch", { count: 1 })}
         time={formatTime(row.startedAt, { style: "time" }) ?? row.startedAt}
+        relaxed
         selected={selected}
       />
     </button>
+  );
+}
+
+/** 已完成分隔线(标准 §1.4):终态沉底、照常显示,不收进「展开」。 */
+function CompletedDivider({ count }: { readonly count: number }) {
+  return (
+    <p className="border-t border-border px-3.5 pt-3 pb-1.5 ui-meta text-text-faint">
+      {t("agentRuntime.sessionsCompleted", { count })}
+    </p>
   );
 }
 
@@ -470,38 +474,37 @@ function DecisionGroupBody({
         reason={
           round.review ? <VerdictBadge verdict={round.review.verdict} /> : dispatchStatusText(round.dispatch.status)
         }
+        relaxed
         selected={selectedId === round.dispatch.runtimeSessionId}
       />
     </button>
   );
   return (
-    <div className="cv-auto-10r px-1.5 pb-2">
+    <div className="cv-auto-10r pl-3">
       {(rows === undefined || rows.pending) && (
-        <p className="px-1.5 py-1 ui-micro text-text-faint">{t("agentRuntime.loading")}</p>
+        <p className="px-3.5 py-2 ui-meta text-text-faint">{t("agentRuntime.loading")}</p>
       )}
       {rows?.error && (
-        <p role="alert" className="px-1.5 py-1 font-mono ui-micro text-status-blocked">
+        <p role="alert" className="px-3.5 py-2 font-mono ui-meta text-status-blocked">
           {t("agentRuntime.readFailed", { error: rows.error })}
         </p>
       )}
       {rows && !rows.pending && !rows.error && rows.rounds === null && (
-        <p className="px-1.5 py-1 ui-micro text-text-faint">{t("agentRuntime.sessionsDecisionRowsUnavailable")}</p>
+        <p className="px-3.5 py-2 ui-meta text-text-faint">{t("agentRuntime.sessionsDecisionRowsUnavailable")}</p>
       )}
       {rows?.rounds?.filter((round) => round.dispatch.status !== "succeeded").map(renderRound)}
       {completed.length > 0 && (
-        <details open={completed.some((round) => round.dispatch.runtimeSessionId === selectedId)}>
-          <summary className="cursor-pointer px-3 py-1 ui-meta text-text-faint">
-            {t("agentRuntime.sessionsCompleted", { count: completed.length })}
-          </summary>
+        <>
+          <CompletedDivider count={completed.length} />
           {completed.map(renderRound)}
-        </details>
+        </>
       )}
-      <div className="mt-1.5 px-1.5">
+      <div className="mt-2 px-2">
         <EntityRefLink
           entityRef={decisionReviewRef(decisionId, "review")}
           onNavigate={onSelectEntity}
           title={decisionId}
-          className="rounded border border-border px-1.5 py-0.5 ui-micro text-text-muted hover:border-accent hover:text-accent"
+          className="rounded border border-border px-2 py-0.5 ui-meta text-text-muted hover:border-accent hover:text-accent"
         >
           {t("agentRuntime.sessionsDecisionDetail")} ↗
         </EntityRefLink>

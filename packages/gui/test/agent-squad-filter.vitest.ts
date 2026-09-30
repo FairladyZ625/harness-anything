@@ -135,6 +135,8 @@ describe("agent squad filter bar and rail", () => {
         selection: null,
         onSelect: () => undefined,
         onNew: () => undefined,
+        agentNames: new Map(),
+        squadsByAgent: new Map(),
         agentsEmpty: createElement("p", { "data-testid": "agents-empty" }, "none"),
         squadsEmpty: createElement(
           "p",
@@ -159,6 +161,8 @@ describe("agent squad filter bar and rail", () => {
         selection: { type: "agent", id: "fable" },
         onSelect: () => undefined,
         onNew: () => undefined,
+        agentNames: new Map(),
+        squadsByAgent: new Map(),
         notice: createElement("p", { "data-testid": "agent-squad-selection-hidden" }, "hidden"),
       }),
     );
@@ -197,6 +201,28 @@ describe("agent squad filter bar and rail", () => {
     });
     // Escape on an already-empty query keeps the current state (no reset emission needed).
     expect(latest.query).toBe("ast");
+  });
+
+  it("filters roles with counted chips at the top instead of a per-row role label", async () => {
+    let latest = DEFAULT_AGENT_SQUAD_FILTERS;
+    await mount(
+      createElement(AgentSquadFilterBar, {
+        agents,
+        squads,
+        filters: DEFAULT_AGENT_SQUAD_FILTERS,
+        onChange: (next: AgentSquadFilters) => {
+          latest = next;
+        },
+      }),
+    );
+    const chips = [...byTestId("agent-squad-filter-role").querySelectorAll("button")];
+    // 全部 3(降级行不计)、commander 1、worker 2;选中「全部」。
+    expect(chips.map((chip) => chip.textContent)).toEqual(["All3", "commander1", "worker2"]);
+    expect(chips[0]!.getAttribute("aria-pressed")).toBe("true");
+    await act(async () => {
+      chips[2]!.click();
+    });
+    expect(latest.roles).toEqual(["worker"]);
   });
 
   it("clears the query via the clear button", async () => {

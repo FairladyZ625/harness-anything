@@ -1,11 +1,15 @@
 import type { ReactNode } from "react";
 import { TitleText } from "./TitleText.tsx";
 
+/** 条目高度(标准 §3 v2):单行 ≥40px,宽松两行 56px。仪表盘落位按同一档计算行高。 */
+export const DENSE_ROW_PX = 40;
+export const DENSE_ROW_RELAXED_PX = 56;
+
 /**
- * 单行条目(标准 §4):可选序号、状态标签、标题(省略号)+ 灰色原因、右侧等宽时间。
- * relaxed 为宽松模式两行(约 44px):标题一行、原因换行成第二行——仪表盘区域
- * 富余足够时与放大层列表都用它展示原因(标准 §2.1)。字符串标题经 TitleText 拆成
- * 重点与弱色补充;调用方传节点(如搜索高亮)时原样渲染。
+ * 列表条目(标准 §4):可选序号、状态标签、标题(省略号)+ 灰色原因、右侧等宽时间。
+ * relaxed 为宽松两行:标题一行、原因换行成弱色第二行——目录页(§2.5)、仪表盘区域
+ * 富余足够时与放大层列表都用它展示原因。高度、字号、间距只在这里定,调用点不压缩。
+ * 字符串标题经 TitleText 拆成重点与弱色补充;调用方传节点(如搜索高亮)时原样渲染。
  */
 export function DenseRow({
   index,
@@ -40,12 +44,12 @@ export function DenseRow({
     : onClick === undefined
       ? ""
       : "hover:bg-text/5";
-  const rowCls = `grid w-full items-center gap-[7px] border-t border-border px-3 ${cols} ${
-    relaxed ? "min-h-11 py-1" : "h-[25px]"
+  const rowCls = `grid w-full items-center gap-2.5 border-t border-border px-3.5 ui-body ${cols} ${
+    relaxed ? "min-h-14 py-2" : "min-h-10 py-2.5"
   } ${stateCls}`;
   const content = (
     <>
-      {index !== undefined && <span className="font-mono text-text-faint ui-micro">{index}</span>}
+      {index !== undefined && <span className="font-mono text-text-faint ui-meta">{index}</span>}
       {tag !== undefined && <span className="min-w-0">{tag}</span>}
       <span className={`min-w-0 ${relaxed ? "" : "truncate"}`}>
         <span className={`${relaxed ? "block " : ""}truncate text-text`}>
@@ -53,9 +57,9 @@ export function DenseRow({
         </span>
         {reason !== undefined &&
           (relaxed ? (
-            <span className="block truncate text-text-faint ui-meta">{reason}</span>
+            <span className="mt-0.5 block truncate text-text-faint ui-meta">{reason}</span>
           ) : (
-            <span className="ml-[5px] text-text-faint ui-meta">· {reason}</span>
+            <span className="ml-1.5 text-text-faint ui-meta">· {reason}</span>
           ))}
       </span>
       {time !== undefined && (
