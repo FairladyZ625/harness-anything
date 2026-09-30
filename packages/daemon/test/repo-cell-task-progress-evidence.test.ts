@@ -553,6 +553,7 @@ test("complete without a code-doc witness stops on code_doc_missing under its ow
         projection: {
           read: () => read,
           getEntity: () => null,
+          readTaskChildCounts: () => ({}),
           readTaskCompletion: () => null,
           readRelationQuery: (query: { readonly relationType?: string }) =>
             query.relationType === "produces"
@@ -654,6 +655,7 @@ test("completed receipt replay does not inspect a newer red or unavailable CI ob
   Object.assign(prepared.cell.projection, {
     read: () => read,
     getEntity: () => null,
+    readTaskChildCounts: () => ({}),
     readTaskCompletion: () => completedEvent,
     readCiRunObservations: () => {
       assert.fail("completed replay must not read newer CI observations");
@@ -718,6 +720,7 @@ test("replayed complete retries archiveOnComplete through the regular archive ac
     Object.assign(prepared.cell.projection, {
       read: () => read,
       getEntity: () => null,
+      readTaskChildCounts: () => ({}),
       readTaskCompletion: () => ({ opId: "completed-original" }),
       readRelationQuery: () => ({ rows: [], status: "ready" }),
       readDocument: (target: string) => ({
@@ -842,6 +845,7 @@ async function completeOverRedCi(
           read: () => read,
           readTaskCompletion: () => null,
           getEntity: () => null,
+          readTaskChildCounts: () => ({}),
           readRelationQuery: (query: { readonly relationType?: string }) =>
             query.relationType === "produces"
               ? { rows: [{ targetRef: "fact/one", state: "active" }], status: "ready" }

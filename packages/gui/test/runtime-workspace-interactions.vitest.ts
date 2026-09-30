@@ -436,6 +436,14 @@ describe("runtime entry split (W6 IA)", () => {
     ]);
   });
 
+  it("does not auto-select or mount a drawer when sessions arrive without a selection", async () => {
+    const container = await mountSessions(null);
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(container.querySelector('[data-testid="session-detail"]')).toBeNull();
+    expect(agentRuntimeClient.session).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="sessions-status-filter"]')?.textContent).not.toMatch(/\d/u);
+  });
+
   it("expands a task group and selects its round row into the sessions workspace main area", async () => {
     await mountSessions("session/runtime-bound");
 
@@ -443,6 +451,7 @@ describe("runtime entry split (W6 IA)", () => {
     expect(byTestId("rail-session-runtime-bound").getAttribute("aria-current")).toBe("true");
     expect(byTestId("rail-session-runtime-sibling")).toBeTruthy();
     expect(byTestId("session-detail").textContent).toContain("runtime-bound");
+    expect(byTestId("session-detail").closest('[role="dialog"]')).not.toBeNull();
   });
 
   it("resolves a session deep link before the target task group is expanded", async () => {
@@ -1014,7 +1023,7 @@ async function mountView(
 }
 
 async function mountSessions(
-  focusedEntityRef: string,
+  focusedEntityRef: string | null,
   handlers: { readonly onOpenTask?: (taskId: string) => void; readonly onSelectEntity?: (ref: string) => void } = {},
   tailImpl?: (
     payload: Parameters<typeof harnessClient.tailObservability>[0],

@@ -1,5 +1,4 @@
 import type { TaskWipRead } from "../../api/renderer-dto.ts";
-import type { TaskRow } from "../model/types.ts";
 
 export function TaskWipSummary({ snapshot }: { readonly snapshot?: TaskWipRead }) {
   if (!snapshot) return null;
@@ -18,20 +17,5 @@ export function TaskWipSummary({ snapshot }: { readonly snapshot?: TaskWipRead }
       </span>
       <span title={rootDetail}>root {snapshot.roots.length}</span>
     </div>
-  );
-}
-
-export function TaskRootBadge({ task }: { readonly task: TaskRow }) {
-  const root = task.rootAssessment;
-  if (!root) return null;
-  const label = root.reason === "declared" ? "work" : `derived ${root.directChildCount} children`;
-  return (
-    <span
-      className="inline-flex shrink-0 rounded border border-border px-1 font-mono ui-micro text-text-muted"
-      data-testid={`task-root-badge-${task.taskId}`}
-      title={`root threshold ${root.threshold}`}
-    >
-      {label}
-    </span>
   );
 }

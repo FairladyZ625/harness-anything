@@ -4,19 +4,19 @@ import type { AgentRuntimeUnattributedGroupKey } from "@harness-anything/daemon/
 import { agentRuntimeSearchMatches } from "@harness-anything/daemon/protocol";
 import {
   relativeTime,
-  sessionStatusDot,
   sessionStatusKey,
-  sessionStatusTone,
   sessionUnattributedKey,
   shortRef,
   type SessionGroup,
   type SessionOrphan,
   type SessionRound,
+  type SessionStatus,
 } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
-import { KindDot, LiveDot } from "../runtime/parts.tsx";
+import { DenseRow } from "../primitives/DenseRow.tsx";
+import { StatusTag, type StatusTone } from "../primitives/StatusTag.tsx";
 import type { DecisionReviewRound } from "../../model/decision-review.ts";
 import { decisionReviewRef, decisionSessionsRef } from "../../navigation/decisionReviewRoutes.ts";
 import { dispatchStatusText, VerdictBadge } from "../decisionReview/parts.tsx";
@@ -43,14 +43,15 @@ export type DecisionGroupRows = {
 };
 
 const NO_DECISION_ROWS: ReadonlyMap<string, DecisionGroupRows> = new Map();
-/** 折叠组头的估算高度(两行文本 + padding);展开组行高由 measureElement 实测收敛。 */
-export const GROUP_HEADER_ESTIMATE_PX = 56;
+/** 折叠组头为 DenseRow + 边框;展开组行高由 measureElement 实测收敛。 */
+export const GROUP_HEADER_ESTIMATE_PX = 26;
 export const GROUP_OVERSCAN = 10;
 /** 无布局环境(静态渲染/happy-dom)的视口兜底:ResizeObserver 上报前按 800px 高出首屏。 */
 const GROUP_INITIAL_RECT = { width: 400, height: 800 } as const;
 
 export function SessionGroupList({
   groups,
+  pending = false,
   truncated,
   expandedKeys,
   rowsByGroup,
@@ -64,6 +65,7 @@ export function SessionGroupList({
   onSelectEntity,
 }: {
   readonly groups: readonly SessionGroup[];
+  readonly pending?: boolean;
   readonly truncated: boolean;
   readonly expandedKeys: ReadonlySet<string>;
   readonly rowsByGroup: ReadonlyMap<string, SessionGroupRows>;
@@ -93,11 +95,17 @@ export function SessionGroupList({
       ref={scrollRef}
       data-testid="sessions-group-list"
       aria-label={t("agentRuntime.segSessions")}
-      className="flex basis-1/4 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface"
+      className="flex min-w-0 flex-1 flex-col overflow-y-auto"
     >
       {groups.length === 0 ? (
         <p className="px-3 py-3 ui-micro text-text-faint">
-          {t(query === "" ? "agentRuntime.noSessions" : "agentRuntime.sessionsNoMatches")}
+          {t(
+            pending
+              ? "agentRuntime.loading"
+              : query === ""
+                ? "agentRuntime.noSessions"
+                : "agentRuntime.sessionsNoMatches",
+          )}
         </p>
       ) : (
         // spacer 带 shrink-0:nav 是 flex 列也是滚动容器,spacer 作为 flex item 会被默认的
@@ -181,52 +189,24 @@ const GroupSection = memo(function GroupSection({
   // 展开是 Task 组的能力(一次 task.dispatches 拿全部轮次,设计稿 §6.5 预算);
   // Squad/Agent/时间组没有单次往返的成员读面,头部按静态行呈现,不提供假展开。
   const headerBody = (
-    <span className="flex w-full flex-col gap-0.5 px-2.5 pt-2 pb-1.5 text-left">
-      <span className="flex min-w-0 items-center gap-1.5">
-        {expandable && (
-          <span
-            aria-hidden
-            className={`shrink-0 ui-micro text-text-faint transition-transform ${open ? "rotate-90" : ""}`}
-          >
-            ▶
-          </span>
-        )}
-        <LiveDot state={sessionStatusDot[group.latestStatus]} tip={t(sessionStatusKey[group.latestStatus] as never)} />
-        {decisionGroup && (
-          <span className="shrink-0 rounded border border-accent/40 px-1 font-mono ui-micro text-accent">
-            {t("agentRuntime.sessionsDecisionTag")}
-          </span>
-        )}
-        <b className="min-w-0 flex-1 truncate ui-meta">
-          {group.kind === "unattributed"
-            ? t(sessionUnattributedKey[group.key as AgentRuntimeUnattributedGroupKey] as never)
-            : (decisionRows?.title ?? group.label)}
-        </b>
-        {decisionGroup && group.decisionId && (
-          <span className="shrink-0 font-mono ui-micro text-text-faint">{shortRef(group.decisionId, 11)}</span>
-        )}
-        {expandable && group.taskId && (
-          <span className="shrink-0 font-mono ui-micro text-text-faint">{shortRef(group.taskId, 11)}</span>
-        )}
-      </span>
-      <span className="flex min-w-0 items-center gap-1.5 pl-[15px] ui-micro text-text-muted">
-        <span className={sessionStatusTone[group.latestStatus]}>
-          {t(sessionStatusKey[group.latestStatus] as never)}
-        </span>
-        {expandable && (
-          <>
-            <span>· {t("agentRuntime.sessionsRoundCount", { count: group.roundCount })}</span>
-            {group.sessionCount > group.roundCount && (
-              <span>· {t("agentRuntime.sessionsSessionCount", { count: group.sessionCount })}</span>
-            )}
-          </>
-        )}
-        {group.latestRound?.agentName && <span className="truncate">· {group.latestRound.agentName}</span>}
-        <span className="ml-auto shrink-0 font-mono ui-micro text-text-faint">
-          {relativeTime(group.latestActivityAt)}
-        </span>
-      </span>
-    </span>
+    <DenseRow
+      index={expandable ? (open ? "▾" : "▸") : undefined}
+      tag={<SessionStatusTag status={group.latestStatus} />}
+      title={
+        group.kind === "unattributed"
+          ? t(sessionUnattributedKey[group.key as AgentRuntimeUnattributedGroupKey] as never)
+          : (decisionRows?.title ?? group.label)
+      }
+      reason={[
+        t("agentRuntime.sessionsRoundCount", { count: group.roundCount }),
+        t("agentRuntime.sessionsSessionCount", { count: group.sessionCount }),
+        group.taskId ? shortRef(group.taskId, 11) : undefined,
+        group.latestRound?.agentName,
+      ]
+        .filter(Boolean)
+        .join(" · ")}
+      time={relativeTime(group.latestActivityAt)}
+    />
   );
   return (
     <section data-testid={`session-group-${group.key}`} className="border-b border-border">
@@ -260,27 +240,62 @@ const GroupSection = memo(function GroupSection({
               {t("agentRuntime.readFailed", { error: rows.error })}
             </p>
           )}
-          {visibleRounds.map((row) => (
-            <RoundRow
-              key={row.dispatchId}
-              row={row}
-              selected={selectedId === row.runtimeSessionId}
-              onSelectSession={onSelectSession}
-            />
-          ))}
-          {visibleOrphans.length > 0 && (
-            <p className="mt-1 px-1.5 font-mono ui-micro uppercase tracking-[0.06em] text-text-faint">
-              {t("agentRuntime.sessionsNoDispatch", { count: visibleOrphans.length })}
-            </p>
+          {visibleRounds
+            .filter((row) => !isCompleted(row.status))
+            .map((row) => (
+              <RoundRow
+                key={row.dispatchId}
+                row={row}
+                selected={selectedId === row.runtimeSessionId}
+                onSelectSession={onSelectSession}
+              />
+            ))}
+          {visibleOrphans
+            .filter((row) => !isCompleted(row.status))
+            .map((row) => (
+              <OrphanRow
+                key={row.runtimeSessionId}
+                row={row}
+                selected={selectedId === row.runtimeSessionId}
+                onSelectSession={onSelectSession}
+              />
+            ))}
+          {[...visibleRounds, ...visibleOrphans].some((row) => isCompleted(row.status)) && (
+            <details
+              open={
+                query !== "" ||
+                [...visibleRounds, ...visibleOrphans].some(
+                  (row) => isCompleted(row.status) && row.runtimeSessionId === selectedId,
+                )
+              }
+            >
+              <summary className="cursor-pointer px-3 py-1 ui-meta text-text-faint">
+                {t("agentRuntime.sessionsCompleted", {
+                  count: [...visibleRounds, ...visibleOrphans].filter((row) => isCompleted(row.status)).length,
+                })}
+              </summary>
+              {visibleRounds
+                .filter((row) => isCompleted(row.status))
+                .map((row) => (
+                  <RoundRow
+                    key={row.dispatchId}
+                    row={row}
+                    selected={selectedId === row.runtimeSessionId}
+                    onSelectSession={onSelectSession}
+                  />
+                ))}
+              {visibleOrphans
+                .filter((row) => isCompleted(row.status))
+                .map((row) => (
+                  <OrphanRow
+                    key={row.runtimeSessionId}
+                    row={row}
+                    selected={selectedId === row.runtimeSessionId}
+                    onSelectSession={onSelectSession}
+                  />
+                ))}
+            </details>
           )}
-          {visibleOrphans.map((row) => (
-            <OrphanRow
-              key={row.runtimeSessionId}
-              row={row}
-              selected={selectedId === row.runtimeSessionId}
-              onSelectSession={onSelectSession}
-            />
-          ))}
           {group.taskId && (
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5 px-1.5">
               <EntityRefLink
@@ -351,43 +366,35 @@ function RoundRow({
   return (
     <button
       type="button"
+      className="w-full text-left hover:bg-text/5"
       data-testid={`rail-session-${row.runtimeSessionId}`}
       aria-current={selected}
       onClick={() => onSelectSession(row.runtimeSessionId)}
-      className={`cv-auto-2r flex w-full items-center gap-2 rounded border px-2 py-1 text-left ${
-        selected ? "border-accent/40 bg-accent/[0.14]" : "border-transparent hover:bg-surface-raised"
-      }`}
     >
-      <span className="shrink-0 font-mono ui-micro text-text-faint">
-        {t("agentRuntime.sessionsRoundIndex", { index: row.roundIndex })}
-      </span>
-      <LiveDot state={sessionStatusDot[row.status]} tip={t(sessionStatusKey[row.status] as never)} />
-      <span className="min-w-0 flex-1 ui-micro">
-        <span className="block truncate">
-          {row.agentName ?? row.instanceId}
-          <span className="ml-1.5 font-mono ui-micro text-text-faint">{shortRef(row.instanceId, 14)}</span>
-          {row.delegation && <span className="ml-1.5 ui-micro text-text-muted">{row.delegation}</span>}
-        </span>
-        {row.classification !== null && (
-          <span
-            data-testid={`runtime-classification-${row.runtimeSessionId}`}
-            className="block truncate font-mono ui-micro text-status-blocked"
-          >
-            {row.classification}
-            {row.nextAction && ` · ${row.nextAction}`}
+      <DenseRow
+        index={row.roundIndex}
+        tag={
+          <span data-testid={`runtime-outcome-${row.runtimeSessionId}`}>
+            <SessionStatusTag status={row.status} />
           </span>
-        )}
-      </span>
-      <span className="shrink-0 font-mono ui-micro text-text-faint">
-        {formatTime(row.startedAt, { style: "time" }) ?? row.startedAt}
-      </span>
-      <span className="shrink-0 font-mono ui-micro text-text-faint">{shortRef(row.dispatchId, 14)}</span>
-      <span
-        data-testid={`runtime-outcome-${row.runtimeSessionId}`}
-        className={`shrink-0 font-mono ui-micro ${sessionStatusTone[row.status]}`}
-      >
-        {t(sessionStatusKey[row.status] as never)}
-      </span>
+        }
+        title={row.agentName ?? row.instanceId}
+        reason={
+          <span data-testid={`runtime-classification-${row.runtimeSessionId}`}>
+            {[
+              t("agentRuntime.sessionsRoundIndex", { index: row.roundIndex }),
+              row.classification,
+              row.nextAction,
+              row.delegation,
+              shortRef(row.dispatchId, 14),
+            ]
+              .filter(Boolean)
+              .join(" · ")}
+          </span>
+        }
+        time={formatTime(row.startedAt, { style: "time" }) ?? row.startedAt}
+        selected={selected}
+      />
     </button>
   );
 }
@@ -404,26 +411,35 @@ function OrphanRow({
   return (
     <button
       type="button"
+      className="w-full text-left hover:bg-text/5"
       data-testid={`rail-session-${row.runtimeSessionId}`}
       aria-current={selected}
       onClick={() => onSelectSession(row.runtimeSessionId)}
-      className={`cv-auto-2r flex w-full items-center gap-2 rounded border px-2 py-1 text-left ${
-        selected ? "border-accent/40 bg-accent/[0.14]" : "border-transparent hover:bg-surface-raised"
-      }`}
     >
-      <KindDot kind="any" />
-      <span className="min-w-0 flex-1 truncate ui-micro">
-        {row.instanceId}
-        <span className="ml-1.5 font-mono ui-micro text-text-faint">{t("agentRuntime.sessionsNoDispatchTag")}</span>
-      </span>
-      <span className="shrink-0 font-mono ui-micro text-text-faint">
-        {formatTime(row.startedAt, { style: "time" }) ?? row.startedAt}
-      </span>
-      <span className={`shrink-0 font-mono ui-micro ${sessionStatusTone[row.status]}`}>
-        {t(sessionStatusKey[row.status] as never)}
-      </span>
+      <DenseRow
+        tag={<SessionStatusTag status={row.status} />}
+        title={row.instanceId}
+        reason={t("agentRuntime.sessionsNoDispatch", { count: 1 })}
+        time={formatTime(row.startedAt, { style: "time" }) ?? row.startedAt}
+        selected={selected}
+      />
     </button>
   );
+}
+
+const isCompleted = (status: SessionStatus) => status === "succeeded" || status === "cancelled";
+const statusTones: Record<SessionStatus, StatusTone> = {
+  running: "active",
+  succeeded: "done",
+  cancelled: "cancel",
+  failed: "bad",
+  lost: "bad",
+  unknown: "neutral",
+  "ended-indeterminate": "neutral",
+  unavailable: "neutral",
+};
+function SessionStatusTag({ status }: { readonly status: SessionStatus }) {
+  return <StatusTag tone={statusTones[status]} label={t(sessionStatusKey[status] as never)} />;
 }
 
 /** Decision 评审组展开体:每轮一个评审派工,点击精确选中该会话;组尾回到被评审 Decision。 */
@@ -438,6 +454,26 @@ function DecisionGroupBody({
   readonly selectedId: string | null;
   readonly onSelectEntity: (ref: string) => void;
 }) {
+  const completed = rows?.rounds?.filter((round) => round.dispatch.status === "succeeded") ?? [];
+  const renderRound = (round: DecisionReviewRound) => (
+    <button
+      type="button"
+      className="w-full text-left hover:bg-text/5"
+      onClick={() => onSelectEntity(decisionSessionsRef(decisionId, round.dispatch.runtimeSessionId))}
+      key={round.dispatch.dispatchId}
+      data-testid={`rail-session-${round.dispatch.runtimeSessionId}`}
+      aria-current={selectedId === round.dispatch.runtimeSessionId}
+    >
+      <DenseRow
+        tag={<SessionStatusTag status={round.dispatch.status} />}
+        title={shortRef(round.dispatch.runtimeSessionId, 18)}
+        reason={
+          round.review ? <VerdictBadge verdict={round.review.verdict} /> : dispatchStatusText(round.dispatch.status)
+        }
+        selected={selectedId === round.dispatch.runtimeSessionId}
+      />
+    </button>
+  );
   return (
     <div className="cv-auto-10r px-1.5 pb-2">
       {(rows === undefined || rows.pending) && (
@@ -451,26 +487,15 @@ function DecisionGroupBody({
       {rows && !rows.pending && !rows.error && rows.rounds === null && (
         <p className="px-1.5 py-1 ui-micro text-text-faint">{t("agentRuntime.sessionsDecisionRowsUnavailable")}</p>
       )}
-      {rows?.rounds?.map((round) => (
-        <button
-          key={round.dispatch.dispatchId}
-          type="button"
-          data-testid={`rail-session-${round.dispatch.runtimeSessionId}`}
-          aria-current={selectedId === round.dispatch.runtimeSessionId}
-          onClick={() => onSelectEntity(decisionSessionsRef(decisionId, round.dispatch.runtimeSessionId))}
-          className={`cv-auto-2r flex w-full items-center gap-2 rounded border px-2 py-1 text-left ${
-            selectedId === round.dispatch.runtimeSessionId
-              ? "border-accent/40 bg-accent/[0.14]"
-              : "border-transparent hover:bg-surface-raised"
-          }`}
-        >
-          <span className="min-w-0 flex-1 truncate font-mono ui-micro text-text-muted">
-            {shortRef(round.dispatch.runtimeSessionId, 18)}
-          </span>
-          <span className="shrink-0 ui-micro text-text-faint">{dispatchStatusText(round.dispatch.status)}</span>
-          {round.review && <VerdictBadge verdict={round.review.verdict} />}
-        </button>
-      ))}
+      {rows?.rounds?.filter((round) => round.dispatch.status !== "succeeded").map(renderRound)}
+      {completed.length > 0 && (
+        <details open={completed.some((round) => round.dispatch.runtimeSessionId === selectedId)}>
+          <summary className="cursor-pointer px-3 py-1 ui-meta text-text-faint">
+            {t("agentRuntime.sessionsCompleted", { count: completed.length })}
+          </summary>
+          {completed.map(renderRound)}
+        </details>
+      )}
       <div className="mt-1.5 px-1.5">
         <EntityRefLink
           entityRef={decisionReviewRef(decisionId, "review")}

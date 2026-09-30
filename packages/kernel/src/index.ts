@@ -89,6 +89,7 @@ export type {
 export {
   canonicalizeContractValue,
   currentTaskForWrite,
+  isWorkRoot,
   retiredTaskClassRestatements,
   taskClasses,
   validateTaskV2,

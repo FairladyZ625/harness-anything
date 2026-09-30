@@ -1,79 +1,26 @@
-import { memo, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { CaretLeft, CaretRight, Lock, PushPin, Star } from "@phosphor-icons/react";
+import { memo, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
+import { Lock, PushPin, Star } from "@phosphor-icons/react";
 import type { TaskRow } from "../model/types";
-import { isExternal } from "../model/types";
-import { CloseoutBadge, DecisionSourceBadge, EngineBadge, FreshnessTag } from "../components/badges";
+import { isExternal, isTerminal } from "../model/types";
 import { StatusTag } from "../components/primitives/StatusTag";
-import { TaskFilterBar } from "../components/TaskFilterBar";
-import { ColumnResizeHandle } from "../components/ColumnResizeHandle.tsx";
-import {
-  boardColumnPreferenceStorage,
-  clearBoardColumnWidth,
-  readBoardColumnWidths,
-  setBoardColumnWidth,
-  writeBoardColumnWidths,
-  type BoardColumnWidths,
-} from "../board-column-preferences.ts";
-import type { TaskFilters } from "../model/taskFilters";
+import { DenseRow } from "../components/primitives/DenseRow";
 import { sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
-import { spawningDecisionBadge } from "../model/triadic";
-import { TaskRootBadge } from "../components/TaskWipSummary.tsx";
 import { t } from "../i18n/index.tsx";
-import { formatTime } from "../model/time.ts";
+import { relativeTime } from "../sessions-model";
 
-const PAGE_SIZE_OPTIONS = [8, 15, 30, 60] as const;
-type PageSize = (typeof PAGE_SIZE_OPTIONS)[number];
-const DEFAULT_PAGE_SIZE: PageSize = 15;
+/** 列表行 windowing:行高 25px + 分隔线;实测由 measureElement 收敛。 */
+const ROW_ESTIMATE_PX = 28;
+const ROW_OVERSCAN = 12;
 
-/** 列宽交互区间(W11):table-fixed 下 th 的显式宽度即列宽,未设置的列自动分配剩余。 */
-const LIST_WIDTH_RANGE = { min: 56, max: 720 } as const;
-
-function ListHeaderCell({
-  columnKey,
-  label,
-  children,
-  width,
-  onResize,
-  onReset,
-  title,
-  className = "px-3 py-2",
-}: {
-  columnKey: string;
-  /** 列的口语名(供 resize 手柄的无障碍标签),如「标题 / 模块」。 */
-  label: string;
-  children: ReactNode;
-  width: number | undefined;
-  onResize: (key: string, px: number) => void;
-  onReset: (key: string) => void;
-  title?: string;
-  className?: string;
-}) {
-  return (
-    <th
-      className={`relative font-medium ${className}`}
-      style={width === undefined ? undefined : { width }}
-      data-testid={`list-column-${columnKey}`}
-      title={title}
-    >
-      {children}
-      <ColumnResizeHandle
-        label={t("views.listView.columnResize", { column: label })}
-        width={width}
-        min={LIST_WIDTH_RANGE.min}
-        max={LIST_WIDTH_RANGE.max}
-        onChange={(px) => onResize(columnKey, px)}
-        onReset={() => onReset(columnKey)}
-        testId={`list-column-resize-${columnKey}`}
-        className="inset-y-0 -right-1"
-      />
-    </th>
-  );
-}
-
-const dateLabel = (iso: string) => formatTime(iso, { style: "month-day-time" }) ?? "—";
-
-/** 审计行 memo(W9):比较键同看板卡片——行对象引用 + 稳定回调;徽章按行自取。 */
-const AuditRow = memo(function AuditRow({
+/**
+ * 任务列表(标准 §2.4 列表页):回答「我要找某个任务」。搜索与筛选由看板的
+ * TaskFilterBar 提供(本视图只作为看板的列表布局渲染);行用 DenseRow、状态用
+ * 有底色的 StatusTag,默认序与看板卡片同一实现(W8:lastKnownAt 倒序 + pin →
+ * 收藏置顶);终态(完成/取消)一律沉底并折叠成一行「已完成 N 个 · 展开」,
+ * 展开后跟随其后。整表 windowing:DOM 行数与总量解耦,无分页。
+ */
+const TaskListRow = memo(function TaskListRow({
   task,
   onSelect,
   isFavorite,
@@ -86,402 +33,206 @@ const AuditRow = memo(function AuditRow({
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
 }) {
-  const archived = task.visibility.archived;
   const pinned = task.pinned === true;
-  const spawningDecision = spawningDecisionBadge(task);
   return (
-    <tr
+    <div
       role="button"
       tabIndex={0}
+      data-testid={`task-row-${task.taskId}`}
       onClick={() => onSelect(task.taskId)}
       onKeyDown={(event) => {
-        if (event.key === "Enter") onSelect(task.taskId);
+        // 只认行壳自身发起的键事件:行内 pin/收藏是原生 button,自带 Enter/Space 激活。
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect(task.taskId);
+        }
       }}
-      className={`cursor-pointer border-b border-border hover:bg-surface-raised/60 ${
-        archived ? "opacity-55" : ""
+      className={`group flex w-full cursor-pointer items-center gap-1 pr-2 hover:bg-text/5 ${
+        task.visibility.archived ? "opacity-55" : ""
       } ${pinned ? "bg-accent/[0.06]" : isFavorite ? "bg-accent/[0.04]" : ""}`}
     >
-      <td className="px-2 py-2 align-top" onClick={(e) => e.stopPropagation()}>
-        {onSetPin ? (
-          <button
-            type="button"
-            data-testid={`task-pin-toggle-${task.taskId}`}
-            onClick={() => onSetPin(task, !pinned)}
-            title={pinned ? t("views.listView.unpinTitle") : t("views.listView.pinTitle")}
-            aria-pressed={pinned}
-            className={`inline-flex items-center justify-center rounded p-0.5 ui-body hover:bg-surface ${
-              pinned ? "text-accent" : "text-text-faint hover:text-text-muted"
-            }`}
-          >
-            <PushPin weight={pinned ? "fill" : "bold"} />
-          </button>
-        ) : (
-          <span className={`inline-block px-0.5 ui-body ${pinned ? "text-accent" : "text-text-faint"}`}>
-            {pinned ? <PushPin weight="fill" /> : null}
-          </span>
-        )}
+      {isExternal(task) && (
+        <Lock weight="bold" className="ml-2 shrink-0 ui-meta text-text-faint" aria-label="外部引擎只读" />
+      )}
+      <div className="min-w-0 flex-1">
+        <DenseRow
+          tag={<StatusTag status={task.canonicalStatus ?? task.coordinationStatus} />}
+          title={task.title}
+          reason={task.taskId}
+          time={relativeTime(task.lastKnownAt)}
+        />
+      </div>
+      {onSetPin ? (
         <button
           type="button"
-          onClick={() => onToggleFavorite(task.taskId)}
-          title={isFavorite ? t("views.listView.cancelFavorites") : t("views.listView.favoritesPinned")}
-          className={`ml-1 inline-flex items-center justify-center rounded p-0.5 ui-body hover:bg-surface ${
-            isFavorite ? "text-accent" : "text-text-faint hover:text-text-muted"
+          data-testid={`task-pin-toggle-${task.taskId}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onSetPin(task, !pinned);
+          }}
+          title={pinned ? t("views.listView.unpinTitle") : t("views.listView.pinTitle")}
+          aria-pressed={pinned}
+          className={`inline-flex shrink-0 items-center justify-center rounded p-0.5 ui-body hover:bg-surface ${
+            pinned ? "text-accent" : "text-text-faint hover:text-text-muted"
           }`}
         >
-          <Star weight={isFavorite ? "fill" : "bold"} />
+          <PushPin weight={pinned ? "fill" : "bold"} />
         </button>
-      </td>
-      <td className="px-3 py-2 align-top">
-        {/* table-fixed(W11)下窄列裁不裁由单元格自己负责:截断 + title 悬停保整串可读可抄。 */}
-        <div title={task.taskId} className="truncate font-mono ui-body text-text">
-          {task.taskId}
-        </div>
-        <div className="mt-1 truncate font-mono ui-meta text-text-faint">{dateLabel(task.lastKnownAt)}</div>
-      </td>
-      <td className="min-w-[260px] px-3 py-2 align-top">
-        <div className="flex items-start gap-1.5">
-          {pinned && (
-            <span
-              title={t("views.listView.pinnedToday")}
-              data-testid={`task-pinned-marker-${task.taskId}`}
-              className={[
-                "mt-0.5 inline-flex max-w-full shrink-0 items-center gap-0.5 truncate rounded",
-                "border border-accent/40 px-1 font-mono ui-micro text-accent",
-              ].join(" ")}
-            >
-              <PushPin weight="fill" /> {t("views.listView.pinnedToday")}
-            </span>
-          )}
-          <div className="line-clamp-2 ui-prose font-medium leading-snug text-text">{task.title}</div>
-        </div>
-        <div className="mt-1 flex flex-wrap items-center gap-2 font-mono ui-meta text-text-faint">
-          <TaskRootBadge task={task} />
-          {task.blocking === "unknown" && (
-            <span className="min-w-0 truncate text-stale">{t("views.listView.blockingUnknown")}</span>
-          )}
-          {/* 长 decision 徽章自身 max-w-full 只封盒不裁内容(flex 项 min-content=整串),会画进相邻列;
-              外包一层可收缩截断项收敛,整串 ID 仍由徽章自己的 title 悬停与 DOM 文本保住。 */}
-          {spawningDecision && (
-            <span className="min-w-0 truncate">
-              <DecisionSourceBadge decisionId={spawningDecision} compact />
-            </span>
-          )}
-          {isExternal(task) && (
-            <span className="inline-flex min-w-0 items-center gap-1 truncate">
-              <Lock weight="bold" />
-              外部只读
-            </span>
-          )}
-        </div>
-      </td>
-      <td className="px-3 py-2 align-top" data-testid={`task-inline-state-${task.taskId}`}>
-        {/* flex 列 cross 轴上的 truncate 没有盒宽可裁(2026-09-09 二次 Electron 验收:
-            节点/lease 行画进相邻列),必须配 max-w-full 让列宽成为截断上限。 */}
-        <div className="flex flex-col items-start gap-1">
-          <StatusTag status={task.canonicalStatus ?? task.coordinationStatus} />
-          {task.canonicalStatus && task.canonicalStatus !== task.coordinationStatus && (
-            <span className="max-w-full truncate font-mono ui-micro text-text-faint">
-              coordination={task.coordinationStatus}
-            </span>
-          )}
-          <span className="max-w-full truncate font-mono ui-micro text-text-faint">
-            {t("views.listView.nodeLabel")}
-            {task.currentNode ?? "—"}
+      ) : (
+        pinned && (
+          <span
+            title={t("views.listView.pinnedToday")}
+            data-testid={`task-pinned-marker-${task.taskId}`}
+            className="inline-flex shrink-0 items-center p-0.5 text-accent"
+          >
+            <PushPin weight="fill" className="ui-body" />
           </span>
-          {task.activeExecutionId ? (
-            <span
-              title={t("views.listView.leaseTitle")}
-              className="max-w-full truncate font-mono ui-micro text-text-muted"
-            >
-              {task.activeExecutionId}
-              {task.leaseHolder ? ` · ${task.leaseHolder}` : ""}
-              {task.leasePhase ? ` · ${task.leasePhase}` : ""}
-            </span>
-          ) : (
-            <span className="font-mono ui-micro text-text-faint">{t("views.listView.noLease")}</span>
-          )}
-        </div>
-      </td>
-      <td className="px-3 py-2 align-top">
-        <CloseoutBadge value={task.closeoutReadiness} />
-      </td>
-      <td className="px-3 py-2 align-top">
-        {/* engine 是 inline-flex 整串不可断行(验收实测 kernel/task-lifecycle/v1 距列界 1px),
-            外包收缩截断项防更窄列越界。 */}
-        <span className="inline-block max-w-full truncate">
-          <EngineBadge engine={task.engine} locked={isExternal(task)} />
-        </span>
-      </td>
-      <td className="px-3 py-2 align-top">
-        <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
-      </td>
-      <td className="px-3 py-2 align-top">
-        <span
-          className={[
-            "inline-block max-w-full truncate rounded border border-border",
-            "px-1.5 py-px font-mono ui-meta text-text-muted",
-          ].join(" ")}
-        >
-          {task.packageDisposition}
-        </span>
-      </td>
-    </tr>
+        )
+      )}
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggleFavorite(task.taskId);
+        }}
+        title={isFavorite ? t("views.listView.cancelFavorites") : t("views.listView.favoritesPinned")}
+        className={`inline-flex shrink-0 items-center justify-center rounded p-0.5 ui-body hover:bg-surface ${
+          isFavorite ? "text-accent" : "text-text-faint opacity-0 hover:text-text-muted group-hover:opacity-100"
+        }`}
+      >
+        <Star weight={isFavorite ? "fill" : "bold"} />
+      </button>
+    </div>
   );
 });
 
+/** 终态折叠行(标准 §2.4):「已完成 N 个 · 展开」一行;取消单列计数,不做第二行。 */
+function TerminalCollapse({
+  done,
+  cancelled,
+  expanded,
+  onToggle,
+}: {
+  done: number;
+  cancelled: number;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid="list-terminal-toggle"
+      aria-expanded={expanded}
+      onClick={onToggle}
+      className="flex w-full items-center gap-1.5 border-t border-border px-3 py-1.5 text-left ui-meta text-text-muted hover:text-text"
+    >
+      <span aria-hidden>{expanded ? "▾" : "▸"}</span>
+      {t("views.listView.terminalDone", { count: done })}
+      {cancelled > 0 ? ` · ${t("views.listView.terminalCancelled", { count: cancelled })}` : ""}
+      {" · "}
+      {expanded ? t("views.listView.terminalCollapseAction") : t("views.listView.terminalExpandAction")}
+    </button>
+  );
+}
+
+type ListItem = { readonly kind: "row"; readonly task: TaskRow } | { readonly kind: "collapse" };
+
 export function ListView({
   tasks,
-  allTasks,
-  filters,
-  onFiltersChange,
   onSelect,
   favorites,
   onToggleFavorite,
   onSetPin,
-  embedded = false,
 }: {
   tasks: readonly TaskRow[];
-  allTasks: TaskRow[];
-  filters: TaskFilters;
-  onFiltersChange: (filters: TaskFilters) => void;
   onSelect: (id: string) => void;
   favorites?: ReadonlySet<string>;
   onToggleFavorite?: (id: string) => void;
   /** 台账 pin 写通道;缺省时行内只显示 📌 状态,不给写按钮。 */
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
-  /** 嵌入到 BoardView 时不重复渲染自己的 header/TaskFilterBar(看板已提供)。 */
-  embedded?: boolean;
 }) {
-  const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState<PageSize>(DEFAULT_PAGE_SIZE);
-  // 列宽偏好(W11):GUI 本地态,与看板另两布局共用一个存储键;未设置的列保持
-  // table-fixed 自动分配,设置后 th 的显式宽度即列宽(总宽超出容器走横向滚动)。
-  const [widths, setWidths] = useState<BoardColumnWidths>(() => readBoardColumnWidths(boardColumnPreferenceStorage()));
-  const resizeColumn = useCallback(
-    (key: string, px: number) => {
-      const next = setBoardColumnWidth(widths, "list", key, px);
-      setWidths(next);
-      writeBoardColumnWidths(boardColumnPreferenceStorage(), next);
-    },
-    [widths],
-  );
-  const resetColumn = useCallback(
-    (key: string) => {
-      const next = clearBoardColumnWidth(widths, "list", key);
-      setWidths(next);
-      writeBoardColumnWidths(boardColumnPreferenceStorage(), next);
-    },
-    [widths],
-  );
-
-  useEffect(() => {
-    setPage(0);
-  }, [filters, tasks.length]);
-
+  const [expanded, setExpanded] = useState(false);
   const favSet = favorites ?? new Set<string>();
-  // 默认序共用实现(W8):lastKnownAt 倒序打底,pin(canonical)→ 本地收藏稳定置顶。
-  const sorted = useMemo(() => sortByRecentThenPinAndFavoritesFirst(tasks, favSet), [tasks, favSet]);
-  const pageCount = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const safePage = Math.min(page, pageCount - 1);
-  const visible = sorted.slice(safePage * pageSize, (safePage + 1) * pageSize);
-  const externalCount = tasks.filter((task) => isExternal(task)).length;
-  const riskCount = tasks.filter((task) => task.freshness !== "fresh" || task.risk.flagged).length;
+  // 默认序共用实现(W8):lastKnownAt 倒序打底,pin(canonical)→ 本地收藏稳定置顶;
+  // 终态沉底(标准 §2.4),找任务先看到仍在推进的行。pinned 恒在展开区(W8 先例:
+  // 折叠不许吞掉「今天在做」),即使它已是终态。
+  const sorted = useMemo(
+    () =>
+      sortByRecentThenPinAndFavoritesFirst(tasks, favSet).sort(
+        (a, b) => Number(isTerminal(a) && a.pinned !== true) - Number(isTerminal(b) && b.pinned !== true),
+      ),
+    [tasks, favSet],
+  );
+  const openRows = useMemo(() => sorted.filter((task) => !isTerminal(task) || task.pinned === true), [sorted]);
+  const terminalRows = useMemo(() => sorted.filter((task) => isTerminal(task) && task.pinned !== true), [sorted]);
+  const terminalDone = terminalRows.filter(
+    (task) => (task.canonicalStatus ?? task.coordinationStatus) !== "cancelled",
+  ).length;
+  const terminalCancelled = terminalRows.length - terminalDone;
+
+  const items: readonly ListItem[] = useMemo(
+    () => [
+      ...openRows.map((task): ListItem => ({ kind: "row", task })),
+      ...(terminalRows.length > 0 ? ([{ kind: "collapse" }] as ListItem[]) : []),
+      ...(expanded ? terminalRows.map((task): ListItem => ({ kind: "row", task })) : []),
+    ],
+    [openRows, terminalRows, expanded],
+  );
+
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ROW_ESTIMATE_PX,
+    overscan: ROW_OVERSCAN,
+    getItemKey: (index) => {
+      const item = items[index];
+      return item === undefined ? String(index) : item.kind === "row" ? item.task.taskId : "terminal-collapse";
+    },
+  });
 
   return (
     <div className="flex h-full flex-col">
-      {!embedded && (
-        <>
-          <header className="border-b border-border px-4 py-3">
-            <div className="flex flex-wrap items-baseline gap-3">
-              <h1 className="ui-title font-semibold">{t("views.listView.list")}</h1>
-              <span className="font-mono ui-body text-text-faint">
-                {t("views.listView.auditFormsLocateTasksExternalReadOnly")}
-              </span>
-              <span className="ml-auto font-mono ui-body text-text-faint">
-                {t("views.listView.filteredCount", { filtered: tasks.length, total: allTasks.length })}
-              </span>
-            </div>
-          </header>
-
-          <TaskFilterBar
-            tasks={allTasks}
-            filteredCount={tasks.length}
-            filters={filters}
-            onChange={onFiltersChange}
-            contextLabel={t("views.listView.list")}
-            favorites={favorites}
-          />
-        </>
-      )}
-
-      <div className="grid grid-cols-3 gap-3 border-b border-border px-4 py-3">
-        <div className="rounded-lg border border-border bg-surface px-3 py-2">
-          <div className="font-mono ui-meta uppercase tracking-wide text-text-faint">
-            {t("views.listView.currentResults")}
-          </div>
-          <div className="mt-1 font-mono ui-heading font-semibold">{tasks.length}</div>
-        </div>
-        <div className="rounded-lg border border-border bg-surface px-3 py-2">
-          <div className="font-mono ui-meta uppercase tracking-wide text-text-faint">
-            {t("views.listView.externalReadOnly")}
-          </div>
-          <div className="mt-1 font-mono ui-heading font-semibold">{externalCount}</div>
-        </div>
-        <div className="rounded-lg border border-border bg-surface px-3 py-2">
-          <div className="font-mono ui-meta uppercase tracking-wide text-text-faint">
-            {t("views.listView.riskLossContact")}
-          </div>
-          <div className="mt-1 font-mono ui-heading font-semibold">{riskCount}</div>
-        </div>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-auto">
-        {visible.length === 0 ? (
-          <div className="grid h-full place-items-center p-6">
-            <div className="max-w-md rounded-lg border border-dashed border-border px-4 py-5 text-center">
-              <div className="ui-title font-semibold text-text">{t("views.listView.noMatchingTasks")}</div>
-              <p className="mt-1 ui-body text-text-faint">{t("views.listView.broadenSearchStatusOpenArchivesView")}</p>
-            </div>
-          </div>
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto" data-testid="list-scroll">
+        {items.length === 0 ? (
+          <p className="px-4 py-6 ui-meta text-text-muted">
+            {t("views.listView.noMatchingTasks")} · {t("views.listView.broadenSearchStatusOpenArchivesView")}
+          </p>
         ) : (
-          <table className="w-full table-fixed border-collapse text-left">
-            <thead className="sticky top-0 z-10 bg-surface">
-              <tr className="border-b border-border font-mono ui-meta uppercase tracking-wide text-text-faint">
-                <ListHeaderCell
-                  columnKey="pins"
-                  label={t("views.listView.collection")}
-                  width={widths.list.pins}
-                  onResize={resizeColumn}
-                  onReset={resetColumn}
-                  title={t("views.listView.collection")}
-                  className="w-14 px-2 py-2"
+          <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
+            {virtualizer.getVirtualItems().map((item) => {
+              const entry = items[item.index];
+              return (
+                <div
+                  key={item.key}
+                  data-index={item.index}
+                  ref={virtualizer.measureElement}
+                  className="absolute inset-x-0 top-0"
+                  style={{ transform: `translateY(${item.start}px)` }}
                 >
-                  📌 ★
-                </ListHeaderCell>
-                <ListHeaderCell
-                  columnKey="task"
-                  label={t("views.listView.task")}
-                  width={widths.list.task}
-                  onResize={resizeColumn}
-                  onReset={resetColumn}
-                >
-                  {t("views.listView.task")}
-                </ListHeaderCell>
-                <ListHeaderCell
-                  columnKey="title"
-                  label={t("views.listView.title")}
-                  width={widths.list.title}
-                  onResize={resizeColumn}
-                  onReset={resetColumn}
-                >
-                  {t("views.listView.title")}
-                </ListHeaderCell>
-                <ListHeaderCell
-                  columnKey="status"
-                  label={t("views.listView.statusNodeHolder")}
-                  width={widths.list.status}
-                  onResize={resizeColumn}
-                  onReset={resetColumn}
-                >
-                  {t("views.listView.statusNodeHolder")}
-                </ListHeaderCell>
-                <ListHeaderCell
-                  columnKey="closeout"
-                  label={t("views.listView.closeout")}
-                  width={widths.list.closeout}
-                  onResize={resizeColumn}
-                  onReset={resetColumn}
-                >
-                  {t("views.listView.closeout")}
-                </ListHeaderCell>
-                <ListHeaderCell
-                  columnKey="engine"
-                  label={t("views.listView.engine")}
-                  width={widths.list.engine}
-                  onResize={resizeColumn}
-                  onReset={resetColumn}
-                >
-                  {t("views.listView.engine")}
-                </ListHeaderCell>
-                <ListHeaderCell
-                  columnKey="freshness"
-                  label={t("views.listView.freshness")}
-                  width={widths.list.freshness}
-                  onResize={resizeColumn}
-                  onReset={resetColumn}
-                >
-                  {t("views.listView.freshness")}
-                </ListHeaderCell>
-                <ListHeaderCell
-                  columnKey="package"
-                  label={t("views.listView.package")}
-                  width={widths.list.package}
-                  onResize={resizeColumn}
-                  onReset={resetColumn}
-                >
-                  {t("views.listView.package")}
-                </ListHeaderCell>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((task) => (
-                <AuditRow
-                  key={task.taskId}
-                  task={task}
-                  onSelect={onSelect}
-                  isFavorite={favSet.has(task.taskId)}
-                  onToggleFavorite={onToggleFavorite ?? (() => undefined)}
-                  onSetPin={onSetPin}
-                />
-              ))}
-            </tbody>
-          </table>
+                  {entry !== undefined && entry.kind === "collapse" ? (
+                    <TerminalCollapse
+                      done={terminalDone}
+                      cancelled={terminalCancelled}
+                      expanded={expanded}
+                      onToggle={() => setExpanded((current) => !current)}
+                    />
+                  ) : entry !== undefined ? (
+                    <TaskListRow
+                      task={entry.task}
+                      onSelect={onSelect}
+                      isFavorite={favSet.has(entry.task.taskId)}
+                      onToggleFavorite={onToggleFavorite ?? (() => undefined)}
+                      onSetPin={onSetPin}
+                    />
+                  ) : null}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
-
-      <footer className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2.5">
-        <span className="font-mono ui-body text-text-faint">
-          {t("views.listView.pageCount", { page: safePage + 1, total: pageCount })}
-        </span>
-        <span className="font-mono ui-body text-text-faint">
-          {t("views.listView.rowCount", { visible: visible.length, total: sorted.length })}
-        </span>
-        <label className="ml-2 flex items-center gap-1.5 ui-meta text-text-faint">
-          {t("views.listView.perPage")}
-          <select
-            value={pageSize}
-            onChange={(event) => {
-              setPageSize(Number(event.target.value) as PageSize);
-              setPage(0);
-            }}
-            className="rounded-md border border-border bg-surface-raised px-1.5 py-1 ui-meta text-text outline-none focus:border-border-strong"
-          >
-            {PAGE_SIZE_OPTIONS.map((size) => (
-              <option key={size} value={size}>
-                {size}
-              </option>
-            ))}
-          </select>
-        </label>
-        <div className="ml-auto flex items-center gap-1">
-          <button
-            disabled={safePage === 0}
-            onClick={() => setPage((current) => Math.max(0, current - 1))}
-            className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 ui-body text-text-muted enabled:hover:bg-surface-raised enabled:hover:text-text disabled:opacity-40"
-          >
-            <CaretLeft weight="bold" />
-            {t("views.listView.previousPage")}
-          </button>
-          <button
-            disabled={safePage >= pageCount - 1}
-            onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
-            className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 ui-body text-text-muted enabled:hover:bg-surface-raised enabled:hover:text-text disabled:opacity-40"
-          >
-            {t("views.listView.nextPage")}
-            <CaretRight weight="bold" />
-          </button>
-        </div>
-      </footer>
     </div>
   );
 }

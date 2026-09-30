@@ -3,6 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { formatDurationMs } from "../scheduleRun/runMeta.ts";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 import {
   CADENCE_MICRO_EVENTS,
   CADENCE_SEGMENT_ORDER,
@@ -183,15 +184,9 @@ function RhythmRow({
               {entry.known ? null : <span className="mr-1">{t("views.cadence.rhythmUnknownRow")}</span>}
               {entry.taskId}
             </EntityRefLink>
-            {entry.stalled ? (
-              <span className="shrink-0 rounded bg-stale/15 px-1.5 py-0.5 ui-micro text-stale">
-                {t("views.cadence.stalledBadge")}
-              </span>
-            ) : null}
+            {entry.stalled ? <StatusTag tone="wait" label={t("views.cadence.stalledBadge")} /> : null}
             {entry.frictionTotal > 0 ? (
-              <span className="shrink-0 rounded bg-status-blocked/10 px-1.5 py-0.5 ui-micro text-status-blocked">
-                {t("views.cadence.frictionBadge", { count: entry.frictionTotal })}
-              </span>
+              <StatusTag tone="bad" label={t("views.cadence.frictionBadge", { count: entry.frictionTotal })} />
             ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-1">
@@ -290,12 +285,7 @@ function RhythmDetail({
                 {ms === null ? t("views.cadence.funnelSegmentUnknown") : formatDurationMs(ms)}
               </span>
               {bottleneck ? (
-                <span
-                  data-testid="cadence-funnel-bottleneck-badge"
-                  className="shrink-0 rounded bg-status-blocked/10 px-1.5 py-0.5 ui-micro text-status-blocked"
-                >
-                  {t("views.cadence.funnelBottleneck", { share: Math.round(share * 100) })}
-                </span>
+                <StatusTag tone="bad" label={t("views.cadence.funnelBottleneck", { share: Math.round(share * 100) })} />
               ) : null}
             </li>
           );

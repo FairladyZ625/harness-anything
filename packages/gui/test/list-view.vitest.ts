@@ -1,16 +1,30 @@
 // harness-test-tier: contract
 // @vitest-environment happy-dom
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
-import { createRoot } from "react-dom/client";
-import { renderToStaticMarkup } from "react-dom/server";
+import { createRoot, type Root } from "react-dom/client";
 import type { TaskRow } from "../src/renderer/model/types.ts";
 import { ListView } from "../src/renderer/views/ListView.tsx";
-import { DEFAULT_TASK_FILTERS } from "../src/renderer/model/taskFilters.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
 
-beforeAll(() => setActiveLocale("en-US"));
+/**
+ * 任务列表(标准 §2.4 列表页):回答「我要找某个任务」。行是 DenseRow + StatusTag,
+ * 终态沉底折叠成「已完成 N 个 · 展开」;pin → 收藏 → 最近的活动行在前;行壳可
+ * 键盘激活,行内 pin/收藏是原生按钮;空态一行说明,不画大框、无表格无分页。
+ */
+beforeAll(() => {
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  setActiveLocale("en-US");
+  // windowing 测量桩(happy-dom 没有布局):行高 28px,滚动容器 600px 视口。
+  vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+    return this.hasAttribute("data-index") ? 28 : 600;
+  });
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(function (this: Element) {
+    const height = (this as HTMLElement).hasAttribute?.("data-index") ? 28 : 600;
+    return { width: 600, height, top: 0, left: 0, bottom: height, right: 600, x: 0, y: 0 } as DOMRect;
+  });
+});
 
 const makeTask = (overrides: Partial<TaskRow> = {}): TaskRow => ({
   taskId: "task-a",
@@ -32,389 +46,192 @@ const makeTask = (overrides: Partial<TaskRow> = {}): TaskRow => ({
   ...overrides,
 });
 
-// The list is an audit view: rows navigate, the pager pages, favorites pin.
-// Batch operations were removed together with their simulated-alert buttons — until a
-// real batch command exists in the daemon registry there is nothing honest for a
-// selection to do, so no selection affordance is rendered either.
-describe("list view", () => {
-  it("pins ledger-pinned tasks to the top with a marker and an inline write affordance", () => {
+const noop = () => undefined;
+
+interface Mounted {
+  container: HTMLDivElement;
+  root: Root;
+  html: () => string;
+}
+
+async function mountList(
+  tasks: readonly TaskRow[],
+  props: Partial<Parameters<typeof ListView>[0]> = {},
+): Promise<Mounted> {
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(
+      createElement(ListView, {
+        tasks,
+        onSelect: noop,
+        favorites: new Set<string>(),
+        onToggleFavorite: noop,
+        onSetPin: noop,
+        ...props,
+      }),
+    );
+  });
+  return {
+    container,
+    root,
+    html: () => container.innerHTML,
+  };
+}
+
+async function unmount(view: Mounted): Promise<void> {
+  await act(async () => {
+    view.root.unmount();
+  });
+  view.container.remove();
+}
+
+const rowOrder = (view: Mounted) =>
+  [...view.container.querySelectorAll('[data-testid^="task-row-"]')].map((row) =>
+    row.getAttribute("data-testid")!.replace("task-row-", ""),
+  );
+
+describe("task list rows (视觉基线 §2.4)", () => {
+  it("renders DenseRow rows: StatusTag with background, TitleText title, task id as reason, relative time", async () => {
+    const view = await mountList([makeTask({ taskId: "task_a", title: "Rework board: split by status" })]);
+    try {
+      const row = view.container.querySelector('[data-testid="task-row-task_a"]')!;
+      expect(row).not.toBeNull();
+      const tag = row.querySelector("[data-status-tone]")!;
+      expect(tag.getAttribute("data-status-tone")).toBe("active");
+      expect(tag.textContent).toContain("Active");
+      expect(row.textContent).toContain("Rework board");
+      expect(row.textContent).toContain("split by status");
+      expect(row.innerHTML).toMatch(/class="text-text-faint">: split by status</u); // 冒号后补充弱色
+      expect(row.textContent).toContain("task_a"); // id 是 reason,可被肉眼比对
+      expect(row.textContent).toContain("2026-07-09"); // 右侧等宽时间(83 天前回落绝对日期)
+    } finally {
+      await unmount(view);
+    }
+  });
+
+  it("orders by recency with pin → favorites lifted, and keeps inline pin/favorite affordances", async () => {
     const later = makeTask({ taskId: "task-later", title: "Later", lastKnownAt: "2026-07-01T00:00:00.000Z" });
     const pinned = makeTask({
       taskId: "task-pinned",
       title: "Pinned today",
       lastKnownAt: "2026-06-01T00:00:00.000Z",
       pinned: true,
-      activeExecutionId: "execution-holder",
-      leaseHolder: "person-zeyu · codex-sol",
-      leasePhase: "held",
-      leaseExpiresAt: "2026-08-30T01:00:00.000Z",
-      currentNode: "review",
-      canonicalStatus: "active",
     });
     const favorite = makeTask({ taskId: "task-favorite", title: "Favorite", lastKnownAt: "2026-07-05T00:00:00.000Z" });
-    const tasks = [later, pinned, favorite];
-    const markup = renderToStaticMarkup(
-      createElement(ListView, {
-        tasks,
-        allTasks: tasks,
-        filters: DEFAULT_TASK_FILTERS,
-        onFiltersChange: () => undefined,
-        onSelect: () => undefined,
-        favorites: new Set(["task-favorite"]),
-        onToggleFavorite: () => undefined,
-        onSetPin: () => undefined,
-        embedded: true,
-      }),
-    );
-    // 置顶次序:台账 pin → 本地收藏 → 更新时间。
-    const firstRow = markup.indexOf("task-pinned"),
-      secondRow = markup.indexOf("task-favorite"),
-      thirdRow = markup.indexOf("task-later");
-    expect(firstRow).toBeGreaterThan(-1);
-    expect(firstRow).toBeLessThan(secondRow);
-    expect(secondRow).toBeLessThan(thirdRow);
-    expect(markup).toContain("task-pinned-marker-task-pinned");
-    expect(markup).toContain("task-pin-toggle-task-pinned");
-    // 行内直接给出 status / currentNode / lease 持有者,不必点进详情。
-    expect(markup).toContain("graph cursor:review");
-    expect(markup).toContain("execution-holder");
-    expect(markup).toContain("person-zeyu · codex-sol");
-    expect(markup).toContain("held");
-    expect(markup).toContain("no lease");
-  });
-
-  it("renders canonical terminal status as primary and the graph cursor as secondary", () => {
-    const complete = makeTask({
-      taskId: "task-complete",
-      canonicalStatus: "done",
-      coordinationStatus: "in_review",
-      currentNode: "review",
+    const view = await mountList([later, pinned, favorite], {
+      favorites: new Set(["task-favorite"]),
+      onSetPin: noop,
     });
-    const markup = renderToStaticMarkup(
-      createElement(ListView, {
-        tasks: [complete],
-        allTasks: [complete],
-        filters: DEFAULT_TASK_FILTERS,
-        onFiltersChange: () => undefined,
-        onSelect: () => undefined,
-        favorites: new Set(),
-        onToggleFavorite: () => undefined,
-        embedded: true,
-      }),
-    );
-    expect(markup).toContain("coordination=in_review");
-    expect(markup).toContain("graph cursor:review");
-    expect(markup.indexOf("--color-status-done")).toBeLessThan(markup.indexOf("coordination=in_review"));
-    expect(markup.indexOf("coordination=in_review")).toBeLessThan(markup.indexOf("graph cursor:review"));
-  });
-
-  it("keeps pinned state read-only when no pin write channel is wired", () => {
-    const pinned = makeTask({ taskId: "task-pinned", title: "Pinned", pinned: true });
-    const markup = renderToStaticMarkup(
-      createElement(ListView, {
-        tasks: [pinned],
-        allTasks: [pinned],
-        filters: DEFAULT_TASK_FILTERS,
-        onFiltersChange: () => undefined,
-        onSelect: () => undefined,
-        favorites: new Set<string>(),
-        onToggleFavorite: () => undefined,
-        embedded: true,
-      }),
-    );
-    expect(markup).toContain("task-pinned-marker-task-pinned");
-    expect(markup).not.toContain("task-pin-toggle-");
-  });
-
-  it("renders rows and the pager without any selection or batch-operation affordance", () => {
-    const tasks = [makeTask(), makeTask({ taskId: "task-b", title: "Beta" })];
-    const markup = renderToStaticMarkup(
-      createElement(ListView, {
-        tasks,
-        allTasks: tasks,
-        filters: DEFAULT_TASK_FILTERS,
-        onFiltersChange: () => undefined,
-        onSelect: () => undefined,
-        favorites: new Set(),
-        onToggleFavorite: () => undefined,
-        embedded: true,
-      }),
-    );
-    for (const text of ["task-a", "Alpha", "task-b", "Beta", "Previous page", "Next page"])
-      expect(markup).toContain(text);
-    expect(markup).not.toContain('type="checkbox"');
-    for (const gone of ["Batch operations", "Batch run Check", "Batch mark Ready", "Batch archiving", "Deselect"])
-      expect(markup).not.toContain(gone);
-  });
-});
-
-/**
- * 列表列宽 resize(W11):table-fixed 下 th 的显式宽度即列宽,未设置的列自动分配
- * 剩余宽度;手柄键盘可达,双击恢复默认,与看板另两布局共用同一 localStorage 键。
- */
-const WIDTH_KEY = "harness:gui:board-column-widths";
-
-const listMarkup = (widthsJson?: string): string => {
-  if (widthsJson === undefined) localStorage.removeItem(WIDTH_KEY);
-  else localStorage.setItem(WIDTH_KEY, widthsJson);
-  const tasks = [makeTask()];
-  return renderToStaticMarkup(
-    createElement(ListView, {
-      tasks,
-      allTasks: tasks,
-      filters: DEFAULT_TASK_FILTERS,
-      onFiltersChange: () => undefined,
-      onSelect: () => undefined,
-      favorites: new Set(),
-      onToggleFavorite: () => undefined,
-      embedded: true,
-    }),
-  );
-};
-
-async function mountList() {
-  const container = document.createElement("div");
-  document.body.append(container);
-  const root = createRoot(container);
-  const tasks = [makeTask()];
-  await act(async () => {
-    root.render(
-      createElement(ListView, {
-        tasks,
-        allTasks: tasks,
-        filters: DEFAULT_TASK_FILTERS,
-        onFiltersChange: () => undefined,
-        onSelect: () => undefined,
-        favorites: new Set(),
-        onToggleFavorite: () => undefined,
-        embedded: true,
-      }),
-    );
-  });
-  return { container, root };
-}
-
-const storedListWidths = (): Record<string, number> => JSON.parse(localStorage.getItem(WIDTH_KEY) ?? "{}").list ?? {};
-
-describe("list view column resize (W11)", () => {
-  beforeEach(() => {
-    localStorage.removeItem(WIDTH_KEY);
-  });
-
-  it("renders one keyboard-reachable handle per header column with no explicit widths by default", () => {
-    const markup = listMarkup();
-    expect(markup.split('data-testid="list-column-resize-').length - 1).toBe(8);
-    const headerCell = markup.match(/<th[^>]*data-testid="list-column-title"[^>]*>/u)![0];
-    const handle = markup.match(/<div[^>]*data-testid="list-column-resize-title"[^>]*>/u)![0];
-    expect(handle).toContain('role="separator"');
-    expect(handle).toContain('tabindex="0"');
-    expect(handle).toContain("Resize the &quot;title&quot; column");
-    // 回归:真实 Electron 验收发现共享基类缺 position:absolute,静态流里手柄高度
-    // 恒 0、鼠标无命中区、拖拽无效(2026-09-09);定位链 = relative th + 基类内置
-    // absolute + 消费方 inset 偏移。命中区像素高度由 Electron 走查复核,类名断言
-    // 不证明像素行为。
-    expect(headerCell).toContain("relative");
-    expect(handle).toContain("absolute");
-    expect(handle).toContain("inset-y-0");
-    // 未定宽列走 table-fixed 自动分配:th 不输出显式宽度。
-    expect(markup).not.toContain('style="width');
-  });
-
-  it("applies a persisted width to its header cell", () => {
-    const markup = listMarkup(JSON.stringify({ list: { title: 420, pins: 64 } }));
-    const title = markup.match(/<th[^>]*data-testid="list-column-title"[^>]*>/u)![0];
-    expect(title).toContain('style="width:420px"');
-    const pins = markup.match(/<th[^>]*data-testid="list-column-pins"[^>]*>/u)![0];
-    expect(pins).toContain('style="width:64px"');
-    const handle = markup.match(/<div[^>]*data-testid="list-column-resize-title"[^>]*>/u)![0];
-    expect(handle).toContain('aria-valuenow="420"');
-  });
-
-  // 回归:真实 Electron 验收发现 table-fixed 窄列里未收敛的 font-mono 长 taskId
-  // 直接画进 Title 列(2026-09-09)。此处只断言收敛原语(截断类 + title 悬停)在
-  // 标记里就位;像素级不越列由 Electron 走查复核,类名断言不证明像素行为。
-  it("contains unbreakable cell values inside their fixed columns and keeps the full id on hover", () => {
-    const longDecisionId = "dec_01KZWTAPXF24FR62Q53Y42JGMV";
-    const task = makeTask({
-      taskId: "task_eeb3b5f08c093e63622b24392c",
-      title: "Overflow regression",
-      canonicalStatus: "done",
-      coordinationStatus: "in_review",
-      currentNode: "implementation",
-      activeExecutionId: "execution_eeb3b5f08c093e63622b24392c",
-      leaseHolder: "person-zeyu · codex-sol",
-      leasePhase: "held",
-      spawningDecisionIds: [longDecisionId],
-    });
-    const markup = renderToStaticMarkup(
-      createElement(ListView, {
-        tasks: [task],
-        allTasks: [task],
-        filters: DEFAULT_TASK_FILTERS,
-        onFiltersChange: () => undefined,
-        onSelect: () => undefined,
-        favorites: new Set<string>(),
-        onToggleFavorite: () => undefined,
-        embedded: true,
-      }),
-    );
-    const idLine = markup.match(/<div[^>]*>task_eeb3b5f08c093e63622b24392c<\/div>/u)![0];
-    expect(idLine).toContain("truncate");
-    expect(idLine).toContain('title="task_eeb3b5f08c093e63622b24392c"'); // 悬停可见整串。
-    const dateLine = markup.match(/<div[^>]*class="mt-1 truncate[^"]*"[^>]*>[^<]+<\/div>/u)![0];
-    expect(dateLine).toBeTruthy();
-    // 同一 fixed 布局下其余不可断行值同样收敛在本列:coordination 键值串、节点行、
-    // 包处置枚举 chip。
-    expect(markup.match(/<span[^>]*>coordination=in_review<\/span>/u)![0]).toContain("truncate");
-    expect(markup.match(/<span[^>]*>graph cursor:implementation<\/span>/u)![0]).toContain("truncate");
-    expect(markup.match(/<span[^>]*>active<\/span>/u)![0]).toContain("max-w-full");
-    // 二次验收(2026-09-09):长 decision 徽章与状态列各行在 136px 窄列画进相邻列。
-    // 徽章外包可收缩截断项,整串 decision id 保留在徽章自身 title(悬停)与 DOM 文本。
-    const badge = markup.match(
-      new RegExp(`<span class="min-w-0 truncate"><span[^>]*title="[^"]*${longDecisionId}[^"]*"`, "u"),
-    );
-    expect(badge).not.toBeNull();
-    expect(markup).toContain(longDecisionId); // 截断只是绘制层,屏幕阅读器仍读整串。
-    // flex 列 cross 轴的 truncate 必须配 max-w-full 才有盒宽可裁;lease 原来的
-    // max-w-[16rem] 上限大于任何窄列,等于没封。
-    for (const line of [
-      /<span[^>]*>coordination=in_review<\/span>/u,
-      /<span[^>]*>graph cursor:implementation<\/span>/u,
-      /<span[^>]*>execution_eeb3b5f08c093e63622b24392c[^<]*<\/span>/u,
-    ]) {
-      const span = markup.match(line)![0];
-      expect(span).toContain("max-w-full");
-      expect(span).toContain("truncate");
-      expect(span).not.toContain("16rem");
+    try {
+      expect(rowOrder(view)).toEqual(["task-pinned", "task-favorite", "task-later"]);
+      expect(view.html()).toContain('data-testid="task-pin-toggle-task-pinned"');
+      const shell = view.container.querySelector('[data-testid="task-row-task-pinned"]') as HTMLElement;
+      expect(shell.querySelector("button[title='Remove pin']")).not.toBeNull(); // pinned 行的写通道按钮
+    } finally {
+      await unmount(view);
     }
   });
 
-  it("drags, fine-tunes with arrow keys, resets by double-click, and persists across remount", async () => {
-    localStorage.setItem(WIDTH_KEY, JSON.stringify({ list: { title: 420 } }));
-    const view = await mountList();
-    const handle = view.container.querySelector<HTMLElement>('[data-testid="list-column-resize-title"]')!;
-    const cell = view.container.querySelector<HTMLElement>('[data-testid="list-column-title"]')!;
-
-    act(() => {
-      handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 100, pointerId: 1 }));
-      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 40, pointerId: 1 }));
-      window.dispatchEvent(new PointerEvent("pointerup", { clientX: 40, pointerId: 1 }));
-    });
-    expect(cell.style.width).toBe("360px"); // 420 - 60。
-    expect(storedListWidths().title).toBe(360);
-
-    act(() => {
-      handle.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
-    });
-    expect(cell.style.width).toBe("376px"); // +16 微调。
-    expect(storedListWidths().title).toBe(376);
-
-    act(() => {
-      view.root.unmount();
-    });
-    view.container.remove();
-
-    // 重挂载(窗口重载等价):宽度从 localStorage 恢复。
-    const reloaded = await mountList();
-    const reloadedCell = reloaded.container.querySelector<HTMLElement>('[data-testid="list-column-title"]')!;
-    expect(reloadedCell.style.width).toBe("376px");
-
-    const reloadedHandle = reloaded.container.querySelector<HTMLElement>('[data-testid="list-column-resize-title"]')!;
-    act(() => {
-      reloadedHandle.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
-    });
-    expect(reloadedCell.style.width).toBe("");
-    expect(storedListWidths().title).toBeUndefined();
-
-    act(() => {
-      reloaded.root.unmount();
-    });
-    reloaded.container.remove();
-  });
-
-  it("stops tracking on pointercancel: later moves neither resize nor persist, and a fresh drag recovers", async () => {
-    localStorage.setItem(WIDTH_KEY, JSON.stringify({ list: { title: 420 } }));
-    const view = await mountList();
-    const handle = view.container.querySelector<HTMLElement>('[data-testid="list-column-resize-title"]')!;
-    const cell = view.container.querySelector<HTMLElement>('[data-testid="list-column-title"]')!;
-
-    act(() => {
-      handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 100, pointerId: 1 }));
-      window.dispatchEvent(new PointerEvent("pointercancel", { pointerId: 1 }));
-    });
-    act(() => {
-      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 220, pointerId: 1 }));
-    });
-    // 取消后的移动不得落到列宽或 localStorage(stale 监听会写出 540)。
-    expect(cell.style.width).toBe("420px");
-    expect(storedListWidths().title).toBe(420);
-
-    act(() => {
-      handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 100, pointerId: 2 }));
-      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 140, pointerId: 2 }));
-      window.dispatchEvent(new PointerEvent("pointerup", { clientX: 140, pointerId: 2 }));
-    });
-    expect(cell.style.width).toBe("460px"); // 新拖拽不受取消残留影响。
-    expect(storedListWidths().title).toBe(460);
-
-    act(() => {
-      view.root.unmount();
-    });
-    view.container.remove();
-  });
-
-  it("releases window listeners when unmounted mid-drag, so stray moves never write storage", async () => {
-    localStorage.setItem(WIDTH_KEY, JSON.stringify({ list: { title: 420 } }));
-    const view = await mountList();
-    const handle = view.container.querySelector<HTMLElement>('[data-testid="list-column-resize-title"]')!;
-
-    act(() => {
-      handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 100, pointerId: 1 }));
-    });
-    act(() => {
-      view.root.unmount();
-    });
-    view.container.remove();
-    act(() => {
-      window.dispatchEvent(new PointerEvent("pointermove", { clientX: 220, pointerId: 1 }));
-    });
-    // 中途卸载后 stale 监听会同步写 localStorage(不依赖 React 挂载状态)。
-    expect(storedListWidths().title).toBe(420);
-  });
-
-  it("announces the measured default width when no width is persisted, and re-measures after reset", async () => {
-    // happy-dom 无布局引擎:以 stub 提供「父元素实测宽度」,真实浏览器由布局给出。
-    const rectOf = (width: number) =>
-      ({ x: 0, y: 0, top: 0, left: 0, right: width, bottom: 20, width, height: 20 }) as DOMRect;
-    const measure = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(rectOf(300));
+  it("keeps pinned state read-only when no pin write channel is wired", async () => {
+    const pinned = makeTask({ taskId: "task-pinned", title: "Pinned", pinned: true });
+    const view = await mountList([pinned], { onSetPin: undefined });
     try {
-      const view = await mountList();
-      const handle = view.container.querySelector<HTMLElement>('[data-testid="list-column-resize-title"]')!;
-      const cell = view.container.querySelector<HTMLElement>('[data-testid="list-column-title"]')!;
-      // 默认(未定宽)手柄也必须报数字现值,而不是省略 aria-valuenow。
-      expect(handle.getAttribute("aria-valuenow")).toBe("300");
-      expect(cell.style.width).toBe(""); // 报数不等于写假宽度:th 仍走默认布局。
-
-      act(() => {
-        handle.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 100, pointerId: 1 }));
-        window.dispatchEvent(new PointerEvent("pointermove", { clientX: 160, pointerId: 1 }));
-        window.dispatchEvent(new PointerEvent("pointerup", { clientX: 160, pointerId: 1 }));
-      });
-      expect(handle.getAttribute("aria-valuenow")).toBe("360"); // 定宽后报持久化值。
-
-      measure.mockReturnValue(rectOf(320)); // 布局变了:恢复默认须重新量,不吐旧缓存。
-      act(() => {
-        handle.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
-      });
-      expect(handle.getAttribute("aria-valuenow")).toBe("320");
-      expect(cell.style.width).toBe("");
-
-      act(() => {
-        view.root.unmount();
-      });
-      view.container.remove();
+      expect(view.html()).toContain('data-testid="task-pinned-marker-task-pinned"');
+      expect(view.html()).not.toContain("task-pin-toggle-");
     } finally {
-      measure.mockRestore();
+      await unmount(view);
+    }
+  });
+});
+
+describe("terminal collapse (标准 §2.4)", () => {
+  const fixture = (): TaskRow[] => [
+    makeTask({ taskId: "t_open", title: "Still moving", coordinationStatus: "active" }),
+    makeTask({ taskId: "t_done", title: "Recently done", coordinationStatus: "done" }),
+    makeTask({ taskId: "t_cancelled", title: "Cancelled work", coordinationStatus: "cancelled" }),
+    makeTask({
+      taskId: "t_pinned_done",
+      title: "Pinned done",
+      coordinationStatus: "done",
+      pinned: true,
+    }),
+  ];
+
+  it("sinks terminal rows behind one 已完成/已取消 line; expanding reveals them", async () => {
+    const view = await mountList(fixture());
+    try {
+      // 折叠态:开放行与 pinned 终态行可见,其余终态行只在折叠行后面。
+      expect(rowOrder(view)).toEqual(["t_pinned_done", "t_open"]);
+      const toggle = view.container.querySelector<HTMLButtonElement>('[data-testid="list-terminal-toggle"]')!;
+      expect(toggle.getAttribute("aria-expanded")).toBe("false");
+      expect(toggle.textContent).toContain("1 completed"); // pinned 终态行不在折叠里
+      expect(toggle.textContent).toContain("1 cancelled");
+      expect(toggle.textContent).toContain("expand");
+      expect(view.html()).not.toContain("Recently done");
+      expect(view.html()).not.toContain("Cancelled work");
+
+      await act(async () => {
+        toggle.click();
+      });
+      expect(toggle.getAttribute("aria-expanded")).toBe("true");
+      expect(rowOrder(view)).toEqual(["t_pinned_done", "t_open", "t_done", "t_cancelled"]);
+      expect(view.html()).toContain("Recently done");
+      expect(view.html()).toContain("Cancelled work");
+    } finally {
+      await unmount(view);
+    }
+  });
+});
+
+describe("activation and empty state", () => {
+  it("routes shell click and Enter through onSelect; inline buttons do not select", async () => {
+    const selected: string[] = [];
+    const favorites: string[] = [];
+    const pins: Array<[string, boolean]> = [];
+    const view = await mountList([makeTask({ taskId: "task_x", title: "Alpha" })], {
+      onSelect: (id) => selected.push(id),
+      onToggleFavorite: (id) => favorites.push(id),
+      onSetPin: (task, pinned) => pins.push([task.taskId, pinned]),
+    });
+    try {
+      const shell = view.container.querySelector<HTMLElement>('[data-testid="task-row-task_x"]')!;
+      act(() => {
+        shell.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+      act(() => {
+        shell.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      });
+      expect(selected).toEqual(["task_x", "task_x"]);
+      const pin = view.container.querySelector<HTMLButtonElement>('[data-testid="task-pin-toggle-task_x"]')!;
+      const favorite = [...view.container.querySelectorAll("button")].find(
+        (button) => button.getAttribute("title") === "Favorites (pinned)",
+      ) as HTMLButtonElement;
+      act(() => {
+        pin.click();
+        favorite.click();
+      });
+      expect(pins).toEqual([["task_x", true]]);
+      expect(favorites).toEqual(["task_x"]);
+      expect(selected).toEqual(["task_x", "task_x"]); // 行内按钮不连带选行。
+    } finally {
+      await unmount(view);
+    }
+  });
+
+  it("empty state is one line of text — no dashed box, no table, no pager, no column handles", async () => {
+    const view = await mountList([]);
+    try {
+      expect(view.container.textContent).toContain("No matching tasks");
+      expect(view.html()).not.toContain("border-dashed");
+      expect(view.html()).not.toContain("<table");
+      expect(view.html()).not.toContain("list-column-resize-");
+      expect(view.html()).not.toContain("Previous page");
+      expect(view.html()).not.toContain('type="checkbox"');
+      expect(view.html()).not.toContain("list-terminal-toggle"); // 没有终态就没有折叠行。
+    } finally {
+      await unmount(view);
     }
   });
 });

@@ -562,7 +562,7 @@ export function TerminalView({
     <section
       aria-label={t("terminal.view.title")}
       data-testid="terminal-view"
-      className="flex min-h-0 flex-1 flex-row overflow-hidden"
+      className="flex min-h-0 flex-1 flex-row overflow-hidden bg-bg p-2"
     >
       <TerminalChrome
         repoId={repoId}
@@ -585,7 +585,7 @@ export function TerminalView({
         onCreate={create}
         tasks={tasks}
       />
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      <div className="glass ml-2 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-sm border border-border">
         {/* pane 区:一个 tab(group)一棵 pane 树,切 tab 即换 dockview 实例。 */}
         <div
           ref={regionRef}

@@ -472,6 +472,13 @@ describe("sessions page: single-session groups", () => {
     expect(markup).toContain("ha runtime resume dispatch_000000000000000000000003");
   });
 
+  it("folds completed sessions while keeping failed sessions visible for attention", () => {
+    const markup = groupList({ selectedId: null });
+    expect(markup).toContain("<details>");
+    expect(markup).toContain("Completed / cancelled");
+    expect(markup).toContain('data-status-tone="done"');
+  });
+
   it("renders group headers from the daemon read: title, short task id, status, rounds, activity", () => {
     const markup = groupList({ expandedKeys: new Set() });
     expect(markup).toContain("GUI 会话页重构");

@@ -26,7 +26,8 @@ export default {
   description: "An HTML artifact preview fills its host box so long reports scroll inside the webview.",
   async run({ app, page }) {
     await nav(page, /^(?:产物|Artifacts)$/u, "artifacts-view");
-    await page.getByTestId("artifact-focus-task-gui-smoke-artifacts/preview-height.html").click();
+    // 行是 DenseRow:testid 在行壳上,点其内按钮打开预览。
+    await page.getByTestId("artifact-row-task-gui-smoke-artifacts/preview-height.html").getByRole("button").click();
     await page.getByTestId("html-artifact-webview").waitFor();
     const measured = await page.evaluate(() => {
       const host = globalThis.document.querySelector('[data-testid="html-artifact-host"]');

@@ -322,22 +322,18 @@ describe("CadenceView", () => {
     expect(doneRow?.textContent).toContain("历时 1h");
     expect(liveRow?.textContent).toContain("2 次返工/打回");
     expect(doneRow?.textContent).toContain("首轮直通");
-    // 右栏内联滚动:摩擦任务列表与产出卡片体自带 max-height + overflow,不再无限撑开。
+    // 右栏卡片高度随内容呈现,由右栏外层统一提供滚动条,避免卡片内部定高截断或覆盖。
     const frictionTasks = container.querySelector('[data-testid="cadence-friction-tasks"]');
-    expect(frictionTasks?.className).toContain("max-h-56");
-    expect(frictionTasks?.className).toContain("overflow-y-auto");
+    expect(frictionTasks).not.toBeNull();
     const yieldBody = container.querySelector('[data-testid="cadence-yield-body"]');
-    expect(yieldBody?.className).toContain("max-h-60");
-    expect(yieldBody?.className).toContain("overflow-y-auto");
+    expect(yieldBody).not.toBeNull();
     // 摩擦雷达:门禁失败 1 · 评审打回 1;产出:今日 Fact 1。
     expect(textOf(container, "cadence-friction")).toContain("门禁失败 1");
     expect(textOf(container, "cadence-yield-facts")).toContain("1");
-    // 堵点卡片:待裁决策与待裁决执行两组都在,且容器受 max-h-48 滚动保护。
+    // 堵点卡片:待裁决策与待裁决执行两组都在,卡片高度随内容展开不截断。
     const blockers = container.querySelector('[data-testid="cadence-blockers-groups"]');
     expect(blockers?.textContent).toContain("探针决策:切换读取形态");
     expect(blockers?.textContent).toContain("待裁决执行 1");
-    expect(blockers?.className).toContain("max-h-48");
-    expect(blockers?.className).toContain("overflow-y-auto");
   });
 
   it("supports fleet time window switching and quick switch when active window is empty", async () => {

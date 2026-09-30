@@ -1,13 +1,24 @@
 import { t } from "../../i18n/index.tsx";
 import type { AgendaDecisionRow, AgendaExecutionRow } from "../../../api/renderer-dto.ts";
 import type { AttestationPoolLanes } from "../../model/attestation-pool.ts";
+import { DenseRow } from "../primitives/DenseRow.tsx";
+import { StatusTag, type StatusTone } from "../primitives/StatusTag.tsx";
 
 /**
  * 注意力堵点直达:集中呈现需要人类处理的事项——待裁 decision(repo.agenda.read)、
  * 待派审/评审中的 submitted execution、人工门禁签发与特批放行(deriveAttestationLanes
  * 的 gates/breakGlass lane)、待签署 Consent(consents lane)。跳转复用实体导航与
- * 待办签发总池,本卡片零写操作。
+ * 待办签发总池,本卡片零写操作。空态收成一条细横条(标准 §1「空了就消失」)。
  */
+
+/** 各组的注意力档:待裁/裁决类琥珀(等人),签发类红(阻塞流水)。 */
+const GROUP_TONE: Record<BlockerGroup["key"], StatusTone> = {
+  decisions: "wait",
+  executions: "wait",
+  gates: "bad",
+  breakGlass: "bad",
+  consents: "wait",
+};
 
 interface BlockerGroup {
   readonly key: "decisions" | "executions" | "gates" | "breakGlass" | "consents";
@@ -94,7 +105,7 @@ export function AttentionBlockers({
   return (
     <section
       data-testid="cadence-blockers"
-      className="flex flex-col overflow-hidden rounded-lg border border-border bg-surface"
+      className="flex shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-surface"
     >
       <header className="flex items-baseline justify-between gap-2 border-b border-border px-3 py-2">
         <h2 className="ui-body font-semibold">{t("views.cadence.blockersTitle")}</h2>
@@ -107,33 +118,26 @@ export function AttentionBlockers({
           {t("views.cadence.blockersPending")}
         </p>
       ) : total === 0 ? (
-        <p data-testid="cadence-blockers-empty" className="px-3 py-3 ui-meta text-text-faint">
+        <p data-testid="cadence-blockers-empty" className="flex items-center gap-2 px-3 py-2.5 ui-meta text-text-faint">
+          <span aria-hidden className="size-1.5 rounded-full bg-status-done" />
           {t("views.cadence.blockersEmpty")}
         </p>
       ) : (
-        <div data-testid="cadence-blockers-groups" className="flex max-h-48 flex-col overflow-y-auto">
-          {visibleGroups.map((group, index) => (
-            <div key={group.key} className={index === 0 ? "" : "border-t border-border"}>
-              <p className="px-3 pt-2 font-mono ui-micro uppercase tracking-wide text-text-faint">
-                {`${group.title()} ${group.items.length}`}
-              </p>
-              <ul>
-                {group.items.slice(0, 5).map((item) => (
-                  <li key={item.id} className="flex items-baseline gap-2 px-3 py-1">
-                    <button
-                      type="button"
-                      className="min-w-0 truncate text-left ui-meta text-text hover:text-accent"
-                      title={item.label}
-                      onClick={() => onNavigateEntity(item.navigateRef)}
-                    >
-                      {item.label}
-                    </button>
-                    {item.meta === null ? null : (
-                      <span className="shrink-0 font-mono ui-micro text-text-faint">{item.meta}</span>
-                    )}
-                  </li>
-                ))}
-              </ul>
+        <div data-testid="cadence-blockers-groups" className="flex flex-col">
+          {visibleGroups.map((group) => (
+            <div key={group.key}>
+              <div className="flex items-center gap-2 border-t border-border px-3 pb-1 pt-2 first:border-t-0">
+                <StatusTag tone={GROUP_TONE[group.key]} label={group.title()} />
+                <span className="font-mono tabular-nums ui-micro text-text-faint"> {group.items.length}</span>
+              </div>
+              {group.items.slice(0, 5).map((item) => (
+                <DenseRow
+                  key={item.id}
+                  title={item.label}
+                  time={item.meta ?? undefined}
+                  onClick={() => onNavigateEntity(item.navigateRef)}
+                />
+              ))}
             </div>
           ))}
         </div>

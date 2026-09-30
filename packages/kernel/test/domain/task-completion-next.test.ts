@@ -1,7 +1,12 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { reduceTaskEvent, rematerializeTaskDocuments, taskCompletionNext } from "../../src/index.ts";
+import {
+  reduceTaskEvent,
+  rematerializeTaskDocuments,
+  taskCompletionNext,
+  type TaskMetadataV1,
+} from "../../src/index.ts";
 import { emptyTaskLifecycleSnapshot } from "../../src/domain/task-lifecycle.contract.ts";
 import { lifecycleFixture } from "../store/task-lifecycle-fixture.ts";
 
@@ -37,6 +42,27 @@ test("completion next is one pure judgment across lifecycle and unavailable-inpu
       context,
       "not_in_review",
       "ha task submit task-1",
+    ],
+    [
+      "planned work root derives its status instead of starting an execution",
+      { ...at(1), task: { ...at(1).task!, taskClass: "work" as const } },
+      context,
+      "not_in_review",
+      "ha work show task-1",
+    ],
+    [
+      "planned top-level task with children is a derived work root",
+      at(1),
+      { ...context, childTaskCount: 2 },
+      "not_in_review",
+      "ha work show task-1",
+    ],
+    [
+      "planned child task with children is not a work root",
+      { ...at(1), task: { ...at(1).task!, metadata: { parentTaskId: "task-0" } as TaskMetadataV1 } },
+      { ...context, childTaskCount: 2 },
+      "not_in_review",
+      "ha task start task-1",
     ],
     // A settled worker releases its lease and leaves the execution active; start reconnects to that execution
     // (dec_E5103E62F80728C06AFCFCD133), so completion resumes rather than abandoning the round.
