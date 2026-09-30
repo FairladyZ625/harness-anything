@@ -810,6 +810,112 @@ test(
     assert.match(taskBoundBlock, /CENTERFRESH-ZQ decision/u);
   },
 );
+// Each damaged local mirror retains the preceding admission conditions. These are
+// edge task-context assertions, independent of the center ingress scope checks.
+for (const probe of [
+  { name: "task scope", code: "assignment_scope_mismatch", message: /outside assignment/u },
+  { name: "package absent", code: "runtime_task_package_unavailable", message: /exactly one/u },
+  { name: "plan unreadable", code: "runtime_task_package_unavailable", message: /readable mirrored task plan/u },
+  { name: "mission absent", code: "runtime_mission_unavailable", message: /no current mirrored mission/u },
+  { name: "mission unreadable", code: "runtime_mission_unavailable", message: /is unreadable/u },
+  { name: "mission empty", code: "runtime_mission_unavailable", message: /is empty/u },
+  {
+    name: "contract unreadable",
+    code: "runtime_task_package_unavailable",
+    message: /readable mirrored task contract/u,
+  },
+  { name: "contract unresolved", code: "runtime_task_package_unavailable", message: /scaffold is not resolvable/u },
+]) {
+  test(`edge task context rejects ${probe.name}`, { timeout: 60_000 }, async (t) => {
+    const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
+    t.after(() => fixture.close());
+    const missionLogical = "tasks/task-fleet-fleet/artifacts/missions/probe.md";
+    mkdirSync(path.join(fixture.repo, "harness/tasks/task-fleet-fleet/artifacts/missions"), { recursive: true });
+    writeFileSync(path.join(fixture.repo, "harness", missionLogical), "Run the probe.\n");
+    const published = await fixture.host.run(
+      fixture.assignment.repoId,
+      { kind: "doc-submit", paths: [missionLogical] },
+      localAuthFixture(),
+    );
+    assert.equal(published.outcome, "applied", JSON.stringify(published));
+    await waitForFleetPublication(fixture.host, fixture.assignment.repoId, published.opId, localAuthFixture());
+    const center = await fixture.center(),
+      workspaceRoot = path.join(fixture.root, "counterexample-edge"),
+      viewRoot = path.join(fixture.root, "counterexample-view");
+    mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true });
+    writeFileSync(
+      path.join(workspaceRoot, "harness/harness.yaml"),
+      "schema: harness-anything/v1\nname: counterexample-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    );
+    await runFleetReplicaPullClient({
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.assignment.nodeId,
+      credential: "machine-secret",
+      assignmentId: fixture.assignment.assignmentId,
+      viewRoot,
+      diskQuotaBytes: replicaQuota,
+    });
+    applyFleetMirrorCut(viewRoot, fixture.assignment.repoId, workspaceRoot, "pull");
+    const packageRoot = path.join(workspaceRoot, "harness/tasks/task-fleet-fleet"),
+      missionPath = path.join(packageRoot, "artifacts/missions/probe.md"),
+      contractPath = path.join(packageRoot, "task-contract.json");
+    assert.match(readFileSync(path.join(packageRoot, "task_plan.md"), "utf8"), /Fleet/u);
+    assert.equal(readFileSync(missionPath, "utf8"), "Run the probe.\n");
+    if (probe.name === "package absent") writeFileSync(path.join(packageRoot, "INDEX.md"), "task_id: another-task\n");
+    if (probe.name === "plan unreadable") rmSync(path.join(packageRoot, "task_plan.md"));
+    if (probe.name === "mission unreadable") rmSync(missionPath);
+    if (probe.name === "mission empty") writeFileSync(missionPath, " \n");
+    if (probe.name === "contract unreadable") writeFileSync(contractPath, "{");
+    if (probe.name === "contract unresolved") writeFileSync(contractPath, JSON.stringify({ documents: [] }));
+    // An absent mission is requested under a different name, preserving the
+    // current manifest and every readable local file before that guard.
+    const runtime = openFleetEdgeRuntime({
+      request: {
+        host: "127.0.0.1",
+        port: center.port,
+        caPath: fixture.certFile,
+        nodeId: fixture.assignment.nodeId,
+        credential: "machine-secret",
+        assignmentId: fixture.assignment.assignmentId,
+        repoId: fixture.assignment.repoId,
+        viewRoot,
+        quotaBytes: replicaQuota,
+        workspaceRoot,
+        method: "repo.agentRuntime.spawn",
+        action: {},
+      },
+      daemonGeneration: 1,
+      daemonRoute: {
+        userRoot: path.join(fixture.root, "counterexample-user"),
+        daemonId: "counterexample-edge",
+        endpoint: path.join(fixture.root, "counterexample.sock"),
+      },
+      ports: {
+        runtimeInstances: () => [],
+        prepareWorkerGitEnvironment: async () => null,
+        prepareRuntimeLaunch: async () => {
+          throw new Error("rejected mirror must never launch");
+        },
+      },
+    });
+    fixture.track(() => runtime.close());
+    await assert.rejects(
+      runtime.run("repo.agentRuntime.spawn", {
+        taskId: probe.name === "task scope" ? "task-other" : fixture.assignment.taskId,
+        missionName: probe.name === "mission absent" ? "missing" : "probe",
+        runtimeInstanceId: "unavailable-instance",
+        cwd: { scope: "repo-root" },
+        idempotencyKey: "mirror-probe",
+      }),
+      (error: unknown) => {
+        assert.equal((error as { code?: string }).code, probe.code);
+        assert.match((error as Error).message, probe.message);
+        return true;
+      },
+    );
+  });
+}
 async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/task-fleet-fleet/notes.md"]) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-one-")),
     repo = path.join(root, "repo"),
