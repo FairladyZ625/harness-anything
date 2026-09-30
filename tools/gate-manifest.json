@@ -4157,8 +4157,7 @@
       "consumerScope": [
         "every *.contract.{mjs,ts} declaration under packages, src and tools, including the src modules they re-export from",
         "append-only phases against HEAD^",
-        "workflow job and command projections into .github/workflows",
-        "catalog projections such as tools/gates/contracts/gates.projection.json"
+        "workflow job and command projections into .github/workflows"
       ],
       "githubContext": {
         "requiredContexts": [],

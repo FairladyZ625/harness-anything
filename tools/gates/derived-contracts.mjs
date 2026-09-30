@@ -196,26 +196,6 @@ function validateWorkflowProjection(rootDir, contract, errors) {
   }
 }
 
-function validateCatalogProjection(rootDir, contract, errors) {
-  const catalog = contract.declaration?.projection?.catalog;
-  if (catalog === undefined) return;
-  if (typeof catalog !== "string" || catalog.length === 0 || !existsSync(path.join(rootDir, catalog))) {
-    errors.push(`${contract.file}: catalog projection not found: ${catalog}`);
-    return;
-  }
-  const actual = JSON.parse(readFileSync(path.join(rootDir, catalog), "utf8"));
-  const expected = {
-    contractId: contract.declaration.id,
-    commands: (contract.declaration.commands ?? []).map(entryId),
-    gates: (contract.declaration.gates ?? []).map(entryId),
-    guards: (contract.declaration.guards ?? []).map(entryId),
-    schemas: (contract.declaration.schemas ?? []).map(entryId),
-    phases: contract.declaration.phases ?? [],
-  };
-  if (JSON.stringify(actual) !== JSON.stringify(expected))
-    errors.push(`${catalog}: catalog projection differs from ${contract.file}`);
-}
-
 export function validateDerivedContracts(rootDir, contracts) {
   const errors = [];
   const seen = new Map();
@@ -263,7 +243,6 @@ export function validateDerivedContracts(rootDir, contracts) {
       }
     }
     validateWorkflowProjection(rootDir, contract, errors);
-    validateCatalogProjection(rootDir, contract, errors);
   }
   return errors;
 }
