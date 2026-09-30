@@ -4,7 +4,7 @@ Replace this file's placeholder content before closeout; `ha task complete` reje
 
 ## Summary
 
-Summarize the completed behavior change. Name exactly one delivery commit by its full 40-character lowercase SHA (the merge commit when the delivery landed through a PR), or at least one `artifact:<path>@<revision>` anchor; without it `ha task submit` / `ha task settle` reject the closeout with `document_invalid`.
+Summarize the completed behavior change. The submitted execution freezes the delivery commit and other machine-derived delivery values, so do not hand-copy them here.
 
 ## Verification
 

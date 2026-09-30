@@ -190,7 +190,8 @@ export function lifecycleReceipt(
     eventReview =
       event.type === "review_recorded" || event.type === "review_consent_recorded" ? event.payload.review : undefined,
     receiptReview = eventReview ?? selected?.review ?? (reviews.length === 1 ? reviews[0] : undefined),
-    reviewId = receiptReview?.reviewId ?? null,
+    reviewId =
+      event.type === "submission_returned" ? (event.payload.reviewId ?? null) : (receiptReview?.reviewId ?? null),
     hasDispatchLineage =
       readTaskLineageDispatches({ projection: cell.projection, rootDir: cell.rootDir, taskId: event.taskId }).length >
       0,

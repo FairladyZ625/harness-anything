@@ -302,6 +302,23 @@ test("task worktree HEAD is the delivery commit without a runtime dispatch", (t)
   );
 });
 
+test("a rebase may advance the bound delivery commit without rewriting closeout prose", (t) => {
+  const { root } = fixture(t),
+    worktree = path.join(root, ".worktrees/task-1"),
+    closeout = "Completed the implementation; execution records the delivery cut.";
+  git(root, "worktree", "add", "-qb", "task-1", worktree);
+  put(worktree, "src/live.ts", "export const liveValue = 41;\n");
+  const beforeRebase = commit(worktree);
+  put(root, "src/main-only.ts", "main\n");
+  commit(root);
+  git(worktree, "rebase", "main");
+  const afterRebase = git(worktree, "rev-parse", "HEAD");
+  assert.notEqual(afterRebase, beforeRebase);
+  const submission = derive(root, closeout, undefined, ["ci"]);
+  assert.equal(submission.commitSha, afterRebase);
+  assert.equal(submission.completionClaim, closeout);
+});
+
 test("lightweight task worktree HEAD is the delivery commit though its gate set is empty", (t) => {
   const { root } = fixture(t),
     worktree = path.join(root, ".worktrees/task-1");

@@ -406,22 +406,18 @@ test("review-execution without --execution-id derives the sole current submitted
     assert.equal(returnedEvent.payload.execution.state, "submitted");
     assert.equal(returnedEvent.payload.execution.iteration, 0);
     assert.equal(returnedEvent.payload.task.iteration, 0);
-    assert.equal(
-      (
-        await cell.run(
-          {
-            kind: "task-adjudicate",
-            taskId,
-            executionId: firstExecutionId,
-            return: true,
-            reviewId: "review-selection-r1",
-            reason: "Owner accepts the review findings and returns the cut.",
-          },
-          owner,
-        )
-      ).outcome,
-      "applied",
-    );
+    const ownerReturn = (await cell.run(
+      {
+        kind: "task-adjudicate",
+        taskId,
+        executionId: firstExecutionId,
+        return: true,
+        reason: "Owner accepts the review findings and returns the cut.",
+      },
+      owner,
+    )) as Record<string, unknown>;
+    assert.equal(ownerReturn.outcome, "applied", JSON.stringify(ownerReturn));
+    assert.equal(ownerReturn.reviewId, "review-selection-r1");
 
     await cell.run({ kind: "task-start", taskId, executionId: secondExecutionId }, owner);
     writeSelectionCloseout(rootDir, (created as Record<string, unknown>).packagePath);

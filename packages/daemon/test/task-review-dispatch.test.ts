@@ -37,6 +37,7 @@ test("review prompts truncate oversized artifact bodies and keep the frozen anch
     execution = {
       executionId: "exe_review_bounds",
       iteration: 1,
+      deliveryBaseline: { kind: "commit", commitSha: "b".repeat(40) },
       submission: {
         artifacts: [
           { path: "artifacts/raw-evidence.txt", revision: 1, blobSha256: sha256(bigBody) },
@@ -53,6 +54,8 @@ test("review prompts truncate oversized artifact bodies and keep the frozen anch
     gates: [],
   });
   assert.match(prompt, /Independently review task task_review_bounds/u);
+  assert.match(prompt, /execution-frozen delivery baseline.*b{40}/u);
+  assert.match(prompt, /Read the G33 production-delta result/u);
   assert.match(prompt, /REVIEW-ARTIFACT-HEAD/u);
   assert.doesNotMatch(prompt, /REVIEW-ARTIFACT-TAIL/u);
   assert.match(prompt, /bodyTruncatedFromChars/u);
