@@ -56,6 +56,46 @@ export function displayColumns(text: string): number {
   return width;
 }
 
+// 标题只写一个重点(业主 2026-09-30):创建类回执对超宽标题追加一条提示,只提示不拒绝。
+// 56 列(≈28 个 CJK 字符)恰为 canonical 台账 4075 条存量标题的 p25——最短的四分之一过关,
+// 其余被提醒,与「Agent 总是把名字写得很长」的现状对齐。
+export const TITLE_FOCUS_LIMIT = 56;
+
+/**
+ * Creation receipts advise on over-wide titles: the hint rides the same guidance array the daemon
+ * declared entries use, so `--json` readers and the rendered receipt see one shape. The title comes
+ * from the dispatched action (`--title` flag or `--json-input` packet); `--from-file` packets are
+ * read by the daemon and stay unhinted. `ha work create` forwards as the task-create action kind.
+ */
+export function withTitleFocusGuidance(
+  receipt: Record<string, unknown>,
+  action: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  const kind = String(action.kind);
+  if (kind !== "task-create" && kind !== "decision-propose") return receipt;
+  const title = titleOfAction(action);
+  if (title === null) return receipt;
+  const width = displayColumns(title);
+  if (width <= TITLE_FOCUS_LIMIT) return receipt;
+  const guidance = Array.isArray(receipt.guidance) ? receipt.guidance : [];
+  return {
+    ...receipt,
+    guidance: [...guidance, { kind: "title-focus", args: { width, limit: TITLE_FOCUS_LIMIT } }],
+  };
+}
+
+function titleOfAction(action: Readonly<Record<string, unknown>>): string | null {
+  if (typeof action.title === "string" && action.title.length > 0) return action.title;
+  // `@-` reads stdin, which is gone by now; inline JSON already passed the daemon, so it parses.
+  if (typeof action.jsonInput !== "string" || !action.jsonInput.trimStart().startsWith("{")) return null;
+  const parsed: unknown = JSON.parse(action.jsonInput);
+  const title =
+    parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>).title
+      : undefined;
+  return typeof title === "string" && title.length > 0 ? title : null;
+}
+
 /** Forensic detail leading the sentence: a bare SHA, a path token, or an "At commit …" lead. */
 function opensWithForensicDetail(sentence: string): boolean {
   return (
@@ -66,6 +106,13 @@ function opensWithForensicDetail(sentence: string): boolean {
 }
 
 const guidanceTemplates = new Map<string, GuidanceTemplate>([
+  [
+    "*:title-focus",
+    (args) =>
+      `title: keep one focus only — this title spans ${numberArg(args, "width")} columns (guide: within ` +
+      `${numberArg(args, "limit")}); move the explanation after a colon, parenthetical supplements, and ` +
+      "decision/PR numbers into the plan's Brief/Context (Decisions: the body)",
+  ],
   [
     "task-create:repository-diff-contract",
     () =>

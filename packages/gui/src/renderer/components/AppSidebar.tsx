@@ -1,4 +1,5 @@
 import { PinButton } from "./PinButton.tsx";
+import { TitleText } from "./primitives/TitleText.tsx";
 import { useRef, useState } from "react";
 import { FolderSimple, CaretUpDown, CloudSlash } from "@phosphor-icons/react";
 import type { SystemRepoRow } from "../api-client.ts";
@@ -165,7 +166,9 @@ export function AppSidebar({
                     className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-sm"
                   >
                     <span aria-hidden>◆</span>
-                    <span className="truncate">{item.title}</span>
+                    <span className="truncate">
+                      <TitleText title={item.title} />
+                    </span>
                   </button>
                   <PinButton
                     testId={`sidebar-unpin-${item.taskId}`}

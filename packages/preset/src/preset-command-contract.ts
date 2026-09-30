@@ -226,6 +226,10 @@ const taskCreateProfileFormat =
   "<profile; lightweight = short plan and closeout with no review, consent, or fact at closeout, for a " +
   "low-risk small change (a code change still lands through the PR's CI); Recommended presets below lists " +
   "the presets that declare it>";
+// Same advice the over-wide-title receipt hint gives: one focus in the title, everything else in the plan.
+const titleFocusFormat =
+  "<one focus only — move the explanation after a colon, parenthetical supplements, and decision/PR " +
+  "numbers into the plan's Brief/Context (Decisions: the body)>";
 const taskCreateCliInputs = Object.freeze(
   taskCreateAction.input.fields.flatMap((field) => {
     if (!field.cli) return [];
@@ -239,6 +243,7 @@ const taskCreateCliInputs = Object.freeze(
         ...cli,
         ...(cli.name === "--from-file" || cli.name === "--plan-file" ? { format: workspacePathFormat } : {}),
         ...(cli.name === "--profile" ? { format: taskCreateProfileFormat } : {}),
+        ...(cli.name === "--title" ? { format: titleFocusFormat } : {}),
       }),
     ];
   }),
@@ -269,7 +274,7 @@ export const presetCommands = Object.freeze([
       "ha task create --work <id>; read it with ha work show <id>.",
     method: "repo.task.create",
     inputs: [
-      cliInput("--title", "single", true, { code: "missing_field" }, { field: "title" }),
+      cliInput("--title", "single", true, { code: "missing_field" }, { field: "title", format: titleFocusFormat }),
       ...taskCreateCliInputs.filter(({ name }) =>
         [
           "--work",
