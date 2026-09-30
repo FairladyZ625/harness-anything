@@ -15,14 +15,16 @@ export function Section({ title, action, children }: { title: string; action?: R
   );
 }
 
+/**
+ * 设置表单行(标准 §2.5):标签在上、控件在下占满行宽、说明小字垫底——三段竖排,
+ * 不再把控件挤到行右端。多控件(主题分段、时区选择、状态色例)在 children 里横向排。
+ */
 export function Row({ label, desc, children }: { label: ReactNode; desc?: ReactNode; children?: ReactNode }) {
   return (
-    <div className="flex items-center gap-3 border-b border-border px-3 py-2 last:border-b-0">
-      <div className="min-w-0 flex-1">
-        <div className="ui-body">{label}</div>
-        {desc && <div className="ui-meta mt-0.5 text-text-faint">{desc}</div>}
-      </div>
-      <div className="flex shrink-0 items-center gap-2">{children}</div>
+    <div className="border-b border-border px-3 py-2.5 last:border-b-0">
+      <div className="ui-body font-medium text-text">{label}</div>
+      {children ? <div className="mt-1.5 flex flex-wrap items-center gap-2">{children}</div> : null}
+      {desc ? <div className="mt-1 ui-meta text-text-faint">{desc}</div> : null}
     </div>
   );
 }

@@ -113,6 +113,19 @@ export function TokenUsageView({
             <Empty>{t("agentRuntime.loading")}</Empty>
           ) : (
             <>
+              {/* 结论行(标准 §2.5 统计类):一句话先说总量与可信度,关键数字条与图表在下。 */}
+              <p data-testid="token-usage-conclusion" className="pb-2 ui-body text-text">
+                {usageIsUnreported(data.totals)
+                  ? t("agentRuntime.tokenUsageConclusionFloor", {
+                      tokens: compactTokens(data.totals.totalTokens),
+                      count: String(data.totals.usageUnavailableDispatches),
+                    })
+                  : t("agentRuntime.tokenUsageConclusion", {
+                      tokens: compactTokens(data.totals.totalTokens),
+                      sessions: String(data.totals.sessionCount),
+                      tools: String(data.totals.toolCallCount),
+                    })}
+              </p>
               <TotalsStrip totals={data.totals} testId="token-usage-totals" />
               <div className="mt-3 grid gap-3">
                 <Card testId="token-usage-trend-card">

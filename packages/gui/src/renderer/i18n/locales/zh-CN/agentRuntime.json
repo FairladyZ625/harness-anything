@@ -553,5 +553,7 @@
   "agentRuntime.reviewSessionOpenReport": "读取中心报告",
   "agentRuntime.sessionsDecisionTag": "Decision 评审",
   "agentRuntime.sessionsDecisionDetail": "Decision 评审详情",
-  "agentRuntime.sessionsDecisionRowsUnavailable": "此 Decision 的评审派工不在当前读面里。"
+  "agentRuntime.sessionsDecisionRowsUnavailable": "此 Decision 的评审派工不在当前读面里。",
+  "agentRuntime.tokenUsageConclusion": "本范围共 {tokens} tokens,{sessions} 个会话、{tools} 次工具调用。",
+  "agentRuntime.tokenUsageConclusionFloor": "本范围已知 {tokens} tokens;{count} 个派工未上报用量,总量是下界。"
 }

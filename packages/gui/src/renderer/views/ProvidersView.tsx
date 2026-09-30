@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { isAvailableAgentEntityRow } from "../agent-entity-client.ts";
 import { t } from "../i18n/index.tsx";
+import { ActionError } from "../components/runtime/ActionError.tsx";
 import { Btn, CapDot, Empty, Hint } from "../components/runtime/parts.tsx";
 import { NewRuntimeDialog } from "../components/runtime/NewRuntimeDialog.tsx";
 import { ProviderRail } from "../components/runtime/RuntimeRail.tsx";
@@ -78,15 +79,13 @@ export function ProvidersView({
           })}
         </p>
       )}
-      {(workspace.error ?? workspace.feedback) && (
+      {workspace.feedback && !workspace.error && (
         <p
           role="status"
           onClick={workspace.clearFeedback}
-          className={`shrink-0 border-b border-border px-3.5 py-1.5 font-mono ui-micro ${
-            workspace.error ? "bg-status-blocked/10 text-status-blocked" : "text-text-muted"
-          }`}
+          className="shrink-0 border-b border-border px-3.5 py-1.5 font-mono ui-micro text-text-muted"
         >
-          {workspace.error ?? workspace.feedback}
+          {workspace.feedback}
         </p>
       )}
       <div className="flex min-h-0 flex-1">
@@ -100,7 +99,10 @@ export function ProvidersView({
         />
         <main className="min-w-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6">
           {instance === null ? (
-            <Empty>{t(workspace.machine.isPending ? "agentRuntime.loading" : "agentRuntime.emptyProviders")}</Empty>
+            <>
+              {workspace.error ? <ActionError>{workspace.error}</ActionError> : null}
+              <Empty>{t(workspace.machine.isPending ? "agentRuntime.loading" : "agentRuntime.emptyProviders")}</Empty>
+            </>
           ) : (
             <RuntimeCard
               instance={instance}
@@ -109,6 +111,7 @@ export function ProvidersView({
               agents={(workspace.agents.data ?? []).filter(isAvailableAgentEntityRow)}
               liveSessions={liveSessions}
               busy={workspace.busy}
+              actionError={workspace.error}
               onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)}
               onSelectRuntime={(instanceId) => onSelectEntity(`provider/${instanceId}`)}
               onAuth={(action) => void workspace.authInstance(instance.instanceId, action)}
@@ -136,6 +139,7 @@ export function ProvidersView({
           installations={installations}
           existingInstanceIds={instances.map((row) => row.instanceId)}
           busy={workspace.busy}
+          actionError={workspace.error}
           onCancel={() => setDialog(false)}
           onCreate={(input) => {
             void workspace.createInstance(input).then((created) => {

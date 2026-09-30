@@ -673,8 +673,11 @@ describe("runtime entry split (W6 IA)", () => {
     await click("new-agent-create");
 
     expect(save).toHaveBeenCalledTimes(1);
-    expect(document.querySelector('[role="status"]')?.textContent).toContain("Replace the starter instructions");
-    expect(document.querySelector('[role="status"]')?.textContent).not.toContain("Agent declaration saved");
+    // 被拒原因就地在创建对话框里显示(标准 §2.5),不是页首的通用错误条。
+    const inline = document.querySelector('[data-testid="action-error"]');
+    expect(inline?.getAttribute("role")).toBe("alert");
+    expect(inline?.textContent).toContain("Replace the starter instructions");
+    expect(document.body.textContent).not.toContain("Agent declaration saved");
   });
 
   it("lists every round of the selected agent in the inspector, not only the latest (G12 §4a)", async () => {
@@ -775,8 +778,10 @@ describe("runtime entry split (W6 IA)", () => {
 
     expect(toggle?.getAttribute("aria-checked")).toBe("true");
     expect(list).not.toHaveBeenCalled();
-    const status = [...byTestId("providers-view").querySelectorAll('[role="status"]')].map((node) => node.textContent);
-    expect(status.some((text) => text?.includes("daemon refused"))).toBe(true);
+    // 失败原因就地在实例卡上显示(标准 §2.5),不再是页首通用错误条。
+    const inline = byTestId("providers-view").querySelector('[data-testid="action-error"]');
+    expect(inline?.getAttribute("role")).toBe("alert");
+    expect(inline?.textContent).toContain("daemon refused");
   });
 
   it("prewarms and retains one shared machine catalog read", async () => {

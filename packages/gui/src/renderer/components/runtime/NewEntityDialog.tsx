@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { AgentEntityAvailableRow, SquadEntityAvailableRow } from "../../agent-entity-client.ts";
 import { agentRuntimeTargetSummary } from "@harness-anything/daemon/protocol";
 import { t } from "../../i18n/index.tsx";
+import { ActionError } from "./ActionError.tsx";
 import { Avatar, Badge, Btn, CfgRow, Hint, KindDot, Modal, TextInput, WarnBar } from "./parts.tsx";
 
 type NewEntityRequestBase = {
@@ -24,6 +25,7 @@ export function NewEntityDialog({
   squads,
   busy,
   taken,
+  actionError = null,
   onCancel,
   onCreate,
 }: {
@@ -32,6 +34,8 @@ export function NewEntityDialog({
   readonly squads: readonly SquadEntityAvailableRow[];
   readonly busy: boolean;
   readonly taken: readonly string[];
+  /** 创建被拒(如 instructions 占位符未换)时的原因:就在创建按钮旁显示(标准 §2.5)。 */
+  readonly actionError?: string | null;
   readonly onCancel: () => void;
   readonly onCreate: (request: NewEntityRequest) => void;
 }) {
@@ -92,6 +96,7 @@ export function NewEntityDialog({
         </div>
       }
     >
+      {actionError ? <ActionError>{actionError}</ActionError> : null}
       <div className="grid gap-2.5 sm:grid-cols-2">
         {kind === "agent"
           ? agents.map((agent) => (

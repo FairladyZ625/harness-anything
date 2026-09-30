@@ -553,5 +553,7 @@
   "agentRuntime.reviewSessionOpenReport": "Read the center report",
   "agentRuntime.sessionsDecisionTag": "Decision review",
   "agentRuntime.sessionsDecisionDetail": "Decision review detail",
-  "agentRuntime.sessionsDecisionRowsUnavailable": "This Decision's review dispatches are not in the current read."
+  "agentRuntime.sessionsDecisionRowsUnavailable": "This Decision's review dispatches are not in the current read.",
+  "agentRuntime.tokenUsageConclusion": "{tokens} tokens in this range across {sessions} sessions and {tools} tool calls.",
+  "agentRuntime.tokenUsageConclusionFloor": "At least {tokens} tokens in this range; {count} dispatches report no usage, so the total is a lower bound."
 }

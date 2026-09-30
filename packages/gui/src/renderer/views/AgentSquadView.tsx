@@ -14,6 +14,7 @@ import {
   type AgentSquadFilters,
 } from "../model/agentSquadFilters.ts";
 import { AgentCard, agentDeclarationFrom, agentDraftFrom } from "../components/runtime/AgentCard.tsx";
+import { ActionError } from "../components/runtime/ActionError.tsx";
 import { NewEntityDialog, type NewEntityRequest } from "../components/runtime/NewEntityDialog.tsx";
 import { Badge, Btn, Empty, Hint } from "../components/runtime/parts.tsx";
 import { IdentityRail } from "../components/runtime/RuntimeRail.tsx";
@@ -218,15 +219,13 @@ export function AgentSquadView({
           {t("agentRuntime.readFailed", { error: readError instanceof Error ? readError.message : String(readError) })}
         </p>
       )}
-      {(workspace.error ?? workspace.feedback) && (
+      {workspace.feedback && !workspace.error && (
         <p
           role="status"
           onClick={workspace.clearFeedback}
-          className={`shrink-0 border-b border-border px-3.5 py-1.5 font-mono ui-micro ${
-            workspace.error ? "bg-status-blocked/10 text-status-blocked" : "text-text-muted"
-          }`}
+          className="shrink-0 border-b border-border px-3.5 py-1.5 font-mono ui-micro text-text-muted"
         >
-          {workspace.error ?? workspace.feedback}
+          {workspace.feedback}
         </p>
       )}
       <div className="flex min-h-0 flex-1">
@@ -293,7 +292,10 @@ export function AgentSquadView({
         />
         <main className="min-w-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6">
           {current === null ? (
-            <Empty>{t(catalogsPending ? "agentRuntime.loading" : "agentRuntime.emptyAgents")}</Empty>
+            <>
+              {workspace.error ? <ActionError>{workspace.error}</ActionError> : null}
+              <Empty>{t(catalogsPending ? "agentRuntime.loading" : "agentRuntime.emptyAgents")}</Empty>
+            </>
           ) : current.type === "agent" ? (
             agentDetail.data ? (
               <AgentCard
@@ -304,6 +306,7 @@ export function AgentSquadView({
                 availableSkills={skills.data ?? []}
                 presets={catalog.data?.presets ?? []}
                 busy={workspace.busy}
+                actionError={workspace.error}
                 onSave={(declaration) => void workspace.saveAgent(declaration)}
                 onDispatch={(mission) => void openAgentDispatch(current.id, mission)}
                 onSelectSquad={(squadId) => onSelectEntity(`squad/${squadId}`)}
@@ -327,6 +330,7 @@ export function AgentSquadView({
                 detail={squadDetail.data}
                 agents={agents}
                 busy={workspace.busy}
+                actionError={workspace.error}
                 onSave={(declaration) => void workspace.saveSquad(declaration)}
                 onSelectAgent={(agentId) => onSelectEntity(`agent/${agentId}`)}
                 onSelectSquad={(squadId) => onSelectEntity(`squad/${squadId}`)}
@@ -353,6 +357,7 @@ export function AgentSquadView({
           agents={agents}
           squads={squads}
           busy={workspace.busy}
+          actionError={workspace.error}
           taken={dialog.entity === "agent" ? agents.map((agent) => agent.id) : squads.map((squad) => squad.id)}
           onCancel={() => setDialog(null)}
           onCreate={(request) => void createEntity(request)}

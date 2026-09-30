@@ -6,20 +6,19 @@ import type { SystemRepoRow } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
 import { formatTime, formatUptimeMs } from "../model/time.ts";
 import { RepoModeBadge } from "../components/RepoModeBadge.tsx";
+import { StatusTag } from "../components/primitives/StatusTag.tsx";
+import { repoCellMeta, repoNeedsAttention } from "../model/repo-state.ts";
 
 /**
  * System 面板:面向使用者的守护进程状态 + 本地仓库表。
  *
- * 字段口径与 archive 线 SystemStatusPanel 对齐(版本/运行时长/PID/端点/守护进程 ID/
- * 用户根目录/队列深度/仓库数 + 仓库表)。连接数(活跃/总计)与全局队列深度在
- * gui-system-status/v1 契约里没有投影,呈现为「—」并在 title 说明,不伪造。
+ * 版式按标准 §2.5 统计类:先给一行结论(守护进程在跑、N/M 仓已附着、异常数、队列
+ * 深度、最近观测),字段明细与仓库表在下;仓库状态用有底色的 StatusTag,异常仓
+ * 置顶。字段口径与 archive 线 SystemStatusPanel 对齐(版本/运行时长/PID/端点/守护
+ * 进程 ID/用户根目录/队列深度/仓库数 + 仓库表)。连接数(活跃/总计)与全局队列深度
+ * 在 gui-system-status/v1 契约里没有投影,呈现为「—」并在 title 说明,不伪造。
  * 机器值(generation 序号、recovery 毫秒)保留为次级行,不再作为唯一呈现。
  */
-// G36:长 Tailwind 串按段拼装,单行不超过 120 列。
-const LOGS_NOTICE = [
-  "rounded-lg border border-status-blocked/30 bg-status-blocked/5",
-  "px-3 py-2 ui-meta text-status-blocked",
-].join(" ");
 
 const dash = () => t("views.settingsView.systemUnknownDash");
 const dateTime = (iso: string) => formatTime(iso, { style: "date-time-seconds" }) ?? dash();
@@ -35,23 +34,6 @@ function Field({ name, value, title }: { readonly name: string; readonly value: 
     </div>
   );
 }
-
-function ReachabilityBadge() {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-md bg-status-done/15 px-2.5 py-1 ui-meta font-semibold text-status-done">
-      <span className="size-2 rounded-full bg-status-done" aria-hidden />
-      {t("views.settingsView.systemRunning")}
-    </span>
-  );
-}
-
-/** RepoCell 状态的呈现口径:状态词走 i18n(不把 attached/not_loaded 这类机器枚举直接摊给使用者),颜色与之同源。 */
-const REPO_STATE = {
-  warming: ["text-stale", "stateWarming"],
-  attached: ["text-status-done", "stateAttached"],
-  unavailable: ["text-status-blocked", "stateUnavailable"],
-  not_loaded: ["text-text-muted", "stateNotLoaded"],
-} as const;
 
 /**
  * `observe.tail` 是 requiresRepo 的读面,守护进程自己的日志也要借一个已挂载仓做路由。
@@ -107,18 +89,12 @@ function RepoRow({
         </span>
       </td>
       <td className="px-3 py-2 align-top">
-        <span
-          className={`inline-flex items-center gap-1 font-mono ui-meta ${REPO_STATE[repo.cellState][0]}`}
-          title={repo.cellState}
-        >
-          <span className="size-1.5 rounded-full bg-current" aria-hidden />
-          {t(`views.systemView.${REPO_STATE[repo.cellState][1]}`)}
+        <span className="inline-flex items-center gap-1.5" title={repo.cellState}>
+          <StatusTag tone={repoCellMeta(repo.cellState).tone} label={t(repoCellMeta(repo.cellState).labelKey)} />
+          {repo.registrationState === "disabled" ? (
+            <span className="font-mono ui-micro text-text-faint">({t("views.systemView.registrationDisabled")})</span>
+          ) : null}
         </span>
-        {repo.registrationState === "disabled" ? (
-          <span className="ml-1 font-mono ui-micro text-text-faint">
-            ({t("views.systemView.registrationDisabled")})
-          </span>
-        ) : null}
       </td>
       <td className="px-3 py-2 align-top">
         <span className="font-mono ui-meta text-text-muted">{repo.queueDepth ?? dash()}</span>
@@ -187,7 +163,12 @@ export function SystemView({
     attached = status.data.repos.filter((repo) => repo.cellState === "attached").length,
     unavailable = status.data.repos.filter((repo) => repo.cellState === "unavailable").length,
     queueDepth = totalQueueDepth(status.data.repos),
-    logRepoId = observeRouteRepoId(status.data.repos, activeRepoId);
+    logRepoId = observeRouteRepoId(status.data.repos, activeRepoId),
+    // 异常仓置顶(标准 §2.5):不可用或带错误的行排在前,正常行按原顺序稳定排后。
+    orderedRepos = [
+      ...status.data.repos.filter((repo) => repoNeedsAttention(repo)),
+      ...status.data.repos.filter((repo) => !repoNeedsAttention(repo)),
+    ];
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">
       <header className="border-b border-border px-4 py-3">
@@ -200,7 +181,7 @@ export function SystemView({
             <button
               disabled={!activeRepoId || control.busy}
               onClick={() => void control.request("refresh")}
-              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 ui-meta text-text-muted disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-xs border border-border px-2 py-1 ui-meta text-text-muted disabled:opacity-50"
             >
               <ArrowClockwise />
               {t("views.settingsView.systemRefresh")}
@@ -209,7 +190,7 @@ export function SystemView({
         </div>
         {receipt && (
           <div
-            className={`mt-2 rounded border px-2 py-1.5 font-mono ui-micro ${controlSucceeded(receipt) ? "border-status-done/30 text-status-done" : receipt.phase === "failed" ? "border-status-blocked/30 text-status-blocked" : "border-stale/30 text-stale"}`}
+            className={`mt-2 rounded-xs border px-2 py-1.5 font-mono ui-micro ${controlSucceeded(receipt) ? "border-status-done/30 text-status-done" : receipt.phase === "failed" ? "border-status-blocked/30 text-status-blocked" : "border-stale/30 text-stale"}`}
           >
             <span>
               {t("views.systemView.operationId")} {receipt.operationId} · {receipt.kind} · {receipt.phase}
@@ -223,11 +204,33 @@ export function SystemView({
           </div>
         )}
       </header>
+      {/* 结论行(标准 §2.5 统计类):一句话 + 关键数字在前,字段明细与表在下。 */}
+      <section
+        data-testid="system-conclusion"
+        className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border px-4 py-2.5"
+      >
+        <StatusTag tone="done" label={t("views.settingsView.systemRunning")} />
+        <span className="ui-meta text-text">
+          {t("views.systemView.conclusionRepos", {
+            attached: String(attached),
+            total: String(status.data.repos.length),
+          })}
+        </span>
+        <span className="font-mono ui-meta tabular-nums text-text-muted">
+          {t("views.systemView.conclusionQueue", { depth: queueDepth === null ? dash() : String(queueDepth) })}
+        </span>
+        <span className="font-mono ui-meta tabular-nums text-text-muted">
+          {t("views.systemView.conclusionUptime", { uptime: uptime(daemon.uptimeMs) })}
+        </span>
+        {unavailable > 0 ? (
+          <StatusTag tone="bad" label={t("views.systemView.conclusionUnavailable", { count: unavailable })} />
+        ) : null}
+        <span className="ml-auto font-mono ui-micro text-text-faint">{dateTime(status.data.observedAt)}</span>
+      </section>
       <div data-testid="system-content" className="grid w-full gap-4 p-4 lg:grid-cols-[22rem_minmax(0,1fr)]">
         <section className="rounded-lg border border-border bg-surface p-3">
           <div className="flex items-center justify-between gap-2">
             <h2 className="ui-body font-semibold">{t("views.settingsView.systemDaemonStatus")}</h2>
-            <ReachabilityBadge />
           </div>
           <dl className="mt-3 grid gap-2">
             <Field
@@ -301,7 +304,7 @@ export function SystemView({
                 </tr>
               </thead>
               <tbody>
-                {status.data.repos.map((repo) => (
+                {orderedRepos.map((repo) => (
                   <RepoRow
                     key={repo.repoId}
                     repo={repo}
@@ -330,7 +333,10 @@ export function SystemView({
           {t("views.systemView.logsScope", { daemonId: daemon.daemonId })}
         </p>
         {logRepoId === null ? (
-          <p data-testid="system-daemon-logs-unavailable" className={LOGS_NOTICE}>
+          <p
+            data-testid="system-daemon-logs-unavailable"
+            className="rounded-sm border border-status-blocked/30 bg-status-blocked/5 px-3 py-2 ui-meta text-status-blocked"
+          >
             {t("views.systemView.logsNoRoute")}
           </p>
         ) : (

@@ -257,9 +257,9 @@ describe("G5 系统组四页宽屏:内容容器铺满,不保留固定宽度收�
     expect(className, `${testId} 不得挂固定最大宽度`).not.toMatch(/(^|\s)max-w-/u);
   });
 
-  it("adapters 沿用已适配页面的注册卡网格规则(auto-fill minmax),卡片列随宽度增长", async () => {
+  it("adapters 目录页按 DenseRow 信息行铺满(标准 §2.5),行容器随宽度增长", async () => {
     const className = await mountedContainerClasses("adapters-content");
-    expect(className).toContain("grid-cols-[repeat(auto-fill,minmax(290px,1fr))]");
+    expect(className).toContain("w-full");
   });
 
   it("侧栏固定轨道保留(列宽有意,外层仍铺满)", async () => {
@@ -280,6 +280,22 @@ describe("G5 系统组四页宽屏:内容容器铺满,不保留固定宽度收�
     expect(cappedCells.length).toBeGreaterThan(0);
     const table = container.querySelector("table");
     expect(table?.className).toContain("w-full");
+  });
+
+  it("system 结论行在最上(标准 §2.5 统计类):运行状态标签 + 附着/队列/时长关键数字,仓库状态是有底色的 StatusTag", async () => {
+    const container = await mountView(
+      createElement(SystemView, {
+        activeRepoId: REPO_ID,
+        onOpenObserve: () => undefined,
+        onNavigateEntity: () => undefined,
+      }),
+    );
+    const conclusion = container.querySelector('[data-testid="system-conclusion"]');
+    expect(conclusion).toBeTruthy();
+    expect(conclusion!.querySelector("[data-status-tone]")?.getAttribute("data-status-tone")).toBe("done");
+    expect(conclusion!.textContent).toContain("1/1");
+    const stateTag = container.querySelector("tbody [data-status-tone]");
+    expect(stateTag).toBeTruthy();
   });
 
   it("attached 仓库行最右侧显示明确的观察按钮", async () => {
