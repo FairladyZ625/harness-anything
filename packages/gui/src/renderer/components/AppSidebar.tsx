@@ -1,5 +1,5 @@
 import { PinButton } from "./PinButton.tsx";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { FolderSimple, CaretUpDown, CloudSlash } from "@phosphor-icons/react";
 import type { SystemRepoRow } from "../api-client.ts";
 import type { Project } from "../model/types.ts";
@@ -71,6 +71,7 @@ export function AppSidebar({
   onOpenSystem,
 }: AppSidebarProps) {
   const projectSwitcherAnchor = useRef<HTMLButtonElement>(null);
+  const [pinnedOpen, setPinnedOpen] = useState(true);
   // 当前仓的模式徽标与端点(PLT-EdgeGUI-W3,设计稿 §3.4):端点来自连接表,
   // local 仓挂在隐含本机连接下、无端点,不显示端点行。
   const activeRepo = repos.find((repo) => repo.repoId === activeRepoId) ?? null,
@@ -140,29 +141,42 @@ export function AppSidebar({
 
         {pinnedWork.length ? (
           <div className="px-2 pb-2" data-testid="sidebar-pinned-work">
-            <div className="px-1 pb-1 font-mono ui-meta uppercase tracking-wide text-text-faint">置顶工作</div>
-            {pinnedWork.map((item) => (
-              <div
-                key={item.taskId}
-                className="group flex w-full items-center gap-1 rounded pr-1 text-text-muted hover:bg-surface-raised hover:text-text"
-              >
-                <button
-                  type="button"
-                  onClick={() => onOpenPinned(item.taskId)}
-                  className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-sm"
+            <button
+              type="button"
+              data-testid="sidebar-pinned-toggle"
+              aria-expanded={pinnedOpen}
+              onClick={() => setPinnedOpen((open) => !open)}
+              className="flex w-full items-center gap-1 px-1 pb-1 text-left font-mono ui-meta uppercase tracking-wide text-text-faint hover:text-text-muted"
+            >
+              <span aria-hidden>{pinnedOpen ? "▾" : "▸"}</span>
+              <span>置顶工作</span>
+              <span className="ml-auto tabular-nums">{pinnedWork.length}</span>
+            </button>
+            {/* 限高内联滚动:置顶再多也不把下面的导航挤下去。 */}
+            <div data-testid="sidebar-pinned-list" className={pinnedOpen ? "max-h-[168px] overflow-y-auto" : "hidden"}>
+              {pinnedWork.map((item) => (
+                <div
+                  key={item.taskId}
+                  className="group flex w-full items-center gap-1 rounded pr-1 text-text-muted hover:bg-surface-raised hover:text-text"
                 >
-                  <span aria-hidden>◆</span>
-                  <span className="truncate">{item.title}</span>
-                </button>
-                <PinButton
-                  testId={`sidebar-unpin-${item.taskId}`}
-                  onClick={() => onUnpinWork(item.taskId)}
-                  pinned
-                  compact
-                  label={`解除置顶:${item.title}`}
-                />
-              </div>
-            ))}
+                  <button
+                    type="button"
+                    onClick={() => onOpenPinned(item.taskId)}
+                    className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-sm"
+                  >
+                    <span aria-hidden>◆</span>
+                    <span className="truncate">{item.title}</span>
+                  </button>
+                  <PinButton
+                    testId={`sidebar-unpin-${item.taskId}`}
+                    onClick={() => onUnpinWork(item.taskId)}
+                    pinned
+                    compact
+                    label={`解除置顶:${item.title}`}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         ) : null}
 
