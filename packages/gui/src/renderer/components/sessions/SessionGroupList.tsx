@@ -372,7 +372,7 @@ function RoundRow({
       onClick={() => onSelectSession(row.runtimeSessionId)}
     >
       <DenseRow
-        index={t("agentRuntime.sessionsRoundIndex", { index: row.roundIndex })}
+        index={row.roundIndex}
         tag={
           <span data-testid={`runtime-outcome-${row.runtimeSessionId}`}>
             <SessionStatusTag status={row.status} />
@@ -381,7 +381,13 @@ function RoundRow({
         title={row.agentName ?? row.instanceId}
         reason={
           <span data-testid={`runtime-classification-${row.runtimeSessionId}`}>
-            {[row.classification, row.nextAction, row.delegation, shortRef(row.dispatchId, 14)]
+            {[
+              t("agentRuntime.sessionsRoundIndex", { index: row.roundIndex }),
+              row.classification,
+              row.nextAction,
+              row.delegation,
+              shortRef(row.dispatchId, 14),
+            ]
               .filter(Boolean)
               .join(" · ")}
           </span>
@@ -448,6 +454,26 @@ function DecisionGroupBody({
   readonly selectedId: string | null;
   readonly onSelectEntity: (ref: string) => void;
 }) {
+  const completed = rows?.rounds?.filter((round) => round.dispatch.status === "succeeded") ?? [];
+  const renderRound = (round: DecisionReviewRound) => (
+    <button
+      type="button"
+      className="w-full text-left hover:bg-text/5"
+      onClick={() => onSelectEntity(decisionSessionsRef(decisionId, round.dispatch.runtimeSessionId))}
+      key={round.dispatch.dispatchId}
+      data-testid={`rail-session-${round.dispatch.runtimeSessionId}`}
+      aria-current={selectedId === round.dispatch.runtimeSessionId}
+    >
+      <DenseRow
+        tag={<SessionStatusTag status={round.dispatch.status} />}
+        title={shortRef(round.dispatch.runtimeSessionId, 18)}
+        reason={
+          round.review ? <VerdictBadge verdict={round.review.verdict} /> : dispatchStatusText(round.dispatch.status)
+        }
+        selected={selectedId === round.dispatch.runtimeSessionId}
+      />
+    </button>
+  );
   return (
     <div className="cv-auto-10r px-1.5 pb-2">
       {(rows === undefined || rows.pending) && (
@@ -461,25 +487,15 @@ function DecisionGroupBody({
       {rows && !rows.pending && !rows.error && rows.rounds === null && (
         <p className="px-1.5 py-1 ui-micro text-text-faint">{t("agentRuntime.sessionsDecisionRowsUnavailable")}</p>
       )}
-      {rows?.rounds?.map((round) => (
-        <button
-          type="button"
-          className="w-full text-left hover:bg-text/5"
-          onClick={() => onSelectEntity(decisionSessionsRef(decisionId, round.dispatch.runtimeSessionId))}
-          key={round.dispatch.dispatchId}
-          data-testid={`rail-session-${round.dispatch.runtimeSessionId}`}
-          aria-current={selectedId === round.dispatch.runtimeSessionId}
-        >
-          <DenseRow
-            tag={<SessionStatusTag status={round.dispatch.status} />}
-            title={shortRef(round.dispatch.runtimeSessionId, 18)}
-            reason={
-              round.review ? <VerdictBadge verdict={round.review.verdict} /> : dispatchStatusText(round.dispatch.status)
-            }
-            selected={selectedId === round.dispatch.runtimeSessionId}
-          />
-        </button>
-      ))}
+      {rows?.rounds?.filter((round) => round.dispatch.status !== "succeeded").map(renderRound)}
+      {completed.length > 0 && (
+        <details open={completed.some((round) => round.dispatch.runtimeSessionId === selectedId)}>
+          <summary className="cursor-pointer px-3 py-1 ui-meta text-text-faint">
+            {t("agentRuntime.sessionsCompleted", { count: completed.length })}
+          </summary>
+          {completed.map(renderRound)}
+        </details>
+      )}
       <div className="mt-1.5 px-1.5">
         <EntityRefLink
           entityRef={decisionReviewRef(decisionId, "review")}
