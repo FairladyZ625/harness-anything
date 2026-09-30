@@ -1,25 +1,4 @@
 {
   "schema": "harness-test-quarantine/v1",
-  "tests": [
-    {
-      "test": "more than 64 completed uploads remain bounded across center restart",
-      "ownerTask": "task_f9443002d6d995489ebf082911",
-      "quarantinedAt": "2026-09-05"
-    },
-    {
-      "test": "timeout forcibly reaps a child that ignores SIGTERM before publishing terminal receipt",
-      "ownerTask": "task_f9443002d6d995489ebf082911",
-      "quarantinedAt": "2026-09-05"
-    },
-    {
-      "test": "attached task runtime settlement releases its execution lease before publishing the terminal outcome",
-      "ownerTask": "task_f9443002d6d995489ebf082911",
-      "quarantinedAt": "2026-09-05"
-    },
-    {
-      "test": "class A: a task command carries local task documents, and the effect lands in both mirrors",
-      "ownerTask": "task_f9443002d6d995489ebf082911",
-      "quarantinedAt": "2026-09-05"
-    }
-  ]
+  "tests": []
 }
