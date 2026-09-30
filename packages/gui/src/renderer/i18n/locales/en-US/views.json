@@ -1390,7 +1390,7 @@
   "views.workspace.localGraphNote": "Shows group members and direct external boundaries by default. Canonical edges express causality or association; chronology does not.",
   "views.workspace.graphStats": "{nodes} nodes / {edges} relations",
   "views.workspace.graphFocus": "Focus: {label}",
-  "views.workspace.graphHint": "Click to expand, double-click to recenter; Details opens the entity.",
+  "views.workspace.graphHint": "Click to select and peek in the drawer; double-click to recenter. Open goes to the entity page.",
   "views.workspace.missionTitle": "Click to read the full goal",
   "views.workspace.progressNumbers": "{done}/{total} done · {percent}%",
   "views.workspace.lastActivity": "last activity {ago} ago",

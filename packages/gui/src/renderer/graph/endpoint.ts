@@ -18,6 +18,10 @@ export interface NodePos {
   /** 仅 task 有（抽屉复用其详情） */
   task?: import("../model/types").TaskRow;
   raw?: TaskRow | DecisionRow | FactRef | AgentNodeRow | ScheduleNodeRow | GovernedEntityRow;
+  /** 节点在画布上的元数据(§5.2 后原卡片脚注信息进抽屉):距焦点跳数 / 轴内度数 / 未铺开邻居数。 */
+  hop?: number;
+  degree?: number;
+  hiddenCount?: number;
   x: number;
   y: number;
 }

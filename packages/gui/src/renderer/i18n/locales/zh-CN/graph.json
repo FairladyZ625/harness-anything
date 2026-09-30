@@ -30,5 +30,14 @@
   "graph.axis.execution": "执行",
   "graph.axis.assoc": "关联",
   "graph.axisTitle": "轴：{axis}",
-  "graph.graphDrawer.anchorTaskLabel": "任务 ID："
+  "graph.graphDrawer.anchorTaskLabel": "任务 ID：",
+  "graph.graphDrawer.rejected": "否决",
+  "graph.graphDrawer.factAnchorOnly": "仅有锚点,正文未投影",
+  "graph.graphDrawer.dispatchedTasks": "被派的 task",
+  "graph.graphDrawer.dispatchCount": "{count} 个(dispatches 边)",
+  "graph.graphDrawer.noDispatches": "无派工记录",
+  "graph.graphDrawer.scheduleTarget": "target agent",
+  "graph.graphDrawer.scheduleTargetNone": "squad target(未投影为 agent 节点)",
+  "graph.graphDrawer.nodeMeta": "度 {degree} · 第 {hop} 跳",
+  "graph.graphDrawer.hiddenNeighbors": "未铺开 {count}"
 }

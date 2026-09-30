@@ -61,7 +61,6 @@ function layoutFrom(
     relations,
     filters,
     shown,
-    expanded: new Set(["decision/dec_1"]),
     highlight: null,
   });
 }

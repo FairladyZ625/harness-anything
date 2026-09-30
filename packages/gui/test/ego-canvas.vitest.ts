@@ -17,10 +17,11 @@ const HOPS_1 = { up: 1, down: 1 };
 const HOPS_2 = { up: 2, down: 2 };
 
 /**
- * 无限画布 ego(dec_01KXBGJQFQARSZHHQW1WADFDNC)的行为契约。
+ * 无限画布 ego(dec_01KXBGJQFQARSZHHQW1WADFDNC)的行为契约,2026-10-01 起按视觉规范
+ * §5.2 收口:节点不再有展开态,单击 = 选中 + 抽屉,双击 = 重排邻域。
  * 重点覆盖两件在 rebuild 线上出问题的事:
  *   1. claim 锚定的边(decision/<id>/C1)必须 join 回 decision/<id>,否则聚光灯全空。
- *   2. 累积展开:展开只增不减,收起保留邻居,单击不重排画布。
+ *   2. 布局只输出 chip 尺寸的节点;铺开范围只由 (焦点, 跳数预算, 筛选) 决定。
  */
 
 function task(overrides: Partial<TaskRow> = {}): TaskRow {
@@ -118,7 +119,6 @@ describe("claim 锚定边的 join", () => {
       relations,
       filters,
       shown,
-      expanded: new Set(["decision/dec_1"]),
       highlight: null,
     });
     expect(layout.neighborCount).toBe(3);
@@ -149,7 +149,6 @@ describe("分层分列", () => {
       relations,
       filters,
       shown,
-      expanded: new Set(),
       highlight: null,
     });
     const at = (id: string) => layout.nodes.find((n) => n.id === id)!;
@@ -182,7 +181,6 @@ describe("分层分列", () => {
       relations,
       filters,
       shown,
-      expanded: new Set(),
       highlight: null,
     });
     const children = layout.nodes.filter((n) => n.id !== "root").sort((a, b) => a.position.y - b.position.y);
@@ -193,53 +191,40 @@ describe("分层分列", () => {
   });
 });
 
-describe("累积展开(决策 CH1:累计保留、永不重置)", () => {
-  it("展开一个 chip 会把它的下一环邻居加入可见集", () => {
+describe("无展开态(规范 §5.2:节点只做选中态,内容只在抽屉)", () => {
+  it("没有任何节点携带 expanded 标记;焦点与邻居一律 chip 尺寸", () => {
+    const { tasks, decisions, facts, relations } = claimAnchoredFixture();
+    const graph = buildEgoGraph(tasks, decisions, facts, relations);
+    const shown = bfsShownFromFocus(graph, "decision/dec_1", HOPS_2, filters.axes);
+    const layout = layoutEgoCanvas({
+      focusId: "decision/dec_1",
+      graph,
+      relations,
+      filters,
+      shown,
+      highlight: null,
+    });
+    expect(layout.nodes.length).toBe(4);
+    for (const node of layout.nodes) {
+      expect("expanded" in node.data).toBe(false);
+    }
+    // 全部节点同宽同高(chip 定值)—— 焦点也不再是放大卡片。
+    expect(new Set(layout.nodes.map((n) => n.width)).size).toBe(1);
+    expect(new Set(layout.nodes.map((n) => n.height)).size).toBe(1);
+  });
+
+  it("铺开多少邻居只由跳数预算决定(单击不再长出下一环)", () => {
     const tasks = [task({ taskId: "a" }), task({ taskId: "b" }), task({ taskId: "c" })];
     const relations: RelationEdge[] = [
       { from: "task/a", to: "task/b", kind: "depends-on", provenance: "local-document" },
       { from: "task/b", to: "task/c", kind: "depends-on", provenance: "local-document" },
     ];
     const graph = buildEgoGraph(tasks, [], [], relations);
-    // 只铺 1 跳:c 还没进画布。
-    const shown = bfsShownFromFocus(graph, "a", HOPS_1, filters.axes);
-    expect(shown.has("c")).toBe(false);
-    // 展开 b = 把 b 的一跳邻居并入 shown(useEgoCanvas.expandNode 的纯逻辑等价)。
-    const grown = new Map(shown);
-    for (const nb of egoNeighborsOf(graph, "b", filters.axes)) {
-      if (!grown.has(nb)) grown.set(nb, (grown.get("b") ?? 0) + 1);
-    }
-    expect(grown.has("c")).toBe(true);
-    // 已有节点的跳数不被改写 —— 画布不重排。
-    expect(grown.get("b")).toBe(shown.get("b"));
-  });
-
-  it("收起卡片不撤回任何已铺开的节点", () => {
-    const { tasks, decisions, facts, relations } = claimAnchoredFixture();
-    const graph = buildEgoGraph(tasks, decisions, facts, relations);
-    const shown = bfsShownFromFocus(graph, "decision/dec_1", HOPS_2, filters.axes);
-    const expandedLayout = layoutEgoCanvas({
-      focusId: "decision/dec_1",
-      graph,
-      relations,
-      filters,
-      shown,
-      expanded: new Set(["decision/dec_1", "task_a"]),
-      highlight: null,
-    });
-    const collapsedLayout = layoutEgoCanvas({
-      focusId: "decision/dec_1",
-      graph,
-      relations,
-      filters,
-      shown,
-      expanded: new Set(["decision/dec_1"]),
-      highlight: null,
-    });
-    // 收起 task_a 后节点集合不变(只是它从卡片变回 chip)。
-    expect(collapsedLayout.nodes.map((n) => n.id).sort()).toEqual(expandedLayout.nodes.map((n) => n.id).sort());
-    expect(collapsedLayout.nodes.find((n) => n.id === "task_a")!.data.expanded).toBe(false);
-    expect(expandedLayout.nodes.find((n) => n.id === "task_a")!.data.expanded).toBe(true);
+    // ±1 跳:c 不在画布;把预算放宽到 ±2(双击重排/步进器的纯逻辑等价)c 才进来。
+    const one = bfsShownFromFocus(graph, "a", HOPS_1, filters.axes);
+    expect(one.has("c")).toBe(false);
+    const two = bfsShownFromFocus(graph, "a", HOPS_2, filters.axes);
+    expect(two.has("c")).toBe(true);
   });
 
   it("chip 标注还有多少邻居没铺开", () => {
@@ -256,7 +241,6 @@ describe("累积展开(决策 CH1:累计保留、永不重置)", () => {
       relations,
       filters,
       shown,
-      expanded: new Set(),
       highlight: null,
     });
     expect(layout.nodes.find((n) => n.id === "b")!.data.hiddenCount).toBe(1);
@@ -274,7 +258,6 @@ describe("筛选与高亮", () => {
       relations,
       filters: { ...filters, types: new Set(["decision", "task"]) },
       shown,
-      expanded: new Set(),
       highlight: null,
     });
     expect(layout.nodes.some((n) => n.data.entity === "fact")).toBe(false);
@@ -292,7 +275,6 @@ describe("筛选与高亮", () => {
       relations,
       filters,
       shown,
-      expanded: new Set(),
       highlight,
     });
     expect(layout.nodes.find((n) => n.id === "task_a")!.data.dimmed).toBe(false);
@@ -308,7 +290,6 @@ describe("筛选与高亮", () => {
       relations: [],
       filters,
       shown: new Map(),
-      expanded: new Set(),
       highlight: null,
     });
     expect(layout.nodes).toEqual([]);

@@ -179,31 +179,28 @@ async function mountNeighborhood(hops: { up: number; down: number }) {
 describe("EgoNeighborhood 接 hops", () => {
   it("1/1 只铺父一跳 + 子一跳;步进到 2/2 就地长出第二跳,不清焦点", async () => {
     const { div, root, render } = await mountNeighborhood({ up: 1, down: 1 });
-    // 焦点卡 t1 + 上游 d1 + 下游 t2。
-    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(2);
+    // 焦点 chip t1 + 上游 d1 + 下游 t2(§5.2:焦点也是 chip,不再展开成卡片)。
+    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(3);
     await render({ up: 2, down: 2 });
-    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(4);
-    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(1);
+    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(5);
+    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(0);
     await act(async () => {
       root.unmount();
     });
   });
 
-  it("点击子节点在原图追加下一跳,再点收起;焦点不变", async () => {
+  it("单击子节点只选中开抽屉,不长出下一跳;焦点不变", async () => {
     const { div, root } = await mountNeighborhood({ up: 1, down: 1 });
+    const before = div.querySelectorAll("[data-testid='ego-chip']").length;
     const t2 = [...div.querySelectorAll("[data-testid='ego-chip']")].find((c) => c.textContent?.includes("任务 t2"))!;
     await act(async () => {
       t2.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    // t2 展开成卡片,并长出它的下一跳 t3。
-    expect([...div.querySelectorAll("[data-testid='ego-card']")].some((c) => c.textContent?.includes("任务 t2"))).toBe(
-      true,
-    );
-    expect([...div.querySelectorAll("[data-testid='ego-chip']")].some((c) => c.textContent?.includes("任务 t3"))).toBe(
-      true,
-    );
-    // 焦点卡仍是 t1,没有被换中心。
-    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(2);
+    // §5.2:单击 = 选中 + 抽屉;画布节点数与焦点都不变(t3 不会因此出现)。
+    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(before);
+    expect(div.textContent).not.toContain("任务 t3");
+    const drawer = div.querySelector("[data-testid='graph-detail-drawer']")!;
+    expect(drawer.textContent).toContain("任务 t2");
     await act(async () => {
       root.unmount();
     });

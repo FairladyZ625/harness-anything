@@ -20,7 +20,7 @@ import { projectedTaskFields } from "./task-projection-fields.ts";
  * 关系图页不因 ego 组件抽取而退化(W4 硬要求)。
  * 聚光灯画布现在由 graph/EgoNeighborhood 承载,本文件锁定页面级行为:
  *   - 领地/聚光灯双模式可进可出,领地 chip → 聚光灯;
- *   - 画布累积态(已展开卡片)在领地↔聚光灯往返后保留(抽组件最大的回归面);
+ *   - 画布累积态(可见集/选中)在领地↔聚光灯往返后保留(抽组件最大的回归面);
  *   - 焦点历史条仍工作(后退/清除)。
  */
 
@@ -95,11 +95,12 @@ beforeAll(() => {
 });
 
 describe("graph page keeps its behavior after the ego extraction (W4)", () => {
-  it("spotlight renders focus card + neighbor chips and reports header counts", async () => {
+  it("spotlight renders focus and neighbor chips and reports header counts", async () => {
     const { div, root } = await mountGraph();
-    // 跳数步进器默认父 1 / 子 1(task_b4258de1):d1 焦点只铺 t1 一跳,t2/t3 要再点。
-    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(1);
-    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(1);
+    // 跳数步进器默认父 1 / 子 1(task_b4258de1):d1 焦点只铺 t1 一跳;t2/t3 要放宽预算。
+    // §5.2:焦点也是 chip,不再有画布中央的焦点卡。
+    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(0);
+    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(2);
     expect(div.querySelector("[data-testid='focus-history-bar']")).not.toBeNull();
     expect(div.textContent).toContain("聚光灯 · 2 节点 · 1 边");
     // 同一时刻 DOM 里只有一个 ReactFlow(可访问性/选择器不二义)。
@@ -120,10 +121,10 @@ describe("graph page keeps its behavior after the ego extraction (W4)", () => {
     await act(async () => {
       (div.querySelector("[data-testid='ego-hops-up-inc']") as HTMLButtonElement).click();
     });
-    // 2/2:与抽取前的 ±2 同集 —— 头部计数恢复 4 节点 3 边,焦点仍是决策卡。
+    // 2/2:与抽取前的 ±2 同集 —— 头部计数恢复 4 节点 3 边,全部是 chip。
     expect(div.textContent).toContain("聚光灯 · 4 节点 · 3 边");
-    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(1);
-    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(3);
+    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(0);
+    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(4);
     // 步进器只出现在聚光灯:领地没有这份控制。
     await render({ viewMode: "territory" });
     expect(div.querySelector("[data-testid='ego-hops-control']")).toBeNull();
@@ -132,22 +133,22 @@ describe("graph page keeps its behavior after the ego extraction (W4)", () => {
     });
   });
 
-  it("accumulated expansion survives a territory↔spotlight round trip", async () => {
+  it("selection and canvas state survive a territory↔spotlight round trip", async () => {
     const { div, root, render } = await mountGraph();
-    // 展开 t1:卡片 1 → 2,邻居累计 3 chip → 2。
+    // 选中 t1:抽屉打开(§5.2 单击语义)。
     const chip = [...div.querySelectorAll("[data-testid='ego-chip']")].find((c) => c.textContent?.includes("任务一"))!;
     await act(async () => {
       chip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(2);
+    expect(div.querySelector("[data-testid='graph-detail-drawer']")?.textContent).toContain("任务一");
 
     // 去领地再回聚光灯:焦点引用不变(EntityWorkspace 切模式不清焦点),
-    // 画布保持挂载,累积态不得重置。
+    // 画布保持挂载,选中与可见集不得重置。
     await render({ viewMode: "territory" });
     expect(div.querySelectorAll("[data-testid='territory-chip']").length).toBeGreaterThan(0);
     expect(div.querySelectorAll(".react-flow").length).toBe(1);
     await render({ viewMode: "spotlight" });
-    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(2);
+    expect(div.querySelector("[data-testid='graph-detail-drawer']")?.textContent).toContain("任务一");
     expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(2);
     expect(div.querySelectorAll(".react-flow").length).toBe(1);
     await act(async () => {
@@ -182,7 +183,7 @@ describe("graph page keeps its behavior after the ego extraction (W4)", () => {
     const { div, root, render } = await mountGraph();
     await render({ focusRef: null });
     await act(async () => {});
-    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(0);
+    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(0);
     await act(async () => {
       root.unmount();
     });

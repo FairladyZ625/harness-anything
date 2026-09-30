@@ -9,12 +9,12 @@ import type { WorkspaceScopeRead } from "../src/api/renderer-dto.ts";
 import type { TaskRow, DecisionRow, FactRef, RelationEdge } from "../src/renderer/model/types.ts";
 import { decisionProjectionFields } from "./decision-projection-fields.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
-import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+import { messageFor, setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 /**
  * 工作详情页「关系图」页签(S5 补回):复用聚光灯的 ego 画布,数据面用
- * workspaceGraphSlice 圈定本工作成员与直接外部边界;焦点与展开累积在页签
- * 切换间保留(画布组件保持挂载,active=false 只卸画布 DOM)。
+ * workspaceGraphSlice 圈定本工作成员与直接外部边界;焦点与选中在页签切换间
+ * 保留(画布组件保持挂载,active=false 只卸画布 DOM)。
  */
 
 beforeAll(() => {
@@ -120,8 +120,11 @@ it("reuses the ego canvas with scoped full rows, navigates entities and preserve
   const tab = async (id: string) =>
     act(async () => host.querySelector<HTMLButtonElement>(`#workspace-tab-${id}`)!.click());
   const node = (id: string) => host.querySelector<HTMLElement>(`.react-flow__node[data-id="${id}"]`)!;
+  const drawer = () => host.querySelector<HTMLElement>('[data-testid="graph-detail-drawer"]');
+  const openTitle = messageFor("graph.graphDrawer.openSidebarTaskDetailsDecisionDecisionPool");
   await tab("graph");
-  expect(host.querySelector('[data-testid="ego-card"]')).not.toBeNull();
+  // §5.2:焦点也是 chip,画布上不再有 ego-card。
+  expect(host.querySelector('[data-testid="ego-card"]')).toBeNull();
   expect([...host.querySelectorAll(".react-flow__node")].map((n) => n.getAttribute("data-id")).sort()).toEqual(
     ["root", "member", "boundary", "decision/d1", "fact/F-BARE", "fact/F-PREFIX"].sort(),
   );
@@ -134,21 +137,24 @@ it("reuses the ego canvas with scoped full rows, navigates entities and preserve
     ["fact/F-BARE", "fact/F-BARE"],
   ]) {
     await act(async () => node(id).dispatchEvent(new MouseEvent("click", { bubbles: true })));
-    await act(async () => node(id).querySelector<HTMLButtonElement>('button[aria-label="详情"]')!.click());
+    expect(drawer()).not.toBeNull();
+    await act(async () =>
+      [...drawer()!.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.title === openTitle)!.click(),
+    );
     expect(navigate).toHaveBeenLastCalledWith(ref);
   }
   navigate.mockClear();
+  // 双击 = 以它为中心重排邻域(§5.2),不跳页;切片外实体仍不出现。
   await act(async () => node("boundary").dispatchEvent(new MouseEvent("dblclick", { bubbles: true })));
-  expect(node("boundary").querySelector('[data-testid="ego-card"]')).not.toBeNull();
-  expect(node("root").querySelector('[data-testid="ego-card"]')).toBeNull();
   expect(navigate).not.toHaveBeenCalled();
   expect(node("outside")).toBeNull();
+  expect(host.textContent).toContain("3 节点");
   await act(async () => node("member").dispatchEvent(new MouseEvent("click", { bubbles: true })));
+  expect(drawer()?.textContent).toContain("任务 member");
   await tab("tasks");
   expect(host.querySelector(".react-flow")).toBeNull();
   await tab("graph");
-  expect(node("boundary").querySelector('[data-testid="ego-card"]')).not.toBeNull();
-  expect(node("member").querySelector('[data-testid="ego-card"]')).not.toBeNull();
+  expect(drawer()?.textContent).toContain("任务 member");
   expect(node("outside")).toBeNull();
   await act(async () => root.unmount());
   host.remove();
@@ -181,7 +187,7 @@ it("hands the shared drawer its pin toggle, so the workspace canvas offers the s
   await act(async () => host.querySelector<HTMLButtonElement>("#workspace-tab-graph")!.click());
   await act(async () =>
     host
-      .querySelector<HTMLElement>('.react-flow__node[data-id="root"] [data-testid="ego-card"]')!
+      .querySelector<HTMLElement>('.react-flow__node[data-id="root"] [data-testid="ego-chip"]')!
       .dispatchEvent(new MouseEvent("click", { bubbles: true })),
   );
   const toggle = host.querySelector<HTMLButtonElement>('[data-testid="graph-drawer-pin-toggle-root"]');
