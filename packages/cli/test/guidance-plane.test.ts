@@ -20,6 +20,7 @@ import {
   humanError,
   renderReceiptGuidance,
   withFactStatementGuidance,
+  withTitleFocusGuidance,
 } from "../src/cli/guidance-plane.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { daemonFailure } from "../src/daemon/control-support.ts";
@@ -288,6 +289,60 @@ test("task-create receipt points next and plan at one workspace-openable package
   } finally {
     rmSync(physicalRoot, { recursive: true, force: true });
   }
+});
+
+test("creation receipts advise on over-wide titles and leave short ones alone", () => {
+  const longTitle = "S5 补回工作详情页的关系图标签:S5 删掉了工作范围的关系图,业主明确要保留";
+  // East Asian glyphs count two columns, ASCII one: the ledger's long titles cross the line fast.
+  assert.equal(displayColumns("修标题提示"), 10);
+  assert.equal(displayColumns("fix titles"), 10);
+  const width = displayColumns(longTitle);
+  assert.ok(width > 56, String(width));
+  const hinted = withTitleFocusGuidance(
+    { command: "task-create", guidance: [] },
+    { kind: "task-create", title: longTitle },
+  );
+  assert.deepEqual(hinted.guidance, [{ kind: "title-focus", args: { width, limit: 56 } }]);
+  assert.deepEqual(renderReceiptGuidance(hinted), [
+    `title: keep one focus only — this title spans ${width} columns (guide: within 56); move the explanation ` +
+      "after a colon, parenthetical supplements, and decision/PR numbers into the plan's Brief/Context " +
+      "(Decisions: the body)",
+  ]);
+  // A dry run carries the daemon's declared guidance; the title hint joins it, it does not replace it.
+  assert.equal(
+    withTitleFocusGuidance(
+      { command: "task-create", guidance: [{ kind: "no-action", args: {} }] },
+      {
+        kind: "task-create",
+        title: longTitle,
+      },
+    ).guidance.length,
+    2,
+  );
+  // Short titles, non-creation commands, and daemon-read --from-file packets stay untouched.
+  assert.deepEqual(
+    withTitleFocusGuidance({ command: "task-create" }, { kind: "task-create", title: "任务标题只写一个重点" }),
+    { command: "task-create" },
+  );
+  assert.deepEqual(withTitleFocusGuidance({}, { kind: "task-start", title: longTitle }), {});
+  assert.deepEqual(
+    withTitleFocusGuidance({}, { kind: "decision-propose", fromFile: "harness/decisions/packet.json" }),
+    {},
+  );
+  // A --json-input packet's title reaches the hint without the daemon echoing it back.
+  const proposed = withTitleFocusGuidance(
+    { command: "decision-propose" },
+    {
+      kind: "decision-propose",
+      jsonInput: JSON.stringify({ title: longTitle, question: "承重选择" }),
+    },
+  );
+  assert.deepEqual(proposed.guidance, [{ kind: "title-focus", args: { width, limit: 56 } }]);
+  // A stdin packet (`@-`) is already consumed, so it only means no hint; the receipt is untouched.
+  assert.deepEqual(
+    withTitleFocusGuidance({ command: "decision-propose" }, { kind: "decision-propose", jsonInput: "@-" }),
+    { command: "decision-propose" },
+  );
 });
 
 test("receipt layout roots prefer the store's append-resolved layout and fall back to resolving", () => {

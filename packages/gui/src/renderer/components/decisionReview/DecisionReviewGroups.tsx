@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { MessageKey } from "../../i18n/core.ts";
 import { t } from "../../i18n/index.tsx";
+import { TitleText } from "../primitives/TitleText.tsx";
 import type { DecisionReviewGroup } from "../../model/decision-review.ts";
 
 /** 分组清单:组 id 与组名,按显示顺序排列;页签与「全部」页的组序都取它。 */
@@ -86,7 +87,9 @@ export function DecisionReviewGroups<Group extends string, Row extends DecisionR
                       className="flex min-w-0 items-center gap-3 rounded-lg border border-border bg-surface-raised px-4 py-3"
                     >
                       <div className="min-w-0 flex-1">
-                        <p className="break-words text-sm font-semibold text-text">{row.title}</p>
+                        <p className="break-words text-sm font-semibold text-text">
+                          <TitleText title={row.title} />
+                        </p>
                         <p className="mt-1 ui-meta text-text-muted">{row.hint}</p>
                       </div>
                       <button

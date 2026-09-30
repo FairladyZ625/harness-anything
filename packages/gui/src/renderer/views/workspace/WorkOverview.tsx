@@ -5,6 +5,7 @@ import { PillFlow } from "../../components/primitives/PillFlow";
 import { SegBar } from "../../components/primitives/SegBar";
 import { Section } from "../../components/primitives/Section";
 import { StatusTag, type StatusTone } from "../../components/primitives/StatusTag";
+import { TitleText } from "../../components/primitives/TitleText.tsx";
 import type { AttestationPoolLanes } from "../../model/attestation-pool.ts";
 import type { WorkDayGroup, WorkStepKind, WorkSubgroup } from "../../model/workspace-narrative.ts";
 import type { SnapshotStatus, TaskRow } from "../../model/types.ts";
@@ -401,7 +402,7 @@ function ActionRow({
       className="grid cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 rounded-xs px-2.5 py-[7px] hover:bg-text/5"
     >
       <span className="min-w-0 truncate text-text ui-body">
-        {title}
+        <TitleText title={title} />
         {reason ? <span className="ml-2 text-text-faint ui-meta">{reason}</span> : null}
         {state ? (
           <span className="ml-2 text-text-faint ui-micro">
@@ -448,10 +449,14 @@ export function WorkTaskRow({
     <DenseRow
       tag={<StatusTag status={status} />}
       title={
-        <>
-          {task.pinned === true ? <span className="text-status-planned">● </span> : null}
-          {title}
-        </>
+        task.pinned === true ? (
+          <>
+            <span className="text-status-planned">● </span>
+            {title}
+          </>
+        ) : (
+          title
+        )
       }
       time={agoOf(task.at)}
       onClick={() => onOpen(task.taskId)}

@@ -20,7 +20,7 @@ import { parseTaskArtifactRunInvocation, runTaskArtifactCommand } from "./cli-ta
 import { doctorInvocation, renderDoctorReport, runDoctor } from "./cli/thin-command-doctor.ts";
 import { runDoctorHealth } from "./cli/thin-command-doctor-health.ts";
 import { renderCliReceipt } from "./cli/receipt-render-registry.ts";
-import { withFactStatementGuidance } from "./cli/guidance-plane.ts";
+import { withFactStatementGuidance, withTitleFocusGuidance } from "./cli/guidance-plane.ts";
 import {
   daemonAutostartFailureCode,
   cliEntryFailureCode,
@@ -142,15 +142,18 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
   let dispatchMeasured = false;
   let returnedReceipt: Record<string, unknown> | undefined;
   try {
-    const receipt = withFactStatementGuidance(
-      isRuntimeFacadeCommand(typedCommand)
-        ? await runRuntimeFacadeCommand(typedCommand)
-        : await runCommandThroughDaemon(
-            typedCommand,
-            (phase) => emit(phase, typedCommand.json),
-            undefined,
-            daemonRequestTimer,
-          ),
+    const receipt = withTitleFocusGuidance(
+      withFactStatementGuidance(
+        isRuntimeFacadeCommand(typedCommand)
+          ? await runRuntimeFacadeCommand(typedCommand)
+          : await runCommandThroughDaemon(
+              typedCommand,
+              (phase) => emit(phase, typedCommand.json),
+              undefined,
+              daemonRequestTimer,
+            ),
+        typedCommand.action,
+      ),
       typedCommand.action,
     );
     returnedReceipt = receipt;

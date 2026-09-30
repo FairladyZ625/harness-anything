@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
+import { TitleText } from "./TitleText.tsx";
 
 /**
  * 单行条目(标准 §4):可选序号、状态标签、标题(省略号)+ 灰色原因、右侧等宽时间。
  * relaxed 为宽松模式两行(约 44px):标题一行、原因换行成第二行——仪表盘区域
- * 富余足够时与放大层列表都用它展示原因(标准 §2.1)。
+ * 富余足够时与放大层列表都用它展示原因(标准 §2.1)。字符串标题经 TitleText 拆成
+ * 重点与弱色补充;调用方传节点(如搜索高亮)时原样渲染。
  */
 export function DenseRow({
   index,
@@ -46,7 +48,9 @@ export function DenseRow({
       {index !== undefined && <span className="font-mono text-text-faint ui-micro">{index}</span>}
       {tag !== undefined && <span className="min-w-0">{tag}</span>}
       <span className={`min-w-0 ${relaxed ? "" : "truncate"}`}>
-        <span className={`${relaxed ? "block " : ""}truncate text-text`}>{title}</span>
+        <span className={`${relaxed ? "block " : ""}truncate text-text`}>
+          {typeof title === "string" ? <TitleText title={title} /> : title}
+        </span>
         {reason !== undefined &&
           (relaxed ? (
             <span className="block truncate text-text-faint ui-meta">{reason}</span>

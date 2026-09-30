@@ -16,6 +16,7 @@ import { FilterChips } from "../components/primitives/FilterChips.tsx";
 import { SegBar } from "../components/primitives/SegBar.tsx";
 import { StatusTag, type StatusTone } from "../components/primitives/StatusTag.tsx";
 import { DenseRow } from "../components/primitives/DenseRow.tsx";
+import { TitleText } from "../components/primitives/TitleText.tsx";
 import { relativeTime } from "../sessions-model.ts";
 import { formatTime } from "../model/time.ts";
 
@@ -272,7 +273,7 @@ function WorkRow({
       >
         <span className="flex min-w-[220px] flex-1 flex-col gap-1">
           <span className="truncate text-sm font-semibold text-text" title={task.title}>
-            {task.title}
+            <TitleText title={task.title} />
           </span>
           {hits.map((hit) => (
             <span key={hit.taskId} data-testid="work-hit" className="flex min-w-0 items-center gap-1.5">
@@ -280,7 +281,7 @@ function WorkRow({
                 ↳
               </span>
               <span className="min-w-0 truncate ui-meta text-text" title={hit.title}>
-                {hit.title}
+                <TitleText title={hit.title} />
               </span>
               <StatusTag status={(hit.canonicalStatus ?? "unknown") as SnapshotStatus} />
             </span>
