@@ -12,7 +12,7 @@ import type {
   TaskProjection,
 } from "@harness-anything/kernel";
 import { makeSquadCoordinator } from "../src/squad-coordinator.ts";
-import { rejectedSquadAttemptChildren } from "../src/squad-run-state.ts";
+import { latestSquadStates, rejectedSquadAttemptChildren } from "../src/squad-run-state.ts";
 import { appendRuntimeWorkerRecord, dispatchStreamPath, openDispatchStream } from "../src/dispatch-stream.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 
@@ -1176,7 +1176,7 @@ test("rejectedSquadAttemptChildren names only ended runs' rejected children that
         workerAttempts: [attempt("sol", "task-orphan-1", "spawn rejected: no runtime", null)],
       },
     });
-    assert.deepEqual(rejectedSquadAttemptChildren(rootDir), []);
+    assert.deepEqual(rejectedSquadAttemptChildren(latestSquadStates(rootDir).values()), []);
     // The run ends: the rejected, never-dispatched child is named; a dispatched attempt and a clean one are not.
     appendRuntimeWorkerRecord(rootDir, LEADER_DISPATCH_ID, {
       kind: "squad_run_state",
@@ -1195,7 +1195,7 @@ test("rejectedSquadAttemptChildren names only ended runs' rejected children that
         ],
       },
     });
-    assert.deepEqual(rejectedSquadAttemptChildren(rootDir), [
+    assert.deepEqual(rejectedSquadAttemptChildren(latestSquadStates(rootDir).values()), [
       {
         squadRunId: SQUAD_RUN_ID,
         taskId: "task-orphan-1",
