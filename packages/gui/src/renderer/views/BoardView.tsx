@@ -11,17 +11,10 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-import { Lock, Archive, PushPin, Star } from "@phosphor-icons/react";
+import { Lock, PushPin, Star } from "@phosphor-icons/react";
 import type { TaskRow, SnapshotStatus } from "../model/types";
 import { BOARD_COLUMNS, boardColumnOf, isExternal, taskCan } from "../model/types";
-import {
-  STATUS_META,
-  CloseoutBadge,
-  DecisionSourceBadge,
-  EngineBadge,
-  FreshnessTag,
-  freshnessBorder,
-} from "../components/badges";
+import { STATUS_META, freshnessBorder } from "../components/badges";
 import { ColumnResizeHandle } from "../components/ColumnResizeHandle.tsx";
 import {
   boardColumnPreferenceStorage,
@@ -34,8 +27,11 @@ import { SwimlaneBoard, type LaneGroupBy } from "./SwimlaneBoard";
 import { TaskFilterBar } from "../components/TaskFilterBar";
 import type { TaskFilters } from "../model/taskFilters";
 import { partitionColdTerminalTasks, sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
-import { spawningDecisionBadge } from "../model/triadic";
-import { TaskRootBadge, TaskWipSummary } from "../components/TaskWipSummary.tsx";
+import { SegBar } from "../components/primitives/SegBar.tsx";
+import { StatusTag } from "../components/primitives/StatusTag.tsx";
+import { TitleText } from "../components/primitives/TitleText.tsx";
+import { relativeTime } from "../sessions-model.ts";
+import { TaskWipSummary } from "../components/TaskWipSummary.tsx";
 import type { TaskWipRead } from "../../api/renderer-dto.ts";
 import { ListView } from "./ListView";
 import type { TaskMutationFeedback } from "../task-actions.ts";
@@ -60,11 +56,20 @@ function taskControlHint(task: TaskRow): string {
   return "当前无可用动作，原因见详情控制面板";
 }
 
+/** 卡片的「一行原因」:只答为什么需要注意(阻塞判定),其余细节进预览抽屉。 */
+function cardReason(task: TaskRow): string | undefined {
+  if (task.blocking === "unknown") return "阻塞关系未能确定";
+  if (task.coordinationStatus === "blocked" && task.canonicalStatus) return `canonical ${task.canonicalStatus}`;
+  return undefined;
+}
+
 /**
  * 卡片 memo(W9):比较键是行对象引用 + 标量 props,不写自定义比较器;
  * 行级引用保持(task-adapter)保证未变行的 task 引用稳定,回调引用由上层
- * useCallback 稳定,所以「台账改一行」只有该行卡片重渲染。决策来源徽章从
- * 行内 placement 派生(唯一 derives 来源才有值),不依赖任何全局 relations。
+ * useCallback 稳定,所以「台账改一行」只有该行卡片重渲染。
+ *
+ * 卡片面(标准 §2.4):状态标签、标题(经 TitleText)、一行原因与时间;
+ * 徽章与引擎/收口/决策来源等其余细节进预览抽屉(TaskPreviewDrawer),不上卡。
  */
 const Card = memo(function Card({
   task,
@@ -83,19 +88,19 @@ const Card = memo(function Card({
 }) {
   const external = isExternal(task);
   const archived = task.visibility.archived;
-  const spawningDecision = spawningDecisionBadge(task);
+  const reason = cardReason(task);
   return (
     <div
       data-testid="board-task-card"
       onClick={() => onSelect?.(task.taskId)}
       title={taskControlHint(task)}
-      className={`group relative cursor-pointer rounded-lg bg-surface-raised p-2.5 ${freshnessBorder(
+      className={`group relative cursor-pointer rounded-md bg-surface-raised p-2.5 ${freshnessBorder(
         task.freshness,
       )} ${archived ? "opacity-50" : ""} ${dragging ? "shadow-lg" : "hover:border-accent hover:ring-1 hover:ring-accent/50"} ${isFavorite ? "ring-1 ring-accent/40" : ""}`}
     >
-      <div className="flex items-center gap-2">
-        <EngineBadge engine={task.engine} locked={external} />
-        <TaskRootBadge task={task} />
+      <div className="flex min-w-0 items-center gap-1.5">
+        {external && <Lock weight="bold" className="shrink-0 ui-meta text-text-faint" aria-label="外部引擎只读" />}
+        <StatusTag status={task.canonicalStatus ?? task.coordinationStatus} />
         {onSetPin ? (
           <button
             type="button"
@@ -121,43 +126,29 @@ const Card = memo(function Card({
             <PushPin weight="fill" />
           </span>
         ) : null}
-        {archived && (
-          <span className="ml-auto inline-flex items-center gap-1 font-mono ui-micro text-text-faint">
-            <Archive weight="bold" />
-            {task.packageDisposition}
-          </span>
-        )}
-        {!archived && (
-          <button
-            type="button"
-            onClick={(event) => {
-              event.stopPropagation();
-              onToggleFavorite(task.taskId);
-            }}
-            title={isFavorite ? "取消收藏" : "收藏(置顶)"}
-            className={`ml-auto inline-flex items-center justify-center rounded p-0.5 ui-meta hover:bg-surface ${
-              isFavorite
-                ? "text-accent opacity-100"
-                : "text-text-faint opacity-0 hover:text-text-muted group-hover:opacity-100"
-            }`}
-          >
-            <Star weight={isFavorite ? "fill" : "bold"} />
-          </button>
-        )}
+        {archived && <span className="font-mono ui-micro text-text-faint">{task.packageDisposition}</span>}
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleFavorite(task.taskId);
+          }}
+          title={isFavorite ? "取消收藏" : "收藏(置顶)"}
+          className={`ml-auto inline-flex items-center justify-center rounded p-0.5 ui-meta hover:bg-surface ${
+            isFavorite
+              ? "text-accent opacity-100"
+              : "text-text-faint opacity-0 hover:text-text-muted group-hover:opacity-100"
+          }`}
+        >
+          <Star weight={isFavorite ? "fill" : "bold"} />
+        </button>
       </div>
-      <p className="mt-1.5 ui-prose leading-snug text-text">{task.title}</p>
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        {task.coordinationStatus === "blocked" && task.canonicalStatus && (
-          <span className="rounded border border-status-blocked/30 px-1 font-mono ui-micro text-status-blocked">
-            canonical {task.canonicalStatus}
-          </span>
-        )}
-        {task.blocking === "unknown" && (
-          <span className="rounded border border-stale/30 px-1 ui-micro text-stale">阻塞关系未能确定</span>
-        )}
-        {spawningDecision && <DecisionSourceBadge decisionId={spawningDecision} compact />}
-        <CloseoutBadge value={task.closeoutReadiness} />
-        <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
+      <p className="mt-1.5 line-clamp-2 ui-prose leading-snug text-text">
+        <TitleText title={task.title} />
+      </p>
+      <div className="mt-1.5 flex items-baseline gap-1.5">
+        {reason !== undefined && <span className="min-w-0 truncate ui-meta text-text-faint">{reason}</span>}
+        <span className="ml-auto shrink-0 font-mono ui-micro text-text-faint">{relativeTime(task.lastKnownAt)}</span>
       </div>
     </div>
   );
@@ -257,11 +248,17 @@ const CARD_OVERSCAN = 6;
 /** 列宽交互区间(W11):未定宽列走 basis-1/4 等分默认,一旦拖/微调就固定 px。 */
 const COLUMN_WIDTH_RANGE = { min: 220, max: 720 } as const;
 
+/**
+ * 看板列(标准 §2.4):列标题一行 = 状态名 + 计数 + 细 SegBar;空列收窄成一条
+ * 竖线,不留等宽空列(空了就消失,§1.5)。唯一例外:拖拽进行中的 active 列是
+ * planned→active 的唯一合法落点,保持整列宽度,否则收窄后无处可放。
+ */
 function Column({
   status,
   tasks,
   onSelect,
   rejecting,
+  dragging,
   favorites,
   onToggleFavorite,
   onSetPin,
@@ -273,6 +270,8 @@ function Column({
   tasks: readonly TaskRow[];
   onSelect: (id: string) => void;
   rejecting: boolean;
+  /** 拖拽进行中且本列是 active(唯一合法落点):空列不收窄,保住放置面。 */
+  dragging: boolean;
   favorites: ReadonlySet<string>;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
@@ -285,6 +284,8 @@ function Column({
   const meta = STATUS_META[status];
   // 列内默认序(W8):lastKnownAt 倒序打底,pin → 收藏稳定置顶。
   const ordered = sortByRecentThenPinAndFavoritesFirst(tasks, favorites);
+  const empty = ordered.length === 0;
+
   // 按需渲染 = 列内 windowing(W10):每列只挂视口内 + overscan 的卡,DOM 卡片数
   // 与列总量解耦(基线:canonical done 单列 1699 卡全挂载)。2026-08-25 裁决的
   // 「性能顾虑用按需渲染解决」即此形态——不需要分批按钮,滚动到哪里挂到哪里。
@@ -298,6 +299,20 @@ function Column({
     overscan: CARD_OVERSCAN,
     getItemKey: (index) => ordered[index].taskId,
   });
+
+  // 空列收窄成一条竖线(标准 §2.4):状态色半透明的 3px 竖条,悬停给整列语义。
+  if (empty && !dragging) {
+    return (
+      <div
+        ref={setNodeRef}
+        data-testid={`board-column-${status}`}
+        title={`${meta.label} · 0`}
+        className="w-[3px] shrink-0 self-stretch overflow-hidden rounded-full transition-colors"
+        style={{ background: `color-mix(in oklch, ${meta.color} 45%, transparent)` }}
+      />
+    );
+  }
+
   // 未定宽列保持 basis-1/4 等分默认;定宽后固定 px(两态都 shrink-0,越界走横向滚动)。
   const sizing = width === undefined ? "basis-1/4" : "";
   return (
@@ -323,11 +338,8 @@ function Column({
         testId={`board-column-resize-${status}`}
         className="inset-y-0 -right-1.5"
       />
-      <div className="flex items-center gap-2 px-1.5 pb-2 pt-1">
-        <span style={{ color: meta.color }} className="text-base">
-          {meta.icon}
-        </span>
-        <span className="ui-prose font-semibold">{meta.label}</span>
+      <div className="flex items-baseline gap-1.5 px-1.5 pb-1 pt-1">
+        <span className="ui-body font-semibold">{meta.label}</span>
         <span className="font-mono ui-body text-text-faint" data-testid={`board-status-${status}-count`}>
           {tasks.length}
         </span>
@@ -338,6 +350,7 @@ function Column({
           </span>
         )}
       </div>
+      <SegBar className="mx-1.5 mb-2" counts={{ [status]: tasks.length }} />
       <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto pb-1" data-testid={`board-column-list-${status}`}>
         {ordered.length > 0 ? (
           <div className="relative" style={{ height: virtualizer.getTotalSize() }}>
@@ -360,9 +373,7 @@ function Column({
             ))}
           </div>
         ) : (
-          <div className="rounded-lg border border-dashed border-border px-3 py-5 ui-body text-text-faint">
-            当前筛选下无 {meta.label} 任务
-          </div>
+          <div className="min-h-24 rounded-md border border-dashed border-border/60" />
         )}
       </div>
     </div>
@@ -463,9 +474,6 @@ export const BoardView = memo(function BoardView({
     [filters.status],
   );
 
-  // 徽章是行内 placement 的派生标量(spawningDecisionBadge),卡片/行组件按行自取,
-  // 这里不再有跨行的派生索引,也不读任何关系切面。
-
   // pin 也是一次台账写入:回执落定与投影追平之间有真实延迟(实测约 2s),那段时间
   // 按钮看起来「点了没反应」。写入报告面与拖拽 start 共用同一条,pin 也挂进去。
   const reportedSetPin = useCallback(
@@ -500,65 +508,61 @@ export const BoardView = memo(function BoardView({
 
   return (
     <div className="flex h-full flex-col">
-      <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-2.5">
+      <header className="flex flex-wrap items-baseline gap-3 border-b border-border px-4 py-2.5">
         <h1 className="ui-title font-semibold">看板</h1>
+        <span className="ui-meta text-text-muted">各状态上压了多少、哪里堆积;点卡片看详情,planned 可拖到 Active</span>
         <span className="font-mono ui-body text-text-faint">
           {boardTasks.length}/{allTasks.length}
         </span>
         <TaskWipSummary snapshot={wipSnapshot} />
-        <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
-          <button
-            onClick={() => setLayout("column")}
-            className={seg(layout === "column")}
-            title="按 coordinationStatus 分列"
-          >
-            列
-          </button>
-          <button
-            onClick={() => setLayout("swimlane")}
-            className={seg(layout === "swimlane")}
-            title="按分组维度 × 状态的泳道矩阵"
-          >
-            泳道
-          </button>
-          <button
-            onClick={() => setLayout("list")}
-            className={seg(layout === "list")}
-            title="审计表格:每页行数可调,支持批量选择"
-          >
-            列表
-          </button>
-        </div>
-        <span className="ui-meta text-text-faint">
-          {layout === "column"
-            ? "仅 native planned + blocking clear 可拖到 Active"
-            : layout === "list"
-              ? "审计面 · 支持 ID 复制与批量操作"
-              : "拖拽改状态请在列模式 · 外部任务任何模式都只读"}
-        </span>
-        {layout !== "list" && (
-          <div className="ml-auto flex items-center gap-1.5">
-            <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">分组维度</span>
-            <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
-              {(["root", "engine", "productLine"] as const).map((d) => (
-                <button
-                  key={d}
-                  onClick={() => setGroupBy(d)}
-                  title={
-                    d === "root"
-                      ? "按工作分组(根任务及其子树)"
-                      : d === "engine"
-                        ? "按引擎分组"
-                        : "按 productLine(PLT)分组"
-                  }
-                  className={`font-mono ${seg(groupBy === d)}`}
-                >
-                  {d === "root" ? "work" : d}
-                </button>
-              ))}
-            </div>
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {layout === "swimlane" && (
+            <span className="flex items-center gap-1.5">
+              <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">分组维度</span>
+              <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
+                {(["root", "engine", "productLine"] as const).map((d) => (
+                  <button
+                    key={d}
+                    onClick={() => setGroupBy(d)}
+                    title={
+                      d === "root"
+                        ? "按工作分组(根任务及其子树)"
+                        : d === "engine"
+                          ? "按引擎分组"
+                          : "按 productLine(PLT)分组"
+                    }
+                    className={`font-mono ${seg(groupBy === d)}`}
+                  >
+                    {d === "root" ? "work" : d}
+                  </button>
+                ))}
+              </div>
+            </span>
+          )}
+          <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
+            <button
+              onClick={() => setLayout("column")}
+              className={seg(layout === "column")}
+              title="按 coordinationStatus 分列"
+            >
+              列
+            </button>
+            <button
+              onClick={() => setLayout("swimlane")}
+              className={seg(layout === "swimlane")}
+              title="按分组维度 × 状态的泳道矩阵"
+            >
+              泳道
+            </button>
+            <button
+              onClick={() => setLayout("list")}
+              className={seg(layout === "list")}
+              title="按注意力排序列表;终态折叠"
+            >
+              列表
+            </button>
           </div>
-        )}
+        </div>
       </header>
       {(dragMessage || (lastMutationTaskId && mutationFeedback?.(lastMutationTaskId))) && (
         <div className="border-b border-border px-4 py-2 ui-meta text-text-muted" data-testid="board-mutation-feedback">
@@ -583,14 +587,10 @@ export const BoardView = memo(function BoardView({
       {layout === "list" ? (
         <ListView
           tasks={boardTasks}
-          allTasks={allTasks}
-          filters={filters}
-          onFiltersChange={onFiltersChange}
           onSelect={onSelect}
           favorites={favorites}
           onToggleFavorite={onToggleFavorite}
           onSetPin={setPin}
-          embedded
         />
       ) : layout === "swimlane" ? (
         <SwimlaneBoard
@@ -606,7 +606,7 @@ export const BoardView = memo(function BoardView({
         />
       ) : (
         <DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd}>
-          <div className="flex flex-1 gap-3 overflow-x-auto p-4">
+          <div className="flex flex-1 items-stretch gap-3 overflow-x-auto p-4">
             {visibleColumns.map((status) => (
               <Column
                 key={status}
@@ -614,6 +614,7 @@ export const BoardView = memo(function BoardView({
                 tasks={columnsByStatus.get(status)!}
                 onSelect={onSelect}
                 rejecting={activeTask ? isExternal(activeTask) : false}
+                dragging={activeTask !== null && status === "active"}
                 favorites={favorites}
                 onToggleFavorite={onToggleFavorite}
                 onSetPin={setPin}

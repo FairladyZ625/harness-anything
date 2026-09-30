@@ -2,8 +2,8 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { CaretRight, Lock, PushPin, Star } from "@phosphor-icons/react";
 import type { TaskRow, SnapshotStatus } from "../model/types";
-import { boardColumnOf, isExternal } from "../model/types";
-import { STATUS_META, CloseoutBadge, DecisionSourceBadge, FreshnessTag, freshnessBorder } from "../components/badges";
+import { boardColumnOf, isExternal, isTerminal } from "../model/types";
+import { STATUS_META, freshnessBorder } from "../components/badges";
 import { ColumnResizeHandle } from "../components/ColumnResizeHandle.tsx";
 import {
   boardColumnPreferenceStorage,
@@ -13,8 +13,10 @@ import {
   writeBoardColumnWidths,
   type BoardColumnWidths,
 } from "../board-column-preferences.ts";
-import { spawningDecisionBadge } from "../model/triadic";
-import { TaskRootBadge } from "../components/TaskWipSummary.tsx";
+import { SegBar } from "../components/primitives/SegBar.tsx";
+import { StatusTag, STATUS_TONE } from "../components/primitives/StatusTag.tsx";
+import { TitleText } from "../components/primitives/TitleText.tsx";
+import { relativeTime } from "../sessions-model.ts";
 import { sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
 
 /** 泳道分组维度;"root" = 按工作分组(一个根 task 加它的 parentTaskId 子树)。 */
@@ -108,8 +110,10 @@ function buildSwimlaneModel(
   return { lanes, labels, cells, laneSizes, totals };
 }
 
-/** 泳道下钻卡 memo(W9):比较键同列模式 Card——行引用 + 稳定回调,不写自定义比较器;
- * 决策来源徽章按行自取(行内 placement 派生),不接任何全局关系数组。 */
+/**
+ * 泳道下钻卡 memo(W9):比较键同列模式 Card——行引用 + 稳定回调,不写自定义比较器。
+ * 卡片面同列模式(标准 §2.4):状态标签、标题(经 TitleText)、一行原因与时间。
+ */
 const LaneCard = memo(function LaneCard({
   task,
   onSelect,
@@ -125,13 +129,12 @@ const LaneCard = memo(function LaneCard({
 }) {
   const external = isExternal(task);
   const archived = task.visibility.archived;
-  const spawningDecision = spawningDecisionBadge(task);
   return (
     <div
       onClick={() => onSelect(task.taskId)}
       title={external ? "外部引擎管理 · 只读" : undefined}
       className={[
-        "flex min-h-[150px] cursor-pointer flex-col rounded-lg bg-surface-raised px-3.5 py-3 cv-auto-10r",
+        "cursor-pointer rounded-md bg-surface-raised px-3 py-2.5",
         freshnessBorder(task.freshness),
         archived ? "opacity-50" : "",
         isFavorite ? "ring-1 ring-accent/40" : "",
@@ -139,8 +142,8 @@ const LaneCard = memo(function LaneCard({
       ].join(" ")}
     >
       <div className="flex min-w-0 items-center gap-1.5">
-        {external && <Lock weight="bold" className="shrink-0 ui-body text-text-faint" />}
-        <TaskRootBadge task={task} />
+        {external && <Lock weight="bold" className="shrink-0 ui-meta text-text-faint" aria-label="外部引擎只读" />}
+        <StatusTag status={task.canonicalStatus ?? task.coordinationStatus} />
         {onSetPin ? (
           <button
             type="button"
@@ -158,7 +161,9 @@ const LaneCard = memo(function LaneCard({
             <PushPin weight={task.pinned === true ? "fill" : "bold"} />
           </button>
         ) : task.pinned === true ? (
-          <PushPin weight="fill" className="shrink-0 ui-body text-accent" />
+          <span title="📌 今天当前在做" className="inline-flex shrink-0 items-center text-accent">
+            <PushPin weight="fill" className="ui-body" />
+          </span>
         ) : null}
         <button
           type="button"
@@ -174,15 +179,12 @@ const LaneCard = memo(function LaneCard({
           <Star weight={isFavorite ? "fill" : "bold"} />
         </button>
       </div>
-      <p className="mt-2 line-clamp-3 ui-prose leading-snug text-text">{task.title}</p>
-      <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-3">
-        {task.coordinationStatus === "blocked" && task.canonicalStatus && (
-          <span className="font-mono ui-micro text-status-blocked">canonical {task.canonicalStatus}</span>
-        )}
-        {task.blocking === "unknown" && <span className="ui-micro text-stale">阻塞关系未能确定</span>}
-        {spawningDecision && <DecisionSourceBadge decisionId={spawningDecision} compact />}
-        <CloseoutBadge value={task.closeoutReadiness} />
-        <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
+      <p className="mt-1.5 line-clamp-2 ui-prose leading-snug text-text">
+        <TitleText title={task.title} />
+      </p>
+      <div className="mt-1.5 flex items-baseline justify-between gap-1.5">
+        <span className="min-w-0 truncate font-mono ui-micro text-text-faint">{task.taskId}</span>
+        <span className="shrink-0 font-mono ui-micro text-text-faint">{relativeTime(task.lastKnownAt)}</span>
       </div>
     </div>
   );
@@ -225,7 +227,7 @@ function LaneRow({
       data-index={index}
       ref={measureRef}
       data-testid="swimlane-row"
-      className="absolute inset-x-0 top-0 grid gap-2 border-b border-border py-2.5"
+      className="absolute inset-x-0 top-0 grid items-stretch gap-2 border-b border-border py-2.5"
       style={{ gridTemplateColumns: gridTemplate, transform: `translateY(${offset}px)` }}
     >
       <div className="flex items-baseline gap-2 self-start px-1.5 pt-1.5">
@@ -265,39 +267,23 @@ function LaneCell({
   highlighted: boolean;
   onPick: () => void;
 }) {
-  const meta = STATUS_META[status];
+  // 空格子不渲染(标准 §1.5 空了就消失):只留占位高度维持泳道行节奏。
   if (cellTasks.length === 0) {
-    return (
-      <div className="min-h-[62px] rounded-lg border border-border/60 bg-surface/30 px-3 py-2 text-center ui-body text-text-faint">
-        -
-      </div>
-    );
+    return <div className="min-h-[62px]" />;
   }
   const preview = cellTasks[0];
   return (
     <button
       onClick={onPick}
       title="在下方查看下钻任务"
-      className={`min-h-[62px] w-full rounded-lg border px-3 py-2 text-left transition ${
+      className={`min-h-[62px] w-full rounded-md border px-3 py-2 text-left transition ${
         selected
           ? "border-accent bg-surface-raised"
-          : "border-border bg-surface hover:border-border-strong hover:bg-surface-raised"
+          : "border-border/60 bg-surface/30 hover:border-border-strong hover:bg-surface-raised"
       } ${highlighted ? "outline outline-1 outline-accent" : ""}`}
-      style={{
-        background: selected ? `color-mix(in oklch, ${meta.color} 14%, var(--color-surface-raised))` : undefined,
-      }}
     >
       <span className="flex items-center gap-2">
-        <span
-          className="inline-flex min-w-8 justify-center rounded-md px-2 py-0.5 font-mono ui-title font-semibold"
-          style={{
-            color: meta.color,
-            background: `color-mix(in oklch, ${meta.color} 14%, transparent)`,
-          }}
-        >
-          {cellTasks.length}
-        </span>
-        <span className="min-w-0 ui-body font-semibold text-text">{meta.label}</span>
+        <StatusTag tone={STATUS_TONE[status]} label={cellTasks.length} />
         {selected && <CaretRight weight="bold" className="ml-auto shrink-0 ui-body text-text-faint" />}
       </span>
       <span className="mt-1.5 block truncate ui-meta text-text-muted">{preview.title}</span>
@@ -327,30 +313,25 @@ function DrilldownPanel({
   if (!active) {
     return (
       <section className="flex min-h-0 flex-1 flex-col bg-bg px-4 py-3">
-        <div className="h-full rounded-lg border border-dashed border-border px-4 py-5 ui-prose text-text-faint">
-          选择上方泳道单元格后，在这里查看该组任务。
-        </div>
+        <p className="ui-meta text-text-faint">选择上方泳道单元格后，在这里查看该组任务。</p>
       </section>
     );
   }
 
-  const meta = STATUS_META[active.status];
-  // 下钻默认序(W8):lastKnownAt 倒序打底,pin → 收藏稳定置顶,与列模式同构。
-  const sorted = sortByRecentThenPinAndFavoritesFirst(tasks, favorites);
+  // 下钻默认序(W8):lastKnownAt 倒序打底,pin → 收藏稳定置顶,与列模式同构;
+  // 终态沉底(标准 §2.4),打开时先看到仍在推进的行。
+  const sorted = sortByRecentThenPinAndFavoritesFirst(tasks, favorites).sort(
+    (a, b) => Number(isTerminal(a)) - Number(isTerminal(b)),
+  );
 
   return (
     <section className="flex min-h-0 flex-1 flex-col bg-bg px-4 py-3">
-      <div className="mb-3 flex flex-wrap items-center gap-2">
+      <div className="mb-3 flex flex-wrap items-baseline gap-2">
         <span className="font-mono ui-meta uppercase tracking-wide text-text-faint">下钻结果</span>
         <span className="font-mono ui-prose font-semibold text-text">
           {groupBy}: {laneLabel}
         </span>
-        <span className="inline-flex items-center gap-1.5 ui-prose font-semibold">
-          <span style={{ color: meta.color }} className="text-base">
-            {meta.icon}
-          </span>
-          {meta.label}
-        </span>
+        <StatusTag status={active.status} />
         <span className="font-mono ui-body text-text-faint">{tasks.length} tasks</span>
       </div>
 
@@ -368,12 +349,6 @@ function DrilldownPanel({
           ))}
         </div>
       </div>
-
-      {tasks.length === 0 && (
-        <div className="rounded-lg border border-dashed border-border px-3 py-4 ui-prose text-text-faint">
-          该单元格暂无任务
-        </div>
-      )}
     </section>
   );
 }
@@ -498,7 +473,7 @@ export function SwimlaneBoard({
             {columns.map((status) => {
               const meta = STATUS_META[status];
               return (
-                <div key={status} className="relative flex items-center gap-1.5 px-1.5">
+                <div key={status} className="relative flex flex-col gap-1 px-1.5 pb-0.5">
                   <ColumnResizeHandle
                     label={`调整「${meta.label}」列宽`}
                     width={widths.swimlane[status] ?? STATUS_WIDTH_DEFAULT}
@@ -509,13 +484,13 @@ export function SwimlaneBoard({
                     testId={`swimlane-column-resize-${status}`}
                     className="inset-y-0 -right-1"
                   />
-                  <span style={{ color: meta.color }} className="text-base">
-                    {meta.icon}
-                  </span>
-                  <span className="ui-body font-semibold">{meta.label}</span>
-                  <span className="font-mono ui-body text-text-faint" data-testid={`swimlane-status-${status}-count`}>
-                    {model.totals.get(status) ?? 0}
-                  </span>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="ui-body font-semibold">{meta.label}</span>
+                    <span className="font-mono ui-body text-text-faint" data-testid={`swimlane-status-${status}-count`}>
+                      {model.totals.get(status) ?? 0}
+                    </span>
+                  </div>
+                  <SegBar counts={{ [status]: model.totals.get(status) ?? 0 }} />
                 </div>
               );
             })}
@@ -545,9 +520,7 @@ export function SwimlaneBoard({
             </div>
           )}
           {lanes.length === 0 && (
-            <div className="rounded-lg border border-dashed border-border px-4 py-8 ui-prose text-text-faint">
-              当前筛选下没有可展示的泳道任务。
-            </div>
+            <p className="px-1.5 py-4 ui-meta text-text-faint">当前筛选下没有可展示的泳道任务。</p>
           )}
         </div>
       </div>

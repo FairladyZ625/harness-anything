@@ -395,6 +395,35 @@ describe("board column default order (W8)", () => {
   });
 });
 
+describe("board visual language (视觉基线 §2.4)", () => {
+  it("column header is one line: status name + count + thin SegBar; empty columns collapse to a sliver", async () => {
+    const markup = await boardHtml([makeTask({ coordinationStatus: "planned", title: "card-planned" })]);
+    const planned = markup.slice(
+      markup.indexOf('data-testid="board-column-planned"'),
+      markup.indexOf('data-testid="board-column-list-planned"'),
+    );
+    expect(planned).toContain("Planned");
+    expect(planned).toContain('data-testid="board-status-planned-count">1</span>');
+    expect(planned).toContain('data-segment="planned"'); // 列标题下的细 SegBar
+    // 空列收窄成一条竖线:保留列 testid 与语义,不再有等宽空列和「暂无任务」大框。
+    const done = markup.match(/<div[^>]*data-testid="board-column-done"[^>]*>/u)![0];
+    expect(done).toContain("w-[3px]");
+    expect(markup).not.toContain('data-testid="board-column-list-done"');
+    expect(markup).not.toContain("no tasks");
+  });
+
+  it("cards carry a background StatusTag, TitleText title, one reason line and a time; badges stay in the drawer", async () => {
+    const markup = await boardHtml([
+      makeTask({ coordinationStatus: "planned", title: "Rework board: split by status" }),
+    ]);
+    expect(markup).toContain('data-status-tone="plan"'); // 有底色的状态标签
+    expect(markup).toMatch(/class="text-text-faint">: split by status</u); // 标题经 TitleText
+    // 卡上不再摆引擎/收口/决策来源徽章(其余进预览抽屉):卡片只剩状态行、标题、原因与时间。
+    for (const gone of ["Closeout", "Ready to archive", "derived from", "finalizing"])
+      expect(markup).not.toContain(gone);
+  });
+});
+
 describe("cold terminal collapse in BoardView (W8)", () => {
   const fixture = (): TaskRow[] => [
     makeTask({ taskId: "t_open", title: "card-open", coordinationStatus: "active", lastKnownAt: daysAgo(5) }),
@@ -895,7 +924,6 @@ describe("row badge convergence", () => {
       expect(counters.get(id)).toBe(settled.get(id)); // 徽章值未变的行跳过。
     }
     expect(counters.get("t_2")).toBe((settled.get("t_2") ?? 0) + 1); // 只有命中行重渲染。
-    expect(board.container.textContent).toContain("dec_new"); // 徽章真实上屏。
 
     act(() => {
       board.root.unmount();
@@ -935,7 +963,6 @@ describe("row badge convergence", () => {
     await render([{ ...doneTask, spawningDecisionIds: ["dec_new"] }]);
 
     const card = container.querySelector('[data-testid="board-task-card"]')!;
-    expect(card.textContent).toContain("dec_new");
     const wrapper = card.closest('[role="button"]');
     expect(wrapper).not.toBeNull(); // 可聚焦的交互表面在(baseline 经 dnd attributes 提供,收窄后显式保留)。
     expect(wrapper!.getAttribute("tabindex")).toBe("0");
@@ -1389,8 +1416,10 @@ describe("board column width preferences (W11)", () => {
     expect(readBoardColumnWidths(storage)).toEqual(emptyBoardColumnWidths);
     let widths = setBoardColumnWidth(emptyBoardColumnWidths, "column", "planned", 360);
     widths = setBoardColumnWidth(widths, "swimlane", "lane", 200);
-    widths = setBoardColumnWidth(widths, "list", "title", 420);
     writeBoardColumnWidths(storage, widths);
+    expect(readBoardColumnWidths(storage)).toEqual(widths);
+    // 列表布局已按视觉基线重做为 DenseRow 行列表:存量存储里的 list 分量读取时丢弃。
+    storage.setItem(WIDTH_KEY, JSON.stringify({ ...widths, list: { title: 420 } }));
     expect(readBoardColumnWidths(storage)).toEqual(widths);
   });
 
@@ -1426,14 +1455,15 @@ describe("board column resize: column mode (W11)", () => {
     localStorage.removeItem(WIDTH_KEY);
   });
 
-  it("renders equal-quarter columns by default with one keyboard-reachable handle per column", async () => {
+  it("renders equal-quarter columns by default; resize handles live on non-empty columns only", async () => {
     const markup = await boardHtml([makeTask({ coordinationStatus: "planned" })]);
-    expect(markup.split('data-testid="board-column-resize-').length - 1).toBe(BOARD_COLUMNS.length);
+    // 空列收窄成竖线(视觉基线 §2.4):只有非空列带手柄。
+    expect(markup.split('data-testid="board-column-resize-').length - 1).toBe(1);
     const handle = markup.match(/<div[^>]*data-testid="board-column-resize-planned"[^>]*>/u)![0];
     expect(handle).toContain('role="separator"');
     expect(handle).toContain('tabindex="0"');
-    // 未定宽列保持等分默认:不输出显式宽度。
-    expect(markup).not.toContain('style="width');
+    // 未定宽列保持等分默认:不输出显式 px 宽度(SegBar 的百分比分段不算列宽)。
+    expect(markup).not.toMatch(/style="width:\s*\d+px/u);
   });
 
   it("applies a persisted width as an explicit column width", async () => {
