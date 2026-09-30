@@ -129,26 +129,7 @@ describe("layoutRegions 列宽", () => {
 });
 
 describe("layoutRegions 高度", () => {
-  it("区域高度不超过内容所需:非列尾区域封在所需 ×1.08(宽松行区域用宽松所需)", () => {
-    const { need, relaxed } = fourRows();
-    const layout = layoutRegions({
-      weights: { ...WEIGHTS, mine: 400, stuck: 2, run: 2, review: 2, queue: 0, recent: 2, works: 2 },
-      need,
-      needRelaxed: relaxed,
-      board: { width: 1200, height: 3000 },
-    });
-    // 每列只有最后一个区域吸收剩余板高(原型 `if(spare>1) H[last]+=spare`);
-    // 其余区域的高度都被 cap 封在内容所需(宽松档)的 1.08 倍以内。
-    for (const left of new Set(layout.order.map((key) => layout.boxes[key]!.left))) {
-      const column = layout.order.filter((key) => layout.boxes[key]!.left === left);
-      for (const key of column.slice(0, -1)) {
-        const cap = key === "mine" || key === "stuck" ? relaxed[key] * 1.08 : need[key] * 1.08;
-        expect(layout.boxes[key]!.height).toBeLessThanOrEqual(cap + 1);
-      }
-    }
-  });
-
-  it("富余充足时区域高度只取单行或两行所需两档,不留半截空白", () => {
+  it("页面先铺满:每一列都到板底,富余摊给同列区域而不是堆在一个区域里", () => {
     const { need, relaxed } = fourRows();
     const layout = layoutRegions({
       weights: WEIGHTS,
@@ -156,10 +137,12 @@ describe("layoutRegions 高度", () => {
       needRelaxed: relaxed,
       board: { width: 1200, height: 2000 },
     });
-    for (const key of layout.order) {
-      const height = layout.boxes[key]!.height;
-      expect([need[key], relaxed[key]]).toContain(height);
-      expect(height === relaxed[key] && relaxed[key] !== need[key]).toBe(layout.tall.has(key));
+    for (const left of new Set(layout.order.map((key) => layout.boxes[key]!.left))) {
+      const column = layout.order.filter((key) => layout.boxes[key]!.left === left);
+      const bottom = Math.max(...column.map((key) => layout.boxes[key]!.top + layout.boxes[key]!.height));
+      expect(Math.abs(bottom - 2000)).toBeLessThanOrEqual(1);
+      // 每个区域都至少长到内容所需(不截断还能放下的行)。
+      for (const key of column) expect(layout.boxes[key]!.height).toBeGreaterThanOrEqual(need[key]! - 0.5);
     }
   });
 

@@ -110,8 +110,8 @@ export function layoutRegions(input: {
     clampedTotal = clamped.reduce((sum, value) => sum + value, 0),
     widths = clamped.map((share) => (share / clampedTotal) * available);
 
-  // 3) 列内富余按权重分给各区域,每个区域最多长到内容所需;剩下的富余足够时,把 mine/stuck
-  //    整个升到宽松两行形态。高度只取「单行所需」或「两行所需」两档,不留半截空白;分不完的留在列尾。
+  // 3) 页面先铺满:列内富余先按权重让各区域长到内容所需(放得下全部行);还有富余时把 mine/stuck
+  //    整个升到宽松两行形态;最后剩下的按权重摊给同列所有区域,每列都到板底,不在某一个区域留大块空白。
   const capacity = (key: RegionKey): number => need[key] ?? regionNeed(0);
   let left = 0;
   cols.forEach((column, index) => {
@@ -145,6 +145,10 @@ export function layoutRegions(input: {
         heights.set(key, relaxedNeed);
         tall.add(key);
       }
+    }
+    if (spare > 1) {
+      const columnWeight = column.keys.reduce((sum, key) => sum + weights[key]!, 0);
+      for (const key of column.keys) heights.set(key, heights.get(key)! + (spare * weights[key]!) / columnWeight);
     }
     let top = 0;
     for (const key of column.keys) {
