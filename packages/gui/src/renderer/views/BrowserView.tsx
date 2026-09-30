@@ -59,8 +59,11 @@ export function BrowserView({ initialUrl }: { readonly initialUrl?: string | nul
   };
 
   return (
-    <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-surface" data-testid="browser-view">
-      <form className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5" onSubmit={submit}>
+    <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-bg p-2" data-testid="browser-view">
+      <form
+        className="glass flex shrink-0 items-center gap-1 rounded-sm border border-border px-2 py-1.5"
+        onSubmit={submit}
+      >
         <button type="button" aria-label="Back" disabled={!state.canGoBack} onClick={() => shellRef.current?.back()}>
           ←
         </button>
@@ -89,10 +92,10 @@ export function BrowserView({ initialUrl }: { readonly initialUrl?: string | nul
           spellCheck={false}
         />
       </form>
-      <div className="relative min-h-0 min-w-0 flex-1 bg-white">
+      <div className="relative mt-2 min-h-0 min-w-0 flex-1 overflow-hidden rounded-sm border border-border bg-white">
         <div ref={hostRef} className="absolute inset-0" data-testid="in-app-browser-host" />
         {state.error && (
-          <div className="absolute inset-0 grid place-content-center gap-3 bg-surface p-8 text-center" role="alert">
+          <div className="glass absolute inset-0 grid place-content-center gap-3 p-8 text-center" role="alert">
             <strong>Page could not be loaded</strong>
             <span className="text-sm text-text-muted">{state.error.description}</span>
             <code className="text-xs text-text-faint">{state.error.url}</code>

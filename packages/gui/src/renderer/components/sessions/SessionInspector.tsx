@@ -31,11 +31,7 @@ export function SessionInspector({
   readonly onSelectEntity: (ref: string) => void;
 }) {
   return (
-    <aside
-      data-testid="runtime-inspector"
-      aria-label={t("agentRuntime.inspectorSession")}
-      className="basis-1/4 shrink-0 overflow-y-auto border-l border-border bg-surface"
-    >
+    <div data-testid="runtime-inspector" aria-label={t("agentRuntime.inspectorSession")} className="min-h-0">
       <h2
         className="sticky top-0 border-b border-border bg-surface px-3 py-2 ui-micro font-bold uppercase
         tracking-[0.09em] text-text-faint"
@@ -55,7 +51,7 @@ export function SessionInspector({
           ))
         )}
       </section>
-    </aside>
+    </div>
   );
 }
 

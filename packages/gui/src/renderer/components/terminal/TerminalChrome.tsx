@@ -99,7 +99,7 @@ export function TerminalChrome({
     <aside
       data-testid="terminal-sidebar"
       style={{ width }}
-      className="relative flex shrink-0 flex-col overflow-hidden border-r border-border bg-surface"
+      className="glass relative flex shrink-0 flex-col overflow-hidden rounded-sm border border-border"
     >
       <div
         role="separator"

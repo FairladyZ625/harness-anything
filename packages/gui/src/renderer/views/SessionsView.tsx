@@ -5,7 +5,9 @@ import { agentEntityClient, isAvailableSquadEntityRow } from "../agent-entity-cl
 import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts";
 import { harnessClient } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
-import { Badge, Btn, Empty, SegCtl } from "../components/runtime/parts.tsx";
+import { Btn, Empty, SegCtl } from "../components/runtime/parts.tsx";
+import { Drawer } from "../components/primitives/Drawer.tsx";
+import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import {
   runtimeSelectionFromRef,
   useSessionsWorkspace,
@@ -380,8 +382,11 @@ export function SessionsView({
   const visibleReadError = visibleRead.error instanceof Error ? visibleRead.error.message : String(visibleRead.error);
   return (
     <section data-testid="sessions-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="flex h-[42px] shrink-0 items-center gap-3 border-b border-border bg-surface-raised px-3.5">
-        <b className="ui-body tracking-[0.02em]">{t("agentRuntime.sessionsTitle")}</b>
+      <header className="glass mx-2 mt-2 flex min-h-[42px] shrink-0 items-center gap-3 rounded-sm border border-border px-3.5">
+        <div className="min-w-0">
+          <b className="block ui-body tracking-[0.02em]">{t("agentRuntime.sessionsTitle")}</b>
+          <span className="block truncate ui-micro text-text-faint">{t("agentRuntime.sessionsSegmentLabel")}</span>
+        </div>
         <SegCtl
           label={t("agentRuntime.sessionsSegmentLabel")}
           value={segment}
@@ -393,13 +398,15 @@ export function SessionsView({
         />
         <span className="flex-1" />
         {segment === "sessions" ? (
-          <Badge status={liveCount > 0 ? "active" : "planned"}>
-            {t("agentRuntime.liveSessions", { count: liveCount })}
-          </Badge>
+          <StatusTag
+            tone={liveCount > 0 ? "active" : "plan"}
+            label={t("agentRuntime.liveSessions", { count: liveCount })}
+          />
         ) : (
-          <Badge status={activeRunCount > 0 ? "active" : "planned"}>
-            {t("agentRuntime.squadRunsActive", { count: activeRunCount })}
-          </Badge>
+          <StatusTag
+            tone={activeRunCount > 0 ? "active" : "plan"}
+            label={t("agentRuntime.squadRunsActive", { count: activeRunCount })}
+          />
         )}
         {segment === "sessions" && (
           <Btn
@@ -412,7 +419,7 @@ export function SessionsView({
           </Btn>
         )}
       </header>
-      <div className="flex h-[34px] shrink-0 items-center gap-2.5 border-b border-border bg-surface px-3.5">
+      <div className="mx-2 flex h-[34px] shrink-0 items-center gap-2.5 border-b border-border px-1.5">
         {segment === "sessions" && (
           <SegCtl
             label={t("agentRuntime.sessionsGroupByLabel")}
@@ -437,7 +444,7 @@ export function SessionsView({
             role="group"
             aria-label={t("agentRuntime.sessionsStatusLabel")}
             data-testid="sessions-status-filter"
-            className="inline-flex min-w-0 shrink overflow-x-auto rounded border border-border-strong"
+            className="inline-flex min-w-0 shrink overflow-x-auto rounded-xs border border-border-strong"
           >
             {sessionStatusFilterWords.map((word) => (
               <button
@@ -470,7 +477,7 @@ export function SessionsView({
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           className={
-            "w-[280px] rounded border border-border-strong bg-surface px-2 py-1 ui-micro text-text " +
+            "w-[280px] rounded-xs border border-border-strong bg-surface px-2 py-1 ui-micro text-text " +
             "outline-none focus-visible:border-accent"
           }
         />
@@ -515,7 +522,7 @@ export function SessionsView({
         </p>
       )}
       {segment === "sessions" ? (
-        <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 px-2 pb-2">
           <SessionGroupList
             groups={groups}
             truncated={truncated}
@@ -565,7 +572,12 @@ export function SessionsView({
               </>
             )}
           </main>
-          {inspector && (
+          <Drawer
+            open={inspector}
+            onClose={() => setInspector(false)}
+            ariaLabel={t("agentRuntime.inspectorSession")}
+            modal={false}
+          >
             <SessionInspector
               row={selectedRow}
               siblings={siblings}
@@ -574,10 +586,10 @@ export function SessionsView({
               onOpenTask={onOpenTask}
               onSelectEntity={onSelectEntity}
             />
-          )}
+          </Drawer>
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 px-2 pb-2">
           <SquadRunList
             runs={runs}
             truncated={workspace.squadRuns.data?.truncated ?? false}
