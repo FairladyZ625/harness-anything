@@ -73,12 +73,14 @@ export function ProviderRail({
             live = liveByInstance.get(instance.instanceId) ?? 0,
             tone = !instance.enabled ? "cancel" : auth.cap === "none" ? "bad" : auth.cap === "part" ? "wait" : "done";
           return (
-            <div
+            <button
+              type="button"
               key={instance.instanceId}
               data-testid={`rail-runtime-${instance.instanceId}`}
               aria-current={selectedId === instance.instanceId || undefined}
-              className="status-edge relative"
+              className="status-edge relative w-full text-left"
               style={abnormal ? badEdge : undefined}
+              onClick={() => onSelect(instance.instanceId)}
             >
               <DenseRow
                 tag={
@@ -106,9 +108,8 @@ export function ProviderRail({
                 reason={tone === "done" ? undefined : authTip}
                 time={live > 0 ? t("agentRuntime.liveCount", { count: live }) : instance.defaultModel}
                 selected={selectedId === instance.instanceId}
-                onClick={() => onSelect(instance.instanceId)}
               />
-            </div>
+            </button>
           );
         })}
       </Segment>
@@ -177,10 +178,13 @@ export function IdentityRail({
       >
         {degradedFirst(agents).map((agent) =>
           isAvailableAgentEntityRow(agent) ? (
-            <div
+            <button
+              type="button"
               key={agent.id}
               data-testid={`rail-agent-${agent.id}`}
               aria-current={picked("agent", agent.id) || undefined}
+              className="w-full text-left"
+              onClick={() => onSelect({ type: "agent", id: agent.id })}
             >
               <DenseRow
                 tag={<RoleLabel role={agent.role} />}
@@ -196,9 +200,8 @@ export function IdentityRail({
                   </span>
                 }
                 selected={picked("agent", agent.id)}
-                onClick={() => onSelect({ type: "agent", id: agent.id })}
               />
-            </div>
+            </button>
           ) : (
             <RailDegradedRow
               key={agent.id}
@@ -223,10 +226,13 @@ export function IdentityRail({
       >
         {degradedFirst(squads).map((squad) =>
           isAvailableSquadEntityRow(squad) ? (
-            <div
+            <button
+              type="button"
               key={squad.id}
               data-testid={`rail-squad-${squad.id}`}
               aria-current={picked("squad", squad.id) || undefined}
+              className="w-full text-left"
+              onClick={() => onSelect({ type: "squad", id: squad.id })}
             >
               <DenseRow
                 tag={<span className="font-mono ui-micro text-text-faint">{squad.workers.length + 1}</span>}
@@ -237,9 +243,8 @@ export function IdentityRail({
                   </span>
                 }
                 selected={picked("squad", squad.id)}
-                onClick={() => onSelect({ type: "squad", id: squad.id })}
               />
-            </div>
+            </button>
           ) : (
             <RailDegradedRow
               key={squad.id}
@@ -276,11 +281,13 @@ function RailDegradedRow({
   readonly onSelect: () => void;
 }) {
   return (
-    <div
+    <button
+      type="button"
       data-testid={`rail-${kind}-${row.id}`}
       aria-current={selected || undefined}
-      className="status-edge relative"
+      className="status-edge relative w-full text-left"
       style={badEdge}
+      onClick={onSelect}
     >
       <DenseRow
         tag={
@@ -292,9 +299,8 @@ function RailDegradedRow({
         title={<span className="font-mono">{row.id}</span>}
         reason={row.error.hint}
         selected={selected}
-        onClick={onSelect}
       />
-    </div>
+    </button>
   );
 }
 

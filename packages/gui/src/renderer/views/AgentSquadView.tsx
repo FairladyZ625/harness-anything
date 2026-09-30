@@ -1,4 +1,4 @@
-import { useDeferredValue, useState } from "react";
+import { useDeferredValue, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { agentEntityClient, isAvailableAgentEntityRow, isAvailableSquadEntityRow } from "../agent-entity-client.ts";
 import { useCatalogSnapshot } from "../catalog-data.ts";
@@ -21,6 +21,7 @@ import { DegradedEntityCard, type SettingsRoleRef } from "../components/runtime/
 import { NewEntityDialog, type NewEntityRequest } from "../components/runtime/NewEntityDialog.tsx";
 import { Badge, Btn, Empty, Hint } from "../components/runtime/parts.tsx";
 import { IdentityRail, RoleLabel } from "../components/runtime/RuntimeRail.tsx";
+import { StatusTag, type StatusTone } from "../components/primitives/StatusTag.tsx";
 import { IdentityInspector } from "../components/runtime/RuntimeInspector.tsx";
 import { SquadCard, squadDeclarationFrom, squadDraftFrom } from "../components/runtime/SquadCard.tsx";
 import { SquadCockpit } from "../components/runtime/SquadCockpit.tsx";
@@ -96,7 +97,7 @@ export function AgentSquadView({
   // 回落首项 Squad——派生选择,不写回导航栈。
   const entityExists = (type: "agent" | "squad", id: string) =>
     type === "agent" ? agentRows.some((row) => row.id === id) : squadRows.some((row) => row.id === id);
-  const fallback =
+  const fallback: RuntimeSelection | null =
     (degradedAgents[0] ? { type: "agent", id: degradedAgents[0].id } : null) ??
     (agents[0] ? { type: "agent", id: agents[0].id } : null) ??
     (degradedSquads[0] ? { type: "squad", id: degradedSquads[0].id } : null) ??
@@ -123,12 +124,8 @@ export function AgentSquadView({
       repoId,
       current?.type === "squad" && squads.some((squad) => squad.id === current.id) ? current.id : null,
     ),
-    currentRow =
-      current === null
-        ? null
-        : current.type === "agent"
-          ? (agentRows.find((row) => row.id === current.id) ?? null)
-          : (squadRows.find((row) => row.id === current.id) ?? null);
+    selectedAgent = current?.type === "agent" ? (agentRows.find((row) => row.id === current.id) ?? null) : null,
+    selectedSquad = current?.type === "squad" ? (squadRows.find((row) => row.id === current.id) ?? null) : null;
   // 过滤命中不含当前选中项时不改派生选择(详情不跳走),只在列表上显形提示 +
   // 一键清除——选中态的裁决权仍在导航栈,过滤只是查看者的镜头。
   const selectionHidden =
@@ -358,20 +355,21 @@ export function AgentSquadView({
               <Empty>{t(catalogsPending ? "agentRuntime.loading" : "agentRuntime.emptyAgents")}</Empty>
             </>
           ) : current.type === "agent" ? (
-            isAvailableAgentEntityRow(currentRow) ? (
+            selectedAgent !== null && isAvailableAgentEntityRow(selectedAgent) ? (
               agentDetail.data ? (
                 <>
                   <EntityConclusion
-                    refs={settingsRoleRefs(settings.data?.values, currentRow.id)}
+                    refs={settingsRoleRefs(settings.data?.values, selectedAgent.id)}
                     squads={squads.filter(
-                      (squad) => squad.leader === currentRow.id || squad.workers.includes(currentRow.id),
+                      (squad) => squad.leader === selectedAgent.id || squad.workers.includes(selectedAgent.id),
                     )}
-                    declaredRole={currentRow.role}
+                    agentId={selectedAgent.id}
+                    declaredRole={selectedAgent.role}
                     lastDispatch={dockRows[0] ?? null}
                   />
                   <AgentCard
                     detail={agentDetail.data}
-                    row={currentRow}
+                    row={selectedAgent}
                     squads={squads}
                     instances={workspace.instances}
                     availableSkills={skills.data ?? []}
@@ -389,22 +387,22 @@ export function AgentSquadView({
               ) : (
                 <Empty>{t("agentRuntime.loading")}</Empty>
               )
-            ) : (
+            ) : selectedAgent !== null ? (
               <DegradedEntityCard
                 kind="agent"
-                row={currentRow}
-                settingsRefs={settingsRoleRefs(settings.data?.values, currentRow.id)}
+                row={selectedAgent}
+                settingsRefs={settingsRoleRefs(settings.data?.values, selectedAgent.id)}
                 referencingSquads={squads.filter(
-                  (squad) => squad.leader === currentRow.id || squad.workers.includes(currentRow.id),
+                  (squad) => squad.leader === selectedAgent.id || squad.workers.includes(selectedAgent.id),
                 )}
-                onRedeclare={() => setDialog({ kind: "new-entity", entity: "agent", initialId: currentRow.id })}
+                onRedeclare={() => setDialog({ kind: "new-entity", entity: "agent", initialId: selectedAgent.id })}
                 onSelectSquad={(squadId) => onSelectEntity(`squad/${squadId}`)}
               />
-            )
-          ) : isAvailableSquadEntityRow(currentRow) ? (
+            ) : null
+          ) : selectedSquad !== null && isAvailableSquadEntityRow(selectedSquad) ? (
             squadDetail.data ? (
               <>
-                <SquadConclusion squad={currentRow} lastDispatch={dockRows[0] ?? null} />
+                <SquadConclusion squad={selectedSquad} lastDispatch={dockRows[0] ?? null} />
                 <SquadCockpit
                   squad={squadDetail.data}
                   rows={dockRows.filter((row) => row.squadId === current.id)}
@@ -425,16 +423,16 @@ export function AgentSquadView({
             ) : (
               <Empty>{t("agentRuntime.loading")}</Empty>
             )
-          ) : (
+          ) : selectedSquad !== null ? (
             <DegradedEntityCard
               kind="squad"
-              row={currentRow}
+              row={selectedSquad}
               settingsRefs={[]}
               referencingSquads={[]}
-              onRedeclare={() => setDialog({ kind: "new-entity", entity: "squad", initialId: currentRow.id })}
+              onRedeclare={() => setDialog({ kind: "new-entity", entity: "squad", initialId: selectedSquad.id })}
               onSelectSquad={(squadId) => onSelectEntity(`squad/${squadId}`)}
             />
-          )}
+          ) : null}
         </main>
         {inspector && current !== null && (
           <IdentityInspector
@@ -493,11 +491,13 @@ export function AgentSquadView({
 function EntityConclusion({
   refs,
   squads,
+  agentId,
   declaredRole,
   lastDispatch,
 }: {
   readonly refs: readonly SettingsRoleRef[];
   readonly squads: readonly { readonly id: string; readonly name: string; readonly leader: string }[];
+  readonly agentId: string;
   readonly declaredRole: "worker" | "reviewer" | "commander";
   readonly lastDispatch: {
     readonly status: string;
@@ -511,7 +511,7 @@ function EntityConclusion({
     ...refs.map((ref) => ({ label: `roles.${ref.key}`, role: ref.role })),
     ...squads.map((squad) => ({
       label: squad.name,
-      role: squad.leader === declaredRoleLeaderId(squads, squad) ? ("commander" as const) : ("worker" as const),
+      role: squad.leader === agentId ? ("commander" as const) : ("worker" as const),
     })),
   ];
   const mismatch = calledAs.some((call) => call.role !== declaredRole);
@@ -555,7 +555,7 @@ function EntityConclusion({
           : t("agentRuntime.lastDispatch", {
               status: lastDispatch.status,
               task: lastDispatch.taskTitle ?? "",
-              time: formatTime(lastDispatch.startedAt) ?? lastDispatch.startedAt,
+              time: formatTime(lastDispatch.startedAt, { style: "month-day-time" }) ?? lastDispatch.startedAt,
             })}
       </span>
     </section>
@@ -594,20 +594,31 @@ function SquadConclusion({
           : t("agentRuntime.lastDispatch", {
               status: lastDispatch.status,
               task: lastDispatch.taskTitle ?? "",
-              time: formatTime(lastDispatch.startedAt) ?? lastDispatch.startedAt,
+              time: formatTime(lastDispatch.startedAt, { style: "month-day-time" }) ?? lastDispatch.startedAt,
             })}
       </span>
     </section>
   );
 }
 
-// Squad 引用行的「被当作什么角色」:leader 位次 = commander。传入的 squads 是引用者
-// 清单,位次判定对每个引用自己的 squad 用它自己的 leader 字段。
-function declaredRoleLeaderId(
-  squads: readonly { readonly leader: string }[],
-  squad: { readonly leader: string },
-): string {
-  return squads.includes(squad as never) ? squad.leader : squad.leader;
+function StatusTagLine({
+  tone,
+  label,
+  text,
+  children,
+}: {
+  readonly tone: StatusTone;
+  readonly label: ReactNode;
+  readonly text?: ReactNode;
+  readonly children?: ReactNode;
+}) {
+  return (
+    <span className="flex flex-wrap items-center gap-2 ui-meta text-text-muted">
+      <StatusTag tone={tone} label={label} />
+      {text}
+      {children}
+    </span>
+  );
 }
 
 const roleWord = (role: "worker" | "reviewer" | "commander"): string =>

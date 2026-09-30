@@ -630,6 +630,9 @@ describe("runtime entry split (W6 IA)", () => {
 
     expect(byTestId("rail-agent-terra").getAttribute("aria-current")).toBe("true");
     expect(byTestId("agent-card-terra").textContent).toContain("terra");
+    // §2.5: directory and detail state lead with a compact conclusion, before declaration fields.
+    expect(byTestId("agent-squad-conclusion").textContent).toContain("All declarations available");
+    expect(byTestId("agent-detail-conclusion").textContent).toContain("Available");
 
     // Rail squad row → addressable squad ref (same entry: squads are a facet of this page).
     await click("rail-squad-core-squad");
@@ -709,6 +712,9 @@ describe("runtime entry split (W6 IA)", () => {
     await mountProviders("provider/provider-edit", { onSelectEntity });
 
     expect(byTestId("rail-runtime-provider-edit").getAttribute("aria-current")).toBe("true");
+    // §2.5: provider detail answers usable/used-by/live before the editable configuration card.
+    expect(byTestId("provider-detail-conclusion").textContent).toContain("Ready");
+    expect(byTestId("provider-detail-conclusion").textContent).toContain("1 compatible agents");
     // 兼容 Agent chips 在实例卡的「兼容 Agents」区(跨入口出口):Provider → Agent。
     const compatible = [...byTestId("providers-view").querySelectorAll("button")].find((button) =>
       button.textContent?.includes("terra"),
