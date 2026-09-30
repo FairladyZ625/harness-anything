@@ -212,12 +212,15 @@ export function installBridge({
   uncommittedPlan = false,
   completionAction = "Center completion action",
   completionBlocker = { code: "closeout_placeholder", gate: "closeout" },
+  planBody = "# Canonical plan body",
 }: {
   readonly uncommittedPlan?: boolean;
   /** `repo.tasks.completion.read` 的 next 动作原样透传;null = 无待办(next/blocker 均为 null)。 */
   readonly completionAction?: string | null;
   /** 同一读结果的结构化 blocker;面板按 code 判别阶段,与 action 文案解耦。 */
   readonly completionBlocker?: { readonly code: string; readonly gate: string } | null;
+  /** task_plan.md 的正文;页头一行目标与概况页签共用这一份读。 */
+  readonly planBody?: string | null;
 } = {}) {
   const bridge = {
     getTaskCompletion: vi.fn(async ({ taskId }: { taskId: string }) => ({
@@ -247,7 +250,7 @@ export function installBridge({
         body: binary
           ? ""
           : path === "task_plan.md"
-            ? "# Canonical plan body"
+            ? planBody
             : path.endsWith(".html")
               ? '<style>body{color:#123}</style><h1>Night report</h1><script>window.open("https://example.invalid")</script>'
               : `# ${path}`,

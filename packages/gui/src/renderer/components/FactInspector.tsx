@@ -9,6 +9,7 @@ import { t } from "../i18n/index.tsx";
 import { EntityRefLink } from "./EntityRefLink.tsx";
 import { ViewInGraphButton } from "./ViewInGraphButton.tsx";
 import { formatTime } from "../model/time.ts";
+import { StatusTag, type StatusTone } from "./primitives/StatusTag.tsx";
 
 function shortEndpoint(raw: string): string {
   if (raw.startsWith("decision/")) return normalizeDecisionId(raw);
@@ -102,6 +103,13 @@ export function FactInspector({
     .filter((row) => row.covered && row.coveringFactRef === fullRef)
     .map((row) => normalizeDecisionId(row.decisionRef));
   const supportedDecisionIds = [...new Set([...directlySupportedDecisionIds, ...coveredDecisionIds])].sort();
+  const factStatus: { label: string; tone: StatusTone } = fact?.invalidated
+    ? { label: "已失效", tone: "bad" }
+    : supersedingRelations.length > 0
+      ? { label: "已被替代", tone: "bad" }
+      : fact?.archived
+        ? { label: "已归档", tone: "neutral" }
+        : { label: "当前有效", tone: "done" };
 
   return (
     <aside
@@ -145,7 +153,7 @@ export function FactInspector({
           onFocusGraph={onFocusGraph}
           testId="fact-view-in-graph"
           className={
-            "flex shrink-0 items-center gap-1 rounded-md border border-border px-1.5 py-1 font-mono ui-micro " +
+            "flex shrink-0 items-center gap-1 rounded-xs border border-border px-1.5 py-1 font-mono ui-micro " +
             "text-text-faint hover:border-border-strong hover:bg-surface-raised hover:text-text"
           }
         />
@@ -165,7 +173,7 @@ export function FactInspector({
 
       <div className="flex flex-col gap-3 px-3 py-3">
         {!fact ? (
-          <div className="rounded-md border border-danger/40 bg-danger/10 px-3 py-2 ui-meta text-danger">
+          <div className="rounded-xs border border-danger/40 bg-danger/10 px-3 py-2 ui-meta text-danger">
             <div className="flex items-center gap-1 font-semibold">
               <WarningCircle weight="bold" />
               {t("components.factInspector.danglingFactReference")}
@@ -186,38 +194,31 @@ export function FactInspector({
           </div>
         ) : (
           <>
-            <div className="rounded-md border border-stale/30 bg-stale/5 px-2.5 py-3">
-              <div className="flex items-center gap-2">
-                <span className="rounded bg-stale px-1.5 py-0.5 font-mono ui-micro text-stale-fg">{fact.category}</span>
-                <span className="font-mono ui-micro text-text-faint">{fact.at}</span>
-                <span className="font-mono ui-micro text-text-faint">
-                  {t("components.factInspector.confidenceValue", { confidence: fact.confidence })}
-                </span>
-                {fact.archived && (
-                  <span className="rounded bg-surface-raised px-1.5 py-0.5 font-mono ui-micro text-text-faint">
-                    已归档
-                  </span>
-                )}
-                {fact.invalidated && (
-                  <span className="ml-auto inline-flex items-center gap-1 ui-micro text-stale">
-                    <WarningCircle weight="bold" />
-                    已失效
-                  </span>
-                )}
-              </div>
-              <p className="mt-2 ui-body font-medium leading-relaxed text-text">{fact.text}</p>
-              <div className="mt-1 font-mono ui-micro text-text-faint">
-                {t("components.factInspector.sourceValue", {
-                  source: fact.source ?? t("components.factInspector.unknown"),
-                })}
+            <div data-testid="fact-conclusion" className="border-l-[3px] border-accent py-0.5 pl-3">
+              <p className="ui-body font-semibold leading-relaxed text-text">{fact.text}</p>
+              <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <StatusTag tone={factStatus.tone} label={factStatus.label} />
+                <StatusTag
+                  tone={fact.confidence === "high" ? "done" : fact.confidence === "medium" ? "wait" : "bad"}
+                  label={t("components.factInspector.confidenceValue", { confidence: fact.confidence })}
+                />
               </div>
             </div>
 
-            <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
-              <div className="font-mono ui-micro uppercase tracking-wide text-text-faint">
-                {t("components.factInspector.taskPackage")}
-              </div>
-              <div className="mt-1 flex items-center gap-2">
+            <dl
+              data-testid="fact-fields"
+              className="grid grid-cols-[5.5rem_minmax(0,1fr)] gap-x-2 gap-y-1.5 border-y border-border py-2 ui-meta"
+            >
+              <dt className="text-text-faint">来源</dt>
+              <dd className="min-w-0 break-words font-mono text-text-muted">
+                {fact.source ?? t("components.factInspector.unknown")}
+              </dd>
+              <dt className="text-text-faint">观测时间</dt>
+              <dd className="font-mono text-text-muted">{formatTime(fact.at, { style: "date-time" }) ?? fact.at}</dd>
+              <dt className="text-text-faint">类别</dt>
+              <dd className="font-mono text-text-muted">{fact.category}</dd>
+              <dt className="text-text-faint">{t("components.factInspector.taskPackage")}</dt>
+              <dd className="flex min-w-0 items-center gap-2">
                 {ownerTaskId && onNavigateTask ? (
                   <EntityRefLink
                     entityRef={`task/${ownerTaskId}`}
@@ -235,15 +236,10 @@ export function FactInspector({
                     {task?.title ?? t("components.factInspector.hostTaskNotProjectedByCurrentTask")}
                   </span>
                 )}
-              </div>
-              {task && (
-                <div className="mt-1 font-mono ui-micro text-text-faint">
-                  {t("components.factInspector.sourceValue", { source: task.source })}
-                </div>
-              )}
-            </div>
+              </dd>
+            </dl>
 
-            <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
+            <section className="border-b border-border pb-2">
               <div className="font-mono ui-micro uppercase tracking-wide text-text-faint">
                 {t("components.factInspector.provenance")}
               </div>
@@ -259,11 +255,11 @@ export function FactInspector({
               ) : (
                 <p className="mt-1 ui-meta text-text-faint">{t("components.factInspector.noProvenance")}</p>
               )}
-            </div>
+            </section>
           </>
         )}
 
-        <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
+        <section className="border-b border-border pb-2">
           <div className="font-mono ui-micro uppercase tracking-wide text-text-faint">
             {t("components.factInspector.incomingRelation")}
           </div>
@@ -301,10 +297,10 @@ export function FactInspector({
               ))}
             </div>
           )}
-        </div>
+        </section>
 
         {supportedDecisionIds.length > 0 && (
-          <div className="rounded-md border border-border bg-surface-raised px-2.5 py-2">
+          <section className="border-b border-border pb-2">
             <div className="font-mono ui-micro uppercase tracking-wide text-text-faint">
               {t("components.factInspector.supportingDecisionTitle")}
             </div>
@@ -331,11 +327,11 @@ export function FactInspector({
                 );
               })}
             </div>
-          </div>
+          </section>
         )}
 
         {(contradictions.length > 0 || supersedingRelations.length > 0) && (
-          <div className="rounded-md border border-stale/40 bg-stale/10 px-2.5 py-2 text-stale">
+          <section className="rounded-xs border border-stale/40 bg-stale/10 px-2.5 py-2 text-stale">
             <div className="flex items-center gap-1 ui-meta font-semibold">
               <WarningCircle weight="bold" />
               {t("components.factInspector.dangerousLiaisons")}
@@ -354,7 +350,7 @@ export function FactInspector({
                 })}
               </div>
             )}
-          </div>
+          </section>
         )}
       </div>
     </aside>

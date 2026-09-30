@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
-import { ArrowSquareOut, Circle, FileText } from "@phosphor-icons/react";
+import { ArrowSquareOut } from "@phosphor-icons/react";
 import type { AgentRuntimeEventsResult, AgentRuntimeSessionResult } from "@harness-anything/daemon/protocol";
 import type { RelationFactRow, TaskDispatchProjectionRow } from "../../../api/renderer-dto.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
@@ -9,7 +9,11 @@ import { useTaskDocumentQuery } from "../../task-data.ts";
 import { buildTriadicRendererData, useCompleteRelationGraphQuery, triadicQueryKeys } from "../../triadic-data.ts";
 import { useFactArchiveVisibility } from "../../fact-archive-preferences.tsx";
 import { formatTime } from "../../model/time.ts";
-import type { RelationEdge, TaskRow } from "../../model/types.ts";
+import type { EventEntry, RelationEdge, TaskRow } from "../../model/types.ts";
+import { DayDigest } from "../primitives/DayDigest";
+import { DenseRow } from "../primitives/DenseRow";
+import { Section } from "../primitives/Section";
+import { StatusTag } from "../primitives/StatusTag";
 
 /**
  * 关系页签实际读取的决策字段:身份 + 标题 + 状态。刻意窄于 `DecisionRow`,
@@ -28,15 +32,43 @@ export interface TaskTriageDecisionRef {
   readonly question?: string;
 }
 import { activeProducesFactRefs } from "../../model/triadic.ts";
+import { taskStuckItems } from "../../model/task-stuck.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { buildFactTriage, SIGNAL_LABEL, type FactTriageItem } from "../../model/fact-triage.ts";
 import { buildFactTriageContext } from "../../model/copy-context.ts";
 import { CopyContextButton } from "../CopyContextButton.tsx";
 import { DocReader } from "../DocReader.tsx";
+import { StuckRows, type StuckRowCopy } from "./StuckRows.tsx";
 
-export function TaskOverviewTab({ task }: { readonly task: TaskRow }) {
+/** 概况页签的「卡在哪」标签措辞(本页签全文案为中文硬文案,抽屉走 i18n)。 */
+const STUCK_COPY: StuckRowCopy = {
+  dependency: "依赖未完成",
+  dependencyFallback: "上游任务还没完成",
+  awaits: "等答复",
+  cycle: "依赖成环",
+  cycleDetail: "阻塞关系成环,环上任务全部保持阻塞",
+  rework: "待返工",
+  reworkTitle: "上一轮提交被打回",
+  reworkReason: (nextIteration) => `等待第 ${nextIteration} 轮认领`,
+  gateFailed: "门禁未过",
+  missingDocument: "缺失",
+};
+
+export function TaskOverviewTab({
+  task,
+  onOpenCloseout,
+}: {
+  readonly task: TaskRow;
+  /** 概况顶部的「需要人动手」块只有一个动作:去收口页签处理;缺省不渲染按钮。 */
+  readonly onOpenCloseout?: () => void;
+}) {
   const plan = useTaskDocumentQuery(task.projectId, task.taskId, "task_plan.md");
   const events = task.events ?? [];
+  // 卡在哪(§2.2 异常块):只收真正的阻塞——blocked 及其原因、待返工、已 submit 后
+  // 仍未通过的门/缺失文档;判定见 model/task-stuck.ts,空了整块消失。
+  const stuck = taskStuckItems(task);
+  // 需要人动手(§2.2 hero):已提交/评审中,裁决动作在收口页签。
+  const awaitingOwner = task.coordinationStatus === "submitted" || task.coordinationStatus === "in_review";
 
   return (
     // 时间线不独占整列:容器 <1600px 时间线作为正文下方分区随内容高度增长;
@@ -46,49 +78,95 @@ export function TaskOverviewTab({ task }: { readonly task: TaskRow }) {
       data-testid="task-overview-tab"
     >
       <section className="min-w-0">
-        <SectionHeading eyebrow="PLAN" title="任务计划" description="目标、验收与边界的完整原文" />
-        <div className="mt-4">
-          {/* TODO(read-model): repo.tasks.document.read only exposes body:string today.
-              Keep the plan intact; do not parse markdown/frontmatter in the renderer.
-              Replace this whole-body rendering when the backend projects plan sections. */}
-          {plan.isPending ? (
-            <Pending text="正在读取 task_plan…" />
-          ) : plan.isError ? (
-            <ReadError text={`任务计划读取失败：${plan.error.message}`} />
-          ) : plan.data.status !== "ready" ? (
-            <Pending text="任务计划投影尚未追平" />
-          ) : plan.data.blobSha256 === null ? (
-            <Empty text="该任务尚未物化 task_plan.md。物化后，这里会直接呈现计划正文。" />
-          ) : (
-            <DocReader content={plan.data.body} />
-          )}
-        </div>
+        {awaitingOwner ? (
+          <div data-testid="task-overview-hero">
+            <Section
+              variant="hero"
+              title="等你裁决"
+              note="已提交 / 评审中——裁决与销账动作在收口页签"
+              action={
+                onOpenCloseout ? (
+                  <button type="button" className="text-accent ui-meta" onClick={onOpenCloseout}>
+                    去处理
+                  </button>
+                ) : undefined
+              }
+            >
+              <DenseRow
+                tag={<StatusTag status={task.coordinationStatus} />}
+                title={task.title}
+                reason={`iteration ${task.iteration ?? "—"} · lease ${task.leaseHolder ?? "无人持有"}`}
+              />
+            </Section>
+          </div>
+        ) : null}
+        {stuck.length > 0 ? (
+          <div data-testid="task-overview-stuck">
+            <Section variant="warn" title="卡在哪" count={stuck.length}>
+              <StuckRows items={stuck} copy={STUCK_COPY} />
+            </Section>
+          </div>
+        ) : null}
+        <Section title="任务计划" note="目标、验收与边界的完整原文">
+          <div className="mt-2">
+            {/* TODO(read-model): repo.tasks.document.read only exposes body:string today.
+                Keep the plan intact; do not parse markdown/frontmatter in the renderer.
+                Replace this whole-body rendering when the backend projects plan sections. */}
+            {plan.isPending ? (
+              <Pending text="正在读取 task_plan…" />
+            ) : plan.isError ? (
+              <ReadError text={`任务计划读取失败：${plan.error.message}`} />
+            ) : plan.data.status !== "ready" ? (
+              <Pending text="任务计划投影尚未追平" />
+            ) : plan.data.blobSha256 === null ? (
+              <p className="ui-meta text-text-faint">该任务尚未物化 task_plan.md。物化后，这里会直接呈现计划正文。</p>
+            ) : (
+              <DocReader content={plan.data.body} />
+            )}
+          </div>
+        </Section>
       </section>
 
       <aside className="border-t border-border pt-6 @min-[1600px]:border-t-0 @min-[1600px]:border-l @min-[1600px]:pl-6 @min-[1600px]:pt-0">
-        <SectionHeading eyebrow="TIMELINE" title="进展时间线" description={`${events.length} 条生命周期记录`} />
-        {events.length === 0 ? (
-          <div className="mt-4">
-            <Empty text="还没有 execution、review、consent 或 gate witness 记录。" />
-          </div>
-        ) : (
-          <ol className="mt-4 grid gap-0" data-testid="task-progress-timeline">
-            {events.map((event, index) => (
-              <li key={`${event.at}-${event.summary}-${index}`} className="grid grid-cols-[1rem_minmax(0,1fr)] gap-3">
-                <div className="flex flex-col items-center">
-                  <Circle weight="fill" className="mt-1 ui-micro text-accent" />
-                  {index < events.length - 1 ? <span className="min-h-8 w-px flex-1 bg-border" /> : null}
-                </div>
-                <div className="pb-5">
-                  <p className="ui-body leading-5 text-text">{event.summary}</p>
-                  <Timestamp value={event.at} />
-                </div>
-              </li>
-            ))}
-          </ol>
-        )}
+        <Section title="进展时间线" note={`${events.length} 条生命周期记录`}>
+          {events.length === 0 ? (
+            <p className="py-3 text-text-faint ui-body">还没有 execution、review、consent 或 gate witness 记录。</p>
+          ) : (
+            <div className="mt-2" data-testid="task-progress-timeline">
+              <TaskEventDigest events={events} />
+            </div>
+          )}
+        </Section>
       </aside>
     </div>
+  );
+}
+
+/** 生命周期事件按天收束(§1.4 收束,不堆叠):天摘要 + 每事件一行,全部渲染不分批。 */
+function TaskEventDigest({ events }: { readonly events: readonly EventEntry[] }) {
+  const groups: { day: string; events: { at: string; summary: string }[] }[] = [];
+  for (const event of [...events].sort((a, b) => b.at.localeCompare(a.at))) {
+    const day = formatTime(event.at, { style: "date" }) ?? event.at.slice(0, 10);
+    const last = groups.at(-1);
+    if (last !== undefined && last.day === day) last.events.push(event);
+    else groups.push({ day, events: [event] });
+  }
+  return (
+    <>
+      {groups.map((group) => (
+        <DayDigest
+          key={group.day}
+          day={group.day}
+          defaultOpen
+          summary={`${group.events.length} 条记录`}
+          paths={group.events.map((event) => ({
+            time: formatTime(event.at, { style: "time" }) ?? undefined,
+            name: event.summary,
+            steps: [],
+          }))}
+        />
+      ))}
+    </>
   );
 }
 
@@ -125,39 +203,38 @@ export function TaskDispatchTab({
 
   return (
     <section data-testid="task-dispatch-tab">
-      <SectionHeading
-        eyebrow="MISSION → DISPATCH → REPORT"
-        title="派工链"
-        description="派工身份、运行会话与最终报告来自 daemon 的结构化读面"
-      />
-      {dispatches.isPending ? (
-        <div className="mt-5">
-          <Pending text="正在读取派工记录…" />
-        </div>
-      ) : dispatches.isError ? (
-        <div className="mt-5">
-          <ReadError text={`派工记录读取失败：${dispatches.error.message}`} />
-        </div>
-      ) : rows.length === 0 ? (
-        <div className="mt-5">
-          <Empty text="该任务还没有派工记录。派工后，mission 身份、dispatch 与 report 会在这里串成一条链。" />
-        </div>
-      ) : (
-        <div className="mt-6 grid gap-7">
-          {rows.map((row, index) => (
-            <DispatchChain
-              key={row.dispatchId}
-              row={row}
-              onNavigateEntity={onNavigateEntity}
-              session={sessions[index]?.data}
-              sessionError={sessions[index]?.error}
-              events={events[index]?.data}
-              eventsError={events[index]?.error}
-              focused={focusedSessionId === row.runtimeSessionId}
-            />
-          ))}
-        </div>
-      )}
+      <Section title="派工链" note="派工身份、运行会话与最终报告来自 daemon 的结构化读面">
+        {dispatches.isPending ? (
+          <div className="mt-5">
+            <Pending text="正在读取派工记录…" />
+          </div>
+        ) : dispatches.isError ? (
+          <div className="mt-5">
+            <ReadError text={`派工记录读取失败：${dispatches.error.message}`} />
+          </div>
+        ) : rows.length === 0 ? (
+          <div className="mt-5">
+            <p className="text-text-faint ui-body">
+              该任务还没有派工记录。派工后，mission 身份、dispatch 与 report 会在这里串成一条链。
+            </p>
+          </div>
+        ) : (
+          <div className="mt-6 grid gap-7">
+            {rows.map((row, index) => (
+              <DispatchChain
+                key={row.dispatchId}
+                row={row}
+                onNavigateEntity={onNavigateEntity}
+                session={sessions[index]?.data}
+                sessionError={sessions[index]?.error}
+                events={events[index]?.data}
+                eventsError={events[index]?.error}
+                focused={focusedSessionId === row.runtimeSessionId}
+              />
+            ))}
+          </div>
+        )}
+      </Section>
     </section>
   );
 }
@@ -362,45 +439,45 @@ export function TaskEvidenceTab({
 
   return (
     <section data-testid="task-evidence-tab">
-      <SectionHeading
-        eyebrow="FACTS"
+      <Section
         title="任务证据"
-        description="按 taskId 从关系投影筛选；triage 信号（矛盾 / 孤儿 / 低置信 / 已被取代）在同一投影上现算"
-        extra={
+        note="按 taskId 从关系投影筛选；triage 信号（矛盾 / 孤儿 / 低置信 / 已被取代）在同一投影上现算"
+        action={
           facts.length > 0 ? (
-            <span className="ml-auto shrink-0 font-mono ui-micro text-text-faint">
+            <span className="font-mono ui-micro text-text-faint">
               {signalledCount} 条带信号 · {facts.length - signalledCount} healthy
             </span>
           ) : undefined
         }
-      />
-      {graph.isPending ? (
-        <div className="mt-5">
-          <Pending text="正在读取 facts…" />
-        </div>
-      ) : graph.isError ? (
-        <div className="mt-5">
-          <ReadError text={`Facts 读取失败：${graph.error.message}`} />
-        </div>
-      ) : facts.length === 0 ? (
-        <div className="mt-5">
-          <Empty text="该任务还没有 fact。记录可复核观察后，证据会按活性状态出现在这里。" />
-        </div>
-      ) : (
-        <div className="mt-6 divide-y divide-border border-y border-border" data-testid="task-facts-list">
-          {orderedFacts.map(({ fact, item }) => (
-            <FactRow
-              key={fact.factId}
-              fact={fact}
-              item={item}
-              relations={relations}
-              decisions={decisions}
-              tasks={tasks}
-              onNavigateEntity={onNavigateEntity}
-            />
-          ))}
-        </div>
-      )}
+      >
+        {graph.isPending ? (
+          <div className="mt-5">
+            <Pending text="正在读取 facts…" />
+          </div>
+        ) : graph.isError ? (
+          <div className="mt-5">
+            <ReadError text={`Facts 读取失败：${graph.error.message}`} />
+          </div>
+        ) : facts.length === 0 ? (
+          <div className="mt-5">
+            <p className="text-text-faint ui-body">该任务还没有 fact。记录可复核观察后，证据会按活性状态出现在这里。</p>
+          </div>
+        ) : (
+          <div className="mt-6 divide-y divide-border border-y border-border" data-testid="task-facts-list">
+            {orderedFacts.map(({ fact, item }) => (
+              <FactRow
+                key={fact.factId}
+                fact={fact}
+                item={item}
+                relations={relations}
+                decisions={decisions}
+                tasks={tasks}
+                onNavigateEntity={onNavigateEntity}
+              />
+            ))}
+          </div>
+        )}
+      </Section>
     </section>
   );
 }
@@ -549,29 +626,6 @@ function StatusDot({ status }: { readonly status: TaskDispatchProjectionRow["sta
   return <span className={`size-2 rounded-full ${dispatchStatusColor[status]}`} aria-label={status} />;
 }
 
-// 信息密度(task_9f39e256):分区标题从三行(eyebrow/标题/描述)压成单行 inline 条——
-// eyebrow + 标题 + 描述同行基线对齐,描述截断;信息一条不少,高度从 ~67px 降到 ~20px。
-export function SectionHeading({
-  eyebrow,
-  title,
-  description,
-  extra,
-}: {
-  readonly eyebrow: string;
-  readonly title: string;
-  readonly description: string;
-  readonly extra?: React.ReactNode;
-}) {
-  return (
-    <header className="flex min-w-0 flex-wrap items-baseline gap-x-2.5 gap-y-1" data-testid="task-section-heading">
-      <p className="shrink-0 font-mono ui-micro font-semibold uppercase tracking-[0.16em] text-accent">{eyebrow}</p>
-      <h2 className="shrink-0 ui-body font-semibold tracking-[-0.01em] text-text">{title}</h2>
-      <p className="min-w-0 truncate ui-micro leading-4 text-text-faint">{description}</p>
-      {extra}
-    </header>
-  );
-}
-
 export function Timestamp({ value }: { readonly value: string }) {
   return (
     <time dateTime={value} title={value} className="font-mono ui-micro text-text-faint">
@@ -586,13 +640,4 @@ function Pending({ text }: { readonly text: string }) {
 
 export function ReadError({ text }: { readonly text: string }) {
   return <p className="ui-meta leading-5 text-danger">{text}</p>;
-}
-
-function Empty({ text }: { readonly text: string }) {
-  return (
-    <div className="flex min-h-28 flex-col items-center justify-center gap-2 border border-dashed border-border-strong px-6 py-8 text-center">
-      <FileText weight="duotone" className="text-xl text-text-faint" />
-      <p className="max-w-lg ui-meta leading-5 text-text-faint">{text}</p>
-    </div>
-  );
 }

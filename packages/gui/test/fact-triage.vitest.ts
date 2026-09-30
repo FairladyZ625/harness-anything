@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -512,6 +513,34 @@ describe("cross-entity navigation projection", () => {
 
     expect(markup).toContain("支撑的 decision");
     expect(markup).toContain("dec_1");
+  });
+
+  it("puts the fact conclusion before compact fields and uses only baseline rounding", () => {
+    const fact = baseFact({
+      text: "The projection is current.",
+      confidence: "high",
+      source: "harness/facts/F-001.md",
+    });
+    const markup = renderToStaticMarkup(
+      createElement(FactInspector, {
+        factRef: fact.anchor,
+        facts: [fact],
+        tasks: [baseTask()],
+        decisions: [baseDecision()],
+        relations: [edge("task/task_a", fact.anchor, "produces")],
+        coverageRows: [coverage(fact)],
+      }),
+    );
+
+    expect(markup).toContain('data-testid="fact-conclusion"');
+    expect(markup).toContain('data-status-tone="done"');
+    expect(markup).toContain('data-testid="fact-fields"');
+    expect(markup.indexOf("The projection is current.")).toBeLessThan(markup.indexOf("harness/facts/F-001.md"));
+    const inspectorSource = readFileSync(
+      new URL("../src/renderer/components/FactInspector.tsx", import.meta.url),
+      "utf8",
+    );
+    expect(inspectorSource).not.toMatch(/rounded-(?:md|lg|xl|2xl|3xl)/);
   });
 
   it("does not show the replaced-by panel in FactInspector from a retired supersedes-fact edge", () => {

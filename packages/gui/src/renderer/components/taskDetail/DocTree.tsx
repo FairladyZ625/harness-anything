@@ -37,7 +37,7 @@ export function DocTree({ nodes, activeDoc, onSelectDoc }: DocTreeProps) {
 
   if (nodes.length === 0) {
     return (
-      <div className="rounded-md border border-dashed border-border px-2 py-3 ui-meta text-text-faint">
+      <div className="rounded-sm border border-dashed border-border px-2 py-3 ui-meta text-text-faint">
         {t("components.docTree.projectionDidNotReturnDocumentList")}
       </div>
     );
@@ -85,7 +85,7 @@ function TreeNodeView({
           type="button"
           onClick={() => onToggle(node.path)}
           aria-expanded={isExpanded}
-          className="flex w-full items-center gap-1 rounded-md py-1 pr-2 text-left ui-meta font-medium text-text-muted hover:text-text"
+          className="flex w-full items-center gap-1 rounded-sm py-1 pr-2 text-left ui-meta font-medium text-text-muted hover:text-text"
           style={{ paddingLeft: indent }}
         >
           {isExpanded ? (
@@ -120,7 +120,7 @@ function TreeNodeView({
       type="button"
       onClick={() => onSelectDoc(doc.path)}
       aria-current={activeDoc === doc.path ? "page" : undefined}
-      className={`flex w-full items-center gap-1.5 rounded-md py-1 pr-2 text-left ui-body ${
+      className={`flex w-full items-center gap-1.5 rounded-sm py-1 pr-2 text-left ui-body ${
         activeDoc === doc.path ? "bg-surface-raised text-text" : "text-text-muted hover:text-text"
       }`}
       style={{ paddingLeft: indent + 14 }}

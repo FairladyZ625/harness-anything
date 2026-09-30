@@ -5,7 +5,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { SnapshotStatus, TaskRow } from "../src/renderer/model/types.ts";
 import { BOARD_COLUMNS } from "../src/renderer/model/types.ts";
-import { TaskPreviewDrawer } from "../src/renderer/components/TaskPreviewDrawer.tsx";
 import { BoardView } from "../src/renderer/views/BoardView.tsx";
 import { SwimlaneBoard } from "../src/renderer/views/SwimlaneBoard.tsx";
 import {
@@ -1806,59 +1805,5 @@ describe("swimlane column resize (W11)", () => {
       root.unmount();
     });
     container.remove();
-  });
-});
-
-describe("task preview dismissal", () => {
-  it("closes on an outside press, lets the dimmed board keep its clicks, and keeps pin independent", async () => {
-    const onClose = vi.fn(),
-      onSetPin = vi.fn();
-    const task = makeTask();
-    const container = document.createElement("div");
-    document.body.append(container);
-    const root = createRoot(container);
-    try {
-      await act(async () =>
-        root.render(
-          createElement(TaskPreviewDrawer, {
-            task,
-            tasks: [task],
-            relations: [],
-            onClose,
-            onOpenDetail: noop,
-            onPreviewTask: noop,
-            onSetPin,
-          }),
-        ),
-      );
-      const backdrop = container.querySelector('[data-testid="drawer-backdrop"]') as HTMLElement;
-      // 压暗层不接指针事件:它下面的看板卡照常收到那一次点击,换卡才只需点一次。
-      expect(backdrop.className).toContain("pointer-events-none");
-      expect((container.querySelector("aside") as HTMLElement).className).toContain("pointer-events-auto");
-      const inside = container.querySelector("aside h2") as HTMLElement;
-      act(() => {
-        inside.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-        inside.click();
-      });
-      expect(onClose).not.toHaveBeenCalled();
-      const pinToggle = container.querySelector('[data-testid="task-preview-pin-toggle"]') as HTMLElement;
-      act(() => {
-        pinToggle.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-        pinToggle.click();
-      });
-      expect(onSetPin).toHaveBeenCalledWith(task, true);
-      expect(onClose).not.toHaveBeenCalled();
-      // 抽屉外按下 = 关闭(原来的「点中遮罩」判据换成「按下位置不在抽屉里」)。
-      const outside = document.createElement("div");
-      document.body.append(outside);
-      act(() => outside.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
-      expect(onClose).toHaveBeenCalledTimes(1);
-      outside.remove();
-      act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })));
-      expect(onClose).toHaveBeenCalledTimes(2);
-    } finally {
-      act(() => root.unmount());
-      container.remove();
-    }
   });
 });

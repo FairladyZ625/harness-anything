@@ -4,6 +4,7 @@ import type { TaskRow, DecisionRow, FactRef, RelationEdge } from "../model/types
 import type { RelationCoverageRow, FactAnchorRow } from "../../api/renderer-dto";
 import { FactInspector } from "../components/FactInspector";
 import { EgoNeighborhood } from "../graph/EgoNeighborhood";
+import { EntityRefLink } from "../components/EntityRefLink.tsx";
 import { t } from "../i18n/index.tsx";
 
 /**
@@ -125,10 +126,49 @@ function NeighborhoodPane({
   factAnchors: ReadonlyArray<FactAnchorRow>;
   onNavigateEntity?: (ref: string) => void;
 }) {
+  // 「和谁有关 / 最近变了什么」(§1.1):邻居数与邻居里最近一次变化,都从已加载投影现算。
+  const fullRef = focusRef?.startsWith("fact/") ? focusRef : focusRef ? `fact/${focusRef}` : null;
+  const neighborRefs = new Set<string>();
+  if (fullRef !== null)
+    for (const edge of relations)
+      if (edge.from === fullRef || edge.to === fullRef) {
+        neighborRefs.add(edge.from === fullRef ? edge.to : edge.from);
+      }
+  const latestChange = [
+    ...tasks.map((task) => ({ at: task.lastKnownAt, label: task.taskId, ref: `task/${task.taskId}` })),
+    ...decisions.map((decision) => ({
+      at: decision.proposedAt ?? "",
+      label: decision.decisionId,
+      ref: `decision/${decision.decisionId}`,
+    })),
+  ]
+    .filter((item) => item.at !== "" && neighborRefs.has(item.ref))
+    .sort((left, right) => right.at.localeCompare(left.at))
+    .at(0);
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-      <div className="flex items-center gap-3 border-b border-border px-4 py-1.5 font-mono ui-micro text-text-muted">
-        {t("views.entityDetail.neighborhoodHint")}
+      <div className="flex items-baseline gap-3 border-b border-border px-4 py-1.5">
+        <span className="font-mono ui-micro font-semibold uppercase tracking-wide text-text-muted">
+          {t("views.entityDetail.neighborhoodHint")}
+        </span>
+        {neighborRefs.size > 0 && latestChange !== undefined ? (
+          <span className="min-w-0 flex-1 truncate font-mono tabular-nums text-text-faint ui-meta">
+            {t("views.entityDetail.neighborhoodMeta", { count: neighborRefs.size })}{" "}
+            {onNavigateEntity ? (
+              <EntityRefLink
+                entityRef={latestChange.ref}
+                onNavigate={onNavigateEntity}
+                title={latestChange.ref}
+                className="text-text-faint hover:text-accent hover:underline"
+              >
+                {latestChange.label}
+              </EntityRefLink>
+            ) : (
+              latestChange.label
+            )}
+          </span>
+        ) : null}
+        <span className="shrink-0 text-text-faint ui-micro">{t("views.entityDetail.refocusHint")}</span>
       </div>
       <div className="flex min-h-0 flex-1">
         <EgoNeighborhood
