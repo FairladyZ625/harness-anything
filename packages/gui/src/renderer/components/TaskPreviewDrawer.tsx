@@ -16,6 +16,8 @@ import { EntityRefLink } from "./EntityRefLink.tsx";
 import { formatTime } from "../model/time.ts";
 import { workspaceGoalLine } from "../model/workspace-narrative.ts";
 import { useTaskDocumentQuery } from "../task-data.ts";
+import { taskStuckItems } from "../model/task-stuck.ts";
+import { StuckRows, type StuckRowCopy } from "./taskDetail/StuckRows.tsx";
 
 /**
  * 任务预览:右侧抽屉里的任务实体详情,按视觉基线 §4 的抽屉内容契约组合——
@@ -95,13 +97,27 @@ function TaskPreviewBody({
       return { edge, task: tasks.find((candidate) => candidate.taskId === otherId) };
     })
     .filter((item) => item.task);
-  const missingDocs = task.docs.filter((doc) => doc.required && doc.presence !== "unknown" && !doc.present);
-  const failedGates = task.gates.filter((gate) => gate.ok === false);
+  // 卡在哪:只收真正的阻塞(判定见 model/task-stuck.ts)——blocked 及其原因、
+  // 待返工、已 submit 后仍未通过的门/缺失文档;空了整块消失(§1.5)。
+  const stuck = taskStuckItems(task);
+  const gateFailedAny = task.gates.some((gate) => gate.ok === false);
   // 完整渲染,不分批(2026-08-25 泽宇裁决:性能顾虑用按需渲染解决,不转嫁给用户点击)。
   const orderedEvents = [...(task.events ?? [])].sort((a, b) => b.at.localeCompare(a.at));
   const dayGroups = useMemo(() => groupByDay(orderedEvents), [orderedEvents]);
   const plan = useTaskDocumentQuery(task.projectId, task.taskId, "task_plan.md");
   const goal = plan.data?.status === "ready" && plan.data.body !== null ? workspaceGoalLine(plan.data.body) : null;
+  const stuckCopy: StuckRowCopy = {
+    dependency: t("components.taskPreviewDrawer.stuckDependency"),
+    dependencyFallback: t("components.taskPreviewDrawer.stuckDependencyFallback"),
+    awaits: t("components.taskPreviewDrawer.stuckAwaits"),
+    cycle: t("components.taskPreviewDrawer.stuckCycle"),
+    cycleDetail: t("components.taskPreviewDrawer.stuckCycleDetail"),
+    rework: t("components.taskPreviewDrawer.stuckRework"),
+    reworkTitle: t("components.taskPreviewDrawer.stuckReworkTitle"),
+    reworkReason: (nextIteration) => t("components.taskPreviewDrawer.stuckReworkReason", { iteration: nextIteration }),
+    gateFailed: t("components.taskPreviewDrawer.gateFailed"),
+    missingDocument: t("components.taskPreviewDrawer.missingDocument"),
+  };
 
   return (
     <>
@@ -200,38 +216,15 @@ function TaskPreviewBody({
       {/* 要做什么:task_plan 的 Brief 一行目标,可展开(与工作页同一提取器)。 */}
       {goal !== null && <GoalLine goal={goal} />}
 
-      {/* 卡在哪:失败门禁、缺失必填文档、阻塞未知——空了整块消失(§1.5)。 */}
-      {failedGates.length + missingDocs.length > 0 || task.blocking === "unknown" ? (
-        <Section variant="warn" title={t("components.taskPreviewDrawer.stuck")}>
-          <div className="space-y-0.5">
-            {task.blocking === "unknown" && (
-              <DenseRow
-                tag={<StatusTag tone="bad" label={t("components.taskPreviewDrawer.blockingUnknown")} />}
-                title={t("components.taskPreviewDrawer.blockingCheckHint")}
-              />
-            )}
-            {failedGates.map((gate) => (
-              <DenseRow
-                key={gate.name}
-                tag={<StatusTag tone="bad" label={t("components.taskPreviewDrawer.gateFailed")} />}
-                title={gate.name}
-                reason={gate.detail}
-              />
-            ))}
-            {missingDocs.map((doc) => (
-              <DenseRow
-                key={doc.path}
-                tag={<StatusTag tone="bad" label={t("components.taskPreviewDrawer.missingDocument")} />}
-                title={doc.title}
-                reason={doc.path}
-              />
-            ))}
-          </div>
+      {/* 卡在哪:真正的阻塞才有块;空了整块消失(§1.5)。 */}
+      {stuck.length > 0 ? (
+        <Section variant="warn" title={t("components.taskPreviewDrawer.stuck")} count={stuck.length}>
+          <StuckRows items={stuck} copy={stuckCopy} />
         </Section>
       ) : null}
 
       {/* 做成了什么:通过的门禁与就绪的收口,一句话,不画框。 */}
-      {task.gates.length > 0 && failedGates.length === 0 ? (
+      {task.gates.length > 0 && !gateFailedAny ? (
         <Section title={t("components.taskPreviewDrawer.made")}>
           <p className="font-mono tabular-nums text-text-muted ui-meta">
             {t("components.taskPreviewDrawer.gatesPassed", {

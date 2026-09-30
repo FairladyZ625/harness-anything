@@ -1636,6 +1636,8 @@ describe("task preview drawer §4 内容契约", () => {
   it("生命周期进度、卡在哪、关键记录都在;标题经 TitleText 拆分", () => {
     const task = makeTask({
       title: "任务预览抽屉:按 §4 重做",
+      // 已 submit 后未过的门/缺失文档才是卡点(rework-1);active 未提交不渲染卡在哪。
+      coordinationStatus: "in_review",
       gates: [
         { name: "local-check", ok: true },
         { name: "lint", ok: false, detail: "G05 rethrow required" },
@@ -1656,10 +1658,12 @@ describe("task preview drawer §4 内容契约", () => {
     expect(markup).toContain("Lifecycle");
     // 标题经 TitleText:冒号后补充段染弱。
     expect(markup).toContain('<span class="text-text-faint">:按 §4 重做</span>');
-    // 卡在哪:失败门禁与缺失必填文档都是有底色的 bad 状态标签行(§3)。
+    // 卡在哪:未过的门与缺失必填文档都是有底色的 bad 状态标签行(§3);未映射的
+    // 机器 reason 码翻成按状态兜底的人话,原文进 title 提示。
     expect(markup).toContain("Where it is stuck");
     expect(markup).toContain('data-status-tone="bad"');
     expect(markup).toContain("lint");
+    expect(markup).toContain("this gate did not pass");
     expect(markup).toContain("收口报告");
     // 关键记录:按天收束,全部事件都在标记里(2026-08-25 完整渲染裁决)。
     expect(markup).toContain("Key records");
@@ -1668,6 +1672,81 @@ describe("task preview drawer §4 内容契约", () => {
     expect(markup).toContain("Execution submitted");
     // 归属一行:parent 与 work 是实体链接,不是死文本。
     expect(markup).toContain("task-root");
+  });
+
+  it("卡在哪只收真正的阻塞:active 未提交不渲染;blocked 依赖与待返工才渲染", () => {
+    // active 未提交:提交前的完成门/缺失文档是「完成前还需要」,不是卡点。
+    const preSubmit = drawerMarkup(
+      makeTask({
+        gates: [{ name: "ci", ok: false, status: "missing", detail: "no submitted execution cut" }],
+        docs: [
+          {
+            path: "closeout.md",
+            title: "收口报告",
+            group: "收口",
+            required: true,
+            present: false,
+            presence: "missing",
+          },
+        ],
+      }),
+    );
+    expect(preSubmit).not.toContain("Where it is stuck");
+    // 已知机器 reason 码也不在一级位置出现(只有 title 提示承载原文)。
+    expect(preSubmit).not.toContain("no submitted execution cut");
+
+    const blocked = drawerMarkup(
+      makeTask({
+        coordinationStatus: "blocked",
+        blocking: "blocked",
+        blockingLabel: "relations",
+        blockers: [
+          {
+            relationId: "rel-dep",
+            kind: "depends-on",
+            sourceTaskId: "task-a",
+            targetTaskId: "task-upstream",
+            rationale: "upstream slice lands first",
+          },
+        ],
+      }),
+    );
+    expect(blocked).toContain("Where it is stuck");
+    expect(blocked).toContain("dependency");
+    expect(blocked).toContain("task-upstream");
+    expect(blocked).toContain("upstream slice lands first");
+
+    const rework = drawerMarkup(
+      makeTask({
+        iteration: 2,
+        executions: [
+          {
+            schema: "execution/v1",
+            executionId: "exe-1",
+            taskId: "task-a",
+            nodeId: "implementation",
+            iteration: 1,
+            state: "changes_requested",
+            actor: { principal: { personId: "person-owner" }, executor: null },
+            claimedAt: "2026-08-20T09:00:00.000Z",
+            submittedAt: "2026-08-21T10:00:00.000Z",
+            closedAt: "2026-08-21T12:00:00.000Z",
+            submission: {
+              completionClaim: "done",
+              deliverables: [],
+              outputs: [],
+              verificationNotes: [],
+              knownGaps: [],
+              residualRisks: [],
+              commitSha: "a".repeat(40),
+            },
+          },
+        ],
+      }),
+    );
+    expect(rework).toContain("returned for rework");
+    expect(rework).toContain("the previous submission was returned");
+    expect(rework).toContain("iteration 2 awaits a new claim");
   });
 
   it("无卡点时「卡在哪」整块消失;门禁全过时给一句话,不画大框(§1.5)", () => {

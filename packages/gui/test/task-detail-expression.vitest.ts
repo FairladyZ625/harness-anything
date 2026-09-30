@@ -214,7 +214,7 @@ describe("Task detail expression", () => {
 
   it("overview answers 要做什么/进展到哪/卡在哪: hero for awaiting owner, warn rows for stuck causes, both vanish when empty", async () => {
     installBridge();
-    // in_review ⇒ 需要人动手的 hero 块;无失败门禁/缺失文档 ⇒ 卡在哪整块不渲染(空了就消失)。
+    // in_review ⇒ 需要人动手的 hero 块;无真正的阻塞 ⇒ 卡在哪整块不渲染(空了就消失)。
     await mount();
     const hero = byTestId("task-overview-hero");
     expect(hero.textContent).toContain("等你裁决");
@@ -256,12 +256,10 @@ describe("Task detail expression", () => {
         ],
       },
     });
-    // active 且无裁决待办 ⇒ hero 消失;失败门禁与缺失文档 ⇒ 卡在哪 有底色状态标签行。
+    // active 未提交 ⇒ hero 消失;提交前的完成门/缺失文档是「完成前还需要」,
+    // 不是卡点(rework-1 裁决)——卡在哪整块不渲染,完成门在收口页签逐门列出。
     expect(document.querySelector('[data-testid="task-overview-hero"]')).toBeNull();
-    const stuck = byTestId("task-overview-stuck");
-    expect(stuck.querySelectorAll('[data-status-tone="bad"]').length).toBe(2);
-    expect(stuck.textContent).toContain("lint");
-    expect(stuck.textContent).toContain("收口报告");
+    expect(document.querySelector('[data-testid="task-overview-stuck"]')).toBeNull();
     // 标题经 TitleText:冒号后的补充段染弱(§2.3)。
     const supplement = byTestId("task-detail-header").querySelector("h1 span")!;
     expect(supplement.className).toContain("text-text-faint");
@@ -271,6 +269,90 @@ describe("Task detail expression", () => {
     expect(days.length).toBe(2);
     expect(days[0]?.textContent).toContain("Review review-w3: approved");
     expect(days[1]?.textContent).toContain("Execution submitted");
+  });
+
+  it("卡在哪只收真正的阻塞:submit 后未过的门才进,原因是人话不是机器码", async () => {
+    installBridge();
+    await mount({
+      task: {
+        ...task,
+        coordinationStatus: "submitted",
+        gates: [
+          { name: "local-check", ok: true },
+          { name: "ci", ok: false, status: "missing", detail: "current execution cut has no gate witness" },
+          { name: "code-doc-reconciliation", ok: false, status: "missing", detail: "no submitted execution cut" },
+        ],
+      },
+    });
+    const stuck = byTestId("task-overview-stuck");
+    // 已 submit ⇒ 未过的门是卡点;两行 bad 底色状态标签。
+    expect(stuck.querySelectorAll('[data-status-tone="bad"]')).toHaveLength(2);
+    expect(stuck.textContent).toContain("ci");
+    // 原因映射成中文人话;机器 reason 码只在 title 提示里,不占一级位置。
+    expect(stuck.textContent).toContain("本次提交还没有这道门的见证");
+    expect(stuck.textContent).toContain("台账里还没有可评估的已提交执行切面");
+    expect(stuck.textContent).not.toContain("no submitted execution cut");
+    expect(stuck.querySelector('[title="no submitted execution cut"]')).not.toBeNull();
+
+    await cleanupMountedDetail();
+    installBridge();
+    // blocked:依赖未完成与等人答复是卡点,原因来自 blockers。
+    await mount({
+      task: {
+        ...task,
+        coordinationStatus: "blocked",
+        gates: [{ name: "local-check", ok: true }],
+        blocking: "blocked",
+        blockingLabel: "relations",
+        blockers: [
+          {
+            relationId: "rel-dep",
+            kind: "depends-on",
+            sourceTaskId: "task-w3",
+            targetTaskId: "task-upstream",
+            rationale: "上游切片先合入",
+          },
+          {
+            relationId: "rel-await",
+            kind: "awaits",
+            sourceTaskId: "task-w3",
+            personId: "person-zeyu",
+            askKind: "question",
+            question: "走哪条路线?",
+          },
+        ],
+      },
+    });
+    const blocked = byTestId("task-overview-stuck");
+    expect(blocked.textContent).toContain("依赖未完成");
+    expect(blocked.textContent).toContain("task-upstream");
+    expect(blocked.textContent).toContain("上游切片先合入");
+    expect(blocked.textContent).toContain("person-zeyu");
+    expect(blocked.textContent).toContain("走哪条路线?");
+
+    await cleanupMountedDetail();
+    installBridge();
+    // 打回待返工:上一轮 changes_requested、新一轮无人认领 ⇒ 待返工行;提交前的门不进。
+    await mount({
+      task: {
+        ...task,
+        coordinationStatus: "active",
+        iteration: 1,
+        gates: [{ name: "ci", ok: false, status: "missing", detail: "no submitted execution cut" }],
+        executions: [
+          {
+            ...task.executions[0],
+            state: "changes_requested",
+            closedAt: "2026-08-23T11:00:00.000Z",
+          },
+        ],
+      },
+    });
+    const rework = byTestId("task-overview-stuck");
+    expect(rework.textContent).toContain("待返工");
+    expect(rework.textContent).toContain("上一轮提交被打回");
+    expect(rework.textContent).toContain("等待第 1 轮认领");
+    expect(rework.textContent).not.toContain("门禁未过");
   });
 
   it("adapts the detail card and reader to container width; manual layout controls still override", async () => {

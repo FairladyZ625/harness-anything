@@ -32,11 +32,27 @@ export interface TaskTriageDecisionRef {
   readonly question?: string;
 }
 import { activeProducesFactRefs } from "../../model/triadic.ts";
+import { taskStuckItems } from "../../model/task-stuck.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { buildFactTriage, SIGNAL_LABEL, type FactTriageItem } from "../../model/fact-triage.ts";
 import { buildFactTriageContext } from "../../model/copy-context.ts";
 import { CopyContextButton } from "../CopyContextButton.tsx";
 import { DocReader } from "../DocReader.tsx";
+import { StuckRows, type StuckRowCopy } from "./StuckRows.tsx";
+
+/** 概况页签的「卡在哪」标签措辞(本页签全文案为中文硬文案,抽屉走 i18n)。 */
+const STUCK_COPY: StuckRowCopy = {
+  dependency: "依赖未完成",
+  dependencyFallback: "上游任务还没完成",
+  awaits: "等答复",
+  cycle: "依赖成环",
+  cycleDetail: "阻塞关系成环,环上任务全部保持阻塞",
+  rework: "待返工",
+  reworkTitle: "上一轮提交被打回",
+  reworkReason: (nextIteration) => `等待第 ${nextIteration} 轮认领`,
+  gateFailed: "门禁未过",
+  missingDocument: "缺失",
+};
 
 export function TaskOverviewTab({
   task,
@@ -48,10 +64,9 @@ export function TaskOverviewTab({
 }) {
   const plan = useTaskDocumentQuery(task.projectId, task.taskId, "task_plan.md");
   const events = task.events ?? [];
-  // 卡在哪(§2.2 异常块):阻塞状态、失败门禁、缺失必填文档;空了整块消失。
-  const failedGates = task.gates.filter((gate) => gate.ok === false);
-  const missingDocs = task.docs.filter((doc) => doc.required && doc.presence !== "unknown" && !doc.present);
-  const stuckCount = failedGates.length + missingDocs.length + (task.blocking === "unknown" ? 1 : 0);
+  // 卡在哪(§2.2 异常块):只收真正的阻塞——blocked 及其原因、待返工、已 submit 后
+  // 仍未通过的门/缺失文档;判定见 model/task-stuck.ts,空了整块消失。
+  const stuck = taskStuckItems(task);
   // 需要人动手(§2.2 hero):已提交/评审中,裁决动作在收口页签。
   const awaitingOwner = task.coordinationStatus === "submitted" || task.coordinationStatus === "in_review";
 
@@ -85,30 +100,10 @@ export function TaskOverviewTab({
             </Section>
           </div>
         ) : null}
-        {stuckCount > 0 ? (
+        {stuck.length > 0 ? (
           <div data-testid="task-overview-stuck">
-            <Section variant="warn" title="卡在哪" count={stuckCount}>
-              <div className="space-y-0.5">
-                {task.blocking === "unknown" && (
-                  <DenseRow tag={<StatusTag tone="bad" label="阻塞未知" />} title="关系投影未给出阻塞结论" />
-                )}
-                {failedGates.map((gate) => (
-                  <DenseRow
-                    key={gate.name}
-                    tag={<StatusTag tone="bad" label="门禁未过" />}
-                    title={gate.name}
-                    reason={gate.detail}
-                  />
-                ))}
-                {missingDocs.map((doc) => (
-                  <DenseRow
-                    key={doc.path}
-                    tag={<StatusTag tone="bad" label="缺失" />}
-                    title={doc.title}
-                    reason={doc.path}
-                  />
-                ))}
-              </div>
+            <Section variant="warn" title="卡在哪" count={stuck.length}>
+              <StuckRows items={stuck} copy={STUCK_COPY} />
             </Section>
           </div>
         ) : null}

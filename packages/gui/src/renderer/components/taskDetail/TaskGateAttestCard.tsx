@@ -1,11 +1,18 @@
 import { useState } from "react";
 import { CheckCircle, ClockCounterClockwise, WarningCircle, XCircle } from "@phosphor-icons/react";
-import type { GateStatus, TaskRow } from "../../model/types.ts";
+import type { GateResult, GateStatus, TaskRow } from "../../model/types.ts";
 import { taskGateAttestations } from "../../model/attestation-pool.ts";
+import { gateReasonKey } from "../../model/task-stuck.ts";
 import type { TaskMutationFeedback } from "../../task-actions.ts";
 import { t } from "../../i18n/index.tsx";
 
 export type GateAttestMode = "approve" | "override";
+
+/** 门禁 detail 的人话文案:已知机器码映射,未映射的动态原文保留。 */
+function gateDetailText(gate: GateResult): string {
+  const key = gateReasonKey(gate);
+  return key === null ? (gate.detail ?? "") : t(key);
+}
 
 const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent";
 
@@ -184,7 +191,13 @@ export function TaskGateAttestCard({
                     {t("components.taskGateAttestCard.waivedLabel")}
                   </p>
                 )}
-                {gate.detail ? <p className="mt-0.5 leading-5 text-text-faint">{gate.detail}</p> : null}
+                {/* 机器 reason 码映射成人话;未映射的动态原文(如 waived 回执)保留,
+                    原文进 title 提示,不占一级位置(rework-1)。 */}
+                {gate.detail ? (
+                  <p className="mt-0.5 leading-5 text-text-faint" title={gate.detail}>
+                    {gateDetailText(gate)}
+                  </p>
+                ) : null}
                 {mode && (
                   <div className="mt-1.5">
                     {openGate === gate.name ? (
