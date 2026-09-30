@@ -26,7 +26,7 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
     credentialRef = "credential:v1:github-worker",
     repoId = "runtime-worker-github",
     instanceId = "codex-github-worker",
-    taskId = "task-github-worker",
+    taskId = "task_github_worker",
     executionId = "execution-github-worker";
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
