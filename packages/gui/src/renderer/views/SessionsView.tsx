@@ -223,21 +223,19 @@ export function SessionsView({
     return rows;
   }, [expandedTasks, roundsQueries, taskSessionQueries]);
 
-  // Decision 组展开行:该组的评审派工在 Decision full 行上(reviewDispatches),与决策池/详情
-  // 共用同一缓存键;只有展开 Decision 组或落 Decision 会话深链时才读,着陆不增加读请求。
-  const expandedDecisionIds = useMemo(
+  // Decision 组:daemon 组行只带 decisionId,组头标题与展开行都取 Decision full 行(标题、
+  // reviewDispatches),与决策池/详情共用同一缓存键;列表里有 Decision 组或落 Decision 会话深链时才读。
+  const decisionGroupIds = useMemo(
     () =>
       groups.flatMap((group) =>
-        group.kind === "decision" && group.decisionId !== undefined && expandedGroups.has(group.key)
-          ? [group.decisionId]
-          : [],
+        group.kind === "decision" && group.decisionId !== undefined ? [group.decisionId] : [],
       ),
-    [groups, expandedGroups],
+    [groups],
   );
   const decisionRowsQuery = useQuery({
     queryKey: triadicQueryKeys.decisions(repoId),
     queryFn: () => harnessClient.getDecisions({ repoId }),
-    enabled: expandedDecisionIds.length > 0 || decisionFocus?.runtimeSessionId != null,
+    enabled: decisionGroupIds.length > 0 || decisionFocus?.runtimeSessionId != null,
     staleTime: 10_000,
   });
   const reviewedDecisions = useMemo(
@@ -246,7 +244,7 @@ export function SessionsView({
   );
   const decisionGroupRows = useMemo(() => {
     const rows = new Map<string, DecisionGroupRows>();
-    for (const decisionId of expandedDecisionIds) {
+    for (const decisionId of decisionGroupIds) {
       const decision = reviewedDecisions.find((row) => row.decisionId === decisionId);
       rows.set(decisionId, {
         title: decision?.title ?? null,
@@ -261,7 +259,7 @@ export function SessionsView({
     }
     return rows;
   }, [
-    expandedDecisionIds,
+    decisionGroupIds,
     reviewedDecisions,
     decisionRowsQuery.isPending,
     decisionRowsQuery.isError,

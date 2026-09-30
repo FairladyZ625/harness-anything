@@ -343,9 +343,9 @@ describe("agent runtime renderer", () => {
     for (const state of ["live", "stale", "unknown", "exited"] as const)
       expect(detailView({ session: { ...session, liveness: state } })).toContain(`>${state}<`);
   });
-  it("shows the session result text once the daemon projects one, and says so when it has not", () => {
+  it("shows the session result text once the daemon projects one, and drops the block when it has not", () => {
     expect(detailView({ result: "Provider final report text." })).toContain("Provider final report text.");
-    expect(detailView()).toContain("This session has no result text yet.");
+    expect(detailView()).not.toContain("Output / result");
   });
   it("shows the cancel control only while a session is live", () => {
     expect(detailView({ session: { ...session, liveness: "live" } })).toContain('data-testid="agent-runtime-cancel"');

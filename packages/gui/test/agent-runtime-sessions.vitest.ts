@@ -227,11 +227,14 @@ describe("session consumption panel (P1.3)", () => {
     expect(markup).toContain("Compacted");
   });
 
-  it("keeps the panel present and honest when the dispatch has not reported consumption", () => {
-    const markup = detailView();
-    expect(markup).toContain('data-testid="session-metrics-none"');
-    // 撇号在 static markup 里会被转义,断言避开它。
-    expect(markup).toContain("not reported consumption yet.");
+  it("drops empty blocks instead of drawing placeholder boxes (standard §1.5)", () => {
+    // 未上报消耗、无结果文本、未绑定任务:整块不渲染,不画虚线占位框。
+    const markup = detailView({ session: { ...sessionDto, associations: [] }, row: null, transcript: null });
+    expect(markup).not.toContain("Session consumption");
+    expect(markup).not.toContain("session-metrics");
+    expect(markup).not.toContain("Output / result");
+    expect(markup).not.toContain("session-open-task");
+    expect(markup).not.toContain("border-dashed");
   });
 });
 
@@ -452,6 +455,19 @@ describe("session transcript replay", () => {
     );
     expect(markup).toContain("No dispatch record is available for this session.");
     expect(markup).toContain('data-testid="session-transcript-empty"');
+  });
+
+  it("renders nothing as a titled detail block when there is no dispatch record", () => {
+    const markup = renderToStaticMarkup(
+      createElement(SessionTranscript, {
+        repoId: "repo-a",
+        dispatchId: null,
+        live: false,
+        onSettled: noop,
+        title: "Transcript",
+      }),
+    );
+    expect(markup).toBe("");
   });
 });
 

@@ -133,6 +133,7 @@ export function SessionsPanel({
               dispatchId={row?.kind === "round" ? row.dispatchId : null}
               live={LIVENESS_LIVE[session.liveness] ?? false}
               onSettled={reread}
+              title={t("agentRuntime.transcript")}
             />
           }
           busy={busy}
@@ -147,12 +148,12 @@ export function SessionsPanel({
 }
 
 /** 会话消耗面板:该会话派工的输入/缓存读取/输出/总 Token、工具调用与 compaction 标记。 */
-function SessionMetricsCard({ metrics }: { readonly metrics: AgentRuntimeSessionDto["metrics"] | null }) {
+function SessionMetricsCard({ metrics }: { readonly metrics: NonNullable<AgentRuntimeSessionDto["metrics"]> }) {
   return (
     <Card>
       <CardHead>
         <CardTitle>{t("agentRuntime.sessionMetricsTitle")}</CardTitle>
-        {metrics?.compacted === true && (
+        {metrics.compacted === true && (
           <span data-testid="session-metrics-compacted">
             <Badge status="blocked" tip={t("agentRuntime.sessionMetricsCompactedTip")}>
               ⚠ {t("agentRuntime.sessionMetricsCompacted")}
@@ -161,32 +162,23 @@ function SessionMetricsCard({ metrics }: { readonly metrics: AgentRuntimeSession
         )}
       </CardHead>
       <CardBody>
-        {metrics == null ? (
-          <div
-            data-testid="session-metrics-none"
-            className="rounded border border-dashed border-text-faint/55 px-2.5 py-2 ui-micro text-text-faint"
-          >
-            {t("agentRuntime.sessionMetricsNone")}
-          </div>
-        ) : (
-          <div data-testid="session-metrics">
-            <KV>
-              {metrics.usageUnavailable === true ? (
-                <KVRow name={t("agentRuntime.sessionMetricsTokens")}>
-                  <span data-testid="session-metrics-unavailable">{t("agentRuntime.sessionMetricsUnavailable")}</span>
-                </KVRow>
-              ) : (
-                <>
-                  <KVRow name={t("agentRuntime.sessionMetricsInput")}>{exactTokens(metrics.inputTokens)}</KVRow>
-                  <KVRow name={t("agentRuntime.sessionMetricsCacheRead")}>{exactTokens(metrics.cacheReadTokens)}</KVRow>
-                  <KVRow name={t("agentRuntime.sessionMetricsOutput")}>{exactTokens(metrics.outputTokens)}</KVRow>
-                  <KVRow name={t("agentRuntime.sessionMetricsTotal")}>{exactTokens(metrics.totalTokens)}</KVRow>
-                </>
-              )}
-              <KVRow name={t("agentRuntime.sessionMetricsTools")}>{metrics.toolCallCount}</KVRow>
-            </KV>
-          </div>
-        )}
+        <div data-testid="session-metrics">
+          <KV>
+            {metrics.usageUnavailable === true ? (
+              <KVRow name={t("agentRuntime.sessionMetricsTokens")}>
+                <span data-testid="session-metrics-unavailable">{t("agentRuntime.sessionMetricsUnavailable")}</span>
+              </KVRow>
+            ) : (
+              <>
+                <KVRow name={t("agentRuntime.sessionMetricsInput")}>{exactTokens(metrics.inputTokens)}</KVRow>
+                <KVRow name={t("agentRuntime.sessionMetricsCacheRead")}>{exactTokens(metrics.cacheReadTokens)}</KVRow>
+                <KVRow name={t("agentRuntime.sessionMetricsOutput")}>{exactTokens(metrics.outputTokens)}</KVRow>
+                <KVRow name={t("agentRuntime.sessionMetricsTotal")}>{exactTokens(metrics.totalTokens)}</KVRow>
+              </>
+            )}
+            <KVRow name={t("agentRuntime.sessionMetricsTools")}>{metrics.toolCallCount}</KVRow>
+          </KV>
+        </div>
       </CardBody>
     </Card>
   );
@@ -341,14 +333,13 @@ export function SessionDetailView({
                 : ""}
             </span>
           </div>
-          <h3 className="mb-1 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
-            {t("agentRuntime.sessionTaskSection")}
-          </h3>
-          {target === null ? (
-            <div className="rounded border border-dashed border-text-faint/55 px-2.5 py-2 ui-micro text-text-faint">
-              {t("agentRuntime.sessionTaskNone")}
-            </div>
-          ) : (
+          {/* 没绑定任务时整段不渲染(规范 1.5「空了就消失」)。 */}
+          {target !== null && (
+            <h3 className="mb-1 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
+              {t("agentRuntime.sessionTaskSection")}
+            </h3>
+          )}
+          {target !== null && (
             <button
               type="button"
               data-testid="session-open-task"
@@ -392,28 +383,20 @@ export function SessionDetailView({
         </CardBody>
       </Card>
       {/* 单次会话消耗面板(P1.3):数据随会话读的 metrics 字段下发——与 liveness 同一份
-          dispatch stream summary。固定占位:未上报时如实说明,不隐藏区域。 */}
-      <SessionMetricsCard metrics={session.metrics ?? null} />
-      <Card>
-        <CardHead>
-          <CardTitle>{t("agentRuntime.resultText")}</CardTitle>
-        </CardHead>
-        <CardBody>
-          {result === null ? (
-            <div className="rounded border border-dashed border-text-faint/55 px-2.5 py-2 ui-micro text-text-faint">
-              {t("agentRuntime.noResultYet")}
-            </div>
-          ) : (
+          dispatch stream summary。未上报、无结果文本时整块不渲染(规范 1.5)。 */}
+      {session.metrics != null && <SessionMetricsCard metrics={session.metrics} />}
+      {result !== null && (
+        <Card>
+          <CardHead>
+            <CardTitle>{t("agentRuntime.resultText")}</CardTitle>
+          </CardHead>
+          <CardBody>
             <pre className="rt-pre max-h-56 overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere]">{result}</pre>
-          )}
-        </CardBody>
-      </Card>
-      <Card>
-        <CardHead>
-          <CardTitle>{t("agentRuntime.transcript")}</CardTitle>
-        </CardHead>
-        <CardBody>{transcript}</CardBody>
-      </Card>
+          </CardBody>
+        </Card>
+      )}
+      {/* 会话记录自带卡片,没有记录时由它自己整块不渲染。 */}
+      {transcript}
       <Card>
         <CardHead>
           <CardTitle>{t("agentRuntime.sessionFacts")}</CardTitle>
