@@ -19,7 +19,7 @@ test("bypass write boundary accepts explicitly governed fs write calls", () => {
       "import { writeFileSync } from 'node:fs';",
       "export function apply() {",
       "  /* @gate-identity check-bypass-write-boundary/fixture-write */ writeFileSync('harness/generated-human.md', 'ok', 'utf8');",
-      "}"
+      "}",
     ]);
     writeAllowlist(policyRoot, "fixture-write");
 
@@ -44,11 +44,19 @@ test("worktree settlement fixture requires every physical write call to be gover
     "  /* @gate-identity check-bypass-write-boundary/fixture-fsync */ fsyncSync(descriptor);",
     "  /* @gate-identity check-bypass-write-boundary/fixture-close */ closeSync(descriptor);",
     "  /* @gate-identity check-bypass-write-boundary/fixture-rename */ renameSync('harness/context/.tmp', 'harness/context/doc.md');",
-    "}"
+    "}",
   ];
-  const allowed = ["fixture-mkdir", "fixture-open", "fixture-write", "fixture-fsync", "fixture-close", "fixture-rename"];
+  const allowed = [
+    "fixture-mkdir",
+    "fixture-open",
+    "fixture-write",
+    "fixture-fsync",
+    "fixture-close",
+    "fixture-rename",
+  ];
   try {
-    writeStore(root, lines); writeAllowlist(policyRoot, allowed);
+    writeStore(root, lines);
+    writeAllowlist(policyRoot, allowed);
     assert.equal(runChecker(root, policyRoot).status, 0);
     writeStore(root, [...lines, "writeFileSync('harness/escape.md', 'escape');"]);
     const rejected = runChecker(root, policyRoot);
@@ -69,7 +77,7 @@ test("bypass write boundary stable anchors survive unrelated leading lines", () 
       "import { writeFileSync } from 'node:fs';",
       "export function apply() {",
       "  /* @gate-identity check-bypass-write-boundary/fixture-write */ writeFileSync('harness/generated-human.md', 'ok', 'utf8');",
-      "}"
+      "}",
     ]);
     writeAllowlist(policyRoot, "fixture-write");
 
@@ -88,21 +96,25 @@ test("source identities survive formatting and a responsibility split into a ren
   try {
     writeStore(root, [
       "import { writeFileSync } from 'node:fs';",
-      "export function apply() { return /* @gate-identity check-bypass-write-boundary/fixture-write */ writeFileSync('harness/generated-human.md', 'ok', 'utf8'); }"
+      "export function apply() { return /* @gate-identity check-bypass-write-boundary/fixture-write */ writeFileSync('harness/generated-human.md', 'ok', 'utf8'); }",
     ]);
     writeAllowlist(policyRoot, "fixture-write");
     assert.equal(runChecker(root, policyRoot).status, 0);
 
-    writeFileSync(path.join(root, "packages/kernel/src/store/generated-human-writer.ts"), [
-      "import { writeFileSync } from 'node:fs';",
-      "export function writeGeneratedHuman() {",
-      "  return /* @gate-identity check-bypass-write-boundary/fixture-write */ writeFileSync(",
-      "    'harness/generated-human.md',",
-      "    'ok',",
-      "    'utf8',",
-      "  );",
-      "}"
-    ].join("\n"), "utf8");
+    writeFileSync(
+      path.join(root, "packages/kernel/src/store/generated-human-writer.ts"),
+      [
+        "import { writeFileSync } from 'node:fs';",
+        "export function writeGeneratedHuman() {",
+        "  return /* @gate-identity check-bypass-write-boundary/fixture-write */ writeFileSync(",
+        "    'harness/generated-human.md',",
+        "    'ok',",
+        "    'utf8',",
+        "  );",
+        "}",
+      ].join("\n"),
+      "utf8",
+    );
     rmSync(path.join(root, "packages/kernel/src/store/fixture.ts"));
 
     const moved = runChecker(root, policyRoot);
@@ -122,7 +134,7 @@ test("duplicate source identities fail closed", () => {
       "export function apply() {",
       "  /* @gate-identity check-bypass-write-boundary/fixture-write */ writeFileSync('one', 'one');",
       "  /* @gate-identity check-bypass-write-boundary/fixture-write */ writeFileSync('two', 'two');",
-      "}"
+      "}",
     ]);
     writeAllowlist(policyRoot, "fixture-write");
     const result = runChecker(root, policyRoot);
@@ -142,7 +154,7 @@ test("a stable identity cannot transfer to a different write API", () => {
       "import { rmSync } from 'node:fs';",
       "export function apply() {",
       "  /* @gate-identity check-bypass-write-boundary/fixture-write */ rmSync('harness/generated-human.md');",
-      "}"
+      "}",
     ]);
     writeAllowlist(policyRoot, "fixture-write");
     const result = runChecker(root, policyRoot);
@@ -162,7 +174,7 @@ test("bypass write boundary rejects new fs writes outside the allowlist", () => 
       "import * as fs from 'node:fs';",
       "export function bypass() {",
       "  fs.writeFileSync('harness/tasks/task-1/artifacts/evidence.json', '{}', 'utf8');",
-      "}"
+      "}",
     ]);
     writeAllowlist(policyRoot, []);
 
@@ -179,13 +191,17 @@ test("bypass write boundary rejects SQLite access and kernel local mutators outs
   const root = makeFixtureRoot();
   const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-w8-policy-"));
   try {
-    writeFileSync(path.join(root, "packages/kernel/src/local/lease.ts"), [
-      "import { DatabaseSync } from 'node:sqlite';",
-      "export function bypass() {",
-      "  const db = new DatabaseSync('lease.sqlite');",
-      "  db.prepare('INSERT INTO lease_cas VALUES (?)').run('x');",
-      "}"
-    ].join("\n"), "utf8");
+    writeFileSync(
+      path.join(root, "packages/kernel/src/local/lease.ts"),
+      [
+        "import { DatabaseSync } from 'node:sqlite';",
+        "export function bypass() {",
+        "  const db = new DatabaseSync('lease.sqlite');",
+        "  db.prepare('INSERT INTO lease_cas VALUES (?)').run('x');",
+        "}",
+      ].join("\n"),
+      "utf8",
+    );
     writeAllowlist(policyRoot, []);
 
     const result = runChecker(root, policyRoot);
@@ -218,16 +234,63 @@ test("bypass write anchor migration converts legacy positions mechanically", () 
     schema: "harness-anything/gate-allowlist/v1",
     gateId: "check-bypass-write-boundary",
     entries: {
-      coordinatedCore: [{ value: "a.ts#writeFileSync@4:3", ref: "task_X", reason: "fixture" }]
-    }
+      coordinatedCore: [{ value: "a.ts#writeFileSync@4:3", ref: "task_X", reason: "fixture" }],
+    },
   };
-  const result = migrateBypassWriteAnchors(source, [{
-    legacyKey: "a.ts#writeFileSync@4:3",
-    key: "fixture-write"
-  }]);
+  const result = migrateBypassWriteAnchors(source, [
+    {
+      legacyKey: "a.ts#writeFileSync@4:3",
+      key: "fixture-write",
+    },
+  ]);
   assert.equal(result.migratedCount, 1);
   assert.equal(result.allowlist.entries.coordinatedCore[0].value, "fixture-write");
   assert.equal(source.entries.coordinatedCore[0].value, "a.ts#writeFileSync@4:3");
+});
+
+const requiredRoots = [
+  "packages/kernel/src/store",
+  "packages/kernel/src/local",
+  "packages/kernel/src/projection",
+  "packages/adapters/local/src",
+  "packages/cli/src",
+];
+
+for (const missingRoot of requiredRoots) {
+  test(`bypass write boundary rejects missing required root ${missingRoot}`, () => {
+    const root = makeFixtureRoot();
+    const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-w8-policy-"));
+    try {
+      writeAllowlist(policyRoot, []);
+      assert.equal(runChecker(root, policyRoot).status, 0);
+      rmSync(path.join(root, missingRoot), { recursive: true });
+      const result = runChecker(root, policyRoot);
+      assert.notEqual(result.status, 0);
+      assert.ok(result.stderr.includes(`required scan root is missing: ${missingRoot}`), result.stderr);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(policyRoot, { recursive: true, force: true });
+    }
+  });
+}
+
+test("bypass write boundary rejects writes in the current CLI command surface", () => {
+  const root = makeFixtureRoot();
+  const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-w8-policy-"));
+  try {
+    mkdirSync(path.join(root, "packages/cli/src/cli"));
+    writeFileSync(
+      path.join(root, "packages/cli/src/cli/fixture.ts"),
+      "import { writeFileSync } from 'node:fs'; writeFileSync('document', 'body');",
+    );
+    writeAllowlist(policyRoot, []);
+    const result = runChecker(root, policyRoot);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /packages\/cli\/src\/cli\/fixture.ts:.*writeFileSync/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(policyRoot, { recursive: true, force: true });
+  }
 });
 
 function makeFixtureRoot() {
@@ -236,7 +299,7 @@ function makeFixtureRoot() {
   mkdirSync(path.join(root, "packages/kernel/src/local"), { recursive: true });
   mkdirSync(path.join(root, "packages/kernel/src/projection"), { recursive: true });
   mkdirSync(path.join(root, "packages/adapters/local/src"), { recursive: true });
-  mkdirSync(path.join(root, "packages/cli/src/commands"), { recursive: true });
+  mkdirSync(path.join(root, "packages/cli/src"), { recursive: true });
   return root;
 }
 
@@ -250,32 +313,40 @@ function writeAllowlist(policyRoot, allowedValue = []) {
     "fixture-fsync": "fsyncSync",
     "fixture-mkdir": "mkdirSync",
     "fixture-open": "openSync",
-    "fixture-rename": "renameSync"
+    "fixture-rename": "renameSync",
   };
   const entry = (Array.isArray(allowedValue) ? allowedValue : [allowedValue]).map((value) => ({
     value,
     api: apiByIdentity[value] ?? "writeFileSync",
     ref: "task_01KWW58383X74ZK28Y068CQ2TG",
-    reason: "fixture placeholder"
+    reason: "fixture placeholder",
   }));
   const entries = {
     coordinatedCore: entry,
     "rebuildable-projection": [],
     exemptHumanOrBootstrap: [],
     legacyArchive: [],
-    freshGateRegistry: []
+    freshGateRegistry: [],
   };
-  writeFileSync(path.join(policyRoot, "check-bypass-write-boundary.json"), JSON.stringify({
-    schema: "harness-anything/gate-allowlist/v1",
-    gateId: "check-bypass-write-boundary",
-    entries
-  }, null, 2), "utf8");
+  writeFileSync(
+    path.join(policyRoot, "check-bypass-write-boundary.json"),
+    JSON.stringify(
+      {
+        schema: "harness-anything/gate-allowlist/v1",
+        gateId: "check-bypass-write-boundary",
+        entries,
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
 }
 
 function runChecker(root, policyRoot) {
   return spawnSync(process.execPath, [checkerPath], {
     cwd: root,
     encoding: "utf8",
-    env: { ...process.env, HARNESS_GATE_ALLOWLIST_DIR: policyRoot }
+    env: { ...process.env, HARNESS_GATE_ALLOWLIST_DIR: policyRoot },
   });
 }
