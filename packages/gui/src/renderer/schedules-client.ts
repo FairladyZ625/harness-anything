@@ -11,6 +11,7 @@ import type {
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 import { readUseCaseProjection } from "./use-case-projection-client.ts";
 import { invoke } from "./api-client-invoke.ts";
+import { receiptFailureText } from "./entity-locator-client.ts";
 
 // Renderer client for the Schedule plane (S4). The `schedule-plane` use-case projection returns
 // the complete joined DTO — cadence/timezone/nextRun/mode/availability are daemon
@@ -74,11 +75,9 @@ export const scheduleRowTargetKind = (row: ScheduleGuiRowDto): ScheduleGuiRowDto
 export const scheduleRowHealth = (row: ScheduleGuiRowDto): ScheduleHealthRollup => row.health;
 
 export interface ScheduleActionReceipt {
-  readonly ok: boolean;
   readonly command: string;
   readonly outcome: string;
   readonly opId: string;
-  readonly code: string | null;
   readonly nextAction: string | null;
   readonly scheduleId: string | null;
 }
@@ -196,25 +195,15 @@ async function invokeSchedule(
       runScheduleNow: "repo.schedule.runNow",
     } as const,
     value = await invoke(methods[method], payload as { readonly repoId: string }, method),
-    receipt = value as Readonly<Record<string, unknown>>;
-  const error = isRendererRecord(receipt.error) ? receipt.error : null;
+    receipt = value as Readonly<Record<string, unknown>> & { readonly outcome: string };
+  // A daemon rejection arrives as a resolved `ok:false` receipt, not a thrown error; it must
+  // reach the caller's error path with the daemon's own explanation, never as a success receipt.
+  if (receipt.ok !== true) throw new Error(receiptFailureText(receipt));
   return {
-    ok: receipt.ok === true,
     command: String(receipt.command),
     outcome: String(receipt.outcome),
     opId: String(receipt.opId),
-    code:
-      typeof receipt.code === "string"
-        ? receipt.code
-        : error !== null && typeof error.code === "string"
-          ? error.code
-          : null,
-    nextAction:
-      typeof receipt.nextAction === "string"
-        ? receipt.nextAction
-        : error !== null && typeof error.hint === "string"
-          ? error.hint
-          : null,
+    nextAction: typeof receipt.nextAction === "string" ? receipt.nextAction : null,
     scheduleId: typeof receipt.scheduleId === "string" ? receipt.scheduleId : null,
   };
 }

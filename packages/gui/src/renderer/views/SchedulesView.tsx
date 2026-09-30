@@ -4,7 +4,6 @@ import { Plus } from "@phosphor-icons/react";
 import type { ScheduleGuiListRowDto, ScheduleGuiRowDto, SchedulesListResult } from "@harness-anything/daemon/protocol";
 import { Empty } from "../components/runtime/parts.tsx";
 import { ScheduleFormDialog } from "../components/ScheduleFormDialog.tsx";
-import { SchedulePreviewDrawer } from "../components/SchedulePreviewDrawer.tsx";
 import { DenseRow } from "../components/primitives/DenseRow.tsx";
 import { FilterChips } from "../components/primitives/FilterChips.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
@@ -26,8 +25,8 @@ import { ScheduleDetailView } from "./ScheduleDetailView.tsx";
 
 // Schedules plane (S4/M1, 视觉基线 v1 §2.4 列表页): one `repo.schedules.list` read paints the
 // list; the pane only filters and formats daemon facts — no cadence/nextRun/DST/mode
-// recomputation, no local node/provider picking. 行点击开预览抽屉(就地动作 + 完整详情出口);
-// a focused `schedule/<id>` ref still renders the detail hub (deep links, graph jumps).
+// recomputation, no local node/provider picking. 点行直接进 `schedule/<id>` 详情 hub(标准 §2.4,
+// 不设预览抽屉);the same ref serves deep links and graph jumps.
 const TARGET_STATE_KEY: Readonly<Record<NonNullable<ScheduleGuiRowDto["targetState"]>, MessageKey>> = {
   invalid: "agentRuntime.catalogInvalid",
   missing: "agentRuntime.catalogMissing",
@@ -124,16 +123,6 @@ export function ScheduleWorkspace({
   const [receipt, setReceipt] = useState<ScheduleActionReceipt | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<"create" | null>(null);
-  // 预览抽屉(标准 §2.4):行点击先看摘要,不整页跳转;null = 关闭。
-  const [previewId, setPreviewId] = useState<string | null>(null);
-  const previewRow = useMemo(
-    () =>
-      previewId === null
-        ? null
-        : (rows.find((row): row is ScheduleGuiRowDto => row.scheduleId === previewId && row.state !== "invalid") ??
-          null),
-    [rows, previewId],
-  );
   const runAction = async (kind: "enable" | "disable" | "runNow", schedule: ScheduleGuiRowDto): Promise<void> => {
     setBusy(true);
     setActionError(null);
@@ -156,7 +145,8 @@ export function ScheduleWorkspace({
       setBusy(false);
     }
   };
-  const saveDefinition = async (input: ScheduleDefinitionInput | ScheduleBuiltinEditInput): Promise<void> => {
+  /** Resolves true once the daemon applied the write; a rejection stays on the form as `actionError`. */
+  const saveDefinition = async (input: ScheduleDefinitionInput | ScheduleBuiltinEditInput): Promise<boolean> => {
     setBusy(true);
     setActionError(null);
     setReceipt(null);
@@ -174,9 +164,11 @@ export function ScheduleWorkspace({
       await queryClient.invalidateQueries({ queryKey: ["schedules", repoId] });
       onFocusSchedule(scheduleRef(input.scheduleId));
       onMutated?.();
+      return true;
     } catch (error) {
       consumeKnownError(error);
       setActionError(error instanceof Error ? error.message : String(error));
+      return false;
     } finally {
       setBusy(false);
     }
@@ -208,6 +200,8 @@ export function ScheduleWorkspace({
     <>
       {selected !== null && data !== null ? (
         <ScheduleDetailView
+          // One hub instance per schedule: tab and edit mode never carry over to another schedule.
+          key={selected.scheduleId}
           repoId={repoId}
           row={selected}
           options={data.options}
@@ -217,7 +211,7 @@ export function ScheduleWorkspace({
           receipt={receipt}
           actionError={actionError}
           onAction={(kind) => void runAction(kind, selected)}
-          onSave={(input) => void saveDefinition(input)}
+          onSave={saveDefinition}
           onDelete={() => void deleteSchedule(selected)}
           onSelectEntity={onSelectEntity}
           onFocusGraph={onFocusGraph}
@@ -230,10 +224,9 @@ export function ScheduleWorkspace({
           data={data}
           pending={pending}
           busy={busy}
-          previewId={previewId}
-          onPreview={(scheduleId) => {
+          onOpen={(scheduleId) => {
             setActionError(null);
-            setPreviewId(scheduleId);
+            onSelectEntity(scheduleRef(scheduleId));
           }}
           onCreate={() => {
             setActionError(null);
@@ -241,16 +234,6 @@ export function ScheduleWorkspace({
           }}
         />
       )}
-      <SchedulePreviewDrawer
-        row={previewRow}
-        busy={busy}
-        onAction={(kind) => previewRow !== null && void runAction(kind, previewRow)}
-        onOpenFull={(ref) => {
-          setPreviewId(null);
-          onSelectEntity(ref);
-        }}
-        onClose={() => setPreviewId(null)}
-      />
       {dialog !== null && data !== null && (
         <ScheduleFormDialog
           key="create"
@@ -290,16 +273,14 @@ function ScheduleListPane({
   data,
   pending,
   busy,
-  previewId,
-  onPreview,
+  onOpen,
   onCreate,
 }: {
   readonly rows: readonly ScheduleGuiListRowDto[];
   readonly data: SchedulesListResult | null;
   readonly pending: boolean;
   readonly busy: boolean;
-  readonly previewId: string | null;
-  readonly onPreview: (scheduleId: string) => void;
+  readonly onOpen: (scheduleId: string) => void;
   readonly onCreate: () => void;
 }) {
   const [filter, setFilter] = useState<ScheduleFilter>("attn");
@@ -370,18 +351,11 @@ function ScheduleListPane({
         ) : (
           <>
             {activeRows.map((row) => (
-              <ScheduleRow key={row.scheduleId} row={row} active={previewId === row.scheduleId} onPreview={onPreview} />
+              <ScheduleRow key={row.scheduleId} row={row} onOpen={onOpen} />
             ))}
             {pausedRows.length > 0 &&
               (filter === "paused" || pausedOpen ? (
-                pausedRows.map((row) => (
-                  <ScheduleRow
-                    key={row.scheduleId}
-                    row={row}
-                    active={previewId === row.scheduleId}
-                    onPreview={onPreview}
-                  />
-                ))
+                pausedRows.map((row) => <ScheduleRow key={row.scheduleId} row={row} onOpen={onOpen} />)
               ) : (
                 <button
                   type="button"
@@ -401,12 +375,10 @@ function ScheduleListPane({
 
 function ScheduleRow({
   row,
-  active,
-  onPreview,
+  onOpen,
 }: {
   readonly row: ScheduleGuiListRowDto;
-  readonly active: boolean;
-  readonly onPreview: (scheduleId: string) => void;
+  readonly onOpen: (scheduleId: string) => void;
 }) {
   if (row.state === "invalid") {
     return (
@@ -419,8 +391,6 @@ function ScheduleRow({
           tag={<StatusTag tone="bad" label={t("schedules.state.invalid")} />}
           title={row.scheduleId}
           reason={row.invalidReason}
-          onClick={() => onPreview(row.scheduleId)}
-          selected={active}
         />
       </div>
     );
@@ -487,8 +457,7 @@ function ScheduleRow({
             <span>{row.nextRunAt === null ? "—" : time(row.nextRunAt)}</span>
           </span>
         }
-        onClick={() => onPreview(row.scheduleId)}
-        selected={active}
+        onClick={() => onOpen(row.scheduleId)}
       />
     </div>
   );
