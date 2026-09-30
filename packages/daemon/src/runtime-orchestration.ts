@@ -5,7 +5,6 @@ import { taskDispatchRowSettled, taskDispatchRowsSettled } from "./dispatch-read
 import { daemonProtocolCommands } from "./protocol/daemon-protocol-commands.ts";
 import type { DaemonTaskDispatchesResult } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
-import type { RepoTaskAction } from "./repo-cell-types.ts";
 
 export const runtimeBatchDefaultConcurrency = 2,
   runtimeBatchMaxConcurrency = 32;
@@ -54,7 +53,6 @@ export interface RuntimeBatchEntry {
 
 export interface RuntimeOrchestrationContext {
   readonly spawnRuntime: (payload: JsonObject) => Promise<JsonObject>;
-  readonly run: (action: RepoTaskAction) => Promise<JsonObject>;
   readonly awaitRuntimeOutcome: (runtimeSessionId: string) => Promise<void>;
   readonly readSession: (runtimeSessionId: string) => Promise<AgentRuntimeSessionResult>;
   readonly codedError: (code: string, message: string) => Error;
@@ -326,121 +324,6 @@ export async function orchestrateRuntimeBatch(
     maxConcurrency: declaration.maxConcurrency,
     summary: `runtime-batch: ${rows.length - failed.length} succeeded, ${failed.length} failed`,
     exitCode: failed.length ? 1 : 0,
-  };
-}
-
-function agentDesignerPrompt(requirement: string): string {
-  return [
-    `# Agent declaration protocol`,
-    `Return exactly one JSON object and no Markdown, code fences, or prose.`,
-    `The object must contain schema exactly "agent-declaration/v1", plus id, name, instructions, ` +
-      `runtimes (an array of {type, model?} targets; empty array accepts any compatible runtime kind), ` +
-      `and optional role (worker or commander). Do not omit schema.`,
-    `The harness will validate and install the declaration; do not run commands or install it yourself.`,
-    `# Agent requirement`,
-    requirement,
-  ].join("\n\n");
-}
-
-function orchestrationRejected(command: string, code: string, hint: string): JsonObject {
-  return {
-    schema: "command-receipt/v2",
-    ok: false,
-    command,
-    outcome: "op_rejected",
-    origin: "daemon",
-    code,
-    error: { code, hint },
-    nextAction: hint,
-    summary: `${command}: ${code}`,
-    exitCode: 1,
-  };
-}
-
-export async function orchestrateAgentCreate(
-  payload: Readonly<Record<string, unknown>>,
-  context: RuntimeOrchestrationContext,
-): Promise<JsonObject> {
-  const spawnPayload: Record<string, unknown> = {
-    runtimeInstanceId: payload.runtimeInstanceId,
-    agentId: payload.agentId,
-    prompt: agentDesignerPrompt(String(payload.prompt)),
-    cwd: payload.cwd,
-    taskId: payload.taskId ?? null,
-    ...(payload.effort !== undefined ? { effort: payload.effort } : {}),
-    ...(payload.model !== undefined ? { model: payload.model } : {}),
-    ...(payload.executor !== undefined ? { executor: payload.executor } : {}),
-    idempotencyKey: `agent-create-${randomUUID()}`,
-  };
-  const spawned = await context.spawnRuntime(spawnPayload as JsonObject);
-  if (spawned.ok !== true || typeof spawned.runtimeSessionId !== "string") return spawned;
-  const runtimeSessionId = spawned.runtimeSessionId,
-    settled = await settleSpawnedSession(context, runtimeSessionId);
-  if (settled.settlement.outcome !== "succeeded" || typeof settled.session.result?.text !== "string")
-    return orchestrationRejected(
-      "agent-create",
-      settled.settlement.code ?? "agent_declaration_missing",
-      settled.settlement.reason ??
-        "The designer did not return a succeeded structured declaration; rerun ha agent create " +
-          "with a requirement that asks for one JSON object.",
-    );
-  let declaration: Record<string, unknown>;
-  try {
-    const parsed: unknown = JSON.parse(settled.session.result.text);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
-      throw new Error("declaration must be a JSON object");
-    declaration = parsed as Record<string, unknown>;
-  } catch (error) {
-    consumeKnownError(error);
-    throw context.codedError(
-      "agent_declaration_invalid",
-      "The designer result was not one JSON object; rerun ha agent create and require exactly " +
-        "one agent-declaration/v1 JSON object.",
-    );
-  }
-  const validation = (await context.run({
-    kind: "agent-validate",
-    declaration,
-    declarationSource: "runtime-result",
-    ...(payload.executor !== undefined ? { executor: payload.executor } : {}),
-  } as RepoTaskAction)) as unknown as JsonObject;
-  if (validation.ok !== true || typeof validation.evidence !== "string")
-    return orchestrationRejected(
-      "agent-create",
-      "agent_validation_failed",
-      "ha agent validate could not produce a validation report; rerun ha agent create after checking the daemon.",
-    );
-  const validationReport = JSON.parse(validation.evidence) as Record<string, unknown>;
-  if (validationReport.valid !== true)
-    return orchestrationRejected(
-      "agent-create",
-      "agent_declaration_invalid",
-      `ha agent validate rejected the declaration; fix the reported fields and rerun ha agent ` +
-        `create. ${JSON.stringify(validationReport.issues ?? [])}`,
-    );
-  const installation = (await context.run({
-    kind: "agent-install",
-    declaration,
-    declarationSource: "runtime-result",
-    generatedOnly: true,
-    validated: true,
-    ...(payload.executor !== undefined ? { executor: payload.executor } : {}),
-  } as RepoTaskAction)) as unknown as JsonObject;
-  if (installation.ok !== true) return installation;
-  return {
-    schema: "command-receipt/v2",
-    ok: true,
-    command: "agent-create",
-    outcome: "succeeded",
-    designerAgentId: String(payload.agentId),
-    runtimeSessionId,
-    dispatchId: spawned.dispatchId,
-    declaration: declaration as JsonObject,
-    validation: validationReport as JsonObject,
-    installation,
-    result: settled.session.result,
-    summary: `agent-create: installed ${String(declaration.id)}`,
-    exitCode: 0,
   };
 }
 

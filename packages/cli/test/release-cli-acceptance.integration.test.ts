@@ -1,10 +1,13 @@
 // harness-test-tier: integration
 import test from "node:test";
+import { safePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { runCommandThroughDaemon } from "../src/daemon/client.ts";
 import * as shared from "./release-cli-acceptance.fixture.ts";
 
 const {
   assert,
   docStatusRows,
+  environment,
   existsSync,
   git,
   gitBytes,
@@ -614,14 +617,18 @@ test("release acceptance: a fresh custom Artifact kind runs its file/folder life
       store: { pathTemplate: "entities/release-runbooks/{id}.json" },
       locatorKinds: ["repository-path"],
     };
-    writeFileSync(path.join(root, "release-runbook-kind.json"), JSON.stringify(kindDeclaration));
-    const upserted = run(root, userRoot, [
-      "vertical",
-      "entity-kind",
-      "upsert",
-      "--from-file",
-      "release-runbook-kind.json",
-    ]);
+    // Kind authoring is a GUI surface with no CLI command; the fixture sends the same daemon RPC.
+    const upserted = await runCommandThroughDaemon(
+      {
+        rootDir: safePath(root),
+        repoId,
+        json: true,
+        method: "repo.vertical.kind.upsert",
+        action: { kind: "vertical-kind-upsert", kindId: customKind, declaration: kindDeclaration },
+      },
+      undefined,
+      { autostart: false, env: environment(root, userRoot) },
+    );
     assert.ok(String(upserted.opId ?? "").length > 0, `upsert must be accepted: ${JSON.stringify(upserted)}`);
     // The write surface addresses a kind by its stable opaque ref; the read surface also accepts the id.
     const kindRef = (JSON.parse(String(upserted.evidence)) as { kindRef: string }).kindRef;

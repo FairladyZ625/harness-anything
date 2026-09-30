@@ -87,7 +87,9 @@ test("the default Policy covers the frozen durable inventory exactly once", () =
   // dec_A64B14D6B7DDCF6A459CCC7A00 CH3/CH5 adds Decision review, response, override, and dispatch
   // Actions while moving accept/defer to repo-write; the owner-approved inventory grows 128 → 132.
   // dec_D60FAA451F24160E970323B6F3 adds the admin-only rbac-bootstrap host Action; CEO confirmed 132 → 133.
-  assert.equal(durablePolicyActions.length, 133);
+  // task_f2f6f35cfb02adcf4df7fd1ad1 (CEO ruling on task_e971401b34093fe6efe4d412a5) deletes ha agent create
+  // and its agent-create Action whole-chain, 133 → 132.
+  assert.equal(durablePolicyActions.length, 132);
   for (const kind of ["entity-pin", "entity-unpin"] as const) {
     assert.equal(port.authorize(action(kind), roleContext("repo-write")).outcome, "allowed");
     assert.equal(port.authorize(action(kind), roleContext("repo-read")).outcome, "denied");

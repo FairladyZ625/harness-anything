@@ -117,6 +117,19 @@ test("a genuinely unobserved descriptor remains a zero-observation candidate", (
   assert.equal(report.zeroObservation[0].id, "never-used");
 });
 
+test("commands outside the repo request log are unobservable, not zero-use candidates", () => {
+  const report = auditCliUsage({
+    commands: [descriptor("repo-bootstrap", null), descriptor("daemon-start", "daemon.start")],
+    requestRecords: [],
+    nowMs: Date.parse("2026-09-08T00:00:00.000Z"),
+  });
+  assert.deepEqual(
+    report.denominator.map((item) => item.status),
+    ["not-observable-in-request-log", "not-observable-in-request-log"],
+  );
+  assert.deepEqual(report.zeroObservation, []);
+});
+
 test("failure families only deduplicate repeated non-null opIds", () => {
   const at = "2026-09-08T00:00:00.000Z";
   const report = auditCliUsage({

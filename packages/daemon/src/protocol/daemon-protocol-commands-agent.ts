@@ -9,76 +9,37 @@ import {
 import { agentRunProtocolCommand } from "./daemon-protocol-commands-runtime-fleet.ts";
 
 export const agentProtocolCommands = Object.freeze([
+  // Artifact kind authoring is a GUI surface: these descriptors keep the repo.vertical.kind.* RPCs
+  // routed through the center write path without exposing a CLI command.
   defineCenterForwardWriteCommand({
-    id: "vertical-kind-upsert-cli",
+    id: "vertical-kind-upsert",
     actionKind: "vertical-kind-upsert",
+    internal: true,
     phase: "Governed-Entity-W2",
-    path: ["vertical", "entity-kind", "upsert"],
-    summary:
-      "Create one Artifact kind, or restate the mutable facets of an existing one. " +
-      "Creation mints the kind's stable identity and version 1 of its attribute schema; " +
-      "a rename keeps every existing reference.",
+    path: ["vertical", "_kind-upsert"],
+    summary: "Create one Artifact kind, or restate the mutable facets of an existing one.",
     method: "repo.vertical.kind.upsert",
-    inputs: [
-      cliInput(
-        "--from-file",
-        "single",
-        true,
-        { code: "missing_field" },
-        {
-          jsonFields: ["id", "entityType", "idPrefix", "display", "descriptorSchemaRef", "store", "locatorKinds"],
-          jsonAllowedFields: [
-            "retired",
-            "retiredAt",
-            "reason",
-            "kindId",
-            "id",
-            "entityType",
-            "idPrefix",
-            "display",
-            "descriptorSchemaRef",
-            "store",
-            "locatorKinds",
-            "attributes",
-            "relations",
-            "maturityVocabulary",
-          ],
-        },
-      ),
-    ],
+    inputs: [],
   }),
   defineCenterForwardWriteCommand({
-    id: "vertical-kind-publish-schema-cli",
+    id: "vertical-kind-publish-schema",
     actionKind: "vertical-kind-publish-schema",
+    internal: true,
     phase: "Governed-Entity-W2",
-    path: ["vertical", "entity-kind", "publish-schema", "<kind>"],
-    summary:
-      "Publish the next immutable attribute schema version of one Artifact kind. " +
-      "Existing instances keep the version they were accepted against.",
+    path: ["vertical", "_kind-publish-schema"],
+    summary: "Publish the next immutable attribute schema version of one Artifact kind.",
     method: "repo.vertical.kind.publishSchema",
-    positional: "kindId",
-    inputs: [
-      cliInput(
-        "--from-file",
-        "single",
-        true,
-        { code: "missing_field" },
-        {
-          jsonFields: [],
-          jsonAllowedFields: ["<attribute name>: { type, enum, required }"],
-        },
-      ),
-    ],
+    inputs: [],
   }),
   defineCenterForwardWriteCommand({
-    id: "vertical-kind-retire-cli",
+    id: "vertical-kind-retire",
     actionKind: "vertical-kind-retire",
+    internal: true,
     phase: "Governed-Entity-W2",
-    path: ["vertical", "entity-kind", "retire", "<kind>"],
+    path: ["vertical", "_kind-retire"],
     summary: "Retire one Artifact kind with a required reason while preserving its declaration.",
     method: "repo.vertical.kind.retire",
-    positional: "kindId",
-    inputs: [cliInput("--reason", "single", true, { code: "missing_field" })],
+    inputs: [],
   }),
   defineRepoReadCommand({
     id: "agenda",
@@ -147,76 +108,6 @@ export const agentProtocolCommands = Object.freeze([
     summary: "Materialize the repository vertical declaration once from the installed preset seed.",
     method: "repo.task.run",
     inputs: [],
-  }),
-  defineRuntimeLocalWriteCommand({
-    id: "agent-create",
-    phase: "Runtime-B",
-    path: ["agent", "create", "<instance-id>"],
-    summary: [
-      "Ask a declared Agent designer for one structured Agent declaration, ",
-      "validate it, and install it without overwriting an existing Agent.",
-    ].join(""),
-    method: "repo.agent.create",
-    positional: "runtimeInstanceId",
-    inputs: [
-      cliInput(
-        "--agent",
-        "single",
-        true,
-        {
-          code: "missing_field",
-        },
-        { field: "agentId" },
-      ),
-      cliInput(
-        "--prompt",
-        "single",
-        true,
-        {
-          code: "missing_field",
-        },
-        { field: "prompt" },
-      ),
-      cliInput(
-        "--effort",
-        "single",
-        false,
-        {
-          code: "invalid_runtime_effort",
-        },
-        {
-          enum: ["minimal", "low", "medium", "high", "xhigh", "max"],
-          field: "effort",
-        },
-      ),
-      cliInput(
-        "--model",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-        },
-        { field: "model" },
-      ),
-      cliInput(
-        "--cwd",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-        },
-        { field: "cwd" },
-      ),
-      cliInput(
-        "--task",
-        "single",
-        false,
-        {
-          code: "invalid_field",
-        },
-        { field: "taskId" },
-      ),
-    ],
   }),
   defineRepoReadCommand({
     id: "squad-status",

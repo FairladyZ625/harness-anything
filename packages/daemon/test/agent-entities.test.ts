@@ -220,20 +220,6 @@ test("install preparation repairs a stored declaration rejected by the current s
 
   assert.equal(prepared.report.changed, true);
   assert.equal(prepared.declaration.id, "glm-5-3");
-  assert.throws(
-    () =>
-      prepareAgentEntityInstall({
-        rootDir: "/unused",
-        entityStore: staleStore,
-        action: {
-          kind: "agent-install",
-          declaration: { ...agent, id: "glm-5-3", name: "GLM 5.3" },
-          generatedOnly: true,
-          validated: true,
-        },
-      }),
-    (error: unknown) => (error as { readonly code?: unknown }).code === "agent_id_conflict",
-  );
 });
 
 test("install preparation does not hide stored declaration integrity failures", () => {
@@ -413,51 +399,12 @@ test("Agent skills accept project-relative and absolute references and fail clos
   }
 });
 
-test("generated Agent output reuses validation, admits only runnable declarations, and never overwrites", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-generated-agent-")),
+test("Agent install admits only declarations a runtime instance can run", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-runtime-compat-")),
     source = path.join(rootDir, "source"),
     generated = { ...agent, id: "generated", name: "Generated", instructions: "Generated instructions." };
   try {
-    writeEntity(source, generated.id, "agent", generated);
     const runtimeInstances = [{ kindId: "codex", models: ["gpt-5.6-sol", "gpt-5.6-terra"], enabled: true }];
-    await assert.rejects(
-      () =>
-        install({
-          rootDir,
-          kind: "agent-install",
-          packageSource: path.join(source, generated.id),
-          generatedOnly: true,
-          runtimeInstances,
-        }),
-      (error: unknown) => (error as { code?: string }).code === "agent_validation_required",
-    );
-    assert.equal(
-      (
-        (await install({
-          rootDir,
-          kind: "agent-install",
-          packageSource: path.join(source, generated.id),
-          generatedOnly: true,
-          validated: true,
-          runtimeInstances,
-        })) as { entityId: string }
-      ).entityId,
-      generated.id,
-    );
-    await assert.rejects(
-      () =>
-        install({
-          rootDir,
-          kind: "agent-install",
-          packageSource: path.join(source, generated.id),
-          generatedOnly: true,
-          validated: true,
-          runtimeInstances,
-        }),
-      (error: unknown) =>
-        (error as { code?: string; message?: string }).code === "agent_id_conflict" &&
-        /ha agent inspect generated.*ha agent create/u.test(String((error as Error).message)),
-    );
     const unknown = { ...generated, id: "unknown-generated", runtimes: [{ type: "opencode" }] };
     writeEntity(source, unknown.id, "agent", unknown);
     await assert.rejects(
@@ -466,8 +413,6 @@ test("generated Agent output reuses validation, admits only runnable declaration
           rootDir,
           kind: "agent-install",
           packageSource: path.join(source, unknown.id),
-          generatedOnly: true,
-          validated: true,
           runtimeInstances,
         }),
       (error: unknown) =>
@@ -486,8 +431,6 @@ test("generated Agent output reuses validation, admits only runnable declaration
           rootDir,
           kind: "agent-install",
           packageSource: path.join(source, unsupported.id),
-          generatedOnly: true,
-          validated: true,
           runtimeInstances,
         }),
       (error: unknown) =>

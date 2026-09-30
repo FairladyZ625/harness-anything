@@ -827,6 +827,11 @@
         "value": "packages/daemon/test/runtime-orphan-settlement.integration.test.ts",
         "ref": "task_038b4d6f3f596f842702719458",
         "reason": "The retired descendantsAlive heuristic and its orphan-settlement-only coverage were removed after positive delivery witnesses became the success criterion."
+      },
+      {
+        "value": "packages/cli/test/agent-create.integration.test.ts",
+        "ref": "task_f2f6f35cfb02adcf4df7fd1ad1",
+        "reason": "ha agent create was deleted whole-chain by the CEO ruling on task_e971401b34093fe6efe4d412a5; its only coverage retires with it and ha agent install --source remains the install path."
       }
     ]
   }

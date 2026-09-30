@@ -53,8 +53,6 @@ export function createAgentActionCatalog(
             { field: "packageSource", type: "string", required: false },
             { field: "declaration", type: "json-object", required: false },
             { field: "declarationSource", type: "string", required: false },
-            { field: "generatedOnly", type: "boolean", required: false },
-            { field: "validated", type: "boolean", required: false },
             { field: "dryRun", type: "boolean", required: false },
             { field: "expectedVersion", type: "number", required: false },
             { field: "idempotencyKey", type: "string", required: false },
@@ -73,19 +71,9 @@ export function createAgentActionCatalog(
             explain: "Agent instructions must contain authored content rather than the declaration scaffold.",
           },
           {
-            ref: "agent/generated-validation",
-            failureCode: "agent_validation_required",
-            explain: "Generated Agent output must complete the validate step before installation.",
-          },
-          {
-            ref: "agent/generated-identity",
-            failureCode: "agent_id_conflict",
-            explain: "Generated Agent installation never replaces an existing Agent identity.",
-          },
-          {
             ref: "agent/runtime-compatibility",
             failureCode: "agent_runtime_type_unavailable",
-            explain: "Generated Agent runtimes must resolve to an enabled runtime instance.",
+            explain: "Agent runtimes must resolve to an enabled runtime instance.",
           },
           {
             ref: "agent/model-compatibility",

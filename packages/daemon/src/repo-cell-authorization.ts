@@ -92,8 +92,6 @@ export function authorizeDurableRepoCellAction(
   input: Parameters<typeof authorizeRepoCellAction>[0],
 ): AuthorizationDecision | null {
   switch (input.action.kind) {
-    case "agent-create":
-      return authorizeRepoCellAction(input);
     case "agent-delete":
       return authorizeRepoCellAction(input);
     case "agent-install":
