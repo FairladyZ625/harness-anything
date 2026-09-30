@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { actionDeclarations } from "@harness-anything/kernel";
 import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
-import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
+import { authorizeRepoCellAction, evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
 
 const config = { url: "http://127.0.0.1:8080", realm: "harness", resourceServerClientId: "harness-center" };
 
@@ -204,6 +204,48 @@ test("RepoCell keeps existing RoleBinding and assignment authorization until the
   assert.equal(roleAllowed.outcome, "allowed");
   assert.equal(assignmentAllowed.outcome, "allowed");
   assert.equal(noImplicitDefault.outcome, "denied");
+});
+
+test("synchronous RepoCell authorization does not fall back to roster for a mismatched Keycloak scope", () => {
+  const action = { kind: "task-create" as const },
+    decision = authorizeRepoCellAction({
+      action,
+      binding: {
+        actor: { principal: { personId: "person-keycloak" }, executor: null },
+        source: "local",
+        keycloakAuthorization: {
+          accessToken: "user-token",
+          url: config.url,
+          realm: config.realm,
+          clientId: config.resourceServerClientId,
+        },
+        authorizationDecision: {
+          policyRef: "keycloak-policy@1",
+          actor: { principal: { personId: "person-keycloak" }, executor: null },
+          subject: "settings/repository",
+          bindingsUsed: [{ authority: "keycloak", scope: "task-start" }],
+          outcome: "allowed",
+          reasonCodes: ["keycloak_allowed"],
+          nextActions: [],
+          evaluatedAtCut: "canonical:9",
+        },
+        authorizationBindingMode: "declared",
+        roleBindings: [
+          {
+            actor: { kind: "person", id: "person-keycloak" },
+            role: "repo-write",
+            target: "settings/repository",
+            source: "declared",
+            expiresAt: null,
+          },
+        ],
+      },
+      actionId: "action-scope-mismatch",
+      revision: 10,
+      now: "2026-09-30T00:00:06.000Z",
+    });
+  assert.equal(decision.outcome, "denied");
+  assert.equal(decision.policyRef, "keycloak-policy@1");
 });
 
 test("group validation rejects unknown scopes and inheritance cycles before any Keycloak write", () => {

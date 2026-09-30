@@ -48,11 +48,7 @@ export async function evaluateRepoCellAction(input: {
       idempotencyKey: typeof input.action.idempotencyKey === "string" ? input.action.idempotencyKey : input.actionId,
     });
   const admitted = input.binding.authorizationDecision;
-  if (
-    admitted?.policyRef === "keycloak-policy@1" &&
-    admitted.outcome === "allowed" &&
-    admitted.bindingsUsed.some((binding) => binding.scope === input.action.kind)
-  ) {
+  if (keycloakAllowsAction(admitted, input.action.kind)) {
     const token = input.binding.delegatedExecutionToken;
     return token
       ? {
@@ -115,8 +111,21 @@ export function authorizeRepoCellAction(input: {
       idempotencyKey: typeof input.action.idempotencyKey === "string" ? input.action.idempotencyKey : input.actionId,
     }),
     decision = input.binding.authorizationDecision;
-  if (decision?.policyRef === "keycloak-policy@1" && decision.outcome === "allowed") return decision;
+  if (keycloakAllowsAction(decision, input.action.kind)) return decision;
+  if (input.binding.keycloakAuthorization)
+    return keycloakDecision(envelope, `canonical:${input.revision}`, "denied", "keycloak_denied");
   return legacyBindingDecision(envelope, input.binding, target, input.now, `canonical:${input.revision}`);
+}
+
+function keycloakAllowsAction(
+  decision: AuthorizationDecision | undefined,
+  action: string,
+): decision is AuthorizationDecision {
+  return (
+    decision?.policyRef === "keycloak-policy@1" &&
+    decision.outcome === "allowed" &&
+    decision.bindingsUsed.some((binding) => binding.scope === action)
+  );
 }
 
 function legacyBindingDecision(
