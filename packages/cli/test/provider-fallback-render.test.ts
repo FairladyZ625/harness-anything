@@ -4,6 +4,7 @@ import test from "node:test";
 import { cliDispatchError, humanError, renderDispatchRow } from "../src/cli-render.ts";
 import { renderRuntimeStatus } from "../src/cli-runtime-auth.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
+import { cliInputFailureCode, runCommandThroughDaemon } from "../src/daemon/client.ts";
 
 test("task dispatch and runtime status renders expose provider attempt chains", () => {
   assert.match(
@@ -121,6 +122,28 @@ test("CLI dispatch and nested receipt errors are handled by closed tagged branch
       hint: "Leader dispatch rejected: code=lease_conflict hint=release the holder",
     },
   );
+});
+
+test("an out-of-repository adjudication note keeps its input validation code", async () => {
+  const command = {
+    rootDir: "/repo",
+    method: "repo.task.run",
+    json: true,
+    action: {
+      kind: "task-adjudicate",
+      taskId: "task-1",
+      forward: true,
+      noteFile: "../outside.md",
+    },
+  } as const;
+  await assert.rejects(runCommandThroughDaemon(command), (error: unknown) => {
+    assert.equal(cliInputFailureCode(error), "invalid_field");
+    assert.deepEqual(cliDispatchError({ error, directCode: cliInputFailureCode(error), timeoutCode: null }), {
+      code: "invalid_field",
+      hint: "--note-file must stay within the selected repository.",
+    });
+    return true;
+  });
 });
 
 test("a dispatch-review receipt names the reviewed task on every row", () => {

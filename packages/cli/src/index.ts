@@ -24,6 +24,7 @@ import { withFactStatementGuidance, withTitleFocusGuidance } from "./cli/guidanc
 import {
   daemonAutostartFailureCode,
   cliEntryFailureCode,
+  cliInputFailureCode,
   daemonResponseTimeoutCode,
   daemonTargetFailureCode,
   consumeKnownError,
@@ -173,7 +174,8 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
       timeoutCode = daemonResponseTimeoutCode(error),
       targetCode = daemonTargetFailureCode(error),
       entryCode = cliEntryFailureCode(error),
-      direct = autostartCode ?? targetCode ?? entryCode;
+      inputCode = cliInputFailureCode(error),
+      direct = autostartCode ?? targetCode ?? entryCode ?? inputCode;
     const failure = cliDispatchError({ error, directCode: direct, timeoutCode, returnedReceipt });
     emit(cliFailure(parsed.command.action.kind, failure.code, failure.hint), parsed.command.json);
     return 1;

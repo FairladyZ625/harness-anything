@@ -104,6 +104,10 @@ export function cliEntryFailureCode(error: unknown): typeof cliEntryNotCanonical
   const code = typeof error === "object" && error !== null ? (error as { readonly code?: unknown }).code : null;
   return code === cliEntryNotCanonicalCode ? cliEntryNotCanonicalCode : null;
 }
+export function cliInputFailureCode(error: unknown): "invalid_field" | null {
+  const code = typeof error === "object" && error !== null ? (error as { readonly code?: unknown }).code : null;
+  return code === "invalid_field" ? "invalid_field" : null;
+}
 // Repo bootstrap and runtime-instance commands must reach the daemon an isolated runtime injected
 // through HARNESS_DAEMON_ENDPOINT, not the implicit user socket: the resolver honours the injected
 // endpoint and the repo scope.
