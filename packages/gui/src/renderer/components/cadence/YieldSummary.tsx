@@ -17,12 +17,12 @@ export function YieldSummary({
   return (
     <section
       data-testid="cadence-yield"
-      className="flex flex-col overflow-hidden rounded-lg border border-border bg-surface"
+      className="flex shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-surface"
     >
       <header className="border-b border-border px-3 py-2">
         <h2 className="ui-body font-semibold">{t("views.cadence.yieldTitle")}</h2>
       </header>
-      <div data-testid="cadence-yield-body" className="flex max-h-60 flex-col overflow-y-auto">
+      <div data-testid="cadence-yield-body" className="flex flex-col">
         <div className="px-3 py-2">
           <p className="font-mono ui-micro uppercase tracking-wide text-text-faint">
             {t("views.cadence.yieldFactsToday")}

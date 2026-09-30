@@ -1,19 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  ArrowRight,
-  ArrowSquareOut,
-  ArrowsInLineHorizontal,
-  ArrowsOutLineHorizontal,
-  FileHtml,
-  FileText,
-  FileX,
-} from "@phosphor-icons/react";
+import { ArrowRight, ArrowSquareOut, ArrowsInLineHorizontal, ArrowsOutLineHorizontal } from "@phosphor-icons/react";
 import type { ArtifactGuiKind, ArtifactGuiRowDto, ArtifactsListResult } from "@harness-anything/daemon/protocol";
 import { BinaryArtifactPanel } from "../components/BinaryArtifactPanel.tsx";
 import { DocReader } from "../components/DocReader.tsx";
 import { HtmlArtifactPreview } from "../components/HtmlArtifactPreview.tsx";
-import { Badge, Chip, Empty, Hint } from "../components/runtime/parts.tsx";
+import { DenseRow } from "../components/primitives/DenseRow.tsx";
+import { FilterChips } from "../components/primitives/FilterChips.tsx";
+import { StatusTag } from "../components/primitives/StatusTag.tsx";
+import { Empty } from "../components/runtime/parts.tsx";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import { formatTime } from "../model/time.ts";
 import { useTaskDocumentQuery } from "../task-data.ts";
@@ -23,12 +18,12 @@ import { consumeKnownError } from "../../api/error-consumption.ts";
 import { isHtmlDocument } from "../entity-locator-renderer.ts";
 import { openArtifactExternally } from "../artifact-open-client.ts";
 
-// Artifacts 抽屉(task_7e713fee 重排):一次 `repo.artifacts.list` 读出跨 task 包的
-// artifacts html/md 投影(归属、时间、时间来源都是 daemon 事实),本页只排序呈现与切换
-// facet;左抽屉按时间倒序列产物,右侧整块高度预览 —— HTML 走隔离 webview 的
-// HtmlArtifactPreview(脚本/外联禁用,唯一 HTML 渲染路径),md 走既有 DocReader,
-// 不引入第二套渲染。「在默认浏览器打开」走 preload 的 artifacts.openExternal
-// (主进程校验后才 shell.openPath,见 main/artifact-open-ipc.ts)。
+// Artifacts 抽屉(task_7e713fee 重排,视觉基线 v1 §2.4 行与筛选):一次 `repo.artifacts.list`
+// 读出跨 task 包的 artifacts html/md 投影(归属、时间、时间来源都是 daemon 事实),本页只
+// 排序呈现与切换 facet;左抽屉按时间倒序列产物(DenseRow,kind 为有底色标签),右侧整块高度
+// 预览 —— HTML 走隔离 webview 的 HtmlArtifactPreview(脚本/外联禁用,唯一 HTML 渲染路径),
+// md 走既有 DocReader,不引入第二套渲染。「在默认浏览器打开」走 preload 的
+// artifacts.openExternal(主进程校验后才 shell.openPath,见 main/artifact-open-ipc.ts)。
 const KIND_LABEL: Record<ArtifactGuiKind, MessageKey> = {
   html: "artifacts.kind.html",
   md: "artifacts.kind.md",
@@ -45,12 +40,8 @@ const READ_ERROR_ROW_CLASS = [
 ].join(" ");
 const DRAWER_MIN_PX = 200;
 const OPEN_BUTTON_CLASS = [
-  "inline-flex shrink-0 items-center gap-1 rounded border border-border px-1.5 py-0.5",
+  "inline-flex shrink-0 items-center gap-1 rounded-xs border border-border px-1.5 py-0.5",
   "ui-micro text-text-muted hover:border-border-strong hover:text-text",
-].join(" ");
-const ROW_CLASS = [
-  "w-full rounded-md border border-border bg-surface-raised px-2 py-1.5 text-left",
-  "transition-colors duration-100 hover:border-accent/60",
 ].join(" ");
 
 export function ArtifactsView({
@@ -68,11 +59,11 @@ export function ArtifactsView({
   });
   return (
     <section data-testid="artifacts-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="flex h-[42px] shrink-0 items-center gap-3 border-b border-border bg-surface-raised px-3.5">
-        <b className="ui-body tracking-[0.02em]">{t("artifacts.title")}</b>
-        <span className="truncate font-mono ui-micro text-text-faint">{t("artifacts.subtitle")}</span>
+      <header className="flex flex-wrap items-baseline gap-3 px-5 py-3">
+        <h1 className="text-xl font-semibold text-text">{t("artifacts.title")}</h1>
+        <span className="min-w-0 truncate text-sm text-text-muted">{t("artifacts.subtitle")}</span>
         {query.data && (
-          <span className="ml-auto whitespace-nowrap font-mono ui-micro text-text-faint">
+          <span data-testid="artifacts-counts" className="ml-auto whitespace-nowrap font-mono ui-micro text-text-faint">
             {t("artifacts.counts", {
               html: String(query.data.counts.html),
               md: String(query.data.counts.md),
@@ -117,10 +108,11 @@ export function ArtifactsWorkspace({
 }) {
   const rows = data?.artifacts ?? [];
   const [selected, setSelected] = useState<ArtifactGuiRowDto | null>(null);
-  const current = useMemo(
-    () => (selected === null ? null : (rows.find((row) => sameArtifact(row, selected)) ?? null)),
-    [rows, selected],
-  );
+  const current = useMemo(() => {
+    if (rows.length === 0) return null;
+    if (selected === null) return rows[0]!;
+    return rows.find((row) => sameArtifact(row, selected)) ?? rows[0]!;
+  }, [rows, selected]);
   const [drawer, setDrawer] = useState<ArtifactDrawerState>(() => readArtifactDrawerState());
   const rowHostRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ readonly startX: number; readonly startWidth: number } | null>(null);
@@ -178,28 +170,33 @@ export function ArtifactsWorkspace({
               className="flex flex-wrap items-center gap-1.5 border-b border-border px-3 py-2"
               data-testid="artifacts-filters"
             >
-              <Chip>{t("artifacts.list.count", { count: String(rows.length) })}</Chip>
-              <KindToggle value={kind} kind="html" count={data?.counts.html} onChange={onKindChange} />
-              <KindToggle value={kind} kind="md" count={data?.counts.md} onChange={onKindChange} />
-              <KindToggle value={kind} kind="raw" count={data?.counts.raw} onChange={onKindChange} />
+              <FilterChips
+                value={kind}
+                onChange={onKindChange}
+                chips={(["html", "md", "raw"] as const).map((key) => ({
+                  key,
+                  label: t(KIND_LABEL[key]),
+                  count: data?.counts[key] ?? rows.length,
+                }))}
+              />
               <button
                 type="button"
                 data-testid="artifacts-drawer-collapse"
                 onClick={() => setDrawer((state) => ({ ...state, collapsed: true }))}
                 title={t("artifacts.drawer.collapseTitle")}
                 aria-label={t("artifacts.drawer.collapseTitle")}
-                className="ml-auto rounded p-1 text-text-faint hover:bg-surface-raised hover:text-text"
+                className="ml-auto rounded-xs p-1 text-text-faint hover:bg-surface-raised hover:text-text"
               >
                 <ArrowsOutLineHorizontal weight="bold" className="size-3.5 rotate-90" />
               </button>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2" data-testid="artifacts-timeline">
+            <div className="min-h-0 flex-1 overflow-y-auto" data-testid="artifacts-timeline">
               {pending ? (
                 <Empty>{t("artifacts.loading")}</Empty>
               ) : rows.length === 0 ? (
                 <Empty>{t("artifacts.empty")}</Empty>
               ) : (
-                <ul className="flex flex-col gap-1">
+                <ul className="flex flex-col">
                   {rows.map((row) => (
                     <ArtifactRow
                       key={`${row.taskId ?? "taskless"}/${row.path}`}
@@ -225,7 +222,7 @@ export function ArtifactsWorkspace({
           />
         </>
       )}
-      <ArtifactPreviewPane repoId={repoId} row={current} onNavigateTask={onNavigateTask} />
+      {current !== null ? <ArtifactPreviewPane repoId={repoId} row={current} onNavigateTask={onNavigateTask} /> : null}
     </div>
   );
 }
@@ -240,75 +237,34 @@ function ArtifactRow({
   readonly onSelect: () => void;
 }) {
   return (
-    <li>
+    <li data-testid={`artifact-row-${row.taskId ?? "taskless"}-${row.path}`} title={repoPathOf(row)}>
       {/* 整卡只有一种点击:打开预览(泽宇 2026-08-31 亲裁,一个组件不承载两种点击)。
-          跳所属 task 的唯一出口在预览头按钮;所属 task 标题在卡内只作信息展示。 */}
-      <button
-        type="button"
-        data-testid={`artifact-row-${row.taskId ?? "taskless"}-${row.path}`}
-        onClick={onSelect}
-        className={`${ROW_CLASS} ${active ? "border-accent/60 bg-surface" : ""}`}
-        title={repoPathOf(row)}
-      >
-        <span
-          data-testid={`artifact-focus-${row.taskId ?? "taskless"}-${row.path}`}
-          className="flex w-full items-center gap-1.5 ui-meta font-medium"
-        >
-          {row.kind === "html" ? (
-            <FileHtml weight="duotone" className="size-3.5 shrink-0 text-text-faint" />
-          ) : row.kind === "raw" ? (
-            <FileX weight="duotone" className="size-3.5 shrink-0 text-text-faint" />
-          ) : (
-            <FileText weight="duotone" className="size-3.5 shrink-0 text-text-faint" />
-          )}
-          <span className="min-w-0 flex-1 truncate">{fileNameOf(row.path)}</span>
-          {/* 相对时间是主显;绝对时间与时间来源(台账 occurredAt 还是文件 mtime)进 tooltip,
-              mtime 这个「非台账事实」额外显形在正文里,不给它和 ledger 同等的安静。 */}
-          <span
-            className="shrink-0 font-mono ui-micro text-text-faint"
-            title={`${displayTime(row.time)} · ${t(TIME_SOURCE_LABEL[row.timeSource])}`}
-          >
-            {relativeTimeOf(row.time)}
+          跳所属 task 的唯一出口在预览头按钮;所属 task 标题在行内只作信息展示。
+          相对时间是主显;绝对时间与时间来源(台账 occurredAt 还是文件 mtime)进 tooltip,
+          mtime 这个「非台账事实」额外显形在正文里,不给它和 ledger 同等的安静。 */}
+      <DenseRow
+        relaxed
+        tag={<StatusTag tone="neutral" label={t(KIND_LABEL[row.kind])} />}
+        title={fileNameOf(row.path)}
+        reason={
+          <span>
+            {row.taskId === null ? (
+              t("artifacts.taskUnknown")
+            ) : (
+              <span title={row.taskId}>{row.taskTitle ?? row.taskId}</span>
+            )}
             {row.timeSource === "mtime" ? ` · ${t("artifacts.timeSource.mtime")}` : ""}
           </span>
-          <Badge tip={t(TIME_SOURCE_LABEL[row.timeSource])}>{t(KIND_LABEL[row.kind])}</Badge>
-        </span>
-        {row.taskId === null ? (
-          <Hint>{t("artifacts.taskUnknown")}</Hint>
-        ) : (
-          <span className="block max-w-full truncate ui-micro text-text-muted">{row.taskTitle ?? row.taskId}</span>
-        )}
-      </button>
+        }
+        time={
+          <span title={`${displayTime(row.time)} · ${t(TIME_SOURCE_LABEL[row.timeSource])}`}>
+            {relativeTimeOf(row.time)}
+          </span>
+        }
+        selected={active}
+        onClick={onSelect}
+      />
     </li>
-  );
-}
-
-function KindToggle({
-  value,
-  kind,
-  count,
-  onChange,
-}: {
-  readonly value: ArtifactGuiKind;
-  readonly kind: ArtifactGuiKind;
-  readonly count: number | undefined;
-  readonly onChange: (kind: ArtifactGuiKind) => void;
-}) {
-  return (
-    <button
-      type="button"
-      data-testid={`artifacts-filter-${kind}`}
-      aria-pressed={value === kind}
-      onClick={() => onChange(kind)}
-      className={
-        value === kind
-          ? "rounded border border-border-strong bg-accent px-2 py-0.5 ui-micro font-semibold text-accent-fg"
-          : "rounded border border-border px-2 py-0.5 ui-micro text-text-muted hover:bg-surface"
-      }
-    >
-      {t(KIND_LABEL[kind])}
-      {count === undefined ? "" : ` · ${count}`}
-    </button>
   );
 }
 
@@ -318,15 +274,14 @@ function ArtifactPreviewPane({
   onNavigateTask,
 }: {
   readonly repoId: string;
-  readonly row: ArtifactGuiRowDto | null;
+  readonly row: ArtifactGuiRowDto;
   readonly onNavigateTask: (taskId: string) => void;
 }) {
-  const document = useTaskDocumentQuery(repoId, row?.taskId ?? "", row?.path ?? null);
+  const document = useTaskDocumentQuery(repoId, row.taskId ?? "", row.path);
   // 纯展示(remote-proxy)仓的「打开」走主进程物化副本统一面,按钮旁标注服务器副本。
   const remoteProxy = useRepoRow(repoId)?.mode === "remote-proxy";
   const [openError, setOpenError] = useState<string | null>(null);
   const openExternally = useCallback(async () => {
-    if (row === null) return;
     setOpenError(null);
     const outcome = await openArtifactExternally({
       repoId,
@@ -340,26 +295,15 @@ function ArtifactPreviewPane({
       data-testid="artifact-preview-pane"
       className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface"
     >
-      {row === null ? (
-        <div
-          className={[
-            "flex min-h-56 flex-1 items-center justify-center px-6 text-center",
-            "font-mono ui-micro text-text-faint",
-          ].join(" ")}
-        >
-          {t("artifacts.preview.none")}
-        </div>
-      ) : (
-        <ArtifactPreviewBody
-          repoId={repoId}
-          row={row}
-          onNavigateTask={onNavigateTask}
-          document={document}
-          onOpenExternally={openExternally}
-          openError={openError}
-          remoteProxy={remoteProxy}
-        />
-      )}
+      <ArtifactPreviewBody
+        repoId={repoId}
+        row={row}
+        onNavigateTask={onNavigateTask}
+        document={document}
+        onOpenExternally={openExternally}
+        openError={openError}
+        remoteProxy={remoteProxy}
+      />
     </aside>
   );
 }
@@ -386,9 +330,20 @@ function ArtifactPreviewBody({
   return (
     <>
       <header className="flex shrink-0 items-center gap-2 border-b border-border bg-surface-raised px-3 py-2">
-        <span className="min-w-0 flex-1 truncate font-mono ui-micro text-text-muted" title={repoPathOf(row)}>
-          {repoPathOf(row)}
-        </span>
+        {taskId !== null ? (
+          <button
+            type="button"
+            className="min-w-0 flex-1 truncate text-left font-mono ui-micro text-text-muted hover:text-text"
+            title={repoPathOf(row)}
+            onClick={() => onNavigateTask(taskId)}
+          >
+            {repoPathOf(row)}
+          </button>
+        ) : (
+          <span className="min-w-0 flex-1 truncate font-mono ui-micro text-text-muted" title={repoPathOf(row)}>
+            {repoPathOf(row)}
+          </span>
+        )}
         <button
           type="button"
           data-testid="artifact-open-external"

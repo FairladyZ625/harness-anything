@@ -1,5 +1,6 @@
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 import {
   CADENCE_FRICTION_ALERT_THRESHOLD,
   CADENCE_FRICTION_KINDS,
@@ -14,7 +15,6 @@ import {
 
 const TASK_BUTTON = ["flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left hover:text-accent"].join(" ");
 const TASK_LINE = "flex min-w-0 flex-wrap items-center gap-1.5";
-const HIGH_BADGE = ["shrink-0 rounded bg-status-blocked/10 px-1.5 py-0.5 ui-micro text-status-blocked"].join(" ");
 const titleTone = (high: boolean): string =>
   `truncate ui-body ${high ? "text-status-blocked font-semibold" : "text-text"}`;
 
@@ -37,7 +37,7 @@ export function FrictionRadar({
   return (
     <section
       data-testid="cadence-friction"
-      className="flex flex-col overflow-hidden rounded-lg border border-border bg-surface"
+      className="flex shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-surface"
     >
       <header className="flex items-baseline justify-between gap-2 border-b border-border px-3 py-2">
         <h2 className="ui-body font-semibold">{t("views.cadence.frictionTitle")}</h2>
@@ -50,7 +50,7 @@ export function FrictionRadar({
           {t("views.cadence.frictionEmpty")}
         </p>
       ) : (
-        <div className="flex max-h-80 flex-col overflow-y-auto">
+        <div className="flex flex-col">
           {signalTotal > 0 ? (
             <>
               <p className="flex flex-wrap gap-x-3 px-3 pt-2 font-mono ui-micro text-text-faint">
@@ -58,7 +58,7 @@ export function FrictionRadar({
                   <span key={kind}>{`${KIND_LABEL[kind]()} ${friction.byKind[kind]}`}</span>
                 ))}
               </p>
-              <ul data-testid="cadence-friction-tasks" className="max-h-56 overflow-y-auto">
+              <ul data-testid="cadence-friction-tasks">
                 {friction.tasks.map((task) => (
                   <li key={task.taskId} className="border-t border-border px-3 py-2 first:border-t-0">
                     <button
@@ -69,7 +69,7 @@ export function FrictionRadar({
                     >
                       <span className={TASK_LINE}>
                         <span className={titleTone(task.high)}>{task.title}</span>
-                        {task.high ? <span className={HIGH_BADGE}>{t("views.cadence.frictionHigh")}</span> : null}
+                        {task.high ? <StatusTag tone="bad" label={t("views.cadence.frictionHigh")} /> : null}
                       </span>
                       <span className="font-mono ui-micro text-text-faint">
                         {CADENCE_FRICTION_KINDS.filter((kind) => task[kind] > 0)
@@ -90,7 +90,7 @@ export function FrictionRadar({
               <p className="font-mono ui-micro uppercase tracking-wide text-text-faint">
                 {t("views.cadence.frictionStalled")}
               </p>
-              <ul data-testid="cadence-friction-stalled" className="max-h-36 overflow-y-auto">
+              <ul data-testid="cadence-friction-stalled">
                 {friction.stalled.map((task) => (
                   <li key={task.taskId} className="mt-1 flex min-w-0 items-center gap-2">
                     <button

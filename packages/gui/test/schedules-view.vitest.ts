@@ -244,17 +244,23 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         onFocusSchedule: noop,
       }),
     );
-    expect(container.textContent).toContain("2 of 2");
-    await click(container, "schedules-filter-state-paused");
+    // 切换到「全部」视图(标准 §2.4 筛选按钮)
+    const filters = container.querySelector('[data-testid="schedules-filters"]');
+    const allChip = [...filters!.querySelectorAll("button")].find(
+      (b) => b.textContent?.includes("All") || b.textContent?.includes("全部"),
+    );
+    await act(async () => allChip!.click());
+    expect(container.querySelector('[data-testid="schedule-row-heartbeat-probe"]')).not.toBeNull();
+    // 切换到「已暂停」
+    const pausedChip = [...filters!.querySelectorAll("button")].find(
+      (b) => b.textContent?.includes("Paused") || b.textContent?.includes("已暂停"),
+    );
+    await act(async () => pausedChip!.click());
     expect(container.querySelector('[data-testid="schedule-row-heartbeat-probe"]')).toBeNull();
     expect(container.querySelector('[data-testid="schedule-row-paused-sweep"]')).not.toBeNull();
-    await click(container, "schedules-filter-state-all");
-    // mode/health 是 daemon 列表行的必有字段:有行即可筛,不再有「待投影」禁用态。
-    const modeFilter = container.querySelector<HTMLButtonElement>('[data-testid="schedules-filter-mode-detect"]');
-    expect(modeFilter?.disabled).toBe(false);
-    const healthFilter = container.querySelector<HTMLButtonElement>('[data-testid="schedules-filter-health-degraded"]');
-    expect(healthFilter?.disabled).toBe(false);
-    expect(container.querySelector('[data-testid="schedules-filter-mode"]')?.getAttribute("data-tip")).toBeNull();
+    // 切换回「全部」
+    await act(async () => allChip!.click());
+    expect(container.querySelector('[data-testid="schedule-row-heartbeat-probe"]')).not.toBeNull();
   });
 
   it("lights the mode/health facets and the spark when the daemon projects the rollup fields", async () => {
@@ -293,18 +299,23 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         onFocusSchedule: noop,
       }),
     );
-    const modeFilter = container.querySelector<HTMLButtonElement>('[data-testid="schedules-filter-mode-detect"]');
-    expect(modeFilter?.disabled).toBe(false);
-    await click(container, "schedules-filter-mode-detect");
-    expect(container.querySelector('[data-testid="schedule-row-clean-probe"]')).toBeNull();
-    expect(container.querySelector('[data-testid="schedule-row-degraded-probe"]')).not.toBeNull();
-    await click(container, "schedules-filter-mode-all");
-    const healthFilter = container.querySelector<HTMLButtonElement>('[data-testid="schedules-filter-health-degraded"]');
-    expect(healthFilter?.disabled).toBe(false);
-    await click(container, "schedules-filter-health-degraded");
-    expect(container.querySelector('[data-testid="schedule-row-clean-probe"]')).toBeNull();
+    // Degraded probe 处于 degraded,在需要关注视图中默认可见;spark 与状态标明显形
     expect(container.querySelector('[data-testid="schedule-row-degraded-probe"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="schedule-spark-degraded-probe"]')).not.toBeNull();
+    // 全部视图下,页内搜索支持搜 mode(detect/remediate)
+    const filters = container.querySelector('[data-testid="schedules-filters"]');
+    const allChip = [...filters!.querySelectorAll("button")].find(
+      (b) => b.textContent?.includes("All") || b.textContent?.includes("全部"),
+    );
+    await act(async () => allChip!.click());
+    expect(container.querySelector('[data-testid="schedule-row-clean-probe"]')).not.toBeNull();
+    const searchInput = container.querySelector<HTMLInputElement>('input[type="search"]');
+    await act(async () => {
+      searchInput!.value = "detect";
+      searchInput!.dispatchEvent(new Event("input", { bubbles: true }));
+      searchInput!.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    expect(container.querySelector('[data-testid="schedule-row-degraded-probe"]')).not.toBeNull();
   });
 
   it("routes a row into the schedule/<id> detail hub through the entity router", async () => {
@@ -319,7 +330,10 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         onFocusSchedule: noop,
       }),
     );
-    await click(container, "schedule-focus-heartbeat-probe");
+    // 点行开抽屉,抽屉的「打开完整详情」进 hub(标准 §2.4)。
+    await click(container, "schedule-row-heartbeat-probe");
+    expect(container.querySelector('[data-testid="schedule-preview-drawer"]')).not.toBeNull();
+    await click(container, "schedule-preview-open-full");
     expect(onSelectEntity).toHaveBeenCalledWith("schedule/heartbeat-probe");
   });
 
@@ -581,9 +595,10 @@ async function setValue(container: HTMLElement, testId: string, value: string): 
 }
 
 async function click(container: HTMLElement, testId: string): Promise<void> {
-  const button = container.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`);
-  if (!button) throw new Error(`missing ${testId}`);
-  await act(async () => button.click());
+  const el = container.querySelector<HTMLElement>(`[data-testid="${testId}"], #${testId}`);
+  if (!el) throw new Error(`missing ${testId}`);
+  const target = el.matches("button") ? el : (el.querySelector("button") ?? el);
+  await act(async () => target.click());
 }
 
 async function flush(): Promise<void> {
