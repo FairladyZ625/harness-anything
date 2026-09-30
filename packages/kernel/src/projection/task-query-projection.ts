@@ -41,6 +41,8 @@ export interface TaskProjectionListQuery {
   readonly search?: string;
   readonly slug?: string;
   readonly activePackagesOnly?: boolean;
+  /** Only nonterminal work roots and their complete subtrees, for display derivation. */
+  readonly workSubtreesOnly?: boolean;
 }
 export interface TaskRelationQuery {
   readonly direction?: EntityRelationRecord["direction"];
@@ -134,6 +136,23 @@ export function readTaskIndexRows(
       where.push(`${expression} = ?`);
       values.push(value);
     }
+  if (query.workSubtreesOnly)
+    where.push(`task_snapshot.task_id IN (
+      WITH RECURSIVE work_members(task_id) AS (
+        SELECT root.task_id FROM task_snapshot AS root
+        WHERE root.status NOT IN ('done', 'cancelled') AND (
+          json_extract(root.snapshot_json, '$.task.taskClass') = 'work' OR (
+            json_extract(root.snapshot_json, '$.task.metadata.parentTaskId') IS NULL AND EXISTS (
+              SELECT 1 FROM task_snapshot AS child
+              WHERE json_extract(child.snapshot_json, '$.task.metadata.parentTaskId') = root.task_id
+            )
+          )
+        )
+        UNION
+        SELECT child.task_id FROM task_snapshot AS child JOIN work_members AS parent
+          ON json_extract(child.snapshot_json, '$.task.metadata.parentTaskId') = parent.task_id
+      ) SELECT task_id FROM work_members
+    )`);
   if (query.parentTaskId !== undefined) {
     where.push(`${field("$.task.metadata.parentTaskId")} IS ?`);
     values.push(query.parentTaskId);

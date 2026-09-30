@@ -815,6 +815,31 @@ function projectionStub(
     taskRows = options.taskRows ?? [],
     decisionAgendaRows = options.decisionAgenda ?? [];
   return {
+    readTaskIndex: () => ({
+      ...cut,
+      page: null,
+      warnings: [],
+      rows: (taskRows as ReturnType<typeof protocolTaskRow>[]).flatMap((row) =>
+        row.snapshot.task
+          ? [
+              {
+                taskId: row.taskId,
+                title: row.snapshot.task.title,
+                status: row.snapshot.task.status,
+                taskClass: row.snapshot.task.taskClass,
+                parentTaskId: row.snapshot.task.metadata?.parentTaskId ?? null,
+                pinned: row.snapshot.task.pinned,
+                packageDisposition: row.snapshot.task.packageDisposition,
+                packagePath: row.packagePath,
+                updatedAt: row.updatedAt,
+                workKind: null,
+                riskTier: null,
+                urgency: null,
+              },
+            ]
+          : [],
+      ),
+    }),
     list: (query: TaskProjectionListQuery = {}) => {
       options.listCalls?.push(query);
       const selected = query.status

@@ -1,3 +1,4 @@
+import { taskPresentationReads } from "./task-presentation-read.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -233,7 +234,7 @@ export function makeTaskQueryReadModel(input: {
     };
   }
   function guiTasks(query: TaskProjectionListQuery = {}): DaemonTaskSnapshotListResult {
-    const lifecycle = projection.list({ ...query, limit: query.limit ?? 500 }),
+    const lifecycle = taskPresentationReads(projection).list({ ...query, limit: query.limit ?? 500 }),
       readPresetSnapshot = presetSnapshotReader(projection),
       { authoredRoot } = resolveHarnessLayout(rootDir),
       { dependencies, downstream, derives, awaits, taskStatuses, blockingByTaskId } = readBlockingAssessments(
@@ -351,7 +352,7 @@ export function makeTaskQueryReadModel(input: {
     pageCursor: string | undefined,
     scope: AgendaWorkScope,
   ): AgendaSourcePage {
-    const lifecycle = projection.list({
+    const lifecycle = taskPresentationReads(projection).list({
         status,
         activePackagesOnly: true,
         limit: sourceLimit,

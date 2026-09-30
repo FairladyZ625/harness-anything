@@ -803,3 +803,68 @@ function queryPlan(db: DatabaseSync, read: { readonly sql: string; readonly args
     .map(({ detail }) => detail)
     .join("\n");
 }
+
+test("work derivation index contains whole subtrees but excludes unrelated standalone tasks", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    db.exec(
+      "CREATE TABLE task_snapshot (task_id TEXT PRIMARY KEY, status TEXT, updated_at TEXT, snapshot_json TEXT); CREATE TABLE task_package (task_id TEXT PRIMARY KEY, package_path TEXT)",
+    );
+    const insert = db.prepare("INSERT INTO task_snapshot VALUES (?, ?, ?, ?)");
+    const entries = [
+      ["root", "planned", "standard", null],
+      ["group", "planned", "standard", "root"],
+      ["leaf", "done", "standard", "group"],
+      ["archived", "cancelled", "standard", "root"],
+      ["nested", "planned", "work", "outside"],
+      ["nested-leaf", "done", "standard", "nested"],
+      ["outside", "done", "standard", null],
+      ["standalone", "planned", "standard", null],
+    ];
+    for (const [taskId, status, taskClass, parentTaskId] of entries) {
+      insert.run(
+        taskId,
+        status,
+        "2026-09-30T00:00:00.000Z",
+        JSON.stringify({
+          task: {
+            schema: "task/v2",
+            taskId,
+            title: taskId,
+            taskClass,
+            status,
+            graph: REPLAY_TASK_GRAPH,
+            currentNode: "implementation",
+            iteration: 0,
+            pinned: false,
+            createdBy: { principal: { personId: "person-fixture" }, executor: null },
+            completionGateIds: [],
+            presetSnapshotDigest: null,
+            packageDisposition: taskId === "archived" ? "archived" : "active",
+            metadata: {
+              parentTaskId,
+              idempotencyKey: null,
+              workKind: null,
+              riskTier: null,
+              urgency: null,
+              verticalId: "test",
+              presetId: "standard-task",
+              profileId: "baseline",
+              moduleKey: null,
+              slug: taskId,
+              surfaces: [],
+              fromLegacyId: null,
+            },
+          },
+        }),
+      );
+    }
+    assert.deepEqual(
+      readTaskIndexRows(db, { workSubtreesOnly: true }).rows.map(({ taskId }) => taskId),
+      ["archived", "group", "leaf", "nested", "nested-leaf", "root"],
+    );
+    assert.equal(readTaskIndexRows(db).rows.find(({ taskId }) => taskId === "root")!.status, "planned");
+  } finally {
+    db.close();
+  }
+});

@@ -293,6 +293,7 @@ function projectionStub(): TaskProjection {
     return { taskId: task.taskId, status: task.status };
   });
   return {
+    readTaskIndex: () => ({ ...cut, rows: [], page: null, warnings: [] }),
     list: (_query: TaskProjectionListQuery = {}) => ({ ...cut, rows, warnings: [] }),
     readTaskDependencyClosure: (sourceRefs: readonly string[]) => ({
       ...cut,

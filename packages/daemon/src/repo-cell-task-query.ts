@@ -1,3 +1,4 @@
+import { taskPresentationReads } from "./task-presentation-read.ts";
 import {
   admitTaskExecutionWip,
   allowsTaskStatusMove,
@@ -76,7 +77,7 @@ export function listTasks(cell: TaskQueryCell, action: RepoTaskAction, binding: 
     },
     flat = depth === undefined,
     effectiveLimit = flat && query.limit === undefined ? DEFAULT_TASK_LIST_LIMIT : query.limit,
-    read = cell.projection.readTaskIndex(
+    read = taskPresentationReads(cell.projection).readTaskIndex(
       flat
         ? {
             ...filters,
