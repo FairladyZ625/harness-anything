@@ -330,11 +330,108 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         onFocusSchedule: noop,
       }),
     );
-    // 点行开抽屉,抽屉的「打开完整详情」进 hub(标准 §2.4)。
+    // 点行直接进详情,不设预览抽屉(标准 §2.4)。
     await click(container, "schedule-row-heartbeat-probe");
-    expect(container.querySelector('[data-testid="schedule-preview-drawer"]')).not.toBeNull();
-    await click(container, "schedule-preview-open-full");
     expect(onSelectEntity).toHaveBeenCalledWith("schedule/heartbeat-probe");
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("keeps the detail read-only until Edit is pressed: no edit tab, no live form controls", async () => {
+    const container = await renderSurface(
+      createElement(ScheduleWorkspace, {
+        repoId: "repo-a",
+        data: dto(),
+        pending: false,
+        focusedEntityRef: "schedule/heartbeat-probe",
+        onSelectEntity: noop,
+        onFocusSchedule: noop,
+      }),
+    );
+    const detail = container.querySelector('[data-testid="schedule-detail"]')!;
+    expect(detail.querySelector("#schedule-tab-edit")).toBeNull();
+    for (const tabId of ["schedule-tab-overview", "schedule-tab-runs", "schedule-tab-danger"]) {
+      await click(container, tabId);
+      expect(detail.querySelector('[data-testid="schedule-form"]'), tabId).toBeNull();
+      expect(detail.querySelectorAll("input, textarea, select").length, tabId).toBe(0);
+    }
+    await click(container, "schedule-action-edit");
+    expect(detail.querySelector('[data-testid="schedule-form"]')).not.toBeNull();
+    // Outcome routing has no write path yet: its toggles show the default and cannot be flipped.
+    const notify = detail.querySelector<HTMLButtonElement>('[data-testid="schedule-form-routing-notify"] button');
+    expect(notify?.disabled).toBe(true);
+    await click(container, "schedule-form-cancel");
+    expect(detail.querySelector('[data-testid="schedule-form"]')).toBeNull();
+  });
+
+  it("leaves edit mode after a saved update and shows the receipt", async () => {
+    const update = vi.spyOn(schedulesClient, "update").mockResolvedValue({
+      command: "schedule-update",
+      outcome: "applied",
+      opId: "op-update-1",
+      nextAction: null,
+      scheduleId: "heartbeat-probe",
+    });
+    const container = await renderSurface(
+      createElement(ScheduleWorkspace, {
+        repoId: "repo-a",
+        data: dto(),
+        pending: false,
+        focusedEntityRef: "schedule/heartbeat-probe",
+        onSelectEntity: noop,
+        onFocusSchedule: noop,
+      }),
+    );
+    await click(container, "schedule-action-edit");
+    await setValue(container, "schedule-form-name", "Edited heartbeat");
+    await click(container, "schedule-form-submit");
+    await flush();
+    expect(update).toHaveBeenCalledWith(
+      "repo-a",
+      expect.objectContaining({ scheduleId: "heartbeat-probe", name: "Edited heartbeat" }),
+      expect.stringMatching(/^gui:schedule-update:/u),
+    );
+    expect(container.querySelector('[data-testid="schedule-form"]')).toBeNull();
+    expect(container.querySelector('[data-testid="schedule-action-receipt"]')?.textContent).toContain("op-update-1");
+  });
+
+  it("shows the daemon's own rejection text when a save is refused and keeps the draft open", async () => {
+    const updateSchedule = vi.fn().mockResolvedValue({
+      schema: "command-receipt/v2",
+      ok: false,
+      command: "schedule-update",
+      outcome: "op_rejected",
+      opId: "op-rejected-1",
+      code: "entity_not_found",
+      rejectionExplanation: "Schedule heartbeat-probe does not exist.",
+      error: { code: "entity_not_found" },
+    });
+    Object.assign(window, { harness: { updateSchedule } });
+    try {
+      const container = await renderSurface(
+        createElement(ScheduleWorkspace, {
+          repoId: "repo-a",
+          data: dto(),
+          pending: false,
+          focusedEntityRef: "schedule/heartbeat-probe",
+          onSelectEntity: noop,
+          onFocusSchedule: noop,
+        }),
+      );
+      await click(container, "schedule-action-edit");
+      await setValue(container, "schedule-form-name", "Edited heartbeat");
+      await click(container, "schedule-form-submit");
+      await flush();
+      expect(updateSchedule).toHaveBeenCalledTimes(1);
+      expect(container.querySelector('[data-testid="schedule-form-error"]')?.textContent).toContain(
+        "Schedule heartbeat-probe does not exist.",
+      );
+      expect(container.querySelector<HTMLInputElement>('[data-testid="schedule-form-name"]')?.value).toBe(
+        "Edited heartbeat",
+      );
+      expect(container.querySelector('[data-testid="schedule-action-receipt"]')).toBeNull();
+    } finally {
+      Reflect.deleteProperty(window, "harness");
+    }
   });
 
   it("renders the detail hub for a focused schedule/<id> ref and keeps action blockers from the daemon", async () => {
@@ -395,11 +492,9 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
 
   it("runs enable/disable/run-now through the bridge and surfaces the receipt", async () => {
     const receipt = {
-      ok: true,
       command: "schedule-disable",
       outcome: "applied",
       opId: "op-disable-1",
-      code: null,
       nextAction: null,
       scheduleId: "heartbeat-probe",
     };
@@ -423,13 +518,11 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     expect(receiptNode?.textContent).toContain("op-disable-1");
   });
 
-  it("creates through the segmented dialog and edits in the hub's Edit tab, then confirms deletion in Danger", async () => {
+  it("creates through the segmented dialog and edits in the hub's edit mode, then confirms deletion in Danger", async () => {
     const receipt = (command: string) => ({
-        ok: true,
         command,
         outcome: "applied",
         opId: `op-${command}`,
-        code: null,
         nextAction: null,
         scheduleId: "heartbeat-probe",
       }),
@@ -447,7 +540,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
           onFocusSchedule,
         }),
       );
-    // Edit happens in the hub now: the header button switches to the Edit tab.
+    // Edit happens in the hub: the header button enters edit mode.
     await click(focused, "schedule-action-edit");
     expect(focused.querySelector('[data-testid="schedule-form-sec-identity"]')).not.toBeNull();
     expect(focused.querySelector('[data-testid="schedule-form-sec-routing"]')).not.toBeNull();

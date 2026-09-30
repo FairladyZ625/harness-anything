@@ -140,7 +140,7 @@ export function deriveScheduleRunRows(row: ScheduleGuiRowDto): readonly Schedule
   return rows;
 }
 
-type Tab = "overview" | "runs" | "edit" | "danger";
+type Tab = "overview" | "runs" | "danger";
 
 export function ScheduleDetailView({
   repoId,
@@ -168,7 +168,8 @@ export function ScheduleDetailView({
   readonly receipt: ScheduleActionReceipt | null;
   readonly actionError: string | null;
   readonly onAction: (kind: "enable" | "disable" | "runNow") => void;
-  readonly onSave: (input: ScheduleDefinitionInput | ScheduleBuiltinEditInput) => void;
+  /** Resolves true once the daemon applied the write; false keeps the draft open beside the error. */
+  readonly onSave: (input: ScheduleDefinitionInput | ScheduleBuiltinEditInput) => Promise<boolean>;
   readonly onDelete: () => void;
   /** Entity routing for refs with their own view (agent/provider/session/fact/…). Run sessions stay embedded. */
   readonly onSelectEntity: (ref: string) => void;
@@ -180,6 +181,8 @@ export function ScheduleDetailView({
   readonly onExit: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("overview");
+  // 详情默认只读:表单只在点「编辑」后出现,保存成功或取消即退出(不是与概览并列的一个页签)。
+  const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const runOccurrence = scheduleRunRefOccurrence(focusedEntityRef);
   const runsQuery = useQuery({
@@ -202,7 +205,6 @@ export function ScheduleDetailView({
   const tabs = [
     { key: "overview" as const, label: t("schedules.detail.tab.overview") },
     { key: "runs" as const, label: t("schedules.detail.tab.runs", { count: String(occurrenceRows.length) }) },
-    { key: "edit" as const, label: t("schedules.detail.tab.edit") },
     { key: "danger" as const, label: t("schedules.detail.tab.danger") },
   ];
 
@@ -254,7 +256,7 @@ export function ScheduleDetailView({
               {t("schedules.fields.updatedAt")} {time(row.updatedAt)}
             </p>
           </div>
-          {runOccurrence === null && (
+          {runOccurrence === null && !editing && (
             <div className="flex flex-wrap items-center gap-2">
               <ActionBtn
                 kind="runNow"
@@ -282,7 +284,7 @@ export function ScheduleDetailView({
                 testId="schedule-action-edit"
                 disabled={busy || !row.actions.edit.available}
                 tip={row.actions.edit.nextAction ?? row.actions.edit.code ?? undefined}
-                onClick={() => setTab("edit")}
+                onClick={() => setEditing(true)}
               >
                 <PencilSimple weight="bold" />
                 {t("schedules.action.edit")}
@@ -317,7 +319,8 @@ export function ScheduleDetailView({
             value={`${t(AVAILABILITY_META[row.executionAvailability])}${row.claim.nodeId === null ? "" : ` · ${row.claim.nodeId}`}`}
           />
         </div>
-        {actionError !== null && (
+        {/* 编辑态的错误贴着表单显示(schedule-form-error),这里不重复一份。 */}
+        {actionError !== null && !editing && (
           <p role="alert" data-testid="schedule-action-error" className="mt-2 font-mono ui-micro text-status-blocked">
             {actionError}
           </p>
@@ -341,7 +344,7 @@ export function ScheduleDetailView({
               onSelectEntity={onSelectEntity}
             />
           )
-        ) : (
+        ) : editing ? null : (
           <div className="mt-2" data-testid="schedule-detail-tabs">
             <Tabs
               ariaLabel={t("schedules.title")}
@@ -359,7 +362,21 @@ export function ScheduleDetailView({
 
       {runOccurrence === null && (
         <div className="px-5 pb-10 pt-4 md:px-7">
-          {tab === "overview" ? (
+          {editing ? (
+            <ScheduleForm
+              options={options}
+              scheduleIds={scheduleIds}
+              initial={row}
+              busy={busy}
+              error={actionError}
+              onCancel={() => setEditing(false)}
+              onSubmit={(input) =>
+                void onSave(input).then((saved) => {
+                  if (saved) setEditing(false);
+                })
+              }
+            />
+          ) : tab === "overview" ? (
             <ScheduleOverviewTab
               row={row}
               mode={mode}
@@ -373,19 +390,6 @@ export function ScheduleDetailView({
               readFailed={runsReadFailed}
               error={runsQuery.error instanceof Error ? runsQuery.error.message : null}
               onOpenRun={(occurrenceId) => onSelectEntity(scheduleRunRef(row.scheduleId, occurrenceId))}
-            />
-          ) : tab === "edit" ? (
-            <ScheduleForm
-              // A successful save bumps the definition revision, which remounts
-              // the form with the freshly-read daemon values (no stale draft).
-              key={`edit:${row.definitionRevision}`}
-              options={options}
-              scheduleIds={scheduleIds}
-              initial={row}
-              busy={busy}
-              error={actionError}
-              onCancel={() => setTab("overview")}
-              onSubmit={onSave}
             />
           ) : (
             <ScheduleDangerTab

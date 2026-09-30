@@ -256,7 +256,11 @@ describe("segmented guided form (M5)", () => {
         .querySelector<HTMLButtonElement>('[data-testid="schedule-form-purpose-remediate"]')
         ?.getAttribute("aria-pressed"),
     ).toBe("true");
+    // No routing write path yet: the toggle shows the default and cannot be flipped into a dropped choice.
+    const fact = container.querySelector<HTMLButtonElement>('[data-testid="schedule-form-routing-fact"] button');
+    expect(fact?.disabled).toBe(true);
     await click(container, "schedule-form-routing-fact");
+    expect(fact?.getAttribute("aria-checked")).toBe("true");
     expect(container.textContent).toContain("outcome-routing write path");
   });
 

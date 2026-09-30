@@ -75,13 +75,6 @@ export function parseCronCalendar(
   return weekdays.every((day) => day >= 0 && day <= 6) ? { frequency: "weekly", time, weekdays } : null;
 }
 
-export interface ScheduleRoutingState {
-  readonly recordFact: boolean;
-  readonly draftDecisionPacket: boolean;
-  readonly notify: boolean;
-  readonly remediationTask: boolean;
-}
-
 export function ScheduleForm({
   options,
   scheduleIds,
@@ -132,13 +125,7 @@ export function ScheduleForm({
     [mission, setMission] = useState(initial?.mission ?? ""),
     [mode, setMode] = useState<ScheduleModeWord>(initial?.mode ?? "detect"),
     [keepDays, setKeepDays] = useState(builtinTarget === undefined ? "" : String(builtinTarget.keepDays)),
-    [keepMonthly, setKeepMonthly] = useState(builtinTarget?.keepMonthly ?? true),
-    [routing, setRouting] = useState<ScheduleRoutingState>({
-      recordFact: true,
-      draftDecisionPacket: true,
-      notify: false,
-      remediationTask: false,
-    });
+    [keepMonthly, setKeepMonthly] = useState(builtinTarget?.keepMonthly ?? true);
   const agent = availableAgents.find((candidate) => candidate.agentId === agentId) ?? null,
     compatibleInstances = useMemo(
       () => compatibleScheduleInstances(agent, options.instances),
@@ -552,42 +539,32 @@ export function ScheduleForm({
               label={t("schedules.form.routing.writeReport")}
               tip={t("schedules.form.routing.lockedDefault")}
               checked
-              locked
             />
           </RoutingCard>
           <RoutingCard when={t("schedules.form.routing.onFindings")}>
-            <RoutingToggle
-              testId="schedule-form-routing-fact"
-              label={t("schedules.form.routing.recordFact")}
-              checked={routing.recordFact}
-              onChange={(checked) => setRouting((current) => ({ ...current, recordFact: checked }))}
-            />
+            <RoutingToggle testId="schedule-form-routing-fact" label={t("schedules.form.routing.recordFact")} checked />
             <RoutingToggle
               testId="schedule-form-routing-decision"
               label={t("schedules.form.routing.draftDecision")}
-              checked={routing.draftDecisionPacket}
-              onChange={(checked) => setRouting((current) => ({ ...current, draftDecisionPacket: checked }))}
+              checked
             />
             <RoutingToggle
               testId="schedule-form-routing-notify"
               label={t("schedules.form.routing.notify")}
-              checked={routing.notify}
-              onChange={(checked) => setRouting((current) => ({ ...current, notify: checked }))}
+              checked={false}
             />
           </RoutingCard>
           <RoutingCard when={t("schedules.form.routing.onFailed")}>
             <RoutingToggle
               testId="schedule-form-routing-remediation"
               label={t("schedules.form.routing.remediationTask")}
-              checked={routing.remediationTask}
-              onChange={(checked) => setRouting((current) => ({ ...current, remediationTask: checked }))}
+              checked={false}
             />
             <RoutingToggle
               testId="schedule-form-routing-downstream"
               label={t("schedules.form.routing.downstream")}
               tip={t("schedules.form.routing.downstreamDisabled")}
               checked={false}
-              locked
             />
           </RoutingCard>
           <PlannedBox>{t("schedules.form.routing.pending")}</PlannedBox>
@@ -633,7 +610,9 @@ export function ScheduleForm({
           </Hint>
         )}
         <span className="flex-1" />
-        <Btn onClick={onCancel}>{t("schedules.form.cancel")}</Btn>
+        <Btn testId="schedule-form-cancel" onClick={onCancel}>
+          {t("schedules.form.cancel")}
+        </Btn>
         <Btn variant="primary" testId="schedule-form-submit" disabled={busy || !ready} onClick={submit}>
           {t(initial === null ? "schedules.form.create" : "schedules.form.save")}
         </Btn>
@@ -767,24 +746,22 @@ function RoutingCard({ when, children }: { readonly when: string; readonly child
   );
 }
 
+/** Outcome routing has no daemon write path yet, so every toggle shows the default route read-only;
+ * a flippable toggle here would be a choice the save silently drops. */
 function RoutingToggle({
   testId,
   label,
   tip,
   checked,
-  locked = false,
-  onChange,
 }: {
   readonly testId: string;
   readonly label: string;
   readonly tip?: string;
   readonly checked: boolean;
-  readonly locked?: boolean;
-  readonly onChange?: (checked: boolean) => void;
 }) {
   return (
     <span data-testid={testId} data-tip={tip} className="inline-flex items-center gap-1.5 ui-micro text-text-muted">
-      <Toggle checked={checked} onChange={locked ? () => undefined : (onChange ?? (() => undefined))} label={label} />
+      <Toggle checked={checked} onChange={() => undefined} label={label} disabled />
       {label}
     </span>
   );
