@@ -555,7 +555,7 @@ describe("agent runtime renderer", () => {
     );
     for (const text of ["fable", "luna", "sol", "terra", "commander", "worker"]) expect(inspector).toContain(text);
   });
-  it("keeps invalid and missing identity rows visible as disabled grey hints", () => {
+  it("keeps invalid and missing identity rows visible, selectable, and status-tagged", () => {
     const markup = renderToStaticMarkup(
       createElement(IdentityRail, {
         agents: [
@@ -581,8 +581,8 @@ describe("agent runtime renderer", () => {
         onNew: noop,
       }),
     );
-    expect(markup).toMatch(/rail-agent-broken-agent[^>]*disabled/u);
-    expect(markup).toMatch(/rail-squad-orphan-squad[^>]*disabled/u);
+    expect(markup).toMatch(/<button[^>]*rail-agent-broken-agent/u);
+    expect(markup).toMatch(/<button[^>]*rail-squad-orphan-squad/u);
     expect(markup).toContain("Repair broken-agent.");
     expect(markup).toContain("Install the missing Agent.");
     expect(markup).toContain("Invalid");

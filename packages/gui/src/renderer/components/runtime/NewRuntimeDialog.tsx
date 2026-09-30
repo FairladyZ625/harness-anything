@@ -23,6 +23,7 @@ import {
 import { runtimeKindForId } from "@harness-anything/daemon/protocol";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
+import { ActionError } from "./ActionError.tsx";
 import { Badge, Btn, CfgRow, Hint, KindDot, Modal, SegCtl, TextInput, Toggle, WarnBar } from "./parts.tsx";
 import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
 
@@ -54,6 +55,7 @@ export function NewRuntimeDialog({
   existingInstanceIds = [],
   busy,
   initialKind = "claude",
+  actionError = null,
   onCancel,
   onCreate,
 }: {
@@ -61,6 +63,8 @@ export function NewRuntimeDialog({
   readonly existingInstanceIds?: readonly string[];
   readonly busy: boolean;
   readonly initialKind?: RuntimeKindId;
+  /** 创建失败(如 id 冲突、daemon 拒绝)时的原因:就在创建按钮旁显示(标准 §2.5)。 */
+  readonly actionError?: string | null;
   readonly onCancel: () => void;
   readonly onCreate: (input: RuntimeInstanceCreateInput) => void;
 }) {
@@ -114,6 +118,7 @@ export function NewRuntimeDialog({
         </div>
       }
     >
+      {actionError ? <ActionError>{actionError}</ActionError> : null}
       <CfgRow label={t("agentRuntime.provider")}>
         <SegCtl
           label={t("agentRuntime.provider")}

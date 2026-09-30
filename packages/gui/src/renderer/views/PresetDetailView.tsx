@@ -1,5 +1,5 @@
-import { useEffect, useState, type KeyboardEvent } from "react";
-import { ArrowLeft, CaretRight, FileText, Info } from "@phosphor-icons/react";
+import { useEffect, useState } from "react";
+import { ArrowLeft, CaretRight } from "@phosphor-icons/react";
 import type { CatalogPresetRow } from "../api-client.ts";
 import {
   PresetBadge,
@@ -8,6 +8,7 @@ import {
   PresetOverviewTab,
   PresetShaField,
 } from "../components/presetDetail/PresetDetailSections.tsx";
+import { Tabs } from "../components/primitives/Tabs.tsx";
 import { useCatalogPreset } from "../catalog-data.ts";
 import { t } from "../i18n/index.tsx";
 
@@ -17,10 +18,7 @@ import { t } from "../i18n/index.tsx";
  * gui-catalog-preset/v1 读面(resolver 单一权威),GUI 不读文件系统。
  */
 
-const tabs = [
-  { id: "overview", icon: Info },
-  { id: "files", icon: FileText },
-] as const;
+const tabs = [{ id: "overview" }, { id: "files" }] as const;
 
 type PresetDetailTab = (typeof tabs)[number]["id"];
 
@@ -144,38 +142,19 @@ export function PresetDetailView({
         </div>
       </header>
 
-      <nav
-        role="tablist"
-        aria-label={t("views.presetDetailView.tablist")}
-        className="relative z-10 flex h-8 shrink-0 overflow-x-auto border-b border-border bg-surface px-2 sm:px-3"
-      >
-        {tabs.map((tab, index) => {
-          const Icon = tab.icon,
-            active = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              id={`preset-tab-${tab.id}`}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              aria-controls={`preset-panel-${tab.id}`}
-              tabIndex={active ? 0 : -1}
-              onClick={() => setActiveTab(tab.id)}
-              onKeyDown={(event) => navigateTabs(event, index, setActiveTab)}
-              className={[
-                "relative flex h-8 shrink-0 items-center gap-1 px-2 ui-micro font-medium",
-                "focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-accent",
-                active ? "text-text" : "text-text-faint hover:text-text-muted",
-              ].join(" ")}
-            >
-              <Icon weight={active ? "bold" : "regular"} className="ui-meta" />
-              {tab.id === "overview" ? t("views.presetDetailView.overviewTab") : t("views.presetDetailView.packageTab")}
-              {active ? <span className="absolute inset-x-2 bottom-0 h-0.5 bg-accent" /> : null}
-            </button>
-          );
-        })}
-      </nav>
+      <div className="relative z-10 shrink-0 bg-surface px-2 sm:px-3">
+        <Tabs
+          ariaLabel={t("views.presetDetailView.tablist")}
+          idPrefix="preset"
+          value={activeTab}
+          onChange={setActiveTab}
+          tabs={tabs.map((tab) => ({
+            key: tab.id,
+            label:
+              tab.id === "overview" ? t("views.presetDetailView.overviewTab") : t("views.presetDetailView.packageTab"),
+          }))}
+        />
+      </div>
 
       {/* 宽屏自适应(复用 G1/G5 容器规则):main 是容器量尺,卡片铺满可用宽度。
           断带与 Task 详情一致:<1100px 侧栏横排在上,≥1100px 收窄为 14rem 侧栏。 */}
@@ -237,14 +216,4 @@ function IdentityItem({
       </dd>
     </div>
   );
-}
-
-function navigateTabs(event: KeyboardEvent<HTMLButtonElement>, index: number, select: (tab: PresetDetailTab) => void) {
-  const direction = event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0;
-  if (direction === 0) return;
-  event.preventDefault();
-  const next = (index + direction + tabs.length) % tabs.length,
-    tab = tabs[next]!;
-  select(tab.id);
-  event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`#preset-tab-${tab.id}`)?.focus();
 }
