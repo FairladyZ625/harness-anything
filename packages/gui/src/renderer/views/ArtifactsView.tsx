@@ -108,10 +108,11 @@ export function ArtifactsWorkspace({
 }) {
   const rows = data?.artifacts ?? [];
   const [selected, setSelected] = useState<ArtifactGuiRowDto | null>(null);
-  const current = useMemo(
-    () => (selected === null ? null : (rows.find((row) => sameArtifact(row, selected)) ?? null)),
-    [rows, selected],
-  );
+  const current = useMemo(() => {
+    if (rows.length === 0) return null;
+    if (selected === null) return rows[0]!;
+    return rows.find((row) => sameArtifact(row, selected)) ?? rows[0]!;
+  }, [rows, selected]);
   const [drawer, setDrawer] = useState<ArtifactDrawerState>(() => readArtifactDrawerState());
   const rowHostRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ readonly startX: number; readonly startWidth: number } | null>(null);
@@ -221,7 +222,7 @@ export function ArtifactsWorkspace({
           />
         </>
       )}
-      <ArtifactPreviewPane repoId={repoId} row={current} onNavigateTask={onNavigateTask} />
+      {current !== null ? <ArtifactPreviewPane repoId={repoId} row={current} onNavigateTask={onNavigateTask} /> : null}
     </div>
   );
 }
@@ -273,15 +274,14 @@ function ArtifactPreviewPane({
   onNavigateTask,
 }: {
   readonly repoId: string;
-  readonly row: ArtifactGuiRowDto | null;
+  readonly row: ArtifactGuiRowDto;
   readonly onNavigateTask: (taskId: string) => void;
 }) {
-  const document = useTaskDocumentQuery(repoId, row?.taskId ?? "", row?.path ?? null);
+  const document = useTaskDocumentQuery(repoId, row.taskId ?? "", row.path);
   // 纯展示(remote-proxy)仓的「打开」走主进程物化副本统一面,按钮旁标注服务器副本。
   const remoteProxy = useRepoRow(repoId)?.mode === "remote-proxy";
   const [openError, setOpenError] = useState<string | null>(null);
   const openExternally = useCallback(async () => {
-    if (row === null) return;
     setOpenError(null);
     const outcome = await openArtifactExternally({
       repoId,
@@ -295,26 +295,15 @@ function ArtifactPreviewPane({
       data-testid="artifact-preview-pane"
       className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface"
     >
-      {row === null ? (
-        <div
-          className={[
-            "flex min-h-56 flex-1 items-center justify-center px-6 text-center",
-            "font-mono ui-micro text-text-faint",
-          ].join(" ")}
-        >
-          {t("artifacts.preview.none")}
-        </div>
-      ) : (
-        <ArtifactPreviewBody
-          repoId={repoId}
-          row={row}
-          onNavigateTask={onNavigateTask}
-          document={document}
-          onOpenExternally={openExternally}
-          openError={openError}
-          remoteProxy={remoteProxy}
-        />
-      )}
+      <ArtifactPreviewBody
+        repoId={repoId}
+        row={row}
+        onNavigateTask={onNavigateTask}
+        document={document}
+        onOpenExternally={openExternally}
+        openError={openError}
+        remoteProxy={remoteProxy}
+      />
     </aside>
   );
 }
@@ -341,9 +330,20 @@ function ArtifactPreviewBody({
   return (
     <>
       <header className="flex shrink-0 items-center gap-2 border-b border-border bg-surface-raised px-3 py-2">
-        <span className="min-w-0 flex-1 truncate font-mono ui-micro text-text-muted" title={repoPathOf(row)}>
-          {repoPathOf(row)}
-        </span>
+        {taskId !== null ? (
+          <button
+            type="button"
+            className="min-w-0 flex-1 truncate text-left font-mono ui-micro text-text-muted hover:text-text"
+            title={repoPathOf(row)}
+            onClick={() => onNavigateTask(taskId)}
+          >
+            {repoPathOf(row)}
+          </button>
+        ) : (
+          <span className="min-w-0 flex-1 truncate font-mono ui-micro text-text-muted" title={repoPathOf(row)}>
+            {repoPathOf(row)}
+          </span>
+        )}
         <button
           type="button"
           data-testid="artifact-open-external"

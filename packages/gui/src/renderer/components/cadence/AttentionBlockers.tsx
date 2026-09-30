@@ -105,7 +105,7 @@ export function AttentionBlockers({
   return (
     <section
       data-testid="cadence-blockers"
-      className="flex flex-col overflow-hidden rounded-lg border border-border bg-surface"
+      className="flex shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-surface"
     >
       <header className="flex items-baseline justify-between gap-2 border-b border-border px-3 py-2">
         <h2 className="ui-body font-semibold">{t("views.cadence.blockersTitle")}</h2>
@@ -123,7 +123,7 @@ export function AttentionBlockers({
           {t("views.cadence.blockersEmpty")}
         </p>
       ) : (
-        <div data-testid="cadence-blockers-groups" className="flex max-h-48 flex-col overflow-y-auto">
+        <div data-testid="cadence-blockers-groups" className="flex flex-col">
           {visibleGroups.map((group) => (
             <div key={group.key}>
               <div className="flex items-center gap-2 border-t border-border px-3 pb-1 pt-2 first:border-t-0">

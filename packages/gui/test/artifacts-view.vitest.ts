@@ -485,4 +485,42 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     expect(text).toContain("harness/tasks/task_weathering-slug/artifacts/reports/dossier.pdf");
     expect(container.querySelector('[data-testid="task-document-binary-open"]')).not.toBeNull();
   });
+  it("defaults to selecting and previewing the first artifact without requiring a click", async () => {
+    const getTaskDocument = stubDocumentBridge("<h1>Default preview</h1>");
+    const container = await renderSurface(
+      createElement(ArtifactsWorkspace, {
+        repoId: "repo-a",
+        data: dto(),
+        pending: false,
+        kind: "html",
+        onKindChange: noop,
+        onNavigateTask: noop,
+      }),
+    );
+    await settle();
+    expect(getTaskDocument).toHaveBeenCalledWith({
+      repoId: "repo-a",
+      taskId: "task_weathering",
+      path: "artifacts/reports/weathering.html",
+    });
+    expect(container.querySelector('[data-testid="artifact-preview-pane"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="html-artifact-webview"]')).not.toBeNull();
+  });
+
+  it("renders no placeholder pane on the right when the artifact list is empty", async () => {
+    const container = await renderSurface(
+      createElement(ArtifactsWorkspace, {
+        repoId: "repo-a",
+        data: dto({ artifacts: [], counts: { html: 0, md: 0, raw: 0 } }),
+        pending: false,
+        kind: "html",
+        onKindChange: noop,
+        onNavigateTask: noop,
+      }),
+    );
+    await settle();
+    expect(container.querySelector('[data-testid="artifact-preview-pane"]')).toBeNull();
+    expect(container.textContent).toContain("No artifacts exist in this repository yet.");
+    expect(container.textContent).not.toContain("Select an artifact");
+  });
 });
