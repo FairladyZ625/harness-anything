@@ -342,6 +342,7 @@
   "agentRuntime.selfTestRunning": "Testing…",
   "agentRuntime.selfTestFailed": "The runtime ended with outcome {outcome}.",
   "agentRuntime.selfTestTimeout": "The runtime did not finish the self-test in time.",
+  "agentRuntime.sessionsCompleted": "Completed / cancelled {count} · expand",
   "agentRuntime.sessionsTitle": "Sessions",
   "agentRuntime.agentsTitle": "Agents · Squads",
   "agentRuntime.agentsSubtitle": "identity and organisation · dispatch from here",

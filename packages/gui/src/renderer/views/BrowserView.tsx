@@ -95,10 +95,9 @@ export function BrowserView({ initialUrl }: { readonly initialUrl?: string | nul
       <div className="relative mt-2 min-h-0 min-w-0 flex-1 overflow-hidden rounded-sm border border-border bg-white">
         <div ref={hostRef} className="absolute inset-0" data-testid="in-app-browser-host" />
         {state.error && (
-          <div className="glass absolute inset-0 grid place-content-center gap-3 p-8 text-center" role="alert">
+          <div className="glass absolute inset-x-0 top-0 flex items-center gap-3 px-3 py-2 ui-meta" role="alert">
             <strong>Page could not be loaded</strong>
-            <span className="text-sm text-text-muted">{state.error.description}</span>
-            <code className="text-xs text-text-faint">{state.error.url}</code>
+            <span className="min-w-0 truncate text-text-muted">{state.error.description}</span>
             <button className="control justify-self-center" onClick={() => shellRef.current?.reload()}>
               Try again
             </button>
