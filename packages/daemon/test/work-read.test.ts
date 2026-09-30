@@ -107,6 +107,58 @@ test("work index assigns every task to the work root ha work list names; nested 
   );
 });
 
+test("a work root's presented status derives from its subtree; an open member keeps the root's own status", () => {
+  const rows = [
+    task("all-done", null, "planned", "work"),
+    task("done-group", "all-done", "done"),
+    task("done-leaf", "done-group", "done"),
+    task("cancelled-leaf", "all-done", "cancelled"),
+    task("all-cancelled", null, "planned"),
+    task("cancelled-leaf-a", "all-cancelled", "cancelled"),
+    task("cancelled-leaf-b", "all-cancelled", "cancelled"),
+    task("open", null, "planned", "work"),
+    task("open-leaf", "open", "active"),
+    task("childless", null, "planned", "work"),
+    task("closed", null, "done", "work"),
+    task("closed-leaf", "closed", "cancelled"),
+  ];
+  const projection = {
+    readTaskIndex: () => ({ status: "ready", rows, watermark: 4, sourceRevision: 4, warnings: [] }),
+    read: (taskId: string) => ({ packagePath: `tasks/${taskId}` }),
+    readDocument: () => ({ document: { body: "# Work\n\n## Mission\n\n- Ship.\n" } }),
+  } as never;
+  assert.deepEqual(
+    workListFromProjection(projection, {}).rows.map(({ taskId }) => taskId),
+    ["childless", "open"],
+  );
+  assert.deepEqual(
+    workListFromProjection(projection, { all: true }).rows.map(({ taskId, status, root }) => ({
+      taskId,
+      status,
+      root,
+    })),
+    [
+      { taskId: "all-cancelled", status: "cancelled", root: "derived" },
+      { taskId: "all-done", status: "done", root: "declared" },
+      { taskId: "childless", status: "planned", root: "declared" },
+      { taskId: "closed", status: "done", root: "declared" },
+      { taskId: "open", status: "planned", root: "declared" },
+    ],
+  );
+  const index = workIndexFromProjection(projection);
+  assert.deepEqual(Object.fromEntries(index.works.map(({ taskId, status }) => [taskId, status])), {
+    "all-cancelled": "cancelled",
+    "all-done": "done",
+    childless: "planned",
+    closed: "done",
+    open: "planned",
+  });
+  assert.deepEqual(parseDaemonGuiReadResult("repo.works.index", index), index);
+  const shown = workShowFromProjection(projection, { taskId: "all-done" });
+  assert.equal(shown.root.status, "done");
+  assert.match(renderWorkPayload(shown)!, /^work all-done \[done\] all-done title/u);
+});
+
 test("work show names the goal, subtree counts and open tasks, and the renderer points at the next commands", () => {
   const shown = workShowFromProjection(projection(), { taskId: "declared" });
   assert.equal(shown.goal, "Ship release two.");

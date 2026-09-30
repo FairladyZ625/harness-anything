@@ -3,10 +3,12 @@ import type {
   TaskProjection,
   WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
+import { isTerminalStatus, isWorkRoot } from "@harness-anything/kernel";
 import { planGoalSummary } from "./dispatch-causal-context.ts";
 import type { TaskQueryCell } from "./repo-cell-task-query.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import {
+  derivedWorkRootStatus,
   emptyScopeCounts,
   scopeStatus,
   workRootWalk,
@@ -23,6 +25,7 @@ import {
 export interface WorkListRow {
   readonly taskId: string;
   readonly title: string;
+  /** The presented status: derived from the subtree when every member is terminal, else the root's own. */
   readonly status: TaskIndexProjectionRow["status"];
   readonly root: "declared" | "derived";
   readonly parentTaskId: string | null;
@@ -31,14 +34,12 @@ export interface WorkListRow {
   readonly lastActivityAt: string;
 }
 
-const terminal = new Set<string>(["done", "cancelled"]);
-
 export function workListFromProjection(
   projection: TaskProjection,
   input: { readonly all?: boolean; readonly limit?: number },
 ) {
   const read = projection.readTaskIndex({ activePackagesOnly: true }),
-    rows = workRows(read.rows).filter((row) => input.all === true || !terminal.has(row.status));
+    rows = workRows(read.rows).filter((row) => input.all === true || !isTerminalStatus(row.status));
   return {
     schema: "work-list/v1" as const,
     rows: rows.slice(0, input.limit ?? 50),
@@ -88,18 +89,18 @@ function workRows(rows: readonly TaskIndexProjectionRow[]): WorkListRow[] {
     else children.set(row.parentTaskId, [row]);
   }
   return rows
-    .filter((row) => row.taskClass === "work" || (row.parentTaskId === null && children.has(row.taskId)))
+    .filter((row) => isWorkRoot(row.taskClass, row.parentTaskId, children.get(row.taskId)?.length ?? 0))
     .map((row): WorkListRow => {
       const counts = emptyScopeCounts(),
         seen = new Set([row.taskId]),
+        members: TaskIndexProjectionRow[] = [],
         pending = [...(children.get(row.taskId) ?? [])];
-      let taskCount = 0,
-        lastActivityAt = row.updatedAt;
+      let lastActivityAt = row.updatedAt;
       while (pending.length) {
         const member = pending.shift()!;
         if (seen.has(member.taskId)) continue;
         seen.add(member.taskId);
-        taskCount += 1;
+        members.push(member);
         if (member.updatedAt > lastActivityAt) lastActivityAt = member.updatedAt;
         const below = children.get(member.taskId) ?? [];
         if (below.length === 0) counts[scopeStatus(member.status)] += 1;
@@ -108,10 +109,10 @@ function workRows(rows: readonly TaskIndexProjectionRow[]): WorkListRow[] {
       return {
         taskId: row.taskId,
         title: row.title,
-        status: row.status,
+        status: derivedWorkRootStatus(row, members, true),
         root: row.taskClass === "work" ? "declared" : "derived",
         parentTaskId: row.parentTaskId,
-        taskCount,
+        taskCount: members.length,
         counts,
         lastActivityAt,
       };
@@ -133,7 +134,7 @@ export function workShowFromProjection(projection: TaskProjection, input: { read
     counts: scope.counts,
     scope: scope.scope,
     groups: scope.groups,
-    openTasks: scope.tasks.filter(({ status }) => !terminal.has(status)),
+    openTasks: scope.tasks.filter(({ status }) => !isTerminalStatus(status)),
     truncated: scope.page.nextCursor !== null,
     status: scope.status,
     watermark: scope.watermark,

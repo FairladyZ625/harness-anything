@@ -59,6 +59,7 @@ export function readCompletionContext(
       eligibleDirtyPaths: [],
       producesFactCount: facts.rows.filter((row) => row.targetRef.startsWith("fact/")).length,
       projectionStatus: facts.status,
+      childTaskCount: projection.readTaskChildCounts([taskId])[taskId] ?? 0,
     };
   if (closeout.state === "undeclared") return { ...common, closeout: "missing", closeoutPath: "" };
   if (closeout.contract === null)

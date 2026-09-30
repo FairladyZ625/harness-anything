@@ -44,6 +44,13 @@ export const retiredTaskClassRestatements: Readonly<Record<string, TaskClass>> =
   milestone: "work",
   epic: "standard",
 });
+/**
+ * The one "is this a work root" predicate (dec_mr7v4h6t): a declared work, or a top-level task with
+ * children (a derived root). Work reads and completion guidance share it so they never disagree.
+ */
+export function isWorkRoot(taskClass: TaskClass, parentTaskId: string | null, childCount: number): boolean {
+  return taskClass === "work" || (parentTaskId === null && childCount > 0);
+}
 export interface ActorAxes {
   readonly principal: { readonly personId: string };
   readonly executor: { readonly kind: "agent"; readonly id: string } | null;
