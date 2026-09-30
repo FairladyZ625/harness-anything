@@ -63,6 +63,46 @@ export function workspaceEvidenceOf(input: {
   };
 }
 
+export interface WorkspaceGraphSlice {
+  readonly nodeRefs: readonly string[];
+  readonly edges: readonly RelationEdge[];
+  readonly externalRefs: readonly string[];
+}
+
+/** 工作范围关系图的可见面:成员 + 与成员有边的直接外部边界(展开的外部节点再带一跳)。 */
+export function workspaceGraphSlice(
+  memberTaskIds: readonly string[],
+  relations: readonly RelationEdge[],
+  expandedExternalRefs: ReadonlySet<string> = new Set(),
+): WorkspaceGraphSlice {
+  const members = new Set(memberTaskIds.map(taskRef)),
+    boundary = new Set<string>(),
+    visibleEdges: RelationEdge[] = [];
+  for (const edge of relations) {
+    const from = normalizedRef(edge.from),
+      to = normalizedRef(edge.to);
+    if (members.has(from) || members.has(to)) {
+      visibleEdges.push(edge);
+      if (!members.has(from)) boundary.add(from);
+      if (!members.has(to)) boundary.add(to);
+    }
+  }
+  for (const edge of relations) {
+    const from = normalizedRef(edge.from),
+      to = normalizedRef(edge.to);
+    if (expandedExternalRefs.has(from) || expandedExternalRefs.has(to)) visibleEdges.push(edge);
+  }
+  const edges = [
+      ...new Map(
+        visibleEdges.map((edge) => [edge.relationId ?? `${edge.from}:${edge.kind}:${edge.to}`, edge]),
+      ).values(),
+    ],
+    nodeRefs = [
+      ...new Set([...members, ...edges.flatMap((edge) => [normalizedRef(edge.from), normalizedRef(edge.to)])]),
+    ];
+  return { nodeRefs, edges, externalRefs: [...boundary] };
+}
+
 /** 关系端点 → 与成员引用对齐的归一引用(task 端点保留 `task/` 前缀)。 */
 export function normalizedRef(ref: string): string {
   const nodeId = endpointToNodeId(ref);

@@ -22,6 +22,7 @@ import { t, type MessageKey } from "../i18n/index.tsx";
 import { WorkDayList, WorkOverview } from "./workspace/WorkOverview.tsx";
 import { WorkTasksTab, type WorkLeafRow } from "./workspace/WorkTasksTab.tsx";
 import { WorkDecisionsTab } from "./workspace/WorkDecisionsTab.tsx";
+import { WorkGraphTab } from "./workspace/WorkGraphTab.tsx";
 import { WorkInspectTab } from "./workspace/WorkInspectTab.tsx";
 
 /**
@@ -30,7 +31,7 @@ import { WorkInspectTab } from "./workspace/WorkInspectTab.tsx";
  * 排列,右栏结构与统计;实体细节进右侧抽屉;原始事件流只在检修页。
  */
 
-type WorkspaceTab = "overview" | "tasks" | "progress" | "decisions" | "inspect" | "root";
+type WorkspaceTab = "overview" | "tasks" | "progress" | "decisions" | "graph" | "inspect" | "root";
 
 export interface WorkspaceViewProps {
   readonly scope: WorkspaceScopeRead;
@@ -282,6 +283,7 @@ export function WorkspaceView({
       { key: "tasks" as const, label: t("views.workspace.tab.tasks"), count: scope.scope.executableLeafCount },
       { key: "progress" as const, label: t("views.workspace.tab.progress") },
       { key: "decisions" as const, label: t("views.workspace.tab.decisions") },
+      { key: "graph" as const, label: t("views.workspace.tab.graph") },
       { key: "inspect" as const, label: t("views.workspace.tab.inspect") },
       ...(renderRootTask !== undefined ? [{ key: "root" as const, label: t("views.workspace.rootTaskTab") }] : []),
     ];
@@ -447,6 +449,19 @@ export function WorkspaceView({
               />
             </div>
           ) : null}
+          {/* 关系图保持挂载:焦点与展开累积在页签切换间保留,active 只卸画布 DOM。 */}
+          <div className="col-span-full" hidden={tab !== "graph"}>
+            <WorkGraphTab
+              memberTaskIds={[scope.root.taskId, ...scope.memberTaskIds]}
+              tasks={tasks}
+              decisions={decisions}
+              facts={facts}
+              relations={relations}
+              onNavigateEntity={navigateEntity}
+              onSetTaskPin={onSetTaskPin}
+              active={tab === "graph"}
+            />
+          </div>
           {tab === "root" && renderRootTask !== undefined ? (
             <section
               data-testid="workspace-root-task"
