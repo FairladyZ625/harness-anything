@@ -15,6 +15,11 @@ import {
   OIDC_LOGIN_CHANNEL,
   OIDC_LOGOUT_CHANNEL,
   OIDC_STATUS_CHANNEL,
+  OIDC_BINDING_STATUS_CHANNEL,
+  OIDC_OPEN_CONSOLE_CHANNEL,
+  OIDC_CONFIGURE_CHANNEL,
+  OIDC_BOOTSTRAP_STATUS_CHANNEL,
+  OIDC_BOOTSTRAP_ADMIN_CHANNEL,
   type OidcAuthApi,
 } from "../api/oidc-auth-contract.ts";
 import {
@@ -82,6 +87,11 @@ const exposedHarnessApi = {
     login: () => ipcRenderer.invoke(OIDC_LOGIN_CHANNEL, null),
     logout: () => ipcRenderer.invoke(OIDC_LOGOUT_CHANNEL, null),
     status: () => ipcRenderer.invoke(OIDC_STATUS_CHANNEL, null),
+    bindingStatus: () => ipcRenderer.invoke(OIDC_BINDING_STATUS_CHANNEL, null),
+    openConsole: () => ipcRenderer.invoke(OIDC_OPEN_CONSOLE_CHANNEL, null),
+    configure: (input) => ipcRenderer.invoke(OIDC_CONFIGURE_CHANNEL, input),
+    bootstrapStatus: () => ipcRenderer.invoke(OIDC_BOOTSTRAP_STATUS_CHANNEL, null),
+    bootstrapAdmin: (input) => ipcRenderer.invoke(OIDC_BOOTSTRAP_ADMIN_CHANNEL, input),
   } satisfies OidcAuthApi,
   capabilities: preloadApiCapabilities,
 };

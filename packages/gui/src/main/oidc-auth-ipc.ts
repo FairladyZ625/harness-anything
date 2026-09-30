@@ -1,13 +1,27 @@
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import type { IpcMainInvokeEvent } from "electron";
-import { OIDC_LOGIN_CHANNEL, OIDC_LOGOUT_CHANNEL, OIDC_STATUS_CHANNEL } from "../api/oidc-auth-contract.ts";
+import {
+  OIDC_BINDING_STATUS_CHANNEL,
+  OIDC_BOOTSTRAP_ADMIN_CHANNEL,
+  OIDC_BOOTSTRAP_STATUS_CHANNEL,
+  OIDC_CONFIGURE_CHANNEL,
+  OIDC_LOGIN_CHANNEL,
+  OIDC_LOGOUT_CHANNEL,
+  OIDC_OPEN_CONSOLE_CHANNEL,
+  OIDC_STATUS_CHANNEL,
+  type BootstrapAdminInput,
+  type RbacBindingInput,
+} from "../api/oidc-auth-contract.ts";
 import { assertTrustedIpcSender } from "./ipc-handlers.ts";
 import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
 import type { JsonObject } from "@harness-anything/daemon";
 
 interface Registrar {
-  readonly handle: (channel: string, listener: (event: IpcMainInvokeEvent) => Promise<unknown>) => void;
+  readonly handle: (
+    channel: string,
+    listener: (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>,
+  ) => void;
 }
 
 export function registerOidcAuthIpc(
@@ -29,6 +43,42 @@ export function registerOidcAuthIpc(
   registrar.handle(OIDC_LOGIN_CHANNEL, async (event) => {
     assertTrustedIpcSender(event, trustPolicy);
     return systemBrowserLogin(ports);
+  });
+  registrar.handle(OIDC_BINDING_STATUS_CHANNEL, async (event) => {
+    assertTrustedIpcSender(event, trustPolicy);
+    return ports.daemonRequest({ operation: "health" });
+  });
+  registrar.handle(OIDC_BOOTSTRAP_STATUS_CHANNEL, async (event) => {
+    assertTrustedIpcSender(event, trustPolicy);
+    return ports.daemonRequest({ operation: "bootstrap-status" });
+  });
+  registrar.handle(OIDC_BOOTSTRAP_ADMIN_CHANNEL, async (event, rawInput) => {
+    assertTrustedIpcSender(event, trustPolicy);
+    const input = rawInput as BootstrapAdminInput;
+    return ports.daemonRequest({
+      operation: "bootstrap-admin",
+      username: input.username,
+      email: input.email,
+      displayName: input.displayName,
+      password: input.password,
+      personId: input.personId,
+    });
+  });
+  registrar.handle(OIDC_CONFIGURE_CHANNEL, async (event, rawInput) => {
+    assertTrustedIpcSender(event, trustPolicy);
+    const input = rawInput as RbacBindingInput;
+    if (input?.mode === "managed") return ports.daemonRequest({ operation: "bootstrap", mode: "managed" });
+    if (input?.mode !== "external") throw new Error("Keycloak mode must be managed or external.");
+    return ports.daemonRequest({ mode: input.mode, url: input.url, realm: input.realm, clientId: input.clientId });
+  });
+  registrar.handle(OIDC_OPEN_CONSOLE_CHANNEL, async (event) => {
+    assertTrustedIpcSender(event, trustPolicy);
+    const binding = await ports.daemonRequest({ operation: "health" });
+    if (typeof binding.url !== "string" || typeof binding.realm !== "string")
+      throw new Error("Daemon did not return a Keycloak binding.");
+    const consoleUrl = `${binding.url.replace(/\/$/u, "")}/admin/${encodeURIComponent(binding.realm)}/console/`;
+    await ports.openExternal(consoleUrl);
+    return { ok: true };
   });
 }
 

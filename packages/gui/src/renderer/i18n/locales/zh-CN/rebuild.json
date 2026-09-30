@@ -15,6 +15,7 @@
   "shell.nav.system": "Daemon 状态",
   "shell.nav.daemonObserve": "守护进程观察",
   "shell.nav.settings": "设置",
+  "shell.nav.identityAccess": "身份与存取",
   "shell.nav.workspace": "工作区",
   "shell.nav.governanceGroup": "治理",
   "shell.nav.runtimeGroup": "运行时",

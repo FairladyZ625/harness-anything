@@ -35,6 +35,7 @@ import { artifactsClient } from "../src/renderer/artifacts-client.ts";
 import { SystemView } from "../src/renderer/views/SystemView.tsx";
 import { DaemonObserveView } from "../src/renderer/views/DaemonObserveView.tsx";
 import { SettingsView } from "../src/renderer/views/SettingsView.tsx";
+import { IdentityAccessView } from "../src/renderer/views/IdentityAccessView.tsx";
 import { TaskDetailView } from "../src/renderer/views/TaskDetailView.tsx";
 import { TaskPreviewDrawer } from "../src/renderer/components/TaskPreviewDrawer.tsx";
 import { CommandPalette, buildPaletteIndex } from "../src/renderer/components/CommandPalette.tsx";
@@ -814,6 +815,7 @@ const VIEW_RENDERERS = {
       onNavigateEntity: noop,
     }),
   settings: () => createElement(SettingsView, { repoId: REPO_ID }),
+  identityAccess: () => createElement(IdentityAccessView),
 } satisfies Record<ViewId, () => ReturnType<typeof createElement>>;
 
 const navViewIds: readonly ViewId[] = NAV_GROUPS.flatMap((group: { items: readonly { id: ViewId }[] }) =>
