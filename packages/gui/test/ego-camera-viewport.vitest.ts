@@ -13,7 +13,8 @@ import { decisionProjectionFields } from "./decision-projection-fields.ts";
  * fitView 塞进一屏,几百个子任务的工作下缩到看不清,原本在读的那块彻底找不回来。
  * 病根是旧 effect 把 displayNodes.length 放进了依赖:那是内容变化,不是用户动作。
  *
- * 这里钉两条:换焦点(用户动作)平移到焦点且不改 zoom;单击展开(内容变化)完全不动相机。
+ * 这里钉两条:换焦点(用户动作)平移到焦点且不改 zoom;单击选中(§5.2 后唯一单击
+ * 语义,不再改变画布内容)完全不动相机。
  */
 
 const setCenter = vi.fn();
@@ -132,7 +133,7 @@ describe("聚光灯相机", () => {
     });
   });
 
-  it("单击展开长出新节点,相机一动不动", async () => {
+  it("单击选中开抽屉,画布内容与相机都一动不动", async () => {
     const div = document.createElement("div");
     document.body.appendChild(div);
     const root: Root = createRoot(div);
@@ -140,7 +141,7 @@ describe("聚光灯相机", () => {
       root.render(element("decision/d1"));
     });
     await flushFrame();
-    const nodeCount = () => div.querySelectorAll("[data-testid='ego-card'], [data-testid='ego-chip']").length;
+    const nodeCount = () => div.querySelectorAll("[data-testid='ego-chip']").length;
     const before = nodeCount();
     setCenter.mockClear();
     fitView.mockClear();
@@ -151,11 +152,10 @@ describe("聚光灯相机", () => {
     });
     await flushFrame();
 
-    // 前提:这一击让画布节点总数变多(t4 被长出来)。只把 chip 变成卡片不算 ——
-    // 旧实现按节点总数触发缩放,总数不变时它本来就不动,那样的用例分辨不出回归。
-    expect(nodeCount()).toBe(before + 1);
-    expect(div.textContent).toContain("任务四");
-    // 结论:内容变多了,相机没动 —— 既不平移,也不缩放适配。
+    // §5.2:单击只选中(抽屉显示摘要),不改变画布内容 —— 节点数不变,相机不动。
+    expect(nodeCount()).toBe(before);
+    expect(div.querySelector("[data-testid='graph-detail-drawer']")).not.toBeNull();
+    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(0);
     expect(setCenter).not.toHaveBeenCalled();
     expect(fitView).not.toHaveBeenCalled();
 

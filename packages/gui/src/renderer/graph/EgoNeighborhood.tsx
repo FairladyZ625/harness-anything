@@ -40,16 +40,17 @@ import {
  * 可复用邻域画布(W4):「这个实体周围有什么」的独立组件形态。
  *
  * 从 GraphView 的聚光灯分支抽出,自包含 ego 状态机(useEgoCanvas)+ 布局
- * (layoutEgoCanvas)+ 交互(单击展开/双击设中心/Esc 清选)+ 抽屉(GraphDrawer)。
- * 不含页面级状态:领地模式、筛选面板、焦点历史条、左栏焦点切换器都留在宿主里,
- * 宿主通过 props 注入筛选与跳转回调。首个消费者是关系图页本身(同一渲染路径,
- * 行为不变),随后是 Fact/Decision 详情页与 Task 详情(W3)。
+ * (layoutEgoCanvas)+ 交互(单击选中/Esc 清选)+ 抽屉(GraphDrawer)。
+ * 交互契约按视觉规范 §5.2:单击节点 = 选中(描边高亮、邻居加亮)+ 抽屉显示摘要,
+ * 节点不放大;双击 = 以它为中心重排邻域。不含页面级状态:领地模式、筛选面板、
+ * 焦点历史条、左栏焦点切换器都留在宿主里,宿主通过 props 注入筛选与跳转回调。
+ * 首个消费者是关系图页本身,随后是 Fact/Decision 详情页与 Task 详情(W3)。
  *
  * 契约:
- *   focusRef 变化 → 画布重排到新焦点(±EGO_DEFAULT_HOPS 跳);
+ *   focusRef 变化 → 画布重排到新焦点(±hops 跳);
  *   focusRef 变 null → 累积态清空(与 GraphView 原 clearFocus 行为一致);
- *   onRefocus        — 双击节点 / 卡片「设为画布中心」(宿主决定是换焦点还是跳页);
- *   onNavigateEntity — 卡片「详情」/ 抽屉「打开」(跳去该实体的详情页)。
+ *   onRefocus        — 双击节点 / 抽屉跳转(宿主决定是换焦点还是跳页);
+ *   onNavigateEntity — 抽屉「打开」(跳去该实体的详情页)。
  */
 export interface EgoNeighborhoodFilters {
   axes: EgoAxisFilter;
@@ -97,8 +98,6 @@ export type EgoNeighborhoodProps = {
   onLayoutStats?: (stats: { nodes: number; edges: number; focusLabel: string | null }) => void;
   /** 左上角面板插槽(宿主塞筛选面板等页面级 chrome)。 */
   panelSlot?: ReactNode;
-  /** 「设为画布中心」按钮/双击的提示文案;详情页里该动作语义是跳页,由宿主改写。 */
-  refocusTitle?: string;
   /** false = 隐藏但保持挂载(宿主切换领地/聚光灯时保留画布累积态)。 */
   active?: boolean;
 };
@@ -126,7 +125,6 @@ function EgoNeighborhoodInner({
   onRefocus,
   onLayoutStats,
   panelSlot,
-  refocusTitle,
   active = true,
 }: EgoNeighborhoodProps & { filters: EgoNeighborhoodFilters; hops: EgoHopBudget }) {
   const colorMode = useColorMode();
@@ -189,7 +187,6 @@ function EgoNeighborhoodInner({
               flowMode: filters.flowMode,
             },
             shown: canvas.shown,
-            expanded: canvas.expanded,
             highlight: canvas.highlight,
           })
         : null,
@@ -197,7 +194,6 @@ function EgoNeighborhoodInner({
       canvas.focusId,
       canvas.graph,
       canvas.shown,
-      canvas.expanded,
       canvas.highlight,
       relations,
       filters.axes,
@@ -237,23 +233,10 @@ function EgoNeighborhoodInner({
         selected: n.id === canvas.selectId,
         data: {
           ...n.data,
-          onCollapse: canvas.collapseNode,
-          onRefocus: openFocus,
-          onNavigate: onNavigateEntity,
           onSetPin: onSetTaskPin,
-          ...(refocusTitle ? { refocusTitle } : {}),
         },
       }));
-  }, [
-    spotlight,
-    statusVisibleIds,
-    canvas.selectId,
-    canvas.collapseNode,
-    openFocus,
-    onNavigateEntity,
-    onSetTaskPin,
-    refocusTitle,
-  ]);
+  }, [spotlight, statusVisibleIds, canvas.selectId, onSetTaskPin]);
 
   const displayEdges = useMemo(() => {
     if (!spotlight) return [];
@@ -293,11 +276,9 @@ function EgoNeighborhoodInner({
     return () => window.removeEventListener("keydown", onKey);
   }, [canvas]);
 
-  // 单击 = 就地展开成卡片并长出下一环邻居;再点收起(已展开邻居累计保留,画布不重排)。
+  // 单击 = 选中 + 抽屉(§5.2:节点只做选中态,内容只在抽屉里出现一次);再点取消。
   const onNodeClick: NodeMouseHandler<EgoFlowNode> = useCallback(
     (_, node) => {
-      if (canvas.expanded.has(node.id)) canvas.collapseNode(node.id);
-      else canvas.expandNode(node.id);
       canvas.selectNode(node.id);
     },
     [canvas],
@@ -326,8 +307,8 @@ function EgoNeighborhoodInner({
   }, [canvas]);
 
   // ---- Drawer ----
-  // 视觉基线 v1 §2.6:画布铺满内容区,抽屉只在用户选中节点/边时出现(选中驱动),
-  // 不再随焦点常驻 —— 焦点实体的信息就在画布中央的焦点卡上。
+  // 视觉基线 §2.6/§5.2:画布铺满内容区,抽屉只在用户选中节点/边时出现(选中驱动)。
+  // 实体摘要在抽屉里且只在抽屉里 —— 节点一律 chip,不再有画布中央的焦点卡。
   const drawerNodeId = canvas.selectId;
 
   const drawerNodesMap = useMemo(() => {
@@ -342,6 +323,9 @@ function EgoNeighborhoodInner({
           ...(data.sub ? { sub: data.sub } : {}),
           task: data.entity === "task" ? (data.raw as TaskRow) : undefined,
           raw: data.raw,
+          hop: data.hop,
+          degree: data.degree,
+          hiddenCount: data.hiddenCount,
           x: n.position.x,
           y: n.position.y,
         });
@@ -370,7 +354,7 @@ function EgoNeighborhoodInner({
 
   // 非激活(宿主在领地模式)时不渲染画布子树:DOM 里同一时刻只有一个
   // ReactFlow(可访问性 role=application 不重复,`.react-flow` 选择器不二义)。
-  // ego 累积态(shown/expanded/selectId)在 hooks 里,组件保持挂载即保留。
+  // ego 累积态(shown/selectId)在 hooks 里,组件保持挂载即保留。
   if (!active) return null;
 
   return (

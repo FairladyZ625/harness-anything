@@ -30,5 +30,14 @@
   "graph.axis.execution": "Execution",
   "graph.axis.assoc": "Association",
   "graph.axisTitle": "Axis: {axis}",
-  "graph.graphDrawer.anchorTaskLabel": "Task ID: "
+  "graph.graphDrawer.anchorTaskLabel": "Task ID: ",
+  "graph.graphDrawer.rejected": "Rejected",
+  "graph.graphDrawer.factAnchorOnly": "Anchor only; body not projected",
+  "graph.graphDrawer.dispatchedTasks": "Dispatched tasks",
+  "graph.graphDrawer.dispatchCount": "{count} (dispatches edges)",
+  "graph.graphDrawer.noDispatches": "No dispatches",
+  "graph.graphDrawer.scheduleTarget": "target agent",
+  "graph.graphDrawer.scheduleTargetNone": "squad target (not projected as an agent node)",
+  "graph.graphDrawer.nodeMeta": "degree {degree} · hop {hop}",
+  "graph.graphDrawer.hiddenNeighbors": "{count} not laid out"
 }

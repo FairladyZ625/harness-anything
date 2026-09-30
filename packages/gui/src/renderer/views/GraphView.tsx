@@ -92,7 +92,7 @@ export interface GraphViewProps {
  *
  * 聚光灯的 ego 画布自 W4 起抽为可复用组件 graph/EgoNeighborhood(契约见彼处),
  * 本页是它的首个宿主 —— 领地模式下该组件不渲染画布子树但保持挂载,画布累积态
- * (已铺开邻居/已展开卡片)在两态间不丢(D6 焦点连续性),DOM 里同一时刻只有一个
+ * (已铺开邻居/选中)在两态间不丢(D6 焦点连续性),DOM 里同一时刻只有一个
  * ReactFlow。
  */
 const nodeTypes = {
@@ -140,7 +140,7 @@ function GraphViewInner({
   const [expandedZones, setExpandedZones] = useState<Set<string>>(() => new Set());
   const [flowMode, setFlowMode] = useState<FlowAnimMode>("focus");
   // 聚焦铺开跳数(task_b4258de1):默认父 1 / 子 1,步进器在聚光灯工具条上。
-  // 住在页面级 state,所以同一 session 里换焦点实体时保留;展开集由画布自清。
+  // 住在页面级 state,所以同一 session 里换焦点实体时保留;可见集由画布重铺。
   const [hops, setHops] = useState<EgoHopBudget>({ up: 1, down: 1 });
   // 领地降噪开关(task_b92c5138):默认关 = 隐藏 cancelled/archived task(看板同规则,
   // 判定 isTaskArchiveNoise 单一定义);localStorage 按视图记忆,坏值回落默认。
@@ -459,7 +459,7 @@ function GraphViewInner({
   const hint =
     viewMode === "spotlight"
       ? focusRef
-        ? "单击展开/收起 · 双击设为中心 · Esc 清选"
+        ? "单击选中并开抽屉 · 双击设为中心 · Esc 清选"
         : "从领地选实体,或在命令面板(⌘K)搜索"
       : "块内 chip 单击 → 聚光灯";
 

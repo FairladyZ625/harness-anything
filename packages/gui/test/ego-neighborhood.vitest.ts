@@ -80,26 +80,45 @@ beforeAll(() => {
 });
 
 describe("EgoNeighborhood standalone reuse (W4)", () => {
-  it("renders the focus card and neighbor chips from collections alone", async () => {
+  it("renders every entity as a compact chip; no node renders expanded content", async () => {
     const { div, root } = await mount();
-    // d1 焦点卡 + ±2 跳邻居(t1/t2/t3)chip,不依赖任何页面级状态。
-    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(1);
-    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(3);
+    // 规范 §5.2:节点只做选中态,内容只在抽屉里 —— 焦点与邻居一律 chip。
+    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(0);
+    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(4);
     expect(div.querySelector(".react-flow")).not.toBeNull();
     await act(async () => {
       root.unmount();
     });
   });
 
-  it("single click expands a chip and grows the next ring without dropping nodes", async () => {
+  it("single click selects the chip and opens exactly one drawer, without expanding the node", async () => {
     const { div, root } = await mount();
     const chip = [...div.querySelectorAll("[data-testid='ego-chip']")].find((c) => c.textContent?.includes("任务一"))!;
     await act(async () => {
       chip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    // t1 → 卡片;焦点卡保留;邻居累计不撤。
-    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(2);
-    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(2);
+    // §5.2:一次点击只让内容出现在一个地方 —— 节点不变成卡片,摘要只在抽屉里。
+    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(0);
+    expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(4);
+    const drawer = div.querySelectorAll("[data-testid='graph-detail-drawer']");
+    expect(drawer.length).toBe(1);
+    expect(drawer[0]!.textContent).toContain("任务一");
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("Esc closes the drawer and clears the selection", async () => {
+    const { div, root } = await mount();
+    const chip = [...div.querySelectorAll("[data-testid='ego-chip']")].find((c) => c.textContent?.includes("任务一"))!;
+    await act(async () => {
+      chip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    expect(div.querySelector("[data-testid='graph-detail-drawer']")).not.toBeNull();
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    });
+    expect(div.querySelector("[data-testid='graph-detail-drawer']")).toBeNull();
     await act(async () => {
       root.unmount();
     });
@@ -118,19 +137,19 @@ describe("EgoNeighborhood standalone reuse (W4)", () => {
     });
   });
 
-  it("card 详情 button reports the entity ref through onNavigateEntity", async () => {
+  it("drawer 打开 button reports the entity ref through onNavigateEntity", async () => {
+    const { messageFor } = await import("../src/renderer/i18n/core.ts");
+    const openTitle = messageFor("graph.graphDrawer.openSidebarTaskDetailsDecisionDecisionPool");
     const onNavigateEntity = vi.fn();
     const { div, root } = await mount({ onNavigateEntity });
     const chip = [...div.querySelectorAll("[data-testid='ego-chip']")].find((c) => c.textContent?.includes("任务一"))!;
     await act(async () => {
       chip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    const t1Card = [...div.querySelectorAll("[data-testid='ego-card']")].find((c) =>
-      c.textContent?.includes("任务一"),
-    )!;
-    const detailBtn = [...t1Card.querySelectorAll("button")].find((b) => b.getAttribute("aria-label") === "详情")!;
+    const drawer = div.querySelector("[data-testid='graph-detail-drawer']")!;
+    const openBtn = [...drawer.querySelectorAll("button")].find((b) => b.getAttribute("title") === openTitle)!;
     await act(async () => {
-      detailBtn.click();
+      openBtn.click();
     });
     expect(onNavigateEntity).toHaveBeenCalledWith("task/t1");
     await act(async () => {
@@ -159,7 +178,7 @@ describe("EgoNeighborhood standalone reuse (W4)", () => {
     await act(async () => {
       chip.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(2);
+    expect(div.querySelector("[data-testid='graph-detail-drawer']")).not.toBeNull();
     await act(async () => {
       root.render(
         createElement(EgoNeighborhood, {
@@ -172,8 +191,8 @@ describe("EgoNeighborhood standalone reuse (W4)", () => {
         }),
       );
     });
-    expect(div.querySelectorAll("[data-testid='ego-card']").length).toBe(0);
     expect(div.querySelectorAll("[data-testid='ego-chip']").length).toBe(0);
+    expect(div.querySelector("[data-testid='graph-detail-drawer']")).toBeNull();
     await act(async () => {
       root.unmount();
     });
@@ -198,8 +217,9 @@ describe("detail drawer layout contract", () => {
     const { div, root } = await mount();
     expect(div.querySelector("[data-testid='graph-detail-drawer']")).toBeNull();
     expect(div.querySelector(".react-flow")).not.toBeNull();
-    const focusCard = div.querySelector<HTMLElement>("[data-testid='ego-card']")!;
-    await act(async () => focusCard.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    const chips = [...div.querySelectorAll<HTMLElement>("[data-testid='ego-chip']")];
+    const focusChip = chips.find((c) => c.textContent?.includes("决策 d1"))!;
+    await act(async () => focusChip.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     const drawer = div.querySelector("[data-testid='graph-detail-drawer']")!;
     expect(drawer.closest("[role='dialog']")?.className).toContain("fixed");
     expect(div.querySelector(".react-flow")).not.toBeNull();
@@ -219,11 +239,63 @@ describe("detail drawer layout contract", () => {
       tasks: Array.from({ length: 60 }, (_, i) => task(`t${i}`, `任务 ${i}`)),
       relations: many,
     });
-    const focusCard = div.querySelector<HTMLElement>("[data-testid='ego-card']")!;
-    await act(async () => focusCard.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    const chips = [...div.querySelectorAll<HTMLElement>("[data-testid='ego-chip']")];
+    const focusChip = chips.find((c) => c.textContent?.includes("决策 d1"))!;
+    await act(async () => focusChip.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     const drawer = div.querySelector("[data-testid='graph-detail-drawer']")!;
     expect(drawer.closest("[role='dialog']")?.className).toContain("overflow-y-auto");
     expect(drawer.textContent).toContain("60");
+    await act(async () => {
+      root.unmount();
+    });
+  });
+});
+
+/** §5.2 收口:节点放大路径删除后,原卡片内容必须都在抽屉里(不丢信息)。 */
+describe("drawer content parity (node card content moves into the drawer)", () => {
+  it("shows rejected claims with whyNot for a selected decision", async () => {
+    const decisions = [
+      {
+        ...decision("d1"),
+        rejected: [{ id: "R1", text: "否决论点甲", whyNot: "代价高于收益", evidence: [] }],
+      },
+    ];
+    const { div, root } = await mount({ decisions });
+    const chips = [...div.querySelectorAll<HTMLElement>("[data-testid='ego-chip']")];
+    const focusChip = chips.find((c) => c.textContent?.includes("决策 d1"))!;
+    await act(async () => focusChip.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    const drawerText = div.querySelector("[data-testid='graph-detail-drawer']")!.textContent ?? "";
+    expect(drawerText).toContain("否决论点甲");
+    expect(drawerText).toContain("代价高于收益");
+    await act(async () => {
+      root.unmount();
+    });
+  });
+
+  it("shows task risk/urgency and agent taskCount for selected nodes", async () => {
+    const riskyTask = { ...fixtures.tasks[0]!, riskTier: "high", urgency: "high" } as (typeof fixtures.tasks)[0];
+    const { div, root } = await mount({
+      tasks: [riskyTask, ...fixtures.tasks.slice(1)],
+      agents: [{ id: "agent/a1", name: "执行体 甲", sub: "worker", taskCount: 13 }],
+      relations: [
+        ...fixtures.relations,
+        { from: "agent/a1", to: "task/t1", kind: "dispatches", provenance: "local-document" },
+      ] as RelationEdge[],
+    });
+    const taskChip = [...div.querySelectorAll<HTMLElement>("[data-testid='ego-chip']")].find((c) =>
+      c.textContent?.includes("任务一"),
+    )!;
+    await act(async () => taskChip.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    let drawerText = div.querySelector("[data-testid='graph-detail-drawer']")!.textContent ?? "";
+    expect(drawerText).toContain("high");
+
+    const agentChip = [...div.querySelectorAll<HTMLElement>("[data-testid='ego-chip']")].find(
+      (c) => c.getAttribute("data-entity") === "agent",
+    )!;
+    await act(async () => agentChip.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    drawerText = div.querySelector("[data-testid='graph-detail-drawer']")!.textContent ?? "";
+    expect(drawerText).toContain("worker");
+    expect(drawerText).toContain("13");
     await act(async () => {
       root.unmount();
     });

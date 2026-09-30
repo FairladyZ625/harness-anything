@@ -6,6 +6,7 @@ import { DenseRow } from "../components/primitives/DenseRow.tsx";
 import { Drawer } from "../components/primitives/Drawer.tsx";
 import { StatusTag } from "../components/primitives/StatusTag";
 import { isExternal } from "../model/types";
+import type { AgentNodeRow, ScheduleNodeRow } from "./runtimeEntities";
 import { KIND_LABEL, KIND_LABEL_IN } from "./constants";
 import type { NodePos } from "./endpoint";
 import { endpointToNodeId } from "./endpoint";
@@ -220,11 +221,23 @@ function NodeBody({
             <div className="flex gap-3 font-mono ui-micro text-text-muted">
               <span>{t("graph.graphDrawer.rawValue", { raw: focusTask.rawStatus })}</span>
             </div>
+            {(focusTask.riskTier || focusTask.urgency) && (
+              <div className="font-mono ui-micro text-text-muted">
+                {t("graph.graphDrawer.riskUrgency", {
+                  risk: focusTask.riskTier ?? t("graph.graphDrawer.unknown"),
+                  urgency: focusTask.urgency ?? t("graph.graphDrawer.unknown"),
+                })}
+              </div>
+            )}
           </>
         ) : focusNode.entity === "decision" ? (
           <DecisionBody decision={focusNode.raw as DecisionRow} />
         ) : focusNode.entity === "fact" ? (
           <FactBody fact={focusNode.raw as FactRef} onNavigate={onNavigateEntity} onFocus={onFocus} focusId={focusId} />
+        ) : focusNode.entity === "agent" ? (
+          <AgentBody agent={focusNode.raw as AgentNodeRow} />
+        ) : focusNode.entity === "schedule" ? (
+          <ScheduleBody schedule={focusNode.raw as ScheduleNodeRow} />
         ) : (
           <div className="rounded-sm border border-border bg-surface-raised px-2.5 py-2 ui-micro text-text-muted">
             {focusNode.entity}
@@ -233,7 +246,12 @@ function NodeBody({
         )}
 
         <div className="rounded-sm border border-border bg-surface-raised px-2.5 py-2 font-mono ui-micro text-text-muted">
-          {t("graph.graphDrawer.chainCounts", { up: upCount, down: downCount })}
+          <div>{t("graph.graphDrawer.chainCounts", { up: upCount, down: downCount })}</div>
+          <div>
+            {t("graph.graphDrawer.nodeMeta", { degree: focusNode.degree ?? 0, hop: focusNode.hop ?? 0 })}
+            {(focusNode.hiddenCount ?? 0) > 0 &&
+              ` · ${t("graph.graphDrawer.hiddenNeighbors", { count: focusNode.hiddenCount ?? 0 })}`}
+          </div>
         </div>
 
         {directOut.length > 0 && (
@@ -308,6 +326,19 @@ function DecisionBody({ decision }: { decision: DecisionRow }) {
           ))}
         </div>
       )}
+      {decision.rejected?.length > 0 && (
+        <div className="rounded-sm border border-danger/30 bg-danger/5 px-2.5 py-2">
+          <span className="font-mono ui-micro uppercase tracking-wide text-danger">
+            {t("graph.graphDrawer.rejected")}
+          </span>
+          {decision.rejected.map((c) => (
+            <div key={c.id} className="text-text-muted">
+              <p className="ui-meta mt-1">{c.text}</p>
+              {c.whyNot && <p className="ui-micro mt-0.5 leading-snug text-text-faint">↳ {c.whyNot}</p>}
+            </div>
+          ))}
+        </div>
+      )}
       {decision.claims && decision.claims.length > 0 && (
         <div className="rounded-sm border border-border bg-surface-raised px-2.5 py-2">
           <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">
@@ -345,7 +376,13 @@ function FactBody({
         <span className="font-mono ui-micro uppercase tracking-wide text-stale">
           {t("graph.graphDrawer.factObservation")}
         </span>
-        <p className="ui-body leading-relaxed text-text mt-1.5 font-medium">{fact.text}</p>
+        {fact.text ? (
+          <p className="ui-body leading-relaxed text-text mt-1.5 font-medium">{fact.text}</p>
+        ) : (
+          <p className="ui-meta mt-1.5 italic leading-relaxed text-text-faint">
+            {t("graph.graphDrawer.factAnchorOnly")}
+          </p>
+        )}
       </div>
       <div className="rounded-sm border border-border bg-surface-raised px-2.5 py-2 flex flex-col gap-1">
         <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">
@@ -375,6 +412,46 @@ function FactBody({
             </EntityRefLink>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** 运行时平面 agent 的摘要(原 EgoAgentBody 并入抽屉,§5.2 不丢信息)。 */
+function AgentBody({ agent }: { agent: AgentNodeRow }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="ui-micro flex items-center gap-2 font-mono">
+        <span className="rounded bg-axis-assoc/15 px-1.5 py-0.5 text-text-muted">{agent.sub}</span>
+      </div>
+      <div className="rounded-sm border border-border bg-surface-raised px-2.5 py-2">
+        <span className="ui-micro font-mono uppercase tracking-wide text-text-faint">
+          {t("graph.graphDrawer.dispatchedTasks")}
+        </span>
+        <p className="ui-meta mt-0.5 font-medium text-text">
+          {agent.taskCount > 0
+            ? t("graph.graphDrawer.dispatchCount", { count: agent.taskCount })
+            : t("graph.graphDrawer.noDispatches")}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/** 运行时平面 schedule 的摘要(原 EgoScheduleBody 并入抽屉)。 */
+function ScheduleBody({ schedule }: { schedule: ScheduleNodeRow }) {
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="ui-micro flex items-center gap-2 font-mono">
+        <span className="rounded bg-axis-assoc/15 px-1.5 py-0.5 text-text-muted">{schedule.sub}</span>
+      </div>
+      <div className="rounded-sm border border-border bg-surface-raised px-2.5 py-2">
+        <span className="ui-micro font-mono uppercase tracking-wide text-text-faint">
+          {t("graph.graphDrawer.scheduleTarget")}
+        </span>
+        <p className="ui-meta mt-0.5 break-all font-medium text-text">
+          {schedule.targetAgentId ?? t("graph.graphDrawer.scheduleTargetNone")}
+        </p>
       </div>
     </div>
   );
