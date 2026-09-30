@@ -41,9 +41,9 @@ const actionMethods: ReadonlySet<string> = new Set(
 );
 const electronInvokeErrorPrefix = /^Error invoking remote method '[^']+': Error: /u;
 
-async function invoke(channel: string, payload: unknown): Promise<unknown> {
+async function invoke<T>(channel: string, payload: unknown): Promise<T> {
   try {
-    return await ipcRenderer.invoke(channel, payload);
+    return (await ipcRenderer.invoke(channel, payload)) as T;
   } catch (cause) {
     if (!(cause instanceof Error)) throw cause;
     const message = cause.message.replace(electronInvokeErrorPrefix, "");
