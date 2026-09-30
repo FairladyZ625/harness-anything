@@ -225,16 +225,21 @@ describe("Region", () => {
     act(() => root.unmount());
   });
 
-  it("内容溢出时页脚显示「+N 条」(happy-dom 视口桩:offsetHeight 800 > clientHeight 0,子行全部计入)", () => {
+  it("内容溢出时放不下的行整行隐藏并计入页脚「+N 条」,第一项总是显示(happy-dom 视口桩:offsetHeight 800 > clientHeight 0)", () => {
     const { container, root } = mount(
       createElement(
         Region,
         { title: "执行中" },
         createElement("div", { key: "a" }, "行一"),
         createElement("div", { key: "b" }, "行二"),
+        createElement("div", { key: "c" }, "行三"),
       ),
     );
     expect(container.textContent).toContain("+2");
+    const rows = [...container.querySelectorAll("section div")].filter((node) =>
+      /^行[一二三]$/u.test(node.textContent ?? ""),
+    );
+    expect(rows.map((row) => (row as HTMLElement).style.visibility)).toEqual(["", "hidden", "hidden"]);
     act(() => root.unmount());
 
     const empty = mount(createElement(Region, { title: "空区域" }, "一句话"));
