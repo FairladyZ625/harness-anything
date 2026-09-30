@@ -17,6 +17,7 @@ import { PresetsView } from "./views/PresetsView.tsx";
 import { EntitiesView } from "./views/EntitiesView.tsx";
 import { AdaptersView } from "./views/AdaptersView.tsx";
 import { SettingsView } from "./views/SettingsView.tsx";
+import { IdentityAccessView } from "./views/IdentityAccessView.tsx";
 import { SystemView } from "./views/SystemView.tsx";
 import { DaemonObserveView } from "./views/DaemonObserveView.tsx";
 import { TaskDetailView } from "./views/TaskDetailView.tsx";
@@ -883,6 +884,8 @@ function AppShell() {
                   onBack={back}
                   onNavigateEntity={navigateToEntity}
                 />
+              ) : view === "identityAccess" ? (
+                <IdentityAccessView />
               ) : (
                 <SettingsView
                   repoId={activeRepoId}

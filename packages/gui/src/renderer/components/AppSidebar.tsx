@@ -1,6 +1,6 @@
 import { PinButton } from "./PinButton.tsx";
 import { TitleText } from "./primitives/TitleText.tsx";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { FolderSimple, CaretUpDown, CloudSlash } from "@phosphor-icons/react";
 import type { SystemRepoRow } from "../api-client.ts";
 import type { Project } from "../model/types.ts";
@@ -13,6 +13,8 @@ import { SystemStatusPanel, type LedgerStatusBarInput } from "./sidebar/SystemSt
 import { useConnectionsQuery } from "../connection-data.ts";
 import { RepoModeBadge } from "./RepoModeBadge.tsx";
 import { t } from "../i18n/index.tsx";
+import { guiHostBridge } from "../gui-transport.ts";
+import { consumeKnownError } from "../../api/error-consumption.ts";
 
 export interface AppSidebarProps {
   readonly project: Project;
@@ -73,6 +75,30 @@ export function AppSidebar({
 }: AppSidebarProps) {
   const projectSwitcherAnchor = useRef<HTMLButtonElement>(null);
   const [pinnedOpen, setPinnedOpen] = useState(true);
+  const [identity, setIdentity] = useState<{ readonly authenticated: boolean; readonly personId?: string }>({
+      authenticated: false,
+    }),
+    [bindingReady, setBindingReady] = useState(false);
+  const authCandidate = guiHostBridge()?.auth,
+    auth = authCandidate && typeof authCandidate.status === "function" ? authCandidate : undefined;
+  const refreshIdentity = () => {
+    if (!auth) return;
+    void auth.status().then((value) => {
+      const status = value as { readonly authenticated?: boolean; readonly personId?: string };
+      setIdentity({
+        authenticated: status.authenticated === true,
+        ...(status.personId ? { personId: status.personId } : {}),
+      });
+    }, consumeKnownError);
+  };
+  useEffect(refreshIdentity, []);
+  useEffect(() => {
+    if (!auth) return;
+    void auth.bindingStatus().then(
+      (value) => setBindingReady((value as { readonly ready?: boolean }).ready === true),
+      () => setBindingReady(false),
+    );
+  }, []);
   // 当前仓的模式徽标与端点(PLT-EdgeGUI-W3,设计稿 §3.4):端点来自连接表,
   // local 仓挂在隐含本机连接下、无端点,不显示端点行。
   const activeRepo = repos.find((repo) => repo.repoId === activeRepoId) ?? null,
@@ -216,20 +242,32 @@ export function AppSidebar({
       />
       <div className="hidden shrink-0 border-t border-border px-3 py-2.5 md:block">
         <button
-          disabled
-          title={t("components.appSidebar.v2PreviewAfterLoggingYourAccountYou")}
-          className="flex w-full cursor-not-allowed items-center gap-2 text-left opacity-70"
+          disabled={!auth || (!identity.authenticated && !bindingReady)}
+          title={
+            identity.authenticated
+              ? t("identityAccess.signOut")
+              : bindingReady
+                ? t("identityAccess.signIn")
+                : t("identityAccess.signInDisabled")
+          }
+          onClick={() => {
+            if (!auth) return;
+            void (identity.authenticated ? auth.logout() : auth.login()).then(refreshIdentity, consumeKnownError);
+          }}
+          className="flex w-full items-center gap-2 text-left disabled:cursor-not-allowed disabled:opacity-70"
         >
           <span
             className={`grid size-6 shrink-0 place-items-center rounded-full bg-surface-raised
               font-mono ui-micro font-semibold text-text-muted`}
           >
-            Z
+            {identity.authenticated ? (identity.personId?.slice(0, 1).toUpperCase() ?? "K") : "?"}
           </span>
           <span className="min-w-0">
-            <span className="block truncate text-xs text-text">{t("components.appSidebar.localMode2")}</span>
+            <span className="block truncate text-xs text-text">
+              {identity.authenticated ? identity.personId : t("identityAccess.signedOut")}
+            </span>
             <span className="block truncate ui-micro text-text-faint">
-              {t("components.appSidebar.accountSynchronizationV2")}
+              {identity.authenticated ? t("identityAccess.keycloakIdentity") : t("identityAccess.signIn")}
             </span>
           </span>
         </button>

@@ -114,6 +114,7 @@ export const daemonProtocolMethods = Object.freeze([
         "login-complete",
         "session",
         "logout",
+        "bootstrap-status",
         "bootstrap-admin",
         "invite",
       ] as const),

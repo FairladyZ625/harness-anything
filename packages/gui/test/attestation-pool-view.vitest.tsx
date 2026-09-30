@@ -154,6 +154,7 @@ async function mountPool(
   initialTab: AttestationPoolTabId = "taskCloseout",
   tasks: readonly TaskRow[] = [attestTask, failedTask, consentTask],
   decisions: readonly DecisionRow[] = [proposedDecision],
+  inboxCount = summary.inboxCount,
 ): Promise<PoolHarness> {
   const harness: PoolHarness = { tabChanges: [], attestCalls: [], consentCalls: [], completeCalls: [], judged: [] };
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
@@ -169,7 +170,7 @@ async function mountPool(
         createElement(AttestationPoolView, {
           repoId: "repo-a",
           decisions: [...decisions],
-          summary,
+          summary: { ...summary, inboxCount },
           facts: [],
           relations: [],
           tasks,
@@ -233,10 +234,26 @@ function byTestId(testId: string): HTMLElement {
   return element as HTMLElement;
 }
 
-/** 从 tab/徽标文本尾部取计数(「<label> · N」/「共 N 项待办」)。 */
-function tabCount(testId: string): number {
-  const match = /(\d+)\s*(?:项待办)?\s*$/.exec(byTestId(testId).textContent ?? "");
-  expect(match, `tab ${testId} text has no trailing count`).toBeTruthy();
+/** 域级 Tabs(下划线式)按可访问名取按钮。 */
+function domainTab(label: string): HTMLElement {
+  const element = [...document.querySelectorAll('[role="tab"]')].find((tab) => (tab.textContent ?? "").includes(label));
+  expect(element, `missing domain tab ${label}`).toBeInstanceOf(HTMLElement);
+  return element as HTMLElement;
+}
+
+/** 任务收口域的 lane FilterChips 按文案取按钮(「<label>N」)。 */
+function laneChip(label: string): HTMLElement {
+  const element = [...document.querySelectorAll('[data-testid="attestation-pool-lane-chips"] button')].find((chip) =>
+    (chip.textContent ?? "").replace(/\s+/g, "").includes(label.replaceAll(/\s+/g, "")),
+  );
+  expect(element, `missing lane chip ${label}`).toBeInstanceOf(HTMLElement);
+  return element as HTMLElement;
+}
+
+/** 从 tab/chip 文本尾部取计数(「<label>N」/「<label> · N」/「共 N 项待办」)。 */
+function trailingCount(element: HTMLElement): number {
+  const match = /(\d+)\s*(?:项待办)?\s*$/.exec(element.textContent ?? "");
+  expect(match, `element text has no trailing count: ${element.textContent}`).toBeTruthy();
   return Number(match![1]);
 }
 
@@ -265,17 +282,17 @@ async function typeInto(textarea: HTMLTextAreaElement, value: string) {
 describe("AttestationPoolView", () => {
   it("renders the two-level domains with real counts and all lanes on the closeout overview", async () => {
     await mountPool("taskCloseout");
-    // 第一级按域分:决策待裁(计数=kernel proposed 判定,与侧栏角标同读面)与任务收口。
-    expect(byTestId("attestation-pool-domain-decisions").textContent).toMatch(/决策待裁\s*·\s*1(?=\s|$)/);
-    expect(byTestId("attestation-pool-domain-taskCloseout").textContent).toMatch(/任务收口\s*·\s*3(?=\s|$)/);
-    // 第二级只在任务收口域内:全览(三 lane 之和)+ 三个聚焦 lane。
-    for (const [tab, count] of [
-      ["taskCloseout", 3],
-      ["gates", 1],
-      ["consents", 1],
-      ["breakGlass", 1],
+    // 第一级按域分(下划线 Tabs):决策待裁(计数=kernel proposed 判定,与侧栏角标同读面)与任务收口。
+    expect(domainTab("决策待裁").textContent).toMatch(/决策待裁\s*1(?=\s|$)/);
+    expect(domainTab("任务收口").textContent).toMatch(/任务收口\s*3(?=\s|$)/);
+    // 第二级只在任务收口域内(带计数 FilterChips):全览(三 lane 之和)+ 三个聚焦 lane。
+    for (const [label, count] of [
+      ["全部收口", 3],
+      ["待我签门禁", 1],
+      ["待我同意收口", 1],
+      ["阻断需特批", 1],
     ] as const) {
-      expect(byTestId(`attestation-pool-tab-${tab}`).textContent).toMatch(new RegExp(`\\S+\\s*·\\s*${count}(?=\\s|$)`));
+      expect(laneChip(label).textContent).toMatch(new RegExp(`\\S+\\s*${count}(?=\\s|$)`));
     }
     expect(byTestId("pool-gate-row-task-attest-ux-signoff")).toBeTruthy();
     expect(byTestId("pool-consent-card-task-consent")).toBeTruthy();
@@ -283,38 +300,45 @@ describe("AttestationPoolView", () => {
   });
 
   it("keeps every displayed count equal to its rendered list rows", async () => {
-    // 决策域:域计数 == 默认 proposed 组渲染的决策卡数(计数与列表同源同判据)。
+    // 决策域:域计数 == 默认 proposed 组渲染的决策行数(计数与列表同源同判据)。
     await mountPool("decisions");
-    expect(tabCount("attestation-pool-domain-decisions")).toBe(
-      document.querySelectorAll('[id^="decision-card-"]').length,
-    );
-    expect(totalCount()).toBe(
-      tabCount("attestation-pool-domain-decisions") + tabCount("attestation-pool-domain-taskCloseout"),
-    );
+    expect(trailingCount(domainTab("决策待裁"))).toBe(document.querySelectorAll('[id^="decision-card-"]').length);
+    expect(totalCount()).toBe(trailingCount(domainTab("决策待裁")) + trailingCount(domainTab("任务收口")));
     // 任务收口域:全览计数 == 三 lane 行数之和;每个聚焦 lane 计数 == 该 lane 行数。
     await unmountAll();
     await mountPool("taskCloseout");
-    expect(tabCount("attestation-pool-domain-taskCloseout")).toBe(laneRowCounts().total);
-    expect(tabCount("attestation-pool-tab-taskCloseout")).toBe(laneRowCounts().total);
+    expect(trailingCount(domainTab("任务收口"))).toBe(laneRowCounts().total);
+    expect(trailingCount(laneChip("全部收口"))).toBe(laneRowCounts().total);
     await unmountAll();
     await mountPool("gates");
-    expect(tabCount("attestation-pool-tab-gates")).toBe(laneRowCounts().gates);
+    expect(trailingCount(laneChip("待我签门禁"))).toBe(laneRowCounts().gates);
     await unmountAll();
     await mountPool("consents");
-    expect(tabCount("attestation-pool-tab-consents")).toBe(laneRowCounts().consents);
+    expect(trailingCount(laneChip("待我同意收口"))).toBe(laneRowCounts().consents);
     await unmountAll();
     await mountPool("breakGlass");
-    expect(tabCount("attestation-pool-tab-breakGlass")).toBe(laneRowCounts().breakGlass);
+    expect(trailingCount(laneChip("阻断需特批"))).toBe(laneRowCounts().breakGlass);
   });
 
   it("keeps tab switches on the addressable location path, not internal state", async () => {
     const harness = await mountPool("taskCloseout");
     await act(async () => {
-      byTestId("attestation-pool-tab-consents").click();
+      laneChip("待我同意收口").click();
     });
     expect(harness.tabChanges).toEqual(["consents"]);
     // 受控组件:poolTab 仍是 "taskCloseout" 时 UI 不自行切换渲染。
     expect(byTestId("pool-gate-row-task-attest-ux-signoff")).toBeTruthy();
+  });
+
+  it("默认页签:决策待裁决 0、任务收口有待办 → 落到任务收口;决策有待办则留在决策", async () => {
+    const empty = await mountPool("decisions", [attestTask, failedTask, consentTask], [], 0);
+    expect(empty.tabChanges).toEqual(["taskCloseout"]);
+    await unmountAll();
+    const busy = await mountPool("decisions", [attestTask, failedTask, consentTask], [proposedDecision]);
+    expect(busy.tabChanges).toEqual([]);
+    await unmountAll();
+    const explicit = await mountPool("gates", [attestTask], [], 0);
+    expect(explicit.tabChanges).toEqual([]);
   });
 
   it("renders only the requested lane on a focused tab", async () => {
@@ -322,6 +346,49 @@ describe("AttestationPoolView", () => {
     expect(byTestId("pool-gate-row-task-attest-ux-signoff")).toBeTruthy();
     expect(document.querySelector('[data-testid="pool-consent-card-task-consent"]')).toBeNull();
     expect(document.querySelector('[data-testid="decision-card-dec-pool"]')).toBeNull();
+  });
+
+  it("lane 行带底色状态标签,任务标题经 TitleText 拆分(冒号后补充为弱色)", async () => {
+    const titled: TaskRow = {
+      ...attestTask,
+      taskId: "task-title",
+      title: "手工验收任务:冒号后的补充说明",
+    } as TaskRow;
+    await mountPool("gates", [titled]);
+    const row = byTestId("pool-gate-row-task-title-ux-signoff");
+    // 状态标签有底色小块(approve lane → 琥珀 wait 档),不只靠小字颜色区分。
+    expect(row.querySelector("[data-status-tone='wait']")?.textContent).toContain("待签");
+    // 标题按第一个冒号拆分:冒号前重点继承字色,冒号后补充(含冒号)用弱色。
+    // 槽位里还带灰色的门禁原因,标题本体在原因 span 之前。
+    const titleSlot = row.querySelector(`[title="${titled.title}"]`);
+    expect(titleSlot?.textContent?.startsWith(titled.title)).toBe(true);
+    const supplement = titleSlot?.querySelector("span.text-text-faint");
+    expect(supplement?.textContent).toBe(":冒号后的补充说明");
+  });
+
+  it("break-glass lane 行用红档状态标签,签发动作打开右侧抽屉里的表单", async () => {
+    await mountPool("breakGlass");
+    expect(byTestId("pool-gate-row-task-failed-ci-gate").querySelector("[data-status-tone='bad']")).toBeTruthy();
+    await act(async () => {
+      byTestId("pool-gate-override-task-failed-ci-gate").click();
+    });
+    const drawer = document.querySelector('[role="dialog"][aria-modal="true"]');
+    expect(drawer).toBeTruthy();
+    expect(drawer!.querySelector("textarea")).toBeTruthy();
+    expect(drawer!.querySelector('[data-testid="gate-attest-submit-override"]')).toBeTruthy();
+  });
+
+  it("任务收口域全空时是一条细状态行,不渲染大框与任何 lane 区块", async () => {
+    await mountPool("taskCloseout", []);
+    const clear = byTestId("pool-closeout-clear");
+    expect(clear.textContent).toContain("没有等待你签发的收口事项");
+    expect(clear.querySelector("[data-status-tone='done']")).toBeTruthy();
+    expect(clear.className).not.toContain("border");
+    expect(document.querySelectorAll('[data-testid^="pool-gate-row-"]').length).toBe(0);
+    // 空 lane 整块消失:不渲染任何 lane 区块标题(标准 §1.5 空了就消失)。
+    expect([...document.querySelectorAll("h2")].some((heading) => heading.textContent?.includes("待我签门禁"))).toBe(
+      false,
+    );
   });
 
   it("dispatches a manual-attest sign-off with the typed comment", async () => {
@@ -376,7 +443,7 @@ describe("AttestationPoolView", () => {
     } as TaskRow;
     await mountPool("breakGlass", [locked]);
     expect(document.querySelector('[data-testid="pool-gate-row-task-locked-ci-gate"]')).toBeNull();
-    expect(byTestId("attestation-pool-tab-breakGlass").textContent).toMatch(/\S+\s*·\s*0(?=\s|$)/);
+    expect(trailingCount(laneChip("阻断需特批"))).toBe(0);
   });
 
   it("requires a 10+ char rationale before dispatching a break-glass override", async () => {
@@ -428,7 +495,7 @@ describe("AttestationPoolView", () => {
     } as TaskRow;
     await mountPool("breakGlass", [locked]);
     expect(document.querySelector('[data-testid="pool-gate-row-task-missing-locked-e2e"]')).toBeNull();
-    expect(byTestId("attestation-pool-tab-breakGlass").textContent).toMatch(/\S+\s*·\s*0(?=\s|$)/);
+    expect(trailingCount(laneChip("阻断需特批"))).toBe(0);
   });
 
   it("signs a consent straight from the pool through the owner-verdict write path", async () => {
@@ -442,12 +509,13 @@ describe("AttestationPoolView", () => {
   it("keeps the quick-judgment surface and the focus mode on the decisions domain", async () => {
     await mountPool("decisions");
     const card = document.getElementById("decision-card-dec-pool");
-    expect(card, "decision card missing").toBeTruthy();
+    expect(card, "decision row missing").toBeTruthy();
     expect(card!.textContent).toContain("总池里的待裁决策");
-    // 行级能力投影(proposed → accept 可用)仍挂快速批复面板。
-    const accept = [...card!.querySelectorAll<HTMLButtonElement>("button")].find((button) =>
-      button.textContent?.includes("接受"),
-    );
+    // 点行开抽屉:行级能力投影(proposed → accept 可用)把快速批复面板带进抽屉。
+    await act(async () => {
+      card!.click();
+    });
+    const accept = document.querySelector<HTMLButtonElement>("[data-testid='decision-judge-accept']");
     expect(accept).toBeInstanceOf(HTMLButtonElement);
     expect(document.querySelector('[data-testid="pool-gate-row-task-attest-ux-signoff"]')).toBeNull();
     // 决策域的专注处理模式:入口 → 内嵌 DecisionsView(队列计数 + 判定历史面),可返回。
@@ -465,7 +533,7 @@ describe("AttestationPoolView", () => {
     expect(byTestId("attestation-pool-focus-entry")).toBeTruthy();
   });
 
-  it("决策池卡片直接用列表 full 行的评审就绪:不逐卡读 decision-show,打回未处置时 accept 停用", async () => {
+  it("决策池行直接用列表 full 行的评审就绪:不逐卡读 decision-show,打回未处置时 accept 停用", async () => {
     const show = vi.spyOn(harnessClient, "showDecision");
     const digest = `sha256:${"c".repeat(64)}` as const;
     await mountPool(
@@ -492,9 +560,14 @@ describe("AttestationPoolView", () => {
       ],
     );
     const card = document.getElementById("decision-card-dec-pool")!;
+    // 评审信号在行上直接可见(列表 full 行投影,不逐卡读 detail)。
     expect(card.querySelector("[data-testid='decision-review-signal']")?.textContent).toBe("待处置");
-    expect(card.querySelector<HTMLButtonElement>("[data-testid='decision-judge-accept']")?.disabled).toBe(true);
-    expect(card.querySelector("[data-testid='decision-judge-accept-blocked']")?.textContent).toContain(
+    await act(async () => {
+      card.click();
+    });
+    expect(document.querySelector("[data-testid='decision-judge-accept']")?.textContent).toContain("接受");
+    expect(document.querySelector<HTMLButtonElement>("[data-testid='decision-judge-accept']")?.disabled).toBe(true);
+    expect(document.querySelector("[data-testid='decision-judge-accept-blocked']")?.textContent).toContain(
       "unresolved changes_requested",
     );
     await act(async () => {

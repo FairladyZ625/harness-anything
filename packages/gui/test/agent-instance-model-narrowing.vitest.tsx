@@ -52,6 +52,14 @@ const codexReview = {
 const mounted: { root: Root; container: HTMLElement }[] = [];
 
 async function renderAgentCard(instance: string, runtimes: readonly { readonly type: string }[]): Promise<HTMLElement> {
+  return renderAgentCardProps(instance, runtimes, {});
+}
+
+async function renderAgentCardProps(
+  instance: string,
+  runtimes: readonly { readonly type: string }[],
+  extra: Record<string, unknown>,
+): Promise<HTMLElement> {
   const container = document.createElement("div");
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -82,11 +90,20 @@ async function renderAgentCard(instance: string, runtimes: readonly { readonly t
         onSelectSquad: noop,
         onSelectRuntime: noop,
         onSelectAgent: noop,
+        ...extra,
       }),
     );
   });
   mounted.push({ root, container });
   return container;
+}
+
+function renderAgentCardWithActionError(
+  instance: string,
+  runtimes: readonly { readonly type: string }[],
+  actionError: string,
+): Promise<HTMLElement> {
+  return renderAgentCardProps(instance, runtimes, { actionError });
 }
 
 async function unmountAll(): Promise<void> {
@@ -124,6 +141,28 @@ describe("agent card instance pin narrows per-kind model options", () => {
       removeCodex!.click();
     });
     expect(instanceSelect().value).toBe("");
+    await unmountAll();
+  });
+
+  // 标准第 2.5 节(业主 2026-09-30:daemon 超时导致保存失败只显示通用错误):保存失败
+  // 的原因必须就在保存按钮所在的动作区显示,不只是页首通用错误条。
+  it("renders the save-failure reason in place next to the save action", async () => {
+    const container = await renderAgentCard("", [{ type: "codex" }]);
+    expect(container.querySelector('[data-testid="action-error"]')).toBeNull();
+    await unmountAll();
+    const withError = await renderAgentCardWithActionError(
+      "",
+      [{ type: "codex" }],
+      "「保存 Agent 声明」失败: daemon request timed out after 30000ms",
+    );
+    const inline = withError.querySelector('[data-testid="action-error"]');
+    expect(inline).toBeTruthy();
+    expect(inline!.getAttribute("role")).toBe("alert");
+    expect(inline!.textContent).toContain("daemon request timed out");
+    const save = withError.querySelector('[data-testid="agent-save"]');
+    expect(save).toBeTruthy();
+    // 就地:错误块与保存按钮同在动作区里(同一 Sect)。
+    expect(inline!.closest("section")).toBe(save!.closest("section"));
     await unmountAll();
   });
 });

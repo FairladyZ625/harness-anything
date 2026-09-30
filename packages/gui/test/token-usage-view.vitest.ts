@@ -217,6 +217,10 @@ describe("TokenUsageView", () => {
     const tokenUsage = vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(usage);
     const container = await renderView();
     expect(tokenUsage).toHaveBeenCalledWith("canonical", "today");
+    // 结论行(标准 §2.5 统计类):有未上报派工时明说总量是下界。
+    const conclusion = container.querySelector('[data-testid="token-usage-conclusion"]');
+    expect(conclusion?.textContent).toContain("15K");
+    expect(conclusion?.textContent).toContain("3");
     // 指标条:总量紧凑展示。
     expect(container.querySelector('[data-testid="token-usage-totals"]')?.textContent).toContain("15K");
     expect(container.querySelector('[data-testid="token-usage-totals"]')?.textContent).toContain("3");

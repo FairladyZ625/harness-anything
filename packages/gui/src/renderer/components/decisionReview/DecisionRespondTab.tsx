@@ -71,7 +71,7 @@ export function DecisionRespondTab({
     <div data-testid="decision-respond-tab" className="grid gap-4">
       <header>
         <h2 className="ui-title font-semibold text-text">{t("views.decisionReview.respondTitle")}</h2>
-        <p className="mt-2 rounded-md border border-stale/50 bg-stale/10 px-3 py-2 ui-meta text-stale">
+        <p className="mt-2 rounded-xs border border-stale/50 bg-stale/10 px-3 py-2 ui-meta text-stale">
           {t("views.decisionReview.respondNote")}
         </p>
       </header>
@@ -97,7 +97,7 @@ export function DecisionRespondTab({
               {history.length > 0 && (
                 <div
                   data-testid={`decision-respond-${key}-history`}
-                  className="mt-2 rounded-md bg-surface-raised/60 px-2 py-1.5"
+                  className="mt-2 rounded-xs bg-surface-raised/60 px-2 py-1.5"
                 >
                   <p className="font-mono ui-micro uppercase tracking-wide text-text-faint">
                     {t("views.decisionReview.responseHistory")}
@@ -141,7 +141,7 @@ export function DecisionRespondTab({
                     value={draft.rationale}
                     onChange={(event) => update(key, { rationale: event.target.value })}
                     rows={2}
-                    className="mt-1 w-full rounded-md border border-border bg-surface p-2 ui-meta text-text outline-none focus:border-accent"
+                    className="mt-1 w-full rounded-xs border border-border bg-surface p-2 ui-meta text-text outline-none focus:border-accent"
                   />
                 </label>
                 {draft.disposition === "adopt" && (
@@ -150,7 +150,7 @@ export function DecisionRespondTab({
                     <input
                       value={draft.amendmentRef}
                       onChange={(event) => update(key, { amendmentRef: event.target.value })}
-                      className="mt-1 w-full rounded-md border border-border bg-surface p-1.5 font-mono ui-micro text-text outline-none focus:border-accent"
+                      className="mt-1 w-full rounded-xs border border-border bg-surface p-1.5 font-mono ui-micro text-text outline-none focus:border-accent"
                     />
                   </label>
                 )}

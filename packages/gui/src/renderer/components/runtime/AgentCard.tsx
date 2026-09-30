@@ -13,6 +13,7 @@ import { t } from "../../i18n/index.tsx";
 import { RUNTIME_KIND_IDS } from "../../runtime-provider-planes.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { ViewInGraphButton } from "../ViewInGraphButton.tsx";
+import { ActionError } from "./ActionError.tsx";
 import { SkillEditorModal, type ViewingSkill } from "./SkillEditorModal.tsx";
 import {
   AddChip,
@@ -101,6 +102,11 @@ type Props = {
   readonly onSelectAgent: (agentId: string) => void;
   /** 统一「在关系图中查看」入口(task_89d324b5);缺省不渲染。 */
   readonly onFocusGraph?: (ref: string) => void;
+  /**
+   * 声明保存等动作的失败原因(含 daemon 返回的 hint):就在保存按钮旁显示,
+   * 不再把原因只留在页首的通用错误条里(标准 §2.5 表单)。
+   */
+  readonly actionError?: string | null;
 };
 export function AgentCard({
   detail,
@@ -116,6 +122,7 @@ export function AgentCard({
   onSelectRuntime,
   onSelectAgent,
   onFocusGraph,
+  actionError = null,
 }: Props) {
   const [draft, setDraft] = useState<AgentDraft>(() => agentDraftFrom(detail)),
     [runtimeListOpen, setRuntimeListOpen] = useState(false),
@@ -571,6 +578,7 @@ export function AgentCard({
               {t(dirty ? "agentRuntime.saveDeclaration" : "agentRuntime.saved")}
             </Btn>
           </div>
+          {actionError ? <ActionError>{actionError}</ActionError> : null}
         </Sect>
       </Card>
       {viewingSkill !== null && (
