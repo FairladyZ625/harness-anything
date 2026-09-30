@@ -210,6 +210,9 @@ const SEG_STATUS: Readonly<Record<string, SnapshotStatus>> = {
   cancelled: "cancelled",
 };
 
+/** 已结束的工作不再需要注意力:排序时一律沉到非终态工作之后。 */
+const TERMINAL_WORK: ReadonlySet<SnapshotStatus> = new Set(["done", "cancelled"]);
+
 export function workRows(works: WorkIndexRead | undefined, agenda: AgendaSuccess | undefined): readonly WorkRow[] {
   if (works === undefined) return [];
   const byWork = new Map<string, { mine: number; top: number }>();
@@ -245,6 +248,7 @@ export function workRows(works: WorkIndexRead | undefined, agenda: AgendaSuccess
     })
     .sort(
       (left, right) =>
+        Number(TERMINAL_WORK.has(left.status)) - Number(TERMINAL_WORK.has(right.status)) ||
         right.topScore - left.topScore ||
         right.mineCount - left.mineCount ||
         Date.parse(right.lastActivityAt) - Date.parse(left.lastActivityAt),
