@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { prefersReducedMotion } from "motion/react";
 import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
+import { workRows } from "../src/renderer/views/overview-model.ts";
 import { AppMotionConfig } from "../src/renderer/motion-config.tsx";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
@@ -506,5 +507,21 @@ describe("总览区域板(S3)", () => {
     expect(textOf(ci)).not.toContain("windows-integration-shard");
     expect(textOf(container.querySelector('[data-testid="overview-topbar"]'))).toContain("main CI 红");
     act(() => root?.unmount());
+  });
+
+  it("工作区域:已完成/已取消的工作沉底,不按最近活动插进活跃工作之间", () => {
+    const base = WORKS.works[0]!;
+    const rows = workRows(
+      {
+        ...WORKS,
+        works: [
+          { ...base, taskId: "task_done", status: "done", lastActivityAt: "2026-09-30T09:00:00.000Z" },
+          { ...base, taskId: "task_cancel", status: "cancelled", lastActivityAt: "2026-09-30T08:00:00.000Z" },
+          { ...base, taskId: "task_live", status: "active", lastActivityAt: "2026-09-20T00:00:00.000Z" },
+        ],
+      },
+      undefined,
+    );
+    expect(rows.map((row) => row.taskId)).toEqual(["task_live", "task_done", "task_cancel"]);
   });
 });
