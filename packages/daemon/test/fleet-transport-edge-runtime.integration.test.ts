@@ -21,6 +21,7 @@ import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-set
 import { evidence } from "./task-surface.fixtures.ts";
 import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/fleet/contract.ts";
 import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
+import { definition as settlementDefinition, scheduleRuntimePorts, eventually } from "./schedule-actions.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 const replicaQuota = 64 * 1024 * 1024;
 // A `node --test` timeout suspends the test body at its current await and never resumes it, so `try…finally`
@@ -916,6 +917,93 @@ for (const probe of [
     );
   });
 }
+test("edge terminal task settlement rejects a changed assignment holder", { timeout: 60_000 }, async (t) => {
+  const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
+  t.after(() => fixture.close());
+  const center = await fixture.center(),
+    workspaceRoot = path.join(fixture.root, "settlement-edge"),
+    viewRoot = path.join(fixture.root, "settlement-view");
+  mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true });
+  writeFileSync(
+    path.join(workspaceRoot, "harness/harness.yaml"),
+    "schema: harness-anything/v1\nname: settlement-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+  );
+  await runFleetReplicaPullClient({
+    port: center.port,
+    ca: fixture.cert,
+    nodeId: fixture.assignment.nodeId,
+    credential: "machine-secret",
+    assignmentId: fixture.assignment.assignmentId,
+    viewRoot,
+    diskQuotaBytes: replicaQuota,
+  });
+  applyFleetMirrorCut(viewRoot, fixture.assignment.repoId, workspaceRoot, "pull");
+  let terminal: (() => void) | undefined;
+  const runtime = openFleetEdgeRuntime({
+    request: {
+      host: "127.0.0.1",
+      port: center.port,
+      caPath: fixture.certFile,
+      nodeId: fixture.assignment.nodeId,
+      credential: "machine-secret",
+      assignmentId: fixture.assignment.assignmentId,
+      repoId: fixture.assignment.repoId,
+      viewRoot,
+      quotaBytes: replicaQuota,
+      workspaceRoot,
+      method: "repo.agentRuntime.spawn",
+      action: {},
+    },
+    daemonGeneration: 1,
+    daemonRoute: {
+      userRoot: path.join(fixture.root, "settlement-user"),
+      daemonId: "settlement-edge",
+      endpoint: path.join(fixture.root, "settlement.sock"),
+    },
+    ports: scheduleRuntimePorts(),
+    launch: () => {
+      let output: ((chunk: string) => void) | undefined;
+      return {
+        pid: 81234,
+        onOutput: (listener) => {
+          output = listener;
+        },
+        onErrorOutput: () => undefined,
+        onExit: (listener) => {
+          terminal = () => {
+            output?.(`${JSON.stringify({ type: "turn.completed" })}\n`);
+            listener(0);
+          };
+        },
+        terminate: () => undefined,
+      };
+    },
+  });
+  fixture.track(() => runtime.close());
+  const launched = await runtime.run("repo.agentRuntime.spawn", {
+    taskId: fixture.assignment.taskId,
+    runtimeInstanceId: settlementDefinition.instanceId,
+    cwd: { scope: "repo-root" },
+    prompt: "Finish this task.",
+    idempotencyKey: "holder-change",
+  });
+  assert.equal(launched.outcome, "applied", JSON.stringify(launched));
+  assert.ok(terminal);
+  fixture.setExecutor("replacement-worker");
+  terminal();
+  const outcomes = () =>
+    makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo })
+      .read()
+      .events.filter(
+        (event) =>
+          event.type === "runtime_session_outcome_observed" &&
+          event.payload.runtimeSessionId === launched.runtimeSessionId,
+      )
+      .map((event) => event.payload);
+  assert.equal(await eventually(async () => outcomes().length > 0), true);
+  assert.equal(outcomes()[0]?.reasonCode, "runtime_lease_release_failed", JSON.stringify(outcomes()));
+  assert.equal(outcomes()[0]?.outcome, "failed", JSON.stringify(outcomes()));
+});
 async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/task-fleet-fleet/notes.md"]) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-one-")),
     repo = path.join(root, "repo"),
@@ -928,6 +1016,7 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
   let nodeActive = true,
     expiresAt = "2099-01-01T00:00:00.000Z",
     assignmentDelayMs = 0,
+    assignmentExecutor = "fleet-edge",
     taskReleaseBarrier: { readonly started: () => void; readonly wait: Promise<void> } | null = null;
   const runtimeArchiveReceipts: Readonly<Record<string, unknown>>[] = [];
   mkdirSync(path.join(repo, "harness"), { recursive: true });
@@ -1030,6 +1119,9 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
     emptyPath,
     track: owned.track,
     hold: owned.hold,
+    setExecutor: (value: string) => {
+      assignmentExecutor = value;
+    },
     setActive: (value: boolean) => {
       nodeActive = value;
     },
@@ -1082,7 +1174,11 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
           resolveAssignment: async (assignmentId) => {
             if (assignmentDelayMs) await new Promise((resolve) => setTimeout(resolve, assignmentDelayMs));
             return assignmentId === assignment.assignmentId
-              ? { ...assignment, expiresAt }
+              ? {
+                  ...assignment,
+                  expiresAt,
+                  actor: { ...assignment.actor, executor: { kind: "agent" as const, id: assignmentExecutor } },
+                }
               : assignmentId === slowAssignment.assignmentId
                 ? { ...slowAssignment, expiresAt }
                 : null;
