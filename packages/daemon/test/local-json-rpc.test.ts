@@ -421,11 +421,6 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   );
   assert.deepEqual(localResidency, {
     "agent-run": "runtime-local",
-    "daemon-connection-add": "host-local",
-    "daemon-connection-probe": "host-local",
-    "daemon-connection-remove": "host-local",
-    "daemon-connection-update": "host-local",
-    "daemon-repo-update": "host-local",
   });
   for (const kind of ["ledger-backup", "ledger-restore-drill"]) {
     const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);

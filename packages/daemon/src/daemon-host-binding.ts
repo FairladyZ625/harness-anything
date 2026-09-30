@@ -36,12 +36,23 @@ export function localSystemBinding(
   return deriveLocalBinding(rootDir, actor, roster);
 }
 
-/** Socket-owner authority for actions whose declaration keeps all writes outside a repository cell. */
-export function localSystemActionBinding(rootDir: string, kind: string): RepoCellBinding {
+/** Daemon socket-owner authority for actions whose declaration keeps all writes outside a repository cell. */
+export async function localSystemActionBinding(
+  rootDir: string,
+  kind: string,
+  auth: DaemonAuthenticationContext,
+  principalBinding: () => Promise<RepoCellBinding>,
+): Promise<RepoCellBinding> {
   const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);
   if (!declaration || declaration.residency.scope === "canonical")
     throw hostCodedError("authentication_required", `Action ${kind} requires an authenticated repository principal.`);
-  return localSystemBinding(rootDir);
+  const daemonUid = process.getuid?.(),
+    ownerUid = auth.unixSocketOwnerBoundary?.ownerUid,
+    isDaemonSocketOwner =
+      auth.transportKind === "unix-socket" &&
+      typeof ownerUid === "number" &&
+      (typeof daemonUid === "number" ? ownerUid === daemonUid : process.platform === "win32" && ownerUid === 0);
+  return isDaemonSocketOwner ? localSystemBinding(rootDir) : principalBinding();
 }
 
 export function withDaemonWriterEpochFence(

@@ -19,7 +19,7 @@ import {
 } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
-import { localSystemActionBinding } from "./daemon-host-binding.ts";
+import { localDefaultBinding, localSystemActionBinding } from "./daemon-host-binding.ts";
 import { requireAuthorizedHostAction } from "./host-action-authorization.ts";
 import {
   orchestrateAgentCreate,
@@ -278,7 +278,7 @@ export function createDaemonHostRuntimeApi(
       },
     },
     system: context.system,
-    runtimeInstance: async (method, payload, _auth) => {
+    runtimeInstance: async (method, payload, auth) => {
       const operation = method.replace("daemon.runtimeInstance.", ""),
         actionKind =
           operation === "githubCredential.set"
@@ -290,7 +290,17 @@ export function createDaemonHostRuntimeApi(
                 : null;
       if (!actionKind)
         throw context.hostCodedError("unsupported_command", `Unsupported runtime instance method: ${method}.`);
-      const serverBinding = localSystemActionBinding(context.input.userRoot, actionKind);
+      const authorityRepo = [...readDaemonRegistry({ userRoot: context.input.userRoot }).repos]
+          .filter(
+            (repo): repo is typeof repo & { readonly canonicalRoot: string } =>
+              repo.state === "enabled" && repo.mode !== "remote-proxy" && repo.canonicalRoot !== null,
+          )
+          .sort((left, right) => left.repoId.localeCompare(right.repoId))[0],
+        serverBinding = await localSystemActionBinding(context.input.userRoot, actionKind, auth, () =>
+          authorityRepo
+            ? context.binding(authorityRepo.canonicalRoot, auth)
+            : Promise.resolve(localDefaultBinding(auth)),
+        );
       const authorizationDecision = requireAuthorizedHostAction({
         kind: actionKind,
         binding: serverBinding,
