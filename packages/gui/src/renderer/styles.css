@@ -255,6 +255,7 @@ body {
   color: var(--color-text);
   font-family: var(--font-sans);
   font-size: var(--ui-font-body);
+  line-height: 1.5;
   color-scheme: dark;
 }
 
@@ -264,11 +265,12 @@ html[data-theme="light"] {
 
 /*
  * 字阶变量（CJK 底线：中文 ≥12px；micro 仅 mono id）
- * micro:11 / meta:12 / body:14 / title:16 / heading:20 / prose:15
+ * micro:11 / meta:13 / body:14 / title:16 / heading:20 / prose:15
+ * v2(gui-visual-language-standard §3):正文 14px 行高 1.5,辅助 12.5–13px 行高 1.45。
  */
 html {
   --ui-font-micro: 11px;
-  --ui-font-meta: 12px;
+  --ui-font-meta: 13px;
   --ui-font-body: 14px;
   --ui-font-title: 16px;
   --ui-font-heading: 20px;
@@ -277,7 +279,7 @@ html {
 
 html[data-ui-scale="compact"] {
   --ui-font-micro: 11px;
-  --ui-font-meta: 12px;
+  --ui-font-meta: 12.5px;
   --ui-font-body: 13px;
   --ui-font-title: 15px;
   --ui-font-heading: 18px;
@@ -286,7 +288,7 @@ html[data-ui-scale="compact"] {
 
 html[data-ui-scale="comfortable"] {
   --ui-font-micro: 12px;
-  --ui-font-meta: 13px;
+  --ui-font-meta: 13.5px;
   --ui-font-body: 15px;
   --ui-font-title: 18px;
   --ui-font-heading: 22px;
@@ -298,9 +300,11 @@ html[data-ui-scale="comfortable"] {
 }
 .ui-meta {
   font-size: var(--ui-font-meta);
+  line-height: 1.45;
 }
 .ui-body {
   font-size: var(--ui-font-body);
+  line-height: 1.5;
 }
 .ui-title {
   font-size: var(--ui-font-title);

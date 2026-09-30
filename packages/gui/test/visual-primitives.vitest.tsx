@@ -143,7 +143,10 @@ describe("DenseRow", () => {
     expect(row?.textContent).toContain("边缘 RBAC 设计");
     expect(row?.textContent).toContain("卡住 2 个任务");
     expect(row?.textContent).toContain("待裁决");
-    expect(row?.className).toContain("h-[25px]");
+    // v2(标准 §3):单行条目不低于 40px、正文字号,不再压成 25px 密行。
+    expect(row?.className).toContain("min-h-10");
+    expect(row?.className).toContain("ui-body");
+    expect(row?.className).not.toContain("h-[25px]");
     act(() => root.unmount());
 
     const bare = mount(createElement(DenseRow, { title: "无序号行" }));
@@ -152,12 +155,12 @@ describe("DenseRow", () => {
     act(() => bare.root.unmount());
   });
 
-  it("宽松模式两行:原因换行成第二行,高度 44px 档", () => {
+  it("宽松模式两行:原因换行成第二行,高度 56px 档", () => {
     const { container, root } = mount(
       createElement(DenseRow, { title: "T-01", reason: "三份所有权判断并成一份", relaxed: true }),
     );
     const row = container.querySelector(".grid");
-    expect(row?.className).toContain("min-h-11");
+    expect(row?.className).toContain("min-h-14");
     const reason = row?.querySelector("span span:nth-child(2)");
     expect(reason?.className).toContain("block");
     act(() => root.unmount());

@@ -537,10 +537,17 @@ describe("agent runtime renderer", () => {
         selection: null,
         onSelect: noop,
         onNew: noop,
+        agentNames: new Map(agentRows.map((row) => [row.id, row.name])),
+        squadsByAgent: new Map(["fable", "luna", "sol", "terra"].map((id) => [id, ["Core Squad"]])),
       }),
     );
     for (const text of ["Agents", "Squads", "fable", "luna", "sol", "terra", "Core Squad", "Design thesis"])
       expect(identityRail).toContain(text);
+    // 标准 §2.4/§2.5 v2:行里不挂角色前缀,名称完整可读;第二行弱色说明是模型与所在 Squad,
+    // Squad 行第二行是 leader 与成员数。
+    expect(identityRail).not.toMatch(/commander|worker/iu);
+    expect(identityRail).toContain("codex · Core Squad");
+    expect(identityRail).toContain("fable · 4 members");
     expect(identityRail).not.toContain("Runtimes");
     expect(identityRail).not.toContain("Orchestration");
     const inspector = renderToStaticMarkup(
@@ -579,6 +586,8 @@ describe("agent runtime renderer", () => {
         selection: null,
         onSelect: noop,
         onNew: noop,
+        agentNames: new Map(),
+        squadsByAgent: new Map(),
       }),
     );
     expect(markup).toMatch(/<button[^>]*rail-agent-broken-agent/u);

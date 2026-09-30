@@ -8,11 +8,13 @@
  * {left, top, width, height} 与 slim/tall 标记后自行落到 Region 原语上。
  */
 
+import { DENSE_ROW_PX, DENSE_ROW_RELAXED_PX } from "../components/primitives/DenseRow.tsx";
+
 export type RegionKey = "ci" | "mine" | "stuck" | "run" | "review" | "queue" | "recent" | "works";
 
-/** 行高与头部/页脚像素(与 DenseRow 25px 行、宽松 44px 行同一档)。 */
-export const REGION_ROW_PX = 25;
-export const REGION_ROW_RELAXED_PX = 44;
+/** 行高取自 DenseRow 原语(单行与宽松两行同一档),头部/页脚像素在本档定。 */
+export const REGION_ROW_PX = DENSE_ROW_PX;
+export const REGION_ROW_RELAXED_PX = DENSE_ROW_RELAXED_PX;
 const HEADER_PX = 34;
 const FOOTER_PX = 24;
 /** 评审与合并区域顶部的分段计数条(原型 .flow)占的高度。 */

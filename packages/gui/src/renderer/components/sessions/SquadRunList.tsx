@@ -36,7 +36,7 @@ export function SquadRunList({
     <nav
       data-testid="squad-run-list"
       aria-label={t("agentRuntime.sessionsSegmentSquad")}
-      className="flex basis-1/3 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface"
+      className="flex w-[26%] min-w-[320px] max-w-[440px] shrink-0 flex-col overflow-y-auto border-r border-border"
     >
       {runs.length === 0 ? (
         <p data-testid="squad-runs-empty" className="px-4 py-4 ui-micro text-text-faint">

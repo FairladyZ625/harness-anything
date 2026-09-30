@@ -472,21 +472,26 @@ describe("sessions page: single-session groups", () => {
     expect(markup).toContain("ha runtime resume dispatch_000000000000000000000003");
   });
 
-  it("folds completed sessions while keeping failed sessions visible for attention", () => {
+  it("sinks completed sessions below a divider and keeps them visible, with no expand fold", () => {
     const markup = groupList({ selectedId: null });
-    expect(markup).toContain("<details>");
-    expect(markup).toContain("Completed / cancelled");
+    // 标准 §1.8 v2:有空间就铺开,终态沉底在「已完成 N」分隔线之后照常显示,不收进 <details>。
+    expect(markup).not.toContain("<details");
+    expect(markup).toMatch(/Completed \/ cancelled \d+</u);
+    expect(markup).not.toContain("· expand");
     expect(markup).toContain('data-status-tone="done"');
   });
 
-  it("renders group headers from the daemon read: title, short task id, status, rounds, activity", () => {
+  it("renders group headers as two lines: title, then executor · rounds · activity in the weak line", () => {
     const markup = groupList({ expandedKeys: new Set() });
     expect(markup).toContain("GUI 会话页重构");
-    expect(markup).toContain(shortRef("task_1994d52c", 11));
     expect(markup).toContain("Running");
     expect(markup).toContain("2 rounds");
     expect(markup).toContain("3 sessions");
     expect(markup).toContain("No squad");
+    // 标准 §2.4:编号不进行,只进详情;组头是宽松两行条目(56px 档)。
+    expect(markup).not.toContain(shortRef("task_1994d52c", 11));
+    expect(markup).toContain("min-h-14");
+    expect(markup).not.toContain("h-[25px]");
   });
 
   it("names each unattributed bucket after the thing that is missing, not one shared word", () => {

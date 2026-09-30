@@ -436,11 +436,13 @@ describe("runtime entry split (W6 IA)", () => {
     ]);
   });
 
-  it("does not auto-select or mount a drawer when sessions arrive without a selection", async () => {
+  it("lands the resident detail on the first session needing attention, with no drawer", async () => {
     const container = await mountSessions(null);
+    // 标准 §2.5 v2:会话页与 Agent 页同构(左列表、右常驻详情),不用抽屉;无显式选中时
+    // 右侧落第一条需要关注的会话(在跑/失败/丢失)。
     expect(container.querySelector('[role="dialog"]')).toBeNull();
-    expect(container.querySelector('[data-testid="session-detail"]')).toBeNull();
-    expect(agentRuntimeClient.session).not.toHaveBeenCalled();
+    expect(agentRuntimeClient.session).toHaveBeenCalledWith("repo-a", "runtime-bound");
+    expect(byTestId("sessions-detail").contains(byTestId("session-detail"))).toBe(true);
     expect(container.querySelector('[data-testid="sessions-status-filter"]')?.textContent).not.toMatch(/\d/u);
   });
 
@@ -451,7 +453,8 @@ describe("runtime entry split (W6 IA)", () => {
     expect(byTestId("rail-session-runtime-bound").getAttribute("aria-current")).toBe("true");
     expect(byTestId("rail-session-runtime-sibling")).toBeTruthy();
     expect(byTestId("session-detail").textContent).toContain("runtime-bound");
-    expect(byTestId("session-detail").closest('[role="dialog"]')).not.toBeNull();
+    expect(byTestId("session-detail").closest('[role="dialog"]')).toBeNull();
+    expect(byTestId("session-detail").closest('[data-testid="sessions-detail"]')).not.toBeNull();
   });
 
   it("resolves a session deep link before the target task group is expanded", async () => {

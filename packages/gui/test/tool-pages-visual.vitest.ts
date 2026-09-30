@@ -10,7 +10,9 @@ describe("tool page visual language", () => {
       readFile(new URL("../src/renderer/views/BrowserView.tsx", import.meta.url), "utf8"),
     ]);
 
-    expect(sessions).toMatch(/<Drawer\s+open=\{inspector\}/u);
+    // 标准 §2.5 v2:会话页是左列表、右常驻详情,不再用抽屉。
+    expect(sessions).not.toContain("<Drawer");
+    expect(sessions).toContain('data-testid="sessions-detail"');
     expect(sessions).toContain("<StatusTag");
     expect(terminal).toContain('className="flex min-h-0 flex-1 flex-row overflow-hidden bg-bg p-2"');
     expect(terminal).toContain("glass ml-2 flex min-h-0 min-w-0 flex-1");

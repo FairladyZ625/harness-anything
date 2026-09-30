@@ -22,7 +22,7 @@ export function FilterChips<T extends string>({
             type="button"
             aria-pressed={active}
             onClick={() => onChange(chip.key)}
-            className={`h-6 rounded-xs border px-[11px] ui-meta ${
+            className={`h-7 rounded-xs border px-3 ui-meta ${
               active
                 ? "border-accent/40 bg-accent/15 text-accent"
                 : "border-border bg-text/5 text-text-muted hover:text-text"
