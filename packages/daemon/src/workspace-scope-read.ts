@@ -1,5 +1,6 @@
 import {
   isTerminalStatus,
+  isWorkRoot,
   type TaskProjection,
   type TaskIndexProjectionRow,
   type TaskV2,
@@ -141,8 +142,7 @@ export function workspaceStructureFromProjection(
   });
   // The root is presented through the work rule when it is one (the same predicate workRows uses),
   // so `ha work show` and the GUI scope read agree with `ha work list` on a derived-terminal root.
-  const rootIsWork =
-    root.taskClass === "work" || (root.parentTaskId === null && (children.get(root.taskId)?.length ?? 0) > 0);
+  const rootIsWork = isWorkRoot(root.taskClass, root.parentTaskId, children.get(root.taskId)?.length ?? 0);
   return {
     schema: "daemon.workspace-scope/v1",
     ok: true,

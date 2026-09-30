@@ -11,6 +11,7 @@ import type { MarkdownDocumentContract, TransitionDocumentMissingSection } from 
 import type { CloseoutGate } from "./settings-closeout.ts";
 import { approvedReviewHistoryForExecution, reviewsForExecution, type ReviewV1 } from "./review.ts";
 import type { ExecutionV1 } from "./execution.ts";
+import { isWorkRoot } from "./task.ts";
 
 export type CompletionBlockerCode =
   | "projection_unknown"
@@ -61,6 +62,8 @@ export interface CompletionReadinessContext {
   readonly closeoutContract?: MarkdownDocumentContract | null;
   /** Whether declare-executor has a dispatch record it can replay as executor proof. */
   readonly hasDispatchLineage?: boolean;
+  /** Direct children with an active package; with a null parent it makes the task a derived work root. */
+  readonly childTaskCount?: number;
 }
 
 export function completionBlockers(
@@ -188,7 +191,10 @@ function evaluateCompletion(
     );
   // A work root is a map, not an execution (dec_mr7v4h6t): its status derives from the subtree at
   // read time, so a root off the corridor never reaches completion — say so instead of pointing at start.
-  if (task.taskClass === "work" && !["active", "submitted", "in_review"].includes(task.status))
+  if (
+    isWorkRoot(task.taskClass, task.metadata?.parentTaskId ?? null, context.childTaskCount ?? 0) &&
+    !["active", "submitted", "in_review"].includes(task.status)
+  )
     return one(
       "not_in_review",
       "lifecycle",

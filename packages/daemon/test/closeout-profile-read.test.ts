@@ -25,7 +25,7 @@ const submitted: TaskLifecycleSnapshot = lifecycleFixture().events.slice(0, 3).r
 });
 
 /** Settings-facet-aware read projection stub: one submitted unreviewed cut and a valid closeout. */
-function projection(closeout: CloseoutSettingsV1 | null, factRows = 1): TaskProjectionQueries {
+function projection(closeout: CloseoutSettingsV1 | null, factRows = 1, childCount = 0): TaskProjectionQueries {
   return {
     read: () => ({
       snapshot: submitted,
@@ -60,6 +60,7 @@ function projection(closeout: CloseoutSettingsV1 | null, factRows = 1): TaskProj
       rows: factRows ? [{ targetRef: "fact/f-read-side", state: "active" }] : [],
       status: "ready",
     }),
+    readTaskChildCounts: (ids: readonly string[]) => (childCount ? { [ids[0]!]: childCount } : {}),
     getEntity: (kind: string, id: string) =>
       kind === "settings" && id === "repository" && closeout ? { value: { closeout } } : null,
   } as unknown as TaskProjectionQueries;
@@ -122,4 +123,17 @@ test("the task query closeout judgment follows the effective gate set", () => {
   assert.equal(standard.readiness, "ready");
   assert.equal(strict.readiness, "incomplete");
   assert.equal(strict.blocker, "review");
+});
+
+test("a planned top-level task with children is a derived work root and completion names work show", () => {
+  const planned = lifecycleFixture()
+    .events.slice(0, 1)
+    .reduce(reduceTaskEvent, { ...submitted, revision: 0, task: null });
+  assert.equal(planned.task?.metadata?.parentTaskId ?? null, null);
+  const derived = readCompletionContext(projection({ profile: "standard" }, 1, 2), "task-1", planned, "ready");
+  assert.equal(derived.childTaskCount, 2);
+  assert.equal(taskCompletionNext(planned, derived).blocker?.next.action, "ha work show task-1");
+  // Negative control: the same planned task without children is an ordinary task and still starts.
+  const leaf = readCompletionContext(projection({ profile: "standard" }), "task-1", planned, "ready");
+  assert.equal(taskCompletionNext(planned, leaf).blocker?.next.action, "ha task start task-1");
 });

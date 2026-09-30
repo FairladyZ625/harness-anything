@@ -3,7 +3,7 @@ import type {
   TaskProjection,
   WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
-import { isTerminalStatus } from "@harness-anything/kernel";
+import { isTerminalStatus, isWorkRoot } from "@harness-anything/kernel";
 import { planGoalSummary } from "./dispatch-causal-context.ts";
 import type { TaskQueryCell } from "./repo-cell-task-query.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
@@ -89,7 +89,7 @@ function workRows(rows: readonly TaskIndexProjectionRow[]): WorkListRow[] {
     else children.set(row.parentTaskId, [row]);
   }
   return rows
-    .filter((row) => row.taskClass === "work" || (row.parentTaskId === null && children.has(row.taskId)))
+    .filter((row) => isWorkRoot(row.taskClass, row.parentTaskId, children.get(row.taskId)?.length ?? 0))
     .map((row): WorkListRow => {
       const counts = emptyScopeCounts(),
         seen = new Set([row.taskId]),
