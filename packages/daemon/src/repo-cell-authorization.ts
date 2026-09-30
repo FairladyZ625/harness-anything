@@ -1,6 +1,7 @@
 import { composeDurableActionEnvelope } from "@harness-anything/application/internal/durable-action-envelope";
 import path from "node:path";
 import {
+  actionDeclarations,
   durablePolicyActions,
   isSameExecution,
   parseEntityRef,
@@ -8,6 +9,8 @@ import {
   PEOPLE_ROSTER_PATH,
   taskIsDescendantOf,
   stableStringify,
+  roleBindingActorMatches,
+  roleBindingExpired,
   verifyDelegatedExecutionToken,
   type AuthorizationDecision,
   type DelegatedExecutionToken,
@@ -17,6 +20,7 @@ import {
   type WriteReceiptDraft,
   type EntityRef,
   type ReceiptDiagnostic,
+  type ReceiptJsonValue,
   type TaskProjection,
 } from "@harness-anything/kernel";
 import { declaredRoleBindingsFromRoster } from "./identity/declared-role-binding-projection.ts";
@@ -70,7 +74,7 @@ export async function evaluateRepoCellAction(input: {
   }
   const credential = input.binding.keycloakAuthorization;
   if (!credential)
-    return keycloakDecision(envelope, `canonical:${input.revision}`, "denied", "authentication_required");
+    return legacyBindingDecision(envelope, input.binding, target, input.now, `canonical:${input.revision}`);
   const adapter = new KeycloakPolicyAdapter(
       {
         url: credential.url,
@@ -111,9 +115,80 @@ export function authorizeRepoCellAction(input: {
       idempotencyKey: typeof input.action.idempotencyKey === "string" ? input.action.idempotencyKey : input.actionId,
     }),
     decision = input.binding.authorizationDecision;
-  return decision?.policyRef === "keycloak-policy@1" && decision.outcome === "allowed"
-    ? decision
-    : keycloakDecision(envelope, `canonical:${input.revision}`, "denied", "authentication_required");
+  if (decision?.policyRef === "keycloak-policy@1" && decision.outcome === "allowed") return decision;
+  return legacyBindingDecision(envelope, input.binding, target, input.now, `canonical:${input.revision}`);
+}
+
+function legacyBindingDecision(
+  action: ReturnType<typeof composeDurableActionEnvelope>,
+  binding: RepoCellBinding,
+  target: EntityRef,
+  now: string,
+  evaluatedAtCut: string,
+): AuthorizationDecision {
+  const declaration = actionDeclarations.find((candidate) => candidate.kind === action.kind),
+    requiredRole =
+      declaration?.policyTier === "contributor"
+        ? "repo-write"
+        : declaration?.policyTier === "maintainer"
+          ? "arbiter"
+          : declaration?.policyTier === "admin"
+            ? "admin"
+            : null,
+    targets = [target, repositoryTarget],
+    matchedRole = (binding.roleBindings ?? []).find(
+      (candidate) =>
+        requiredRole !== null &&
+        (candidate.role === requiredRole || candidate.role === "owner") &&
+        targets.includes(candidate.target) &&
+        roleBindingActorMatches(candidate.actor, action.actor) &&
+        !roleBindingExpired(candidate, now),
+    ),
+    assignment = declaration?.policyTier === "contributor" ? binding.assignmentScope : undefined,
+    token = binding.delegatedExecutionToken,
+    tokenVerification = token ? verifyDelegatedExecutionToken(token, action.actor, action.kind, now) : null,
+    allowed =
+      declaration !== undefined &&
+      (matchedRole !== undefined || assignment !== undefined) &&
+      tokenVerification?.ok !== false,
+    bindingsUsed: Readonly<Record<string, ReceiptJsonValue>>[] = [];
+  if (matchedRole)
+    bindingsUsed.push({
+      authority: "roster-role-binding",
+      role: matchedRole.role,
+      target: matchedRole.target,
+    });
+  if (assignment)
+    bindingsUsed.push({
+      authority: "fleet-assignment",
+      repoId: assignment.repoId,
+      scope: assignment.scope as unknown as ReceiptJsonValue,
+    });
+  if (token)
+    bindingsUsed.push({
+      proof: "delegated-execution-token",
+      tokenId: token.tokenId,
+      issuerPersonId: token.issuer.personId,
+      runtimeSessionId: token.delegate.runtimeSessionId,
+    });
+  return Object.freeze({
+    policyRef: "legacy-binding@1",
+    actor: action.actor,
+    subject: action.target,
+    bindingsUsed: Object.freeze(bindingsUsed),
+    outcome: allowed ? "allowed" : "denied",
+    reasonCodes: Object.freeze([
+      allowed
+        ? "authorization_allowed"
+        : tokenVerification && !tokenVerification.ok
+          ? tokenVerification.reasonCode
+          : "authentication_required",
+    ]),
+    nextActions: Object.freeze(
+      allowed ? [] : ["Sign in with Keycloak or use an existing repository RoleBinding or assignment."],
+    ),
+    evaluatedAtCut,
+  });
 }
 
 function keycloakDecision(

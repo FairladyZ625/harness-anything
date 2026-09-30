@@ -152,6 +152,60 @@ test("RepoCell online evaluation uses the authenticated token and exact reposito
   assert.deepEqual(missing.reasonCodes, ["authentication_required"]);
 });
 
+test("RepoCell keeps existing RoleBinding and assignment authorization until their owning slices retire them", async () => {
+  const actor = { principal: { personId: "person-legacy" }, executor: null },
+    common = {
+      actor,
+      source: "local" as const,
+      authorizationBindingMode: "declared" as const,
+    },
+    roleAllowed = await evaluateRepoCellAction({
+      action: { kind: "task-create" },
+      binding: {
+        ...common,
+        roleBindings: [
+          {
+            actor: { kind: "person", id: actor.principal.personId },
+            role: "repo-write",
+            target: "settings/repository",
+            source: "declared",
+            expiresAt: null,
+          },
+        ],
+      },
+      actionId: "action-role-binding",
+      repoId: "repo-a",
+      revision: 7,
+      now: "2026-09-30T00:00:03.000Z",
+    }),
+    assignmentAllowed = await evaluateRepoCellAction({
+      action: { kind: "task-create" },
+      binding: {
+        ...common,
+        source: { kind: "assignment", nodeId: "node-a", assignmentId: "assignment-a" } as const,
+        assignmentScope: {
+          repoId: "repo-a",
+          scope: { kind: "repository", ref: "repo-a" },
+        },
+      },
+      actionId: "action-assignment",
+      repoId: "repo-a",
+      revision: 8,
+      now: "2026-09-30T00:00:04.000Z",
+    }),
+    noImplicitDefault = await evaluateRepoCellAction({
+      action: { kind: "task-create" },
+      binding: common,
+      actionId: "action-no-default",
+      repoId: "repo-a",
+      revision: 9,
+      now: "2026-09-30T00:00:05.000Z",
+    });
+  assert.equal(roleAllowed.outcome, "allowed");
+  assert.equal(assignmentAllowed.outcome, "allowed");
+  assert.equal(noImplicitDefault.outcome, "denied");
+});
+
 test("group validation rejects unknown scopes and inheritance cycles before any Keycloak write", () => {
   const adapter = new KeycloakPolicyAdapter(config, async () => new Response(null, { status: 500 }));
   assert.throws(
