@@ -13,8 +13,13 @@ export default {
   description: "A binary artifact is listed under the raw facet and previews as metadata, never a blank page.",
   async run({ page }) {
     await nav(page, /^(?:产物|Artifacts)$/u, "artifacts-view");
-    await page.getByTestId("artifacts-filter-raw").click();
-    await page.getByTestId("artifact-focus-task-gui-smoke-artifacts/reports/dossier.pdf").click();
+    // FilterChips 原语不逐钮发 testid:按文案选中 raw facet(标准 §2.4 筛选按钮)。
+    await page
+      .getByTestId("artifacts-filters")
+      .getByRole("button", { name: /^(?:Binary|二进制)/u })
+      .click();
+    // 行是 DenseRow:testid 在行壳上,点其内按钮打开预览。
+    await page.getByTestId("artifact-row-task-gui-smoke-artifacts/reports/dossier.pdf").getByRole("button").click();
     const panel = page.getByTestId("task-document-binary");
     await panel.waitFor();
     const preview = page.getByTestId("artifact-preview-content");

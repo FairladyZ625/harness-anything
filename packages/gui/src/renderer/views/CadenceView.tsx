@@ -5,6 +5,7 @@ import type { ObserveTailMode } from "../daemon-observe-model.ts";
 import { CADENCE_EVENT_LIMIT, deriveCadenceSnapshot, type CadenceInput } from "../model/cadence.ts";
 import { useCadenceFeed } from "../cadence-feed.ts";
 import { deriveAttestationLanes } from "../model/attestation-pool.ts";
+import { Tabs } from "../components/primitives/Tabs.tsx";
 import { CadenceHud } from "../components/cadence/CadenceHud.tsx";
 import { TaskRhythmTrack } from "../components/cadence/TaskRhythmTrack.tsx";
 import { FrictionRadar } from "../components/cadence/FrictionRadar.tsx";
@@ -95,9 +96,11 @@ export function CadenceView({
     };
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-wrap items-baseline gap-2 border-b border-border bg-surface/40 px-5 py-3">
-        <h1 className="ui-title font-semibold">{t("views.cadence.title")}</h1>
-        <span className="truncate font-mono ui-meta text-text-faint">{projectName}</span>
+      <header className="flex flex-wrap items-baseline gap-3 px-5 py-3">
+        <h1 className="text-xl font-semibold text-text">{t("views.cadence.title")}</h1>
+        <span className="min-w-0 truncate text-sm text-text-muted">
+          {projectName} · {t("views.cadence.tagline")}
+        </span>
         <span
           data-testid="cadence-stream"
           className="ml-auto flex flex-wrap items-baseline gap-2 font-mono ui-micro text-text-faint"
@@ -123,23 +126,17 @@ export function CadenceView({
           {t("views.cadence.errorTitle")} {feed.error}
         </p>
       ) : null}
-      <div
-        role="tablist"
-        aria-label={t("views.cadence.tabsLabel")}
-        className="flex gap-1 border-b border-border px-4 pt-2"
-      >
-        {(["tasks", "fleet"] as const).map((id) => (
-          <button
-            key={id}
-            type="button"
-            role="tab"
-            aria-selected={tab === id}
-            onClick={() => setTab(id)}
-            className={`rounded-t px-3 py-2 ui-meta ${tab === id ? "bg-surface-raised text-accent" : "text-text-muted hover:text-text"}`}
-          >
-            {t(`views.cadence.tab.${id}`)}
-          </button>
-        ))}
+      <div className="px-5">
+        <Tabs
+          ariaLabel={t("views.cadence.tabsLabel")}
+          idPrefix="cadence"
+          value={tab}
+          onChange={setTab}
+          tabs={[
+            { key: "tasks" as const, label: t("views.cadence.tab.tasks") },
+            { key: "fleet" as const, label: t("views.cadence.tab.fleet") },
+          ]}
+        />
       </div>
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4">
         {tab === "fleet" ? (

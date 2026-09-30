@@ -204,9 +204,10 @@ afterEach(async () => {
 });
 
 async function click(container: HTMLElement, testId: string): Promise<void> {
-  const button = container.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`);
-  if (!button) throw new Error(`missing ${testId}`);
-  await act(async () => button.click());
+  const el = container.querySelector<HTMLElement>(`[data-testid="${testId}"], #${testId}`);
+  if (!el) throw new Error(`missing ${testId}`);
+  const target = el.matches("button") ? el : (el.querySelector("button") ?? el);
+  await act(async () => target.click());
 }
 
 async function settle(): Promise<void> {
@@ -319,6 +320,13 @@ describe("schedule detail hub (M2)", () => {
     expect(rows.map((element) => element.getAttribute("data-testid"))).toEqual([
       "schedule-run-row-occurrence_3f9c",
       "schedule-run-row-occurrence_5a22",
+    ]);
+    // 终态默认沉底折叠(标准 §2.4):点击展开后显形。
+    await click(container, "schedule-runs-folded");
+    const allRows = [...container.querySelectorAll("li[data-testid^='schedule-run-row-']")];
+    expect(allRows.map((element) => element.getAttribute("data-testid"))).toEqual([
+      "schedule-run-row-occurrence_3f9c",
+      "schedule-run-row-occurrence_5a22",
       "schedule-run-row-occurrence_71d0",
     ]);
     const missedRow = container.querySelector('[data-testid="schedule-run-row-occurrence_5a22"]');
@@ -336,7 +344,7 @@ describe("embedded run detail (M4)", () => {
     const container = await renderDetail("schedule/heartbeat-probe", listResult(), onSelectEntity);
     await click(container, "schedule-tab-runs");
     await settle();
-    await click(container, "schedule-run-open-occurrence_now");
+    await click(container, "schedule-run-row-occurrence_now");
     // The run opens inside the schedule hub; the retired session/<id> jump is gone.
     expect(onSelectEntity).toHaveBeenCalledWith("schedule/heartbeat-probe/runs/occurrence_now");
     expect(onSelectEntity).not.toHaveBeenCalledWith(expect.stringMatching(/^session\//u));

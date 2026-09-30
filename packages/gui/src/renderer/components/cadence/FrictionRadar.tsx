@@ -1,5 +1,6 @@
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
+import { StatusTag } from "../primitives/StatusTag.tsx";
 import {
   CADENCE_FRICTION_ALERT_THRESHOLD,
   CADENCE_FRICTION_KINDS,
@@ -14,7 +15,6 @@ import {
 
 const TASK_BUTTON = ["flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left hover:text-accent"].join(" ");
 const TASK_LINE = "flex min-w-0 flex-wrap items-center gap-1.5";
-const HIGH_BADGE = ["shrink-0 rounded bg-status-blocked/10 px-1.5 py-0.5 ui-micro text-status-blocked"].join(" ");
 const titleTone = (high: boolean): string =>
   `truncate ui-body ${high ? "text-status-blocked font-semibold" : "text-text"}`;
 
@@ -69,7 +69,7 @@ export function FrictionRadar({
                     >
                       <span className={TASK_LINE}>
                         <span className={titleTone(task.high)}>{task.title}</span>
-                        {task.high ? <span className={HIGH_BADGE}>{t("views.cadence.frictionHigh")}</span> : null}
+                        {task.high ? <StatusTag tone="bad" label={t("views.cadence.frictionHigh")} /> : null}
                       </span>
                       <span className="font-mono ui-micro text-text-faint">
                         {CADENCE_FRICTION_KINDS.filter((kind) => task[kind] > 0)

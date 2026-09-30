@@ -1,9 +1,13 @@
 import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, Clock, Plus } from "@phosphor-icons/react";
+import { Plus } from "@phosphor-icons/react";
 import type { ScheduleGuiListRowDto, ScheduleGuiRowDto, SchedulesListResult } from "@harness-anything/daemon/protocol";
-import { Badge, Btn, Chip, Empty, Hint } from "../components/runtime/parts.tsx";
+import { Empty } from "../components/runtime/parts.tsx";
 import { ScheduleFormDialog } from "../components/ScheduleFormDialog.tsx";
+import { SchedulePreviewDrawer } from "../components/SchedulePreviewDrawer.tsx";
+import { DenseRow } from "../components/primitives/DenseRow.tsx";
+import { FilterChips } from "../components/primitives/FilterChips.tsx";
+import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import { formatTime } from "../model/time.ts";
 import { consumeKnownError } from "../../api/error-consumption.ts";
@@ -12,7 +16,6 @@ import {
   scheduleRefId,
   scheduleRowById,
   scheduleRowHealth,
-  scheduleRowMode,
   scheduleRowTargetKind,
   schedulesClient,
   type ScheduleActionReceipt,
@@ -21,40 +24,14 @@ import {
 } from "../schedules-client.ts";
 import { ScheduleDetailView } from "./ScheduleDetailView.tsx";
 
-// Schedules plane (S4/M1): one `repo.schedules.list` read paints the list; the
-// matrix only filters and formats daemon facts — no cadence/nextRun/DST/mode
-// recomputation, no local node/provider picking. A focused `schedule/<id>` ref
-// renders the detail hub (ScheduleDetailView) instead of the retired 420px
-// inspector; run sessions stay embedded there instead of jumping to the global
-// Sessions view.
-type StateMeta = { readonly key: MessageKey; readonly tone: "active" | "in-review" };
-const STATE_META: Record<ScheduleGuiRowDto["state"], StateMeta> = {
-  armed: { key: "schedules.state.armed", tone: "active" },
-  paused: { key: "schedules.state.paused", tone: "in-review" },
-};
-const AVAILABILITY_META: Record<ScheduleGuiRowDto["executionAvailability"], MessageKey> = {
-  local: "schedules.availability.local",
-  "claimed-elsewhere": "schedules.availability.claimedElsewhere",
-  unassigned: "schedules.availability.unassigned",
-  "not-on-this-node": "schedules.availability.notOnThisNode",
-};
+// Schedules plane (S4/M1, 视觉基线 v1 §2.4 列表页): one `repo.schedules.list` read paints the
+// list; the pane only filters and formats daemon facts — no cadence/nextRun/DST/mode
+// recomputation, no local node/provider picking. 行点击开预览抽屉(就地动作 + 完整详情出口);
+// a focused `schedule/<id>` ref still renders the detail hub (deep links, graph jumps).
 const TARGET_STATE_KEY: Readonly<Record<NonNullable<ScheduleGuiRowDto["targetState"]>, MessageKey>> = {
   invalid: "agentRuntime.catalogInvalid",
   missing: "agentRuntime.catalogMissing",
 };
-const OUTCOME_META: Record<string, MessageKey> = {
-  succeeded: "schedules.outcome.succeeded",
-  failed: "schedules.outcome.failed",
-  unknown: "schedules.outcome.unknown",
-  cancelled: "schedules.outcome.cancelled",
-};
-const OUTCOME_TONE: Record<string, string> = {
-  succeeded: "done",
-  failed: "blocked",
-  cancelled: "unknown",
-};
-
-const time = (iso: string | null): string => (iso === null ? "—" : (formatTime(iso, { style: "date-time" }) ?? iso));
 
 const READ_ERROR_ROW_CLASS = [
   "shrink-0 border-b border-border bg-status-blocked/10",
@@ -84,17 +61,15 @@ export function SchedulesView({
   });
   return (
     <section data-testid="schedules-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="flex h-[42px] shrink-0 items-center gap-3 border-b border-border bg-surface-raised px-3.5">
-        <b className="ui-body tracking-[0.02em]">{t("schedules.title")}</b>
-        <span className="truncate font-mono ui-micro text-text-faint">{t("schedules.subtitle")}</span>
+      <header className="flex flex-wrap items-baseline gap-3 px-5 py-3">
+        <h1 className="text-xl font-semibold text-text">{t("schedules.title")}</h1>
+        <span data-testid="schedules-summary" className="min-w-0 truncate text-sm text-text-muted">
+          {t("schedules.summary", { count: query.data?.schedules.length ?? 0 })}
+        </span>
         {query.data && (
-          <span className="flex items-center gap-2 whitespace-nowrap">
-            <Chip tone="mono" tip={t("schedules.modeTip")}>
-              {query.data.repoMode}
-            </Chip>
-            <Chip tone="mono" tip={t("schedules.viewerTip")}>
-              {query.data.viewerNodeId ?? "—"}
-            </Chip>
+          <span className="ml-auto flex items-center gap-2 font-mono ui-micro text-text-faint">
+            <span>{query.data.repoMode}</span>
+            {query.data.viewerNodeId && <span>· {query.data.viewerNodeId}</span>}
           </span>
         )}
       </header>
@@ -141,7 +116,7 @@ export function ScheduleWorkspace({
   const queryClient = useQueryClient();
   const rows = data?.schedules ?? [];
   // The ref routes: a resolvable schedule/<id> renders the detail hub; anything
-  // else (including a stale ref after deletion) renders the matrix list. There is
+  // else (including a stale ref after deletion) renders the list. There is
   // no sidebar fallback row anymore — the hub is the detail surface.
   const wanted = scheduleRefId(focusedEntityRef),
     selected = useMemo(() => scheduleRowById(rows, wanted), [rows, wanted]);
@@ -149,6 +124,16 @@ export function ScheduleWorkspace({
   const [receipt, setReceipt] = useState<ScheduleActionReceipt | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [dialog, setDialog] = useState<"create" | null>(null);
+  // 预览抽屉(标准 §2.4):行点击先看摘要,不整页跳转;null = 关闭。
+  const [previewId, setPreviewId] = useState<string | null>(null);
+  const previewRow = useMemo(
+    () =>
+      previewId === null
+        ? null
+        : (rows.find((row): row is ScheduleGuiRowDto => row.scheduleId === previewId && row.state !== "invalid") ??
+          null),
+    [rows, previewId],
+  );
   const runAction = async (kind: "enable" | "disable" | "runNow", schedule: ScheduleGuiRowDto): Promise<void> => {
     setBusy(true);
     setActionError(null);
@@ -245,13 +230,27 @@ export function ScheduleWorkspace({
           data={data}
           pending={pending}
           busy={busy}
-          onOpenSchedule={(scheduleId) => onSelectEntity(scheduleRef(scheduleId))}
+          previewId={previewId}
+          onPreview={(scheduleId) => {
+            setActionError(null);
+            setPreviewId(scheduleId);
+          }}
           onCreate={() => {
             setActionError(null);
             setDialog("create");
           }}
         />
       )}
+      <SchedulePreviewDrawer
+        row={previewRow}
+        busy={busy}
+        onAction={(kind) => previewRow !== null && void runAction(kind, previewRow)}
+        onOpenFull={(ref) => {
+          setPreviewId(null);
+          onSelectEntity(ref);
+        }}
+        onClose={() => setPreviewId(null)}
+      />
       {dialog !== null && data !== null && (
         <ScheduleFormDialog
           key="create"
@@ -268,319 +267,247 @@ export function ScheduleWorkspace({
   );
 }
 
-type StateFilter = "all" | "armed" | "paused";
-type ModeFilter = "all" | "detect" | "remediate";
-type HealthFilter = "all" | "degraded" | "clean";
+type ScheduleFilter = "attn" | "paused" | "all";
+
+/** 注意力序:无效定义最先,健康降级次之,再按错过的次数,最后按下次运行时间;数值全来自 daemon。 */
+function attentionRank(row: ScheduleGuiListRowDto): number {
+  if (row.state === "invalid") return 0;
+  if (row.state !== "armed") return 9;
+  if (scheduleRowHealth(row).bucket === "degraded") return 1;
+  if (row.missed.count > 0) return 2;
+  return 3;
+}
+
+/** 需要关注 = 无效定义,或在跑且健康降级 / 错过运行 / 执行目标不可用(标准 §2.4 默认筛选)。 */
+function needsAttention(row: ScheduleGuiListRowDto): boolean {
+  if (row.state === "invalid") return true;
+  if (row.state !== "armed") return false;
+  return scheduleRowHealth(row).bucket === "degraded" || row.missed.count > 0 || row.targetState !== undefined;
+}
 
 function ScheduleListPane({
   rows,
   data,
   pending,
   busy,
-  onOpenSchedule,
+  previewId,
+  onPreview,
   onCreate,
 }: {
   readonly rows: readonly ScheduleGuiListRowDto[];
   readonly data: SchedulesListResult | null;
   readonly pending: boolean;
   readonly busy: boolean;
-  readonly onOpenSchedule: (scheduleId: string) => void;
+  readonly previewId: string | null;
+  readonly onPreview: (scheduleId: string) => void;
   readonly onCreate: () => void;
 }) {
-  const [stateFilter, setStateFilter] = useState<StateFilter>("all");
-  const [modeFilter, setModeFilter] = useState<ModeFilter>("all");
-  const [healthFilter, setHealthFilter] = useState<HealthFilter>("all");
-  const projected = rows.some((row) => row.state !== "invalid"),
-    visible = rows.filter((row) => {
-      if (stateFilter !== "all" && row.state !== stateFilter) return false;
-      if (modeFilter !== "all" && (row.state === "invalid" || scheduleRowMode(row) !== modeFilter)) return false;
-      // The bucket is the daemon's classification of its health rollup — the
-      // renderer only selects rows whose bucket matches the requested facet.
-      if (healthFilter !== "all" && (row.state === "invalid" || scheduleRowHealth(row).bucket !== healthFilter))
-        return false;
-      return true;
-    });
+  const [filter, setFilter] = useState<ScheduleFilter>("attn");
+  const [search, setSearch] = useState("");
+  const [pausedOpen, setPausedOpen] = useState(false);
+  const query = search.trim().toLocaleLowerCase();
+  const matchesSearch = (row: ScheduleGuiListRowDto) =>
+    query.length === 0 ||
+    (row.state === "invalid"
+      ? `${row.scheduleId} ${row.invalidReason}`.toLocaleLowerCase().includes(query)
+      : `${row.name} ${row.scheduleId} ${row.trigger.summary}`.toLocaleLowerCase().includes(query));
+  const matchesFilter = (row: ScheduleGuiListRowDto, key: ScheduleFilter) =>
+    key === "all" ? true : key === "attn" ? needsAttention(row) : row.state === "paused";
+  const nextRunAtOf = (row: ScheduleGuiListRowDto) => (row.state === "invalid" ? "" : (row.nextRunAt ?? ""));
+  const visible = rows.filter((row) => matchesSearch(row) && matchesFilter(row, filter)),
+    // 终态沉底(标准 §2.4):暂停的计划不需要注意力,默认折叠成一行,「全部」视图里也在底部。
+    activeRows = visible
+      .filter((row) => row.state !== "paused")
+      .sort(
+        (left, right) =>
+          attentionRank(left) - attentionRank(right) ||
+          nextRunAtOf(left).localeCompare(nextRunAtOf(right)) ||
+          left.scheduleId.localeCompare(right.scheduleId),
+      ),
+    pausedRows = visible.filter((row) => row.state === "paused");
+  const chips = (
+    [
+      ["attn", t("schedules.list.filter.attn")],
+      ["paused", t("schedules.state.paused")],
+      ["all", t("schedules.list.filter.all")],
+    ] as const
+  ).map(([key, label]) => ({ key, label, count: rows.filter((row) => matchesFilter(row, key)).length }));
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6" data-testid="schedules-list">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex flex-wrap items-center gap-1.5" data-testid="schedules-filters">
-          <Chip>
-            {t("schedules.list.count", {
-              count: String(visible.length),
-              total: String(rows.length),
-            })}
-          </Chip>
-          <FilterGroup
-            testId="schedules-filter-state"
-            label={t("schedules.list.filter.state")}
-            value={stateFilter}
-            options={[
-              { value: "all", label: t("schedules.list.filter.all") },
-              { value: "armed", label: t("schedules.state.armed") },
-              { value: "paused", label: t("schedules.state.paused") },
-            ]}
-            onChange={setStateFilter}
-          />
-          <FilterGroup
-            testId="schedules-filter-mode"
-            label={t("schedules.list.filter.mode")}
-            disabled={!projected}
-            value={modeFilter}
-            options={[
-              { value: "all", label: t("schedules.list.filter.all") },
-              { value: "detect", label: t("schedules.mode.detect") },
-              { value: "remediate", label: t("schedules.mode.remediate") },
-            ]}
-            onChange={setModeFilter}
-          />
-          <FilterGroup
-            testId="schedules-filter-health"
-            label={t("schedules.list.filter.health")}
-            disabled={!projected}
-            value={healthFilter}
-            options={[
-              { value: "all", label: t("schedules.list.filter.all") },
-              { value: "degraded", label: t("schedules.list.filter.degraded") },
-              { value: "clean", label: t("schedules.list.filter.clean") },
-            ]}
-            onChange={setHealthFilter}
-          />
-        </div>
-        <Btn
-          size="sm"
-          variant="primary"
-          testId="schedule-action-create"
+    <div className="flex min-h-0 flex-1 flex-col" data-testid="schedules-list">
+      <div className="flex flex-wrap items-center gap-2 px-5 py-2" data-testid="schedules-filters">
+        <FilterChips chips={chips} value={filter} onChange={setFilter} />
+        <input
+          type="search"
+          aria-label={t("schedules.list.searchLabel")}
+          placeholder={t("schedules.list.searchPlaceholder")}
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          className="h-[26px] min-w-[200px] flex-1 rounded-xs border border-border bg-bg/30 px-2.5 text-text ui-meta"
+        />
+        <button
+          type="button"
+          data-testid="schedule-action-create"
           disabled={busy || data === null || !data.actions.create.available}
-          tip={
+          title={
             data?.actions.create.available === false
               ? (data.actions.create.nextAction ?? data.actions.create.code ?? undefined)
               : undefined
           }
           onClick={onCreate}
+          className="inline-flex items-center gap-1.5 rounded-xs border border-accent bg-accent px-2.5 py-1 ui-meta font-medium text-accent-fg hover:opacity-90 disabled:opacity-50"
         >
-          <Plus weight="bold" />
+          <Plus weight="bold" aria-hidden />
           {t("schedules.action.new")}
-        </Btn>
+        </button>
       </div>
-      {pending ? (
-        <Empty>{t("schedules.loading")}</Empty>
-      ) : rows.length === 0 ? (
-        <Empty>{t("schedules.empty")}</Empty>
-      ) : visible.length === 0 ? (
-        <Empty>{t("schedules.list.emptyFiltered")}</Empty>
-      ) : (
-        <div className="overflow-x-auto rounded-lg border border-border" data-testid="schedules-matrix">
-          <table className="w-full border-collapse text-left ui-micro">
-            <thead>
-              <tr className="bg-surface text-text-muted">
-                {[
-                  t("schedules.list.col.schedule"),
-                  t("schedules.list.col.state"),
-                  t("schedules.list.col.mode"),
-                  t("schedules.list.col.executor"),
-                  t("schedules.list.col.trigger"),
-                  t("schedules.list.col.next"),
-                  t("schedules.list.col.last"),
-                  t("schedules.list.col.node"),
-                  t("schedules.list.col.missed"),
-                  t("schedules.list.col.health"),
-                ].map((label) => (
-                  <th
-                    key={label}
-                    className="border-b border-border px-2.5 py-1.5 font-mono ui-micro uppercase tracking-[0.06em]"
-                  >
-                    {label}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((row) => {
-                if (row.state === "invalid")
-                  return (
-                    <tr
-                      key={row.scheduleId}
-                      data-testid={`schedule-row-${row.scheduleId}`}
-                      className="border-b border-border bg-status-blocked/10 last:border-b-0"
-                    >
-                      <td className="px-2.5 py-1.5 font-mono ui-micro text-text-faint">{row.scheduleId}</td>
-                      <td colSpan={9} className="px-2.5 py-1.5 text-status-blocked">
-                        <b className="mr-2 font-mono uppercase">invalid</b>
-                        {row.invalidReason}
-                      </td>
-                    </tr>
-                  );
-                const stateMeta = STATE_META[row.state],
-                  mode = scheduleRowMode(row),
-                  health = scheduleRowHealth(row).recent;
-                return (
-                  <tr
+      <div className="min-h-0 flex-1 overflow-y-auto pb-6" data-testid="schedules-matrix">
+        {pending ? (
+          <Empty>{t("schedules.loading")}</Empty>
+        ) : rows.length === 0 ? (
+          <Empty>{t("schedules.empty")}</Empty>
+        ) : visible.length === 0 ? (
+          <Empty>{t("schedules.list.emptyFiltered")}</Empty>
+        ) : (
+          <>
+            {activeRows.map((row) => (
+              <ScheduleRow key={row.scheduleId} row={row} active={previewId === row.scheduleId} onPreview={onPreview} />
+            ))}
+            {pausedRows.length > 0 &&
+              (filter === "paused" || pausedOpen ? (
+                pausedRows.map((row) => (
+                  <ScheduleRow
                     key={row.scheduleId}
-                    data-testid={`schedule-row-${row.scheduleId}`}
-                    className="border-b border-border last:border-b-0 hover:bg-surface"
-                  >
-                    <td className="px-2.5 py-1.5">
-                      <button
-                        type="button"
-                        data-testid={`schedule-focus-${row.scheduleId}`}
-                        onClick={() => onOpenSchedule(row.scheduleId)}
-                        title={t("schedules.list.openDetail")}
-                        className="flex items-center gap-1.5 text-left ui-meta font-medium hover:text-accent"
-                      >
-                        {row.name}
-                        <ArrowRight className="size-3 text-text-faint" />
-                      </button>
-                      <div className="font-mono ui-micro text-text-faint">
-                        {row.scheduleId}
-                        {scheduleRowTargetKind(row) === "builtin" && (
-                          <span className="ml-1.5" title={t("schedules.builtin.hint")}>
-                            <Badge>{t("schedules.builtin.preset")}</Badge>
-                          </span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-2.5 py-1.5">
-                      <span className="inline-flex items-center gap-1.5">
-                        <span
-                          className="size-1.5 rounded-full"
-                          style={{ background: `var(--color-status-${stateMeta.tone})` }}
-                        />
-                        {t(stateMeta.key)}
-                      </span>
-                    </td>
-                    <td className="px-2.5 py-1.5">
-                      {t(mode === "detect" ? "schedules.mode.detect" : "schedules.mode.remediate")}
-                    </td>
-                    <td className="px-2.5 py-1.5">
-                      <span className="inline-flex items-center gap-1.5">
-                        {t(
-                          scheduleRowTargetKind(row) === "builtin"
-                            ? "schedules.executor.builtin"
-                            : scheduleRowTargetKind(row) === "squad"
-                              ? "schedules.executor.squad"
-                              : "schedules.executor.agent",
-                        )}
-                        {row.targetState !== undefined && row.targetError !== undefined && (
-                          <Badge tip={row.targetError.hint}>{t(TARGET_STATE_KEY[row.targetState])}</Badge>
-                        )}
-                      </span>
-                    </td>
-                    <td className="px-2.5 py-1.5">
-                      <Chip tone="mono" tip={t("schedules.triggerTip")}>
-                        <Clock weight="bold" />
-                        {row.trigger.summary}
-                      </Chip>
-                    </td>
-                    <td className="px-2.5 py-1.5 font-mono ui-micro text-text-faint">{time(row.nextRunAt)}</td>
-                    <td className="px-2.5 py-1.5">
-                      {row.lastRun === null ? (
-                        <Hint>—</Hint>
-                      ) : (
-                        <span className="inline-flex items-center gap-1.5">
-                          <Badge status={OUTCOME_TONE[row.lastRun.outcome] ?? "unknown"}>
-                            {t(
-                              row.lastRun.outcome in OUTCOME_META
-                                ? OUTCOME_META[row.lastRun.outcome]
-                                : "schedules.outcome.unknown",
-                            )}
-                          </Badge>
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-2.5 py-1.5">
-                      <span
-                        className="font-mono ui-micro text-text-faint"
-                        title={t(AVAILABILITY_META[row.executionAvailability])}
-                      >
-                        {row.claim.nodeId ?? t(AVAILABILITY_META[row.executionAvailability])}
-                      </span>
-                    </td>
-                    <td className="px-2.5 py-1.5">
-                      {row.missed.count > 0 ? (
-                        <span
-                          className="font-mono ui-micro text-status-planned"
-                          title={row.missed.lastMissedReason ?? undefined}
-                        >
-                          {t("schedules.missedCount", { count: row.missed.count })}
-                        </span>
-                      ) : (
-                        <Hint>—</Hint>
-                      )}
-                    </td>
-                    <td className="px-2.5 py-1.5">
-                      {health.length === 0 ? (
-                        <Hint>—</Hint>
-                      ) : (
-                        <span className="flex h-3 items-end gap-[2px]" data-testid={`schedule-spark-${row.scheduleId}`}>
-                          {health.map((outcome, index) => (
-                            <span
-                              key={`${index}-${outcome}`}
-                              title={outcome}
-                              className="w-1 rounded-t-sm"
-                              style={{
-                                height: outcome === "running" ? "12px" : "9px",
-                                background:
-                                  outcome === "failed" || outcome === "missed"
-                                    ? "var(--color-status-blocked)"
-                                    : "var(--color-status-done)",
-                              }}
-                            />
-                          ))}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
+                    row={row}
+                    active={previewId === row.scheduleId}
+                    onPreview={onPreview}
+                  />
+                ))
+              ) : (
+                <button
+                  type="button"
+                  data-testid="schedules-paused-fold"
+                  onClick={() => setPausedOpen(true)}
+                  className="mt-1 w-full rounded-xs border border-border bg-surface/40 px-3 py-2 text-left ui-meta text-text-muted hover:text-text"
+                >
+                  ▸ {t("schedules.list.foldPaused", { count: pausedRows.length })}
+                </button>
+              ))}
+          </>
+        )}
+      </div>
     </div>
   );
 }
 
-function FilterGroup<T extends string>({
-  testId,
-  label,
-  tip,
-  disabled = false,
-  value,
-  options,
-  onChange,
+function ScheduleRow({
+  row,
+  active,
+  onPreview,
 }: {
-  readonly testId: string;
-  readonly label: string;
-  readonly tip?: string;
-  readonly disabled?: boolean;
-  readonly value: T;
-  readonly options: readonly { readonly value: T; readonly label: string }[];
-  readonly onChange: (value: T) => void;
+  readonly row: ScheduleGuiListRowDto;
+  readonly active: boolean;
+  readonly onPreview: (scheduleId: string) => void;
 }) {
-  return (
-    <span data-testid={testId} data-tip={tip} className="inline-flex items-center gap-1 disabled:opacity-50">
-      <span className="font-mono ui-micro uppercase tracking-[0.06em] text-text-faint">{label}</span>
-      <span
-        className={`inline-flex overflow-hidden rounded border border-border-strong ${disabled ? "opacity-50" : ""}`}
+  if (row.state === "invalid") {
+    return (
+      <div
+        data-testid={`schedule-row-${row.scheduleId}`}
+        className="status-edge bg-status-blocked/5"
+        style={{ "--status-edge": "var(--color-status-blocked)" } as React.CSSProperties}
       >
-        {options.map((option) => (
-          <button
-            key={option.value}
-            type="button"
-            data-testid={`${testId}-${option.value}`}
-            disabled={disabled}
-            aria-pressed={option.value === value}
-            onClick={() => onChange(option.value)}
-            className={
-              option.value === value
-                ? "bg-accent font-semibold text-accent-fg px-2 py-0.5 ui-micro"
-                : "text-text-muted hover:bg-surface px-2 py-0.5 ui-micro"
-            }
-          >
-            {option.label}
-          </button>
-        ))}
-      </span>
-    </span>
+        <DenseRow
+          tag={<StatusTag tone="bad" label={t("schedules.state.invalid")} />}
+          title={row.scheduleId}
+          reason={row.invalidReason}
+          onClick={() => onPreview(row.scheduleId)}
+          selected={active}
+        />
+      </div>
+    );
+  }
+  const degraded = scheduleRowHealth(row).bucket === "degraded",
+    targetKind = scheduleRowTargetKind(row),
+    healthRecent = scheduleRowHealth(row).recent,
+    reason = [
+      row.missed.count > 0 ? t("schedules.missedCount", { count: row.missed.count }) : null,
+      targetKind === "builtin" ? `${t("schedules.executor.builtin")} · ${t("schedules.builtin.preset")}` : null,
+      row.targetState !== undefined ? (
+        <span key="target-state" data-tip={row.targetError?.hint} className="text-status-blocked">
+          {t(TARGET_STATE_KEY[row.targetState])}
+        </span>
+      ) : null,
+      t(AVAILABILITY_LABEL[row.executionAvailability]),
+    ]
+      .filter((part) => part !== null)
+      .map((part, i) => (
+        <span key={i}>
+          {i > 0 ? " · " : ""}
+          {part}
+        </span>
+      ));
+  return (
+    <div data-testid={`schedule-row-${row.scheduleId}`} className={degraded ? "bg-status-blocked/5" : undefined}>
+      <DenseRow
+        tag={
+          <span className="flex items-center gap-1">
+            <StatusTag
+              tone={row.state === "armed" ? "active" : "plan"}
+              label={t(row.state === "armed" ? "schedules.state.armed" : "schedules.state.paused")}
+            />
+            {row.lastRun !== null && row.lastRun.outcome === "failed" && (
+              <StatusTag tone="bad" label={t("schedules.outcome.failed")} />
+            )}
+            {degraded && row.lastRun?.outcome !== "failed" && (
+              <StatusTag tone="bad" label={t("schedules.health.degraded")} />
+            )}
+          </span>
+        }
+        title={`${row.name}: ${row.trigger.summary}`}
+        reason={reason.length > 0 ? <span>{reason}</span> : undefined}
+        time={
+          <span className="flex items-center gap-2">
+            {healthRecent.length > 0 && (
+              <span className="flex h-3 items-end gap-[2px]" data-testid={`schedule-spark-${row.scheduleId}`}>
+                {healthRecent.map((outcome, index) => (
+                  <span
+                    key={`${index}-${outcome}`}
+                    title={outcome}
+                    className="w-1 rounded-t-sm"
+                    style={{
+                      height: outcome === "running" ? "12px" : "9px",
+                      background:
+                        outcome === "failed" || outcome === "missed"
+                          ? "var(--color-status-blocked)"
+                          : "var(--color-status-done)",
+                    }}
+                  />
+                ))}
+              </span>
+            )}
+            <span>{row.nextRunAt === null ? "—" : time(row.nextRunAt)}</span>
+          </span>
+        }
+        onClick={() => onPreview(row.scheduleId)}
+        selected={active}
+      />
+    </div>
   );
+}
+
+const AVAILABILITY_LABEL: Record<
+  ScheduleGuiRowDto["executionAvailability"],
+  | "schedules.availability.local"
+  | "schedules.availability.claimedElsewhere"
+  | "schedules.availability.unassigned"
+  | "schedules.availability.notOnThisNode"
+> = {
+  local: "schedules.availability.local",
+  "claimed-elsewhere": "schedules.availability.claimedElsewhere",
+  unassigned: "schedules.availability.unassigned",
+  "not-on-this-node": "schedules.availability.notOnThisNode",
+};
+
+/** 右侧等宽时间:与详情页同一 time 格式(daemon ISO → 本地 date-time)。 */
+function time(iso: string | null): string {
+  return iso === null ? "—" : (formatTime(iso, { style: "date-time" }) ?? iso);
 }

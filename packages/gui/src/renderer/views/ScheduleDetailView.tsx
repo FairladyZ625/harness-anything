@@ -2,24 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, PencilSimple, Play, Power, Stop, Trash } from "@phosphor-icons/react";
 import type { ScheduleGuiOptionsDto, ScheduleGuiRowDto } from "@harness-anything/daemon/protocol";
-import {
-  Badge,
-  Btn,
-  Card,
-  CardBody,
-  CardHead,
-  CardTitle,
-  Chip,
-  Empty,
-  Field,
-  FieldGrid,
-  Hint,
-  KV,
-  KVRow,
-  Right,
-  RoleTag,
-  Sect,
-} from "../components/runtime/parts.tsx";
+import { Badge, Btn, Chip, Empty, KV, KVRow } from "../components/runtime/parts.tsx";
 import { ScheduleForm } from "../components/ScheduleFormDialog.tsx";
 import { ScheduleRunDetail } from "../components/scheduleRun/ScheduleRunDetail.tsx";
 import {
@@ -29,6 +12,11 @@ import {
   missedReasonLabel,
   time,
 } from "../components/scheduleRun/runMeta.ts";
+import { DenseRow } from "../components/primitives/DenseRow.tsx";
+import { Section } from "../components/primitives/Section.tsx";
+import { StatusTag } from "../components/primitives/StatusTag.tsx";
+import { Tabs } from "../components/primitives/Tabs.tsx";
+import { TitleText } from "../components/primitives/TitleText.tsx";
 import { ViewInGraphButton } from "../components/ViewInGraphButton.tsx";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import {
@@ -45,17 +33,12 @@ import {
   type ScheduleRunOutcomeWord,
 } from "../schedules-client.ts";
 
-// Schedule detail hub (design M2–M5): the list row ref `schedule/<id>` renders this
-// page instead of the retired 420px inspector. Everything shown is a daemon fact —
-// the list row, the occurrence rows (`schedule-run-history`), and the embedded run
-// detail (报告正文、产出互链、失败详情都在那一页)。Run sessions render here by design;
-// the old jump into the global Sessions view is gone.
+// Schedule detail hub (design M2–M5, 视觉基线 v1 §2.2 文档型页面): the list row ref
+// `schedule/<id>` renders this page. Everything shown is a daemon fact — the list row, the
+// occurrence rows (`schedule-run-history`), and the embedded run detail (报告正文、产出互链、
+// 失败详情都在那一页)。Run sessions render here by design; the old jump into the global
+// Sessions view is gone.
 
-type StateMeta = { readonly key: MessageKey; readonly tone: "active" | "in-review" };
-const STATE_META: Record<ScheduleGuiRowDto["state"], StateMeta> = {
-  armed: { key: "schedules.state.armed", tone: "active" },
-  paused: { key: "schedules.state.paused", tone: "in-review" },
-};
 const AVAILABILITY_META: Record<ScheduleGuiRowDto["executionAvailability"], MessageKey> = {
   local: "schedules.availability.local",
   "claimed-elsewhere": "schedules.availability.claimedElsewhere",
@@ -72,12 +55,13 @@ const OUTCOME_META: Record<string, MessageKey> = {
   unknown: "schedules.outcome.unknown",
   cancelled: "schedules.outcome.cancelled",
 };
-
-/** Shared styling for the occurrence shortcut buttons (keeps lines under the
- *  120-character budget without compressing the class string). */
-const OCCURRENCE_CHIP_CLASS =
-  "rounded border border-border px-2 py-0.5 font-mono ui-micro text-text-muted " +
-  "hover:border-accent hover:text-accent";
+const OUTCOME_TONE: Record<string, "done" | "bad" | "neutral" | "active"> = {
+  succeeded: "done",
+  failed: "bad",
+  cancelled: "neutral",
+  unknown: "neutral",
+  running: "active",
+};
 
 // Word → label lookups stay total: an unknown daemon word renders as the shared
 // "unknown" label, never a crash.
@@ -212,149 +196,169 @@ export function ScheduleDetailView({
     runOccurrence === null
       ? null
       : (occurrenceRows.find((candidate) => candidate.occurrenceId === runOccurrence) ?? null);
-  const stateMeta = STATE_META[row.state],
-    mode = scheduleRowMode(row),
+  const mode = scheduleRowMode(row),
     targetKind = scheduleRowTargetKind(row),
     health = scheduleRowHealth(row);
+  const tabs = [
+    { key: "overview" as const, label: t("schedules.detail.tab.overview") },
+    { key: "runs" as const, label: t("schedules.detail.tab.runs", { count: String(occurrenceRows.length) }) },
+    { key: "edit" as const, label: t("schedules.detail.tab.edit") },
+    { key: "danger" as const, label: t("schedules.detail.tab.danger") },
+  ];
 
   return (
-    <div data-testid="schedule-detail" className="min-h-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6">
-      <button
-        type="button"
-        data-testid="schedule-detail-back"
-        onClick={() => {
-          if (runOccurrence === null) {
-            onExit();
-            return;
-          }
-          // Returning from an embedded run lands back on the Runs tab.
-          setTab("runs");
-          onExitRun();
-        }}
-        className="mb-1.5 inline-flex items-center gap-1 ui-micro text-text-faint hover:text-accent"
-      >
-        <ArrowLeft />
-        {runOccurrence === null ? t("schedules.detail.backToList") : t("schedules.run.backToRuns")}
-      </button>
-      <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border pb-3">
-        <div className="min-w-0">
-          <div className="mb-1.5 flex flex-wrap items-center gap-2">
-            <b className="ui-body font-[650]">{row.name}</b>
-            <RoleTag tone={stateMeta.tone}>{t(stateMeta.key)}</RoleTag>
-            {row.activeRun !== null && <RoleTag tone="active">{t("schedules.activeRun")}</RoleTag>}
-            <ModeBadge mode={mode} />
-            <Chip tone="mono">
-              {targetKind === "builtin"
-                ? t("schedules.executor.builtin")
-                : targetKind === "squad"
-                  ? t("schedules.executor.squad")
-                  : t("schedules.executor.agent")}
-            </Chip>
-            {targetKind === "builtin" && (
-              <Badge tip={t("schedules.builtin.hint")}>{t("schedules.builtin.preset")}</Badge>
-            )}
-            {row.targetState !== undefined && row.targetError !== undefined && (
-              <Badge tip={row.targetError.hint}>{t(TARGET_STATE_KEY[row.targetState])}</Badge>
-            )}
+    <div data-testid="schedule-detail" className="min-h-0 flex-1 overflow-y-auto">
+      <div className="px-5 pt-3.5 md:px-7">
+        <button
+          type="button"
+          data-testid="schedule-detail-back"
+          onClick={() => {
+            if (runOccurrence === null) {
+              onExit();
+              return;
+            }
+            // Returning from an embedded run lands back on the Runs tab.
+            setTab("runs");
+            onExitRun();
+          }}
+          className="inline-flex items-center gap-1 ui-meta text-text-faint hover:text-accent"
+        >
+          <ArrowLeft />
+          {runOccurrence === null ? t("schedules.detail.backToList") : t("schedules.run.backToRuns")}
+        </button>
+        <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <h1 className="min-w-0 text-[19px] font-semibold leading-snug text-text">
+                <TitleText title={row.name} />
+              </h1>
+              <StatusTag
+                tone={row.state === "armed" ? "active" : "plan"}
+                label={t(row.state === "armed" ? "schedules.state.armed" : "schedules.state.paused")}
+              />
+              {row.activeRun !== null && <StatusTag tone="active" label={t("schedules.activeRun")} />}
+              <ModeBadge mode={mode} />
+              <Chip tone="mono">
+                {targetKind === "builtin"
+                  ? t("schedules.executor.builtin")
+                  : targetKind === "squad"
+                    ? t("schedules.executor.squad")
+                    : t("schedules.executor.agent")}
+              </Chip>
+              {targetKind === "builtin" && (
+                <Badge tip={t("schedules.builtin.hint")}>{t("schedules.builtin.preset")}</Badge>
+              )}
+            </div>
+            <p className="mt-0.5 font-mono ui-micro text-text-faint">
+              {`schedule/${row.scheduleId}`} · {t("schedules.detail.rev", { rev: String(row.definitionRevision) })} ·{" "}
+              {t("schedules.fields.updatedAt")} {time(row.updatedAt)}
+            </p>
           </div>
-          <p className="font-mono ui-micro text-text-faint">
-            {`schedule/${row.scheduleId}`} · {t("schedules.detail.rev", { rev: String(row.definitionRevision) })} ·{" "}
-            {t("schedules.fields.updatedAt")} {time(row.updatedAt)}
-          </p>
+          {runOccurrence === null && (
+            <div className="flex flex-wrap items-center gap-2">
+              <ActionBtn
+                kind="runNow"
+                facet={row.actions.runNow}
+                busy={busy}
+                onAction={onAction}
+                icon={<Play weight="bold" />}
+              />
+              <ActionBtn
+                kind="disable"
+                facet={row.actions.disable}
+                busy={busy}
+                onAction={onAction}
+                icon={<Stop weight="bold" />}
+              />
+              <ActionBtn
+                kind="enable"
+                facet={row.actions.enable}
+                busy={busy}
+                onAction={onAction}
+                icon={<Power weight="bold" />}
+              />
+              <Btn
+                size="sm"
+                testId="schedule-action-edit"
+                disabled={busy || !row.actions.edit.available}
+                tip={row.actions.edit.nextAction ?? row.actions.edit.code ?? undefined}
+                onClick={() => setTab("edit")}
+              >
+                <PencilSimple weight="bold" />
+                {t("schedules.action.edit")}
+              </Btn>
+              {/* 统一「在关系图中查看」入口(task_89d324b5):schedule 是图节点 kind。 */}
+              <ViewInGraphButton entityRef={`schedule/${row.scheduleId}`} onFocusGraph={onFocusGraph} />
+            </div>
+          )}
         </div>
-        {runOccurrence === null && (
-          <div className="flex flex-wrap items-center gap-2">
-            <ActionBtn
-              kind="runNow"
-              facet={row.actions.runNow}
-              busy={busy}
-              onAction={onAction}
-              icon={<Play weight="bold" />}
+        {/* 关键数字行(标准 §2.2):下次运行、上次结果、错过、版本,等宽 tabular。 */}
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-7 gap-y-2 border-b border-border pb-2.5">
+          <KeyNumber label={t("schedules.fields.nextRun")} value={time(row.nextRunAt)} />
+          <span className="flex items-baseline gap-2">
+            <span className="font-mono uppercase tracking-[0.06em] text-text-faint ui-micro">
+              {t("schedules.lastOutcome")}
+            </span>
+            {row.lastRun === null ? (
+              <span className="font-mono ui-body text-text-muted">—</span>
+            ) : (
+              <>
+                <StatusTag
+                  tone={OUTCOME_TONE[row.lastRun.outcome] ?? "neutral"}
+                  label={t(outcomeLabel(row.lastRun.outcome))}
+                />
+                <span className="font-mono tabular-nums text-text ui-body">{time(row.lastRun.endedAt)}</span>
+              </>
+            )}
+          </span>
+          <KeyNumber label={t("schedules.fields.missedCount")} value={String(row.missed.count)} />
+          <KeyNumber
+            label={t("schedules.fields.availability")}
+            value={`${t(AVAILABILITY_META[row.executionAvailability])}${row.claim.nodeId === null ? "" : ` · ${row.claim.nodeId}`}`}
+          />
+        </div>
+        {actionError !== null && (
+          <p role="alert" data-testid="schedule-action-error" className="mt-2 font-mono ui-micro text-status-blocked">
+            {actionError}
+          </p>
+        )}
+        {receipt !== null && (
+          <p role="status" data-testid="schedule-action-receipt" className="mt-2 font-mono ui-micro text-text-faint">
+            {t("schedules.receipt", { command: receipt.command, outcome: receipt.outcome, opId: receipt.opId })}
+            {receipt.nextAction !== null ? ` · ${receipt.nextAction}` : ""}
+          </p>
+        )}
+
+        {runOccurrence !== null ? (
+          occurrence === null ? (
+            <Empty>{t("schedules.run.missing", { occurrence: runOccurrence })}</Empty>
+          ) : (
+            <ScheduleRunDetail
+              repoId={repoId}
+              row={row}
+              occurrence={occurrence}
+              onRefetchRuns={() => void runsQuery.refetch()}
+              onSelectEntity={onSelectEntity}
             />
-            <ActionBtn
-              kind="disable"
-              facet={row.actions.disable}
-              busy={busy}
-              onAction={onAction}
-              icon={<Stop weight="bold" />}
+          )
+        ) : (
+          <div className="mt-2" data-testid="schedule-detail-tabs">
+            <Tabs
+              ariaLabel={t("schedules.title")}
+              idPrefix="schedule"
+              value={tab}
+              onChange={(next) => {
+                setTab(next);
+                setConfirmDelete(false);
+              }}
+              tabs={tabs}
             />
-            <ActionBtn
-              kind="enable"
-              facet={row.actions.enable}
-              busy={busy}
-              onAction={onAction}
-              icon={<Power weight="bold" />}
-            />
-            <Btn
-              size="sm"
-              testId="schedule-action-edit"
-              disabled={busy || !row.actions.edit.available}
-              tip={row.actions.edit.nextAction ?? row.actions.edit.code ?? undefined}
-              onClick={() => setTab("edit")}
-            >
-              <PencilSimple weight="bold" />
-              {t("schedules.action.edit")}
-            </Btn>
-            {/* 统一「在关系图中查看」入口(task_89d324b5):schedule 是图节点 kind。 */}
-            <ViewInGraphButton entityRef={`schedule/${row.scheduleId}`} onFocusGraph={onFocusGraph} />
           </div>
         )}
       </div>
-      {actionError !== null && (
-        <p role="alert" data-testid="schedule-action-error" className="mt-2 font-mono ui-micro text-status-blocked">
-          {actionError}
-        </p>
-      )}
-      {receipt !== null && (
-        <p role="status" data-testid="schedule-action-receipt" className="mt-2 font-mono ui-micro text-text-faint">
-          {t("schedules.receipt", { command: receipt.command, outcome: receipt.outcome, opId: receipt.opId })}
-          {receipt.nextAction !== null ? ` · ${receipt.nextAction}` : ""}
-        </p>
-      )}
 
-      {runOccurrence !== null ? (
-        occurrence === null ? (
-          <Empty>{t("schedules.run.missing", { occurrence: runOccurrence })}</Empty>
-        ) : (
-          <ScheduleRunDetail
-            repoId={repoId}
-            row={row}
-            occurrence={occurrence}
-            onRefetchRuns={() => void runsQuery.refetch()}
-            onSelectEntity={onSelectEntity}
-          />
-        )
-      ) : (
-        <>
-          <div className="mt-3 mb-3 flex flex-wrap gap-1 border-b border-border" data-testid="schedule-detail-tabs">
-            {(["overview", "runs", "edit", "danger"] as const).map((item) => (
-              <button
-                key={item}
-                type="button"
-                data-testid={`schedule-tab-${item}`}
-                aria-pressed={tab === item}
-                onClick={() => {
-                  setTab(item);
-                  setConfirmDelete(false);
-                }}
-                className={`rounded-t border-b-2 px-3 py-1 ui-meta font-semibold ${
-                  tab === item
-                    ? "border-accent bg-surface-raised text-accent"
-                    : "border-transparent text-text-muted hover:text-text"
-                }`}
-              >
-                {item === "runs"
-                  ? t("schedules.detail.tab.runs", { count: String(occurrenceRows.length) })
-                  : t(
-                      item === "overview"
-                        ? "schedules.detail.tab.overview"
-                        : item === "edit"
-                          ? "schedules.detail.tab.edit"
-                          : "schedules.detail.tab.danger",
-                    )}
-              </button>
-            ))}
-          </div>
+      {runOccurrence === null && (
+        <div className="px-5 pb-10 pt-4 md:px-7">
           {tab === "overview" ? (
             <ScheduleOverviewTab
               row={row}
@@ -393,9 +397,18 @@ export function ScheduleDetailView({
               onDelete={onDelete}
             />
           )}
-        </>
+        </div>
       )}
     </div>
+  );
+}
+
+function KeyNumber({ label, value }: { readonly label: string; readonly value: string }) {
+  return (
+    <span className="flex items-baseline gap-2">
+      <span className="font-mono uppercase tracking-[0.06em] text-text-faint ui-micro">{label}</span>
+      <span className="font-mono tabular-nums text-text ui-body">{value}</span>
+    </span>
   );
 }
 
@@ -469,102 +482,139 @@ function ScheduleOverviewTab({
   readonly onSelectEntity: (ref: string) => void;
   readonly onOpenRun: (occurrenceId: string) => void;
 }) {
-  const availabilityKey = AVAILABILITY_META[row.executionAvailability],
-    agentTarget = row.target.kind === "agent" ? row.target : null,
+  const agentTarget = row.target.kind === "agent" ? row.target : null,
     builtinTarget = row.target.kind === "builtin" ? row.target : null;
   return (
-    <div className="grid gap-3 lg:grid-cols-[5fr_7fr]">
+    <div className="grid grid-cols-1 gap-x-8 gap-y-6 lg:grid-cols-[minmax(0,1fr)_340px]">
       <div className="min-w-0">
-        <Card testId="schedule-overview-purpose">
-          <CardHead>
-            <CardTitle>{t("schedules.detail.purpose.title")}</CardTitle>
-          </CardHead>
-          <CardBody>
-            <p className="whitespace-pre-wrap ui-meta leading-relaxed text-text">{row.mission}</p>
-            {row.target.kind === "agent-unconfigured" && (
-              <p data-testid="schedule-target-unconfigured" className="mt-2 ui-meta text-warning">
-                {t("schedules.detail.targetUnconfigured")}
-              </p>
-            )}
-            <div className="mt-2.5 flex flex-wrap items-center gap-2 ui-micro text-text-muted">
-              <ModeBadge mode={mode} />
-              <span>{t("schedules.detail.purpose.modeLine")}</span>
-            </div>
-            <div className="mt-1.5 flex flex-wrap items-center gap-2 ui-micro text-text-muted">
-              <span className="font-mono ui-micro uppercase tracking-[0.06em] text-text-faint">
-                {t("schedules.detail.routing.title")}
-              </span>
-              <span>{t("schedules.detail.routing.ternary")}</span>
-            </div>
-          </CardBody>
-        </Card>
-        <Card testId="schedule-overview-health">
-          <CardHead>
-            <CardTitle>{t("schedules.detail.health.title")}</CardTitle>
-            <Right>
-              <Badge status={health.bucket === "degraded" ? "blocked" : "done"}>
-                {t(health.bucket === "degraded" ? "schedules.health.degraded" : "schedules.health.clean")}
-              </Badge>
-            </Right>
-          </CardHead>
-          <CardBody>
+        {(row.target.kind === "agent-unconfigured" || row.targetState !== undefined) && (
+          <div data-testid="schedule-target-unconfigured-block">
+            <Section variant="warn" title={t("schedules.detail.attention.title")}>
+              {row.target.kind === "agent-unconfigured" && (
+                <p className="ui-meta text-text">{t("schedules.detail.targetUnconfigured")}</p>
+              )}
+              {row.targetState !== undefined && row.targetError !== undefined && (
+                <p className="ui-meta text-text">
+                  {t(TARGET_STATE_KEY[row.targetState])} — {row.targetError.hint}
+                </p>
+              )}
+            </Section>
+          </div>
+        )}
+        <Section title={t("schedules.detail.purpose.title")}>
+          <p className="whitespace-pre-wrap ui-meta leading-relaxed text-text">{row.mission}</p>
+          <div className="mt-2 flex flex-wrap items-center gap-2 ui-micro text-text-muted">
+            <ModeBadge mode={mode} />
+            <span>{t("schedules.detail.purpose.modeLine")}</span>
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 ui-micro text-text-muted">
+            <span className="font-mono uppercase tracking-[0.06em] text-text-faint">
+              {t("schedules.detail.routing.title")}
+            </span>
+            <span>{t("schedules.detail.routing.ternary")}</span>
+          </div>
+        </Section>
+        <div data-testid="schedule-overview-health">
+          <Section
+            title={t("schedules.detail.health.title")}
+            variant={health.bucket === "degraded" ? "warn" : undefined}
+          >
             {health.recent.length === 0 ? (
               <Empty>{t("schedules.runs.empty")}</Empty>
             ) : (
               <div className="flex flex-wrap items-center gap-3">
                 <HealthSpark outcomes={health.recent} />
-                <Hint>{t("schedules.detail.health.legend", { count: String(health.recent.length) })}</Hint>
+                <span className="ui-micro text-text-faint">
+                  {t("schedules.detail.health.legend", { count: String(health.recent.length) })}
+                </span>
                 {health.failedCount > 0 && (
-                  <Hint>{t("schedules.detail.health.failedCount", { count: String(health.failedCount) })}</Hint>
+                  <span className="ui-micro text-status-blocked">
+                    {t("schedules.detail.health.failedCount", { count: String(health.failedCount) })}
+                  </span>
                 )}
+                <StatusTag
+                  tone={health.bucket === "degraded" ? "bad" : "done"}
+                  label={t(health.bucket === "degraded" ? "schedules.health.degraded" : "schedules.health.clean")}
+                />
               </div>
             )}
             {health.lastFailureDetail !== null && (
               <p
                 data-testid="schedule-health-last-failure"
-                className={
-                  "mt-2 break-all rounded border border-danger/40 bg-status-blocked/10 px-2.5 py-1.5 " +
-                  "font-mono ui-micro text-text"
-                }
+                className="mt-2 break-all rounded-xs border border-danger/40 bg-status-blocked/10 px-2.5 py-1.5 font-mono ui-micro text-text"
               >
                 {t("schedules.detail.health.lastFailure")}: {health.lastFailureDetail}
               </p>
             )}
-          </CardBody>
-        </Card>
+          </Section>
+        </div>
+        <Section title={t("schedules.activeRunTitle")}>
+          {row.activeRun === null && row.lastRun === null && row.missed.count === 0 ? (
+            <p className="ui-meta text-text-faint">{t("schedules.noActiveRun")}</p>
+          ) : (
+            <div className="border-t border-border">
+              {row.activeRun !== null && (
+                <div data-testid={`schedule-run-row-${row.activeRun.occurrenceId}`}>
+                  <DenseRow
+                    tag={<StatusTag tone="active" label={t("schedules.outcome.running")} />}
+                    title={row.activeRun.occurrenceId}
+                    reason={`node ${row.activeRun.nodeId}`}
+                    time={time(row.activeRun.claimedAt)}
+                    onClick={() => onOpenRun(row.activeRun?.occurrenceId ?? "")}
+                  />
+                </div>
+              )}
+              {row.lastRun !== null && row.lastRun.occurrenceId !== row.activeRun?.occurrenceId && (
+                <div data-testid={`schedule-run-row-${row.lastRun.occurrenceId}`}>
+                  <DenseRow
+                    tag={
+                      <StatusTag
+                        tone={OUTCOME_TONE[row.lastRun.outcome] ?? "neutral"}
+                        label={t(outcomeLabel(row.lastRun.outcome))}
+                      />
+                    }
+                    title={row.lastRun.occurrenceId}
+                    reason={`node ${row.lastRun.nodeId}`}
+                    time={time(row.lastRun.endedAt)}
+                    onClick={() => onOpenRun(row.lastRun?.occurrenceId ?? "")}
+                  />
+                </div>
+              )}
+              {row.missed.count > 0 && (
+                <div data-testid="schedule-run-row-aggregate">
+                  <DenseRow
+                    tag={<StatusTag tone="bad" label={t("schedules.outcome.missed")} />}
+                    title={t("schedules.runs.missedAggregate")}
+                    reason={missedReasonLabel(row.missed.lastMissedReason)}
+                    time={time(row.missed.lastMissedAt)}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </Section>
       </div>
-      <div className="min-w-0">
-        <Card testId="schedule-overview-definition">
-          <CardHead>
-            <CardTitle>{t("schedules.definition")}</CardTitle>
-            <Right>
-              <Hint>{row.scheduleId}</Hint>
-            </Right>
-          </CardHead>
-          <CardBody>
-            <FieldGrid>
-              <Field label={t("schedules.fields.trigger")} value={row.trigger.summary} />
-              <Field label={t("schedules.fields.timezone")} value={row.trigger.timezone ?? "—"} />
-              <Field label={t("schedules.fields.definitionRevision")} value={String(row.definitionRevision)} />
-              <Field label={t("schedules.fields.updatedAt")} value={time(row.updatedAt)} />
-              <Field
-                label={t("schedules.fields.model")}
-                value={builtinTarget === null ? (agentTarget?.model ?? "—") : "—"}
-              />
-              <Field
-                label={t("schedules.fields.cwd")}
-                value={builtinTarget === null ? (agentTarget?.cwd ?? "—") : "—"}
-              />
+      <aside className="min-w-0 self-start lg:sticky lg:top-2">
+        <div data-testid="schedule-overview-definition">
+          <Section title={t("schedules.definition")}>
+            <KV>
+              <KVRow name={t("schedules.fields.trigger")}>{row.trigger.summary}</KVRow>
+              <KVRow name={t("schedules.fields.timezone")}>{row.trigger.timezone ?? "—"}</KVRow>
+              <KVRow name={t("schedules.fields.definitionRevision")}>{String(row.definitionRevision)}</KVRow>
+              <KVRow name={t("schedules.fields.updatedAt")}>{time(row.updatedAt)}</KVRow>
+              <KVRow name={t("schedules.fields.model")}>
+                {builtinTarget === null ? (agentTarget?.model ?? "—") : "—"}
+              </KVRow>
+              <KVRow name={t("schedules.fields.cwd")}>{builtinTarget === null ? (agentTarget?.cwd ?? "—") : "—"}</KVRow>
               {builtinTarget !== null && (
                 <>
-                  <Field label={t("schedules.fields.keepDays")} value={String(builtinTarget.keepDays)} />
-                  <Field
-                    label={t("schedules.fields.keepMonthly")}
-                    value={builtinTarget.keepMonthly ? t("schedules.form.keepMonthly") : "—"}
-                  />
+                  <KVRow name={t("schedules.fields.keepDays")}>{String(builtinTarget.keepDays)}</KVRow>
+                  <KVRow name={t("schedules.fields.keepMonthly")}>
+                    {builtinTarget.keepMonthly ? t("schedules.form.keepMonthly") : "—"}
+                  </KVRow>
                 </>
               )}
-            </FieldGrid>
+            </KV>
             {/* G10: displayed entity ids are paths — the agent and runtime-instance
                 ids stay activatable links. Run sessions are the exception by design:
                 they render embedded in this hub, never as a jump to the global list. */}
@@ -588,88 +638,21 @@ function ScheduleOverviewTab({
                 </button>
               </div>
             )}
-          </CardBody>
-        </Card>
-        <Card testId="schedule-overview-execution">
-          <CardHead>
-            <CardTitle>{t("schedules.execution")}</CardTitle>
-            <Right>
-              <Hint>{t(availabilityKey)}</Hint>
-            </Right>
-          </CardHead>
-          <CardBody>
-            <KV>
-              <KVRow name={t("schedules.fields.availability")}>{t(availabilityKey)}</KVRow>
-              <KVRow name={t("schedules.fields.claimNode")}>{row.claim.nodeId ?? "—"}</KVRow>
-              <KVRow name={t("schedules.fields.assignment")}>{row.claim.assignmentId ?? "—"}</KVRow>
-              <KVRow name={t("schedules.fields.nextRun")}>{time(row.nextRunAt)}</KVRow>
-              <KVRow name={t("schedules.fields.evaluatedThrough")}>{time(row.automaticEvaluatedThrough)}</KVRow>
-            </KV>
-          </CardBody>
-        </Card>
-        <Card testId="schedule-overview-runs">
-          <CardHead>
-            <CardTitle>{t("schedules.activeRunTitle")}</CardTitle>
-          </CardHead>
-          <CardBody>
-            {row.activeRun === null ? (
-              <Empty>{t("schedules.noActiveRun")}</Empty>
-            ) : (
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  data-testid={`schedule-open-run-${row.activeRun.occurrenceId}`}
-                  onClick={() => onOpenRun(row.activeRun?.occurrenceId ?? "")}
-                  className={OCCURRENCE_CHIP_CLASS}
-                >
-                  {row.activeRun.occurrenceId}
-                </button>
-                <Badge status={RUN_OUTCOME_META.running.tone}>{t("schedules.outcome.running")}</Badge>
-                <Chip tone="mono">node {row.activeRun.nodeId}</Chip>
-                <Hint>{time(row.activeRun.claimedAt)}</Hint>
-              </div>
-            )}
-          </CardBody>
-          <Sect title={t("schedules.lastRunTitle")}>
-            {row.lastRun === null ? (
-              <Empty>{t("schedules.noLastRun")}</Empty>
-            ) : (
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  data-testid={`schedule-open-run-${row.lastRun.occurrenceId}`}
-                  onClick={() => onOpenRun(row.lastRun?.occurrenceId ?? "")}
-                  className={OCCURRENCE_CHIP_CLASS}
-                >
-                  {row.lastRun.occurrenceId}
-                </button>
-                <Badge status={OUTCOME_ROW_TONE[row.lastRun.outcome] ?? "unknown"}>
-                  {t(outcomeLabel(row.lastRun.outcome))}
-                </Badge>
-                <Chip tone="mono">node {row.lastRun.nodeId}</Chip>
-                <Hint>{time(row.lastRun.endedAt)}</Hint>
-              </div>
-            )}
-          </Sect>
-          <Sect title={t("schedules.missedTitle")}>
-            <KV>
-              <KVRow name={t("schedules.fields.missedCount")}>{String(row.missed.count)}</KVRow>
-              <KVRow name={t("schedules.fields.lastMissedAt")}>{time(row.missed.lastMissedAt)}</KVRow>
-              <KVRow name={t("schedules.fields.missedReason")}>{missedReasonLabel(row.missed.lastMissedReason)}</KVRow>
-            </KV>
-          </Sect>
-        </Card>
-      </div>
+          </Section>
+        </div>
+        <Section title={t("schedules.execution")}>
+          <KV>
+            <KVRow name={t("schedules.fields.availability")}>{t(AVAILABILITY_META[row.executionAvailability])}</KVRow>
+            <KVRow name={t("schedules.fields.claimNode")}>{row.claim.nodeId ?? "—"}</KVRow>
+            <KVRow name={t("schedules.fields.assignment")}>{row.claim.assignmentId ?? "—"}</KVRow>
+            <KVRow name={t("schedules.fields.nextRun")}>{time(row.nextRunAt)}</KVRow>
+            <KVRow name={t("schedules.fields.evaluatedThrough")}>{time(row.automaticEvaluatedThrough)}</KVRow>
+          </KV>
+        </Section>
+      </aside>
     </div>
   );
 }
-
-const OUTCOME_ROW_TONE: Record<string, string> = {
-  succeeded: "done",
-  failed: "blocked",
-  cancelled: "cancelled",
-  unknown: "unknown",
-};
 
 function ScheduleRunsTab({
   rows,
@@ -682,23 +665,25 @@ function ScheduleRunsTab({
   readonly error: string | null;
   readonly onOpenRun: (occurrenceId: string) => void;
 }) {
-  const missed = rows.filter((row) => row.outcome === "missed").length,
+  const [settledOpen, setSettledOpen] = useState(false);
+  // 终态沉底折叠(标准 §2.4):成功/取消的 occurrence 不占注意力,折成一行计数;
+  // running/failed/missed 留在注意力区,保持 daemon 投影顺序。
+  const inFlight = rows.filter((row) => row.outcome !== "succeeded" && row.outcome !== "cancelled"),
+    settled = rows.filter((row) => row.outcome === "succeeded" || row.outcome === "cancelled"),
+    missed = rows.filter((row) => row.outcome === "missed").length,
     failed = rows.filter((row) => row.outcome === "failed").length;
   return (
     <div data-testid="schedule-runs">
       <div className="mb-2 flex flex-wrap items-center gap-2">
-        <Chip>{t("schedules.runs.count", { count: String(rows.length) })}</Chip>
-        {failed > 0 && <Chip>{t("schedules.runs.failedCount", { count: String(failed) })}</Chip>}
-        {missed > 0 && <Chip>{t("schedules.runs.missedCount", { count: String(missed) })}</Chip>}
+        <span className="ui-micro text-text-muted">{t("schedules.runs.count", { count: String(rows.length) })}</span>
+        {failed > 0 && <StatusTag tone="bad" label={t("schedules.runs.failedCount", { count: String(failed) })} />}
+        {missed > 0 && <StatusTag tone="bad" label={t("schedules.runs.missedCount", { count: String(missed) })} />}
       </div>
       {readFailed && (
         <div
           role="alert"
           data-testid="schedule-runs-read-error"
-          className={
-            "mb-2 rounded border border-danger/40 bg-status-blocked/10 px-2.5 py-2 font-mono " +
-            "ui-micro text-status-blocked"
-          }
+          className="mb-2 rounded-xs border border-danger/40 bg-status-blocked/10 px-2.5 py-2 font-mono ui-micro text-status-blocked"
         >
           {t("schedules.runs.readFailed")}
           {error !== null ? ` · ${error}` : ""}
@@ -707,66 +692,84 @@ function ScheduleRunsTab({
       {rows.length === 0 ? (
         <Empty>{t("schedules.runs.empty")}</Empty>
       ) : (
-        <ol data-testid="schedule-runs-timeline" className="ml-1 flex flex-col">
-          {rows.map((occurrence) => {
-            const meta = RUN_OUTCOME_META[occurrence.outcome],
-              aggregate = occurrence.occurrenceId === "";
-            return (
-              <li
-                key={aggregate ? "missed-aggregate" : occurrence.occurrenceId}
-                data-testid={`schedule-run-row-${occurrence.occurrenceId || "aggregate"}`}
-                className="relative border-l border-border-strong py-2 pl-4"
-              >
-                <span
-                  className="absolute top-3.5 -left-[4.5px] size-2 rounded-full border border-surface-raised"
-                  style={{ background: `var(--color-status-${meta.tone})` }}
-                />
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge status={meta.tone}>{t(meta.key)}</Badge>
-                  {aggregate ? (
-                    <span className="font-mono ui-micro text-text-faint">{t("schedules.runs.missedAggregate")}</span>
-                  ) : (
-                    <button
-                      type="button"
-                      data-testid={`schedule-run-open-${occurrence.occurrenceId}`}
-                      onClick={() => onOpenRun(occurrence.occurrenceId)}
-                      className="font-mono ui-micro font-semibold text-text hover:text-accent"
-                    >
-                      {occurrence.occurrenceId}
-                    </button>
-                  )}
-                  {occurrence.kind !== null && <Chip tone="mono">{occurrence.kind}</Chip>}
-                  {occurrence.nodeId !== null && (
-                    <Chip tone="mono" tip={t("schedules.runs.nodeTip")}>
-                      node {occurrence.nodeId}
-                    </Chip>
-                  )}
-                  <span className="ui-micro text-text-faint">
-                    {time(occurrence.endedAt ?? occurrence.scheduledFor)}
-                    {occurrence.outcome === "running" ? "" : ` · ${formatDurationMs(occurrence.durationMs)}`}
-                  </span>
-                  <span className="flex-1" />
-                  {occurrence.outcome === "missed" ? (
-                    <span className="ui-micro text-status-planned">
-                      {t("schedules.runs.notRun")}
-                      {occurrence.missedReason !== null ? ` · ${missedReasonLabel(occurrence.missedReason)}` : ""}
-                    </span>
-                  ) : (
-                    <span className="ui-micro text-text-faint">
-                      {occurrence.reportRef !== null
-                        ? t("schedules.runs.outputReport")
-                        : occurrence.detail !== null
-                          ? `${t("schedules.runs.output")} ${occurrence.detail}`
-                          : t("schedules.runs.outputNone")}
-                    </span>
-                  )}
-                </div>
+        <ol data-testid="schedule-runs-timeline" className="flex flex-col">
+          {inFlight.map((occurrence) => (
+            <RunRow key={occurrence.occurrenceId || "aggregate"} occurrence={occurrence} onOpenRun={onOpenRun} />
+          ))}
+          {settled.length > 0 &&
+            (settledOpen ? (
+              <>
+                {settled.map((occurrence) => (
+                  <RunRow key={occurrence.occurrenceId} occurrence={occurrence} onOpenRun={onOpenRun} />
+                ))}
+                <li>
+                  <button
+                    type="button"
+                    data-testid="schedule-runs-folded"
+                    onClick={() => setSettledOpen(false)}
+                    className="w-full rounded-xs border border-border bg-surface/40 px-3 py-2 text-left ui-meta text-text-muted hover:text-text"
+                  >
+                    ▾ {t("schedules.runs.foldHide", { count: String(settled.length) })}
+                  </button>
+                </li>
+              </>
+            ) : (
+              <li>
+                <button
+                  type="button"
+                  data-testid="schedule-runs-folded"
+                  onClick={() => setSettledOpen(true)}
+                  className="w-full rounded-xs border border-border bg-surface/40 px-3 py-2 text-left ui-meta text-text-muted hover:text-text"
+                >
+                  ▸ {t("schedules.runs.foldDone", { count: String(settled.length) })}
+                </button>
               </li>
-            );
-          })}
+            ))}
         </ol>
       )}
     </div>
+  );
+}
+
+function RunRow({
+  occurrence,
+  onOpenRun,
+}: {
+  readonly occurrence: ScheduleGuiRunRowDto;
+  readonly onOpenRun: (occurrenceId: string) => void;
+}) {
+  const meta = RUN_OUTCOME_META[occurrence.outcome],
+    aggregate = occurrence.occurrenceId === "";
+  return (
+    <li data-testid={`schedule-run-row-${occurrence.occurrenceId || "aggregate"}`}>
+      <DenseRow
+        tag={<StatusTag tone={OUTCOME_TONE[occurrence.outcome] ?? "neutral"} label={t(meta.key)} />}
+        title={aggregate ? t("schedules.runs.missedAggregate") : occurrence.occurrenceId}
+        reason={
+          occurrence.outcome === "missed"
+            ? [
+                occurrence.missedReason !== null ? missedReasonLabel(occurrence.missedReason) : null,
+                t("schedules.runs.notRun"),
+              ]
+                .filter((part) => part !== null)
+                .join(" · ")
+            : [
+                occurrence.nodeId !== null ? `node ${occurrence.nodeId}` : null,
+                occurrence.outcome === "running" ? null : formatDurationMs(occurrence.durationMs),
+                occurrence.reportRef !== null
+                  ? t("schedules.runs.outputReport")
+                  : occurrence.detail !== null
+                    ? `${t("schedules.runs.output")} ${occurrence.detail}`
+                    : null,
+              ]
+                .filter((part) => part !== null)
+                .join(" · ") || undefined
+        }
+        time={time(occurrence.endedAt ?? occurrence.scheduledFor)}
+        // 误跑聚合行没有可打开的 occurrence;其余行点开嵌入的 run 详情。
+        onClick={aggregate ? undefined : () => onOpenRun(occurrence.occurrenceId)}
+      />
+    </li>
   );
 }
 
@@ -803,7 +806,10 @@ function ScheduleDangerTab({
           icon={<Stop weight="bold" />}
         />
       </div>
-      <div className="rounded border border-danger/40 px-3 py-2.5">
+      <div
+        className="status-edge rounded-xs border border-danger/40 px-3 py-2.5"
+        style={{ "--status-edge": "var(--color-status-blocked)" } as React.CSSProperties}
+      >
         <b className="ui-meta text-danger">{t("schedules.action.delete")}</b>
         <p className="mt-1 ui-micro text-text-muted">{t("schedules.deletePrompt")}</p>
         {!confirmDelete ? (

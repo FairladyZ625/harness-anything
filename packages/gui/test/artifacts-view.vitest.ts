@@ -70,7 +70,28 @@ afterEach(async () => {
 });
 
 async function click(container: HTMLElement, testId: string): Promise<void> {
-  const target = container.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`);
+  let target = container.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+  if (target === null && testId.startsWith("artifact-focus-")) {
+    const rowId = testId.replace("artifact-focus-", "artifact-row-");
+    const row = container.querySelector<HTMLElement>(`[data-testid="${rowId}"]`);
+    target = row?.querySelector<HTMLButtonElement>("button") ?? null;
+  }
+  if (target === null && testId.startsWith("artifacts-filter-")) {
+    const kind = testId.replace("artifacts-filter-", "");
+    const filters = container.querySelector("[data-testid='artifacts-filters']");
+    const buttons = filters?.querySelectorAll<HTMLButtonElement>("button") ?? [];
+    for (const b of buttons) {
+      const text = b.textContent?.toLowerCase() ?? "";
+      if (
+        (kind === "html" && text.includes("html")) ||
+        (kind === "md" && (text.includes("markdown") || text.includes("md"))) ||
+        (kind === "raw" && (text.includes("binary") || text.includes("raw") || text.includes("二进制")))
+      ) {
+        target = b;
+        break;
+      }
+    }
+  }
   if (target === null) throw new Error(`missing ${testId}`);
   await act(async () => {
     target.click();
@@ -172,10 +193,13 @@ describe("artifacts timeline — list, preview, and task jump", () => {
     );
     expect(rowTime?.getAttribute("title")).toContain("ledger");
     expect(container.querySelector('[data-testid="artifacts-timeline"]')).not.toBeNull();
-    // 两种 kind 的计数都来自 daemon DTO,筛选 chip 展示全量计数而非本页行数。
-    expect(text).toContain("HTML · 2");
-    expect(text).toContain("Markdown · 5729");
-    expect(text).toContain("Binary · 3");
+    // 两种 kind 的计数都来自 daemon DTO,筛选 chip 展示全量计数而非本页行数(标准 §4 FilterChips)。
+    expect(text).toContain("HTML");
+    expect(text).toContain("2");
+    expect(text).toContain("Markdown");
+    expect(text).toContain("5729");
+    expect(text).toContain("Binary");
+    expect(text).toContain("3");
   });
 
   it("lays out as a left drawer plus full-width preview on one row axis, never a stacked split", async () => {
