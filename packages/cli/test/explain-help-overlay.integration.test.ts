@@ -8,6 +8,7 @@ import test from "node:test";
 import { openBootstrappedRepoCell as openRepoCell } from "../../daemon/test/repo-settings.fixture.ts";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
+import { withRoleBinding } from "../../daemon/test/role-binding.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
 const cli = path.resolve("packages/cli/src/index.ts"),
@@ -196,10 +197,13 @@ async function seedTasks(root: string): Promise<Record<string, unknown>> {
       ownerId: "explain-help-overlay-seed",
       now: () => "2026-09-01T00:00:00.000Z",
     }),
-    binding = {
-      actor: { principal: { personId: "owner" }, executor: null },
-      source: "local" as const,
-    };
+    binding = withRoleBinding(
+      {
+        actor: { principal: { personId: "owner" }, executor: null },
+        source: "local" as const,
+      },
+      "repo-write",
+    );
   try {
     const planned = await cell.run(
       { kind: "task-create", taskId: "task-planned", title: "Planned explain target" },

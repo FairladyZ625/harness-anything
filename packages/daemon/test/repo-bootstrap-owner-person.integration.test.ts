@@ -34,7 +34,7 @@ test("the bootstrap owner is a Person a review awaits edge can target in a fresh
     ),
     reviewer = withRoleBinding(
       { actor: { principal: { personId: "person-reviewer" }, executor: null }, source: "local" as const },
-      "repo-write",
+      "arbiter",
     );
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
