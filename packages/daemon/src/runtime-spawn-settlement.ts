@@ -83,6 +83,7 @@ export async function publishExit(
       context.input.now(),
     );
     let body = context.runtimeResultText(active, code, outcome);
+    let deliveryCommit: string | null = null;
     // Squad children deliver local commits for Commander integration; leaders own publication.
     // Keep leader control JSON and child delivery text intact. Direct dispatches retain auto-push.
     if (active.task && outcome === "succeeded" && active.publicationOwner !== "commander" && !squadLeaderControl) {
@@ -100,6 +101,7 @@ export async function publishExit(
             ...(submittedCommitSha ? { submittedCommitSha } : {}),
             env,
           });
+        deliveryCommit = push.attempted ? push.pushedCommit : null;
         if (push.attempted)
           body = push.ok
             ? `${body}\n\nWorker branch pushed at settlement: ${push.branch} @ ${push.pushedCommit}${
@@ -117,6 +119,8 @@ export async function publishExit(
         body = `${body}\n\nWorker branch push failed (no retry): ${detail || "GitHub credential resolution failed."}`;
       }
     }
+    const submissionRecovery = unsubmittedDeliveryRecovery(context, active, outcome, deliveryCommit);
+    if (submissionRecovery) body = `${body}\n\n${submissionRecovery}`;
     let reasonCode: string | null = reviewResultMissing ? "review_result_missing" : null,
       sha256 = createHash("sha256").update(body).digest("hex"),
       result: RuntimeResultClaim = {
@@ -332,6 +336,29 @@ export async function publishExit(
   } finally {
     context.exiting.delete(active.runtimeSessionId);
   }
+}
+
+function unsubmittedDeliveryRecovery(
+  context: RuntimeSpawnerContext,
+  active: ActiveRuntime,
+  outcome: "succeeded" | "failed" | "unknown" | "cancelled",
+  deliveryCommit: string | null,
+): string | null {
+  if (outcome !== "succeeded" || !active.task || active.role === "reviewer" || !deliveryCommit) return null;
+  const projection = context.requiredRuntimeProjection(context.input),
+    read = projection.read(active.task.taskId),
+    execution = read.snapshot.executions.find((candidate) => candidate.executionId === active.task?.executionId);
+  if (
+    execution?.submission ||
+    taskOutputShape(read.snapshot.task, presetSnapshotReader(projection)) !== "repository-diff" ||
+    !read.packagePath ||
+    !projection.readDocument(`${read.packagePath}/closeout.md`).document
+  )
+    return null;
+  return (
+    `Task ${active.task.taskId} is not submitted: runtime success and task submission are separate states. ` +
+    `The owner can recover this delivered closeout with: ha task submit ${active.task.taskId} --as-owner`
+  );
 }
 
 function runtimeSessionBinding(binding: ActiveRuntime["binding"], runtimeSessionId: string): ActiveRuntime["binding"] {

@@ -463,11 +463,39 @@ test("terminal settlement publishes the submitted commit when worker HEAD advanc
       "worker delivery",
       submittedCommitSha,
     );
-  await publishExit(settleContext, runtime, 0);
+  await publishExit(
+    {
+      ...settleContext,
+      requiredRuntimeProjection: () => deliveryProjection(submittedCommitSha, "repository-diff", [], [], true),
+    },
+    runtime,
+    0,
+  );
   assert.deepEqual(outcomeBodies, [
     `worker delivery\n\nWorker branch pushed at settlement: ${fixtureTaskId} @ ${submittedCommitSha} (worker HEAD ${head})`,
   ]);
+  assert.doesNotMatch(outcomeBodies[0]!, /is not submitted/u);
   assert.equal(git(fixture.bare, "rev-parse", `refs/heads/${fixtureTaskId}`).trim(), submittedCommitSha);
+});
+
+test("terminal settlement tells the owner when a delivered closeout is not submitted", async (context) => {
+  const fixture = workerGitFixture(context, "settle-unsubmitted-closeout", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, { finalText: "worker delivery" }),
+    outcomeBodies: string[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, _payload = {}, _opId?, _binding?, body?) => {
+      if (type === "runtime_session_outcome_observed") outcomeBodies.push(String(body));
+      return {};
+    });
+  await publishExit(
+    {
+      ...settleContext,
+      requiredRuntimeProjection: () => deliveryProjection(null, "repository-diff", [], [], true),
+    },
+    runtime,
+    0,
+  );
+  assert.match(outcomeBodies[0]!, /Task task_0123456789abcdef01234567 is not submitted/u);
+  assert.match(outcomeBodies[0]!, /ha task submit task_0123456789abcdef01234567 --as-owner/u);
 });
 
 test("terminal settlement keeps a clean task exit unknown without its execution delivery", async (context) => {
@@ -487,22 +515,31 @@ test("terminal settlement accepts a center-accepted task-package artifact", asyn
   const fixture = workerGitFixture(context, "settle-artifact-delivery", { reachableRemote: true }),
     runtime = workerSettlementRuntime(fixture, { finalText: "artifact delivered", publicationOwner: "commander" }),
     outcomes: Record<string, unknown>[] = [],
-    settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
-      if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+    outcomeBodies: string[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}, _opId?, _binding?, body?) => {
+      if (type === "runtime_session_outcome_observed") {
+        outcomes.push(payload);
+        outcomeBodies.push(String(body));
+      }
       return {};
     });
   await publishExit(
     {
       ...settleContext,
       requiredRuntimeProjection: () =>
-        deliveryProjection(null, "task-package-artifact", [
-          { path: "artifacts/report.md", revision: 42, blobSha256: "a".repeat(64) },
-        ]),
+        deliveryProjection(
+          null,
+          "task-package-artifact",
+          [{ path: "artifacts/report.md", revision: 42, blobSha256: "a".repeat(64) }],
+          [],
+          true,
+        ),
     },
     runtime,
     0,
   );
   assert.equal(outcomes[0]?.outcome, "succeeded");
+  assert.doesNotMatch(outcomeBodies[0]!, /is not submitted/u);
 });
 
 test("terminal settlement accepts a review registered for the dispatch role", async (context) => {
@@ -513,20 +550,25 @@ test("terminal settlement accepts a review registered for the dispatch role", as
       role: "reviewer",
     }),
     outcomes: Record<string, unknown>[] = [],
-    settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
-      if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+    outcomeBodies: string[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}, _opId?, _binding?, body?) => {
+      if (type === "runtime_session_outcome_observed") {
+        outcomes.push(payload);
+        outcomeBodies.push(String(body));
+      }
       return {};
     });
   await publishExit(
     {
       ...settleContext,
       requiredRuntimeProjection: () =>
-        deliveryProjection(null, "repository-diff", [], [{ reviewId: `review-${runtime.dispatchId}` }]),
+        deliveryProjection(null, "repository-diff", [], [{ reviewId: `review-${runtime.dispatchId}` }], true),
     },
     runtime,
     0,
   );
   assert.equal(outcomes[0]?.outcome, "succeeded");
+  assert.doesNotMatch(outcomeBodies[0]!, /is not submitted/u);
 });
 
 test("squad leader settlement preserves its machine-readable control result", async (context) => {
@@ -845,9 +887,11 @@ function deliveryProjection(
   outputShape = "repository-diff",
   artifacts: readonly Record<string, unknown>[] = [],
   reviews: readonly Record<string, unknown>[] = [],
+  closeoutRecorded = false,
 ) {
   return {
     read: () => ({
+      packagePath: "tasks/task_0123456789abcdef01234567-fixture",
       snapshot: {
         task: { presetSnapshotDigest: "sha256:preset" },
         reviews,
@@ -858,6 +902,12 @@ function deliveryProjection(
           },
         ],
       },
+    }),
+    readDocument: (documentPath: string) => ({
+      document:
+        closeoutRecorded && documentPath.endsWith("/closeout.md")
+          ? { path: documentPath, body: "## Summary\nDelivered.\n" }
+          : null,
     }),
     readPresetSnapshot: () => ({ snapshot: { profile: { outputShape } } }),
   } as never;
