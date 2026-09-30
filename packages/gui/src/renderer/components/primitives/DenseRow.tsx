@@ -24,10 +24,15 @@ export function DenseRow({
   readonly selected?: boolean;
   readonly onClick?: () => void;
 }) {
+  // 没有标签就不留标签列:否则每行前面空出 3rem 缩进。
   const cols =
-    index === undefined
-      ? "grid-cols-[minmax(3rem,auto)_minmax(0,1fr)_auto]"
-      : "grid-cols-[1rem_minmax(3rem,auto)_minmax(0,1fr)_auto]";
+    tag === undefined
+      ? index === undefined
+        ? "grid-cols-[minmax(0,1fr)_auto]"
+        : "grid-cols-[1rem_minmax(0,1fr)_auto]"
+      : index === undefined
+        ? "grid-cols-[minmax(3rem,auto)_minmax(0,1fr)_auto]"
+        : "grid-cols-[1rem_minmax(3rem,auto)_minmax(0,1fr)_auto]";
   const stateCls = selected
     ? "bg-accent/10 shadow-[inset_2px_0_0_var(--color-accent)]"
     : onClick === undefined
@@ -39,7 +44,7 @@ export function DenseRow({
   const content = (
     <>
       {index !== undefined && <span className="font-mono text-text-faint ui-micro">{index}</span>}
-      <span className="min-w-0">{tag}</span>
+      {tag !== undefined && <span className="min-w-0">{tag}</span>}
       <span className={`min-w-0 ${relaxed ? "" : "truncate"}`}>
         <span className={`${relaxed ? "block " : ""}truncate text-text`}>{title}</span>
         {reason !== undefined &&
