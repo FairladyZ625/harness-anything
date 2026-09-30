@@ -749,7 +749,13 @@ test("dispatch reclaims an orphaned task lease instead of requiring a manual rel
             taskId,
             idempotencyKey: "orphan-lease-stranger",
           },
-          { ...binding, actor: { principal: { personId: "person-orphan-stranger" }, executor: null } },
+          withRoleBinding(
+            {
+              actor: { principal: { personId: "person-orphan-stranger" }, executor: null },
+              source: "local",
+            },
+            "owner",
+          ),
         ),
         /same principal reclaiming an orphaned lease/u,
       );
