@@ -21,8 +21,10 @@ import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixtur
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {
   applyFleetMirrorCut,
+  readFleetConflictRecord,
   readFleetUnresolvedConflicts,
   scanFleetMirrorWorktree,
+  stageFleetConflict,
   withFleetMirrorLock,
 } from "../src/fleet-edge-mirror.ts";
 import { fleetDocPathInTaskPackage } from "../src/fleet-edge-task.ts";
@@ -78,6 +80,53 @@ const mirrorCut = (value: unknown): { revision: number; headDigest: string } => 
   const cut = ledgerCut(value);
   return { revision: cut.revision, headDigest: cut.headDigest };
 };
+
+test("fleet conflict lookup accepts a staged record and rejects unsafe or absent ids", (t) => {
+  const workspace = mkdtempSync(path.join(tmpdir(), "ha-fleet-conflict-lookup-"));
+  t.after(() => rmSync(workspace, { recursive: true, force: true }));
+  const conflictId = "conflict-safe";
+  stageFleetConflict(workspace, {
+    record: {
+      schema: "fleet-conflict/v1",
+      conflictId,
+      repoId: "repo-one",
+      viewId: "view-one",
+      trigger: "pull",
+      kind: "shared-docs",
+      taskId: null,
+      executionId: null,
+      fromRevision: 1,
+      toRevision: 2,
+      code: "pull_blocked",
+      paths: [
+        {
+          path: "context/shared.md",
+          baseBlobSha256: sha("base"),
+          localBlobSha256: sha("local"),
+          centerBlobSha256: sha("center"),
+        },
+      ],
+    },
+    files: [
+      {
+        path: "context/shared.md",
+        base: Buffer.from("base"),
+        local: Buffer.from("local"),
+        center: Buffer.from("center"),
+      },
+    ],
+  });
+
+  assert.equal(readFleetConflictRecord(workspace, conflictId).conflictId, conflictId);
+  assert.throws(
+    () => readFleetConflictRecord(workspace, "../outside"),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "conflict_id_invalid",
+  );
+  assert.throws(
+    () => readFleetConflictRecord(workspace, "conflict-missing"),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "conflict_not_found",
+  );
+});
 
 test("fleet mirror candidate scan names oversized prose without reading it into a change", (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "w3c-h-large-doc-"));
