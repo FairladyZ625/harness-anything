@@ -5,7 +5,9 @@ import { agentEntityClient, isAvailableSquadEntityRow } from "../agent-entity-cl
 import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts";
 import { harnessClient } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
-import { Badge, Btn, Empty, SegCtl } from "../components/runtime/parts.tsx";
+import { Btn, Empty, SegCtl } from "../components/runtime/parts.tsx";
+import { Drawer } from "../components/primitives/Drawer.tsx";
+import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import {
   runtimeSelectionFromRef,
   useSessionsWorkspace,
@@ -76,7 +78,7 @@ export function SessionsView({
   // 状态筛选是集合:排障常要「失败或丢失」,而检索框的词之间是 AND,写不出这个。
   const [statusFilter, setStatusFilter] = useState<ReadonlySet<SessionStatus>>(new Set());
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [inspector, setInspector] = useState(true);
+  const [inspector, setInspector] = useState(false);
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(new Set());
   const [selectedSquadRunId, setSelectedSquadRunId] = useState<string | null>(null);
   const [sessionTaskScope, setSessionTaskScope] = useState<{
@@ -280,9 +282,10 @@ export function SessionsView({
     () => [...groupRows.values()].flatMap(({ rounds, orphans }) => [...rounds, ...orphans]),
     [groupRows],
   );
-  const defaultSessionId =
-      groups.find(({ latestRound }) => latestRound !== null)?.latestRound?.runtimeSessionId ?? null,
-    selectedSessionId = decisionFocus?.runtimeSessionId ?? focusedSessionId ?? defaultSessionId;
+  const selectedSessionId = decisionFocus?.runtimeSessionId ?? focusedSessionId;
+  useEffect(() => {
+    setInspector(selectedSessionId !== null);
+  }, [selectedSessionId]);
   const selectedSession = useQuery({
     queryKey: runtimeQueryKeys.session(repoId, selectedSessionId ?? ""),
     queryFn: () => agentRuntimeClient.session(repoId, selectedSessionId!),
@@ -348,7 +351,10 @@ export function SessionsView({
   // 重渲染,行级 memo(SessionGroupList 的 GroupSection)靠这些稳定引用跳过未变组。
   const groupDecisionRefsFor = useCallback((taskId: string) => sessionDecisionRefs(relations, taskId), [relations]);
   const selectSessionFromRail = useCallback(
-    (runtimeSessionId: string) => onSelectEntity(`session/${runtimeSessionId}`),
+    (runtimeSessionId: string) => {
+      setInspector(true);
+      onSelectEntity(`session/${runtimeSessionId}`);
+    },
     [onSelectEntity],
   );
   const toggleGroup = useCallback((key: string) => {
@@ -380,8 +386,10 @@ export function SessionsView({
   const visibleReadError = visibleRead.error instanceof Error ? visibleRead.error.message : String(visibleRead.error);
   return (
     <section data-testid="sessions-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="flex h-[42px] shrink-0 items-center gap-3 border-b border-border bg-surface-raised px-3.5">
-        <b className="ui-body tracking-[0.02em]">{t("agentRuntime.sessionsTitle")}</b>
+      <header className="glass mx-2 mt-2 flex min-h-[42px] shrink-0 items-center gap-3 rounded-sm border border-border px-3.5">
+        <div className="min-w-0">
+          <b className="block ui-body tracking-[0.02em]">{t("agentRuntime.sessionsTitle")}</b>
+        </div>
         <SegCtl
           label={t("agentRuntime.sessionsSegmentLabel")}
           value={segment}
@@ -391,17 +399,34 @@ export function SessionsView({
             { value: "squads", label: t("agentRuntime.sessionsSegmentSquad") },
           ]}
         />
-        <span className="flex-1" />
+        <span data-testid="sessions-counts" className="ml-auto truncate font-mono ui-micro text-text-faint">
+          {segment === "sessions"
+            ? t("agentRuntime.sessionsCounts", {
+                range: rangeLabel[range],
+                groups: totals.groups,
+                sessions: totals.sessions,
+              }) +
+              // 计数是 daemon 按过滤后的集合算的,所以筛选生效时把它说出来——
+              // 否则用户读到的是「会话消失了」而不是「这是筛后的数」。
+              (status.length === 0
+                ? ""
+                : t("agentRuntime.sessionsStatusFilterNote", {
+                    statuses: status.map((word) => t(sessionStatusKey[word] as never)).join(" / "),
+                  }))
+            : t("agentRuntime.squadRunsCounts", { range: rangeLabel[range], runs: runTotals.runs })}
+        </span>
         {segment === "sessions" ? (
-          <Badge status={liveCount > 0 ? "active" : "planned"}>
-            {t("agentRuntime.liveSessions", { count: liveCount })}
-          </Badge>
+          <StatusTag
+            tone={liveCount > 0 ? "active" : "plan"}
+            label={t("agentRuntime.liveSessions", { count: liveCount })}
+          />
         ) : (
-          <Badge status={activeRunCount > 0 ? "active" : "planned"}>
-            {t("agentRuntime.squadRunsActive", { count: activeRunCount })}
-          </Badge>
+          <StatusTag
+            tone={activeRunCount > 0 ? "active" : "plan"}
+            label={t("agentRuntime.squadRunsActive", { count: activeRunCount })}
+          />
         )}
-        {segment === "sessions" && (
+        {segment === "sessions" && selectedSessionId !== null && (
           <Btn
             size="sm"
             variant="ghost"
@@ -412,7 +437,10 @@ export function SessionsView({
           </Btn>
         )}
       </header>
-      <div className="flex h-[34px] shrink-0 items-center gap-2.5 border-b border-border bg-surface px-3.5">
+      <div
+        data-testid="sessions-toolbar"
+        className="glass mx-2 flex min-h-10 shrink-0 flex-nowrap items-center gap-2 overflow-x-auto border-b border-border px-1.5 [&>span[role=group]]:flex-nowrap [&>span[role=group]]:shrink-0 [&_button]:whitespace-nowrap"
+      >
         {segment === "sessions" && (
           <SegCtl
             label={t("agentRuntime.sessionsGroupByLabel")}
@@ -437,7 +465,8 @@ export function SessionsView({
             role="group"
             aria-label={t("agentRuntime.sessionsStatusLabel")}
             data-testid="sessions-status-filter"
-            className="inline-flex min-w-0 shrink overflow-x-auto rounded border border-border-strong"
+            className="inline-flex min-w-24 flex-1 gap-1 overflow-x-auto py-1 [&>button]:shrink-0"
+            style={{ flexShrink: 1 }}
           >
             {sessionStatusFilterWords.map((word) => (
               <button
@@ -453,8 +482,10 @@ export function SessionsView({
                     return next;
                   })
                 }
-                className={`whitespace-nowrap px-2.5 py-0.5 ui-micro ${
-                  statusFilter.has(word) ? "bg-accent font-semibold text-accent-fg" : "text-text-muted hover:bg-surface"
+                className={`h-6 whitespace-nowrap rounded-xs border px-2.5 ui-micro ${
+                  statusFilter.has(word)
+                    ? "border-accent/40 bg-accent/15 font-semibold text-accent"
+                    : "border-border bg-text/5 text-text-muted hover:bg-surface"
                 }`}
               >
                 {t(sessionStatusKey[word] as never)}
@@ -470,26 +501,10 @@ export function SessionsView({
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           className={
-            "w-[280px] rounded border border-border-strong bg-surface px-2 py-1 ui-micro text-text " +
+            "w-48 shrink-0 rounded-xs border border-border-strong bg-surface px-2 py-1 ui-micro text-text " +
             "outline-none focus-visible:border-accent"
           }
         />
-        <span data-testid="sessions-counts" className="ml-auto truncate font-mono ui-micro text-text-faint">
-          {segment === "sessions"
-            ? t("agentRuntime.sessionsCounts", {
-                range: rangeLabel[range],
-                groups: totals.groups,
-                sessions: totals.sessions,
-              }) +
-              // 计数是 daemon 按过滤后的集合算的,所以筛选生效时把它说出来——
-              // 否则用户读到的是「会话消失了」而不是「这是筛后的数」。
-              (status.length === 0
-                ? ""
-                : t("agentRuntime.sessionsStatusFilterNote", {
-                    statuses: status.map((word) => t(sessionStatusKey[word] as never)).join(" / "),
-                  }))
-            : t("agentRuntime.squadRunsCounts", { range: rangeLabel[range], runs: runTotals.runs })}
-        </span>
       </div>
       {visibleRead.isError && (
         <p
@@ -515,8 +530,9 @@ export function SessionsView({
         </p>
       )}
       {segment === "sessions" ? (
-        <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 px-2 pb-2">
           <SessionGroupList
+            pending={workspace.groups.isPending}
             groups={groups}
             truncated={truncated}
             expandedKeys={expandedGroups}
@@ -530,54 +546,55 @@ export function SessionsView({
             onOpenTask={onOpenTask}
             onSelectEntity={onSelectEntity}
           />
-          <main className="min-w-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6">
-            {selectedSessionId === null ? (
-              <Empty>{t(workspace.groups.isPending ? "agentRuntime.loading" : "agentRuntime.noSessions")}</Empty>
-            ) : (
-              <>
-                {selectedReviewRound && (
-                  <DecisionReviewSessionCard round={selectedReviewRound} onNavigateEntity={onSelectEntity} />
-                )}
-                <SessionsPanel
-                  repoId={repoId}
-                  runtimeSessionId={selectedSessionId}
-                  snapshot={selectedSession.data ?? null}
-                  snapshotError={
-                    selectedSession.isError
-                      ? selectedSession.error instanceof Error
-                        ? selectedSession.error.message
-                        : String(selectedSession.error)
-                      : null
-                  }
+          {selectedSessionId !== null && (
+            <Drawer
+              open={inspector}
+              onClose={() => setInspector(false)}
+              ariaLabel={t("agentRuntime.inspectorSession")}
+              modal={false}
+            >
+              {selectedReviewRound && (
+                <DecisionReviewSessionCard round={selectedReviewRound} onNavigateEntity={onSelectEntity} />
+              )}
+              <SessionsPanel
+                repoId={repoId}
+                runtimeSessionId={selectedSessionId}
+                snapshot={selectedSession.data ?? null}
+                snapshotError={
+                  selectedSession.isError
+                    ? selectedSession.error instanceof Error
+                      ? selectedSession.error.message
+                      : String(selectedSession.error)
+                    : null
+                }
+                row={selectedRow}
+                squadNames={squadNames}
+                decisionRefs={selectedTaskId === null ? [] : sessionDecisionRefs(relations, selectedTaskId)}
+                busy={workspace.busy}
+                onCancel={(runtimeSessionId) => void workspace.cancelSession(runtimeSessionId)}
+                onResume={async (dispatchId) => {
+                  const settled = await workspace.resumeDispatch(dispatchId);
+                  if (settled?.state === "applied" && settled.runtimeSessionId)
+                    onSelectEntity(`session/${settled.runtimeSessionId}`);
+                }}
+                onOpenTask={onOpenTask}
+                onNavigateEntity={onSelectEntity}
+              />
+              {selectedRow !== null && (
+                <SessionInspector
                   row={selectedRow}
+                  siblings={siblings}
                   squadNames={squadNames}
-                  decisionRefs={selectedTaskId === null ? [] : sessionDecisionRefs(relations, selectedTaskId)}
-                  busy={workspace.busy}
-                  onCancel={(runtimeSessionId) => void workspace.cancelSession(runtimeSessionId)}
-                  onResume={async (dispatchId) => {
-                    const settled = await workspace.resumeDispatch(dispatchId);
-                    if (settled?.state === "applied" && settled.runtimeSessionId)
-                      onSelectEntity(`session/${settled.runtimeSessionId}`);
-                  }}
+                  onSelectSession={(runtimeSessionId) => onSelectEntity(`session/${runtimeSessionId}`)}
                   onOpenTask={onOpenTask}
-                  onNavigateEntity={onSelectEntity}
+                  onSelectEntity={onSelectEntity}
                 />
-              </>
-            )}
-          </main>
-          {inspector && (
-            <SessionInspector
-              row={selectedRow}
-              siblings={siblings}
-              squadNames={squadNames}
-              onSelectSession={(runtimeSessionId) => onSelectEntity(`session/${runtimeSessionId}`)}
-              onOpenTask={onOpenTask}
-              onSelectEntity={onSelectEntity}
-            />
+              )}
+            </Drawer>
           )}
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 px-2 pb-2">
           <SquadRunList
             runs={runs}
             truncated={workspace.squadRuns.data?.truncated ?? false}
