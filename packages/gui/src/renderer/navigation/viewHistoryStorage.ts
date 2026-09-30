@@ -55,6 +55,7 @@ const VIEW_ID_LIST = [
   "system",
   "daemonObserve",
   "settings",
+  "identityAccess",
 ] as const satisfies readonly ViewId[];
 type MissingViewId = Exclude<ViewId, (typeof VIEW_ID_LIST)[number]>;
 const _viewListExhaustive: MissingViewId extends never ? true : never = true;

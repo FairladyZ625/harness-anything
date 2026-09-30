@@ -43,7 +43,7 @@ function SignalLamp({ signal }: { signal: ReadinessSignal }) {
           : "bg-success";
   return (
     <span
-      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono ui-micro ${colorCls}`}
+      className={`inline-flex items-center gap-1 rounded-xs px-1.5 py-0.5 font-mono ui-micro ${colorCls}`}
       title={signal.summary}
     >
       <span className={`size-1.5 rounded-full ${dotCls} ${signal.color !== "green" ? "animate-pulse" : ""}`} />
@@ -82,7 +82,7 @@ function FactChip({
     return (
       <button
         onClick={() => onInspect(factRef)}
-        className="inline-flex items-center gap-1 rounded border border-dashed border-danger/60 px-1.5 py-0.5 font-mono ui-micro text-danger hover:bg-danger/10"
+        className="inline-flex items-center gap-1 rounded-xs border border-dashed border-danger/60 px-1.5 py-0.5 font-mono ui-micro text-danger hover:bg-danger/10"
         title={t("views.decisionsVerdict.danglingReferenceNonExistentFactAnchor")}
       >
         <WarningCircle weight="bold" className="ui-micro" />
@@ -93,7 +93,7 @@ function FactChip({
   return (
     <button
       onClick={() => onInspect(factRef)}
-      className={`inline-flex items-center gap-1 rounded px-1.5 py-0.5 font-mono ui-micro ${
+      className={`inline-flex items-center gap-1 rounded-xs px-1.5 py-0.5 font-mono ui-micro ${
         f.invalidated ? "text-stale line-through" : "text-success"
       } hover:bg-surface-raised`}
       title={`fact:${f.text}${f.invalidated ? " (已失效)" : ""}${rationale ? `\nrationale: ${rationale}` : ""}`}
@@ -237,7 +237,7 @@ export function VerdictCard({
   const coverage = signals.find((signal) => signal.id === "coverage")!;
 
   return (
-    <div className="rounded-lg border border-border bg-surface p-4">
+    <div className="rounded-sm border border-border bg-surface p-4">
       {/* 标题行:① id + state  ② 双轴徽章并排(正交) */}
       <div className="flex items-start gap-3">
         <div className="min-w-0 flex-1">
@@ -277,7 +277,7 @@ export function VerdictCard({
               type="button"
               data-testid="verdict-open-review"
               onClick={() => onNavigateEntity(decisionReviewRef(d.decisionId, "review"))}
-              className="rounded-md hover:opacity-80"
+              className="rounded-xs hover:opacity-80"
             >
               <DecisionReviewBadge review={d.review} />
             </button>
@@ -287,19 +287,19 @@ export function VerdictCard({
 
       {/* 评审深度提示(E50:提示不强拦) */}
       {deepHint && (
-        <div className="mt-2 rounded-md bg-stale/10 px-2.5 py-1.5 ui-micro text-stale">
+        <div className="mt-2 rounded-xs bg-stale/10 px-2.5 py-1.5 ui-micro text-stale">
           <WarningCircle weight="bold" className="mr-1 inline ui-micro" />
           高风险:建议拉满证据审查,放慢节奏充分核查后再决策批准。
         </div>
       )}
       {quickHint && (
-        <div className="mt-2 rounded-md bg-surface-raised px-2.5 py-1.5 ui-micro text-text-faint">
+        <div className="mt-2 rounded-xs bg-surface-raised px-2.5 py-1.5 ui-micro text-text-faint">
           低风险:可快速通过(因故进人队列,非典型)。
         </div>
       )}
 
       {/* 决策就绪信号灯(41 §3.1a):四盏机械信号灯必显,灯名 + 判定摘要 hover */}
-      <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-md border border-border bg-surface-raised/40 px-2.5 py-1.5">
+      <div className="mt-2 flex flex-wrap items-center gap-1.5 rounded-xs border border-border bg-surface-raised/40 px-2.5 py-1.5">
         <span className="font-mono ui-micro font-semibold uppercase tracking-wide text-text-faint">决策就绪</span>
         {signals.map((s) => (
           <SignalLamp key={s.id} signal={s} />
@@ -310,7 +310,7 @@ export function VerdictCard({
       {/* 黄/红警示条(41 §3.1a:不禁用按钮,只显式警示) */}
       {hasAlert && (
         <div
-          className={`mt-2 rounded-md px-2.5 py-2 ui-micro ${
+          className={`mt-2 rounded-xs px-2.5 py-2 ui-micro ${
             worst === "red" ? "bg-danger/10 text-danger" : "bg-stale/10 text-stale"
           }`}
         >
@@ -384,7 +384,7 @@ export function VerdictCard({
 
       {/* ④ relation 上下游:派生 task + supersede 链(P2 loop) */}
       {(derived.length > 0 || chain.supersedes.length > 0 || chain.supersededBy.length > 0) && (
-        <div className="mt-2 rounded-md border border-border bg-surface-raised/50 p-2">
+        <div className="mt-2 rounded-xs border border-border bg-surface-raised/50 p-2">
           <div className="flex items-center gap-1 ui-micro font-semibold text-text-faint">
             <TreeStructure weight="bold" className="ui-meta" /> relation 上下游(loop)
           </div>
@@ -450,7 +450,7 @@ export function VerdictCard({
           <button
             disabled
             key={p.sessionId}
-            className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-px font-mono ui-micro text-text-faint opacity-70"
+            className="inline-flex items-center gap-1 rounded-xs border border-border px-1.5 py-px font-mono ui-micro text-text-faint opacity-70"
             title={`E47 disabled:renderer 暂无 session 原文 IPC。runtime: ${p.runtime}; sessionId: ${p.sessionId}; boundAt: ${dateLabel(p.boundAt)}`}
           >
             <ArrowSquareOut weight="bold" className="ui-micro" />
@@ -482,7 +482,7 @@ export function VerdictCard({
         (hasAlert ? (
           <button
             onClick={() => onCallAgent(`harness decision ${d.decisionId} --check`)}
-            className={`mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md px-3 py-2 ui-meta font-semibold ${
+            className={`mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-xs px-3 py-2 ui-meta font-semibold ${
               worst === "red"
                 ? "bg-danger/15 text-danger hover:bg-danger/25"
                 : "bg-stale/15 text-stale hover:bg-stale/25"

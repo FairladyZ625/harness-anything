@@ -126,6 +126,12 @@ export class OidcSessionService {
     return { ok: true, authenticated: false };
   }
 
+  async bootstrapStatus(): Promise<Record<string, unknown>> {
+    const token = await this.#centerToken(),
+      members = await this.#adminJson("GET", "/roles/access-admin/users", token, undefined, true);
+    return { ok: true, required: !Array.isArray(members) || members.length === 0 };
+  }
+
   bind(auth: DaemonAuthenticationContext): DaemonAuthenticationContext {
     const session = this.#session();
     if (!session || session.expiresAt <= this.#ports.now()) return auth;

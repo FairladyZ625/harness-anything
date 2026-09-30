@@ -131,7 +131,7 @@ export function SettingsView({
               label={t("views.settingsView.statusColorsLabel")}
               desc={t("views.settingsView.statusColorsDescription")}
             >
-              <div className="flex flex-wrap items-center justify-end gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 {Object.entries(STATUS_META).map(([key, meta]) => (
                   <span key={key} className="inline-flex items-center gap-1">
                     <span className="h-2 w-2 rounded-full" style={{ background: meta.color }} />
@@ -265,7 +265,7 @@ export function SettingsView({
   return (
     <div className="flex flex-1 flex-col overflow-y-auto">
       <header className="border-b border-border px-4 py-3">
-        <h1 className="ui-title font-mono font-semibold">{t("settings.title")}</h1>
+        <h1 className="ui-title font-semibold">{t("settings.title")}</h1>
         <p className="ui-meta mt-0.5 text-text-faint">{t("views.settingsView.headerDescription")}</p>
       </header>
 

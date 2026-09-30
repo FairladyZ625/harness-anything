@@ -617,6 +617,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       }
       if (request.operation === "session") return Promise.resolve(oidc.status());
       if (request.operation === "logout") return Promise.resolve(oidc.logout());
+      if (request.operation === "bootstrap-status") return oidc.bootstrapStatus();
       if (request.operation === "bootstrap-admin") {
         const required = [request.username, request.email, request.displayName, request.password, request.personId];
         if (required.some((value) => typeof value !== "string" || value.trim() === ""))

@@ -224,6 +224,25 @@ test("a socket write failure rejects the request as daemon unavailable", async (
   }
 });
 
+test("a readline input failure rejects the request as daemon unavailable", async () => {
+  const input = new PassThrough(),
+    output = new PassThrough(),
+    client = new JsonRpcLineClient(input, output),
+    failure = Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
+    request = client.request("repo.agentRuntime.sessions.read", {}, 5_000);
+  input.emit("error", failure);
+  try {
+    await assert.rejects(
+      request,
+      (error: unknown) =>
+        (error as { readonly code?: string }).code === "daemon_unavailable" &&
+        (error as { readonly cause?: unknown }).cause === failure,
+    );
+  } finally {
+    clientClose(client);
+  }
+});
+
 test("a request after the input closes does not write to the closed output", async () => {
   const input = new PassThrough();
   let writes = 0;

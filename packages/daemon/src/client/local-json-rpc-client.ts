@@ -166,6 +166,7 @@ export class JsonRpcLineClient {
     this.lines = createInterface({ input });
     this.lines.on("line", (line) => this.onLine(line));
     this.lines.on("close", () => this.onClosed());
+    this.lines.on("error", this.handleOutputError);
     this.output.on("error", this.handleOutputError);
   }
   async request(method: string, params: JsonObject, responseTimeoutMs?: number): Promise<JsonObject> {

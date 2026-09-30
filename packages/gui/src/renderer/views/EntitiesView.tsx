@@ -16,6 +16,8 @@ import { t } from "../i18n/index.tsx";
 import type { EntityKindCatalog } from "../entity-kind-catalog-client.ts";
 import { GovernedEntityCatalogList } from "../components/entityDoc/GovernedEntityCatalogList.tsx";
 import type { GovernedEntityRow } from "../graph/governedEntities.ts";
+import { Section } from "../components/primitives/Section.tsx";
+import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { VerticalKindForm } from "../components/entityDoc/VerticalKindForm.tsx";
 import {
   readVerticalDeclaration,
@@ -132,29 +134,27 @@ export function EntitiesView({
       )}
       <div data-testid="entities-content" className="w-full space-y-6 p-4">
         {groups.map((group) => (
-          <section key={group.id} data-testid={`entity-doc-group-${group.id}`}>
-            <div className="mb-2 flex items-baseline gap-2">
-              <h2 className="ui-body font-semibold">{group.title}</h2>
-              <span className="ui-micro text-text-faint">{group.summary}</span>
-            </div>
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-2">
-              {group.docs.map((doc) => {
-                const catalogRow = catalog.kinds.find(({ kind }) => kind === doc.kind);
-                return (
-                  <EntityDocCard
-                    key={doc.kind}
-                    doc={doc}
-                    live={doc.liveCount === null ? null : liveCounts[doc.liveCount]}
-                    onOpen={() => onOpenEntityDoc(doc.kind)}
-                    origin={catalogRow?.origin ?? "builtin"}
-                    importable={catalogRow?.importable ?? false}
-                    retired={catalogRow?.retired === true}
-                    onManage={doc.kind === "runtime-instance" ? () => onOpenView("providers") : null}
-                  />
-                );
-              })}
-            </div>
-          </section>
+          <div key={group.id} data-testid={`entity-doc-group-${group.id}`}>
+            <Section title={group.title} count={group.docs.length} note={group.summary}>
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-2">
+                {group.docs.map((doc) => {
+                  const catalogRow = catalog.kinds.find(({ kind }) => kind === doc.kind);
+                  return (
+                    <EntityDocCard
+                      key={doc.kind}
+                      doc={doc}
+                      live={doc.liveCount === null ? null : liveCounts[doc.liveCount]}
+                      onOpen={() => onOpenEntityDoc(doc.kind)}
+                      origin={catalogRow?.origin ?? "builtin"}
+                      importable={catalogRow?.importable ?? false}
+                      retired={catalogRow?.retired === true}
+                      onManage={doc.kind === "runtime-instance" ? () => onOpenView("providers") : null}
+                    />
+                  );
+                })}
+              </div>
+            </Section>
+          </div>
         ))}
         <GovernedEntityCatalogList catalog={catalog} rows={governedRows} onOpenEntityRef={onOpenEntityRef} />
       </div>
@@ -230,15 +230,15 @@ function EntityDocCard({
         </div>
       </button>
       <div className="mt-2 flex items-center justify-between gap-2">
-        <span className="ui-micro text-text-faint">
-          {origin === "builtin"
-            ? "固定实体 · 只展示"
-            : retired
-              ? "声明实体 · 已停用"
-              : importable
-                ? "声明实体 · 可新建"
-                : "声明实体"}
-        </span>
+        {origin === "builtin" ? (
+          <StatusTag tone="neutral" label="固定实体 · 只展示" />
+        ) : retired ? (
+          <StatusTag tone="cancel" label="声明实体 · 已停用" />
+        ) : importable ? (
+          <StatusTag tone="active" label="声明实体 · 可新建" />
+        ) : (
+          <StatusTag tone="neutral" label="声明实体" />
+        )}
         {onManage ? (
           <button type="button" className="ui-micro text-accent hover:underline" onClick={onManage}>
             管理
