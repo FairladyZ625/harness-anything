@@ -45,8 +45,6 @@ export interface TestEntityAction {
   readonly declaration?: Record<string, unknown>;
   readonly agentId?: string;
   readonly squadId?: string;
-  readonly generatedOnly?: boolean;
-  readonly validated?: boolean;
   readonly runtimeInstances?: readonly {
     readonly kindId: string;
     readonly models: readonly string[];
@@ -123,8 +121,6 @@ function entityAction(input: TestEntityAction): Readonly<Record<string, unknown>
     ...(input.declaration ? { declaration: input.declaration } : {}),
     ...(input.agentId ? { agentId: input.agentId } : {}),
     ...(input.squadId ? { squadId: input.squadId } : {}),
-    ...(input.generatedOnly ? { generatedOnly: true } : {}),
-    ...(input.validated ? { validated: true } : {}),
   };
 }
 

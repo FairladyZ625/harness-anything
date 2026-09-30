@@ -112,13 +112,23 @@ export function auditCliUsage({
   const denominator = commands.map((command) => {
     const counts = attribution.byCommand.get(command.id) ?? { direct: 0, uniqueMethod: 0, shared: 0 };
     const count = counts.direct + counts.uniqueMethod;
+    // Client-local commands (no method) and host-level daemon.* methods never reach the repo
+    // request log, so a zero here says nothing about their use.
+    const observable = Boolean(command.method) && !command.method.startsWith("daemon.");
     return {
       ...command,
       observedRequests: count,
       directObservedRequests: counts.direct,
       uniqueMethodObservedRequests: counts.uniqueMethod,
       sharedMethodObservedRequests: counts.shared,
-      status: count > 0 ? "observed" : counts.shared > 0 ? "unattributed-shared-method" : "unobserved-needs-review",
+      status:
+        count > 0
+          ? "observed"
+          : counts.shared > 0
+            ? "unattributed-shared-method"
+            : observable
+              ? "unobserved-needs-review"
+              : "not-observable-in-request-log",
       retirementDisposition: count > 0 ? "retain-observed" : "needs-human-review",
     };
   });
@@ -168,7 +178,7 @@ export function auditCliUsage({
     denominator,
     failures,
     zeroObservation: denominator
-      .filter((row) => row.observedRequests === 0 && row.sharedMethodObservedRequests === 0)
+      .filter((row) => row.status === "unobserved-needs-review")
       .map((row) => ({
         id: row.id,
         usage: row.usage,

@@ -121,7 +121,6 @@ export interface PreparedAgentEntityInstall {
     readonly mode: "dry-run" | "apply";
     readonly changed: boolean;
     readonly source: string;
-    readonly generated: boolean;
     readonly issues: readonly unknown[];
   };
 }
@@ -500,13 +499,6 @@ export function prepareAgentEntityInstall(input: {
       decoded.issues[0]?.message ?? "Entity package is invalid.",
       `${kind}/declaration-schema`,
     );
-  if (input.action.generatedOnly === true && input.action.validated !== true)
-    throw agentInstallError(
-      kind,
-      "agent_validation_required",
-      "Generated Agent output must pass ha agent validate before install; rerun ha agent create so the harness can validate the structured declaration.",
-      "agent/generated-validation",
-    );
   const declaration = decoded.declaration,
     current = repairableStoredDeclaration(input.entityStore ?? openEntityStore(input.rootDir), kind, declaration.id);
   if (
@@ -526,8 +518,6 @@ export function prepareAgentEntityInstall(input: {
         `current revision is ${String(current.workspaceRevision ?? 0)}.`,
       `${kind}/entity-revision`,
     );
-  if (input.action.generatedOnly === true && current.exists && input.replay !== true)
-    throw generatedAgentConflict(declaration.id);
   if (kind === "agent") {
     const issue = agentRuntimeSelectionIssue(declaration as AgentDeclarationV1, input.runtimeInstances);
     if (issue) throw agentInstallError("agent", issue.code, issue.message, "agent/runtime-compatibility");
@@ -544,7 +534,6 @@ export function prepareAgentEntityInstall(input: {
       mode: input.action.dryRun === true ? "dry-run" : "apply",
       changed,
       source,
-      generated: input.action.generatedOnly === true,
       issues: [],
     },
   };
@@ -587,18 +576,17 @@ function repairableStoredDeclaration(
   kind: AgentEntityKind,
   id: string,
 ): {
-  readonly exists: boolean;
   readonly value: Readonly<Record<string, unknown>> | null;
   readonly workspaceRevision: number | null;
 } {
   try {
     const current = entityStore.get<Readonly<Record<string, unknown>>>(kind, id);
     return current === null
-      ? { exists: false, value: null, workspaceRevision: null }
-      : { exists: true, value: current.value, workspaceRevision: current.workspaceRevision };
+      ? { value: null, workspaceRevision: null }
+      : { value: current.value, workspaceRevision: current.workspaceRevision };
   } catch (error) {
     if ((error as { readonly code?: unknown }).code !== "invalid_entity_contract") throw error;
-    return { exists: true, value: null, workspaceRevision: null };
+    return { value: null, workspaceRevision: null };
   }
 }
 function declarationSource(
@@ -680,14 +668,6 @@ function requiredEntityText(value: unknown, field: string): string {
 }
 function entityError(code: string, message: string): Error & { readonly code: string } {
   return Object.assign(new Error(message), { code });
-}
-function generatedAgentConflict(id: string): Error & { readonly code: string } {
-  return agentInstallError(
-    "agent",
-    "agent_id_conflict",
-    `Agent ${id} already exists; run ha agent inspect ${id}, choose a different id, and retry ha agent create.`,
-    "agent/generated-identity",
-  );
 }
 function agentRuntimeSelectionIssue(
   agent: AgentDeclarationV1,

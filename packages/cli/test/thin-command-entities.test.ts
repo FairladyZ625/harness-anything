@@ -1069,33 +1069,10 @@ test("Agent and Squad declaration commands route reads directly and writes throu
     }
   }
   assert.equal(parseThinCommand(["squad", "status"]).ok, false);
-  const create = parseThinCommand([
-    "agent",
-    "create",
-    "codex-sidecar",
-    "--agent",
-    "meta",
-    "--prompt",
-    "Design a worker",
-    "--task",
-    "task-1",
-  ]);
-  assert.equal(create.ok, true, JSON.stringify(create));
-  if (create.ok)
-    assert.deepEqual(
-      { method: create.command.method, action: create.command.action },
-      {
-        method: "repo.agent.create",
-        action: {
-          kind: "agent-create",
-          runtimeInstanceId: "codex-sidecar",
-          agentId: "meta",
-          prompt: "Design a worker",
-          taskId: "task-1",
-          cwd: { scope: "repo-root" },
-        },
-      },
-    );
+  assert.equal(
+    parseThinCommand(["agent", "create", "codex-sidecar", "--agent", "meta", "--prompt", "Design a worker"]).ok,
+    false,
+  );
 });
 test("runtime instance create leaves installation discovery to the daemon when omitted", () => {
   const parsed = parseThinCommand([

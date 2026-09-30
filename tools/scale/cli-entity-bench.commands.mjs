@@ -398,12 +398,6 @@ export const commandTable = [
   ],
   ["people-remove", (c, s) => ["people", "remove", "--person-id", `bench-p-${s}`]],
   ["vertical-validate", () => ["vertical", "validate"]],
-  ["vertical-kind-upsert-cli", (c, s) => ["vertical", "entity-kind", "upsert", "--from-file", c.kindFile(s)]],
-  [
-    "vertical-kind-publish-schema-cli",
-    (c, s) => ["vertical", "entity-kind", "publish-schema", `bench-kind-${s}`, "--from-file", c.schemaFile(s)],
-  ],
-  ["vertical-kind-retire-cli", (c, s) => ["vertical", "entity-kind", "retire", `bench-kind-${s}`, "--reason", "bench"]],
   ["vertical-declaration-migrate", () => ["migrate", "vertical-declaration"]],
   ["preset-list", () => ["preset", "list"]],
   ["preset-inspect", () => ["preset", "inspect", "standard-task"]],
@@ -438,7 +432,6 @@ export const commandTable = [
   ["repo-bootstrap", "measured once as `ha init` during fixture setup"],
   // Excluded, with the reason.
   ["gui", "launches the Electron GUI"],
-  ["agent-create", runtime],
   ["squad-run", runtime],
   ["squad-status", "needs a squad run, which spawns runtimes"],
   ["squad-cancel", "needs a squad run, which spawns runtimes"],

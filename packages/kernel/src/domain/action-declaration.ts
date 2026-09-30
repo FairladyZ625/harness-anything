@@ -66,7 +66,6 @@ const runtimeAdmin = (kind: string): ActionDeclaration =>
  * policy, entity-catalog bindings, and receipt settlement are projections of the declarations.
  */
 export const actionDeclarations = Object.freeze([
-  canonical("agent-create", null, "repo-write"),
   canonical("agent-delete", "agent/delete", "repo-write"),
   canonical("agent-install", "agent/install", "repo-write"),
   local("agent-run", "repo-write", runtimeResidency),
