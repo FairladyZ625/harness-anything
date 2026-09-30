@@ -49,12 +49,13 @@ export function cwdPayload(rootDir: string, cwd: string): JsonObject {
 /** Writing workers get their own worktree when the run cwd is a Git work tree with a commit; a cwd without
  * a Git baseline (a Git-less edge, or a repo before its first commit) keeps the shared cwd. */
 export async function prepareWorkerWorktree(
-  state: { readonly squadRunId: string; readonly cwd: string; readonly baseSha: string | null },
+  state: { readonly squadRunId: string; readonly cwd: string },
+  baseSha: string | null,
   workerId: string,
   attemptId: string,
   setup: { readonly rootDir: string; readonly taskId: string; readonly steps: readonly string[] },
 ): Promise<WorkerCheckout | null> {
-  if (state.baseSha === null) return null;
+  if (baseSha === null) return null;
   // Workers branch off whatever the Commander has checked out, so the Commander can merge them back
   // with the child SHAs intact. A detached HEAD owns no ref to hang siblings from.
   const commanderBranch = (await runProcessTextAsync("git", ["branch", "--show-current"], state.cwd)).trim();
@@ -67,13 +68,13 @@ export async function prepareWorkerWorktree(
   if (existsSync(cwd)) {
     const currentBranch = (await runProcessTextAsync("git", ["branch", "--show-current"], cwd)).trim();
     if (currentBranch !== branch) throw new Error(`Squad checkout ${cwd} does not hold ${branch}.`);
-    await runProcessTextAsync("git", ["merge-base", "--is-ancestor", state.baseSha, "HEAD"], cwd);
+    await runProcessTextAsync("git", ["merge-base", "--is-ancestor", baseSha, "HEAD"], cwd);
   } else {
-    await addManagedWorktree(state.cwd, { cwd, branch, baseRef: state.baseSha });
+    await addManagedWorktree(state.cwd, { cwd, branch, baseRef: baseSha });
   }
   const prepared = await runWorktreeSetup({ rootDir: setup.rootDir, cwd, taskId: setup.taskId, steps: setup.steps });
   if (!prepared.ok) throw new Error(worktreeSetupFailure(cwd, prepared, "let the Commander dispatch the worker again"));
-  return { cwd, branch, baseSha: state.baseSha };
+  return { cwd, branch, baseSha };
 }
 
 /** A finished run's worker checkout is reclaimed against the Commander branch its work merges into. */
