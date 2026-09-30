@@ -83,7 +83,14 @@ export async function publishExit(
       context.input.now(),
     );
     let body = context.runtimeResultText(active, code, outcome);
-    let deliveryCommit: string | null = null;
+    let hasDelivery =
+      active.task && outcome === "succeeded" && active.publicationOwner === "commander" && !squadLeaderControl
+        ? await workerBranchHasDelivery({
+            cwd: active.cwd,
+            canonicalRoot: context.input.rootDir,
+            taskId: active.task.taskId,
+          })
+        : false;
     // Squad children deliver local commits for Commander integration; leaders own publication.
     // Keep leader control JSON and child delivery text intact. Direct dispatches retain auto-push.
     if (active.task && outcome === "succeeded" && active.publicationOwner !== "commander" && !squadLeaderControl) {
@@ -101,7 +108,7 @@ export async function publishExit(
             ...(submittedCommitSha ? { submittedCommitSha } : {}),
             env,
           });
-        deliveryCommit = push.attempted ? push.pushedCommit : null;
+        hasDelivery = push.attempted && push.pushedCommit !== null;
         if (push.attempted)
           body = push.ok
             ? `${body}\n\nWorker branch pushed at settlement: ${push.branch} @ ${push.pushedCommit}${
@@ -119,7 +126,7 @@ export async function publishExit(
         body = `${body}\n\nWorker branch push failed (no retry): ${detail || "GitHub credential resolution failed."}`;
       }
     }
-    const submissionRecovery = unsubmittedDeliveryRecovery(context, active, outcome, deliveryCommit);
+    const submissionRecovery = unsubmittedDeliveryRecovery(context, active, outcome, hasDelivery);
     if (submissionRecovery) body = `${body}\n\n${submissionRecovery}`;
     let reasonCode: string | null = reviewResultMissing ? "review_result_missing" : null,
       sha256 = createHash("sha256").update(body).digest("hex"),
@@ -342,9 +349,9 @@ function unsubmittedDeliveryRecovery(
   context: RuntimeSpawnerContext,
   active: ActiveRuntime,
   outcome: "succeeded" | "failed" | "unknown" | "cancelled",
-  deliveryCommit: string | null,
+  hasDelivery: boolean,
 ): string | null {
-  if (outcome !== "succeeded" || !active.task || active.role === "reviewer" || !deliveryCommit) return null;
+  if (outcome !== "succeeded" || !active.task || active.role === "reviewer" || !hasDelivery) return null;
   const projection = context.requiredRuntimeProjection(context.input),
     read = projection.read(active.task.taskId),
     execution = read.snapshot.executions.find((candidate) => candidate.executionId === active.task?.executionId);

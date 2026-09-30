@@ -596,7 +596,7 @@ test("squad leader settlement preserves its machine-readable control result", as
   assert.deepEqual(outcomeBodies, [controlResult]);
 });
 
-test("commander-owned settlement keeps its commit local and returns the delivery unchanged", async (context) => {
+test("commander-owned settlement keeps its commit local and reports an unsubmitted delivery", async (context) => {
   const fixture = workerGitFixture(context, "squad-child", { reachableRemote: true }),
     runtime = workerSettlementRuntime(fixture, {
       agent: { id: "terra", name: "Terra" },
@@ -618,6 +618,7 @@ test("commander-owned settlement keeps its commit local and returns the delivery
   await publishExit(
     {
       ...settleContext,
+      requiredRuntimeProjection: () => deliveryProjection(null, "repository-diff", [], [], true),
       prepareWorkerGitEnvironment: async () => {
         credentialRequests += 1;
         return {};
@@ -627,10 +628,36 @@ test("commander-owned settlement keeps its commit local and returns the delivery
     0,
   );
   assert.equal(outcomes[0]?.outcome, "succeeded");
-  assert.deepEqual(outcomeBodies, ["worker delivery"]);
+  assert.match(outcomeBodies[0]!, /Task task_0123456789abcdef01234567 is not submitted/u);
+  assert.match(outcomeBodies[0]!, /ha task submit task_0123456789abcdef01234567 --as-owner/u);
   assert.equal(credentialRequests, 0);
   assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", `refs/heads/${fixtureTaskId}`), "");
   assert.equal(git(fixture.worker, "log", "-1", "--format=%s").trim(), "feat: worker change");
+});
+
+test("commander-owned settlement without a local commit does not report a delivery", async (context) => {
+  const fixture = workerGitFixture(context, "squad-child-no-delivery", { reachableRemote: true, delivery: false }),
+    runtime = workerSettlementRuntime(fixture, {
+      agent: { id: "terra", name: "Terra" },
+      delegatedBy: { id: "fable", name: "Fable" },
+      squadId: "core-squad",
+      finalText: "worker stopped",
+      publicationOwner: "commander",
+    }),
+    outcomeBodies: string[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, _payload = {}, _opId?, _binding?, body?) => {
+      if (type === "runtime_session_outcome_observed") outcomeBodies.push(String(body));
+      return {};
+    });
+  await publishExit(
+    {
+      ...settleContext,
+      requiredRuntimeProjection: () => deliveryProjection(null, "repository-diff", [], [], true),
+    },
+    runtime,
+    0,
+  );
+  assert.doesNotMatch(outcomeBodies[0]!, /is not submitted/u);
 });
 
 test("terminal settlement names the branch when the worker push fails", async (context) => {
