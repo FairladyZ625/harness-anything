@@ -320,7 +320,7 @@ function Column({
       ref={setNodeRef}
       data-testid={`board-column-${status}`}
       style={width === undefined ? undefined : { width }}
-      className={`relative flex shrink-0 ${sizing} flex-col rounded-xl p-2 transition-colors ${
+      className={`relative flex shrink-0 ${sizing} flex-col rounded-sm p-2 transition-colors ${
         isOver && rejecting
           ? "bg-danger/5 outline outline-1 outline-dashed outline-danger/40"
           : isOver

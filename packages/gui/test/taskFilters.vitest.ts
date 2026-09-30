@@ -410,6 +410,9 @@ describe("board visual language (视觉基线 §2.4)", () => {
     expect(done).toContain("w-[3px]");
     expect(markup).not.toContain('data-testid="board-column-list-done"');
     expect(markup).not.toContain("no tasks");
+    // 标准 §3:圆角 2–4px,列容器不得用更大的圆角。
+    const plannedColumn = markup.match(/<div[^>]*data-testid="board-column-planned"[^>]*>/u)![0];
+    expect(plannedColumn).not.toMatch(/rounded-(?:md|lg|xl|2xl|3xl|full)\b/u);
   });
 
   it("cards carry a background StatusTag, TitleText title, one reason line and a time; badges stay in the drawer", async () => {
