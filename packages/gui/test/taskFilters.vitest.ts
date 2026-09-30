@@ -2,6 +2,7 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderToStaticMarkup } from "react-dom/server";
 import type { SnapshotStatus, TaskRow } from "../src/renderer/model/types.ts";
 import { BOARD_COLUMNS } from "../src/renderer/model/types.ts";
@@ -1615,6 +1616,71 @@ describe("swimlane column resize (W11)", () => {
   });
 });
 
+describe("task preview drawer §4 内容契约", () => {
+  const drawerMarkup = (task: TaskRow) =>
+    renderToStaticMarkup(
+      createElement(
+        QueryClientProvider,
+        { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
+        createElement(TaskPreviewDrawer, {
+          task,
+          tasks: [task],
+          relations: [],
+          onClose: noop,
+          onOpenDetail: noop,
+          onPreviewTask: noop,
+        }),
+      ),
+    );
+
+  it("生命周期进度、卡在哪、关键记录都在;标题经 TitleText 拆分", () => {
+    const task = makeTask({
+      title: "任务预览抽屉:按 §4 重做",
+      gates: [
+        { name: "local-check", ok: true },
+        { name: "lint", ok: false, detail: "G05 rethrow required" },
+      ],
+      docs: [
+        { path: "closeout.md", title: "收口报告", group: "收口", required: true, present: false, presence: "missing" },
+      ],
+      events: [
+        { projectId: "p", taskId: "task-a", at: "2026-08-23T10:20:00.000Z", summary: "Review approved" },
+        { projectId: "p", taskId: "task-a", at: "2026-08-22T09:00:00.000Z", summary: "Execution submitted" },
+      ],
+      parentTaskId: "task-root",
+      workId: "task-root",
+      workTitle: "基线升级",
+    });
+    const markup = drawerMarkup(task);
+    // 生命周期:阶段步进条在抽屉正文里(§4),不再是完整详情页专属。
+    expect(markup).toContain("Lifecycle");
+    // 标题经 TitleText:冒号后补充段染弱。
+    expect(markup).toContain('<span class="text-text-faint">:按 §4 重做</span>');
+    // 卡在哪:失败门禁与缺失必填文档都是有底色的 bad 状态标签行(§3)。
+    expect(markup).toContain("Where it is stuck");
+    expect(markup).toContain('data-status-tone="bad"');
+    expect(markup).toContain("lint");
+    expect(markup).toContain("收口报告");
+    // 关键记录:按天收束,全部事件都在标记里(2026-08-25 完整渲染裁决)。
+    expect(markup).toContain("Key records");
+    expect(markup.match(/data-day=/gu)).toHaveLength(2);
+    expect(markup).toContain("Review approved");
+    expect(markup).toContain("Execution submitted");
+    // 归属一行:parent 与 work 是实体链接,不是死文本。
+    expect(markup).toContain("task-root");
+  });
+
+  it("无卡点时「卡在哪」整块消失;门禁全过时给一句话,不画大框(§1.5)", () => {
+    const markup = drawerMarkup(makeTask({ gates: [{ name: "local-check", ok: true }] }));
+    expect(markup).not.toContain("Where it is stuck");
+    expect(markup).toContain("1 gate checks passed");
+    const empty = drawerMarkup(makeTask());
+    expect(empty).not.toContain("卡在哪");
+    expect(empty).not.toContain("Key records");
+    expect(empty).not.toContain("Associated tasks");
+  });
+});
+
 describe("task preview dismissal", () => {
   it("closes on an outside press, lets the dimmed board keep its clicks, and keeps pin independent", async () => {
     const onClose = vi.fn(),
@@ -1626,15 +1692,19 @@ describe("task preview dismissal", () => {
     try {
       await act(async () =>
         root.render(
-          createElement(TaskPreviewDrawer, {
-            task,
-            tasks: [task],
-            relations: [],
-            onClose,
-            onOpenDetail: noop,
-            onPreviewTask: noop,
-            onSetPin,
-          }),
+          createElement(
+            QueryClientProvider,
+            { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
+            createElement(TaskPreviewDrawer, {
+              task,
+              tasks: [task],
+              relations: [],
+              onClose,
+              onOpenDetail: noop,
+              onPreviewTask: noop,
+              onSetPin,
+            }),
+          ),
         ),
       );
       const backdrop = container.querySelector('[data-testid="drawer-backdrop"]') as HTMLElement;

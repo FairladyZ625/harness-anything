@@ -7,6 +7,7 @@ import { normalizeTaskId } from "../../model/triadic.ts";
 import { t } from "../../i18n/index.tsx";
 import { IN_LABEL, OUT_LABEL } from "./constants.ts";
 import { RelationRow } from "./RelationRow.tsx";
+import { Section } from "../primitives/Section.tsx";
 
 export interface TaskDecisionRef {
   readonly decisionId: string;
@@ -54,123 +55,112 @@ export function TaskRelationsTab({
     <section data-testid="task-relations-tab">
       {graph.isPending && <p role="status">正在加载任务关系…</p>}
       {graph.isError && <p role="alert">任务关系读取失败，请刷新后重试。</p>}
-      <SectionHeading />
-      <div className="mt-7 grid gap-8 xl:grid-cols-2">
-        <RelationGroup title="父子 Task" count={children.length + (task.parentTaskId ? 1 : 0)}>
-          {task.parentTaskId ? (
-            <EntityButton
-              label="parent"
-              id={task.parentTaskId}
-              title={parent?.title ?? "父任务"}
-              onClick={onSelect ? () => onSelect(task.parentTaskId!) : undefined}
-            />
-          ) : (
-            <p className="ui-meta text-text-faint">这是根任务，没有 parent。</p>
-          )}
-          {children.map((child) => (
-            <EntityButton
-              key={child.taskId}
-              label="child"
-              id={child.taskId}
-              title={child.title}
-              onClick={onSelect ? () => onSelect(child.taskId) : undefined}
-            />
-          ))}
-        </RelationGroup>
-        <RelationGroup title="Decision" count={relatedDecisions.length}>
-          {relatedDecisions.length === 0 ? (
-            <p className="ui-meta text-text-faint">没有关联 decision。</p>
-          ) : (
-            relatedDecisions.map((decision) => (
+      <Section title="任务关系" note="父子任务、承重决策、关系边与运行 session 的可跳转索引">
+        <div className="grid gap-8 xl:grid-cols-2">
+          <RelationGroup title="父子 Task" count={children.length + (task.parentTaskId ? 1 : 0)}>
+            {task.parentTaskId ? (
               <EntityButton
-                key={decision.decisionId}
-                label={decision.state}
-                id={decision.decisionId}
-                title={decision.title}
-                onClick={onNavigateDecision ? () => onNavigateDecision(decision.decisionId) : undefined}
+                label="parent"
+                id={task.parentTaskId}
+                title={parent?.title ?? "父任务"}
+                onClick={onSelect ? () => onSelect(task.parentTaskId!) : undefined}
               />
-            ))
-          )}
-        </RelationGroup>
-        <RelationGroup title="Runtime session" count={runtime.data?.sessions.length ?? 0}>
-          {runtime.isPending ? (
-            <p className="animate-pulse ui-meta text-text-faint">正在读取 session…</p>
-          ) : runtime.isError ? (
-            <p role="alert" className="ui-meta leading-5 text-danger">
-              Session 读取失败：{runtime.error.message}
-            </p>
-          ) : runtime.data.sessions.length === 0 ? (
-            <p className="ui-meta text-text-faint">没有与该任务绑定的 session。</p>
-          ) : (
-            runtime.data.sessions.map((session) => (
-              <button
-                key={session.runtimeSessionId}
-                type="button"
-                onClick={() => onOpenSession(session.runtimeSessionId)}
-                className={
-                  "group flex w-full items-center gap-3 border-b border-border/70 py-2.5 text-left " +
-                  "last:border-b-0 hover:text-accent"
-                }
-              >
-                <span className="font-mono ui-micro text-text-muted group-hover:text-accent">
-                  {session.runtimeSessionId}
-                </span>
-                <span className="min-w-0 truncate ui-meta text-text-faint">
-                  {session.definitionSnapshot?.model ?? t("agentRuntime.definitionSnapshotNotPersisted")}
-                  {!session.definitionSnapshotPersisted && session.definitionSnapshot !== null
-                    ? ` · ${t("agentRuntime.definitionSnapshotNotPersisted")}`
-                    : ""}
-                </span>
-                <span className="ml-auto font-mono ui-micro text-text-faint">{session.liveness}</span>
-                <ArrowSquareOut weight="bold" className="ui-meta text-text-faint group-hover:text-accent" />
-              </button>
-            ))
-          )}
-        </RelationGroup>
-        <RelationGroup title="全部关系边" count={outEdges.length + inEdges.length}>
-          {outEdges.length === 0 && inEdges.length === 0 ? (
-            <p className="ui-meta text-text-faint">没有 active relation。</p>
-          ) : (
-            <div className="grid gap-2">
-              {outEdges.map((edge, index) => (
-                <RelationRow
-                  key={`out-${edge.relationId ?? index}`}
-                  peer={edge.to}
-                  label={OUT_LABEL[edge.kind]}
-                  provenance={edge.provenance}
-                  title={peerTitle(edge.to, tasks, decisions)}
-                  onSelect={onSelect}
-                  onNavigateEntity={onNavigateEntity}
+            ) : (
+              <p className="ui-meta text-text-faint">这是根任务，没有 parent。</p>
+            )}
+            {children.map((child) => (
+              <EntityButton
+                key={child.taskId}
+                label="child"
+                id={child.taskId}
+                title={child.title}
+                onClick={onSelect ? () => onSelect(child.taskId) : undefined}
+              />
+            ))}
+          </RelationGroup>
+          <RelationGroup title="Decision" count={relatedDecisions.length}>
+            {relatedDecisions.length === 0 ? (
+              <p className="ui-meta text-text-faint">没有关联 decision。</p>
+            ) : (
+              relatedDecisions.map((decision) => (
+                <EntityButton
+                  key={decision.decisionId}
+                  label={decision.state}
+                  id={decision.decisionId}
+                  title={decision.title}
+                  onClick={onNavigateDecision ? () => onNavigateDecision(decision.decisionId) : undefined}
                 />
-              ))}
-              {inEdges.map((edge, index) => (
-                <RelationRow
-                  key={`in-${edge.relationId ?? index}`}
-                  peer={edge.from}
-                  label={IN_LABEL[edge.kind]}
-                  provenance={edge.provenance}
-                  title={peerTitle(edge.from, tasks, decisions)}
-                  onSelect={onSelect}
-                  onNavigateEntity={onNavigateEntity}
-                />
-              ))}
-            </div>
-          )}
-        </RelationGroup>
-      </div>
+              ))
+            )}
+          </RelationGroup>
+          <RelationGroup title="Runtime session" count={runtime.data?.sessions.length ?? 0}>
+            {runtime.isPending ? (
+              <p className="animate-pulse ui-meta text-text-faint">正在读取 session…</p>
+            ) : runtime.isError ? (
+              <p role="alert" className="ui-meta leading-5 text-danger">
+                Session 读取失败：{runtime.error.message}
+              </p>
+            ) : runtime.data.sessions.length === 0 ? (
+              <p className="ui-meta text-text-faint">没有与该任务绑定的 session。</p>
+            ) : (
+              runtime.data.sessions.map((session) => (
+                <button
+                  key={session.runtimeSessionId}
+                  type="button"
+                  onClick={() => onOpenSession(session.runtimeSessionId)}
+                  className={
+                    "group flex w-full items-center gap-3 border-b border-border/70 py-2.5 text-left " +
+                    "last:border-b-0 hover:text-accent"
+                  }
+                >
+                  <span className="font-mono ui-micro text-text-muted group-hover:text-accent">
+                    {session.runtimeSessionId}
+                  </span>
+                  <span className="min-w-0 truncate ui-meta text-text-faint">
+                    {session.definitionSnapshot?.model ?? t("agentRuntime.definitionSnapshotNotPersisted")}
+                    {!session.definitionSnapshotPersisted && session.definitionSnapshot !== null
+                      ? ` · ${t("agentRuntime.definitionSnapshotNotPersisted")}`
+                      : ""}
+                  </span>
+                  <span className="ml-auto font-mono ui-micro text-text-faint">{session.liveness}</span>
+                  <ArrowSquareOut weight="bold" className="ui-meta text-text-faint group-hover:text-accent" />
+                </button>
+              ))
+            )}
+          </RelationGroup>
+          <RelationGroup title="全部关系边" count={outEdges.length + inEdges.length}>
+            {outEdges.length === 0 && inEdges.length === 0 ? (
+              <p className="ui-meta text-text-faint">没有 active relation。</p>
+            ) : (
+              <div className="grid gap-2">
+                {outEdges.map((edge, index) => (
+                  <RelationRow
+                    key={`out-${edge.relationId ?? index}`}
+                    peer={edge.to}
+                    label={OUT_LABEL[edge.kind]}
+                    provenance={edge.provenance}
+                    title={peerTitle(edge.to, tasks, decisions)}
+                    onSelect={onSelect}
+                    onNavigateEntity={onNavigateEntity}
+                  />
+                ))}
+                {inEdges.map((edge, index) => (
+                  <RelationRow
+                    key={`in-${edge.relationId ?? index}`}
+                    peer={edge.from}
+                    label={IN_LABEL[edge.kind]}
+                    provenance={edge.provenance}
+                    title={peerTitle(edge.from, tasks, decisions)}
+                    onSelect={onSelect}
+                    onNavigateEntity={onNavigateEntity}
+                  />
+                ))}
+              </div>
+            )}
+          </RelationGroup>
+        </div>
+      </Section>
     </section>
-  );
-}
-
-function SectionHeading() {
-  return (
-    <header className="flex min-w-0 flex-wrap items-baseline gap-x-2.5 gap-y-1" data-testid="task-section-heading">
-      <p className="shrink-0 font-mono ui-micro font-semibold uppercase tracking-[0.16em] text-accent">CONTEXT</p>
-      <h2 className="shrink-0 ui-body font-semibold tracking-[-0.01em] text-text">任务关系</h2>
-      <p className="min-w-0 truncate ui-micro leading-4 text-text-faint">
-        父子任务、承重决策、关系边与运行 session 的可跳转索引
-      </p>
-    </header>
   );
 }
 

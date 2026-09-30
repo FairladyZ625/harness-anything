@@ -182,6 +182,97 @@ describe("Task detail expression", () => {
     expect(byTestId("task-files-tab").querySelector(".prose-harness")).toBeNull();
   });
 
+  it("renders the §2.2 doc-type header: split title, goal line, lifecycle progress, underline tabs", async () => {
+    installBridge({
+      planBody:
+        "# 任务与实体详情按基线重做\n\n## Brief\n\n把任务与实体详情页升级到视觉基线 v1,用共享原语组合。\n\n## Goal\n\n- 结构断言\n",
+    });
+    await mount();
+    const header = byTestId("task-detail-header");
+    // 标题经 TitleText:冒号后补充段染弱(faint span)。
+    const title = header.querySelector("h1")!;
+    expect(title.textContent).toContain("Task 表达重做");
+    // 一行目标(可展开):来自 task_plan 的 Brief,收起时一行截断。
+    const goal = byTestId("task-goal-line");
+    expect(goal.textContent).toContain("把任务与实体详情页升级到视觉基线 v1");
+    expect(goal.className).toContain("line-clamp-1");
+    // 生命周期进度在页头:阶段步进条 + 关键数字(门禁/文档/子任务)。
+    expect(header.textContent).toContain("门禁 1/1");
+    expect(header.textContent).toContain("子任务 0/1");
+    // 标签栏是下划线式共享 Tabs(§4),六个页签带 role=tab。
+    const tabsNav = byTestId("task-detail-tabs").querySelector('[role="tablist"]')!;
+    expect(tabsNav.className).toContain("border-b");
+    expect([...tabsNav.querySelectorAll('[role="tab"]')].map((tab) => tab.textContent?.trim())).toEqual([
+      "概况",
+      "派工",
+      "证据",
+      "关系",
+      "收口",
+      "文件",
+    ]);
+  });
+
+  it("overview answers 要做什么/进展到哪/卡在哪: hero for awaiting owner, warn rows for stuck causes, both vanish when empty", async () => {
+    installBridge();
+    // in_review ⇒ 需要人动手的 hero 块;无失败门禁/缺失文档 ⇒ 卡在哪整块不渲染(空了就消失)。
+    await mount();
+    const hero = byTestId("task-overview-hero");
+    expect(hero.textContent).toContain("等你裁决");
+    expect(document.querySelector('[data-testid="task-overview-stuck"]')).toBeNull();
+    // 事件按天收束(§1.4):天分组 + 事件行,全部渲染。
+    const timeline = byTestId("task-progress-timeline");
+    expect(timeline.querySelector("[data-day]")?.textContent).toContain("1 条记录");
+    expect(timeline.textContent).toContain("Review review-w3: approved");
+
+    await cleanupMountedDetail();
+    installBridge();
+    await mount({
+      task: {
+        ...task,
+        title: "Task 表达重做:补一版徽标",
+        coordinationStatus: "active",
+        gates: [
+          { name: "local-check", ok: true },
+          { name: "lint", ok: false, detail: "G05 rethrow required" },
+        ],
+        docs: [
+          {
+            path: "closeout.md",
+            title: "收口报告",
+            group: "收口",
+            required: true,
+            present: false,
+            presence: "missing",
+          },
+        ],
+        events: [
+          {
+            projectId: "repo-a",
+            taskId: "task-w3",
+            at: "2026-08-23T10:20:00.000Z",
+            summary: "Review review-w3: approved",
+          },
+          { projectId: "repo-a", taskId: "task-w3", at: "2026-08-22T09:00:00.000Z", summary: "Execution submitted" },
+        ],
+      },
+    });
+    // active 且无裁决待办 ⇒ hero 消失;失败门禁与缺失文档 ⇒ 卡在哪 有底色状态标签行。
+    expect(document.querySelector('[data-testid="task-overview-hero"]')).toBeNull();
+    const stuck = byTestId("task-overview-stuck");
+    expect(stuck.querySelectorAll('[data-status-tone="bad"]').length).toBe(2);
+    expect(stuck.textContent).toContain("lint");
+    expect(stuck.textContent).toContain("收口报告");
+    // 标题经 TitleText:冒号后的补充段染弱(§2.3)。
+    const supplement = byTestId("task-detail-header").querySelector("h1 span")!;
+    expect(supplement.className).toContain("text-text-faint");
+    expect(supplement.textContent).toContain(":补一版徽标");
+    // 两天两组,各自成组(收束),事件都在 DOM 里(完整渲染不分批)。
+    const days = [...byTestId("task-progress-timeline").querySelectorAll("[data-day]")];
+    expect(days.length).toBe(2);
+    expect(days[0]?.textContent).toContain("Review review-w3: approved");
+    expect(days[1]?.textContent).toContain("Execution submitted");
+  });
+
   it("adapts the detail card and reader to container width; manual layout controls still override", async () => {
     installBridge();
     await mount();
@@ -200,12 +291,10 @@ describe("Task detail expression", () => {
     const overview = byTestId("task-overview-tab");
     expect(overview.className).toContain("@min-[1600px]:grid-cols-[minmax(0,1fr)_19rem]");
     expect(byTestId("task-progress-timeline").closest("aside")).toBe(overview.querySelector("aside"));
-    // 密度(task_9f39e256):分区标题(eyebrow/标题/描述)压成单行 inline 条,信息不删。
-    const heading = byTestId("task-section-heading");
-    expect(heading.className).toContain("items-baseline");
-    expect(heading.textContent).toContain("PLAN");
-    expect(heading.textContent).toContain("任务计划");
-    expect(heading.textContent).toContain("目标、验收与边界的完整原文");
+    // 视觉基线 v1:分区标题用共享 Section(标题+计数+说明单行);信息不删。
+    const planHeading = [...overview.querySelectorAll("h2")].find((h2) => h2.textContent?.includes("任务计划"))!;
+    expect(planHeading.textContent).toContain("任务计划");
+    expect(planHeading.parentElement?.textContent).toContain("目标、验收与边界的完整原文");
     // 主内容外衬收窄:正文更早进入首屏。
     expect(scrollPanel.className).toContain("py-4");
     expect(scrollPanel.closest("main")?.className).toContain("py-2");

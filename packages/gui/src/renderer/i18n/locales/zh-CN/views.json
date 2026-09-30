@@ -1486,5 +1486,9 @@
   "views.workspace.tasks.loadMore": "加载更多",
   "views.workspace.tasks.loading": "正在加载…",
   "views.workspace.pendingCut": "范围数据尚未完整：显示 r{watermark}，来源 r{sourceRevision}",
-  "views.workspace.incompleteParents": "父链不完整：{refs}"
+  "views.workspace.incompleteParents": "父链不完整：{refs}",
+  "views.taskDetailView.keyNumbers": "门禁 {gatesPassed}/{gatesTotal} · 文档 {docsPresent}/{docsTotal}",
+  "views.taskDetailView.childNumbers": "子任务 {done}/{total}",
+  "views.taskDetailView.goalTitle": "目标(task_plan 的 Brief,点开全文)",
+  "views.entityDetail.neighborhoodMeta": "和谁有关：{count} 个邻居 · 最近变化"
 }

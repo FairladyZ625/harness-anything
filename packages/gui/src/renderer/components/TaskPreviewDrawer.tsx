@@ -1,29 +1,27 @@
-import { useState } from "react";
-import { ArrowSquareOut, CheckCircle, Lock, PushPin, X, XCircle } from "@phosphor-icons/react";
+import { useMemo, useState } from "react";
+import { ArrowSquareOut, Lock, PushPin, X } from "@phosphor-icons/react";
 import type { RelationEdge, TaskRow } from "../model/types";
 import { isExternal } from "../model/types";
 import { normalizeTaskId } from "../model/triadic.ts";
 import { CloseoutBadge, EngineBadge, FreshnessTag } from "./badges";
-import { StatusTag } from "./primitives/StatusTag";
+import { DayDigest } from "./primitives/DayDigest";
+import { DenseRow } from "./primitives/DenseRow";
 import { Drawer } from "./primitives/Drawer";
+import { Section } from "./primitives/Section";
+import { StatusTag } from "./primitives/StatusTag";
+import { TitleText } from "./primitives/TitleText";
+import { PhaseSteps } from "./taskDetail/PhaseSteps.tsx";
 import { t } from "../i18n/index.tsx";
 import { EntityRefLink } from "./EntityRefLink.tsx";
 import { formatTime } from "../model/time.ts";
-
-const timeOf = (iso: string) => formatTime(iso, { style: "month-day-time" }) ?? "—";
-
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="border-b border-border py-3">
-      <div className="mb-2 font-mono text-text-faint uppercase tracking-wide ui-meta">{title}</div>
-      {children}
-    </section>
-  );
-}
+import { workspaceGoalLine } from "../model/workspace-narrative.ts";
+import { useTaskDocumentQuery } from "../task-data.ts";
 
 /**
- * 任务预览:右侧抽屉里的任务实体详情。抽屉壳(定位、Esc、点外面关、进出场)
- * 由 primitives/Drawer 提供;这里只组合任务详情的内容。
+ * 任务预览:右侧抽屉里的任务实体详情,按视觉基线 §4 的抽屉内容契约组合——
+ * 生命周期进度、要做什么、做成了什么/卡在哪、关键记录、关联任务、操作按钮。
+ * 抽屉壳(定位、Esc、点外面关、进出场)由 primitives/Drawer 提供。
+ * 事件流完整渲染不分批(2026-08-25 泽宇裁决),按天收束成 DayDigest。
  */
 export function TaskPreviewDrawer({
   task,
@@ -98,8 +96,12 @@ function TaskPreviewBody({
     })
     .filter((item) => item.task);
   const missingDocs = task.docs.filter((doc) => doc.required && doc.presence !== "unknown" && !doc.present);
+  const failedGates = task.gates.filter((gate) => gate.ok === false);
   // 完整渲染,不分批(2026-08-25 泽宇裁决:性能顾虑用按需渲染解决,不转嫁给用户点击)。
   const orderedEvents = [...(task.events ?? [])].sort((a, b) => b.at.localeCompare(a.at));
+  const dayGroups = useMemo(() => groupByDay(orderedEvents), [orderedEvents]);
+  const plan = useTaskDocumentQuery(task.projectId, task.taskId, "task_plan.md");
+  const goal = plan.data?.status === "ready" && plan.data.body !== null ? workspaceGoalLine(plan.data.body) : null;
 
   return (
     <>
@@ -121,7 +123,9 @@ function TaskPreviewBody({
                 </span>
               )}
             </div>
-            <h2 className="mt-2 font-semibold leading-tight text-text ui-heading">{task.title}</h2>
+            <h2 className="mt-2 font-semibold leading-tight text-text ui-heading">
+              <TitleText title={task.title} />
+            </h2>
           </div>
           {onSetPin && (
             <button
@@ -152,165 +156,177 @@ function TaskPreviewBody({
               {t("components.taskPreviewDrawer.canonical")} {task.canonicalStatus}
             </span>
           )}
-          {task.blocking === "unknown" && (
-            <span className="text-stale ui-micro">{t("components.taskPreviewDrawer.blockingUnknown")}</span>
-          )}
           <CloseoutBadge value={task.closeoutReadiness} />
           <FreshnessTag freshness={task.freshness} lastKnownAt={task.lastKnownAt} />
         </div>
+        {/* 归属一行:父任务与所属工作都是实体链接,root 不渲染。 */}
+        {(task.parentTaskId ?? task.workId) && (
+          <p className="mt-1.5 flex flex-wrap items-center gap-1 font-mono ui-micro text-text-faint">
+            {task.parentTaskId ? (
+              <EntityRefLink
+                entityRef={`task/${task.parentTaskId}`}
+                onNavigate={() => onOpenDetail(task.parentTaskId!)}
+                title={task.parentTaskId}
+                className="text-text-faint hover:text-accent hover:underline"
+              />
+            ) : null}
+            {task.parentTaskId && task.workId ? <span>·</span> : null}
+            {task.workId ? (
+              <EntityRefLink
+                entityRef={`task/${task.workId}`}
+                onNavigate={() => onOpenDetail(task.workId!)}
+                title={task.workTitle ?? task.workId}
+                className="text-text-faint hover:text-accent hover:underline"
+              >
+                {task.workTitle ?? task.workId}
+              </EntityRefLink>
+            ) : null}
+          </p>
+        )}
       </header>
 
-      <Section title={t("components.taskPreviewDrawer.context")}>
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-2 ui-body">
-          <div>
-            <dt className="font-mono text-text-faint ui-meta">{t("components.taskPreviewDrawer.rawStatus")}</dt>
-            <dd className="font-mono text-text">{task.rawStatus}</dd>
-          </div>
-          <div>
-            <dt className="font-mono text-text-faint ui-meta">{t("components.taskPreviewDrawer.package")}</dt>
-            <dd className="font-mono text-text">{task.packageDisposition}</dd>
-          </div>
-          <div>
-            <dt className="font-mono text-text-faint ui-meta">{t("components.taskPreviewDrawer.source")}</dt>
-            <dd className="font-mono text-text">{task.origin ?? task.source}</dd>
-          </div>
-          <div>
-            <dt className="font-mono text-text-faint ui-meta">{t("components.taskPreviewDrawer.productLines")}</dt>
-            <dd className="font-mono text-text">
-              {task.productLines?.join(", ") || t("components.taskPreviewDrawer.notProjected")}
-            </dd>
-          </div>
-          <div>
-            <dt className="font-mono text-text-faint ui-meta">{t("components.taskPreviewDrawer.parentRoot")}</dt>
-            <dd className="font-mono text-text">
-              {task.parentTaskId ? (
-                <EntityRefLink
-                  entityRef={`task/${task.parentTaskId}`}
-                  onNavigate={() => onOpenDetail(task.parentTaskId!)}
-                  title={task.parentTaskId}
-                  className="text-accent hover:underline"
-                />
-              ) : (
-                "root"
-              )}{" "}
-              /{" "}
-              {task.workId ? (
-                <EntityRefLink
-                  entityRef={`task/${task.workId}`}
-                  onNavigate={() => onOpenDetail(task.workId!)}
-                  title={task.workId}
-                  className="text-accent hover:underline"
-                />
-              ) : (
-                <EntityRefLink
-                  entityRef={`task/${task.taskId}`}
-                  onNavigate={() => onOpenDetail(task.taskId)}
-                  title={task.taskId}
-                  className="text-accent hover:underline"
-                />
-              )}
-            </dd>
-          </div>
-        </dl>
+      {/* 生命周期进度:阶段投影 + 谁持有 lease(下一步谁动手)。 */}
+      <Section title={t("components.taskPreviewDrawer.lifecycle")}>
+        <PhaseSteps phase={task.phase} />
+        <p className="mt-1 font-mono tabular-nums text-text-faint ui-meta">
+          {t("components.taskPreviewDrawer.lifecycleMeta", {
+            node: task.currentNode ?? "—",
+            iteration: task.iteration ?? "—",
+            holder: task.leaseHolder ?? t("components.taskPreviewDrawer.noLease"),
+          })}
+        </p>
       </Section>
 
-      <Section title={t("components.taskPreviewDrawer.gates")}>
-        {task.gates.length === 0 ? (
-          <p className="text-text-faint ui-body">{t("components.taskPreviewDrawer.thereNoGateRecordYet")}</p>
-        ) : (
-          <div className="space-y-2">
-            {task.gates.map((gate) => (
-              <div key={gate.name} className="flex items-start gap-2 rounded-md bg-surface-raised px-3 py-2">
-                {gate.ok ? (
-                  <CheckCircle weight="duotone" className="mt-0.5 shrink-0 text-status-done ui-title" />
-                ) : (
-                  <XCircle weight="duotone" className="mt-0.5 shrink-0 text-danger ui-title" />
-                )}
-                <div className="min-w-0">
-                  <div className="font-mono text-text ui-body">{gate.name}</div>
-                  {gate.detail && (
-                    <div className={`mt-0.5 ui-body ${gate.ok ? "text-text-faint" : "text-danger"}`}>{gate.detail}</div>
-                  )}
-                </div>
-              </div>
+      {/* 要做什么:task_plan 的 Brief 一行目标,可展开(与工作页同一提取器)。 */}
+      {goal !== null && <GoalLine goal={goal} />}
+
+      {/* 卡在哪:失败门禁、缺失必填文档、阻塞未知——空了整块消失(§1.5)。 */}
+      {failedGates.length + missingDocs.length > 0 || task.blocking === "unknown" ? (
+        <Section variant="warn" title={t("components.taskPreviewDrawer.stuck")}>
+          <div className="space-y-0.5">
+            {task.blocking === "unknown" && (
+              <DenseRow
+                tag={<StatusTag tone="bad" label={t("components.taskPreviewDrawer.blockingUnknown")} />}
+                title={t("components.taskPreviewDrawer.blockingCheckHint")}
+              />
+            )}
+            {failedGates.map((gate) => (
+              <DenseRow
+                key={gate.name}
+                tag={<StatusTag tone="bad" label={t("components.taskPreviewDrawer.gateFailed")} />}
+                title={gate.name}
+                reason={gate.detail}
+              />
             ))}
-          </div>
-        )}
-      </Section>
-
-      <Section title={t("components.taskPreviewDrawer.closingMaterial")}>
-        {task.docs.length === 0 ? (
-          <p className="text-stale ui-body">{t("components.taskPreviewDrawer.documentListUnavailable")}</p>
-        ) : missingDocs.length === 0 ? (
-          <p className="text-text-muted ui-body">{t("components.taskPreviewDrawer.requiredDocumentationComplete")}</p>
-        ) : (
-          <div className="space-y-1.5">
             {missingDocs.map((doc) => (
-              <div key={doc.path} className="flex items-center gap-2 rounded-md bg-surface-raised px-3 py-2">
-                <span className="font-mono text-danger ui-body">
-                  {t("components.taskPreviewDrawer.missingDocument")}
-                </span>
-                <span className="min-w-0 flex-1 truncate ui-body">{doc.title}</span>
-                <span className="font-mono text-text-faint ui-meta">{doc.path}</span>
-              </div>
+              <DenseRow
+                key={doc.path}
+                tag={<StatusTag tone="bad" label={t("components.taskPreviewDrawer.missingDocument")} />}
+                title={doc.title}
+                reason={doc.path}
+              />
             ))}
           </div>
-        )}
-      </Section>
+        </Section>
+      ) : null}
 
-      <Section title={t("components.taskPreviewDrawer.associatedTasks")}>
-        {related.length === 0 ? (
-          <p className="text-text-faint ui-body">{t("components.taskPreviewDrawer.thereCurrentlyNoRelatedEdges")}</p>
-        ) : (
-          <div className="space-y-1.5">
-            {related.map(({ edge, task: relatedTask }) => (
-              <button
-                key={`${edge.from}-${edge.kind}-${edge.to}`}
-                onClick={() => onPreviewTask(relatedTask!.taskId)}
-                className="flex w-full items-center gap-2 rounded-md bg-surface-raised px-3 py-2 text-left hover:bg-bg"
-              >
-                <span className="font-mono text-text-faint ui-meta">{edge.kind}</span>
-                <span className="font-mono text-text ui-body">{relatedTask!.taskId}</span>
-                <span className="min-w-0 flex-1 truncate text-text-muted ui-body">{relatedTask!.title}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </Section>
+      {/* 做成了什么:通过的门禁与就绪的收口,一句话,不画框。 */}
+      {task.gates.length > 0 && failedGates.length === 0 ? (
+        <Section title={t("components.taskPreviewDrawer.made")}>
+          <p className="font-mono tabular-nums text-text-muted ui-meta">
+            {t("components.taskPreviewDrawer.gatesPassed", {
+              passed: task.gates.length,
+              readiness: task.closeoutReadiness,
+            })}
+          </p>
+        </Section>
+      ) : null}
 
-      <Section title={t("components.taskPreviewDrawer.recentEvents")}>
-        {orderedEvents.length === 0 ? (
-          <p className="text-text-faint ui-body">{t("components.taskPreviewDrawer.noEventsYet")}</p>
-        ) : (
-          <div className="space-y-2">
-            {orderedEvents.map((event) => (
-              <div
-                key={`${event.at}-${event.summary}`}
-                className="ui-body [contain-intrinsic-size:auto_1.25rem] [content-visibility:auto]"
-              >
-                <span className="font-mono text-text-faint ui-meta">{timeOf(event.at)}</span>
-                <span className="ml-2 text-text-muted">{event.summary}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </Section>
+      {/* 关联任务:行点开另一张预览;空了整块消失。 */}
+      {related.length > 0 ? (
+        <Section title={t("components.taskPreviewDrawer.associatedTasks")} count={related.length}>
+          {related.map(({ edge, task: relatedTask }) => (
+            <DenseRow
+              key={`${edge.from}-${edge.kind}-${edge.to}`}
+              tag={<span className="font-mono text-text-faint ui-micro">{edge.kind}</span>}
+              title={relatedTask!.taskId}
+              reason={relatedTask!.title}
+              onClick={() => onPreviewTask(relatedTask!.taskId)}
+            />
+          ))}
+        </Section>
+      ) : null}
+
+      {/* 关键记录:事件按天收束,每天一组;全部渲染不分批(2026-08-25 裁决),
+          天与天可各自收起,默认展开——摘要不重复正文,空了整块消失。 */}
+      {dayGroups.length > 0 ? (
+        <Section title={t("components.taskPreviewDrawer.keyRecords")} count={orderedEvents.length}>
+          {dayGroups.map((group) => (
+            <DayDigest
+              key={group.day}
+              day={group.day}
+              defaultOpen
+              summary={t("components.taskPreviewDrawer.dayRecords", { count: group.events.length })}
+              paths={group.events.map((event) => ({
+                time: formatTime(event.at, { style: "time" }) ?? undefined,
+                name: event.summary,
+                steps: [],
+                onClick: () => onOpenDetail(task.taskId),
+              }))}
+            />
+          ))}
+        </Section>
+      ) : null}
 
       <footer className="flex items-center gap-2 pt-3">
         <button
           onClick={() => onOpenDetail(task.taskId)}
-          className="inline-flex flex-1 items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 font-semibold text-accent-fg ui-prose"
+          className="inline-flex flex-1 items-center justify-center gap-2 rounded-sm bg-accent px-3 py-2 font-semibold text-accent-fg ui-prose"
         >
           <ArrowSquareOut weight="bold" />
           {t("components.taskPreviewDrawer.openFullDetails")}
         </button>
         <button
           onClick={onClose}
-          className="rounded-md border border-border px-3 py-2 text-text-muted hover:bg-surface-raised hover:text-text ui-prose"
+          className="rounded-sm border border-border px-3 py-2 text-text-muted hover:bg-surface-raised hover:text-text ui-prose"
         >
           {t("components.taskPreviewDrawer.close")}
         </button>
       </footer>
     </>
   );
+}
+
+/** 一行目标(可展开):与工作详情页同一 Brief 提取器,收起时一行截断。 */
+function GoalLine({ goal }: { readonly goal: string }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <Section title={t("components.taskPreviewDrawer.goal")}>
+      <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className={`cursor-pointer whitespace-pre-line text-text-muted ui-body ${open ? "" : "line-clamp-1"}`}
+      >
+        {goal}
+      </div>
+    </Section>
+  );
+}
+
+interface EventDayGroup {
+  readonly day: string;
+  readonly events: ReadonlyArray<{ readonly at: string; readonly summary: string }>;
+}
+
+function groupByDay(events: readonly { readonly at: string; readonly summary: string }[]): EventDayGroup[] {
+  const groups: { day: string; events: { at: string; summary: string }[] }[] = [];
+  for (const event of events) {
+    const day = formatTime(event.at, { style: "date" }) ?? event.at.slice(0, 10);
+    const last = groups.at(-1);
+    if (last !== undefined && last.day === day) last.events.push(event);
+    else groups.push({ day, events: [event] });
+  }
+  return groups;
 }

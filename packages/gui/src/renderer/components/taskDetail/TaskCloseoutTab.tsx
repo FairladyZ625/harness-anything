@@ -13,9 +13,10 @@ import {
 } from "../../model/execution-evidence.ts";
 import { CloseoutBadge } from "../badges.tsx";
 import { CopyContextButton } from "../CopyContextButton.tsx";
+import { Section } from "../primitives/Section";
 import { TaskControlPanel } from "../TaskControlPanel.tsx";
 import { TaskGateAttestCard } from "./TaskGateAttestCard.tsx";
-import { ReadError, SectionHeading, Timestamp } from "./TaskDetailSections.tsx";
+import { ReadError, Timestamp } from "./TaskDetailSections.tsx";
 
 const asideClass = "grid content-start gap-7 border-t border-border pt-6 xl:border-t-0 xl:border-l xl:pt-0 xl:pl-6";
 
@@ -80,91 +81,90 @@ export function TaskCloseoutTab({
   );
   return (
     <section data-testid="task-closeout-tab">
-      <SectionHeading
-        eyebrow="CLOSEOUT"
-        title="收口与门"
-        description="后端 closeoutAssessment、snapshot witness 与 execution 输出回执的原样展示"
-      />
-      <div className="mt-7 grid gap-8 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="grid content-start gap-8">
-          <div className="flex flex-wrap items-center gap-3 border-y border-border py-4">
-            <CloseoutBadge value={task.closeoutReadiness} />
-            {completion.isError ? <ReadError text={String(completion.error)} /> : null}
-            {completionNext ? (
-              <div data-testid="task-completion-next">
-                <p>{completionNext.reason}</p>
-                <p>{completionNext.action}</p>
-                <p>{completionNext.authority}</p>
-              </div>
-            ) : null}
-            {task.snapshotAvailability ? (
-              <span className="ml-auto font-mono ui-micro text-text-faint">
-                availability · consent {task.snapshotAvailability.consents} · code/doc{" "}
-                {task.snapshotAvailability.codeDocWitnesses} · gates {task.snapshotAvailability.gateWitnesses}
-              </span>
-            ) : null}
+      <Section title="收口与门" note="后端 closeoutAssessment、snapshot witness 与 execution 输出回执的原样展示">
+        <div className="mt-2 grid gap-8 xl:grid-cols-[minmax(0,1fr)_22rem]">
+          <div className="grid content-start gap-8">
+            <div className="flex flex-wrap items-center gap-3 border-y border-border py-4">
+              <CloseoutBadge value={task.closeoutReadiness} />
+              {completion.isError ? <ReadError text={String(completion.error)} /> : null}
+              {completionNext ? (
+                <div data-testid="task-completion-next">
+                  <p>{completionNext.reason}</p>
+                  <p>{completionNext.action}</p>
+                  <p>{completionNext.authority}</p>
+                </div>
+              ) : null}
+              {task.snapshotAvailability ? (
+                <span className="ml-auto font-mono ui-micro text-text-faint">
+                  availability · consent {task.snapshotAvailability.consents} · code/doc{" "}
+                  {task.snapshotAvailability.codeDocWitnesses} · gates {task.snapshotAvailability.gateWitnesses}
+                </span>
+              ) : null}
+            </div>
+            <CompletionPanel
+              task={task}
+              completionBlocker={completion.data?.completionBlocker ?? null}
+              onComplete={onComplete}
+              onAdjudicate={onAdjudicate}
+              onConsentReview={onConsentReview}
+            />
+            <AuditGroup title="Review" count={reviews.length}>
+              {reviews.map((review) => (
+                <AuditRow
+                  key={review.reviewId}
+                  id={review.reviewId}
+                  state={review.verdict}
+                  summary={review.reason}
+                  at={review.reviewedAt}
+                />
+              ))}
+            </AuditGroup>
+            <AuditGroup title="Consent" count={consents.length}>
+              {consents.map((consent) => (
+                <AuditRow
+                  key={consent.consentId}
+                  id={consent.consentId}
+                  state="recorded"
+                  summary={`review ${consent.reviewId}`}
+                  at={consent.consentedAt}
+                />
+              ))}
+            </AuditGroup>
+            <AuditGroup title="Code / doc witness" count={codeDocs.length}>
+              {codeDocs.map((witness) => (
+                <AuditRow
+                  key={witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId}
+                  id={witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId}
+                  state={
+                    witness.schema === "code-doc-witness/v1" || witness.paths.length > 0
+                      ? "reconciled"
+                      : "known-invalid"
+                  }
+                  summary={witness.paths.join(", ")}
+                  at={witness.schema === "code-doc-witness/v1" ? witness.reconciledAt : witness.repointedAt}
+                />
+              ))}
+            </AuditGroup>
+            <AuditGroup title="Gate witness" count={gateWitnesses.length}>
+              {gateWitnesses.map((witness) => (
+                <AuditRow
+                  key={witness.witnessId}
+                  id={witness.gateId}
+                  state={witness.result}
+                  summary={`${witness.checkerId} · ${witness.receiptId}`}
+                  at={witness.verifiedAt}
+                />
+              ))}
+            </AuditGroup>
+            <ExecutionOutputsGroup executions={executions} />
           </div>
-          <CompletionPanel
-            task={task}
-            completionBlocker={completion.data?.completionBlocker ?? null}
-            onComplete={onComplete}
-            onAdjudicate={onAdjudicate}
-            onConsentReview={onConsentReview}
-          />
-          <AuditGroup title="Review" count={reviews.length}>
-            {reviews.map((review) => (
-              <AuditRow
-                key={review.reviewId}
-                id={review.reviewId}
-                state={review.verdict}
-                summary={review.reason}
-                at={review.reviewedAt}
-              />
-            ))}
-          </AuditGroup>
-          <AuditGroup title="Consent" count={consents.length}>
-            {consents.map((consent) => (
-              <AuditRow
-                key={consent.consentId}
-                id={consent.consentId}
-                state="recorded"
-                summary={`review ${consent.reviewId}`}
-                at={consent.consentedAt}
-              />
-            ))}
-          </AuditGroup>
-          <AuditGroup title="Code / doc witness" count={codeDocs.length}>
-            {codeDocs.map((witness) => (
-              <AuditRow
-                key={witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId}
-                id={witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId}
-                state={
-                  witness.schema === "code-doc-witness/v1" || witness.paths.length > 0 ? "reconciled" : "known-invalid"
-                }
-                summary={witness.paths.join(", ")}
-                at={witness.schema === "code-doc-witness/v1" ? witness.reconciledAt : witness.repointedAt}
-              />
-            ))}
-          </AuditGroup>
-          <AuditGroup title="Gate witness" count={gateWitnesses.length}>
-            {gateWitnesses.map((witness) => (
-              <AuditRow
-                key={witness.witnessId}
-                id={witness.gateId}
-                state={witness.result}
-                summary={`${witness.checkerId} · ${witness.receiptId}`}
-                at={witness.verifiedAt}
-              />
-            ))}
-          </AuditGroup>
-          <ExecutionOutputsGroup executions={executions} />
-        </div>
 
-        <aside className={asideClass}>
-          <TaskGateAttestCard task={task} feedback={mutationFeedback} onAttest={onAttest} />
-          <TaskControlPanel task={task} feedback={mutationFeedback} onProgress={onProgress} onSubmit={onSubmit} />
-        </aside>
-      </div>
+          <aside className={asideClass}>
+            <TaskGateAttestCard task={task} feedback={mutationFeedback} onAttest={onAttest} />
+            <TaskControlPanel task={task} feedback={mutationFeedback} onProgress={onProgress} onSubmit={onSubmit} />
+          </aside>
+        </div>
+      </Section>
     </section>
   );
 }
@@ -203,10 +203,10 @@ function CompletionPanel({
   if (!["submitted", "in_review"].includes(task.coordinationStatus) || stage === "other") return null;
   const approved = (task.reviews ?? []).filter((review) => review.verdict === "approved").at(-1),
     buttonClass =
-      "rounded-md bg-accent px-2.5 py-1.5 ui-meta font-semibold text-accent-fg transition-colors duration-100 " +
+      "rounded-sm bg-accent px-2.5 py-1.5 ui-meta font-semibold text-accent-fg transition-colors duration-100 " +
       "hover:bg-accent/85 disabled:opacity-50";
   return (
-    <section data-testid="task-completion-panel" className="rounded-lg border border-accent/40 bg-accent/5 p-3">
+    <section data-testid="task-completion-panel" className="rounded border border-accent/40 bg-accent/5 p-3">
       <h3 className="ui-body font-semibold text-text">完成销账</h3>
       <p className="mt-1 ui-meta text-text-muted">
         {stage === "review"

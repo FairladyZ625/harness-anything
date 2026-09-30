@@ -3,6 +3,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { CommandPalette, type PaletteEntry } from "../src/renderer/components/CommandPalette.tsx";
@@ -154,15 +155,19 @@ describe("W6 Goal 第三项:只显示前 N 条必须显形", () => {
 
   it("任务预览抽屉的事件流完整渲染全部事件", () => {
     const markup = renderToStaticMarkup(
-      createElement(TaskPreviewDrawer, {
-        task: taskWithEvents(10),
-        tasks: FIXTURE_TASKS,
-        relations: FIXTURE_RELATIONS,
-        onClose: noop,
-        onOpenDetail: noop,
-        onPreviewTask: noop,
-        onSetPin: noop,
-      }),
+      createElement(
+        QueryClientProvider,
+        { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
+        createElement(TaskPreviewDrawer, {
+          task: taskWithEvents(10),
+          tasks: FIXTURE_TASKS,
+          relations: FIXTURE_RELATIONS,
+          onClose: noop,
+          onOpenDetail: noop,
+          onPreviewTask: noop,
+          onSetPin: noop,
+        }),
+      ),
     );
     expect(markup.match(/事件 \d+/gu)).toHaveLength(10);
     expect(markup).toContain('data-testid="task-preview-pin-toggle"');

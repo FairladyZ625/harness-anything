@@ -1486,5 +1486,9 @@
   "views.workspace.tasks.loadMore": "Load more",
   "views.workspace.tasks.loading": "Loading…",
   "views.workspace.pendingCut": "Scope data incomplete: showing r{watermark}, from r{sourceRevision}",
-  "views.workspace.incompleteParents": "Parent chain incomplete: {refs}"
+  "views.workspace.incompleteParents": "Parent chain incomplete: {refs}",
+  "views.taskDetailView.keyNumbers": "gates {gatesPassed}/{gatesTotal} · docs {docsPresent}/{docsTotal}",
+  "views.taskDetailView.childNumbers": "children {done}/{total}",
+  "views.taskDetailView.goalTitle": "Goal (task_plan Brief, click to expand)",
+  "views.entityDetail.neighborhoodMeta": "related: {count} neighbors · latest change"
 }
