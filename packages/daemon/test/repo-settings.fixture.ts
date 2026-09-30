@@ -115,7 +115,7 @@ export const openFencedRepoCell: typeof openProductRepoCell = async (input) => {
       input.rootDir,
       path.join(resolveHarnessLayout(input.rootDir).localRoot, "fixture-writer-epochs"),
     );
-  return openProductRepoCell({ ...input, defaultWriterEpochFence });
+  return authorizeFixtureCell(await openProductRepoCell({ ...input, defaultWriterEpochFence }));
 };
 
 export async function waitForFixturePublication(cell: RepoCell, opId: string, binding: RepoCellBinding): Promise<void> {
@@ -136,7 +136,7 @@ export const openBootstrappedRepoCell: typeof openProductRepoCell = async (input
       path.join(resolveHarnessLayout(input.rootDir).localRoot, "fixture-writer-epochs"),
     );
   await settleSettingsEvent({ ...input, writerEpochFence: defaultWriterEpochFence });
-  const cell = await openProductRepoCell({ ...input, defaultWriterEpochFence });
+  const cell = authorizeFixtureCell(await openProductRepoCell({ ...input, defaultWriterEpochFence }));
   try {
     await cell.read("repo.settings.read");
   } catch (error) {
@@ -146,6 +146,28 @@ export const openBootstrappedRepoCell: typeof openProductRepoCell = async (input
   }
   return cell;
 };
+
+function authorizeFixtureCell(cell: RepoCell): RepoCell {
+  return new Proxy(cell, {
+    get(target, property, receiver) {
+      if (property !== "run") return Reflect.get(target, property, receiver) as unknown;
+      return (action: Readonly<Record<string, unknown>> & { readonly kind: string }, binding: RepoCellBinding) =>
+        target.run(action, {
+          ...binding,
+          authorizationDecision: {
+            policyRef: "keycloak-policy@1",
+            actor: binding.actor,
+            subject: "settings/repository",
+            bindingsUsed: [{ authority: "keycloak", scope: action.kind }],
+            outcome: "allowed",
+            reasonCodes: ["keycloak_allowed"],
+            nextActions: [],
+            evaluatedAtCut: "fixture:keycloak",
+          },
+        });
+    },
+  });
+}
 
 async function settleSettingsEvent(input: {
   readonly repoId: string;

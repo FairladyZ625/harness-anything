@@ -108,7 +108,20 @@ export function localDefaultBinding(
 }
 
 function withSessionEnvironment(binding: RepoCellBinding, auth: DaemonAuthenticationContext): RepoCellBinding {
-  return auth.sessionEnvironment === undefined ? binding : { ...binding, sessionEnvironment: auth.sessionEnvironment };
+  return {
+    ...binding,
+    ...(auth.sessionEnvironment === undefined ? {} : { sessionEnvironment: auth.sessionEnvironment }),
+    ...(auth.oidcPrincipal === undefined
+      ? {}
+      : {
+          keycloakAuthorization: {
+            accessToken: auth.oidcPrincipal.accessToken,
+            url: auth.oidcPrincipal.authority.url,
+            realm: auth.oidcPrincipal.authority.realm,
+            clientId: auth.oidcPrincipal.authority.clientId,
+          },
+        }),
+  };
 }
 
 export async function binding(
@@ -148,6 +161,7 @@ export async function binding(
       auth,
     );
   }
+  if (auth.oidcPrincipal && auth.oidcPrincipal.expiresAt > Date.now()) return localDefaultBinding(auth, executor);
   const roster = loadPeopleRosterIfPresent({ rootDir });
   if (roster === null) return localDefaultBinding(auth, executor);
   const resolved = await makeTransportDerivedIdentityProvider(roster).resolveActor({

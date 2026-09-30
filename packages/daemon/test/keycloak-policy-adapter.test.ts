@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { actionDeclarations } from "@harness-anything/kernel";
 import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
+import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
 
 const config = { url: "http://127.0.0.1:8080", realm: "harness", resourceServerClientId: "harness-center" };
 
@@ -99,6 +100,56 @@ test("online evaluation returns explicit allow and denies unknown, negative, and
     }),
     /offline/u,
   );
+});
+
+test("RepoCell online evaluation uses the authenticated token and exact repository or entity resource", async () => {
+  const permissions: string[] = [],
+    binding = {
+      actor: { principal: { personId: "person-a" }, executor: null },
+      source: "local" as const,
+      keycloakAuthorization: {
+        accessToken: "user-token",
+        url: config.url,
+        realm: config.realm,
+        clientId: config.resourceServerClientId,
+      },
+    },
+    fetchPort = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      assert.equal(new Headers(init?.headers).get("authorization"), "Bearer user-token");
+      permissions.push(new URLSearchParams(String(init?.body)).get("permission") ?? "");
+      return Response.json({ result: true });
+    };
+  const repository = await evaluateRepoCellAction({
+      action: { kind: "repo-bootstrap" },
+      binding,
+      actionId: "action-repository",
+      repoId: "repo-a",
+      revision: 4,
+      now: "2026-09-30T00:00:00.000Z",
+      fetchPort,
+    }),
+    entity = await evaluateRepoCellAction({
+      action: { kind: "task-start", taskId: "task_123" },
+      binding,
+      actionId: "action-entity",
+      repoId: "repo-b",
+      revision: 5,
+      now: "2026-09-30T00:00:01.000Z",
+      fetchPort,
+    }),
+    missing = await evaluateRepoCellAction({
+      action: { kind: "task-start", taskId: "task_123" },
+      binding: { actor: binding.actor, source: "local" },
+      actionId: "action-missing-session",
+      repoId: "repo-b",
+      revision: 6,
+      now: "2026-09-30T00:00:02.000Z",
+      fetchPort,
+    });
+  assert.equal(repository.outcome, "allowed");
+  assert.equal(entity.outcome, "allowed");
+  assert.deepEqual(permissions, ["repo-a#repo-bootstrap", "repo-b:task/task_123#task-start"]);
+  assert.deepEqual(missing.reasonCodes, ["authentication_required"]);
 });
 
 test("group validation rejects unknown scopes and inheritance cycles before any Keycloak write", () => {

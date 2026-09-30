@@ -43,10 +43,13 @@ test("PKCE login validates state, keeps tokens daemon-side, and binds the Keyclo
   const completed = await service.complete("authorization-code", String(begun.state));
   assert.deepEqual(completed, { ok: true, authenticated: true, personId: "person-zeyu", expiresAt: 61_000 });
   assert.match(await requests[0]!.text(), /code_verifier=/u);
-  assert.deepEqual(service.bind({ transportKind: "unix-socket" }).oidcPrincipal, {
+  const bound = service.bind({ transportKind: "unix-socket" }).oidcPrincipal;
+  assert.deepEqual(bound && { ...bound, accessToken: "<redacted>" }, {
     personId: "person-zeyu",
     subject: "keycloak-subject",
     expiresAt: 61_000,
+    accessToken: "<redacted>",
+    authority: { url: "http://127.0.0.1:8080", realm: "harness", clientId: "harness-center" },
   });
   assert.equal(service.requireRole("access-admin").personId, "person-zeyu");
   assert.equal("accessToken" in completed, false);
@@ -81,7 +84,13 @@ test("repository actions fail closed without a live OIDC principal", () => {
     () =>
       localDefaultBinding({
         transportKind: "unix-socket",
-        oidcPrincipal: { personId: "person-expired", subject: "subject", expiresAt: Date.now() - 1 },
+        oidcPrincipal: {
+          personId: "person-expired",
+          subject: "subject",
+          expiresAt: Date.now() - 1,
+          accessToken: "expired",
+          authority: { url: "http://127.0.0.1:8080", realm: "harness", clientId: "harness-center" },
+        },
       }),
     { code: "authentication_required" },
   );

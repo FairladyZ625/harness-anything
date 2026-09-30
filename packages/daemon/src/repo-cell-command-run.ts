@@ -11,8 +11,7 @@ import {
 } from "@harness-anything/kernel";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import {
-  authorizeDurableRepoCellAction,
-  authorizeRepoCellAction,
+  evaluateRepoCellAction,
   bindVerifiedExecutorClaim,
   withAuthorizationDecision,
 } from "./repo-cell-authorization.ts";
@@ -47,7 +46,7 @@ export function makeRepoCellCommandRunner(context: RepoCellApiContext) {
       durable = (durablePolicyActions as readonly string[]).includes(action.kind),
       // A durable executor claim is verified in the publication turn that authorizes and executes it.
       claimAtPublication = durable && action.executor != null,
-      bindExecutorClaim = (): WriteReceipt | null => {
+      bindExecutorClaim = async (): Promise<WriteReceipt | null> => {
         try {
           ({ action, binding } = bindVerifiedExecutorClaim({
             ...requested,
@@ -58,7 +57,13 @@ export function makeRepoCellCommandRunner(context: RepoCellApiContext) {
         } catch (error) {
           const revision = context.store.readHead()?.revision ?? 0,
             actionId = context.operationId(requested.action, requested.binding, context.input.repoId, revision),
-            decision = authorizeRepoCellAction({ ...requested, actionId, revision, now: context.now() });
+            decision = await evaluateRepoCellAction({
+              ...requested,
+              actionId,
+              repoId: context.input.repoId,
+              revision,
+              now: context.now(),
+            });
           return withAuthorizationDecision(
             context.failed(actionId, error),
             decision,
@@ -71,22 +76,29 @@ export function makeRepoCellCommandRunner(context: RepoCellApiContext) {
       const { executor: _claim, ...unclaimed } = action;
       action = unclaimed as RepoTaskAction;
     } else {
-      const claimRejected = bindExecutorClaim();
+      const claimRejected = await bindExecutorClaim();
       if (claimRejected) return claimRejected;
     }
     const command = entityActionCommandTopology(commandDescriptorForAction(action.kind), action),
-      authorizeAtCurrentCut = (): AuthorizationDecision | null => {
+      authorizeAtCurrentCut = (): Promise<AuthorizationDecision> | null => {
         const revision = context.store.readHead()?.revision ?? 0,
           actionId = context.operationId(action, binding, context.input.repoId, revision);
-        return authorizeDurableRepoCellAction({ action, binding, actionId, revision, now: context.now() });
+        return evaluateRepoCellAction({
+          action,
+          binding,
+          actionId,
+          repoId: context.input.repoId,
+          revision,
+          now: context.now(),
+        });
       },
-      frameCurrent = (
+      frameCurrent = async (
         receipt: WriteReceiptDraft,
         criteria: readonly EntityActionUnmetCriterionV1[] = [],
         explanation?: string,
-      ): WriteReceipt =>
+      ): Promise<WriteReceipt> =>
         durable
-          ? withAuthorizationDecision(receipt, authorizeAtCurrentCut()!, criteria, explanation)
+          ? withAuthorizationDecision(receipt, await authorizeAtCurrentCut()!, criteria, explanation)
           : (receipt as WriteReceipt);
     const recoveryCommand =
         context.state === "attached" ? null : recoveryCommandPolicy(action.kind, context.causeClass),
@@ -147,10 +159,10 @@ export function makeRepoCellCommandRunner(context: RepoCellApiContext) {
         replaceAfterPublication = false;
       const pending = chainRepoCellWrite(context.tail, async () => {
         context.queueDepth -= 1;
-        const claimRejected = claimAtPublication ? bindExecutorClaim() : null;
+        const claimRejected = claimAtPublication ? await bindExecutorClaim() : null;
         if (claimRejected) return claimRejected;
         if (durable) {
-          queuedDecision = authorizeAtCurrentCut()!;
+          queuedDecision = await authorizeAtCurrentCut()!;
           if (queuedDecision.outcome === "denied")
             return withAuthorizationDecision(
               context.rejected(
@@ -279,7 +291,7 @@ export function makeRepoCellCommandRunner(context: RepoCellApiContext) {
                 execution,
               ),
             ),
-          (error) => failAction(error, durable ? authorizeAtCurrentCut()! : undefined),
+          async (error) => failAction(error, durable ? await authorizeAtCurrentCut()! : undefined),
         );
     const externalRead = readBeforeWriteQueue(context, action, binding);
     if (externalRead)
@@ -293,7 +305,7 @@ export function makeRepoCellCommandRunner(context: RepoCellApiContext) {
                 publish.ingest!(authorizationDecision ? { ...binding, authorizationDecision } : binding)),
           ),
         )
-        .catch((error) => failAction(error, durable ? authorizeAtCurrentCut()! : undefined));
+        .catch(async (error) => failAction(error, durable ? await authorizeAtCurrentCut()! : undefined));
     return enqueuePublication((authorizationDecision) =>
       context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding),
     );

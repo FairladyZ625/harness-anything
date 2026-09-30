@@ -56,7 +56,6 @@ import {
 import { executeRelationAction, publicationKillpoints, reject } from "./entity-action-relation.ts";
 import { decisionRelationLinkResolver } from "./entity-document-links.ts";
 import { actionReceiptGuidance } from "./receipt-guidance.ts";
-import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
 import { attachDecisionReviewerArtifact } from "./reviewer-artifact-publication.ts";
 import { decisionReviewState } from "./decision-review-read.ts";
 import { assertDecisionReviewerIndependent } from "./decision-review-authorization.ts";
@@ -758,19 +757,7 @@ function decisionAuthorization(
   }
   if (!judgment && action.kind !== "decision-override-review") return authorizationDecision;
   const approval = decisionApproval(action, binding),
-    directHuman = binding.actor.executor === null,
-    proposalOwner = proposalActor !== null && isSamePerson(proposalActor, binding.actor);
-  if (!proposalOwner || action.kind === "decision-reject" || action.kind === "decision-override-review") {
-    const arbiterDecision = authorizeRepoCellAction({
-      action: { ...action, kind: "decision-reject" },
-      binding,
-      actionId: opId,
-      revision: input.store.readHead()?.revision ?? 0,
-      now: input.now(),
-    });
-    if (arbiterDecision.outcome !== "allowed")
-      reject("actor_unauthorized", "Decision adjudication by a non-proposer requires arbiter authority.");
-  }
+    directHuman = binding.actor.executor === null;
   if (action.kind === "decision-reject" || action.kind === "decision-override-review") {
     if (!directHuman && !approval)
       reject(
@@ -781,10 +768,10 @@ function decisionAuthorization(
       );
     return authorizationDecision;
   }
-  if (proposalActor === null || (!proposalOwner && !directHuman && !approval))
+  if (proposalActor === null || (!directHuman && !approval))
     reject(
       "actor_unauthorized",
-      `Decision ${action.kind === "decision-accept" ? "acceptance" : "deferral"} requires the proposal owner principal or explicit human approval.`,
+      `Decision ${action.kind === "decision-accept" ? "acceptance" : "deferral"} requires explicit human approval.`,
     );
   return authorizationDecision;
 }

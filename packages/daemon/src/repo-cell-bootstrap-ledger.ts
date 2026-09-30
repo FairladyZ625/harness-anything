@@ -25,7 +25,7 @@ export async function initializeBootstrapLedger(
         : { authorizationBindingMode: "declared" as const, roleBindings }),
     },
     revision = store.readHead()?.revision ?? 0,
-    authorizationDecision = authorizeRepoCellAction({
+    authorizationDecision = await authorizeRepoCellAction({
       action: { kind: "repo-bootstrap" },
       binding: baseBinding,
       actionId: `repo-bootstrap:${cell.input.repoId}:${revision}`,

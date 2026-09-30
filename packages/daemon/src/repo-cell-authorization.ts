@@ -9,7 +9,6 @@ import {
   taskIsDescendantOf,
   stableStringify,
   verifyDelegatedExecutionToken,
-  type AuthorizationContext,
   type AuthorizationDecision,
   type DelegatedExecutionToken,
   type DelegatedExecutionTokenReasonCode,
@@ -17,15 +16,83 @@ import {
   type WriteReceipt,
   type WriteReceiptDraft,
   type EntityRef,
-  type ReceiptJsonValue,
   type ReceiptDiagnostic,
   type TaskProjection,
 } from "@harness-anything/kernel";
-import { authorizeAction } from "./authorization.ts";
 import { declaredRoleBindingsFromRoster } from "./identity/declared-role-binding-projection.ts";
+import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 const repositoryTarget: EntityRef = "settings/repository";
+
+export async function evaluateRepoCellAction(input: {
+  readonly action: RepoTaskAction;
+  readonly binding: RepoCellBinding;
+  readonly actionId: string;
+  readonly repoId: string;
+  readonly revision: number;
+  readonly now: string;
+  readonly targetOverride?: EntityRef;
+  readonly fetchPort?: typeof fetch;
+}): Promise<AuthorizationDecision> {
+  const target = input.targetOverride ?? actionTarget(input.action),
+    envelope = composeDurableActionEnvelope({
+      actionId: input.actionId,
+      kind: input.action.kind,
+      target,
+      actor: input.binding.actor,
+      idempotencyKey: typeof input.action.idempotencyKey === "string" ? input.action.idempotencyKey : input.actionId,
+    });
+  const admitted = input.binding.authorizationDecision;
+  if (
+    admitted?.policyRef === "keycloak-policy@1" &&
+    admitted.outcome === "allowed" &&
+    admitted.bindingsUsed.some((binding) => binding.scope === input.action.kind)
+  ) {
+    const token = input.binding.delegatedExecutionToken;
+    return token
+      ? {
+          ...admitted,
+          actor: envelope.actor,
+          subject: envelope.target,
+          bindingsUsed: [
+            ...admitted.bindingsUsed,
+            {
+              proof: "delegated-execution-token",
+              tokenId: token.tokenId,
+              issuerPersonId: token.issuer.personId,
+              runtimeSessionId: token.delegate.runtimeSessionId,
+            },
+          ],
+          evaluatedAtCut: `canonical:${input.revision}`,
+        }
+      : admitted;
+  }
+  const credential = input.binding.keycloakAuthorization;
+  if (!credential)
+    return keycloakDecision(envelope, `canonical:${input.revision}`, "denied", "authentication_required");
+  const adapter = new KeycloakPolicyAdapter(
+      {
+        url: credential.url,
+        realm: credential.realm,
+        resourceServerClientId: credential.clientId,
+      },
+      input.fetchPort,
+    ),
+    result = await adapter.authorize({
+      userAccessToken: credential.accessToken,
+      action: input.action.kind,
+      resource:
+        target === repositoryTarget
+          ? { kind: "repository", repoId: input.repoId }
+          : {
+              kind: "entity",
+              repoId: input.repoId,
+              entityRef: target,
+            },
+    });
+  return keycloakDecision(envelope, `canonical:${input.revision}`, result.outcome, result.reasonCode);
+}
 
 export function authorizeRepoCellAction(input: {
   readonly action: RepoTaskAction;
@@ -36,49 +103,37 @@ export function authorizeRepoCellAction(input: {
   readonly targetOverride?: EntityRef;
 }): AuthorizationDecision {
   const target = input.targetOverride ?? actionTarget(input.action),
-    assignment = input.binding.assignmentScope,
-    assignmentSource =
-      typeof input.binding.source === "object" && input.binding.source.kind === "assignment"
-        ? input.binding.source
-        : null,
-    context: AuthorizationContext = {
-      ...(input.binding.source === "local" && input.binding.authorizationBindingMode !== "declared"
-        ? {
-            defaultBinding: {
-              principalPersonId: input.binding.actor.principal.personId,
-              source: "local" as const,
-            },
-          }
-        : {}),
-      ...(input.binding.roleBindings === undefined ? {} : { roleBindings: input.binding.roleBindings }),
-      ...(input.binding.delegatedExecutionToken === undefined
-        ? {}
-        : { delegatedExecutionToken: input.binding.delegatedExecutionToken }),
-      roleBindingTargets: [repositoryTarget],
-      ...(assignment
-        ? {
-            assignmentBinding: {
-              repoId: assignment.repoId,
-              nodeId: assignmentSource?.nodeId ?? "",
-              assignmentId: assignmentSource?.assignmentId ?? "",
-              scope: assignment.scope as unknown as Readonly<Record<string, ReceiptJsonValue>>,
-              ...(input.binding.writerEpoch === undefined ? {} : { writerEpoch: input.binding.writerEpoch }),
-            },
-          }
-        : {}),
-      evaluatedAt: input.now,
-      writeSource: input.binding.source,
-      target: {},
-      evaluatedAtCut: `canonical:${input.revision}`,
-    },
     envelope = composeDurableActionEnvelope({
       actionId: input.actionId,
       kind: input.action.kind,
       target,
       actor: input.binding.actor,
       idempotencyKey: typeof input.action.idempotencyKey === "string" ? input.action.idempotencyKey : input.actionId,
-    });
-  return authorizeAction(envelope, context);
+    }),
+    decision = input.binding.authorizationDecision;
+  return decision?.policyRef === "keycloak-policy@1" && decision.outcome === "allowed"
+    ? decision
+    : keycloakDecision(envelope, `canonical:${input.revision}`, "denied", "authentication_required");
+}
+
+function keycloakDecision(
+  action: ReturnType<typeof composeDurableActionEnvelope>,
+  evaluatedAtCut: string,
+  outcome: AuthorizationDecision["outcome"],
+  reasonCode: string,
+): AuthorizationDecision {
+  return Object.freeze({
+    policyRef: "keycloak-policy@1",
+    actor: action.actor,
+    subject: action.target,
+    bindingsUsed: Object.freeze([{ authority: "keycloak", scope: action.kind }]),
+    outcome,
+    reasonCodes: Object.freeze([reasonCode]),
+    nextActions: Object.freeze(
+      outcome === "allowed" ? [] : ["Sign in with Keycloak and request an applicable policy group."],
+    ),
+    evaluatedAtCut,
+  });
 }
 
 /**

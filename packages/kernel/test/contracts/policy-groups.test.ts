@@ -15,7 +15,7 @@ import {
 import type { ActionDeclaration } from "../../src/domain/action-declaration.ts";
 
 test("every declaration has one minimum Base tier and one unique Keycloak scope", () => {
-  assert.equal(actionDeclarations.length, 139);
+  assert.equal(actionDeclarations.length, 138);
   assert.equal(new Set(actionDeclarations.map((item) => item.policyAction)).size, actionDeclarations.length);
   for (const declaration of actionDeclarations) {
     assert.equal(declaration.policyAction, declaration.kind);

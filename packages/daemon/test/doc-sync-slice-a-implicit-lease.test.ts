@@ -12,7 +12,6 @@ import {
 } from "@harness-anything/kernel";
 import { runDocAction } from "../src/doc-sync-actions.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { authorizeRepoCellAction } from "../src/repo-cell-authorization.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
@@ -725,13 +724,16 @@ test("the named release-and-re-enter recovery terminates for a bound runtime ses
         const revision = eventStore.readHead()?.revision ?? 0;
         return {
           ...baseBinding,
-          authorizationDecision: authorizeRepoCellAction({
-            action,
-            binding: baseBinding,
-            actionId: `recovery-terminates:${revision}`,
-            revision,
-            now,
-          }),
+          authorizationDecision: {
+            policyRef: "keycloak-policy@1",
+            actor: runtimeActor,
+            subject: "settings/repository" as const,
+            bindingsUsed: [{ authority: "keycloak", scope: action.kind }],
+            outcome: "allowed" as const,
+            reasonCodes: ["keycloak_allowed"],
+            nextActions: [],
+            evaluatedAtCut: `canonical:${revision}`,
+          },
         };
       };
     const rejected = (await runDocAction({

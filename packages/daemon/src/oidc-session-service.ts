@@ -135,9 +135,16 @@ export class OidcSessionService {
   bind(auth: DaemonAuthenticationContext): DaemonAuthenticationContext {
     const session = this.#session();
     if (!session || session.expiresAt <= this.#ports.now()) return auth;
+    const config = this.#config();
     return {
       ...auth,
-      oidcPrincipal: { personId: session.personId, subject: session.subject, expiresAt: session.expiresAt },
+      oidcPrincipal: {
+        personId: session.personId,
+        subject: session.subject,
+        expiresAt: session.expiresAt,
+        accessToken: session.accessToken,
+        authority: { ...config, clientId: "harness-center" },
+      },
     };
   }
 

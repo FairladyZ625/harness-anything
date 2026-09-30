@@ -19,7 +19,7 @@ import {
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { resolvePacketAction, type PacketActionContract } from "./repo-cell-action-parse.ts";
 import type { RepoCellRuntimeContext } from "./repo-cell-action-context.ts";
-import { authorizeRepoCellAction } from "./repo-cell-authorization.ts";
+import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import type { EntityActionCatalogRunner } from "./entity-action-catalog-executor.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { TrustedScheduleSpawn } from "./runtime-spawn.ts";
@@ -65,10 +65,11 @@ export function makeScheduleActionRuntime(
     const revision = cell.store.readHead()?.revision ?? 0,
       actionId = cell.operationId(action, binding, cell.input.repoId, revision),
       { authorizationDecision: _previousDecision, ...unframed } = binding,
-      authorizationDecision = authorizeRepoCellAction({
+      authorizationDecision = await evaluateRepoCellAction({
         action,
         binding: unframed,
         actionId,
+        repoId: cell.input.repoId,
         revision,
         now: cell.now(),
       });

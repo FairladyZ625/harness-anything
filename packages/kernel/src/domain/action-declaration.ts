@@ -72,6 +72,7 @@ const runtimeAdmin = (kind: string): ActionDeclaration =>
     catalogId: null,
     executionClass: "admin",
     policyAction: kind,
+    policyTier: "admin",
     residency: runtimeResidency,
     receiptSettlement: "none",
   });
