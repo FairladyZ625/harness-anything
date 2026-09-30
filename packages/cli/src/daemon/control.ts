@@ -83,6 +83,21 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     if (command === "stop") {
       const pid = readDaemonPid(userRoot, daemonId);
       if (pid === null) return finish(daemonFailure("daemon-stop", "daemon_unavailable", "No daemon is running."), 1);
+      if (daemonProcessAlive(pid) && !argv.includes("--daemon-id")) {
+        try {
+          await resolveLocalDaemonTarget({ rootDir: invokingRoot, userRoot, daemonId, env: {} });
+        } catch (error) {
+          if (code(error) !== "workspace_not_registered") throw error;
+          return finish(
+            daemonFailure(
+              "daemon-stop",
+              "workspace_not_registered",
+              "Run this command from a workspace mounted by the daemon, or select the daemon explicitly with --daemon-id.",
+            ),
+            1,
+          );
+        }
+      }
       if (argv.includes("--force")) {
         const forced = await forceStopDaemon(userRoot, daemonId, pid);
         return finish(forced, forced.ok === true ? 0 : 1);
