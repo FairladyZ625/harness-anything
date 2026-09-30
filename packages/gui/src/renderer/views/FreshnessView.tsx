@@ -326,7 +326,7 @@ export function FreshnessView({
             {t("views.freshnessView.empty")}
           </StatusLine>
         ) : (
-          <div data-testid="freshness-rows" className="max-w-[1100px]">
+          <div data-testid="freshness-rows">
             {SECTION_ORDER.map((reason) => {
               const groups = grouped.get(reason);
               if (!groups || groups.length === 0) return null;

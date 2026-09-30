@@ -262,7 +262,7 @@ export function AttestationPoolView({
             />
           </div>
           <div className="min-h-0 flex-1 overflow-auto px-5 pb-10 pt-1 md:px-7">
-            <div className="max-w-[1100px]">
+            <div>
               {taskCloseoutCount === 0 ? (
                 <p data-testid="pool-closeout-clear" className="flex items-center gap-2 py-2 text-text-faint ui-body">
                   <StatusTag tone="done" label={t("views.attestationPoolView.allClear")} />
