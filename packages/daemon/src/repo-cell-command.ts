@@ -236,7 +236,6 @@ export function buildCommand(
                 (review) =>
                   review.executionId === executionId &&
                   review.iteration === execution.iteration &&
-                  review.verdict === "changes_requested" &&
                   review.submissionDigest === submissionDigest(execution.submission!),
               )
               .at(-1)?.reviewId
