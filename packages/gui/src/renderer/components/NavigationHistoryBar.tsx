@@ -21,7 +21,7 @@ export function NavigationHistoryBar({
   return (
     <div
       data-testid="nav-history-bar"
-      className="flex items-center gap-0.5 border-b border-border bg-surface/60 px-2 py-1"
+      className="titlebar-drag flex items-center gap-0.5 border-b border-border bg-surface/60 px-2 py-1"
     >
       <button
         type="button"
@@ -29,7 +29,7 @@ export function NavigationHistoryBar({
         disabled={!canBack}
         title={t("navHistory.back")}
         aria-label={t("navHistory.back")}
-        className={`grid size-6 place-items-center rounded ${
+        className={`titlebar-no-drag grid size-6 place-items-center rounded ${
           canBack ? "text-text-muted hover:bg-surface-raised hover:text-text" : "text-text-faint opacity-40"
         }`}
       >
@@ -41,7 +41,7 @@ export function NavigationHistoryBar({
         disabled={!canForward}
         title={t("navHistory.forward")}
         aria-label={t("navHistory.forward")}
-        className={`grid size-6 place-items-center rounded ${
+        className={`titlebar-no-drag grid size-6 place-items-center rounded ${
           canForward ? "text-text-muted hover:bg-surface-raised hover:text-text" : "text-text-faint opacity-40"
         }`}
       >

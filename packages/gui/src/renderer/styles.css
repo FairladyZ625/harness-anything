@@ -264,6 +264,23 @@ html[data-theme="light"] {
 }
 
 /*
+ * macOS 无系统标题栏(task_e2786fc223f0a039317cc649d2;titleBarStyle hiddenInset):
+ * 应用自己的两处顶行(侧栏 HARNESS 行、主区前进/后退行)成为窗口拖拽区,空白处拖动
+ * 移动窗口、双击按系统设置缩放;行内交互件以 no-drag 摘出。红绿灯浮在侧栏顶行的
+ * 顶部留白带上(留白量按缩放比率换算,见 platform.ts),文字整体在红绿灯下方起步,
+ * 横向零占位。分叉只认 html[data-platform="mac"],Windows/Linux 不带标记、行为不变。
+ */
+html[data-platform="mac"] .titlebar-drag {
+  -webkit-app-region: drag;
+}
+html[data-platform="mac"] .titlebar-no-drag {
+  -webkit-app-region: no-drag;
+}
+html[data-platform="mac"] .titlebar-traffic-top {
+  padding-top: var(--titlebar-top-inset, 40px);
+}
+
+/*
  * 字阶变量（CJK 底线：中文 ≥12px；micro 仅 mono id）
  * micro:11 / meta:13 / body:14 / title:16 / heading:20 / prose:15
  * v2(gui-visual-language-standard §3):正文 14px 行高 1.5,辅助 12.5–13px 行高 1.45。

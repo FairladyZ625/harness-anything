@@ -7,6 +7,7 @@ import {
   createGuiContentSecurityPolicy,
   createGuiWindowOptions,
   guiContentSecurityPolicy,
+  guiPlatformWindowOptions,
   isNavigableAppDocumentUrl,
   isTrustedRendererUrl,
 } from "../src/index.ts";
@@ -92,6 +93,15 @@ test("the main window enables only the policy-guarded HTML artifact webview surf
   assert.equal(options.webPreferences.contextIsolation, true);
   assert.equal(options.webPreferences.sandbox, true);
   assert.equal(options.webPreferences.webSecurity, true);
+});
+
+// task_e2786fc223f0a039317cc649d2:macOS 隐藏系统标题栏,红绿灯嵌进应用自己的顶行;
+// 其余平台窗口参数一个不动(空对象,保持系统标题栏)。
+test("platform window options hide the system title bar only on macOS", () => {
+  assert.deepEqual(guiPlatformWindowOptions("darwin"), { titleBarStyle: "hiddenInset" });
+  for (const platform of ["win32", "linux"] as const) {
+    assert.deepEqual(guiPlatformWindowOptions(platform), {});
+  }
 });
 
 test("dev renderer origin follows the loopback URL the dev script passes and ignores anything else", () => {
