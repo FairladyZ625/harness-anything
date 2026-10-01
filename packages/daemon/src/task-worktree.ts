@@ -266,21 +266,28 @@ export async function reconcileClosedTaskWorktrees(
   const rows: ReconciledTaskWorktree[] = [];
   for (const taskId of new Set([...namedTaskIds, ...worktreeDirectories(input.rootDir)])) {
     const task = input.readTask(taskId),
-      binding = taskWorktreeBinding(task, input.readPresetSnapshot),
-      cwd = binding && task && taskClosed(task) ? path.join(input.rootDir, binding.path) : null,
-      baseRef = cwd && existsSync(cwd) ? repositoryBaseRef(input.rootDir) : null;
-    if (!binding || !cwd || !baseRef) continue;
-    const worktree: ManagedWorktree = { cwd, branch: binding.branch, baseRef },
-      result = await reclaimManagedWorktree(input.rootDir, worktree);
-    rows.push({
-      taskId,
-      named: namedTaskIds.includes(taskId),
-      worktree,
-      result,
-      detail: reclaimDetail("Worktree", worktree, result),
-    });
+      binding = task && taskClosed(task) ? taskWorktreeBinding(task, input.readPresetSnapshot) : null,
+      row = binding && (await reclaimClosedTaskWorktree(input.rootDir, taskId, binding));
+    if (row) rows.push({ ...row, named: namedTaskIds.includes(taskId) });
   }
   return rows;
+}
+
+/**
+ * Reclaims what this node holds for one closed task: the one rule a close, a daemon start and an edge's mirror
+ * sync all end a task worktree by. Null when this node has no checkout of it, or no default branch to judge by.
+ */
+export async function reclaimClosedTaskWorktree(
+  rootDir: string,
+  taskId: string,
+  binding: TaskWorktreeBindingV1,
+): Promise<Omit<ReconciledTaskWorktree, "named"> | null> {
+  const cwd = path.join(rootDir, binding.path),
+    baseRef = existsSync(cwd) ? repositoryBaseRef(rootDir) : null;
+  if (!baseRef) return null;
+  const worktree: ManagedWorktree = { cwd, branch: binding.branch, baseRef },
+    result = await reclaimManagedWorktree(rootDir, worktree);
+  return { taskId, worktree, result, detail: reclaimDetail("Worktree", worktree, result) };
 }
 
 /** What a daemon start adds to the shared sweep: the orphan cancellations, and how the rows are reported. */
@@ -312,7 +319,7 @@ export async function reconcileAbandonedTaskWorktrees(
 }
 
 /** The directories under this node's `.worktrees/`; each task-bound one is named by its task id. */
-function worktreeDirectories(rootDir: string): readonly string[] {
+export function worktreeDirectories(rootDir: string): readonly string[] {
   const directory = path.join(rootDir, ".worktrees");
   return existsSync(directory)
     ? readdirSync(directory, { withFileTypes: true })
@@ -357,7 +364,11 @@ function withNotes(receipt: WriteReceipt, notes: readonly string[], warnings: re
   };
 }
 
-function taskClosed(task: TaskV2): boolean {
+/** Closed is the same judgment wherever the two fields come from: a projection here, a mirrored package on an edge. */
+export function taskClosed(task: {
+  readonly status: TaskV2["status"];
+  readonly packageDisposition?: string | undefined;
+}): boolean {
   return isTerminalStatus(task.status) || (task.packageDisposition ?? "active") !== "active";
 }
 
