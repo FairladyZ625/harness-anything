@@ -258,8 +258,14 @@ describe("CadenceView", () => {
     await act(async () => fleetTab.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(fleetTab.getAttribute("aria-selected")).toBe("true");
     expect(textOf(container, "cadence-fleet")).toContain("codex · gpt-5.6-sol");
-    expect(textOf(container, "cadence-fleet")).toContain("Fact 1 · Decision 0 · 触碰文件 1");
+    // 任务标题是主文本(来自 tasks 投影行的 title);完整 taskId 只留在悬停 title 里。
+    expect(textOf(container, "cadence-fleet")).toContain("在飞任务");
+    expect(textOf(container, "cadence-fleet")).not.toContain("task_live");
+    expect(textOf(container, "cadence-fleet")).toContain("Fact 1 · 决策 0 · 文件 1");
     expect(textOf(container, "cadence-fleet-fence")).toContain("无租约冲突");
+    // 流动概况:在飞/待认领/收口计数来自任务池全量。
+    expect(textOf(container, "cadence-fleet-flow")).toContain("在飞任务");
+    expect(textOf(container, "cadence-fleet-flow")).toContain("待认领");
     const taskLink = [...container.querySelectorAll('[data-testid="cadence-fleet-worker"] button')][0]!;
     await act(async () => taskLink.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(navigate).toHaveBeenCalledWith("task/task_live");
@@ -466,6 +472,49 @@ describe("CadenceView", () => {
 
     // 切换后历史 worker 重新可见
     expect(textOf(container, "cadence-fleet")).toContain("codex · gpt-5.6-sol");
+  });
+
+  it("renders fleet collisions with task titles, outcome tags and one row per worker", async () => {
+    const liveSession = (id: string, taskId: string): AgentRuntimeSessionDto =>
+      ({
+        runtimeSessionId: id,
+        instanceId: id,
+        kindId: "codex",
+        liveness: "live",
+        definitionSnapshot: { kindId: "codex", model: "gpt-5.6-sol" },
+        associations: [{ taskId, executionId: `exe_${id}`, holder: null, lease: { phase: "held", expiresAt: NOW } }],
+        activity: { lastObservedAt: NOW, outcome: null, exitCode: null, resultRef: null, missingEvidence: null },
+      }) as AgentRuntimeSessionDto;
+    const failedSession = {
+      runtimeSessionId: "runtime_failed",
+      instanceId: "codex-third",
+      kindId: "codex",
+      liveness: "exited",
+      definitionSnapshot: null,
+      associations: [],
+      activity: { lastObservedAt: NOW, outcome: "failed", exitCode: 1, resultRef: null, missingEvidence: null },
+    } as AgentRuntimeSessionDto;
+    const { container, navigate } = await mountCadence({
+      page: historyPage([]),
+      sessions: [liveSession("runtime_a", "task_flight"), liveSession("runtime_b", "task_flight"), failedSession],
+      tasks: [
+        cadenceTask({ taskId: "task_flight", title: "被争用的任务" }),
+        cadenceTask({ taskId: "task_solo", title: "独飞任务" }),
+      ],
+    });
+
+    const fleetTab = [...container.querySelectorAll('[role="tab"]')].find((row) => row.textContent?.includes("舰队"))!;
+    await act(async () => fleetTab.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+
+    // 多实例:每个 worker 一行;失败实例按结果上标签,正常实例不上状态色。
+    expect(container.querySelectorAll('[data-testid="cadence-fleet-worker"]').length).toBe(3);
+    expect(textOf(container, "cadence-fleet")).toContain("失败");
+    // 冲突行以任务标题为主文本,租约数在行尾;点行进任务详情。
+    expect(textOf(container, "cadence-fleet-fence")).toContain("被争用的任务");
+    expect(textOf(container, "cadence-fleet-fence")).toContain("2 个活跃租约");
+    const fenceRow = container.querySelector('[data-testid="cadence-fleet-fence"] [data-dense-row]')!;
+    await act(async () => fenceRow.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(navigate).toHaveBeenCalledWith("task/task_flight");
   });
 
   it("expands a rhythm row in place with the funnel and micro chain; the detail link navigates", async () => {

@@ -166,14 +166,16 @@ describe("deriveFleetPulse", () => {
     const snapshot = deriveFleetPulse({
       sessions: [session("runtime_a", "task_flight", "live"), session("runtime_b", "task_flight", "live")],
       tasks: [
-        cadenceTask({ taskId: "task_claimed" }),
-        cadenceTask({ taskId: "task_flight" }),
-        cadenceTask({ taskId: "task_settled", coordinationStatus: "done" }),
+        cadenceTask({ taskId: "task_claimed", title: "待认领任务" }),
+        cadenceTask({ taskId: "task_flight", title: "在飞任务" }),
+        cadenceTask({ taskId: "task_settled", title: "已收口任务", coordinationStatus: "done" }),
       ],
       events: feed([]),
     });
     expect(snapshot.flow).toEqual({ claimed: 1, inFlight: 1, settled: 1 });
-    expect(snapshot.collisions).toEqual([{ taskId: "task_flight", workerCount: 2 }]);
+    // 冲突与 worker 关联任务都用 tasks 投影行的标题;查不到的退回 taskId 本身。
+    expect(snapshot.collisions).toEqual([{ taskId: "task_flight", title: "在飞任务", workerCount: 2 }]);
+    expect(snapshot.workers[0]!.tasks).toEqual([{ taskId: "task_flight", title: "在飞任务" }]);
     expect(snapshot.activeCount).toBe(2);
   });
 
@@ -276,6 +278,8 @@ describe("deriveFleetPulse", () => {
       now: baseNow,
     });
     expect(snapAll.workers).toHaveLength(5);
+    // 关联任务不在 tasks 投影里时,标题退回 taskId 本身,不静默丢行。
+    expect(snapAll.workers[0]!.tasks).toEqual([{ taskId: "t1", title: "t1" }]);
   });
 
   it("sorts workers by status priority (live > idle > exited) and descending lastActiveAt", () => {
