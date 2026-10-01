@@ -18,13 +18,26 @@ interface PendingLogin {
 }
 
 interface StoredSession {
-  readonly schema: "harness-oidc-session/v1";
+  readonly schema: "harness-oidc-session/v2";
   readonly accessToken: string;
+  readonly refreshToken: string;
   readonly subject: string;
   readonly personId: string;
+  /** When the access token lapses; a use at or near this moment renews it first. */
   readonly expiresAt: number;
+  /** When Keycloak ends the session unless it is used again: one session lifetime after its last renewal. */
+  readonly sessionExpiresAt: number;
   readonly roles: readonly string[];
 }
+
+/** What one use of the session finds. `unavailable` is set when Keycloak could not be asked to renew it. */
+interface SessionUse {
+  readonly session: StoredSession | undefined;
+  readonly unavailable?: Error;
+}
+
+/** A use this close to the access token's end renews it, so the token a request carries outlives the request. */
+const renewalMarginMs = 30_000;
 
 export interface OidcSessionPorts {
   readonly fetch: typeof fetch;
@@ -33,7 +46,11 @@ export interface OidcSessionPorts {
   readonly sessionStore: ReturnType<typeof managedRbacSessionStore>;
 }
 
-/** Daemon-owned Authorization Code + PKCE session. Tokens never cross the daemon boundary. */
+/**
+ * Daemon-owned Authorization Code + PKCE session. Tokens never cross the daemon boundary.
+ * The access token stays short-lived; every use renews it with the refresh token, so the session
+ * ends only after it sat unused for the realm's session lifetime.
+ */
 export class OidcSessionService {
   readonly #rbacRoot: string;
   readonly #ports: OidcSessionPorts;
@@ -91,7 +108,6 @@ export class OidcSessionService {
       throw coded("oidc_code_rejected", `Keycloak token exchange returned HTTP ${tokenResponse.status}.`);
     const tokens = (await tokenResponse.json()) as Record<string, unknown>,
       accessToken = requiredString(tokens.access_token, "access_token"),
-      expiresIn = requiredNumber(tokens.expires_in, "expires_in"),
       userResponse = await this.#ports.fetch(
         `${config.url}/realms/${encodeURIComponent(config.realm)}/protocol/openid-connect/userinfo`,
         { headers: { authorization: `Bearer ${accessToken}` } },
@@ -100,30 +116,25 @@ export class OidcSessionService {
       throw coded("oidc_identity_rejected", `Keycloak userinfo returned HTTP ${userResponse.status}.`);
     const user = (await userResponse.json()) as Record<string, unknown>,
       subject = requiredString(user.sub, "sub"),
-      personId = typeof user.harness_person_id === "string" ? user.harness_person_id : subject,
-      claims = decodeJwtPayload(accessToken),
-      session: StoredSession = {
-        schema: "harness-oidc-session/v1",
-        accessToken,
-        subject,
-        personId,
-        expiresAt: this.#ports.now() + expiresIn * 1_000,
-        roles: realmRoles(claims),
-      };
-    this.#writeSession(session);
+      personId = typeof user.harness_person_id === "string" ? user.harness_person_id : subject;
+    this.#writeSession(this.#issued(tokens, { subject, personId }));
     return this.status();
   }
 
-  status(): Record<string, unknown> {
-    const session = this.#session();
-    if (!session || session.expiresAt <= this.#ports.now()) return { ok: true, authenticated: false };
-    return { ok: true, authenticated: true, personId: session.personId, expiresAt: session.expiresAt };
+  /** `expiresAt` is when the session ends if it is not used again. */
+  async status(): Promise<Record<string, unknown>> {
+    const session = await this.#live();
+    if (!session) return { ok: true, authenticated: false };
+    return { ok: true, authenticated: true, personId: session.personId, expiresAt: session.sessionExpiresAt };
   }
 
-  logout(): Record<string, unknown> {
-    this.#ports.sessionStore.delete();
+  /** Queued behind a renewal in flight, so a session that is being renewed stays signed out. */
+  logout(): Promise<Record<string, unknown>> {
     this.#pending = undefined;
-    return { ok: true, authenticated: false };
+    return this.serialize(() => {
+      this.#ports.sessionStore.delete();
+      return Promise.resolve({ ok: true, authenticated: false });
+    });
   }
 
   async bootstrapStatus(): Promise<Record<string, unknown>> {
@@ -132,9 +143,13 @@ export class OidcSessionService {
     return { ok: true, required: !Array.isArray(members) || members.length === 0 };
   }
 
-  bind(auth: DaemonAuthenticationContext): DaemonAuthenticationContext {
-    const session = this.#session();
-    if (!session || session.expiresAt <= this.#ports.now()) return auth;
+  /**
+   * Binds the signed-in person to a request. While Keycloak cannot be reached to renew the session
+   * the request goes unbound: it fails closed, and the operations that bring Keycloak back still run.
+   */
+  async bind(auth: DaemonAuthenticationContext): Promise<DaemonAuthenticationContext> {
+    const { session } = await this.#use();
+    if (!session) return auth;
     const config = this.#config();
     return {
       ...auth,
@@ -148,10 +163,9 @@ export class OidcSessionService {
     };
   }
 
-  requireRole(role: string): StoredSession {
-    const session = this.#session();
-    if (!session || session.expiresAt <= this.#ports.now())
-      throw coded("authentication_required", "Sign in with Keycloak first.");
+  async requireRole(role: string): Promise<StoredSession> {
+    const session = await this.#live();
+    if (!session) throw coded("authentication_required", "Sign in with Keycloak first.");
     if (!session.roles.includes(role)) throw coded("authorization_denied", `Keycloak role ${role} is required.`);
     return session;
   }
@@ -159,6 +173,7 @@ export class OidcSessionService {
   /**
    * The center's single write queue for Keycloak authorization state: first-administrator bootstrap
    * and every policy-group or grant mutation run one at a time, each against the state the previous left.
+   * Session renewals share it, so concurrent uses of one session renew it once.
    */
   serialize<T>(operation: () => Promise<T>): Promise<T> {
     const run = this.#writes.then(operation);
@@ -197,7 +212,7 @@ export class OidcSessionService {
     readonly displayName: string;
     readonly personId: string;
   }): Promise<Record<string, unknown>> {
-    this.requireRole("access-admin");
+    await this.requireRole("access-admin");
     const token = await this.#centerToken(),
       userId = await this.#createUser(token, input, true);
     await this.#adminJson("PUT", `/users/${encodeURIComponent(userId)}/execute-actions-email`, token, [
@@ -314,6 +329,77 @@ export class OidcSessionService {
     if (!existsSync(file)) throw coded("rbac_not_configured", "Run ha bootstrap before signing in.");
     return JSON.parse(readFileSync(file, "utf8")) as RbacConfig;
   }
+
+  /** The signed-in session holding a usable access token; fails when Keycloak could not be asked to renew it. */
+  async #live(): Promise<StoredSession | undefined> {
+    const { session, unavailable } = await this.#use();
+    if (unavailable) throw unavailable;
+    return session;
+  }
+
+  /** A use near or past the access token's end renews the session first. */
+  async #use(): Promise<SessionUse> {
+    const session = this.#session();
+    if (!session || !this.#lapsing(session)) return { session };
+    return this.serialize(async () => {
+      // Uses that queued behind a renewal find the session it wrote and do not renew again.
+      const current = this.#session();
+      return current && this.#lapsing(current) ? this.#renew(current) : { session: current };
+    });
+  }
+
+  #lapsing(session: StoredSession): boolean {
+    return session.expiresAt - this.#ports.now() <= renewalMarginMs;
+  }
+
+  /** One refresh grant per use: Keycloak refusing it ends the session here, and nothing retries. */
+  async #renew(session: StoredSession): Promise<SessionUse> {
+    const config = this.#config(),
+      response = await this.#ports
+        .fetch(`${config.url}/realms/${encodeURIComponent(config.realm)}/protocol/openid-connect/token`, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "refresh_token",
+            client_id: "harness-gui",
+            refresh_token: session.refreshToken,
+          }),
+        })
+        .catch((error: unknown) => unavailable("Keycloak could not be reached to renew the session.", error));
+    if (response instanceof Error) return { session: undefined, unavailable: response };
+    // Keycloak answers 400 once the session sat idle past its lifetime, was signed out, or had its token revoked.
+    if (response.status === 400) {
+      this.#ports.sessionStore.delete();
+      return { session: undefined };
+    }
+    if (!response.ok)
+      return {
+        session: undefined,
+        unavailable: unavailable(`Keycloak session renewal returned HTTP ${response.status}.`),
+      };
+    const renewed = this.#issued((await response.json()) as Record<string, unknown>, session);
+    this.#writeSession(renewed);
+    return { session: renewed };
+  }
+
+  #issued(
+    tokens: Record<string, unknown>,
+    identity: { readonly subject: string; readonly personId: string },
+  ): StoredSession {
+    const accessToken = requiredString(tokens.access_token, "access_token"),
+      now = this.#ports.now();
+    return {
+      schema: "harness-oidc-session/v2",
+      accessToken,
+      refreshToken: requiredString(tokens.refresh_token, "refresh_token"),
+      subject: identity.subject,
+      personId: identity.personId,
+      expiresAt: now + requiredNumber(tokens.expires_in, "expires_in") * 1_000,
+      sessionExpiresAt: now + requiredNumber(tokens.refresh_expires_in, "refresh_expires_in") * 1_000,
+      roles: realmRoles(decodeJwtPayload(accessToken)),
+    };
+  }
+
   #session(): StoredSession | undefined {
     const value = this.#ports.sessionStore.read();
     return value === undefined ? undefined : (JSON.parse(value) as StoredSession);
@@ -342,6 +428,9 @@ function requiredNumber(value: unknown, field: string): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0)
     throw coded("oidc_response_invalid", `Keycloak omitted ${field}.`);
   return value;
+}
+function unavailable(message: string, cause?: unknown): Error {
+  return Object.assign(coded("oidc_session_unavailable", message), cause === undefined ? {} : { cause });
 }
 function coded(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });

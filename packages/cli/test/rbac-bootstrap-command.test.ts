@@ -30,3 +30,38 @@ test("ha bootstrap parses one external Keycloak through the same command", () =>
     clientId: "center",
   });
 });
+
+test("ha bootstrap reads and sets the session lifetime through the same daemon method", () => {
+  const read = parseThinCommand(["bootstrap", "--operation", "session-lifetime"], "/repo");
+  assert.equal(read.ok, true);
+  if (!read.ok) return;
+  assert.deepEqual(read.command.action, { kind: "rbac-bootstrap", operation: "session-lifetime" });
+  const set = parseThinCommand(
+    [
+      "bootstrap",
+      "--operation",
+      "session-lifetime-set",
+      "--seconds",
+      "43200",
+      "--expected-version",
+      "21600",
+      "--operation-id",
+      "lifetime-change-1",
+    ],
+    "/repo",
+  );
+  assert.equal(set.ok, true);
+  if (!set.ok) return;
+  assert.equal(set.command.method, "daemon.rbac.manage");
+  assert.deepEqual(set.command.action, {
+    kind: "rbac-bootstrap",
+    operation: "session-lifetime-set",
+    sessionLifetimeSeconds: 43_200,
+    expectedVersion: "21600",
+    operationId: "lifetime-change-1",
+  });
+  assert.equal(
+    parseThinCommand(["bootstrap", "--operation", "session-lifetime-set", "--seconds", "soon"], "/repo").ok,
+    false,
+  );
+});

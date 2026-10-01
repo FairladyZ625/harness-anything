@@ -54,6 +54,9 @@ function parseRbacBootstrap(
       ...(f.one.get("--realm") ? { realm: f.one.get("--realm") } : {}),
       ...(f.one.get("--client-id") ? { clientId: f.one.get("--client-id") } : {}),
       ...(f.one.get("--backup-dir") ? { backupDir: f.one.get("--backup-dir") } : {}),
+      ...(f.one.get("--seconds") ? { sessionLifetimeSeconds: Number(f.one.get("--seconds")) } : {}),
+      ...(f.one.get("--expected-version") ? { expectedVersion: f.one.get("--expected-version") } : {}),
+      ...(f.one.get("--operation-id") ? { operationId: f.one.get("--operation-id") } : {}),
     },
     "daemon.rbac.manage",
   );

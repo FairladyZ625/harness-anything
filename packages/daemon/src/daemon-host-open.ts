@@ -108,6 +108,8 @@ export interface DaemonHostOpenInput {
   readonly runtimeFile?: string;
   readonly shutdownRequested?: () => boolean;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
+  /** The daemon's one OIDC session service; the transport binds requests through the same instance. */
+  readonly oidc?: OidcSessionService;
   readonly attachTimeoutMs?: number;
   readonly openCell?: (
     input: Parameters<typeof openRepoCell>[0] & { readonly onStatus?: (status: RepoCellStatus) => void },
@@ -168,7 +170,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     buildObserver = observeDaemonBuild(input.runtimeFile),
     fleetEdgeRuntimes = new Map<string, ReturnType<typeof openFleetEdgeRuntime>>();
   let daemonWriterEpoch: PersistentWriterEpoch | null = null;
-  const oidc = new OidcSessionService(input.userRoot),
+  const oidc = input.oidc ?? new OidcSessionService(input.userRoot),
     daemonWriterLeases = new Map<string, WriterEpochLease>(),
     writerEpochLease = (repoId: string, rootDir?: string) => {
       daemonWriterEpoch ??= openPersistentWriterEpoch({
@@ -217,7 +219,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       return withDaemonWriterEpochFence(base, writerEpochFence(repoId));
     },
     hostBinding: DaemonHostApiContext["binding"] = async (rootDir, auth, executor = null, writerRepoId) => {
-      const base = await deriveBinding(rootDir, oidc.bind(auth), executor);
+      const base = await deriveBinding(rootDir, await oidc.bind(auth), executor);
       return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
     },
     closeDaemonWriterEpoch = () => {
@@ -605,6 +607,12 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   const managedRbac = new ManagedRbacService(input.userRoot),
     accessAdmin = new AccessAdminService(oidc, input.userRoot),
     lifecycle = createDaemonHostLifecycleApi(hostContext);
+  void managedRbac.resume().catch((error: unknown) =>
+    input.recordLifecycle?.({
+      event: "rbac_resume_failed",
+      error: error instanceof Error ? error.message : String(error),
+    }),
+  );
   const host: DaemonHost = {
     remoteProxy,
     ...createDaemonHostRepositoryApi(hostContext),
@@ -622,8 +630,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           throw hostCodedError("oidc_callback_invalid", "Login completion requires code and state.");
         return oidc.complete(request.code, request.state);
       }
-      if (request.operation === "session") return Promise.resolve(oidc.status());
-      if (request.operation === "logout") return Promise.resolve(oidc.logout());
+      if (request.operation === "session") return oidc.status();
+      if (request.operation === "logout") return oidc.logout();
       if (request.operation === "bootstrap-status") return oidc.bootstrapStatus();
       if (request.operation === "bootstrap-admin") {
         const required = [request.username, request.email, request.displayName, request.password, request.personId];
