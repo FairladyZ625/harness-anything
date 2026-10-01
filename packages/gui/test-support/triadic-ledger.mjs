@@ -4,6 +4,7 @@ import { makeDecisionService, makeFactService } from "@harness-anything/applicat
 import {
   compileDecisionWrite,
   compileFactWrite,
+  decisionReviewContentDigest,
   deriveRelationId,
   makeTaskEventStore,
   makeTaskProjection,
@@ -46,7 +47,7 @@ export async function seedTriadicEvents(rootDir, repoId, writerFence) {
     decisionService = makeDecisionService({ eventStore: store, projection }),
     actor = { principal: { personId: "person-gui" }, executor: null };
   try {
-    const append = (type, decisionId, payload) => {
+    const append = (type, decisionId, payload, eventActor = actor) => {
       const revision = (store.readHead()?.revision ?? 0) + 1,
         event = {
           schema: "decision-event/v1",
@@ -55,7 +56,7 @@ export async function seedTriadicEvents(rootDir, repoId, writerFence) {
           opId: `op-${type}-${revision}`,
           decisionId,
           type,
-          actor,
+          actor: eventActor,
           source: "local",
           occurredAt: `2026-08-13T00:00:${String(revision).padStart(2, "0")}.000Z`,
           payload,
@@ -79,7 +80,16 @@ export async function seedTriadicEvents(rootDir, repoId, writerFence) {
           }));
       decisionService.record(
         compileDecisionWrite({
-          event,
+          event:
+            type === "decision_review_recorded"
+              ? {
+                  ...event,
+                  payload: {
+                    ...payload,
+                    reviewContentDigest: decisionReviewContentDigest({ ...read.decision, relations }, document.body),
+                  },
+                }
+              : event,
           currentDecision: read.decision,
           currentRelations: relations,
           currentDocument: document,
@@ -172,6 +182,22 @@ export async function seedTriadicEvents(rootDir, repoId, writerFence) {
         },
       });
     }
+    append(
+      "decision_review_recorded",
+      "dec_gui_smoke",
+      {
+        reviewId: "review-gui-flow-1",
+        verdict: "changes_requested",
+        reason: "Two points need a response before judgment.",
+        findings: [
+          { findingId: "F1", text: "Name the read surface the GUI consumes.", anchor: "C1" },
+          { findingId: "F2", text: "Reject option lacks a cost estimate.", anchor: "RJ1" },
+        ],
+        evidenceChecked: ["decision body", "C1", "RJ1"],
+        reportRef: null,
+      },
+      { principal: { personId: "person-gui-reviewer" }, executor: null },
+    );
   } finally {
     projection.close();
     await store.drain();
