@@ -88,8 +88,13 @@ function ledger() {
  * judged in memory. The SQL census must reproduce it field for field. */
 function rowByRowCensus(db: DatabaseSync): WorkspaceSummary {
   const taskRows = db
-    .prepare("SELECT task_id, status, package_disposition FROM task_snapshot ORDER BY task_id")
-    .all() as unknown as { task_id: string; status: string | null; package_disposition: PackageDisposition }[];
+    .prepare("SELECT task_id, status, package_disposition, updated_at FROM task_snapshot ORDER BY task_id")
+    .all() as unknown as {
+    task_id: string;
+    status: string | null;
+    package_disposition: PackageDisposition;
+    updated_at: string;
+  }[];
   const relations: Array<ReturnType<typeof readTaskRelationPage>["rows"][number]> = [];
   for (const relationType of ["depends-on", "awaits"]) {
     let cursor: string | undefined;
@@ -116,6 +121,7 @@ function rowByRowCensus(db: DatabaseSync): WorkspaceSummary {
           ? workspaceTaskStatus({ status: row.status, blockingState: blocking.get(row.task_id) ?? "unknown" })
           : ("unknown" as const),
       packageDisposition: row.package_disposition,
+      updatedAt: row.updated_at,
     })),
     decisions.map((row) => ({ decisionId: row.decision_id, state: row.state })),
   );
@@ -172,6 +178,7 @@ test("the SQL census reproduces the row-by-row census field for field", () => {
     // edge names a person this projection has no roster for, so it is not current and its task
     // keeps its own status in both censuses; the agenda integration test covers a current one.
     assert.deepEqual(expected.tasks, {
+      lastChangedAt: "",
       total: 15,
       byStatus: { planned: 3, active: 2, submitted: 1, blocked: 5, in_review: 1, done: 1, cancelled: 0, unknown: 2 },
     });
@@ -203,4 +210,26 @@ test("the census reads the same number of rows however many tasks and decisions 
     }
   });
   assert.equal(rowsRead[1], rowsRead[0]);
+});
+
+test("last change is the maximum active-package timestamp, or null for an empty census", () => {
+  const fixture = ledger();
+  try {
+    assert.equal(readWorkspaceSummaryRows(fixture.db).tasks.lastChangedAt, null);
+    fixture.task("older", "active");
+    fixture.task("newer", "done");
+    fixture.task("archived", "active", "archived");
+    fixture.db
+      .prepare("UPDATE task_snapshot SET updated_at = ? WHERE task_id = ?")
+      .run("2026-09-30T00:00:00.000Z", "older");
+    fixture.db
+      .prepare("UPDATE task_snapshot SET updated_at = ? WHERE task_id = ?")
+      .run("2026-10-01T00:00:00.000Z", "newer");
+    fixture.db
+      .prepare("UPDATE task_snapshot SET updated_at = ? WHERE task_id = ?")
+      .run("2026-10-02T00:00:00.000Z", "archived");
+    assert.equal(readWorkspaceSummaryRows(fixture.db).tasks.lastChangedAt, "2026-10-01T00:00:00.000Z");
+  } finally {
+    fixture.db.close();
+  }
 });

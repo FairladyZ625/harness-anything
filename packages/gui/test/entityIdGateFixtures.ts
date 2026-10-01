@@ -162,7 +162,7 @@ export const FIXTURE_WORKSPACE_SUMMARY: WorkspaceSummaryRead = {
   schema: "daemon.workspace-summary/v1",
   ok: true,
   status: "ready",
-  tasks: { total: FIXTURE_TASKS.length, byStatus: { active: FIXTURE_TASKS.length } },
+  tasks: { lastChangedAt: null, total: FIXTURE_TASKS.length, byStatus: { active: FIXTURE_TASKS.length } },
   decisions: {
     total: 1,
     inboxCount: 0,

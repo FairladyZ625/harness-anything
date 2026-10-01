@@ -46,6 +46,7 @@ export interface ProjectRepo {
 export type ProjectActivityRead =
   | {
       readonly state: "ready";
+      readonly lastChangedAt: string | null;
       readonly awaitingReply?: { readonly count: number; readonly more: boolean };
       readonly active: number;
       readonly awaitingYou: number;
@@ -66,7 +67,10 @@ export function repoReadsActivity(repo: ProjectRepo): boolean {
 export function projectActivityRead(
   summary: {
     readonly data?: {
-      readonly tasks: { readonly byStatus: Readonly<Record<"active" | "submitted" | "in_review" | "blocked", number>> };
+      readonly tasks: {
+        readonly lastChangedAt: string | null;
+        readonly byStatus: Readonly<Record<"active" | "submitted" | "in_review" | "blocked", number>>;
+      };
       readonly decisions: { readonly inboxCount: number };
     };
     readonly error: unknown;
@@ -86,6 +90,7 @@ export function projectActivityRead(
   const { byStatus } = summary.data.tasks;
   return {
     state: "ready",
+    lastChangedAt: summary.data.tasks.lastChangedAt,
     active: byStatus.active,
     awaitingYou: byStatus.submitted + summary.data.decisions.inboxCount + (agenda?.awaitingYou.length ?? 0),
     ...(agenda === undefined
