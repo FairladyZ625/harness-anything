@@ -729,7 +729,11 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
             ? { gateId: event.payload.witness.gateId, appliesTo: "submission" as const }
             : undefined);
       return (
-        !snapshot.task?.completionGateIds.includes(event.payload.witness.gateId) ||
+        // Admission accepts any gate the frozen contract declares for this cut; replay must
+        // judge membership by the same effective set, not only the task-level declared list.
+        !completionGateIds(snapshot.task?.completionGateIds ?? [], submission).includes(
+          event.payload.witness.gateId,
+        ) ||
         event.payload.witness.executionId !== event.payload.execution.executionId ||
         event.payload.witness.commitSha !== submission?.commitSha ||
         event.payload.witness.iteration !== event.payload.execution.iteration ||
