@@ -4,10 +4,21 @@ import { MotionConfig, useReducedMotion } from "motion/react";
 export type MotionPreference = "system" | "on" | "off";
 const MotionPreferenceContext = createContext<MotionPreference>("system");
 
-/** Temporary acceptance switch: pass preference="on" or "off" at AppMotionConfig. */
+export const MOTION_PREFERENCE_STORAGE_KEY = "harness-motion";
+
+/** 每位使用者自己的偏好,与主题同样存 localStorage;没有或取不到时跟随系统。 */
+export function storedMotionPreference(): MotionPreference {
+  try {
+    const stored = localStorage.getItem(MOTION_PREFERENCE_STORAGE_KEY);
+    return stored === "on" || stored === "off" ? stored : "system";
+  } catch {
+    return "system";
+  }
+}
+
 export function AppMotionConfig({
   children,
-  preference = "system",
+  preference = storedMotionPreference(),
 }: {
   readonly children: ReactNode;
   readonly preference?: MotionPreference;

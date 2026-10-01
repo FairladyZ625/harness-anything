@@ -124,3 +124,16 @@ it("allows local tab switching after a page switch without rerendering the page 
   act(() => host.querySelector("button")!.click());
   expect(probe.animate).toHaveBeenCalledTimes(1);
 });
+
+it("reads the stored motion preference and falls back to following the system", async () => {
+  const { MOTION_PREFERENCE_STORAGE_KEY, storedMotionPreference } = await import("../src/renderer/motion-config.tsx");
+  localStorage.removeItem(MOTION_PREFERENCE_STORAGE_KEY);
+  expect(storedMotionPreference()).toBe("system");
+  localStorage.setItem(MOTION_PREFERENCE_STORAGE_KEY, "on");
+  expect(storedMotionPreference()).toBe("on");
+  localStorage.setItem(MOTION_PREFERENCE_STORAGE_KEY, "off");
+  expect(storedMotionPreference()).toBe("off");
+  localStorage.setItem(MOTION_PREFERENCE_STORAGE_KEY, "bounce");
+  expect(storedMotionPreference()).toBe("system");
+  localStorage.removeItem(MOTION_PREFERENCE_STORAGE_KEY);
+});
