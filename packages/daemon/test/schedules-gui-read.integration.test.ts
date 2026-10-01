@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
+import { eventually } from "./schedule-actions.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -237,7 +238,7 @@ test(
 
         // Wait for the spawner to subscribe the stub's listeners, then observe
         // the transcript through the same runtime attach surface exposed to clients.
-        const emit = await eventually(() => Promise.resolve(output !== null && exit !== null));
+        const emit = await eventually(() => output !== null && exit !== null);
         assert.equal(emit, true, "the scheduled spawn never subscribed its output listener");
         const runtimeSessionId = running.activeRun!.runtimeSessionId;
         assert.notEqual(runtimeSessionId, null);
@@ -492,11 +493,3 @@ test(
     }
   },
 );
-
-async function eventually(check: () => Promise<boolean>): Promise<boolean> {
-  for (let index = 0; index < 100; index += 1) {
-    if (await check()) return true;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  return false;
-}
