@@ -1,19 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import {
-  ArrowLeft,
-  CaretRight,
-  ChatsCircle,
-  CirclesFour,
-  FileText,
-  Gavel,
-  LinkSimple,
-  NotePencil,
-  Scroll,
-  SealCheck,
-  WarningCircle,
-} from "@phosphor-icons/react";
+import { ArrowLeft, CaretRight, WarningCircle } from "@phosphor-icons/react";
 import { DecisionStateBadge, RiskTierBadge, UrgencyBadge } from "../badges.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
+import { TabPanel } from "../primitives/EntryBoundary";
+import { Tabs } from "../primitives/Tabs";
 import { ViewInGraphButton } from "../ViewInGraphButton.tsx";
 import { formatTime } from "../../model/time.ts";
 import type { DecisionRow, RelationEdge, TaskRow } from "../../model/types.ts";
@@ -43,27 +33,15 @@ import { DecisionJudgeTab } from "../decisionReview/DecisionJudgeTab.tsx";
  */
 
 const tabs = [
-  { id: "body", label: "views.decisionDetailView.tabBody", icon: FileText },
-  {
-    id: "overview",
-    label: "views.decisionDetailView.tabOverview",
-    icon: CirclesFour,
-  },
-  {
-    id: "claims",
-    label: "views.decisionDetailView.tabClaims",
-    icon: SealCheck,
-  },
-  {
-    id: "relations",
-    label: "views.decisionDetailView.tabRelations",
-    icon: LinkSimple,
-  },
+  { id: "body", label: "views.decisionDetailView.tabBody" },
+  { id: "overview", label: "views.decisionDetailView.tabOverview" },
+  { id: "claims", label: "views.decisionDetailView.tabClaims" },
+  { id: "relations", label: "views.decisionDetailView.tabRelations" },
   // Decision 评审(dec_A64B14D6 CH6):评审/回应/报告/裁决是可寻址页签,落点见 decisionReviewRoutes。
-  { id: "review", label: "views.decisionReview.tabReview", icon: ChatsCircle },
-  { id: "respond", label: "views.decisionReview.tabRespond", icon: NotePencil },
-  { id: "report", label: "views.decisionReview.tabReport", icon: Scroll },
-  { id: "judge", label: "views.decisionReview.tabJudge", icon: Gavel },
+  { id: "review", label: "views.decisionReview.tabReview" },
+  { id: "respond", label: "views.decisionReview.tabRespond" },
+  { id: "report", label: "views.decisionReview.tabReport" },
+  { id: "judge", label: "views.decisionReview.tabJudge" },
 ] as const;
 const reviewTabIds: ReadonlySet<string> = new Set<DecisionReviewTab>(["review", "respond", "report", "judge"]);
 
@@ -300,96 +278,80 @@ export function DecisionDetailView({
         onNavigateEntity={onNavigateEntity}
       />
 
-      <nav
-        role="tablist"
-        aria-label="Decision 详情分区"
-        className="flex h-8 shrink-0 overflow-x-auto border-b border-border bg-surface px-2 sm:px-3"
-      >
-        {tabs.map((tab) => {
-          const Icon = tab.icon,
-            active = activeTab === tab.id;
-          return (
-            <button
-              key={tab.id}
-              id={`decision-tab-${tab.id}`}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              aria-controls={`decision-panel-${tab.id}`}
-              data-testid={`decision-tab-${tab.id}`}
-              onClick={() => selectTab(tab.id)}
-              className={[
-                "relative flex h-8 shrink-0 items-center gap-1 px-2 ui-micro font-medium",
-                active ? "text-text" : "text-text-faint hover:text-text-muted",
-              ].join(" ")}
-            >
-              <Icon weight={active ? "bold" : "regular"} className="ui-meta" />
-              {t(tab.label)}
-              {active ? <span className="absolute inset-x-2 bottom-0 h-0.5 bg-accent" /> : null}
-            </button>
-          );
-        })}
-      </nav>
+      <div className="shrink-0 px-3 lg:px-4" data-testid="decision-detail-tabs">
+        <Tabs
+          ariaLabel={t("views.decisionDetailView.sectionsAria")}
+          idPrefix="decision"
+          value={activeTab}
+          onChange={selectTab}
+          tabs={tabs.map((tab) => ({ key: tab.id, label: t(tab.label) }))}
+        />
+      </div>
 
-      <main className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-4">
-        <div className="mx-auto h-full w-full max-w-[72rem]">
-          <section
-            id={`decision-panel-${activeTab}`}
-            role="tabpanel"
-            aria-labelledby={`decision-tab-${activeTab}`}
-            className="min-h-0"
-            data-testid={`decision-panel-${activeTab}`}
-          >
-            {activeTab === "body" ? (
-              <DecisionBodyPanel repoId={repoId} decisionId={decision.decisionId} />
-            ) : activeTab === "overview" ? (
-              <OverviewPanel decision={decision} />
-            ) : activeTab === "claims" ? (
-              <ClaimsPanel decision={decision} />
-            ) : activeTab === "review" ? (
-              <ReviewPanel
-                decision={decision}
-                dispatchFeedback={reviewActions.feedback?.kind === "dispatch" ? reviewActions.feedback : undefined}
-                onDispatchReview={(digest) => void reviewActions.dispatch(digest)}
-                onNavigateEntity={onNavigateEntity}
-              />
-            ) : activeTab === "respond" ? (
-              <DecisionRespondTab
-                decision={decision}
-                feedback={reviewActions.feedback?.kind === "respond" ? reviewActions.feedback : undefined}
-                onRespond={reviewActions.respond}
-                onNavigateEntity={onNavigateEntity}
-              />
-            ) : activeTab === "report" ? (
-              <DecisionReportTab
-                repoId={repoId}
-                decision={decision}
-                reviewId={routeReviewId}
-                onNavigateEntity={onNavigateEntity}
-              />
-            ) : activeTab === "judge" ? (
-              <DecisionJudgeTab
-                decision={decision}
-                relations={relations}
-                judgeFeedback={judgeFeedback}
-                overrideFeedback={reviewActions.feedback?.kind === "override" ? reviewActions.feedback : undefined}
-                onJudge={onJudge}
-                onCheckReceipt={onCheckReceipt}
-                onOverride={reviewActions.override}
-                onNavigateEntity={onNavigateEntity}
-              />
-            ) : (
-              <RelationsPanel
-                decision={decision}
-                tasks={tasks}
-                relations={relations}
-                onNavigateDecision={onNavigateDecision}
-                onNavigateTask={onNavigateTask}
-                onNavigateEntity={onNavigateEntity}
-              />
-            )}
-          </section>
-        </div>
+      {/* 概况是一屏的区域板:面板自己是板的容器量尺,≥900px 时板占满面板高度、区域在自己
+          内部滚动,不受正文栏宽限制;其余页签仍是居中的正文栏,随内容往下排。 */}
+      <main className="min-h-0 flex-1 overflow-hidden">
+        <TabPanel
+          idPrefix="decision"
+          value={activeTab}
+          className={`h-full overflow-y-auto px-3 py-4 sm:px-4 ${
+            activeTab === "overview" ? "@container flex flex-col" : ""
+          }`}
+          data-testid={`decision-panel-${activeTab}`}
+        >
+          {activeTab === "overview" ? (
+            <OverviewPanel decision={decision} />
+          ) : (
+            <div className="mx-auto h-full w-full max-w-[72rem]">
+              {activeTab === "body" ? (
+                <DecisionBodyPanel repoId={repoId} decisionId={decision.decisionId} />
+              ) : activeTab === "claims" ? (
+                <ClaimsPanel decision={decision} />
+              ) : activeTab === "review" ? (
+                <ReviewPanel
+                  decision={decision}
+                  dispatchFeedback={reviewActions.feedback?.kind === "dispatch" ? reviewActions.feedback : undefined}
+                  onDispatchReview={(digest) => void reviewActions.dispatch(digest)}
+                  onNavigateEntity={onNavigateEntity}
+                />
+              ) : activeTab === "respond" ? (
+                <DecisionRespondTab
+                  decision={decision}
+                  feedback={reviewActions.feedback?.kind === "respond" ? reviewActions.feedback : undefined}
+                  onRespond={reviewActions.respond}
+                  onNavigateEntity={onNavigateEntity}
+                />
+              ) : activeTab === "report" ? (
+                <DecisionReportTab
+                  repoId={repoId}
+                  decision={decision}
+                  reviewId={routeReviewId}
+                  onNavigateEntity={onNavigateEntity}
+                />
+              ) : activeTab === "judge" ? (
+                <DecisionJudgeTab
+                  decision={decision}
+                  relations={relations}
+                  judgeFeedback={judgeFeedback}
+                  overrideFeedback={reviewActions.feedback?.kind === "override" ? reviewActions.feedback : undefined}
+                  onJudge={onJudge}
+                  onCheckReceipt={onCheckReceipt}
+                  onOverride={reviewActions.override}
+                  onNavigateEntity={onNavigateEntity}
+                />
+              ) : (
+                <RelationsPanel
+                  decision={decision}
+                  tasks={tasks}
+                  relations={relations}
+                  onNavigateDecision={onNavigateDecision}
+                  onNavigateTask={onNavigateTask}
+                  onNavigateEntity={onNavigateEntity}
+                />
+              )}
+            </div>
+          )}
+        </TabPanel>
       </main>
     </div>
   );
