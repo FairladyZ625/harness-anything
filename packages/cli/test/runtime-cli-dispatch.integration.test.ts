@@ -59,7 +59,6 @@ test("Delegated dispatches archive identity, mission and separate reports and re
   assertTaskMissionPrompt(assembledPrompt, {
     repoId: "runtime-cli",
     taskId,
-    canonicalRoot: realpathSync(root),
     workerRoot: realpathSync(root),
     taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
     daemonUserRoot: userRoot,
@@ -642,7 +641,6 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
   assertTaskMissionPrompt(reusedMission, {
     repoId: "runtime-cli",
     taskId,
-    canonicalRoot: realpathSync(root),
     workerRoot: realpathSync(root),
     taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
     daemonUserRoot: userRoot,
@@ -669,7 +667,6 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
   assertTaskMissionPrompt(derivedText.slice("final:".length), {
     repoId: "runtime-cli",
     taskId,
-    canonicalRoot: realpathSync(root),
     workerRoot: realpathSync(root),
     taskPackageRoot: taskPackage,
     daemonUserRoot: userRoot,

@@ -102,6 +102,7 @@ import {
 } from "./runtime-resume-admission.ts";
 import { taskWorktreeCheckoutNote, type TaskWorktreeCheckout } from "./task-worktree.ts";
 import { assertTaskDispatchPrerequisites } from "./task-dispatch-admission.ts";
+import { workerLedgerPath } from "./worktree-setup.ts";
 export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
   resumeAdmissionTimeoutMs = 30_000,
@@ -311,7 +312,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           : remoteTask.causalContext,
       taskMission = taskId
         ? (remoteTask ??
-          deriveTaskMission(input.rootDir, projection!, taskId, "runtime.run", missionName, causalContext))
+          deriveTaskMission(input.rootDir, cwd, projection!, taskId, "runtime.run", missionName, causalContext))
         : null,
       mission =
         explicitMission === undefined
@@ -359,7 +360,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               throw runtimeSpawnError("agent_not_found", `Agent ${agentId} is unavailable.`);
             })())
           : null),
-      resolvedSkills = agent ? resolveAgentSkills({ rootDir: input.rootDir, skills: agent.skills }) : [],
+      resolvedSkills = (agent ? resolveAgentSkills({ rootDir: input.rootDir, skills: agent.skills }) : []).map(
+        (skill) => ({ ...skill, skillFile: workerLedgerPath(input.rootDir, cwd, skill.skillFile) }),
+      ),
       preset = agent?.preset
         ? (() => {
             if (!input.readSettings)
@@ -426,7 +429,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ? assembleTaskMission({
               mission,
               repoId: input.repoId,
-              canonicalRoot: input.rootDir,
               workerRoot: cwd,
               worktreeNote: dispatchWorktree ? taskWorktreeCheckoutNote(dispatchWorktree) : null,
               taskId: taskId!,
@@ -438,7 +440,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             ? assembleScheduledMission({
                 mission,
                 repoId: input.repoId,
-                canonicalRoot: input.rootDir,
                 workerRoot: cwd,
                 scheduleId: trustedSchedule.scheduleId,
                 mode: trustedSchedule.mode,

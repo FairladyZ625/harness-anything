@@ -192,7 +192,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.equal(launchedPersistence?.callbackRelay?.endpoint, endpoint);
       assert.match(launchedPrompt, new RegExp(`Repository id: ${repoId}`, "u"));
       assert.ok(launchedPrompt.includes("Repository registration: enabled"));
-      assert.ok(launchedPrompt.includes(`Canonical repository root: ${realpathSync(root)}`));
+      assert.equal(launchedPrompt.includes("Canonical repository root"), false);
       assert.ok(launchedPrompt.includes(`Worker repository root: ${realpathSync(workerRoot)}`));
       assert.ok(
         launchedPrompt.includes(

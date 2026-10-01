@@ -3,7 +3,12 @@ import path from "node:path";
 import type { ScheduleV1 } from "@harness-anything/kernel";
 import { makeGitReadinessSource, runProcessTextAsync } from "./process-port.ts";
 import type { TrustedScheduleRuntime } from "./runtime-spawn-types.ts";
-import { cleanupWorktreeSetup, runWorktreeSetup, worktreeSetupFailure } from "./worktree-setup.ts";
+import {
+  cleanupWorktreeSetup,
+  runWorktreeSetup,
+  unlinkWorktreeLedger,
+  worktreeSetupFailure,
+} from "./worktree-setup.ts";
 
 /**
  * A git worktree Harness creates and reclaims itself — schedule occurrences, task checkouts and squad
@@ -84,6 +89,7 @@ export async function reclaimManagedWorktree(rootDir: string, worktree: ManagedW
   try {
     // What the setup adapters made is theirs to remove, not the work in the worktree.
     await cleanupWorktreeSetup(worktree.cwd);
+    unlinkWorktreeLedger(rootDir, worktree.cwd);
     if ((await git(worktree.cwd, "status", "--porcelain")).length > 0)
       return { outcome: "retained", reason: "uncommitted changes" };
     const unmergedCommits = (await git(worktree.cwd, "cherry", worktree.baseRef, "HEAD"))
