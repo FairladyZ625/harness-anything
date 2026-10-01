@@ -17,11 +17,14 @@ export function daemonErrorCode(error: unknown): string | null {
 
 export function daemonBridgeError(value: unknown, fallback: string): Error & { readonly code?: string } {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return new Error(fallback);
-  const bridge = value as { readonly ok?: unknown; readonly error?: unknown };
+  const bridge = value as { readonly ok?: unknown; readonly error?: unknown; readonly rejectionExplanation?: unknown };
   if (bridge.ok !== false || bridge.error === null || typeof bridge.error !== "object" || Array.isArray(bridge.error))
     return new Error(fallback);
   const detail = bridge.error as { readonly code?: unknown; readonly hint?: unknown };
-  const error = new Error(typeof detail.hint === "string" ? detail.hint : fallback);
+  // Daemon rejection receipts carry the reason in rejectionExplanation (error holds only the
+  // code); ignoring it mislabels a rejected request as the fallback's build-mismatch story.
+  const reason = typeof detail.hint === "string" ? detail.hint : bridge.rejectionExplanation;
+  const error = new Error(typeof reason === "string" && reason ? reason : fallback);
   return typeof detail.code === "string" ? Object.assign(error, { code: detail.code }) : error;
 }
 

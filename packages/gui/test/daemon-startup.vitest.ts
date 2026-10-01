@@ -2,6 +2,7 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from "vitest";
 import {
+  daemonBridgeError,
   daemonRetryDelay,
   daemonStartupBudgetMs,
   daemonStartupPhase,
@@ -42,5 +43,29 @@ describe("daemon startup state machine", () => {
     });
     await expect(harnessClient.getSystemStatus()).rejects.toMatchObject({ code: "daemon_stopping" });
     Reflect.deleteProperty(window, "harness");
+  });
+
+  it("surfaces a daemon rejection's own explanation instead of mislabeling it a shape mismatch", () => {
+    // A daemon invalid_request receipt (what the browser /rpc broker returns verbatim): the
+    // reason lives in rejectionExplanation, error carries only the code. Reporting the
+    // fallback here told the operator to reload for a build mismatch when the request
+    // itself had been rejected.
+    const rejection = {
+      schema: "command-receipt/v2",
+      ok: false,
+      outcome: "op_rejected",
+      code: "invalid_request",
+      evidence: "rejection:invalid_request",
+      rejectionExplanation: "params.payload must be an object",
+      error: { code: "invalid_request" },
+    };
+    expect(daemonBridgeError(rejection, "GUI/daemon decision response shape mismatch; reload.")).toMatchObject({
+      code: "invalid_request",
+      message: "params.payload must be an object",
+    });
+    // The composed Electron failure receipts keep their hint, and it still wins.
+    expect(
+      daemonBridgeError({ ok: false, rejectionExplanation: "stale", error: { code: "x", hint: "live hint" } }, "f"),
+    ).toMatchObject({ code: "x", message: "live hint" });
   });
 });
