@@ -215,7 +215,7 @@ function ProviderConclusion({
       style={unreachable ? ({ "--status-edge": "var(--color-status-blocked)" } as CSSProperties) : undefined}
     >
       <StatusTag
-        tone={disabled ? "neutral" : unreachable ? "bad" : auth.cap === "part" ? "wait" : "done"}
+        tone={disabled ? "neutral" : unreachable ? "bad" : auth.cap === "part" ? "wait" : "neutral"}
         label={t(
           !instance.enabled
             ? "agentRuntime.providerDisabledTag"

@@ -229,8 +229,9 @@ export function ScheduleDetailView({
               <h1 className="min-w-0 text-[19px] font-semibold leading-snug text-text">
                 <TitleText title={row.name} />
               </h1>
+              {/* 已布防是正常值:中性档;已暂停才需要被看到(灰蓝)。 */}
               <StatusTag
-                tone={row.state === "armed" ? "active" : "plan"}
+                tone={row.state === "armed" ? "neutral" : "plan"}
                 label={t(row.state === "armed" ? "schedules.state.armed" : "schedules.state.paused")}
               />
               {row.activeRun !== null && <StatusTag tone="active" label={t("schedules.activeRun")} />}
@@ -552,7 +553,7 @@ function ScheduleOverviewTab({
                 edge={health.bucket === "degraded" ? "bad" : undefined}
                 tag={
                   <StatusTag
-                    tone={health.bucket === "degraded" ? "bad" : "done"}
+                    tone={health.bucket === "degraded" ? "bad" : "neutral"}
                     label={t(health.bucket === "degraded" ? "schedules.health.degraded" : "schedules.health.clean")}
                   />
                 }

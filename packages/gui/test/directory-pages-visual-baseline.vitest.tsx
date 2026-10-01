@@ -90,7 +90,7 @@ describe("AdaptersView 目录行(标准 §2.5)", () => {
     expect(down.textContent).toContain("engine process missing");
     expect(down.style.getPropertyValue("--status-edge")).toContain("var(--color-status-blocked)");
     const ok = rows[1]! as HTMLElement;
-    expect(ok.querySelector("[data-status-tone]")?.getAttribute("data-status-tone")).toBe("done");
+    expect(ok.querySelector("[data-status-tone]")?.getAttribute("data-status-tone")).toBe("neutral");
     expect(ok.textContent).toContain("2 个任务在用");
     expect(ok.textContent).toContain("默认");
     await unmountAll();

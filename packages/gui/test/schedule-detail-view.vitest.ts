@@ -222,6 +222,9 @@ describe("schedule detail hub (M2)", () => {
     const container = await renderDetail("schedule/heartbeat-probe", listResult(), onSelectEntity);
     const text = container.textContent ?? "";
     expect(text).toContain("Heartbeat probe");
+    // 页头第一个状态标签是「已布防」:正常值中性档,绿色只留给完成且结果好。
+    const headerStateTag = container.querySelector('[data-testid="schedule-detail"] [data-status-tone]');
+    expect(headerStateTag?.getAttribute("data-status-tone")).toBe("neutral");
     expect(text).toContain("Keep the end-to-end mainline green.");
     expect(text).toContain("Detect");
     expect(text).toContain("Claimed elsewhere");

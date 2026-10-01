@@ -310,10 +310,12 @@ describe("G5 系统组四页宽屏:内容容器铺满,不保留固定宽度收�
     );
     const conclusion = container.querySelector('[data-testid="system-conclusion"]');
     expect(conclusion).toBeTruthy();
-    expect(conclusion!.querySelector("[data-status-tone]")?.getAttribute("data-status-tone")).toBe("done");
+    // 「运行中」是默认正常值:中性档,绿色只留给完成且结果好;仓库表 attached 同理。
+    expect(conclusion!.querySelector("[data-status-tone]")?.getAttribute("data-status-tone")).toBe("neutral");
     expect(conclusion!.textContent).toContain("1/1");
     const stateTag = container.querySelector("tbody [data-status-tone]");
     expect(stateTag).toBeTruthy();
+    expect(stateTag!.getAttribute("data-status-tone")).toBe("neutral");
   });
 
   it("attached 仓库行最右侧显示明确的观察按钮", async () => {
