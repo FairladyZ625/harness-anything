@@ -109,7 +109,7 @@ export function TaskRelationsTab({
                   type="button"
                   onClick={() => onOpenSession(session.runtimeSessionId)}
                   className={
-                    "group flex w-full items-center gap-3 border-b border-border/70 py-2.5 text-left " +
+                    "group flex w-full items-center gap-3 border-b border-border/70 py-[12px] text-left " +
                     "last:border-b-0 hover:text-accent"
                   }
                 >
@@ -216,12 +216,12 @@ function EntityButton({
     <button
       type="button"
       onClick={onClick}
-      className="group flex w-full items-center gap-2 border-b border-border/70 py-2.5 text-left last:border-b-0"
+      className="group flex w-full items-center gap-2 border-b border-border/70 py-[12px] text-left last:border-b-0"
     >
       {content}
     </button>
   ) : (
-    <div className="group flex items-center gap-2 border-b border-border/70 py-2.5 last:border-b-0">{content}</div>
+    <div className="group flex items-center gap-2 border-b border-border/70 py-[12px] last:border-b-0">{content}</div>
   );
 }
 

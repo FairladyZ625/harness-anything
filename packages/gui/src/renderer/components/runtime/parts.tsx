@@ -388,7 +388,7 @@ export function SegCtl<T extends string>({
           data-tip={option.tip}
           aria-pressed={option.value === value}
           onClick={() => onChange(option.value)}
-          className={`px-2.5 py-0.5 ui-micro ${option.value === value ? "bg-accent font-semibold text-accent-fg" : "text-text-muted hover:bg-surface"}`}
+          className={`min-h-[40px] min-w-[40px] px-2.5 ui-micro ${option.value === value ? "bg-accent font-semibold text-accent-fg" : "text-text-muted hover:bg-surface"}`}
         >
           {option.label}
         </button>

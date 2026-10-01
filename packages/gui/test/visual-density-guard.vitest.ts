@@ -33,6 +33,20 @@ const SHORT_HEIGHT_RE = /\bh-\[(?:1[0-9]|2[0-9]|3[0-9])px\]/u;
 const SMALL_FONT_RE = /text-\[(?:[7-9]|1[012])(?:\.[0-9])?px\]/u;
 
 /**
+ * 悬停才出现的元素(§1.9③:关键操作不依赖悬停,触屏没有悬停):隐藏类与它的
+ * group-hover 恢复类同一行出现即违规——收藏星 B4 即此形态。信息性内容(非操作)
+ * 的悬停显示走文件级豁免并注明原因。
+ */
+const HOVER_ONLY_PAIRS = [
+  ["opacity-0", "group-hover:opacity-100"],
+  ["invisible", "group-hover:visible"],
+  ["hidden", "group-hover:inline"],
+] as const;
+/** 豁免(逐条带原因):终端任务树行的 taskId 是悬停显示的辅助信息(选卡/聚焦
+ * 按钮常显,操作不依赖悬停);终端 chrome 紧凑形态见 EXCLUDED_DIRS 注释。 */
+const HOVER_ONLY_FILE_EXEMPT = ["components/terminal/TerminalTaskTreePicker.tsx"] as const;
+
+/**
  * 已删除的截断类文案键(标准 §1.8:有空间就铺开,放不下就在区块内滚动;
  * 终态沉底用「已完成 N」分隔线,不藏进「展开」)。重新出现即失败。
  * 保留的「展开」只剩结构导航:components.primitives.expand/collapse
@@ -104,9 +118,34 @@ async function scanLocales(): Promise<{ file: string; key: string }[]> {
   return hits;
 }
 
+async function scanHoverOnly(): Promise<{ file: string; line: number; text: string }[]> {
+  const exempt = HOVER_ONLY_FILE_EXEMPT.map((rel) => `${RENDERER_ROOT.href}${rel}`);
+  const files = [
+    ...(await collectSourceFiles(RENDERER_ROOT, ".tsx")),
+    ...(await collectSourceFiles(RENDERER_ROOT, ".ts")),
+  ].filter((file) => !exempt.includes(file.href));
+  const violations: { file: string; line: number; text: string }[] = [];
+  for (const file of files) {
+    const source = await readFile(file, "utf8");
+    source.split("\n").forEach((text, index) => {
+      for (const [hidden, revealed] of HOVER_ONLY_PAIRS) {
+        if (text.includes(hidden) && text.includes(revealed)) {
+          violations.push({ file: file.href, line: index + 1, text: `hover-only: ${text.trim()}` });
+        }
+      }
+    });
+  }
+  return violations;
+}
+
 describe("visual density guard (gui-visual-language-standard v2)", () => {
   it("renderer pages declare no fixed row heights below 40px and no raw fonts at or below 12px", async () => {
     const violations = await scanRenderer();
+    expect(violations).toEqual([]);
+  });
+
+  it("no element hides until group hover (actions must be reachable without hover, §1.9)", async () => {
+    const violations = await scanHoverOnly();
     expect(violations).toEqual([]);
   });
 

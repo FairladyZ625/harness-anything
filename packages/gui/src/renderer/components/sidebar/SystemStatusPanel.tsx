@@ -140,7 +140,9 @@ export function LedgerStatusBar({
         title={t("components.appSidebar.ledgerRefreshTitle")}
         aria-label={t("components.appSidebar.ledgerRefreshTitle")}
         className={[
-          "shrink-0 rounded px-1 ui-micro text-text-faint",
+          // 命中区扩到 40px(标准 §1.9③):伪元素向外扩张,状态条的视觉密度不变。
+          "relative shrink-0 rounded px-1 ui-micro text-text-faint",
+          "after:absolute after:content-[''] after:-top-[24px] after:-bottom-[8px] after:-left-[12px] after:-right-[12px]",
           "hover:bg-surface-raised hover:text-text disabled:opacity-50",
         ].join(" ")}
       >
@@ -182,7 +184,7 @@ export function SystemStatusPanel({
         onClick={onOpenSystem}
         title={systemHealthDetail(health)}
         aria-label={t("components.appSidebar.goSystemTitle")}
-        className="flex h-[20px] w-full items-center gap-1.5 rounded text-left hover:bg-surface-raised/60"
+        className="flex min-h-[40px] w-full items-center gap-1.5 rounded text-left hover:bg-surface-raised/60"
       >
         <span
           data-testid="sidebar-system-status-lamp"

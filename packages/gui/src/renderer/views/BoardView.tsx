@@ -94,7 +94,7 @@ const Card = memo(function Card({
       data-testid="board-task-card"
       onClick={() => onSelect?.(task.taskId)}
       title={taskControlHint(task)}
-      className={`group relative cursor-pointer rounded-md bg-surface-raised p-2.5 ${freshnessBorder(
+      className={`relative cursor-pointer rounded-md bg-surface-raised p-2.5 ${freshnessBorder(
         task.freshness,
       )} ${archived ? "opacity-50" : ""} ${dragging ? "shadow-lg" : "hover:border-accent hover:ring-1 hover:ring-accent/50"} ${isFavorite ? "ring-1 ring-accent/40" : ""}`}
     >
@@ -111,7 +111,7 @@ const Card = memo(function Card({
             }}
             title={task.pinned === true ? "解除 pin" : "Pin(今天当前在做)"}
             aria-pressed={task.pinned === true}
-            className={`inline-flex items-center justify-center rounded p-0.5 ui-body hover:bg-surface ${
+            className={`inline-flex size-[40px] shrink-0 items-center justify-center rounded ui-body hover:bg-surface ${
               task.pinned === true ? "text-accent" : "text-text-faint hover:text-text-muted"
             }`}
           >
@@ -134,10 +134,8 @@ const Card = memo(function Card({
             onToggleFavorite(task.taskId);
           }}
           title={isFavorite ? "取消收藏" : "收藏(置顶)"}
-          className={`ml-auto inline-flex items-center justify-center rounded p-0.5 ui-meta hover:bg-surface ${
-            isFavorite
-              ? "text-accent opacity-100"
-              : "text-text-faint opacity-0 hover:text-text-muted group-hover:opacity-100"
+          className={`ml-auto inline-flex size-[40px] shrink-0 items-center justify-center rounded ui-meta hover:bg-surface ${
+            isFavorite ? "text-accent" : "text-text-faint hover:text-text-muted"
           }`}
         >
           <Star weight={isFavorite ? "fill" : "bold"} />
@@ -502,7 +500,7 @@ export const BoardView = memo(function BoardView({
   };
 
   const seg = (active: boolean) =>
-    `rounded px-2 py-0.5 ui-meta ${
+    `rounded px-2.5 min-h-[40px] min-w-[40px] ui-meta ${
       active ? "bg-surface-raised font-medium text-text" : "text-text-muted hover:text-text"
     }`;
 
