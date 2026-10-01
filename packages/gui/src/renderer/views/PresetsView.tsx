@@ -1,3 +1,4 @@
+import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
 import type { CSSProperties } from "react";
 import { useState } from "react";
 import { ArrowClockwise } from "@phosphor-icons/react";
@@ -121,7 +122,7 @@ export function PresetsView({
           { key: "templates", label: t("views.presetsView.templatesTab"), count: data.templates.length },
         ]}
       />
-      <div data-testid="presets-content" className="w-full p-4">
+      <TabPanel idPrefix="presets" value={tab} data-testid="presets-content" className="w-full p-4">
         {tab === "presets" &&
           presets.map((preset) => (
             <div
@@ -201,7 +202,7 @@ export function PresetsView({
           (tab === "templates" && data.templates.length === 0)) && (
           <p className="ui-meta text-text-faint">{t("views.presetsView.emptyTab")}</p>
         )}
-      </div>
+      </TabPanel>
     </div>
   );
 }

@@ -1,3 +1,4 @@
+import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
 import { useMemo, useState } from "react";
 import type { AgendaSuccess } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
@@ -138,7 +139,7 @@ export function CadenceView({
           ]}
         />
       </div>
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4">
+      <TabPanel idPrefix="cadence" value={tab} className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4">
         {tab === "fleet" ? (
           <FleetPulsePane
             snapshot={fleet}
@@ -169,7 +170,7 @@ export function CadenceView({
         <p className="shrink-0 ui-micro text-text-faint">
           {t("views.cadence.windowNote", { limit: CADENCE_EVENT_LIMIT })}
         </p>
-      </div>
+      </TabPanel>
     </div>
   );
 }
