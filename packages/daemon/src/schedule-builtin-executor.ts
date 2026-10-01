@@ -179,10 +179,11 @@ function existingSnapshotIsVerified(backupDir: string): boolean {
 }
 
 /**
- * Seed the system builtin schedules on a freshly attached local cell. The create rides the
+ * Seed the system builtin schedules on a freshly attached canonical cell. The create rides the
  * cell's single write queue with a deterministic schedule id and idempotency key, so two
  * attaches converge on one schedule: the second either replays the same operation or meets
- * entity_exists. Seeding stays a local-mode concern — fleet mirror cells never seed.
+ * entity_exists. Seeding belongs to the node holding the canonical cell — fleet mirror cells
+ * never seed.
  */
 export async function seedBuiltinSchedules(input: {
   readonly cell: {

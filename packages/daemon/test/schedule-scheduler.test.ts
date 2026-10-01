@@ -292,18 +292,7 @@ test("an active Schedule records the next tick as single-flight missed", async (
 
 test("a builtin Schedule arms on its local node and never on a remote-edge mirror", async () => {
   const clock = fakeClock("2026-08-27T10:00:00.000Z"),
-    builtin = createScheduleV1({
-      scheduleId: "builtin-ledger-backup",
-      name: "Ledger backup",
-      mode: "detect",
-      spec: {
-        trigger: { kind: "interval", everyMs: 30 * 60_000, anchorAt: "2026-08-27T10:00:00.000Z" },
-        target: { kind: "builtin", builtinId: "ledger-backup" },
-        mission: "System ledger backup.",
-      },
-      actor,
-      occurredAt: "2026-08-27T10:00:00.000Z",
-    }) as MutableSchedule,
+    builtin = builtinSchedule(),
     local = fixtureRepo("builtin-local", "local", [builtin]),
     edgeActions: string[] = [],
     edge = fixtureRepo("builtin-edge", "remote-edge", [builtin]);
@@ -335,35 +324,59 @@ test("a builtin Schedule arms on its local node and never on a remote-edge mirro
   scheduler.close();
 });
 
-test("remote-center installs no timer while remote-edge uses its assignment action", async () => {
+test("a remote-center claims only builtin occurrences while every remote-edge claims only agent ones", async () => {
   const clock = fakeClock("2026-08-27T10:00:00.000Z"),
-    center = fixtureRepo("center", "remote-center", [schedule("center-schedule")]),
-    edge = fixtureRepo("edge", "remote-edge", [schedule("edge-schedule")]),
+    mirror = () => [builtinSchedule(), schedule("agent-schedule")],
+    center = fixtureRepo("center", "remote-center", mirror()),
+    edges = ["edge-one", "edge-two"].map((repoId) => fixtureRepo(repoId, "remote-edge", mirror())),
     edgeActions: string[] = [],
     scheduler = makeScheduleScheduler({
-      cells: new Map([
-        [center.repoId, center.cell],
-        [edge.repoId, edge.cell],
-      ]),
+      cells: new Map([center, ...edges].map((repo) => [repo.repoId, repo.cell])),
       localBinding,
-      remoteEdgeAction: async (_repoId, _rootDir, action) => {
-        edgeActions.push(String(action.kind));
-        return edge.execute(action);
+      remoteEdgeAction: async (repoId, _rootDir, action) => {
+        edgeActions.push(`${repoId}:${String(action.kind)}`);
+        return edges.find((edge) => edge.repoId === repoId)!.execute(action);
       },
       now: clock.now,
       setTimer: clock.setTimer,
       clearTimer: clock.clearTimer,
     });
   await scheduler.start();
-  assert.deepEqual(center.actions, []);
-  assert.deepEqual(edgeActions, ["schedule-list"]);
+  assert.deepEqual(center.actions, ["schedule-list"]);
+  assert.deepEqual(edgeActions, ["edge-one:schedule-list", "edge-two:schedule-list"]);
   assert.equal(clock.liveTimers().length, 1);
 
   clock.value = "2026-08-27T10:30:00.000Z";
   clock.liveTimers()[0]!.callback();
   await scheduler.refresh();
-  assert.equal(edgeActions.includes("schedule-run-now"), true);
-  assert.deepEqual(edge.fired, ["edge-schedule"]);
+  assert.deepEqual(center.fired, ["builtin-ledger-backup"]);
+  assert.deepEqual(center.missed, []);
+  for (const edge of edges) {
+    assert.deepEqual(edge.fired, ["agent-schedule"], edge.repoId);
+    assert.deepEqual(edge.missed, [], edge.repoId);
+  }
+  scheduler.close();
+});
+
+test("a remote-center that wakes past the admission window records its builtin occurrence as missed", async () => {
+  // A center handing over between daemon builds is down across 10:30 and back at 10:35: the
+  // default one-minute window has closed, so the occurrence is recorded, never caught up.
+  const clock = fakeClock("2026-08-27T10:35:00.000Z"),
+    center = fixtureRepo("center-handover", "remote-center", [builtinSchedule(), schedule("agent-schedule")]),
+    scheduler = makeScheduleScheduler({
+      cells: new Map([[center.repoId, center.cell]]),
+      localBinding,
+      now: clock.now,
+      setTimer: clock.setTimer,
+      clearTimer: clock.clearTimer,
+    });
+  await scheduler.start();
+  assert.deepEqual(
+    center.missed.map(({ scheduleId, count, reason }) => ({ scheduleId, count, reason })),
+    [{ scheduleId: "builtin-ledger-backup", count: 1, reason: "scheduler_unavailable" }],
+  );
+  assert.deepEqual(center.fired, []);
+  assert.equal(clock.liveTimers()[0]!.delayMs, 25 * 60_000);
   scheduler.close();
 });
 
@@ -551,6 +564,21 @@ function schedule(scheduleId: string): MutableSchedule {
       trigger: { kind: "interval", everyMs: 30 * 60_000, anchorAt: "2026-08-27T10:00:00.000Z" },
       target: { kind: "agent", agentId: "codex", runtimeInstanceId: "runtime-local" },
       mission: `Run ${scheduleId}.`,
+    },
+    actor,
+    occurredAt: "2026-08-27T10:00:00.000Z",
+  }) as MutableSchedule;
+}
+
+function builtinSchedule(): MutableSchedule {
+  return createScheduleV1({
+    scheduleId: "builtin-ledger-backup",
+    name: "Ledger backup",
+    mode: "detect",
+    spec: {
+      trigger: { kind: "interval", everyMs: 30 * 60_000, anchorAt: "2026-08-27T10:00:00.000Z" },
+      target: { kind: "builtin", builtinId: "ledger-backup" },
+      mission: "System ledger backup.",
     },
     actor,
     occurredAt: "2026-08-27T10:00:00.000Z",

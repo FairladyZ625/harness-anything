@@ -307,7 +307,10 @@ test("a center-local write and an edge write race through one queue under expect
         revisions.map((_, index) => index + 1),
         "the queue assigned one gapless revision per accepted write",
       );
-      assert.equal(events.filter((event) => event.type === "schedule_created").length, 2);
+      assert.equal(
+        events.filter((event) => event.type === "schedule_created" && event.entity.id.startsWith("race-")).length,
+        2,
+      );
     } finally {
       await reader.drain();
     }
