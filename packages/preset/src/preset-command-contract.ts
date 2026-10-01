@@ -45,11 +45,13 @@ const commandTopology = (
   });
 export const repoReadCommandTopology = commandTopology("repo-read", "direct", "direct"),
   queryOnlyRepoReadCommandTopology = commandTopology("repo-read", "direct", "direct", "query-only"),
-  ledgerWriteCommandTopology = commandTopology("repo-write", "via-assignment", "rejected"),
+  // The center is the ledger's only writer, so its own authenticated principals write it directly;
+  // an edge reaches the same queue through its assignment.
+  ledgerWriteCommandTopology = commandTopology("repo-write", "direct", "rejected"),
   centerForwardReadCommandTopology = commandTopology("repo-read", "direct", "via-center-forward"),
-  centerForwardWriteCommandTopology = commandTopology("repo-write", "via-assignment", "via-center-forward"),
+  centerForwardWriteCommandTopology = commandTopology("repo-write", "direct", "via-center-forward"),
+  // Runtime-local execution belongs to the edge; the center only takes its publication by assignment.
   runtimeLocalWriteCommandTopology = commandTopology("repo-write", "via-assignment", "direct"),
-  centerRepairWriteCommandTopology = commandTopology("repo-write", "direct", "rejected"),
   localArbiterCommandTopology = commandTopology("arbiter", "rejected", "rejected"),
   hostAdminCommandTopology = commandTopology("admin", "direct", "direct");
 const shape = (fields: RpcShape["fields"]): RpcShape => ({ fields }),
@@ -198,7 +200,6 @@ export const defineRepoReadCommand = defineTopologyCommand(repoReadCommandTopolo
   defineCenterForwardReadCommand = defineTopologyCommand(centerForwardReadCommandTopology),
   defineCenterForwardWriteCommand = defineTopologyCommand(centerForwardWriteCommandTopology),
   defineRuntimeLocalWriteCommand = defineTopologyCommand(runtimeLocalWriteCommandTopology),
-  defineCenterRepairWriteCommand = defineTopologyCommand(centerRepairWriteCommandTopology),
   defineLocalArbiterCommand = defineTopologyCommand(localArbiterCommandTopology),
   defineHostAdminCommand = defineTopologyCommand(hostAdminCommandTopology);
 

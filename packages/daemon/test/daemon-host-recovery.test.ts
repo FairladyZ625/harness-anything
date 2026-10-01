@@ -796,9 +796,9 @@ test("repository modes close local, center-assignment, and edge command families
       "applied",
     );
     assert.equal(
-      (await host.run("center", { kind: "task-create", taskId: "task-center-local", title: "Wrong ingress" }, auth))
-        .code,
-      "repo_mode_requires_center_ingress",
+      (await host.run("center", { kind: "task-create", taskId: "task-center-local", title: "Center local" }, auth))
+        .outcome,
+      "applied",
     );
     const mismatchedLocalAuth = {
       ...auth,
