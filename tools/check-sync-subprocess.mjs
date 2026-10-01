@@ -20,8 +20,11 @@ const SYNC_APIS = new Set(["execFileSync", "execSync", "spawnSync"]);
 const SITE_KINDS = new Set(["call", "export", "import", "reference"]);
 
 export function scanSyncSubprocess(root = process.cwd()) {
-  const files = SOURCE_ROOTS.flatMap((directory) => walk(path.join(root, directory)));
-  if (files.length === 0) return [];
+  const files = SOURCE_ROOTS.flatMap((directory) => {
+    const sourceFiles = walk(path.join(root, directory));
+    if (sourceFiles.length === 0) throw new Error(`${GATE_ID}: required scan root ${directory} has no source files`);
+    return sourceFiles;
+  });
   const program = ts.createProgram({
     rootNames: files,
     options: {
@@ -32,8 +35,8 @@ export function scanSyncSubprocess(root = process.cwd()) {
       moduleResolution: ts.ModuleResolutionKind.NodeNext,
       noEmit: true,
       skipLibCheck: true,
-      target: ts.ScriptTarget.ESNext
-    }
+      target: ts.ScriptTarget.ESNext,
+    },
   });
   const checker = program.getTypeChecker();
   const sites = [];
@@ -57,7 +60,7 @@ export function scanSyncSubprocess(root = process.cwd()) {
         api,
         scope: semanticScope(node, source),
         identity,
-        content
+        content,
       });
     };
 
@@ -76,8 +79,11 @@ export function scanSyncSubprocess(root = process.cwd()) {
             add(specifier, "import", imported);
           }
         }
-      } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)
-        && moduleName(node.moduleReference.expression) === CHILD_PROCESS_MODULE) {
+      } else if (
+        ts.isImportEqualsDeclaration(node) &&
+        ts.isExternalModuleReference(node.moduleReference) &&
+        moduleName(node.moduleReference.expression) === CHILD_PROCESS_MODULE
+      ) {
         registerNamespace(checker, namespaceBindings, node.name);
       } else if (ts.isVariableDeclaration(node) && isChildProcessModuleExpression(node.initializer)) {
         if (ts.isIdentifier(node.name)) {
@@ -91,8 +97,12 @@ export function scanSyncSubprocess(root = process.cwd()) {
             add(element, "import", imported);
           }
         }
-      } else if (ts.isExportDeclaration(node) && moduleName(node.moduleSpecifier) === CHILD_PROCESS_MODULE
-        && node.exportClause && ts.isNamedExports(node.exportClause)) {
+      } else if (
+        ts.isExportDeclaration(node) &&
+        moduleName(node.moduleSpecifier) === CHILD_PROCESS_MODULE &&
+        node.exportClause &&
+        ts.isNamedExports(node.exportClause)
+      ) {
         for (const specifier of node.exportClause.elements) {
           if (node.isTypeOnly || specifier.isTypeOnly) continue;
           const imported = (specifier.propertyName ?? specifier.name).text;
@@ -116,7 +126,10 @@ export function scanSyncSubprocess(root = process.cwd()) {
       if (ts.isIdentifier(node)) {
         const api = namedBindings.get(checker.getSymbolAtLocation(node));
         if (api && !isNamedBindingDeclaration(node) && !isDirectCallTarget(node)) add(node, "reference", api);
-      } else if ((ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) && !isDirectCallTarget(node)) {
+      } else if (
+        (ts.isPropertyAccessExpression(node) || ts.isElementAccessExpression(node)) &&
+        !isDirectCallTarget(node)
+      ) {
         const api = resolvedSyncApi(node, checker, namedBindings, namespaceBindings);
         if (api) add(node, "reference", api);
       }
@@ -128,7 +141,9 @@ export function scanSyncSubprocess(root = process.cwd()) {
       sites.push({ ...site, key: site.identity ?? `${site.path}:${site.line}:${site.column}` });
     }
   }
-  return sites.sort((left, right) => left.path.localeCompare(right.path) || left.line - right.line || left.column - right.column);
+  return sites.sort(
+    (left, right) => left.path.localeCompare(right.path) || left.line - right.line || left.column - right.column,
+  );
 }
 
 export function checkSyncSubprocess(sites, baseline = syncSubprocessBaseline) {
@@ -187,35 +202,58 @@ function resolvedSyncApi(expression, checker, namedBindings, namespaceBindings) 
   if (ts.isIdentifier(expression)) {
     return namedBindings.get(checker.getSymbolAtLocation(expression)) ?? null;
   }
-  if (ts.isPropertyAccessExpression(expression) && ts.isIdentifier(expression.expression)
-    && namespaceBindings.has(checker.getSymbolAtLocation(expression.expression)) && SYNC_APIS.has(expression.name.text)) {
+  if (
+    ts.isPropertyAccessExpression(expression) &&
+    ts.isIdentifier(expression.expression) &&
+    namespaceBindings.has(checker.getSymbolAtLocation(expression.expression)) &&
+    SYNC_APIS.has(expression.name.text)
+  ) {
     return expression.name.text;
   }
-  if (ts.isPropertyAccessExpression(expression) && isChildProcessModuleExpression(expression.expression)
-    && SYNC_APIS.has(expression.name.text)) return expression.name.text;
-  if (ts.isElementAccessExpression(expression) && ts.isIdentifier(expression.expression)
-    && namespaceBindings.has(checker.getSymbolAtLocation(expression.expression))
-    && expression.argumentExpression && ts.isStringLiteralLike(expression.argumentExpression)
-    && SYNC_APIS.has(expression.argumentExpression.text)) {
+  if (
+    ts.isPropertyAccessExpression(expression) &&
+    isChildProcessModuleExpression(expression.expression) &&
+    SYNC_APIS.has(expression.name.text)
+  )
+    return expression.name.text;
+  if (
+    ts.isElementAccessExpression(expression) &&
+    ts.isIdentifier(expression.expression) &&
+    namespaceBindings.has(checker.getSymbolAtLocation(expression.expression)) &&
+    expression.argumentExpression &&
+    ts.isStringLiteralLike(expression.argumentExpression) &&
+    SYNC_APIS.has(expression.argumentExpression.text)
+  ) {
     return expression.argumentExpression.text;
   }
-  if (ts.isElementAccessExpression(expression) && isChildProcessModuleExpression(expression.expression)
-    && expression.argumentExpression && ts.isStringLiteralLike(expression.argumentExpression)
-    && SYNC_APIS.has(expression.argumentExpression.text)) return expression.argumentExpression.text;
+  if (
+    ts.isElementAccessExpression(expression) &&
+    isChildProcessModuleExpression(expression.expression) &&
+    expression.argumentExpression &&
+    ts.isStringLiteralLike(expression.argumentExpression) &&
+    SYNC_APIS.has(expression.argumentExpression.text)
+  )
+    return expression.argumentExpression.text;
   return null;
 }
 
 function isChildProcessModuleExpression(node) {
   if (node && ts.isAwaitExpression(node)) return isChildProcessModuleExpression(node.expression);
-  return Boolean(node && ts.isCallExpression(node)
-    && (ts.isIdentifier(node.expression) && node.expression.text === "require" || node.expression.kind === ts.SyntaxKind.ImportKeyword)
-    && node.arguments.length === 1
-    && moduleName(node.arguments[0]) === CHILD_PROCESS_MODULE);
+  return Boolean(
+    node &&
+      ts.isCallExpression(node) &&
+      ((ts.isIdentifier(node.expression) && node.expression.text === "require") ||
+        node.expression.kind === ts.SyntaxKind.ImportKeyword) &&
+      node.arguments.length === 1 &&
+      moduleName(node.arguments[0]) === CHILD_PROCESS_MODULE,
+  );
 }
 
 function isNamedBindingDeclaration(node) {
-  return ts.isImportSpecifier(node.parent) && node.parent.name === node
-    || ts.isBindingElement(node.parent) && node.parent.name === node;
+  return (
+    (ts.isImportSpecifier(node.parent) && node.parent.name === node) ||
+    (ts.isBindingElement(node.parent) && node.parent.name === node)
+  );
 }
 
 function isDirectCallTarget(node) {
@@ -223,7 +261,8 @@ function isDirectCallTarget(node) {
 }
 
 function bindingPropertyName(element) {
-  if (element.propertyName && (ts.isIdentifier(element.propertyName) || ts.isStringLiteralLike(element.propertyName))) return element.propertyName.text;
+  if (element.propertyName && (ts.isIdentifier(element.propertyName) || ts.isStringLiteralLike(element.propertyName)))
+    return element.propertyName.text;
   return ts.isIdentifier(element.name) ? element.name.text : null;
 }
 
@@ -234,8 +273,14 @@ function moduleName(node) {
 function semanticScope(node, source) {
   const segments = [];
   for (let current = node.parent; current && !ts.isSourceFile(current); current = current.parent) {
-    if (ts.isVariableDeclaration(current) || ts.isFunctionDeclaration(current) || ts.isMethodDeclaration(current)
-      || ts.isClassDeclaration(current) || ts.isPropertyAssignment(current) || ts.isPropertyDeclaration(current)) {
+    if (
+      ts.isVariableDeclaration(current) ||
+      ts.isFunctionDeclaration(current) ||
+      ts.isMethodDeclaration(current) ||
+      ts.isClassDeclaration(current) ||
+      ts.isPropertyAssignment(current) ||
+      ts.isPropertyDeclaration(current)
+    ) {
       const name = stableName(current.name, source);
       if (name) segments.unshift(name);
     }
@@ -249,24 +294,51 @@ function stableName(name, source) {
   return name.getText(source).replace(/[^A-Za-z0-9_.-]+/gu, "-");
 }
 
-function relative(root, file) { return path.relative(root, file).split(path.sep).join("/"); }
-function walk(directory) { const files = []; let entries; try { entries = readdirSync(directory, { withFileTypes: true }); } catch (error) { if (error?.code === "ENOENT") return files; throw error; } for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) { const full = path.join(directory, entry.name); if (entry.isDirectory()) { if (!["dist", "node_modules", "out"].includes(entry.name)) files.push(...walk(full)); } else if (SOURCE_FILE.test(entry.name)) files.push(full); } return files; }
+function relative(root, file) {
+  return path.relative(root, file).split(path.sep).join("/");
+}
+function walk(directory) {
+  const files = [];
+  const entries = readdirSync(directory, { withFileTypes: true });
+  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+    const full = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      if (!["dist", "node_modules", "out"].includes(entry.name)) files.push(...walk(full));
+    } else if (SOURCE_FILE.test(entry.name)) files.push(full);
+  }
+  return files;
+}
 
 function printBaseline(sites) {
   console.log("export const syncSubprocessBaseline = Object.freeze([");
-  for (const site of sites) console.log(`  { key: ${JSON.stringify(site.key)}, kind: ${JSON.stringify(site.kind)}, api: ${JSON.stringify(site.api)} }, // @ ${site.scope}`);
+  for (const site of sites)
+    console.log(
+      `  { key: ${JSON.stringify(site.key)}, kind: ${JSON.stringify(site.kind)}, api: ${JSON.stringify(site.api)} }, // @ ${site.scope}`,
+    );
   console.log("]);");
 }
 
 function printInventory(sites) {
-  for (const site of sites) console.log(`${site.path}:${site.line}:${site.column} [${site.kind}/${site.api}] @ ${site.scope}`);
+  for (const site of sites)
+    console.log(`${site.path}:${site.line}:${site.column} [${site.kind}/${site.api}] @ ${site.scope}`);
 }
 
 async function main() {
   const sites = scanSyncSubprocess();
-  if (process.argv.includes("--print-baseline")) { printBaseline(sites); return; }
-  if (process.argv.includes("--print-inventory")) { printInventory(sites); return; }
-  if (process.argv.includes("--report")) { console.log(JSON.stringify({ inventory: inventoryCounts(sites), baseline: syncSubprocessBaseline.length }, null, 2)); return; }
+  if (process.argv.includes("--print-baseline")) {
+    printBaseline(sites);
+    return;
+  }
+  if (process.argv.includes("--print-inventory")) {
+    printInventory(sites);
+    return;
+  }
+  if (process.argv.includes("--report")) {
+    console.log(
+      JSON.stringify({ inventory: inventoryCounts(sites), baseline: syncSubprocessBaseline.length }, null, 2),
+    );
+    return;
+  }
   const findings = checkSyncSubprocess(sites);
   if (findings.length > 0) {
     console.error("Synchronous subprocess check failed:");
@@ -275,7 +347,10 @@ async function main() {
     return;
   }
   const counts = inventoryCounts(sites);
-  console.log(`Synchronous subprocess check passed (${counts.total} frozen sites across ${Object.keys(counts.files).length} files; ${counts.kinds.import ?? 0} imports, ${counts.kinds.call ?? 0} calls, ${counts.kinds.reference ?? 0} other references).`);
+  console.log(
+    `Synchronous subprocess check passed (${counts.total} frozen sites across ${Object.keys(counts.files).length} files; ${counts.kinds.import ?? 0} imports, ${counts.kinds.call ?? 0} calls, ${counts.kinds.reference ?? 0} other references).`,
+  );
 }
 
-if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) await main();
+if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href)
+  await main();

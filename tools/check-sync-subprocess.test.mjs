@@ -191,6 +191,10 @@ test("deleted sites make baseline entries stale", () => {
 function withFixture(files, run) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-sync-subprocess-"));
   try {
+    for (const scanRoot of ["packages/daemon/src", "packages/kernel/src"]) {
+      mkdirSync(path.join(root, scanRoot), { recursive: true });
+      writeFileSync(path.join(root, scanRoot, "clean.ts"), "export const clean = true;\n");
+    }
     for (const [relative, content] of Object.entries(files)) {
       const file = path.join(root, relative);
       mkdirSync(path.dirname(file), { recursive: true });
@@ -201,3 +205,52 @@ function withFixture(files, run) {
     rmSync(root, { recursive: true, force: true });
   }
 }
+
+import { spawnSync as runGate } from "node:child_process";
+import {
+  mkdtempSync as makeGateRoot,
+  mkdirSync as makeGateDir,
+  writeFileSync as writeGateFile,
+  rmSync as removeGateRoot,
+} from "node:fs";
+
+const requiredScanRoots = ["packages/daemon/src", "packages/kernel/src"];
+for (const omitted of requiredScanRoots) {
+  for (const state of ["missing", "empty", "excluded-only"]) {
+    test(`check-sync-subprocess rejects ${state} required scan root ${omitted}`, () => {
+      const root = makeGateRoot(path.join(tmpdir(), "ha-gate-discovery-"));
+      try {
+        for (const scanRoot of requiredScanRoots) {
+          if (scanRoot === omitted && state === "missing") continue;
+          makeGateDir(path.join(root, scanRoot), { recursive: true });
+          if (scanRoot !== omitted) writeGateFile(path.join(root, scanRoot, "good.ts"), "export const ok = true;\n");
+          if (scanRoot === omitted && state === "excluded-only") {
+            makeGateDir(path.join(root, scanRoot, "dist"), { recursive: true });
+            writeGateFile(path.join(root, scanRoot, "dist/ignored.ts"), "export const ignored = true;\n");
+          }
+        }
+        const result = runGate(process.execPath, [path.join(repoRootForDiscovery, "tools/check-sync-subprocess.mjs")], {
+          cwd: root,
+          encoding: "utf8",
+        });
+        assert.notEqual(result.status, 0, result.stdout + result.stderr);
+        assert.match(result.stderr, /ENOENT|no source files/u);
+      } finally {
+        removeGateRoot(root, { recursive: true, force: true });
+      }
+    });
+  }
+}
+const repoRootForDiscovery = path.resolve(import.meta.dirname, "..");
+
+// An empty ratchet must not turn lost source coverage into a passing scan.
+test("empty baseline cannot wash out missing source discovery", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-sync-empty-baseline-"));
+  try {
+    assert.throws(() => checkSyncSubprocess(scanSyncSubprocess(root), []), /ENOENT/u);
+    for (const scanRoot of requiredScanRoots) mkdirSync(path.join(root, scanRoot), { recursive: true });
+    assert.throws(() => checkSyncSubprocess(scanSyncSubprocess(root), []), /no source files/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

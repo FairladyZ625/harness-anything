@@ -6,26 +6,20 @@ const root = process.cwd();
 const scannedRoots = [path.join(root, "packages")];
 const sourceFile = /\.(?:ts|tsx|mts|js|jsx|mjs)$/;
 const allowlist = loadGateAllowlist("check-integrity-single-source", {
-  requiredSections: ["authorities"]
+  requiredSections: ["authorities"],
 });
 const authorities = new Map(allowlist.authorities.map((entry) => [entry.symbol, entry.path]));
 const violations = [];
 
 async function walk(dir) {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch (error) {
-    if (error?.code === "ENOENT") return [];
-    throw error;
-  }
+  const entries = await readdir(dir, { withFileTypes: true });
 
   const files = [];
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
       if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "out") continue;
-      files.push(...await walk(full));
+      files.push(...(await walk(full)));
     } else if (sourceFile.test(entry.name)) {
       files.push(full);
     }
@@ -42,7 +36,10 @@ function definitionPattern(symbol) {
 }
 
 for (const sourceRoot of scannedRoots) {
-  for (const file of await walk(sourceRoot)) {
+  const files = await walk(sourceRoot);
+  if (files.length === 0)
+    throw new Error("check-integrity-single-source: required scan root packages has no source files");
+  for (const file of files) {
     const rel = relative(file);
     const text = await readFile(file, "utf8");
     for (const [symbol, authority] of authorities) {
@@ -52,10 +49,12 @@ for (const sourceRoot of scannedRoots) {
       }
     }
     if (
-      rel !== "packages/kernel/src/integrity/stable-hash.ts"
-      && /createHash\(\s*["']sha256["']\s*\)\.update\(\s*stableStringify\(/u.test(text)
+      rel !== "packages/kernel/src/integrity/stable-hash.ts" &&
+      /createHash\(\s*["']sha256["']\s*\)\.update\(\s*stableStringify\(/u.test(text)
     ) {
-      violations.push(`${rel}: duplicate stable payload hash implementation; import from packages/kernel/src/integrity/stable-hash.ts`);
+      violations.push(
+        `${rel}: duplicate stable payload hash implementation; import from packages/kernel/src/integrity/stable-hash.ts`,
+      );
     }
   }
 }
