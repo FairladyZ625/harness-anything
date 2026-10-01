@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
@@ -399,6 +400,171 @@ test(
       ).includes("edge runtime done"),
       true,
       "the accepted center archive must be recoverable through the edge mirror",
+    );
+  },
+);
+test(
+  "an edge dispatches a center-installed worker into the task's own worktree and settlement publishes its branch",
+  { timeout: 60_000 },
+  async (t) => {
+    const installation: RuntimeInstallationWitness = {
+        installationId: "edge-codex-installation",
+        kindId: "codex",
+        executablePath: "/usr/bin/true",
+        version: "1.0.0",
+        observedAt: "2026-08-23T00:00:00.000Z",
+      },
+      codexInstance = {
+        instanceId: "edge-codex",
+        name: "Edge Codex",
+        kindId: installation.kindId,
+        installationId: installation.installationId,
+        providerId: "openai",
+        models: ["gpt-5.6-sol"],
+        codex: { reasoningEffort: "high" },
+        authMode: "subscription",
+      },
+      fixture = await fleetFixture(t, ["tasks/task-fleet-fleet", "agents"], [installation]);
+    t.after(() => fixture.close());
+    await fixture.host.runtimeInstance("daemon.runtimeInstance.create", codexInstance, localAuthFixture());
+    const { repoId, taskId } = fixture.assignment,
+      // The Agent is installed at the center only; the edge has no ledger and reads it from its mirrored view.
+      packageSource = path.join(fixture.repo, "source", "edge-worker");
+    mkdirSync(packageSource, { recursive: true });
+    writeFileSync(
+      path.join(packageSource, "agent.json"),
+      `${JSON.stringify({
+        schema: "agent-declaration/v1",
+        id: "edge-worker",
+        name: "Edge Worker",
+        instructions: "Deliver the task in its worktree.",
+        runtimes: [{ type: "codex" }],
+        role: "worker",
+      })}\n`,
+    );
+    const installed = await fixture.host.run(
+      repoId,
+      { kind: "agent-install", packageSource, expectedVersion: 0, idempotencyKey: "edge-worker-install" },
+      localAuthFixture(),
+    );
+    assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    await waitForFleetPublication(fixture.host, repoId, installed.opId, localAuthFixture());
+    const center = await fixture.center(),
+      edgeRoot = path.join(fixture.root, "worker-edge"),
+      edgeUserRoot = path.join(fixture.root, "worker-edge-user"),
+      viewRoot = path.join(fixture.root, "worker-edge-view"),
+      rosterPath = path.join(fixture.root, "worker-roster.json"),
+      remote = path.join(fixture.root, "worker-remote.git"),
+      localAuth = localAuthFixture();
+    mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
+    initRepo(edgeRoot);
+    writeFileSync(
+      path.join(edgeRoot, "harness/harness.yaml"),
+      "schema: harness-anything/v1\nname: worker-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    );
+    git(edgeRoot, "add", "harness");
+    git(edgeRoot, "commit", "-qm", "edge harness");
+    git(fixture.root, "init", "--bare", "-q", remote);
+    git(edgeRoot, "remote", "add", "origin", remote);
+    git(edgeRoot, "push", "-q", "-u", "origin", git(edgeRoot, "branch", "--show-current"));
+    const base = git(edgeRoot, "rev-parse", "HEAD");
+    await runFleetReplicaPullClient({
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.assignment.nodeId,
+      credential: "machine-secret",
+      assignmentId: fixture.assignment.assignmentId,
+      viewRoot,
+      diskQuotaBytes: replicaQuota,
+    });
+    applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
+    assert.equal(existsSync(path.join(edgeRoot, "harness/agents/edge-worker.json")), true);
+    writeFileSync(
+      rosterPath,
+      `${JSON.stringify({ schema: "fleet-roster/v1", nodes: [{ nodeId: fixture.assignment.nodeId, credential: "machine-secret" }], assignments: [{ assignmentId: fixture.assignment.assignmentId, nodeId: fixture.assignment.nodeId, repoId, taskId, executionId: fixture.assignment.executionId, viewId: fixture.assignment.viewId, personId: fixture.assignment.actor.principal.personId, executorId: fixture.assignment.actor.executor?.id, expiresAt: fixture.assignment.expiresAt, paths: fixture.assignment.paths }] })}\n`,
+    );
+    registerDaemonRepo({
+      canonicalRoot: edgeRoot,
+      repoId,
+      mode: "remote-edge",
+      userRoot: edgeUserRoot,
+      createConvenienceLinks: false,
+    });
+    const launchedIn: string[] = [],
+      edgeHost = await openDaemonHost({
+        daemonId: "fleet-worker-edge",
+        userRoot: edgeUserRoot,
+        runtimeDiscover: () => [installation],
+        runtimeLaunch: (prepared) => {
+          launchedIn.push(prepared.cwd);
+          let output: ((chunk: string) => void) | null = null;
+          return {
+            pid: 90310,
+            onOutput: (listener) => {
+              output = listener;
+            },
+            onErrorOutput: () => undefined,
+            onExit: (exit) => {
+              queueMicrotask(() => {
+                // What a worker does in its cwd: change a repository file and commit it.
+                writeFileSync(path.join(prepared.cwd, "delivered.txt"), "delivered\n");
+                git(prepared.cwd, "add", "delivered.txt");
+                git(prepared.cwd, "commit", "-qm", "feat: edge delivery");
+                output?.(
+                  `${JSON.stringify({ type: "thread.started", thread_id: "edge-worker-session" })}\n${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "edge worker done" } })}\n${JSON.stringify({ type: "turn.completed" })}\n`,
+                );
+                exit(0);
+              });
+            },
+            terminate: () => undefined,
+          };
+        },
+      });
+    t.after(() => edgeHost.close());
+    await edgeHost.attachmentsSettled();
+    await edgeHost.runtimeInstance("daemon.runtimeInstance.create", codexInstance, localAuth);
+    const receipt = await edgeHost.fleet.edgeRuntime(
+      {
+        host: "127.0.0.1",
+        port: center.port,
+        caPath: fixture.certFile,
+        nodeId: fixture.assignment.nodeId,
+        rosterPath,
+        assignmentId: fixture.assignment.assignmentId,
+        repoId,
+        viewRoot,
+        quotaBytes: replicaQuota,
+        workspaceRoot: edgeRoot,
+        method: "repo.agentRuntime.spawn",
+        action: { agentId: "edge-worker", taskId, idempotencyKey: "remote-edge-worker" },
+      },
+      localAuth,
+    );
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    const worktree = path.join(edgeRoot, ".worktrees", taskId);
+    assert.deepEqual(launchedIn, [worktree], "the worker runs in the task's worktree, not the node's main checkout");
+    const settled = async () =>
+      (
+        await fixture.host.read(
+          repoId,
+          "repo.agentRuntime.sessions.read",
+          { runtimeSessionId: receipt.runtimeSessionId },
+          fixture.auth,
+        )
+      ).session.activity.outcome;
+    assert.equal(await eventually(async () => (await settled()) !== null), true);
+    assert.equal(await settled(), "succeeded", JSON.stringify(fixture.runtimeArchiveReceipts));
+    const delivered = git(worktree, "rev-parse", "HEAD");
+    assert.notEqual(delivered, base);
+    assert.equal(git(remote, "rev-parse", `refs/heads/${taskId}`), delivered, "the commit reaches the shared remote");
+    assert.equal(git(edgeRoot, "rev-parse", "HEAD"), base, "the node's main checkout is untouched");
+    assert.match(
+      readFileSync(
+        path.join(fixture.repo, "harness/tasks/task-fleet-fleet/artifacts/reports", `${receipt.dispatchId}.md`),
+        "utf8",
+      ),
+      new RegExp(`Worker branch pushed at settlement: ${taskId} @ ${delivered}`, "u"),
+      "the center's dispatch report names the published commit",
     );
   },
 );
@@ -917,6 +1083,66 @@ for (const probe of [
     );
   });
 }
+test(
+  "the center delivers the task's worktree binding and refuses a second node's dispatch while the lease is held",
+  { timeout: 60_000 },
+  async (t) => {
+    const fixture = await fleetFixture(t);
+    t.after(() => fixture.close());
+    const { repoId, taskId } = fixture.assignment;
+    // dec_57370FF2021DADF04E3B21724D CH1: one read carries what the launching node needs from the center.
+    const context = await fixture.host.read(repoId, "repo.tasks.runtimeContext.read", { taskId }, fixture.auth);
+    assert.deepEqual(
+      { schema: context.schema, taskId: context.taskId, worktree: context.worktree },
+      {
+        schema: "task-runtime-context-read/v1",
+        taskId,
+        worktree: { branch: taskId, path: `.worktrees/${taskId}` },
+      },
+    );
+    await assert.rejects(
+      fixture.host.read(repoId, "repo.tasks.causalContext.read" as never, { taskId }, fixture.auth),
+      "the superseded read name is gone, not aliased",
+    );
+    // CH5: the fixture's assignment started the task and holds its lease; another node's assignment for the same
+    // task, with its own execution, dispatches late.
+    const late = {
+        ...fixture.assignment,
+        nodeId: "node-two",
+        assignmentId: "assignment-two",
+        viewId: "node-two_task-fleet",
+        executionId: "execution-late",
+      },
+      idempotencyKey = "late-node-dispatch",
+      hash = createHash("sha256").update(`${repoId}\0${idempotencyKey}`).digest("hex"),
+      // The verdict's code, whichever way the ingress hands it back.
+      dispatch = (assignment: FleetAssignmentRecord, role: string | null) =>
+        fixture.host
+          .runtimeIngress(
+            repoId,
+            {
+              kind: "event",
+              type: "runtime_dispatch_requested",
+              opId: `runtime-spawn-${hash.slice(0, 32)}`,
+              payload: {
+                idempotencyKey,
+                dispatchId: `dispatch_${hash.slice(0, 24)}`,
+                runtimeSessionId: `runtime_${hash.slice(24, 48)}`,
+              },
+              dispatchContext: { role, taskId: assignment.taskId, executionId: assignment.executionId },
+            },
+            { transportKind: "fleet-tls", assignmentBinding: assignment },
+          )
+          .then(
+            (receipt) => String(receipt.code ?? receipt.outcome),
+            (error: unknown) => String((error as { readonly code?: unknown }).code),
+          );
+    assert.equal(await dispatch(late, null), "runtime_task_lease_required");
+    // The fence is the lease, not the node: the holder's own dispatch and a reviewer's pass it and are judged on.
+    assert.notEqual(await dispatch(fixture.assignment, null), "runtime_task_lease_required");
+    assert.equal(await dispatch(late, "reviewer"), "task_not_submitted");
+  },
+);
 test("edge terminal task settlement rejects a changed assignment holder", { timeout: 60_000 }, async (t) => {
   const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
   t.after(() => fixture.close());
@@ -1004,7 +1230,12 @@ test("edge terminal task settlement rejects a changed assignment holder", { time
   assert.equal(outcomes()[0]?.reasonCode, "runtime_lease_release_failed", JSON.stringify(outcomes()));
   assert.equal(outcomes()[0]?.outcome, "failed", JSON.stringify(outcomes()));
 });
-async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/task-fleet-fleet/notes.md"]) {
+async function fleetFixture(
+  t: TestContext,
+  paths: readonly string[] = ["tasks/task-fleet-fleet/notes.md"],
+  /** The runtime installations the center host discovers; an Agent installs only against an enabled instance. */
+  centerRuntimes: readonly RuntimeInstallationWitness[] = [],
+) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-one-")),
     repo = path.join(root, "repo"),
     userRoot = path.join(root, "user"),
@@ -1053,7 +1284,11 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
   );
   const key = readFileSync(keyFile),
     cert = readFileSync(certFile),
-    host = await openDaemonHost({ daemonId: "fleet-center", userRoot });
+    host = await openDaemonHost({
+      daemonId: "fleet-center",
+      userRoot,
+      ...(centerRuntimes.length ? { runtimeDiscover: () => [...centerRuntimes] } : {}),
+    });
   t.after(async () => {
     try {
       await owned.reclaim();

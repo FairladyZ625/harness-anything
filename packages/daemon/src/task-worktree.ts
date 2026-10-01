@@ -12,6 +12,8 @@ import { cellCodedError } from "./repo-cell-errors.ts";
 import type { TaskWorkspaceView } from "./protocol/daemon-protocol-gui-types.ts";
 import {
   addManagedWorktree,
+  continuePublishedBranch,
+  publishedBranchRef,
   reclaimDetail,
   reclaimManagedWorktree,
   repositoryBaseRef,
@@ -63,6 +65,14 @@ export function taskWorktreeBinding(
     : null;
 }
 
+/** What a node checks out for a task: its binding while the task is open, nothing once it is closed. */
+export function openTaskWorktreeBinding(
+  task: TaskV2 | null | undefined,
+  readPresetSnapshot: PresetSnapshotRead,
+): TaskWorktreeBindingV1 | null {
+  return task && !taskClosed(task) ? taskWorktreeBinding(task, readPresetSnapshot) : null;
+}
+
 /**
  * dec_8B3FCCD256CAC5B0BF3CCEDE58 CH4: every task has one place it works in — its worktree when it changes
  * repository files, otherwise its own task package directory.
@@ -92,37 +102,42 @@ export function taskWorkspaceView(
 export interface TaskWorktreeCheckout {
   readonly cwd: string;
   readonly branch: string;
-  /** The default branch a new checkout was cut from; null when the worktree was already here. */
+  /**
+   * What a new checkout was cut from: the task branch another node pushed, else the default branch; null when
+   * the worktree was already here.
+   */
   readonly baseRef: string | null;
   readonly setup: WorktreeSetupResult;
 }
 
 /**
- * Checks the bound worktree out on this node, or finds it already there, then runs the Settings setup steps that
- * have not succeeded in it yet. A node without a default branch (a Git-less edge, a repository before its first
- * commit) has no worktree to give: null, not a failure.
+ * Checks a binding out on this node, or finds it already there, then runs the Settings setup steps that have not
+ * succeeded in it yet. The binding is all it takes: this node derives it from its projection, an edge receives it
+ * from the center (dec_57370FF2021DADF04E3B21724D CH2). A checkout continues the task's own branch — a new one
+ * starts from the copy another node pushed before the default branch, an existing one is brought up to it (CH3). A node
+ * without a default branch (a Git-less edge, a repository before its first commit) has no worktree to give: null,
+ * not a failure.
  */
-export async function materializeTaskWorktree(
+export async function checkoutTaskWorktree(
   rootDir: string,
-  task: TaskV2 | null | undefined,
-  readPresetSnapshot: PresetSnapshotRead,
+  taskId: string,
+  binding: TaskWorktreeBindingV1,
   setup: readonly string[],
 ): Promise<TaskWorktreeCheckout | null> {
-  const binding = taskWorktreeBinding(task, readPresetSnapshot);
-  if (!task || !binding || taskClosed(task)) return null;
   const cwd = path.join(rootDir, binding.path);
   return inWorktreeTurn(cwd, async () => {
-    let baseRef: string | null = null;
-    if (!existsSync(cwd)) {
-      baseRef = repositoryBaseRef(rootDir);
-      if (!baseRef) return null;
-      await addManagedWorktree(rootDir, { cwd, branch: binding.branch, baseRef });
-    }
+    const fresh = !existsSync(cwd),
+      defaultRef = fresh ? repositoryBaseRef(rootDir) : null;
+    if (fresh && !defaultRef) return null;
+    const published = await publishedBranchRef(rootDir, binding.branch);
+    if (fresh) await addManagedWorktree(rootDir, { cwd, branch: binding.branch, baseRef: published ?? defaultRef! });
+    // A checkout this node already had, or a branch that survived one, may predate another node's push.
+    if (published) await continuePublishedBranch(cwd, published);
     return {
       cwd,
       branch: binding.branch,
-      baseRef,
-      setup: await runWorktreeSetup({ rootDir, cwd, taskId: task.taskId, steps: setup }),
+      baseRef: fresh ? (published ?? defaultRef) : null,
+      setup: await runWorktreeSetup({ rootDir, cwd, taskId, steps: setup }),
     };
   });
 }
@@ -310,12 +325,11 @@ async function checkoutOnStart(
   input: TaskWorktreeLifecycleInput,
   taskId: string,
 ): Promise<{ readonly notes: readonly string[]; readonly warnings: readonly string[] }> {
-  const task = input.readTask(taskId),
-    binding = taskWorktreeBinding(task, input.readPresetSnapshot);
+  const binding = openTaskWorktreeBinding(input.readTask(taskId), input.readPresetSnapshot);
   if (!binding) return { notes: [], warnings: [] };
   let checkout: TaskWorktreeCheckout | null;
   try {
-    checkout = await materializeTaskWorktree(input.rootDir, task, input.readPresetSnapshot, input.readSetup());
+    checkout = await checkoutTaskWorktree(input.rootDir, taskId, binding, input.readSetup());
   } catch (error) {
     return { notes: [], warnings: [`Worktree ${binding.path} was not checked out: ${errorText(error)}`] };
   }

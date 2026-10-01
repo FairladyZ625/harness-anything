@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   assertTransitionDocumentReady,
+  entitySlug,
   openEntityStore,
   readSettingsFacet,
   requireTransitionDocumentKind,
@@ -11,9 +12,11 @@ import {
   type AgentRuntimeEventV1,
   type EntityStore,
   type ScheduleV1,
+  type TaskWorktreeBindingV1,
 } from "@harness-anything/kernel";
-import { readAgentDeclaration, resolveSquadDispatch } from "./agent-entities.ts";
+import { resolveSquadDispatch } from "./agent-entities.ts";
 import { parseAgentDeclarationV1 } from "@harness-anything/kernel";
+import { readBundledAgentDeclaration } from "@harness-anything/preset";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
 import {
   readFleetAssignmentClient,
@@ -148,7 +151,10 @@ export function openFleetEdgeRuntime(input: {
       ...(runtimeReadTimeoutMs === undefined ? {} : { timeoutMs: runtimeReadTimeoutMs }),
     },
     now = input.now ?? (() => new Date().toISOString()),
-    stream = { publish: () => ({}) as never };
+    stream = { publish: () => ({}) as never },
+    // Every node reads the same Settings: the edge's materialized harness.yaml is the center's facet.
+    readSettings = () =>
+      readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8"));
   let entityStore: EntityStore | undefined;
   const trustedScheduleAgents = new Map<string, RuntimeAgent>();
   const getEntityStore = (): EntityStore => (entityStore ??= openEntityStore(request.workspaceRoot));
@@ -207,15 +213,18 @@ export function openFleetEdgeRuntime(input: {
           );
         const packageRoot = path.join(materializedRoot, ...candidates[0]!.split("/")),
           planPath = path.join(packageRoot, "task_plan.md"),
-          // The causal block is assembled at the center's canonical cut in this
-          // same round trip — a stale edge mirror is never summarized as fact.
-          causalRead = await runFleetRuntimeReadClient({
-            ...runtimeReadPeer,
-            repoId: request.repoId,
-            method: "repo.tasks.causalContext.read",
-            payload: { taskId },
-          }),
-          causalContext = taskCausalContext(causalRead, taskId);
+          // The causal block and the worktree binding are assembled at the center's canonical cut in
+          // this same round trip — a stale edge mirror is never summarized as fact, and the edge has
+          // no projection to derive a binding from.
+          { causalContext, worktree } = taskRuntimeContext(
+            await runFleetRuntimeReadClient({
+              ...runtimeReadPeer,
+              repoId: request.repoId,
+              method: "repo.tasks.runtimeContext.read",
+              payload: { taskId },
+            }),
+            taskId,
+          );
         let plan: string;
         try {
           plan = readFileSync(planPath, "utf8");
@@ -251,18 +260,22 @@ export function openFleetEdgeRuntime(input: {
                 return body;
               })()
             : null,
-          baseMission =
-            `Your task package is ${packageRoot}.\n` + "Read task_plan.md in that package and complete the task.";
-        return {
-          executionId: assigned.scope.executionId,
-          packageRoot,
-          mission: [
-            baseMission,
+          missionAfterPackage = [
             taskQueryGuidance(taskId),
             ...(causalContext === null ? [] : [causalContext]),
             ...(mission ? [`# Mission: ${missionName}\n\n${mission.trim()}`] : []),
-          ].join("\n\n"),
+          ];
+        return {
+          executionId: assigned.scope.executionId,
+          packageRoot,
+          mission: (reachedPackageRoot) =>
+            [
+              `Your task package is ${reachedPackageRoot}.\n` +
+                "Read task_plan.md in that package and complete the task.",
+              ...missionAfterPackage,
+            ].join("\n\n"),
           causalContext,
+          worktree,
         };
       },
       readRuntimeSessions: () =>
@@ -295,12 +308,11 @@ export function openFleetEdgeRuntime(input: {
     },
     stream,
     now,
+    readSettings,
     runtimeInstances: input.ports.runtimeInstances,
     prepareLaunch: input.ports.prepareRuntimeLaunch,
     prepareWorkerGitEnvironment: input.ports.prepareWorkerGitEnvironment,
-    resolveAgent: (agentId) =>
-      trustedScheduleAgents.get(agentId) ??
-      readAgentDeclaration({ rootDir: request.workspaceRoot, agentId, entityStore: getEntityStore() }),
+    resolveAgent: (agentId) => trustedScheduleAgents.get(agentId) ?? mirroredAgentDeclaration(request, agentId),
     resolveSquadDispatch: (squadId, leaderId, workerId) =>
       resolveSquadDispatch({
         rootDir: request.workspaceRoot,
@@ -465,13 +477,10 @@ export function openFleetEdgeRuntime(input: {
     trustedScheduleAgents.set(trustedAgent.id, trustedAgent);
     const dispatched = await dispatchClaimedSchedule({
       schedule: scheduleValueV1,
-      // Every node reads the same Settings: the edge's materialized harness.yaml is the center's facet.
       workspace: await prepareScheduleOccurrenceWorkspace(
         request.workspaceRoot,
         scheduleValueV1,
-        () =>
-          readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8")).worktree
-            .setup,
+        () => readSettings().worktree.setup,
       ),
       idempotencyKey: operationKey,
       now,
@@ -532,15 +541,46 @@ export function openFleetEdgeRuntime(input: {
 // The wire result crossed a process boundary, so the edge re-judges the served
 // shape rather than trusting the peer's word — same posture as the paged
 // runtime overview reads.
-function taskCausalContext(read: Readonly<Record<string, unknown>>, taskId: string): string | null {
+function taskRuntimeContext(
+  read: Readonly<Record<string, unknown>>,
+  taskId: string,
+): { readonly causalContext: string | null; readonly worktree: TaskWorktreeBindingV1 | null } {
+  const worktree = read.worktree as { readonly branch?: unknown; readonly path?: unknown } | null | undefined;
   if (
-    read.schema === "task-causal-context-read/v1" &&
+    read.schema === "task-runtime-context-read/v1" &&
     read.ok === true &&
     read.taskId === taskId &&
-    (read.causalContext === null || typeof read.causalContext === "string")
+    (read.causalContext === null || typeof read.causalContext === "string") &&
+    (worktree === null ||
+      (typeof worktree === "object" && typeof worktree.branch === "string" && typeof worktree.path === "string"))
   )
-    return read.causalContext;
-  throw edgeRuntimeError("runtime_read_invalid", `Center returned an invalid causal context read for task ${taskId}.`);
+    return {
+      causalContext: read.causalContext,
+      worktree: worktree ? { branch: worktree.branch as string, path: worktree.path as string } : null,
+    };
+  throw edgeRuntimeError("runtime_read_invalid", `Center returned an invalid runtime context read for task ${taskId}.`);
+}
+
+/**
+ * An edge holds no ledger of its own: the agents installed at the center reach it as the documents of its
+ * mirrored view, under the same bundled layer every node ships.
+ */
+function mirroredAgentDeclaration(
+  request: Pick<FleetEdgeRuntimeRequest["payload"], "viewRoot" | "repoId" | "workspaceRoot">,
+  agentId: string,
+): RuntimeAgent {
+  const logical = `agents/${agentId}.json`;
+  if (entitySlug(agentId) && locateFleetMirrorView(request.viewRoot, request.repoId)?.entries.has(logical))
+    return parseAgentDeclarationV1(
+      JSON.parse(readFileSync(path.join(resolveHarnessLayout(request.workspaceRoot).authoredRoot, logical), "utf8")),
+    );
+  const bundled = readBundledAgentDeclaration(agentId);
+  if (bundled) return bundled;
+  throw edgeRuntimeError(
+    "agent_not_found",
+    `${agentId} is neither in this node's mirrored view nor a bundled agent; ` +
+      "run ha daemon fleet edge sync, then retry.",
+  );
 }
 
 function requiredScheduleText(value: unknown, field: string): string {

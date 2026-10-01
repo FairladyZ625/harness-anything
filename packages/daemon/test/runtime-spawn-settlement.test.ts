@@ -478,6 +478,40 @@ test("terminal settlement publishes the submitted commit when worker HEAD advanc
   assert.equal(git(fixture.bare, "rev-parse", `refs/heads/${fixtureTaskId}`).trim(), submittedCommitSha);
 });
 
+test("an edge settlement, which holds no projection, publishes the worker branch head", async (context) => {
+  const fixture = workerGitFixture(context, "settle-edge", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, { finalText: "worker delivery" }),
+    outcomeBodies: string[] = [],
+    outcomes: Record<string, unknown>[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}, _opId?, _binding?, body?) => {
+      if (type === "runtime_session_outcome_observed") {
+        outcomes.push(payload);
+        outcomeBodies.push(String(body));
+      }
+      return {};
+    });
+  await publishExit(
+    {
+      ...settleContext,
+      input: { ...settleContext.input, projection: undefined },
+      // What a remote-edge spawner's projection read does: it has none.
+      requiredRuntimeProjection: () => {
+        throw Object.assign(new Error("Local runtime projection is unavailable."), {
+          code: "runtime_preconditions_unavailable",
+        });
+      },
+    },
+    runtime,
+    0,
+  );
+  const head = git(fixture.worker, "rev-parse", "HEAD").trim();
+  assert.deepEqual(outcomeBodies, [
+    `worker delivery\n\nWorker branch pushed at settlement: ${fixtureTaskId} @ ${head}`,
+  ]);
+  assert.equal(outcomes[0]?.outcome, "succeeded");
+  assert.equal(git(fixture.bare, "rev-parse", `refs/heads/${fixtureTaskId}`).trim(), head);
+});
+
 test("terminal settlement tells the owner when a delivered closeout is not submitted", async (context) => {
   const fixture = workerGitFixture(context, "settle-unsubmitted-closeout", { reachableRemote: true }),
     runtime = workerSettlementRuntime(fixture, { finalText: "worker delivery" }),
@@ -897,6 +931,8 @@ function workerSettlementContext(
       now: () => "2026-09-14T00:01:00.000Z",
       stream: { publish: () => ({}) },
       remote: { archive: async () => ({ outcome: "applied" }) },
+      // This node holds a projection; `requiredRuntimeProjection` below is the read every test steers.
+      projection: () => deliveryProjection(null),
     },
     resultMediaType: "text/markdown",
     runtimeResultText: () => resultText,
