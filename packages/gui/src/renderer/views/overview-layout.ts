@@ -61,6 +61,8 @@ export function layoutRegions(input: {
   readonly weights: Readonly<Record<RegionKey, number>>;
   /** 各区域内容所需高度(regionNeed 的积)。 */
   readonly need: Readonly<Record<RegionKey, number>>;
+  /** 至少三行(不足三行则全部)的实际 DOM 高度;空态保持原有高度。 */
+  readonly minimum: Readonly<Partial<Record<RegionKey, number>>>;
   /** mine/stuck 的宽松行所需高度(regionNeedRelaxed 的积)。 */
   readonly needRelaxed: Readonly<Record<RegionKey, number>>;
   readonly board: { readonly width: number; readonly height: number };
@@ -117,7 +119,10 @@ export function layoutRegions(input: {
   const capacity = (key: RegionKey): number => need[key] ?? regionNeed(0);
   let left = 0;
   cols.forEach((column, index) => {
-    let spare = Math.max(0, input.board.height - (column.bottom - gap)),
+    // 落列完成后才加下限,不改变权重与瀑布落列语义。
+    for (const key of column.keys) heights.set(key, Math.max(heights.get(key)!, input.minimum[key] ?? 0));
+    const bottom = column.keys.reduce((sum, key) => sum + heights.get(key)! + gap, -gap);
+    let spare = Math.max(0, input.board.height - bottom),
       open = [...column.keys];
     for (let round = 0; round < 6 && spare > 1 && open.length > 0; round += 1) {
       const openWeight = open.reduce((sum, key) => sum + weights[key]!, 0),
@@ -141,7 +146,7 @@ export function layoutRegions(input: {
     for (const key of column.keys) {
       if (key !== "mine" && key !== "stuck") continue;
       const current = heights.get(key)!,
-        relaxedNeed = input.needRelaxed[key] ?? regionNeedRelaxed(0);
+        relaxedNeed = Math.max(current, input.needRelaxed[key] ?? regionNeedRelaxed(0));
       if (current >= need[key]! && relaxedNeed - current <= spare) {
         spare -= relaxedNeed - current;
         heights.set(key, relaxedNeed);

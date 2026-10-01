@@ -120,6 +120,50 @@ export function OverviewView({
     return () => observer.disconnect();
   }, []);
 
+  const [minimum, setMinimum] = useState<Partial<Record<RegionKey, number>>>({});
+
+  // Measure natural content, not the allocated body height: a short tile must not
+  // make its own minimum smaller. ResizeObserver also catches font/width changes.
+  useEffect(() => {
+    const board = boardRef.current;
+    if (board === null) return;
+    const measure = () => {
+      const next: Partial<Record<RegionKey, number>> = {};
+      for (const region of board.querySelectorAll<HTMLElement>("[data-region]")) {
+        const key = region.dataset.region as RegionKey;
+        const spec = regions[key];
+        if (spec === undefined || spec.rowCount === 0) continue;
+        const section = region.querySelector("section");
+        const header = section?.children[0];
+        const body = section?.children[1]?.firstElementChild;
+        const footer = section?.children[2];
+        if (header === undefined || body === null || body === undefined) continue;
+        const rows =
+          spec.renderList === undefined
+            ? [...body.children].slice(spec.top === undefined ? 0 : 1)
+            : [...body.querySelectorAll("[data-day] > div > button, [data-day] > div > div")];
+        const last = rows[Math.min(rows.length, 3) - 1];
+        if (last === undefined) continue;
+        // offset geometry excludes motion's temporary scale transforms.
+        next[key] =
+          (header as HTMLElement).offsetHeight +
+          (last as HTMLElement).offsetTop +
+          (last as HTMLElement).offsetHeight -
+          (body as HTMLElement).offsetTop +
+          ((footer as HTMLElement | undefined)?.offsetHeight ?? 0) +
+          (section === null ? 0 : section.offsetHeight - section.clientHeight) +
+          1;
+      }
+      setMinimum((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next));
+    };
+    const observer = new ResizeObserver(measure);
+    observer.observe(board);
+    for (const element of board.querySelectorAll("[data-region] section > div, [data-region] section > div > div > *"))
+      observer.observe(element);
+    measure();
+    return () => observer.disconnect();
+  }, [regions, boardSize]);
+
   const layout = useMemo(() => {
     if (boardSize === null) return null;
     const weights = overviewWeightsOf(agenda, ciQuery.data, regions),
@@ -133,11 +177,12 @@ export function OverviewView({
     }
     return layoutRegions({
       weights,
+      minimum,
       need: need as Record<RegionKey, number>,
       needRelaxed: relaxed as Record<RegionKey, number>,
       board: boardSize,
     });
-  }, [boardSize, agenda, ciQuery.data, regions]);
+  }, [boardSize, agenda, ciQuery.data, regions, minimum]);
 
   const openFocus = useCallback(
     (key: RegionKey, rowId?: string) => {
@@ -214,54 +259,77 @@ export function OverviewView({
         >
           {layout === null
             ? null
-            : layout.order.map((key) => {
-                const spec = regions[key],
-                  box = layout.boxes[key];
-                if (spec === undefined || box === undefined) return null;
-                // slim(mine 清空):高度不足 60px 时只留标题行(标准 §1.5:空了就收成一行,
-                // 标题行的「清空」状态标签保留——原型 v4 的 slim 样张)。
-                const slim = layout.slim.has(key),
-                  zoomable = spec.rowIds.length > 0;
+            : [...new Set(layout.order.map((key) => layout.boxes[key]!.left))].map((left) => {
+                const keys = layout.order.filter((key) => layout.boxes[key]!.left === left);
                 return (
                   <div
-                    key={key}
-                    data-region={key}
-                    data-testid={`overview-region-${key}`}
-                    // grid 单元格让 Region 原语被拉伸到精确盒子;visibility:hidden 时
-                    // motion 仍能测到它的盒子,FocusLayer 从原位长出(S6 放大层契约)。
-                    className={`absolute grid ${focus === key ? "invisible" : ""}`}
-                    style={regionStyle(box)}
+                    key={left}
+                    data-overview-column
+                    className={layout.columns === 1 ? "absolute" : "absolute inset-y-0 overflow-y-auto"}
+                    style={{
+                      left,
+                      width: layout.boxes[keys[0]!]!.width,
+                      height: layout.columns === 1 ? layout.boardHeight! : undefined,
+                    }}
                   >
-                    <Region
-                      focusId={key}
-                      title={spec.title}
-                      tag={spec.tag}
-                      big={spec.big}
-                      bigTone={spec.bigTone}
-                      edge={spec.edge}
-                      footer={slim ? undefined : spec.footer}
-                      onOpen={zoomable ? () => openFocus(key) : undefined}
+                    <div
+                      className="relative"
+                      style={{
+                        height: Math.max(...keys.map((key) => layout.boxes[key]!.top + layout.boxes[key]!.height)),
+                      }}
                     >
-                      {slim ? null : spec.renderList !== undefined ? (
-                        spec.renderList({
-                          selectedId: null,
-                          onSelect: (id) => openFocus(key, id),
-                          inFocus: false,
-                        })
-                      ) : (
-                        <>
-                          {spec.top}
-                          {spec.rowIds.map((id) =>
-                            spec.renderRow(id, {
-                              relaxed: layout.tall.has(key),
-                              selected: false,
-                              onSelect: () => openFocus(key, id),
-                              inFocus: false,
-                            }),
-                          )}
-                        </>
-                      )}
-                    </Region>
+                      {keys.map((key) => {
+                        const spec = regions[key],
+                          box = layout.boxes[key];
+                        if (spec === undefined || box === undefined) return null;
+                        // slim(mine 清空):高度不足 60px 时只留标题行(标准 §1.5:空了就收成一行,
+                        // 标题行的「清空」状态标签保留——原型 v4 的 slim 样张)。
+                        const slim = layout.slim.has(key),
+                          zoomable = spec.rowIds.length > 0;
+                        return (
+                          <div
+                            key={key}
+                            data-region={key}
+                            data-testid={`overview-region-${key}`}
+                            // grid 单元格让 Region 原语被拉伸到精确盒子;visibility:hidden 时
+                            // motion 仍能测到它的盒子,FocusLayer 从原位长出(S6 放大层契约)。
+                            className={`absolute grid ${focus === key ? "invisible" : ""}`}
+                            style={regionStyle({ ...box, left: 0 })}
+                          >
+                            <Region
+                              focusId={key}
+                              title={spec.title}
+                              tag={spec.tag}
+                              big={spec.big}
+                              bigTone={spec.bigTone}
+                              edge={spec.edge}
+                              footer={slim ? undefined : spec.footer}
+                              onOpen={zoomable ? () => openFocus(key) : undefined}
+                            >
+                              {slim ? null : spec.renderList !== undefined ? (
+                                spec.renderList({
+                                  selectedId: null,
+                                  onSelect: (id) => openFocus(key, id),
+                                  inFocus: false,
+                                })
+                              ) : (
+                                <>
+                                  {spec.top}
+                                  {spec.rowIds.map((id) =>
+                                    spec.renderRow(id, {
+                                      relaxed: layout.tall.has(key),
+                                      selected: false,
+                                      onSelect: () => openFocus(key, id),
+                                      inFocus: false,
+                                    }),
+                                  )}
+                                </>
+                              )}
+                            </Region>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 );
               })}
