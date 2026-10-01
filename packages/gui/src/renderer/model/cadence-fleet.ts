@@ -12,12 +12,18 @@ export interface FleetWorkerMetrics {
   readonly toolCalls: number;
 }
 
+/** worker 当前关联的任务:标题来自 tasks 投影行,查不到时退回 taskId 本身。 */
+export interface FleetWorkerTask {
+  readonly taskId: string;
+  readonly title: string;
+}
+
 export interface FleetWorkerRow {
   readonly runtimeSessionId: string;
   readonly instanceId: string;
   readonly label: string;
   readonly status: FleetWorkerStatus;
-  readonly taskIds: readonly string[];
+  readonly tasks: readonly FleetWorkerTask[];
   readonly facts: number;
   readonly decisions: number;
   readonly touchedFiles: number;
@@ -31,7 +37,11 @@ export interface FleetPulseSnapshot {
   readonly workers: readonly FleetWorkerRow[];
   readonly flow: { readonly claimed: number; readonly inFlight: number; readonly settled: number };
   readonly turnaroundMs: number | null;
-  readonly collisions: readonly { readonly taskId: string; readonly workerCount: number }[];
+  readonly collisions: readonly {
+    readonly taskId: string;
+    readonly title: string;
+    readonly workerCount: number;
+  }[];
   readonly activeCount: number;
 }
 
@@ -70,6 +80,7 @@ export function deriveFleetPulse(input: {
   readonly now?: string;
 }): FleetPulseSnapshot {
   const window = input.window ?? "24h",
+    titleOf = new Map(input.tasks.map((task) => [task.taskId, task.title])),
     eventsByRuntime = new Map<string, CadenceFeedEvent[]>();
   for (const event of input.events) {
     const runtimeId = runtimeIdOf(event.executorId);
@@ -108,7 +119,10 @@ export function deriveFleetPulse(input: {
       instanceId: session.instanceId,
       label: snapshot === null ? session.kindId : `${snapshot.kindId} · ${snapshot.model}`,
       status: workerStatus(session),
-      taskIds: [...new Set(session.associations.map(({ taskId }) => taskId))],
+      tasks: [...new Set(session.associations.map(({ taskId }) => taskId))].map((taskId) => ({
+        taskId,
+        title: titleOf.get(taskId) ?? taskId,
+      })),
       facts: events.filter(({ type, factId }) => type === "fact_recorded" && factId !== null).length,
       decisions: events.filter(({ decisionId }) => decisionId !== null).length,
       touchedFiles: touched.size,
@@ -201,7 +215,11 @@ export function deriveFleetPulse(input: {
     turnaroundMs: samples.length === 0 ? null : samples.reduce((sum, value) => sum + value, 0) / samples.length,
     collisions: [...leaseHolders.entries()]
       .filter(([, holders]) => holders.size > 1)
-      .map(([taskId, holders]) => ({ taskId, workerCount: holders.size })),
+      .map(([taskId, holders]) => ({
+        taskId,
+        title: titleOf.get(taskId) ?? taskId,
+        workerCount: holders.size,
+      })),
     activeCount,
   };
 }
