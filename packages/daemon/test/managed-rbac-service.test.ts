@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { EventEmitter } from "node:events";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -109,4 +110,53 @@ test("managed bootstrap rejects a changed archive before extraction", async () =
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+test("a daemon start resumes the managed services unless an operator stopped them", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-rbac-resume-")),
+    configFile = path.join(root, "rbac", "config.json"),
+    config = () => JSON.parse(readFileSync(configFile, "utf8")),
+    spawned: string[] = [],
+    // Each start reaches PostgreSQL's launch, which is where this fixture ends it.
+    service = () =>
+      new ManagedRbacService(root, {
+        spawn: ((command: string) => {
+          spawned.push(path.basename(command));
+          const child = new EventEmitter();
+          setImmediate(() => child.emit("exit", 1));
+          return child;
+        }) as unknown as typeof import("node:child_process").spawn,
+      }),
+    launchEnded = { code: "rbac_process_failed" };
+  // Nothing was ever bootstrapped: there is nothing to resume.
+  await service().resume();
+  mkdirSync(path.join(root, "rbac", "runtime", "postgres", "bin"), { recursive: true });
+  writeFileSync(path.join(root, "rbac", "runtime", "postgres", "bin", "postgres"), "");
+  writeFileSync(
+    configFile,
+    JSON.stringify({
+      schema: "harness-managed-rbac/v1",
+      mode: "managed",
+      url: "http://127.0.0.1:1",
+      realm: "harness",
+      clientId: "harness-center",
+      versions: managedRbacVersions,
+      postgresPort: 2,
+      managementPort: 3,
+    }),
+  );
+  await assert.rejects(service().resume(), launchEnded);
+  assert.deepEqual(spawned, ["postgres"]);
+
+  // An operator's stop is recorded, so the next daemon leaves the services down.
+  await service().run({ operation: "stop" });
+  assert.equal(config().stopped, true);
+  await service().resume();
+  assert.deepEqual(spawned, ["postgres"]);
+
+  // Starting them again is what lifts it.
+  await assert.rejects(service().run({ operation: "start" }), launchEnded);
+  assert.equal(config().stopped, false);
+  await assert.rejects(service().resume(), launchEnded);
+  assert.deepEqual(spawned, ["postgres", "postgres", "postgres"]);
 });

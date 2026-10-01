@@ -429,7 +429,8 @@ export const agentProtocolCommands = Object.freeze([
     id: "rbac-bootstrap",
     phase: "W3",
     path: ["bootstrap"],
-    summary: "Install, configure, and start the managed Keycloak and PostgreSQL authorization service.",
+    summary:
+      "Install, configure, and start the managed Keycloak and PostgreSQL authorization service; read or set its session lifetime.",
     method: "daemon.rbac.manage",
     inputs: [
       cliInput(
@@ -438,7 +439,17 @@ export const agentProtocolCommands = Object.freeze([
         false,
         { code: "invalid_field" },
         {
-          enum: ["bootstrap", "health", "start", "stop", "backup", "restore", "upgrade"],
+          enum: [
+            "bootstrap",
+            "health",
+            "start",
+            "stop",
+            "backup",
+            "restore",
+            "upgrade",
+            "session-lifetime",
+            "session-lifetime-set",
+          ],
         },
       ),
       cliInput("--mode", "single", false, { code: "invalid_field" }, { enum: ["managed", "external"] }),
@@ -446,6 +457,15 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--realm", "single", false, { code: "invalid_field" }),
       cliInput("--client-id", "single", false, { code: "invalid_field" }, { field: "clientId" }),
       cliInput("--backup-dir", "single", false, { code: "invalid_field" }, { field: "backupDir" }),
+      cliInput(
+        "--seconds",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "sessionLifetimeSeconds", regex: "^[1-9][0-9]*$", projection: "number" },
+      ),
+      cliInput("--expected-version", "single", false, { code: "invalid_field" }, { field: "expectedVersion" }),
+      cliInput("--operation-id", "single", false, { code: "invalid_field" }, { field: "operationId" }),
     ],
   }),
   defineHostAdminCommand({
