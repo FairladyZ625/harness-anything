@@ -175,6 +175,25 @@ describe("sidebar scrolling structure (short-window overlap fix)", () => {
     expect(scrollRegion).not.toContain("titlebar-traffic-top");
   });
 
+  it("keeps pinned work as its own fixed block between the head and the scrolling nav", () => {
+    const markupText = markup();
+    const headAt = markupText.indexOf('data-testid="app-sidebar-head"');
+    const pinnedAt = markupText.indexOf('data-testid="app-sidebar-pinned"');
+    const scrollStart = markupText.indexOf('data-testid="app-sidebar-scroll"');
+    expect(pinnedAt).toBeGreaterThan(headAt);
+    expect(pinnedAt).toBeLessThan(scrollStart);
+    const pinned = markupText.match(/data-testid="app-sidebar-pinned"[^>]*/u)![0]!;
+    expect(pinned).toContain("shrink-0");
+    // 高度按侧栏比例封顶,不写死像素(视觉规范原则 9)。
+    expect(pinned).toContain("max-h-[30%]");
+    expect(markupText).not.toContain("max-h-[168px]");
+    // 置顶列表若渲染,只能在固定块里,不能在导航滚动区里。
+    const listAt = markupText.indexOf('data-testid="sidebar-pinned-list"');
+    if (listAt !== -1) expect(listAt).toBeLessThan(scrollStart);
+    const scrollRegion = markupText.slice(scrollStart, markupText.lastIndexOf("</nav>"));
+    expect(scrollRegion).not.toContain("sidebar-pinned");
+  });
+
   it("pins the system status area and the account row below the scroll region, not inside it", () => {
     const markupText = markup();
     // 滚动容器的关闭在最后一个导航分组之后;固定底部区在那之后才开始。
