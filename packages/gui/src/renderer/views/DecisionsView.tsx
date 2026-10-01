@@ -169,7 +169,7 @@ export function DecisionsView({
           <span className="rounded-xs bg-text/10 px-[5px] font-mono tabular-nums text-text-faint ui-micro">
             {queue.length ? `${idx + 1} / ${queue.length}` : "0 / 0"}
           </span>
-          <span className="truncate ui-micro text-text-faint">riskTier × urgency · canonical reread</span>
+          <span className="truncate ui-micro text-text-faint">{t("views.decisionsView.queueNote")}</span>
           <div className="ml-auto flex items-center gap-1">
             <button
               onClick={() => setCursor((value) => Math.max(0, value - 1))}
