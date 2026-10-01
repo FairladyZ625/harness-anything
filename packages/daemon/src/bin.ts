@@ -14,7 +14,7 @@ async function main(argv: readonly string[]): Promise<number> {
   }
   if (!(argv[0] === "serve" || argv[0] === "--service")) {
     process.stderr.write(
-      "Usage: harness-anything-daemon serve|--service [--user-root <path>] [--daemon-id <id>] | offline <command>\n",
+      "Usage: harness-anything-daemon serve|--service [--user-root <path>] [--daemon-id <id>] [--supervised] | offline <command>\n",
     );
     return 2;
   }
@@ -26,13 +26,24 @@ async function main(argv: readonly string[]): Promise<number> {
     return value;
   };
   const { daemonUserRoot, daemonIdFromEnv } = await import("./client/local-daemon-target.ts");
-  const { clearDaemonStoppedMarker, runtimeDaemonStartRefusal } = await import("./client/daemon-autostart.ts");
+  const { clearDaemonStoppedMarker, readDaemonStoppedAt, runtimeDaemonStartRefusal } = await import(
+    "./client/daemon-autostart.ts"
+  );
   const userRoot = path.resolve(option("--user-root") ?? daemonUserRoot());
   const daemonId = option("--daemon-id") ?? daemonIdFromEnv();
   const refusal = runtimeDaemonStartRefusal();
   if (refusal) throw new Error(refusal.hint);
-  clearDaemonStoppedMarker(userRoot, daemonId);
-  return runResidentDaemon(userRoot, daemonId, (receipt, code) => {
+  // A service manager starts this entry on its own schedule (boot, a restart after a killed stop),
+  // so under supervision the operator's stop is still the operator's: leaving cleanly is what keeps
+  // the service manager from trying again. Only `ha daemon start --service` clears the marker.
+  const supervised = argv.includes("--supervised"),
+    stoppedAt = supervised ? readDaemonStoppedAt(userRoot, daemonId) : null;
+  if (stoppedAt) {
+    process.stderr.write(`daemon not started: stopped by the operator at ${stoppedAt}\n`);
+    return 0;
+  }
+  if (!supervised) clearDaemonStoppedMarker(userRoot, daemonId);
+  return runResidentDaemon(userRoot, daemonId, supervised, (receipt, code) => {
     console.log(JSON.stringify(receipt));
     return code;
   });
@@ -41,10 +52,12 @@ async function main(argv: readonly string[]): Promise<number> {
 async function runResidentDaemon(
   userRoot: string,
   daemonId: string,
+  supervised: boolean,
   finish: (receipt: Record<string, unknown>, exitCode: number) => number,
 ): Promise<number> {
   const { startDaemon } = await import("./runtime.ts"),
     { ensureLocalDaemonRunning } = await import("./client/daemon-autostart.ts"),
+    { daemonSupersededExitCode } = await import("./client/daemon-service.ts"),
     { localUserDaemonEndpoint } = await import("./client/local-daemon-target.ts");
   // The signal latch registers before startup: a TERM that lands during the
   // startup replay parks here and drains at the next yield instead of being
@@ -53,6 +66,7 @@ async function runResidentDaemon(
   const ownerPid = daemonOwnerPid(process.env.HARNESS_DAEMON_OWNER_PID);
   let daemon: Awaited<ReturnType<typeof startDaemon>>,
     stopping: Promise<void> | null = null,
+    superseded = false,
     parked: (() => void) | undefined,
     ownerLivenessTimer: NodeJS.Timeout | undefined;
   const idle = new Promise<void>((resolve) => {
@@ -76,6 +90,13 @@ async function runResidentDaemon(
         requestShutdown: requestStop,
         onSupersededExit: buildSupersessionEnabled
           ? async () => {
+              // The service manager restarts a daemon that exits non-zero; starting a successor here
+              // as well would race it for the socket.
+              if (supervised) {
+                superseded = true;
+                parked?.();
+                return;
+              }
               const endpoint = localUserDaemonEndpoint(userRoot, daemonId),
                 successor = await ensureLocalDaemonRunning({
                   socketPath: endpoint,
@@ -98,7 +119,7 @@ async function runResidentDaemon(
       await idle;
       await stopping;
     } else await daemon.stop();
-    return 0;
+    return superseded ? daemonSupersededExitCode : 0;
   } finally {
     if (ownerLivenessTimer) clearInterval(ownerLivenessTimer);
     process.removeListener("SIGTERM", requestStop);

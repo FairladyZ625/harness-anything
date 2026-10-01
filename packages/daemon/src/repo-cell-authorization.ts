@@ -211,6 +211,10 @@ function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCe
       return authorizeRepoCellAction(input);
     case "repo-unbind":
       return authorizeRepoCellAction(input);
+    case "daemon-service-install":
+      return authorizeRepoCellAction(input);
+    case "daemon-service-uninstall":
+      return authorizeRepoCellAction(input);
     case "daemon-start":
       return authorizeRepoCellAction(input);
     case "daemon-stop":

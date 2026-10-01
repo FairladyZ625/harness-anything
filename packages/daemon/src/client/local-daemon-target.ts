@@ -31,8 +31,12 @@ export function localUserDaemonEndpoint(
   daemonId = daemonIdFromEnv(),
   platform: NodeJS.Platform = process.platform,
 ): EndpointIdentity {
-  const id = `u-${localDaemonTargetHash(`${path.resolve(userRoot)}\0${daemonId}`)}`;
+  const id = localDaemonTargetKey(userRoot, daemonId);
   return endpointIdentity(platform === "win32" ? `\\\\.\\pipe\\harness-anything-${id}` : defaultUnixSocketPath(id));
+}
+/** What makes one (user root, daemon id) a distinct daemon on this machine: its endpoint and its service unit share it. */
+export function localDaemonTargetKey(userRoot: string, daemonId: string): string {
+  return `u-${localDaemonTargetHash(`${path.resolve(userRoot)}\0${daemonId}`)}`;
 }
 export function daemonUserRoot(env: NodeJS.ProcessEnv = process.env): string {
   return path.resolve(env.HARNESS_DAEMON_USER_ROOT || path.join(os.homedir(), ".harness"));

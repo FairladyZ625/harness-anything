@@ -32,6 +32,7 @@ import { runDaemonConnectionControl } from "./connection-control.ts";
 import { daemonFailure, daemonOption } from "./control-support.ts";
 import { assessDaemonStatus, status } from "./control-status.ts";
 import { runDaemonRepoControl } from "./repo-control.ts";
+import { runDaemonServiceControl } from "./service-control.ts";
 import { assertCanonicalCliEntry } from "./cli-entry-guard.ts";
 const fleetNumber = { port: /^(?:0|[1-9][0-9]{0,4})$/u, quota: /^[1-9][0-9]{0,15}$/u };
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
@@ -75,6 +76,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
       if (result !== undefined) return result;
     }
     if (command === "connection") return runDaemonConnectionControl(argv, subcommand, userRoot, daemonId, finish);
+    if (command === "service") return runDaemonServiceControl(subcommand, userRoot, daemonId, invokingRoot, finish);
     if (command === "start") return startDaemonService(argv, userRoot, daemonId, invokingRoot, finish);
     if (command === "status") {
       const assessed = assessDaemonStatus(await status(userRoot, daemonId, argv));
@@ -119,7 +121,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
         [
           "Use daemon projection rebuild, daemon repo register|update,",
           "daemon connection add|update|remove|probe, fleet center start, fleet edge sync,",
-          "start --service, status, or stop.",
+          "service install|uninstall|status, start --service, status, or stop.",
         ].join(" "),
       ),
       2,

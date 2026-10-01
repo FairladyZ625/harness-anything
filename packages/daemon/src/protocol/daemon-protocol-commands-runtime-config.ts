@@ -240,6 +240,31 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     ],
   }),
   defineHostAdminCommand({
+    id: "daemon-service-install",
+    phase: "Edge-Resident-H1",
+    path: ["daemon", "service", "install"],
+    summary:
+      "Install the user-level service unit (launchd or systemd) that starts the daemon at boot and after a crash.",
+    method: "protocol.hello",
+    inputs: [],
+  }),
+  defineRepoReadCommand({
+    id: "daemon-service-status",
+    phase: "Edge-Resident-H1",
+    path: ["daemon", "service", "status"],
+    summary: "Show whether the service unit is installed and whether the running daemon is the one it supervises.",
+    method: "protocol.hello",
+    inputs: [],
+  }),
+  defineHostAdminCommand({
+    id: "daemon-service-uninstall",
+    phase: "Edge-Resident-H1",
+    path: ["daemon", "service", "uninstall"],
+    summary: "Stop the supervised daemon and remove its service unit.",
+    method: "protocol.hello",
+    inputs: [],
+  }),
+  defineHostAdminCommand({
     id: "daemon-start",
     phase: "W3",
     path: ["daemon", "start", "--service"],
