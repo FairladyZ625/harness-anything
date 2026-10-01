@@ -287,6 +287,7 @@ export function OverviewView({
                           >
                             <Region
                               focusId={key}
+                              focusOpen={focus === key}
                               title={spec.title}
                               tag={spec.tag}
                               big={spec.big}
