@@ -156,6 +156,44 @@ describe("sidebar scrolling structure (short-window overlap fix)", () => {
     for (const at of navs) expect(at).toBeGreaterThan(scrollStart);
   });
 
+  it("pins the brand row and the project switcher above the scroll region, not inside it", () => {
+    const markupText = markup();
+    const headAt = markupText.indexOf('data-testid="app-sidebar-head"');
+    const scrollStart = markupText.indexOf('data-testid="app-sidebar-scroll"');
+    expect(headAt).toBeGreaterThan(-1);
+    expect(headAt).toBeLessThan(scrollStart);
+    const head = markupText.slice(headAt, scrollStart);
+    // 固定头部自己不收缩、不滚动;品牌行与项目切换按钮都在它里面。
+    expect(markupText.match(/data-testid="app-sidebar-head"[^>]*/u)![0]).toContain("shrink-0");
+    expect(head).not.toContain("overflow-y-auto");
+    expect(head).toContain("HARNESS");
+    expect(head).toContain("titlebar-traffic-top");
+    expect(head).toContain("<button");
+    // 滚动区里不再有品牌行与项目切换(旧缺陷:它们跟着导航一起滚走)。
+    const scrollRegion = markupText.slice(scrollStart, markupText.lastIndexOf("</nav>"));
+    expect(scrollRegion).not.toContain("HARNESS");
+    expect(scrollRegion).not.toContain("titlebar-traffic-top");
+  });
+
+  it("keeps pinned work as its own fixed block between the head and the scrolling nav", () => {
+    const markupText = markup();
+    const headAt = markupText.indexOf('data-testid="app-sidebar-head"');
+    const pinnedAt = markupText.indexOf('data-testid="app-sidebar-pinned"');
+    const scrollStart = markupText.indexOf('data-testid="app-sidebar-scroll"');
+    expect(pinnedAt).toBeGreaterThan(headAt);
+    expect(pinnedAt).toBeLessThan(scrollStart);
+    const pinned = markupText.match(/data-testid="app-sidebar-pinned"[^>]*/u)![0]!;
+    expect(pinned).toContain("shrink-0");
+    // 高度按侧栏比例封顶,不写死像素(视觉规范原则 9)。
+    expect(pinned).toContain("max-h-[30%]");
+    expect(markupText).not.toContain("max-h-[168px]");
+    // 置顶列表若渲染,只能在固定块里,不能在导航滚动区里。
+    const listAt = markupText.indexOf('data-testid="sidebar-pinned-list"');
+    if (listAt !== -1) expect(listAt).toBeLessThan(scrollStart);
+    const scrollRegion = markupText.slice(scrollStart, markupText.lastIndexOf("</nav>"));
+    expect(scrollRegion).not.toContain("sidebar-pinned");
+  });
+
   it("pins the system status area and the account row below the scroll region, not inside it", () => {
     const markupText = markup();
     // 滚动容器的关闭在最后一个导航分组之后;固定底部区在那之后才开始。
