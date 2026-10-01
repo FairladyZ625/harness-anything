@@ -36,7 +36,13 @@ const fourRows = (keys: readonly RegionKey[] = KEYS) => {
 describe("layoutRegions 落位顺序", () => {
   it("最重的区域在左上(第一列最上),顺序按权重从重到轻", () => {
     const { need, relaxed } = fourRows();
-    const layout = layoutRegions({ weights: WEIGHTS, need, needRelaxed: relaxed, board: { width: 1200, height: 700 } });
+    const layout = layoutRegions({
+      minimum: Object.fromEntries(KEYS.map((key) => [key, regionNeed(3, { top: key === "review" })])),
+      weights: WEIGHTS,
+      need,
+      needRelaxed: relaxed,
+      board: { width: 1200, height: 700 },
+    });
     expect(layout.order[0]).toBe("mine");
     const mine = layout.boxes.mine!;
     expect(mine.left).toBe(0);
@@ -49,6 +55,7 @@ describe("layoutRegions 落位顺序", () => {
   it("CI 红时 ci 权重最高,压过 mine 落到左上", () => {
     const { need, relaxed } = fourRows([...KEYS, "ci"]);
     const layout = layoutRegions({
+      minimum: Object.fromEntries(KEYS.map((key) => [key, regionNeed(3, { top: key === "review" })])),
       weights: { ...WEIGHTS, ci: 60 },
       need,
       needRelaxed: relaxed,
@@ -62,6 +69,7 @@ describe("layoutRegions 落位顺序", () => {
   it("权重 0 的区域不落位(CI 绿、置顶待派为空)", () => {
     const { need, relaxed } = fourRows();
     const layout = layoutRegions({
+      minimum: Object.fromEntries(KEYS.map((key) => [key, regionNeed(3, { top: key === "review" })])),
       weights: { ...WEIGHTS, queue: 0 },
       need,
       needRelaxed: relaxed,
@@ -86,6 +94,7 @@ describe("layoutRegions 列宽", () => {
   it("三列时各列份额有界:不窄于板的 20%、不宽于板的 46%+归一余量", () => {
     const { need, relaxed } = fourRows();
     const layout = layoutRegions({
+      minimum: Object.fromEntries(KEYS.map((key) => [key, regionNeed(3, { top: key === "review" })])),
       weights: { ci: 0, mine: 10, stuck: 0.5, run: 0.5, review: 0.5, queue: 0, recent: 0.5, works: 10.5 },
       need,
       needRelaxed: relaxed,
@@ -105,7 +114,13 @@ describe("layoutRegions 列宽", () => {
 
   it("列宽恰好填满板宽(含间隙)", () => {
     const { need, relaxed } = fourRows();
-    const layout = layoutRegions({ weights: WEIGHTS, need, needRelaxed: relaxed, board: { width: 1200, height: 700 } });
+    const layout = layoutRegions({
+      minimum: Object.fromEntries(KEYS.map((key) => [key, regionNeed(3, { top: key === "review" })])),
+      weights: WEIGHTS,
+      need,
+      needRelaxed: relaxed,
+      board: { width: 1200, height: 700 },
+    });
     const widths = columnWidths(layout, 1200, 2);
     const total = widths.reduce((sum, width) => sum + width, 0) + 8 * (widths.length - 1);
     expect(Math.abs(total - 1200)).toBeLessThanOrEqual(1);
@@ -115,6 +130,7 @@ describe("layoutRegions 列宽", () => {
     const { need, relaxed } = fourRows();
     // mine 极重、其余极轻(works 含在轻列):轻列被下限抬到 ≥30%
     const layout = layoutRegions({
+      minimum: Object.fromEntries(KEYS.map((key) => [key, regionNeed(3, { top: key === "review" })])),
       weights: { ci: 0, mine: 400, stuck: 2, run: 2, review: 2, queue: 0, recent: 2, works: 2 },
       need,
       needRelaxed: relaxed,
@@ -129,9 +145,24 @@ describe("layoutRegions 列宽", () => {
 });
 
 describe("layoutRegions 高度", () => {
+  it("总需求超过板高时每个有内容的区域至少保留三行", () => {
+    const { need, relaxed } = fourRows();
+    const layout = layoutRegions({
+      minimum: Object.fromEntries(KEYS.map((key) => [key, regionNeed(3, { top: key === "review" })])),
+      weights: WEIGHTS,
+      need,
+      needRelaxed: relaxed,
+      board: { width: 1200, height: 400 },
+    });
+    for (const key of layout.order) {
+      expect(layout.boxes[key]!.height).toBeGreaterThanOrEqual(regionNeed(3, { top: key === "review" }));
+    }
+  });
+
   it("页面先铺满:每一列都到板底,富余摊给同列区域而不是堆在一个区域里", () => {
     const { need, relaxed } = fourRows();
     const layout = layoutRegions({
+      minimum: Object.fromEntries(KEYS.map((key) => [key, regionNeed(3, { top: key === "review" })])),
       weights: WEIGHTS,
       need,
       needRelaxed: relaxed,
@@ -150,6 +181,9 @@ describe("layoutRegions 高度", () => {
     const { need, relaxed } = fourRows();
     // mine 清空:权重 1.5、无行,内容只需头部 → 目标高度很小 → slim
     const slimLayout = layoutRegions({
+      minimum: Object.fromEntries(
+        KEYS.filter((key) => key !== "mine").map((key) => [key, regionNeed(3, { top: key === "review" })]),
+      ),
       weights: { ...WEIGHTS, mine: 1.5 },
       need: { ...need, mine: regionNeed(0) },
       needRelaxed: { ...relaxed, mine: regionNeedRelaxed(0) },
@@ -160,6 +194,7 @@ describe("layoutRegions 高度", () => {
 
     // mine 行多、板高富余:高度够到宽松行所需 → tall
     const tallLayout = layoutRegions({
+      minimum: Object.fromEntries(KEYS.map((key) => [key, regionNeed(3, { top: key === "review" })])),
       weights: { ...WEIGHTS, mine: 200 },
       need: { ...need, mine: regionNeed(4) },
       needRelaxed: { ...relaxed, mine: regionNeedRelaxed(4) },
@@ -173,7 +208,13 @@ describe("layoutRegions 高度", () => {
 describe("layoutRegions 窄屏与列数", () => {
   it("宽度 <900px 退化为单列纵排,板高可滚动", () => {
     const { need, relaxed } = fourRows();
-    const layout = layoutRegions({ weights: WEIGHTS, need, needRelaxed: relaxed, board: { width: 720, height: 700 } });
+    const layout = layoutRegions({
+      minimum: Object.fromEntries(KEYS.map((key) => [key, regionNeed(3, { top: key === "review" })])),
+      weights: WEIGHTS,
+      need,
+      needRelaxed: relaxed,
+      board: { width: 720, height: 700 },
+    });
     expect(layout.columns).toBe(1);
     expect(layout.boardHeight).not.toBeNull();
     for (const key of layout.order) expect(layout.boxes[key]!.left).toBe(0);
@@ -182,10 +223,22 @@ describe("layoutRegions 窄屏与列数", () => {
 
   it("宽度 ≥900/≥1400 分别两列/三列,板高撑满视口不滚动", () => {
     const { need, relaxed } = fourRows();
-    const two = layoutRegions({ weights: WEIGHTS, need, needRelaxed: relaxed, board: { width: 1000, height: 700 } });
+    const two = layoutRegions({
+      minimum: Object.fromEntries(KEYS.map((key) => [key, regionNeed(3, { top: key === "review" })])),
+      weights: WEIGHTS,
+      need,
+      needRelaxed: relaxed,
+      board: { width: 1000, height: 700 },
+    });
     expect(two.columns).toBe(2);
     expect(two.boardHeight).toBeNull();
-    const three = layoutRegions({ weights: WEIGHTS, need, needRelaxed: relaxed, board: { width: 1500, height: 700 } });
+    const three = layoutRegions({
+      minimum: Object.fromEntries(KEYS.map((key) => [key, regionNeed(3, { top: key === "review" })])),
+      weights: WEIGHTS,
+      need,
+      needRelaxed: relaxed,
+      board: { width: 1500, height: 700 },
+    });
     expect(three.columns).toBe(3);
     expect(new Set(three.order.map((key) => three.boxes[key]!.left)).size).toBe(3);
   });

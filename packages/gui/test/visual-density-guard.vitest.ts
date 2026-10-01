@@ -42,6 +42,7 @@ const SMALL_FONT_RE = /text-\[(?:[7-9]|1[012])(?:\.[0-9])?px\]/u;
  * agentRuntime.expand(AgentCard 配置面)、artifacts.drawer.expandTitle(抽屉)。
  */
 const BANNED_TRUNCATION_KEYS = [
+  "components.primitives.moreEntries",
   "views.freshnessView.moreGroups",
   "views.listView.terminalExpandAction",
   "views.listView.terminalCollapseAction",

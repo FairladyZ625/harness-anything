@@ -198,7 +198,6 @@
   "components.localDoc.errorTooLarge": "文件超过 GUI 内阅读上限(2 MiB):{path}",
   "components.localDoc.errorRequestRejected": "请求被拒绝:{message}",
   "components.localDoc.errorBridgeUnavailable": "本机文档读取通道不可用(需要 Electron 壳)。",
-  "components.primitives.moreEntries": "+{count} 条",
   "components.primitives.expand": "展开",
   "components.primitives.completedDivider": "已完成 {count}",
   "components.primitives.collapse": "收起",

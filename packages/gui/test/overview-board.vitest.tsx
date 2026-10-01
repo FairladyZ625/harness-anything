@@ -500,7 +500,7 @@ describe("总览区域板(S3)", () => {
     // CI 读面异步落定后区域才落位:等到 CI 区域出现再断言落位顺序。
     await flushUntil(() => container.querySelector('[data-testid="overview-region-ci"]') !== null);
     const board = container.querySelector('[data-testid="overview-board"]')!;
-    expect((board.firstElementChild as HTMLElement).dataset.region).toBe("ci");
+    expect((board.querySelector("[data-region]") as HTMLElement).dataset.region).toBe("ci");
     const ci = container.querySelector('[data-testid="overview-region-ci"]')!;
     expect(textOf(ci)).toContain("阻断合入");
     expect(textOf(ci)).toContain("integration-shard-6");
