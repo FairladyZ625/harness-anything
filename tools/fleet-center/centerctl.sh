@@ -32,7 +32,6 @@ assignment_id=${HARNESS_CENTER_ASSIGNMENT_ID:-assignment-w5r-mac-edge}
 view_id=${HARNESS_CENTER_VIEW_ID:-w5r-mac-view}
 assignment_task_id=${HARNESS_CENTER_ASSIGNMENT_TASK_ID:-task_w5r_rehearsal_anchor}
 assignment_execution_id=${HARNESS_CENTER_ASSIGNMENT_EXECUTION_ID:-exe_w5r_rehearsal_anchor}
-assignment_person_id=${HARNESS_CENTER_ASSIGNMENT_PERSON_ID:-person_zeyu}
 assignment_executor_id=${HARNESS_CENTER_ASSIGNMENT_EXECUTOR_ID:-codex-sol-w5r}
 assignment_paths=${HARNESS_CENTER_ASSIGNMENT_PATHS:-tasks}
 node_version=24.18.0
@@ -177,6 +176,19 @@ rebuild_projection() {
   note "projection rebuilt to the exact canonical cut"
 }
 
+# Installs and starts the managed Keycloak and PostgreSQL the center verifies
+# node credentials against. It needs no sign-in; the first administrator, the
+# sign-in, and node registration are an operator's steps and are not run here.
+start_authorization_service() {
+  local receipt="$center_root/rbac-bootstrap.json"
+  ha bootstrap >"$receipt" || fail "the authorization service did not start; inspect $receipt"
+  "$node_bin" -e '
+    const fs = require("node:fs"), receipt = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    if (receipt.ok !== true || receipt.ready !== true) process.exit(1);
+  ' "$receipt" || fail "the authorization service is not ready; inspect $receipt"
+  note "authorization service ready"
+}
+
 ensure_tls_and_roster() {
   mkdir -p "$fleet_root" "$state_root"
   chmod 700 "$fleet_root" "$state_root"
@@ -190,22 +202,16 @@ ensure_tls_and_roster() {
     mv "$fleet_root/server.key.staging" "$fleet_root/server.key"
     mv "$fleet_root/server.crt.staging" "$fleet_root/server.crt"
   fi
-  if [[ ! -f $fleet_root/edge.credential ]]; then
-    openssl rand -hex 32 >"$fleet_root/edge.credential.staging"
-    chmod 600 "$fleet_root/edge.credential.staging"
-    mv "$fleet_root/edge.credential.staging" "$fleet_root/edge.credential"
-  fi
   local expires_at
   expires_at=$($node_bin -e 'console.log(new Date(Date.now()+30*24*60*60*1000).toISOString())')
-  "$node_bin" - "$fleet_root/edge.credential" "$fleet_root/roster.json.staging" \
+  "$node_bin" - "$fleet_root/roster.json.staging" \
     "$node_id" "$assignment_id" "$repo_id" "$assignment_task_id" "$assignment_execution_id" \
-    "$view_id" "$assignment_person_id" "$assignment_executor_id" "$expires_at" "$assignment_paths" <<'NODE'
+    "$view_id" "$expires_at" "$assignment_paths" <<'NODE'
 const fs = require("fs");
-const [credentialFile, output, nodeId, assignmentId, repoId, taskId, executionId, viewId, personId, executorId, expiresAt, pathsCsv] = process.argv.slice(2);
-const credential = fs.readFileSync(credentialFile, "utf8").trim();
+const [output, nodeId, assignmentId, repoId, taskId, executionId, viewId, expiresAt, pathsCsv] = process.argv.slice(2);
 const paths = [...new Set(pathsCsv.split(",").map((value) => value.trim()).filter(Boolean))];
 if (paths.length === 0 || paths.some((value) => value.startsWith("/") || value.split("/").some((part) => part === "" || part === "." || part === ".."))) throw new Error("HARNESS_CENTER_ASSIGNMENT_PATHS must be a comma-separated list of canonical relative path prefixes");
-const roster = { schema: "fleet-roster/v2", nodes: [{ nodeId, credential }], assignments: [{ assignmentId, nodeId, repoId, viewId, personId, executorId, expiresAt, scope: { kind: "task", taskId, executionId, paths } }] };
+const roster = { schema: "fleet-roster/v3", assignments: [{ assignmentId, nodeId, repoId, viewId, expiresAt, scope: { kind: "task", taskId, executionId, paths } }] };
 fs.writeFileSync(output, `${JSON.stringify(roster, null, 2)}\n`, { mode: 0o600 });
 NODE
   chmod 600 "$fleet_root/roster.json.staging"
@@ -276,6 +282,7 @@ ensure_app
 bootstrap_registry_and_clone
 start_daemon_and_wait
 rebuild_projection
+start_authorization_service
 ensure_tls_and_roster
 start_center
 print_status
