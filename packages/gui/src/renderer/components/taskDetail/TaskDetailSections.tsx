@@ -143,9 +143,10 @@ export function TaskOverviewTab({
   );
 }
 
-/** 生命周期事件按天收束(§1.4 收束,不堆叠):天摘要 + 每事件一行,全部渲染不分批。 */
+/** 生命周期事件按天收束(§1.4 收束,不堆叠):天摘要 + 每事件一行,全部渲染不分批。
+ * 行主文字是事件的人话种类(与工作概况「最近进展」同一 STEP_META 词表),编号弱色行尾。 */
 function TaskEventDigest({ events }: { readonly events: readonly EventEntry[] }) {
-  const groups: { day: string; events: { at: string; summary: string }[] }[] = [];
+  const groups: { day: string; events: EventEntry[] }[] = [];
   for (const event of [...events].sort((a, b) => b.at.localeCompare(a.at))) {
     const day = formatTime(event.at, { style: "date" }) ?? event.at.slice(0, 10);
     const last = groups.at(-1);
@@ -165,6 +166,7 @@ function TaskEventDigest({ events }: { readonly events: readonly EventEntry[] })
             time: formatTime(event.at, { style: "time" }) ?? undefined,
             name: event.summary,
             steps: [],
+            ref: event.ref,
           }))}
         />
       ))}

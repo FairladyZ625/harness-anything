@@ -94,6 +94,64 @@ function row(overrides: Partial<TaskSnapshotProjectionRow> = {}): TaskSnapshotPr
   };
 }
 
+describe("lifecycleEvents（任务详情进展时间线的事件源）", () => {
+  it("快照记录映射成共享词表的人话步骤,编号进 ref 不进主文字", () => {
+    const snapshot = row().snapshot;
+    const [task] = adaptProjectionRows(
+      [
+        row({
+          snapshot: {
+            ...snapshot,
+            executions: [
+              {
+                schema: "execution/v1",
+                executionId: "exe_230d",
+                taskId: "task-x",
+                nodeId: "implementation",
+                iteration: 1,
+                state: "accepted",
+                actor: { principal: { personId: "person-owner" }, executor: null },
+                claimedAt: "2026-09-01T01:00:00.000Z",
+                submittedAt: "2026-09-01T02:00:00.000Z",
+                closedAt: "2026-09-01T03:00:00.000Z",
+                submission: null,
+              },
+            ],
+            reviews: [
+              {
+                reviewId: "rev_1",
+                reviewedAt: "2026-09-01T02:30:00.000Z",
+                verdict: "changes_requested",
+              },
+            ],
+            consents: [{ consentId: "consent-e0c8", consentedAt: "2026-09-01T03:30:00.000Z" }],
+            gateWitnesses: [
+              { witnessId: "gw_1", gateId: "ci", result: "pass", verifiedAt: "2026-09-01T03:10:00.000Z" },
+              { witnessId: "gw_2", gateId: "lint", result: "advisory", verifiedAt: "2026-09-01T03:20:00.000Z" },
+            ],
+            codeDocWitnesses: [
+              { schema: "code-doc-witness/v1", witnessId: "w_1", reconciledAt: "2026-09-01T03:40:00.000Z" },
+            ],
+          } as unknown as TaskSnapshotProjectionRow["snapshot"],
+        }),
+      ],
+      "repo-test",
+    );
+    expect(task.events?.map(({ kind, ref }) => `${kind}:${ref}`)).toEqual([
+      "witness:w_1",
+      "consent:consent-e0c8",
+      "gateCheck:gw_2",
+      "gatePass:gw_1",
+      "completed:exe_230d",
+      "rejected:rev_1",
+      "submit:exe_230d",
+      "start:exe_230d",
+    ]);
+    // 摘要与渲染标签同一词表(WORK_STEP_LABEL_KEY),不再拼英文机器短语。
+    expect(task.events?.every(({ summary }) => summary !== "" && !/[A-Za-z]{2,}\s/.test(summary))).toBe(true);
+  });
+});
+
 describe("adaptProjectionRows", () => {
   it("derives renderer state from the canonical lifecycle snapshot", () => {
     const [task] = adaptProjectionRows([row()], "repo-test");

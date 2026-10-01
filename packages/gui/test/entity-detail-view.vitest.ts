@@ -675,10 +675,12 @@ describe("DecisionDetailView", () => {
     expect(timeline.querySelector("h2")?.nextElementSibling?.textContent).toBe("4");
     const entries = [...timeline.querySelectorAll("[data-day] > div > *")].map((row) => row.textContent);
     expect(entries).toHaveLength(4);
-    expect(entries[0]).toContain("human:person-ceo");
+    // 身份串转可读名字(视觉基线 v2):行主文字不再是 agent:/human: 前缀串。
+    expect(entries[0]).toContain("person-ceo");
+    expect(entries[0]).not.toContain("human:");
     // 状态词与页头徽章同源(decisionStateLabel),不在这里另写一份词表。
     expect(entries[0]).toContain(decisionStateLabel("in_effect"));
-    expect(entries[1]).toContain("agent:reviewer-1");
+    expect(entries[1]).toContain("reviewer-1");
     expect(entries[1]).toContain("请求修改");
     expect(entries.slice(2).join("|")).toContain("提出");
   });
