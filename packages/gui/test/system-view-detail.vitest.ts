@@ -1,13 +1,7 @@
 // harness-test-tier: integration
 import { describe, expect, it } from "vitest";
 import { totalQueueDepth } from "../src/renderer/views/SystemView.tsx";
-import {
-  formatTime,
-  formatUptimeMs,
-  readTimeZoneOverride,
-  TIME_ZONE_STORAGE_KEY,
-  writeTimeZoneOverride,
-} from "../src/renderer/model/time.ts";
+import { formatDuration, formatTime, readTimeDisplayPrefs, writeTimeDisplayPrefs } from "../src/renderer/model/time.ts";
 
 describe("GUI time service", () => {
   it("renders the same instant as UTC 02:44 and Taipei 10:44", () => {
@@ -20,19 +14,26 @@ describe("GUI time service", () => {
     expect(taipei).not.toBe(utc);
   });
 
-  it("persists a valid settings override and treats removal as system time", () => {
+  it("persists a valid time display preference and treats removal as system time", () => {
     const values = new Map<string, string>(),
       storage = {
         getItem: (key: string) => values.get(key) ?? null,
         setItem: (key: string, value: string) => values.set(key, value),
         removeItem: (key: string) => values.delete(key),
       };
-    writeTimeZoneOverride("Asia/Taipei", storage);
-    expect(values.get(TIME_ZONE_STORAGE_KEY)).toBe("Asia/Taipei");
-    expect(readTimeZoneOverride(storage)).toBe("Asia/Taipei");
-    writeTimeZoneOverride(null, storage);
-    expect(readTimeZoneOverride(storage)).toBeNull();
-    expect(() => writeTimeZoneOverride("Mars/Olympus", storage)).toThrow(/Unsupported time zone/u);
+    writeTimeDisplayPrefs(
+      { timeZone: "Asia/Taipei", dateFormat: "iso", hour12: false, listStyle: "relative" },
+      storage,
+    );
+    expect(readTimeDisplayPrefs(storage).timeZone).toBe("Asia/Taipei");
+    writeTimeDisplayPrefs({ timeZone: null, dateFormat: "iso", hour12: false, listStyle: "relative" }, storage);
+    expect(readTimeDisplayPrefs(storage).timeZone).toBeNull();
+    expect(() =>
+      writeTimeDisplayPrefs(
+        { timeZone: "Mars/Olympus", dateFormat: "iso", hour12: false, listStyle: "relative" },
+        storage,
+      ),
+    ).toThrow(/Unsupported time zone/u);
   });
 
   it("returns null for invalid input instead of inventing a display time", () => {
@@ -42,17 +43,17 @@ describe("GUI time service", () => {
 
 describe("system view user-facing detail (archive-line parity)", () => {
   it("formats raw uptime milliseconds into readable durations", () => {
-    expect(formatUptimeMs(0)).toBe("0s");
-    expect(formatUptimeMs(59_000)).toBe("59s");
-    expect(formatUptimeMs(61_000)).toBe("1m 1s");
-    expect(formatUptimeMs(3_723_000)).toBe("1h 2m 3s");
-    expect(formatUptimeMs(900_610_000)).toBe("10d 10h 10m");
+    expect(formatDuration(0)).toBe("0s");
+    expect(formatDuration(59_000)).toBe("59s");
+    expect(formatDuration(61_000)).toBe("1m 1s");
+    expect(formatDuration(3_723_000)).toBe("1h 2m");
+    expect(formatDuration(900_610_000)).toBe("10d 10h");
   });
 
   it("keeps unknown uptime honest instead of echoing machine values", () => {
-    expect(formatUptimeMs(undefined)).toBe("—");
-    expect(formatUptimeMs(Number.NaN)).toBe("—");
-    expect(formatUptimeMs(-5)).toBe("—");
+    expect(formatDuration(undefined)).toBe("—");
+    expect(formatDuration(Number.NaN)).toBe("—");
+    expect(formatDuration(-5)).toBe("—");
   });
 
   // archive 线的 service.queue.depth 在 rebuild 契约里没有对应字段,按各仓队列求和派生。

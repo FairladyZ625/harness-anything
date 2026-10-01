@@ -218,6 +218,27 @@ const packageSyntaxRestrictions = [
   },
 ];
 
+// 时间显示单点实现(model/time.ts 豁免):renderer 不得绕过它自拼日期/时间写法。
+const guiRendererTimeFormatRestrictions = [
+  {
+    selector:
+      "CallExpression[callee.type='MemberExpression'][callee.property.name=/^toLocale(DateTime|Date|Time)?String$/]",
+    message:
+      "Render times through packages/gui/src/renderer/model/time.ts (formatTime/formatRelative/formatDuration); raw locale formatting is not allowed in the renderer.",
+  },
+  {
+    selector: "NewExpression[callee.object.name='Intl'][callee.property.name='DateTimeFormat']",
+    message:
+      "Construct Intl.DateTimeFormat only in packages/gui/src/renderer/model/time.ts; render times via formatTime/formatRelative/formatDuration.",
+  },
+  {
+    selector:
+      "CallExpression[callee.type='MemberExpression'][callee.property.name=/^get(FullYear|Month|Date|Day|Hours|Minutes|Seconds|Milliseconds)$/]",
+    message:
+      "Render times through packages/gui/src/renderer/model/time.ts (formatTime/formatRelative/formatDuration); raw Date getters are not allowed in the renderer.",
+  },
+];
+
 const crossPackageRelativeSourceSyntaxRestrictions = [
   {
     selector: String.raw`ImportExpression[source.type='Literal'][source.value=/^(?:\.\.\/)+(?:application|kernel|daemon|preset|cli)\/src(?:\/|$)/u]`,
@@ -370,6 +391,20 @@ export default tseslint.config(
     ignores: ["packages/gui/src/main/ipc-handlers.ts", "packages/gui/src/preload/electron-preload.ts"],
     rules: {
       "no-restricted-syntax": ["error", ...packageSyntaxRestrictions, ...guiIpcRestrictedSyntax],
+    },
+  },
+  {
+    // 时间显示单点实现:renderer 里日期/时间写法只能出自 model/time.ts(该文件豁免本块)。
+    // flat config 同名规则后者整体覆盖前者,本块必须放在 gui src 块之后并携带其生效集。
+    files: ["packages/gui/src/renderer/**/*.{ts,tsx,js,mjs}"],
+    ignores: ["packages/gui/src/renderer/model/time.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        ...packageSyntaxRestrictions,
+        ...guiIpcRestrictedSyntax,
+        ...guiRendererTimeFormatRestrictions,
+      ],
     },
   },
   {

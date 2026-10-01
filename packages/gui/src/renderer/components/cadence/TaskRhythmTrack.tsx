@@ -3,7 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { t } from "../../i18n/index.tsx";
 import { shortRef } from "../../sessions-model.ts";
 import { formatTime } from "../../model/time.ts";
-import { formatDurationMs } from "../scheduleRun/runMeta.ts";
+import { formatDuration } from "../../model/time.ts";
 import { Region } from "../primitives/Region.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
 import {
@@ -219,7 +219,7 @@ function RhythmRow({
             ) : null}
             {entry.elapsedMs === null ? null : (
               <span className="ml-1 shrink-0 font-mono ui-micro text-text-faint">
-                {t("views.cadence.rhythmElapsed", { duration: formatDurationMs(entry.elapsedMs) })}
+                {t("views.cadence.rhythmElapsed", { duration: formatDuration(entry.elapsedMs) })}
               </span>
             )}
           </div>
@@ -292,7 +292,7 @@ function RhythmDetail({
                 style={{ width: `${segmentBarWidth(share)}%` }}
               />
               <span className={`shrink-0 font-mono ui-micro ${bottleneck ? "text-status-blocked" : "text-text-faint"}`}>
-                {ms === null ? t("views.cadence.funnelSegmentUnknown") : formatDurationMs(ms)}
+                {ms === null ? t("views.cadence.funnelSegmentUnknown") : formatDuration(ms)}
               </span>
               {bottleneck ? (
                 <StatusTag tone="bad" label={t("views.cadence.funnelBottleneck", { share: Math.round(share * 100) })} />
@@ -304,7 +304,7 @@ function RhythmDetail({
       <p className="flex flex-wrap items-baseline gap-2 ui-micro text-text-muted">
         <span>{t("views.cadence.funnelTurnaround")}</span>
         <span data-testid="cadence-funnel-turnaround" className="font-mono ui-micro text-text">
-          {entry.deliveryMs === null ? t("views.cadence.funnelTurnaroundUnknown") : formatDurationMs(entry.deliveryMs)}
+          {entry.deliveryMs === null ? t("views.cadence.funnelTurnaroundUnknown") : formatDuration(entry.deliveryMs)}
         </span>
       </p>
       <div className="flex flex-col gap-1">

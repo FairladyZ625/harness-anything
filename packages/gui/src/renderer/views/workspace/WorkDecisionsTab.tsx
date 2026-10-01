@@ -20,6 +20,7 @@ import {
 import type { DecisionRow, DecisionState, FactRef, RelationEdge } from "../../model/types.ts";
 import type { MessageKey } from "../../i18n/core.ts";
 import { t } from "../../i18n/index.tsx";
+import { formatTime } from "../../model/time.ts";
 
 /**
  * 决策与事实页(业主 2026-09-30 收束重做;v2 铺开 2026-10-01):事实按所属任务分组、
@@ -52,7 +53,7 @@ function DecisionEntry({
 
 /** 「{date} 裁决」这类最近变化句:时间缺失返回 undefined。 */
 function changeLine(key: MessageKey, at: string | undefined): string | undefined {
-  return at === undefined ? undefined : t(key, { date: at.slice(0, 10) });
+  return at === undefined ? undefined : t(key, { date: formatTime(at, { style: "date" }) ?? at });
 }
 
 const REVIEW_HINTS: Readonly<Record<DecisionReviewSignal, MessageKey>> = {
@@ -230,7 +231,7 @@ function WorkFactDigest({
                     : fact.archived
                       ? t("views.workspace.archived")
                       : `${t("views.workspace.factConfidence")} ${fact.confidence}`,
-                  fact.at ? fact.at.slice(0, 10) : undefined,
+                  fact.at ? (formatTime(fact.at, { style: "date" }) ?? fact.at) : undefined,
                   fact.source === undefined ? undefined : shortenShas(fact.source),
                 ])}
                 onClick={() => setDrawerAnchor(fact.anchor)}
@@ -325,7 +326,9 @@ function FactDetail({
       <header className="flex items-baseline gap-2.5">
         <h2 className="font-semibold text-text ui-title">{t("views.workspace.factDrawerTitle")}</h2>
         <span className="font-mono text-text-faint ui-meta">{fact.anchor}</span>
-        <span className="ml-auto font-mono tabular-nums text-text-muted ui-meta">{fact.at.slice(0, 10)}</span>
+        <span className="ml-auto font-mono tabular-nums text-text-muted ui-meta">
+          {formatTime(fact.at, { style: "date" }) ?? fact.at}
+        </span>
       </header>
       {rows.map(({ label, body }) => (
         <section key={label} className="space-y-1">

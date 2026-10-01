@@ -2,7 +2,6 @@
 import { describe, expect, it } from "vitest";
 import {
   noAgentRunning,
-  relativeAgo,
   workDayGroups,
   workspaceGoalLine,
   workSubgroups,
@@ -189,15 +188,5 @@ describe("workspaceGoalLine", () => {
     expect(workspaceGoalLine("# 标题\n\n## Goal\n\n没有 Brief。\n")).toBeNull();
     expect(workspaceGoalLine("## Brief\n\n## Goal\n\n空的。\n")).toBeNull();
     expect(workspaceGoalLine("")).toBeNull();
-  });
-});
-
-describe("relativeAgo", () => {
-  const now = "2026-09-30T12:00:00.000Z";
-  it("uses minutes under an hour, hours under two days, then days", () => {
-    expect(relativeAgo("2026-09-30T11:40:00.000Z", now)).toEqual({ count: 20, unit: "minute" });
-    expect(relativeAgo("2026-09-30T11:59:40.000Z", now)).toEqual({ count: 1, unit: "minute" });
-    expect(relativeAgo("2026-09-30T09:00:00.000Z", now)).toEqual({ count: 3, unit: "hour" });
-    expect(relativeAgo("2026-09-27T12:00:00.000Z", now)).toEqual({ count: 3, unit: "day" });
   });
 });

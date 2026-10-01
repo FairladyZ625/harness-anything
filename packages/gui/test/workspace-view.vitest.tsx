@@ -424,7 +424,7 @@ describe("overview narrative", () => {
     const next = host.querySelector('[data-testid="work-next"] [data-task-row="task_next"] .grid')!;
     expect(next.className).toContain("min-h-14");
     expect(next.textContent).toContain("T task_next");
-    expect(next.textContent).toContain("前最后活动");
+    expect(next.textContent).toContain("最后活动 1 天前");
     expect(next.textContent).not.toContain("计划中");
   });
 
@@ -461,7 +461,7 @@ describe("overview narrative", () => {
     expect(execRow.textContent).toContain("执行者 person_x");
     const soloRow = host.querySelector('[data-task-row="task_solo"] .grid')!;
     expect(soloRow.className).toContain("min-h-14");
-    expect(soloRow.textContent).toContain("前最后活动");
+    expect(soloRow.textContent).toContain("最后活动 1 天前");
     expect(soloRow.textContent).not.toContain("执行者");
   });
 
@@ -510,7 +510,9 @@ describe("overview narrative", () => {
     const solo = lines(host, "task_solo");
     expect(solo.grid.className).toContain("min-h-14");
     expect(solo.first).toBe("收口链路缺口");
-    expect(solo.second).toMatch(/^执行者 person_x · .+前最后活动 · 兄弟任务解决后第二条卡在 declare-executor$/u);
+    expect(solo.second).toMatch(
+      /^执行者 person_x · 最后活动 \d+ (分钟|小时|天)前 · 兄弟任务解决后第二条卡在 declare-executor$/u,
+    );
     // 等待原因:awaits 边报等谁、问了什么;depends-on 边报被哪个任务卡住,其余条数带上。
     expect(lines(host, "task_await").second).toContain("等 zeyu 答复：两行里放不放长描述");
     expect(lines(host, "task_dep").second).toContain("被「收口链路缺口」卡住 等 1 项");
@@ -528,7 +530,9 @@ describe("overview narrative", () => {
     const grid = host.querySelector('[data-testid="work-stuck"] [data-task-row="task_solo"] .grid')!;
     expect(grid.className).toContain("min-h-14");
     expect(grid.querySelector("span.block.truncate.text-text")!.textContent).toBe("停滞任务标题");
-    expect(grid.querySelector("span.block.text-text-faint")!.textContent).toMatch(/前最后活动 · 补充说明$/u);
+    expect(grid.querySelector("span.block.text-text-faint")!.textContent).toMatch(
+      /最后活动 \d+ (分钟|小时|天)前 · 补充说明$/u,
+    );
   });
 
   it("keeps clickable status numbers and the subgroup tree in the structure region", async () => {

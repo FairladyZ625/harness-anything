@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { formatDayKeyLabel } from "../../model/time.ts";
 import type { GenealogyEdge, LaidOutNode, TimelineLayout } from "../../graph/genealogy";
 import { CARD_H, CARD_W, CLUSTER_H, CLUSTER_W, KIND_META } from "../../graph/genealogy";
 import { DecisionStateBadge } from "../../components/badges";
@@ -95,7 +96,7 @@ export const TimelinePlot = memo(function TimelinePlot({
           >
             <span className="font-mono ui-heading font-bold text-text-faint">{node.clusterSize}</span>
             <span className="font-mono ui-micro text-text-faint">
-              {(node.dayKey ?? "").slice(5)} · {expandedDays.has(node.dayKey!) ? "收起" : "展开"}
+              {formatDayKeyLabel(node.dayKey ?? "")} · {expandedDays.has(node.dayKey!) ? "收起" : "展开"}
             </span>
           </button>
         ) : (
@@ -133,7 +134,9 @@ const DecisionCard = memo(function DecisionCard({
     >
       <div className="flex items-center gap-1.5">
         <DecisionStateBadge state={decision.state} />
-        <span className="ml-auto font-mono ui-micro text-text-faint">{node.dayKey?.slice(5)}</span>
+        <span className="ml-auto font-mono ui-micro text-text-faint">
+          {node.dayKey === undefined ? "" : formatDayKeyLabel(node.dayKey)}
+        </span>
       </div>
       <span className="line-clamp-3 ui-micro font-medium leading-snug text-text">{decision.title}</span>
     </button>

@@ -1,9 +1,22 @@
 import type { ReactNode } from "react";
 import { TitleText } from "./TitleText.tsx";
+import { formatListTime, formatTime } from "../../model/time.ts";
 
 /** 条目高度(标准 §3 v2):单行 ≥40px,宽松两行 56px。仪表盘落位按同一档计算行高。 */
 export const DENSE_ROW_PX = 40;
 export const DENSE_ROW_RELAXED_PX = 56;
+
+/** 列表行尾时间(标准 §2.4):按偏好显示相对或绝对,悬停始终给到秒的绝对时间。 */
+export function RowTime({ at, className }: { readonly at: string | number; readonly className?: string }) {
+  const absolute = formatTime(typeof at === "string" ? at : new Date(at).toISOString(), {
+    style: "date-time-seconds",
+  });
+  return (
+    <span title={absolute ?? undefined} className={className}>
+      {formatListTime(at)}
+    </span>
+  );
+}
 
 /**
  * 列表条目(标准 §4):可选序号、状态标签、标题(省略号)+ 灰色原因、右侧等宽时间。

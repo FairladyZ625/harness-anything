@@ -8,7 +8,7 @@ import { harnessClient } from "../../api-client.ts";
 import { useTaskDocumentQuery } from "../../task-data.ts";
 import { buildTriadicRendererData, useCompleteRelationGraphQuery, triadicQueryKeys } from "../../triadic-data.ts";
 import { useFactArchiveVisibility } from "../../fact-archive-preferences.tsx";
-import { formatTime } from "../../model/time.ts";
+import { dayKeyOf, formatDayKeyLabel, formatTime } from "../../model/time.ts";
 import type { EventEntry, RelationEdge, TaskRow } from "../../model/types.ts";
 import { DayDigest } from "../primitives/DayDigest";
 import { DenseRow } from "../primitives/DenseRow";
@@ -148,7 +148,7 @@ export function TaskOverviewTab({
 function TaskEventDigest({ events }: { readonly events: readonly EventEntry[] }) {
   const groups: { day: string; events: EventEntry[] }[] = [];
   for (const event of [...events].sort((a, b) => b.at.localeCompare(a.at))) {
-    const day = formatTime(event.at, { style: "date" }) ?? event.at.slice(0, 10);
+    const day = dayKeyOf(event.at) ?? event.at.slice(0, 10);
     const last = groups.at(-1);
     if (last !== undefined && last.day === day) last.events.push(event);
     else groups.push({ day, events: [event] });
@@ -158,8 +158,8 @@ function TaskEventDigest({ events }: { readonly events: readonly EventEntry[] })
       {groups.map((group) => (
         <DayDigest
           key={group.day}
-          // 标签用「月-日」,与工作概况的进展同一写法。
-          day={group.day.slice(5)}
+          // 标签不带年份,与工作概况的进展同一写法。
+          day={formatDayKeyLabel(group.day)}
           defaultOpen
           summary={`${group.events.length} 条记录`}
           paths={group.events.map((event) => ({
