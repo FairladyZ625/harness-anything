@@ -17,7 +17,7 @@ test("a parked sessions.await does not re-read settlement for provider activity 
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     repoId = "sessions-await-wake",
-    uid = 4311,
+    uid = process.getuid?.() ?? 0,
     activityFrames = 120;
   initIngressRepo(root, uid);
   registerDaemonRepo({ canonicalRoot: root, repoId, userRoot, createConvenienceLinks: false });

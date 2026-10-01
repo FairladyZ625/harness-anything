@@ -21,14 +21,7 @@ import {
   type PeopleRosterDocumentV1,
 } from "./people-roster.ts";
 
-export const personActionIds = Object.freeze([
-  "add",
-  "set-role",
-  "bind",
-  "delegate",
-  "revoke-delegation",
-  "remove",
-] as const);
+export const personActionIds = Object.freeze(["add", "delegate", "revoke-delegation", "remove"] as const);
 export type PersonActionId = (typeof personActionIds)[number];
 
 export interface PersonActionDraft {
@@ -117,27 +110,6 @@ const input = (
       ],
       [["fromFile", "personId"]],
     ),
-    "set-role": input(
-      [
-        fromFile,
-        personId,
-        role,
-        cli("commandClass", "--command-class", "repeated", "string-array", peopleCommandClasses),
-        idempotencyKey,
-      ],
-      [["fromFile", "personId"]],
-    ),
-    bind: input(
-      [
-        fromFile,
-        cli("actor", "--actor", "single"),
-        role,
-        cli("target", "--target", "single"),
-        cli("expiresAt", "--expires-at", "single"),
-        idempotencyKey,
-      ],
-      [["fromFile", "actor"]],
-    ),
     delegate: input(
       [
         fromFile,
@@ -154,16 +126,12 @@ const input = (
   }),
   actionExplain: Readonly<Record<PersonActionId, string>> = Object.freeze({
     add: "Add one Person and its initial role policy through people-event/v1.",
-    "set-role": "Replace one Person's role while preserving bootstrap-owner and administrator invariants.",
-    bind: "Declare one Actor RoleBinding in the authoritative People roster.",
     delegate: "Issue one closed DelegatedExecutionToken from the authenticated Person to a RuntimeSession.",
     "revoke-delegation": "Revoke a DelegatedExecutionToken owned by the authenticated issuing Person.",
     remove: "Remove one non-owner Person while retaining an enabled administrator.",
   }),
   invariantExplain: Readonly<Record<PersonActionId, string>> = Object.freeze({
     add: "The Person identity is new and the resulting roster preserves owner and administrator authority.",
-    "set-role": "The Person exists and the requested role preserves bootstrap-owner and administrator authority.",
-    bind: "The RoleBinding is valid and any Person actor is enabled in the authoritative roster.",
     delegate: "The issuer is enabled and the DelegatedExecutionToken is valid, unique, and unexpired at issue time.",
     "revoke-delegation": "The DelegatedExecutionToken exists and is owned by the authenticated issuing Person.",
     remove: "The Person exists, is not the bootstrap owner, and removal retains an enabled administrator.",
@@ -371,19 +339,6 @@ function parsePersonAction(
   issuerPersonId: string,
   occurredAt: string,
 ): PeopleRosterAction {
-  if (id === "bind") {
-    const actor = roleBindingActor(personRequiredText(action.actor, "actor"));
-    return {
-      kind: "people-bind",
-      binding: {
-        actor,
-        role: personRequiredText(action.role, "role"),
-        target: personRequiredText(action.target, "target") as never,
-        source: "declared",
-        expiresAt: action.expiresAt === null ? null : (personText(action.expiresAt) ?? null),
-      },
-    };
-  }
   if (id === "delegate")
     return {
       kind: "people-delegate",
@@ -410,7 +365,6 @@ function parsePersonAction(
   const roleId = personRequiredText(action.role, "role"),
     commandClasses = commandClassArray(action.commandClass),
     rolePolicy = { roleId, commandClasses };
-  if (id === "set-role") return { kind: "people-set-role", personId: targetPersonId, rolePolicy };
   const displayName = personRequiredText(action.displayName, "display-name"),
     primaryEmail = personText(action.primaryEmail),
     credentialKind = personText(action.credentialKind),
@@ -467,15 +421,6 @@ function personCriterionEvaluation(
   nextActions: readonly string[] = [],
 ): PersonActionCapabilityEvaluation {
   return Object.freeze({ criterionRef, status, nextActions: Object.freeze([...nextActions]) });
-}
-
-function roleBindingActor(value: string): { readonly kind: "person" | "executor"; readonly id: string } {
-  const separator = value.indexOf(":"),
-    kind = value.slice(0, separator),
-    id = value.slice(separator + 1);
-  if ((kind !== "person" && kind !== "executor") || !id)
-    throw new PersonActionInputError("--actor must use person:<id> or executor:<id>");
-  return { kind, id };
 }
 
 function commandClassArray(value: unknown): readonly PeopleCommandClass[] {

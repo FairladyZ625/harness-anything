@@ -96,15 +96,6 @@ export type PeopleRosterAction =
       readonly rolePolicy?: RolePolicy;
     }
   | {
-      readonly kind: "people-set-role";
-      readonly personId: string;
-      readonly rolePolicy: RolePolicy;
-    }
-  | {
-      readonly kind: "people-bind";
-      readonly binding: RoleBinding;
-    }
-  | {
       readonly kind: "people-delegate";
       readonly token: DelegatedExecutionToken;
     }
@@ -183,8 +174,6 @@ export function applyPeopleRosterAction(
   const current = currentBody === null ? emptyPeopleRoster() : parsePeopleRosterDocument(currentBody);
   let next: PeopleRosterDocumentV1;
   if (action.kind === "people-add") next = addPerson(current, action.person, action.rolePolicy);
-  else if (action.kind === "people-set-role") next = setPersonRole(current, action.personId, action.rolePolicy);
-  else if (action.kind === "people-bind") next = bindActorRole(current, action.binding);
   else if (action.kind === "people-delegate") next = issueDelegatedExecutionToken(current, action.token);
   else if (action.kind === "people-revoke-delegation")
     next = revokeDelegatedExecutionToken(current, action.tokenId, action.issuerPersonId, action.revokedAt);
@@ -202,15 +191,13 @@ export function applyPeopleRosterAction(
     targetPersonId =
       action.kind === "people-add"
         ? action.person.personId
-        : action.kind === "people-set-role" || action.kind === "people-remove"
+        : action.kind === "people-remove"
           ? action.personId
-          : action.kind === "people-bind" && action.binding.actor.kind === "person"
-            ? action.binding.actor.id
-            : action.kind === "people-delegate"
-              ? action.token.issuer.personId
-              : action.kind === "people-revoke-delegation"
-                ? action.issuerPersonId
-                : null;
+          : action.kind === "people-delegate"
+            ? action.token.issuer.personId
+            : action.kind === "people-revoke-delegation"
+              ? action.issuerPersonId
+              : null;
   return {
     action: action.kind,
     targetPersonId,
@@ -238,50 +225,6 @@ function addPerson(
     bindings: roster.bindings,
     delegatedExecutionTokens: roster.delegatedExecutionTokens,
   };
-}
-
-function setPersonRole(
-  roster: PeopleRosterDocumentV1,
-  personId: string,
-  rolePolicy: RolePolicy,
-): PeopleRosterDocumentV1 {
-  const held = roster.people.find((person) => person.personId === personId);
-  if (!held) throw new PeopleRosterContractError(`person ${personId} does not exist`);
-  if (rolePolicy.roleId === "owner" && !held.roles.includes("owner"))
-    throw new PeopleRosterContractError("the owner role is reserved for the bootstrap creator");
-  if (held.roles.includes("owner") && rolePolicy.roleId !== "owner")
-    throw new PeopleRosterContractError(`bootstrap creator ${personId} must retain the owner role`);
-  if (held.roles.includes("owner") && !rolePolicy.commandClasses.includes("admin"))
-    throw new PeopleRosterContractError("the owner role must retain the admin command class");
-  const roles = withRolePolicy(roster.roles, rolePolicy),
-    people = roster.people.map((person) =>
-      person.personId === personId ? { ...person, roles: [rolePolicy.roleId] } : person,
-    );
-  return {
-    schema: PEOPLE_ROSTER_SCHEMA,
-    people,
-    roles,
-    bindings: roster.bindings,
-    delegatedExecutionTokens: roster.delegatedExecutionTokens,
-  };
-}
-
-function bindActorRole(roster: PeopleRosterDocumentV1, value: RoleBinding): PeopleRosterDocumentV1 {
-  const binding = parseRosterRoleBinding(value);
-  if (binding.source !== "declared")
-    throw new PeopleRosterContractError("people.yaml may only persist declared RoleBindings");
-  if (
-    binding.actor.kind === "person" &&
-    !roster.people.some((person) => person.personId === binding.actor.id && !person.disabled)
-  )
-    throw new PeopleRosterContractError(`RoleBinding actor ${binding.actor.id} is not an enabled person`);
-  const key = roleBindingKey(binding),
-    existing = roster.bindings.findIndex((candidate) => roleBindingKey(candidate) === key),
-    bindings =
-      existing < 0
-        ? [...roster.bindings, binding]
-        : roster.bindings.map((candidate, index) => (index === existing ? binding : candidate));
-  return { ...roster, bindings };
 }
 
 function issueDelegatedExecutionToken(
@@ -369,12 +312,6 @@ function withRolePolicy(roles: readonly RolePolicy[], rolePolicy: RolePolicy | u
 function peopleActionSummary(action: PeopleRosterAction, personId: string | null, changed: boolean): string {
   if (!changed) return "People roster already matches the requested state.";
   if (action.kind === "people-add") return `Added person ${personId}.`;
-  if (action.kind === "people-set-role") return `Set person ${personId} role to ${action.rolePolicy.roleId}.`;
-  if (action.kind === "people-bind")
-    return (
-      `Bound ${action.binding.actor.kind} ${action.binding.actor.id} as ` +
-      `${action.binding.role} on ${action.binding.target}.`
-    );
   if (action.kind === "people-delegate")
     return (
       `Delegated ${action.token.issuer.personId} Actions to RuntimeSession ` +

@@ -29,7 +29,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     repoId = "runtime-provider-events",
-    uid = 4302;
+    uid = process.getuid?.() ?? 0;
   initIngressRepo(root, uid);
   registerDaemonRepo({
     canonicalRoot: root,
@@ -388,7 +388,7 @@ test("daemon ingress resumes the same provider session for Claude and Codex", as
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     repoId = "runtime-resume",
-    uid = 4303;
+    uid = process.getuid?.() ?? 0;
   initIngressRepo(root, uid);
   registerDaemonRepo({
     canonicalRoot: root,
@@ -567,7 +567,7 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
     userRoot = path.join(parent, "user"),
     executablePath = path.join(parent, "cancel-stub.mjs"),
     repoId = "runtime-cancel",
-    uid = 4304,
+    uid = process.getuid?.() ?? 0,
     lifecycle: DaemonLifecycleEntry[] = [];
   initIngressRepo(root, uid);
   registerDaemonRepo({
@@ -696,7 +696,7 @@ test("agy consumes only its closed stream-json event protocol", async () => {
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     repoId = "runtime-agy-events",
-    uid = 4305;
+    uid = process.getuid?.() ?? 0;
   let installation = {
     installationId: "installation-agy",
     kindId: "agy" as const,

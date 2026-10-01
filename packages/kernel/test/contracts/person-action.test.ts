@@ -29,18 +29,11 @@ const roster = parsePeopleRosterDocument(
   )}\n`,
 );
 
-test("Person declares all six executable People Action contracts", () => {
+test("Person declares all four executable People Action contracts", () => {
   const explanation = explainEntityKind("person"),
     delegate = getExecutableEntityAction("people-delegate"),
     revoke = getExecutableEntityAction("people-revoke-delegation");
-  assert.deepEqual(explanation.transitions.available, [
-    "add",
-    "set-role",
-    "bind",
-    "delegate",
-    "revoke-delegation",
-    "remove",
-  ]);
+  assert.deepEqual(explanation.transitions.available, ["add", "delegate", "revoke-delegation", "remove"]);
   assert.equal(delegate?.execution?.implementation, "catalog-runtime");
   assert.equal(revoke?.execution?.implementation, "catalog-runtime");
   assert.equal(delegate?.concurrency.expectedVersion.arbitration, "center-single-write-queue");

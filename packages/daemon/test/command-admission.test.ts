@@ -164,14 +164,7 @@ test("Settings locale-only updates use local admission while repository fields k
 
 test("People mutations are admin Actions and forward from an edge", () => {
   const byId = new Map(daemonProtocolCommands.map((command) => [command.id, command]));
-  for (const id of [
-    "people-add",
-    "people-set-role",
-    "people-bind",
-    "people-delegate",
-    "people-revoke-delegation",
-    "people-remove",
-  ]) {
+  for (const id of ["people-add", "people-delegate", "people-revoke-delegation", "people-remove"]) {
     assert.deepEqual(byId.get(id)?.admission, {
       local: "direct",
       "remote-proxy": "rejected",

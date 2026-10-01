@@ -1,4 +1,8 @@
-import { cliInput, defineCliCommand, workspacePathFormat } from "@harness-anything/preset/internal/preset-command-contract";
+import {
+  cliInput,
+  defineCliCommand,
+  workspacePathFormat,
+} from "@harness-anything/preset/internal/preset-command-contract";
 import { credentialKindWords, peopleCommandClassWords } from "./daemon-protocol-vocabulary.ts";
 
 export const peopleAddJsonFields = Object.freeze(["personId", "displayName", "role", "commandClass"] as const),
@@ -10,10 +14,6 @@ export const peopleAddJsonFields = Object.freeze(["personId", "displayName", "ro
     "credentialSubject",
     "idempotencyKey",
   ] as const),
-  peopleSetRoleJsonFields = Object.freeze(["personId", "role", "commandClass"] as const),
-  peopleSetRoleJsonAllowedFields = Object.freeze([...peopleSetRoleJsonFields, "idempotencyKey"] as const),
-  peopleBindJsonFields = Object.freeze(["actor", "role", "target"] as const),
-  peopleBindJsonAllowedFields = Object.freeze([...peopleBindJsonFields, "expiresAt", "idempotencyKey"] as const),
   peopleDelegateJsonFields = Object.freeze(["tokenId", "runtimeSessionId", "action", "expiresAt"] as const),
   peopleDelegateJsonAllowedFields = Object.freeze([...peopleDelegateJsonFields, "idempotencyKey"] as const),
   peopleRevokeDelegationJsonFields = Object.freeze(["tokenId"] as const),
@@ -73,19 +73,6 @@ const peopleWriteTopology = {
     ),
   roleInput = () =>
     cliInput("--role", "single", false, { code: "missing_field" }, { minLength: 1, conflictsWith: ["--from-file"] }),
-  actorInput = () =>
-    cliInput(
-      "--actor",
-      "single",
-      false,
-      {
-        code: "missing_field",
-      },
-      {
-        regex: "^(?:person|executor):[A-Za-z0-9][A-Za-z0-9._:-]*$",
-        conflictsWith: ["--from-file"],
-      },
-    ),
   tokenIdInput = () =>
     cliInput(
       "--token-id",
@@ -163,23 +150,6 @@ export const peopleProtocolCommands = Object.freeze([
     ...peopleWriteTopology,
   }),
   defineCliCommand({
-    id: "people-bind",
-    actionKind: "people-bind",
-    phase: "Persons-Registry",
-    path: ["people", "bind"],
-    summary: "Declare one Actor role on one EntityRef through the canonical Action writer.",
-    method: "repo.task.run",
-    inputs: [
-      ...packetInputs(peopleBindJsonFields, peopleBindJsonAllowedFields),
-      actorInput(),
-      roleInput(),
-      textInput("--target", false),
-      textInput("--expires-at", false),
-      idempotencyInput(),
-    ],
-    ...peopleWriteTopology,
-  }),
-  defineCliCommand({
     id: "people-delegate",
     actionKind: "people-delegate",
     phase: "Persons-Registry",
@@ -235,22 +205,6 @@ export const peopleProtocolCommands = Object.freeze([
     inputs: [
       ...packetInputs(peopleRevokeDelegationJsonFields, peopleRevokeDelegationJsonAllowedFields),
       tokenIdInput(),
-      idempotencyInput(),
-    ],
-    ...peopleWriteTopology,
-  }),
-  defineCliCommand({
-    id: "people-set-role",
-    actionKind: "people-set-role",
-    phase: "Persons-Registry",
-    path: ["people", "set-role"],
-    summary: "Set one Person role and its command classes through the canonical Action writer.",
-    method: "repo.task.run",
-    inputs: [
-      ...packetInputs(peopleSetRoleJsonFields, peopleSetRoleJsonAllowedFields),
-      personIdInput(),
-      roleInput(),
-      commandClassInput(),
       idempotencyInput(),
     ],
     ...peopleWriteTopology,

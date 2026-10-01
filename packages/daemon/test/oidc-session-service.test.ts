@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { localDefaultBinding } from "../src/daemon-host-binding.ts";
 
@@ -34,7 +35,7 @@ function fixture(now = 1_000): { service: OidcSessionService; root: string; requ
 }
 
 test("PKCE login validates state, keeps tokens daemon-side, and binds the Keycloak person", async () => {
-  const { service, requests } = fixture(),
+  const { service, requests, root } = fixture(),
     redirectUri = "http://127.0.0.1:43123/callback",
     begun = service.begin(redirectUri),
     authorizationUrl = new URL(String(begun.authorizationUrl));
@@ -53,6 +54,7 @@ test("PKCE login validates state, keeps tokens daemon-side, and binds the Keyclo
   });
   assert.equal(service.requireRole("access-admin").personId, "person-zeyu");
   assert.equal("accessToken" in completed, false);
+  assert.equal(Object.hasOwn(JSON.parse(managedRbacSessionStore(root).read()!), "refreshToken"), false);
 });
 
 test("mismatched callback state is rejected and expired sessions fail closed", async () => {

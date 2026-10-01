@@ -4,108 +4,72 @@ import test from "node:test";
 import { actionDeclarations, deriveBasePolicyGroups } from "@harness-anything/kernel";
 import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
 import { authorizeRepoCellAction, evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
+import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
 const config = { url: "http://127.0.0.1:8080", realm: "harness", resourceServerClientId: "harness-center" };
 
-test("sync derives every Keycloak scope and four composite Base roles from declarations", async () => {
-  const scopes = new Set<string>(),
-    roles = new Map<string, { id: string; name: string }>(),
-    composites: string[] = [],
-    policies = new Map<string, { id: string; name: string }>(),
-    permissions = new Set<string>();
-  const fetchPort = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
-    const url = new URL(String(input)).pathname,
-      body = init?.body ? (JSON.parse(String(init.body)) as { name?: string }) : null;
-    if (url.endsWith("/clients")) return Response.json([{ id: "client-1" }]);
-    if (url.endsWith("/authz/resource-server/scope")) {
-      if (init?.method === "POST" && body?.name) scopes.add(body.name);
-      return init?.method === "POST"
-        ? Response.json({ id: `generated-${body?.name}`, name: body?.name }, { status: 201 })
-        : Response.json([...scopes].map((name) => ({ id: `scope-${name}`, name })));
-    }
-    if (url.endsWith("/roles")) {
-      if (init?.method === "POST" && body?.name) roles.set(body.name, { id: `role-${body.name}`, name: body.name });
-      return init?.method === "POST"
-        ? new Response(null, { status: 201, headers: { location: `${config.url}${url}/${body?.name}` } })
-        : Response.json([...roles.values()]);
-    }
-    if (url.includes("/composites")) {
-      const members = JSON.parse(String(init?.body)) as { id: string }[];
-      assert.ok(
-        members.every((member) => [...roles.values()].some((role) => role.id === member.id)),
-        "composites must use actual role ids, not Location role names",
-      );
-      composites.push(url);
-      return new Response(null, { status: 204 });
-    }
-    if (url.includes("/roles/")) return Response.json(roles.get(decodeURIComponent(url.split("/").at(-1)!)));
-    if (url.endsWith("/policy/role")) {
-      if (init?.method === "POST" && body?.name)
-        policies.set(body.name, { id: `policy-${body.name}`, name: body.name });
-      return init?.method === "POST"
-        ? Response.json({ id: `generated-${body?.name}`, name: body?.name }, { status: 201 })
-        : Response.json([...policies.values()]);
-    }
-    if (url.endsWith("/permission/scope")) {
-      if (init?.method === "POST" && body?.name) permissions.add(body.name);
-      return init?.method === "POST"
-        ? Response.json({ id: `generated-${body?.name}`, name: body?.name }, { status: 201 })
-        : Response.json([...permissions].map((name) => ({ name })));
-    }
-    return new Response(null, { status: 404 });
-  };
-  const receipt = await new KeycloakPolicyAdapter(config, fetchPort).syncBasePolicy("admin-token");
+test("sync derives every Keycloak scope and four composite Base roles, and no permission that is not bound to a resource", async () => {
+  const keycloak = fakeKeycloak(),
+    receipt = await new KeycloakPolicyAdapter(config, keycloak.fetch).syncBasePolicy("admin-token");
   assert.deepEqual(receipt, { scopeCount: actionDeclarations.length, groupCount: 4 });
-  assert.equal(scopes.size, actionDeclarations.length);
-  assert.deepEqual([...roles.keys()].sort(), ["admin", "contributor", "maintainer", "viewer"]);
-  assert.equal(composites.length, 3);
-  assert.equal(policies.size, 3);
-  assert.equal(permissions.size, actionDeclarations.length);
+  assert.equal(keycloak.scopes.size, actionDeclarations.length);
+  assert.deepEqual([...keycloak.roles.keys()].sort(), ["admin", "contributor", "maintainer", "viewer"]);
+  assert.deepEqual(
+    ["admin", "maintainer", "contributor", "viewer"].map((id) => [...keycloak.roles.get(id)!.composites]),
+    [["maintainer"], ["contributor"], ["viewer"], []],
+  );
+  // A Base group is a configuration unit; holding it grants nothing until it is granted on a resource.
+  assert.deepEqual([keycloak.permissions.size, keycloak.userPolicies.size, keycloak.resources.size], [0, 0, 0]);
+  assert.equal(
+    keycloak.profile.attributes.some(({ name }) => name === "harness_person_id"),
+    true,
+  );
 });
 
-test("sync reads complete paginated collections once and does not recreate existing entries", async () => {
-  const groups = deriveBasePolicyGroups(),
-    collections = new Map([
-      ["/scope", actionDeclarations.map(({ policyAction }) => ({ id: `scope-${policyAction}`, name: policyAction }))],
-      [
-        "/roles",
-        [
-          ...Array.from({ length: 100 }, (_, i) => ({ id: `extra-${i}`, name: `extra-${i}` })),
-          ...groups.map(({ id }) => ({ id: `role-${id}`, name: id })),
-        ],
-      ],
-      [
-        "/policy/role",
-        [
-          ...Array.from({ length: 100 }, (_, i) => ({ id: `extra-${i}`, name: `extra-${i}` })),
-          ...groups.filter(({ id }) => id !== "viewer").map(({ id }) => ({ id: `policy-${id}`, name: `base-${id}` })),
-        ],
-      ],
-      [
-        "/permission/scope",
-        groups.flatMap((group) =>
-          group.scopes.map((scope) => ({ id: `permission-${scope}`, name: `base-${group.id}-${scope}` })),
-        ),
-      ],
-    ]),
-    reads = new Map<string, number>(),
-    adapter = new KeycloakPolicyAdapter(config, async (input, init) => {
-      const url = new URL(String(input));
-      if (url.pathname.endsWith("/clients")) return Response.json([{ id: "client-1" }]);
-      if (url.pathname.endsWith("/composites")) return new Response(null, { status: 204 });
-      const entry = [...collections]
-        .sort(([a], [b]) => b.length - a.length)
-        .find(([suffix]) => url.pathname.endsWith(suffix));
-      assert.ok(entry, url.pathname);
-      assert.notEqual(init?.method, "POST", `existing collection entry must not be recreated: ${url}`);
-      const [suffix, items] = entry;
-      assert.equal(url.searchParams.get("max"), "100");
-      const first = Number(url.searchParams.get("first"));
-      reads.set(suffix, (reads.get(suffix) ?? 0) + 1);
-      return Response.json(items.slice(first, first + 100));
-    });
-  assert.deepEqual(await adapter.syncBasePolicy("admin"), { scopeCount: actionDeclarations.length, groupCount: 4 });
-  for (const [suffix, items] of collections) assert.equal(reads.get(suffix), Math.floor(items.length / 100) + 1);
+test("sync reads complete paginated collections and does not recreate existing entries", async () => {
+  const keycloak = fakeKeycloak(),
+    adapter = new KeycloakPolicyAdapter(config, keycloak.fetch);
+  await adapter.syncBasePolicy("admin-token");
+  assert.equal(keycloak.scopes.size > 100, true, "the scope collection spans more than one page");
+  keycloak.writes.length = 0;
+  assert.deepEqual(await adapter.syncBasePolicy("admin-token"), {
+    scopeCount: actionDeclarations.length,
+    groupCount: 4,
+  });
+  assert.deepEqual(
+    keycloak.writes.filter((write) => !write.endsWith("/composites")),
+    [],
+  );
+});
+
+test("sync re-expands stored grants to the currently declared actions of their group", async () => {
+  const keycloak = fakeKeycloak(),
+    adapter = new KeycloakPolicyAdapter(config, keycloak.fetch),
+    contributor = deriveBasePolicyGroups().find((group) => group.id === "contributor")!;
+  await adapter.syncBasePolicy("admin-token");
+  await adapter.writeGrant("admin-token", { groupId: "contributor", resource: "repo-a", userIds: ["user-a"] }, [
+    "task-create",
+  ]);
+  const [permission] = [...keycloak.permissions.values()],
+    [resource] = [...keycloak.resources.values()];
+  resource!.scopes = [{ name: "task-create" }];
+  await adapter.syncBasePolicy("admin-token");
+  assert.deepEqual(permission!.scopes, contributor.scopes);
+  assert.equal(resource!.scopes.length, actionDeclarations.length);
+  assert.deepEqual(await adapter.readGrants("admin-token"), [
+    { groupId: "contributor", resource: "repo-a", userIds: ["user-a"] },
+  ]);
+  // A grant whose group expands to no action keeps its holders and leaves no permission behind.
+  await adapter.writeGrant(
+    "admin-token",
+    { groupId: "viewer", resource: "repo-a:task/task_1", userIds: ["user-a"] },
+    [],
+  );
+  assert.deepEqual(
+    [...keycloak.permissions.values()].map((item) => item.name),
+    ["grant:contributor:repo-a"],
+  );
+  assert.equal((await adapter.readGrants("admin-token")).length, 2);
 });
 
 test("online evaluation returns explicit allow and denies unknown, negative, and unavailable scopes", async () => {
@@ -157,7 +121,7 @@ test("online evaluation returns explicit allow and denies unknown, negative, and
   );
 });
 
-test("RepoCell online evaluation uses the authenticated token and exact repository or entity resource", async () => {
+test("RepoCell online evaluation uses the authenticated token and asks for the repository before the exact entity", async () => {
   const permissions: string[] = [],
     binding = {
       actor: { principal: { personId: "person-a" }, executor: null },
@@ -171,8 +135,12 @@ test("RepoCell online evaluation uses the authenticated token and exact reposito
     },
     fetchPort = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
       assert.equal(new Headers(init?.headers).get("authorization"), "Bearer user-token");
-      permissions.push(new URLSearchParams(String(init?.body)).get("permission") ?? "");
-      return Response.json({ result: true });
+      const permission = new URLSearchParams(String(init?.body)).get("permission") ?? "";
+      permissions.push(permission);
+      // Repository B itself is not granted; only its one task is.
+      return permission === "repo-b#task-start"
+        ? Response.json({ error: "access_denied" }, { status: 403 })
+        : Response.json({ result: true });
     };
   const repository = await evaluateRepoCellAction({
       action: { kind: "repo-bootstrap" },
@@ -203,7 +171,7 @@ test("RepoCell online evaluation uses the authenticated token and exact reposito
     });
   assert.equal(repository.outcome, "allowed");
   assert.equal(entity.outcome, "allowed");
-  assert.deepEqual(permissions, ["repo-a#repo-bootstrap", "repo-b:task/task_123#task-start"]);
+  assert.deepEqual(permissions, ["repo-a#repo-bootstrap", "repo-b#task-start", "repo-b:task/task_123#task-start"]);
   assert.deepEqual(missing.reasonCodes, ["authentication_required"]);
 });
 

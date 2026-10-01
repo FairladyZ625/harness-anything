@@ -451,8 +451,8 @@ needed.
 Only a genuine scalar or role-authority contradiction produces a `required`
 row. For that row, ask which side to retain with the explicit flag and record
 the losing declaration in the hand-over. After migration, reconcile individual
-entries only through `ha people add`, `ha people set-role`, and
-`ha people remove`; never commit a manual edit to the ledger.
+entries only through `ha people add` and `ha people remove`; never commit a
+manual edit to the ledger.
 
 **Do the merge edits after the final apply in step 8, not now.** Step 8
 recreates the destination from scratch, which would discard anything edited
@@ -926,7 +926,7 @@ not canonical prose`. `--path` converts silence into a stated reason, which is
   cure is worse than the disease.
 - **Route blocked** (`people.yaml`, `harness.yaml`, anything under `events/` or
   `objects/`, task-package files) — the block reason names the owning command.
-  For `people.yaml`, use `ha people add|set-role|remove`; step 5 covers migration
+  For `people.yaml`, use `ha people add|remove`; step 5 covers migration
   conflicts.
 
 So keep the step 5 merge column to prose files wherever you have the choice. A
@@ -1064,8 +1064,8 @@ success and failure paths.
   discriminates is whether `--version` is _accepted_ at all: the previous
   generation rejects it with `unknown_option` and a nonzero exit. Never compare
   version numbers to decide which build you are talking to.
-- **`ha people` is the only roster write road.** `ha people add`,
-  `ha people set-role`, and `ha people remove` publish canonical People Actions.
+- **`ha people` is the only roster write road.** `ha people add` and
+  `ha people remove` publish canonical People Actions.
   `doc sync` still refuses `harness/people.yaml` because the path is owned by
   `people-registry`; compatible migration rosters are unioned through that same
   Action contract, while genuine contradictions use the explicit choice in

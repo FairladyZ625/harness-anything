@@ -64,7 +64,7 @@ test("Person Actions share catalog execution, exact refusal attribution, and exp
       );
     assert.deepEqual(
       catalog.subjects[0]?.actions.map(({ action }) => action.id),
-      ["add", "set-role", "bind", "delegate", "revoke-delegation", "remove"],
+      ["add", "delegate", "revoke-delegation", "remove"],
     );
     assert.equal(
       catalog.subjects[0]?.actions.every(({ available }) => available === null),
