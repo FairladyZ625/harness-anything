@@ -14,7 +14,8 @@ import {
 } from "../src/renderer/components/primitives/RegionBoard";
 
 /**
- * 区域板的列容器(标准 §2.1):主区一列或两列 + 最右一列,两列时主区 3 份、右列 2 份;区域
+ * 区域板的列容器(标准 §2.1):主区一列或两列 + 最右一列,两列时主区 3 份、右列 2 份(右列是
+ * 页面主列表时各占一半);区域
  * 外框带实测下限(条目区至少露出三条,正文区至少露出约三行)。happy-dom 不做布局,这里只守
  * 结构与「哪些区域有下限」;真实宽度与高度分配由 Electron 实测留证。
  */
@@ -36,10 +37,10 @@ const region = (key: string, rows: number, fill = false) =>
     ),
   );
 
-function board(main: readonly ReactNode[], side: boolean) {
+function board(main: readonly ReactNode[], side: boolean, columns?: "aside" | "primary") {
   return createElement(
     RegionBoard,
-    { "data-testid": "board" },
+    { "data-testid": "board", side: columns },
     createElement(
       BoardMain,
       { "data-testid": "main" },
@@ -89,6 +90,30 @@ describe("RegionBoard", () => {
         "overflow-y-auto",
       );
     }
+    act(() => root.unmount());
+    host.remove();
+  });
+
+  it("splits the two columns evenly when the side column is the page's primary list, and only then", () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    const columns = () =>
+      host
+        .querySelector<HTMLElement>('[data-testid="board"]')!
+        .className.split(" ")
+        .filter((name) => name.includes("grid-cols-"));
+    const main = [[region("mine", 1)]];
+
+    // 右列是这一页的主列表(任务节奏、运行历史):两列时各占一半。
+    act(() => root.render(board(main, true, "primary")));
+    expect(columns()).toEqual(["grid-cols-1", "@[900px]:grid-cols-2", "@[1400px]:grid-cols-none"]);
+    // 默认与显式的 aside 是同一个 3:2;三列档(≥1400px)两种取值相同。
+    const aside = ["grid-cols-1", "@[900px]:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]", "@[1400px]:grid-cols-none"];
+    act(() => root.render(board(main, true, "aside")));
+    expect(columns()).toEqual(aside);
+    act(() => root.render(board(main, true)));
+    expect(columns()).toEqual(aside);
     act(() => root.unmount());
     host.remove();
   });

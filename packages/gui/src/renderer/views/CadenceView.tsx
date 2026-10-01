@@ -160,9 +160,9 @@ export function CadenceView({
           <>
             <CadenceHud hud={snapshot.hud} awaitingDetail={awaitingDetail} />
             {/* 区域板(标准 §2.1,与工作概况同一个 RegionBoard):堵点、产出、摩擦在主区,按时间排的
-                任务节奏固定在最右一列;每块都在 Region 里并区内滚动。摩擦的行还是自写的(板量不到
+                任务节奏固定在最右一列,它是这一页的主列表,两列时与主区各占一半;每块都在 Region 里并区内滚动。摩擦的行还是自写的(板量不到
                 「三条」),有内容时用 fill 占满列内剩余高度并保底 16rem。 */}
-            <RegionBoard data-testid="cadence-board">
+            <RegionBoard side="primary" data-testid="cadence-board">
               <BoardMain>
                 <BoardColumn>
                   <BoardRegion region="blockers" data-testid="cadence-blockers">

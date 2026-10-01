@@ -354,6 +354,8 @@ describe("CadenceView", () => {
     const panel = container.querySelector("#cadence-panel")!,
       board = panel.querySelector('[data-testid="cadence-board"]')!,
       block = (name: string) => panel.querySelector(`[data-testid="cadence-${name}"]`)!;
+    // 任务节奏是这一页的主列表:两列时与主区各占一半,不用默认的 3:2。
+    expect(board.className).toContain("@[900px]:grid-cols-2");
     // 四块都是 Region 区域框(标题在框里);页签里没有框外的标题,也没有自写的圆角外框。
     for (const name of ["blockers", "yield", "friction", "rhythm"]) {
       expect(block(name).querySelector(":scope > section[data-entry-region] h2"), name).not.toBeNull();

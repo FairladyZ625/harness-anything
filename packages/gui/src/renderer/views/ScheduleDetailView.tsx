@@ -525,8 +525,8 @@ function ScheduleOverviewTab({
     missed = runs.filter((run) => run.outcome === "missed").length;
   return (
     // 区域板(标准 §2.1,与工作概况、任务详情同一个 RegionBoard):主区是需要处理、健康度、
-    // 目的、定义、执行,运行历史固定在最右一列并区内滚动;没有内容的区域整块消失。
-    <RegionBoard data-testid="schedule-overview-tab">
+    // 目的、定义、执行,运行历史固定在最右一列并区内滚动,它是这一页的主列表,两列时与主区各占一半;没有内容的区域整块消失。
+    <RegionBoard side="primary" data-testid="schedule-overview-tab">
       <BoardMain>
         <BoardColumn>
           {(row.target.kind === "agent-unconfigured" || row.targetState !== undefined) && (

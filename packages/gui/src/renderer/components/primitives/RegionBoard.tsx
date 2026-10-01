@@ -6,9 +6,12 @@ import { proseMinimumHeight, regionMinimumHeight } from "./region-minimum.ts";
  * 概况页签、研发态势)共用。主区一列或两列 + 最右一列(时间线、模板、任务节奏这类占满
  * 列高的长列表);列内区域按内容高度分配,放不下时各自缩到实测下限(条目区至少露出三条,
  * 正文区至少露出约三行),再放不下就列内滚动;每个区域的内容在 Region 内部滚动。
- * 断点量的是最近的 @container 祖先:≥900px 两列(主区 3 份 | 右列 2 份;没有右列时主区
- * 占满),≥1400px 主区的每个 BoardColumn 自成一列并与右列等宽,更窄时单列纵排、右列排到
- * 最下、整页滚动(§1.9)。列宽比例是容器的固定行为,不按页调。
+ * 断点量的是最近的 @container 祖先:≥900px 两列(没有右列时主区占满),≥1400px 主区的每个
+ * BoardColumn 自成一列并与右列等宽,更窄时单列纵排、右列排到最下、整页滚动(§1.9)。
+ *
+ * 两列时的列宽只有两种,由右列放的是什么定(side):
+ *   aside(默认)  右列是辅助的窄内容(时间线、模板):主区 3 份 | 右列 2 份。
+ *   primary      右列是这一页的主列表,每行信息量大(任务节奏、运行历史):各占一半。
  *
  * 全局总览不用它:那一页按 daemon 权重把区域落进当前最矮的一列(overview-layout),保证
  * 不了某个区域固定在右列。
@@ -28,7 +31,16 @@ const MinimumContext = createContext<Readonly<Record<string, number>>>({});
 /** 区域行体里算「一条」的元素:DenseRow、时间线的天摘要与路径行。 */
 const REGION_ROWS = "[data-dense-row], [data-day] > button, [data-day] > div > *";
 
-export function RegionBoard({ children, ...props }: HTMLAttributes<HTMLDivElement>) {
+const TWO_COLUMNS = {
+  aside: "@[900px]:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]",
+  primary: "@[900px]:grid-cols-2",
+} as const;
+
+export function RegionBoard({
+  side = "aside",
+  children,
+  ...props
+}: HTMLAttributes<HTMLDivElement> & { readonly side?: keyof typeof TWO_COLUMNS }) {
   const boardRef = useRef<HTMLDivElement | null>(null);
   const [minimum, setMinimum] = useState<Readonly<Record<string, number>>>({});
   // 每次渲染后重量:区域增减、行数变化都改变下限,不让调用方记得传依赖。
@@ -63,7 +75,7 @@ export function RegionBoard({ children, ...props }: HTMLAttributes<HTMLDivElemen
       <div
         {...props}
         ref={boardRef}
-        className="grid grid-cols-1 gap-2 @[900px]:min-h-0 @[900px]:flex-1 @[900px]:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] @[900px]:grid-rows-[minmax(0,1fr)] @[1400px]:grid-flow-col @[1400px]:auto-cols-[minmax(0,1fr)] @[1400px]:grid-cols-none"
+        className={`grid grid-cols-1 gap-2 @[900px]:min-h-0 @[900px]:flex-1 ${TWO_COLUMNS[side]} @[900px]:grid-rows-[minmax(0,1fr)] @[1400px]:grid-flow-col @[1400px]:auto-cols-[minmax(0,1fr)] @[1400px]:grid-cols-none`}
       >
         {children}
       </div>
