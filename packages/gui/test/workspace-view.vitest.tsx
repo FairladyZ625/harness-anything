@@ -15,9 +15,9 @@ import { projectedTaskFields } from "./task-projection-fields.ts";
 
 /**
  * 工作详情页按原型 v2(dec_AF44708E8F70F04E59FF751F9C/CH1):顶部身份 + 状态分段
- * 进度 + 标签栏(概况/任务/进展/决策与事实/检修);概况按「等你裁决 → 没有 agent
- * 在跑 → 按天收束的进展 → 接下来」叙事排列,右栏状态数字与子组树;原始事件流只在
- * 检修页;实体细节进右侧抽屉。
+ * 进度 + 标签栏(概况/任务/进展/决策与事实/检修);概况是区域板(标准 §2.1):左侧
+ * 主区「等你裁决 → 阻塞与异常 → 进行中 → 接下来 → 结构与统计」各一个区域框,右列是
+ * 按天收束的时间线区域;原始事件流只在检修页;实体细节进右侧抽屉。
  */
 
 const scopeRow = (taskId: string, patch: Partial<WorkspaceScopeRead["tasks"][number]> = {}) =>
@@ -292,13 +292,89 @@ describe("overview narrative", () => {
         onOpenTask={() => {}}
       />,
     );
-    const warn = host.querySelector('[data-testid="work-stalled"]')!;
+    const warn = host.querySelector('[data-testid="work-stuck"]')!;
+    expect(warn.textContent).toContain("阻塞与异常");
+    expect(warn.textContent).toContain("无 agent 1");
     expect(warn.textContent).toContain("标着在做，但没有 agent 在跑");
     expect(warn.textContent).toContain("T task_solo");
     expect(warn.textContent).not.toContain("T task_leased");
   });
 
-  it("collapses progress into day digests and lists planned work as pills", async () => {
+  it("puts every block of the overview in a region frame, with the timeline as its own right-hand column", async () => {
+    const host = await mount(
+      <WorkspaceView
+        scope={{
+          ...baseScope,
+          memberTaskIds: [...baseScope.memberTaskIds, "task_run", "task_blocked"],
+          eventSummaries: [
+            {
+              eventId: "e1",
+              schema: "task-event/v1",
+              type: "execution_started",
+              occurredAt: "2026-09-30T02:05:00.000Z",
+              workspaceRevision: 1,
+              taskId: "task_run",
+              payload: {},
+            },
+          ],
+        }}
+        projectName="Harness"
+        tasks={[
+          row("task_wait", { coordinationStatus: "submitted" }),
+          row("task_solo"),
+          row("task_run", { leaseHolder: "person_x" }),
+          row("task_blocked", {
+            coordinationStatus: "blocked",
+            blockers: [
+              { relationId: "rel_1", kind: "depends-on", sourceTaskId: "task_blocked", targetTaskId: "task_run" },
+            ],
+          }),
+          row("task_next", { coordinationStatus: "planned" }),
+        ]}
+        onOpenTask={() => {}}
+      />,
+    );
+    const board = host.querySelector('[data-testid="work-overview-board"]')!;
+    // 区域集合与固定顺序;每个区域都是 Region 原语(玻璃面板 + 区内滚动的行体)。
+    const regions = [...board.querySelectorAll<HTMLElement>("[data-region]")];
+    expect(regions.map((region) => region.dataset.region)).toEqual([
+      "mine",
+      "stuck",
+      "run",
+      "next",
+      "structure",
+      "recent",
+    ]);
+    for (const region of regions) {
+      const section = region.querySelector(":scope > section.glass")!;
+      expect(section.querySelector("h2")).not.toBeNull();
+      expect(section.children[1]!.firstElementChild!.className).toContain("overflow-y-auto");
+    }
+    // 没有散排:板上的标题、行、按天进展都在某个区域框里。
+    for (const element of board.querySelectorAll("h2, h3, [data-task-row], [data-day], [data-group-filter]"))
+      expect(element.closest("section.glass")).not.toBeNull();
+    // 时间线是板上独立的最后一列,不混在主区里。
+    const timeline = host.querySelector('[data-testid="work-timeline"]')!;
+    expect(timeline.parentElement).toBe(board);
+    expect(board.lastElementChild).toBe(timeline);
+    expect(timeline.closest('[data-testid="work-overview-main"]')).toBeNull();
+    expect(timeline.querySelectorAll("[data-day]")).toHaveLength(1);
+    // 阻塞的任务进「阻塞与异常」并报卡点;有 agent 在跑的进「进行中」并报执行者。
+    const stuck = host.querySelector('[data-testid="work-stuck"]')!;
+    expect(stuck.querySelector('[data-task-row="task_blocked"]')!.textContent).toContain("被「T task_run」卡住");
+    expect(stuck.querySelector('[data-task-row="task_run"]')).toBeNull();
+    const running = host.querySelector('[data-testid="work-running"]')!;
+    expect(running.querySelector('[data-task-row="task_run"]')!.textContent).toContain("执行者 person_x");
+    expect(running.querySelector('[data-task-row="task_solo"]')).toBeNull();
+  });
+
+  it("drops empty regions instead of leaving empty frames", async () => {
+    const host = await mount(<WorkspaceView scope={scope()} projectName="Harness" onOpenTask={() => {}} />);
+    const keys = [...host.querySelectorAll<HTMLElement>("[data-region]")].map((region) => region.dataset.region);
+    expect(keys).toEqual(["structure"]);
+  });
+
+  it("collapses progress into day digests and lists planned work as two-line rows", async () => {
     const host = await mount(
       <WorkspaceView
         scope={{
@@ -335,8 +411,12 @@ describe("overview narrative", () => {
     // 每个任务一条路径,状态标签用箭头串起。
     expect(host.textContent).toContain("开始");
     expect(host.textContent).toContain("完成");
-    const pills = host.querySelector('[data-testid="work-next"]')!;
-    expect(pills.textContent).toContain("T task_next");
+    // 「接下来」是区域里的两行条目(不是会溢出的标签串);全是待开工,不重复挂状态标签。
+    const next = host.querySelector('[data-testid="work-next"] [data-task-row="task_next"] .grid')!;
+    expect(next.className).toContain("min-h-14");
+    expect(next.textContent).toContain("T task_next");
+    expect(next.textContent).toContain("前最后活动");
+    expect(next.textContent).not.toContain("计划中");
   });
 
   it("lays out every progress day on the overview (no first-2-days cap) and shows the executor on a second line", async () => {
@@ -436,13 +516,13 @@ describe("overview narrative", () => {
         onOpenTask={() => {}}
       />,
     );
-    const grid = host.querySelector('[data-testid="work-stalled"] [data-task-row="task_solo"] .grid')!;
+    const grid = host.querySelector('[data-testid="work-stuck"] [data-task-row="task_solo"] .grid')!;
     expect(grid.className).toContain("min-h-14");
     expect(grid.querySelector("span.block.truncate.text-text")!.textContent).toBe("停滞任务标题");
     expect(grid.querySelector("span.block.text-text-faint")!.textContent).toMatch(/前最后活动 · 补充说明$/u);
   });
 
-  it("keeps the rail with clickable status numbers and the subgroup tree", async () => {
+  it("keeps clickable status numbers and the subgroup tree in the structure region", async () => {
     const host = await mount(
       <WorkspaceView
         scope={{
@@ -461,18 +541,19 @@ describe("overview narrative", () => {
         onOpenTask={() => {}}
       />,
     );
-    const rail = host.querySelector('[data-testid="workspace-rail"]')!;
-    expect(rail.textContent).toContain("状态");
-    expect(rail.textContent).toContain("结构");
+    const rail = host.querySelector('[data-testid="work-structure"]')!;
+    expect(rail.textContent).toContain("结构与统计");
     // 点状态数字 → 任务页按该状态筛好。
     await act(async () => rail.querySelector<HTMLButtonElement>('[data-status-filter="submitted"]')!.click());
-    expect(host.querySelector('[data-testid="workspace-rail"]')).toBeNull();
+    expect(host.querySelector('[data-testid="work-structure"]')).toBeNull();
     expect(tab(host, "tasks").getAttribute("aria-selected")).toBe("true");
     expect(host.textContent).toContain("T task_wait");
     // 点子组 → 任务页只看该组。
     await act(async () => tab(host, "overview").click());
     await act(async () =>
-      host.querySelector<HTMLButtonElement>('[data-testid="workspace-rail"] [data-group-filter="task_group"]')!.click(),
+      host
+        .querySelector<HTMLButtonElement>('[data-testid="work-structure"] [data-group-filter="task_group"] button')!
+        .click(),
     );
     expect(host.textContent).toContain("子组：G 一");
     expect(host.textContent).toContain("T task_solo");
@@ -484,7 +565,7 @@ describe("overview narrative", () => {
       <WorkspaceView scope={baseScope} projectName="Harness" tasks={[row("task_solo")]} onOpenTask={() => {}} />,
     );
     await act(async () =>
-      host.querySelector<HTMLButtonElement>('[data-testid="work-stalled"] [data-task-row="task_solo"]')!.click(),
+      host.querySelector<HTMLButtonElement>('[data-testid="work-stuck"] [data-task-row="task_solo"] button')!.click(),
     );
     const drawer = host.querySelector('[role="dialog"]')!;
     expect(drawer.textContent).toContain("T task_solo");

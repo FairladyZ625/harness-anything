@@ -7,14 +7,14 @@ import { DenseRow } from "../components/primitives/DenseRow";
 import { SegBar } from "../components/primitives/SegBar";
 import { StatusTag, type StatusTone } from "../components/primitives/StatusTag";
 import { t } from "../i18n/index.tsx";
-import type { MessageKey } from "../i18n/core.ts";
 import { formatTime } from "../model/time.ts";
 import type { CadenceFeedEvent } from "../model/cadence.ts";
-import type { WorkDayGroup, WorkStepKind } from "../model/workspace-narrative.ts";
+import type { WorkDayGroup } from "../model/workspace-narrative.ts";
 import { taskReviewRef } from "../navigation/entityRoutes.ts";
 import type { CiObservatoryRead, WorkIndexRead } from "../../api/renderer-dto.ts";
 import type { AgentRuntimeOverviewResult } from "@harness-anything/daemon/protocol";
 import type { RegionKey } from "./overview-layout.ts";
+import { DaySummary, STEP_META } from "./workspace/WorkOverview.tsx";
 import {
   ATTENTION_META,
   ageOf,
@@ -427,26 +427,27 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
       hasTop: false,
       rowIds: recentPaths.map(({ group, path }) => recentPathId(group, path.taskId)),
       renderList: ({ selectedId, onSelect, inFocus }) => (
-        <>
+        // DayDigest 自己不带左右内边距:贴着区域框时「收起」会顶到右缘,这里留出与行同宽的边距。
+        <div className="px-3.5">
           {recentDays.map((group, index) => (
             <DayDigest
               key={group.dateKey}
               day={recentDayLabel(group.dateKey, deps.now)}
               defaultOpen={inFocus || index === 0}
-              summary={<RecentDaySummary group={group} />}
+              summary={<DaySummary group={group} />}
               paths={group.paths.map<DayPath>((path) => ({
                 time: formatTime(path.firstAt, { style: "time" }) ?? undefined,
                 name: path.title ?? path.taskId,
                 steps: path.steps.map((step) => ({
-                  label: t(RECENT_STEP_META[step].label),
-                  tone: RECENT_STEP_META[step].tone,
+                  label: t(STEP_META[step].label),
+                  tone: STEP_META[step].tone,
                 })),
                 selected: selectedId === recentPathId(group, path.taskId),
                 onClick: () => onSelect(recentPathId(group, path.taskId)),
               }))}
             />
           ))}
-        </>
+        </div>
       ),
       renderRow: () => null,
       renderDetail: (id) => {
@@ -460,7 +461,7 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
               {held.path.steps.map((step, index) => (
                 <span key={index} className="flex items-center gap-1">
                   {index > 0 && <span className="text-text-faint ui-micro">→</span>}
-                  <StatusTag tone={RECENT_STEP_META[step].tone} label={t(RECENT_STEP_META[step].label)} />
+                  <StatusTag tone={STEP_META[step].tone} label={t(STEP_META[step].label)} />
                 </span>
               ))}
             </div>
@@ -699,22 +700,6 @@ function OverviewActionButton({
   );
 }
 
-/** 步骤种类的呈现(标签/状态色):键与文案取工作页 DayDigest 同一组 i18n 键
- * (views.workspace.step.*),与 WorkOverview 的 STEP_META 同一语汇。 */
-const RECENT_STEP_META: Readonly<Record<WorkStepKind, { readonly label: MessageKey; readonly tone: StatusTone }>> = {
-  start: { label: "views.workspace.step.start", tone: "active" },
-  dispatch: { label: "views.workspace.step.dispatch", tone: "active" },
-  submit: { label: "views.workspace.step.submit", tone: "wait" },
-  approved: { label: "views.workspace.step.approved", tone: "done" },
-  rejected: { label: "views.workspace.step.rejected", tone: "bad" },
-  returned: { label: "views.workspace.step.returned", tone: "bad" },
-  completed: { label: "views.workspace.step.completed", tone: "done" },
-  reopened: { label: "views.workspace.step.reopened", tone: "active" },
-  fact: { label: "views.workspace.step.fact", tone: "plan" },
-  gatePass: { label: "views.workspace.step.gatePass", tone: "done" },
-  gateFail: { label: "views.workspace.step.gateFail", tone: "bad" },
-};
-
 /** 放大层的行 id:同一任务可跨天出现,id 带上天。 */
 function recentPathId(group: WorkDayGroup, taskId: string): string {
   return `${group.dateKey}|${taskId}`;
@@ -727,28 +712,4 @@ function recentDayLabel(dateKey: string, nowIso: string): string {
   const yesterday = formatTime(new Date(Date.parse(nowIso) - 24 * 3_600_000).toISOString(), { style: "date" });
   if (dateKey === yesterday) return t("views.workspace.progress.yesterday");
   return dateKey.slice(5);
-}
-
-/** 一天的摘要行(工作页 DaySummary 同一 i18n 键):完成/提交/打回/退回计数。 */
-function RecentDaySummary({ group }: { readonly group: WorkDayGroup }) {
-  const parts: ReactNode[] = [];
-  const push = (key: MessageKey, count: number) => {
-    if (count > 0) parts.push(<span key={key}>{t(key, { count })}</span>);
-  };
-  push("views.workspace.day.completedPart", group.counts.completed);
-  push("views.workspace.day.submittedPart", group.counts.submitted);
-  push("views.workspace.day.rejectedPart", group.counts.rejected);
-  push("views.workspace.day.returnedPart", group.counts.returned);
-  if (parts.length === 0)
-    parts.push(<span key="active">{t("views.workspace.day.activeOnly", { count: group.paths.length })}</span>);
-  return (
-    <>
-      {parts.map((part, index) => (
-        <span key={index}>
-          {index > 0 ? " · " : ""}
-          {part}
-        </span>
-      ))}
-    </>
-  );
 }

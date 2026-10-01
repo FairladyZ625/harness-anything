@@ -362,7 +362,7 @@ describe("the work page absorbs the root task", () => {
         onOpenTask: () => undefined,
       }),
     );
-    const groupRow = page.querySelector<HTMLButtonElement>('[data-group-filter="declared"]')!;
+    const groupRow = page.querySelector<HTMLButtonElement>('[data-group-filter="declared"] button')!;
     expect(groupRow).not.toBeNull();
     await act(async () => groupRow.click());
     expect(page.querySelector<HTMLButtonElement>("#workspace-tab-tasks")!.getAttribute("aria-selected")).toBe("true");
