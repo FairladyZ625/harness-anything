@@ -6,9 +6,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { sha256Bytes } from "@harness-anything/kernel";
-import { deriveCloseoutSubmission, submissionAnchorDriftWarnings, submissionStopped } from "../src/repo-cell-submit.ts";
+import { deriveCloseoutSubmission, submissionAnchorDriftWarnings } from "../src/repo-cell-submit.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
-import type { RepoCellBinding, RepoTaskAction, Snapshot } from "../src/repo-cell-types.ts";
 
 const packagePath = "tasks/task-1";
 const documentPath = `${packagePath}/closeout.md`;
@@ -537,34 +536,6 @@ test("ledger fallback still fails closed when the task has no accepted artifacts
   );
 });
 
-test("a stopped submission keeps the invalid_submission message as its rejection explanation", () => {
-  const cell = {
-      input: { repoId: "canonical" },
-      operationId: () => "op_stopped",
-      rejected: (opId: string, code: string) => ({
-        outcome: "op_rejected",
-        opId,
-        code,
-        origin: "daemon",
-        evidence: `rejection:${code}`,
-        diagnostic: { kind: "failure", code },
-      }),
-    } as unknown as Parameters<typeof submissionStopped>[0],
-    error = Object.assign(new Error("Delivery cut contains no changed paths."), { code: "invalid_submission" }),
-    receipt = submissionStopped(
-      cell,
-      { kind: "task-submit", taskId: "task-1" } as RepoTaskAction,
-      {} as RepoCellBinding,
-      { revision: 3 } as Snapshot,
-      "execution-1",
-      packagePath,
-      error,
-    );
-  assert.equal(receipt.code, "document_invalid");
-  assert.equal(receipt.rejectionExplanation, "Delivery cut contains no changed paths.");
-  assert.match(receipt.next?.[0]?.action ?? "", /ha doc sync --submit --task task-1/u);
-});
-
 test("anchor drift warning fires only when the delivery cut moved under unchanged closeout prose", () => {
   const anchor = {
       path: `${packagePath}/artifacts/report.md`,
@@ -812,10 +783,14 @@ test("a task without its own commit delivers accepted artifacts, not the baselin
     ).deliverables,
     [],
   );
-  assert.throws(
-    () => derive(root, "No delivery.", undefined, ["ci"], undefined, { kind: "commit", commitSha: merged }),
-    { code: "invalid_submission", message: /no changed paths/u },
-  );
+  const closeoutOnly = derive(root, "Completed ledger coordination.", undefined, ["ci"], undefined, {
+    kind: "commit",
+    commitSha: merged,
+  });
+  assert.equal(closeoutOnly.commitSha, merged);
+  assert.deepEqual(closeoutOnly.deliverables, []);
+  assert.deepEqual(closeoutOnly.outputs, []);
+  assert.equal(closeoutOnly.artifacts, undefined);
 });
 
 test("a restarted task retains the first-parent diff for its earlier delivery ancestor", (t) => {
@@ -837,19 +812,19 @@ test("a restarted task retains the first-parent diff for its earlier delivery an
     );
     assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
   }
-  assert.throws(
-    () =>
-      derive(
-        root,
-        "Foreign prior cut.",
-        undefined,
-        ["ci"],
-        undefined,
-        { kind: "commit", commitSha: merged },
-        undefined,
-        "repository-diff",
-        git(root, "rev-parse", "HEAD"),
-      ),
-    { code: "invalid_submission", message: /no changed paths/u },
+  const foreignPrior = derive(
+    root,
+    "Foreign prior cut.",
+    undefined,
+    ["ci"],
+    undefined,
+    { kind: "commit", commitSha: merged },
+    undefined,
+    "repository-diff",
+    git(root, "rev-parse", "HEAD"),
   );
+  assert.equal(foreignPrior.commitSha, merged);
+  assert.deepEqual(foreignPrior.deliverables, []);
+  assert.deepEqual(foreignPrior.outputs, []);
+  assert.equal(foreignPrior.artifacts, undefined);
 });

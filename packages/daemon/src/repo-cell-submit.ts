@@ -294,9 +294,6 @@ export function deriveCloseoutSubmission(
   // Deliverables stay paths of the delivery commit: anchored in-package artifacts ride in the
   // artifacts field and outputs lines so commit-based gates never verify ledger paths against
   // the public cut.
-  if (!deliverables.length && !commitOutputs.length && !artifacts.length) {
-    throw cell.cellCodedError("invalid_submission", "Delivery cut contains no changed paths.");
-  }
   return {
     ...prose,
     commitSha,
