@@ -81,7 +81,7 @@ function row(overrides: Partial<ScheduleGuiRowDto> = {}): ScheduleGuiRowDto {
       attemptIndex: 0,
       dispatchId: "dispatch_000000000000000000000001",
       runtimeSessionId: "runtime-prior",
-      detail: "artifact:runtime-result/sha256/prior",
+      detail: "cwd /missing does not exist",
     },
     missed: { count: 1, lastMissedAt: "2026-08-27T04:00:00.000Z", lastMissedReason: "scheduler_unavailable" },
     automaticEvaluatedThrough: "2026-08-27T08:00:00.000Z",
@@ -239,6 +239,37 @@ describe("schedule detail hub (M2)", () => {
     // G10: the agent id is still a path to the agent entity.
     await click(container, "schedule-agent-link-probe-agent");
     expect(onSelectEntity).toHaveBeenCalledWith("agent/probe-agent");
+  });
+
+  it("run history rows lead with human words: trigger kind as the title, occurrence id demoted to the weak second line", async () => {
+    vi.spyOn(schedulesClient, "runs").mockResolvedValue(
+      runsResult([
+        occurrence(),
+        occurrence({
+          occurrenceId: "manual_3752",
+          kind: "manual",
+          outcome: "failed",
+          reportRef: "artifact:runtime-result/sha256/b63d",
+          detail: null,
+          reportText: null,
+          nodeId: "edge-sf-2",
+        }),
+      ]),
+    );
+    const onSelectEntity = vi.fn();
+    const container = await renderDetail("schedule/heartbeat-probe", listResult(), onSelectEntity);
+    await settle();
+    const timeline = container.querySelector<HTMLElement>('[data-testid="schedule-runs-timeline"]')!;
+    const scheduledRow = timeline.querySelector<HTMLElement>('[data-testid="schedule-run-row-occurrence_86b0"]')!;
+    expect(scheduledRow.textContent).toContain("Scheduled run");
+    expect(scheduledRow.textContent).toContain("occurrence_86b0");
+    const failedRow = timeline.querySelector<HTMLElement>('[data-testid="schedule-run-row-manual_3752"]')!;
+    expect(failedRow.textContent).toContain("Manual run");
+    // 失败细节只是报告引用:最近失败给「查看失败报告」入口,点开内嵌的 run 详情。
+    const lastFailure = container.querySelector<HTMLElement>('[data-testid="schedule-health-last-failure"]')!;
+    expect(lastFailure.textContent).toContain("View failure report");
+    await click(container, "schedule-health-last-failure");
+    expect(onSelectEntity).toHaveBeenCalledWith("schedule/heartbeat-probe/runs/manual_3752");
   });
 
   it("lays Overview out as a region board: every block in a Region, run history as the rightmost timeline", async () => {

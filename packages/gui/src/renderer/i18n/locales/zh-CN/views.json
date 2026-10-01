@@ -1402,7 +1402,7 @@
   "views.workspace.day.activeOnly": "{count} 个任务有活动",
   "views.workspace.step.start": "开始",
   "views.workspace.step.dispatch": "派工",
-  "views.workspace.step.submit": "提交",
+  "views.workspace.step.submit": "提交评审",
   "views.workspace.step.approved": "评审通过",
   "views.workspace.step.rejected": "打回",
   "views.workspace.step.returned": "退回",
@@ -1602,5 +1602,14 @@
   "schedules.clock.yesterday": "昨天 {time}",
   "schedules.until.minutes": "{minutes} 分钟后",
   "schedules.until.hours": "{hours} 小时后",
-  "schedules.until.days": "{days} 天后"
+  "schedules.until.days": "{days} 天后",
+  "schedules.run.kind.scheduled": "定时触发",
+  "schedules.run.kind.manual": "手动触发",
+  "schedules.run.kind.fallback": "运行",
+  "schedules.detail.health.viewFailureReport": "查看失败报告 →",
+  "views.workspace.step.consent": "业主确认",
+  "views.workspace.step.witness": "代码/文档见证",
+  "views.workspace.step.dismissed": "评审取消",
+  "views.workspace.step.abandoned": "已放弃",
+  "views.workspace.step.gateCheck": "门禁核查"
 }

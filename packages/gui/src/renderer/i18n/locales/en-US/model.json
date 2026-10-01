@@ -1,1 +1,6 @@
-{}
+{
+  "model.actorName.claudeSession": "Claude session",
+  "model.actorName.codexSession": "Codex session",
+  "model.actorName.runtimeSession": "Runtime session",
+  "model.actorName.sessionKindSuffix": "{kind} session"
+}

@@ -122,11 +122,22 @@ export function Field({
 export function KV({ children }: { readonly children: ReactNode }) {
   return <dl className="grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-[3px] ui-micro">{children}</dl>;
 }
-export function KVRow({ name, children }: { readonly name: ReactNode; readonly children: ReactNode }) {
+export function KVRow({
+  name,
+  title,
+  children,
+}: {
+  readonly name: ReactNode;
+  /** 值被收束/截断时,原始串放悬停(视觉基线 v2:机器编号不当主文字)。 */
+  readonly title?: string;
+  readonly children: ReactNode;
+}) {
   return (
     <>
       <dt className="whitespace-nowrap font-mono ui-micro text-text-faint">{name}</dt>
-      <dd className="[overflow-wrap:anywhere] text-text">{children}</dd>
+      <dd title={title} className="[overflow-wrap:anywhere] text-text">
+        {children}
+      </dd>
     </>
   );
 }
