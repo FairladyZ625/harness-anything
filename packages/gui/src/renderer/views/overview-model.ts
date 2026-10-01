@@ -32,7 +32,7 @@ export const ATTENTION_META: Readonly<
   decision: { tone: "wait", rank: 4 },
   blocked: { tone: "bad", rank: 5 },
   stalled: { tone: "wait", rank: 6 },
-  answered: { tone: "done", rank: 7 },
+  answered: { tone: "wait", rank: 7 },
   archive: { tone: "neutral", rank: 8 },
 };
 
