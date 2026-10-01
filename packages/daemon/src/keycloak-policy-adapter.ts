@@ -288,6 +288,23 @@ export class KeycloakPolicyAdapter {
       );
   }
 
+  /** The accounts a grant can name: Keycloak users carrying a Harness person id. */
+  async readPeople(
+    adminAccessToken: string,
+  ): Promise<readonly { readonly userId: string; readonly personId: string; readonly username: string }[]> {
+    const users = await this.#pages<{
+      readonly id: string;
+      readonly username?: string;
+      readonly attributes?: Readonly<Record<string, readonly string[]>>;
+    }>(adminAccessToken, "/users");
+    return users
+      .flatMap((user) => {
+        const personId = user.attributes?.[personAttribute]?.[0];
+        return personId ? [{ userId: user.id, personId, username: user.username ?? personId }] : [];
+      })
+      .sort((left, right) => left.personId.localeCompare(right.personId));
+  }
+
   async findUserId(adminAccessToken: string, personId: string): Promise<string | undefined> {
     const users = await this.#json<readonly { readonly id?: unknown }[]>(
       adminAccessToken,

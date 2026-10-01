@@ -883,8 +883,14 @@ function scheduleTriggerFromUpdate(
     (Object.hasOwn(action, "cronExpression") || Object.hasOwn(action, "timezone"))
   )
     reject("invalid_command", "Schedule update cannot combine interval and cron trigger fields.");
-  if (Object.hasOwn(action, "everyMs"))
+  if (Object.hasOwn(action, "everyMs")) {
+    // Update surfaces (GUI form, CLI) resend the interval on every save; re-anchoring on an
+    // unchanged everyMs would postpone the whole cadence, so only a real cadence change —
+    // a different interval or a cron→interval switch — takes the update instant as anchor.
+    const currentTrigger = record(current) ? current : null;
+    if (currentTrigger?.kind === "interval" && currentTrigger.everyMs === Number(action.everyMs)) return currentTrigger;
     return { kind: "interval", everyMs: Number(action.everyMs), anchorAt: occurredAt };
+  }
   if (Object.hasOwn(action, "cronExpression"))
     return { kind: "cron", expression: String(action.cronExpression), timezone: String(action.timezone) };
   if (Object.hasOwn(action, "timezone")) {

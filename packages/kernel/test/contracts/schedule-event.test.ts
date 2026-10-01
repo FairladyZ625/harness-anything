@@ -10,7 +10,8 @@ import {
   validateCurrentScheduleEvent,
   type ScheduleEventV1,
 } from "../../src/domain/schedule-event.ts";
-import { createScheduleV1, type ScheduleV1 } from "../../src/domain/schedule.ts";
+import { getExecutableEntityAction } from "../../src/domain/entity-kind-registry.ts";
+import { createScheduleV1, nextScheduleOccurrence, type ScheduleV1 } from "../../src/domain/schedule.ts";
 import { parseCanonicalEvent, serializeCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import {
@@ -103,6 +104,43 @@ test("deletion evidence is bound to the exact declaration snapshot it retires", 
     () => compileScheduleDeletedEvent({ ...input(2, "schedule_deleted", schedule), baseBlobSha256: "invalid" }),
     /deletion evidence/u,
   );
+});
+
+test("an update that resends the unchanged interval keeps the cadence anchor and next occurrence", () => {
+  const draft = scheduleUpdateDraft({ name: "Renamed heartbeat", everyMs: 1_800_000 });
+  if (draft.kind !== "schedule" || draft.result.kind !== "event") throw new Error("missing schedule_updated event");
+  const updated = draft.result.bundle.event.payload.schedule;
+  assert.equal(updated.name, "Renamed heartbeat");
+  assert.deepEqual(updated.spec.trigger, baseSchedule().spec.trigger);
+  assert.equal(nextScheduleOccurrence(updated.spec.trigger, "2026-08-26T11:45:00.000Z"), "2026-08-26T12:00:00.000Z");
+});
+
+test("an update that resends the unchanged interval and nothing else compiles to no-changes", () => {
+  // GUI saves always resend the interval value; once the anchor is preserved, such an update
+  // changes no definition field at all and must not emit a cadence-resetting event.
+  const draft = scheduleUpdateDraft({ everyMs: 1_800_000 });
+  if (draft.kind !== "schedule") throw new Error("missing schedule update draft");
+  assert.deepEqual(draft.result, { kind: "no-changes", schedule: baseSchedule(), revision: 2 });
+});
+
+test("a real interval change re-anchors the cadence at the update instant", () => {
+  const draft = scheduleUpdateDraft({ everyMs: 3_600_000 });
+  if (draft.kind !== "schedule" || draft.result.kind !== "event") throw new Error("missing schedule_updated event");
+  assert.deepEqual(draft.result.bundle.event.payload.schedule.spec.trigger, {
+    kind: "interval",
+    everyMs: 3_600_000,
+    anchorAt: "2026-08-26T11:45:00.000Z",
+  });
+});
+
+test("switching a cron schedule to an interval anchors at the update instant", () => {
+  const draft = scheduleUpdateDraft({ everyMs: 1_800_000 }, cronSchedule());
+  if (draft.kind !== "schedule" || draft.result.kind !== "event") throw new Error("missing schedule_updated event");
+  assert.deepEqual(draft.result.bundle.event.payload.schedule.spec.trigger, {
+    kind: "interval",
+    everyMs: 1_800_000,
+    anchorAt: "2026-08-26T11:45:00.000Z",
+  });
 });
 
 function fixtureEvents(): readonly ScheduleEventV1[] {
@@ -212,6 +250,37 @@ function baseSchedule(): ScheduleV1 {
     },
     actor,
     occurredAt: "2026-08-26T10:00:00.000Z",
+  });
+}
+
+function cronSchedule(): ScheduleV1 {
+  return createScheduleV1({
+    scheduleId: "schedule-heartbeat",
+    name: "Repository heartbeat",
+    mode: "detect",
+    spec: {
+      trigger: { kind: "cron", expression: "0 * * * *", timezone: "UTC" },
+      target: { kind: "agent", agentId: "codex", runtimeInstanceId: "runtime-local" },
+      mission: "Check repository health.",
+    },
+    actor,
+    occurredAt: "2026-08-26T10:00:00.000Z",
+  });
+}
+
+function scheduleUpdateDraft(action: Readonly<Record<string, unknown>>, current: ScheduleV1 = baseSchedule()) {
+  const compiler = getExecutableEntityAction("schedule-update")?.execution?.compile;
+  assert.ok(compiler);
+  return compiler({
+    action,
+    actor,
+    source: "local",
+    session: { kind: "unavailable", reason: "contract-test" },
+    opId: "schedule-update-contract-test",
+    occurredAt: "2026-08-26T11:45:00.000Z",
+    workspaceRevision: 3,
+    currentEntity: current,
+    entityRevision: 2,
   });
 }
 

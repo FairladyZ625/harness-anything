@@ -117,7 +117,7 @@ describe("work information architecture", () => {
     }
   });
 
-  it("renders every work as one row without queries, keeps terminal works reachable, and sorts by progress", () => {
+  it("renders every work as one card without queries, keeps terminal works reachable, and sorts by progress", () => {
     const host = document.createElement("div"),
       root = createRoot(host),
       opened: string[] = [];
@@ -149,7 +149,7 @@ describe("work information architecture", () => {
         />,
       ),
     );
-    // S4:一行一个工作、不再分页;终端工作与历史工作不再被状态筛选藏起来。
+    // 一个工作一张卡、不分页;终端工作与历史工作不再被状态筛选藏起来。
     const rowIds = () =>
       [...host.querySelectorAll('[data-testid="work-row"]')].map((row) => row.getAttribute("data-work-id"));
     expect(rowIds()).toHaveLength(32);
@@ -167,9 +167,8 @@ describe("work information architecture", () => {
     // 进度升序:唯一还有未完成叶子的 group-29(0/1)排在已全部完成的 done-group(1/1)之前。
     expect(rowIds()?.indexOf("group-29")).toBeLessThan(rowIds()?.indexOf("done-group") ?? -1);
     const doneGroupRow = host.querySelector('[data-testid="work-row"][data-work-id="done-group"]')!;
-    expect(doneGroupRow.textContent).toContain("1/1 done");
-    act(() => doneGroupRow.querySelector<HTMLButtonElement>('[data-testid="work-row-toggle"]')!.click());
-    act(() => doneGroupRow.querySelector<HTMLButtonElement>('[data-testid="work-open"]')!.click());
+    expect(doneGroupRow.querySelector('[data-testid="work-progress"]')!.textContent).toBe("1/1");
+    act(() => doneGroupRow.querySelector<HTMLButtonElement>("button")!.click());
     expect(opened).toEqual(["done-group"]);
     act(() => root.unmount());
   });

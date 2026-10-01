@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  actionDeclarations,
   decodeAuthorizationResource,
   effectivePolicyGroupScopes,
   encodeAuthorizationResource,
@@ -17,7 +18,9 @@ export const accessAdminOperations = Object.freeze([
   "group-delete",
   "grant",
   "revoke",
+  "grant-list",
   "effective-permissions",
+  "receipt-list",
   "receipt-reconcile",
   "session-lifetime",
   "session-lifetime-set",
@@ -71,7 +74,8 @@ interface Session {
   readonly realmAdmin: { readonly url: string; readonly realm: string; readonly accessToken: string };
 }
 
-const resourceServerClientId = "harness-center";
+const resourceServerClientId = "harness-center",
+  receiptListLimit = 200;
 
 /**
  * Typed administration of policy groups, `(group, resource)` grants, and the realm's session
@@ -97,8 +101,12 @@ export class AccessAdminService {
     switch (request.operation as AccessAdminOperation) {
       case "group-list":
         return this.#listGroups();
+      case "grant-list":
+        return this.#listGrants();
       case "effective-permissions":
         return this.#effectivePermissions(request);
+      case "receipt-list":
+        return { ok: true, receipts: this.#receipts().slice(0, receiptListLimit) };
       case "receipt-reconcile":
         return this.#oidc.serialize(() => this.#reconcile(text(request.operationId, "operationId"), actor));
       case "group-create":
@@ -128,6 +136,30 @@ export class AccessAdminService {
         effectiveScopes: effectivePolicyGroupScopes(groups, group.id),
         version: groupVersion(group),
       })),
+      // The facets an action picker groups by, read from the declarations the Base groups derive from.
+      actions: actionDeclarations.map((declaration) => ({
+        action: declaration.policyAction,
+        executionClass: declaration.executionClass,
+        policyTier: declaration.policyTier,
+        residencyScope: declaration.residency.scope,
+      })),
+    };
+  }
+
+  /** Every account that can hold a grant, and every `(person, group, resource)` grant held. */
+  async #listGrants(): Promise<Record<string, unknown>> {
+    const session = await this.#session(),
+      people = await session.adapter.readPeople(session.token),
+      personByUser = new Map(people.map((person) => [person.userId, person.personId] as const));
+    return {
+      ok: true,
+      people: people.map(({ personId, username }) => ({ personId, username })),
+      grants: (await session.adapter.readGrants(session.token)).flatMap((grant) =>
+        grant.userIds.flatMap((userId) => {
+          const personId = personByUser.get(userId);
+          return personId === undefined ? [] : [{ personId, groupId: grant.groupId, resource: grant.resource }];
+        }),
+      ),
     };
   }
 
@@ -163,6 +195,7 @@ export class AccessAdminService {
             ...(sources.get(action) ?? []),
             { grantedGroup: grant.groupId, sourceGroup, resource: grant.resource },
           ]);
+    const involved = new Set(held.flatMap((grant) => inheritedGroupIds(byId, grant.groupId)));
     return {
       ok: true,
       personId,
@@ -178,7 +211,24 @@ export class AccessAdminService {
           action,
           sources: from,
         })),
+      // The audit trail behind this answer: grants to this person here, and writes to the groups they expand to.
+      receipts: this.#receipts().filter(({ expect }) =>
+        expect?.kind === "grant"
+          ? expect.personId === personId && covering.has(expect.resource)
+          : expect?.kind === "group" && involved.has(expect.groupId),
+      ),
     };
+  }
+
+  /** One row per operation, newest first: its settled receipt, or its intent while it is unsettled. */
+  #receipts(): readonly (Readonly<Record<string, unknown>> & { readonly expect?: Expectation })[] {
+    const byOperation = new Map<string, Readonly<Record<string, unknown>>>();
+    for (const line of this.#ports.journal.read()) {
+      const record = JSON.parse(line) as Readonly<Record<string, unknown>>,
+        operationId = String(record.operationId);
+      byOperation.set(operationId, { ...byOperation.get(operationId), ...record });
+    }
+    return [...byOperation.values()].reverse();
   }
 
   #mutate(
