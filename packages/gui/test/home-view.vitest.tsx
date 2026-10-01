@@ -18,7 +18,7 @@ import {
 
 /**
  * 项目管理页(gui-visual-language-standard §2.5):分组与排序、每个项目第二行的真实数字、
- * 读不到时的原因、管理动作只在宿主 bridge 有能力时出现。
+ * 读不到时的原因、管理动作只在宿主 bridge 有能力时出现,停用与移除确认后才调用 bridge。
  */
 
 const mounted: Root[] = [];
@@ -106,6 +106,10 @@ async function click(target: HTMLElement): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
 }
+
+/** 条目上的「⋯」与它打开的气泡(气泡 portal 到 body,同一时刻只有一个)。 */
+const more = (entry: HTMLElement): HTMLElement => entry.querySelector<HTMLElement>('[data-testid="home-entry-more"]')!;
+const panel = (): HTMLElement => document.querySelector<HTMLElement>('[data-testid="home-entry-more-panel"]')!;
 
 const entryIds = (scope: ParentNode): string[] =>
   [...scope.querySelectorAll("[data-testid^='home-repo-']")].map((entry) =>
@@ -198,13 +202,18 @@ describe("HomeView 项目管理页", () => {
     const awaits = container.querySelector<HTMLElement>('[data-testid="home-repo-zz-awaits"]')!;
     expect(awaits.querySelector("[data-status-tone]")?.getAttribute("data-status-tone")).toBe("wait");
     expect(awaits.textContent).toContain("等你处理 3");
-    expect(awaits.textContent).toContain("进行中 1 · 没有 agent 在跑");
+    // 没有 agent 在跑时不写这句(重复值不逐行重复),第二行只剩真实计数。
+    expect(awaits.textContent).toContain("进行中 1");
+    expect(awaits.textContent).not.toContain("agent");
+    expect(awaits.querySelector('[data-testid="home-entry-agents"]')).toBeNull();
     expect(awaits.style.getPropertyValue("--status-edge")).toContain("var(--color-status-submitted)");
 
     const current = container.querySelector<HTMLElement>('[data-testid="home-repo-aa-current"]')!;
     expect(current.dataset.current).toBe("true");
     expect(current.textContent).toContain("当前");
-    expect(current.textContent).toContain("进行中 9 · 评审中 3 · 阻塞 4 · 2 个 agent 在跑");
+    // 有 agent 在跑才写,排最前并单独着色。
+    expect(current.textContent).toContain("2 个 agent 在跑 · 进行中 9 · 评审中 3 · 阻塞 4");
+    expect(current.querySelector('[data-testid="home-entry-agents"]')?.textContent).toBe("2 个 agent 在跑");
     expect(current.textContent).toContain("/tmp/canonical");
     expect(current.style.getPropertyValue("--status-edge")).toBe("");
     // 当前项目不再给「进入」按钮;其他可进入的项目给,且与点第一行同一个动作。
@@ -252,6 +261,7 @@ describe("HomeView 项目管理页", () => {
     // 停用的项目不可进入:第一行不是按钮,也没有「进入」。
     const disabled = container.querySelector('[data-testid="home-repo-d-disabled"]')!;
     expect(disabled.querySelector("button")).toBeNull();
+    expect(disabled.querySelector('[data-testid="home-entry-open"]')).toBeNull();
   });
 
   it("某个项目读取失败只影响它自己:那一行显示原因并进「需要处理」,其他项目照常", async () => {
@@ -268,15 +278,26 @@ describe("HomeView 项目管理页", () => {
     expect(container.querySelector('[data-testid="home-repo-good"]')!.textContent).toContain("进行中 2");
   });
 
-  it("管理动作只在宿主 bridge 有能力时出现;停用/启用/移除接真实的 repoAdmin 调用", async () => {
+  it("「没有进行中的任务」只在整行没别的可说时出现;零 agent 任何时候都不写", async () => {
+    const { container } = await mountHome([repo({ repoId: "idle" }), repo({ repoId: "agents-only" })], null, {
+      idle: { summary: summary({}), runtime: sessions("stale") },
+      "agents-only": { summary: summary({}), runtime: sessions("live") },
+    });
+    const text = (id: string) => container.querySelector(`[data-testid="home-repo-${id}"]`)!.textContent;
+    expect(text("idle")).toContain("没有进行中的任务");
+    expect(text("idle")).not.toContain("agent");
+    expect(text("agents-only")).toContain("1 个 agent 在跑");
+    expect(text("agents-only")).not.toContain("没有进行中的任务");
+  });
+
+  it("管理动作只在宿主 bridge 有能力时出现,收在「⋯」里;停用与移除确认后才调用 repoAdmin,启用直接执行", async () => {
     const repos = [
-      repo({ repoId: "on" }),
-      repo({ repoId: "off", registrationState: "disabled", cellState: "not_loaded" }),
+      repo({ repoId: "on", displayName: "On" }),
+      repo({ repoId: "off", displayName: "Off", registrationState: "disabled", cellState: "not_loaded" }),
     ];
     const seed = { on: { summary: summary({}), runtime: sessions() } };
     const bare = await mountHome(repos, null, seed);
-    expect(bare.container.querySelector('[data-testid="home-entry-toggle"]')).toBeNull();
-    expect(bare.container.querySelector('[data-testid="home-entry-remove"]')).toBeNull();
+    expect(bare.container.querySelector('[data-testid="home-entry-more"]')).toBeNull();
     expect(bare.container.querySelector('[data-testid="home-add-project"]')).toBeNull();
 
     const receipt = { schema: "command-receipt/v2", ok: true };
@@ -288,17 +309,60 @@ describe("HomeView 项目管理页", () => {
     };
     const { container } = await mountHome(repos, null, seed);
     expect(container.querySelector('[data-testid="home-add-project"]')?.textContent).toBe("添加项目");
-    const on = container.querySelector('[data-testid="home-repo-on"]')!,
-      off = container.querySelector('[data-testid="home-repo-off"]')!;
-    expect(on.querySelector('[data-testid="home-entry-toggle"]')?.textContent).toBe("停用");
-    // 移除只对已停用的项目出现:先停用再移除。
-    expect(on.querySelector('[data-testid="home-entry-remove"]')).toBeNull();
-    expect(off.querySelector('[data-testid="home-entry-toggle"]')?.textContent).toBe("启用");
-    await click(on.querySelector<HTMLElement>('[data-testid="home-entry-toggle"]')!);
-    await click(off.querySelector<HTMLElement>('[data-testid="home-entry-toggle"]')!);
-    await click(off.querySelector<HTMLElement>('[data-testid="home-entry-remove"]')!);
-    expect(update.mock.calls).toEqual([[{ repoId: "on", state: "disabled" }], [{ repoId: "off", state: "enabled" }]]);
+    const on = container.querySelector<HTMLElement>('[data-testid="home-repo-on"]')!,
+      off = container.querySelector<HTMLElement>('[data-testid="home-repo-off"]')!;
+    // 条目上只有一个主按钮「进入」;停用/启用/移除不直接摆在条目上。
+    expect([...on.querySelectorAll("button")].map((button) => button.textContent)).toContain("进入");
+    expect(on.textContent).not.toContain("停用");
+    expect(off.textContent).not.toContain("移除");
+
+    // 停用:打开「⋯」→ 选停用 → 出现确认;取消不调用 bridge。
+    await click(more(on));
+    expect(panel().querySelector('[data-testid="home-entry-remove"]')).toBeNull();
+    await click(panel().querySelector<HTMLElement>('[data-testid="home-entry-disable"]')!);
+    expect(update).not.toHaveBeenCalled();
+    expect(panel().textContent).toContain("停用「On」?");
+    expect(panel().textContent).toContain("不再挂载");
+    expect(panel().textContent).toContain("不再读取它的任务情况");
+    expect(panel().textContent).toContain("可以再启用");
+    // 没有 agent 在跑时确认里不出现这句。
+    expect(panel().querySelector('[data-testid="home-entry-confirm-agents"]')).toBeNull();
+    expect(panel().textContent).not.toContain("agent 在跑");
+    await click(panel().querySelector<HTMLElement>('[data-testid="home-entry-confirm-cancel"]')!);
+    expect(document.querySelector('[data-testid="home-entry-more-panel"]')).toBeNull();
+    expect(update).not.toHaveBeenCalled();
+    await click(more(on));
+    await click(panel().querySelector<HTMLElement>('[data-testid="home-entry-disable"]')!);
+    await click(panel().querySelector<HTMLElement>('[data-testid="home-entry-confirm-ok"]')!);
+    expect(update.mock.calls).toEqual([[{ repoId: "on", state: "disabled" }]]);
+    expect(document.querySelector('[data-testid="home-entry-more-panel"]')).toBeNull();
+
+    // 移除只对已停用的项目出现,同样先确认;启用可逆,不需要确认。
+    await click(more(off));
+    expect(panel().querySelector('[data-testid="home-entry-disable"]')).toBeNull();
+    await click(panel().querySelector<HTMLElement>('[data-testid="home-entry-remove"]')!);
+    expect(unregister).not.toHaveBeenCalled();
+    expect(panel().textContent).toContain("移除「Off」?");
+    expect(panel().textContent).toContain("只从这台 daemon 注销注册,不删除磁盘上的任何文件");
+    await click(panel().querySelector<HTMLElement>('[data-testid="home-entry-confirm-ok"]')!);
     expect(unregister.mock.calls).toEqual([[{ repoId: "off" }]]);
+    await click(more(off));
+    await click(panel().querySelector<HTMLElement>('[data-testid="home-entry-enable"]')!);
+    expect(update.mock.calls).toEqual([[{ repoId: "on", state: "disabled" }], [{ repoId: "off", state: "enabled" }]]);
+  });
+
+  it("项目有 agent 在跑时,停用的确认里明说数量", async () => {
+    const update = vi.fn(async () => ({ schema: "command-receipt/v2", ok: true }));
+    host.harness = { repoAdmin: { update, unregister: vi.fn(), register: vi.fn(), inspectWorkspace: vi.fn() } };
+    const { container } = await mountHome([repo({ repoId: "busy", displayName: "Busy" })], null, {
+      busy: { summary: summary({ active: 2 }), runtime: sessions("live", "live", "stale", "live") },
+    });
+    await click(more(container.querySelector<HTMLElement>('[data-testid="home-repo-busy"]')!));
+    await click(panel().querySelector<HTMLElement>('[data-testid="home-entry-disable"]')!);
+    expect(panel().querySelector('[data-testid="home-entry-confirm-agents"]')?.textContent).toBe(
+      "这个项目现在有 3 个 agent 在跑。",
+    );
+    expect(update).not.toHaveBeenCalled();
   });
 
   it("动作被拒绝时原因就地显示在那一行", async () => {
@@ -313,7 +377,9 @@ describe("HomeView 项目管理页", () => {
     const { container } = await mountHome([repo({ repoId: "on" })], null, {
       on: { summary: summary({}), runtime: sessions() },
     });
-    await click(container.querySelector<HTMLElement>('[data-testid="home-entry-toggle"]')!);
+    await click(more(container.querySelector<HTMLElement>('[data-testid="home-repo-on"]')!));
+    await click(panel().querySelector<HTMLElement>('[data-testid="home-entry-disable"]')!);
+    await click(panel().querySelector<HTMLElement>('[data-testid="home-entry-confirm-ok"]')!);
     expect(container.querySelector('[data-testid="home-entry-feedback"]')?.textContent).toBe("仓库有在飞写入");
     // 只有 repoAdmin、没有选目录的 bridge:不给「添加项目」入口。
     expect(container.querySelector('[data-testid="home-add-project"]')).toBeNull();
