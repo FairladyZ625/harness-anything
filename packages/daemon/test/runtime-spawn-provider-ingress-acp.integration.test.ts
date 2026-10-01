@@ -13,7 +13,7 @@ import { initIngressRepo, rpc, eventuallyValue } from "./fixtures/runtime-ingres
 import { writeAcpProviderStub } from "./fixtures/acp-stub.ts";
 
 const repoId = "runtime-acp-ingress",
-  uid = 4317,
+  uid = process.getuid?.() ?? 0,
   auth = {
     transportKind: "unix-socket",
     unixSocketOwnerBoundary: {

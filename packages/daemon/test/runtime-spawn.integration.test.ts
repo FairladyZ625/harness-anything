@@ -839,7 +839,7 @@ test("Agent skill is really read by the provider from the absolute path in its f
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
     repoId = "runtime-agent-skill",
-    uid = 4307;
+    uid = process.getuid?.() ?? 0;
   const executablePath = writeProviderExecutable(
       path.join(parent, "codex-skill-provider.mjs"),
       `import fs from "node:fs";\nif (process.argv[2] === "login") process.exit(0);\nlet prompt = ""; for await (const chunk of process.stdin) prompt += chunk; const match = prompt.match(/provider-witness: (.+\\/SKILL\\.md)/u), skill = match ? fs.readFileSync(match[1], "utf8") : "", witness = skill.includes("SKILL_PROVIDER_WITNESS"), frames = [{ type: "thread.started", thread_id: "provider-session" }, { type: "item.completed", item: { id: "provider-witness", type: "agent_message", text: "provider-witness:" + witness, skill_witness: witness, prompt_witness: match?.[0] ?? null, final_prompt: prompt } }, { type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "provider-result.txt", kind: "add" }], status: "completed" } }, { type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }]; process.stdout.write(frames.map((frame) => JSON.stringify(frame)).join("\\n") + "\\n");\n`,
