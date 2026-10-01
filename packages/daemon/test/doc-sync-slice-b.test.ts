@@ -660,6 +660,49 @@ test("the authored walls manifest can be created and edited through doc sync", a
   }
 });
 
+test("closeout prose quoting a foreign-namespace artifact ref does not block doc sync", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-foreign-anchor-"));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId: workspaceId("foreign-anchor"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "foreign-anchor-daemon",
+  });
+  try {
+    const created = (await cell.run(
+        { kind: "task-create", taskId: "task-foreign-anchor", title: "Foreign anchor prose" },
+        ownerBinding,
+      )) as { packagePath?: string },
+      packagePath = created.packagePath!;
+    await realizeTaskPlanFixture(rootDir, packagePath, (planPath) =>
+      cell.run({ kind: "doc-submit", paths: [planPath] }, ownerBinding),
+    );
+    assert.equal(
+      (
+        await cell.run(
+          { kind: "task-start", taskId: "task-foreign-anchor", executionId: "exec-foreign-anchor" },
+          workerBinding,
+        )
+      ).outcome,
+      "applied",
+    );
+    // Both quoted refs carry the artifact: sigil — one truncated UI text, one a dead pinned
+    // runtime-result receipt — but neither names this task's artifacts: prose, not anchors.
+    write(
+      rootDir,
+      `${packagePath}/closeout.md`,
+      "## Summary\nReplaced the `artifact:runtime-result/sha256/…` ref shown under recent failures; " +
+        `the dead receipt artifact:runtime-result/sha256/${"a".repeat(64)}@7 is quoted for context.\n\n` +
+        "## Verification\nFixture.\n\n## Residual Risk\nNone.\n\n## Same Mechanism Elsewhere\nCovered by the other tests in this file.\n",
+    );
+    const synced = await cell.run({ kind: "doc-submit", taskId: "task-foreign-anchor" }, workerBinding);
+    assert.equal(synced.outcome, "applied", JSON.stringify(synced));
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 async function docCell(repoId: string, now?: () => string) {
   const rootDir = mkdtempSync(path.join(tmpdir(), `ha-doc-b-${repoId}-`));
   initBaseRepo(rootDir);
