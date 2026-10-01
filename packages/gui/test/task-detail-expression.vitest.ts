@@ -392,14 +392,36 @@ describe("Task detail expression", () => {
     // 叠放带里文件树是 auto 行:量高 18rem 内部滚动,文件多的任务包不会挤死正文。
     expect(byTestId("task-document-tree").className).toContain("@max-[1100px]:max-h-72");
 
-    // 概况:时间线并入分区/右侧 inspector,不再独占整列。
+    // 概况是区域板(标准 §2.1):面板自己是板的容器量尺,板上每块都是 Region。
+    expect(scrollPanel.className).toContain("@container");
     const overview = byTestId("task-overview-tab");
-    expect(overview.className).toContain("@min-[1600px]:grid-cols-[minmax(0,1fr)_19rem]");
-    expect(byTestId("task-progress-timeline").closest("aside")).toBe(overview.querySelector("aside"));
-    // 视觉基线 v1:分区标题用共享 Section(标题+计数+说明单行);信息不删。
-    const planHeading = [...overview.querySelectorAll("h2")].find((h2) => h2.textContent?.includes("任务计划"))!;
-    expect(planHeading.textContent).toContain("任务计划");
-    expect(planHeading.parentElement?.textContent).toContain("目标、验收与边界的完整原文");
+    const regions = [...overview.querySelectorAll<HTMLElement>("[data-region]")];
+    expect(regions.map((region) => region.dataset.region)).toEqual(["mine", "plan", "recent"]);
+    for (const region of regions) {
+      const section = region.querySelector(":scope > section.glass")!;
+      expect(section.querySelector("h2")).not.toBeNull();
+      expect(section.children[1]!.firstElementChild!.className).toContain("overflow-y-auto");
+    }
+    // 没有散排:标题、行、按天进展、计划正文都在某个区域框里;旧的 aside 右栏已删除。
+    for (const element of overview.querySelectorAll("h2, [data-dense-row], [data-day], .prose-harness"))
+      expect(element.closest("section.glass")).not.toBeNull();
+    expect(overview.querySelector("aside")).toBeNull();
+    // 时间线是板上独立的最后一列,不混在主区里。
+    const timeline = byTestId("task-progress-timeline");
+    expect(timeline.parentElement).toBe(overview);
+    expect(overview.lastElementChild).toBe(timeline);
+    // 任务计划是整篇文档:占满主区剩余高度(不按「三条」量下限),正文带边距并在区内滚动。
+    const plan = byTestId("task-overview-plan");
+    expect(plan.className).toContain("@[900px]:flex-[1_1_100%]");
+    expect(plan.style.minHeight).toBe("");
+    expect(plan.querySelector("h2")?.textContent).toBe("任务计划");
+    expect(plan.textContent).toContain("目标、验收与边界的完整原文");
+    expect(plan.querySelector("section")!.children[1]!.firstElementChild!.className).toContain("px-3.5");
+    expect(plan.querySelector(".prose-harness")).not.toBeNull();
+    // 区域标题行不放动作:「去处理」在等你裁决的页脚。
+    const hero = byTestId("task-overview-hero");
+    const go = [...hero.querySelectorAll("button")].find((button) => button.textContent === "去处理")!;
+    expect(go.closest("section")!.lastElementChild!.contains(go)).toBe(true);
     // 主内容外衬收窄:正文更早进入首屏。
     expect(scrollPanel.className).toContain("py-4");
     expect(scrollPanel.closest("main")?.className).toContain("py-2");

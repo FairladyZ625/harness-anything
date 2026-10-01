@@ -12,6 +12,8 @@ import { formatTime } from "../../model/time.ts";
 import type { EventEntry, RelationEdge, TaskRow } from "../../model/types.ts";
 import { DayDigest } from "../primitives/DayDigest";
 import { DenseRow } from "../primitives/DenseRow";
+import { Region } from "../primitives/Region";
+import { BoardColumn, BoardMain, BoardRegion, BoardTimeline, RegionBoard } from "../primitives/RegionBoard";
 import { Section } from "../primitives/Section";
 import { StatusTag } from "../primitives/StatusTag";
 
@@ -59,86 +61,85 @@ export function TaskOverviewTab({
   onOpenCloseout,
 }: {
   readonly task: TaskRow;
-  /** 概况顶部的「需要人动手」块只有一个动作:去收口页签处理;缺省不渲染按钮。 */
+  /** 「等你裁决」区域只有一个去向:去收口页签处理,放在区域页脚;缺省不渲染按钮。 */
   readonly onOpenCloseout?: () => void;
 }) {
   const plan = useTaskDocumentQuery(task.projectId, task.taskId, "task_plan.md");
   const events = task.events ?? [];
-  // 卡在哪(§2.2 异常块):只收真正的阻塞——blocked 及其原因、待返工、已 submit 后
+  // 卡在哪(异常区域):只收真正的阻塞——blocked 及其原因、待返工、已 submit 后
   // 仍未通过的门/缺失文档;判定见 model/task-stuck.ts,空了整块消失。
   const stuck = taskStuckItems(task);
-  // 需要人动手(§2.2 hero):已提交/评审中,裁决动作在收口页签。
+  // 需要人动手:已提交/评审中,裁决动作在收口页签。
   const awaitingOwner = task.coordinationStatus === "submitted" || task.coordinationStatus === "in_review";
 
   return (
-    // 时间线不独占整列:容器 <1600px 时间线作为正文下方分区随内容高度增长;
-    // ≥1600px 收窄为右侧 19rem inspector,正文占满剩余宽度(量尺是 TaskDetailView 的 main 容器)。
-    <div
-      className="grid min-h-full gap-8 @min-[1600px]:grid-cols-[minmax(0,1fr)_19rem]"
-      data-testid="task-overview-tab"
-    >
-      <section className="min-w-0">
-        {awaitingOwner ? (
-          <div data-testid="task-overview-hero">
-            <Section
-              variant="hero"
-              title="等你裁决"
-              note="已提交 / 评审中——裁决与销账动作在收口页签"
-              action={
-                onOpenCloseout ? (
-                  <button type="button" className="text-accent ui-meta" onClick={onOpenCloseout}>
-                    去处理
-                  </button>
-                ) : undefined
-              }
-            >
-              <DenseRow
-                tag={<StatusTag status={task.coordinationStatus} />}
-                title={task.title}
-                reason={`iteration ${task.iteration ?? "—"} · lease ${task.leaseHolder ?? "无人持有"}`}
-              />
-            </Section>
-          </div>
-        ) : null}
-        {stuck.length > 0 ? (
-          <div data-testid="task-overview-stuck">
-            <Section variant="warn" title="卡在哪" count={stuck.length}>
-              <StuckRows items={stuck} copy={STUCK_COPY} />
-            </Section>
-          </div>
-        ) : null}
-        <Section title="任务计划" note="目标、验收与边界的完整原文">
-          <div className="mt-2">
-            {/* TODO(read-model): repo.tasks.document.read only exposes body:string today.
-                Keep the plan intact; do not parse markdown/frontmatter in the renderer.
-                Replace this whole-body rendering when the backend projects plan sections. */}
-            {plan.isPending ? (
-              <Pending text="正在读取 task_plan…" />
-            ) : plan.isError ? (
-              <ReadError text={`任务计划读取失败：${plan.error.message}`} />
-            ) : plan.data.status !== "ready" ? (
-              <Pending text="任务计划投影尚未追平" />
-            ) : plan.data.blobSha256 === null ? (
-              <p className="ui-meta text-text-faint">该任务尚未物化 task_plan.md。物化后，这里会直接呈现计划正文。</p>
-            ) : (
-              <DocReader content={plan.data.body} />
-            )}
-          </div>
-        </Section>
-      </section>
-
-      <aside className="border-t border-border pt-6 @min-[1600px]:border-t-0 @min-[1600px]:border-l @min-[1600px]:pl-6 @min-[1600px]:pt-0">
-        <Section title="进展时间线" note={`${events.length} 条生命周期记录`}>
-          {events.length === 0 ? (
-            <p className="py-3 text-text-faint ui-body">还没有 execution、review、consent 或 gate witness 记录。</p>
-          ) : (
-            <div className="mt-2" data-testid="task-progress-timeline">
-              <TaskEventDigest events={events} />
-            </div>
-          )}
-        </Section>
-      </aside>
-    </div>
+    // 区域板(标准 §2.1,与工作概况同一个 RegionBoard):主区依次是等你裁决、卡在哪、任务计划,
+    // 进展时间线固定在最右一列;每块都在 Region 里并区内滚动,没有内容的区域整块消失。
+    <RegionBoard data-testid="task-overview-tab">
+      <BoardMain>
+        {/* 主区只有一列:等你裁决与卡在哪通常各只有一两条,单独成列会在框里留大片空白;
+            并在一列里,计划占满它们下面剩余的高度。 */}
+        <BoardColumn>
+          {awaitingOwner ? (
+            <BoardRegion region="mine" data-testid="task-overview-hero">
+              <Region
+                title="等你裁决"
+                edge="wait"
+                footer={
+                  <>
+                    <span className="min-w-0 truncate">已提交 / 评审中——裁决与销账动作在收口页签</span>
+                    {onOpenCloseout ? (
+                      <button type="button" className="ml-auto shrink-0 text-accent" onClick={onOpenCloseout}>
+                        去处理
+                      </button>
+                    ) : null}
+                  </>
+                }
+              >
+                <DenseRow
+                  tag={<StatusTag status={task.coordinationStatus} />}
+                  title={task.title}
+                  reason={`iteration ${task.iteration ?? "—"} · lease ${task.leaseHolder ?? "无人持有"}`}
+                />
+              </Region>
+            </BoardRegion>
+          ) : null}
+          {stuck.length > 0 ? (
+            <BoardRegion region="stuck" data-testid="task-overview-stuck">
+              <Region title="卡在哪" big={stuck.length} bigTone="bad" edge="bad">
+                <StuckRows items={stuck} copy={STUCK_COPY} />
+              </Region>
+            </BoardRegion>
+          ) : null}
+          {/* 整篇 task_plan.md:占满主区剩下的高度,文档在区域内滚动,不把上面两块挤没。 */}
+          <BoardRegion region="plan" fill data-testid="task-overview-plan">
+            <Region title="任务计划" padded footer="目标、验收与边界的完整原文">
+              {/* TODO(read-model): repo.tasks.document.read only exposes body:string today.
+                  Keep the plan intact; do not parse markdown/frontmatter in the renderer.
+                  Replace this whole-body rendering when the backend projects plan sections. */}
+              {plan.isPending ? (
+                <Pending text="正在读取 task_plan…" />
+              ) : plan.isError ? (
+                <ReadError text={`任务计划读取失败：${plan.error.message}`} />
+              ) : plan.data.status !== "ready" ? (
+                <Pending text="任务计划投影尚未追平" />
+              ) : plan.data.blobSha256 === null ? (
+                <p className="ui-meta text-text-faint">该任务尚未物化 task_plan.md。物化后，这里会直接呈现计划正文。</p>
+              ) : (
+                <DocReader content={plan.data.body} />
+              )}
+            </Region>
+          </BoardRegion>
+        </BoardColumn>
+      </BoardMain>
+      {events.length > 0 ? (
+        <BoardTimeline data-testid="task-progress-timeline">
+          <Region title="进展时间线" big={events.length} padded footer="生命周期记录，按天归并">
+            <TaskEventDigest events={events} />
+          </Region>
+        </BoardTimeline>
+      ) : null}
+    </RegionBoard>
   );
 }
 
@@ -156,7 +157,8 @@ function TaskEventDigest({ events }: { readonly events: readonly EventEntry[] })
       {groups.map((group) => (
         <DayDigest
           key={group.day}
-          day={group.day}
+          // 标签用「月-日」,与工作概况的进展同一写法。
+          day={group.day.slice(5)}
           defaultOpen
           summary={`${group.events.length} 条记录`}
           paths={group.events.map((event) => ({

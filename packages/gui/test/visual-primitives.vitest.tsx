@@ -247,11 +247,19 @@ describe("Region", () => {
     );
     expect(container.textContent).not.toContain("+2");
     expect(container.querySelector("section > div:nth-child(2) > div")?.className).toContain("overflow-y-auto");
+    expect(container.querySelector("section > div:nth-child(2) > div")?.className).not.toContain("px-3.5");
     const rows = [...container.querySelectorAll("section div")].filter((node) =>
       /^行[一二三]$/u.test(node.textContent ?? ""),
     );
     expect(rows.map((row) => (row as HTMLElement).style.visibility)).toEqual(["", "", ""]);
     act(() => root.unmount());
+
+    // padded 给正文、文档、按天进展留出与行同宽的边距(默认行体贴框,DenseRow 自带边距)。
+    const padded = mount(createElement(Region, { title: "任务计划", padded: true }, createElement("p", null, "正文")));
+    const body = padded.container.querySelector("section > div:nth-child(2) > div")!;
+    expect(body.className).toContain("px-3.5");
+    expect(body.className).toContain("overflow-y-auto");
+    act(() => padded.root.unmount());
 
     const empty = mount(createElement(Region, { title: "空区域" }, "一句话"));
     // 单个文本子节点不是 Element,children 里没有可计数的行 → 不出 +N。
@@ -481,6 +489,23 @@ describe("DayDigest", () => {
     const pathButton = [...container.querySelectorAll("button")].find((node) => node.textContent?.includes("T-06"));
     act(() => pathButton?.click());
     expect(onClick).toHaveBeenCalledTimes(1);
+    act(() => root.unmount());
+  });
+
+  it("没有步骤的路径名字占满整行;有步骤时才给步骤列留宽", () => {
+    const { container, root } = mount(
+      createElement(DayDigest, {
+        day: "今天",
+        summary: "2 条记录",
+        defaultOpen: true,
+        paths: [{ time: "10:20", name: "Review review-w3: approved", steps: [] }, paths[1]!],
+      }),
+    );
+    const names = [...container.querySelectorAll("[data-day] > div > div > span.truncate")];
+    expect(names.map((name) => name.textContent)).toEqual(["Review review-w3: approved", "worktree 缺 dist"]);
+    expect(names[0]!.className).toContain("flex-1");
+    expect(names[0]!.className).not.toContain("max-w-[48%]");
+    expect(names[1]!.className).toContain("max-w-[48%]");
     act(() => root.unmount());
   });
 });

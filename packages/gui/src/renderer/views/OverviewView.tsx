@@ -12,7 +12,7 @@ import { t } from "../i18n/index.tsx";
 import { mainCiFailingJobs } from "./overview-model.ts";
 import { buildOverviewRegions, type OverviewRegionSpec } from "./overview-regions.tsx";
 import { layoutRegions, regionNeed, regionNeedRelaxed, type RegionBox, type RegionKey } from "./overview-layout.ts";
-import { regionMinimumHeight } from "./region-minimum.ts";
+import { regionMinimumHeight } from "../components/primitives/region-minimum.ts";
 
 /**
  * 总览(S3,dec_B3D40712 CH1,原型 v4):一屏注意力加权的自适应区域板。区域大小由
