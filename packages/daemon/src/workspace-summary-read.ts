@@ -25,6 +25,7 @@ export function workspaceSummaryFromReads(
     status: taskRead.status,
     ...summarizeWorkspace(
       taskRead.rows.map((row) => ({
+        updatedAt: row.updatedAt,
         coordinationStatus: row.coordinationStatus,
         packageDisposition: row.placement.packageDisposition,
       })),

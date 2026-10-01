@@ -81,6 +81,7 @@ const SUMMARY = {
   ok: true,
   status: "ready",
   tasks: {
+    lastChangedAt: null,
     total: 9,
     byStatus: { planned: 3, active: 2, submitted: 1, in_review: 1, blocked: 1, done: 1, cancelled: 0 },
   },

@@ -16,11 +16,16 @@ import { readTaskRelationPage } from "./task-query-projection.ts";
  * judged in the domain; every other task and every decision is counted by group. */
 export function readWorkspaceSummaryRows(db: DatabaseSync): WorkspaceSummary {
   const activePackageTasks = emptyWorkspaceTaskCounts();
-  for (const row of queryRows<{ readonly status: string | null; readonly count: number } & ProjectionSqlRow>(
+  let lastChangedAt: string | null = null;
+  for (const row of queryRows<
+    { readonly status: string | null; readonly count: number; readonly last_changed_at: string } & ProjectionSqlRow
+  >(
     db,
-    "SELECT status, COUNT(*) AS count FROM task_snapshot WHERE package_disposition = 'active' GROUP BY status",
-  ))
+    "SELECT status, COUNT(*) AS count, MAX(updated_at) AS last_changed_at FROM task_snapshot WHERE package_disposition = 'active' GROUP BY status",
+  )) {
     activePackageTasks[row.status !== null && isDomainStatus(row.status) ? row.status : "unknown"] += row.count;
+    if (lastChangedAt === null || row.last_changed_at > lastChangedAt) lastChangedAt = row.last_changed_at;
+  }
 
   const blockingRelations: Array<ReturnType<typeof readTaskRelationPage>["rows"][number]> = [];
   for (const relationType of ["depends-on", "awaits"] as const) {
@@ -80,5 +85,5 @@ export function readWorkspaceSummaryRows(db: DatabaseSync): WorkspaceSummary {
     )
     // Decision ids are ASCII (`dec_[A-Za-z0-9_-]+`), so code-unit order is SQLite's BINARY order.
     .sort((left, right) => (left.decisionId < right.decisionId ? -1 : left.decisionId > right.decisionId ? 1 : 0));
-  return summarizeWorkspaceCensus(activePackageTasks, decisions);
+  return summarizeWorkspaceCensus(activePackageTasks, decisions, lastChangedAt);
 }

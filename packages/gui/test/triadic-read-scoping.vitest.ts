@@ -184,7 +184,7 @@ async function mountApp(options: { readonly view: string; readonly decisionResul
       schema: "daemon.workspace-summary/v1",
       ok: true,
       status: "ready",
-      tasks: { total: 1, byStatus: { planned: 1 } },
+      tasks: { lastChangedAt: null, total: 1, byStatus: { planned: 1 } },
       decisions: {
         total: 0,
         inboxCount: 0,
