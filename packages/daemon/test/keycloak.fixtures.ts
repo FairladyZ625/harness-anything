@@ -44,6 +44,11 @@ export function fakeKeycloak() {
     writes: string[] = [];
 
   const json = (value: unknown, status = 200) => Response.json(value, { status }),
+    // Keycloak 26.7.3 adds attributes of its own to every client and keeps them across updates.
+    serverClientAttributes = (): Record<string, string> => ({
+      realm_client: "false",
+      "client.secret.creation.time": "1790000000",
+    }),
     page = (items: readonly unknown[], url: URL) => {
       const first = Number(url.searchParams.get("first") ?? 0);
       return json(items.slice(first, first + Number(url.searchParams.get("max") ?? items.length)));
@@ -84,9 +89,12 @@ export function fakeKeycloak() {
       if (form.get("grant_type") === "client_credentials") {
         const clientId = form.get("client_id") ?? "";
         if (!clientId.startsWith("harness-node-")) return json({ access_token: "center-token" });
-        const ok = nodeClients.get(clientId)?.secret === form.get("client_secret");
+        const client = nodeClients.get(clientId),
+          ok = client?.secret === form.get("client_secret");
         nodeLogins.push({ clientId, ok });
-        return ok ? json({ access_token: `node-token-${clientId}` }) : json({ error: "unauthorized_client" }, 401);
+        if (ok) return json({ access_token: `node-token-${clientId}` });
+        // Keycloak 26.7.3 names the two refusals differently; both are HTTP 401.
+        return json({ error: client ? "unauthorized_client" : "invalid_client" }, 401);
       }
       return decide(tokens.get(bearer ?? ""), form.get("permission") ?? "");
     }
@@ -103,12 +111,12 @@ export function fakeKeycloak() {
         client = {
           id: id("node-client"),
           clientId,
-          attributes: { ...(body!.attributes as Record<string, string>) },
+          attributes: { ...serverClientAttributes(), ...(body!.attributes as Record<string, string>) },
           secret: id("node-secret"),
         };
-      if (nodeClients.has(clientId)) return json({ errorMessage: "Client already exists" }, 409);
+      if (nodeClients.has(clientId)) return json({ errorMessage: `Client ${clientId} already exists` }, 409);
       nodeClients.set(clientId, client);
-      return new Response(null, { status: 201 });
+      return new Response(null, { status: 201, headers: { location: `${keycloakUrl}/clients/${client.id}` } });
     }
     if (route === "/clients") {
       const clientId = url.searchParams.get("clientId") ?? "";
@@ -124,7 +132,11 @@ export function fakeKeycloak() {
     const nodeClient = [...nodeClients.values()].find((client) => route.startsWith(`/clients/${client.id}`));
     if (nodeClient) {
       if (route.endsWith("/client-secret")) return json({ type: "secret", value: nodeClient.secret });
-      nodeClient.attributes = { ...(body!.attributes as Record<string, string>) };
+      if (method === "DELETE") {
+        nodeClients.delete(nodeClient.clientId);
+        return new Response(null, { status: 204 });
+      }
+      nodeClient.attributes = { ...nodeClient.attributes, ...(body!.attributes as Record<string, string>) };
       return new Response(null, { status: 204 });
     }
     if (route === `${server}/policy/evaluate`) {
@@ -281,10 +293,10 @@ export function fakeKeycloak() {
         client = nodeClients.get(clientId) ?? {
           id: id("node-client"),
           clientId,
-          attributes: {},
+          attributes: serverClientAttributes(),
           secret: `secret-${nodeId}`,
         };
-      client.attributes = { harness_person_id: personId };
+      client.attributes = { ...client.attributes, harness_person_id: personId };
       nodeClients.set(clientId, client);
       return client.secret;
     },

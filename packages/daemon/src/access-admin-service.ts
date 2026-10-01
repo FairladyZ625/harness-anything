@@ -28,6 +28,7 @@ export const accessAdminOperations = Object.freeze([
   "receipt-list",
   "node-list",
   "node-register",
+  "node-unregister",
   "receipt-reconcile",
   "session-lifetime",
   "session-lifetime-set",
@@ -124,6 +125,8 @@ export class AccessAdminService {
         return this.#listNodes();
       case "node-register":
         return this.#mutate(request, actor, (session) => this.#planNodeRegistration(session, request));
+      case "node-unregister":
+        return this.#mutate(request, actor, (session) => this.#planNodeRemoval(session, request));
       case "receipt-reconcile":
         return this.#oidc.serialize(() => this.#reconcile(text(request.operationId, "operationId"), actor));
       case "group-create":
@@ -470,6 +473,18 @@ export class AccessAdminService {
         const credential = await session.adapter.writeNode(session.token, next);
         return credential === undefined ? undefined : { credential };
       },
+    };
+  }
+
+  /** Carries the version read; a node somebody else already moved or removed answers with a conflict. */
+  async #planNodeRemoval(session: Session, request: AccessAdminRequest): Promise<Plan | Conflict> {
+    const nodeId = text(request.nodeId, "nodeId"),
+      expectedVersion = text(request.expectedVersion, "expectedVersion"),
+      currentVersion = nodeVersion(await session.adapter.readNode(session.token, nodeId));
+    if (expectedVersion !== currentVersion) return { conflict: { nodeId, expectedVersion, currentVersion } };
+    return {
+      expect: { kind: "node", nodeId, version: "" },
+      apply: () => session.adapter.deleteNode(session.token, nodeId),
     };
   }
 

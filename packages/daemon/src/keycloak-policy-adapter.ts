@@ -375,6 +375,12 @@ export class KeycloakPolicyAdapter {
     return secret.value;
   }
 
+  /** Deletes the node's client, so Keycloak refuses its machine credential from then on. */
+  async deleteNode(adminAccessToken: string, nodeId: string): Promise<void> {
+    const current = await this.#nodeClient(adminAccessToken, nodeId);
+    if (current) await this.#request(adminAccessToken, `/clients/${current.id}`, { method: "DELETE" });
+  }
+
   /** The machine proves itself to Keycloak; the center never holds a copy of the credential. */
   async authenticateNode(nodeId: string, credential: string): Promise<boolean> {
     const response = await this.#fetch(this.#realmUrl("/protocol/openid-connect/token"), {

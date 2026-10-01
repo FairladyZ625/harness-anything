@@ -430,7 +430,7 @@ export const agentProtocolCommands = Object.freeze([
     phase: "W3",
     path: ["bootstrap"],
     summary:
-      "Install, configure, and start the managed Keycloak and PostgreSQL authorization service; read or set its session lifetime and the HTTPS listener edge nodes sign in through.",
+      "Install, configure, and start the managed Keycloak and PostgreSQL authorization service; read or set its session lifetime and the HTTPS listener edge nodes sign in through; list, register, or unregister fleet nodes.",
     method: "daemon.rbac.manage",
     inputs: [
       cliInput(
@@ -451,6 +451,9 @@ export const agentProtocolCommands = Object.freeze([
             "session-lifetime-set",
             "listener",
             "listener-set",
+            "node-list",
+            "node-register",
+            "node-unregister",
           ],
         },
       ),
@@ -473,6 +476,8 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--port", "single", false, { code: "invalid_field" }, { regex: "^[1-9][0-9]*$", projection: "number" }),
       cliInput("--certificate-file", "single", false, { code: "invalid_field" }, { field: "certificateFile" }),
       cliInput("--certificate-key-file", "single", false, { code: "invalid_field" }, { field: "certificateKeyFile" }),
+      cliInput("--node-id", "single", false, { code: "invalid_field" }, { field: "nodeId" }),
+      cliInput("--person-id", "single", false, { code: "invalid_field" }, { field: "personId" }),
     ],
   }),
   defineHostAdminCommand({

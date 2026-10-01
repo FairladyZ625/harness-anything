@@ -338,6 +338,7 @@ test(
       assert.equal(unregistered.status, 1);
       assert.equal(unregistered.receipt.code, "authentication_failed");
       assert.notEqual(unregistered.receipt.code, "authentication_required");
+      assert.match(String(unregistered.receipt.rejectionExplanation), /Register the node at the center/u);
       assert.deepEqual(await logins(), [{ clientId: "harness-node-edge-one", ok: false }]);
 
       // 2. Registration is written while the center keeps running, through the registry write path, and
@@ -356,6 +357,9 @@ test(
       const ungranted = sync(registered.credential);
       assert.equal(ungranted.status, 1);
       assert.equal(ungranted.receipt.code, "authorization_denied", JSON.stringify(ungranted.receipt));
+      // What the operator is told to do differs with the cause: a grant, not another credential.
+      assert.match(String(ungranted.receipt.rejectionExplanation), /grant the node's owner/u);
+      assert.doesNotMatch(String(ungranted.receipt.rejectionExplanation), /credential/u);
       assert.equal(existsSync(path.join(fixture.edgeRepo, "harness", planPath)), false, "nothing was mirrored");
 
       // 4. With the grant in place the same command completes the first sync, no center restart in between.

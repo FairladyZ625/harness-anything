@@ -106,3 +106,38 @@ test("ha bootstrap reads and sets the listener edge nodes sign in through", () =
   });
   assert.equal(parseThinCommand(["bootstrap", "--operation", "listener-set", "--port", "https"], "/repo").ok, false);
 });
+
+test("ha bootstrap lists, registers, and unregisters fleet nodes through the same daemon method", () => {
+  const action = (args: readonly string[]) => {
+    const parsed = parseThinCommand(["bootstrap", ...args], "/repo");
+    assert.equal(parsed.ok, true, args.join(" "));
+    if (!parsed.ok) return undefined;
+    assert.equal(parsed.command.method, "daemon.rbac.manage");
+    return parsed.command.action;
+  };
+  assert.deepEqual(action(["--operation", "node-list"]), { kind: "rbac-bootstrap", operation: "node-list" });
+  assert.deepEqual(
+    action(["--operation", "node-register", "--node-id", "edge-one", "--person-id", "alice", "--operation-id", "r-1"]),
+    { kind: "rbac-bootstrap", operation: "node-register", operationId: "r-1", nodeId: "edge-one", personId: "alice" },
+  );
+  assert.deepEqual(
+    action([
+      "--operation",
+      "node-unregister",
+      "--node-id",
+      "edge-one",
+      "--expected-version",
+      "version-1",
+      "--operation-id",
+      "u-1",
+    ]),
+    {
+      kind: "rbac-bootstrap",
+      operation: "node-unregister",
+      expectedVersion: "version-1",
+      operationId: "u-1",
+      nodeId: "edge-one",
+    },
+  );
+  assert.equal(parseThinCommand(["bootstrap", "--operation", "node-remove"], "/repo").ok, false);
+});

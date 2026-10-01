@@ -128,6 +128,7 @@ export const daemonProtocolMethods = Object.freeze([
         "receipt-list",
         "node-list",
         "node-register",
+        "node-unregister",
         "receipt-reconcile",
         "session-lifetime",
         "session-lifetime-set",

@@ -162,6 +162,62 @@ test("two registrations of one node from the same version: one applied, one vers
   assert.equal((await nodes())[0]!.personId, "bob");
 });
 
+test("unregistering a node removes it from Keycloak, so its credential and its owner are gone", async () => {
+  const { keycloak, run, nodes, journal, registry } = await fixture();
+  keycloak.account("alice");
+  const credential = String(
+    (await run({ operation: "node-register", nodeId: "edge-a", personId: "alice" })).credential,
+  );
+  await run({ operation: "node-register", nodeId: "edge-b", personId: "alice" });
+  const version = (await nodes())[0]!.version;
+  assert.equal(await registry.authenticate("edge-a", credential), true);
+  // A version nobody read is refused before Keycloak changes.
+  const stale = await run({ operation: "node-unregister", nodeId: "edge-a", expectedVersion: "stale" });
+  assert.deepEqual(
+    [stale.ok, stale.code, stale.nodeId, stale.expectedVersion, stale.currentVersion],
+    [false, "version_conflict", "edge-a", "stale", version],
+  );
+  assert.equal(keycloak.writes.filter((write) => write.startsWith("DELETE")).length, 0);
+  await assert.rejects(run({ operation: "node-unregister", nodeId: "edge-a" }), { code: "access_request_invalid" });
+  // Two administrators remove the node from the same version: one applies, the other is told it is gone.
+  const results = await Promise.all([
+    run({ operation: "node-unregister", nodeId: "edge-a", expectedVersion: version }),
+    run({ operation: "node-unregister", nodeId: "edge-a", expectedVersion: version }),
+  ]);
+  assert.deepEqual(
+    results.map((result) => [result.ok, result.outcome, result.actor]),
+    [
+      [true, "applied", "person-admin"],
+      [false, "version_conflict", "person-admin"],
+    ],
+  );
+  assert.deepEqual([results[1]!.expectedVersion, results[1]!.currentVersion], [version, ""]);
+  assert.equal(keycloak.writes.filter((write) => write.startsWith("DELETE /clients/")).length, 1);
+  assert.deepEqual(
+    (await nodes()).map(({ nodeId }) => nodeId),
+    ["edge-b"],
+    "only the named node is removed",
+  );
+  assert.equal(await registry.authenticate("edge-a", credential), false);
+  assert.equal(await registry.nodeOwner("edge-a"), null);
+  // The removal is audited like every other registry write.
+  const removal = journal()
+    .map((line) => JSON.parse(line) as { operation: string; phase: string; outcome?: string })
+    .filter((record) => record.operation === "node-unregister")
+    .map(({ phase, outcome }) => [phase, outcome]);
+  assert.deepEqual(removal, [
+    ["settled", "version_conflict"],
+    ["intent", undefined],
+    ["settled", "applied"],
+    ["settled", "version_conflict"],
+  ]);
+  // Registering the node again mints a new credential; the removed one stays refused.
+  const again = await run({ operation: "node-register", nodeId: "edge-a", personId: "alice" });
+  assert.notEqual(again.credential, credential);
+  assert.equal(await registry.authenticate("edge-a", credential), false);
+  assert.equal(await registry.authenticate("edge-a", String(again.credential)), true);
+});
+
 test("node registration needs an administrator, a known person, and a well-formed node id", async () => {
   const { keycloak, run, signIn } = await fixture();
   keycloak.account("alice");
@@ -172,9 +228,9 @@ test("node registration needs an administrator, a known person, and a well-forme
     code: "node_invalid",
   });
   signIn("person-member", ["offline_access"]);
-  for (const operation of ["node-list", "node-register"])
+  for (const operation of ["node-list", "node-register", "node-unregister"])
     await assert.rejects(
-      run({ operation, nodeId: "edge-a", personId: "alice" }),
+      run({ operation, nodeId: "edge-a", personId: "alice", expectedVersion: "any" }),
       { code: "authorization_denied" },
       operation,
     );
