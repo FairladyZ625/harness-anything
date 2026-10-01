@@ -86,10 +86,21 @@ export type {
   AgentRuntimeTokenUsageBucket,
   AgentRuntimeTokenUsageDetailResult,
   AgentRuntimeTokenUsageMemberIdentity,
+  AgentRuntimeTokenUsageModelRow,
+  AgentRuntimeTokenUsageOutcome,
+  AgentRuntimeTokenUsageOutcomeRow,
   AgentRuntimeTokenUsageRange,
   AgentRuntimeTokenUsageResult,
+  AgentRuntimeTokenUsageSessionBin,
   AgentRuntimeTokenUsageSessionRow,
+  AgentRuntimeTokenUsageSessionStats,
   AgentRuntimeTokenUsageSquadRow,
+  AgentRuntimeTokenUsageTaskRow,
+  AgentRuntimeTokenUsageTopSession,
+  AgentRuntimeTokenUsageTotals,
+  AgentRuntimeTokenUsageTrendSeries,
+  AgentRuntimeTokenUsageUnreportedProvider,
+  AgentRuntimeTokenUsageWorkRow,
 } from "../agent-runtime-token-usage.ts";
 export type { TerminalControlReceipt, TerminalSessionRow } from "../gui-s3-control.ts";
 export { isRuntimeKindId, runtimeEffortField, runtimeKindForId, runtimeKindIds } from "../runtime-inventory.ts";
