@@ -32,6 +32,15 @@ test("absent declared keys use their declared defaults", () => {
   assert.equal(settings.defaultProfile, "baseline");
   assert.equal(settings.tasks.wipLimit, 30);
   assert.equal(settings.tasks.rootThreshold, 3);
+  assert.equal(settings.schedule.admissionWindowMs, 60_000);
+});
+
+test("the schedule admission window is read from the facet and refuses a sub-second value", () => {
+  assert.equal(
+    readSettingsFacet("settings:\n  schedule:\n    admissionWindowMs: 600000\n").schedule.admissionWindowMs,
+    600_000,
+  );
+  assert.throws(() => readSettingsFacet("settings:\n  schedule:\n    admissionWindowMs: 999\n"));
 });
 
 test("CI workflows default to the witnessing opt-out and accept configured workflow basenames", () => {

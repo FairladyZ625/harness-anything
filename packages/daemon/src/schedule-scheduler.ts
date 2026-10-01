@@ -1,4 +1,12 @@
-import { consumeKnownError, nextScheduleOccurrence, type ScheduleMissedReason } from "@harness-anything/kernel";
+import { readFileSync } from "node:fs";
+import {
+  consumeKnownError,
+  INITIAL_SETTINGS_V1,
+  nextScheduleOccurrence,
+  readSettingsFacet,
+  resolveHarnessLayout,
+  type ScheduleMissedReason,
+} from "@harness-anything/kernel";
 import type { ScheduleTriggerV1 } from "@harness-anything/kernel";
 import type { DaemonCommandClass } from "./identity/types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -8,10 +16,9 @@ import {
   parseScheduleListReceipt,
   type ScheduleListRow,
 } from "./protocol/daemon-protocol-validate-results.ts";
+import { fleetEdgeBackoffMs } from "./fleet-edge-task.ts";
 import { cellErrorCode } from "./repo-cell-errors.ts";
 import type { RepoCell, RepoCellBinding } from "./repo-cell.ts";
-
-export const scheduleAdmissionWindowMs = 60_000;
 
 type TimerHandle = ReturnType<typeof setTimeout>;
 type ScheduleAction = Readonly<Record<string, unknown>> & { readonly kind: string };
@@ -56,6 +63,8 @@ export function makeScheduleScheduler(input: {
     setTimer = input.setTimer ?? ((callback, delayMs) => setTimeout(callback, delayMs)),
     clearTimer = input.clearTimer ?? clearTimeout,
     attempted = new Set<string>();
+  // Consecutive unanswered Schedule reads per remote-edge repository; cleared by the first answer.
+  let unreachable: ReadonlyMap<string, number> = new Map();
   let started = false,
     closed = false,
     timer: TimerHandle | null = null,
@@ -97,9 +106,13 @@ export function makeScheduleScheduler(input: {
       armRetry();
       return;
     }
-    const first = plan.due.sort((left, right) => left.wakeAt.localeCompare(right.wakeAt))[0];
+    const first = plan.due.sort((left, right) => left.wakeAt.localeCompare(right.wakeAt))[0],
+      delayMs = first ? Math.max(0, Date.parse(first.wakeAt) - Date.parse(now())) : Infinity;
+    if (plan.retryAfterMs < delayMs) {
+      armRetry(plan.retryAfterMs);
+      return;
+    }
     if (!first) return;
-    const delayMs = Math.max(0, Date.parse(first.wakeAt) - Date.parse(now()));
     timer = setTimer(
       () => {
         timer = null;
@@ -153,11 +166,11 @@ export function makeScheduleScheduler(input: {
     await reconcile();
   }
 
-  function armRetry(): void {
+  function armRetry(delayMs = 1_000): void {
     timer = setTimer(() => {
       timer = null;
       void refresh();
-    }, 1_000);
+    }, delayMs);
     timer.unref?.();
   }
 
@@ -165,20 +178,23 @@ export function makeScheduleScheduler(input: {
     readonly due: DueOccurrence[];
     readonly missed: MissedOccurrences[];
     readonly pending: boolean;
+    readonly retryAfterMs: number;
   }> {
     const observedAt = now(),
       due: DueOccurrence[] = [],
       missed: MissedOccurrences[] = [],
-      currentOccurrences = new Set<string>();
+      currentOccurrences = new Set<string>(),
+      stillUnreachable = new Map<string, number>();
     let pending = false;
     for (const [repoId, cell] of input.cells) {
       const { mode, state } = cell.status();
       if (state !== "attached" || mode === "remote-center") continue;
       const target = targetFor(repoId, cell);
       if (!target) continue;
-      let schedules: readonly ScheduleListRow[];
+      let schedules: readonly ScheduleListRow[], admissionWindowMs: number;
       try {
         schedules = await listSchedules(target);
+        admissionWindowMs = scheduleAdmissionWindowMs(cell.status().rootDir);
       } catch (error) {
         consumeKnownError(error);
         if (cellErrorCode(error) === "projection_pending") {
@@ -189,6 +205,15 @@ export function makeScheduleScheduler(input: {
           console.warn(`[schedule-scheduler] ${repoId} skipped: ${errorMessage(error)}`);
           continue;
         }
+        if (mode === "remote-edge") {
+          // The center answers every remote-edge read, so an unanswered one is retried on the edge's
+          // own backoff; nothing else would wake this node again. One warning per outage.
+          const failures = (unreachable.get(repoId) ?? 0) + 1;
+          stillUnreachable.set(repoId, failures);
+          if (failures === 1)
+            console.warn(`[schedule-scheduler] ${repoId} refresh failed, retrying: ${errorMessage(error)}`);
+          continue;
+        }
         console.warn(`[schedule-scheduler] ${repoId} refresh failed: ${errorMessage(error)}`);
         continue;
       }
@@ -196,7 +221,7 @@ export function makeScheduleScheduler(input: {
         // A builtin occurrence executes on the node holding the canonical cell; a remote-edge
         // mirror must never claim one (the kernel also rejects assignment-sourced claims).
         if (mode === "remote-edge" && schedule.state !== "invalid" && schedule.spec.target.kind === "builtin") continue;
-        const evaluated = evaluateSchedule(target, schedule, observedAt);
+        const evaluated = evaluateSchedule(target, schedule, observedAt, admissionWindowMs);
         if (evaluated.due) {
           const key = occurrenceKey(evaluated.due);
           currentOccurrences.add(key);
@@ -204,9 +229,7 @@ export function makeScheduleScheduler(input: {
             attempted.has(key) && evaluated.due.scheduledFor <= observedAt
               ? {
                   ...evaluated.due,
-                  wakeAt: new Date(
-                    Date.parse(evaluated.due.scheduledFor) + scheduleAdmissionWindowMs + 1,
-                  ).toISOString(),
+                  wakeAt: new Date(Date.parse(evaluated.due.scheduledFor) + admissionWindowMs + 1).toISOString(),
                 }
               : evaluated.due,
           );
@@ -215,7 +238,9 @@ export function makeScheduleScheduler(input: {
       }
     }
     for (const key of attempted) if (!currentOccurrences.has(key)) attempted.delete(key);
-    return { due, missed, pending };
+    unreachable = stillUnreachable;
+    const retryAfterMs = Math.min(...[...unreachable.values()].map((failures) => fleetEdgeBackoffMs(failures - 1)));
+    return { due, missed, pending, retryAfterMs };
   }
 
   function targetFor(repoId: string, cell: RepoCell): ScheduleTarget | null {
@@ -239,6 +264,13 @@ export function makeScheduleScheduler(input: {
   return { start, refresh, close };
 }
 
+/** Every node reads the same Settings: an edge's materialized harness.yaml is the center's facet. */
+function scheduleAdmissionWindowMs(rootDir: string): number {
+  const { configPath } = resolveHarnessLayout(rootDir);
+  return (configPath ? readSettingsFacet(readFileSync(configPath, "utf8")) : INITIAL_SETTINGS_V1).schedule
+    .admissionWindowMs;
+}
+
 async function listSchedules(target: ScheduleTarget): Promise<readonly ScheduleListRow[]> {
   const receipt = makeDaemonCommandReceipt("schedule-list", await target.execute({ kind: "schedule-list" })),
     rejectionCode = daemonCommandReceiptRejectionCode(receipt);
@@ -253,6 +285,7 @@ function evaluateSchedule(
   target: ScheduleTarget,
   schedule: ScheduleListRow,
   observedAt: string,
+  admissionWindowMs: number,
 ): { readonly due: DueOccurrence | null; readonly missed: MissedOccurrences | null } {
   if (schedule.state === "invalid") return { due: null, missed: null };
   if (schedule.state !== "armed" || (schedule.spec.target.kind !== "agent" && schedule.spec.target.kind !== "builtin"))
@@ -276,7 +309,7 @@ function evaluateSchedule(
       missed: null,
     };
   const { count, latest } = occurrencesThrough(schedule.spec.trigger, first, observedAt),
-    latestAdmitted = observedMs - Date.parse(latest) <= scheduleAdmissionWindowMs,
+    latestAdmitted = observedMs - Date.parse(latest) <= admissionWindowMs,
     missedCount = schedule.status.activeRun ? count : latestAdmitted ? count - 1 : count,
     reason: ScheduleMissedReason = schedule.status.activeRun ? "single_flight" : "scheduler_unavailable";
   if (missedCount > 0)

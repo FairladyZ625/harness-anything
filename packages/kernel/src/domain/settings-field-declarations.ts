@@ -60,6 +60,10 @@ export const SETTINGS_FIELD_GROUPS = Object.freeze([
     title: "Task worktree setup",
   },
   {
+    id: "schedules-nodes",
+    title: "Schedules and node heartbeat",
+  },
+  {
     id: "storage-backup",
     title: "Storage and backup",
     advanced: true,
@@ -400,6 +404,19 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     },
     noneMeansEmpty: true,
     yamlStyle: "block-list",
+  }),
+  defineSettingsField({
+    path: ["schedule", "admissionWindowMs"],
+    ownership: repository,
+    valueKind: "integer",
+    defaultValue: 60_000,
+    minimum: 1_000,
+    description: "How late a scheduled run may still start when nothing was awake at its due time, in milliseconds.",
+    effect:
+      "Raise it and a run just missed during sleep or a restart still starts on wake; later ones count as missed.",
+    group: "schedules-nodes",
+    action: { field: "scheduleAdmissionWindowMs", type: "number" },
+    cli: { name: "--schedule-admission-window-ms", kind: "single", regex: "^[1-9][0-9]{3,}$" },
   }),
   defineSettingsField({
     path: ["restoreDrillRetention"],

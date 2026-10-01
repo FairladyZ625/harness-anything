@@ -523,6 +523,19 @@ test("Settings update writes positive task WIP and root thresholds", () => {
     );
 });
 
+test("Settings update writes the schedule admission window the scheduler reads back from the facet", () => {
+  const draft = compile({ scheduleAdmissionWindowMs: 600_000 });
+  if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
+  assert.deepEqual(draft.result.bundle.event.payload.settings.schedule, { admissionWindowMs: 600_000 });
+  const written = draft.result.bundle.blobs[0].body;
+  assert.match(written, /^  schedule:\n    admissionWindowMs: 600000$/mu);
+  assert.equal(readSettingsFacet(written).schedule.admissionWindowMs, 600_000);
+  assert.throws(
+    () => compile({ scheduleAdmissionWindowMs: 999 }),
+    (error: unknown) => error instanceof SettingsActionError && error.code === "invalid_command",
+  );
+});
+
 test("Settings update records ordered worktree setup steps and clears them with none", () => {
   const draft = compile({ worktreeSetup: ["node-modules", " run: pip install -e . "] });
   if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");

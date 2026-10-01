@@ -232,6 +232,7 @@ describe("设置页按用途分组并逐项解释", () => {
       "CI 与完成门",
       "容量与议程",
       "任务工作区",
+      "定时任务与节点心跳",
       "存储与备份",
       "归属",
     ]);
@@ -240,6 +241,10 @@ describe("设置页按用途分组并逐项解释", () => {
     // 每个可见字段都有后果行:抽两个代表(普通组 + 展开后的高级组)。
     expect(container.textContent).toContain("改了会怎样: 新任务会套用这个预设的计划与收口模板。");
     expect(container.textContent).toContain("改了会怎样: 派工会优先选用指定的 agent 声明");
+    // 「定时任务与节点心跳」组:补跑时限带名称、说明与后果三件文案。
+    expect(container.textContent).toContain("定时任务补跑时限(毫秒)");
+    expect(container.textContent).toContain("定时任务到点时如果没有机器醒着,晚多久之内还补跑这一次");
+    expect(container.textContent).toContain("改了会怎样: 调大,机器睡眠或后台服务重启后醒来,仍会补跑刚错过的那一次");
   });
 
   it("高级组(存储与备份)默认折叠,展开后字段与后果行可见", async () => {

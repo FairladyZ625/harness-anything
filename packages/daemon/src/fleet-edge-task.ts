@@ -198,14 +198,14 @@ export async function runFleetEdgeTask(input: FleetEdgeTaskRequest): Promise<Rec
           mirrorBaseCut: bundle === null ? undefined : bundle.mirrorBaseCut,
         });
         if (Date.now() < deadline && transientResult(next)) {
-          await sleep(backoff(attempt++));
+          await sleep(fleetEdgeBackoffMs(attempt++));
           continue;
         }
         result = next;
       } catch (error) {
         if (Date.now() >= deadline || !retryable(error)) throw error;
         consumeKnownError(error);
-        await sleep(backoff(attempt++));
+        await sleep(fleetEdgeBackoffMs(attempt++));
       }
     }
     const applied = result.outcome === "applied";
@@ -374,7 +374,8 @@ function retryable(error: unknown): boolean {
     )
   );
 }
-function backoff(attempt: number): number {
+/** Full-jitter retry delay shared by every edge loop that waits on the center: 1 ms up to a 250 ms–30 s ceiling. */
+export function fleetEdgeBackoffMs(attempt: number): number {
   const ceiling = Math.min(BACKOFF_MAX_MS, BACKOFF_MIN_MS * 2 ** attempt);
   return Math.floor(Math.random() * ceiling) + 1;
 }
