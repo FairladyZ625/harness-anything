@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -252,3 +252,13 @@ function writeFile(root, relativePath, body) {
   mkdirSync(path.dirname(absolute), { recursive: true });
   writeFileSync(absolute, `${body.trimEnd()}\n`, "utf8");
 }
+
+test("runtime release readiness rejects a missing required README scanner input", async () => {
+  await withFixtureRepo((root) => {
+    writeValidRuntimeReleaseFixture(root);
+    renameSync(path.join(root, "README.md"), path.join(root, "escaped-readme.md"));
+    const result = runCheck(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /README\.md/u);
+  });
+});

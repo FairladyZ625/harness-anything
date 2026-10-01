@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -286,6 +286,7 @@ async function fixture() {
     ].join("\n"),
   );
   write(root, "packages/preset/src/preset-command-contract.ts", "export const presetCommands = [];\n");
+  write(root, "packages/daemon/src/client/local-json-rpc-client.ts", "export {};\n");
   return root;
 }
 
@@ -325,3 +326,18 @@ function genericLongFunction(bodyLines = 118) {
   lines.push("  return pair;", "}");
   return `${lines.join("\n")}\n`;
 }
+
+test("daemon transport graph rejects a missing required entry", async () => {
+  const root = await fixture();
+  try {
+    renameSync(
+      path.join(root, "packages/daemon/src/client/local-json-rpc-client.ts"),
+      path.join(root, "escaped-client.ts"),
+    );
+    const result = run(root);
+    assert.notEqual(result.status, 0);
+    assert.match(result.stderr, /local-json-rpc-client\.ts/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
