@@ -21,6 +21,7 @@ import { DegradedEntityCard, type SettingsRoleRef } from "../components/runtime/
 import { NewEntityDialog, type NewEntityRequest } from "../components/runtime/NewEntityDialog.tsx";
 import { Badge, Btn, Empty, Hint } from "../components/runtime/parts.tsx";
 import { IdentityRail, RoleLabel } from "../components/runtime/RuntimeRail.tsx";
+import { CatalogBackButton, CatalogSplit, useCatalogDetailPane } from "../components/primitives/CatalogSplit.tsx";
 import { StatusTag, type StatusTone } from "../components/primitives/StatusTag.tsx";
 import { IdentityInspector } from "../components/runtime/RuntimeInspector.tsx";
 import { SquadCard, squadDeclarationFrom, squadDraftFrom } from "../components/runtime/SquadCard.tsx";
@@ -68,6 +69,13 @@ export function AgentSquadView({
   readonly onFocusGraph?: (ref: string) => void;
 }) {
   const refSelection = runtimeSelectionFromRef(focusedEntityRef);
+  // 窄容器(内容区 <720px,styles.css .catalog-split)的单列形态:目录全宽、点行进详情、
+  // 返回键回目录;宽容器常驻双栏,该状态不参与。深链/跨页实体跳转视为一次点行。
+  const narrow = useCatalogDetailPane(
+    refSelection !== null && (refSelection.type === "agent" || refSelection.type === "squad")
+      ? `${refSelection.type}/${refSelection.id}`
+      : null,
+  );
   const workspace = useAgentSquadWorkspace(repoId),
     catalog = useCatalogSnapshot(repoId),
     settings = useSettingsQuery(repoId),
@@ -292,7 +300,7 @@ export function AgentSquadView({
           {workspace.feedback}
         </p>
       )}
-      <div className="flex min-h-0 flex-1">
+      <CatalogSplit detailOpen={narrow.detailOpen}>
         <IdentityRail
           agents={filteredAgentRows}
           squads={filteredSquadRows}
@@ -301,7 +309,10 @@ export function AgentSquadView({
           agentNames={agentNames}
           squadsByAgent={squadsByAgent}
           selection={current}
-          onSelect={(selection) => onSelectEntity(runtimeSelectionRef(selection))}
+          onSelect={(selection) => {
+            onSelectEntity(runtimeSelectionRef(selection));
+            narrow.openDetail();
+          }}
           onNew={(segment) => setDialog({ kind: "new-entity", entity: segment === "agents" ? "agent" : "squad" })}
           toolbar={
             <AgentSquadFilterBar agents={agentRows} squads={squadRows} filters={filters} onChange={setFilters} />
@@ -356,7 +367,12 @@ export function AgentSquadView({
             ) : undefined
           }
         />
-        <main className="min-w-0 flex-1 overflow-y-auto px-5 pt-4 pb-6">
+        <main
+          data-testid="agent-squad-detail"
+          data-pane="detail"
+          className="min-w-0 flex-1 overflow-y-auto px-5 pt-4 pb-6"
+        >
+          <CatalogBackButton testId="agent-squad-back-to-list" onBack={narrow.backToList} />
           {current === null ? (
             <>
               {workspace.error ? <ActionError>{workspace.error}</ActionError> : null}
@@ -452,7 +468,7 @@ export function AgentSquadView({
             onOpenSession={(runtimeSessionId) => onSelectEntity(`session/${runtimeSessionId}`)}
           />
         )}
-      </div>
+      </CatalogSplit>
       {dialog?.kind === "new-entity" && (
         <NewEntityDialog
           kind={dialog.entity}

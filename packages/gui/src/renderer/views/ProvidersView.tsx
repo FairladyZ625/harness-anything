@@ -7,6 +7,7 @@ import { NewRuntimeDialog } from "../components/runtime/NewRuntimeDialog.tsx";
 import { orderProviderRows, ProviderRail } from "../components/runtime/RuntimeRail.tsx";
 import { ProviderInspector } from "../components/runtime/RuntimeInspector.tsx";
 import { RuntimeCard } from "../components/runtime/RuntimeCard.tsx";
+import { CatalogBackButton, CatalogSplit, useCatalogDetailPane } from "../components/primitives/CatalogSplit.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { runtimeAuthPresentation } from "../runtime-auth-presentation.ts";
 import { runtimeSelectionFromRef, useProviderWorkspace } from "../components/runtime/useRuntimeWorkspace.ts";
@@ -26,6 +27,9 @@ export function ProvidersView({
 }) {
   const refSelection = runtimeSelectionFromRef(focusedEntityRef);
   const refId = refSelection?.type === "runtime" ? refSelection.id : null;
+  // 窄容器(内容区 <720px,styles.css .catalog-split)的单列形态:目录全宽、点行进详情、
+  // 返回键回目录;宽容器常驻双栏,该状态不参与。深链/跨页实体跳转视为一次点行。
+  const narrow = useCatalogDetailPane(refId);
   const workspace = useProviderWorkspace(repoId, refId);
   const [dialog, setDialog] = useState(false),
     [inspector, setInspector] = useState(true);
@@ -90,16 +94,24 @@ export function ProvidersView({
           {workspace.feedback}
         </p>
       )}
-      <div className="flex min-h-0 flex-1">
+      <CatalogSplit detailOpen={narrow.detailOpen}>
         <ProviderRail
           instances={instances}
           authProbeStates={workspace.authProbeStates}
           selectedId={selectedId}
           liveByInstance={workspace.liveByInstance}
-          onSelect={(instanceId) => onSelectEntity(`provider/${instanceId}`)}
+          onSelect={(instanceId) => {
+            onSelectEntity(`provider/${instanceId}`);
+            narrow.openDetail();
+          }}
           onNew={() => setDialog(true)}
         />
-        <main className="min-w-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6">
+        <main
+          data-testid="providers-detail"
+          data-pane="detail"
+          className="min-w-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6"
+        >
+          <CatalogBackButton testId="providers-back-to-list" onBack={narrow.backToList} />
           {instance === null ? (
             <>
               {workspace.error ? <ActionError>{workspace.error}</ActionError> : null}
@@ -147,7 +159,7 @@ export function ProvidersView({
             onOpenSession={(runtimeSessionId) => onSelectEntity(`session/${runtimeSessionId}`)}
           />
         )}
-      </div>
+      </CatalogSplit>
       {dialog && (
         <NewRuntimeDialog
           installations={installations}

@@ -15,6 +15,7 @@ import {
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
+import { catalogRailClass } from "../primitives/CatalogSplit.tsx";
 import { DENSE_ROW_RELAXED_PX, DenseRow } from "../primitives/DenseRow.tsx";
 import { CompletedDivider } from "../primitives/CompletedDivider.tsx";
 import { StatusTag, type StatusTone } from "../primitives/StatusTag.tsx";
@@ -98,7 +99,7 @@ export function SessionGroupList({
       data-testid="sessions-group-list"
       data-pane="list"
       aria-label={t("agentRuntime.segSessions")}
-      className="flex w-full flex-col overflow-y-auto @min-[720px]:w-[26%] @min-[720px]:min-w-[320px] @min-[720px]:max-w-[440px] @min-[720px]:shrink-0 @min-[720px]:border-r @min-[720px]:border-border"
+      className={catalogRailClass}
     >
       {groups.length === 0 ? (
         <p className="px-3.5 py-3 ui-meta text-text-faint">

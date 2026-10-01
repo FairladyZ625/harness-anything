@@ -13,6 +13,7 @@ import {
   type RuntimeAuthProbeState,
 } from "../../runtime-auth-presentation.ts";
 import { DenseRow } from "../primitives/DenseRow.tsx";
+import { catalogRailClass } from "../primitives/CatalogSplit.tsx";
 import { StatusTag, TONE_COLOR } from "../primitives/StatusTag.tsx";
 import { Avatar, KindDot } from "./parts.tsx";
 import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
@@ -66,8 +67,9 @@ export function ProviderRail({
   return (
     <nav
       data-testid="runtime-rail"
+      data-pane="list"
       aria-label={t("agentRuntime.railLabel")}
-      className="flex basis-1/5 shrink-0 flex-col overflow-y-auto border-r border-border bg-surface"
+      className="flex w-full flex-col overflow-y-auto bg-surface @min-[720px]:basis-1/5 @min-[720px]:shrink-0 @min-[720px]:border-r @min-[720px]:border-border"
     >
       <Segment
         segment="runtimes"
@@ -180,8 +182,9 @@ export function IdentityRail({
   return (
     <nav
       data-testid="runtime-rail"
+      data-pane="list"
       aria-label={t("agentRuntime.railLabel")}
-      className="flex w-[26%] min-w-[320px] max-w-[440px] shrink-0 flex-col overflow-y-auto border-r border-border"
+      className={catalogRailClass}
     >
       {toolbar}
       {notice}
