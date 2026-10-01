@@ -94,7 +94,7 @@ const Card = memo(function Card({
       data-testid="board-task-card"
       onClick={() => onSelect?.(task.taskId)}
       title={taskControlHint(task)}
-      className={`group relative cursor-pointer rounded-md bg-surface-raised p-2.5 ${freshnessBorder(
+      className={`relative cursor-pointer rounded-md bg-surface-raised p-2.5 ${freshnessBorder(
         task.freshness,
       )} ${archived ? "opacity-50" : ""} ${dragging ? "shadow-lg" : "hover:border-accent hover:ring-1 hover:ring-accent/50"} ${isFavorite ? "ring-1 ring-accent/40" : ""}`}
     >
@@ -111,7 +111,7 @@ const Card = memo(function Card({
             }}
             title={task.pinned === true ? "解除 pin" : "Pin(今天当前在做)"}
             aria-pressed={task.pinned === true}
-            className={`inline-flex items-center justify-center rounded p-0.5 ui-body hover:bg-surface ${
+            className={`relative inline-flex items-center justify-center rounded p-0.5 ui-body hover:bg-surface after:absolute after:content-[''] after:-top-[12px] after:-bottom-[12px] after:-left-[12px] after:-right-[12px] ${
               task.pinned === true ? "text-accent" : "text-text-faint hover:text-text-muted"
             }`}
           >
@@ -134,10 +134,8 @@ const Card = memo(function Card({
             onToggleFavorite(task.taskId);
           }}
           title={isFavorite ? "取消收藏" : "收藏(置顶)"}
-          className={`ml-auto inline-flex items-center justify-center rounded p-0.5 ui-meta hover:bg-surface ${
-            isFavorite
-              ? "text-accent opacity-100"
-              : "text-text-faint opacity-0 hover:text-text-muted group-hover:opacity-100"
+          className={`relative ml-auto inline-flex items-center justify-center rounded p-0.5 ui-meta hover:bg-surface after:absolute after:content-[''] after:-top-[12px] after:-bottom-[12px] after:-left-[16px] after:-right-[8px] ${
+            isFavorite ? "text-accent" : "text-text-faint hover:text-text-muted"
           }`}
         >
           <Star weight={isFavorite ? "fill" : "bold"} />
@@ -501,8 +499,11 @@ export const BoardView = memo(function BoardView({
     void onStartTask?.(task);
   };
 
+  // 段钮盒尺寸维持修复前(22.34px 高);命中区由伪元素纵向扩到 ≥40px——inset-x-0
+  // 让空内容伪元素铺满段宽(否则 shrink-to-fit 塌成 0 宽没有命中面),段与段零间距
+  // 横向相邻,横向不扩以免互抢点击(§1.9③)。
   const seg = (active: boolean) =>
-    `rounded px-2 py-0.5 ui-meta ${
+    `relative rounded px-2 py-0.5 ui-meta after:absolute after:content-[''] after:inset-x-0 after:-top-[9px] after:-bottom-[9px] ${
       active ? "bg-surface-raised font-medium text-text" : "text-text-muted hover:text-text"
     }`;
 

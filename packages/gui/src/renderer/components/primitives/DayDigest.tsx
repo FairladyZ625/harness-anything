@@ -45,7 +45,7 @@ export function DayDigest({
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-baseline gap-3 text-left"
+        className="relative flex w-full items-baseline gap-3 text-left after:absolute after:content-[''] after:inset-x-0 after:-top-[2px] after:-bottom-[2px]"
       >
         <span className="w-11 flex-none font-mono font-semibold text-text-muted ui-meta">{day}</span>
         <span className="min-w-0 flex-1 ui-body">{summary}</span>

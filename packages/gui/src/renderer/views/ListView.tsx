@@ -49,7 +49,7 @@ const TaskListRow = memo(function TaskListRow({
           onSelect(task.taskId);
         }
       }}
-      className={`group flex w-full cursor-pointer items-center gap-1 pr-2 hover:bg-text/5 ${
+      className={`flex w-full cursor-pointer items-center gap-1 pr-2 hover:bg-text/5 ${
         task.visibility.archived ? "opacity-55" : ""
       } ${pinned ? "bg-accent/[0.06]" : isFavorite ? "bg-accent/[0.04]" : ""}`}
     >
@@ -74,7 +74,7 @@ const TaskListRow = memo(function TaskListRow({
           }}
           title={pinned ? t("views.listView.unpinTitle") : t("views.listView.pinTitle")}
           aria-pressed={pinned}
-          className={`inline-flex shrink-0 items-center justify-center rounded p-0.5 ui-body hover:bg-surface ${
+          className={`relative inline-flex shrink-0 items-center justify-center rounded p-0.5 ui-body hover:bg-surface after:absolute after:content-[''] after:-top-[11.5px] after:-bottom-[11.5px] after:-left-[2px] after:-right-[1.75px] ${
             pinned ? "text-accent" : "text-text-faint hover:text-text-muted"
           }`}
         >
@@ -98,8 +98,8 @@ const TaskListRow = memo(function TaskListRow({
           onToggleFavorite(task.taskId);
         }}
         title={isFavorite ? t("views.listView.cancelFavorites") : t("views.listView.favoritesPinned")}
-        className={`inline-flex shrink-0 items-center justify-center rounded p-0.5 ui-body hover:bg-surface ${
-          isFavorite ? "text-accent" : "text-text-faint opacity-0 hover:text-text-muted group-hover:opacity-100"
+        className={`relative inline-flex shrink-0 items-center justify-center rounded p-0.5 ui-body hover:bg-surface after:absolute after:content-[''] after:-top-[11.5px] after:-bottom-[11.5px] after:-left-[1.75px] after:-right-[5px] ${
+          isFavorite ? "text-accent" : "text-text-faint hover:text-text-muted"
         }`}
       >
         <Star weight={isFavorite ? "fill" : "bold"} />

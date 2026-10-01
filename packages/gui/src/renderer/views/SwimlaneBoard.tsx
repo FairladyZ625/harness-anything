@@ -157,7 +157,7 @@ const LaneCard = memo(function LaneCard({
             }}
             title={task.pinned === true ? "解除 pin" : "Pin(今天当前在做)"}
             aria-pressed={task.pinned === true}
-            className={`inline-flex items-center justify-center rounded p-0.5 ui-body hover:bg-surface ${
+            className={`relative inline-flex items-center justify-center rounded p-0.5 ui-body hover:bg-surface after:absolute after:content-[''] after:-top-[12px] after:-bottom-[12px] after:-left-[12px] after:-right-[12px] ${
               task.pinned === true ? "text-accent" : "text-text-faint hover:text-text-muted"
             }`}
           >
@@ -175,7 +175,7 @@ const LaneCard = memo(function LaneCard({
             onToggleFavorite(task.taskId);
           }}
           title={isFavorite ? "取消收藏" : "收藏(置顶)"}
-          className={`ml-auto inline-flex items-center justify-center rounded p-0.5 ui-body hover:bg-surface ${
+          className={`relative ml-auto inline-flex items-center justify-center rounded p-0.5 ui-body hover:bg-surface after:absolute after:content-[''] after:-top-[12px] after:-bottom-[12px] after:-left-[16px] after:-right-[8px] ${
             isFavorite ? "text-accent" : "text-text-faint hover:text-text-muted"
           }`}
         >
