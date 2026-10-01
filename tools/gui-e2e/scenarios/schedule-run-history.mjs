@@ -51,11 +51,12 @@ export default {
     //    空表——等过 stale 窗口,页面挂载才会真正重读。
     await page.waitForTimeout(2_500);
 
-    // 2b. 打开定时计划列表:点行直接进详情 hub(标准 §2.4,不设预览抽屉)。
+    // 2b. 打开定时计划列表:点卡片标题直接进详情 hub(标准 §5.1,不设预览抽屉);卡上另一个
+    //     按钮是「立即运行」,所以按名称点标题。
     await page.getByRole("button", { name: /^(?:定时计划|Schedules)$/u }).click();
     await page.getByTestId("schedules-view").waitFor();
     await page.getByTestId(`schedule-row-${SCHEDULE_ID}`).waitFor();
-    await page.getByTestId(`schedule-row-${SCHEDULE_ID}`).getByRole("button").click();
+    await page.getByTestId(`schedule-row-${SCHEDULE_ID}`).getByRole("button", { name: "GUI e2e run history" }).click();
     await page.getByTestId("schedule-detail").waitFor();
 
     // 3. 健康度 rollup 是 daemon 投影:失败 occurrence 让 spark 与失败计数直接出现。

@@ -6,15 +6,15 @@ import { describe, expect, it } from "vitest";
 import { WorkView } from "../src/renderer/views/WorkView.tsx";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
 import type { TaskRow } from "../src/renderer/model/types.ts";
+import { workTier, WORK_TIERS, type WorkHealth } from "../src/renderer/model/work-collections.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 setActiveLocale("zh-CN");
 
 /**
- * S4 工作页(task_ced628eaa5677ebb4c3cf61fab):每个工作一行健康摘要、默认只看需要关注、
- * 按标题与任务搜索、筛选项带计数、排序默认用 S1 的注意力分(原型 v1「工作」tab 与 v4
- * 放大的「工作」区域为交互样张)。注意力条目来自 daemon 议程读面的 attentionItems,
- * 页面不自己打分。
+ * 工作页:每个工作一张概况卡,按注意力分三组(需要你看的大卡、在推进的小卡、可收尾的
+ * 小方块);筛选默认「全部」并作用于三组,按标题与任务搜索,排序默认用 S1 的注意力分。
+ * 注意力条目来自 daemon 议程读面的 attentionItems,页面不自己打分。
  */
 
 const task = (taskId: string, patch: Partial<TaskRow> = {}): TaskRow =>
@@ -136,17 +136,58 @@ const type = (host: HTMLElement, value: string) => {
   });
 };
 
-describe("S4 工作页:默认只看需要关注", () => {
-  it("默认筛选「需要关注」,其余工作由顶部「全部」筛选显形(v2:不再有安静折叠行)", () => {
+const tierIds = (host: HTMLElement, tier: string) =>
+  [...host.querySelectorAll(`[data-testid="work-tier-${tier}"] [data-testid="work-row"]`)].map((row) =>
+    row.getAttribute("data-work-id"),
+  );
+
+describe("workTier:三组互斥且并集为全集", () => {
+  it("每种健康组合恰好落一组:等你/阻塞/停滞压过可收尾,其余按是否全部收口分", () => {
+    const item = AGENDA.attentionItems[0]!;
+    const seen = new Set<string>();
+    for (const mine of [[], [item]])
+      for (const blocked of [false, true])
+        for (const stale of [false, true])
+          for (const finished of [false, true]) {
+            const health: Pick<WorkHealth, "mine" | "blocked" | "stale" | "finished"> = {
+                mine,
+                blocked,
+                stale,
+                finished,
+              },
+              tier = workTier(health);
+            expect(WORK_TIERS.filter((candidate) => candidate === tier)).toHaveLength(1);
+            expect(tier).toBe(mine.length > 0 || blocked || stale ? "attention" : finished ? "closable" : "progress");
+            seen.add(tier);
+          }
+    expect([...seen].sort()).toEqual([...WORK_TIERS].sort());
+  });
+});
+
+describe("工作页:三组概况卡", () => {
+  it("默认「全部」:每个工作只出现一次,三组个数之和等于工作总数,卡的大小跟着组走", () => {
     const view = mountWorkView({ agenda: AGENDA });
-    expect(rowIds(view.host)).toEqual(["w-urgent", "w-stale", "w-running"]);
-    expect(view.host.querySelector('[data-testid="work-quiet"]')).toBeNull();
-    click(chip(view.host, "全部"));
-    expect(rowIds(view.host)).toEqual(["w-urgent", "w-stale", "w-running", "w-finished", "w-quiet"]);
+    expect(tierIds(view.host, "attention")).toEqual(["w-urgent", "w-stale"]);
+    expect(tierIds(view.host, "progress")).toEqual(["w-running", "w-quiet"]);
+    expect(tierIds(view.host, "closable")).toEqual(["w-finished"]);
+    expect(rowIds(view.host)).toEqual(["w-urgent", "w-stale", "w-running", "w-quiet", "w-finished"]);
+    for (const [tier, size, heading] of [
+      ["attention", "large", "需要你看2"],
+      ["progress", "small", "在推进2"],
+      ["closable", "tile", "可收尾1"],
+    ] as const) {
+      const group = view.host.querySelector(`[data-testid="work-tier-${tier}"]`)!;
+      expect(group.querySelector("h2")!.textContent).toBe(heading);
+      for (const card of group.querySelectorAll('[data-testid="work-row"]'))
+        expect(card.getAttribute("data-summary-card")).toBe(size);
+    }
+    // 旧的行展开体与安静折叠行都不存在。
+    for (const gone of ["work-row-toggle", "work-row-body", "work-open", "work-quiet"])
+      expect(view.host.querySelector(`[data-testid="${gone}"]`)).toBeNull();
     view.unmount();
   });
 
-  it("筛选项各带计数,选中即过滤", () => {
+  it("筛选项各带计数,选中即过滤并作用于三组;没有成员的组整段不出现", () => {
     const view = mountWorkView({ agenda: AGENDA });
     for (const [label, expected] of [
       ["需要关注", ["w-urgent", "w-stale", "w-running"]],
@@ -159,41 +200,54 @@ describe("S4 工作页:默认只看需要关注", () => {
     ] as const) {
       expect(chip(view.host, label).textContent).toBe(label + expected.length);
     }
+    expect(chip(view.host, "全部").getAttribute("aria-pressed")).toBe("true");
+    click(chip(view.host, "需要关注"));
+    expect(rowIds(view.host)).toEqual(["w-urgent", "w-stale", "w-running"]);
+    expect(view.host.querySelector('[data-testid="work-tier-closable"]')).toBeNull();
     click(chip(view.host, "需要我"));
     expect(rowIds(view.host)).toEqual(["w-urgent"]);
     view.unmount();
   });
 });
 
-describe("S4 工作页:一行健康摘要与注意力排序", () => {
-  it("默认按注意力分排序;行内有等你标记、在跑 agent、停滞标记与最后活动", () => {
+describe("工作页:卡上的概况与注意力排序", () => {
+  it("大卡报为什么要你看,小卡报在跑数,小方块报完成数;每张卡都有进度与最后活动", () => {
     const view = mountWorkView({ agenda: AGENDA });
     const rowOf = (id: string) => view.host.querySelector(`[data-testid="work-row"][data-work-id="${id}"]`)!;
-    expect(rowIds(view.host)).toEqual(["w-urgent", "w-stale", "w-running"]);
-    expect(rowOf("w-urgent").textContent).toContain("1 件等你");
-    // 阻塞不再是第二个徽章:第二行直接点名卡住的任务。
-    expect(rowOf("w-urgent").textContent).toContain("阻塞：t-blocked");
-    expect(rowOf("w-running").textContent).toContain("1 个 agent");
-    expect(rowOf("w-stale").textContent).toContain("停滞");
-    for (const id of ["w-urgent", "w-stale", "w-running"]) {
-      expect(rowOf(id).querySelector('[data-testid="work-progress"]')).toBeTruthy();
-      expect(rowOf(id).querySelector('[data-testid="work-last-activity"]')).toBeTruthy();
+    const reasons = (id: string) =>
+      [...rowOf(id).querySelectorAll('[data-testid="work-flags"] > p')].map((line) => line.textContent);
+    // 既等你又阻塞:两句都写,各占一行;阻塞直接点名卡住的任务。
+    expect(reasons("w-urgent")).toEqual(["等你答复等待你答复的事项", "有阻塞t-blocked"]);
+    expect(rowOf("w-urgent").getAttribute("style")).toContain("--status-edge");
+    expect(reasons("w-stale")[0]).toMatch(/^停滞\d+ 天没有活动$/u);
+    expect(rowOf("w-running").textContent).toContain("1 个 agent 在跑");
+    expect(rowOf("w-quiet").textContent).toContain("计划 1 · 无 agent 在跑");
+    expect(rowOf("w-finished").textContent).toContain("1/1");
+    for (const id of ["w-urgent", "w-stale", "w-running", "w-quiet", "w-finished"]) {
+      expect(rowOf(id).querySelector('[data-testid="work-progress"]'), id).toBeTruthy();
+      expect(rowOf(id).querySelector('[data-testid="work-last-activity"]'), id).toBeTruthy();
     }
     expect(rowOf("w-urgent").querySelector('[data-segment="blocked"]')).toBeTruthy();
-    click(chip(view.host, "可收尾"));
-    expect(rowOf("w-finished").textContent).toContain("可收尾");
+    // 构成数字:为 0 的不显示。
+    expect(rowOf("w-urgent").querySelector('[data-testid="work-counts"]')!.textContent).toBe("执行 1阻塞 1");
     view.unmount();
   });
 
-  it("每条工作两行:第一行一个状态 + 冒号前标题 + 最后活动;第二行弱色报进度、在跑数、在等谁或卡在哪", () => {
+  it("大卡自上而下:标题与补充、原因、在跑的任务、构成条与数字、最近有动静的任务", () => {
     const rows: TaskRow[] = [
       task("w-two", { title: "PLT-Honest：系统说的每句话必须为真" }),
       member("t-done", "w-two", { canonicalStatus: "done" }),
-      member("t-run", "w-two", { canonicalStatus: "active", activeExecutionId: "exec-1", leaseHolder: "person_x" }),
+      member("t-run", "w-two", {
+        title: "S7 授权执行：细节",
+        canonicalStatus: "active",
+        activeExecutionId: "exec-1",
+        leaseHolder: "person_x · runtime-session:runtime_1",
+        events: [{ at: "2026-02-01", taskId: "t-run", projectId: "p", summary: "Execution exec-1 started" }],
+      }),
       member("t-wait", "w-two", {
         canonicalStatus: "blocked",
         blockers: [
-          // 已经报了「等你」:同一条 awaits 边不在第二行重复一遍。
+          // 已经报了「等你」:同一条 awaits 边不在阻塞那一句里重复一遍。
           {
             relationId: "rel_0",
             kind: "awaits",
@@ -207,14 +261,15 @@ describe("S4 工作页:一行健康摘要与注意力排序", () => {
       }),
     ];
     const host = document.createElement("div"),
-      root = createRoot(host);
+      root = createRoot(host),
+      opened: string[] = [];
     act(() =>
       root.render(
         <WorkView
           tasks={rows}
           repoId="p"
           ready
-          onOpenTask={() => {}}
+          onOpenTask={(id) => opened.push(id)}
           catalog={undefined}
           catalogError={null}
           daemonState="responsive"
@@ -222,48 +277,93 @@ describe("S4 工作页:一行健康摘要与注意力排序", () => {
           agenda={
             {
               ...AGENDA,
-              attentionItems: [attention("relation/r1", "awaiting-you", "mine", "w-two", 130, "验收两行：看截图")],
+              attentionItems: [
+                attention("relation/r1", "awaiting-you", "mine", "w-two", 130, "验收两行：看截图"),
+                attention("relation/r2", "decision", "mine", "w-two", 90, "另一件"),
+              ],
             } as unknown as AgendaSuccess
           }
         />,
       ),
     );
-    const grid = host.querySelector('[data-testid="work-row"][data-work-id="w-two"] .grid')!;
-    expect(grid.className).toContain("min-h-14");
-    // 第一行:只有一个状态标签,标题止于冒号前。
-    expect(grid.querySelectorAll('[data-testid="work-flags"] [data-status-tone]')).toHaveLength(1);
-    expect(grid.querySelector('[data-testid="work-flags"]')!.textContent).toBe("1 件等你");
-    expect(grid.querySelector("span.block.truncate.text-text")!.textContent).toBe("PLT-Honest");
-    expect(grid.querySelector('[data-testid="work-last-activity"]')).toBeTruthy();
-    // 第二行:进度(完成/总数)· 在跑 agent 数 · 在等谁 · 卡在哪 · 标题补充。
-    expect(grid.querySelector("span.block.text-text-faint")!.textContent).toBe(
-      "1/3 完成 · 1 个 agent · 等你答复：验收两行 · 被「t-run」卡住 · 系统说的每句话必须为真",
-    );
+    const card = host.querySelector('[data-testid="work-row"][data-work-id="w-two"]')!;
+    expect(card.getAttribute("data-summary-card")).toBe("large");
+    expect([...card.children].map((child) => child.getAttribute("data-testid") ?? child.tagName)).toEqual([
+      "HEADER",
+      "work-flags",
+      "work-running",
+      "work-progress",
+      "work-counts",
+      "work-recent",
+    ]);
+    // 标题止于冒号前,冒号后的补充在下一行弱色;整张卡只有标题这一个可点目标。
+    expect(card.querySelector("header button")!.textContent).toBe("PLT-Honest");
+    expect(card.querySelector("header p")!.textContent).toBe("系统说的每句话必须为真");
+    expect(card.querySelectorAll("button")).toHaveLength(1);
+    expect([...card.querySelectorAll('[data-testid="work-flags"] > p')].map((line) => line.textContent)).toEqual([
+      "等你答复验收两行：看截图（另 1 件）",
+      "有阻塞被「S7 授权执行」卡住",
+    ]);
+    // 在跑行只报个数与第一个在跑任务的标题,不出现执行者的机器标识。
+    expect(card.querySelector('[data-testid="work-running"]')!.textContent).toBe("1 个 agent 在跑 · S7 授权执行");
+    // 大卡上的构成条加粗。
+    expect(card.querySelector('[data-testid="work-progress"] > div')!.className).toContain("h-[6px]!");
+    expect(card.querySelector('[data-testid="work-progress"]')!.textContent).toBe("1/3");
+    expect(card.querySelector('[data-testid="work-counts"]')!.textContent).toBe("完成 1执行 1阻塞 1");
+    // 卡脚报最近有动静的任务的标题,不显示生命周期事件的机器摘要。
+    expect(card.querySelector('[data-testid="work-recent"]')!.textContent).toBe("最近：S7 授权执行");
+    expect(card.textContent).not.toContain("exec-1");
+    expect(card.textContent).not.toContain("person_x");
+    click(card.querySelector("header button")!);
+    expect(opened).toEqual(["w-two"]);
     act(() => root.unmount());
   });
 
-  it("展开一行看到执行/待审/阻塞/计划数、注意列表与「打开工作」", () => {
+  it("最近有动静的任务不在本工作里(查不到标题)时,卡脚不出「最近」一行", () => {
+    const host = document.createElement("div"),
+      root = createRoot(host);
+    act(() =>
+      root.render(
+        <WorkView
+          tasks={[
+            task("w-gone"),
+            member("t-stuck", "w-gone", {
+              canonicalStatus: "blocked",
+              events: [{ at: "2026-02-01", taskId: "t-elsewhere", projectId: "p", summary: "Execution exec-9 closed" }],
+            }),
+          ]}
+          repoId="p"
+          ready
+          onOpenTask={() => {}}
+          catalog={undefined}
+          catalogError={null}
+          daemonState="responsive"
+          onRefreshLedger={() => {}}
+          agenda={AGENDA}
+        />,
+      ),
+    );
+    const card = host.querySelector('[data-testid="work-row"][data-work-id="w-gone"]')!;
+    expect(card.getAttribute("data-summary-card")).toBe("large");
+    expect(card.querySelector('[data-testid="work-recent"]')).toBeNull();
+    expect(card.textContent).not.toContain("exec-9");
+    act(() => root.unmount());
+  });
+
+  it("点卡片任意位置即打开工作", () => {
     const view = mountWorkView({ agenda: AGENDA });
-    const row = view.host.querySelector('[data-testid="work-row"][data-work-id="w-urgent"]')!;
-    expect(row.querySelector('[data-testid="work-row-body"]')).toBeNull();
-    click(row.querySelector('[data-testid="work-row-toggle"]')!);
-    const body = row.querySelector('[data-testid="work-row-body"]')!;
-    expect(body.textContent).toContain("进行中 1");
-    expect(body.textContent).toContain("待审 0");
-    expect(body.textContent).toContain("阻塞 1");
-    expect(body.textContent).toContain("计划中 0");
-    expect(body.textContent).toContain("等待你答复的事项");
-    expect(body.textContent).toContain("130");
-    click(body.querySelector('[data-testid="work-open"]')!);
-    expect(view.opened).toEqual(["w-urgent"]);
+    click(view.host.querySelector('[data-work-id="w-urgent"] [data-testid="work-progress"]')!);
+    click(view.host.querySelector('[data-work-id="w-finished"]')!);
+    expect(view.opened).toEqual(["w-urgent", "w-finished"]);
     view.unmount();
   });
 
-  it("没有议程读面时仍按在跑/阻塞/停滞排出健康序,不显示等你计数", () => {
+  it("没有议程读面时仍按阻塞/停滞分出需要你看的组,不显示等你的原因", () => {
     const view = mountWorkView();
-    expect(rowIds(view.host)).toEqual(["w-running", "w-urgent", "w-stale"]);
+    expect(tierIds(view.host, "attention")).toEqual(["w-urgent", "w-stale"]);
+    expect(tierIds(view.host, "progress")).toEqual(["w-running", "w-quiet"]);
     expect(view.host.querySelector('[data-testid="work-row"][data-work-id="w-urgent"]')?.textContent).not.toContain(
-      "件等你",
+      "等你答复",
     );
     view.unmount();
   });
