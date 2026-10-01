@@ -260,17 +260,20 @@ export function openFleetEdgeRuntime(input: {
                 return body;
               })()
             : null,
-          baseMission =
-            `Your task package is ${packageRoot}.\n` + "Read task_plan.md in that package and complete the task.";
-        return {
-          executionId: assigned.scope.executionId,
-          packageRoot,
-          mission: [
-            baseMission,
+          missionAfterPackage = [
             taskQueryGuidance(taskId),
             ...(causalContext === null ? [] : [causalContext]),
             ...(mission ? [`# Mission: ${missionName}\n\n${mission.trim()}`] : []),
-          ].join("\n\n"),
+          ];
+        return {
+          executionId: assigned.scope.executionId,
+          packageRoot,
+          mission: (reachedPackageRoot) =>
+            [
+              `Your task package is ${reachedPackageRoot}.\n` +
+                "Read task_plan.md in that package and complete the task.",
+              ...missionAfterPackage,
+            ].join("\n\n"),
           causalContext,
           worktree,
         };

@@ -12,6 +12,7 @@ import { cellCodedError } from "./repo-cell-errors.ts";
 import type { TaskWorkspaceView } from "./protocol/daemon-protocol-gui-types.ts";
 import {
   addManagedWorktree,
+  continuePublishedBranch,
   publishedBranchRef,
   reclaimDetail,
   reclaimManagedWorktree,
@@ -112,8 +113,8 @@ export interface TaskWorktreeCheckout {
 /**
  * Checks a binding out on this node, or finds it already there, then runs the Settings setup steps that have not
  * succeeded in it yet. The binding is all it takes: this node derives it from its projection, an edge receives it
- * from the center (dec_57370FF2021DADF04E3B21724D CH2). A new checkout continues the task's own branch — the one
- * this node holds, else the one another node pushed — before it starts from the default branch (CH3). A node
+ * from the center (dec_57370FF2021DADF04E3B21724D CH2). A checkout continues the task's own branch — a new one
+ * starts from the copy another node pushed before the default branch, an existing one is brought up to it (CH3). A node
  * without a default branch (a Git-less edge, a repository before its first commit) has no worktree to give: null,
  * not a failure.
  */
@@ -125,17 +126,17 @@ export async function checkoutTaskWorktree(
 ): Promise<TaskWorktreeCheckout | null> {
   const cwd = path.join(rootDir, binding.path);
   return inWorktreeTurn(cwd, async () => {
-    let baseRef: string | null = null;
-    if (!existsSync(cwd)) {
-      const defaultRef = repositoryBaseRef(rootDir);
-      if (!defaultRef) return null;
-      baseRef = (await publishedBranchRef(rootDir, binding.branch)) ?? defaultRef;
-      await addManagedWorktree(rootDir, { cwd, branch: binding.branch, baseRef });
-    }
+    const fresh = !existsSync(cwd),
+      defaultRef = fresh ? repositoryBaseRef(rootDir) : null;
+    if (fresh && !defaultRef) return null;
+    const published = await publishedBranchRef(rootDir, binding.branch);
+    if (fresh) await addManagedWorktree(rootDir, { cwd, branch: binding.branch, baseRef: published ?? defaultRef! });
+    // A checkout this node already had, or a branch that survived one, may predate another node's push.
+    if (published) await continuePublishedBranch(cwd, published);
     return {
       cwd,
       branch: binding.branch,
-      baseRef,
+      baseRef: fresh ? (published ?? defaultRef) : null,
       setup: await runWorktreeSetup({ rootDir, cwd, taskId, steps: setup }),
     };
   });

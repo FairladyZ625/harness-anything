@@ -44,7 +44,7 @@ import {
   assembleUnboundPrompt,
   assembleScheduledMission,
   assembleTaskMission,
-  deriveTaskMission,
+  missionAt,
   dispatchMissionForPermission,
   decisionReviewTarget as parseDecisionReviewTarget,
   resolveRuntimeInstanceId,
@@ -314,8 +314,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             : assembleTaskCausalContext({ projection: projection!, taskId })
           : remoteTask.causalContext,
       taskMission = taskId
-        ? (remoteTask ??
-          deriveTaskMission(input.rootDir, cwd, projection!, taskId, "runtime.run", missionName, causalContext))
+        ? missionAt(input.rootDir, cwd, remoteTask ?? { projection: projection!, taskId, missionName, causalContext })
         : null,
       mission =
         explicitMission === undefined

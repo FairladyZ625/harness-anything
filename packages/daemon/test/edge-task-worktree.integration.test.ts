@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -14,10 +14,11 @@ import { checkoutTaskWorktree } from "../src/task-worktree.ts";
 
 // dec_57370FF2021DADF04E3B21724D: an edge node holds no ledger, so the center delivers the task's worktree binding
 // (CH1), the edge dispatch works in that worktree (CH2), and a node that takes a task over continues the branch the
-// previous node pushed (CH3). Two clones of one bare remote stand for two nodes.
+// previous node pushed (CH3). Two clones of one bare remote stand for two nodes; each holds its mirrored ledger.
 
 const taskId = "task_e0000000000000000000beef",
   binding: TaskWorktreeBindingV1 = { branch: taskId, path: `.worktrees/${taskId}` },
+  packagePath = path.join("harness", "tasks", taskId),
   edgeBinding = {
     actor: { principal: { personId: "fleet-edge" }, executor: null },
     source: { kind: "assignment" as const, nodeId: "node-a", assignmentId: "assignment-a" },
@@ -36,6 +37,13 @@ test("an edge dispatch without a cwd launches in the worktree the center's bindi
   assert.equal(git(cwd, "rev-parse", "HEAD"), git(fixture.nodeA, "rev-parse", "origin/main"));
   assert.match(edge.prompts[0]!, new RegExp(`Worker repository root: ${cwd}\\n`, "u"));
   assert.match(edge.prompts[0]!, new RegExp(`Worktree ${cwd} is checked out on ${taskId} from origin/main\\.`, "u"));
+  // The mission names the mirrored task package under the worker's own root, where the worker can read it.
+  const reached = path.join(cwd, packagePath);
+  assert.match(edge.prompts[0]!, new RegExp(`Task package root: ${reached}\n`, "u"));
+  assert.match(edge.prompts[0]!, new RegExp(`Your task package is ${reached}\\.`, "u"));
+  assert.equal(edge.prompts[0]!.includes(path.join(fixture.nodeA, packagePath)), false);
+  assert.equal(readFileSync(path.join(reached, "task_plan.md"), "utf8"), "# Plan\n");
+  assert.equal(git(cwd, "status", "--porcelain"), "", "the linked ledger is ignored, not untracked");
 
   // Two tasks on one node each get their own checkout; the second leaves the first where it is.
   const otherId = "task_e0000000000000000000cafe",
@@ -72,6 +80,7 @@ test("an edge dispatch that is not an implementation run stays in the node's mai
       scenario.name,
     );
     assert.deepEqual(edge.launchedIn, [fixture.nodeA], scenario.name);
+    assert.match(edge.prompts[0]!, new RegExp(`Task package root: ${path.join(fixture.nodeA, packagePath)}\n`, "u"));
     assert.equal(existsSync(path.join(fixture.nodeA, ".worktrees")), false, scenario.name);
   }
   // A dry-run preview assembles the prompt and checks nothing out.
@@ -138,6 +147,55 @@ test("a node whose checkout predates another node's push cannot overwrite the pu
   assert.equal(git(fixture.remote, "rev-parse", `refs/heads/${taskId}`), fromA, "the first delivery stays published");
 });
 
+test("a node refused before it worked takes the task over from what the other node pushed", async (t) => {
+  const fixture = nodesFixture(t),
+    // Node B's dispatch was refused after its checkout: an idle worktree at the default branch stays behind.
+    idle = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, []))!,
+    onA = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, []))!,
+    delivered = commit(onA.cwd, "node-a.txt");
+  assert.equal((await pushWorkerBranch({ cwd: onA.cwd, canonicalRoot: fixture.nodeA, taskId })).attempted, true);
+  assert.equal(git(idle.cwd, "rev-parse", "HEAD"), git(fixture.nodeB, "rev-parse", "origin/main"));
+
+  const resumed = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, []))!;
+  assert.equal(resumed.cwd, idle.cwd);
+  assert.equal(resumed.baseRef, null, "the checkout was already here");
+  assert.equal(git(resumed.cwd, "rev-parse", "HEAD"), delivered, "the idle checkout is brought up to the push");
+  const continued = commit(resumed.cwd, "node-b.txt"),
+    pushed = await pushWorkerBranch({ cwd: resumed.cwd, canonicalRoot: fixture.nodeB, taskId });
+  assert.equal(pushed.attempted && pushed.ok, true, JSON.stringify(pushed));
+  assert.equal(git(fixture.remote, "rev-parse", `refs/heads/${taskId}`), continued);
+  assert.equal(git(fixture.remote, "merge-base", "--is-ancestor", delivered, continued), "");
+  // The node that pushed last is not behind: its next checkout fetches and changes nothing.
+  await checkoutTaskWorktree(fixture.nodeB, taskId, binding, []);
+  assert.equal(git(resumed.cwd, "rev-parse", "HEAD"), continued);
+});
+
+test("a checkout behind the published branch that holds work of its own is refused and left untouched", async (t) => {
+  for (const scenario of ["a commit of its own", "an uncommitted change"] as const) {
+    const fixture = nodesFixture(t),
+      onB = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, []))!,
+      onA = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, []))!;
+    commit(onA.cwd, "node-a.txt");
+    assert.equal((await pushWorkerBranch({ cwd: onA.cwd, canonicalRoot: fixture.nodeA, taskId })).attempted, true);
+    if (scenario === "a commit of its own") commit(onB.cwd, "node-b.txt");
+    else writeFileSync(path.join(onB.cwd, "src", "index.txt"), "edited on node b\n");
+    const head = git(onB.cwd, "rev-parse", "HEAD"),
+      status = git(onB.cwd, "status", "--porcelain");
+
+    await assert.rejects(
+      checkoutTaskWorktree(fixture.nodeB, taskId, binding, []),
+      (error: unknown) =>
+        error instanceof Error &&
+        (error as { code?: unknown }).code === "task_worktree_diverged" &&
+        error.message.includes(onB.cwd) &&
+        error.message.includes(`origin/${taskId}`),
+      scenario,
+    );
+    assert.equal(git(onB.cwd, "rev-parse", "HEAD"), head, scenario);
+    assert.equal(git(onB.cwd, "status", "--porcelain"), status, scenario);
+  }
+});
+
 const launchSentinel = "edge launch reached";
 function launched(error: unknown): boolean {
   return error instanceof Error && error.message === launchSentinel;
@@ -157,8 +215,8 @@ function edgeSpawner(rootDir: string, worktree: TaskWorktreeBindingV1 | null) {
         existing: async () => null,
         taskContext: async () => ({
           executionId: "execution-a",
-          mission: "Complete the task.",
-          packageRoot: path.join(rootDir, "harness", "tasks", taskId),
+          mission: (packageRoot: string) => `Your task package is ${packageRoot}.`,
+          packageRoot: path.join(rootDir, packagePath),
           causalContext: null,
           worktree,
         }),
@@ -181,7 +239,7 @@ function edgeSpawner(rootDir: string, worktree: TaskWorktreeBindingV1 | null) {
 }
 
 function nodesFixture(t: TestContext): { readonly remote: string; readonly nodeA: string; readonly nodeB: string } {
-  const base = mkdtempSync(path.join(tmpdir(), "ha-edge-worktree-")),
+  const base = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-edge-worktree-"))),
     remote = path.join(base, "remote.git"),
     seed = path.join(base, "seed"),
     nodeA = path.join(base, "node-a"),
@@ -192,13 +250,17 @@ function nodesFixture(t: TestContext): { readonly remote: string; readonly nodeA
   identify(seed);
   mkdirSync(path.join(seed, "src"));
   writeFileSync(path.join(seed, "src", "index.txt"), "base\n");
-  writeFileSync(path.join(seed, ".gitignore"), ".worktrees\n.harness\n.user\n");
+  writeFileSync(path.join(seed, ".gitignore"), "/harness/\n.worktrees\n.harness\n.user\n");
   git(seed, "add", ".");
   git(seed, "commit", "-qm", "base");
   git(seed, "push", "-q", remote, "main");
   for (const node of [nodeA, nodeB]) {
     git(base, "clone", "-q", remote, node);
     identify(node);
+    // The node's mirrored ledger: ignored by the project repository, so no worktree checks it out.
+    mkdirSync(path.join(node, packagePath), { recursive: true });
+    writeFileSync(path.join(node, packagePath, "task_plan.md"), "# Plan\n");
+    writeFileSync(path.join(node, "harness", "harness.yaml"), "layout:\n");
   }
   return { remote, nodeA, nodeB };
 }

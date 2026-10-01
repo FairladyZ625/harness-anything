@@ -48,11 +48,10 @@ export async function addManagedWorktree(rootDir: string, worktree: ManagedWorkt
 const publishedBranchFetchTimeoutMs = 30_000;
 
 /**
- * dec_57370FF2021DADF04E3B21724D CH3: where a branch this node does not hold continues from — the copy another node
- * pushed at settlement, fetched once here. Null when this node already has the branch or origin has none.
+ * dec_57370FF2021DADF04E3B21724D CH3: the copy of a task branch another node pushed at settlement, fetched here.
+ * Null when origin has none or cannot be reached.
  */
 export async function publishedBranchRef(rootDir: string, branch: string): Promise<string | null> {
-  if (await git(rootDir, "branch", "--list", branch)) return null;
   const fetched = await runProcessExitAsync(
     "git",
     ["-C", rootDir, "fetch", "--quiet", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`],
@@ -66,6 +65,27 @@ export async function publishedBranchRef(rootDir: string, branch: string): Promi
     () => false,
   );
   return fetched ? `origin/${branch}` : null;
+}
+
+/**
+ * Brings a checkout that is behind the published task branch up to it, so a node that takes the task over
+ * continues what the previous node pushed. A checkout that also holds work the published branch lacks — commits
+ * of its own or uncommitted changes — is left exactly as it is and refused: nothing here discards work.
+ */
+export async function continuePublishedBranch(cwd: string, published: string): Promise<void> {
+  if ((await git(cwd, "rev-list", "--count", `HEAD..${published}`)) === "0") return;
+  const ahead = await git(cwd, "rev-list", "--count", `${published}..HEAD`),
+    dirty = (await git(cwd, "status", "--porcelain")).length > 0;
+  if (ahead !== "0" || dirty)
+    throw Object.assign(
+      new Error(
+        `Worktree ${cwd} is behind ${published} and holds ` +
+          (ahead !== "0" ? `${ahead} commit(s) that branch lacks` : "uncommitted changes") +
+          "; it was left untouched. Rebase or remove that work in the worktree, then retry.",
+      ),
+      { code: "task_worktree_diverged" },
+    );
+  await git(cwd, "merge", "--quiet", "--ff-only", published);
 }
 
 /**
