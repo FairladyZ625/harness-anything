@@ -264,7 +264,7 @@ export function AgentSquadView({
             </span>
           ) : (
             <span data-testid="agent-squad-conclusion" className="inline-flex flex-wrap items-center gap-2">
-              <StatusTag tone="done" label={t("agentRuntime.conclusionAllHealthy")} />
+              <StatusTag tone="neutral" label={t("agentRuntime.conclusionAllHealthy")} />
               {t("agentRuntime.conclusionCounts", { agents: agents.length, squads: squads.length })}
             </span>
           )
@@ -543,7 +543,7 @@ function EntityConclusion({
       data-testid="agent-detail-conclusion"
       className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xs border border-border bg-surface px-3.5 py-2"
     >
-      <StatusTagLine tone="done" label={t("agentRuntime.detailAvailable")} />
+      <StatusTagLine tone="neutral" label={t("agentRuntime.detailAvailable")} />
       <span className="flex items-center gap-1.5 ui-meta">
         {t("agentRuntime.declaredRole")}
         <RoleLabel role={declaredRole} />
@@ -607,7 +607,7 @@ function SquadConclusion({
       data-testid="squad-detail-conclusion"
       className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xs border border-border bg-surface px-3.5 py-2"
     >
-      <StatusTagLine tone="done" label={t("agentRuntime.detailAvailable")} />
+      <StatusTagLine tone="neutral" label={t("agentRuntime.detailAvailable")} />
       <span className="ui-meta text-text-muted">
         {t("agentRuntime.memberCount", { count: squad.workers.length + 1 })}
       </span>
