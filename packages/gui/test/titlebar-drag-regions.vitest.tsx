@@ -81,7 +81,7 @@ it("侧栏顶行(HARNESS 行)是拖拽区并在顶部给红绿灯让位,主题�
     ),
   );
 
-  const topRow = host.querySelector('[data-testid="app-sidebar-scroll"] > div')!;
+  const topRow = host.querySelector('[data-testid="app-sidebar-head"] > div')!;
   expect(topRow.className).toContain("titlebar-drag");
   expect(topRow.className).toContain("titlebar-traffic-top");
   // 行内唯一交互件(主题切换)整棵子树摘出拖拽。

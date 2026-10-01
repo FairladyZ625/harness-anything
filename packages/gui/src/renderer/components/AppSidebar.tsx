@@ -112,8 +112,8 @@ export function AppSidebar({
       className={`flex max-h-[42dvh] w-full shrink-0 flex-col overflow-hidden border-b border-border bg-surface
         md:max-h-none md:w-56 md:border-r md:border-b-0`}
     >
-      {/* 导航滚动区:侧栏唯一纵向滚动容器;窗口够高时不出现滚动条。 */}
-      <div data-testid="app-sidebar-scroll" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+      {/* 固定顶部:品牌行 + 项目切换。shrink-0,不随导航滚动(与底部系统区对称)。 */}
+      <div data-testid="app-sidebar-head" className="shrink-0">
         <div className="titlebar-drag titlebar-traffic-top flex items-center gap-2 px-3 pt-3 pb-1">
           <span className="font-mono ui-micro font-semibold tracking-wide text-text-muted">HARNESS</span>
           <span
@@ -165,7 +165,10 @@ export function AppSidebar({
             />
           </div>
         </div>
+      </div>
 
+      {/* 导航滚动区:侧栏唯一纵向滚动容器;窗口够高时不出现滚动条。 */}
+      <div data-testid="app-sidebar-scroll" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {pinnedWork.length ? (
           <div className="px-2 pb-2" data-testid="sidebar-pinned-work">
             <button
