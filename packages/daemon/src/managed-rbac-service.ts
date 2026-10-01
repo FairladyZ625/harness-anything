@@ -6,6 +6,7 @@ import {
   createWriteStream,
   existsSync,
   mkdirSync,
+  openSync,
   readdirSync,
   readFileSync,
   renameSync,
@@ -507,7 +508,10 @@ export class ManagedRbacService {
   ): Promise<void> {
     const logs = path.join(this.#root, "logs");
     mkdirSync(logs, { recursive: true, mode: 0o700 });
-    const log = createWriteStream(path.join(logs, `${name}.log`), { flags: "a" });
+    // Opened here rather than lazily by the stream: a log that cannot be opened fails this start,
+    // instead of surfacing later as an unhandled stream error once the directory is gone.
+    const logFile = path.join(logs, `${name}.log`),
+      log = createWriteStream(logFile, { fd: openSync(logFile, "a") });
     let settleReady: (() => void) | null = null,
       settleError: ((error: Error) => void) | null = null,
       observed = "";

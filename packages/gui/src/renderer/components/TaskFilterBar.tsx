@@ -1,13 +1,12 @@
-import { useMemo } from "react";
-import { MagnifyingGlass, Star, X } from "@phosphor-icons/react";
+import { useMemo, useState, type ReactNode } from "react";
+import { Funnel, MagnifyingGlass, Star, X } from "@phosphor-icons/react";
 import type { CloseoutReadiness, EngineId, Freshness, SnapshotStatus, TaskRow } from "../model/types";
 import { BOARD_COLUMNS, boardColumnOf } from "../model/types";
 import { STATUS_META } from "./badges";
 import {
   DEFAULT_TASK_FILTERS,
   GRAPH_FOCUS_RECENT_WINDOW_DAYS,
-  hasActiveTaskFilters,
-  taskFilterSummary,
+  activeTaskFilterCount,
   type TaskFilters,
 } from "../model/taskFilters";
 import { t } from "../i18n/index.tsx";
@@ -47,7 +46,8 @@ function Select<T extends string>({
 /**
  * 状态筛选平铺 Pill 组(task_8928cf1e,对齐会话页的紧凑设计):每个按钮 = 状态图标 +
  * 名称 + 该列桶的行数,点击切换选中;空选 = 全部列。选中集同时是看板的
- * visibleColumns——未选中的列组件整列不渲染,不再有空列占宽。
+ * visibleColumns——未选中的列组件整列不渲染,不再有空列占宽。2026-10-01 起
+ * Pill 组不再是独立的一行,收进默认收起的筛选面板(列标题上已有每列计数)。
  */
 function StatusPillGroup({
   tasks,
@@ -104,33 +104,40 @@ function StatusPillGroup({
   );
 }
 
+/**
+ * 看板筛选区(2026-10-01 收成一行,评审第 8 条):默认只有一行 = 搜索 + 视图切换
+ * (toolbarExtra,由 BoardView 注入)+ 一个「筛选」入口;状态 Pill、引擎/收口/
+ * 新鲜度、冷终态与收藏开关、清除全部收进默认收起的筛选面板,能力一项不丢。
+ * 有筛选生效时入口上显形「生效 N」(activeTaskFilterCount),不另占说明行。
+ */
 export function TaskFilterBar({
   tasks,
-  filteredCount,
   filters,
   onChange,
   contextLabel,
   favorites,
   coldTerminalCount,
+  toolbarExtra,
 }: {
   tasks: readonly TaskRow[];
-  filteredCount: number;
   filters: TaskFilters;
   onChange: (filters: TaskFilters) => void;
   contextLabel: string;
   favorites?: ReadonlySet<string>;
   /** 看板冷终态计数(W8):折叠态显形「已折叠 N」,点击展开;两种状态都可见,不静默截断。 */
   coldTerminalCount?: number;
+  /** 本行中段控件(看板的 列/泳道/列表 视图切换等);与筛选入口同行。 */
+  toolbarExtra?: ReactNode;
 }) {
+  const [open, setOpen] = useState(false);
   const engines: (EngineId | "all")[] = ["all", ...new Set(tasks.map((task) => task.engine))];
-  const chips = taskFilterSummary(filters);
-  const active = hasActiveTaskFilters(filters);
+  const activeCount = activeTaskFilterCount(filters);
   const favoriteCount = favorites ? tasks.filter((t) => favorites.has(t.taskId)).length : 0;
 
   const patch = (next: Partial<TaskFilters>) => onChange({ ...filters, ...next });
 
   return (
-    <section className="border-b border-border bg-surface/35 px-4 py-3">
+    <section className="border-b border-border bg-surface/35 px-4 py-2" data-testid="board-filter-bar">
       <div className="flex flex-wrap items-center gap-2">
         <label
           className={
@@ -147,89 +154,111 @@ export function TaskFilterBar({
           />
         </label>
 
-        <Select
-          label={t("components.taskFilterBar.engine")}
-          value={filters.engine}
-          values={engines}
-          onChange={(engine) => patch({ engine })}
-        />
-        <StatusPillGroup tasks={tasks} selected={filters.status} onChange={(status) => patch({ status })} />
-        <Select
-          label={t("components.taskFilterBar.closeout")}
-          value={filters.closeout}
-          values={CLOSEOUTS}
-          onChange={(closeout) => patch({ closeout })}
-        />
-        <Select
-          label={t("components.taskFilterBar.freshness")}
-          value={filters.freshness}
-          values={FRESHNESS}
-          onChange={(freshness) => patch({ freshness })}
-        />
+        {toolbarExtra}
 
-        {typeof coldTerminalCount === "number" && coldTerminalCount > 0 && (
-          <button
-            type="button"
-            role="switch"
-            aria-checked={filters.expandColdTerminal}
-            data-testid="board-cold-terminal-toggle"
-            onClick={() => patch({ expandColdTerminal: !filters.expandColdTerminal })}
-            title={t("components.taskFilterBar.coldTerminalSwitchTitle", {
-              days: GRAPH_FOCUS_RECENT_WINDOW_DAYS,
-            })}
-            className={`rounded-md border px-3 py-1.5 ui-body transition-colors duration-100 ${
-              filters.expandColdTerminal
-                ? "border-border-strong bg-surface-raised text-text"
-                : "border-border text-text-muted hover:bg-surface-raised"
-            }`}
-          >
-            {filters.expandColdTerminal
-              ? t("components.taskFilterBar.hideColdTerminalCount", { count: coldTerminalCount })
-              : t("components.taskFilterBar.showColdTerminalCount", { count: coldTerminalCount })}
-          </button>
-        )}
-
-        {favorites && favoriteCount > 0 && (
-          <button
-            type="button"
-            role="switch"
-            aria-checked={filters.favoritesOnly}
-            onClick={() => patch({ favoritesOnly: !filters.favoritesOnly })}
-            className={`inline-flex items-center gap-1 rounded-md border px-3 py-1.5 ui-body transition-colors duration-100 ${
-              filters.favoritesOnly
-                ? "border-accent bg-accent/10 text-accent"
-                : "border-border text-text-muted hover:bg-surface-raised"
-            }`}
-            title={t("components.taskFilterBar.viewOnlyFavoriteTasksFavoriteCountTotal", { favoriteCount })}
-          >
-            <Star weight={filters.favoritesOnly ? "fill" : "bold"} className="ui-meta" />
-            {t("components.taskFilterBar.viewOnlyCollection")} {favoriteCount}
-          </button>
-        )}
-
-        {active && (
-          <button
-            onClick={() => onChange(DEFAULT_TASK_FILTERS)}
-            className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 ui-body text-text-muted transition-colors duration-100 hover:bg-surface-raised hover:text-text"
-          >
-            <X weight="bold" />
-            {t("components.taskFilterBar.clear")}
-          </button>
-        )}
-      </div>
-
-      <div className="mt-2 flex flex-wrap items-center gap-2 font-mono ui-meta text-text-faint">
-        <span>{t("components.taskFilterBar.filteredTaskCount", { filteredCount, totalCount: tasks.length })}</span>
-        {chips.length > 0 ? (
-          chips.map((chip) => (
-            <span key={chip} className="rounded border border-border px-1.5 py-px">
-              {chip}
+        <button
+          type="button"
+          data-testid="board-filter-toggle"
+          aria-expanded={open}
+          onClick={() => setOpen((value) => !value)}
+          title={
+            open ? t("components.taskFilterBar.collapseFilterPanel") : t("components.taskFilterBar.expandFilterPanel")
+          }
+          className={`relative inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 ui-body transition-colors duration-100 after:absolute after:content-[''] after:inset-x-0 after:-top-[7px] after:-bottom-[7px] ${
+            activeCount > 0
+              ? "border-accent text-accent"
+              : "border-border text-text-muted hover:bg-surface-raised hover:text-text"
+          }`}
+        >
+          <Funnel weight="bold" className="ui-meta" />
+          {t("components.taskFilterBar.filtersEntry")}
+          {activeCount > 0 && (
+            <span
+              className="rounded-full bg-accent px-1.5 font-mono ui-micro text-accent-fg"
+              data-testid="board-filter-active-count"
+            >
+              {activeCount}
             </span>
-          ))
-        ) : (
-          <span>{t("components.taskFilterBar.defaultHint")}</span>
-        )}
+          )}
+        </button>
       </div>
+
+      {open && (
+        <div
+          className="mt-2 flex flex-wrap items-center gap-2 border-t border-border pt-2"
+          data-testid="board-filter-panel"
+        >
+          <StatusPillGroup tasks={tasks} selected={filters.status} onChange={(status) => patch({ status })} />
+          <Select
+            label={t("components.taskFilterBar.engine")}
+            value={filters.engine}
+            values={engines}
+            onChange={(engine) => patch({ engine })}
+          />
+          <Select
+            label={t("components.taskFilterBar.closeout")}
+            value={filters.closeout}
+            values={CLOSEOUTS}
+            onChange={(closeout) => patch({ closeout })}
+          />
+          <Select
+            label={t("components.taskFilterBar.freshness")}
+            value={filters.freshness}
+            values={FRESHNESS}
+            onChange={(freshness) => patch({ freshness })}
+          />
+
+          {typeof coldTerminalCount === "number" && coldTerminalCount > 0 && (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={filters.expandColdTerminal}
+              data-testid="board-cold-terminal-toggle"
+              onClick={() => patch({ expandColdTerminal: !filters.expandColdTerminal })}
+              title={t("components.taskFilterBar.coldTerminalSwitchTitle", {
+                days: GRAPH_FOCUS_RECENT_WINDOW_DAYS,
+              })}
+              className={`rounded-md border px-3 py-1.5 ui-body transition-colors duration-100 ${
+                filters.expandColdTerminal
+                  ? "border-border-strong bg-surface-raised text-text"
+                  : "border-border text-text-muted hover:bg-surface-raised"
+              }`}
+            >
+              {filters.expandColdTerminal
+                ? t("components.taskFilterBar.hideColdTerminalCount", { count: coldTerminalCount })
+                : t("components.taskFilterBar.showColdTerminalCount", { count: coldTerminalCount })}
+            </button>
+          )}
+
+          {favorites && favoriteCount > 0 && (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={filters.favoritesOnly}
+              onClick={() => patch({ favoritesOnly: !filters.favoritesOnly })}
+              className={`inline-flex items-center gap-1 rounded-md border px-3 py-1.5 ui-body transition-colors duration-100 ${
+                filters.favoritesOnly
+                  ? "border-accent bg-accent/10 text-accent"
+                  : "border-border text-text-muted hover:bg-surface-raised"
+              }`}
+              title={t("components.taskFilterBar.viewOnlyFavoriteTasksFavoriteCountTotal", { favoriteCount })}
+            >
+              <Star weight={filters.favoritesOnly ? "fill" : "bold"} className="ui-meta" />
+              {t("components.taskFilterBar.viewOnlyCollection")} {favoriteCount}
+            </button>
+          )}
+
+          {activeCount > 0 && (
+            <button
+              onClick={() => onChange(DEFAULT_TASK_FILTERS)}
+              className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 ui-body text-text-muted transition-colors duration-100 hover:bg-surface-raised hover:text-text"
+            >
+              <X weight="bold" />
+              {t("components.taskFilterBar.clear")}
+            </button>
+          )}
+        </div>
+      )}
     </section>
   );
 }

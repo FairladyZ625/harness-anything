@@ -142,7 +142,19 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
           index={rank}
           tag={<StatusTag tone={meta.tone} label={KIND_LABEL[item.kind]()} />}
           title={item.title}
-          reason={workTitle}
+          reason={
+            entry.source?.kind === "answered"
+              ? [
+                  workTitle,
+                  t("components.awaitsAnswer.answeredBy", {
+                    actor: entry.source.row.answeredBy,
+                    time: ageOf(entry.source.row.answeredAt, deps.now),
+                  }),
+                ]
+                  .filter(Boolean)
+                  .join(" · ")
+              : workTitle
+          }
           time={entry.since === null ? null : stale ? staleDaysOf(entry.since, deps.now) : ageOf(entry.since, deps.now)}
           relaxed={relaxed}
           selected={selected}

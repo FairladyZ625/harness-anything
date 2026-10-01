@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { prefersReducedMotion } from "motion/react";
 import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
-import { workRows } from "../src/renderer/views/overview-model.ts";
+import { attentionEntries, ATTENTION_META, workRows } from "../src/renderer/views/overview-model.ts";
 import { AppMotionConfig } from "../src/renderer/motion-config.tsx";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
@@ -248,6 +248,39 @@ async function flushUntil(predicate: () => boolean, rounds = 200): Promise<void>
 }
 
 describe("总览区域板(S3)", () => {
+  it("待跟进保留计数、读面顺序与答复者，使用琥珀色", () => {
+    const input = agenda();
+    const item = { ...input.attentionItems[0]!, ref: "relation/follow", kind: "answered" as const };
+    const read = {
+      ...input,
+      attentionItems: [item, input.attentionItems[0]!],
+      answeredForYou: [
+        {
+          relationId: "follow",
+          sourceRef: "task/source",
+          title: item.title,
+          askKind: "question" as const,
+          question: "下一步？",
+          answer: "继续",
+          answeredAt: AT,
+          answeredBy: "答复人甲",
+        },
+      ],
+    } as AgendaSuccess;
+    expect(attentionEntries(read, "mine").map(({ item }) => item.ref)).toEqual([
+      "relation/follow",
+      input.attentionItems[0]!.ref,
+    ]);
+    expect(ATTENTION_META.answered.tone).toBe("wait");
+    const container = mount({ agenda: read });
+    const mine = container.querySelector('[data-testid="overview-region-mine"]')!;
+    expect(textOf(mine)).toContain("待跟进");
+    expect(textOf(mine)).toContain("答复人甲");
+    expect(mine.querySelector('[data-status-tone="wait"]')?.textContent).toBe("待跟进");
+    expect(attentionEntries(read, "mine")).toHaveLength(2);
+    act(() => root?.unmount());
+  });
+
   it("顶栏只放系统状态与全局搜索:状态点 + ⌘K 搜索入口,无仓库名大标题", () => {
     const container = mount();
     const topbar = container.querySelector('[data-testid="overview-topbar"]')!;
