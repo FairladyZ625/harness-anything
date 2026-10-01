@@ -464,14 +464,14 @@ export function scanDocCandidates(input: {
 
   function validateCloseoutArtifactRevisions(taskId: string | null, logical: string, bytes: Uint8Array): string | null {
     if (taskId === null) return null;
-    const revisedAnchors = artifactAnchors(new TextDecoder().decode(bytes)).filter(
-      (anchor) => anchor.revision !== undefined,
-    );
-    if (revisedAnchors.length === 0) return null;
+    const text = new TextDecoder().decode(bytes);
+    if (!text.includes("artifact:")) return null;
     const closeout = taskTransitionDocumentState({ projection: input.projection, taskId, slot: "task.closeout" });
     if (closeout.state === "undeclared" || closeout.path !== logical) return null;
     const owner = input.projection.read(taskId);
     if (!owner.packagePath) return null;
+    const revisedAnchors = artifactAnchors(text, owner.packagePath).filter((anchor) => anchor.revision !== undefined);
+    if (revisedAnchors.length === 0) return null;
     for (const anchor of revisedAnchors) {
       const revision = anchor.revision;
       if (revision === undefined) continue;

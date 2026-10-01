@@ -48,11 +48,14 @@ test("intentional failure after daemon launch", () => {
   }
 });
 
+// The owner is named by the preload the test runner gives every test child, not by this fixture:
+// a test file that knows nothing about daemon ownership is covered the same way.
 test("daemon exits when its fixture owner is killed", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-autostart-owner-liveness-")),
     witness = path.join(parent, "witness.json"),
     childTest = path.join(parent, "owner-killed.test.mjs"),
-    fixtureModule = new URL("./daemon-autostart-cli.fixture.ts", import.meta.url).href;
+    fixtureModule = new URL("./daemon-autostart-cli.fixture.ts", import.meta.url).href,
+    ownerPreload = new URL("../../../tools/node-test-daemon-owner.mjs", import.meta.url).href;
   let fixture: { parent: string; root: string; userRoot: string; pid: number } | undefined;
   try {
     writeFileSync(
@@ -70,12 +73,18 @@ test("daemon owner", () => {
     );
     const env = { ...process.env };
     delete env.NODE_TEST_CONTEXT;
-    const child = spawnSync(process.execPath, ["--test", childTest], { encoding: "utf8", env, timeout: 30_000 });
+    const child = spawnSync(process.execPath, [`--import=${ownerPreload}`, "--test", childTest], {
+      encoding: "utf8",
+      env,
+      timeout: 30_000,
+    });
     assert.equal(existsSync(witness), true, `${child.stderr}\n${child.stdout}`);
     fixture = JSON.parse(readFileSync(witness, "utf8"));
     assert.ok(fixture);
     assert.equal(child.status, 1, `${child.stderr}\n${child.stdout}`);
-    await waitForProcessExit(fixture.pid);
+    // The stop is requested within one liveness tick; the process then waits for the installation
+    // probes its startup spawned, which on a loaded machine outlast the default two seconds.
+    await waitForProcessExit(fixture.pid, 10_000);
     assert.equal(daemonProcessAlive(fixture.pid), false, `fixture daemon ${fixture.pid} outlived its killed owner`);
   } finally {
     if (fixture) {

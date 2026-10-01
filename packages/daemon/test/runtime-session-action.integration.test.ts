@@ -5,9 +5,10 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore } from "@harness-anything/kernel";
+import { actionDeclarations, makeTaskEventStore } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import type { RepoCellBinding } from "../src/repo-cell.ts";
+import { keycloakRealm, serveKeycloak } from "./keycloak.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { initRepo } from "./task-surface.fixtures.ts";
 
@@ -28,9 +29,15 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
     runtimeSessionId = `runtime_${hash.slice(24, 48)}`,
     dispatchOpId = `runtime-spawn-${hash.slice(0, 32)}`,
     source = { kind: "assignment", nodeId: "edge-a", assignmentId: "assignment-a" } as const,
+    // Both nodes act for one person who holds every action here, so only the assignment fence can
+    // tell the two starts apart.
+    served = await serveKeycloak(),
     binding: RepoCellBinding = {
       actor: { principal: { personId: "person-edge" }, executor: null },
       source,
+      keycloakAuthorization: {
+        center: { url: served.url, realm: keycloakRealm, clientId: "harness-center", accessToken: "center-token" },
+      },
       assignmentScope: {
         repoId,
         scope: { kind: "task", taskId: "task-runtime-action", executionId: "exe-runtime-action", paths: [] },
@@ -53,6 +60,12 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
       baseUrl: null,
       authMode: "subscription",
     } as const;
+  served.keycloak.account("person-edge");
+  served.keycloak.permit(
+    "person-edge",
+    repoId,
+    actionDeclarations.map(({ kind }) => kind),
+  );
   initRepo(rootDir);
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined = await openRepoCell({
     repoId,
@@ -142,6 +155,7 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
     await store.drain();
   } finally {
     await cell?.close();
+    await served.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });

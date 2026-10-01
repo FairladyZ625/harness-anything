@@ -73,7 +73,7 @@ export function deriveCloseoutSubmission(
     ),
     // The execution's first submission freezes the gate requirements; resumes and amendments keep them.
     prose = { ...parsed, completionContract: frozen?.completionContract ?? freezeCompletionContract(cell, snapshot) },
-    anchors = artifactAnchors(prose.completionClaim),
+    anchors = artifactAnchors(prose.completionClaim, document.packagePath),
     unparsed = unparsedArtifactAnchorText(prose.completionClaim);
   if (unparsed.length !== 0)
     throw cell.cellCodedError(
@@ -218,22 +218,45 @@ export function deriveCloseoutSubmission(
   // Task delivery is not a Git publication state: a resolvable commit may be reviewed before it
   // becomes a bound worktree HEAD or reaches the default branch. The merge base below derives the cut's
   // file manifest only; it is not submission admission.
+  const execution = snapshot.executions.find((value) => value.executionId === executionId),
+    baseline = execution !== undefined && isNativeExecution(execution) ? execution.deliveryBaseline : undefined,
+    defaultBranch = repositoryBaseRef(root),
+    mergeBase = defaultBranch ? git.run(root, ["merge-base", defaultBranch, commitSha]) : { ok: false, stdout: "" },
+    unchanged =
+      baseline?.kind === "commit" ? baseline.commitSha === commitSha : baseline === undefined && bound === commitSha;
   let deliverables: readonly string[], commitOutputs: readonly string[];
-  if (frozen?.commitSha === commitSha) {
+  // An unchanged published HEAD is a delivery only when this task's earlier cut owns it.
+  // The execution baseline detects new work; task history, rather than that observation,
+  // distinguishes a restarted delivery from another task's baseline merge.
+  const secondParent =
+      unchanged && mergeBase.stdout === commitSha
+        ? git.run(root, ["rev-parse", "--verify", "--quiet", `${commitSha}^2`])
+        : null,
+    priorDelivery =
+      unchanged &&
+      snapshot.executions.some((prior) => {
+        const sha = prior.executionId !== executionId ? prior.submission?.commitSha : null;
+        return (
+          !!sha &&
+          (secondParent?.ok === true
+            ? git.run(root, ["merge-base", "--is-ancestor", sha, secondParent.stdout]).ok
+            : sha === commitSha)
+        );
+      });
+  if (unchanged && mergeBase.ok && mergeBase.stdout === commitSha && !priorDelivery) {
+    deliverables = [];
+    commitOutputs = [];
+  } else if (frozen?.commitSha === commitSha) {
     // A submitted commit already owns its file manifest. Advancing main must not
     // shrink a branch-wide diff to the last commit; prose and artifacts remain freshly derived.
     deliverables = frozen.deliverables;
     commitOutputs = frozen.outputs.filter((output) => !output.startsWith("Artifact-Anchor: "));
   } else {
-    const execution = snapshot.executions.find((value) => value.executionId === executionId),
-      baseline = execution !== undefined && isNativeExecution(execution) ? execution.deliveryBaseline : undefined;
     // One delivery commit owns one manifest: the comparison cut derives from the commit's own fork
     // point on the default branch, never from where the project HEAD happened to sit when the execution
     // started (F-70FB11C4). Advancing main cannot move a merge base, so the manifest stays identical
     // across submit, publication, and re-derivation. A repository without a remote, or without origin/HEAD,
     // anchors on the branch its main checkout has out: that local branch is where its deliveries land.
-    const defaultBranch = repositoryBaseRef(root),
-      mergeBase = defaultBranch ? git.run(root, ["merge-base", defaultBranch, commitSha]) : { ok: false, stdout: "" };
     let base: string;
     if (mergeBase.ok && mergeBase.stdout !== commitSha) {
       // Unpublished fork: everything reachable from the commit and not from the default branch.
@@ -271,9 +294,6 @@ export function deriveCloseoutSubmission(
   // Deliverables stay paths of the delivery commit: anchored in-package artifacts ride in the
   // artifacts field and outputs lines so commit-based gates never verify ledger paths against
   // the public cut.
-  if (!deliverables.length && !commitOutputs.length && !artifacts.length) {
-    throw cell.cellCodedError("invalid_submission", "Delivery cut contains no changed paths.");
-  }
   return {
     ...prose,
     commitSha,
