@@ -10,6 +10,7 @@ import {
 import { daemonStdioLogPath, readDaemonLifecycleRecords } from "../lifecycle-log.ts";
 import { startDetachedProcessChecked } from "../process-port.ts";
 import { canonicalPath } from "../runtime-worker-push.ts";
+import { installedDaemonServiceUnit, startDaemonServiceUnit, type DaemonServiceUnit } from "./daemon-service.ts";
 import { readRegisteredRepos } from "./local-daemon-target.ts";
 export interface DaemonLaunchSpec {
   readonly command: string;
@@ -58,6 +59,17 @@ export function readDaemonStoppedAt(userRoot: string, daemonId: string): string 
 }
 export function clearDaemonStoppedMarker(userRoot: string, daemonId: string): void {
   rmSync(daemonStoppedMarkerPath(userRoot, daemonId), { force: true });
+}
+// The unit file is the one persistent record that a service manager owns this daemon; spawn (below)
+// and `ha daemon service` both read it, so it is written and removed here and nowhere else.
+export function writeDaemonServiceUnit(unit: DaemonServiceUnit, content: string, outputPath: string): void {
+  mkdirSync(path.dirname(unit.unitPath), { recursive: true });
+  // The service manager opens the daemon's output file itself and does not create its directory.
+  mkdirSync(path.dirname(outputPath), { recursive: true });
+  writeFileSync(unit.unitPath, content, "utf8");
+}
+export function removeDaemonServiceUnit(unit: DaemonServiceUnit): void {
+  rmSync(unit.unitPath, { force: true });
 }
 export class DaemonAutostartError extends Error {
   readonly code: DaemonAutostartFailureCode;
@@ -126,14 +138,20 @@ export async function ensureLocalDaemonRunning(input: {
   const probe = input.probe ?? daemonSocketProbe,
     spawnDetached =
       input.spawnDetached ??
-      ((launch: DaemonLaunchSpec) =>
-        startDetachedProcessChecked(
-          launch.command,
-          launch.args,
-          launch.env,
-          daemonLaunchOutputPath(launch),
-          daemonCheckoutRoot(input.invokingRoot),
-        ));
+      ((launch: DaemonLaunchSpec) => {
+        // An installed service unit owns this daemon: starting it any other way would leave a
+        // daemon the service manager neither restarts nor knows about.
+        const unit = installedDaemonServiceUnit(daemonLaunchTarget(launch)!);
+        return unit
+          ? startDaemonServiceUnit(unit)
+          : startDetachedProcessChecked(
+              launch.command,
+              launch.args,
+              launch.env,
+              daemonLaunchOutputPath(launch),
+              daemonCheckoutRoot(input.invokingRoot),
+            );
+      });
   // A freshly started daemon can die between binding its socket and finishing
   // startup; confirm readiness with a second probe before declaring success.
   const ready = async () => {

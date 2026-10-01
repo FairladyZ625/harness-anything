@@ -99,6 +99,8 @@ export const actionDeclarations = Object.freeze([
   canonical("repo-purge", null, "admin"),
   hostAdmin("repo-unbind"),
   hostAdmin("daemon-repo-update"),
+  hostAdmin("daemon-service-install"),
+  hostAdmin("daemon-service-uninstall"),
   canonical("daemon-start", null, "admin"),
   canonical("daemon-stop", null, "admin"),
   canonical("decision-accept", "decision/accept", "repo-write"),

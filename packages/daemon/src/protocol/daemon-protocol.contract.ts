@@ -643,6 +643,7 @@ export default Object.freeze({
     "Repo-Lifecycle",
     "Ledger-Read",
     "Entity-Pin",
+    "Edge-Resident-H1",
   ]),
   commands: daemonOwnedProtocolCommands,
   methods: Object.freeze([

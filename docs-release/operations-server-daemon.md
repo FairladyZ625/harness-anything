@@ -21,10 +21,11 @@ Use this flow when Windows should show a repository that remains on a server.
 The server daemon socket path is shown by `ha daemon status` in its `target:
 endpoint=` line.
 
-1. On the server, start the resident daemon:
+1. On the server, install the daemon as a user service (see
+   [Resident service](#resident-service-macos-and-linux)):
 
    ```bash
-   ha daemon start --service
+   ha daemon service install
    ```
 
 2. On Windows, forward a local TCP port to that server socket. Replace the
@@ -70,6 +71,44 @@ ha daemon repo register --repo-id <id> --root /path/to/workspace --mode local
 ha daemon start --service
 ha gui
 ```
+
+## Resident service (macOS and Linux)
+
+A machine that should keep its daemon running across crashes and reboots hands
+the daemon to the operating system's service manager:
+
+```bash
+ha daemon service install     # write and load the user-level unit, start the daemon
+ha daemon service status      # is the unit loaded, and is the running daemon the one it supervises
+ha daemon service uninstall   # stop the supervised daemon and remove the unit
+```
+
+`install` generates a launchd agent under `~/Library/LaunchAgents` on macOS and
+a systemd user unit under `~/.config/systemd/user` on Linux. It needs no
+`sudo`. There is one unit per user root and daemon id, so installing twice is
+a no-op and two user roots on one machine get two units. Windows is not
+supported; use `ha daemon start --service` there.
+
+While the unit is installed:
+
+- A daemon that crashes or is killed is started again by the service manager.
+  Running agent sessions are not stopped with it; the new daemon adopts them.
+- A daemon that leaves for a newer build on disk is restarted by the service
+  manager, so only one daemon exists at any time.
+- `ha daemon stop` stays stopped, including across the service manager's own
+  restarts and a reboot, until `ha daemon start --service`. Both commands keep
+  the daemon under the service manager.
+- `ha daemon service status` exits `0` only when the running daemon is the
+  process the unit started. Use it, not the exit code of `ha daemon status`,
+  as the health signal for a resident node.
+
+The unit records the `PATH` of the shell that ran `install`; the daemon finds
+`git` and the agent CLIs through it. Run `install` again after that `PATH`,
+the Node.js location, or the Harness Anything checkout changes.
+
+Starting at boot before anyone logs in needs one privileged step that Harness
+Anything does not perform: `loginctl enable-linger <user>` on Linux, and
+automatic login for the user on macOS.
 
 ## Recovering from task and runtime rejections
 
