@@ -1,10 +1,28 @@
-import type { ReactNode } from "react";
-import { MotionConfig } from "motion/react";
+import { createContext, useContext, type ReactNode } from "react";
+import { MotionConfig, useReducedMotion } from "motion/react";
 
-/**
- * motion 是 GUI 唯一动画库;reducedMotion="user" 让 JS 动画遵守系统
- * 「减少动态效果」,与 styles.css 的 prefers-reduced-motion 全局规则同向。
- */
-export function AppMotionConfig({ children }: { readonly children: ReactNode }) {
-  return <MotionConfig reducedMotion="user">{children}</MotionConfig>;
+export type MotionPreference = "system" | "on" | "off";
+const MotionPreferenceContext = createContext<MotionPreference>("system");
+
+/** Temporary acceptance switch: pass preference="on" or "off" at AppMotionConfig. */
+export function AppMotionConfig({
+  children,
+  preference = "system",
+}: {
+  readonly children: ReactNode;
+  readonly preference?: MotionPreference;
+}) {
+  return (
+    <MotionPreferenceContext.Provider value={preference}>
+      <MotionConfig reducedMotion={preference === "system" ? "user" : preference === "on" ? "never" : "always"}>
+        {children}
+      </MotionConfig>
+    </MotionPreferenceContext.Provider>
+  );
+}
+
+export function useEntryMotion() {
+  const preference = useContext(MotionPreferenceContext);
+  const reduced = useReducedMotion();
+  return { enabled: preference !== "off", reduced: preference === "system" && reduced === true };
 }

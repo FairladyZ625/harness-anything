@@ -1,3 +1,4 @@
+import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowLeft, CaretRight, PushPin, TerminalWindow } from "@phosphor-icons/react";
 import { EngineBadge, FreshnessTag } from "../components/badges.tsx";
@@ -391,10 +392,9 @@ export function TaskDetailView({
             onActiveDocChange={setActiveDoc}
             onOpenDoc={openDocument}
           />
-          <section
-            id="task-panel"
-            role="tabpanel"
-            aria-labelledby={`task-tab-${activeTab}`}
+          <TabPanel
+            idPrefix="task"
+            value={activeTab}
             className="min-h-0 min-w-0 overflow-y-auto px-4 py-4 lg:px-6"
             data-testid="task-detail-panel-scroll"
           >
@@ -428,7 +428,7 @@ export function TaskDetailView({
             ) : (
               <TaskFilesTab task={task} activeDoc={activeDoc} onOpenDoc={openDocument} />
             )}
-          </section>
+          </TabPanel>
         </div>
       </main>
     </div>

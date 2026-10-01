@@ -1,3 +1,4 @@
+import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
 import { useEffect, useState } from "react";
 import { ArrowLeft, CaretRight } from "@phosphor-icons/react";
 import type { CatalogPresetRow } from "../api-client.ts";
@@ -167,10 +168,9 @@ export function PresetDetailView({
           ].join(" ")}
         >
           <PresetDocumentSidebar documents={documents} activeDoc={activeDoc} onOpenDoc={openDocument} />
-          <section
-            id={`preset-panel-${activeTab}`}
-            role="tabpanel"
-            aria-labelledby={`preset-tab-${activeTab}`}
+          <TabPanel
+            idPrefix="preset"
+            value={activeTab}
             className="min-h-0 min-w-0 overflow-y-auto px-4 py-5 lg:px-6"
             data-testid="preset-detail-panel-scroll"
           >
@@ -192,7 +192,7 @@ export function PresetDetailView({
             ) : (
               <PresetDocumentPanel document={documents[0]!} />
             )}
-          </section>
+          </TabPanel>
         </div>
       </main>
     </div>
