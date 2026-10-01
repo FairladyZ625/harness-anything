@@ -1,14 +1,24 @@
-import type { CSSProperties } from "react";
 import type { SystemRepoRow } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
-import { DenseRow } from "../components/primitives/DenseRow.tsx";
-import { StatusTag, TONE_COLOR } from "../components/primitives/StatusTag.tsx";
-import { repoCellMeta, repoNeedsAttention } from "../model/repo-state.ts";
+import { Region } from "../components/primitives/Region.tsx";
+import type { StatusTone } from "../components/primitives/StatusTag.tsx";
+import { BTN } from "../components/ui/widgets.tsx";
+import { groupProjects, repoNeedsAttention, type ProjectGroupId } from "../model/repo-state.ts";
+import { canManageProjects, useAddProject } from "./home/add-project.ts";
+import { ProjectEntry } from "./home/ProjectEntry.tsx";
+import { useProjectActivity } from "./home/project-activity.ts";
+
+const GROUP_TITLE = {
+  attention: "views.homeView.groupAttention",
+  open: "views.homeView.groupOpen",
+  disabled: "views.homeView.groupDisabled",
+} as const;
 
 /**
- * 项目目录页(标准 §2.5):回答「有哪些项目、哪个进不去、当前在哪个」。每仓一行
- * DenseRow——状态用有底色的 StatusTag,异常仓置顶并带红竖线,正常仓不加强调;
- * 注册被停用的仓只解释不可进入的原因。空目录一行说明,不画大框。
+ * 项目管理页(标准 §2.5 目录型):回答「各项目现在怎么样、哪个需要我、我能在这里做什么」。
+ * 三个区域框自上而下:需要处理(挂不上、报错、有等人处理的事)→ 项目(当前项目置首并
+ * 标记)→ 已停用;空的区域不渲染。区域内条目按容器宽度自动分列——每列不窄于 32rem
+ * (位置路径与动作按钮在一行里放得下、路径不被截掉的宽度),窄了退成单列,宽了就多列铺开。
  */
 export function HomeView({
   repos,
@@ -19,90 +29,89 @@ export function HomeView({
   readonly currentRepoId: string | null;
   readonly onOpenProject: (repoId: string) => void;
 }) {
-  const attention = repos.filter((repo) => repoNeedsAttention(repo)),
-    healthy = repos.filter((repo) => !repoNeedsAttention(repo)),
-    ordered = [
-      ...attention.sort((left, right) => left.repoId.localeCompare(right.repoId)),
-      ...healthy.sort((left, right) => {
-        if (left.repoId === currentRepoId) return -1;
-        if (right.repoId === currentRepoId) return 1;
-        const byState = cellRank(left) - cellRank(right);
-        return byState !== 0 ? byState : left.repoId.localeCompare(right.repoId);
-      }),
-    ];
+  const readOf = useProjectActivity(repos),
+    groups = groupProjects(repos, currentRepoId, readOf),
+    addProject = useAddProject(),
+    canManage = canManageProjects(),
+    counts = (
+      [
+        ["views.homeView.countOpen", groups.open.length],
+        ["views.homeView.countAttention", groups.attention.length],
+        ["views.homeView.countDisabled", groups.disabled.length],
+      ] as const
+    ).filter(([, count]) => count > 0),
+    attentionTone: StatusTone = groups.attention.some(
+      (repo) => repoNeedsAttention(repo) || readOf(repo).state === "failed",
+    )
+      ? "bad"
+      : "wait";
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="home-view">
-      <header className="border-b border-border px-4 py-3" data-testid="home-header">
-        <div className="flex flex-wrap items-baseline gap-2">
-          <h1 className="ui-title font-semibold">{t("views.homeView.title")}</h1>
-          <span className="font-mono ui-micro text-text-faint">{repos.length}</span>
+      <header className="flex flex-wrap items-start gap-3 border-b border-border px-4 py-3" data-testid="home-header">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-x-2.5 gap-y-1">
+            <h1 className="ui-heading font-semibold">{t("views.homeView.title")}</h1>
+            <span className="ui-meta text-text-muted" data-testid="home-counts">
+              {counts.map(([key, count]) => t(key, { count })).join(" · ")}
+            </span>
+          </div>
+          <p className="mt-1 ui-meta text-text-faint">{t("views.homeView.summary")}</p>
         </div>
-        <p className="mt-1 ui-meta text-text-faint">{t("views.homeView.summary")}</p>
+        {addProject.available ? (
+          <button
+            type="button"
+            className={`${BTN} min-h-10 shrink-0`}
+            disabled={addProject.busy}
+            data-testid="home-add-project"
+            onClick={addProject.add}
+          >
+            {addProject.busy ? t("views.homeView.actionAdding") : t("views.homeView.actionAdd")}
+          </button>
+        ) : null}
       </header>
-      {ordered.length === 0 ? (
-        <p className="px-4 py-3 ui-meta text-text-faint">{t("views.homeView.empty")}</p>
+      {addProject.notice === null ? null : (
+        <p
+          className={`border-b border-border px-4 py-2 ui-meta ${
+            addProject.notice.tone === "bad" ? "text-status-blocked" : "text-status-done"
+          }`}
+          data-testid="home-add-notice"
+        >
+          {addProject.notice.text}
+        </p>
+      )}
+      {repos.length === 0 ? (
+        <p className="px-4 py-3 ui-meta text-text-faint" data-testid="home-empty">
+          {t("views.homeView.empty")}
+        </p>
       ) : (
-        <div data-testid="home-content" className="w-full p-4">
-          {ordered.map((repo) => (
-            <HomeRepoRow
-              key={repo.repoId}
-              repo={repo}
-              isCurrent={repo.repoId === currentRepoId}
-              onOpen={repo.registrationState === "enabled" ? () => onOpenProject(repo.repoId) : undefined}
-            />
-          ))}
+        <div data-testid="home-content" className="flex flex-col gap-6 p-4">
+          {(["attention", "open", "disabled"] satisfies ProjectGroupId[]).map((group) =>
+            groups[group].length === 0 ? null : (
+              <div key={group} data-testid={`home-group-${group}`} className="flex flex-col">
+                <Region
+                  title={t(GROUP_TITLE[group])}
+                  big={groups[group].length}
+                  bigTone={group === "attention" ? attentionTone : undefined}
+                  edge={group === "attention" ? attentionTone : undefined}
+                >
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,32rem),1fr))] gap-x-4">
+                    {groups[group].map((repo) => (
+                      <ProjectEntry
+                        key={repo.repoId}
+                        repo={repo}
+                        read={readOf(repo)}
+                        isCurrent={repo.repoId === currentRepoId}
+                        canManage={canManage}
+                        onOpen={onOpenProject}
+                      />
+                    ))}
+                  </div>
+                </Region>
+              </div>
+            ),
+          )}
         </div>
       )}
-    </div>
-  );
-}
-
-const cellRank = (repo: SystemRepoRow): number =>
-  repo.cellState === "attached" ? 0 : repo.cellState === "warming" ? 1 : 2;
-
-function HomeRepoRow({
-  repo,
-  isCurrent,
-  onOpen,
-}: {
-  readonly repo: SystemRepoRow;
-  readonly isCurrent: boolean;
-  readonly onOpen: (() => void) | undefined;
-}) {
-  const enabled = repo.registrationState === "enabled",
-    attention = repoNeedsAttention(repo),
-    cell = repoCellMeta(repo.cellState),
-    error = repo.unavailableReason ?? repo.lastError,
-    // 行强调只给异常仓:左侧 2px 红竖线,不用整块高饱和底色(标准 §3)。
-    edge = attention ? ({ "--status-edge": TONE_COLOR.bad } as CSSProperties) : undefined,
-    reason = error
-      ? error
-      : repo.canonicalRoot
-        ? repo.canonicalRoot
-        : repo.mode === "remote-proxy"
-          ? t("views.homeView.remoteProxy")
-          : "";
-  return (
-    <div className="status-edge relative" style={edge} data-testid={`home-repo-${repo.repoId}`}>
-      <DenseRow
-        tag={<StatusTag tone={cell.tone} label={t(cell.labelKey)} />}
-        title={
-          <span className="flex min-w-0 items-baseline gap-2">
-            <span className="truncate">{repo.displayName || repo.repoId}</span>
-            <span className="shrink-0 font-mono ui-micro text-text-faint">{repo.repoId}</span>
-            {isCurrent ? (
-              <span className="shrink-0 ui-micro font-medium text-accent">{t("views.homeView.current")}</span>
-            ) : null}
-          </span>
-        }
-        reason={!enabled ? t("views.homeView.disabled") : reason}
-        time={
-          repo.lockState === "held"
-            ? t("views.homeView.lockHeld")
-            : t("views.homeView.queueDepth", { count: repo.queueDepth ?? "—" })
-        }
-        onClick={onOpen}
-      />
     </div>
   );
 }

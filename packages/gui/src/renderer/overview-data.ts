@@ -49,15 +49,18 @@ export function useOverviewRecentEvents(repoId: string | null) {
   });
 }
 
+/** repo 级 runtime overview 的读法(只含未退出的会话):总览与项目管理页共用同一 key 去重。 */
+export function overviewRuntimeQuery(repoId: string) {
+  return {
+    queryKey: runtimeQueryKeys.overviewAll(repoId),
+    queryFn: (): Promise<AgentRuntimeOverviewResult> => agentRuntimeClient.overview(repoId),
+    staleTime: 4_000,
+  };
+}
+
 /** 执行中:repo 级 runtime overview(与研发态势同一读面,key 共享去重;cut 扇出覆盖)。 */
 export function useOverviewRuntime(repoId: string | null) {
-  const selectedRepoId = repoId ?? "unselected";
-  return useQuery({
-    queryKey: runtimeQueryKeys.overviewAll(selectedRepoId),
-    queryFn: (): Promise<AgentRuntimeOverviewResult> => agentRuntimeClient.overview(selectedRepoId),
-    enabled: repoId !== null,
-    staleTime: 4_000,
-  });
+  return useQuery({ ...overviewRuntimeQuery(repoId ?? "unselected"), enabled: repoId !== null });
 }
 
 export { ciQueryKeys, eventsQueryKeys };
