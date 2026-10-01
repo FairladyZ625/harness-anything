@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { pipeline } from "node:stream/promises";
-import { createServer } from "node:net";
+import { connect, createServer, isIP, type Server } from "node:net";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -42,6 +42,8 @@ type ManagedRbacOperation =
   | "backup"
   | "restore"
   | "upgrade"
+  | "listener"
+  | "listener-set"
   | "login-begin"
   | "login-complete"
   | "session"
@@ -66,6 +68,23 @@ export interface ManagedRbacRequest extends AccessAdminRequest {
   readonly displayName?: string;
   readonly password?: string;
   readonly personId?: string;
+  readonly listenAddress?: string;
+  readonly hostname?: string;
+  readonly port?: number;
+  readonly certificateFile?: string;
+  readonly certificateKeyFile?: string;
+}
+
+/**
+ * Where edge nodes reach the managed Keycloak: HTTPS on one address of this machine, under the
+ * hostname its certificate names. Without one, Keycloak serves loopback HTTP only.
+ */
+export interface ManagedRbacListener {
+  readonly address: string;
+  readonly hostname: string;
+  readonly port: number;
+  readonly certificateFile: string;
+  readonly certificateKeyFile: string;
 }
 
 interface ManagedRbacConfig {
@@ -79,6 +98,7 @@ interface ManagedRbacConfig {
   readonly installedAt?: string;
   readonly postgresPort?: number;
   readonly managementPort?: number;
+  readonly listener?: ManagedRbacListener;
   /** An operator stopped the managed services; a daemon start leaves them down until they are started again. */
   readonly stopped?: boolean;
 }
@@ -146,6 +166,11 @@ export class ManagedRbacService {
       if (config?.mode === "managed") this.#writeConfig({ ...config, stopped: true });
       return this.stop();
     }
+    if (operation === "listener") {
+      const { listener } = this.#readManagedConfig();
+      return { ok: true, command: "rbac-listener", listener: listener ?? null, version: listenerVersion(listener) };
+    }
+    if (operation === "listener-set") return this.#setListener(request);
     if (operation === "backup") return this.#backup(request);
     if (operation === "restore") return this.#restore(request);
     const started = Date.now();
@@ -175,25 +200,67 @@ export class ManagedRbacService {
 
   async stop(): Promise<Record<string, unknown>> {
     const stopped: string[] = [];
-    for (const name of ["keycloak", "postgres"] as const) {
-      const child = this.#children.get(name);
-      if (!child) continue;
-      child.kill("SIGTERM");
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(() => {
-          child.kill("SIGKILL");
-          resolve();
-        }, 10_000);
-        child.once("exit", () => {
-          clearTimeout(timer);
-          resolve();
-        });
-      });
-      this.#children.delete(name);
-      this.#readiness.delete(name);
-      stopped.push(name);
-    }
+    for (const name of ["keycloak", "postgres"] as const) if (await this.#stopChild(name)) stopped.push(name);
     return { ok: true, command: "rbac-stop", stopped };
+  }
+
+  async #stopChild(name: "postgres" | "keycloak"): Promise<boolean> {
+    const child = this.#children.get(name);
+    if (!child) return false;
+    child.kill("SIGTERM");
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        child.kill("SIGKILL");
+        resolve();
+      }, 10_000);
+      child.once("exit", () => {
+        clearTimeout(timer);
+        resolve();
+      });
+    });
+    this.#children.delete(name);
+    this.#readiness.delete(name);
+    return true;
+  }
+
+  /**
+   * The listener is one value in the managed configuration, changed against the version an
+   * administrator read. Keycloak restarts under it; a listener Keycloak cannot start with is not kept.
+   * The listener's hostname becomes the token issuer, so a session signed in under the previous
+   * issuer is refused at its next renewal and signs in again.
+   */
+  async #setListener(request: ManagedRbacRequest): Promise<Record<string, unknown>> {
+    const config = this.#readManagedConfig(),
+      currentVersion = listenerVersion(config.listener),
+      expectedVersion = request.expectedVersion;
+    if (!expectedVersion)
+      throw managedRbacError(
+        "rbac_listener_invalid",
+        "Changing the listener requires --expected-version; read it with --operation listener.",
+      );
+    if (expectedVersion !== currentVersion)
+      return { ok: false, code: "version_conflict", command: "rbac-listener-set", expectedVersion, currentVersion };
+    const listener = requestedListener(request),
+      { listener: _replaced, ...loopback } = config,
+      apply = async (next: ManagedRbacConfig): Promise<void> => {
+        await this.#stopChild("keycloak");
+        this.#writeConfig(next);
+        await this.start();
+        await this.#waitUntilReady();
+      };
+    if (listener) requirePrivateKeyFile(listener.certificateKeyFile);
+    try {
+      await apply(listener ? { ...loopback, listener } : loopback);
+    } catch (error) {
+      await apply(config);
+      throw error;
+    }
+    return {
+      ok: true,
+      command: "rbac-listener-set",
+      listener: listener ?? null,
+      version: listenerVersion(listener),
+    };
   }
 
   async health(): Promise<Record<string, unknown>> {
@@ -235,6 +302,7 @@ export class ManagedRbacService {
       installedAt: this.#ports.now(),
       postgresPort,
       managementPort,
+      ...(existing?.mode === "managed" && existing.listener ? { listener: existing.listener } : {}),
     });
   }
 
@@ -365,17 +433,33 @@ export class ManagedRbacService {
     );
   }
 
-  #startKeycloak(): Promise<void> {
+  /**
+   * Keycloak binds HTTP and HTTPS to one host, and that host stays loopback: the center keeps
+   * reaching it over loopback HTTP. A listener is this process passing TLS connections through to
+   * Keycloak's loopback HTTPS port, so the listen address carries HTTPS and nothing else.
+   */
+  async #startKeycloak(): Promise<void> {
     const active = this.#readiness.get("keycloak");
     if (active) return active;
     const config = this.#readManagedConfig(),
+      { listener } = config,
       httpPort = new URL(config.url).port,
       javaHome = javaHomePath(this.#root, this.#ports.platform),
       kc = path.join(this.#root, "runtime", "keycloak", "bin", "kc.sh");
-    return this.#spawnUntilReady(
+    if (listener) requirePrivateKeyFile(listener.certificateKeyFile);
+    const httpsPort = listener ? (await availableLoopbackPorts())[0] : undefined,
+      passthrough = listener ? await listenPassthrough(listener, httpsPort!) : undefined;
+    const ready = this.#spawnUntilReady(
       "keycloak",
       kc,
-      ["start", "--http-enabled=true", "--hostname-strict=false", "--import-realm", "--health-enabled=true"],
+      [
+        "start",
+        "--http-enabled=true",
+        // A fixed hostname is the issuer of every token, whichever address the request arrived on.
+        listener ? `--hostname=${managedRbacListenerUrl(listener)}` : "--hostname-strict=false",
+        "--import-realm",
+        "--health-enabled=true",
+      ],
       {
         ...process.env,
         JAVA_HOME: javaHome,
@@ -390,10 +474,19 @@ export class ManagedRbacService {
         KC_DB_PASSWORD: "",
         KC_BOOTSTRAP_ADMIN_USERNAME: "harness-bootstrap",
         KC_BOOTSTRAP_ADMIN_PASSWORD: readOrCreateSecret(path.join(this.#root, "bootstrap-admin-password")),
+        ...(listener
+          ? {
+              KC_HTTPS_PORT: String(httpsPort),
+              KC_HTTPS_CERTIFICATE_FILE: listener.certificateFile,
+              KC_HTTPS_CERTIFICATE_KEY_FILE: listener.certificateKeyFile,
+            }
+          : {}),
       },
       /Keycloak .* started in/u,
       60_000,
     );
+    if (passthrough) this.#children.get("keycloak")!.once("exit", () => passthrough.close());
+    return ready;
   }
 
   #track(name: "postgres" | "keycloak", child: ChildProcess): void {
@@ -637,6 +730,74 @@ export function managedRbacReceiptJournal(userRoot: string): {
       appendFileSync(file, `${line}\n`, { mode: 0o600 });
     },
   };
+}
+
+export function managedRbacListenerUrl(listener: Pick<ManagedRbacListener, "hostname" | "port">): string {
+  return `https://${listener.hostname}:${listener.port}`;
+}
+
+function listenerVersion(listener: ManagedRbacListener | undefined): string {
+  return createHash("sha256")
+    .update(JSON.stringify(listener ?? null))
+    .digest("hex");
+}
+
+/** No listener field means loopback only; otherwise all five describe the listener. */
+function requestedListener(request: ManagedRbacRequest): ManagedRbacListener | undefined {
+  const { listenAddress: address, hostname, port, certificateFile, certificateKeyFile } = request;
+  if ([address, hostname, port, certificateFile, certificateKeyFile].every((value) => value === undefined))
+    return undefined;
+  if (
+    !address ||
+    isIP(address) === 0 ||
+    !hostname ||
+    !Number.isInteger(port) ||
+    port! < 1 ||
+    port! > 65_535 ||
+    !URL.canParse(`https://${hostname}:${port}`) ||
+    new URL(`https://${hostname}:${port}`).hostname !== hostname ||
+    !certificateFile ||
+    !certificateKeyFile ||
+    !path.isAbsolute(certificateFile) ||
+    !path.isAbsolute(certificateKeyFile) ||
+    !existsSync(certificateFile)
+  )
+    throw managedRbacError(
+      "rbac_listener_invalid",
+      "A listener takes --listen-address (an IP address of this machine), --hostname (lowercase, as the certificate names it), --port, and absolute --certificate-file and --certificate-key-file paths. Pass none of them to serve loopback only.",
+    );
+  return { address, hostname, port: port!, certificateFile, certificateKeyFile };
+}
+
+function requirePrivateKeyFile(file: string): void {
+  const mode = existsSync(file) ? statSync(file).mode & 0o777 : undefined;
+  if (mode === undefined || (mode & 0o077) !== 0)
+    throw managedRbacError(
+      "rbac_listener_key_exposed",
+      mode === undefined
+        ? `The listener's private key ${file} does not exist.`
+        : `The listener's private key ${file} has mode ${mode.toString(8).padStart(4, "0")}; only its owner may read it (chmod 600).`,
+    );
+}
+
+function listenPassthrough(listener: ManagedRbacListener, httpsPort: number): Promise<Server> {
+  const server = createServer((client) => {
+    const keycloak = connect(httpsPort, "127.0.0.1");
+    client.pipe(keycloak).pipe(client);
+    client.on("error", () => keycloak.destroy());
+    keycloak.on("error", () => client.destroy());
+  });
+  return new Promise((resolve, reject) => {
+    server.once("error", (error) =>
+      reject(
+        managedRbacError(
+          "rbac_listener_unavailable",
+          `Could not listen on ${listener.address}:${listener.port}: ${error.message}`,
+        ),
+      ),
+    );
+    server.listen(listener.port, listener.address, () => resolve(server));
+  });
 }
 
 export function artifactManifest(platform: SupportedPlatform): readonly Artifact[] {

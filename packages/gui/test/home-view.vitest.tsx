@@ -55,12 +55,13 @@ const repo = (overrides: Partial<SystemRepoRow>): SystemRepoRow => ({
 });
 
 const summary = (counts: Partial<Record<"active" | "submitted" | "in_review" | "blocked", number>>, inbox = 0) => ({
-  tasks: { byStatus: { active: 0, submitted: 0, in_review: 0, blocked: 0, ...counts } },
+  tasks: { lastChangedAt: null, byStatus: { active: 0, submitted: 0, in_review: 0, blocked: 0, ...counts } },
   decisions: { inboxCount: inbox },
 });
 const sessions = (...liveness: string[]) => ({ sessions: liveness.map((value) => ({ liveness: value })) });
 const ready = (overrides: Partial<Extract<ProjectActivityRead, { state: "ready" }>>): ProjectActivityRead => ({
   state: "ready",
+  lastChangedAt: null,
   active: 0,
   awaitingYou: 0,
   inReview: 0,
@@ -169,9 +170,18 @@ describe("项目分组与状态(model/repo-state)", () => {
     expect(projectActivityRead({ data, error: null }, { error: null })).toEqual({ state: "loading" });
     expect(
       projectActivityRead({ data, error: null }, { data: sessions("live", "stale", "live"), error: null }),
-    ).toEqual({ state: "ready", active: 9, awaitingYou: 3, inReview: 3, blocked: 4, liveAgents: 2 });
+    ).toEqual({
+      state: "ready",
+      lastChangedAt: null,
+      active: 9,
+      awaitingYou: 3,
+      inReview: 3,
+      blocked: 4,
+      liveAgents: 2,
+    });
     expect(projectActivityRead({ data, error: null }, { error: new Error("boom") })).toMatchObject({
       state: "ready",
+      lastChangedAt: null,
       liveAgents: null,
     });
   });
@@ -486,4 +496,20 @@ describe("项目页补齐答复与数字跳转", () => {
     expect(openDirectory).toHaveBeenCalledExactlyOnceWith({ repoId: "local" });
     expect(more(container.querySelector<HTMLElement>('[data-testid="home-repo-remote"]')!)).toBeNull();
   });
+});
+
+it("renders the summary timestamp as relative activity with the full time on hover, and omits null", async () => {
+  const at = new Date(Date.now() - 5 * 60_000).toISOString();
+  const data = summary({ active: 1 });
+  const { container } = await mountHome([repo({})], "canonical", {
+    canonical: { summary: { ...data, tasks: { ...data.tasks, lastChangedAt: at } }, runtime: sessions() },
+  });
+  const time = container.querySelector<HTMLTimeElement>('[data-testid="home-entry-last-activity"]')!;
+  expect(time.dateTime).toBe(at);
+  expect(time.textContent).toBe("5 分钟前");
+  expect(time.title).toMatch(/^最近活动 · \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+  const empty = await mountHome([repo({ repoId: "empty" })], null, {
+    empty: { summary: summary({}), runtime: sessions() },
+  });
+  expect(empty.container.querySelector('[data-testid="home-entry-last-activity"]')).toBeNull();
 });

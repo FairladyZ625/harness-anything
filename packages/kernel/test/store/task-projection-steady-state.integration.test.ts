@@ -56,6 +56,7 @@ test("steady apply and rebuild use the same reducer and reproduce watermark, op 
     const startOpId = lifecycleFixture().events[1]!.opId;
     assert.equal(projection.readOperation(startOpId)?.event.type, "execution_started");
     assert.deepEqual(projection.readWorkspaceSummary().summary.tasks, {
+      lastChangedAt: lifecycleFixture().events.at(-1)!.occurredAt,
       total: 1,
       byStatus: { planned: 0, active: 0, submitted: 0, blocked: 0, in_review: 0, done: 1, cancelled: 0, unknown: 0 },
     });

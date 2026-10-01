@@ -65,3 +65,44 @@ test("ha bootstrap reads and sets the session lifetime through the same daemon m
     false,
   );
 });
+
+test("ha bootstrap reads and sets the listener edge nodes sign in through", () => {
+  const read = parseThinCommand(["bootstrap", "--operation", "listener"], "/repo");
+  assert.equal(read.ok, true);
+  if (!read.ok) return;
+  assert.deepEqual(read.command.action, { kind: "rbac-bootstrap", operation: "listener" });
+  const set = parseThinCommand(
+    [
+      "bootstrap",
+      "--operation",
+      "listener-set",
+      "--listen-address",
+      "192.0.2.10",
+      "--hostname",
+      "center.example.test",
+      "--port",
+      "8443",
+      "--certificate-file",
+      "/etc/harness/center.crt",
+      "--certificate-key-file",
+      "/etc/harness/center.key",
+      "--expected-version",
+      "version-1",
+    ],
+    "/repo",
+  );
+  assert.equal(set.ok, true);
+  if (!set.ok) return;
+  assert.equal(set.command.method, "daemon.rbac.manage");
+  assert.deepEqual(set.command.action, {
+    kind: "rbac-bootstrap",
+    operation: "listener-set",
+    expectedVersion: "version-1",
+    listenAddress: "192.0.2.10",
+    hostname: "center.example.test",
+    port: 8443,
+    certificateFile: "/etc/harness/center.crt",
+    certificateKeyFile: "/etc/harness/center.key",
+  });
+  assert.equal(parseThinCommand(["bootstrap", "--operation", "listener-set", "--port", "https"], "/repo").ok, false);
+});
