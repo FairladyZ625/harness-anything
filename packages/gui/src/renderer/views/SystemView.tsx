@@ -69,7 +69,7 @@ function RepoRow({
     openObserve = repo.cellState === "attached" ? onOpenObserve : undefined;
   return (
     <tr className={`border-b border-border last:border-b-0 ${isCurrent ? "bg-surface-raised/40" : ""}`}>
-      <td className="max-w-[24rem] px-3 py-2 align-top">
+      <td className="max-w-[19rem] px-3 py-2 align-top">
         {/* 名称第一行,路径收进第二行弱色(标准 §2.5 v2):路径不再单占一列把其他列挤竖。 */}
         <span className="flex flex-col gap-0.5">
           <span className="font-mono ui-meta text-text">{label}</span>
@@ -169,7 +169,7 @@ export function SystemView({
       ...status.data.repos.filter((repo) => !repoNeedsAttention(repo)),
     ];
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto">
+    <div className="@container flex flex-1 flex-col overflow-y-auto">
       <header className="border-b border-border px-4 py-3">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="ui-title font-semibold">{t("shell.nav.system")}</h1>
@@ -226,10 +226,7 @@ export function SystemView({
         ) : null}
         <span className="ml-auto font-mono ui-micro text-text-faint">{dateTime(status.data.observedAt)}</span>
       </section>
-      <div
-        data-testid="system-content"
-        className="@container grid w-full gap-4 p-4 @min-[900px]:grid-cols-[16rem_minmax(0,1fr)]"
-      >
+      <div data-testid="system-content" className="grid w-full gap-4 p-4 @min-[900px]:grid-cols-[16rem_minmax(0,1fr)]">
         <section className="rounded-lg border border-border bg-surface p-3">
           <div className="flex items-center justify-between gap-2">
             <h2 className="ui-body font-semibold">{t("views.settingsView.systemDaemonStatus")}</h2>
