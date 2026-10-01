@@ -9,6 +9,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import {
   inferLegacyGateRequirements,
   validateFrozenCompletionContract,
+  type FrozenGateRequirement,
 } from "../domain/completion-contract.ts";
 import {
   decisionContentPin,
@@ -163,15 +164,13 @@ const taskV2SnapshotsMigration: EventShapeMigrationSpec = {
         before: legacy.task,
         after: task,
       };
-    if (!isTaskEvent(event))
-      throw new Error(`task snapshot ${event.opId} carries non-empty relations without a task lifecycle mutation`);
     if (event.type === "task_relation_added") {
       const addedIds = new Set(event.payload.mutation.fields),
         added = legacy.relations.filter((relation) => addedIds.has(String(relation.relation_id))),
         carried = legacy.relations.filter((relation) => !addedIds.has(String(relation.relation_id)));
       if (added.length !== 1)
         throw new Error(`task relation event ${event.opId} must identify exactly one added relation`);
-      assertRelationsExistAtCut(carried, cut, event.opId);
+      assertRelationsExistAtCut(carried, cut, event.opId, event.workspaceRevision);
       const relation = added[0]!,
         relationId = String(relation.relation_id);
       return {
@@ -192,7 +191,7 @@ const taskV2SnapshotsMigration: EventShapeMigrationSpec = {
         after: { relationId, relation },
       };
     }
-    assertRelationsExistAtCut(legacy.relations, cut, event.opId);
+    assertRelationsExistAtCut(legacy.relations, cut, event.opId, event.workspaceRevision);
     return {
       event: { ...event, payload: { ...event.payload, task } } as CanonicalEventV1,
       category: "retired Task.relations dropped after canonical relation event",
@@ -376,14 +375,46 @@ const legacyImportNormalizationMigration: EventShapeMigrationSpec = {
   },
 };
 
+// Canonical relations come from relation events and task_relation_added promotions; an embedded
+// relation that no event ever declared was inert snapshot data in the source ledger — the old
+// projection only materialized task_created/task_relation_added carriers — so conversion drops it
+// like any retired field instead of rejecting the event. Declared relations still must exist at the
+// carrier's cut once their declaration precedes it; ids declared later are dropped from the earlier
+// carrier because the promotion event will create them when it is reached.
+let conversionRelationDeclarationRevisions: ReadonlyMap<string, number> | null = null;
+function declaredRelationRevisions(events: readonly CanonicalEventV1[]): Map<string, number> {
+  const declared = new Map<string, number>();
+  for (const event of events) {
+    if (isTaskEvent(event) && event.type === "task_relation_added") {
+      const fields = (event.payload as { readonly mutation?: { readonly fields?: unknown } }).mutation
+        ?.fields;
+      if (Array.isArray(fields))
+        for (const field of fields) declared.set(String(field), event.workspaceRevision);
+    }
+    else if (
+      isRelationEvent(event) &&
+      (event.type === "relation_created" || event.type === "relation_replaced")
+    )
+      declared.set(String(event.relationId), event.workspaceRevision);
+  }
+  return declared;
+}
 function assertRelationsExistAtCut(
   relations: readonly Readonly<Record<string, unknown>>[],
   cut: EventShapeCut,
   opId: string,
+  carrierRevision: number,
 ): void {
   const missing = relations
     .map((relation) => String(relation.relation_id))
-    .filter((relationId) => cut.readEntityVersionWitness(`relation/${relationId}`).currentVersion === null);
+    .filter(
+      (relationId) =>
+        cut.readEntityVersionWitness(`relation/${relationId}`).currentVersion === null &&
+        (conversionRelationDeclarationRevisions === null
+          ? 0
+          : (conversionRelationDeclarationRevisions.get(relationId) ?? Number.POSITIVE_INFINITY)) <
+          carrierRevision,
+    );
   if (missing.length > 0)
     throw new Error(`task snapshot ${opId} carries relations not present at its historical cut: ${missing.join(", ")}`);
 }
@@ -777,10 +808,25 @@ const submissionCompletionContractMigration: EventShapeMigrationSpec = {
     )
       return null;
     if (!isRecord(payload.task) || !Array.isArray(payload.task.completionGateIds)) return null;
-    const gates = inferLegacyGateRequirements(
-        payload.task.completionGateIds as readonly string[],
-        ciWorkflowRegistryForConversion(),
-      ),
+    const declaredGateIds = [...new Set(payload.task.completionGateIds as readonly string[])],
+      inferred = inferLegacyGateRequirements(declaredGateIds, ciWorkflowRegistryForConversion()),
+      inferredIds = new Set(inferred.map((gate) => gate.gateId)),
+      // A declared gate whose witness cannot be reconstructed as an automated adapter (ci on a
+      // repository with no workflow registry, or a custom id) was admitted by a recorded verdict:
+      // freeze it as manual attestation on the submission cut, the same judgment the replay
+      // fallback encodes for unfrozen submissions.
+      gates = [
+        ...inferred,
+        ...declaredGateIds
+          .filter((gateId) => !inferredIds.has(gateId))
+          .map(
+            (gateId): FrozenGateRequirement => ({
+              gateId,
+              appliesTo: "submission",
+              witness: { adapterId: "manual-attest", adapterOptions: {} },
+            }),
+          ),
+      ],
       completionContract = { gates },
       issues = validateFrozenCompletionContract(completionContract);
     if (issues.length > 0)
@@ -794,7 +840,7 @@ const submissionCompletionContractMigration: EventShapeMigrationSpec = {
       event: {
         ...event,
         payload: { ...payload, execution: { ...payload.execution, submission } },
-      } as CanonicalEventV1,
+      } as unknown as CanonicalEventV1,
       category: "pre-freeze submission completion contract synthesized",
       before: payload.execution.submission,
       after: submission,
@@ -858,6 +904,7 @@ function replayRewrites(
 ): Pick<LegacyGenerationConversionPlan, "events" | "blobs" | "rewrites"> {
   conversionRootDir = input.rootDir;
   conversionWorkflowRegistry = null;
+  conversionRelationDeclarationRevisions = declaredRelationRevisions(input.store.read().events);
   const events: CanonicalEventV1[] = [],
     blobs = new Map<string, CanonicalContentBlob>(),
     rewrites: LegacyGenerationConversionPlan["rewrites"][number][] = [],
