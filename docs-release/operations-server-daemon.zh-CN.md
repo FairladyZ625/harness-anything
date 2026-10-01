@@ -124,6 +124,18 @@ ha daemon repo register --repo-id <id> --root /path/to/workspace --mode local
 `remote-center` 和 `remote-edge` 用于既有 Fleet 拓扑，不用于纯展示。部署和运维请见
 [Fleet center deployment](../tools/fleet-center/README.md)。
 
+边缘镜像只包含中心台账已接受的文档。`ha init` 会把它写在 `harness/governance/` 和
+`harness/context/` 下的脚手架文档作为台账文档发布，所以新建中心的边缘节点能收到它们。
+由旧版本初始化的中心，这些文件只在磁盘上。在中心执行一次发布：
+
+```sh
+ha doc sync --submit --path governance/standards/README.md --path context/README.md
+```
+
+每个文件写一个 `--path`。`--path` 只接受文件，不接受目录：传目录会被报告为
+`inapplicable`，不会发布任何内容。在中心手写的规范或上下文文档同样要走这一步。
+文档发布后，边缘在下一次同步时看到它。
+
 ## 本地 socket 边界
 
 本地 daemon socket 是访问边界。其目录以 `0700`、socket 文件以 `0600` 创建；不要扩大
