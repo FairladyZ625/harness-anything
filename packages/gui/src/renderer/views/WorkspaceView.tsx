@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
 import { SegBar } from "../components/primitives/SegBar";
 import { Tabs } from "../components/primitives/Tabs";
 import { TaskPreviewDrawer } from "../components/TaskPreviewDrawer.tsx";
@@ -344,22 +345,25 @@ export function WorkspaceView({
               if (next.trim() !== "")
                 setTab((current) => (current === "tasks" || current === "decisions" ? current : "tasks"));
             }}
-            className="mb-1.5 w-[260px] flex-none rounded-xs border border-border bg-surface-raised px-3 py-1.5 text-text ui-meta outline-none placeholder:text-text-faint focus:border-border-strong"
+            className="mb-1.5 min-w-0 flex-1 rounded-xs border border-border bg-surface-raised px-3 py-1.5 text-text ui-meta outline-none placeholder:text-text-faint focus:border-border-strong md:w-[260px] md:flex-none"
           />
         </div>
       </header>
 
       <div className="@container min-h-0 flex-1 overflow-y-auto">
-        <div
-          id="workspace-panel"
-          role="tabpanel"
-          aria-labelledby={`workspace-tab-${tab}`}
-          // 概况是一屏的区域板:容器 ≥900px 时面板占满可视高度,区域在自己内部滚动;
-          // 更窄时退回内容高度、整页滚动。其余页签是随内容往下排的文档型版式。
+        {/* TabPanel 原语(#3163):role/aria 配对 + 页签切换的轻量入场动效,不各写一套。
+            概况是一屏的区域板:容器 ≥900px 时面板占满可视高度,区域在自己内部滚动;
+            本地图与根任务是工具型/详情面板,同样铺满可视高度、面板内滚动(原则 9①);
+            其余页签是随内容往下排的文档型版式。 */}
+        <TabPanel
+          idPrefix="workspace"
+          value={tab}
           className={
             tab === "overview"
               ? "flex flex-col gap-3 px-5 pb-3 pt-4 md:px-7 @[900px]:h-full"
-              : "grid grid-cols-1 gap-9 px-5 pb-16 pt-4 md:px-7"
+              : tab === "graph" || tab === "root"
+                ? "flex h-full min-h-0 flex-col px-5 pb-4 pt-4 md:px-7"
+                : "grid grid-cols-1 gap-9 px-5 pb-16 pt-4 md:px-7"
           }
         >
           {(scope.status === "pending" || scope.warnings.length > 0) && (
@@ -467,7 +471,7 @@ export function WorkspaceView({
             </div>
           ) : null}
           {/* 关系图保持挂载:焦点与展开累积在页签切换间保留,active 只卸画布 DOM。 */}
-          <div hidden={tab !== "graph"}>
+          <div hidden={tab !== "graph"} className="flex min-h-0 flex-1 flex-col">
             <WorkGraphTab
               memberTaskIds={[scope.root.taskId, ...scope.memberTaskIds]}
               tasks={tasks}
@@ -482,12 +486,12 @@ export function WorkspaceView({
           {tab === "root" && renderRootTask !== undefined ? (
             <section
               data-testid="workspace-root-task"
-              className="h-[calc(100vh-260px)] min-h-[520px] overflow-hidden rounded-sm border border-border"
+              className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-sm border border-border"
             >
               {renderRootTask(() => setTab("overview"))}
             </section>
           ) : null}
-        </div>
+        </TabPanel>
       </div>
 
       <TaskPreviewDrawer

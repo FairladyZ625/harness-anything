@@ -5,6 +5,8 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { AppMotionConfig } from "../src/renderer/motion-config.tsx";
+import { PageEntryBoundary } from "../src/renderer/components/primitives/EntryBoundary.tsx";
 import { WorkspaceView } from "../src/renderer/views/WorkspaceView.tsx";
 import { combineWorkspaceScopePages } from "../src/renderer/workspace-scope-data.ts";
 import { harnessClient } from "../src/renderer/api-client.ts";
@@ -12,6 +14,13 @@ import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import type { TaskRow } from "../src/renderer/model/types.ts";
 import type { WorkspaceScopeRead } from "../src/api/renderer-dto.ts";
 import { projectedTaskFields } from "./task-projection-fields.ts";
+
+// 只有 EntryBoundary 直接 import "motion";替身让入场动效可观察、不依赖 happy-dom 动画。
+const motionProbe = vi.hoisted(() => ({ animate: vi.fn(() => ({ complete: vi.fn() })) }));
+vi.mock("motion", async (original) => ({
+  ...(await original<typeof import("motion")>()),
+  animate: motionProbe.animate,
+}));
 
 /**
  * 工作详情页按原型 v2(dec_AF44708E8F70F04E59FF751F9C/CH1):顶部身份 + 状态分段
@@ -678,5 +687,66 @@ describe("page assembly", () => {
       ]);
     expect(combined?.tasks.map(({ taskId }) => taskId)).toEqual(["task_root", "task_second"]);
     expect(combined?.page.nextCursor).toBeNull();
+  });
+});
+
+describe("tab panel wiring (TabPanel 原语)", () => {
+  it("pairs the panel with the Tabs ids and plays the shared entry motion on tab switch", async () => {
+    motionProbe.animate.mockClear();
+    const host = await mount(
+      <AppMotionConfig preference="on">
+        <PageEntryBoundary identity="work-page">
+          <WorkspaceView scope={scope()} projectName="Harness" onOpenTask={() => {}} />
+        </PageEntryBoundary>
+      </AppMotionConfig>,
+    );
+    // 与 Tabs 的 idPrefix 配对:id/aria 随页签走(与 TaskDetailView 同一接法)。
+    const panel = host.querySelector("#workspace-panel")!;
+    expect(panel.getAttribute("role")).toBe("tabpanel");
+    expect(panel.getAttribute("aria-labelledby")).toBe("workspace-tab-overview");
+    // 初次挂载不播;切页签播一次轻量入场(#3163 语义)。
+    expect(motionProbe.animate).not.toHaveBeenCalled();
+    await act(async () => tab(host, "tasks").click());
+    expect(panel.getAttribute("aria-labelledby")).toBe("workspace-tab-tasks");
+    expect(motionProbe.animate).toHaveBeenCalled();
+  });
+});
+
+describe("layout adapts without guessed viewport constants(原则 9)", () => {
+  it("fills the local-graph canvas from the flex chain instead of calc(100vh) and a fixed min width", async () => {
+    const host = await mount(<WorkspaceView scope={scope()} projectName="Harness" onOpenTask={() => {}} />);
+    await act(async () => tab(host, "graph").click());
+    const scroll = host.querySelector('[data-testid="workspace-graph-scroll"]')!;
+    expect(scroll.className).toContain("min-h-0");
+    expect(scroll.className).toContain("flex-1");
+    // 画布宽度跟随容器,不再有横向滚动容器与 52rem 下限。
+    expect(scroll.className).not.toContain("overflow-x-auto");
+    const canvas = host.querySelector('[data-testid="workspace-graph-canvas"]')!;
+    expect(canvas.className).toContain("h-full");
+    expect(canvas.className).not.toMatch(/calc\(100vh|min-w-\[/u);
+  });
+
+  it("gives the root-task panel its height from the flex chain, not a viewport guess", async () => {
+    const host = await mount(
+      <WorkspaceView
+        scope={scope()}
+        projectName="Harness"
+        onOpenTask={() => {}}
+        renderRootTask={() => <p>root detail</p>}
+      />,
+    );
+    await act(async () => tab(host, "root").click());
+    const panel = host.querySelector('[data-testid="workspace-root-task"]')!;
+    expect(panel.className).toContain("flex-1");
+    expect(panel.className).toContain("min-h-0");
+    expect(panel.className).not.toMatch(/calc\(100vh|min-h-\[\d+px\]/u);
+  });
+
+  it("lets the in-page search flex below md and pins it to 260px from md up", async () => {
+    const host = await mount(<WorkspaceView scope={scope()} projectName="Harness" onOpenTask={() => {}} />);
+    const search = host.querySelector('[data-testid="workspace-search"]')!;
+    expect(search.className).toContain("flex-1");
+    expect(search.className).toContain("md:w-[260px]");
+    expect(search.className).not.toMatch(/(?<!md:)w-\[260px\]/u);
   });
 });

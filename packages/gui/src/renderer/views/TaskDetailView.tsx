@@ -146,9 +146,10 @@ export function TaskDetailView({
     <div className="flex h-full min-h-0 flex-col bg-bg" data-testid="task-detail-view">
       {/* 视觉基线 v1 §2.2 文档型页头:面包屑 / 标题+状态 / 一行目标(可展开) /
           生命周期进度与关键数字 / 标签栏。徽标一律 shrink-0 + whitespace-nowrap,
-          标题与面包屑截断,长标题/长徽标不再把头部撑高。 */}
+          标题与面包屑截断,长标题/长徽标不再把头部撑高;头部行允许换行(原则 9②),
+          窄屏下动作钮折到面包屑下一行、逐钮换行,不越出视口。 */}
       <header className="relative z-20 shrink-0 border-b border-border bg-surface/80" data-testid="task-detail-header">
-        <div className="flex min-h-0 items-center gap-2 px-3 py-1 lg:px-4">
+        <div className="flex min-h-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 py-1 lg:px-4">
           <button
             type="button"
             onClick={onBack}
@@ -191,7 +192,7 @@ export function TaskDetailView({
               className="truncate font-mono ui-micro leading-3 text-text-muted hover:text-accent hover:underline"
             />
           </div>
-          <div className="flex shrink-0 items-center gap-1.5">
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5">
             <span className="whitespace-nowrap">
               <EngineBadge engine={task.engine} locked={external} />
             </span>
@@ -340,7 +341,7 @@ export function TaskDetailView({
         {goal !== null && <TaskGoalLine goal={goal} />}
         {/* 生命周期进度与关键数字:阶段投影步进条 + 子任务分段(有子任务才有) + 数字。 */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-3 pb-1.5 lg:px-4">
-          <div className="min-w-[240px] max-w-[520px] flex-1">
+          <div data-testid="task-detail-phase" className="min-w-0 max-w-[520px] flex-1">
             <PhaseSteps phase={task.phase} />
           </div>
           {childTotal > 0 ? <SegBar counts={childCounts} className="h-[5px] max-w-[320px] flex-1" /> : null}

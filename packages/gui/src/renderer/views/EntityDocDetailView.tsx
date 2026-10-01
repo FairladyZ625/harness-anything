@@ -26,15 +26,23 @@ import {
   type ArtifactKindDeclaration,
 } from "../vertical-kind-client.ts";
 
-/** 左列宽度:说明内容(字段表/词表/实体清单)的可读下限,右栏渲染器吃掉全部剩余。 */
-const LEFT_COLUMN_CLASS = "w-[400px] shrink-0 overflow-y-auto border-r border-border px-4 py-4";
+/**
+ * 左列宽度:说明内容(字段表/词表/实体清单)的可读下限,右栏渲染器吃掉全部剩余。
+ * 容器 ≥1100px 双栏(与 TaskDetailView 的容器查询同一断带);更窄单栏纵排(原则 9②),
+ * 左列吃满内容宽、整列区域滚动,右栏不再被固定 400px 挤出视口。
+ */
+const LEFT_COLUMN_CLASS = [
+  "min-w-0 border-b border-border px-4 py-4",
+  "@min-[1100px]:w-[400px] @min-[1100px]:shrink-0 @min-[1100px]:overflow-y-auto",
+  "@min-[1100px]:border-b-0 @min-[1100px]:border-r",
+].join(" ");
 
 /**
- * 实体页·详情:两栏骨架——左列(固定宽,内部自滚动)承载说明本体:描述、存放、
+ * 实体页·详情:两栏骨架(容器 ≥1100px;更窄单栏纵排)——左列承载说明本体:描述、存放、
  * GUI 入口、核心字段(含合法写入动作)、状态词表、关系,以及声明实体的「本仓实体」
- * 清单(含搜索与新建);右栏是选中实体的自适应渲染器(`entity-locator-renderer.ts`
- * 按 locator 类型选),占满剩余宽度与全高,未选中时呈真实空态。内核实体(task /
- * decision / …)沿用同一骨架,右栏保持空态——不做两套布局。
+ * 清单(含搜索与新建),双栏时固定宽、内部自滚动;右栏是选中实体的自适应渲染器
+ * (`entity-locator-renderer.ts` 按 locator 类型选),占满剩余宽度与全高,未选中时呈
+ * 真实空态。内核实体(task / decision / …)沿用同一骨架,右栏保持空态——不做两套布局。
  *
  * Fact 详情额外承载 Type 受控词表配置区(dec_2935057783CD5D56E9F287AE4D)。
  */
@@ -202,7 +210,7 @@ export function EntityDocDetailView({
         </div>
       </header>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="@container flex min-h-0 flex-1 flex-col overflow-y-auto @min-[1100px]:flex-row @min-[1100px]:overflow-visible">
         <aside className={LEFT_COLUMN_CLASS} data-testid="entity-doc-detail-left">
           <section>
             <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 ui-meta">
@@ -391,7 +399,7 @@ export function EntityDocDetailView({
         </aside>
 
         <section
-          className="flex min-h-0 min-w-0 flex-1 flex-col"
+          className="flex min-w-0 flex-col @min-[1100px]:min-h-0 @min-[1100px]:flex-1"
           data-testid="entity-doc-detail-right"
           aria-label="实体正文"
         >

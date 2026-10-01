@@ -55,7 +55,7 @@ export function WorkGraphTab({
   }, [memberTaskIds, tasks, decisions, facts, relations]);
 
   return (
-    <section className="min-w-0 space-y-2" aria-labelledby="workspace-graph">
+    <section className="flex min-h-0 flex-1 flex-col gap-2" aria-labelledby="workspace-graph">
       <h2 id="workspace-graph" className="sr-only">
         {t("views.workspace.localGraph")}
       </h2>
@@ -67,8 +67,13 @@ export function WorkGraphTab({
           : ` · ${t("views.workspace.graphFocus", { label: graphStats.focusLabel })}`}
         。{t("views.workspace.graphHint")}
       </p>
-      <div data-testid="workspace-graph-scroll" className="max-w-full overflow-x-auto rounded-sm border border-border">
-        <div data-testid="workspace-graph-canvas" className="h-[calc(100vh-310px)] min-h-[420px] min-w-[52rem]">
+      {/* 画布高度由 flex 分配、宽度跟随容器(原则 9①/9②):ReactFlow 自己按容器实测尺寸
+          布局,画布内容靠平移/缩放浏览,不需要横向滚动条与最小宽度。 */}
+      <div
+        data-testid="workspace-graph-scroll"
+        className="min-h-0 flex-1 overflow-hidden rounded-sm border border-border"
+      >
+        <div data-testid="workspace-graph-canvas" className="h-full w-full">
           <EgoNeighborhood
             {...graph}
             focusRef={focusRef}
