@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { withRoleBinding, writeOwnerRoster } from "./role-binding.fixtures.ts";
+import { eventually } from "./schedule-actions.fixtures.ts";
 import { makeTaskEventStore, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
@@ -180,7 +181,7 @@ test("runtime attempt-terminal asynchronously settles the claimed Schedule occur
       );
       exit?.(0);
 
-      const settled = await eventuallyAsync(async () => {
+      const settled = await eventually(async () => {
         const schedule = await listedSettlementSchedule(cell, scheduleId);
         return schedule.status.activeRun === null && schedule.status.lastRun?.outcome === "failed";
       });
@@ -248,7 +249,7 @@ async function runOccurrence(
   );
   callbacks.exit()?.(0);
   assert.equal(
-    await eventuallyAsync(async () => {
+    await eventually(async () => {
       const schedule = await listedSettlementSchedule(cell, scheduleId);
       return schedule.status.activeRun === null && schedule.status.lastRun?.outcome === expectedOutcome;
     }),
@@ -267,14 +268,6 @@ async function listedSettlementSchedule(cell: Awaited<ReturnType<typeof openRepo
     }[];
   };
   return listed.schedules.find((schedule) => schedule.scheduleId === scheduleId)!;
-}
-
-async function eventuallyAsync(check: () => Promise<boolean>): Promise<boolean> {
-  for (let index = 0; index < 100; index += 1) {
-    if (await check()) return true;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  return false;
 }
 
 const actor = withRoleBinding(
@@ -504,14 +497,6 @@ async function listedSchedule(cell: Awaited<ReturnType<typeof openRepoCell>>, sc
     }[];
   };
   return listed.schedules.find((schedule) => schedule.scheduleId === scheduleId)!;
-}
-
-async function eventually(check: () => boolean): Promise<boolean> {
-  for (let index = 0; index < 400; index += 1) {
-    if (check()) return true;
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-  return false;
 }
 
 function git(cwd: string, ...args: string[]): string {

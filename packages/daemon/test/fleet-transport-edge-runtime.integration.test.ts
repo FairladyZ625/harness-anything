@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -946,22 +946,21 @@ test(
     );
     // Wait for the first session to settle so the task lease frees, then prove
     // the task-bound (no explicit prompt) remote path carries the same block.
-    const deadline = Date.now() + 20_000;
-    let settled: Awaited<ReturnType<typeof fixture.host.read>> | null = null;
-    do {
-      const candidate = await fixture.host.read(
-        fixture.assignment.repoId,
-        "repo.agentRuntime.sessions.read",
-        { runtimeSessionId: explicit.runtimeSessionId },
-        fixture.auth,
-      );
-      if (candidate.session.activity.outcome !== null) {
-        settled = candidate;
-        break;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    } while (Date.now() < deadline);
-    assert.equal(settled?.session.activity.outcome, "succeeded", JSON.stringify(fixture.runtimeArchiveReceipts));
+    const outcomeOf = async (runtimeSessionId: unknown) =>
+      (
+        await fixture.host.read(
+          fixture.assignment.repoId,
+          "repo.agentRuntime.sessions.read",
+          { runtimeSessionId },
+          fixture.auth,
+        )
+      ).session.activity.outcome;
+    assert.equal(await eventually(async () => (await outcomeOf(explicit.runtimeSessionId)) !== null), true);
+    assert.equal(
+      await outcomeOf(explicit.runtimeSessionId),
+      "succeeded",
+      JSON.stringify(fixture.runtimeArchiveReceipts),
+    );
     const taskBound = await edgeHost.fleet.edgeRuntime(
       {
         host: "127.0.0.1",
@@ -989,6 +988,8 @@ test(
     const taskBoundBlock = causalBlock(launchedPrompts.at(-1) ?? "");
     assert.ok(taskBoundBlock !== null, "task-bound remote-edge dispatch lost the causal block");
     assert.match(taskBoundBlock, /CENTERFRESH-ZQ decision/u);
+    // The second dispatch settles against the center too: teardown must not close the center under it.
+    assert.equal(await eventually(async () => (await outcomeOf(taskBound.runtimeSessionId)) !== null), true);
   },
 );
 // Each damaged local mirror retains the preceding admission conditions. These are
@@ -1251,7 +1252,9 @@ async function fleetFixture(
   /** The runtime installations the center host discovers; an Agent installs only against an enabled instance. */
   centerRuntimes: readonly RuntimeInstallationWitness[] = [],
 ) {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-one-")),
+  // The product names a checkout by its resolved path; the fixture root is resolved once so every path derived
+  // from it compares equal where the temporary directory is itself a symbolic link.
+  const root = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-fleet-one-"))),
     repo = path.join(root, "repo"),
     userRoot = path.join(root, "user"),
     stateRoot = path.join(root, "state"),
@@ -1449,7 +1452,15 @@ function initRepo(rootDir: string): void {
   git(rootDir, "commit", "--allow-empty", "-qm", "base");
 }
 function git(rootDir: string, ...args: string[]): string {
-  return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8" }).trim();
+  // Git ranks these four variables above every config file, so a caller's ambient identity would
+  // override the one each fixture repository configures for itself; every fixture commit states
+  // its author from the repository config, never from the environment the test host runs under.
+  const env = { ...process.env };
+  delete env.GIT_AUTHOR_NAME;
+  delete env.GIT_AUTHOR_EMAIL;
+  delete env.GIT_COMMITTER_NAME;
+  delete env.GIT_COMMITTER_EMAIL;
+  return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", env }).trim();
 }
 function writePeopleFixture(rootDir: string): void {
   const ownerUid = process.getuid?.() ?? 0;
