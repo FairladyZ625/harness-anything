@@ -1,3 +1,4 @@
+import { useMutation } from "@tanstack/react-query";
 import { useState, type CSSProperties, type ReactNode } from "react";
 import { DotsThree } from "@phosphor-icons/react";
 import type { SystemRepoRow } from "../../api-client.ts";
@@ -8,6 +9,7 @@ import { RepoModeBadge } from "../../components/RepoModeBadge.tsx";
 import { Btn } from "../../components/runtime/parts.tsx";
 import { useRepoAdminMutations } from "../../connection-data.ts";
 import { t } from "../../i18n/index.tsx";
+import { guiHostBridge } from "../../gui-transport.ts";
 import { projectStatusMeta, repoNeedsAttention, type ProjectActivityRead } from "../../model/repo-state.ts";
 
 type RepoAdmin = ReturnType<typeof useRepoAdminMutations>;
@@ -30,11 +32,14 @@ export function ProjectEntry({
   readonly read: ProjectActivityRead;
   readonly isCurrent: boolean;
   readonly canManage: boolean;
-  readonly onOpen: (repoId: string) => void;
+  readonly onOpen: (repoId: string, targetView?: "agenda" | "work") => void;
 }) {
+  const directory = guiHostBridge()?.projects,
+    canOpenDirectory = directory !== undefined && repo.canonicalRoot !== null && repo.mode !== "remote-proxy",
+    openDirectory = useMutation({ mutationFn: () => directory!.openDirectory({ repoId: repo.repoId }) });
   const admin = useRepoAdminMutations(),
     // 被拒绝的原因由 mutation 的 error 带出;下一次动作开始时 react-query 自行清掉。
-    feedback = (admin.update.error ?? admin.unregister.error)?.message ?? null,
+    feedback = (openDirectory.error ?? admin.update.error ?? admin.unregister.error)?.message ?? null,
     enabled = repo.registrationState === "enabled",
     status = projectStatusMeta(repo, read),
     awaiting = read.state === "ready" ? read.awaitingYou : 0,
@@ -54,12 +59,45 @@ export function ProjectEntry({
           <DenseRow
             relaxed
             selected={isCurrent}
-            tag={<StatusTag tone={status.tone} label={t(status.labelKey, { count: awaiting })} />}
+            tag={
+              enabled && awaiting > 0 ? (
+                <button
+                  type="button"
+                  data-testid="home-entry-awaiting"
+                  title={
+                    read.state === "ready"
+                      ? read.awaitingReply && read.awaitingReply.count > 0
+                        ? t("views.homeView.awaitingBreakdown", {
+                            count: awaiting - read.awaitingReply.count,
+                            reply: `${read.awaitingReply.count}${read.awaitingReply.more ? "+" : ""}`,
+                          })
+                        : t("views.homeView.awaitingBase", { count: awaiting })
+                      : undefined
+                  }
+                  onClick={() => onOpen(repo.repoId, "agenda")}
+                >
+                  <StatusTag
+                    tone={status.tone}
+                    label={t(status.labelKey, {
+                      count: `${awaiting}${read.state === "ready" && read.awaitingReply?.more ? "+" : ""}`,
+                    })}
+                  />
+                </button>
+              ) : (
+                <StatusTag tone={status.tone} label={t(status.labelKey, { count: awaiting })} />
+              )
+            }
             title={
               // 单行、放不下的整段收起:项目名永远在(过长才省略),其后的仓库 id 与位置要么
               // 整段放得下、要么换到第二行被裁掉,不留半截字符;位置至少有 8rem 才出现。
               <span className="flex h-[1lh] min-w-0 flex-wrap items-baseline gap-x-2 overflow-hidden">
-                <span className="min-w-0 truncate">{name}</span>
+                {enabled ? (
+                  <button type="button" className="min-w-0 truncate text-left" onClick={() => onOpen(repo.repoId)}>
+                    {name}
+                  </button>
+                ) : (
+                  <span className="min-w-0 truncate">{name}</span>
+                )}
                 {isCurrent ? (
                   <span className="shrink-0 ui-meta font-semibold text-accent">{t("views.homeView.current")}</span>
                 ) : null}
@@ -78,8 +116,7 @@ export function ProjectEntry({
                 </span>
               </span>
             }
-            reason={activityLine(repo, read)}
-            onClick={enabled ? () => onOpen(repo.repoId) : undefined}
+            reason={activityLine(repo, read, onOpen)}
           />
         </div>
         <div
@@ -98,7 +135,7 @@ export function ProjectEntry({
               {t("views.homeView.actionOpen")}
             </button>
           ) : null}
-          {canManage ? (
+          {canManage || canOpenDirectory ? (
             <Popover
               label={t("views.homeView.actionMore")}
               trigger={<DotsThree weight="bold" />}
@@ -116,6 +153,15 @@ export function ProjectEntry({
                   liveAgents={read.state === "ready" ? (read.liveAgents ?? 0) : 0}
                   admin={admin}
                   close={close}
+                  canManage={canManage}
+                  openDirectory={
+                    canOpenDirectory
+                      ? () => {
+                          openDirectory.mutate();
+                          close();
+                        }
+                      : undefined
+                  }
                 />
               )}
             </Popover>
@@ -132,7 +178,11 @@ export function ProjectEntry({
 }
 
 /** 第二行:读到了就是数字,没读到就说为什么(按 daemon 状态与 mode 解释,不伪造数字)。 */
-function activityLine(repo: SystemRepoRow, read: ProjectActivityRead): ReactNode {
+function activityLine(
+  repo: SystemRepoRow,
+  read: ProjectActivityRead,
+  onOpen: (repoId: string, targetView?: "agenda" | "work") => void,
+): ReactNode {
   const problem = repo.unavailableReason ?? repo.lastError;
   if (repo.registrationState === "disabled")
     return problem === null ? t("views.homeView.lineDisabled") : `${t("views.homeView.lineDisabled")} ${problem}`;
@@ -147,23 +197,47 @@ function activityLine(repo: SystemRepoRow, read: ProjectActivityRead): ReactNode
         : t("views.homeView.lineNotLoaded");
   // 重复值不逐行重复(标准 §2.4):agent 只在有的时候写,它是「现在正在发生」的信号,排最前并着色;
   // 「没有进行中的任务」只在整行没别的可说时出现。
-  const rest = [
-    read.active > 0 ? t("views.homeView.lineActive", { count: read.active }) : null,
-    read.inReview > 0 ? t("views.homeView.lineInReview", { count: read.inReview }) : null,
-    read.blocked > 0 ? t("views.homeView.lineBlocked", { count: read.blocked }) : null,
-    read.liveAgents === null ? t("views.homeView.lineAgentsUnknown") : null,
-  ]
-    .filter((part) => part !== null)
-    .join(" · ");
-  if (read.liveAgents === null || read.liveAgents === 0) return rest === "" ? t("views.homeView.lineNoTasks") : rest;
-  return (
-    <>
-      <span className="font-semibold" style={{ color: TONE_COLOR.active }} data-testid="home-entry-agents">
-        {t("views.homeView.lineAgents", { count: read.liveAgents })}
-      </span>
-      {rest === "" ? null : ` · ${rest}`}
-    </>
+  const parts: ReactNode[] = [];
+  const link = (key: string, label: string, view: "agenda" | "work") => (
+    <button
+      key={key}
+      type="button"
+      className="hover:text-text hover:underline"
+      data-testid={`home-entry-${key}`}
+      onClick={() => onOpen(repo.repoId, view)}
+    >
+      {label}
+    </button>
   );
+  if (read.liveAgents !== null && read.liveAgents > 0)
+    parts.push(
+      <span key="agents" className="font-semibold" style={{ color: TONE_COLOR.active }} data-testid="home-entry-agents">
+        {t("views.homeView.lineAgents", { count: read.liveAgents })}
+      </span>,
+    );
+  if (read.active > 0) parts.push(link("active", t("views.homeView.lineActive", { count: read.active }), "work"));
+  if (read.awaitingReply && read.awaitingReply.count > 0)
+    parts.push(
+      link(
+        "reply",
+        t("views.homeView.lineAwaitingReply", {
+          count: `${read.awaitingReply.count}${read.awaitingReply.more ? "+" : ""}`,
+        }),
+        "agenda",
+      ),
+    );
+  if (read.inReview > 0)
+    parts.push(link("review", t("views.homeView.lineInReview", { count: read.inReview }), "agenda"));
+  if (read.blocked > 0) parts.push(t("views.homeView.lineBlocked", { count: read.blocked }));
+  if (read.liveAgents === null) parts.push(t("views.homeView.lineAgentsUnknown"));
+  return parts.length === 0
+    ? t("views.homeView.lineNoTasks")
+    : parts.map((part, index) => (
+        <span key={index}>
+          {index === 0 ? null : " · "}
+          {part}
+        </span>
+      ));
 }
 
 /**
@@ -177,7 +251,11 @@ function ProjectActions({
   liveAgents,
   admin: { update, unregister },
   close,
+  canManage,
+  openDirectory,
 }: {
+  readonly canManage: boolean;
+  readonly openDirectory?: () => void;
   readonly repo: SystemRepoRow;
   readonly name: string;
   readonly liveAgents: number;
@@ -188,40 +266,51 @@ function ProjectActions({
   const busy = update.isPending || unregister.isPending,
     item = "block min-h-10 w-full rounded px-2 text-left ui-body text-text hover:bg-text/5 disabled:opacity-45";
   if (confirming === null)
-    return repo.registrationState === "enabled" ? (
-      <button
-        type="button"
-        className={item}
-        disabled={busy}
-        data-testid="home-entry-disable"
-        onClick={() => setConfirming("disable")}
-      >
-        {t("views.homeView.actionDisable")}…
-      </button>
-    ) : (
+    return (
       <>
-        <button
-          type="button"
-          className={item}
-          disabled={busy}
-          data-testid="home-entry-enable"
-          onClick={() => {
-            unregister.reset();
-            update.mutate({ repoId: repo.repoId, state: "enabled" });
-            close();
-          }}
-        >
-          {t("views.homeView.actionEnable")}
-        </button>
-        <button
-          type="button"
-          className={item}
-          disabled={busy}
-          data-testid="home-entry-remove"
-          onClick={() => setConfirming("remove")}
-        >
-          {t("views.homeView.actionRemove")}…
-        </button>
+        {openDirectory ? (
+          <button type="button" className={item} data-testid="home-entry-directory" onClick={openDirectory}>
+            {t("views.homeView.actionDirectory")}
+          </button>
+        ) : null}
+        {canManage ? (
+          repo.registrationState === "enabled" ? (
+            <button
+              type="button"
+              className={item}
+              disabled={busy}
+              data-testid="home-entry-disable"
+              onClick={() => setConfirming("disable")}
+            >
+              {t("views.homeView.actionDisable")}…
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className={item}
+                disabled={busy}
+                data-testid="home-entry-enable"
+                onClick={() => {
+                  unregister.reset();
+                  update.mutate({ repoId: repo.repoId, state: "enabled" });
+                  close();
+                }}
+              >
+                {t("views.homeView.actionEnable")}
+              </button>
+              <button
+                type="button"
+                className={item}
+                disabled={busy}
+                data-testid="home-entry-remove"
+                onClick={() => setConfirming("remove")}
+              >
+                {t("views.homeView.actionRemove")}…
+              </button>
+            </>
+          )
+        ) : null}
       </>
     );
   const disabling = confirming === "disable";

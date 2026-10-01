@@ -1,3 +1,4 @@
+import type { ProjectDirectoryApi } from "../api/project-directory-contract.ts";
 import type { DaemonRpcMethodMap, DaemonRpcResult } from "@harness-anything/daemon/protocol";
 import type { FirstRunApi } from "../api/first-run-contract.ts";
 import type { ArtifactOpenApi } from "../api/artifact-open-contract.ts";
@@ -14,6 +15,7 @@ type GuiBridge = {
   readonly artifacts?: ArtifactOpenApi;
   readonly connections?: ConnectionAdminApi;
   readonly repoAdmin?: RepoAdminApi;
+  readonly projects?: ProjectDirectoryApi;
   readonly auth?: OidcAuthApi;
 };
 declare global {

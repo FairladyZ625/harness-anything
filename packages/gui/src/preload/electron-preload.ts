@@ -1,3 +1,4 @@
+import { PROJECT_DIRECTORY_CHANNEL, type ProjectDirectoryApi } from "../api/project-directory-contract.ts";
 import { contextBridge, ipcRenderer } from "electron";
 import {
   HARNESS_PRELOAD_API,
@@ -106,6 +107,9 @@ const exposedHarnessApi = {
     bootstrapStatus: () => invoke(OIDC_BOOTSTRAP_STATUS_CHANNEL, null),
     bootstrapAdmin: (input) => invoke(OIDC_BOOTSTRAP_ADMIN_CHANNEL, input),
   } satisfies OidcAuthApi,
+  projects: {
+    openDirectory: (input) => invoke(PROJECT_DIRECTORY_CHANNEL, input),
+  } satisfies ProjectDirectoryApi,
   capabilities: preloadApiCapabilities,
 };
 

@@ -73,8 +73,13 @@ async function mountHome(
   repos: readonly SystemRepoRow[],
   currentRepoId: string | null,
   seed: Readonly<Record<string, { readonly summary: unknown; readonly runtime: unknown }>> = {},
-): Promise<{ readonly container: HTMLElement; readonly opened: readonly string[] }> {
+): Promise<{
+  readonly container: HTMLElement;
+  readonly opened: readonly string[];
+  readonly targets: readonly (string | undefined)[];
+}> {
   const opened: string[] = [];
+  const targets: (string | undefined)[] = [];
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   for (const [repoId, data] of Object.entries(seed)) {
     client.setQueryData(workspaceSummaryQueryKeys.read(repoId), data.summary);
@@ -89,14 +94,21 @@ async function mountHome(
       createElement(
         QueryClientProvider,
         { client },
-        createElement(HomeView, { repos, currentRepoId, onOpenProject: (repoId: string) => opened.push(repoId) }),
+        createElement(HomeView, {
+          repos,
+          currentRepoId,
+          onOpenProject: (repoId: string, target?: "agenda" | "work") => {
+            opened.push(repoId);
+            targets.push(target);
+          },
+        }),
       ),
     );
   });
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
-  return { container, opened };
+  return { container, opened, targets };
 }
 
 /** 点击后等 mutation 的结果落到状态里(react-query 在后续 tick 通知)。 */
@@ -411,5 +423,67 @@ describe("HomeView 项目管理页", () => {
     expect(container.querySelector('[data-testid="home-add-notice"]')?.textContent).toContain(
       "「/work/plain」里还没有 Harness 台账",
     );
+  });
+});
+
+describe("项目页补齐答复与数字跳转", () => {
+  it("仅取已接入仓的议程第一页，显示 N+，数字进入正确视图", async () => {
+    const getAgenda = vi.spyOn(harnessClient, "getAgenda").mockResolvedValue({
+      awaitingYou: [{ relationId: "one" }, { relationId: "two" }],
+      page: { nextCursor: "more" },
+    } as never);
+    const { container, targets } = await mountHome(
+      [repo({ repoId: "one" }), repo({ repoId: "off", cellState: "not_loaded" })],
+      null,
+      { one: { summary: summary({ active: 3 }), runtime: sessions() } },
+    );
+    expect(getAgenda).toHaveBeenCalledExactlyOnceWith({ repoId: "one", limit: 100 });
+    const entry = container.querySelector<HTMLElement>('[data-testid="home-repo-one"]')!;
+    expect(entry.textContent).toContain("等你答复 2+");
+    await click(entry.querySelector<HTMLElement>('[data-testid="home-entry-awaiting"]')!);
+    await click(entry.querySelector<HTMLElement>('[data-testid="home-entry-active"]')!);
+    expect(targets).toEqual(["agenda", "work"]);
+  });
+  it("第一页无下一页时显示准确条数，不带加号", async () => {
+    vi.spyOn(harnessClient, "getAgenda").mockResolvedValue({
+      awaitingYou: [{ relationId: "one" }],
+      page: { nextCursor: null },
+    } as never);
+    const { container } = await mountHome([repo({ repoId: "complete" })], null, {
+      complete: { summary: summary({}, 2), runtime: sessions() },
+    });
+    const reply = container.querySelector<HTMLElement>('[data-testid="home-entry-reply"]')!;
+    expect(reply.textContent).toBe("等你答复 1");
+    expect(container.querySelector('[data-testid="home-entry-awaiting"]')?.getAttribute("title")).toBe(
+      "待评审/待裁决 2；等你答复 1",
+    );
+  });
+  it("零条与读取失败都隐藏答复数字，其余数字仍显示", async () => {
+    const getAgenda = vi
+      .spyOn(harnessClient, "getAgenda")
+      .mockResolvedValueOnce({
+        awaitingYou: [],
+        page: { nextCursor: null },
+      } as never)
+      .mockRejectedValueOnce(new Error("read denied"));
+    const { container } = await mountHome([repo({ repoId: "zero" }), repo({ repoId: "failed" })], null, {
+      zero: { summary: summary({ active: 1 }), runtime: sessions() },
+      failed: { summary: summary({ active: 2 }), runtime: sessions() },
+    });
+    expect(getAgenda).toHaveBeenCalledTimes(2);
+    expect(container.textContent).not.toContain("等你答复");
+    expect(container.textContent).toContain("进行中 2");
+  });
+  it("本机目录动作传 repoId，远端项目没有动作", async () => {
+    const openDirectory = vi.fn().mockResolvedValue(undefined);
+    host.harness = { projects: { openDirectory } };
+    const { container } = await mountHome([
+      repo({ repoId: "local", canonicalRoot: "/registered/local", cellState: "not_loaded" }),
+      repo({ repoId: "remote", mode: "remote-proxy", canonicalRoot: null, cellState: "not_loaded" }),
+    ]);
+    await click(more(container.querySelector<HTMLElement>('[data-testid="home-repo-local"]')!));
+    await click(panel().querySelector<HTMLElement>('[data-testid="home-entry-directory"]')!);
+    expect(openDirectory).toHaveBeenCalledExactlyOnceWith({ repoId: "local" });
+    expect(more(container.querySelector<HTMLElement>('[data-testid="home-repo-remote"]')!)).toBeNull();
   });
 });
