@@ -84,8 +84,11 @@ async function fireDueOccurrences(mode: DaemonRepoMode) {
     assert.equal((await run(agentSchedule("agent-probe"))).outcome, "applied");
     clock.value = "2026-10-02T03:17:00.500Z";
     // A Schedule read through the host refreshes the scheduler, which re-arms against the new clock.
+    // Wait for the builtin Schedule itself: in local mode the agent occurrence can settle first.
+    const builtinPending = (current: readonly ScheduleRow[]) =>
+      current.find(({ scheduleId }) => scheduleId === builtinLedgerBackupScheduleId)?.status.lastRun == null;
     let rows = await list();
-    for (let attempt = 0; attempt < 200 && rows.every(({ status }) => status.lastRun === null); attempt++) {
+    for (let attempt = 0; attempt < 200 && builtinPending(rows); attempt++) {
       await new Promise((resolve) => setTimeout(resolve, 50));
       rows = await list();
     }
