@@ -10,13 +10,21 @@ import {
   attentionByWork,
   collectWork,
   workHealth,
+  workTier,
+  WORK_TIERS,
   type WorkGroup,
   type WorkHealth,
+  type WorkTier,
 } from "../model/work-collections.ts";
 import { FilterChips } from "../components/primitives/FilterChips.tsx";
 import { SegBar } from "../components/primitives/SegBar.tsx";
-import { StatusTag, type StatusTone } from "../components/primitives/StatusTag.tsx";
-import { DenseRow } from "../components/primitives/DenseRow.tsx";
+import { StatusTag, TONE_COLOR, type StatusTone } from "../components/primitives/StatusTag.tsx";
+import {
+  CardReason,
+  SummaryCard,
+  SummaryCardGroup,
+  type SummaryCardSize,
+} from "../components/primitives/SummaryCard.tsx";
 import { splitTitleFocus, TitleText } from "../components/primitives/TitleText.tsx";
 import { entryTitle, metaLine, waitingReason } from "./workspace/entry-lines.tsx";
 import { relativeTime } from "../sessions-model.ts";
@@ -44,16 +52,23 @@ interface WorkEntry {
   readonly stuck: readonly AgendaAttentionItem[];
 }
 
+const DAY_MS = 86_400_000;
+
+/** 三档各用一种卡:要人出手的大卡,正常推进的小卡,可收尾的小方块沉底。 */
+const TIER_CARD: Record<WorkTier, { readonly size: SummaryCardSize; readonly title: MessageKey }> = {
+  attention: { size: "large", title: "views.work.tier.attention" },
+  progress: { size: "small", title: "views.work.tier.progress" },
+  closable: { size: "tile", title: "views.work.tier.closable" },
+};
+
 /**
- * 工作页(S4,dec_B3D40712A6B050D83F1C2EF78D CH1 的「工作」区域放大成整页;交互样张是
- * overview-prototype-v1.html 的「工作」tab):每个工作一条两行健康摘要(标准 §2.4)——
- * 第一行最要紧的一个状态、冒号前的标题、最后活动;第二行弱色报进度(完成/总数)、
- * 在跑 agent 数、在等谁或卡在哪,标题冒号后的补充垫在末尾;执行/待审/阻塞/计划数在
- * 展开体里。默认只看
- * 「需要关注」,其余折叠成一行;搜索同时匹配工作标题与其下任务标题,命中任务显示在
- * 所属工作下;排序默认用 daemon 议程读面的注意力分(与总览同一序)。数据全部来自
- * App 已挂载的任务切面与议程读面,本页不另发请求。顶部仍是「开始一项工作」的唯一
- * 入口(dec_DC3A1BB9 CH3)。
+ * 工作页(S4,dec_B3D40712A6B050D83F1C2EF78D CH1 的「工作」区域放大成整页):每个工作一张
+ * 概况卡,按注意力分三组(互斥)——需要你看的大卡、在推进的小卡、可收尾的小方块。大卡
+ * 自上而下:标题与最后活动、为什么要你看、谁在跑、任务构成条与数字、最近一次活动。
+ * 筛选默认「全部」(分档已经表达轻重),筛选与排序作用于三组;搜索同时匹配工作标题与
+ * 其下任务标题,命中任务显示在所属卡片底部;排序默认用 daemon 议程读面的注意力分(与
+ * 总览同一序)。数据全部来自 App 已挂载的任务切面与议程读面,本页不另发请求。顶部仍是
+ * 「开始一项工作」的唯一入口(dec_DC3A1BB9 CH3)。
  */
 export function WorkView({
   tasks,
@@ -80,9 +95,8 @@ export function WorkView({
 }) {
   const [startWorkOpen, setStartWorkOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<WorkFilter>("attn");
+  const [filter, setFilter] = useState<WorkFilter>("all");
   const [sort, setSort] = useState<WorkSort>("attn");
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const collections = useMemo(() => collectWork(tasks), [tasks]);
   const attention = useMemo(() => attentionByWork(agenda?.attentionItems ?? []), [agenda]);
   const now = Date.now();
@@ -136,7 +150,6 @@ export function WorkView({
         a.group.task.taskId.localeCompare(b.group.task.taskId)
       );
     });
-  const quietCount = !query && filter === "attn" ? entries.length - rows.length : 0;
   const chips: readonly { readonly key: WorkFilter; readonly label: string; readonly count: number }[] = (
     [
       ["attn", t("views.work.filter.attn")],
@@ -149,13 +162,7 @@ export function WorkView({
     ] as const
   ).map(([key, label]) => ({ key, label, count: entries.filter((entry) => matchesFilter(entry, key)).length }));
   const mineWorks = entries.filter(({ health }) => health.mine.length > 0).length;
-  const toggle = (taskId: string) =>
-    setExpanded((previous) => {
-      const next = new Set(previous);
-      if (next.has(taskId)) next.delete(taskId);
-      else next.add(taskId);
-      return next;
-    });
+  const titleOf = (taskId: string) => tasks.find((task) => task.taskId === taskId)?.title;
   return (
     <div data-testid="work-view" className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4 md:p-5">
       <header className="flex flex-wrap items-baseline gap-3">
@@ -215,160 +222,227 @@ export function WorkView({
           {t("views.work.reading")}
         </p>
       ) : null}
-      {/* 行间用 DenseRow 自带的 1px 分隔线,不再另加间隙(标准 §3:二者择一)。 */}
-      <section className="border-b border-border">
-        {rows.map((entry) => (
-          <WorkRow
-            key={entry.group.task.taskId}
-            entry={entry}
-            titleOf={(taskId) => tasks.find((task) => task.taskId === taskId)?.title}
-            hits={searchHits(entry)}
-            open={expanded.has(entry.group.task.taskId) || searchHits(entry).length > 0}
-            ready={ready}
-            onToggle={() => toggle(entry.group.task.taskId)}
-            onOpen={() => onOpenTask(entry.group.task.taskId)}
-          />
-        ))}
-        {ready && !rows.length && !quietCount ? (
-          <p className="text-sm text-text-muted">{t("views.work.empty")}</p>
-        ) : null}
-        {/* 安静的工作由顶部筛选负责(标准 §2.4「需要关注」默认 + 全部 N 筛选钮),
-            不再另设「其余 N 个安静」折叠行(v2 反例:有空间却藏条目)。 */}
-      </section>
+      {ready && !rows.length ? <p className="text-sm text-text-muted">{t("views.work.empty")}</p> : null}
+      {/* 组与组之间 20–24px(标准 §3);没有成员的组整段不出现。 */}
+      <div className="space-y-6 pt-1">
+        {WORK_TIERS.map((tier) => {
+          const members = rows.filter((entry) => workTier(entry.health) === tier);
+          return members.length === 0 ? null : (
+            <SummaryCardGroup
+              key={tier}
+              size={TIER_CARD[tier].size}
+              title={t(TIER_CARD[tier].title)}
+              count={members.length}
+              testId={`work-tier-${tier}`}
+            >
+              {members.map((entry) => (
+                <WorkCard
+                  key={entry.group.task.taskId}
+                  entry={entry}
+                  size={TIER_CARD[tier].size}
+                  titleOf={titleOf}
+                  hits={searchHits(entry)}
+                  ready={ready}
+                  now={now}
+                  onOpen={() => onOpenTask(entry.group.task.taskId)}
+                />
+              ))}
+            </SummaryCardGroup>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-function WorkRow({
+interface WorkReason {
+  readonly tone: StatusTone;
+  readonly label: string;
+  readonly text: string | undefined;
+}
+
+/**
+ * 为什么要你看:等你 > 阻塞 > 停滞,几句都成立就都写,各占一行。等你报第一件事(多件带
+ * 「另 N 件」);阻塞报第一个带阻塞贡献的任务,读不到贡献就报议程里的阻塞条目,再不然报
+ * 第一个处于阻塞状态的任务——已经报了「等你」时不重复同一条 awaits 边或同一个任务。
+ */
+function workReasons(
+  { group, health, stuck }: WorkEntry,
+  titleOf: (taskId: string) => string | undefined,
+  now: number,
+): readonly WorkReason[] {
+  const reasons: WorkReason[] = [],
+    mine = health.mine[0];
+  if (mine !== undefined)
+    reasons.push({
+      tone: ATTENTION_TONE[mine.kind] ?? "bad",
+      label: t(`views.work.attention.${mine.kind}` as MessageKey),
+      text:
+        health.mine.length > 1
+          ? t("views.work.reason.more", { text: mine.title, count: health.mine.length - 1 })
+          : mine.title,
+    });
+  if (health.blocked) {
+    const blockersOf = ({ blockers }: TaskRow) =>
+        (blockers ?? []).filter(({ kind }) => mine === undefined || kind === "depends-on"),
+      blockedTask = [group.task, ...group.members].find((row) => blockersOf(row).length > 0),
+      blockedTitle =
+        stuck.find(({ kind, title }) => kind === "blocked" && title !== mine?.title)?.title ??
+        group.members.find(({ canonicalStatus, title }) => canonicalStatus === "blocked" && title !== mine?.title)
+          ?.title;
+    reasons.push({
+      tone: "bad",
+      label: t("views.work.flag.blocked"),
+      text:
+        blockedTask !== undefined
+          ? waitingReason(blockersOf(blockedTask), titleOf)
+          : blockedTitle === undefined
+            ? undefined
+            : splitTitleFocus(blockedTitle).focus,
+    });
+  }
+  if (health.stale) {
+    const days = Math.floor((now - Date.parse(group.lastChangeAt)) / DAY_MS);
+    reasons.push({
+      tone: "wait",
+      label: t("views.work.flag.stale"),
+      text: days >= 1 ? t("views.work.reason.staleDays", { days }) : undefined,
+    });
+  }
+  return reasons;
+}
+
+/** 构成数字的顺序与颜色:与 SegBar 的分段同序同色,为 0 的不显示。 */
+const COUNT_PARTS: readonly {
+  readonly key: MessageKey;
+  readonly tone: StatusTone;
+  readonly statuses: readonly SnapshotStatus[];
+}[] = [
+  { key: "views.work.counts.done", tone: "done", statuses: ["done"] },
+  { key: "views.work.counts.executing", tone: "active", statuses: ["active"] },
+  { key: "views.work.counts.pending", tone: "wait", statuses: ["submitted", "in_review"] },
+  { key: "views.work.counts.blocked", tone: "bad", statuses: ["blocked"] },
+  { key: "views.work.counts.planned", tone: "plan", statuses: ["planned"] },
+];
+
+function WorkCard({
   entry,
+  size,
   titleOf,
   hits,
-  open,
   ready,
-  onToggle,
+  now,
   onOpen,
 }: {
   readonly entry: WorkEntry;
+  readonly size: SummaryCardSize;
   /** 卡住本工作的任务可能在工作之外,标题从全仓任务切面查。 */
   readonly titleOf: (taskId: string) => string | undefined;
-  /** 搜索命中的后代任务,显示在所属工作的标题下(样张 v1 的「↳ 命中行」)。 */
+  /** 搜索命中的后代任务,显示在所属卡片底部(样张 v1 的「↳ 命中行」)。 */
   readonly hits: readonly TaskRow[];
-  readonly open: boolean;
   readonly ready: boolean;
-  readonly onToggle: () => void;
+  readonly now: number;
   readonly onOpen: () => void;
 }) {
-  const { group, health, stuck } = entry,
+  const { group } = entry,
     { task, counts } = group,
+    done = counts.done ?? 0,
     effective = group.leaves - (counts.cancelled ?? 0),
-    lastActivity = formatTime(group.lastChangeAt, { style: "month-day-time" }) ?? group.lastChangeAt;
-  // 第一行只放一个状态:等你 > 阻塞 > 停滞 > 可收尾 > 在跑 > 工作根自己的状态;其余进第二行。
-  const flag =
-    health.mine.length > 0
-      ? "mine"
-      : health.blocked
-        ? "blocked"
-        : health.stale
-          ? "stale"
-          : health.finished
-            ? "finished"
-            : group.live > 0
-              ? "agents"
-              : null;
-  const tag =
-    flag === "mine" ? (
-      <StatusTag tone="bad" label={t("views.work.flag.mine", { count: health.mine.length })} />
-    ) : flag === "blocked" ? (
-      <StatusTag tone="bad" label={t("views.work.flag.blocked")} />
-    ) : flag === "stale" ? (
-      <StatusTag tone="wait" label={t("views.work.flag.stale")} />
-    ) : flag === "finished" ? (
-      <StatusTag tone="neutral" label={t("views.work.flag.finished")} />
-    ) : flag === "agents" ? (
-      <StatusTag tone="active" label={t("views.work.flag.agents", { count: group.live })} />
-    ) : (
-      <StatusTag status={task.coordinationStatus} />
-    );
-  // 在等谁:第一件等你处理的事。卡在哪:第一个带阻塞贡献的任务;读不到贡献就报议程里的阻塞
-  // 条目,再不然报第一个处于阻塞状态的任务。已经报了「等你」时不再重复同一条 awaits 边或同一个任务。
-  const mine = health.mine[0],
-    blockersOf = ({ blockers }: TaskRow) =>
-      (blockers ?? []).filter(({ kind }) => mine === undefined || kind === "depends-on"),
-    blockedTask = [task, ...group.members].find((row) => blockersOf(row).length > 0),
-    blockedItem = stuck.find(({ kind, title }) => kind === "blocked" && title !== mine?.title),
-    blockedMember = group.members.find(
-      ({ canonicalStatus, title }) => canonicalStatus === "blocked" && title !== mine?.title,
-    ),
-    reasonText = (kind: string, title: string) =>
-      t("views.work.line.attention", {
-        kind: t(`views.work.attention.${kind}` as MessageKey),
-        title: splitTitleFocus(title).focus,
-      }),
-    { focus, supplement } = entryTitle(task.title);
-  return (
-    <article data-testid="work-row" data-work-id={task.taskId}>
-      <button
-        type="button"
-        data-testid="work-row-toggle"
-        aria-expanded={open}
-        onClick={onToggle}
-        className="w-full text-left hover:bg-text/5"
+    lastActivity = formatTime(group.lastChangeAt, { style: "month-day-time" }) ?? group.lastChangeAt,
+    { focus, supplement } = entryTitle(task.title),
+    reasons = size === "large" ? workReasons(entry, titleOf, now) : [],
+    // 在跑的第一个任务与它的执行者:持有执行租约的成员。读不到持有者就只报在跑数。
+    runner = [task, ...group.members].find(({ leaseHolder }) => leaseHolder !== undefined && leaseHolder !== ""),
+    ago = (
+      <span
+        data-testid="work-last-activity"
+        title={group.activity ? `${group.activity.taskId} · ${group.activity.summary} · ${lastActivity}` : lastActivity}
       >
-        <DenseRow
-          relaxed
-          index={open ? "▾" : "▸"}
-          tag={
-            // 标签列定宽:各行标题左缘对齐,不随标签文字长短错位。
-            <span data-testid="work-flags" className="inline-block w-20">
-              {tag}
-            </span>
-          }
-          title={<span className="font-semibold">{focus}</span>}
-          reason={metaLine([
-            ready ? (
-              <span data-testid="work-progress">
-                <SegBar
-                  counts={counts as Partial<Record<SnapshotStatus, number>>}
-                  className="mr-1.5 inline-flex w-16 align-middle"
-                />
-                <span className="font-mono tabular-nums">
-                  {t("views.work.line.progress", { done: counts.done ?? 0, total: effective })}
-                </span>
-              </span>
-            ) : undefined,
-            group.live > 0 && flag !== "agents" ? t("views.work.flag.agents", { count: group.live }) : undefined,
-            mine === undefined
-              ? undefined
-              : health.mine.length > 1
-                ? t("views.workspace.wait.more", {
-                    reason: reasonText(mine.kind, mine.title),
-                    count: health.mine.length - 1,
-                  })
-                : reasonText(mine.kind, mine.title),
-            blockedTask !== undefined
-              ? waitingReason(blockersOf(blockedTask), titleOf)
-              : blockedItem !== undefined
-                ? reasonText("blocked", blockedItem.title)
-                : blockedMember !== undefined
-                  ? reasonText("blocked", blockedMember.title)
-                  : undefined,
-            health.stale && flag !== "stale" ? t("views.work.flag.stale") : undefined,
-            supplement,
-          ])}
-          time={
-            <span
-              data-testid="work-last-activity"
-              title={
-                group.activity ? `${group.activity.taskId} · ${group.activity.summary} · ${lastActivity}` : lastActivity
-              }
-            >
-              {relativeTime(group.lastChangeAt)}
-            </span>
-          }
-        />
-      </button>
+        {relativeTime(group.lastChangeAt)}
+      </span>
+    ),
+    progress = (
+      <span className="font-mono tabular-nums text-text-muted ui-meta">
+        {done}/{effective}
+      </span>
+    );
+  return (
+    <SummaryCard
+      size={size}
+      testId="work-row"
+      attrs={{ "data-work-id": task.taskId }}
+      title={focus}
+      subtitle={size === "large" ? supplement : undefined}
+      aside={size === "tile" ? undefined : ago}
+      tone={reasons[0]?.tone}
+      onOpen={onOpen}
+    >
+      {reasons.length > 0 ? (
+        <div data-testid="work-flags" className="space-y-1.5">
+          {reasons.map((reason) => (
+            <CardReason key={reason.label} tone={reason.tone} label={reason.label}>
+              {reason.text}
+            </CardReason>
+          ))}
+        </div>
+      ) : null}
+      {size === "large" && group.live > 0 ? (
+        <p data-testid="work-running" className="flex min-w-0 items-center gap-2 text-text-muted ui-meta">
+          <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-status-active" />
+          <span className="min-w-0 truncate">
+            {metaLine([
+              t("views.work.running", { count: group.live }),
+              runner === undefined ? undefined : splitTitleFocus(runner.title).focus,
+              runner?.leaseHolder,
+            ])}
+          </span>
+        </p>
+      ) : null}
+      {size === "tile" ? (
+        <p className="flex min-w-0 items-center gap-1.5 font-mono tabular-nums text-text-faint ui-meta">
+          {ready ? <span data-testid="work-progress">{`${done}/${effective}`}</span> : null}
+          {ready ? <span aria-hidden>·</span> : null}
+          {ago}
+        </p>
+      ) : ready ? (
+        <>
+          <div data-testid="work-progress" className="flex items-center gap-2.5">
+            <SegBar counts={counts as Partial<Record<SnapshotStatus, number>>} className="min-w-0 flex-1" />
+            {progress}
+          </div>
+          {size === "large" ? (
+            <p data-testid="work-counts" className="flex flex-wrap gap-x-3 gap-y-0.5 text-text-muted ui-meta">
+              {COUNT_PARTS.map(({ key, tone, statuses }) => {
+                const count = statuses.reduce((sum, status) => sum + (counts[status] ?? 0), 0);
+                return count === 0 ? null : (
+                  <span key={key}>
+                    {t(key)}{" "}
+                    <b className="font-mono font-semibold tabular-nums" style={{ color: TONE_COLOR[tone] }}>
+                      {count}
+                    </b>
+                  </span>
+                );
+              })}
+            </p>
+          ) : (
+            <p className="truncate text-text-faint ui-meta">
+              {group.live > 0
+                ? t("views.work.running", { count: group.live })
+                : metaLine([
+                    (counts.planned ?? 0) > 0 ? `${t("views.work.counts.planned")} ${counts.planned ?? 0}` : undefined,
+                    t("views.work.idle"),
+                  ])}
+            </p>
+          )}
+        </>
+      ) : null}
+      {size === "large" && group.activity ? (
+        <p data-testid="work-recent" className="truncate text-text-faint ui-meta">
+          {t("views.work.recent", { summary: group.activity.summary })}
+        </p>
+      ) : null}
       {hits.length > 0 ? (
-        <div className="space-y-1 px-3.5 pb-2 pl-10">
+        <div className="space-y-1 border-t border-border pt-2">
           {hits.map((hit) => (
             <span key={hit.taskId} data-testid="work-hit" className="flex min-w-0 items-center gap-1.5">
               <span aria-hidden className="text-text-faint">
@@ -382,64 +456,6 @@ function WorkRow({
           ))}
         </div>
       ) : null}
-      {open ? (
-        <div data-testid="work-row-body" className="space-y-2 px-3.5 pb-3 pl-10">
-          {ready ? (
-            <p className="flex flex-wrap gap-x-3 gap-y-1 ui-meta text-text-muted">
-              <span>
-                {t("views.work.counts.executing")} {counts.active ?? 0}
-              </span>
-              <span>
-                {t("views.work.counts.pending")} {(counts.submitted ?? 0) + (counts.in_review ?? 0)}
-              </span>
-              <span>
-                {t("views.work.counts.blocked")} {counts.blocked ?? 0}
-              </span>
-              <span>
-                {t("views.work.counts.planned")} {counts.planned ?? 0}
-              </span>
-              <span>
-                {t("views.work.counts.done")} {counts.done ?? 0}
-              </span>
-              <span className="text-text-faint">
-                {t("views.work.counts.cancelled")} {counts.cancelled ?? 0}
-              </span>
-            </p>
-          ) : (
-            <p className="ui-meta text-text-muted">{t("views.work.reading")}</p>
-          )}
-          {health.mine.length > 0 ? (
-            <div>
-              <p className="ui-meta text-text-faint">{t("views.work.mineTitle")}</p>
-              {health.mine.map((item) => (
-                <DenseRow
-                  key={item.ref}
-                  tag={
-                    <StatusTag
-                      tone={ATTENTION_TONE[item.kind] ?? "neutral"}
-                      label={t(`views.work.attention.${item.kind}`)}
-                    />
-                  }
-                  title={item.title}
-                  time={<span title={t("views.work.scoreTitle")}>{item.attention.score}</span>}
-                />
-              ))}
-            </div>
-          ) : (
-            <p className="ui-meta text-text-faint">{t("views.work.mineEmpty")}</p>
-          )}
-          <div>
-            <button
-              type="button"
-              data-testid="work-open"
-              onClick={onOpen}
-              className="rounded-xs border border-border bg-text/5 px-2.5 py-1 ui-meta text-text hover:bg-text/10"
-            >
-              {t("views.work.openWork")}
-            </button>
-          </div>
-        </div>
-      ) : null}
-    </article>
+    </SummaryCard>
   );
 }

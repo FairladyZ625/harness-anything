@@ -118,7 +118,7 @@ export interface WorkHealth {
   readonly stale: boolean;
   readonly moving: boolean;
   readonly finished: boolean;
-  /** 默认筛选「需要关注」:有事等你、有阻塞、停滞或 24 小时内有变化。 */
+  /** 筛选「需要关注」:有事等你、有阻塞、停滞或 24 小时内有变化。 */
   readonly needs: boolean;
 }
 
@@ -150,6 +150,16 @@ export function workHealth(group: WorkGroup, attention: WorkAttention | undefine
     finished: group.leaves > 0 && open === 0,
     needs: mine.length > 0 || blocked || stale || moving,
   };
+}
+
+/** 工作列表的三档(互斥,每个工作只落一档):需要你看 → 大卡,在推进 → 小卡,可收尾 → 小方块。 */
+export type WorkTier = "attention" | "progress" | "closable";
+export const WORK_TIERS: readonly WorkTier[] = ["attention", "progress", "closable"];
+
+/** 有事等你、有阻塞或停滞的先归「需要你看」;其余里全部收口的归「可收尾」,剩下的都在推进。 */
+export function workTier(health: Pick<WorkHealth, "mine" | "blocked" | "stale" | "finished">): WorkTier {
+  if (health.mine.length > 0 || health.blocked || health.stale) return "attention";
+  return health.finished ? "closable" : "progress";
 }
 
 export interface WorkRef {

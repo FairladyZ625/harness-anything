@@ -131,11 +131,26 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     const text = container.textContent ?? "";
     expect(text).toContain("Heartbeat probe");
     expect(text).toContain("every 30m");
-    expect(text).toMatch(/2026-08-27 \d{2}:30/u);
-    expect(text).toContain("Runnable here");
+    expect(text).toMatch(/08-27 \d{2}:30/u);
+    // 正常状态不占标签:「本节点可执行」「已布防」不上卡。
+    expect(text).not.toContain("Runnable here");
+    expect(text).not.toContain("Armed");
     expect(text).toContain("missed 2");
     expect(container.querySelector('[data-testid="schedules-matrix"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="schedule-row-heartbeat-probe"]')).not.toBeNull();
+    const card = container.querySelector('[data-testid="schedule-row-heartbeat-probe"]')!;
+    // 3 个以内的计划都用大卡:结论、运行历史条、下次运行、执行者(agent 名与模型)、任务说明。
+    expect(card.getAttribute("data-summary-card")).toBe("large");
+    expect(card.querySelector('[data-testid="schedule-verdict-heartbeat-probe"]')?.textContent).toMatch(/^OKlast /u);
+    expect(card.querySelectorAll('[data-testid="schedule-spark-heartbeat-probe"] [data-outcome]')).toHaveLength(1);
+    expect(card.textContent).toContain("Last 1 runs");
+    expect(card.textContent).toContain("failed 0 · missed 2 (Scheduler unavailable)");
+    expect(card.textContent).toContain("Probe Agent");
+    expect(card.textContent).toContain("gpt-5.6");
+    expect(card.textContent).toContain("Scan the previous day of pull requests.");
+    // 错过过运行:左侧竖线点亮。
+    expect(card.getAttribute("style")).toContain("--status-edge");
+    // 「接下来」一行列出已启用计划的下次运行。
+    expect(container.querySelector('[data-testid="schedules-upcoming"]')?.textContent).toContain("Heartbeat probe");
     // The retired 420px inspector is gone: the list pane is the only list surface.
     expect(container.querySelector('[data-testid="schedules-inspector"]')).toBeNull();
   });
@@ -244,12 +259,12 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         onFocusSchedule: noop,
       }),
     );
-    // 切换到「全部」视图(标准 §2.4 筛选按钮)
+    // 默认就是「全部」:不先藏起来。
     const filters = container.querySelector('[data-testid="schedules-filters"]');
     const allChip = [...filters!.querySelectorAll("button")].find(
       (b) => b.textContent?.includes("All") || b.textContent?.includes("全部"),
     );
-    await act(async () => allChip!.click());
+    expect(allChip!.getAttribute("aria-pressed")).toBe("true");
     expect(container.querySelector('[data-testid="schedule-row-heartbeat-probe"]')).not.toBeNull();
     // 切换到「已暂停」
     const pausedChip = [...filters!.querySelectorAll("button")].find(
@@ -258,10 +273,12 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     await act(async () => pausedChip!.click());
     expect(container.querySelector('[data-testid="schedule-row-heartbeat-probe"]')).toBeNull();
     expect(container.querySelector('[data-testid="schedule-row-paused-sweep"]')).not.toBeNull();
-    // 切换回「全部」:暂停的计划沉到「已暂停 N」分隔线之后照常显示(v2 §1.4,不再折叠成「展开」)。
+    // 切换回「全部」:暂停的计划沉到「已暂停 N」分隔线之后,用小方块照常显示(不折叠成「展开」)。
     await act(async () => allChip!.click());
     expect(container.querySelector('[data-testid="schedule-row-heartbeat-probe"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="schedule-row-paused-sweep"]')).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="schedule-row-paused-sweep"]')?.getAttribute("data-summary-card"),
+    ).toBe("tile");
     const divider = container.querySelector('[data-testid="completed-divider"]');
     expect(divider?.textContent).toMatch(/已暂停 1|Paused 1/u);
     expect(container.textContent).not.toContain("个 · 展开");
@@ -303,15 +320,19 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         onFocusSchedule: noop,
       }),
     );
-    // Degraded probe 处于 degraded,在需要关注视图中默认可见;spark 与状态标明显形
-    expect(container.querySelector('[data-testid="schedule-row-degraded-probe"]')).not.toBeNull();
-    expect(container.querySelector('[data-testid="schedule-spark-degraded-probe"]')).not.toBeNull();
-    // 全部视图下,页内搜索支持搜 mode(detect/remediate)
-    const filters = container.querySelector('[data-testid="schedules-filters"]');
-    const allChip = [...filters!.querySelectorAll("button")].find(
-      (b) => b.textContent?.includes("All") || b.textContent?.includes("全部"),
+    // 需要关注的排在前面;降级的卡写出结论与人能读的失败详情,历史条每次结果一个色块。
+    const cards = [...container.querySelectorAll('[data-testid^="schedule-row-"]')].map((card) =>
+      card.getAttribute("data-testid"),
     );
-    await act(async () => allChip!.click());
+    expect(cards).toEqual(["schedule-row-degraded-probe", "schedule-row-clean-probe"]);
+    expect(container.querySelector('[data-testid="schedule-verdict-degraded-probe"]')?.textContent).toMatch(
+      /^degraded1 of last 2 failed · last .*cwd \/missing does not exist$/u,
+    );
+    expect(
+      [...container.querySelectorAll('[data-testid="schedule-spark-degraded-probe"] [data-outcome]')].map((block) =>
+        block.getAttribute("data-outcome"),
+      ),
+    ).toEqual(["succeeded", "failed"]);
     expect(container.querySelector('[data-testid="schedule-row-clean-probe"]')).not.toBeNull();
     const searchInput = container.querySelector<HTMLInputElement>('input[type="search"]');
     await act(async () => {
@@ -334,10 +355,107 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         onFocusSchedule: noop,
       }),
     );
-    // 点行直接进详情,不设预览抽屉(标准 §2.4)。
+    // 点卡直接进详情,不设预览抽屉(标准 §5.1)。
     await click(container, "schedule-row-heartbeat-probe");
     expect(onSelectEntity).toHaveBeenCalledWith("schedule/heartbeat-probe");
     expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
+  it("runs a schedule from its card without entering the detail, and shows the receipt in place", async () => {
+    const onSelectEntity = vi.fn(),
+      runNow = vi.spyOn(schedulesClient, "runNow").mockResolvedValue({
+        command: "schedule-run-now",
+        outcome: "applied",
+        opId: "op-run-1",
+        nextAction: null,
+        scheduleId: "heartbeat-probe",
+      });
+    const container = await renderSurface(
+      createElement(ScheduleWorkspace, {
+        repoId: "repo-a",
+        data: dto(),
+        pending: false,
+        focusedEntityRef: null,
+        onSelectEntity,
+        onFocusSchedule: noop,
+      }),
+    );
+    await click(container, "schedule-run-now-heartbeat-probe");
+    await flush();
+    expect(runNow).toHaveBeenCalledWith("repo-a", "heartbeat-probe", expect.stringMatching(/^gui:schedule-runNow:/u));
+    expect(onSelectEntity).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="schedule-action-receipt"]')?.textContent).toContain("op-run-1");
+  });
+
+  it("disables the card's run-now with the daemon's reason, and writes an artifact failure ref as a pointer", async () => {
+    const base = dto().schedules[0] as ScheduleGuiRowDto;
+    const container = await renderSurface(
+      createElement(ScheduleWorkspace, {
+        repoId: "repo-a",
+        data: dto({
+          executionAvailability: "not-on-this-node",
+          lastRun: { ...base.lastRun!, outcome: "failed" },
+          health: {
+            recent: ["failed"],
+            bucket: "degraded",
+            failedCount: 1,
+            lastFailureDetail: "artifact:runtime-result/abc",
+          },
+          actions: {
+            ...base.actions,
+            runNow: { available: false, code: "repo_mode_requires_center_ingress", nextAction: "Use the center." },
+          },
+        }),
+        pending: false,
+        focusedEntityRef: null,
+        onSelectEntity: noop,
+        onFocusSchedule: noop,
+      }),
+    );
+    const runNow = container.querySelector<HTMLButtonElement>('[data-testid="schedule-run-now-heartbeat-probe"]')!;
+    expect(runNow.disabled).toBe(true);
+    expect(runNow.getAttribute("data-tip")).toBe("Use the center.");
+    const card = container.querySelector('[data-testid="schedule-row-heartbeat-probe"]')!;
+    expect(card.textContent).not.toContain("artifact:");
+    expect(card.querySelector('[data-testid="schedule-verdict-heartbeat-probe"]')?.textContent).toMatch(
+      /^Failedlast .*Failure detail is on the schedule page$/u,
+    );
+    expect(card.textContent).toContain("Runs elsewhere");
+  });
+
+  it("sizes cards by attention once there are more than six schedules: large, small, then paused tiles", async () => {
+    const base = dto({ missed: { count: 0, lastMissedAt: null, lastMissedReason: null } })
+      .schedules[0] as ScheduleGuiRowDto;
+    const schedules = [
+      ...Array.from({ length: 5 }, (_, index) => ({ ...base, scheduleId: `clean-${index}`, name: `Clean ${index}` })),
+      { ...base, scheduleId: "late", name: "Late", missed: { ...base.missed, count: 1 } },
+      { ...base, scheduleId: "paused-sweep", name: "Paused sweep", state: "paused" as const },
+      { scheduleId: "broken", state: "invalid" as const, invalidReason: "cron is unparsable", definitionRevision: 1 },
+    ];
+    const container = await renderSurface(
+      createElement(ScheduleWorkspace, {
+        repoId: "repo-a",
+        data: dto({}, { schedules }),
+        pending: false,
+        focusedEntityRef: null,
+        onSelectEntity: noop,
+        onFocusSchedule: noop,
+      }),
+    );
+    const sizes = (tier: string) =>
+      [...container.querySelectorAll(`[data-testid="schedules-tier-${tier}"] [data-summary-card]`)].map(
+        (card) => `${card.getAttribute("data-testid")}:${card.getAttribute("data-summary-card")}`,
+      );
+    // 定义无效的排在需要关注最前,用大卡写出无效原因,不可点进详情。
+    expect(sizes("attention")).toEqual(["schedule-row-broken:large", "schedule-row-late:large"]);
+    expect(container.querySelector('[data-testid="schedule-row-broken"]')?.textContent).toContain("cron is unparsable");
+    expect(container.querySelector('[data-testid="schedule-row-broken"] button')).toBeNull();
+    expect(sizes("normal")).toHaveLength(5);
+    expect(new Set(sizes("normal").map((entry) => entry.split(":")[1]))).toEqual(new Set(["small"]));
+    expect(sizes("paused")).toEqual(["schedule-row-paused-sweep:tile"]);
+    // 小卡没有「立即运行」:卡内只有标题这一个可点目标。
+    expect(container.querySelectorAll('[data-testid="schedule-row-clean-0"] button')).toHaveLength(1);
+    expect(container.querySelector('[data-testid="schedules-upcoming"]')?.textContent).toContain("+1 more");
   });
 
   it("keeps the detail read-only until Edit is pressed: no edit tab, no live form controls", async () => {
@@ -654,8 +772,10 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     const text = container.textContent ?? "";
-    expect(text).toContain("remote-edge");
-    expect(text).toContain("edge-one");
+    // 页头只有页名与一句结论;repo mode 与节点 id 不上页头。
+    expect(text).not.toContain("remote-edge");
+    expect(text).not.toContain("edge-one");
+    expect(container.querySelector('[data-testid="schedules-summary"]')?.textContent).toBe("0 schedules");
     expect(text).toContain("No schedules yet");
     expect(container.querySelector('[data-testid="schedules-view"]')).not.toBeNull();
     // A stale ref for a missing schedule falls back to the list, not an inspector.

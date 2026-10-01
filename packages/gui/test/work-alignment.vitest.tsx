@@ -40,7 +40,7 @@ describe("work aggregation", () => {
     const ids = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.id));
     expect(ids).toEqual(expect.arrayContaining(["overview", "work", "board", "graph", "cadence", "decisionPool"]));
   });
-  it("shows real counts, opens work rows, and searches by work title", () => {
+  it("shows real counts, opens work cards, and searches by work title", () => {
     const host = document.createElement("div"),
       root = createRoot(host),
       opened: string[] = [];
@@ -61,22 +61,14 @@ describe("work aggregation", () => {
         </QueryClientProvider>,
       ),
     );
-    // S4/v2:每个工作一行;两件工作都安静(无活动/无阻塞/24h 无变化),默认筛选不列,
-    // 顶部「全部」筛选钮带计数负责显形(不再有「其余 N 个安静」折叠行)。
+    // 每个工作一张概况卡,默认「全部」:两件安静的工作都在「在推进」组里。
     const workRows = () => [...host.querySelectorAll('[data-testid="work-row"]')];
-    expect(workRows()).toHaveLength(0);
-    const allChip = [...host.querySelectorAll('[data-testid="work-filter-chips"] button')].find((button) =>
-      button.textContent?.startsWith("全部"),
-    )!;
-    act(() => allChip.click());
     expect(workRows().map((row) => row.getAttribute("data-work-id"))).toEqual(["declared_work", "group"]);
     // 独立任务(solo)不在工作页,归任务列表页。
     expect(host.textContent).not.toContain("solo");
     const groupRow = host.querySelector('[data-testid="work-row"][data-work-id="group"]')!;
-    act(() => groupRow.querySelector<HTMLButtonElement>('[data-testid="work-row-toggle"]')!.click());
-    const body = groupRow.querySelector('[data-testid="work-row-body"]')!;
-    expect(body.textContent).toContain("计划中 1");
-    act(() => body.querySelector<HTMLButtonElement>('[data-testid="work-open"]')!.click());
+    expect(groupRow.textContent).toContain("计划 1 · 无 agent 在跑");
+    act(() => groupRow.querySelector<HTMLButtonElement>("button")!.click());
     expect(opened).toEqual(["group"]);
     const input = host.querySelector<HTMLInputElement>('input[aria-label="搜索工作"]')!;
     act(() => {
