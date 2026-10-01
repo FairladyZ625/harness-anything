@@ -260,7 +260,8 @@ describe("G5 系统组四页宽屏:内容容器铺满,不保留固定宽度收�
 
   it("侧栏固定轨道保留(列宽有意,外层仍铺满)", async () => {
     // G7 起预设列表页改为紧凑信息行(已解析内容移入详情页),不再有 20rem 侧栏轨道。
-    expect(await mountedContainerClasses("system-content")).toContain("lg:grid-cols-[22rem_minmax(0,1fr)]");
+    // system 的栏式切换改容器查询(标准 §1.9),面板收窄到 16rem 把宽度让给仓库表。
+    expect(await mountedContainerClasses("system-content")).toContain("@min-[900px]:grid-cols-[16rem_minmax(0,1fr)]");
     expect(await mountedContainerClasses("settings-content")).toContain("lg:grid-cols-[12rem_minmax(0,1fr)]");
   });
 
@@ -276,6 +277,27 @@ describe("G5 系统组四页宽屏:内容容器铺满,不保留固定宽度收�
     expect(cappedCells.length).toBeGreaterThan(0);
     const table = container.querySelector("table");
     expect(table?.className).toContain("w-full");
+  });
+
+  it("system 仓库表头与标签一律不折行;路径收进仓库名下的第二行弱色(标准 §2.5 v2)", async () => {
+    const container = await mountView(
+      createElement(SystemView, {
+        activeRepoId: REPO_ID,
+        onOpenObserve: () => undefined,
+        onNavigateEntity: () => undefined,
+      }),
+    );
+    for (const th of container.querySelectorAll("thead th"))
+      expect(th.className, `表头「${th.textContent}」必须 whitespace-nowrap`).toContain("whitespace-nowrap");
+    // 路径不再单占一列(列数少了「路径」),落在第一列第二行。
+    expect(container.querySelectorAll("thead th").length).toBe(7);
+    const firstCell = container.querySelector("tbody td");
+    expect(firstCell?.textContent).toContain("/tmp/g5-probe");
+    // 模式徽标与状态标签不折行:被挤竖的「纯本地」「(已停用)」都出在这一档。
+    const badge = container.querySelector("[data-testid='repo-mode-badge-local']");
+    expect(badge?.className).toContain("whitespace-nowrap");
+    const stateCell = container.querySelectorAll("tbody td")[2];
+    expect(stateCell?.querySelector("span")?.className).toContain("whitespace-nowrap");
   });
 
   it("system 结论行在最上(标准 §2.5 统计类):运行状态标签 + 附着/队列/时长关键数字,仓库状态是有底色的 StatusTag", async () => {

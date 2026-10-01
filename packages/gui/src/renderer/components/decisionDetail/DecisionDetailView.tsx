@@ -176,7 +176,8 @@ export function DecisionDetailView({
               />
             </div>
             <div className="mt-0.5 flex min-w-0 items-center gap-2">
-              <h1 className="truncate ui-title font-semibold leading-5 tracking-[-0.01em] text-text">
+              {/* 标题自己折行;徽章不折行、不被压缩——先保徽章横排完整,标题在剩余宽度里换行。 */}
+              <h1 className="min-w-0 flex-1 ui-title font-semibold leading-5 tracking-[-0.01em] text-text">
                 {decision.title}
               </h1>
               <DecisionStateBadge state={decision.state} />

@@ -205,15 +205,17 @@ function ProviderConclusion({
   readonly compatibleAgents: number;
 }) {
   const auth = runtimeAuthPresentation(instance, authProbeState);
-  const unavailable = !instance.enabled || auth.cap === "none";
+  // 已停用是人为关掉、不是出错:中性档;只有不可达才吃红档与红竖线。
+  const disabled = !instance.enabled,
+    unreachable = instance.enabled && auth.cap === "none";
   return (
     <section
       data-testid="provider-detail-conclusion"
       className="status-edge relative mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xs border border-border bg-surface px-3.5 py-2"
-      style={unavailable ? ({ "--status-edge": "var(--color-status-blocked)" } as CSSProperties) : undefined}
+      style={unreachable ? ({ "--status-edge": "var(--color-status-blocked)" } as CSSProperties) : undefined}
     >
       <StatusTag
-        tone={unavailable ? "bad" : auth.cap === "part" ? "wait" : "done"}
+        tone={disabled ? "neutral" : unreachable ? "bad" : auth.cap === "part" ? "wait" : "done"}
         label={t(
           !instance.enabled
             ? "agentRuntime.providerDisabledTag"
