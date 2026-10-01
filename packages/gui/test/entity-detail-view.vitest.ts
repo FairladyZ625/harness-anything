@@ -423,6 +423,30 @@ describe("DecisionDetailView", () => {
     selected("body");
   });
 
+  it("页头长标题自己折行;状态/风险/紧急徽章不折行、不被压缩(标准 §2.5 v2)", async () => {
+    stubOverviewWindow();
+    vi.stubGlobal("window", { harness: { showDecision: vi.fn(async () => showReceipt(null)) } });
+    const div = await mountDecisionView(
+      decisionRow({
+        title: "为公开仓库添加 production-delta 门:把任务包绕过 CI 直写生产代码的路径关掉的超长决策标题",
+        riskTier: "high",
+        urgency: "high",
+      }),
+    );
+    const header = div.querySelector("[data-testid='decision-detail-header']");
+    const h1 = header?.querySelector("h1");
+    // 标题不再 truncate(截断):换行由标题自己承担,徽章保持横排一行。
+    expect(h1?.className).not.toContain("truncate");
+    const badges = h1?.parentElement?.querySelectorAll(":scope > span") ?? [];
+    expect(badges.length).toBeGreaterThanOrEqual(3);
+    for (const badge of badges) {
+      expect(badge.className, `徽章「${badge.textContent}」必须 whitespace-nowrap + shrink-0`).toContain(
+        "whitespace-nowrap",
+      );
+      expect(badge.className).toContain("shrink-0");
+    }
+  });
+
   it("选中决策后能读到 Markdown 正文(正向不变量)", async () => {
     const showDecision = vi.fn(async () => showReceipt(PROSE));
     vi.stubGlobal("window", { harness: { showDecision } });

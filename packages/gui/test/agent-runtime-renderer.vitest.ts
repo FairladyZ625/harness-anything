@@ -514,6 +514,40 @@ describe("agent runtime renderer", () => {
     expect(claudeMarkup).toContain("claude.baseUrl");
     expect(claudeMarkup).not.toContain("codex.reasoningEffort");
   });
+  it("provider 目录行两行排布:名称占满第一行,状态与模型收进第二行;已停用沉底且不吃红档", () => {
+    const unreachable = {
+        ...instance,
+        instanceId: "unreachable-one",
+        name: "Unreachable One",
+        authReadiness: { status: "not-ready", code: "runtime_subscription_required", hint: "Sign in required." },
+      } as never,
+      disabled = { ...claudeInstance, instanceId: "claude-disabled", name: "Claude Disabled", enabled: false } as never;
+    const markup = renderToStaticMarkup(
+      createElement(ProviderRail, {
+        instances: [instance, disabled, unreachable] as never,
+        selectedId: null,
+        liveByInstance: new Map(),
+        onSelect: noop,
+        onNew: noop,
+      }),
+    );
+    // 前缀标签列已撤(标准 §2.5 v2「名称必须完整可读」):行上不再有 minmax(3rem,auto) 标签列。
+    expect(markup).not.toContain("minmax(3rem,auto)");
+    // 排序分档:不可达置顶 → 可用 → 已停用整组沉底。
+    const at = (id: string) => markup.indexOf(`rail-runtime-${id}`);
+    expect(at("unreachable-one")).toBeLessThan(at("codex-review"));
+    expect(at("codex-review")).toBeLessThan(at("claude-disabled"));
+    const rowOf = (id: string) => markup.slice(at(id), at(id) + 2000);
+    // 状态档:不可达红、可用绿、已停用中性灰(人为关掉,不是出错)。
+    expect(rowOf("unreachable-one")).toContain('data-status-tone="bad"');
+    expect(rowOf("codex-review")).toContain('data-status-tone="done"');
+    expect(rowOf("claude-disabled")).toContain('data-status-tone="neutral"');
+    // 红竖线只给异常:已停用行不注入 --status-edge,不可达行注入。
+    expect(rowOf("claude-disabled")).not.toContain("--status-edge");
+    expect(rowOf("unreachable-one")).toContain("--status-edge");
+    // 第二行弱色:状态标签之后跟等宽模型名。
+    expect(rowOf("codex-review")).toContain(definition.model);
+  });
   it("renders the carrier rail and the identity rail as the split runtime entries", () => {
     // W6 IA 拆分:原四段聚合 rail 拆成页级 rail——承运者归 Provider 入口,身份与
     // 组织(Squad 是 Agent 页内的面)归 Agent 入口,会话归会话入口。

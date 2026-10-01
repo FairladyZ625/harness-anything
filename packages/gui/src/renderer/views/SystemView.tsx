@@ -69,10 +69,14 @@ function RepoRow({
     openObserve = repo.cellState === "attached" ? onOpenObserve : undefined;
   return (
     <tr className={`border-b border-border last:border-b-0 ${isCurrent ? "bg-surface-raised/40" : ""}`}>
-      <td className="px-3 py-2 align-top">
+      <td className="max-w-[24rem] px-3 py-2 align-top">
+        {/* 名称第一行,路径收进第二行弱色(标准 §2.5 v2):路径不再单占一列把其他列挤竖。 */}
         <span className="flex flex-col gap-0.5">
           <span className="font-mono ui-meta text-text">{label}</span>
           {repo.displayName ? <span className="font-mono ui-micro text-text-faint">{repo.repoId}</span> : null}
+          <span className="block truncate font-mono ui-micro text-text-faint" title={repo.canonicalRoot ?? undefined}>
+            {repo.canonicalRoot || dash()}
+          </span>
           {isCurrent ? (
             <span className="ui-micro font-medium uppercase tracking-wide text-text-muted">
               {t("views.settingsView.systemCurrentRepo")}
@@ -83,24 +87,19 @@ function RepoRow({
       <td className="px-3 py-2 align-top">
         <RepoModeBadge mode={repo.mode} />
       </td>
-      <td className="max-w-[16rem] px-3 py-2 align-top">
-        <span className="block truncate font-mono ui-micro text-text-muted" title={repo.canonicalRoot ?? undefined}>
-          {repo.canonicalRoot || dash()}
-        </span>
-      </td>
       <td className="px-3 py-2 align-top">
-        <span className="inline-flex items-center gap-1.5" title={repo.cellState}>
+        <span className="inline-flex items-center gap-1.5 whitespace-nowrap" title={repo.cellState}>
           <StatusTag tone={repoCellMeta(repo.cellState).tone} label={t(repoCellMeta(repo.cellState).labelKey)} />
           {repo.registrationState === "disabled" ? (
             <span className="font-mono ui-micro text-text-faint">({t("views.systemView.registrationDisabled")})</span>
           ) : null}
         </span>
       </td>
-      <td className="px-3 py-2 align-top">
-        <span className="font-mono ui-meta text-text-muted">{repo.queueDepth ?? dash()}</span>
+      <td className="px-3 py-2 text-right align-top">
+        <span className="whitespace-nowrap font-mono ui-meta text-text-muted">{repo.queueDepth ?? dash()}</span>
       </td>
       <td className="px-3 py-2 align-top">
-        <span className="font-mono ui-meta text-text-muted">
+        <span className="whitespace-nowrap font-mono ui-meta text-text-muted">
           {repo.lockState === "held"
             ? t("views.systemView.lockHeld")
             : repo.lockState === "not_applicable"
@@ -126,7 +125,7 @@ function RepoRow({
             title={t("views.systemView.openObserve")}
             onClick={() => openObserve(repo.repoId)}
             className={[
-              "rounded-md border border-border-strong px-2.5 py-1 ui-meta font-medium text-accent",
+              "whitespace-nowrap rounded-md border border-border-strong px-2.5 py-1 ui-meta font-medium text-accent",
               "hover:bg-surface-raised",
             ].join(" ")}
           >
@@ -227,7 +226,10 @@ export function SystemView({
         ) : null}
         <span className="ml-auto font-mono ui-micro text-text-faint">{dateTime(status.data.observedAt)}</span>
       </section>
-      <div data-testid="system-content" className="grid w-full gap-4 p-4 lg:grid-cols-[22rem_minmax(0,1fr)]">
+      <div
+        data-testid="system-content"
+        className="@container grid w-full gap-4 p-4 @min-[900px]:grid-cols-[16rem_minmax(0,1fr)]"
+      >
         <section className="rounded-lg border border-border bg-surface p-3">
           <div className="flex items-center justify-between gap-2">
             <h2 className="ui-body font-semibold">{t("views.settingsView.systemDaemonStatus")}</h2>
@@ -291,14 +293,18 @@ export function SystemView({
             <table className="w-full min-w-[720px] border-collapse text-left">
               <thead>
                 <tr className="border-b border-border font-mono ui-meta uppercase tracking-wide text-text-faint">
-                  <th className="px-3 py-2 font-medium">{t("views.settingsView.systemColRepo")}</th>
-                  <th className="px-3 py-2 font-medium">{t("views.settingsView.systemColMode")}</th>
-                  <th className="px-3 py-2 font-medium">{t("views.settingsView.systemColRoot")}</th>
-                  <th className="px-3 py-2 font-medium">{t("views.settingsView.systemColState")}</th>
-                  <th className="px-3 py-2 font-medium">{t("views.settingsView.systemColQueueDepth")}</th>
-                  <th className="px-3 py-2 font-medium">{t("views.settingsView.systemColLock")}</th>
-                  <th className="px-3 py-2 font-medium">{t("views.settingsView.systemColLastError")}</th>
-                  <th className="px-3 py-2 text-right font-medium">
+                  {/* 表头与标签一律不折行(标准 §2.5 v2):列放不下时表格在容器内横向滚动,不把字挤竖。 */}
+                  <th className="whitespace-nowrap px-3 py-2 font-medium">{t("views.settingsView.systemColRepo")}</th>
+                  <th className="whitespace-nowrap px-3 py-2 font-medium">{t("views.settingsView.systemColMode")}</th>
+                  <th className="whitespace-nowrap px-3 py-2 font-medium">{t("views.settingsView.systemColState")}</th>
+                  <th className="whitespace-nowrap px-3 py-2 font-medium">
+                    {t("views.settingsView.systemColQueueDepth")}
+                  </th>
+                  <th className="whitespace-nowrap px-3 py-2 font-medium">{t("views.settingsView.systemColLock")}</th>
+                  <th className="whitespace-nowrap px-3 py-2 font-medium">
+                    {t("views.settingsView.systemColLastError")}
+                  </th>
+                  <th className="whitespace-nowrap px-3 py-2 text-right font-medium">
                     <span className="sr-only">{t("views.systemView.observeAction")}</span>
                   </th>
                 </tr>
