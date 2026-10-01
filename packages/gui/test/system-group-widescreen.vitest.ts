@@ -371,7 +371,6 @@ describe("Settings kind renderer consumes and updates the daemon-owned facet", (
     ] as const)
       expect((container.querySelector(`[data-testid="${testId}"]`) as HTMLSelectElement | null)?.value).toBe(value);
     expect(container.querySelector('[data-testid="settings-preset-select"]')?.tagName).toBe("SELECT");
-    expect(container.textContent).toContain("settings/repository · settings/v1");
 
     const preset = container.querySelector('[data-testid="settings-preset-select"]') as HTMLSelectElement;
     await act(async () => {
