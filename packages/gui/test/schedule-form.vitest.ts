@@ -157,12 +157,7 @@ describe("built-in schedule edit form", () => {
     mounted.push({ root, container });
     expect(container.querySelector('[data-testid="schedule-form-sec-retention"]')).not.toBeNull();
     expect(container.querySelector('[data-testid="schedule-form-builtin-hint"]')?.textContent).toContain("daemon");
-    for (const section of [
-      "schedule-form-sec-executor",
-      "schedule-form-sec-purpose",
-      "schedule-form-sec-routing",
-      "schedule-form-sec-mission",
-    ])
+    for (const section of ["schedule-form-sec-executor", "schedule-form-sec-purpose", "schedule-form-sec-mission"])
       expect(container.querySelector(`[data-testid="${section}"]`), section).toBeNull();
     // The seeded cron loads into the calendar; changing the time keeps the save armed.
     expect(container.querySelector('[data-testid="schedule-form-cron-time"]')).not.toBeNull();
@@ -192,27 +187,21 @@ describe("built-in schedule edit form", () => {
 });
 
 describe("segmented guided form (M5)", () => {
-  it("renders all six segments with the executor squad option reserved and the downstream toggle locked off", async () => {
+  it("renders the five segments with the executor squad option reserved and no outcome-routing section", async () => {
     const container = await renderForm(initialRow);
     for (const section of [
       "schedule-form-sec-identity",
       "schedule-form-sec-trigger",
       "schedule-form-sec-executor",
       "schedule-form-sec-purpose",
-      "schedule-form-sec-routing",
       "schedule-form-sec-mission",
     ]) {
       expect(container.querySelector(`[data-testid="${section}"]`)).not.toBeNull();
     }
+    expect(container.querySelector('[data-testid="schedule-form-sec-routing"]')).toBeNull();
     const squad = container.querySelector<HTMLButtonElement>('[data-testid="schedule-form-executor-squad"]');
     expect(squad?.disabled).toBe(true);
     expect(squad?.getAttribute("title")).toContain("reserved");
-    const downstream = container.querySelector<HTMLElement>('[data-testid="schedule-form-routing-downstream"]');
-    expect(downstream?.textContent).toContain("Trigger downstream schedule");
-    expect(downstream?.getAttribute("data-tip")).toContain("ruling");
-    // The ternary loop is the default route; report is locked on.
-    const report = container.querySelector<HTMLElement>('[data-testid="schedule-form-routing-report"]');
-    expect(report?.textContent).toContain("Write report");
     expect(
       container
         .querySelector<HTMLButtonElement>('[data-testid="schedule-form-fast"] button')
@@ -248,7 +237,7 @@ describe("segmented guided form (M5)", () => {
     );
   });
 
-  it("lets the purpose choice be re-selected and keeps the not-yet-landed routing boundary stated", async () => {
+  it("lets the purpose choice be re-selected", async () => {
     const container = await renderForm(initialRow);
     await click(container, "schedule-form-purpose-remediate");
     expect(
@@ -256,12 +245,6 @@ describe("segmented guided form (M5)", () => {
         .querySelector<HTMLButtonElement>('[data-testid="schedule-form-purpose-remediate"]')
         ?.getAttribute("aria-pressed"),
     ).toBe("true");
-    // No routing write path yet: the toggle shows the default and cannot be flipped into a dropped choice.
-    const fact = container.querySelector<HTMLButtonElement>('[data-testid="schedule-form-routing-fact"] button');
-    expect(fact?.disabled).toBe(true);
-    await click(container, "schedule-form-routing-fact");
-    expect(fact?.getAttribute("aria-checked")).toBe("true");
-    expect(container.textContent).toContain("outcome-routing write path");
   });
 
   it("inserts mission templates and variable slots, and keeps the interval payload shape", async () => {

@@ -18,10 +18,9 @@ import { t, type MessageKey } from "../i18n/index.tsx";
 import { Badge, Btn, Chip, Hint, Modal, PlannedBox, TextInput, Toggle } from "./runtime/parts.tsx";
 
 // M5 guided form: one segment asks one thing (identity → trigger → executor →
-// purpose → outcome routing → mission). The daemon persists identity, interval/cron
-// trigger, executor, mode and mission; outcome routing and the squad executor are
-// still backend-pending, so those two segments keep their boundary stated in the UI
-// instead of silently dropping the user's choice or fabricating a save.
+// purpose → mission). The daemon persists identity, interval/cron trigger, executor,
+// mode and mission; the squad executor is still backend-pending, so that segment keeps
+// its boundary stated in the UI instead of silently dropping the user's choice.
 /** 时长控件的单位表来自 protocol 的唯一词表(`daemon-protocol-vocabulary.ts`),表单不再自带
  * 一份:少一个单位就等于把不能被它整除的 everyMs 在打开表单时四舍五入掉,保存即静默改写。 */
 const UNIT_LABEL_KEY: Readonly<Record<ScheduleDurationUnit, MessageKey>> = {
@@ -532,46 +531,6 @@ export function ScheduleForm({
       )}
 
       {builtinTarget === undefined && (
-        <FormSection testId="schedule-form-sec-routing" title={t("schedules.form.sec.routing")}>
-          <RoutingCard when={t("schedules.form.routing.onSucceeded")}>
-            <RoutingToggle
-              testId="schedule-form-routing-report"
-              label={t("schedules.form.routing.writeReport")}
-              tip={t("schedules.form.routing.lockedDefault")}
-              checked
-            />
-          </RoutingCard>
-          <RoutingCard when={t("schedules.form.routing.onFindings")}>
-            <RoutingToggle testId="schedule-form-routing-fact" label={t("schedules.form.routing.recordFact")} checked />
-            <RoutingToggle
-              testId="schedule-form-routing-decision"
-              label={t("schedules.form.routing.draftDecision")}
-              checked
-            />
-            <RoutingToggle
-              testId="schedule-form-routing-notify"
-              label={t("schedules.form.routing.notify")}
-              checked={false}
-            />
-          </RoutingCard>
-          <RoutingCard when={t("schedules.form.routing.onFailed")}>
-            <RoutingToggle
-              testId="schedule-form-routing-remediation"
-              label={t("schedules.form.routing.remediationTask")}
-              checked={false}
-            />
-            <RoutingToggle
-              testId="schedule-form-routing-downstream"
-              label={t("schedules.form.routing.downstream")}
-              tip={t("schedules.form.routing.downstreamDisabled")}
-              checked={false}
-            />
-          </RoutingCard>
-          <PlannedBox>{t("schedules.form.routing.pending")}</PlannedBox>
-        </FormSection>
-      )}
-
-      {builtinTarget === undefined && (
         <FormSection testId="schedule-form-sec-mission" title={t("schedules.form.sec.mission")}>
           <div className="mb-2 flex flex-wrap items-center gap-1.5">
             <Chip onClick={() => setMission(t("schedules.form.mission.template.probe.text"))}>
@@ -734,35 +693,5 @@ function ModeCard({
       <b className="mb-1 block ui-meta text-text">{title}</b>
       {children}
     </div>
-  );
-}
-
-function RoutingCard({ when, children }: { readonly when: string; readonly children: ReactNode }) {
-  return (
-    <div className="rounded border border-dashed border-border-strong bg-surface px-2.5 py-2">
-      <div className="mb-1.5 font-mono ui-micro uppercase tracking-[0.06em] text-text-faint">{when}</div>
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5">{children}</div>
-    </div>
-  );
-}
-
-/** Outcome routing has no daemon write path yet, so every toggle shows the default route read-only;
- * a flippable toggle here would be a choice the save silently drops. */
-function RoutingToggle({
-  testId,
-  label,
-  tip,
-  checked,
-}: {
-  readonly testId: string;
-  readonly label: string;
-  readonly tip?: string;
-  readonly checked: boolean;
-}) {
-  return (
-    <span data-testid={testId} data-tip={tip} className="inline-flex items-center gap-1.5 ui-micro text-text-muted">
-      <Toggle checked={checked} onChange={() => undefined} label={label} disabled />
-      {label}
-    </span>
   );
 }

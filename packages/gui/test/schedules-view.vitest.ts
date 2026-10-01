@@ -356,9 +356,8 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     }
     await click(container, "schedule-action-edit");
     expect(detail.querySelector('[data-testid="schedule-form"]')).not.toBeNull();
-    // Outcome routing has no write path yet: its toggles show the default and cannot be flipped.
-    const notify = detail.querySelector<HTMLButtonElement>('[data-testid="schedule-form-routing-notify"] button');
-    expect(notify?.disabled).toBe(true);
+    // Outcome routing has no daemon write path, so the form offers no routing controls at all.
+    expect(detail.querySelector('[data-testid="schedule-form-sec-routing"]')).toBeNull();
     await click(container, "schedule-form-cancel");
     expect(detail.querySelector('[data-testid="schedule-form"]')).toBeNull();
   });
@@ -543,7 +542,6 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     // Edit happens in the hub: the header button enters edit mode.
     await click(focused, "schedule-action-edit");
     expect(focused.querySelector('[data-testid="schedule-form-sec-identity"]')).not.toBeNull();
-    expect(focused.querySelector('[data-testid="schedule-form-sec-routing"]')).not.toBeNull();
     await setValue(focused, "schedule-form-name", "Edited heartbeat");
     await click(focused, "schedule-form-submit");
     await flush();
