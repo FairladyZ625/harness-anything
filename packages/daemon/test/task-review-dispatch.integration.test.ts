@@ -6,6 +6,15 @@ import path from "node:path";
 import test from "node:test";
 import { realizedDecisionBody, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
+import { makeDaemonCommandReceipt } from "../src/protocol/daemon-protocol.contract.ts";
+import { parseDaemonGuiActionResult } from "../src/protocol/gui-result-validation.ts";
+
+// The JSON-RPC exit for repo.decision.dispatchReview: the cell receipt wrapped and re-validated.
+const overGuiWire = (receipt: object) =>
+  parseDaemonGuiActionResult(
+    "repo.decision.dispatchReview",
+    makeDaemonCommandReceipt("decision-dispatch-review", receipt),
+  );
 
 const reviewerActor = (runtimeSessionId: string) =>
   withRoleBinding(
@@ -48,6 +57,7 @@ test("decision dispatch-review passes spawn admission and launches once for the 
       digest = JSON.parse(String(shown.evidence)).decision.currentReviewContentDigest as string,
       receipt = await runDecision({ kind: "decision-dispatch-review", decisionId, runtimeInstanceId: "review-first" });
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    assert.equal(overGuiWire(receipt).status, "accepted_durable", JSON.stringify(receipt));
     assert.equal(f.launches.length, 1);
     assert.match(f.launches[0]!.prompt, new RegExp(decisionId, "u"));
     assert.ok(f.launches[0]!.prompt.includes(digest));
@@ -56,6 +66,7 @@ test("decision dispatch-review passes spawn admission and launches once for the 
     assert.deepEqual(requested[0]!.payload.reviewTarget, { kind: "decision", decisionId, digest });
     const retry = await runDecision({ kind: "decision-dispatch-review", decisionId });
     assert.equal(retry.outcome, "applied", JSON.stringify(retry));
+    assert.equal(overGuiWire(retry).status, "accepted_durable", JSON.stringify(retry));
     assert.equal(f.launches.length, 1);
     const first = requested[0]!.payload;
     f.failPending();
