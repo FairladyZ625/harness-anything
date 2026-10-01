@@ -7,11 +7,7 @@ import {
   type SquadEntityRow,
 } from "../../agent-entity-client.ts";
 import { t } from "../../i18n/index.tsx";
-import {
-  runtimeAuthPresentation,
-  runtimeAuthPresentationText,
-  type RuntimeAuthProbeState,
-} from "../../runtime-auth-presentation.ts";
+import { runtimeAuthPresentation, type RuntimeAuthProbeState } from "../../runtime-auth-presentation.ts";
 import { DenseRow } from "../primitives/DenseRow.tsx";
 import { catalogRailClass } from "../primitives/CatalogSplit.tsx";
 import { StatusTag, TONE_COLOR } from "../primitives/StatusTag.tsx";
@@ -33,8 +29,9 @@ import type { RuntimeSelection } from "./useRuntimeWorkspace.ts";
 const badEdge = { "--status-edge": TONE_COLOR.bad } as CSSProperties;
 
 /**
- * 探测态(authProbeStates)与目录行合并一次:排序、行渲染与页面默认选中用同一份呈现,
- * 异常项(停用或不可达)置顶。
+ * 探测态(authProbeStates)与目录行合并一次:排序、行渲染与页面默认选中用同一份呈现。
+ * 排序分档(标准 §2.5 v2):不可达是异常,置顶;已停用是人为关掉、不是出错,整组沉到
+ * 列表下面;其余保持目录序。
  */
 export function orderProviderRows(
   instances: readonly RuntimeInstanceSummary[],
@@ -42,9 +39,14 @@ export function orderProviderRows(
 ) {
   const rows = instances.map((instance) => {
     const auth = runtimeAuthPresentation(instance, authProbeStates?.get(instance.instanceId));
-    return { instance, auth, abnormal: !instance.enabled || auth.cap === "none" };
+    return {
+      instance,
+      auth,
+      rank: !instance.enabled ? 2 : auth.cap === "none" ? 0 : 1,
+      abnormal: instance.enabled && auth.cap === "none",
+    };
   });
-  return rows.sort((left, right) => Number(right.abnormal) - Number(left.abnormal));
+  return rows.sort((left, right) => left.rank - right.rank);
 }
 
 export function ProviderRail({
@@ -81,9 +83,10 @@ export function ProviderRail({
         onNew={onNew}
       >
         {ordered.map(({ instance, auth, abnormal }) => {
-          const authTip = runtimeAuthPresentationText(instance, auth),
-            live = liveByInstance.get(instance.instanceId) ?? 0,
-            tone = !instance.enabled ? "cancel" : auth.cap === "none" ? "bad" : auth.cap === "part" ? "wait" : "done";
+          const live = liveByInstance.get(instance.instanceId) ?? 0,
+            // 已停用是人为关掉、不是出错:中性灰,不吃异常的红档。
+            tone = !instance.enabled ? "neutral" : auth.cap === "none" ? "bad" : auth.cap === "part" ? "wait" : "done",
+            tail = live > 0 ? t("agentRuntime.liveCount", { count: live }) : instance.defaultModel;
           return (
             <button
               type="button"
@@ -95,31 +98,34 @@ export function ProviderRail({
               onClick={() => onSelect(instance.instanceId)}
             >
               <DenseRow
-                tag={
-                  <StatusTag
-                    tone={tone}
-                    label={t(
-                      !instance.enabled
-                        ? "agentRuntime.providerDisabledTag"
-                        : auth.cap === "none"
-                          ? "agentRuntime.providerUnreachable"
-                          : auth.cap === "part"
-                            ? auth.state === "probing"
-                              ? "agentRuntime.providerAuthChecking"
-                              : "agentRuntime.providerNotChecked"
-                            : "agentRuntime.providerUsable",
-                    )}
-                  />
-                }
                 title={
                   <span className="flex min-w-0 items-baseline gap-1.5">
                     <KindDot kind={instance.kindId} />
                     <span className="min-w-0 truncate">{instance.name}</span>
                   </span>
                 }
-                reason={tone === "done" ? undefined : authTip}
-                time={live > 0 ? t("agentRuntime.liveCount", { count: live }) : instance.defaultModel}
-                relaxed={tone !== "done"}
+                reason={
+                  <span className="flex min-w-0 items-center gap-1.5">
+                    <span className="shrink-0">
+                      <StatusTag
+                        tone={tone}
+                        label={t(
+                          !instance.enabled
+                            ? "agentRuntime.providerDisabledTag"
+                            : auth.cap === "none"
+                              ? "agentRuntime.providerUnreachable"
+                              : auth.cap === "part"
+                                ? auth.state === "probing"
+                                  ? "agentRuntime.providerAuthChecking"
+                                  : "agentRuntime.providerNotChecked"
+                                : "agentRuntime.providerUsable",
+                        )}
+                      />
+                    </span>
+                    {tail ? <span className="min-w-0 truncate font-mono">{tail}</span> : null}
+                  </span>
+                }
+                relaxed
                 selected={selectedId === instance.instanceId}
               />
             </button>
@@ -319,14 +325,18 @@ function RailDegradedRow({
       onClick={onSelect}
     >
       <DenseRow
-        tag={
-          <StatusTag
-            tone="bad"
-            label={t(row.state === "missing" ? "agentRuntime.catalogMissing" : "agentRuntime.catalogInvalid")}
-          />
-        }
         title={<span className="font-mono">{row.id}</span>}
-        reason={row.error.hint}
+        reason={
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="shrink-0">
+              <StatusTag
+                tone="bad"
+                label={t(row.state === "missing" ? "agentRuntime.catalogMissing" : "agentRuntime.catalogInvalid")}
+              />
+            </span>
+            <span className="min-w-0 truncate">{row.error.hint}</span>
+          </span>
+        }
         relaxed
         selected={selected}
       />

@@ -61,7 +61,7 @@ const GROUP_TONE: Readonly<Record<AgendaGroup, StatusTone>> = {
   judge: "wait",
   reviewing: "wait",
   taskReviewing: "wait",
-  answered: "done",
+  answered: "wait",
 };
 
 /** 筛选桶:需要关注 = 下一步是「你」;待跟进 = 已出手、等别人回。 */
@@ -108,7 +108,7 @@ function agendaRowsOf(agenda: AgendaSuccess): readonly AgendaRow[] {
     ...agenda.answeredForYou.map((row) => ({
       id: row.relationId,
       title: row.title,
-      hint: `${AWAITS_KIND_LABEL[row.askKind]()} · ${t("views.agenda.hintAnswered", { answer: row.answer })}`,
+      hint: `${AWAITS_KIND_LABEL[row.askKind]()} · ${t("components.awaitsAnswer.answeredBy", { actor: row.answeredBy, time: row.answeredAt })} · ${t("views.agenda.hintAnswered", { answer: row.answer })}`,
       group: "answered" as const,
       since: row.answeredAt,
       scoreRef: `relation/${row.relationId}`,

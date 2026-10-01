@@ -41,7 +41,7 @@ export function DecisionReviewBadge({ review }: { readonly review: DecisionRevie
     <span
       data-testid="decision-review-signal"
       data-signal={signal}
-      className={`inline-flex shrink-0 items-center rounded-xs border px-1.5 py-0.5 ui-micro font-semibold ${meta.cls}`}
+      className={`inline-flex shrink-0 items-center whitespace-nowrap rounded-xs border px-1.5 py-0.5 ui-micro font-semibold ${meta.cls}`}
     >
       {t(meta.key)}
     </span>

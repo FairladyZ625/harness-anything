@@ -336,7 +336,10 @@ describe("议程页(标准 §2.4 列表页)", () => {
     act(() => [...answered.querySelectorAll('[data-testid="agenda-filter-chips"] button')][2]!.click());
     const answeredRow0 = answered.querySelector('[data-testid="agenda-row-rel_ans_task"]')!;
     expect(answeredRow0.textContent).toContain("已答复 task/task_asked");
-    expect(answeredRow0.textContent).toContain("提问 · 答:不兼容，直接删");
+    expect(answeredRow0.textContent).toContain("待跟进");
+    expect(answeredRow0.textContent).toContain("答复者 person_owner");
+    expect(answeredRow0.textContent).toContain("答:不兼容，直接删");
+    expect(answeredRow0.querySelector('[data-status-tone="wait"]')).not.toBeNull();
     for (const id of ["rel_ans_task", "rel_ans_dec"]) {
       clickRow(answered, id);
       click(answered, "agenda-drawer-open");
