@@ -332,6 +332,57 @@ describe("总览区域板(S3)", () => {
     act(() => root?.unmount());
   });
 
+  it("置顶区列全部置顶的非工作任务:可派的在前、工作根不重复列、每行可取消置顶", () => {
+    const onUnpin = vi.fn();
+    const container = mount({
+      onUnpin,
+      agenda: agenda({
+        pinnedEntities: [
+          { ref: "task/task_pin_active", kind: "task", title: "在跑的置顶任务", status: "active", pinnedAt: AT },
+          // 工作根也置顶了:它住侧栏置顶块,总览置顶区不重复列。
+          { ref: "task/task_w1", kind: "task", title: "代码质量长期检验", status: "active", pinnedAt: AT },
+          { ref: "task/task_pin_go", kind: "task", title: "可派的置顶承诺", status: "planned", pinnedAt: AT },
+          { ref: "decision/dec_pin", kind: "decision", title: "置顶的决策", status: "proposed", pinnedAt: AT },
+        ],
+        dispatchable: [
+          {
+            taskId: "task_pin_go",
+            title: "可派的置顶承诺",
+            work: null,
+            status: "planned",
+            pinned: true,
+            updatedAt: AT,
+            leaseExecutionId: null,
+            activeExecutionIds: [],
+            blockingAssessment: { state: "clear", blockers: [], warnings: [] },
+          },
+        ],
+        // 有置顶实体时读面给的 queue 权重(daemon/GUI 合并同一公式:置顶数 > 0 → 3.5)。
+        regionWeights: { mine: 15.4, stuck: 4, run: 3, review: 3, queue: 3.5, recent: 4, works: 8 },
+      }),
+    });
+    const queue = container.querySelector('[data-testid="overview-region-queue"]')!;
+    expect(textOf(queue)).toContain("可派的置顶承诺");
+    expect(textOf(queue)).toContain("在跑的置顶任务");
+    // 可派行保留「计划中」档与更新年龄;非可派行按状态标签显示。状态标签的文案在
+    // STATUS_META 里按导入时 locale 固化(badges.tsx 的 spread 调用 getter),这里断
+    // tone 通道而非文案,不随运行环境语言漂移。
+    expect(textOf(queue)).toContain("计划中");
+    expect(queue.querySelector('[data-dense-row] [data-status-tone="active"]')).not.toBeNull();
+    expect(textOf(queue)).not.toContain("代码质量长期检验");
+    expect(textOf(queue)).not.toContain("置顶的决策");
+    // 可派的在前(读面序内分两组,组间稳定排序)。
+    const rows = [...queue.querySelectorAll("[data-dense-row]")].map((row) => textOf(row));
+    expect(rows[0]).toContain("可派的置顶承诺");
+    expect(rows[1]).toContain("在跑的置顶任务");
+    // 每行可取消置顶,接真实 pin 写通道;点击不冒泡成选中。
+    const unpin = queue.querySelector<HTMLButtonElement>('[data-testid="overview-unpin-task_pin_active"]')!;
+    expect(unpin.getAttribute("aria-label")).toContain("解除置顶");
+    act(() => unpin.click());
+    expect(onUnpin).toHaveBeenCalledWith("task_pin_active");
+    act(() => root?.unmount());
+  });
+
   it("工作区域的行按注意力排,mine 计数与进度来自工作索引", () => {
     const container = mount();
     const works = container.querySelector('[data-testid="overview-region-works"]')!;

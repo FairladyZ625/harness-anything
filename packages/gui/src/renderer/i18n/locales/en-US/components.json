@@ -12,6 +12,8 @@
   "components.appSidebar.localModeNotSynchronizedV2MultiTerminal": "Local mode · Not synchronized (V2: multi-terminal synchronization)",
   "components.appSidebar.manageAll": "Manage all",
   "components.appSidebar.noTaskRowsFromLocalBridge": "No task rows available from the local task bridge",
+  "components.appSidebar.pinnedWorkTitle": "Pinned work",
+  "components.appSidebar.unpinWorkLabel": "Unpin: {title}",
   "components.appSidebar.projectCount": "{count} projects",
   "components.appSidebar.quickSwitch": "Quick switch",
   "components.appSidebar.quicklySwitchProjects": "Quickly switch projects",

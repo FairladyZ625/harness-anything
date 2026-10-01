@@ -202,12 +202,14 @@ export function SystemStatusPanel({
           {t("components.appSidebar.goSystem")}
         </span>
       </button>
-      {/* 第二行:观测年龄 + 投影落后 revisions。revisions 计数按约束保持可见(shrink-0)。 */}
+      {/* 第二行:观测年龄 + 投影落后 revisions。revisions 计数按约束保持可见(shrink-0);
+          观测年龄放不下时整项不显示(容器查询),不留省略号——「观测于 …」等于没写
+          (评审第 6 条)。断点保护的是「两段同排不折行」所需宽度,窄于它就只留投影段。 */}
       <div
-        className="flex h-[18px] min-w-0 items-center gap-1.5 font-mono ui-micro text-text-faint"
+        className="@container flex h-[18px] min-w-0 items-center gap-1.5 font-mono ui-micro text-text-faint"
         title={systemHealthDetail(health)}
       >
-        <span className="min-w-0 truncate">
+        <span className="shrink-0 whitespace-nowrap @max-[208px]:hidden" data-testid="sidebar-system-status-observed">
           {t("components.appSidebar.healthObservedAge", { age: ageText(health.daemon.observedAgeSec) })}
         </span>
         <span className="shrink-0 truncate" data-testid="sidebar-system-status-projection">

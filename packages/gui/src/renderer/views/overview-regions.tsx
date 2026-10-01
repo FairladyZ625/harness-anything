@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { PushPinSlash } from "@phosphor-icons/react";
 import type { AgendaSuccess } from "../api-client.ts";
 import type { AwaitsPanelSubject } from "../awaits-answer.ts";
 import { AWAITS_KIND_LABEL } from "../awaits-answer.ts";
@@ -21,7 +22,7 @@ import {
   attentionEntries,
   idleInFlightCount,
   mainCiFailingJobs,
-  pinnedDispatchable,
+  pinnedTaskRows,
   recentDayGroups,
   reviewCounts,
   reviewRows,
@@ -108,7 +109,7 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
     runs = runRows(deps.runtime, deps.agenda),
     idle = idleInFlightCount(deps.runtime, deps.agenda),
     reviews = reviewRows(deps.agenda),
-    queue = pinnedDispatchable(deps.agenda),
+    queue = pinnedTaskRows(deps.agenda, deps.works),
     works = workRows(deps.works, deps.agenda),
     recentDays = recentDayGroups({
       events: deps.events,
@@ -370,7 +371,11 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
     review: reviewRegion(reviews, deps),
     queue: {
       title: t("views.overviewView.regionQueue"),
-      tag: <StatusTag tone="plan" label={t("views.overviewView.queueTag")} />,
+      tag: queue.some(({ dispatchable }) => dispatchable) ? (
+        <StatusTag tone="plan" label={t("views.overviewView.queueTag")} />
+      ) : (
+        <StatusTag tone="neutral" label={t("views.overviewView.queueNoDispatchable")} />
+      ),
       big: queue.length,
       bigTone: undefined,
       edge: undefined,
@@ -384,9 +389,22 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
         return (
           <DenseRow
             key={task.taskId}
-            tag={<StatusTag tone="plan" label={t("views.overviewView.queuePlanned")} />}
+            tag={
+              task.dispatchable ? (
+                <StatusTag tone="plan" label={t("views.overviewView.queuePlanned")} />
+              ) : (
+                <StatusTag status={task.status} />
+              )
+            }
             title={task.title}
-            time={ageOf(task.updatedAt, deps.now)}
+            time={task.updatedAt === null ? undefined : ageOf(task.updatedAt, deps.now)}
+            action={
+              <UnpinIconButton
+                testId={`overview-unpin-${task.taskId}`}
+                onClick={() => deps.onUnpin(task.taskId)}
+                label={t("views.overviewView.unpinRowLabel", { title: task.title })}
+              />
+            }
             relaxed={relaxed}
             selected={selected}
             onClick={onSelect}
@@ -398,14 +416,20 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
         if (task === undefined) return null;
         return (
           <div className="flex flex-col gap-3">
-            <StatusTag tone="plan" label={t("views.overviewView.queuePlanned")} />
+            {task.dispatchable ? (
+              <StatusTag tone="plan" label={t("views.overviewView.queuePlanned")} />
+            ) : (
+              <StatusTag status={task.status} />
+            )}
             <h3 className="text-text ui-title">{task.title}</h3>
-            <p className="ui-meta text-text-muted">
-              {t("views.overviewView.queueUpdatedAt", { age: ageOf(task.updatedAt, deps.now) })}
-            </p>
+            {task.updatedAt !== null && (
+              <p className="ui-meta text-text-muted">
+                {t("views.overviewView.queueUpdatedAt", { age: ageOf(task.updatedAt, deps.now) })}
+              </p>
+            )}
             <div className="flex flex-wrap gap-1.5">
               <OverviewActionButton primary onClick={() => deps.onOpenTask(task.taskId)}>
-                {t("views.overviewView.actionDispatch")}
+                {task.dispatchable ? t("views.overviewView.actionDispatch") : t("views.overviewView.actionOpenTask")}
               </OverviewActionButton>
               <OverviewActionButton onClick={() => deps.onUnpin(task.taskId)}>
                 {t("views.overviewView.actionUnpin")}
@@ -696,6 +720,36 @@ function OverviewActionButton({
       }
     >
       {children}
+    </button>
+  );
+}
+
+/**
+ * 置顶行的取消置顶图标:无边框小图标,常驻可见(标准 §1.9③:关键操作不依赖悬停才出现),
+ * 颜色退到弱档、悬停提亮——与侧栏置顶块(空间更紧,悬停浮现)同一图标两种展面。
+ */
+function UnpinIconButton({
+  testId,
+  onClick,
+  label,
+}: {
+  readonly testId: string;
+  readonly onClick: () => void;
+  readonly label: string;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+      aria-label={label}
+      title={label}
+      className="grid size-6 shrink-0 place-items-center rounded text-text-faint hover:bg-surface-raised hover:text-text"
+    >
+      <PushPinSlash weight="bold" className="size-3.5" aria-hidden />
     </button>
   );
 }
