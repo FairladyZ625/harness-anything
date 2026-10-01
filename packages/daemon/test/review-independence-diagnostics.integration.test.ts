@@ -379,9 +379,10 @@ test("a lightweight child bare-invocation execution closes without a review disp
     writeCloseout(rootDir, (created as Record<string, unknown>).packagePath);
     const submitted = await cell.run({ kind: "task-submit", taskId, executionId: priorExecutionId }, bare);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-    assert.match(
+    assert.equal(
       String((submitted.next as readonly { readonly command: string }[])[0]?.command),
-      new RegExp(`^ha task code-doc reconcile ${taskId} --path`, "u"),
+      `ha fact record --task ${taskId} --statement "<what changed and why it matters>"` +
+        ` --source "<evidence path or observation>" --confidence high`,
     );
     return;
     assert.equal(
