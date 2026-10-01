@@ -57,6 +57,11 @@ function parseRbacBootstrap(
       ...(f.one.get("--seconds") ? { sessionLifetimeSeconds: Number(f.one.get("--seconds")) } : {}),
       ...(f.one.get("--expected-version") ? { expectedVersion: f.one.get("--expected-version") } : {}),
       ...(f.one.get("--operation-id") ? { operationId: f.one.get("--operation-id") } : {}),
+      ...(f.one.get("--listen-address") ? { listenAddress: f.one.get("--listen-address") } : {}),
+      ...(f.one.get("--hostname") ? { hostname: f.one.get("--hostname") } : {}),
+      ...(f.one.get("--port") ? { port: Number(f.one.get("--port")) } : {}),
+      ...(f.one.get("--certificate-file") ? { certificateFile: f.one.get("--certificate-file") } : {}),
+      ...(f.one.get("--certificate-key-file") ? { certificateKeyFile: f.one.get("--certificate-key-file") } : {}),
     },
     "daemon.rbac.manage",
   );
