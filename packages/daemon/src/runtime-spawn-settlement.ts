@@ -95,9 +95,10 @@ export async function publishExit(
     // Keep leader control JSON and child delivery text intact. Direct dispatches retain auto-push.
     if (active.task && outcome === "succeeded" && active.publicationOwner !== "commander" && !squadLeaderControl) {
       try {
-        const submittedCommitSha = context
-            .requiredRuntimeProjection(context.input)
-            .read(active.task.taskId)
+        // An edge holds no projection to read a submitted commit from: its settlement publishes the branch head.
+        const projection = context.input.projection ? context.requiredRuntimeProjection(context.input) : null,
+          submittedCommitSha = projection
+            ?.read(active.task.taskId)
             .snapshot.executions.find((execution) => execution.executionId === active.task?.executionId)
             ?.submission?.commitSha,
           env = await context.prepareWorkerGitEnvironment(active.instanceId),
@@ -352,6 +353,8 @@ function unsubmittedDeliveryRecovery(
   hasDelivery: boolean,
 ): string | null {
   if (outcome !== "succeeded" || !active.task || active.role === "reviewer" || !hasDelivery) return null;
+  // The owner recovery reads this node's projection; an edge has none, and its center reports the task state.
+  if (!context.input.projection) return null;
   const projection = context.requiredRuntimeProjection(context.input),
     read = projection.read(active.task.taskId),
     execution = read.snapshot.executions.find((candidate) => candidate.executionId === active.task?.executionId);

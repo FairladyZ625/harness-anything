@@ -15,6 +15,7 @@ import type {
   ReceiptDiagnostic,
   TaskProjection,
   TaskWipRootRow,
+  TaskWorktreeBindingV1,
   EntityActionExplanationSetV1,
   EntityKindCatalogV1,
   VerticalDefinition,
@@ -391,13 +392,15 @@ export type DaemonGuiReadResultMap = {
     readonly sourceRevision: number;
   };
   readonly "repo.tasks.completion.read": DaemonTaskCompletionResult;
-  /** The bounded causal-context block a task-bound dispatch prepends to the worker prompt;
-   * assembled at the serving cut — fleet edges read it through `fleet.runtime.read/v1`. */
-  readonly "repo.tasks.causalContext.read": {
-    readonly schema: "task-causal-context-read/v1";
+  /** What a node that launches a task-bound dispatch needs from the center, assembled at the serving cut:
+   * the bounded causal-context block the worker prompt carries, and the task's worktree binding
+   * (dec_57370FF2021DADF04E3B21724D CH1) — fleet edges read it through `fleet.runtime.read/v1`. */
+  readonly "repo.tasks.runtimeContext.read": {
+    readonly schema: "task-runtime-context-read/v1";
     readonly ok: true;
     readonly taskId: string;
     readonly causalContext: string | null;
+    readonly worktree: TaskWorktreeBindingV1 | null;
   };
   readonly "repo.tasks.documents.list": DaemonTaskDocumentListResult;
   readonly "repo.artifacts.list": ArtifactsListResult;
@@ -466,7 +469,7 @@ export type DaemonGuiReadPayloadMap = {
     readonly path: string;
   };
   readonly "repo.tasks.completion.read": { readonly taskId: string };
-  readonly "repo.tasks.causalContext.read": { readonly taskId: string };
+  readonly "repo.tasks.runtimeContext.read": { readonly taskId: string };
   readonly "repo.tasks.documents.list": { readonly taskId: string };
   /** absent kind = html(时间线默认面);md 是显式 opt-in。 */
   readonly "repo.artifacts.list": { readonly kind?: "html" | "md" | "raw" };

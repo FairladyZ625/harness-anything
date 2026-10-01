@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { ScheduleV1 } from "@harness-anything/kernel";
-import { makeGitReadinessSource, runProcessTextAsync } from "./process-port.ts";
+import { makeGitReadinessSource, runProcessExitAsync, runProcessTextAsync } from "./process-port.ts";
 import type { TrustedScheduleRuntime } from "./runtime-spawn-types.ts";
 import {
   cleanupWorktreeSetup,
@@ -42,6 +42,30 @@ export async function addManagedWorktree(rootDir: string, worktree: ManagedWorkt
     worktree.cwd,
     ...(branchExists ? [worktree.branch] : ["-b", worktree.branch, worktree.baseRef]),
   );
+}
+
+// A fetch that stalls on an unreachable remote must not hold a start or a dispatch; one that fails means no copy.
+const publishedBranchFetchTimeoutMs = 30_000;
+
+/**
+ * dec_57370FF2021DADF04E3B21724D CH3: where a branch this node does not hold continues from — the copy another node
+ * pushed at settlement, fetched once here. Null when this node already has the branch or origin has none.
+ */
+export async function publishedBranchRef(rootDir: string, branch: string): Promise<string | null> {
+  if (await git(rootDir, "branch", "--list", branch)) return null;
+  const fetched = await runProcessExitAsync(
+    "git",
+    ["-C", rootDir, "fetch", "--quiet", "origin", `+refs/heads/${branch}:refs/remotes/origin/${branch}`],
+    undefined,
+    { ...process.env, GIT_TERMINAL_PROMPT: "0" },
+    undefined,
+    undefined,
+    { timeoutMs: publishedBranchFetchTimeoutMs },
+  ).then(
+    (result) => result.exitCode === 0,
+    () => false,
+  );
+  return fetched ? `origin/${branch}` : null;
 }
 
 /**
