@@ -12,6 +12,7 @@ import {
   defineSettingsField,
   readSettingsFacet,
   repositorySettings,
+  settingsFieldPresentationFromDeclarations,
   writeRepositorySettingsFacet,
 } from "../../src/domain/settings.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
@@ -79,6 +80,8 @@ test("one temporary declaration reaches update, YAML read/write, CLI help metada
       defaultValue: 7,
       minimum: 1,
       description: "Contract-only limit used to prove declaration propagation.",
+      effect: "Contract-only effect sentence used to prove declaration propagation.",
+      group: "capacity-agenda",
       action: { field: "temporaryContractLimit", type: "number" },
       cli: { name: "--temporary-contract-limit", kind: "single", regex: "^[1-9][0-9]*$" },
     }),
@@ -96,12 +99,22 @@ test("one temporary declaration reaches update, YAML read/write, CLI help metada
     {
       field: "temporaryContractLimit",
       description: "Contract-only limit used to prove declaration propagation.",
+      effect: "Contract-only effect sentence used to prove declaration propagation.",
+      group: "capacity-agenda",
       name: "--temporary-contract-limit",
       kind: "single",
       regex: "^[1-9][0-9]*$",
       projection: "number",
     },
   );
+  assert.deepEqual(settingsFieldPresentationFromDeclarations([temporary]), [
+    {
+      field: "temporaryContractLimit",
+      group: "capacity-agenda",
+      effect: "Contract-only effect sentence used to prove declaration propagation.",
+      defaultValue: 7,
+    },
+  ]);
   assert.equal(runtime.actionValues(candidate).temporaryContractLimit, 9);
 });
 

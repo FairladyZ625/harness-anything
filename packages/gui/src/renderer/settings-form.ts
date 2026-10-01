@@ -2,8 +2,8 @@
  * settings 动作契约字段表(daemon catalog snapshot 的 settingsFields)→ GUI 仓库设置表单的行描述。
  *
  * 字段清单不手写:行集合、控件类型、枚举取值面全部由契约派生,kernel 加字段自动出现
- * 在表单。
- * 这与 entity-attribute-form 同型:判定与渲染分开,判定才是测得动的纯模块。
+ * 在表单。分组与逐项解释同样从契约投影(group/effect/defaultValue),不在这里另写一份
+ * 分组表。这与 entity-attribute-form 同型:判定与渲染分开,判定才是测得动的纯模块。
  *
  * 目录驱动的选择器(vertical/preset/profile/scaffold/reviewer/workflows)是契约之外的 GUI 特有
  * 联动,标成 catalog-select / catalog-multi-select 由视图注入目录选项与级联;排除项是「本表单
@@ -21,6 +21,15 @@ export interface SettingsFieldDescriptor {
   readonly type: string;
   readonly required: boolean;
   readonly enum?: readonly string[];
+  readonly group?: string;
+  readonly effect?: string;
+  readonly defaultValue?: string | number | boolean | readonly string[];
+}
+
+/** 有序分组描述,形状对齐 daemon catalog snapshot 的 settingsGroups 行。 */
+export interface SettingsGroupDescriptor {
+  readonly id: string;
+  readonly advanced?: boolean;
 }
 
 export type RolePreferences = Readonly<
@@ -53,6 +62,19 @@ export interface SettingsFieldRow {
   readonly widget: SettingsFieldWidget;
   /** enum-select 的取值面;其余 widget 为 null。 */
   readonly options: readonly string[] | null;
+  /** 呈现分组 id(kernel 声明源投影);契约未给组的字段不进分组渲染。 */
+  readonly group: string | null;
+  /** 「改了会怎样」一句话(kernel 声明源投影的英文,本地文案在 locales)。 */
+  readonly effect: string | null;
+  /** 声明默认值;可选字段(默认未设置)为 undefined。 */
+  readonly defaultValue: SettingsFieldValue | undefined;
+}
+
+/** 分组后的表单行:顺序 = 目录快照的 settingsGroups 顺序,组内保持契约字段顺序。 */
+export interface SettingsGroupedRow {
+  readonly id: string;
+  readonly advanced: boolean;
+  readonly rows: readonly SettingsFieldRow[];
 }
 
 /** 目录单选的字段:vertical→preset→profile 级联、两个 scaffold,以及验收人
@@ -78,64 +100,74 @@ const EXCLUDED_FIELDS: ReadonlySet<string> = new Set([
   "gatesFromDocument",
 ]);
 
+function settingsFieldRow(
+  descriptor: SettingsFieldDescriptor,
+  widget: SettingsFieldWidget,
+  options: readonly string[] | null,
+): SettingsFieldRow {
+  return {
+    field: descriptor.field,
+    description: descriptor.description ?? null,
+    widget,
+    options,
+    group: descriptor.group ?? null,
+    effect: descriptor.effect ?? null,
+    defaultValue: descriptor.defaultValue,
+  };
+}
+
 export function settingsFormRows(fields: readonly SettingsFieldDescriptor[]): readonly SettingsFieldRow[] {
   return fields.flatMap((descriptor): SettingsFieldRow[] => {
     if (EXCLUDED_FIELDS.has(descriptor.field)) return [];
     if (descriptor.field === "roles" && descriptor.type === "json-object")
-      return [{ field: "roles", description: descriptor.description ?? null, widget: "role-selectors", options: null }];
+      return [settingsFieldRow(descriptor, "role-selectors", null)];
     if (CATALOG_SELECT_FIELDS.has(descriptor.field) && descriptor.type === "string")
-      return [
-        {
-          field: descriptor.field,
-          description: descriptor.description ?? null,
-          widget: "catalog-select",
-          options: null,
-        },
-      ];
+      return [settingsFieldRow(descriptor, "catalog-select", null)];
     if (CATALOG_MULTI_SELECT_FIELDS.has(descriptor.field) && descriptor.type === "string-array")
-      return [
-        {
-          field: descriptor.field,
-          description: descriptor.description ?? null,
-          widget: "catalog-multi-select",
-          options: null,
-        },
-      ];
+      return [settingsFieldRow(descriptor, "catalog-multi-select", null)];
     if (descriptor.enum && descriptor.type === "string")
-      return [
-        {
-          field: descriptor.field,
-          description: descriptor.description ?? null,
-          widget: "enum-select",
-          options: [...descriptor.enum],
-        },
-      ];
+      return [settingsFieldRow(descriptor, "enum-select", [...descriptor.enum])];
     switch (descriptor.type) {
       case "boolean":
-        return [
-          { field: descriptor.field, description: descriptor.description ?? null, widget: "toggle", options: null },
-        ];
+        return [settingsFieldRow(descriptor, "toggle", null)];
       case "number":
-        return [
-          { field: descriptor.field, description: descriptor.description ?? null, widget: "number", options: null },
-        ];
+        return [settingsFieldRow(descriptor, "number", null)];
       case "string":
-        return [
-          { field: descriptor.field, description: descriptor.description ?? null, widget: "text", options: null },
-        ];
+        return [settingsFieldRow(descriptor, "text", null)];
       case "string-array":
-        return [
-          {
-            field: descriptor.field,
-            description: descriptor.description ?? null,
-            widget: "string-list",
-            options: null,
-          },
-        ];
+        return [settingsFieldRow(descriptor, "string-list", null)];
       default:
         return [];
     }
   });
+}
+
+/** 按目录快照的组序装箱;没有组的行进尾部的无标题组(正常不可达——契约字段都带组)。 */
+export function settingsGroupedRows(
+  fields: readonly SettingsFieldDescriptor[],
+  groups: readonly SettingsGroupDescriptor[],
+): readonly SettingsGroupedRow[] {
+  const rows = settingsFormRows(fields),
+    grouped = groups.map((group) => ({
+      id: group.id,
+      advanced: group.advanced === true,
+      rows: rows.filter((row) => row.group === group.id),
+    })),
+    ungrouped = rows.filter((row) => row.group === null || !groups.some((group) => group.id === row.group));
+  return [
+    ...grouped.filter((group) => group.rows.length > 0),
+    ...(ungrouped.length ? [{ id: "", advanced: false, rows: ungrouped }] : []),
+  ];
+}
+
+/** 草稿值与默认值的相等判定:数组逐元素(顺序有意义),其余严格相等。 */
+export function settingsValueEquals(
+  left: SettingsFieldValue | undefined,
+  right: SettingsFieldValue | undefined,
+): boolean {
+  if (Array.isArray(left) && Array.isArray(right))
+    return left.length === right.length && left.every((entry, index) => entry === right[index]);
+  return left === right;
 }
 
 /** 提交 payload:表单里已有值的字段全量带回;等值字段在中心走 no-changes,无需差分。 */

@@ -23,6 +23,55 @@ export interface SettingsFieldCliDeclaration {
   readonly projection?: "number" | "boolean" | "json-object";
 }
 
+/** Presentation group for a settings field, declared once here and derived by the GUI and CLI.
+ * Group copy (label and the one-line description with product-term explanations) lives in the
+ * GUI locale catalogs keyed by group id; the CLI help renders only the title. */
+export interface SettingsFieldGroup {
+  readonly id: string;
+  /** English title; localized titles live in the GUI locale catalogs keyed by group id. */
+  readonly title: string;
+  /** Advanced groups render collapsed by default in the GUI (storage/backup tunables). */
+  readonly advanced?: boolean;
+}
+
+export const SETTINGS_FIELD_GROUPS = Object.freeze([
+  {
+    id: "new-task-defaults",
+    title: "New task defaults",
+  },
+  {
+    id: "dispatch-roles",
+    title: "Dispatch roles",
+  },
+  {
+    id: "review-closeout",
+    title: "Review and closeout",
+  },
+  {
+    id: "ci-gates",
+    title: "CI and completion gates",
+  },
+  {
+    id: "capacity-agenda",
+    title: "Capacity and agenda",
+  },
+  {
+    id: "worktree",
+    title: "Task worktree setup",
+  },
+  {
+    id: "storage-backup",
+    title: "Storage and backup",
+    advanced: true,
+  },
+  {
+    id: "presentation",
+    title: "Presentation",
+  },
+] as const satisfies readonly SettingsFieldGroup[]);
+
+export type SettingsFieldGroupId = (typeof SETTINGS_FIELD_GROUPS)[number]["id"];
+
 export interface SettingsFieldDeclaration<Value = unknown> {
   readonly path: readonly [string, ...string[]];
   readonly ownership: SettingsFieldOwnership;
@@ -32,6 +81,9 @@ export interface SettingsFieldDeclaration<Value = unknown> {
   readonly snapshotRequired?: boolean;
   readonly eventDefaultWhenMissing?: boolean;
   readonly description: string;
+  /** What changing this field does, in one concrete sentence; the description says what it governs. */
+  readonly effect: string;
+  readonly group: SettingsFieldGroupId;
   readonly pattern?: string;
   readonly forbiddenPattern?: string;
   readonly allowedValues?: readonly string[];
@@ -48,6 +100,17 @@ export interface SettingsFieldDeclaration<Value = unknown> {
 export interface SettingsCliInputField extends SettingsFieldCliDeclaration {
   readonly field: string;
   readonly description: string;
+  readonly group: SettingsFieldGroupId;
+  readonly effect: string;
+}
+
+/** Per-action-field presentation metadata the daemon GUI catalog projects to the settings page. */
+export interface SettingsFieldPresentation {
+  readonly field: string;
+  readonly group: SettingsFieldGroupId;
+  readonly effect: string;
+  /** Declared default; absent for optional fields whose default is "unset". */
+  readonly defaultValue?: unknown;
 }
 
 export const settingValuePattern = "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$";
@@ -92,6 +155,15 @@ const settingId = {
   local = "local" as const,
   singleSettingCli = (name: string): SettingsFieldCliDeclaration => ({ name, kind: "single" });
 
+// What each closeout gate actually checks, and what protection turning it off loses — the
+// override mechanics (true/false/unset) are identical, so only this sentence differs per gate.
+const CLOSEOUT_GATE_EFFECTS = {
+  review: "Requires an independent completion review to pass; off lets a task complete with no review.",
+  consent: "Requires the owner's explicit consent; off lets a task complete without your sign-off.",
+  factDisposition: "Requires every outstanding fact disposed of first; off lets undisposed facts ride along.",
+  codeDoc: "Requires code and documentation anchors to reconcile; off skips that verification.",
+} as const;
+
 export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
   defineSettingsField({
     path: ["defaultVertical"],
@@ -100,6 +172,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     defaultValue: "software/coding",
     snapshotRequired: true,
     description: "Default vertical selected for new work.",
+    effect: "New tasks start from this vertical's presets and templates instead of the built-in default.",
+    group: "new-task-defaults",
     action: { field: "defaultVertical", type: "string" },
     cli: singleSettingCli("--default-vertical"),
   }),
@@ -110,6 +184,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     defaultValue: "standard-task",
     snapshotRequired: true,
     description: "Default task preset.",
+    effect: "New tasks pick up this preset's plan and closeout templates.",
+    group: "new-task-defaults",
     action: { field: "defaultPreset", type: "string" },
     cli: singleSettingCli("--default-preset"),
   }),
@@ -120,6 +196,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     defaultValue: "baseline",
     snapshotRequired: true,
     description: "Default profile inside the selected preset.",
+    effect: "Tasks launched with the default preset start on this profile's options.",
+    group: "new-task-defaults",
     action: { field: "defaultProfile", type: "string" },
     cli: singleSettingCli("--default-profile"),
   }),
@@ -131,6 +209,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
       defaultValue: undefined,
       optional: true,
       description: `Preferred ${role} agent declaration.`,
+      effect: `Dispatches prefer this agent for the role; unset falls back to the bundled default.`,
+      group: "dispatch-roles",
       action: { field: "roles", type: "json-object", key: role },
       ...(index === 0 ? { cli: { name: "--roles", kind: "single" as const, projection: "json-object" as const } } : {}),
       ...(role === "defaultReviewer" ? { legacyPath: ["defaultReviewer"] as const } : {}),
@@ -143,6 +223,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     defaultValue: "execution",
     allowedValues: reviewIndependenceLevels,
     description: "Identity axis on which an independent review is required.",
+    effect: "execution accepts another execution session; principal requires another person's agents.",
+    group: "review-closeout",
     action: { field: "reviewIndependence", type: "string" },
     cli: { name: "--review-independence", kind: "single", enum: reviewIndependenceLevels },
   }),
@@ -153,6 +235,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     defaultValue: "off",
     allowedValues: decisionReviewRequirementLevels,
     description: "Decision risk tiers that require a current approved review before acceptance.",
+    effect: "Decisions in the selected risk tiers are refused at accept until a current approved review exists.",
+    group: "review-closeout",
     action: { field: "decisionReviewRequirement", type: "string" },
     cli: { name: "--decision-review-requirement", kind: "single", enum: decisionReviewRequirementLevels },
   }),
@@ -163,6 +247,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     defaultValue: 3,
     minimum: 1,
     description: "Maximum task review return count before escalation.",
+    effect: "A task returned more times than this escalates to a person instead of returning to review again.",
+    group: "review-closeout",
     action: { field: "reviewReturnBudget", type: "number" },
     cli: { name: "--review-return-budget", kind: "single", regex: "^[1-9][0-9]*$" },
   }),
@@ -174,6 +260,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     snapshotRequired: true,
     allowedValues: settingsLocales,
     description: "Local presentation locale.",
+    effect: "The GUI and CLI render in this locale on this machine only.",
+    group: "presentation",
     action: { field: "locale", type: "string" },
     cli: { name: "--locale", kind: "single", enum: settingsLocales },
   }),
@@ -184,6 +272,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     defaultValue: "governance/task-scaffold.json",
     snapshotRequired: true,
     description: "Repository-relative task scaffold path.",
+    effect: "New task packages are generated from this scaffold document.",
+    group: "new-task-defaults",
     action: { field: "taskScaffold", type: "string" },
     cli: singleSettingCli("--task-scaffold"),
   }),
@@ -194,6 +284,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     defaultValue: "governance/repository-scaffold.json",
     snapshotRequired: true,
     description: "Repository-relative repository scaffold path.",
+    effect: "New repository-level scaffolds are generated from this document.",
+    group: "new-task-defaults",
     action: { field: "repositoryScaffold", type: "string" },
     cli: singleSettingCli("--repository-scaffold"),
   }),
@@ -204,7 +296,9 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     defaultValue: DEFAULT_WAL_FLUSH_SETTINGS.adaptive,
     snapshotRequired: true,
     eventDefaultWhenMissing: true,
-    description: "Whether WAL flushing adapts to load.",
+    description: "Reserved adaptive flush toggle; the current engine does not read it.",
+    effect: "Not read by the current storage engine; changing it has no effect today.",
+    group: "storage-backup",
     action: { field: "walFlushAdaptive", type: "boolean" },
     cli: { name: "--wal-flush-adaptive", kind: "single", enum: ["true", "false"] },
   }),
@@ -217,7 +311,9 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     eventDefaultWhenMissing: true,
     minimum: 1,
     maximum: 1_000_000,
-    description: "Event-count WAL flush trigger.",
+    description: "Reserved event-count flush trigger; the current engine does not read it.",
+    effect: "Not read by the current storage engine; changing it has no effect today.",
+    group: "storage-backup",
     action: { field: "walFlushEvents", type: "number" },
     cli: { name: "--wal-flush-events", kind: "single", regex: "^[1-9][0-9]*$" },
   }),
@@ -230,7 +326,9 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     eventDefaultWhenMissing: true,
     minimum: 1,
     maximum: 1_073_741_824,
-    description: "Byte-count WAL flush trigger.",
+    description: "Reserved byte-count flush trigger; the current engine does not read it.",
+    effect: "Not read by the current storage engine; changing it has no effect today.",
+    group: "storage-backup",
     action: { field: "walFlushBytes", type: "number" },
     cli: { name: "--wal-flush-bytes", kind: "single", regex: "^[1-9][0-9]*$" },
   }),
@@ -243,7 +341,9 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     eventDefaultWhenMissing: true,
     minimum: 1,
     maximum: 3_600_000,
-    description: "Idle-time WAL flush floor in milliseconds.",
+    description: "Reserved idle-time flush floor in ms; the current engine does not read it.",
+    effect: "Not read by the current storage engine; changing it has no effect today.",
+    group: "storage-backup",
     action: { field: "walFlushMilliseconds", type: "number" },
     cli: { name: "--wal-flush-milliseconds", kind: "single", regex: "^[1-9][0-9]*$" },
   }),
@@ -256,6 +356,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     forbiddenPattern: "\\.ya?ml$",
     uniqueItems: true,
     description: "Workflow names accepted as repository CI witnesses.",
+    effect: "These workflow runs count as CI completion evidence; an empty list opts out of CI witnessing.",
+    group: "ci-gates",
     action: { field: "ciWorkflows", type: "string-array" },
     cli: {
       name: "--ci-workflows",
@@ -272,6 +374,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     valueKind: "gate-mappings",
     defaultValue: Object.freeze([] as readonly GateWitnessMappingV1[]),
     description: "Canonical gate-to-witness mappings imported from the authored document.",
+    effect: "Each completion gate is attested by its mapped witness adapter; none disables that gate.",
+    group: "ci-gates",
     action: { field: "gates", type: "json-object-array", internal: true },
   }),
   defineSettingsField({
@@ -281,6 +385,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     defaultValue: DEFAULT_CLOSEOUT_SETTINGS.profile,
     allowedValues: closeoutProfiles,
     description: "Repository closeout strictness profile.",
+    effect: "standard keeps the closeout gates optional; strict turns all four on for every task.",
+    group: "review-closeout",
     action: { field: "closeoutProfile", type: "string" },
     cli: { name: "--closeout-profile", kind: "single", enum: closeoutProfiles },
   }),
@@ -293,6 +399,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
       defaultValue: undefined,
       optional: true,
       description: `Optional ${gate} closeout gate override.`,
+      effect: CLOSEOUT_GATE_EFFECTS[gate],
+      group: "review-closeout",
       action: {
         field: `closeout${suffix}`,
         type: "boolean",
@@ -312,6 +420,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     defaultValue: 30,
     minimum: 1,
     description: "Maximum number of entities pinned to the repository agenda.",
+    effect: "Pinning beyond this limit drops the oldest pins off the agenda.",
+    group: "capacity-agenda",
     action: { field: "agendaPinLimit", type: "number" },
     cli: { name: "--agenda-pin-limit", kind: "single", regex: "^[1-9][0-9]*$" },
   }),
@@ -322,6 +432,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     defaultValue: DEFAULT_TASK_WIP_LIMIT,
     minimum: 1,
     description: "Maximum number of tasks admitted to the execution worktable.",
+    effect: "Admitting a task beyond this in-progress count is refused until something completes.",
+    group: "capacity-agenda",
     action: { field: "wipLimit", type: "number" },
     cli: { name: "--wip-limit", kind: "single", regex: "^[1-9][0-9]*$" },
   }),
@@ -332,6 +444,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     defaultValue: DEFAULT_TASK_ROOT_THRESHOLD,
     minimum: 1,
     description: "Direct-child count at which a standard task is treated as a work root.",
+    effect: "A standard task with this many direct children is grouped and treated as a work root.",
+    group: "capacity-agenda",
     action: { field: "rootThreshold", type: "number" },
     cli: { name: "--root-threshold", kind: "single", regex: "^[1-9][0-9]*$" },
   }),
@@ -343,6 +457,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     pattern: worktreeSetupStepPattern,
     uniqueItems: true,
     description: "Ordered preparation steps run in every new task worktree.",
+    effect: "Every new task worktree runs these steps in order before work starts; empty means no preparation.",
+    group: "worktree",
     action: { field: "worktreeSetup", type: "string-array" },
     cli: {
       name: "--worktree-setup",
@@ -360,6 +476,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     defaultValue: DEFAULT_RESTORE_DRILL_RETENTION,
     minimum: 1,
     description: "Number of successful restore drills retained.",
+    effect: "Only this many successful restore drills are kept; older drill artifacts are dropped.",
+    group: "storage-backup",
     action: { field: "restoreDrillRetention", type: "number" },
     cli: { name: "--restore-drill-retention", kind: "single", regex: "^[1-9][0-9]*$" },
   }),
@@ -454,6 +572,8 @@ export function settingsCliInputFieldsFromDeclarations(
       Object.freeze({
         field: declaration.action.field,
         description: declaration.description,
+        group: declaration.group,
+        effect: declaration.effect,
         ...declaration.cli,
         ...(declaration.cli.regex === undefined &&
         declaration.cli.projection !== "json-object" &&
@@ -472,3 +592,31 @@ export function settingsCliInputFieldsFromDeclarations(
   }
   return Object.freeze([...fields.values()]);
 }
+
+/** Group/effect/default per action field for the GUI settings page; one row per rendered field. */
+export function settingsFieldPresentationFromDeclarations(
+  declarations: readonly SettingsFieldDeclaration[],
+): readonly SettingsFieldPresentation[] {
+  const rows = new Map<string, SettingsFieldPresentation>();
+  for (const declaration of declarations) {
+    const action = declaration.action;
+    if (!action || action.internal) continue;
+    const existing = rows.get(action.field);
+    if (existing && existing.group !== declaration.group)
+      throw new Error(`Settings action field ${action.field} spans groups ${existing.group} and ${declaration.group}.`);
+    if (existing) continue;
+    rows.set(
+      action.field,
+      Object.freeze({
+        field: action.field,
+        group: declaration.group,
+        effect: declaration.effect,
+        ...(declaration.defaultValue !== undefined ? { defaultValue: declaration.defaultValue } : {}),
+      }),
+    );
+  }
+  return Object.freeze([...rows.values()]);
+}
+
+export const SETTINGS_FIELD_PRESENTATION: readonly SettingsFieldPresentation[] =
+  settingsFieldPresentationFromDeclarations(SETTINGS_FIELD_DECLARATIONS);

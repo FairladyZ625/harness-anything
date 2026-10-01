@@ -72,14 +72,20 @@ export interface CatalogSnapshotSuccess {
   readonly ciWorkflows: ReadonlyArray<string>;
   /** 验收人取值面的 bundled 层;已安装层走 agent 目录共享缓存,不进快照。 */
   readonly bundledAgents: ReadonlyArray<string>;
-  /** settings 动作契约字段表(daemon 侧校验行 shape):仓库设置表单的派生源。 */
+  /** settings 动作契约字段表(daemon 侧校验行 shape):仓库设置表单的派生源。
+   * group/effect/defaultValue 是呈现元数据(kernel 声明源投影),驱动分组、解释与默认值比对。 */
   readonly settingsFields: ReadonlyArray<{
     readonly field: string;
     readonly description?: string;
     readonly type: string;
     readonly required: boolean;
     readonly enum?: readonly string[];
+    readonly group?: string;
+    readonly effect?: string;
+    readonly defaultValue?: string | number | boolean | readonly string[];
   }>;
+  /** 有序设置分组(id + advanced);组名与说明文案在 locales 按 id 取。 */
+  readonly settingsGroups: ReadonlyArray<{ readonly id: string; readonly advanced?: boolean }>;
   readonly gateMappings: CatalogGateMappingsDescriptor;
   readonly adapters: ReadonlyArray<CatalogAdapterRow>;
 }
@@ -157,6 +163,7 @@ function isCatalogSnapshotSuccess(value: unknown): value is CatalogSnapshotSucce
     Array.isArray(value.ciWorkflows) &&
     Array.isArray(value.bundledAgents) &&
     Array.isArray(value.settingsFields) &&
+    Array.isArray(value.settingsGroups) &&
     isGateMappingsDescriptor(value.gateMappings) &&
     value.presets.every(
       (row) =>

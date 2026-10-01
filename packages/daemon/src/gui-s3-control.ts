@@ -80,7 +80,9 @@ type Rule =
   | "optional-array"
   | "object"
   | "optional-object"
-  | "nullable-object";
+  | "nullable-object"
+  | "optional-any"
+  | "optional-boolean";
 export const record = (value: unknown): value is JsonObject => isJsonObject(value);
 export function closed(value: unknown, fields: Readonly<Record<string, Rule>>, label: string): string[] {
   if (!record(value)) return [`${label} must be an object`];
@@ -93,6 +95,13 @@ export function closed(value: unknown, fields: Readonly<Record<string, Rule>>, l
       (rule === "optional-string" && (item === undefined || typeof item === "string")) ||
       (rule === "optional-object" && (item === undefined || record(item))) ||
       (rule === "optional-array" && (item === undefined || Array.isArray(item))) ||
+      (rule === "optional-boolean" && (item === undefined || typeof item === "boolean")) ||
+      (rule === "optional-any" &&
+        (item === undefined ||
+          typeof item === "string" ||
+          typeof item === "number" ||
+          typeof item === "boolean" ||
+          Array.isArray(item))) ||
       (rule === "null-string" && (item === null || typeof item === "string")) ||
       (rule === "null-number" && (item === null || typeof item === "number")) ||
       (rule === "nullable-object" && (item === null || record(item)))
@@ -470,6 +479,7 @@ export function validateCatalogSnapshot(value: unknown): readonly string[] {
       ciWorkflows: "array",
       bundledAgents: "array",
       settingsFields: "array",
+      settingsGroups: "array",
       gateMappings: "object",
       adapters: "array",
     },
@@ -493,10 +503,17 @@ export function validateCatalogSnapshot(value: unknown): readonly string[] {
           type: "string",
           required: "boolean",
           enum: "optional-array",
+          group: "optional-string",
+          effect: "optional-string",
+          defaultValue: "optional-any",
         },
         "catalog settings field",
       ),
     );
+  }
+  for (const group of Array.isArray(value.settingsGroups) ? value.settingsGroups : []) {
+    if (!record(group)) continue;
+    errors.push(...closed(group, { id: "string", advanced: "optional-boolean" }, "catalog settings group"));
   }
   if (record(value.defaults))
     errors.push(

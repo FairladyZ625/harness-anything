@@ -113,6 +113,7 @@ const CATALOG: CatalogSnapshotSuccess = {
   ciWorkflows: [],
   bundledAgents: ["codex-worker", "claude-reviewer"],
   settingsFields: [],
+  settingsGroups: [],
   gateMappings: {
     adapters: [],
     appliesTo: [],

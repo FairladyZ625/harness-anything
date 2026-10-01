@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { t, type MessageKey } from "../../i18n/index.tsx";
 import { BTN, Section, Row, SettingSelect, Toggle, type SelectorOption } from "../../components/ui/widgets";
@@ -7,9 +7,11 @@ import { useCatalogSnapshot } from "../../catalog-data.ts";
 import { agentEntityClient, isAvailableAgentEntityRow, type AgentEntityRow } from "../../agent-entity-client.ts";
 import type { CatalogPresetRow } from "../../api-client.ts";
 import {
-  settingsFormRows,
+  settingsGroupedRows,
   settingsPayloadFromDraft,
+  settingsValueEquals,
   type SettingsDraft,
+  type SettingsFieldRow,
   type RolePreferences,
   type SettingsFieldValue,
 } from "../../settings-form.ts";
@@ -21,7 +23,20 @@ import {
 } from "../../gate-mapping-form.ts";
 import { GateMappingsEditor } from "./GateMappingsEditor.tsx";
 
-/** 仓库设置面板:字段面由 settings 动作契约派生,本文件只承担渲染、目录联动与提交。 */
+/** closeout 门覆写的「默认」不是声明默认值,而是当前 profile 的基线(strict 全开)。 */
+const CLOSEOUT_OVERRIDE_FIELDS: ReadonlySet<string> = new Set([
+  "closeoutReview",
+  "closeoutConsent",
+  "closeoutFactDisposition",
+  "closeoutCodeDoc",
+]);
+
+/** 「恢复默认」是低注意力的次要动作:无边框弱色文字,悬停才提亮,只在已修改时出现
+ * (视觉基线 §1.7 轻重决定大小——不能比设置值本身还抢眼)。 */
+const RESTORE_ACTION = "px-1 py-0.5 ui-meta text-text-faint underline-offset-2 hover:text-accent hover:underline";
+
+/** 仓库设置面板:字段面、分组与逐项解释全部由 settings 动作契约 + 声明元数据派生,
+ * 本文件只承担渲染、目录联动与提交。 */
 export function RepositorySettingsPanel({
   repoId,
   onLocaleLoaded,
@@ -43,7 +58,10 @@ export function RepositorySettingsPanel({
   const [draft, setDraft] = useState<SettingsDraft>({}),
     // 门映射草稿独立于字段草稿:它是 authored settings.gates facet 的编辑面,不来自
     // values 扁平面(那里永远没有它);提交时以 gatesDraft 载荷走 ingress 铸造。
-    [gateDrafts, setGateDrafts] = useState<readonly GateMappingDraft[] | null>(null);
+    [gateDrafts, setGateDrafts] = useState<readonly GateMappingDraft[] | null>(null),
+    // 页内搜索:按名称/说明/后果过滤各组字段;搜索时高级组也照常展开。
+    [query, setQuery] = useState(""),
+    [advancedOpen, setAdvancedOpen] = useState(false);
 
   useEffect(() => {
     if (!settingsQuery.data) return;
@@ -53,12 +71,13 @@ export function RepositorySettingsPanel({
   }, [settingsQuery.data]);
 
   // 仓库设置的字段面来自 settings 动作契约(目录快照的 settingsFields,daemon 与动作目录
-  // 同一单源);目录选择器(vertical/preset/profile/scaffold/reviewer/ciWorkflows)的选项来自
-  // daemon 目录快照与 agent 目录共享缓存。两者都不是手打清单。目录读不到时选择器停用
-  // (fail closed),不回退成自由文本输入。
+  // 同一单源);分组与逐项解释(effect/默认值)同样由声明源投影进快照。目录选择器
+  // (vertical/preset/profile/scaffold/reviewer/ciWorkflows)的选项来自 daemon 目录快照与
+  // agent 目录共享缓存。两者都不是手打清单。目录读不到时选择器停用(fail closed),
+  // 不回退成自由文本输入。
   const snapshot = catalogQuery.data,
     catalogBlocked = catalogQuery.isPending || !!catalogQuery.error,
-    rows = settingsFormRows(snapshot?.settingsFields ?? []),
+    groups = settingsGroupedRows(snapshot?.settingsFields ?? [], snapshot?.settingsGroups ?? []),
     ciWorkflowFace = snapshot?.ciWorkflows ?? [],
     ciWorkflowValue = Array.isArray(draft.ciWorkflows) ? draft.ciWorkflows : [],
     verticalOptions = selectorOptions(
@@ -111,7 +130,9 @@ export function RepositorySettingsPanel({
     gatesPayload =
       gateDrafts !== null && settingsQuery.data
         ? gatesDraftValue(settingsQuery.data.settings.gates ?? [], gateDrafts)
-        : undefined;
+        : undefined,
+    // closeout 门覆写的生效默认值随 profile 走:strict 基线全开,standard 全关。
+    closeoutOverrideDefault = settingsQuery.data?.settings.closeout.profile === "strict";
 
   const updateDraft = (field: string, value: SettingsFieldValue | undefined) =>
     setDraft((current) => ({ ...current, [field]: value }));
@@ -136,6 +157,45 @@ export function RepositorySettingsPanel({
       return selectPreset(current, presetId, row);
     });
 
+  /** 字段的生效默认值:closeout 覆写随 profile,其余取声明默认。 */
+  const fieldDefault = (row: SettingsFieldRow): SettingsFieldValue | undefined =>
+    CLOSEOUT_OVERRIDE_FIELDS.has(row.field) ? closeoutOverrideDefault : row.defaultValue;
+
+  const fieldModified = (row: SettingsFieldRow): boolean =>
+    row.field !== "roles" && !settingsValueEquals(draft[row.field], fieldDefault(row));
+
+  const fieldControlProps = {
+    draft,
+    catalogBlocked,
+    verticalOptions,
+    presetOptions,
+    profileOptions,
+    taskScaffoldOptions,
+    repositoryScaffoldOptions,
+    reviewerOptions,
+    reviewerBlocked,
+    ciWorkflowOptions: [...ciWorkflowFace, ...ciWorkflowValue.filter((name) => !ciWorkflowFace.includes(name))],
+    ciWorkflowCatalogued: new Set(ciWorkflowFace),
+    chooseVertical,
+    choosePreset,
+    updateDraft,
+  };
+
+  /** 搜索命中判定:人话名称、说明、后果与字段名都可作为检索面。 */
+  const matchesQuery = (row: SettingsFieldRow): boolean => {
+    const needle = query.trim().toLowerCase();
+    if (!needle) return true;
+    const haystack = [
+      translatedFieldCopy(row.field, "Label") ?? humanizeField(row.field),
+      translatedFieldCopy(row.field, "Description") ?? row.description ?? "",
+      translatedFieldCopy(row.field, "Effect") ?? row.effect ?? "",
+      row.field,
+    ]
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(needle);
+  };
+
   if (repoId === null)
     return (
       <Section title={t("views.settingsView.sectionRepository")}>
@@ -155,109 +215,220 @@ export function RepositorySettingsPanel({
       </Section>
     );
   return (
-    <Section
-      title={t("views.settingsView.sectionRepository")}
-      action={
-        <button
-          className={BTN}
-          // 门映射草稿有未解决的非法组合时整表不让提交——约束在界面上表达,
-          // 不靠提交后报错。
-          disabled={settingsMutation.isPending || gateIssues.length > 0}
-          onClick={() =>
-            settingsMutation.mutate({
-              ...settingsPayloadFromDraft(draft, snapshot?.settingsFields ?? [], settingsQuery.data?.values),
-              ...(gatesPayload !== undefined ? { gatesDraft: gatesPayload } : {}),
-            })
-          }
-        >
-          {settingsMutation.isPending
-            ? t("views.settingsView.submitPending")
-            : t("views.settingsView.submitToRepository")}
-        </button>
-      }
-    >
-      {rows.length === 0 ? (
-        <div className="p-4 ui-meta text-text-faint">{t("views.settingsView.readingSettings")}</div>
+    <div className="flex flex-col gap-4">
+      <Section
+        title={t("views.settingsView.sectionRepository")}
+        action={
+          <button
+            className={BTN}
+            // 门映射草稿有未解决的非法组合时整表不让提交——约束在界面上表达,
+            // 不靠提交后报错。
+            disabled={settingsMutation.isPending || gateIssues.length > 0}
+            onClick={() =>
+              settingsMutation.mutate({
+                ...settingsPayloadFromDraft(draft, snapshot?.settingsFields ?? [], settingsQuery.data?.values),
+                ...(gatesPayload !== undefined ? { gatesDraft: gatesPayload } : {}),
+              })
+            }
+          >
+            {settingsMutation.isPending
+              ? t("views.settingsView.submitPending")
+              : t("views.settingsView.submitToRepository")}
+          </button>
+        }
+      >
+        <div className="flex flex-col gap-2 border-b border-border px-3 py-2.5">
+          <p className="ui-meta text-text-muted">{t("views.settingsView.principalOnlyNotice")}</p>
+          <input
+            type="search"
+            aria-label={t("views.settingsView.searchPlaceholder")}
+            placeholder={t("views.settingsView.searchPlaceholder")}
+            data-testid="settings-search"
+            className="w-72 max-w-full rounded border border-border bg-surface-raised px-2 py-1.5 ui-body text-text placeholder:text-text-faint"
+            value={query}
+            onChange={(event) => setQuery(event.currentTarget.value)}
+          />
+        </div>
+      </Section>
+      {groups.length === 0 ? (
+        <Section title={t("views.settingsView.sectionRepository")}>
+          <div className="p-4 ui-meta text-text-faint">{t("views.settingsView.readingSettings")}</div>
+        </Section>
       ) : (
-        rows.map((row) => {
-          const label = translatedFieldCopy(row.field, "Label") ?? humanizeField(row.field),
-            description = translatedFieldCopy(row.field, "Description") ?? row.description ?? undefined;
+        groups.map((group) => {
+          const rows = group.rows.filter(matchesQuery);
+          if (rows.length === 0) return null;
+          const searching = query.trim().length > 0,
+            expanded = !group.advanced || advancedOpen || searching;
           return (
-            <Row key={row.field} label={label} desc={description}>
-              {renderFieldControl(row, {
-                draft,
-                catalogBlocked,
-                verticalOptions,
-                presetOptions,
-                profileOptions,
-                taskScaffoldOptions,
-                repositoryScaffoldOptions,
-                reviewerOptions,
-                reviewerBlocked,
-                ciWorkflowOptions: [
-                  ...ciWorkflowFace,
-                  ...ciWorkflowValue.filter((name) => !ciWorkflowFace.includes(name)),
-                ],
-                ciWorkflowCatalogued: new Set(ciWorkflowFace),
-                chooseVertical,
-                choosePreset,
-                updateDraft,
-              })}
-            </Row>
+            <Section
+              key={group.id || "ungrouped"}
+              title={groupTitle(group.id)}
+              action={
+                group.advanced ? (
+                  <button
+                    type="button"
+                    className={BTN}
+                    data-testid="settings-advanced-toggle"
+                    onClick={() => setAdvancedOpen((open) => !open)}
+                  >
+                    {expanded
+                      ? t("views.settingsView.advancedCollapse")
+                      : t("views.settingsView.advancedExpand", { count: group.rows.length })}
+                  </button>
+                ) : undefined
+              }
+            >
+              {groupDescription(group.id) ? (
+                <p className="border-b border-border px-3 py-2 ui-meta text-text-muted">{groupDescription(group.id)}</p>
+              ) : null}
+              {expanded ? (
+                <>
+                  {/* 门映射编辑面归 CI 与门组:settings.gates facet 的导入与逐门适配。 */}
+                  {group.id === "ci-gates" ? (
+                    <>
+                      <Row
+                        label={t("views.settingsView.gatesSectionLabel")}
+                        desc={t("views.settingsView.gatesSectionDescription")}
+                      >
+                        <button
+                          type="button"
+                          className={BTN}
+                          data-testid="settings-gates-import"
+                          disabled={settingsMutation.isPending}
+                          title={t("views.settingsView.gatesFromDocumentDescription")}
+                          onClick={() => settingsMutation.mutate({ gatesFromDocument: true })}
+                        >
+                          {t("views.settingsView.gatesFromDocumentLabel")}
+                        </button>
+                      </Row>
+                      <div className="border-b border-border px-3 py-2">
+                        {gateDrafts === null || gateDescriptor === null ? (
+                          <div className="ui-meta text-text-faint">{t("views.settingsView.readingSettings")}</div>
+                        ) : (
+                          <GateMappingsEditor
+                            drafts={gateDrafts}
+                            descriptor={gateDescriptor}
+                            issues={gateIssues}
+                            disabled={catalogBlocked || settingsMutation.isPending}
+                            onChange={setGateDrafts}
+                          />
+                        )}
+                      </div>
+                    </>
+                  ) : null}
+                  {rows.map((row) => (
+                    <SettingsFieldEntry
+                      key={row.field}
+                      row={row}
+                      modified={fieldModified(row)}
+                      onRestore={() => updateDraft(row.field, fieldDefault(row))}
+                    >
+                      {renderFieldControl(row, fieldControlProps)}
+                    </SettingsFieldEntry>
+                  ))}
+                </>
+              ) : null}
+            </Section>
           );
         })
       )}
-      {/* 门映射:settings.gates facet 的编辑面。gatesFromDocument 不是持久设置,
-          渲染成开关永远显示"关"——它是一次性导入命令,这里按动作的样子呈现,
-          说明它会覆盖什么。 */}
-      <Row label={t("views.settingsView.gatesSectionLabel")} desc={t("views.settingsView.gatesSectionDescription")}>
-        <button
-          type="button"
-          className={BTN}
-          data-testid="settings-gates-import"
-          disabled={settingsMutation.isPending}
-          title={t("views.settingsView.gatesFromDocumentDescription")}
-          onClick={() => settingsMutation.mutate({ gatesFromDocument: true })}
-        >
-          {t("views.settingsView.gatesFromDocumentLabel")}
-        </button>
-      </Row>
-      <div className="border-b border-border px-3 py-2 last:border-b-0">
-        {gateDrafts === null || gateDescriptor === null ? (
-          <div className="ui-meta text-text-faint">{t("views.settingsView.readingSettings")}</div>
-        ) : (
-          <GateMappingsEditor
-            drafts={gateDrafts}
-            descriptor={gateDescriptor}
-            issues={gateIssues}
-            disabled={catalogBlocked || settingsMutation.isPending}
-            onChange={setGateDrafts}
-          />
-        )}
-      </div>
-      <Row label={t("views.settingsView.ownershipLabel")} desc={t("views.settingsView.ownershipDescription")}>
-        <span className="font-mono ui-meta text-text-muted">
-          settings/{settingsQuery.data.settings.settingsId} · {settingsQuery.data.settings.schema}
-        </span>
-      </Row>
-      {catalogQuery.error ? (
-        <div className="px-3 py-2 ui-meta text-danger">
-          {t("views.settingsView.catalogUnavailableHint", { error: String(catalogQuery.error) })}
-        </div>
-      ) : null}
-      {agentsQuery.error ? (
-        <div className="px-3 py-2 ui-meta text-danger">
-          {t("views.settingsView.catalogUnavailableHint", { error: String(agentsQuery.error) })}
-        </div>
-      ) : null}
-      {settingsMutation.error ? (
-        <div className="px-3 py-2 ui-meta text-danger">{String(settingsMutation.error)}</div>
-      ) : null}
-    </Section>
+      <Section title={t("views.settingsView.ownershipLabel")}>
+        <Row label={t("views.settingsView.ownershipLabel")} desc={t("views.settingsView.ownershipDescription")}>
+          <span className="font-mono ui-meta text-text-muted">
+            settings/{settingsQuery.data.settings.settingsId} · {settingsQuery.data.settings.schema}
+          </span>
+        </Row>
+        {catalogQuery.error ? (
+          <div className="px-3 py-2 ui-meta text-danger">
+            {t("views.settingsView.catalogUnavailableHint", { error: String(catalogQuery.error) })}
+          </div>
+        ) : null}
+        {agentsQuery.error ? (
+          <div className="px-3 py-2 ui-meta text-danger">
+            {t("views.settingsView.catalogUnavailableHint", { error: String(agentsQuery.error) })}
+          </div>
+        ) : null}
+        {settingsMutation.error ? (
+          <div className="px-3 py-2 ui-meta text-danger">{String(settingsMutation.error)}</div>
+        ) : null}
+      </Section>
+    </div>
   );
 }
 
-function translatedFieldCopy(field: string, suffix: "Label" | "Description"): string | undefined {
+/** 单个设置项:名称 + 已修改标记/恢复默认 + 控件 + 「它管什么 / 改了会怎样」两行说明。 */
+function SettingsFieldEntry({
+  row,
+  modified,
+  onRestore,
+  children,
+}: {
+  readonly row: SettingsFieldRow;
+  readonly modified: boolean;
+  readonly onRestore: () => void;
+  readonly children: ReactNode;
+}) {
+  const label = translatedFieldCopy(row.field, "Label") ?? humanizeField(row.field),
+    description = translatedFieldCopy(row.field, "Description") ?? row.description ?? undefined,
+    effect = translatedFieldCopy(row.field, "Effect") ?? row.effect ?? undefined;
+  return (
+    <Row
+      label={
+        <span className="flex flex-wrap items-center gap-2">
+          <span>{label}</span>
+          {modified ? (
+            <>
+              <span
+                data-testid={`settings-${row.field}-modified`}
+                className="rounded bg-accent/15 px-1.5 py-0.5 ui-micro font-medium text-accent"
+              >
+                {t("views.settingsView.modifiedChip")}
+              </span>
+              <button
+                type="button"
+                className={RESTORE_ACTION}
+                data-testid={`settings-${row.field}-restore`}
+                onClick={onRestore}
+              >
+                {t("views.settingsView.restoreDefault")}
+              </button>
+            </>
+          ) : null}
+        </span>
+      }
+      desc={
+        <>
+          {description ? <div>{description}</div> : null}
+          {effect ? (
+            <div className="mt-0.5">
+              <span className="text-text-faint">{t("views.settingsView.effectPrefix")}</span> {effect}
+            </div>
+          ) : null}
+        </>
+      }
+    >
+      {children}
+    </Row>
+  );
+}
+
+function groupCopy(groupId: string, suffix: "label" | "description"): string | undefined {
+  if (!groupId) return undefined;
+  const key = `views.settingsView.settingsGroup.${groupId}.${suffix}` as MessageKey,
+    translated = t(key);
+  return translated === key ? undefined : translated;
+}
+
+function groupTitle(groupId: string): string {
+  return groupCopy(groupId, "label") ?? groupId;
+}
+
+function groupDescription(groupId: string): string | undefined {
+  return groupCopy(groupId, "description");
+}
+
+function translatedFieldCopy(field: string, suffix: "Label" | "Description" | "Effect"): string | undefined {
   const key = `views.settingsView.${field}${suffix}` as MessageKey,
     translated = t(key);
   return translated === key ? undefined : translated;
@@ -265,6 +436,13 @@ function translatedFieldCopy(field: string, suffix: "Label" | "Description"): st
 
 function humanizeField(field: string): string {
   return field.replace(/([a-z0-9])([A-Z])/gu, "$1 $2").replace(/^./u, (letter) => letter.toUpperCase());
+}
+
+/** 枚举取值旁的人话解释;没有文案时只显示原值(chokepoint 测试会先红)。 */
+function enumOptionLabel(field: string, value: string): string {
+  const key = `views.settingsView.enum.${field}.${value}` as MessageKey,
+    translated = t(key);
+  return translated === key ? value : `${value} · ${translated}`;
 }
 
 interface FieldControlProps {
@@ -310,19 +488,43 @@ function renderFieldControl(
       const roles = (draft.roles ?? {}) as RolePreferences;
       return (
         <div className="flex flex-col gap-3">
-          {(["defaultWorker", "defaultCommander", "defaultReviewer"] as const).map((key) => (
-            <div key={key}>
-              <div className="ui-meta text-text-muted">{t(`views.settingsView.${key}Description`)}</div>
-              <SettingSelect
-                label={t(`views.settingsView.${key}Label`)}
-                testId={`settings-${key}-select`}
-                value={roles[key] ?? ""}
-                disabled={props.catalogBlocked || props.reviewerBlocked}
-                options={selectorOptions(props.reviewerOptions, roles[key] ?? undefined)}
-                onChange={(value) => updateDraft("roles", { ...roles, [key]: value || null })}
-              />
-            </div>
-          ))}
+          {(["defaultWorker", "defaultCommander", "defaultReviewer"] as const).map((key) => {
+            const modified = roles[key] != null;
+            return (
+              <div key={key}>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="ui-meta font-medium text-text-muted">{t(`views.settingsView.${key}Label`)}</span>
+                  {modified ? (
+                    <>
+                      <span
+                        data-testid={`settings-roles-${key}-modified`}
+                        className="rounded bg-accent/15 px-1.5 py-0.5 ui-micro font-medium text-accent"
+                      >
+                        {t("views.settingsView.modifiedChip")}
+                      </span>
+                      <button
+                        type="button"
+                        className={RESTORE_ACTION}
+                        data-testid={`settings-roles-${key}-restore`}
+                        onClick={() => updateDraft("roles", { ...roles, [key]: null })}
+                      >
+                        {t("views.settingsView.restoreDefault")}
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+                <div className="ui-meta text-text-muted">{t(`views.settingsView.${key}Description`)}</div>
+                <SettingSelect
+                  label={t(`views.settingsView.${key}Label`)}
+                  testId={`settings-${key}-select`}
+                  value={roles[key] ?? ""}
+                  disabled={props.catalogBlocked || props.reviewerBlocked}
+                  options={selectorOptions(props.reviewerOptions, roles[key] ?? undefined)}
+                  onChange={(value) => updateDraft("roles", { ...roles, [key]: value || null })}
+                />
+              </div>
+            );
+          })}
         </div>
       );
     }
@@ -369,7 +571,7 @@ function renderFieldControl(
           testId={testId ?? `settings-${row.field}-select`}
           value={typeof draft[row.field] === "string" ? (draft[row.field] as string) : ""}
           options={selectorOptions(
-            (row.options ?? []).map((value) => ({ value })),
+            (row.options ?? []).map((value) => ({ value, label: enumOptionLabel(row.field, value) })),
             typeof draft[row.field] === "string" ? (draft[row.field] as string) : undefined,
           )}
           onChange={(value) => updateDraft(row.field, value)}

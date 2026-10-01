@@ -24,8 +24,8 @@ import {
   gateMappingAdapterFields,
   governableWitnessAdapterIds,
   mappedWitnessAdapterIds,
-  settingsUpdateInputFields,
 } from "@harness-anything/kernel";
+import { settingsFieldsFace, settingsGroupsFace } from "./settings-catalog-snapshot.ts";
 
 const REPO_ID = "settings-selectors-probe";
 const AT = "2026-08-27T00:00:00.000Z";
@@ -70,14 +70,9 @@ const SNAPSHOT = {
   observedAt: AT,
   catalogDigest: "settings-selectors-digest--------------",
   defaults: { verticalId: "software/coding", presetId: "standard-task", profileId: "baseline", locale: "zh-CN" },
-  // settingsFields 与 daemon gui-catalog 同一映射,源直接 import kernel 单源——
-  // 断言的派生面因此是真实契约,不是测试里再抄一份。
-  settingsFields: settingsUpdateInputFields.map(({ field, type, required, enum: values }) => ({
-    field,
-    type,
-    required,
-    ...(values ? { enum: [...values] } : {}),
-  })),
+  // settingsFields/settingsGroups 与 daemon gui-catalog 同一映射(契约字段 + 呈现元数据)。
+  settingsFields: settingsFieldsFace(),
+  settingsGroups: settingsGroupsFace(),
   presets: [
     {
       id: "standard-task",
@@ -336,7 +331,11 @@ function lastUpdatePayload(): Record<string, unknown> {
 
 describe("Settings 仓库字段是目录喂的选择器", () => {
   it("目录字段全部是点选控件,选项来自目录快照与 agent 目录,且没有自由文本输入", async () => {
+    // walFlush 归「存储与备份」高级组,默认折叠:先展开再断言其控件。
     const container = await mountView();
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="settings-advanced-toggle"]')!.click();
+    });
     // 目录选择器字段不得回退成自由文本。
     expect(
       container.querySelector(

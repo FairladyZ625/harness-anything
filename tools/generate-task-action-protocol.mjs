@@ -6,7 +6,7 @@ import { pathToFileURL } from "node:url";
 import { format } from "prettier";
 import prettierConfig from "../prettier.config.mjs";
 import { getEntityKindContract } from "../packages/kernel/src/index.ts";
-import { SETTINGS_DECLARATION_RUNTIME } from "../packages/kernel/src/domain/settings.ts";
+import { SETTINGS_DECLARATION_RUNTIME, SETTINGS_FIELD_GROUPS } from "../packages/kernel/src/domain/settings.ts";
 
 const target = path.resolve(import.meta.dirname, "../packages/preset/src/task-action-projection.generated.ts"),
   createTarget = path.resolve(import.meta.dirname, "../packages/preset/src/task-create-projection.generated.ts");
@@ -85,6 +85,7 @@ export function projectSettingsFields() {
   const update = getEntityKindContract("settings")?.actionCatalog?.actions.find(({ id }) => id === "update");
   if (!update) throw new Error("Settings update descriptor is missing.");
   return {
+    groups: SETTINGS_FIELD_GROUPS,
     actionInputs: update.input.fields.map(({ field, description, type, required, enum: values }) => ({
       field,
       ...(description ? { description } : {}),
@@ -107,7 +108,9 @@ function inlineJson(value) {
 function readableJson(value, depth = 0) {
   const indentation = "  ".repeat(depth),
     inline = inlineJson(value);
-  if (indentation.length + inline.length <= 120) return inline;
+  // Only composites reflow across lines; a plain value (notably a long string) must stay itself —
+  // falling through would run Object.entries over a string and emit a char-index map.
+  if (value === null || typeof value !== "object" || indentation.length + inline.length <= 120) return inline;
   const childIndentation = "  ".repeat(depth + 1);
   if (Array.isArray(value))
     return `[\n${value

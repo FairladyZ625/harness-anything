@@ -8,6 +8,8 @@ import {
   gateMappingAdapterFields,
   governableWitnessAdapterIds,
   mappedWitnessAdapterIds,
+  SETTINGS_FIELD_GROUPS,
+  SETTINGS_FIELD_PRESENTATION,
   settingsUpdateInputFields,
   type SettingsV1,
 } from "@harness-anything/kernel";
@@ -112,13 +114,20 @@ export function openGuiCatalog(input: {
       // 不进快照——实体写不应搅动 catalog digest。
       bundledAgents: listBundledAgentDeclarationIds(),
       // 设置字段契约面:与 settings 动作目录同一单源派生,GUI 仓库设置表单据此渲染,
-      // kernel 加字段不再需要 GUI 手写字段清单。
+      // kernel 加字段不再需要 GUI 手写字段清单。effect/group/defaultValue 是呈现元数据
+      // (改了会怎样、按用途分组、是否等于默认值),同样从声明源投影,不在 GUI 另写一份。
       settingsFields: settingsUpdateInputFields.map(({ field, description, type, required, enum: values }) => ({
         field,
         ...(description ? { description } : {}),
         type,
         required,
         ...(values ? { enum: [...values] } : {}),
+        ...SETTINGS_FIELD_PRESENTATION.find((row) => row.field === field),
+      })),
+      // 分组呈现面:有序组清单(id + 是否高级组);组名与说明文案在 GUI locales,按 id 取。
+      settingsGroups: SETTINGS_FIELD_GROUPS.map((group) => ({
+        id: group.id,
+        ...("advanced" in group && group.advanced ? { advanced: true } : {}),
       })),
       // 门映射编辑面的合法组合契约:adapter 四选一(含 none)、每个 adapter 必须声明的
       // option 字段、治理修饰字段与可承载它们的 adapter,全部投影 kernel 单源——界面据此
