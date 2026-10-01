@@ -30,7 +30,7 @@ export function RepoModeBadge({ mode, title }: { readonly mode: RepoMode; readon
     <span
       data-testid={`repo-mode-badge-${mode}`}
       title={title ?? repoModeLabel(mode)}
-      className={`inline-flex shrink-0 items-center rounded border px-1 py-px font-mono ui-micro ${MODE_CLASS[mode]}`}
+      className={`inline-flex shrink-0 items-center whitespace-nowrap rounded border px-1 py-px font-mono ui-micro ${MODE_CLASS[mode]}`}
     >
       {repoModeLabel(mode)}
     </span>

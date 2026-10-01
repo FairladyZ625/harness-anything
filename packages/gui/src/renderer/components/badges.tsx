@@ -211,7 +211,9 @@ const DECISION_STATE_META: Record<DecisionState, { icon: ReactNode; cls: string;
 export function DecisionStateBadge({ state }: { state: DecisionState }) {
   const meta = DECISION_STATE_META[state];
   return (
-    <span className={`inline-flex items-center gap-1 rounded-md px-2 py-0.5 ui-meta font-semibold ${meta.cls}`}>
+    <span
+      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 py-0.5 ui-meta font-semibold ${meta.cls}`}
+    >
       <span className="ui-body">{meta.icon}</span>
       {meta.label}
     </span>
@@ -238,7 +240,7 @@ export function RiskTierBadge({ tier }: { tier?: RiskTier }) {
   const m = tier ? RISK_META[tier] : { ...localizedLabel("components.badges.unknown"), cls: "text-text-faint" };
   return (
     <span
-      className={`inline-flex items-center gap-1 font-mono ui-meta ${m.cls}`}
+      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap font-mono ui-meta ${m.cls}`}
       title={t("components.badges.riskSignificanceDepthReview")}
     >
       <Scales weight="bold" className="ui-meta" />
@@ -259,7 +261,7 @@ export function UrgencyBadge({ urgency }: { urgency?: Urgency }) {
     : { ...localizedLabel("components.badges.unknown"), cls: "text-text-faint" };
   return (
     <span
-      className={`inline-flex items-center gap-1 font-mono ui-meta ${m.cls}`}
+      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap font-mono ui-meta ${m.cls}`}
       title={t("components.badges.urgentQueueQueue")}
     >
       <Lightning weight="bold" className="ui-meta" />
