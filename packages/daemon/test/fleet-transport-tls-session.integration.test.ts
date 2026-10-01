@@ -180,8 +180,7 @@ test("a node unregistered while it stays connected is refused on its next frame"
   const fixture = await fleetFixture(t);
   t.after(() => fixture.close());
   const center = await fixture.center(),
-    { nodeId, assignmentId, repoId } = fixture.assignment,
-    taskId = fixture.assignment.scope.kind === "task" ? fixture.assignment.scope.taskId : "",
+    { nodeId, assignmentId, repoId, taskId } = fixture.assignment,
     peer = await rawPeer(fixture.track, center.port, fixture.cert, nodeId, "machine-secret"),
     answer = (frame: FleetFrameV1) =>
       frame.schema === "fleet.error/v1"
@@ -213,7 +212,6 @@ test("a node unregistered while it stays connected is refused on its next frame"
   assert.equal(answer(await receipt("receipt-while-registered")), "fleet.receipt.result/v1");
   assert.equal(answer(await task("show-while-registered", { kind: "task-show" })), "applied");
   assert.equal(answer(await progress("progress-while-registered")), "applied");
-  await waitForEventCount(fixture, fixture.eventCount());
   const before = fixture.eventCount();
 
   signInAt(fixture.userRoot, "person-admin");
@@ -234,8 +232,7 @@ test("a node unregistered while it stays connected is refused on its next frame"
     answer(await peer.request({ schema: "fleet.replica.pull/v1", messageId: "pull-after-unregister", assignmentId })),
     "node_owner_unregistered",
   );
-  const written = await progress("progress-after-unregister");
-  assert.equal(answer(written), "op_rejected", JSON.stringify(written));
+  assert.equal(answer(await progress("progress-after-unregister")), "node_owner_unregistered");
   assert.equal(fixture.eventCount(), before, "nothing was written for the unregistered node");
 });
 test("replica pull rejects a snapshot that has not caught up to the ledger cut", async (t) => {
