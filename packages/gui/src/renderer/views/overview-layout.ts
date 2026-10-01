@@ -12,7 +12,7 @@ import { DENSE_ROW_PX, DENSE_ROW_RELAXED_PX } from "../components/primitives/Den
 
 export type RegionKey = "ci" | "mine" | "stuck" | "run" | "review" | "queue" | "recent" | "works";
 
-/** 行高取自 DenseRow 原语(单行与宽松两行同一档),头部/页脚像素在本档定。 */
+/** 行高取自 DenseRow 原语(单行与宽松两行同一档),其余尺寸只用于区域高度分配,不用于裁切或隐藏行。 */
 export const REGION_ROW_PX = DENSE_ROW_PX;
 export const REGION_ROW_RELAXED_PX = DENSE_ROW_RELAXED_PX;
 const HEADER_PX = 34;
@@ -46,7 +46,7 @@ export interface RegionLayout {
   readonly boardHeight: number | null;
 }
 
-/** 区域内容所需高度:头部 + 可选顶部计数条 + 行数 × 行高 + 页脚。 */
+/** 区域分配高度的估计值;真实行容量交给 Region 的滚动容器,不按此值截断。 */
 export function regionNeed(rowCount: number, options: { readonly top?: boolean } = {}): number {
   return HEADER_PX + (options.top === true ? TOP_BLOCK_PX : 0) + rowCount * REGION_ROW_PX + FOOTER_PX;
 }

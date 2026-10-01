@@ -198,7 +198,6 @@
   "components.localDoc.errorTooLarge": "The file exceeds the in-app reader limit (2 MiB): {path}",
   "components.localDoc.errorRequestRejected": "Request rejected: {message}",
   "components.localDoc.errorBridgeUnavailable": "The local document bridge is unavailable (requires the Electron shell).",
-  "components.primitives.moreEntries": "+{count} more",
   "components.primitives.expand": "Expand",
   "components.primitives.completedDivider": "{count} completed",
   "components.primitives.collapse": "Collapse",

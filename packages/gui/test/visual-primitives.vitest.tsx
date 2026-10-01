@@ -235,7 +235,7 @@ describe("Region", () => {
     act(() => root.unmount());
   });
 
-  it("内容溢出时放不下的行整行隐藏并计入页脚「+N 条」,第一项总是显示(happy-dom 视口桩:offsetHeight 800 > clientHeight 0)", () => {
+  it("内容溢出时保留全部行并在区域内部滚动,不显示「+N 条」", () => {
     const { container, root } = mount(
       createElement(
         Region,
@@ -245,11 +245,12 @@ describe("Region", () => {
         createElement("div", { key: "c" }, "行三"),
       ),
     );
-    expect(container.textContent).toContain("+2");
+    expect(container.textContent).not.toContain("+2");
+    expect(container.querySelector("section > div:nth-child(2) > div")?.className).toContain("overflow-y-auto");
     const rows = [...container.querySelectorAll("section div")].filter((node) =>
       /^行[一二三]$/u.test(node.textContent ?? ""),
     );
-    expect(rows.map((row) => (row as HTMLElement).style.visibility)).toEqual(["", "hidden", "hidden"]);
+    expect(rows.map((row) => (row as HTMLElement).style.visibility)).toEqual(["", "", ""]);
     act(() => root.unmount());
 
     const empty = mount(createElement(Region, { title: "空区域" }, "一句话"));
