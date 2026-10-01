@@ -68,7 +68,7 @@ type Props = {
   readonly onValidate: () => void;
   readonly onSelectRuntime: (instanceId: string) => void;
   readonly onSetEnabled: (enabled: boolean) => void;
-  readonly onUpdate: (input: RuntimeInstanceUpdateInput) => void;
+  readonly onUpdate: (input: RuntimeInstanceUpdateInput) => Promise<unknown>;
   readonly onDelete: () => void;
   readonly onSelfTest: (model: string) => Promise<string | null>;
   /** 更新/auth/self-test 等动作的失败原因:在卡首就地显示(标准 §2.5 表单)。 */
@@ -379,7 +379,7 @@ function ProviderEditor({
   readonly instance: RuntimeInstanceSummary;
   readonly installations: readonly RuntimeInstallationRow[];
   readonly busy: boolean;
-  readonly onUpdate: (input: RuntimeInstanceUpdateInput) => void;
+  readonly onUpdate: (input: RuntimeInstanceUpdateInput) => Promise<unknown>;
   readonly onCancel: () => void;
 }) {
   const [draft, setDraft] = useState<RuntimeInstanceEditFormState>(() => runtimeInstanceEditForm(instance)),
@@ -395,11 +395,12 @@ function ProviderEditor({
       data-testid="runtime-provider-editor"
       onSubmit={(event) => {
         event.preventDefault();
-        onUpdate(buildRuntimeInstanceUpdatePayload(instance.instanceId, draft));
-        onCancel();
+        void onUpdate(buildRuntimeInstanceUpdatePayload(instance.instanceId, draft)).then((receipt) => {
+          if (receipt !== null && typeof receipt === "object" && "ok" in receipt && receipt.ok === true) onCancel();
+        });
       }}
     >
-      <div className="grid grid-cols-[repeat(auto-fill,minmax(215px,1fr))] gap-x-[18px] gap-y-2">
+      <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,215px),1fr))] gap-x-[18px] gap-y-2 [&>label]:min-w-0 [&_select]:min-w-0 [&_select]:w-full">
         <label className="grid gap-0.5">
           <span className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">
             {t("agentRuntime.name")}
@@ -519,7 +520,7 @@ function ProviderEditor({
           />
         </label>
       </div>
-      <div className="mt-2 flex items-center gap-2">
+      <div className="mt-2 flex flex-wrap items-center gap-2">
         <Hint>{t("agentRuntime.providerEditHint")}</Hint>
         <span className="flex-1" />
         <Btn testId="runtime-provider-cancel" onClick={onCancel}>

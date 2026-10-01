@@ -33,21 +33,21 @@ export function RuntimeModelEditor({
     options = runtimeModels(availableModels, selectedModels),
     selectedDefault = runtimeDefaultModel(effectiveModels, defaultModel);
   return (
-    <div className="grid gap-1.5">
+    <div className="grid min-w-0 gap-1.5">
       <div
         data-testid={`${testIdPrefix}-models`}
         className="grid max-h-32 gap-1 overflow-y-auto rounded border border-border px-2 py-1.5"
       >
         {options.length ? (
           options.map((model) => (
-            <label key={model} className="flex items-center gap-2 ui-micro">
+            <label key={model} className="flex min-w-0 items-center gap-2 ui-micro">
               <input
                 type="checkbox"
                 checked={effectiveModels.includes(model)}
                 disabled={keepOneModel && effectiveModels.length === 1 && effectiveModels[0] === model}
                 onChange={() => onToggleModel(model)}
               />
-              <span className="font-mono">{model}</span>
+              <span className="min-w-0 break-all font-mono">{model}</span>
             </label>
           ))
         ) : (
@@ -55,14 +55,14 @@ export function RuntimeModelEditor({
         )}
       </div>
       {defaultModel !== undefined && onDefaultModelChange && (
-        <label className="grid gap-0.5 ui-micro text-text-muted">
+        <label className="grid min-w-0 gap-0.5 ui-micro text-text-muted">
           {t("agentRuntime.defaultModel")}
           <select
             data-testid={`${testIdPrefix}-default-model`}
             aria-label={t("agentRuntime.defaultModel")}
             value={selectedDefault}
             onChange={(event) => onDefaultModelChange(event.target.value)}
-            className="control"
+            className="control min-w-0 w-full"
           >
             {effectiveModels.map((model) => (
               <option key={model} value={model}>

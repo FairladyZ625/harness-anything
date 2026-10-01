@@ -66,6 +66,7 @@ export type RpcShape = {
       | "number?"
       | "boolean?"
       | "string?"
+      | "string-or-empty?"
       | "string-null?"
       | "json"
       | "json?"
@@ -102,6 +103,7 @@ export function validateShape(value: unknown, expected: RpcShape, prefix: string
       enumRule = "values" in Object(rule) ? (rule as RpcEnumRule) : null;
     if (
       ((rule === "string?" ||
+        rule === "string-or-empty?" ||
         rule === "string-null?" ||
         rule === "json?" ||
         rule === "array?" ||
@@ -122,13 +124,15 @@ export function validateShape(value: unknown, expected: RpcShape, prefix: string
     } else if (
       rule === "string" ||
       rule === "string?" ||
+      rule === "string-or-empty?" ||
       rule === "string-null?" ||
       rule === "number" ||
       rule === "number?" ||
       rule === "boolean?"
     ) {
       const type = rule.startsWith("string") ? "string" : rule === "boolean?" ? "boolean" : "number";
-      if (typeof item !== type || (type === "string" && !item)) errors.push(`${prefix}.${field} must be ${type}`);
+      if (typeof item !== type || (type === "string" && rule !== "string-or-empty?" && !item))
+        errors.push(`${prefix}.${field} must be ${type}`);
     } else errors.push(...validateShape(item, rule as RpcShape, `${prefix}.${field}`));
   }
   return errors;

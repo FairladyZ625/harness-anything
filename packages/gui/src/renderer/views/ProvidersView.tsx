@@ -152,7 +152,7 @@ export function ProvidersView({
                 onAuth={(action) => void workspace.authInstance(instance.instanceId, action)}
                 onValidate={() => void workspace.validateInstance(instance.instanceId)}
                 onSetEnabled={(enabled) => void workspace.setInstanceEnabled(instance.instanceId, enabled)}
-                onUpdate={(input) => void workspace.updateInstance(input)}
+                onUpdate={workspace.updateInstance}
                 onDelete={() => {
                   void workspace.deleteInstance(instance.instanceId);
                 }}

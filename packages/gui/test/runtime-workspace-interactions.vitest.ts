@@ -1047,8 +1047,61 @@ describe("runtime entry split (W6 IA)", () => {
     expect(probe).toHaveBeenCalledWith("provider-selected");
   });
 
+  it("keeps the provider draft while an update is pending or rejected, then closes on success", async () => {
+    let reject!: (error: Error) => void;
+    const update = vi.spyOn(runtimeInstanceClient, "update").mockImplementation(
+      () =>
+        new Promise((_resolve, rejectUpdate) => {
+          reject = rejectUpdate;
+        }),
+    );
+    await mountProviders("provider/provider-edit");
+    await click("runtime-provider-edit");
+    await input("runtime-provider-name", "Kept draft");
+    await click("runtime-provider-save");
+    expect(byTestId("runtime-provider-editor")).toBeTruthy();
+    expect((byTestId("runtime-provider-save") as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => {
+      reject(new Error("Installation is no longer witnessed."));
+    });
+    await flushEffects();
+    expect((byTestId("runtime-provider-name") as HTMLInputElement).value).toBe("Kept draft");
+    expect(byTestId("action-error").textContent).toContain("Installation is no longer witnessed.");
+    update.mockResolvedValueOnce({ schema: "command-receipt/v2", ok: true });
+    await click("runtime-provider-save");
+    expect(document.querySelector('[data-testid="runtime-provider-editor"]')).toBeNull();
+  });
+
+  it("reads the daemon's canonical rejection explanation from runtime receipts", async () => {
+    const receipt = {
+      schema: "command-receipt/v2",
+      ok: false,
+      error: { code: "runtime_installation_missing" },
+      rejectionExplanation: "Installation is no longer witnessed.",
+    };
+    const bridge = Object.fromEntries(
+      [
+        "listRuntimeInstances",
+        "showRuntimeInstance",
+        "createRuntimeInstance",
+        "updateRuntimeInstance",
+        "deleteRuntimeInstance",
+        "signInRuntimeInstance",
+        "signOutRuntimeInstance",
+      ].map((method) => [method, async () => receipt]),
+    );
+    vi.stubGlobal("window", { ...window, harness: bridge });
+    try {
+      await expect(runtimeInstanceClient.update({ instanceId: "provider-edit", models: ["fable"] })).rejects.toThrow(
+        "Installation is no longer witnessed.",
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("edits a provider with one cancelable draft and always keeps its default model selected", async () => {
-    const onUpdate = vi.fn();
+    const onUpdate = vi.fn(async () => ({ ok: true }));
     await mountProviderCard(onUpdate);
 
     await click("runtime-provider-edit");

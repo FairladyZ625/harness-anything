@@ -137,8 +137,8 @@ function runtimeInstanceTerminal(value: unknown): TerminalControlReceipt {
   return value as TerminalControlReceipt;
 }
 function runtimeInstanceHint(value: unknown, fallback: string): string {
-  return runtimeInstanceRecord(value) && runtimeInstanceRecord(value.error) && typeof value.error.hint === "string"
-    ? value.error.hint
+  return runtimeInstanceRecord(value) && typeof value.rejectionExplanation === "string"
+    ? value.rejectionExplanation
     : fallback;
 }
 function runtimeInstanceRecord(value: unknown): value is Record<string, unknown> {

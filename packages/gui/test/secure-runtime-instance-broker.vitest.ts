@@ -66,7 +66,11 @@ describe("main-only runtime instance credential controller", () => {
         create,
       });
     const receipt = await controller.create({ ...base, authMode: "api-key", apiKey: secret });
-    expect(receipt).toMatchObject({ ok: false, error: { code: "runtime_credential_unavailable" } });
+    expect(receipt).toMatchObject({
+      ok: false,
+      error: { code: "runtime_credential_unavailable" },
+      rejectionExplanation: expect.stringContaining("vault refused"),
+    });
     expect(create).not.toHaveBeenCalled();
     expect(JSON.stringify(receipt)).not.toMatch(new RegExp(secret, "u"));
   });
@@ -77,7 +81,11 @@ describe("main-only runtime instance credential controller", () => {
         create,
       });
     const receipt = await controller.create({ ...base, authMode: "api-key" });
-    expect(receipt).toMatchObject({ ok: false, error: { code: "api_key_required" } });
+    expect(receipt).toMatchObject({
+      ok: false,
+      error: { code: "api_key_required" },
+      rejectionExplanation: expect.stringContaining("Enter the provider API key"),
+    });
     expect(create).not.toHaveBeenCalled();
   });
   it("forwards subscription creates unchanged with no credential material attached", async () => {
