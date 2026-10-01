@@ -90,6 +90,7 @@ import {
   type PersistentWriterEpoch,
   type WriterEpochLease,
 } from "./writer-epoch.ts";
+import { AccessAdminService, accessAdminOperations } from "./access-admin-service.ts";
 import { ManagedRbacService } from "./managed-rbac-service.ts";
 import { OidcSessionService } from "./oidc-session-service.ts";
 
@@ -602,6 +603,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     startedAt,
   };
   const managedRbac = new ManagedRbacService(input.userRoot),
+    accessAdmin = new AccessAdminService(oidc, input.userRoot),
     lifecycle = createDaemonHostLifecycleApi(hostContext);
   const host: DaemonHost = {
     remoteProxy,
@@ -646,6 +648,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           personId: request.personId!,
         });
       }
+      if ((accessAdminOperations as readonly string[]).includes(request.operation ?? "bootstrap"))
+        return accessAdmin.run(request);
       requireAuthorizedHostAction({
         kind: "rbac-bootstrap",
         // Lifecycle bootstrap is the sole socket-owner exception: it can install/start the

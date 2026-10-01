@@ -15,16 +15,12 @@ import {
 import {
   peopleAddJsonAllowedFields,
   peopleAddJsonFields,
-  peopleBindJsonAllowedFields,
-  peopleBindJsonFields,
   peopleDelegateJsonAllowedFields,
   peopleDelegateJsonFields,
   peopleRemoveJsonAllowedFields,
   peopleRemoveJsonFields,
   peopleRevokeDelegationJsonAllowedFields,
   peopleRevokeDelegationJsonFields,
-  peopleSetRoleJsonAllowedFields,
-  peopleSetRoleJsonFields,
 } from "./protocol/daemon-protocol-commands-people.ts";
 import type { RepoCellRuntimeContext } from "./repo-cell-action-context.ts";
 import { resolvePacketAction, type PacketActionContract } from "./repo-cell-action-parse.ts";
@@ -150,8 +146,6 @@ function personReplayReceipt(receipt: WriteReceipt, personId: string | null): Wr
 
 const peoplePacketContracts: Readonly<Record<string, PacketActionContract>> = Object.freeze({
   "people-add": peopleContract(peopleAddJsonFields, peopleAddJsonAllowedFields),
-  "people-set-role": peopleContract(peopleSetRoleJsonFields, peopleSetRoleJsonAllowedFields),
-  "people-bind": peopleContract(peopleBindJsonFields, peopleBindJsonAllowedFields),
   "people-delegate": peopleContract(peopleDelegateJsonFields, peopleDelegateJsonAllowedFields),
   "people-revoke-delegation": peopleContract(peopleRevokeDelegationJsonFields, peopleRevokeDelegationJsonAllowedFields),
   "people-remove": peopleContract(peopleRemoveJsonFields, peopleRemoveJsonAllowedFields),

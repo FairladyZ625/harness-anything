@@ -20,7 +20,7 @@ const owner = {
   ],
 };
 
-test("people add, set-role, and remove are the one deterministic roster transition catalog", () => {
+test("people add and remove are the one deterministic roster transition catalog", () => {
   const bootstrapped = applyPeopleRosterAction(null, {
       kind: "people-add",
       person: owner,
@@ -31,21 +31,13 @@ test("people add, set-role, and remove are the one deterministic roster transiti
       person: { ...owner, personId: "person_alice", displayName: "Alice", roles: ["dispatcher"], credentials: [] },
       rolePolicy: { roleId: "dispatcher", commandClasses: ["repo-write"] },
     }),
-    changed = applyPeopleRosterAction(added.body, {
-      kind: "people-set-role",
-      personId: "person_alice",
-      rolePolicy: {
-        roleId: "reviewer",
-        commandClasses: ["repo-read"],
-      },
-    }),
-    removed = applyPeopleRosterAction(changed.body, {
+    removed = applyPeopleRosterAction(added.body, {
       kind: "people-remove",
       personId: "person_alice",
     });
 
   assert.equal(added.action, "people-add");
-  assert.deepEqual(parsePeopleRosterDocument(changed.body).people[1]?.roles, ["reviewer"]);
+  assert.deepEqual(parsePeopleRosterDocument(added.body).people[1]?.roles, ["dispatcher"]);
   assert.deepEqual(parsePeopleRosterDocument(removed.body).people, [owner]);
 });
 
@@ -119,24 +111,6 @@ test("roster transitions preserve the bootstrap owner and an enabled admin", () 
     });
 
   const rejected = [
-    () =>
-      applyPeopleRosterAction(bootstrapped.body, {
-        kind: "people-set-role",
-        personId: owner.personId,
-        rolePolicy: { roleId: "reviewer", commandClasses: ["repo-read"] },
-      }),
-    () =>
-      applyPeopleRosterAction(alice.body, {
-        kind: "people-set-role",
-        personId: "person_alice",
-        rolePolicy: { roleId: "owner", commandClasses: ["admin"] },
-      }),
-    () =>
-      applyPeopleRosterAction(alice.body, {
-        kind: "people-set-role",
-        personId: owner.personId,
-        rolePolicy: { roleId: "owner", commandClasses: ["repo-read"] },
-      }),
     () => applyPeopleRosterAction(bootstrapped.body, { kind: "people-remove", personId: owner.personId }),
     () => applyPeopleRosterAction(ownerWithoutAdmin, { kind: "people-remove", personId: "person_alice" }),
   ];
@@ -147,7 +121,7 @@ test("roster transitions preserve the bootstrap owner and an enabled admin", () 
     });
 });
 
-test("people bind persists only declared RoleBindings and removes a deleted person's bindings", () => {
+test("removing a person removes the RoleBindings an existing roster declares for them", () => {
   const bootstrapped = applyPeopleRosterAction(null, {
       kind: "people-add",
       person: owner,
@@ -158,44 +132,19 @@ test("people bind persists only declared RoleBindings and removes a deleted pers
       person: { ...owner, personId: "person_alice", displayName: "Alice", roles: ["reviewer"], credentials: [] },
       rolePolicy: { roleId: "reviewer", commandClasses: ["repo-read"] },
     }),
-    bound = applyPeopleRosterAction(added.body, {
-      kind: "people-bind",
-      binding: {
-        actor: { kind: "person", id: "person_alice" },
-        role: "arbiter",
-        target: "settings/repository",
-        source: "declared",
-        expiresAt: null,
-      },
-    });
-  assert.deepEqual(parsePeopleRosterDocument(bound.body).bindings, [
-    {
+    binding = {
       actor: { kind: "person", id: "person_alice" },
       role: "arbiter",
       target: "settings/repository",
       source: "declared",
       expiresAt: null,
-    },
-  ]);
+    } as const,
+    bound = serializePeopleRosterDocument({ ...parsePeopleRosterDocument(added.body), bindings: [binding] });
+  assert.deepEqual(parsePeopleRosterDocument(bound).bindings, [binding]);
   assert.equal(
-    parsePeopleRosterDocument(
-      applyPeopleRosterAction(bound.body, { kind: "people-remove", personId: "person_alice" }).body,
-    ).bindings.length,
+    parsePeopleRosterDocument(applyPeopleRosterAction(bound, { kind: "people-remove", personId: "person_alice" }).body)
+      .bindings.length,
     0,
-  );
-  assert.throws(
-    () =>
-      applyPeopleRosterAction(added.body, {
-        kind: "people-bind",
-        binding: {
-          actor: { kind: "person", id: "person_alice" },
-          role: "arbiter",
-          target: "settings/repository",
-          source: "derived" as never,
-          expiresAt: null,
-        },
-      }),
-    /RoleBinding source must be declared/u,
   );
 });
 

@@ -162,7 +162,7 @@ function legacyBindingDecision(
     : decision;
 }
 
-function keycloakDecision(
+export function keycloakDecision(
   action: ReturnType<typeof composeDurableActionEnvelope>,
   evaluatedAtCut: string,
   outcome: AuthorizationDecision["outcome"],
@@ -293,15 +293,11 @@ function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCe
       return authorizeRepoCellAction(input);
     case "people-add":
       return authorizeRepoCellAction(input);
-    case "people-bind":
-      return authorizeRepoCellAction(input);
     case "people-delegate":
       return authorizeRepoCellAction(input);
     case "people-remove":
       return authorizeRepoCellAction(input);
     case "people-revoke-delegation":
-      return authorizeRepoCellAction(input);
-    case "people-set-role":
       return authorizeRepoCellAction(input);
     case "preset-install":
       return authorizeRepoCellAction(input);

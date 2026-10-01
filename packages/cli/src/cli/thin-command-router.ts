@@ -344,8 +344,6 @@ function parseLedgerReconcileRouted(
 
 const peopleRequiredInputs: Readonly<Record<string, readonly string[]>> = Object.freeze({
   "people-add": ["--person-id", "--display-name", "--role", "--command-class"],
-  "people-set-role": ["--person-id", "--role", "--command-class"],
-  "people-bind": ["--actor", "--role", "--target"],
   "people-delegate": ["--token-id", "--runtime-session-id", "--action", "--expires-at"],
   "people-revoke-delegation": ["--token-id"],
   "people-remove": ["--person-id"],

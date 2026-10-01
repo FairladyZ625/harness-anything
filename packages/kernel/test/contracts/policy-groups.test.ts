@@ -14,7 +14,8 @@ import {
 import type { ActionDeclaration } from "../../src/domain/action-declaration.ts";
 
 test("every declaration has one minimum Base tier and one unique Keycloak scope", () => {
-  assert.equal(actionDeclarations.length, 138);
+  // 138 → 136: people-set-role and people-bind were deleted by RBAC v2 S4 (dec_D60FAA451F24160E970323B6F3).
+  assert.equal(actionDeclarations.length, 136);
   assert.equal(new Set(actionDeclarations.map((item) => item.policyAction)).size, actionDeclarations.length);
   for (const declaration of actionDeclarations) {
     assert.equal(declaration.policyAction, declaration.kind);
@@ -62,10 +63,14 @@ test("custom group inheritance accepts composition and rejects direct and transi
   );
 });
 
-test("repository and EntityRef resources round-trip without widening entity scope", () => {
-  const repository = { kind: "repository", repoId: "canonical" } as const,
-    entity = { kind: "entity", repoId: "canonical", entityRef: "task/task_123" } as const;
-  assert.deepEqual(decodeAuthorizationResource(encodeAuthorizationResource(repository)), repository);
-  assert.deepEqual(decodeAuthorizationResource(encodeAuthorizationResource(entity)), entity);
-  assert.notEqual(encodeAuthorizationResource(entity), encodeAuthorizationResource(repository));
+test("fleet, repository, and EntityRef resources round-trip without widening scope", () => {
+  const fleet = { kind: "fleet" } as const,
+    repository = { kind: "repository", repoId: "canonical" } as const,
+    entity = { kind: "entity", repoId: "canonical", entityRef: "task/task_123" } as const,
+    encoded = [fleet, repository, entity].map(encodeAuthorizationResource);
+  assert.deepEqual(encoded, ["@fleet", "canonical", "canonical:task/task_123"]);
+  assert.deepEqual(encoded.map(decodeAuthorizationResource), [fleet, repository, entity]);
+  // The fleet name is outside the repository id alphabet, so no repository can be registered under it.
+  for (const invalid of ["", "@other", "Repo", "canonical:not-an-entity-ref", ":task/task_123"])
+    assert.throws(() => decodeAuthorizationResource(invalid), invalid);
 });

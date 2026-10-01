@@ -32,7 +32,7 @@ import { resolveRepoBootstrap, type RepoBootstrapReceipt } from "./repo-bootstra
 import { openRepoCell, type RepoCell, type RepoCellReadMethod, type RepoTaskAction } from "./repo-cell.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
 import { localDefaultBinding, localSystemActionBinding } from "./daemon-host-binding.ts";
-import { requireAuthorizedHostAction } from "./host-action-authorization.ts";
+import { requireAuthorizedFleetAction, requireAuthorizedHostAction } from "./host-action-authorization.ts";
 import { entityActionCommandTopology } from "./repo-mode.ts";
 import { resolveVerticalKindCommandAction } from "./vertical-kind-command-action.ts";
 import { cachePurgePreservedPaths, purgeRepoCache } from "./repo-cache-purge.ts";
@@ -375,19 +375,10 @@ export function createDaemonHostRepositoryApi(
                 : request.kind === "connection-unregister"
                   ? "daemon-connection-remove"
                   : "daemon-connection-probe",
-          authorityRepo = [...readDaemonRegistry({ userRoot: context.input.userRoot }).repos]
-            .filter(
-              (repo): repo is typeof repo & { readonly canonicalRoot: string } =>
-                repo.state === "enabled" && repo.mode !== "remote-proxy" && repo.canonicalRoot !== null,
-            )
-            .sort((left, right) => left.repoId.localeCompare(right.repoId))[0],
-          authorizationDecision = requireAuthorizedHostAction({
+          authorizationDecision = await requireAuthorizedFleetAction({
             kind: command,
-            binding: await localSystemActionBinding(context.input.userRoot, command, auth, () =>
-              authorityRepo
-                ? context.binding(authorityRepo.canonicalRoot, auth)
-                : Promise.resolve(localDefaultBinding(auth)),
-            ),
+            userRoot: context.input.userRoot,
+            auth,
             actionId: `${command}:${connectionSubject}`,
             evaluatedAtCut: "daemon-registry:current",
             now: context.now(),

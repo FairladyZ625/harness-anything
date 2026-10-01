@@ -28,37 +28,9 @@ test("People CLI projects registry and delegated-token mutations onto closed Act
       role: "dispatcher",
       commandClass: ["repo-write", "repo-read"],
     });
-  assert.equal(
-    parseThinCommand([
-      "people",
-      "set-role",
-      "--person-id",
-      "person_alice",
-      "--role",
-      "owner",
-      "--command-class",
-      "admin",
-    ]).ok,
-    true,
-  );
-  const bound = parseThinCommand([
-    "people",
-    "bind",
-    "--actor",
-    "person:person_alice",
-    "--role",
-    "arbiter",
-    "--target",
-    "settings/repository",
-  ]);
-  assert.equal(bound.ok, true);
-  if (bound.ok)
-    assert.deepEqual(bound.command.action, {
-      kind: "people-bind",
-      actor: "person:person_alice",
-      role: "arbiter",
-      target: "settings/repository",
-    });
+  // Role policies and RoleBindings are no longer writable from the CLI; Keycloak grants replaced them.
+  for (const retired of ["set-role", "bind"])
+    assert.equal(parseThinCommand(["people", retired, "--person-id", "person_alice"]).ok, false);
   const delegated = parseThinCommand([
     "people",
     "delegate",
@@ -130,14 +102,6 @@ test("People CLI enforces complete credentials and command class vocabulary", ()
 test("People CLI exposes one closed structured packet facet per public command", () => {
   for (const [argv, action] of [
     [["people", "add", "--from-file", "people-add.json"], { kind: "people-add", fromFile: "people-add.json" }],
-    [
-      ["people", "set-role", "--from-file", "people-role.json"],
-      { kind: "people-set-role", fromFile: "people-role.json" },
-    ],
-    [
-      ["people", "bind", "--from-file", "people-binding.json"],
-      { kind: "people-bind", fromFile: "people-binding.json" },
-    ],
     [
       ["people", "delegate", "--from-file", "people-delegation.json"],
       { kind: "people-delegate", fromFile: "people-delegation.json" },

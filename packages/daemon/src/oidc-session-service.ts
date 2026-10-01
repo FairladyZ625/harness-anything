@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { consumeKnownError } from "@harness-anything/kernel";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { managedRbacSessionStore } from "./managed-rbac-service.ts";
 
@@ -37,6 +38,7 @@ export class OidcSessionService {
   readonly #rbacRoot: string;
   readonly #ports: OidcSessionPorts;
   #pending: PendingLogin | undefined;
+  #writes: Promise<unknown> = Promise.resolve();
 
   constructor(userRoot: string, ports: Partial<OidcSessionPorts> = {}) {
     this.#rbacRoot = path.join(userRoot, "rbac");
@@ -154,23 +156,39 @@ export class OidcSessionService {
     return session;
   }
 
-  async bootstrapAdmin(input: {
+  /**
+   * The center's single write queue for Keycloak authorization state: first-administrator bootstrap
+   * and every policy-group or grant mutation run one at a time, each against the state the previous left.
+   */
+  serialize<T>(operation: () => Promise<T>): Promise<T> {
+    const run = this.#writes.then(operation);
+    this.#writes = run.catch(consumeKnownError);
+    return run;
+  }
+
+  async center(): Promise<{ readonly url: string; readonly realm: string; readonly accessToken: string }> {
+    return { ...this.#config(), accessToken: await this.#centerToken() };
+  }
+
+  bootstrapAdmin(input: {
     readonly username: string;
     readonly email: string;
     readonly displayName: string;
     readonly password: string;
     readonly personId: string;
   }): Promise<Record<string, unknown>> {
-    const token = await this.#centerToken(),
-      members = await this.#adminJson("GET", "/roles/access-admin/users", token, undefined, true);
-    if (Array.isArray(members) && members.length > 0)
-      throw coded("bootstrap_admin_closed", "The first Harness administrator already exists.");
-    await this.#ensureAccessAdminRole(token);
-    const userId = await this.#createUser(token, input, false),
-      role = await this.#adminJson("GET", "/roles/access-admin", token);
-    await this.#adminJson("POST", `/users/${encodeURIComponent(userId)}/role-mappings/realm`, token, [role]);
-    await this.#removeBootstrapAdministrator(token);
-    return { ok: true, created: true, personId: input.personId };
+    return this.serialize(async () => {
+      const token = await this.#centerToken(),
+        members = await this.#adminJson("GET", "/roles/access-admin/users", token, undefined, true);
+      if (Array.isArray(members) && members.length > 0)
+        throw coded("bootstrap_admin_closed", "The first Harness administrator already exists.");
+      await this.#ensureAccessAdminRole(token);
+      const userId = await this.#createUser(token, input, false),
+        role = await this.#adminJson("GET", "/roles/access-admin", token);
+      await this.#adminJson("POST", `/users/${encodeURIComponent(userId)}/role-mappings/realm`, token, [role]);
+      await this.#removeBootstrapAdministrator(token);
+      return { ok: true, created: true, personId: input.personId };
+    });
   }
 
   async invite(input: {

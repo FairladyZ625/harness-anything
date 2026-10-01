@@ -1,5 +1,6 @@
 import { createHash, randomBytes } from "node:crypto";
 import {
+  appendFileSync,
   chmodSync,
   createReadStream,
   createWriteStream,
@@ -17,6 +18,7 @@ import { createServer } from "node:net";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
 import { runProcessText } from "./process-port.ts";
+import type { AccessAdminOperation, AccessAdminRequest } from "./access-admin-service.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 
 export const managedRbacVersions = Object.freeze({
@@ -40,9 +42,10 @@ type ManagedRbacOperation =
   | "logout"
   | "bootstrap-status"
   | "bootstrap-admin"
-  | "invite";
+  | "invite"
+  | AccessAdminOperation;
 
-export interface ManagedRbacRequest {
+export interface ManagedRbacRequest extends AccessAdminRequest {
   readonly operation?: ManagedRbacOperation;
   readonly mode?: "managed" | "external";
   readonly url?: string;
@@ -262,6 +265,8 @@ export class ManagedRbacService {
           publicClient: false,
           serviceAccountsEnabled: true,
           authorizationServicesEnabled: true,
+          // Grants are independent allow rules on one resource: any applicable grant permits, none denies.
+          authorizationSettings: { policyEnforcementMode: "ENFORCING", decisionStrategy: "AFFIRMATIVE" },
           secret: readFileSync(secretFile, "utf8").trim(),
         },
         {
@@ -271,6 +276,19 @@ export class ManagedRbacService {
           standardFlowEnabled: true,
           redirectUris: ["http://127.0.0.1/*"],
           attributes: { "pkce.code.challenge.method": "S256" },
+          protocolMappers: [
+            {
+              name: "harness-person-id",
+              protocol: "openid-connect",
+              protocolMapper: "oidc-usermodel-attribute-mapper",
+              config: {
+                "user.attribute": "harness_person_id",
+                "claim.name": "harness_person_id",
+                "jsonType.label": "String",
+                "userinfo.token.claim": "true",
+              },
+            },
+          ],
         },
       ],
       users: [
@@ -278,7 +296,17 @@ export class ManagedRbacService {
           username: "service-account-harness-center",
           enabled: true,
           serviceAccountClientId: "harness-center",
-          clientRoles: { "realm-management": ["manage-users", "view-users", "manage-realm"] },
+          clientRoles: {
+            "realm-management": [
+              "manage-users",
+              "view-users",
+              "manage-realm",
+              "manage-clients",
+              "view-clients",
+              "manage-authorization",
+              "view-authorization",
+            ],
+          },
         },
       ],
     };
@@ -405,23 +433,26 @@ export class ManagedRbacService {
     throw managedRbacError("rbac_health_failed", `Keycloak realm health returned HTTP ${String(result.status)}.`);
   }
 
+  /** Runs as the center's own service account: the one-time bootstrap password is gone once an administrator exists. */
   async #syncBasePolicy(): Promise<void> {
     const config = this.#readManagedConfig(),
-      tokenResponse = await this.#ports.fetch(`${config.url}/realms/master/protocol/openid-connect/token`, {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "password",
-          client_id: "admin-cli",
-          username: "harness-bootstrap",
-          password: readOrCreateSecret(path.join(this.#root, "bootstrap-admin-password")),
-        }),
-      });
+      tokenResponse = await this.#ports.fetch(
+        `${config.url}/realms/${encodeURIComponent(config.realm)}/protocol/openid-connect/token`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "client_credentials",
+            client_id: config.clientId,
+            client_secret: readFileSync(path.join(this.#root, "center-client-secret"), "utf8").trim(),
+          }),
+        },
+      );
     if (!tokenResponse.ok)
-      throw managedRbacError("rbac_policy_sync_failed", `Keycloak admin token returned HTTP ${tokenResponse.status}.`);
+      throw managedRbacError("rbac_policy_sync_failed", `Keycloak center token returned HTTP ${tokenResponse.status}.`);
     const payload = (await tokenResponse.json()) as { readonly access_token?: unknown };
     if (typeof payload.access_token !== "string" || !payload.access_token)
-      throw managedRbacError("rbac_policy_sync_failed", "Keycloak admin token response omitted access_token.");
+      throw managedRbacError("rbac_policy_sync_failed", "Keycloak center token response omitted access_token.");
     await new KeycloakPolicyAdapter(
       { url: config.url, realm: config.realm, resourceServerClientId: config.clientId },
       this.#ports.fetch,
@@ -550,6 +581,22 @@ export function managedRbacSessionStore(userRoot: string): {
     },
     delete: () => rmSync(file, { force: true }),
     retireBootstrap: () => rmSync(path.join(root, "bootstrap-admin-password"), { force: true }),
+  };
+}
+
+/** Append-only audit trail of access administration. Authorization never reads it. */
+export function managedRbacReceiptJournal(userRoot: string): {
+  readonly read: () => readonly string[];
+  readonly append: (line: string) => void;
+} {
+  const root = path.join(userRoot, "rbac"),
+    file = path.join(root, "access-receipts.jsonl");
+  return {
+    read: () => (existsSync(file) ? readFileSync(file, "utf8").split("\n").filter(Boolean) : []),
+    append: (line) => {
+      mkdirSync(root, { recursive: true, mode: 0o700 });
+      appendFileSync(file, `${line}\n`, { mode: 0o600 });
+    },
   };
 }
 

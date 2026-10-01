@@ -88,24 +88,28 @@ export function assertAcyclicPolicyGroups(groups: readonly PolicyGroup[]): void 
 }
 
 export type AuthorizationResource =
+  | { readonly kind: "fleet" }
   | { readonly kind: "repository"; readonly repoId: string }
   | { readonly kind: "entity"; readonly repoId: string; readonly entityRef: EntityRef };
 
+/** A repository id starts with a letter, so the fleet resource name can never name a repository. */
+const fleetResourceName = "@fleet";
+
 export function encodeAuthorizationResource(resource: AuthorizationResource): string {
+  if (resource.kind === "fleet") return fleetResourceName;
   return resource.kind === "repository" ? resource.repoId : `${resource.repoId}:${resource.entityRef}`;
 }
 
 export function decodeAuthorizationResource(value: string): AuthorizationResource {
-  const separator = value.indexOf(":");
-  if (separator < 0) {
-    if (!value) throw new Error("Repository authorization resource must be non-empty.");
-    return Object.freeze({ kind: "repository", repoId: value });
-  }
-  const repoId = value.slice(0, separator),
-    entityRef = value.slice(separator + 1);
-  if (!repoId || !entityRef) throw new Error("Entity authorization resource must contain repoId and EntityRef.");
+  if (value === fleetResourceName) return Object.freeze({ kind: "fleet" });
+  const separator = value.indexOf(":"),
+    repoId = separator < 0 ? value : value.slice(0, separator);
+  if (!/^[a-z][a-z0-9-]*$/u.test(repoId))
+    throw new Error("Authorization resource must name the fleet, a repository, or a repository EntityRef.");
+  if (separator < 0) return Object.freeze({ kind: "repository", repoId });
+  const entityRef = value.slice(separator + 1);
   if (parseEntityRef(entityRef) === null) throw new Error(`Invalid authorization EntityRef ${entityRef}.`);
-  return Object.freeze({ kind: "entity", repoId, entityRef });
+  return Object.freeze({ kind: "entity", repoId, entityRef: entityRef as EntityRef });
 }
 
 export function tierIncludes(group: BasePolicyGroupId, tier: ActionPolicyTier): boolean {

@@ -1,7 +1,9 @@
 import {
   actionDeclarations,
   assertAcyclicPolicyGroups,
+  decodeAuthorizationResource,
   deriveBasePolicyGroups,
+  effectivePolicyGroupScopes,
   encodeAuthorizationResource,
   type AuthorizationResource,
   type PolicyGroup,
@@ -25,6 +27,17 @@ export interface KeycloakPermissionDecision {
   readonly scope: string;
 }
 
+export interface KeycloakPolicyGroup extends PolicyGroup {
+  readonly displayName: string;
+}
+
+/** One `(policy group, resource)` grant and the Keycloak users holding it. */
+export interface KeycloakGrant {
+  readonly groupId: string;
+  readonly resource: string;
+  readonly userIds: readonly string[];
+}
+
 type FetchPort = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 type KeycloakRole = {
   readonly id: string;
@@ -33,6 +46,17 @@ type KeycloakRole = {
   readonly containerId?: string;
 };
 type NamedRepresentation = { readonly id?: unknown; readonly name?: unknown };
+type RoleRepresentation = KeycloakRole & {
+  readonly description?: string;
+  readonly attributes?: Readonly<Record<string, readonly string[]>>;
+};
+
+// Keycloak keeps policies and permissions in one name space, so the two halves of a grant differ by prefix.
+const grantUsersPrefix = "grant-users:",
+  grantPermissionPrefix = "grant:",
+  personAttribute = "harness_person_id",
+  customGroupAttribute = "harness_policy_group",
+  groupScopesAttribute = "harness_scopes";
 
 export class KeycloakPolicyAdapter {
   readonly #config: KeycloakPolicyAdapterConfig;
@@ -76,36 +100,24 @@ export class KeycloakPolicyAdapter {
           },
         );
     }
-    const rolePoliciesPath = `/clients/${clientUuid}/authz/resource-server/policy/role`,
-      policyByName = await this.#collection(adminAccessToken, rolePoliciesPath);
-    for (const group of groups.filter((item) => item.id !== "viewer")) {
-      const role = roleByName.get(group.id)!;
-      await this.#ensure(adminAccessToken, rolePoliciesPath, policyByName, `base-${group.id}`, {
-        name: `base-${group.id}`,
-        type: "role",
-        logic: "POSITIVE",
-        decisionStrategy: "UNANIMOUS",
-        roles: [{ id: role.id, required: true }],
+    // Keycloak drops user attributes its profile does not declare; grants address people by this one.
+    const profile = await this.#json<{ readonly attributes?: readonly { readonly name?: string }[] }>(
+      adminAccessToken,
+      "/users/profile",
+    );
+    if (!profile.attributes?.some((attribute) => attribute.name === personAttribute))
+      await this.#request(adminAccessToken, "/users/profile", {
+        method: "PUT",
+        body: JSON.stringify({
+          ...profile,
+          attributes: [
+            ...(profile.attributes ?? []),
+            { name: personAttribute, permissions: { view: ["admin"], edit: ["admin"] }, multivalued: false },
+          ],
+        }),
       });
-    }
-    const permissionsPath = `/clients/${clientUuid}/authz/resource-server/permission/scope`,
-      permissionByName = await this.#collection(adminAccessToken, permissionsPath);
-    for (const group of groups) {
-      const policyId = policyByName.get(`base-${group.id}`)?.id;
-      if (group.scopes.length && !policyId) throw new Error(`Keycloak Base policy ${group.id} is missing.`);
-      for (const scope of group.scopes) {
-        const scopeId = scopeByName.get(scope)?.id;
-        if (!scopeId) throw new Error(`Keycloak action scope ${scope} is missing after sync.`);
-        await this.#ensure(adminAccessToken, permissionsPath, permissionByName, `base-${group.id}-${scope}`, {
-          name: `base-${group.id}-${scope}`,
-          type: "scope",
-          logic: "POSITIVE",
-          decisionStrategy: "UNANIMOUS",
-          scopes: [scopeId],
-          policies: [policyId!],
-        });
-      }
-    }
+    // A policy group grants nothing by itself: every permission is bound to the resource it was granted on.
+    await this.materializeGrants(adminAccessToken);
     return Object.freeze({ scopeCount: this.#knownScopes.size, groupCount: groups.length });
   }
 
@@ -116,6 +128,175 @@ export class KeycloakPolicyAdapter {
         if (!this.#knownScopes.has(scope)) throw new Error(`Unknown Keycloak action scope ${scope}.`);
   }
 
+  /** Base groups come from ActionDeclaration; custom groups are the client roles carrying the group marker. */
+  async readPolicyGroups(adminAccessToken: string): Promise<readonly KeycloakPolicyGroup[]> {
+    const clientUuid = await this.#clientUuid(adminAccessToken),
+      rolesPath = `/clients/${clientUuid}/roles`,
+      custom: KeycloakPolicyGroup[] = [];
+    for (const role of await this.#pages<RoleRepresentation>(
+      adminAccessToken,
+      rolesPath,
+      "briefRepresentation=false",
+    )) {
+      if (role.attributes?.[customGroupAttribute]?.[0] !== "custom") continue;
+      const composites = await this.#json<readonly RoleRepresentation[]>(
+        adminAccessToken,
+        `${rolesPath}/${encodeURIComponent(role.name)}/composites`,
+      );
+      custom.push(
+        Object.freeze({
+          id: role.name,
+          base: false,
+          displayName: role.description ?? role.name,
+          scopes: Object.freeze([...(role.attributes[groupScopesAttribute] ?? [])].sort()),
+          composites: Object.freeze(
+            composites
+              .filter((item) => item.clientRole === true && item.containerId === clientUuid)
+              .map((item) => item.name)
+              .sort(),
+          ),
+        }),
+      );
+    }
+    return Object.freeze([
+      ...deriveBasePolicyGroups().map((group) => Object.freeze({ ...group, displayName: group.id })),
+      ...custom.sort((left, right) => left.id.localeCompare(right.id)),
+    ]);
+  }
+
+  async writePolicyGroup(
+    adminAccessToken: string,
+    group: KeycloakPolicyGroup,
+    current: KeycloakPolicyGroup | undefined,
+  ): Promise<void> {
+    const clientUuid = await this.#clientUuid(adminAccessToken),
+      rolesPath = `/clients/${clientUuid}/roles`,
+      rolePath = `${rolesPath}/${encodeURIComponent(group.id)}`,
+      body = JSON.stringify({
+        name: group.id,
+        description: group.displayName,
+        attributes: { [customGroupAttribute]: ["custom"], [groupScopesAttribute]: group.scopes },
+      });
+    await this.#request(
+      adminAccessToken,
+      current ? rolePath : rolesPath,
+      current ? { method: "PUT", body } : { method: "POST", body },
+    );
+    const composite = (name: string) => this.#json<RoleRepresentation>(adminAccessToken, `${rolesPath}/${name}`),
+      added = group.composites.filter((name) => !current?.composites.includes(name)),
+      removed = (current?.composites ?? []).filter((name) => !group.composites.includes(name));
+    if (added.length)
+      await this.#request(adminAccessToken, `${rolePath}/composites`, {
+        method: "POST",
+        body: JSON.stringify(await Promise.all(added.map(composite))),
+      });
+    if (removed.length)
+      await this.#request(adminAccessToken, `${rolePath}/composites`, {
+        method: "DELETE",
+        body: JSON.stringify(await Promise.all(removed.map(composite))),
+      });
+  }
+
+  async deletePolicyGroup(adminAccessToken: string, groupId: string): Promise<void> {
+    const clientUuid = await this.#clientUuid(adminAccessToken);
+    await this.#request(adminAccessToken, `/clients/${clientUuid}/roles/${encodeURIComponent(groupId)}`, {
+      method: "DELETE",
+    });
+  }
+
+  async readGrants(adminAccessToken: string): Promise<readonly KeycloakGrant[]> {
+    const clientUuid = await this.#clientUuid(adminAccessToken),
+      policies = await this.#pages<{ readonly name: string; readonly users?: readonly string[] }>(
+        adminAccessToken,
+        `/clients/${clientUuid}/authz/resource-server/policy/user`,
+      );
+    return Object.freeze(
+      policies
+        .filter((policy) => policy.name.startsWith(grantUsersPrefix))
+        .map((policy) => {
+          const [groupId, ...resource] = policy.name.slice(grantUsersPrefix.length).split(":");
+          return Object.freeze({
+            groupId: groupId!,
+            resource: resource.join(":"),
+            userIds: Object.freeze([...(policy.users ?? [])].sort()),
+          });
+        }),
+    );
+  }
+
+  /**
+   * Writes one grant as a user policy plus a scope permission bound to exactly that resource. The
+   * permission carries the group's expanded action scopes, so Keycloak evaluates one action on one resource.
+   */
+  async writeGrant(adminAccessToken: string, grant: KeycloakGrant, scopes: readonly string[]): Promise<void> {
+    const clientUuid = await this.#clientUuid(adminAccessToken),
+      server = `/clients/${clientUuid}/authz/resource-server`,
+      suffix = `${grant.groupId}:${grant.resource}`,
+      policy = await this.#named(adminAccessToken, server, `${grantUsersPrefix}${suffix}`),
+      permission = await this.#named(adminAccessToken, server, `${grantPermissionPrefix}${suffix}`),
+      send = (path: string, method: string, body?: unknown) =>
+        this.#request(adminAccessToken, `${server}${path}`, {
+          method,
+          ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+        });
+    // A grant nobody holds, or one whose group expands to no action, leaves no permission behind.
+    if (permission && (grant.userIds.length === 0 || scopes.length === 0))
+      await send(`/permission/scope/${permission.id}`, "DELETE");
+    if (grant.userIds.length === 0) {
+      if (policy) await send(`/policy/user/${policy.id}`, "DELETE");
+      return;
+    }
+    const policyBody = { name: `${grantUsersPrefix}${suffix}`, logic: "POSITIVE", users: grant.userIds };
+    let policyId = policy?.id;
+    if (policyId) await send(`/policy/user/${policyId}`, "PUT", { ...policyBody, id: policyId });
+    else policyId = requiredId(await (await send("/policy/user", "POST", policyBody)).json(), suffix);
+    if (scopes.length === 0) return;
+    const resourceBody = {
+        name: grant.resource,
+        type: `harness:${decodeAuthorizationResource(grant.resource).kind}`,
+        ownerManagedAccess: false,
+        scopes: [...this.#knownScopes].sort().map((name) => ({ name })),
+      },
+      resources = await this.#json<readonly { readonly _id: string; readonly name: string }[]>(
+        adminAccessToken,
+        `${server}/resource?name=${encodeURIComponent(grant.resource)}&exactName=true`,
+      );
+    let resourceId = resources.find((item) => item.name === grant.resource)?._id;
+    if (resourceId) await send(`/resource/${resourceId}`, "PUT", { ...resourceBody, _id: resourceId });
+    else resourceId = requiredId(await (await send("/resource", "POST", resourceBody)).json(), grant.resource, "_id");
+    const permissionBody = {
+      name: `${grantPermissionPrefix}${suffix}`,
+      resources: [resourceId],
+      scopes,
+      policies: [policyId],
+      decisionStrategy: "AFFIRMATIVE",
+    };
+    if (permission) await send(`/permission/scope/${permission.id}`, "PUT", { ...permissionBody, id: permission.id });
+    else await send("/permission/scope", "POST", permissionBody);
+  }
+
+  /** Re-expands stored grants after a group or the declared action set changed. */
+  async materializeGrants(adminAccessToken: string, groupIds?: ReadonlySet<string>): Promise<void> {
+    const grants = (await this.readGrants(adminAccessToken)).filter((grant) => groupIds?.has(grant.groupId) ?? true);
+    if (grants.length === 0) return;
+    const groups = await this.readPolicyGroups(adminAccessToken);
+    for (const grant of grants)
+      await this.writeGrant(
+        adminAccessToken,
+        grant,
+        groups.some((group) => group.id === grant.groupId) ? effectivePolicyGroupScopes(groups, grant.groupId) : [],
+      );
+  }
+
+  async findUserId(adminAccessToken: string, personId: string): Promise<string | undefined> {
+    const users = await this.#json<readonly { readonly id?: unknown }[]>(
+      adminAccessToken,
+      `/users?q=${encodeURIComponent(`${personAttribute}:${personId}`)}&exact=true`,
+    );
+    return users.length === 1 && typeof users[0]!.id === "string" ? users[0]!.id : undefined;
+  }
+
+  /** A repository grant covers the objects inside that repository; an EntityRef grant covers only its object. */
   async authorize(input: {
     readonly userAccessToken: string;
     readonly action: string;
@@ -124,29 +305,28 @@ export class KeycloakPolicyAdapter {
     const resource = encodeAuthorizationResource(input.resource);
     if (!this.#knownScopes.has(input.action))
       return Object.freeze({ outcome: "denied", reasonCode: "unknown_scope", resource, scope: input.action });
-    const body = new URLSearchParams({
-        grant_type: "urn:ietf:params:oauth:grant-type:uma-ticket",
-        audience: this.#config.resourceServerClientId,
-        permission: `${resource}#${input.action}`,
-        response_mode: "decision",
-      }),
-      response = await this.#fetch(this.#realmUrl("/protocol/openid-connect/token"), {
+    const candidates =
+      input.resource.kind === "entity"
+        ? [encodeAuthorizationResource({ kind: "repository", repoId: input.resource.repoId }), resource]
+        : [resource];
+    for (const candidate of candidates) {
+      const response = await this.#fetch(this.#realmUrl("/protocol/openid-connect/token"), {
         method: "POST",
         headers: {
           authorization: `Bearer ${input.userAccessToken}`,
           "content-type": "application/x-www-form-urlencoded",
         },
-        body,
+        body: new URLSearchParams({
+          grant_type: "urn:ietf:params:oauth:grant-type:uma-ticket",
+          audience: this.#config.resourceServerClientId,
+          permission: `${candidate}#${input.action}`,
+          response_mode: "decision",
+        }),
       });
-    if (!response.ok)
-      return Object.freeze({ outcome: "denied", reasonCode: "keycloak_denied", resource, scope: input.action });
-    const result = (await response.json()) as { readonly result?: unknown };
-    return Object.freeze({
-      outcome: result.result === true ? "allowed" : "denied",
-      reasonCode: result.result === true ? "keycloak_allowed" : "keycloak_denied",
-      resource,
-      scope: input.action,
-    });
+      if (response.ok && ((await response.json()) as { readonly result?: unknown }).result === true)
+        return Object.freeze({ outcome: "allowed", reasonCode: "keycloak_allowed", resource, scope: input.action });
+    }
+    return Object.freeze({ outcome: "denied", reasonCode: "keycloak_denied", resource, scope: input.action });
   }
 
   async #clientUuid(token: string): Promise<string> {
@@ -159,15 +339,27 @@ export class KeycloakPolicyAdapter {
     return id;
   }
 
+  async #named(token: string, server: string, name: string): Promise<{ readonly id: string } | undefined> {
+    const response = await this.#request(token, `${server}/policy/search?name=${encodeURIComponent(name)}`),
+      text = await response.text();
+    return text === "" ? undefined : { id: requiredId(JSON.parse(text), name) };
+  }
+
+  async #pages<T>(token: string, path: string, query = ""): Promise<T[]> {
+    const items: T[] = [];
+    for (let first = 0; ; first += 100) {
+      const page = await this.#json<T[]>(token, `${path}?first=${first}&max=100${query ? `&${query}` : ""}`);
+      items.push(...page);
+      if (page.length < 100) return items;
+    }
+  }
+
   async #collection(token: string, path: string): Promise<Map<string, KeycloakRole>> {
     const entries = new Map<string, KeycloakRole>();
-    for (let first = 0; ; first += 100) {
-      const page = await this.#json<NamedRepresentation[]>(token, `${path}?first=${first}&max=100`);
-      for (const item of page)
-        if (typeof item.name === "string" && typeof item.id === "string")
-          entries.set(item.name, { ...item, name: item.name, id: item.id });
-      if (page.length < 100) return entries;
-    }
+    for (const item of await this.#pages<NamedRepresentation>(token, path))
+      if (typeof item.name === "string" && typeof item.id === "string")
+        entries.set(item.name, { ...item, name: item.name, id: item.id });
+    return entries;
   }
 
   async #ensure(
@@ -208,4 +400,10 @@ export class KeycloakPolicyAdapter {
   #realmUrl(path: string): string {
     return `${this.#config.url.replace(/\/$/u, "")}/realms/${encodeURIComponent(this.#config.realm)}${path}`;
   }
+}
+
+function requiredId(value: unknown, name: string, field = "id"): string {
+  const id = (value as Readonly<Record<string, unknown>> | null)?.[field];
+  if (typeof id !== "string" || !id) throw new Error(`Keycloak did not return an id for ${name}.`);
+  return id;
 }

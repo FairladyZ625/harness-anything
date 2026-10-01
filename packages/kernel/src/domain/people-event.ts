@@ -169,7 +169,7 @@ function validatePeopleEventFields(value: unknown, allowUnknownFields: boolean):
       ["action", "targetPersonId", "roster", "peopleDocumentClaim", "baseDocumentSha256"],
       allowUnknownFields,
     ) ||
-    !peopleActions.includes(String(value.payload.action) as PeopleRosterAction["kind"]) ||
+    !peopleActions.includes(String(value.payload.action)) ||
     !(value.payload.targetPersonId === null || typeof value.payload.targetPersonId === "string") ||
     !validRoster(value.payload.roster, allowUnknownFields) ||
     !validPeopleClaim(value.payload.peopleDocumentClaim, allowUnknownFields) ||
@@ -181,7 +181,8 @@ function validatePeopleEventFields(value: unknown, allowUnknownFields: boolean):
     : [];
 }
 
-const peopleActions: readonly PeopleRosterAction["kind"][] = Object.freeze([
+// people-set-role and people-bind are retired write actions; their recorded events stay readable history.
+const peopleActions: readonly string[] = Object.freeze([
   "people-add",
   "people-set-role",
   "people-bind",
