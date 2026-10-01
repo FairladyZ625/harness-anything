@@ -4,7 +4,7 @@ import type { CatalogPresetDocument, CatalogPresetRow, CatalogPresetSuccess } fr
 import { t } from "../../i18n/index.tsx";
 import { DenseRow } from "../primitives/DenseRow.tsx";
 import { Region } from "../primitives/Region.tsx";
-import { BoardColumn, BoardMain, BoardRegion, BoardTimeline, RegionBoard } from "../primitives/RegionBoard.tsx";
+import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../primitives/RegionBoard.tsx";
 
 /**
  * G7 Preset 详情页分区:概况(区域板:元数据、completion gates、capability imports、
@@ -184,7 +184,7 @@ export function PresetOverviewTab({
         </BoardColumn>
       </BoardMain>
       {templates.length > 0 ? (
-        <BoardTimeline data-testid="preset-overview-templates">
+        <BoardSide region="templates" data-testid="preset-overview-templates">
           <Region
             title={t("views.presetsView.templatesTab")}
             footer={t("views.presetDetailView.templatesDescription", { count: String(templates.length) })}
@@ -202,7 +202,7 @@ export function PresetOverviewTab({
               );
             })}
           </Region>
-        </BoardTimeline>
+        </BoardSide>
       ) : null}
     </RegionBoard>
   );

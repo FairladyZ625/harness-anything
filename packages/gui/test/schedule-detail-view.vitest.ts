@@ -249,6 +249,8 @@ describe("schedule detail hub (M2)", () => {
     );
     await settle();
     const board = container.querySelector<HTMLElement>('[data-testid="schedule-overview-tab"]')!;
+    // 运行历史是这一页的主列表:两列时与主区各占一半,不用默认的 3:2。
+    expect(board.className).toContain("@[900px]:grid-cols-2");
     // 主区五块 + 右列运行历史,每块都是 Region(玻璃区域框),板外没有散排的标题。
     expect([...board.querySelectorAll<HTMLElement>("[data-region]")].map((box) => box.dataset.region)).toEqual([
       "attention",
@@ -256,7 +258,7 @@ describe("schedule detail hub (M2)", () => {
       "purpose",
       "definition",
       "execution",
-      "recent",
+      "runs",
     ]);
     for (const box of board.querySelectorAll("[data-region]"))
       expect(box.querySelector(":scope > section[data-entry-region]")).not.toBeNull();

@@ -5,6 +5,7 @@ import type {
   CanonicalEventStore,
   SettingsV1,
   TaskProjection,
+  TaskWorktreeBindingV1,
   ActorIdentity,
   AgentRuntimeEventV1,
   AuthorizationDecision,
@@ -255,12 +256,15 @@ export interface RemoteRuntimePersistence {
     missionName?: string,
   ) => Promise<{
     readonly executionId: string;
-    readonly mission: string;
+    /** The mirrored task package on this node, and the mission that names it as the worker reaches it. */
     readonly packageRoot: string;
+    readonly mission: (packageRoot: string) => string;
     /** The causal-context block the center assembled for this task at the serving
      * cut; null when the task has no causal neighborhood. The block is also
-     * embedded in `mission` so task-bound remote spawns carry it verbatim. */
+     * embedded in the mission so task-bound remote spawns carry it verbatim. */
     readonly causalContext: string | null;
+    /** The worktree binding the center derived for this task; null when it is closed or changes no repository files. */
+    readonly worktree: TaskWorktreeBindingV1 | null;
   }>;
   readonly readRuntimeSessions: () => Promise<readonly RuntimeSessionSelection[]>;
   readonly publish: (draft: {

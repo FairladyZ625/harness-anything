@@ -84,6 +84,17 @@ export function appendAuxiliaryRuntimeIngress(
           "assignment_scope_mismatch",
           "Runtime dispatch task and execution must match the authenticated assignment.",
         );
+      // The task lease is the one concurrency subject (dec_57370FF2021DADF04E3B21724D CH5): while another
+      // execution holds it, this assignment's implementation dispatch is a second node arriving late. It is
+      // refused before it launches, so only the holder works in the task's worktree and publishes its branch.
+      const held =
+        taskScope !== null && dispatch.role !== "reviewer" ? cell.projection.currentLease(taskScope.taskId) : null;
+      if (taskScope !== null && held?.phase === "held" && held.executionId !== taskScope.executionId)
+        throw cell.cellCodedError(
+          "runtime_task_lease_required",
+          `Task ${taskScope.taskId} is held by execution ${held.executionId}, not by this assignment's ` +
+            `${taskScope.executionId}; only the lease holder dispatches its implementation runtime.`,
+        );
       if (dispatch.role === "reviewer") {
         if (taskScope === null)
           throw cell.cellCodedError(

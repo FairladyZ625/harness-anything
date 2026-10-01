@@ -44,7 +44,7 @@ import {
   assembleUnboundPrompt,
   assembleScheduledMission,
   assembleTaskMission,
-  deriveTaskMission,
+  missionAt,
   dispatchMissionForPermission,
   decisionReviewTarget as parseDecisionReviewTarget,
   resolveRuntimeInstanceId,
@@ -98,6 +98,7 @@ import {
   admitRuntimeResume,
   assertResumeAgent,
   prepareDispatchWorktree,
+  projectedWorktreeBinding,
   resolveDispatchCwd,
 } from "./runtime-resume-admission.ts";
 import { taskWorktreeCheckoutNote, type TaskWorktreeCheckout } from "./task-worktree.ts";
@@ -229,15 +230,17 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       throw runtimeSpawnError("squad_leader_required", "Targeted squad dispatch requires --agent <leader-id>.");
     if (squadId !== undefined && agentId === undefined)
       throw runtimeSpawnError("squad_leader_required", "Squad attribution requires --agent <leader-id>.");
-    const { cwd, worktree: dispatchWorktree } = resolveDispatchCwd(
+    // An edge learns the task's worktree binding from the center in the read that also assembles its mission,
+    // so its checkout follows that read; a local dispatch arrives with the checkout already prepared.
+    const remoteTask = taskId && input.remote ? await input.remote.taskContext(taskId, missionName) : null,
+      { cwd, worktree: dispatchWorktree } = resolveDispatchCwd(
         input.rootDir,
         payload,
         resumed?.header.cwd,
-        preparedWorktree,
+        remoteTask ? await prepareDispatchWorktree(input, payload, () => remoteTask.worktree) : preparedWorktree,
       ),
       store = input.remote ? null : requiredRuntimeStore(input),
-      projection = input.remote ? null : requiredRuntimeProjection(input),
-      remoteTask = taskId && input.remote ? await input.remote.taskContext(taskId, missionName) : null;
+      projection = input.remote ? null : requiredRuntimeProjection(input);
     const reviewerBinding = role === "reviewer";
     assertReviewerTarget({
       reviewer: reviewerBinding,
@@ -311,8 +314,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             : assembleTaskCausalContext({ projection: projection!, taskId })
           : remoteTask.causalContext,
       taskMission = taskId
-        ? (remoteTask ??
-          deriveTaskMission(input.rootDir, cwd, projection!, taskId, "runtime.run", missionName, causalContext))
+        ? missionAt(input.rootDir, cwd, remoteTask ?? { projection: projection!, taskId, missionName, causalContext })
         : null,
       mission =
         explicitMission === undefined
@@ -840,7 +842,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   };
   return {
     /** Checks a task dispatch's worktree out and prepares it; runs before the dispatch is queued for writing. */
-    prepareWorktree: (payload: JsonObject) => prepareDispatchWorktree(input, payload),
+    prepareWorktree: (payload: JsonObject) => prepareDispatchWorktree(input, payload, projectedWorktreeBinding(input)),
     spawn: (payload: JsonObject, binding: RuntimeBinding, worktree: TaskWorktreeCheckout | null = null) =>
       spawnAttempt(payload, binding, undefined, undefined, undefined, "runtime", worktree),
     spawnCoordinated: (payload: JsonObject, binding: RuntimeBinding) =>

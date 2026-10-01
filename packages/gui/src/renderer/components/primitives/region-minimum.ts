@@ -25,3 +25,28 @@ export function regionMinimumHeight(
     1
   );
 }
+
+/**
+ * 正文型区域(行体是段落,没有「条」)的最小可用高度:标题行 + 约三行正文 + 页脚。行高取
+ * 行体第一个元素的实际行高,不写死像素;正文不足三行时取全部。量法与上面相同(内容的自然
+ * 位置)。行高不是长度(line-height: normal)时无从量,不给下限。
+ */
+export function proseMinimumHeight(section: HTMLElement): number | undefined {
+  const header = section.children[0] as HTMLElement | undefined,
+    body = section.children[1]?.firstElementChild as HTMLElement | null | undefined,
+    footer = section.children[2] as HTMLElement | undefined,
+    first = body?.firstElementChild as HTMLElement | null | undefined,
+    last = body?.lastElementChild as HTMLElement | null | undefined;
+  if (header === undefined || body === null || body === undefined || first === null || first === undefined)
+    return undefined;
+  const lineHeight = Number.parseFloat(getComputedStyle(first).lineHeight);
+  if (Number.isNaN(lineHeight)) return undefined;
+  return (
+    header.offsetHeight +
+    Math.min(first.offsetTop + 3 * lineHeight, last!.offsetTop + last!.offsetHeight) -
+    body.offsetTop +
+    (footer?.offsetHeight ?? 0) +
+    (section.offsetHeight - section.clientHeight) +
+    1
+  );
+}

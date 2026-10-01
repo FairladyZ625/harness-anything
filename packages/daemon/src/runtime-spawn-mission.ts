@@ -287,6 +287,36 @@ export function deriveTaskMission(
   };
 }
 
+/**
+ * A dispatched task's mission and package root as the worker reaches them from `cwd`: an edge's come from its
+ * mirrored package, a node that holds the ledger derives them from its projection.
+ */
+export function missionAt(
+  rootDir: string,
+  cwd: string,
+  source:
+    | { readonly packageRoot: string; readonly mission: (packageRoot: string) => string }
+    | {
+        readonly projection: TaskProjection;
+        readonly taskId: string;
+        readonly missionName: string | undefined;
+        readonly causalContext: string | null;
+      },
+): { readonly mission: string; readonly packageRoot: string } {
+  if ("projection" in source)
+    return deriveTaskMission(
+      rootDir,
+      cwd,
+      source.projection,
+      source.taskId,
+      "runtime.run",
+      source.missionName,
+      source.causalContext,
+    );
+  const packageRoot = workerLedgerPath(rootDir, cwd, source.packageRoot);
+  return { packageRoot, mission: source.mission(packageRoot) };
+}
+
 export function runtimeMissionName(value: unknown): string {
   if (typeof value !== "string" || !/^[a-z0-9][a-z0-9-]{0,63}$/u.test(value))
     throw runtimeSpawnError(

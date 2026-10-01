@@ -1,5 +1,6 @@
 import { readTaskCompletion } from "./task-completion-read.ts";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
+import { openTaskWorktreeBinding, presetSnapshotReader } from "./task-worktree.ts";
 import { enqueueRuntimePublication } from "./runtime-publication-queue.ts";
 import { isSquadControlCommand, isSquadControlResult, squadControlRejected } from "./squad-control-result.ts";
 import type { RepoCellCore } from "./repo-cell.ts";
@@ -374,13 +375,17 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     "repo.decisions.list": (payload: Readonly<Record<string, unknown>>) => decisionListFromPayload(payload),
     "repo.tasks.completion.read": (payload) =>
       readTaskCompletion(context.projection, context.requiredCellText(payload.taskId, "taskId")),
-    "repo.tasks.causalContext.read": (payload) => {
+    "repo.tasks.runtimeContext.read": (payload) => {
       const taskId = context.requiredCellText(payload.taskId, "taskId");
       return {
-        schema: "task-causal-context-read/v1" as const,
+        schema: "task-runtime-context-read/v1" as const,
         ok: true as const,
         taskId,
         causalContext: assembleTaskCausalContext({ projection: context.projection, taskId }),
+        worktree: openTaskWorktreeBinding(
+          context.projection.read(taskId).snapshot.task,
+          presetSnapshotReader(context.projection),
+        ),
       };
     },
     "repo.tasks.document.read": (payload) => readProjectedDocument(context, payload),

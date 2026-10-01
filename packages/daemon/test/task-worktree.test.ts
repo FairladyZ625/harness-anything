@@ -11,7 +11,7 @@ import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-s
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {
   applyTaskWorktreeLifecycle,
-  materializeTaskWorktree,
+  checkoutTaskWorktree,
   prepareTaskStartWorktree,
   reconcileClosedTaskWorktrees,
   taskWorkspaceView,
@@ -23,7 +23,8 @@ import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { actor, initRepo } from "./task-surface.fixtures.ts";
 
 const taskId = "task_12345678",
-  binding = { branch: taskId, path: `.worktrees/${taskId}` };
+  bindingOf = (id: string) => ({ branch: id, path: `.worktrees/${id}` }),
+  binding = bindingOf(taskId);
 
 test("attach cancels a rejected Squad child through the task lifecycle writer", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-startup-squad-orphan-")),
@@ -160,7 +161,7 @@ test("the first start checks the bound worktree out once, from the default branc
       state: "materialized",
     });
     // A later start or dispatch finds the checkout in place instead of cutting a second one.
-    assert.deepEqual(await materializeTaskWorktree(fixture.root, task, repositoryDiff, []), {
+    assert.deepEqual(await checkoutTaskWorktree(fixture.root, taskId, binding, []), {
       cwd,
       branch: taskId,
       baseRef: null,
@@ -179,7 +180,7 @@ test("the base is the repository's own default branch: origin/HEAD, else the mai
     // A remote without origin/HEAD: the main checkout's branch, as its origin copy.
     assert.equal(repositoryBaseRef(fixture.root), "origin/main");
     // From a linked worktree the fallback is still the main checkout's branch, not the worktree's own.
-    const linked = (await materializeTaskWorktree(fixture.root, boundTask("active"), repositoryDiff, []))!.cwd;
+    const linked = (await checkoutTaskWorktree(fixture.root, taskId, binding, []))!.cwd;
     assert.equal(remoteDefaultBranch(linked), "origin/main");
     // A remote whose default branch is not main.
     git(fixture.root, "push", "-q", "origin", "main:trunk");
@@ -199,7 +200,7 @@ test("the base is the repository's own default branch: origin/HEAD, else the mai
     git(local, "add", ".gitignore");
     git(local, "commit", "-qm", "base");
     assert.equal(repositoryBaseRef(local), "master");
-    const checkout = await materializeTaskWorktree(local, boundTask("active"), repositoryDiff, []);
+    const checkout = await checkoutTaskWorktree(local, taskId, binding, []);
     assert.equal(checkout?.baseRef, "master");
     assert.equal(git(checkout!.cwd, "rev-parse", "HEAD"), git(local, "rev-parse", "master"));
   } finally {
@@ -271,7 +272,7 @@ test("a failing setup step refuses the start, keeps the worktree, and a retry re
 test("a task read sees only the setup steps that succeeded in this worktree, not the ones Settings declares", async () => {
   const fixture = repositoryFixture();
   try {
-    const checkout = await materializeTaskWorktree(fixture.root, boundTask("active"), repositoryDiff, []);
+    const checkout = await checkoutTaskWorktree(fixture.root, taskId, binding, []);
     // Checked out before Settings declared anything: nothing has run here yet.
     assert.deepEqual(readWorktreeSetupSucceeded(checkout!.cwd), []);
     await runWorktreeSetup({ rootDir: fixture.root, cwd: checkout!.cwd, taskId, steps: ["run: true", "run: false"] });
@@ -284,8 +285,7 @@ test("a task read sees only the setup steps that succeeded in this worktree, not
 test("a run step still going at the timeout fails like any other step and names the timeout and its log", async () => {
   const fixture = repositoryFixture();
   try {
-    const task = boundTask("active"),
-      checkout = await materializeTaskWorktree(fixture.root, task, repositoryDiff, []),
+    const checkout = await checkoutTaskWorktree(fixture.root, taskId, binding, []),
       startedAt = Date.now(),
       result = await runWorktreeSetup({
         rootDir: fixture.root,
@@ -314,8 +314,7 @@ test(
   async () => {
     const fixture = repositoryFixture();
     try {
-      const task = boundTask("active"),
-        checkout = await materializeTaskWorktree(fixture.root, task, repositoryDiff, []),
+      const checkout = await checkoutTaskWorktree(fixture.root, taskId, binding, []),
         pidFile = path.join(fixture.base, "install.pid"),
         result = await runWorktreeSetup({
           rootDir: fixture.root,
@@ -386,14 +385,13 @@ test("the node-modules adapter fails the step when the repository root has no st
 test("a checkout whose directory was removed is restored onto its surviving branch", async () => {
   const fixture = repositoryFixture();
   try {
-    const task = boundTask("active"),
-      cwd = (await materializeTaskWorktree(fixture.root, task, repositoryDiff, []))!.cwd;
+    const cwd = (await checkoutTaskWorktree(fixture.root, taskId, binding, []))!.cwd;
     writeFileSync(path.join(cwd, "kept.txt"), "kept\n");
     git(cwd, "add", "kept.txt");
     git(cwd, "commit", "-qm", "kept");
     const head = git(cwd, "rev-parse", "HEAD");
     git(fixture.root, "worktree", "remove", cwd);
-    await materializeTaskWorktree(fixture.root, task, repositoryDiff, []);
+    await checkoutTaskWorktree(fixture.root, taskId, binding, []);
     assert.equal(git(cwd, "rev-parse", "HEAD"), head);
   } finally {
     rmSync(fixture.base, { recursive: true, force: true });
@@ -404,7 +402,7 @@ test("a node without a default branch has no worktree to give, and forwarded wri
   const gitless = mkdtempSync(path.join(tmpdir(), "ha-task-worktree-gitless-")),
     fixture = repositoryFixture();
   try {
-    assert.equal(await materializeTaskWorktree(gitless, boundTask("active"), repositoryDiff, []), null);
+    assert.equal(await checkoutTaskWorktree(gitless, taskId, binding, []), null);
     const gitlessStart = await lifecycle(gitless, () => boundTask("active"), { kind: "task-start", taskId }, {});
     assert.match(
       String((gitlessStart as { summary?: unknown }).summary),
@@ -496,7 +494,7 @@ test("closing a task reclaims its worktree by the managed-worktree rule", async 
       const fixture = repositoryFixture();
       try {
         let task = boundTask("active");
-        const cwd = (await materializeTaskWorktree(fixture.root, task, repositoryDiff, []))!.cwd;
+        const cwd = (await checkoutTaskWorktree(fixture.root, taskId, binding, []))!.cwd;
         scenario.work(cwd, fixture.root);
         task = boundTask("cancelled");
         const closed = await lifecycle(fixture.root, () => task, { kind: "task-transition", taskId }, {}),
@@ -531,8 +529,8 @@ test("a worktree retained at close is reclaimed by a later close on this node on
           return lifecycle(fixture.root, readTask, { kind: "task-transition", taskId: id }, {});
         };
       try {
-        const cwd = (await materializeTaskWorktree(fixture.root, readTask(taskId), repositoryDiff, []))!.cwd,
-          otherCwd = (await materializeTaskWorktree(fixture.root, readTask(otherId), repositoryDiff, []))!.cwd,
+        const cwd = (await checkoutTaskWorktree(fixture.root, taskId, binding, []))!.cwd,
+          otherCwd = (await checkoutTaskWorktree(fixture.root, otherId, bindingOf(otherId), []))!.cwd,
           // A worktree no task is bound to (a schedule occurrence, a Squad worker) is not this rule's to reclaim.
           unbound = path.join(fixture.root, ".worktrees", "occ-unbound");
         mkdirSync(unbound);
@@ -567,9 +565,9 @@ test("the standalone reconciliation reclaims what a failed close left behind onc
         ]),
         readTask = (id: string) => tasks.get(id) ?? null;
       try {
-        const cwd = (await materializeTaskWorktree(fixture.root, readTask(taskId), repositoryDiff, []))!.cwd,
-          otherCwd = (await materializeTaskWorktree(fixture.root, readTask(otherId), repositoryDiff, []))!.cwd,
-          openCwd = (await materializeTaskWorktree(fixture.root, readTask(openId), repositoryDiff, []))!.cwd;
+        const cwd = (await checkoutTaskWorktree(fixture.root, taskId, binding, []))!.cwd,
+          otherCwd = (await checkoutTaskWorktree(fixture.root, otherId, bindingOf(otherId), []))!.cwd,
+          openCwd = (await checkoutTaskWorktree(fixture.root, openId, bindingOf(openId), []))!.cwd;
         writeFileSync(path.join(cwd, "draft.txt"), "draft\n");
         writeFileSync(path.join(otherCwd, "draft.txt"), "draft\n");
         // Both tasks close while dirty: the close-time reclaim fails once, both worktrees stay.
@@ -619,7 +617,7 @@ test("an applied write that leaves the task open does not touch its worktree", a
   const fixture = repositoryFixture();
   try {
     const task = boundTask("active"),
-      cwd = (await materializeTaskWorktree(fixture.root, task, repositoryDiff, []))!.cwd,
+      cwd = (await checkoutTaskWorktree(fixture.root, taskId, binding, []))!.cwd,
       receipt = applied();
     assert.equal(
       await lifecycle(fixture.root, () => task, { kind: "task-transition", taskId }, { write: () => receipt }),

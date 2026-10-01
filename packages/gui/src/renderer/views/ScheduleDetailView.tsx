@@ -15,13 +15,7 @@ import {
 } from "../components/scheduleRun/runMeta.ts";
 import { DenseRow } from "../components/primitives/DenseRow.tsx";
 import { Region } from "../components/primitives/Region.tsx";
-import {
-  BoardColumn,
-  BoardMain,
-  BoardRegion,
-  BoardTimeline,
-  RegionBoard,
-} from "../components/primitives/RegionBoard.tsx";
+import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../components/primitives/RegionBoard.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { Tabs } from "../components/primitives/Tabs.tsx";
 import { TitleText } from "../components/primitives/TitleText.tsx";
@@ -531,8 +525,8 @@ function ScheduleOverviewTab({
     missed = runs.filter((run) => run.outcome === "missed").length;
   return (
     // 区域板(标准 §2.1,与工作概况、任务详情同一个 RegionBoard):主区是需要处理、健康度、
-    // 目的、定义、执行,运行历史固定在最右一列并区内滚动;没有内容的区域整块消失。
-    <RegionBoard data-testid="schedule-overview-tab">
+    // 目的、定义、执行,运行历史固定在最右一列并区内滚动,它是这一页的主列表,两列时与主区各占一半;没有内容的区域整块消失。
+    <RegionBoard side="primary" data-testid="schedule-overview-tab">
       <BoardMain>
         <BoardColumn>
           {(row.target.kind === "agent-unconfigured" || row.targetState !== undefined) && (
@@ -587,8 +581,8 @@ function ScheduleOverviewTab({
             </BoardRegion>
           )}
           <BoardRegion region="purpose" data-testid="schedule-overview-purpose">
-            {/* 正文不是「条」,板不给它量下限:同列放不下时这一块先让出高度、正文区内滚动,
-                字段与健康度保持至少三条。 */}
+            {/* 正文不是「条」:板给它量「标题行 + 约三行正文」的下限,同列放不下时它先缩到这个
+                下限、正文区内滚动,字段与健康度保持至少三条。 */}
             <Region title={t("schedules.detail.purpose.title")} padded>
               <p className="whitespace-pre-wrap ui-body text-text">{row.mission}</p>
               <p className="mt-2 flex flex-wrap items-center gap-2 ui-meta text-text-muted">
@@ -659,7 +653,7 @@ function ScheduleOverviewTab({
       </BoardMain>
       {/* 运行历史:daemon 投影顺序(按计划时间倒序),一条 occurrence 一行,点开是内嵌的 run 详情。 */}
       {(runs.length > 0 || runsReadFailed) && (
-        <BoardTimeline data-testid="schedule-runs">
+        <BoardSide region="runs" data-testid="schedule-runs">
           <Region
             title={t("schedules.detail.runs.title")}
             big={runs.length}
@@ -689,7 +683,7 @@ function ScheduleOverviewTab({
               ))}
             </ol>
           </Region>
-        </BoardTimeline>
+        </BoardSide>
       )}
     </RegionBoard>
   );

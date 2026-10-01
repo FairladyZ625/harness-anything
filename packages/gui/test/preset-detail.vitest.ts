@@ -209,9 +209,9 @@ describe("G7 Preset 列表 → 详情", () => {
     const panel = container.querySelector<HTMLElement>('[data-testid="preset-detail-panel-scroll"]')!;
     expect(panel.className).toContain("@container flex flex-col");
     const overview = container.querySelector<HTMLElement>('[data-testid="preset-overview-tab"]')!;
-    expect(overview.className).toContain("@[900px]:grid-cols-2");
+    expect(overview.className).toContain("@[900px]:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]");
     const boxes = [...overview.querySelectorAll<HTMLElement>("[data-region]")];
-    expect(boxes.map((box) => box.dataset.region)).toEqual(["manifest", "gates", "imports", "provenance", "recent"]);
+    expect(boxes.map((box) => box.dataset.region)).toEqual(["manifest", "gates", "imports", "provenance", "templates"]);
     const rows = (region: string) =>
       [...overview.querySelectorAll(`[data-region="${region}"] [data-dense-row]`)].map((row) => row.textContent);
     for (const box of boxes) {
@@ -252,7 +252,7 @@ describe("G7 Preset 列表 → 详情", () => {
     const templates = container.querySelector<HTMLElement>('[data-testid="preset-overview-templates"]')!;
     expect(templates.parentElement).toBe(overview);
     expect(overview.lastElementChild).toBe(templates);
-    expect(rows("recent")).toEqual(["task.plantask_plan.mddoc-sync · zh-CN"]);
+    expect(rows("templates")).toEqual(["task.plantask_plan.mddoc-sync · zh-CN"]);
     expect(templates.textContent).toContain("已解析模板槽位 1 个");
     // 身份条里的 digest 仍是唯一的 dt/dd 形态。
     expect(container.querySelectorAll('[data-testid="preset-sha-field"]').length).toBe(1);

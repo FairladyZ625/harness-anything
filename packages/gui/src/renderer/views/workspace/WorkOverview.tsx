@@ -2,13 +2,7 @@ import type { ReactNode } from "react";
 import { DayDigest, type DayPath } from "../../components/primitives/DayDigest";
 import { DenseRow } from "../../components/primitives/DenseRow";
 import { Region } from "../../components/primitives/Region";
-import {
-  BoardColumn,
-  BoardMain,
-  BoardRegion,
-  BoardTimeline,
-  RegionBoard,
-} from "../../components/primitives/RegionBoard";
+import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../../components/primitives/RegionBoard";
 import { SegBar } from "../../components/primitives/SegBar";
 import { StatusTag, type StatusTone } from "../../components/primitives/StatusTag";
 import { entryTitle, metaLine } from "./entry-lines.tsx";
@@ -334,7 +328,7 @@ export function WorkOverview({
         <BoardColumn>{outlook}</BoardColumn>
       </BoardMain>
       {dayGroups.length > 0 ? (
-        <BoardTimeline data-testid="work-timeline">
+        <BoardSide region="recent" data-testid="work-timeline">
           <Region
             title={t("views.workspace.progress.title")}
             big={pathCount}
@@ -350,7 +344,7 @@ export function WorkOverview({
           >
             <WorkDayList dayGroups={dayGroups} dayLabelOf={dayLabelOf} timeOf={timeOf} onOpenTask={onOpenTask} />
           </Region>
-        </BoardTimeline>
+        </BoardSide>
       ) : null}
     </RegionBoard>
   );

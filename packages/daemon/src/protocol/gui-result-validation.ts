@@ -120,23 +120,28 @@ export const validateDaemonSettingsRead: ResultValidator = (value) =>
           "must be a valid daemon settings read",
         ),
       ];
-const validateTaskCausalContextRead: ResultValidator = (value) =>
+const validateTaskRuntimeContextRead: ResultValidator = (value) =>
   isJsonObject(value) &&
-  Object.keys(value).length === 4 &&
-  value.schema === "task-causal-context-read/v1" &&
+  Object.keys(value).length === 5 &&
+  value.schema === "task-runtime-context-read/v1" &&
   value.ok === true &&
   typeof value.taskId === "string" &&
   value.taskId.length > 0 &&
-  (value.causalContext === null || typeof value.causalContext === "string")
+  (value.causalContext === null || typeof value.causalContext === "string") &&
+  (value.worktree === null ||
+    (isJsonObject(value.worktree) &&
+      Object.keys(value.worktree).length === 2 &&
+      typeof value.worktree.branch === "string" &&
+      typeof value.worktree.path === "string"))
     ? []
-    : [validationError("task-causal-context", "result", value, "must be a valid task causal context read")];
+    : [validationError("task-runtime-context", "result", value, "must be a valid task runtime context read")];
 const resultValidators = {
   "daemon.gui.system.read": validateSystemStatus,
   "daemon.gui.control.receipt": validateDaemonControlReceipt,
   "observe.tail": validateObserveTailResult,
   "repo.tasks.list": validateDaemonTaskSnapshotListServed,
   "repo.tasks.completion.read": validateDaemonTaskCompletion,
-  "repo.tasks.causalContext.read": validateTaskCausalContextRead,
+  "repo.tasks.runtimeContext.read": validateTaskRuntimeContextRead,
   "repo.tasks.wip": validateDaemonTaskWip,
   "repo.works.index": validateDaemonWorkIndex,
   "repo.projection.read": validateDaemonUseCaseProjection,

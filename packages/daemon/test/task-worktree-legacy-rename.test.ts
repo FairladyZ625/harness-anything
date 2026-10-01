@@ -8,7 +8,7 @@ import test from "node:test";
 import type { TaskV2 } from "@harness-anything/kernel";
 import { dispatchStreamPath, openDispatchStream } from "../src/dispatch-stream.ts";
 import { renameLegacyTaskWorktrees } from "../src/task-worktree-legacy-rename.ts";
-import { materializeTaskWorktree } from "../src/task-worktree.ts";
+import { checkoutTaskWorktree } from "../src/task-worktree.ts";
 
 const repositoryDiff = () => ({ profile: { outputShape: "repository-diff" } });
 
@@ -35,7 +35,12 @@ test("migrate renames an old-name worktree and its branch to the task id, and th
     assert.equal(git(renamed, "rev-parse", "HEAD"), head);
     assert.equal(git(fixture.root, "branch", "--list", "codex/renamed-0a1b2c3d"), "");
     // The next start finds the renamed checkout in place.
-    const checkout = await materializeTaskWorktree(fixture.root, task, repositoryDiff, []);
+    const checkout = await checkoutTaskWorktree(
+      fixture.root,
+      task.taskId,
+      { branch: task.taskId, path: `.worktrees/${task.taskId}` },
+      [],
+    );
     assert.deepEqual(checkout, { cwd: renamed, branch: task.taskId, baseRef: null, setup: { ok: true, ran: [] } });
     // Nothing is left to rename.
     assert.deepEqual(renameLegacyTaskWorktrees(fixture.root, [task], repositoryDiff, true), []);

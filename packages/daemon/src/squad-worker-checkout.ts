@@ -4,7 +4,7 @@ import type { TaskProjection } from "@harness-anything/kernel";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 import { addManagedWorktree, reclaimManagedWorktree, type WorktreeReclaim } from "./schedule-occurrence-workspace.ts";
-import { materializeTaskWorktree, presetSnapshotReader } from "./task-worktree.ts";
+import { checkoutTaskWorktree, openTaskWorktreeBinding, presetSnapshotReader } from "./task-worktree.ts";
 import { runWorktreeSetup, worktreeSetupFailure } from "./worktree-setup.ts";
 
 /** Where a squad worker runs: the run cwd, or its own worktree and branch cut at the run baseline. */
@@ -22,12 +22,8 @@ export async function resolveSquadCwd(
 ): Promise<string> {
   if (value !== undefined) return resolveCwd(rootDir, value);
   const read = projection(),
-    checkout = await materializeTaskWorktree(
-      rootDir,
-      read.read(taskId).snapshot.task,
-      presetSnapshotReader(read),
-      setup,
-    );
+    binding = openTaskWorktreeBinding(read.read(taskId).snapshot.task, presetSnapshotReader(read)),
+    checkout = binding ? await checkoutTaskWorktree(rootDir, taskId, binding, setup) : null;
   if (checkout && !checkout.setup.ok)
     throw new Error(worktreeSetupFailure(checkout.cwd, checkout.setup, `start the Squad run for ${taskId} again`));
   return checkout?.cwd ?? rootDir;
