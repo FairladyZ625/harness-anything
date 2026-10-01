@@ -11,9 +11,10 @@ describe("tool page visual language", () => {
     ]);
 
     // 标准 §2.5 v2:会话页是左列表、右常驻详情,不再用抽屉。
+    // §2.3 统一页头:页头用共享 PageHeader 原语(裸行,活会话数并入页头结论句)。
     expect(sessions).not.toContain("<Drawer");
     expect(sessions).toContain('data-testid="sessions-detail"');
-    expect(sessions).toContain("<StatusTag");
+    expect(sessions).toContain("<PageHeader");
     expect(terminal).toContain('className="flex min-h-0 flex-1 flex-row overflow-hidden bg-bg p-2"');
     expect(terminal).toContain("glass ml-2 flex min-h-0 min-w-0 flex-1");
     expect(browser).toContain('className="glass flex shrink-0 items-center gap-1 rounded-sm');

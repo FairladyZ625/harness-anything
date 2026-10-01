@@ -1,5 +1,6 @@
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
+import { SegCtl } from "../runtime/parts.tsx";
 import {
   FLEET_TIME_WINDOWS,
   type FleetPulseSnapshot,
@@ -72,23 +73,16 @@ export function FleetPulsePane({
               <span>{t("views.cadence.fleetWorkersTitle")}</span>
               <span className="font-mono ui-micro text-text-faint">({snapshot.workers.length})</span>
             </div>
-            <div className="flex items-center gap-0.5 rounded bg-surface p-0.5" role="group">
-              {FLEET_TIME_WINDOWS.map((win) => (
-                <button
-                  key={win}
-                  type="button"
-                  data-testid={`cadence-fleet-window-${win}`}
-                  onClick={() => onSelectWindow(win)}
-                  className={`rounded px-2 py-0.5 font-mono ui-micro transition-colors ${
-                    selectedWindow === win
-                      ? "bg-accent/20 font-semibold text-accent"
-                      : "text-text-muted hover:text-text"
-                  }`}
-                >
-                  {t(`views.cadence.fleetWindow.${win}`)}
-                </button>
-              ))}
-            </div>
+            {/* 范围切换统一用分段控件 SegCtl(标准 §2.3 评审第 7 条,不再手写灰底分段)。 */}
+            <SegCtl
+              label={t("views.cadence.fleetWindowTitle")}
+              value={selectedWindow}
+              onChange={onSelectWindow}
+              options={FLEET_TIME_WINDOWS.map((win) => ({
+                value: win,
+                label: t(`views.cadence.fleetWindow.${win}`),
+              }))}
+            />
           </div>
         }
       >

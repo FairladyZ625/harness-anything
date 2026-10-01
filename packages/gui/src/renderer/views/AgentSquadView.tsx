@@ -19,9 +19,10 @@ import { AgentCard, agentDeclarationFrom, agentDraftFrom } from "../components/r
 import { ActionError } from "../components/runtime/ActionError.tsx";
 import { DegradedEntityCard, type SettingsRoleRef } from "../components/runtime/DegradedEntityCard.tsx";
 import { NewEntityDialog, type NewEntityRequest } from "../components/runtime/NewEntityDialog.tsx";
-import { Badge, Btn, Empty, Hint } from "../components/runtime/parts.tsx";
+import { Btn, Empty, Hint } from "../components/runtime/parts.tsx";
 import { IdentityRail, RoleLabel } from "../components/runtime/RuntimeRail.tsx";
 import { CatalogBackButton, CatalogSplit, useCatalogDetailPane } from "../components/primitives/CatalogSplit.tsx";
+import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { StatusTag, type StatusTone } from "../components/primitives/StatusTag.tsx";
 import { IdentityInspector } from "../components/runtime/RuntimeInspector.tsx";
 import { SquadCard, squadDeclarationFrom, squadDraftFrom } from "../components/runtime/SquadCard.tsx";
@@ -242,45 +243,43 @@ export function AgentSquadView({
     (degradedSquads[0] ? { kind: "squad" as const, id: degradedSquads[0].id } : null);
   return (
     <section data-testid="agent-squad-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="flex min-h-[52px] shrink-0 items-center gap-3 border-b border-border bg-surface-raised px-4">
-        <b className="ui-heading font-semibold">{t("agentRuntime.agentsTitle")}</b>
-        <span className="truncate ui-meta text-text-faint">{t("agentRuntime.agentsSubtitle")}</span>
-        <span className="flex-1" />
-        <Badge>{t("agentRuntime.agentCount", { count: agentRows.length })}</Badge>
-        <Badge>{t("agentRuntime.squadCount", { count: squadRows.length })}</Badge>
-        <Btn size="sm" variant="ghost" onClick={() => setInspector(!inspector)} tip={t("agentRuntime.toggleInspector")}>
-          ▐
-        </Btn>
-      </header>
-      {/* 页头结论行(标准 §2.5):全部可用一句话带过;有无效声明直说 N 个并给修复入口。 */}
-      <section
-        data-testid="agent-squad-conclusion"
-        className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border px-4 py-2.5"
-      >
-        {invalidCount > 0 ? (
-          <StatusTagLine
-            tone="bad"
-            label={t("agentRuntime.conclusionInvalid", { count: invalidCount })}
-            text={t("agentRuntime.conclusionCounts", { agents: agents.length, squads: squads.length })}
+      {/* 页头(标准 §2.3/§2.5):页名 + 一句结论(全部可用一句话带过;有无效声明直说
+          N 个并给修复入口)+ 关键计数;右侧视图开关。 */}
+      <PageHeader
+        title={t("agentRuntime.agentsTitle")}
+        note={
+          invalidCount > 0 ? (
+            <span data-testid="agent-squad-conclusion" className="inline-flex flex-wrap items-center gap-2">
+              <StatusTag tone="bad" label={t("agentRuntime.conclusionInvalid", { count: invalidCount })} />
+              {t("agentRuntime.conclusionCounts", { agents: agents.length, squads: squads.length })}
+              <button
+                type="button"
+                data-testid="agent-squad-conclusion-fix"
+                onClick={() => firstInvalid && onSelectEntity(`${firstInvalid.kind}/${firstInvalid.id}`)}
+                className="rounded-xs border border-status-blocked/40 px-1.5 py-px ui-meta text-status-blocked
+                hover:bg-status-blocked/10"
+              >
+                {t("agentRuntime.conclusionFix")}
+              </button>
+            </span>
+          ) : (
+            <span data-testid="agent-squad-conclusion" className="inline-flex flex-wrap items-center gap-2">
+              <StatusTag tone="neutral" label={t("agentRuntime.conclusionAllHealthy")} />
+              {t("agentRuntime.conclusionCounts", { agents: agents.length, squads: squads.length })}
+            </span>
+          )
+        }
+        actions={
+          <Btn
+            size="sm"
+            variant="ghost"
+            onClick={() => setInspector(!inspector)}
+            tip={t("agentRuntime.toggleInspector")}
           >
-            <button
-              type="button"
-              data-testid="agent-squad-conclusion-fix"
-              onClick={() => firstInvalid && onSelectEntity(`${firstInvalid.kind}/${firstInvalid.id}`)}
-              className="rounded border border-status-blocked/40 px-1.5 py-px ui-meta text-status-blocked
-              hover:bg-status-blocked/10"
-            >
-              {t("agentRuntime.conclusionFix")}
-            </button>
-          </StatusTagLine>
-        ) : (
-          <StatusTagLine
-            tone="done"
-            label={t("agentRuntime.conclusionAllHealthy")}
-            text={t("agentRuntime.conclusionCounts", { agents: agents.length, squads: squads.length })}
-          />
-        )}
-      </section>
+            ▐
+          </Btn>
+        }
+      />
       {readError !== undefined && (
         <p
           role="alert"
@@ -544,7 +543,7 @@ function EntityConclusion({
       data-testid="agent-detail-conclusion"
       className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xs border border-border bg-surface px-3.5 py-2"
     >
-      <StatusTagLine tone="done" label={t("agentRuntime.detailAvailable")} />
+      <StatusTagLine tone="neutral" label={t("agentRuntime.detailAvailable")} />
       <span className="flex items-center gap-1.5 ui-meta">
         {t("agentRuntime.declaredRole")}
         <RoleLabel role={declaredRole} />
@@ -608,7 +607,7 @@ function SquadConclusion({
       data-testid="squad-detail-conclusion"
       className="mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xs border border-border bg-surface px-3.5 py-2"
     >
-      <StatusTagLine tone="done" label={t("agentRuntime.detailAvailable")} />
+      <StatusTagLine tone="neutral" label={t("agentRuntime.detailAvailable")} />
       <span className="ui-meta text-text-muted">
         {t("agentRuntime.memberCount", { count: squad.workers.length + 1 })}
       </span>
@@ -628,18 +627,15 @@ function SquadConclusion({
 function StatusTagLine({
   tone,
   label,
-  text,
   children,
 }: {
   readonly tone: StatusTone;
   readonly label: ReactNode;
-  readonly text?: ReactNode;
   readonly children?: ReactNode;
 }) {
   return (
     <span className="flex flex-wrap items-center gap-2 ui-meta text-text-muted">
       <StatusTag tone={tone} label={label} />
-      {text}
       {children}
     </span>
   );

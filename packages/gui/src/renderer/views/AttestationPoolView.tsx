@@ -18,6 +18,7 @@ import {
 import type { TaskMutationFeedback } from "../task-actions.ts";
 import { Drawer } from "../components/primitives/Drawer.tsx";
 import { FilterChips } from "../components/primitives/FilterChips.tsx";
+import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { Section } from "../components/primitives/Section.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { Tabs } from "../components/primitives/Tabs.tsx";
@@ -175,60 +176,60 @@ export function AttestationPoolView({
 
   return (
     <div className="flex h-full min-h-0 flex-col" data-testid="attestation-pool-view">
-      <header className="flex-none px-5 pt-3.5 md:px-7">
-        <div className="flex flex-wrap items-baseline gap-2.5">
-          <h1 className="text-[19px] font-semibold text-text">{t("views.attestationPoolView.title")}</h1>
-          <span className="ui-meta text-text-muted">{t("views.attestationPoolView.subtitle")}</span>
-          <span data-testid="attestation-pool-total" className="font-mono tabular-nums ui-meta text-text-faint">
+      <PageHeader
+        title={t("views.attestationPoolView.title")}
+        note={t("views.attestationPoolView.subtitle")}
+        meta={
+          <span data-testid="attestation-pool-total">
             {t("views.attestationPoolView.totalCount", { count: total })}
           </span>
-          <div className="ml-auto flex flex-wrap items-center gap-1.5">
-            {inDecisionDomain && onJudge && (
-              <button
-                type="button"
-                data-testid="attestation-pool-focus-entry"
-                onClick={() => setFocusMode(true)}
-                title={t("views.attestationPoolView.focusEntryTitle")}
-                className="inline-flex h-7 items-center gap-1.5 rounded-xs border border-border bg-text/5 px-2.5 ui-meta text-text transition-colors duration-100 hover:bg-text/10"
-              >
-                <Crosshair weight="bold" aria-hidden />
-                {t("views.attestationPoolView.focusEntry")}
-                <b className="font-mono font-medium tabular-nums">{counts.decisions}</b>
-              </button>
-            )}
-          </div>
-        </div>
-        <div className="mt-2.5">
-          <Tabs
-            ariaLabel={t("views.attestationPoolView.tablist")}
-            idPrefix="pool-domain"
-            value={inDecisionDomain ? "decisions" : "taskCloseout"}
-            onChange={(key) => pickTab(key)}
-            tabs={[
-              {
-                key: "decisions" as const,
-                label: (
-                  <span className="inline-flex items-center gap-1.5">
-                    <Scales weight="bold" aria-hidden />
-                    {t("views.attestationPoolView.domainDecisions")}
-                  </span>
-                ),
-                count: counts.decisions,
-              },
-              {
-                key: "taskCloseout" as const,
-                label: (
-                  <span className="inline-flex items-center gap-1.5">
-                    <SealCheck weight="bold" aria-hidden />
-                    {t("views.attestationPoolView.domainTaskCloseout")}
-                  </span>
-                ),
-                count: counts.taskCloseout,
-              },
-            ]}
-          />
-        </div>
-      </header>
+        }
+        actions={
+          inDecisionDomain && onJudge ? (
+            <button
+              type="button"
+              data-testid="attestation-pool-focus-entry"
+              onClick={() => setFocusMode(true)}
+              title={t("views.attestationPoolView.focusEntryTitle")}
+              className="inline-flex h-7 items-center gap-1.5 rounded-xs border border-border bg-text/5 px-2.5 ui-meta text-text transition-colors duration-100 hover:bg-text/10"
+            >
+              <Crosshair weight="bold" aria-hidden />
+              {t("views.attestationPoolView.focusEntry")}
+              <b className="font-mono font-medium tabular-nums">{counts.decisions}</b>
+            </button>
+          ) : undefined
+        }
+      />
+      <div className="mt-2.5">
+        <Tabs
+          ariaLabel={t("views.attestationPoolView.tablist")}
+          idPrefix="pool-domain"
+          value={inDecisionDomain ? "decisions" : "taskCloseout"}
+          onChange={(key) => pickTab(key)}
+          tabs={[
+            {
+              key: "decisions" as const,
+              label: (
+                <span className="inline-flex items-center gap-1.5">
+                  <Scales weight="bold" aria-hidden />
+                  {t("views.attestationPoolView.domainDecisions")}
+                </span>
+              ),
+              count: counts.decisions,
+            },
+            {
+              key: "taskCloseout" as const,
+              label: (
+                <span className="inline-flex items-center gap-1.5">
+                  <SealCheck weight="bold" aria-hidden />
+                  {t("views.attestationPoolView.domainTaskCloseout")}
+                </span>
+              ),
+              count: counts.taskCloseout,
+            },
+          ]}
+        />
+      </div>
       <TabPanel
         idPrefix="pool-domain"
         value={inDecisionDomain ? "decisions" : "taskCloseout"}
