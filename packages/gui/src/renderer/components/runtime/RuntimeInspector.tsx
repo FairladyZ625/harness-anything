@@ -43,7 +43,7 @@ export function ProviderInspector({
     <aside
       data-testid="runtime-inspector"
       aria-label={t("agentRuntime.inspectorRuntime")}
-      className="basis-1/4 shrink-0 overflow-y-auto border-l border-border bg-surface"
+      className="@max-[719px]:hidden basis-1/4 shrink-0 overflow-y-auto border-l border-border bg-surface"
     >
       <h2
         className="sticky top-0 border-b border-border bg-surface px-3 py-2 ui-micro font-bold uppercase
@@ -87,7 +87,7 @@ export function IdentityInspector({
     <aside
       data-testid="runtime-inspector"
       aria-label={t(selection.type === "agent" ? "agentRuntime.inspectorAgent" : "agentRuntime.inspectorSquad")}
-      className="basis-1/4 shrink-0 overflow-y-auto border-l border-border bg-surface"
+      className="@max-[719px]:hidden basis-1/4 shrink-0 overflow-y-auto border-l border-border bg-surface"
     >
       <h2
         className="sticky top-0 border-b border-border bg-surface px-3 py-2 ui-micro font-bold uppercase

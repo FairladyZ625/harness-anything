@@ -7,6 +7,7 @@ import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts
 import { harnessClient } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
 import { Btn, Empty, SegCtl } from "../components/runtime/parts.tsx";
+import { CatalogBackButton, CatalogSplit, useCatalogDetailPane } from "../components/primitives/CatalogSplit.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import {
   runtimeSelectionFromRef,
@@ -83,9 +84,6 @@ export function SessionsView({
   const [inspector, setInspector] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(new Set());
   const [selectedSquadRunId, setSelectedSquadRunId] = useState<string | null>(null);
-  // 窄容器(内容区 <720px,styles.css .sessions-split)的单列形态:点行进详情、返回键回
-  // 列表;宽容器常驻双栏,该状态不参与显隐。深链落点视为一次「点行」。
-  const [narrowDetailOpen, setNarrowDetailOpen] = useState(false);
   const [sessionTaskScope, setSessionTaskScope] = useState<{
     readonly runtimeSessionId: string;
     readonly taskId: string;
@@ -136,12 +134,10 @@ export function SessionsView({
     // decisionFocus 由 focusedEntityRef 派生,依赖 ref 本身即可。
   }, [focusedEntityRef, focusedSessionId]);
 
-  // 窄容器下,深链/跨页实体跳转让详情取代列表(等价一次点行);返回键只清 open,
-  // 不动导航栈,所以这里只看焦点 ref 的变化,不重复触发。
-  const focusedDecisionSessionId = decisionFocus?.runtimeSessionId ?? null;
-  useEffect(() => {
-    if (focusedSessionId !== null || focusedDecisionSessionId !== null) setNarrowDetailOpen(true);
-  }, [focusedSessionId, focusedDecisionSessionId]);
+  // 窄容器(内容区 <720px,styles.css .catalog-split)的单列形态:点行进详情、返回键回
+  // 列表;宽容器常驻双栏,该状态不参与显隐。深链/跨页实体跳转让详情取代列表(等价一次
+  // 点行);返回键只清 open,不动导航栈。机制与小组件在 primitives/CatalogSplit。
+  const narrow = useCatalogDetailPane(focusedSessionId ?? decisionFocus?.runtimeSessionId ?? null);
 
   // 两段各自的读窗:单会话段与会话分组共用,小队编排段独立(见 DEFAULT_RANGE)。
   const since = useMemo(() => rangeToSince(rangeBySegment.sessions), [rangeBySegment.sessions]),
@@ -364,10 +360,10 @@ export function SessionsView({
   const groupDecisionRefsFor = useCallback((taskId: string) => sessionDecisionRefs(relations, taskId), [relations]);
   const selectSessionFromRail = useCallback(
     (runtimeSessionId: string) => {
-      setNarrowDetailOpen(true);
+      narrow.openDetail();
       onSelectEntity(`session/${runtimeSessionId}`);
     },
-    [onSelectEntity],
+    [narrow.openDetail, onSelectEntity],
   );
   const toggleGroup = useCallback((key: string) => {
     setExpandedGroups((current) => {
@@ -415,7 +411,7 @@ export function SessionsView({
           value={segment}
           onChange={(value) => {
             setSegment(value);
-            setNarrowDetailOpen(false);
+            narrow.backToList();
           }}
           options={[
             { value: "sessions", label: t("agentRuntime.sessionsSegmentSingle") },
@@ -574,7 +570,7 @@ export function SessionsView({
         </p>
       )}
       {segment === "sessions" ? (
-        <div className="sessions-split flex min-h-0 flex-1 px-2 pb-2" data-detail-open={narrowDetailOpen}>
+        <CatalogSplit detailOpen={narrow.detailOpen} className="px-2 pb-2">
           <SessionGroupList
             pending={workspace.groups.isPending}
             groups={groups}
@@ -595,7 +591,7 @@ export function SessionsView({
             data-pane="detail"
             className="min-w-0 flex-1 overflow-y-auto px-5 pt-4 pb-6"
           >
-            <BackToListButton onBack={() => setNarrowDetailOpen(false)} />
+            <CatalogBackButton testId="sessions-back-to-list" onBack={narrow.backToList} />
             {selectedSessionId === null ? (
               <Empty>{t(workspace.groups.isPending ? "agentRuntime.loading" : "agentRuntime.noSessions")}</Empty>
             ) : (
@@ -640,9 +636,9 @@ export function SessionsView({
               onSelectEntity={onSelectEntity}
             />
           )}
-        </div>
+        </CatalogSplit>
       ) : (
-        <div className="sessions-split flex min-h-0 flex-1 px-2 pb-2" data-detail-open={narrowDetailOpen}>
+        <CatalogSplit detailOpen={narrow.detailOpen} className="px-2 pb-2">
           <SquadRunList
             runs={runs}
             truncated={workspace.squadRuns.data?.truncated ?? false}
@@ -653,11 +649,11 @@ export function SessionsView({
             selectedId={selectedSquadRun?.squadRunId ?? null}
             onSelectRun={(squadRunId) => {
               setSelectedSquadRunId(squadRunId);
-              setNarrowDetailOpen(true);
+              narrow.openDetail();
             }}
           />
           <main data-pane="detail" className="min-w-0 flex-1 overflow-y-auto">
-            <BackToListButton onBack={() => setNarrowDetailOpen(false)} />
+            <CatalogBackButton testId="sessions-back-to-list" onBack={narrow.backToList} />
             {selectedSquadRun === null ? (
               <Empty>{t("agentRuntime.squadRunSelectEmpty")}</Empty>
             ) : (
@@ -677,7 +673,7 @@ export function SessionsView({
               />
             )}
           </main>
-        </div>
+        </CatalogSplit>
       )}
     </section>
   );
@@ -710,20 +706,6 @@ function StatusFilterButton({
       }`}
     >
       {t(sessionStatusKey[word] as never)}
-    </button>
-  );
-}
-
-/** 单列形态的返回键(容器 ≥720px 时隐藏,styles.css .sessions-split)。 */
-function BackToListButton({ onBack }: { readonly onBack: () => void }) {
-  return (
-    <button
-      type="button"
-      data-testid="sessions-back-to-list"
-      onClick={onBack}
-      className="@min-[720px]:hidden mb-3 inline-flex h-7 items-center gap-1.5 rounded-xs border border-border px-3 ui-meta text-text-muted hover:border-accent hover:text-accent"
-    >
-      ← {t("agentRuntime.sessionsBackToList")}
     </button>
   );
 }

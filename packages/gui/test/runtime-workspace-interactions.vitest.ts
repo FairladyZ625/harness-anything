@@ -680,7 +680,7 @@ describe("runtime entry split (W6 IA)", () => {
 
   it("opens the narrow single-column detail from a row and returns to the list (C1)", async () => {
     await mountSessions(null);
-    const split = document.querySelector(".sessions-split") as HTMLElement;
+    const split = document.querySelector(".catalog-split") as HTMLElement;
     expect(split?.dataset.detailOpen).toBe("false");
     // 单列/双栏由同一对 pane 挂点驱动(styles.css 容器查询),列表全宽形态下点行进详情。
     expect(split.querySelector('[data-pane="list"]')?.getAttribute("data-testid")).toBe("sessions-group-list");
@@ -700,7 +700,7 @@ describe("runtime entry split (W6 IA)", () => {
 
   it("treats a session deep link as one row tap in the narrow form", async () => {
     await mountSessions("session/runtime-bound");
-    expect((document.querySelector(".sessions-split") as HTMLElement).dataset.detailOpen).toBe("true");
+    expect((document.querySelector(".catalog-split") as HTMLElement).dataset.detailOpen).toBe("true");
   });
 
   it("opens the squad run detail in the narrow form from a run row", async () => {
@@ -712,7 +712,7 @@ describe("runtime entry split (W6 IA)", () => {
       squadSegment!.click();
     });
     await flushEffects();
-    const split = document.querySelector(".sessions-split") as HTMLElement;
+    const split = document.querySelector(".catalog-split") as HTMLElement;
     expect(split.dataset.detailOpen).toBe("false");
     await click(`squad-run-toggle-${squadRunSummaryRow.squadRunId}`);
     expect(split.dataset.detailOpen).toBe("true");
@@ -763,6 +763,31 @@ describe("runtime entry split (W6 IA)", () => {
     // Rail squad row → addressable squad ref (same entry: squads are a facet of this page).
     await click("rail-squad-core-squad");
     expect(onSelectEntity).toHaveBeenCalledWith("squad/core-squad");
+  });
+
+  it("opens the narrow single-column detail from a rail row and returns to the list (Agent·Squad)", async () => {
+    await mountAgentSquad(null);
+    const split = document.querySelector(".catalog-split") as HTMLElement;
+    // 单列/双栏由同一对 pane 挂点驱动(styles.css 容器查询,先例会话页 C1):目录全宽
+    // 形态下点行进详情,返回键回目录;宽容器下该状态不参与(双栏常驻)。
+    expect(split?.dataset.detailOpen).toBe("false");
+    expect(split.querySelector('[data-pane="list"]')?.getAttribute("data-testid")).toBe("runtime-rail");
+    expect(split.querySelector('[data-pane="detail"]')?.getAttribute("data-testid")).toBe("agent-squad-detail");
+
+    await click("rail-agent-terra");
+    expect(split.dataset.detailOpen).toBe("true");
+    expect(byTestId("agent-squad-back-to-list")).toBeTruthy();
+
+    await click("agent-squad-back-to-list");
+    expect(split.dataset.detailOpen).toBe("false");
+    // 返回不动导航选中:再点同一行仍能进详情。
+    await click("rail-agent-terra");
+    expect(split.dataset.detailOpen).toBe("true");
+  });
+
+  it("treats an agent deep link as one row tap in the narrow form", async () => {
+    await mountAgentSquad("agent/terra");
+    expect((document.querySelector(".catalog-split") as HTMLElement).dataset.detailOpen).toBe("true");
   });
 
   it("requires an explicit leader turn budget before creating a blank squad", async () => {
@@ -852,6 +877,30 @@ describe("runtime entry split (W6 IA)", () => {
     await flushEffects();
 
     expect(onSelectEntity).toHaveBeenCalledWith("agent/terra");
+  });
+
+  it("opens the narrow single-column detail from a rail row and returns to the list (Provider)", async () => {
+    await mountProviders(null);
+    const split = document.querySelector(".catalog-split") as HTMLElement;
+    // 与 Agent·Squad/会话页同一机制(styles.css .catalog-split):目录全宽形态下点行进详情。
+    expect(split?.dataset.detailOpen).toBe("false");
+    expect(split.querySelector('[data-pane="list"]')?.getAttribute("data-testid")).toBe("runtime-rail");
+    expect(split.querySelector('[data-pane="detail"]')?.getAttribute("data-testid")).toBe("providers-detail");
+
+    await click("rail-runtime-provider-edit");
+    expect(split.dataset.detailOpen).toBe("true");
+    expect(byTestId("providers-back-to-list")).toBeTruthy();
+
+    await click("providers-back-to-list");
+    expect(split.dataset.detailOpen).toBe("false");
+    // 返回不动导航选中:再点同一行仍能进详情。
+    await click("rail-runtime-provider-edit");
+    expect(split.dataset.detailOpen).toBe("true");
+  });
+
+  it("treats a provider deep link as one row tap in the narrow form", async () => {
+    await mountProviders("provider/provider-edit");
+    expect((document.querySelector(".catalog-split") as HTMLElement).dataset.detailOpen).toBe("true");
   });
 
   it("reflects provider enablement only after the daemon receipt, through one catalog reread", async () => {
@@ -1165,7 +1214,7 @@ async function mountSessions(
   return mountView(element, tailImpl, sessionGroupsResult, listSquadRuns);
 }
 async function mountAgentSquad(
-  focusedEntityRef: string,
+  focusedEntityRef: string | null,
   handlers: { readonly onSelectEntity?: (ref: string) => void } = {},
 ) {
   const element = createElement(AgentSquadView, {
@@ -1177,7 +1226,7 @@ async function mountAgentSquad(
   return mountView(element);
 }
 async function mountProviders(
-  focusedEntityRef: string,
+  focusedEntityRef: string | null,
   handlers: { readonly onSelectEntity?: (ref: string) => void } = {},
 ) {
   const element = createElement(ProvidersView, {

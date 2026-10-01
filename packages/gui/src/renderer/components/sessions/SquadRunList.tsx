@@ -5,6 +5,7 @@ import {
 } from "@harness-anything/daemon/protocol";
 import { relativeTime, shortRef } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
+import { catalogRailClass } from "../primitives/CatalogSplit.tsx";
 import { Badge, LiveDot } from "../runtime/parts.tsx";
 
 /**
@@ -37,7 +38,7 @@ export function SquadRunList({
       data-testid="squad-run-list"
       data-pane="list"
       aria-label={t("agentRuntime.sessionsSegmentSquad")}
-      className="flex w-full flex-col overflow-y-auto @min-[720px]:w-[26%] @min-[720px]:min-w-[320px] @min-[720px]:max-w-[440px] @min-[720px]:shrink-0 @min-[720px]:border-r @min-[720px]:border-border"
+      className={catalogRailClass}
     >
       {runs.length === 0 ? (
         <p data-testid="squad-runs-empty" className="px-4 py-4 ui-micro text-text-faint">
