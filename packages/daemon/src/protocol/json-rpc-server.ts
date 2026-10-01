@@ -598,10 +598,24 @@ export function createJsonRpcProtocolServer(options: {
       return reply(commandMethod, await options.host.presetRun(repo, action, options.authContext));
     const receipt = await options.host.run(repo, action, options.authContext),
       result = makeDaemonCommandReceipt(action.kind, receipt);
-    return reply(
-      commandMethod,
-      isDaemonGuiActionMethod(commandMethod) ? parseDaemonGuiActionResult(commandMethod, result) : result,
-    );
+    try {
+      return reply(
+        commandMethod,
+        isDaemonGuiActionMethod(commandMethod) ? parseDaemonGuiActionResult(commandMethod, result) : result,
+      );
+    } catch (error) {
+      return reply(
+        commandMethod,
+        daemonProtocolError(
+          commandMethod,
+          rpcServerErrorCode(error),
+          `The write result failed contract validation: ${protocolErrorMessage(error)}. ` +
+            "The write may already have taken effect; refresh to confirm.",
+          diagnosticForError(error),
+          error,
+        ),
+      );
+    }
   };
   const one = async (request: JsonRpcRequest, frameReceivedAt = Date.now()): Promise<JsonRpcResponse | undefined> => {
     const method = typeof request.method === "string" ? request.method : "";

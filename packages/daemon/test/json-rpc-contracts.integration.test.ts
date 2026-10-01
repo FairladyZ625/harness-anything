@@ -2,6 +2,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
+import { PassThrough } from "node:stream";
+import { JsonRpcLineClient } from "../src/client/local-json-rpc-client.ts";
+import { serveJsonRpcStream } from "../src/transport/json-rpc-stream.ts";
 import {
   INITIAL_SETTINGS_V1,
   SETTINGS_DECLARATION_RUNTIME,
@@ -447,3 +450,54 @@ function decisionList(readiness: unknown): Record<string, unknown> {
     ],
   };
 }
+
+test("invalid GUI write receipts retain their request id and leave the connection usable", async (t) => {
+  const input = new PassThrough(),
+    output = new PassThrough(),
+    frames: Record<string, unknown>[] = [];
+  output.on("data", (chunk: Buffer) => {
+    frames.push(JSON.parse(chunk.toString("utf8")) as Record<string, unknown>);
+  });
+  let writes = 0;
+  const host = {
+    run: async () => {
+      writes += 1;
+      return { outcome: "applied", opId: "write:settings", revision: "invalid", evidence: "{}" };
+    },
+    status: () => ({ daemonId: "receipt-test", pid: process.pid, repos: [] }),
+  } as never;
+  const connection = serveJsonRpcStream({
+    input,
+    output,
+    transportKind: "unix-socket",
+    authContext: { transportKind: "unix-socket" },
+    createProtocolServer: (authContext, emit) =>
+      createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
+  });
+  const client = new JsonRpcLineClient(output, input);
+  try {
+    await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
+    const result = (await client.request(
+      "repo.settings.update",
+      {
+        repo: { repoId: "receipt-test" },
+        payload: { agendaPinLimit: 3, idempotencyKey: "receipt-test" },
+      },
+      2_000,
+    )) as Record<string, unknown>;
+    t.diagnostic(`write response: ${JSON.stringify(frames[1])}`);
+    assert.equal(writes, 1);
+    assert.equal(frames[1]?.id, 2);
+    assert.equal(result.ok, false);
+    assert.equal(result.code, "invalid_result");
+    assert.match(String(result.rejectionExplanation), /revision/u);
+    assert.match(String(result.rejectionExplanation), /contract validation/u);
+    assert.match(String(result.rejectionExplanation), /may already have taken effect.*refresh/u);
+    const next = await client.request("daemon.status", {}, 2_000);
+    assert.equal(frames[2]?.id, 3);
+    assert.deepEqual(next, { ok: true, daemonId: "receipt-test", pid: process.pid, repos: [] });
+  } finally {
+    client.close();
+    await connection.close();
+  }
+});
