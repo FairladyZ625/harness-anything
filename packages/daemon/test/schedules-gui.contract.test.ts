@@ -641,12 +641,12 @@ test("a remote-center read keeps the catalog blockers instead of faking an execu
   const row = result.schedules[0]!;
   assert.equal(row.executionAvailability, "not-on-this-node");
   assert.deepEqual(row.claim, { nodeId: "edge-one", assignmentId: "assignment-edge-one-heartbeat-probe" });
-  // The catalog routes every schedule write on a center through assignment ingress, so
-  // the run-now facet carries that exact blocker — the center never fakes an executor.
+  // The center edits the Schedule definition it owns, but execution stays with the assigned
+  // node: the run-now facet carries the assignment-ingress blocker — the center never fakes an executor.
   assert.equal(row.actions.runNow.available, false);
   assert.equal(row.actions.runNow.code, "repo_mode_requires_center_ingress");
-  for (const facet of [row.actions.enable, row.actions.disable])
-    assert.equal(facet.code, "repo_mode_requires_center_ingress");
+  assert.equal(row.actions.enable.code, "no_changes");
+  assert.deepEqual(row.actions.disable, { available: true, code: null, nextAction: null });
   assert.throws(() => readSchedulesGui(guiContext({ mode: "remote-center" })), /requires an admitted fleet roster/u);
 });
 
