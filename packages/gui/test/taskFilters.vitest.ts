@@ -299,11 +299,14 @@ const boardProps = (overrides: {
  * 真实 DOM 渲染的看板 HTML(W10 起列内是 windowing:卡片在挂载后按视口窗口
  * 出现,SSR markup 里没有卡片,断言卡片必须走 createRoot + act)。夹具都很小,
  * 600px 视口桩 + overscan 下整窗覆盖,「看到全部」与既有断言兼容。
+ * openFilters:先点开「筛选」入口再取样——高级筛选(状态 Pill、引擎/收口/
+ * 新鲜度、冷终态、收藏、清除)2026-10-01 起收进默认收起的面板。
  */
 async function boardHtml(
   tasks: TaskRow[],
   filters: TaskFilters = { ...DEFAULT_TASK_FILTERS },
   favorites: ReadonlySet<string> = new Set<string>(),
+  options: { openFilters?: boolean } = {},
 ): Promise<string> {
   const container = document.createElement("div");
   document.body.append(container);
@@ -312,6 +315,13 @@ async function boardHtml(
     await act(async () => {
       root.render(createElement(BoardView, boardProps({ tasks, filters, favorites })));
     });
+    if (options.openFilters) {
+      await act(async () => {
+        container
+          .querySelector('[data-testid="board-filter-toggle"]')!
+          .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      });
+    }
     return container.innerHTML;
   } finally {
     act(() => {
@@ -414,13 +424,36 @@ describe("board visual language (视觉基线 §2.4)", () => {
     expect(plannedColumn).not.toMatch(/rounded-(?:md|lg|xl|2xl|3xl|full)\b/u);
   });
 
-  it("cards carry a background StatusTag, TitleText title, one reason line and a time; badges stay in the drawer", async () => {
-    const markup = await boardHtml([
-      makeTask({ coordinationStatus: "planned", title: "Rework board: split by status" }),
-    ]);
-    expect(markup).toContain('data-status-tone="plan"'); // 有底色的状态标签
+  it("hides the card tag when it repeats its column; shows it when the real status differs", async () => {
+    // 2026-10-01 评审第 8 条:「计划中」列里每张卡都写「计划中」是重复,不上卡;
+    // blocked 列里 canonical=planned 的卡(真实状态与列不一致)要显示标签;
+    // canonical 原始值(「canonical planned」英文)不再出现在卡上。
+    const tasks = [
+      makeTask({
+        taskId: "t_plan",
+        title: "Rework board: split by status",
+        coordinationStatus: "planned",
+        canonicalStatus: "planned",
+      }),
+      makeTask({
+        taskId: "t_block",
+        title: "Blocked card: real state planned",
+        coordinationStatus: "blocked",
+        canonicalStatus: "planned",
+      }),
+    ];
+    const markup = await boardHtml(tasks);
+    const cardOf = (title: string): string => {
+      const titleAt = markup.indexOf(title);
+      const start = markup.lastIndexOf('data-testid="board-task-card"', titleAt);
+      const next = markup.indexOf('data-testid="board-task-card"', titleAt);
+      return markup.slice(start, next === -1 ? undefined : next);
+    };
+    expect(cardOf("split by status")).not.toContain("data-status-tone"); // 与列名重复 → 不显形
+    expect(cardOf("real state planned")).toContain('data-status-tone="plan"'); // 不一致 → 显形
+    expect(markup).not.toContain("canonical planned"); // 英文原始值已删
     expect(markup).toMatch(/class="text-text-faint">: split by status</u); // 标题经 TitleText
-    // 卡上不再摆引擎/收口/决策来源徽章(其余进预览抽屉):卡片只剩状态行、标题、原因与时间。
+    // 卡上不再摆引擎/收口/决策来源徽章(其余进预览抽屉):卡片只剩标题、原因与时间。
     for (const gone of ["Closeout", "Ready to archive", "derived from", "finalizing"])
       expect(markup).not.toContain(gone);
   });
@@ -583,41 +616,49 @@ describe("cold terminal collapse in BoardView (W8)", () => {
   ];
 
   it("collapses cold terminal cards by default and shows the count with an expand entry", async () => {
-    const markup = await boardHtml(fixture());
-    for (const visible of ["card-open", "card-recent-done", "card-cold-pinned"]) expect(markup).toContain(visible);
-    for (const cold of ["card-cold-a", "card-cold-b"]) expect(markup).not.toContain(cold);
-    // 折叠显形(W6):计数与展开入口都在 DOM 里,不是静默消失。
-    const toggle = markup.match(/<button[^>]*data-testid="board-cold-terminal-toggle"[^>]*>/u);
+    const collapsed = await boardHtml(fixture());
+    for (const visible of ["card-open", "card-recent-done", "card-cold-pinned"]) expect(collapsed).toContain(visible);
+    for (const cold of ["card-cold-a", "card-cold-b"]) expect(collapsed).not.toContain(cold);
+    // 折叠显形(W6):计数与展开入口收进筛选面板(默认收起),打开面板后仍在 DOM
+    // 里,不是静默消失。
+    const open = await boardHtml(fixture(), { ...DEFAULT_TASK_FILTERS }, new Set(), { openFilters: true });
+    const toggle = open.match(/<button[^>]*data-testid="board-cold-terminal-toggle"[^>]*>/u);
     expect(toggle).not.toBeNull();
     expect(toggle![0]).toContain('aria-checked="false"');
-    expect(markup).toContain("Show cold terminal (2)");
+    expect(open).toContain("Show cold terminal (2)");
     // 列内计数徽章显示折叠后的可见卡数,不是筛选后的总数。
-    expect(markup).toContain('data-testid="board-status-done-count">2</span>');
+    expect(open).toContain('data-testid="board-status-done-count">2</span>');
   });
 
   it("renders every cold terminal card once expanded, with the count still visible", async () => {
-    const markup = await boardHtml(fixture(), { ...DEFAULT_TASK_FILTERS, expandColdTerminal: true });
+    const markup = await boardHtml(fixture(), { ...DEFAULT_TASK_FILTERS, expandColdTerminal: true }, new Set(), {
+      openFilters: true,
+    });
     for (const title of ["card-cold-a", "card-cold-b"]) expect(markup).toContain(title);
     expect(markup).toContain("Hide cold terminal (2)");
     expect(markup).toContain('aria-checked="true"');
     expect(markup).toContain('data-testid="board-status-done-count">4</span>');
   });
 
-  it("filter bar count matches the number of rendered cards, collapsed and expanded", async () => {
-    // 同源对照(r1 评审):filter bar 的「N / M tasks」必须与同一份 markup 里实际
-    // 渲染的卡片数一致——折叠时 N=可见卡数,展开后恢复为筛选后的总数。
+  it("header conclusion matches the number of rendered cards, collapsed and expanded", async () => {
+    // 同源对照(r1 评审):页头结论句(2026-10-01 起筛选条不再有自己的计数行)必须
+    // 与同一份 markup 里实际渲染的卡片数一致——折叠时 N=可见卡数,展开后恢复为
+    // 筛选后的总数。
     const collapsed = await boardHtml(fixture());
     expect(collapsed.split('data-testid="board-task-card"').length - 1).toBe(3);
-    expect(collapsed).toContain("3 / 5 tasks");
+    expect(collapsed).toContain("3 in view · 5 total");
     const expanded = await boardHtml(fixture(), { ...DEFAULT_TASK_FILTERS, expandColdTerminal: true });
     expect(expanded.split('data-testid="board-task-card"').length - 1).toBe(5);
-    expect(expanded).toContain("5 / 5 tasks");
+    expect(expanded).toContain("5 in view · 5 total");
   });
 
   it("no toggle is rendered when the current filter leaves no cold terminal tasks", async () => {
-    const markup = await boardHtml([
-      makeTask({ taskId: "t_open", title: "card-open", coordinationStatus: "active", lastKnownAt: daysAgo(5) }),
-    ]);
+    const markup = await boardHtml(
+      [makeTask({ taskId: "t_open", title: "card-open", coordinationStatus: "active", lastKnownAt: daysAgo(5) })],
+      { ...DEFAULT_TASK_FILTERS },
+      new Set(),
+      { openFilters: true },
+    );
     expect(markup).not.toContain('data-testid="board-cold-terminal-toggle"');
   });
 
@@ -639,6 +680,11 @@ describe("cold terminal collapse in BoardView (W8)", () => {
           onSetPin: noop,
         }),
       );
+    });
+    act(() => {
+      container
+        .querySelector('[data-testid="board-filter-toggle"]')!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     const toggle = container.querySelector('[data-testid="board-cold-terminal-toggle"]');
     expect(toggle).not.toBeNull();
@@ -682,7 +728,7 @@ describe("board status pills and dynamic column rendering (task_8928cf1e)", () =
   ];
 
   it("renders a flat pill per column bucket (archived included) with bucket counts", async () => {
-    const markup = await boardHtml(archivedFixture());
+    const markup = await boardHtml(archivedFixture(), { ...DEFAULT_TASK_FILTERS }, new Set(), { openFilters: true });
     for (const status of BOARD_COLUMNS) {
       expect(markup).toContain(`data-testid="board-status-pill-${status}"`);
     }
@@ -747,6 +793,12 @@ describe("board status pills and dynamic column rendering (task_8928cf1e)", () =
           onSetPin: noop,
         }),
       );
+    });
+    // Pill 收在筛选面板里:先开入口,再操作 Pill。
+    act(() => {
+      container
+        .querySelector('[data-testid="board-filter-toggle"]')!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     const pill = container.querySelector('[data-testid="board-status-pill-planned"]') as HTMLButtonElement;
     expect(pill.getAttribute("aria-pressed")).toBe("false");

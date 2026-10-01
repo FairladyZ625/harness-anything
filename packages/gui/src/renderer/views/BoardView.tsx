@@ -31,7 +31,7 @@ import { SegBar } from "../components/primitives/SegBar.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { TitleText } from "../components/primitives/TitleText.tsx";
 import { relativeTime } from "../sessions-model.ts";
-import { TaskWipSummary } from "../components/TaskWipSummary.tsx";
+import { t } from "../i18n/index.tsx";
 import type { TaskWipRead } from "../../api/renderer-dto.ts";
 import { ListView } from "./ListView";
 import type { TaskMutationFeedback } from "../task-actions.ts";
@@ -56,10 +56,13 @@ function taskControlHint(task: TaskRow): string {
   return "当前无可用动作，原因见详情控制面板";
 }
 
-/** 卡片的「一行原因」:只答为什么需要注意(阻塞判定),其余细节进预览抽屉。 */
+/**
+ * 卡片的「一行原因」:只答为什么需要注意(阻塞判定未定),其余细节进预览抽屉。
+ * blocked 行的 canonical 原始值(「canonical planned」这类英文机器值)不再上卡
+ * (2026-10-01 评审第 8 条):与列不一致的真实状态由状态标签显形,见 Card。
+ */
 function cardReason(task: TaskRow): string | undefined {
   if (task.blocking === "unknown") return "阻塞关系未能确定";
-  if (task.coordinationStatus === "blocked" && task.canonicalStatus) return `canonical ${task.canonicalStatus}`;
   return undefined;
 }
 
@@ -68,13 +71,16 @@ function cardReason(task: TaskRow): string | undefined {
  * 行级引用保持(task-adapter)保证未变行的 task 引用稳定,回调引用由上层
  * useCallback 稳定,所以「台账改一行」只有该行卡片重渲染。
  *
- * 卡片面(标准 §2.4):状态标签、标题(经 TitleText)、一行原因与时间;
+ * 卡片面(标准 §2.4):标题(经 TitleText)、一行原因与时间;状态标签只在
+ * 与所在列不一致时显形(2026-10-01 评审第 8 条:「计划中」列里每张卡都写
+ * 「计划中」是重复;blocked 列里挂 planned/active canonical 的卡要显示);
  * 徽章与引擎/收口/决策来源等其余细节进预览抽屉(TaskPreviewDrawer),不上卡。
  */
 const Card = memo(function Card({
   task,
   onSelect,
   dragging,
+  column,
   isFavorite,
   onToggleFavorite,
   onSetPin,
@@ -82,6 +88,8 @@ const Card = memo(function Card({
   task: TaskRow;
   onSelect?: (id: string) => void;
   dragging?: boolean;
+  /** 卡片所在看板列;undefined = 无列上下文(拖拽影像),标签恒显示。 */
+  column?: SnapshotStatus;
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
@@ -89,6 +97,8 @@ const Card = memo(function Card({
   const external = isExternal(task);
   const archived = task.visibility.archived;
   const reason = cardReason(task);
+  const tagStatus = task.canonicalStatus ?? task.coordinationStatus;
+  const showStatusTag = column === undefined || tagStatus !== column;
   return (
     <div
       data-testid="board-task-card"
@@ -100,7 +110,7 @@ const Card = memo(function Card({
     >
       <div className="flex min-w-0 items-center gap-1.5">
         {external && <Lock weight="bold" className="shrink-0 ui-meta text-text-faint" aria-label="外部引擎只读" />}
-        <StatusTag status={task.canonicalStatus ?? task.coordinationStatus} />
+        {showStatusTag && <StatusTag status={tagStatus} />}
         {onSetPin ? (
           <button
             type="button"
@@ -169,12 +179,14 @@ const Card = memo(function Card({
 const DraggableCard = memo(function DraggableCard({
   task,
   onSelect,
+  column,
   isFavorite,
   onToggleFavorite,
   onSetPin,
 }: {
   task: TaskRow;
   onSelect: (id: string) => void;
+  column?: SnapshotStatus;
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
@@ -195,6 +207,7 @@ const DraggableCard = memo(function DraggableCard({
         <Card
           task={task}
           onSelect={onSelect}
+          column={column}
           isFavorite={isFavorite}
           onToggleFavorite={onToggleFavorite}
           onSetPin={onSetPin}
@@ -206,6 +219,7 @@ const DraggableCard = memo(function DraggableCard({
     <DndCard
       task={task}
       onSelect={onSelect}
+      column={column}
       isFavorite={isFavorite}
       onToggleFavorite={onToggleFavorite}
       onSetPin={onSetPin}
@@ -216,12 +230,14 @@ const DraggableCard = memo(function DraggableCard({
 function DndCard({
   task,
   onSelect,
+  column,
   isFavorite,
   onToggleFavorite,
   onSetPin,
 }: {
   task: TaskRow;
   onSelect: (id: string) => void;
+  column?: SnapshotStatus;
   isFavorite: boolean;
   onToggleFavorite: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
@@ -232,6 +248,7 @@ function DndCard({
       <Card
         task={task}
         onSelect={onSelect}
+        column={column}
         isFavorite={isFavorite}
         onToggleFavorite={onToggleFavorite}
         onSetPin={onSetPin}
@@ -245,6 +262,21 @@ const CARD_ESTIMATE_PX = 108;
 const CARD_OVERSCAN = 6;
 /** 列宽交互区间(W11):未定宽列走 basis-1/4 等分默认,一旦拖/微调就固定 px。 */
 const COLUMN_WIDTH_RANGE = { min: 220, max: 720 } as const;
+
+/**
+ * WIP 摘要悬停(2026-10-01 看板收行):「WIP 21/30 root 2」是写给开发者的说明,
+ * 不再占页头一行,收进结论句的 title;上限来源与 root 构成仍是悬停细节。
+ */
+function wipHoverTitle(snapshot: TaskWipRead | undefined): string | undefined {
+  if (!snapshot) return undefined;
+  const declared = snapshot.roots.filter((root) => root.reason === "declared");
+  const derived = snapshot.roots.filter((root) => root.reason === "derived");
+  const rootDetail = [
+    `declared: ${declared.map((root) => root.taskId).join(", ") || "none"}`,
+    `derived: ${derived.map((root) => `${root.taskId}(${root.directChildCount})`).join(", ") || "none"}`,
+  ].join("; ");
+  return `WIP ${snapshot.counted.length}/${snapshot.limit} · root ${snapshot.roots.length} · 上限来源: ${snapshot.limitLabel} · ${rootDetail}`;
+}
 
 /**
  * 看板列(标准 §2.4):列标题一行 = 状态名 + 计数 + 细 SegBar;空列收窄成一条
@@ -363,6 +395,7 @@ function Column({
                 <DraggableCard
                   task={ordered[item.index]}
                   onSelect={onSelect}
+                  column={status}
                   isFavorite={favorites.has(ordered[item.index].taskId)}
                   onToggleFavorite={onToggleFavorite}
                   onSetPin={onSetPin}
@@ -507,63 +540,63 @@ export const BoardView = memo(function BoardView({
       active ? "bg-surface-raised font-medium text-text" : "text-text-muted hover:text-text"
     }`;
 
+  // 视图切换(列/泳道/列表,泳道下多一组分组维度)移入筛选行(2026-10-01 看板
+  // 收行):页头只留页名 + 一句结论,页头到第一张卡之间收成两行。
+  const viewSwitch = (
+    <>
+      {layout === "swimlane" && (
+        <span className="flex items-center gap-1.5">
+          <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">分组维度</span>
+          <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
+            {(["root", "engine", "productLine"] as const).map((d) => (
+              <button
+                key={d}
+                onClick={() => setGroupBy(d)}
+                title={
+                  d === "root"
+                    ? "按工作分组(根任务及其子树)"
+                    : d === "engine"
+                      ? "按引擎分组"
+                      : "按 productLine(PLT)分组"
+                }
+                className={`font-mono ${seg(groupBy === d)}`}
+              >
+                {d === "root" ? "work" : d}
+              </button>
+            ))}
+          </div>
+        </span>
+      )}
+      <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
+        <button
+          onClick={() => setLayout("column")}
+          className={seg(layout === "column")}
+          title="按 coordinationStatus 分列"
+        >
+          列
+        </button>
+        <button
+          onClick={() => setLayout("swimlane")}
+          className={seg(layout === "swimlane")}
+          title="按分组维度 × 状态的泳道矩阵"
+        >
+          泳道
+        </button>
+        <button onClick={() => setLayout("list")} className={seg(layout === "list")} title="按注意力排序列表;终态折叠">
+          列表
+        </button>
+      </div>
+    </>
+  );
+
   return (
     <div className="flex h-full flex-col">
       <header className="flex flex-wrap items-baseline gap-3 border-b border-border px-4 py-2.5">
         <h1 className="ui-title font-semibold">看板</h1>
-        <span className="ui-meta text-text-muted">各状态上压了多少、哪里堆积;点卡片看详情,planned 可拖到 Active</span>
-        <span className="font-mono ui-body text-text-faint">
-          {boardTasks.length}/{allTasks.length}
+        {/* 页头一行(2026-10-01 评审第 8 条):页名 + 一句结论;WIP 等开发者说明改悬停。 */}
+        <span className="ui-meta text-text-muted" data-testid="board-header-summary" title={wipHoverTitle(wipSnapshot)}>
+          {t("components.taskFilterBar.viewingCount", { count: boardTasks.length, total: allTasks.length })}
         </span>
-        <TaskWipSummary snapshot={wipSnapshot} />
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          {layout === "swimlane" && (
-            <span className="flex items-center gap-1.5">
-              <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">分组维度</span>
-              <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
-                {(["root", "engine", "productLine"] as const).map((d) => (
-                  <button
-                    key={d}
-                    onClick={() => setGroupBy(d)}
-                    title={
-                      d === "root"
-                        ? "按工作分组(根任务及其子树)"
-                        : d === "engine"
-                          ? "按引擎分组"
-                          : "按 productLine(PLT)分组"
-                    }
-                    className={`font-mono ${seg(groupBy === d)}`}
-                  >
-                    {d === "root" ? "work" : d}
-                  </button>
-                ))}
-              </div>
-            </span>
-          )}
-          <div className="flex items-center gap-0.5 rounded-md border border-border p-0.5">
-            <button
-              onClick={() => setLayout("column")}
-              className={seg(layout === "column")}
-              title="按 coordinationStatus 分列"
-            >
-              列
-            </button>
-            <button
-              onClick={() => setLayout("swimlane")}
-              className={seg(layout === "swimlane")}
-              title="按分组维度 × 状态的泳道矩阵"
-            >
-              泳道
-            </button>
-            <button
-              onClick={() => setLayout("list")}
-              className={seg(layout === "list")}
-              title="按注意力排序列表;终态折叠"
-            >
-              列表
-            </button>
-          </div>
-        </div>
       </header>
       {(dragMessage || (lastMutationTaskId && mutationFeedback?.(lastMutationTaskId))) && (
         <div className="border-b border-border px-4 py-2 ui-meta text-text-muted" data-testid="board-mutation-feedback">
@@ -578,12 +611,12 @@ export const BoardView = memo(function BoardView({
       )}
       <TaskFilterBar
         tasks={allTasks}
-        filteredCount={boardTasks.length}
         filters={filters}
         onChange={onFiltersChange}
         contextLabel="看板"
         favorites={favorites}
         coldTerminalCount={coldPartition.collapsed.length}
+        toolbarExtra={viewSwitch}
       />
       {layout === "list" ? (
         <ListView
