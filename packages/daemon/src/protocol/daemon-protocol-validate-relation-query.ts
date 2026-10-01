@@ -56,11 +56,13 @@ export function validateDaemonWorkspaceSummary(value: unknown): readonly string[
   const taskStatuses = [...taskStatusWords, "unknown"],
     tasks = value.tasks,
     decisions = value.decisions;
-  const tasksShapeError = recordShapeError(entityId, tasks, ["total", "byStatus"], undefined, "tasks");
+  const tasksShapeError = recordShapeError(entityId, tasks, ["total", "byStatus", "lastChangedAt"], undefined, "tasks");
   if (tasksShapeError) return [tasksShapeError];
   if (!isJsonObject(tasks)) return [];
   if (!integer(tasks.total) || Number(tasks.total) < 0)
     return [validationError(entityId, "tasks.total", tasks.total, "must be a non-negative integer")];
+  if (tasks.lastChangedAt !== null && !isUtcTimestamp(tasks.lastChangedAt))
+    return [validationError(entityId, "tasks.lastChangedAt", tasks.lastChangedAt, "must be a UTC timestamp or null")];
   const byStatus = tasks.byStatus;
   const statusShapeError = recordShapeError(entityId, byStatus, taskStatuses, undefined, "tasks.byStatus");
   if (statusShapeError) return [statusShapeError];

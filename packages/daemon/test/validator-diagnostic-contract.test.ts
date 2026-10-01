@@ -365,6 +365,7 @@ const relationGraph = {
           ok: true,
           status: "ready",
           tasks: {
+            lastChangedAt: null,
             total: -1,
             byStatus: { planned: 0, active: 0, blocked: 0, in_review: 0, done: 0, cancelled: 0, unknown: 0 },
           },
