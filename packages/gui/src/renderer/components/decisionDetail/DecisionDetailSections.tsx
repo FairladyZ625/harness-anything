@@ -1,51 +1,185 @@
 import { derivedTasks, supersedeChain } from "../../model/triadic.ts";
 import { formatTime } from "../../model/time.ts";
-import type { DecisionRow, RelationEdge, TaskRow } from "../../model/types.ts";
+import type { DecisionRow, DecisionState, RelationEdge, TaskRow } from "../../model/types.ts";
 import { t } from "../../i18n/index.tsx";
+import { decisionStateLabel } from "../badges.tsx";
+import { actorText } from "../decisionReview/parts.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
+import { DayDigest, type DayPathStep } from "../primitives/DayDigest";
+import { DenseRow } from "../primitives/DenseRow";
+import { Region } from "../primitives/Region";
+import { BoardColumn, BoardMain, BoardRegion, BoardTimeline, RegionBoard } from "../primitives/RegionBoard";
+import type { StatusTone } from "../primitives/StatusTag";
+
+/** 决策状态 → 状态色(标准 §3):时间线上的裁决结果与状态迁移用它上色。 */
+const STATE_TONE: Record<DecisionState, StatusTone> = {
+  proposed: "plan",
+  in_effect: "done",
+  rejected: "bad",
+  deferred: "wait",
+  superseded: "cancel",
+  outcome_retired: "cancel",
+  unknown: "neutral",
+};
+
+/** 问题、选项与理由都是整句:在条目里折行显示全文,不按 DenseRow 的单行省略号截断。 */
+const wrapped = (text: string) => <span className="whitespace-normal">{text}</span>;
 
 export function OverviewPanel({ decision }: { decision: DecisionRow }) {
+  const timeline = decisionTimeline(decision);
   return (
-    <div className="flex flex-col gap-3">
-      <div className="rounded-md border border-border bg-surface-raised px-3 py-2">
-        <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">
-          {t("views.decisionDetailView.question")}
-        </span>
-        <p className="mt-1 ui-body font-medium text-text">{decision.question}</p>
-      </div>
-      {decision.chosen.length > 0 && (
-        <div className="rounded-md border border-accent/30 bg-accent/5 px-3 py-2">
-          <span className="font-mono ui-micro uppercase tracking-wide text-accent">
-            {t("views.decisionsVerdict.chosen")}
-          </span>
-          {decision.chosen.map((option) => (
-            <div key={option.id} className="mt-1 ui-meta leading-relaxed">
-              <span className="font-mono text-text-faint">{option.id} </span>
-              <span className="text-text">{option.text}</span>
-              {option.rationale && <p className="ml-4 ui-micro text-text-muted">{option.rationale}</p>}
-            </div>
-          ))}
-        </div>
+    // 区域板(标准 §2.1,与工作概况、任务详情概况同一个 RegionBoard):主区依次是问题、已选、
+    // 已否,时间线固定在最右一列;每块都在 Region 里并区内滚动,没有内容的区域整块消失。
+    <RegionBoard data-testid="decision-overview-board">
+      <BoardMain>
+        {/* 主区只有一列:选项与理由是整句,列越宽越好读;拆成两列会把每条压到三分之一宽。 */}
+        <BoardColumn>
+          <BoardRegion region="question" data-testid="decision-overview-question">
+            <Region title={t("views.decisionDetailView.question")}>
+              <DenseRow title={wrapped(decision.question)} />
+            </Region>
+          </BoardRegion>
+          {decision.chosen.length > 0 && (
+            <BoardRegion region="chosen" data-testid="decision-overview-chosen">
+              <Region
+                title={t("views.decisionDetailView.chosen")}
+                big={decision.chosen.length}
+                bigTone="done"
+                edge="done"
+              >
+                {decision.chosen.map((option) => (
+                  <DenseRow
+                    key={option.id}
+                    relaxed
+                    title={wrapped(option.text)}
+                    reason={option.rationale ? wrapped(option.rationale) : undefined}
+                    time={option.id}
+                  />
+                ))}
+              </Region>
+            </BoardRegion>
+          )}
+          {decision.rejected.length > 0 && (
+            <BoardRegion region="rejected" data-testid="decision-overview-rejected">
+              <Region
+                title={t("views.decisionDetailView.rejected")}
+                big={decision.rejected.length}
+                bigTone="cancel"
+                edge="cancel"
+              >
+                {decision.rejected.map((option) => (
+                  <DenseRow
+                    key={option.id}
+                    relaxed
+                    title={wrapped(option.text)}
+                    reason={option.whyNot ? wrapped(option.whyNot) : undefined}
+                    time={option.id}
+                  />
+                ))}
+              </Region>
+            </BoardRegion>
+          )}
+        </BoardColumn>
+      </BoardMain>
+      {timeline.length > 0 && (
+        <BoardTimeline data-testid="decision-overview-timeline">
+          <Region title={t("views.decisionDetailView.timeline")} big={timeline.length} padded>
+            <DecisionTimelineDigest entries={timeline} />
+          </Region>
+        </BoardTimeline>
       )}
-      {decision.rejected.length > 0 && (
-        <div className="rounded-md border border-danger/30 bg-danger/5 px-3 py-2">
-          <span className="font-mono ui-micro uppercase tracking-wide text-danger">
-            {t("views.decisionsVerdict.rejected")}
-          </span>
-          {decision.rejected.map((option) => (
-            <div key={option.id} className="mt-1 ui-meta leading-relaxed">
-              <span className="font-mono text-text-faint">{option.id} </span>
-              <span className="text-text line-through opacity-70">{option.text}</span>
-              {option.whyNot && (
-                <p className="ml-4 ui-micro italic text-text-muted">
-                  {t("views.decisionDetailView.whyNot")}: {option.whyNot}
-                </p>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+    </RegionBoard>
+  );
+}
+
+interface TimelineEntry {
+  readonly at: string;
+  readonly name: string;
+  readonly step: DayPathStep;
+}
+
+const actorLabel = (actor: DecisionRow["proposedBy"]) => (actor ? `${actor.kind}:${actor.id}` : "—");
+
+/**
+ * 决策行上带时间的记录:提出、每次评审、每条意见回应、业主处置、裁决 consent,以及
+ * decidedAt。decidedAt 是最近一次状态迁移(裁决、被取代、退役)的时刻:与某条 consent
+ * 同刻时就是那次裁决,不重复列;否则单列一条当前状态——被取代/退役的操作人读面没给,
+ * 不拿裁决人顶替。
+ */
+function decisionTimeline(decision: DecisionRow): TimelineEntry[] {
+  const entries: TimelineEntry[] = [];
+  if (decision.proposedAt)
+    entries.push({
+      at: decision.proposedAt,
+      name: actorLabel(decision.proposedBy),
+      step: { label: t("views.decisionDetailView.timelineProposed"), tone: "plan" },
+    });
+  for (const review of decision.review?.reviews ?? [])
+    entries.push({
+      at: review.reviewedAt,
+      name: actorText(review.actor),
+      step:
+        review.verdict === "approved"
+          ? { label: t("views.decisionReview.verdictApproved"), tone: "done" }
+          : { label: t("views.decisionReview.verdictChangesRequested"), tone: "wait" },
+    });
+  for (const response of decision.review?.responses ?? [])
+    entries.push({
+      at: response.respondedAt,
+      name: actorText(response.actor),
+      step: {
+        label: t(response.disposition === "adopt" ? "views.decisionReview.adopt" : "views.decisionReview.rebut"),
+        tone: "active",
+      },
+    });
+  for (const override of decision.review?.overrides ?? [])
+    entries.push({
+      at: override.overriddenAt,
+      name: actorText(override.actor),
+      step: { label: t("views.decisionReview.overrideTitle"), tone: "wait" },
+    });
+  for (const consent of decision.judgmentConsents)
+    entries.push({
+      at: consent.consentedAt,
+      name: actorText(consent.actor),
+      step: { label: decisionStateLabel(consent.targetState), tone: STATE_TONE[consent.targetState] },
+    });
+  if (decision.decidedAt && !decision.judgmentConsents.some((consent) => consent.consentedAt === decision.decidedAt))
+    entries.push({
+      at: decision.decidedAt,
+      name:
+        decision.state === "superseded" || decision.state === "outcome_retired" ? "—" : actorLabel(decision.arbiter),
+      step: { label: decisionStateLabel(decision.state), tone: STATE_TONE[decision.state] },
+    });
+  return entries.sort((a, b) => b.at.localeCompare(a.at));
+}
+
+/** 时间线按天收束(§1.4):天摘要 + 每条记录一行(时刻、谁、做了什么)。 */
+function DecisionTimelineDigest({ entries }: { readonly entries: readonly TimelineEntry[] }) {
+  const groups: { day: string; entries: TimelineEntry[] }[] = [];
+  for (const entry of entries) {
+    const day = formatTime(entry.at, { style: "date" }) ?? entry.at.slice(0, 10);
+    const last = groups.at(-1);
+    if (last !== undefined && last.day === day) last.entries.push(entry);
+    else groups.push({ day, entries: [entry] });
+  }
+  return (
+    <>
+      {groups.map((group) => (
+        <DayDigest
+          key={group.day}
+          // 标签用「月-日」,与工作概况、任务详情的进展同一写法。
+          day={group.day.slice(5)}
+          defaultOpen
+          summary={t("views.decisionDetailView.timelineDay", { count: group.entries.length })}
+          paths={group.entries.map((entry) => ({
+            time: formatTime(entry.at, { style: "time" }) ?? undefined,
+            name: entry.name,
+            steps: [entry.step],
+          }))}
+        />
+      ))}
+    </>
   );
 }
 
