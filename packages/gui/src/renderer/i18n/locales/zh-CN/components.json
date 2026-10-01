@@ -161,7 +161,7 @@
   "components.focusSwitcher.suggested": "推荐",
   "components.docTree.projectionDidNotReturnDocumentList": "投影未返回文档清单。",
   "components.appSidebar.ledgerEvents": "事件 {count}",
-  "components.appSidebar.ledgerRefreshedAgo": "刷新于 {ago}",
+  "components.appSidebar.ledgerRefreshedAgo": "{ago}刷新",
   "components.appSidebar.ledgerNeverRefreshed": "尚未读到台账",
   "components.appSidebar.ledgerRefreshTitle": "手动刷新台账读面",
   "components.appSidebar.ledgerDisconnected": "最近一次台账读取失败",
