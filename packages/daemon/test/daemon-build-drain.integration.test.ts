@@ -275,7 +275,7 @@ test("a drained superseded daemon exits and the next autostart loads the disk bu
   }
 });
 
-test("a superseded stop clears its deadline before waiting for successor readiness", async () => {
+test("a superseded stop clears its deadline before waiting for successor readiness", async (context) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-superseded-deadline-")),
     userRoot = path.join(parent, "user"),
     runtimeRoot = path.join(parent, "runtime"),
@@ -303,6 +303,8 @@ test("a superseded stop clears its deadline before waiting for successor readine
         },
       }),
     );
+    // Freeze shutdown time while real teardown IO runs, however slowly the runner schedules it.
+    context.mock.timers.enable({ apis: ["setTimeout"] });
     writeFileSync(buildIdPath, "build-b\n", "utf8");
     await requestDaemonJsonRpcAt(daemon.endpoint, "daemon.status", {}, 2_000, 2_000, undefined, true);
     await handoffStarted.promise;
@@ -310,7 +312,9 @@ test("a superseded stop clears its deadline before waiting for successor readine
     const stopped = daemon.stop().then(() => {
       stopSettled = true;
     });
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    // Cross the deadline while successor readiness remains blocked. An uncleared timer must fire.
+    context.mock.timers.tick(250);
+    await eventLoopTurn();
     assert.equal(deadlineExceeded, false, "successor readiness must not remain under the shutdown deadline");
     assert.equal(stopSettled, false, "the outgoing daemon must not finish before successor readiness");
     successorReady.resolve();
