@@ -234,8 +234,60 @@ describe("schedule detail hub (M2)", () => {
       "cwd /missing does not exist",
     );
     // G10: the agent id is still a path to the agent entity.
-    container.querySelector<HTMLButtonElement>('[data-testid="schedule-agent-link-probe-agent"]')?.click();
+    await click(container, "schedule-agent-link-probe-agent");
     expect(onSelectEntity).toHaveBeenCalledWith("agent/probe-agent");
+  });
+
+  it("lays Overview out as a region board: every block in a Region, run history as the rightmost timeline", async () => {
+    vi.spyOn(schedulesClient, "runs").mockResolvedValue(runsResult([occurrence()]));
+    const container = await renderDetail(
+      "schedule/heartbeat-probe",
+      listResult(
+        {},
+        { targetState: "missing", targetError: { code: "catalog_missing", hint: "Reinstall the agent." } },
+      ),
+    );
+    await settle();
+    const board = container.querySelector<HTMLElement>('[data-testid="schedule-overview-tab"]')!;
+    // 主区五块 + 右列运行历史,每块都是 Region(玻璃区域框),板外没有散排的标题。
+    expect([...board.querySelectorAll<HTMLElement>("[data-region]")].map((box) => box.dataset.region)).toEqual([
+      "attention",
+      "health",
+      "purpose",
+      "definition",
+      "execution",
+      "recent",
+    ]);
+    for (const box of board.querySelectorAll("[data-region]"))
+      expect(box.querySelector(":scope > section[data-entry-region]")).not.toBeNull();
+    const panel = container.querySelector<HTMLElement>("#schedule-panel")!;
+    expect(
+      [...panel.querySelectorAll("h2, h3")].filter((heading) => heading.closest("section.glass") === null),
+    ).toEqual([]);
+    // 运行历史是板的最后一列(时间线位),不在主区里。
+    const timeline = container.querySelector<HTMLElement>('[data-testid="schedule-runs"]')!;
+    expect(board.lastElementChild).toBe(timeline);
+    expect(timeline.querySelector('[data-testid="schedule-run-row-occurrence_86b0"]')).not.toBeNull();
+    // 宿主:根是容器量尺,概况面板在容器 ≥900px 时占满页头以下的高度(板在其中分区滚动)。
+    expect(container.querySelector('[data-testid="schedule-detail"]')!.className).toContain("@container");
+    expect(panel.className).toContain("@[900px]:flex-1");
+    // 字段是 DenseRow:键在标题位。
+    expect(container.querySelectorAll('[data-testid="schedule-overview-execution"] [data-dense-row]').length).toBe(5);
+  });
+
+  it("has no separate Runs tab: Overview's run history is the one implementation, and the tab reads 概况", async () => {
+    const container = await renderDetail("schedule/heartbeat-probe");
+    expect([...container.querySelectorAll('[role="tab"]')].map((tab) => tab.id)).toEqual([
+      "schedule-tab-overview",
+      "schedule-tab-danger",
+    ]);
+    setActiveLocale("zh-CN");
+    const zh = await renderDetail("schedule/heartbeat-probe");
+    setActiveLocale("en-US");
+    expect(zh.querySelector("#schedule-tab-overview")?.textContent).toBe("概况");
+    // 其它页签不带板的宿主类,随内容往下排。
+    await click(container, "schedule-tab-danger");
+    expect(container.querySelector("#schedule-panel")!.className).not.toContain("flex-1");
   });
 
   it("renders a built-in row as a system preset with its retention policy and no agent link", async () => {
@@ -271,7 +323,6 @@ describe("schedule detail hub (M2)", () => {
   it("falls back to the occurrences the list row carries when the runs read fails, labeled as an error", async () => {
     vi.spyOn(schedulesClient, "runs").mockRejectedValue(new Error("bridge unavailable"));
     const container = await renderDetail("schedule/heartbeat-probe");
-    await click(container, "schedule-tab-runs");
     await settle();
     const timeline = container.querySelector('[data-testid="schedule-runs-timeline"]');
     expect(timeline).not.toBeNull();
@@ -314,17 +365,15 @@ describe("schedule detail hub (M2)", () => {
       ]),
     );
     const container = await renderDetail("schedule/heartbeat-probe");
-    await click(container, "schedule-tab-runs");
     await settle();
-    // v2(标准 §1.4):终态沉到「已收口 N」分隔线之后照常显示,不再折叠成「展开」。
+    // 运行历史是时间线:保持 daemon 投影顺序(计划时间倒序),不按结果重排、不折叠。
     const rows = [...container.querySelectorAll("li[data-testid^='schedule-run-row-']")];
     expect(rows.map((element) => element.getAttribute("data-testid"))).toEqual([
       "schedule-run-row-occurrence_3f9c",
       "schedule-run-row-occurrence_5a22",
       "schedule-run-row-occurrence_71d0",
     ]);
-    expect(container.querySelector('[data-testid="schedule-runs-settled"]')?.textContent).toContain("Settled 1");
-    expect(container.querySelector('[data-testid="schedule-runs-folded"]')).toBeNull();
+    expect(container.querySelector('[data-testid="schedule-runs-settled"]')).toBeNull();
     const missedRow = container.querySelector('[data-testid="schedule-run-row-occurrence_5a22"]');
     expect(missedRow?.textContent).toContain("Missed");
     expect(missedRow?.textContent).toContain("not executed");
@@ -338,7 +387,6 @@ describe("embedded run detail (M4)", () => {
   it("opens a run row into schedule/<id>/runs/<occurrence> — never a session/ jump", async () => {
     const onSelectEntity = vi.fn();
     const container = await renderDetail("schedule/heartbeat-probe", listResult(), onSelectEntity);
-    await click(container, "schedule-tab-runs");
     await settle();
     await click(container, "schedule-run-row-occurrence_now");
     // The run opens inside the schedule hub; the retired session/<id> jump is gone.
@@ -346,7 +394,7 @@ describe("embedded run detail (M4)", () => {
     expect(onSelectEntity).not.toHaveBeenCalledWith(expect.stringMatching(/^session\//u));
   });
 
-  it("returns from an embedded run to the hub's Runs tab via the location patch", async () => {
+  it("returns from an embedded run to the hub via the location patch", async () => {
     const onExitRun = vi.fn();
     const onExit = vi.fn();
     const container = await renderDetail("schedule/heartbeat-probe/runs/occurrence_now", listResult(), noop, {
