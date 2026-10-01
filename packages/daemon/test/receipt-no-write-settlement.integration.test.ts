@@ -97,6 +97,13 @@ test("actions that write nothing to the ledger settle as a definite success", { 
     assertDefiniteNoWrite(candidate, "applied");
     const candidatePath = (JSON.parse(String(candidate.evidence)) as { candidatePath: string }).candidatePath;
     assert.ok(existsSync(path.join(rootDir, candidatePath)), candidatePath);
+
+    // A locale-only settings update writes this machine's preference file, never the ledger.
+    const localized = await cell.run(
+      { kind: "settings-update", locale: "zh-CN", idempotencyKey: "no-write-locale" },
+      binding,
+    );
+    assertDefiniteNoWrite(localized, "applied");
     assert.equal(head(), before, "no local-only write appends an event");
   } finally {
     await cell.close();

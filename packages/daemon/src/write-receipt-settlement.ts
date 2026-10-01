@@ -27,13 +27,12 @@ export async function settleWriteReceipt(
   receipt: WriteReceipt,
   signal?: AbortSignal,
 ): Promise<WriteReceipt> {
-  if (
+  // A locale-only settings update writes this machine's preference file, never the ledger.
+  const localSettingsOnly =
     action.kind === "settings-update" &&
     receipt.effects?.length === 1 &&
-    receipt.effects[0] === "settings-local/locale_changed"
-  )
-    return receipt;
-  if (ledgerFreeActions.has(action.kind))
+    receipt.effects[0] === "settings-local/locale_changed";
+  if (localSettingsOnly || ledgerFreeActions.has(action.kind))
     return receipt.outcome === "applied" ? { ...receipt, status: "settled_no_write" } : receipt;
   if (!canonicalSettlementActions.has(action.kind) && action.kind !== "receipt-show") return receipt;
   const read = () =>
