@@ -67,10 +67,14 @@ export function DayDigest({
                 {path.time !== undefined && (
                   <span className="w-9 flex-none font-mono text-text-faint ui-micro">{path.time}</span>
                 )}
-                {/* 没有步骤的路径(如任务的生命周期记录)名字占满整行,不给空的步骤列留一半宽度。 */}
+                {/* 没有步骤的路径(如任务的生命周期记录)名字占满整行,不给空的步骤列留一半宽度;带行尾编号时名字不收缩,由编号截断。 */}
                 <span
                   className={`min-w-0 truncate ui-body group-hover:text-accent ${
-                    path.steps.length === 0 ? "flex-1" : "max-w-[48%] flex-none"
+                    path.ref !== undefined
+                      ? "max-w-[60%] flex-none"
+                      : path.steps.length === 0
+                        ? "flex-1"
+                        : "max-w-[48%] flex-none"
                   }`}
                 >
                   {path.name}
@@ -85,7 +89,7 @@ export function DayDigest({
                 </span>
                 {path.ref !== undefined && (
                   <span
-                    className="ml-auto min-w-0 truncate font-mono text-text-faint ui-micro"
+                    className="min-w-0 flex-1 truncate text-right font-mono text-text-faint ui-micro"
                     title={path.title ?? path.ref}
                   >
                     {path.ref}
