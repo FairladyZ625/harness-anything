@@ -1,19 +1,21 @@
 #!/usr/bin/env node
 
-import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { selectIntegrationShardFiles } from "./integration-test-shards.mjs";
 import {
   collectSlowTests,
   coverageReporterArgs,
+  ensureFreshBuild,
   filterTestFilesByNames,
   filterTestFilesByPrefixes,
   formatSlowTestSummary,
   parseRunnerArgs,
   resolveTestConcurrency,
+  runsCliEntry,
   selectTestFiles,
 } from "./node-test-runner-lib.mjs";
 import { discoverTestFileTimeouts, discoverTestTierManifest } from "./test-tier-manifest.mjs";
@@ -103,6 +105,18 @@ if (options.list) {
   });
   process.exit(0);
 }
+
+// A test that runs the CLI measures the daemon build the CLI launches. Bring that build up to
+// its sources here, once, before any test file process exists. Real CLI flows belong to the
+// integration tier; the other tiers name the CLI entry only as a path string in gate tests.
+const integrationFiles = new Set(testTierManifest.integration);
+if (
+  runsCliEntry(
+    selection.files.filter((file) => integrationFiles.has(file)),
+    (file) => (existsSync(resolve(repoRoot, file)) ? readFileSync(resolve(repoRoot, file), "utf8") : undefined),
+  )
+)
+  ensureFreshDaemonBuild();
 
 // Cap process fan-out so full runs don't exhaust memory on developer laptops.
 // --concurrency wins; else HARNESS_TEST_CONCURRENCY; else, off CI, a
@@ -255,6 +269,61 @@ console.log(formatSlowTestSummary(slowTests, options.slowThresholdMs, options.sl
 // the failing-tests recap — the assertion details a red lane exists to show — is written last
 // and is exactly what gets lost. Exit naturally so pending writes drain first.
 process.exitCode = exitCode;
+
+function ensureFreshDaemonBuild() {
+  // tsc prints real paths for the workspace packages it follows, so the listing runs from the
+  // real root and every input compares against it.
+  const root = realpathSync(repoRoot),
+    daemonRoot = join(root, "packages/daemon"),
+    startedAt = Date.now();
+  let failure = null;
+  const outcome = ensureFreshBuild({
+    markerPath: join(daemonRoot, "dist/build-id.txt"),
+    lockPath: join(root, "node_modules/.cache/harness-daemon-build.lock"),
+    listInputs: () => daemonBuildInputs(root, daemonRoot),
+    build: () => {
+      console.log("[daemon-build] packages/daemon/dist is missing or older than its sources; building it once.");
+      const build = spawnSync("npm", ["run", "build", "--workspace", "@harness-anything/daemon"], {
+        cwd: root,
+        encoding: "utf8",
+        shell: process.platform === "win32",
+      });
+      if (build.status !== 0) failure = `${build.stdout ?? ""}${build.stderr ?? ""}${build.error?.message ?? ""}`;
+    },
+  });
+  if (failure !== null) {
+    console.error(failure);
+    console.error("[daemon-build] the daemon build failed; no test was run.");
+    process.exit(1);
+  }
+  if (outcome === "built") console.log(`[daemon-build] built in ${Date.now() - startedAt}ms.`);
+}
+
+// The inputs are the build's own: every repository file the compiler reads for the daemon
+// program, plus what packages/daemon's build script and copy-assets step consume.
+function daemonBuildInputs(root, daemonRoot) {
+  const listed = spawnSync(
+    process.execPath,
+    [join(root, "node_modules/typescript/bin/tsc"), "-p", join(daemonRoot, "tsconfig.build.json"), "--listFilesOnly"],
+    { cwd: root, encoding: "utf8" },
+  );
+  if (listed.status !== 0) return undefined;
+  const assets = join(root, "packages/preset/assets");
+  return [
+    ...listed.stdout
+      .split(/\r?\n/u)
+      .filter(Boolean)
+      .filter((file) => {
+        const inRepository = relative(root, file);
+        return !inRepository.startsWith("..") && !inRepository.split(sep).includes("node_modules");
+      }),
+    ...readdirSync(assets, { recursive: true }).map((entry) => join(assets, entry)),
+    join(daemonRoot, "tsconfig.build.json"),
+    join(daemonRoot, "scripts/copy-assets.mjs"),
+    join(daemonRoot, "package.json"),
+    join(root, "package-lock.json"),
+  ];
+}
 
 function exactNamePattern(names) {
   if (names.length === 0) return null;

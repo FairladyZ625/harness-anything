@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
@@ -142,8 +142,14 @@ export async function register(root: string, userRoot: string, repoId: string, e
 }
 export function run(root: string, userRoot: string, args: readonly string[], entry = cli): Record<string, unknown> {
   const result = runMaybe(root, userRoot, args, entry);
-  assert.equal(result.status, 0, `${result.stderr}\n${JSON.stringify(result.receipt)}`);
+  if (result.status !== 0) assert.fail(`${result.stderr}\n${JSON.stringify(result.receipt)}${daemonLogTail(userRoot)}`);
   return result.receipt;
+}
+// A failed command names the daemon log, and every test removes its fixture root on the way out.
+function daemonLogTail(userRoot: string): string {
+  const log = path.join(userRoot, "logs/daemon-default.log");
+  if (!existsSync(log)) return "";
+  return `\n${log} (last lines):\n${readFileSync(log, "utf8").trimEnd().split("\n").slice(-20).join("\n")}`;
 }
 // Writes return at durable acceptance; a test that reads Git or the worktree waits for both followers explicitly.
 export function settleFollower(

@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -17,12 +17,14 @@ function boundedWait(ms) {
 import {
   collectSlowTests,
   coverageReporterArgs,
+  ensureFreshBuild,
   filterTestFilesByNames,
   filterTestFilesByPrefixes,
   formatSlowTestSummary,
   parseCompletedTestLine,
   parseRunnerArgs,
   resolveTestConcurrency,
+  runsCliEntry,
   selectTestFiles,
   validateManifest,
 } from "./node-test-runner-lib.mjs";
@@ -474,4 +476,123 @@ test("forwarded failing-test details survive a stdout consumer that lags behind 
   assert.equal(status, 1, stdout);
   assert.match(stdout, /✖ failing tests:/u, "failing-tests recap was lost to a backpressured pipe");
   assert.match(stdout, /runner output drain fixture assertion/u, "assertion details were lost to a backpressured pipe");
+});
+
+test("runsCliEntry finds the CLI entry in a test or in the test-support files it imports", () => {
+  const sources = {
+    "packages/cli/test/direct.test.ts": 'const cli = path.resolve("packages/cli/src/index.ts");',
+    "packages/cli/test/built.test.ts": 'const cli = path.resolve("packages/cli/dist/cli/src/index.js");',
+    "packages/cli/test/through-fixture.test.ts": 'import { cli } from "./shared.fixtures.ts";',
+    "packages/cli/test/shared.fixtures.ts":
+      'import "./loop.fixtures.ts";\nexport const cli = "packages/cli/src/index.ts";',
+    "packages/cli/test/loop.fixtures.ts": 'import "./shared.fixtures.ts";',
+    "packages/daemon/test/cross-package.test.ts": 'const { cli } = await import("../../cli/test/shared.fixtures.ts");',
+    "packages/cli/test/unit.test.ts": 'import { parse } from "../src/parse.ts";\nimport "./loop-only.fixtures.ts";',
+    "packages/cli/test/loop-only.fixtures.ts": 'import "./unit.test.ts";',
+    "packages/cli/src/parse.ts": 'export const entry = "packages/cli/src/index.ts";',
+  };
+  const read = (file) => sources[file];
+  for (const file of ["direct", "built", "through-fixture"])
+    assert.equal(runsCliEntry([`packages/cli/test/${file}.test.ts`], read), true, file);
+  assert.equal(runsCliEntry(["packages/daemon/test/cross-package.test.ts"], read), true);
+  // Production sources are not followed, and an import that names no readable file is no entry.
+  assert.equal(runsCliEntry(["packages/cli/test/unit.test.ts", "packages/cli/test/missing.test.ts"], read), false);
+  assert.equal(runsCliEntry(["packages/cli/test/unit.test.ts", "packages/cli/test/direct.test.ts"], read), true);
+});
+
+function buildFixture() {
+  const root = mkdtempSync(path.join(os.tmpdir(), "ha-fresh-build-"));
+  const fixture = {
+    root,
+    markerPath: path.join(root, "dist/build-id.txt"),
+    lockPath: path.join(root, "cache/build.lock"),
+    input: path.join(root, "input.ts"),
+    builds: 0,
+  };
+  writeFileSync(fixture.input, "source\n");
+  fixture.options = {
+    markerPath: fixture.markerPath,
+    lockPath: fixture.lockPath,
+    listInputs: () => [fixture.input, path.join(root, "deleted-input.ts")],
+    build: () => {
+      fixture.builds += 1;
+      mkdirSync(path.dirname(fixture.markerPath), { recursive: true });
+      writeFileSync(fixture.markerPath, "built\n");
+    },
+  };
+  return fixture;
+}
+
+test("ensureFreshBuild builds when the marker is missing or older than an input, and not otherwise", () => {
+  const fixture = buildFixture();
+  try {
+    assert.equal(ensureFreshBuild(fixture.options), "built");
+    assert.equal(ensureFreshBuild(fixture.options), "fresh");
+    const later = new Date(Date.now() + 60_000);
+    utimesSync(fixture.input, later, later);
+    assert.equal(ensureFreshBuild(fixture.options), "built");
+    utimesSync(fixture.markerPath, later, later);
+    assert.equal(ensureFreshBuild(fixture.options), "fresh");
+    // A lister that could not produce the inputs leaves the verdict to the build.
+    assert.equal(ensureFreshBuild({ ...fixture.options, listInputs: () => undefined }), "built");
+    assert.equal(fixture.builds, 3);
+    assert.equal(existsSync(fixture.lockPath), false);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("ensureFreshBuild releases the lock when the build throws and takes over a dead owner's lock", () => {
+  const fixture = buildFixture();
+  try {
+    assert.throws(
+      () =>
+        ensureFreshBuild({
+          ...fixture.options,
+          build: () => {
+            throw new Error("compiler failed");
+          },
+        }),
+      /compiler failed/u,
+    );
+    assert.equal(existsSync(fixture.lockPath), false);
+    const exited = spawnSync(process.execPath, ["-e", ""]);
+    writeFileSync(fixture.lockPath, `${exited.pid}\n`);
+    assert.equal(ensureFreshBuild(fixture.options), "built");
+    assert.equal(existsSync(fixture.lockPath), false);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("ensureFreshBuild waits for a live lock owner and reuses the build it produced", async () => {
+  const fixture = buildFixture();
+  mkdirSync(path.dirname(fixture.lockPath), { recursive: true });
+  // The owner holds the lock, builds, and only then releases, as a concurrent runner would.
+  const owner = spawn(
+    process.execPath,
+    [
+      "-e",
+      `const fs = require("node:fs"), path = require("node:path");
+       const [lock, marker] = process.argv.slice(1);
+       fs.writeFileSync(lock, String(process.pid));
+       console.log("locked");
+       setTimeout(() => {
+         fs.mkdirSync(path.dirname(marker), { recursive: true });
+         fs.writeFileSync(marker, "built by owner");
+         fs.rmSync(lock);
+       }, 500);`,
+      fixture.lockPath,
+      fixture.markerPath,
+    ],
+    { stdio: ["ignore", "pipe", "inherit"] },
+  );
+  try {
+    await once(owner.stdout, "data");
+    assert.equal(ensureFreshBuild(fixture.options), "fresh");
+    assert.equal(fixture.builds, 0);
+  } finally {
+    owner.kill();
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
 });

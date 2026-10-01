@@ -1,5 +1,6 @@
+import { linkSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { readdir } from "node:fs/promises";
-import { relative, resolve } from "node:path";
+import { dirname, posix, relative, resolve } from "node:path";
 import { parseToolOptions, runNodeTestsCommand, toolOption, toolValue, toolValues } from "./tool-command-contract.mjs";
 
 export const testFilePattern = /\.(test|spec)\.(?:mjs|js|ts)$/u;
@@ -189,4 +190,87 @@ export function formatSlowTestSummary(slowTests, thresholdMs, limit) {
     `Slow test summary: top ${visible.length} tests at or above ${thresholdMs}ms`,
     ...visible.map((test, index) => `${index + 1}. ${test.durationMs.toFixed(3)}ms ${test.name}`),
   ].join("\n");
+}
+
+// The CLI launches the daemon from packages/daemon/dist, never from packages/daemon/src, so a
+// test that runs the CLI measures that build. Such a test has to name the CLI entry to run it,
+// in its own text or in a test-support file it imports; production sources are not followed.
+const cliEntryPattern = /cli\/(?:src\/index\.ts|dist\/cli\/src\/index\.js)/u;
+const relativeImportPattern = /(?:from|import)\s*\(?\s*["'](\.{1,2}\/[^"']+\.(?:ts|mjs|js))["']/gu;
+
+export function runsCliEntry(files, readSource) {
+  const seen = new Set();
+  const visit = (file) => {
+    if (seen.has(file)) return false;
+    seen.add(file);
+    const source = readSource(file);
+    if (source === undefined) return false;
+    if (cliEntryPattern.test(source)) return true;
+    return [...source.matchAll(relativeImportPattern)]
+      .map((match) => posix.normalize(posix.join(posix.dirname(file), match[1])))
+      .filter((imported) => !/(?:^|\/)src\//u.test(imported))
+      .some(visit);
+  };
+  return files.some(visit);
+}
+
+/**
+ * Build once when the marker the build writes last is missing or older than any build input.
+ * Two runs in one checkout share the output directory, so the build is serialized on a lock
+ * file holding its owner's pid; a lock whose owner is gone is taken over.
+ * @returns {"fresh"|"built"}
+ */
+export function ensureFreshBuild({ markerPath, lockPath, listInputs, build }) {
+  if (!buildIsStale(markerPath, listInputs())) return "fresh";
+  mkdirSync(dirname(lockPath), { recursive: true });
+  while (!tryAcquireBuildLock(lockPath)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+  try {
+    // The run that held the lock may have built exactly what this one was about to.
+    if (!buildIsStale(markerPath, listInputs())) return "fresh";
+    build();
+    return "built";
+  } finally {
+    rmSync(lockPath, { force: true });
+  }
+}
+
+function buildIsStale(markerPath, inputs) {
+  const builtAt = statSync(markerPath, { throwIfNoEntry: false })?.mtimeMs;
+  // No input list means the lister itself failed; the build reports why.
+  if (builtAt === undefined || inputs === undefined) return true;
+  return inputs.some((input) => (statSync(input, { throwIfNoEntry: false })?.mtimeMs ?? 0) > builtAt);
+}
+
+function tryAcquireBuildLock(lockPath) {
+  // Linking a file that already holds the pid makes the lock appear with its owner in one step.
+  const claim = `${lockPath}.${process.pid}`;
+  writeFileSync(claim, `${process.pid}\n`);
+  try {
+    linkSync(claim, lockPath);
+    return true;
+  } catch (error) {
+    if (error?.code !== "EEXIST") throw error;
+  } finally {
+    rmSync(claim, { force: true });
+  }
+  if (!buildLockOwnerAlive(lockPath)) rmSync(lockPath, { force: true });
+  return false;
+}
+
+function buildLockOwnerAlive(lockPath) {
+  let owner;
+  try {
+    owner = Number(readFileSync(lockPath, "utf8"));
+  } catch (error) {
+    if (error?.code !== "ENOENT") throw error;
+    return true;
+  }
+  if (!Number.isSafeInteger(owner) || owner <= 0) return false;
+  try {
+    process.kill(owner, 0);
+    return true;
+  } catch (error) {
+    if (error?.code !== "ESRCH") throw error;
+    return false;
+  }
 }
