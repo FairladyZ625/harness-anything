@@ -72,7 +72,7 @@ export function TokenUsageView({
     onFocusMember(segment === "agents" ? `tokenAgent/${row.id}` : `tokenSquad/${row.id}`);
   return (
     <section data-testid="token-usage-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="flex h-[42px] shrink-0 items-center gap-3 border-b border-border bg-surface-raised px-3.5">
+      <header className="flex min-h-[42px] shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-surface-raised px-3.5">
         <b className="ui-body tracking-[0.02em]">{t("agentRuntime.tokenUsageTitle")}</b>
         <SegCtl
           label={t("agentRuntime.tokenUsageRangeLabel")}
@@ -127,7 +127,9 @@ export function TokenUsageView({
                     })}
               </p>
               <TotalsStrip totals={data.totals} testId="token-usage-totals" />
-              <div className="mt-3 grid gap-3">
+              {/* 网格项默认 min-width 是内容的 min-content:趋势图的定宽 SVG(桶数×34px)会把
+                  卡片与整页撑出横向滚动。min-w-0 让卡片收进内容宽,图表在卡内自滚。 */}
+              <div className="mt-3 grid min-w-0 gap-3 [&>*]:min-w-0">
                 <Card testId="token-usage-trend-card">
                   <CardHead>
                     <CardTitle>{t("agentRuntime.tokenUsageTrendTitle")}</CardTitle>

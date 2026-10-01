@@ -34,7 +34,7 @@ export function SessionInspector({
     <aside
       data-testid="runtime-inspector"
       aria-label={t("agentRuntime.inspectorSession")}
-      className="w-[22%] min-w-[260px] max-w-[360px] shrink-0 overflow-y-auto border-l border-border"
+      className="@max-[719px]:hidden w-[22%] min-w-[260px] max-w-[360px] shrink-0 overflow-y-auto border-l border-border"
     >
       <h2
         className="sticky top-0 border-b border-border bg-surface px-3 py-2 ui-micro font-bold uppercase

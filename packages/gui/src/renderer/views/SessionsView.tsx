@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { isAvailableSquadRunSummary } from "@harness-anything/daemon/protocol";
+import { Popover } from "../components/Popover.tsx";
 import { agentEntityClient, isAvailableSquadEntityRow } from "../agent-entity-client.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts";
 import { harnessClient } from "../api-client.ts";
@@ -82,6 +83,9 @@ export function SessionsView({
   const [inspector, setInspector] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(new Set());
   const [selectedSquadRunId, setSelectedSquadRunId] = useState<string | null>(null);
+  // 窄容器(内容区 <720px,styles.css .sessions-split)的单列形态:点行进详情、返回键回
+  // 列表;宽容器常驻双栏,该状态不参与显隐。深链落点视为一次「点行」。
+  const [narrowDetailOpen, setNarrowDetailOpen] = useState(false);
   const [sessionTaskScope, setSessionTaskScope] = useState<{
     readonly runtimeSessionId: string;
     readonly taskId: string;
@@ -131,6 +135,13 @@ export function SessionsView({
     );
     // decisionFocus 由 focusedEntityRef 派生,依赖 ref 本身即可。
   }, [focusedEntityRef, focusedSessionId]);
+
+  // 窄容器下,深链/跨页实体跳转让详情取代列表(等价一次点行);返回键只清 open,
+  // 不动导航栈,所以这里只看焦点 ref 的变化,不重复触发。
+  const focusedDecisionSessionId = decisionFocus?.runtimeSessionId ?? null;
+  useEffect(() => {
+    if (focusedSessionId !== null || focusedDecisionSessionId !== null) setNarrowDetailOpen(true);
+  }, [focusedSessionId, focusedDecisionSessionId]);
 
   // 两段各自的读窗:单会话段与会话分组共用,小队编排段独立(见 DEFAULT_RANGE)。
   const since = useMemo(() => rangeToSince(rangeBySegment.sessions), [rangeBySegment.sessions]),
@@ -352,7 +363,10 @@ export function SessionsView({
   // 重渲染,行级 memo(SessionGroupList 的 GroupSection)靠这些稳定引用跳过未变组。
   const groupDecisionRefsFor = useCallback((taskId: string) => sessionDecisionRefs(relations, taskId), [relations]);
   const selectSessionFromRail = useCallback(
-    (runtimeSessionId: string) => onSelectEntity(`session/${runtimeSessionId}`),
+    (runtimeSessionId: string) => {
+      setNarrowDetailOpen(true);
+      onSelectEntity(`session/${runtimeSessionId}`);
+    },
     [onSelectEntity],
   );
   const toggleGroup = useCallback((key: string) => {
@@ -360,6 +374,14 @@ export function SessionsView({
       const next = new Set(current);
       if (next.has(key)) next.delete(key);
       else next.add(key);
+      return next;
+    });
+  }, []);
+  const toggleStatusFilter = useCallback((word: SessionStatus) => {
+    setStatusFilter((current) => {
+      const next = new Set(current);
+      if (next.has(word)) next.delete(word);
+      else next.add(word);
       return next;
     });
   }, []);
@@ -391,7 +413,10 @@ export function SessionsView({
         <SegCtl
           label={t("agentRuntime.sessionsSegmentLabel")}
           value={segment}
-          onChange={(value) => setSegment(value)}
+          onChange={(value) => {
+            setSegment(value);
+            setNarrowDetailOpen(false);
+          }}
           options={[
             { value: "sessions", label: t("agentRuntime.sessionsSegmentSingle") },
             { value: "squads", label: t("agentRuntime.sessionsSegmentSquad") },
@@ -437,7 +462,7 @@ export function SessionsView({
       </header>
       <div
         data-testid="sessions-toolbar"
-        className="glass mx-2 mb-4 flex min-h-12 shrink-0 flex-nowrap items-center gap-2.5 overflow-x-auto border-b border-border px-2.5 [&>span[role=group]]:flex-nowrap [&>span[role=group]]:shrink-0 [&_button]:whitespace-nowrap"
+        className="glass mx-2 mb-4 flex min-h-12 shrink-0 flex-wrap items-center gap-2.5 border-b border-border px-2.5 @container [&>span[role=group]]:shrink-0 [&_button]:whitespace-nowrap"
       >
         {segment === "sessions" && (
           <SegCtl
@@ -459,37 +484,58 @@ export function SessionsView({
           options={(Object.keys(RANGE_SPAN) as Range[]).map((value) => ({ value, label: rangeLabel[value] }))}
         />
         {segment === "sessions" && (
-          <span
-            role="group"
-            aria-label={t("agentRuntime.sessionsStatusLabel")}
-            data-testid="sessions-status-filter"
-            className="inline-flex min-w-24 flex-1 gap-1 overflow-x-auto py-1 [&>button]:shrink-0"
-            style={{ flexShrink: 1 }}
-          >
-            {sessionStatusFilterWords.map((word) => (
-              <button
-                key={word}
-                type="button"
-                data-testid={`sessions-status-${word}`}
-                aria-pressed={statusFilter.has(word)}
-                onClick={() =>
-                  setStatusFilter((current) => {
-                    const next = new Set(current);
-                    if (next.has(word)) next.delete(word);
-                    else next.add(word);
-                    return next;
-                  })
-                }
-                className={`h-7 whitespace-nowrap rounded-xs border px-3 ui-meta ${
-                  statusFilter.has(word)
-                    ? "border-accent/40 bg-accent/15 font-semibold text-accent"
-                    : "border-border bg-text/5 text-text-muted hover:bg-surface"
-                }`}
-              >
-                {t(sessionStatusKey[word] as never)}
-              </button>
-            ))}
-          </span>
+          <>
+            {/* 状态词表实测 ~795px:容器 ≥1100px 时平铺(桌面现状,放不下时条内自滚);
+                更窄时平铺 + 检索放不进一行,收纳进下拉让工具条一行放下(标准 §1.9②)。 */}
+            <span
+              role="group"
+              aria-label={t("agentRuntime.sessionsStatusLabel")}
+              data-testid="sessions-status-filter"
+              className="hidden min-w-24 gap-1 py-1 @min-[1100px]:inline-flex @min-[1100px]:flex-1 @min-[1100px]:overflow-x-auto [&>button]:shrink-0"
+              style={{ flexShrink: 1 }}
+            >
+              {sessionStatusFilterWords.map((word) => (
+                <StatusFilterButton
+                  key={word}
+                  word={word}
+                  pressed={statusFilter.has(word)}
+                  onToggle={toggleStatusFilter}
+                  testId={`sessions-status-${word}`}
+                />
+              ))}
+            </span>
+            <Popover
+              label={t("agentRuntime.sessionsStatusLabel")}
+              testId="sessions-status-filter-menu"
+              panelClassName="w-60"
+              triggerClassName={
+                "@min-[1100px]:hidden inline-flex h-7 items-center gap-1.5 rounded-xs border px-3 ui-meta " +
+                (status.length === 0
+                  ? "border-border bg-text/5 text-text-muted hover:bg-surface"
+                  : "border-accent/40 bg-accent/15 font-semibold text-accent")
+              }
+              trigger={
+                <>
+                  {t("agentRuntime.sessionsStatusLabel")}
+                  {status.length > 0 ? ` · ${status.length}` : ""}
+                  <span aria-hidden>▾</span>
+                </>
+              }
+            >
+              {() =>
+                sessionStatusFilterWords.map((word) => (
+                  <StatusFilterButton
+                    key={word}
+                    word={word}
+                    pressed={statusFilter.has(word)}
+                    onToggle={toggleStatusFilter}
+                    testId={`sessions-status-menu-${word}`}
+                    className="mb-1 w-full text-left"
+                  />
+                ))
+              }
+            </Popover>
+          </>
         )}
         <input
           type="search"
@@ -499,7 +545,7 @@ export function SessionsView({
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           className={
-            "w-56 shrink-0 rounded-xs border border-border-strong bg-surface px-2.5 py-1 ui-meta text-text " +
+            "min-w-36 max-w-56 flex-1 rounded-xs border border-border-strong bg-surface px-2.5 py-1 ui-meta text-text " +
             "outline-none focus-visible:border-accent"
           }
         />
@@ -528,7 +574,7 @@ export function SessionsView({
         </p>
       )}
       {segment === "sessions" ? (
-        <div className="flex min-h-0 flex-1 px-2 pb-2">
+        <div className="sessions-split flex min-h-0 flex-1 px-2 pb-2" data-detail-open={narrowDetailOpen}>
           <SessionGroupList
             pending={workspace.groups.isPending}
             groups={groups}
@@ -544,7 +590,12 @@ export function SessionsView({
             onOpenTask={onOpenTask}
             onSelectEntity={onSelectEntity}
           />
-          <main data-testid="sessions-detail" className="min-w-0 flex-1 overflow-y-auto px-5 pt-4 pb-6">
+          <main
+            data-testid="sessions-detail"
+            data-pane="detail"
+            className="min-w-0 flex-1 overflow-y-auto px-5 pt-4 pb-6"
+          >
+            <BackToListButton onBack={() => setNarrowDetailOpen(false)} />
             {selectedSessionId === null ? (
               <Empty>{t(workspace.groups.isPending ? "agentRuntime.loading" : "agentRuntime.noSessions")}</Empty>
             ) : (
@@ -591,7 +642,7 @@ export function SessionsView({
           )}
         </div>
       ) : (
-        <div className="flex min-h-0 flex-1 px-2 pb-2">
+        <div className="sessions-split flex min-h-0 flex-1 px-2 pb-2" data-detail-open={narrowDetailOpen}>
           <SquadRunList
             runs={runs}
             truncated={workspace.squadRuns.data?.truncated ?? false}
@@ -600,9 +651,13 @@ export function SessionsView({
             query={debouncedSearch}
             range={rangeLabel[rangeBySegment.squads]}
             selectedId={selectedSquadRun?.squadRunId ?? null}
-            onSelectRun={setSelectedSquadRunId}
+            onSelectRun={(squadRunId) => {
+              setSelectedSquadRunId(squadRunId);
+              setNarrowDetailOpen(true);
+            }}
           />
-          <main className="min-w-0 flex-1 overflow-y-auto">
+          <main data-pane="detail" className="min-w-0 flex-1 overflow-y-auto">
+            <BackToListButton onBack={() => setNarrowDetailOpen(false)} />
             {selectedSquadRun === null ? (
               <Empty>{t("agentRuntime.squadRunSelectEmpty")}</Empty>
             ) : (
@@ -625,5 +680,50 @@ export function SessionsView({
         </div>
       )}
     </section>
+  );
+}
+
+/** 状态筛选钮:平铺与下拉共用一份;集合语义(空集 = 不筛)。 */
+function StatusFilterButton({
+  word,
+  pressed,
+  onToggle,
+  testId,
+  className = "",
+}: {
+  readonly word: SessionStatus;
+  readonly pressed: boolean;
+  readonly onToggle: (word: SessionStatus) => void;
+  readonly testId: string;
+  readonly className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      aria-pressed={pressed}
+      onClick={() => onToggle(word)}
+      className={`h-7 whitespace-nowrap rounded-xs border px-3 ui-meta ${className} ${
+        pressed
+          ? "border-accent/40 bg-accent/15 font-semibold text-accent"
+          : "border-border bg-text/5 text-text-muted hover:bg-surface"
+      }`}
+    >
+      {t(sessionStatusKey[word] as never)}
+    </button>
+  );
+}
+
+/** 单列形态的返回键(容器 ≥720px 时隐藏,styles.css .sessions-split)。 */
+function BackToListButton({ onBack }: { readonly onBack: () => void }) {
+  return (
+    <button
+      type="button"
+      data-testid="sessions-back-to-list"
+      onClick={onBack}
+      className="@min-[720px]:hidden mb-3 inline-flex h-7 items-center gap-1.5 rounded-xs border border-border px-3 ui-meta text-text-muted hover:border-accent hover:text-accent"
+    >
+      ← {t("agentRuntime.sessionsBackToList")}
+    </button>
   );
 }

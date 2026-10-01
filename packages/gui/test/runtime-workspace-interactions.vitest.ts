@@ -652,6 +652,75 @@ describe("runtime entry split (W6 IA)", () => {
     expect(byTestId("squad-run-detail").textContent).toContain("declared converged");
   });
 
+  it("collapses the status filter into a menu driving the same read; the toolbar wraps instead of scrolling (B1)", async () => {
+    await mountSessions("session/runtime-bound");
+    // 工具条不再用自身横向滚动容纳控件(标准 §1.9②):允许换行,状态词表窄容器收进下拉。
+    const toolbar = byTestId("sessions-toolbar");
+    expect(toolbar.className).toContain("flex-wrap");
+    expect(toolbar.className).not.toContain("overflow-x-auto");
+    expect(byTestId("sessions-status-filter").querySelectorAll("button")).toHaveLength(8);
+
+    await click("sessions-status-filter-menu");
+    const menuButtons = byTestId("sessions-status-filter-menu-panel").querySelectorAll("button");
+    expect(menuButtons).toHaveLength(8);
+    const menuFailed = [...menuButtons].find((button) => button.textContent === "Failed");
+    expect(menuFailed).toBeInstanceOf(HTMLButtonElement);
+    await act(async () => {
+      (menuFailed as HTMLButtonElement).click();
+    });
+    await flushEffects();
+    expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.at(-1)?.[1]).toMatchObject({ status: ["failed"] });
+    expect(menuFailed?.getAttribute("aria-pressed")).toBe("true");
+    // 下拉与平铺是同一选择集的两份呈现。
+    const inlineFailed = [...byTestId("sessions-status-filter").querySelectorAll("button")].find(
+      (button) => button.textContent === "Failed",
+    );
+    expect(inlineFailed?.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("opens the narrow single-column detail from a row and returns to the list (C1)", async () => {
+    await mountSessions(null);
+    const split = document.querySelector(".sessions-split") as HTMLElement;
+    expect(split?.dataset.detailOpen).toBe("false");
+    // 单列/双栏由同一对 pane 挂点驱动(styles.css 容器查询),列表全宽形态下点行进详情。
+    expect(split.querySelector('[data-pane="list"]')?.getAttribute("data-testid")).toBe("sessions-group-list");
+    expect(split.querySelector('[data-pane="detail"]')?.getAttribute("data-testid")).toBe("sessions-detail");
+
+    await click("session-group-toggle-task-bound");
+    await click("rail-session-runtime-bound");
+    expect(split.dataset.detailOpen).toBe("true");
+    expect(byTestId("sessions-back-to-list")).toBeTruthy();
+
+    await click("sessions-back-to-list");
+    expect(split.dataset.detailOpen).toBe("false");
+    // 返回不动导航选中:再点同一行仍能进详情。
+    await click("rail-session-runtime-bound");
+    expect(split.dataset.detailOpen).toBe("true");
+  });
+
+  it("treats a session deep link as one row tap in the narrow form", async () => {
+    await mountSessions("session/runtime-bound");
+    expect((document.querySelector(".sessions-split") as HTMLElement).dataset.detailOpen).toBe("true");
+  });
+
+  it("opens the squad run detail in the narrow form from a run row", async () => {
+    await mountSessions(null, {}, undefined, sessionGroups, async () => squadRunsListFixture);
+    const squadSegment = [...byTestId("sessions-view").querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Squad orchestration"),
+    );
+    await act(async () => {
+      squadSegment!.click();
+    });
+    await flushEffects();
+    const split = document.querySelector(".sessions-split") as HTMLElement;
+    expect(split.dataset.detailOpen).toBe("false");
+    await click(`squad-run-toggle-${squadRunSummaryRow.squadRunId}`);
+    expect(split.dataset.detailOpen).toBe("true");
+    expect(byTestId("sessions-back-to-list")).toBeTruthy();
+    await click("sessions-back-to-list");
+    expect(split.dataset.detailOpen).toBe("false");
+  });
+
   it("opens the bound task detail from the selected session (W5:派工链归 Task 详情)", async () => {
     const onOpenTask = vi.fn(),
       onSelectEntity = vi.fn();

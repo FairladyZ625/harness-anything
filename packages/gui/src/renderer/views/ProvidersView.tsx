@@ -44,20 +44,20 @@ export function ProvidersView({
     workspace.overview.data?.sessions.filter((session) => session.instanceId === selectedId) ?? [];
   return (
     <section data-testid="providers-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="flex h-[42px] shrink-0 items-center gap-3 border-b border-border bg-surface-raised px-3.5">
+      <header className="flex min-h-[42px] shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-surface-raised px-3.5">
         <b className="ui-body tracking-[0.02em]">{t("agentRuntime.providersTitle")}</b>
         <span className="truncate font-mono ui-micro text-text-faint">{t("agentRuntime.providersSubtitle")}</span>
         <span className="flex-1" />
-        <span className="flex items-center gap-2.5 whitespace-nowrap ui-micro text-text-muted">
-          <span className="flex items-center gap-1">
+        <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1 ui-micro text-text-muted">
+          <span className="flex items-center gap-1 whitespace-nowrap">
             <CapDot size={10} state="full" tip={t("agentRuntime.legendReadyTip")} />
             {t("agentRuntime.legendReady")}
           </span>
-          <span className="flex items-center gap-1">
+          <span className="flex items-center gap-1 whitespace-nowrap">
             <CapDot size={10} state="part" tip={t("agentRuntime.legendPartialTip")} />
             {t("agentRuntime.legendPartial")}
           </span>
-          <span className="flex items-center gap-1">
+          <span className="flex items-center gap-1 whitespace-nowrap">
             <CapDot size={10} state="none" tip={t("agentRuntime.legendBlockedTip")} />
             {t("agentRuntime.legendBlocked")}
           </span>
