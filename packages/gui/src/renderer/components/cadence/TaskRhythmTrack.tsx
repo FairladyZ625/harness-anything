@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { t } from "../../i18n/index.tsx";
+import { shortRef } from "../../sessions-model.ts";
 import { formatTime } from "../../model/time.ts";
 import { formatDurationMs } from "../scheduleRun/runMeta.ts";
 import { Region } from "../primitives/Region.tsx";
@@ -167,7 +168,7 @@ function RhythmRow({
               data-testid="cadence-rhythm-toggle"
               aria-expanded={expanded}
               className="flex min-w-0 items-center gap-1 text-left ui-body text-text hover:text-accent"
-              title={entry.title}
+              title={entry.known ? entry.title : `${entry.title} · ${entry.taskId}`}
               onClick={() => onToggle(entry.taskId)}
             >
               <span
@@ -176,17 +177,11 @@ function RhythmRow({
               >
                 ▶
               </span>
+              {entry.known ? null : (
+                <span className="shrink-0 text-text-faint ui-micro">{t("views.cadence.rhythmUnknownRow")}</span>
+              )}
               <span className="min-w-0 truncate">{entry.title}</span>
             </button>
-            <EntityRefLink
-              entityRef={`task/${entry.taskId}`}
-              onNavigate={onNavigateEntity}
-              title={entry.taskId}
-              className="font-mono ui-micro text-text-faint hover:text-accent hover:underline"
-            >
-              {entry.known ? null : <span className="mr-1">{t("views.cadence.rhythmUnknownRow")}</span>}
-              {entry.taskId}
-            </EntityRefLink>
             {entry.stalled ? <StatusTag tone="wait" label={t("views.cadence.stalledBadge")} /> : null}
             {entry.frictionTotal > 0 ? (
               <StatusTag tone="bad" label={t("views.cadence.frictionBadge", { count: entry.frictionTotal })} />
@@ -229,7 +224,19 @@ function RhythmRow({
             )}
           </div>
         </div>
-        <span className="shrink-0 font-mono ui-micro text-text-faint">{lastAt ?? ""}</span>
+        {/* 编号不进标题行(不把标题挤成省略号):行尾弱色短码,悬停给完整 id,
+            仍是通往任务实体的路径(G10)。 */}
+        <div className="flex shrink-0 items-baseline gap-2">
+          <EntityRefLink
+            entityRef={`task/${entry.taskId}`}
+            onNavigate={onNavigateEntity}
+            title={entry.taskId}
+            className="font-mono ui-micro text-text-faint hover:text-accent hover:underline"
+          >
+            {shortRef(entry.taskId, 12)}
+          </EntityRefLink>
+          <span className="font-mono ui-micro text-text-faint">{lastAt ?? ""}</span>
+        </div>
       </div>
       {expanded ? <RhythmDetail entry={entry} onNavigateEntity={onNavigateEntity} /> : null}
     </li>

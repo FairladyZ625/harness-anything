@@ -23,6 +23,7 @@ export function DenseRow({
   action,
   relaxed = false,
   selected = false,
+  hoverTitle,
   onClick,
 }: {
   readonly index?: number | string;
@@ -33,6 +34,8 @@ export function DenseRow({
   readonly action?: ReactNode;
   readonly relaxed?: boolean;
   readonly selected?: boolean;
+  /** 行悬停全文:主文字被收束(可读名、人话短语)时,原始机器串放这里(视觉基线 v2)。 */
+  readonly hoverTitle?: string;
   readonly onClick?: () => void;
 }) {
   // 没有标签就不留标签列:否则每行前面空出 3rem 缩进。
@@ -94,7 +97,7 @@ export function DenseRow({
   const rowCls = `grid w-full items-center gap-2.5 border-t border-border px-3.5 ui-body ${cols} ${sizeCls} ${stateCls}`;
   if (onClick === undefined) {
     return (
-      <div data-dense-row data-selected={selected || undefined} className={rowCls}>
+      <div data-dense-row data-selected={selected || undefined} title={hoverTitle} className={rowCls}>
         {content}
       </div>
     );
@@ -105,6 +108,7 @@ export function DenseRow({
       onClick={onClick}
       data-dense-row
       data-selected={selected || undefined}
+      title={hoverTitle}
       className={`w-full cursor-pointer text-left ${rowCls}`}
     >
       {content}

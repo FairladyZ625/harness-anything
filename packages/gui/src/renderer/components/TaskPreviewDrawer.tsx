@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { ArrowSquareOut, Lock, PushPin, X } from "@phosphor-icons/react";
-import type { RelationEdge, TaskRow } from "../model/types";
+import type { EventEntry, RelationEdge, TaskRow } from "../model/types";
 import { isExternal } from "../model/types";
 import { normalizeTaskId } from "../model/triadic.ts";
 import { CloseoutBadge, EngineBadge, FreshnessTag } from "./badges";
@@ -264,6 +264,7 @@ function TaskPreviewBody({
                 time: formatTime(event.at, { style: "time" }) ?? undefined,
                 name: event.summary,
                 steps: [],
+                ref: event.ref,
                 onClick: () => onOpenDetail(task.taskId),
               }))}
             />
@@ -310,11 +311,11 @@ function GoalLine({ goal }: { readonly goal: string }) {
 
 interface EventDayGroup {
   readonly day: string;
-  readonly events: ReadonlyArray<{ readonly at: string; readonly summary: string }>;
+  readonly events: readonly EventEntry[];
 }
 
-function groupByDay(events: readonly { readonly at: string; readonly summary: string }[]): EventDayGroup[] {
-  const groups: { day: string; events: { at: string; summary: string }[] }[] = [];
+function groupByDay(events: readonly EventEntry[]): EventDayGroup[] {
+  const groups: { day: string; events: EventEntry[] }[] = [];
   for (const event of events) {
     const day = formatTime(event.at, { style: "date" }) ?? event.at.slice(0, 10);
     const last = groups.at(-1);

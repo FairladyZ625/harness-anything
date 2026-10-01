@@ -1,3 +1,4 @@
+import type { MessageKey } from "../i18n/index.tsx";
 import type { CadenceFeedEvent } from "./cadence.ts";
 import type { SnapshotStatus, TaskRow } from "./types.ts";
 
@@ -30,6 +31,8 @@ export function noAgentRunning(task: RuntimeCarrierFields): boolean {
 /**
  * 一天里一个任务走过的步骤(收束后的事件种类)。呈现层的 label/tone 由视图查表,
  * 模型只给语义种类;未列出的 canonical 事件 type 不进步骤(完整流仍在检修页)。
+ * consent/witness/dismissed/abandoned 只由任务详情的进展时间线用(快照上的记录,
+ * canonical 事件流不产这几种),同一张词表,不另开第二套。
  */
 export type WorkStepKind =
   | "start"
@@ -42,7 +45,32 @@ export type WorkStepKind =
   | "reopened"
   | "fact"
   | "gatePass"
-  | "gateFail";
+  | "gateFail"
+  | "gateCheck"
+  | "consent"
+  | "witness"
+  | "dismissed"
+  | "abandoned";
+
+/** 步骤种类的文案键单源:工作概况的 STEP_META、任务详情时间线与适配层摘要同一张表。 */
+export const WORK_STEP_LABEL_KEY: Readonly<Record<WorkStepKind, MessageKey>> = {
+  start: "views.workspace.step.start",
+  dispatch: "views.workspace.step.dispatch",
+  submit: "views.workspace.step.submit",
+  approved: "views.workspace.step.approved",
+  rejected: "views.workspace.step.rejected",
+  returned: "views.workspace.step.returned",
+  completed: "views.workspace.step.completed",
+  reopened: "views.workspace.step.reopened",
+  fact: "views.workspace.step.fact",
+  gatePass: "views.workspace.step.gatePass",
+  gateFail: "views.workspace.step.gateFail",
+  gateCheck: "views.workspace.step.gateCheck",
+  consent: "views.workspace.step.consent",
+  witness: "views.workspace.step.witness",
+  dismissed: "views.workspace.step.dismissed",
+  abandoned: "views.workspace.step.abandoned",
+};
 
 const STEP_BY_EVENT: Readonly<Record<string, WorkStepKind | undefined>> = {
   execution_started: "start",

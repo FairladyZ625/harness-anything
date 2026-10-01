@@ -14,6 +14,10 @@ export interface DayPath {
   readonly onClick?: () => void;
   /** 外部列表(如放大层)的选中态,与 DenseRow 同一高亮语汇;平铺场景不传。 */
   readonly selected?: boolean;
+  /** 行尾弱色编号(机器 id):主文字是人话,编号从这可达(视觉基线 v2)。 */
+  readonly ref?: string;
+  /** 行悬停全文:主文字被收束(可读名、人话步骤)时,原始串放这里。 */
+  readonly title?: string;
 }
 
 /**
@@ -79,11 +83,24 @@ export function DayDigest({
                     </Fragment>
                   ))}
                 </span>
+                {path.ref !== undefined && (
+                  <span
+                    className="ml-auto min-w-0 truncate font-mono text-text-faint ui-micro"
+                    title={path.title ?? path.ref}
+                  >
+                    {path.ref}
+                  </span>
+                )}
               </>
             );
             if (path.onClick === undefined) {
               return (
-                <div key={index} data-selected={path.selected || undefined} className={pathRowCls(path.selected)}>
+                <div
+                  key={index}
+                  data-selected={path.selected || undefined}
+                  title={path.title}
+                  className={pathRowCls(path.selected)}
+                >
                   {content}
                 </div>
               );
@@ -94,6 +111,7 @@ export function DayDigest({
                 type="button"
                 onClick={path.onClick}
                 data-selected={path.selected || undefined}
+                title={path.title}
                 className={`group w-full cursor-pointer text-left ${pathRowCls(path.selected)}`}
               >
                 {content}

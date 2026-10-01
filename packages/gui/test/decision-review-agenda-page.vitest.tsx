@@ -337,7 +337,8 @@ describe("议程页(标准 §2.4 列表页)", () => {
     const answeredRow0 = answered.querySelector('[data-testid="agenda-row-rel_ans_task"]')!;
     expect(answeredRow0.textContent).toContain("已答复 task/task_asked");
     expect(answeredRow0.textContent).toContain("待跟进");
-    expect(answeredRow0.textContent).toContain("答复者 person_owner");
+    // 答复者是可读名字(person id 去命名空间前缀),不再是原始身份串。
+    expect(answeredRow0.textContent).toContain("答复者 owner");
     expect(answeredRow0.textContent).toContain("答:不兼容，直接删");
     expect(answeredRow0.querySelector('[data-status-tone="wait"]')).not.toBeNull();
     for (const id of ["rel_ans_task", "rel_ans_dec"]) {
