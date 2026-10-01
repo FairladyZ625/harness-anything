@@ -526,7 +526,10 @@ function buildFixture() {
     builds: 0,
   };
   writeFileSync(fixture.input, "source\n");
+  // A linked worktree: the only kind of checkout the build is run in.
+  writeFileSync(path.join(root, ".git"), "gitdir: /elsewhere/.git/worktrees/fixture\n");
   fixture.options = {
+    checkoutRoot: root,
     markerPath: fixture.markerPath,
     lockPath: fixture.lockPath,
     listInputs: () => [fixture.input, path.join(root, "deleted-input.ts")],
@@ -553,6 +556,26 @@ test("ensureFreshBuild builds when the marker is missing or older than an input,
     assert.equal(ensureFreshBuild({ ...fixture.options, listInputs: () => undefined }), "built");
     assert.equal(fixture.builds, 3);
     assert.equal(existsSync(fixture.lockPath), false);
+  } finally {
+    rmSync(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test("ensureFreshBuild reports a stale build in the main checkout without building or locking", () => {
+  const fixture = buildFixture();
+  try {
+    rmSync(path.join(fixture.root, ".git"));
+    mkdirSync(path.join(fixture.root, ".git"));
+    assert.equal(ensureFreshBuild(fixture.options), "stale");
+    fixture.options.build();
+    const later = new Date(Date.now() + 60_000);
+    utimesSync(fixture.input, later, later);
+    assert.equal(ensureFreshBuild(fixture.options), "stale");
+    assert.equal(fixture.builds, 1);
+    assert.equal(existsSync(fixture.lockPath), false);
+    // The operator's own build is accepted as it is.
+    utimesSync(fixture.markerPath, later, later);
+    assert.equal(ensureFreshBuild(fixture.options), "fresh");
   } finally {
     rmSync(fixture.root, { recursive: true, force: true });
   }

@@ -218,10 +218,13 @@ export function runsCliEntry(files, readSource) {
  * Build once when the marker the build writes last is missing or older than any build input.
  * Two runs in one checkout share the output directory, so the build is serialized on a lock
  * file holding its owner's pid; a lock whose owner is gone is taken over.
- * @returns {"fresh"|"built"}
+ * Only a linked worktree is rebuilt. The main checkout's build is the one the resident daemon
+ * runs from, and replacing it restarts that daemon on whatever the tree holds, committed or not.
+ * @returns {"fresh"|"built"|"stale"}
  */
-export function ensureFreshBuild({ markerPath, lockPath, listInputs, build }) {
+export function ensureFreshBuild({ checkoutRoot, markerPath, lockPath, listInputs, build }) {
   if (!buildIsStale(markerPath, listInputs())) return "fresh";
+  if (!isLinkedWorktree(checkoutRoot)) return "stale";
   mkdirSync(dirname(lockPath), { recursive: true });
   while (!tryAcquireBuildLock(lockPath)) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
   try {
@@ -232,6 +235,11 @@ export function ensureFreshBuild({ markerPath, lockPath, listInputs, build }) {
   } finally {
     rmSync(lockPath, { force: true });
   }
+}
+
+// Git gives a linked worktree a .git file pointing at the main checkout's directory.
+function isLinkedWorktree(checkoutRoot) {
+  return statSync(resolve(checkoutRoot, ".git"), { throwIfNoEntry: false })?.isFile() === true;
 }
 
 function buildIsStale(markerPath, inputs) {

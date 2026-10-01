@@ -107,7 +107,7 @@ if (options.list) {
 }
 
 // A test that runs the CLI measures the daemon build the CLI launches. Bring that build up to
-// its sources here, once, before any test file process exists. Real CLI flows belong to the
+// its sources here, once, before any test file process exists; the main checkout is refused instead. Real CLI flows belong to the
 // integration tier; the other tiers name the CLI entry only as a path string in gate tests.
 const integrationFiles = new Set(testTierManifest.integration);
 if (
@@ -280,6 +280,7 @@ function ensureFreshDaemonBuild() {
     startedAt = Date.now();
   let failure = null;
   const outcome = ensureFreshBuild({
+    checkoutRoot: root,
     markerPath: join(daemonRoot, "dist/build-id.txt"),
     lockPath: join(root, "node_modules/.cache/harness-daemon-build.lock"),
     listInputs: () => daemonBuildInputs(root, daemonRoot),
@@ -296,6 +297,16 @@ function ensureFreshDaemonBuild() {
   if (failure !== null) {
     console.error(failure);
     console.error("[daemon-build] the daemon build failed; no test was run.");
+    process.exit(1);
+  }
+  if (outcome === "stale") {
+    console.error(
+      [
+        "[daemon-build] packages/daemon/dist is missing or older than its sources; no test was run.",
+        "This is the repository's main checkout: its build is the one the resident daemon runs from, so the test runner does not rebuild it here.",
+        "Run these tests from a task worktree, or rebuild it yourself: npm run build --workspace @harness-anything/daemon",
+      ].join("\n"),
+    );
     process.exit(1);
   }
   if (outcome === "built") console.log(`[daemon-build] built in ${Date.now() - startedAt}ms.`);
