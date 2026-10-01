@@ -11,7 +11,9 @@ import {
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 
 export const artifactAnchorGuidance =
-  "Use artifact:artifacts/report.md; submit pins the current center-accepted revision.";
+  "Use artifact:artifacts/report.md; submit pins the current center-accepted revision. " +
+  "Only anchors naming this task's artifacts select deliverables; other artifact: text " +
+  "(for example a quoted runtime-result ref) is prose and selects nothing.";
 
 // Non-ASCII punctuation (Unicode \p{P}) and fullwidth-block symbols end the anchor, so
 // 「artifact:artifacts/design.md、」 cannot swallow the next anchor, while CJK letters and other
@@ -122,21 +124,23 @@ export function readSubmissionArtifact(
   return { anchor: { path: artifact, revision, blobSha256 }, body, acceptance: event.opId };
 }
 
-export function artifactAnchors(summary: string): readonly { readonly path: string; readonly revision?: number }[] {
-  return artifactAnchorMatches(summary).map(({ path, revision }) => ({
-    path,
-    ...(revision === undefined ? {} : { revision }),
-  }));
-}
-
-export function removeArtifactAnchors(summary: string): string {
-  let cursor = 0,
-    result = "";
-  for (const { start, end } of artifactAnchorMatches(summary)) {
-    result += summary.slice(cursor, start);
-    cursor = end;
-  }
-  return result + summary.slice(cursor);
+/**
+ * Deliverable anchors are the `artifact:` runs naming a path under this task's artifacts
+ * namespace (`artifacts/…` package-relative or `<packagePath>/artifacts/…` full). `artifact:`
+ * prefixes other namespaces too — runtime-result refs quote as `artifact:runtime-result/sha256/…` —
+ * so a run outside this task's artifacts is mention text: it selects no deliverable and rejects
+ * nothing, exactly like prose that never used the sigil.
+ */
+export function artifactAnchors(
+  summary: string,
+  packagePath: string,
+): readonly { readonly path: string; readonly revision?: number }[] {
+  return artifactAnchorMatches(summary)
+    .filter(({ path }) => submissionArtifactPath(packagePath, path).startsWith(`${packagePath}/artifacts/`))
+    .map(({ path, revision }) => ({
+      path,
+      ...(revision === undefined ? {} : { revision }),
+    }));
 }
 
 /**
