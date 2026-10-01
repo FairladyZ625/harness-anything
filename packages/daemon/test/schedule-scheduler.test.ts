@@ -1,5 +1,8 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { createScheduleV1, type DaemonRepoMode, type ScheduleV1 } from "@harness-anything/kernel";
 import { makeScheduleScheduler } from "../src/schedule-scheduler.ts";
@@ -364,6 +367,124 @@ test("remote-center installs no timer while remote-edge uses its assignment acti
   scheduler.close();
 });
 
+test("a remote-edge Schedule read that cannot reach the center retries on backoff and re-arms on recovery", async () => {
+  const clock = fakeClock("2026-08-27T10:00:00.000Z"),
+    edge = fixtureRepo("edge-unreachable", "remote-edge", [schedule("edge-schedule")]),
+    warnings: string[] = [],
+    originalWarn = console.warn,
+    originalRandom = Math.random;
+  let centerReachable = false,
+    listCalls = 0;
+  console.warn = (message?: unknown) => warnings.push(String(message));
+  // Full jitter draws from [1, ceiling]; pinning the draw to the top reads the ceiling itself.
+  Math.random = () => 0.999_999;
+  const scheduler = makeScheduleScheduler({
+    cells: new Map([[edge.repoId, edge.cell]]),
+    localBinding,
+    remoteEdgeAction: async (_repoId, _rootDir, action) => {
+      listCalls += 1;
+      if (!centerReachable)
+        throw Object.assign(new Error("connect ECONNREFUSED 10.211.55.2:7444"), { code: "ECONNREFUSED" });
+      return edge.execute(action);
+    },
+    now: clock.now,
+    setTimer: clock.setTimer,
+    clearTimer: clock.clearTimer,
+  });
+  try {
+    await scheduler.start();
+    const delays: number[] = [];
+    for (let attempt = 0; attempt < 12; attempt += 1) {
+      assert.equal(clock.liveTimers().length, 1);
+      delays.push(clock.liveTimers()[0]!.delayMs);
+      clock.liveTimers()[0]!.callback();
+      await waitUntil(() => clock.liveTimers().length === 1);
+    }
+    assert.deepEqual(delays, [250, 500, 1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000, 30_000, 30_000, 30_000]);
+    assert.deepEqual(warnings, [
+      "[schedule-scheduler] edge-unreachable refresh failed, retrying: connect ECONNREFUSED 10.211.55.2:7444",
+    ]);
+
+    centerReachable = true;
+    const callsBeforeRecovery = listCalls;
+    assert.equal(clock.liveTimers().length, 1);
+    clock.liveTimers()[0]!.callback();
+    await waitUntil(() => listCalls > callsBeforeRecovery && clock.liveTimers().length === 1);
+    assert.equal(clock.liveTimers().length, 1);
+    assert.equal(clock.liveTimers()[0]!.delayMs, 30 * 60_000);
+
+    // A later outage starts a fresh streak: it backs off from the floor and is reported once more.
+    centerReachable = false;
+    await scheduler.refresh();
+    assert.equal(clock.liveTimers()[0]!.delayMs, 250);
+    assert.equal(warnings.length, 2);
+  } finally {
+    console.warn = originalWarn;
+    Math.random = originalRandom;
+    scheduler.close();
+  }
+});
+
+test("a local Schedule read failure installs no retry timer", async () => {
+  const clock = fakeClock("2026-08-27T10:00:00.000Z"),
+    repo = fixtureRepo("local-failure", "local", [schedule("local-schedule")]),
+    originalWarn = console.warn;
+  repo.cell.run = async () => {
+    throw Object.assign(new Error("connect ECONNREFUSED 10.211.55.2:7444"), { code: "ECONNREFUSED" });
+  };
+  console.warn = () => {};
+  const scheduler = makeScheduleScheduler({
+    cells: new Map([[repo.repoId, repo.cell]]),
+    localBinding,
+    now: clock.now,
+    setTimer: clock.setTimer,
+    clearTimer: clock.clearTimer,
+  });
+  try {
+    await scheduler.start();
+    assert.equal(clock.liveTimers().length, 0);
+  } finally {
+    console.warn = originalWarn;
+    scheduler.close();
+  }
+});
+
+test("the repository admission window decides whether a late wake is claimed or recorded as missed", async (t) => {
+  const lateWake = async (rootDir?: string) => {
+    const clock = fakeClock("2026-08-27T10:35:00.000Z"),
+      repo = fixtureRepo("late-wake", "local", [schedule("heartbeat")], rootDir),
+      scheduler = makeScheduleScheduler({
+        cells: new Map([[repo.repoId, repo.cell]]),
+        localBinding,
+        now: clock.now,
+        setTimer: clock.setTimer,
+        clearTimer: clock.clearTimer,
+      });
+    await scheduler.start();
+    const armedDelayMs = clock.liveTimers()[0]!.delayMs;
+    clock.liveTimers()[0]!.callback();
+    await waitUntil(() => repo.fired.length > 0);
+    scheduler.close();
+    return { fired: repo.fired, missed: repo.missed.map(({ count, reason }) => ({ count, reason })), armedDelayMs };
+  };
+  const tenMinuteRoot = mkdtempSync(path.join(tmpdir(), "schedule-admission-window-"));
+  t.after(() => rmSync(tenMinuteRoot, { recursive: true, force: true }));
+  mkdirSync(path.join(tenMinuteRoot, "harness"));
+  writeFileSync(
+    path.join(tenMinuteRoot, "harness", "harness.yaml"),
+    "schema: harness-anything/v1\nsettings:\n  schedule:\n    admissionWindowMs: 600000\n",
+  );
+
+  // The 10:30 occurrence is five minutes old: inside a ten-minute window it fires at once.
+  assert.deepEqual(await lateWake(tenMinuteRoot), { fired: ["heartbeat"], missed: [], armedDelayMs: 0 });
+  // No authored settings document means the declared default (one minute): it is missed, not caught up.
+  assert.deepEqual(await lateWake(), {
+    fired: [],
+    missed: [{ count: 1, reason: "scheduler_unavailable" }],
+    armedDelayMs: 25 * 60_000,
+  });
+});
+
 test("manual runs do not move automatic cadence and enabling skips the paused window", async () => {
   const clock = fakeClock("2026-08-27T10:15:00.000Z"),
     heartbeat = schedule("heartbeat");
@@ -443,7 +564,7 @@ type MutableRunView = {
   -readonly [K in keyof ScheduleV1["status"]]: ScheduleV1["status"][K];
 };
 
-function fixtureRepo(repoId: string, mode: DaemonRepoMode, schedules: MutableSchedule[]) {
+function fixtureRepo(repoId: string, mode: DaemonRepoMode, schedules: MutableSchedule[], rootDir = `/tmp/${repoId}`) {
   const actions: string[] = [],
     fired: string[] = [],
     missed: Array<{
@@ -520,7 +641,7 @@ function fixtureRepo(repoId: string, mode: DaemonRepoMode, schedules: MutableSch
   const cell = {
     status: () => ({
       repoId,
-      rootDir: `/tmp/${repoId}`,
+      rootDir,
       mode,
       state: fixture.state,
       generation: 1,

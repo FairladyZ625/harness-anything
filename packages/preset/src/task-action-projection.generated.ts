@@ -511,6 +511,7 @@ export const settingsFieldProtocolProjection = {
     { id: "ci-gates", title: "CI and completion gates" },
     { id: "capacity-agenda", title: "Capacity and agenda" },
     { id: "worktree", title: "Task worktree setup" },
+    { id: "schedules-nodes", title: "Schedules and node heartbeat" },
     { id: "storage-backup", title: "Storage and backup", advanced: true },
     { id: "presentation", title: "Presentation" },
   ],
@@ -632,6 +633,12 @@ export const settingsFieldProtocolProjection = {
       field: "worktreeSetup",
       description: "Ordered preparation steps run in every new task worktree.",
       type: "string-array",
+      required: false,
+    },
+    {
+      field: "scheduleAdmissionWindowMs",
+      description: "How late a scheduled run may still start when nothing was awake at its due time, in milliseconds.",
+      type: "number",
       required: false,
     },
     {
@@ -835,6 +842,17 @@ export const settingsFieldProtocolProjection = {
       kind: "repeated",
       regex: "^(?:none|(?:node-modules|run: \\S.*))$",
       format: "built-in adapter (node-modules), run: <command>, or none to clear",
+    },
+    {
+      field: "scheduleAdmissionWindowMs",
+      description: "How late a scheduled run may still start when nothing was awake at its due time, in milliseconds.",
+      group: "schedules-nodes",
+      effect:
+        "Raise it and a run just missed during sleep or a restart still starts on wake; later ones count as missed.",
+      name: "--schedule-admission-window-ms",
+      kind: "single",
+      regex: "^[1-9][0-9]{3,}$",
+      projection: "number",
     },
     {
       field: "restoreDrillRetention",

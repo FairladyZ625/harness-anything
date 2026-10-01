@@ -57,6 +57,7 @@ test("Task Action transport has one current build-time projection", async () => 
       "wipLimit",
       "rootThreshold",
       "worktreeSetup",
+      "scheduleAdmissionWindowMs",
       "restoreDrillRetention",
       "gatesFromDocument",
       "gatesDraft",

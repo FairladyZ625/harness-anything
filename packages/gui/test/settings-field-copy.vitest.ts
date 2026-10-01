@@ -89,6 +89,15 @@ describe("Settings 自描述文案 chokepoint(两个 locale 都要有,缺一项�
     expect(missing, `${locale} 缺枚举旁注: ${missing.join(", ")}`).toEqual([]);
   });
 
+  it("定时任务补跑时限:设置页与 `ha settings update --help` 是同一份解释,且归「定时任务与节点心跳」组", () => {
+    const row = rows.find(({ field }) => field === "scheduleAdmissionWindowMs");
+    expect(row).toMatchObject({ widget: "number", group: "schedules-nodes" });
+    // CLI 帮助渲染的就是声明源的 description 与 effect;设置页英文文案与它逐字相同。
+    expect(en["views.settingsView.scheduleAdmissionWindowMsDescription"]).toBe(row!.description);
+    expect(en["views.settingsView.scheduleAdmissionWindowMsEffect"]).toBe(row!.effect);
+    expect(zh["views.settingsView.settingsGroup.schedules-nodes.label"]).toBe("定时任务与节点心跳");
+  });
+
   it("分组面与呈现元数据都从 kernel 单源投影(不另建登记表)", () => {
     // 每个渲染字段都能在声明源的呈现元数据里找到组;分组清单的 id 集与声明源一致。
     const presentation = new Map(SETTINGS_FIELD_PRESENTATION.map((row) => [row.field, row.group]));
