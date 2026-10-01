@@ -2,7 +2,9 @@ import { useState, type ReactNode } from "react";
 import { DenseRow } from "../../components/primitives/DenseRow";
 import { Drawer } from "../../components/primitives/Drawer";
 import { Section } from "../../components/primitives/Section";
-import { highlightText } from "./WorkTasksTab.tsx";
+import { StatusTag, type StatusTone } from "../../components/primitives/StatusTag";
+import { decisionStateLabel } from "../../components/badges.tsx";
+import { entryTitle, highlightText, metaLine } from "./entry-lines.tsx";
 import { DECISION_REVIEW_GROUPS, DecisionReviewGroups } from "../../components/decisionReview/DecisionReviewGroups.tsx";
 import { decisionReviewGroup, decisionReviewSignal, type DecisionReviewSignal } from "../../model/decision-review.ts";
 import { decisionReviewRef } from "../../navigation/decisionReviewRoutes.ts";
@@ -15,7 +17,7 @@ import {
   workFactGroups,
   type DecisionSegment,
 } from "../../model/work-facts-digest.ts";
-import type { DecisionRow, FactRef, RelationEdge } from "../../model/types.ts";
+import type { DecisionRow, DecisionState, FactRef, RelationEdge } from "../../model/types.ts";
 import type { MessageKey } from "../../i18n/core.ts";
 import { t } from "../../i18n/index.tsx";
 
@@ -23,7 +25,35 @@ import { t } from "../../i18n/index.tsx";
  * 决策与事实页(业主 2026-09-30 收束重做;v2 铺开 2026-10-01):事实按所属任务分组、
  * 每条只露结论句(完整原文、取证与关联决策进抽屉),组全部铺开不折「更早 N 组」;
  * 决策按状态分段——待裁决(评审分组)在前、生效中平铺、已退场沉到自己的分区照常显示。
+ * 条目两行(§2.4):第一行冒号前的标题;第二行弱色报最近变化与标题补充。同一分区里
+ * 取值相同的状态不进行,只有已退场分区(取代/否决/暂缓混排)才带状态标签。
  */
+
+/** 已退场决策的状态色档:否决红,其余退场态暗灰。 */
+const RETIRED_TONE: Partial<Record<DecisionState, StatusTone>> = { rejected: "bad" };
+
+function DecisionEntry({
+  row,
+  needle,
+  tag,
+  change,
+  onOpen,
+}: {
+  readonly row: DecisionRow;
+  readonly needle: string;
+  readonly tag?: ReactNode;
+  /** 最近变化一句(哪天裁决 / 提出 / 退场);读面没给时间就不报。 */
+  readonly change: string | undefined;
+  readonly onOpen: () => void;
+}) {
+  const { focus, supplement } = entryTitle(row.title, needle);
+  return <DenseRow relaxed tag={tag} title={focus} reason={metaLine([change, supplement])} onClick={onOpen} />;
+}
+
+/** 「{date} 裁决」这类最近变化句:时间缺失返回 undefined。 */
+function changeLine(key: MessageKey, at: string | undefined): string | undefined {
+  return at === undefined ? undefined : t(key, { date: at.slice(0, 10) });
+}
 
 const REVIEW_HINTS: Readonly<Record<DecisionReviewSignal, MessageKey>> = {
   changesRequested: "views.workspace.decisionReviewHintChangesRequested",
@@ -65,11 +95,12 @@ export function WorkDecisionsTab({
       {segments.inEffect.length > 0 ? (
         <Section title={t("views.workspace.decisionsInEffect")} count={segments.inEffect.length}>
           {segments.inEffect.map((row) => (
-            <DenseRow
+            <DecisionEntry
               key={row.decisionId}
-              title={highlightText(row.title, query.trim().toLowerCase())}
-              time={(row.decidedAt ?? row.lastChangedAt)?.slice(0, 10)}
-              onClick={() => onNavigateEntity?.(`decision/${row.decisionId}`)}
+              row={row}
+              needle={query.trim().toLowerCase()}
+              change={changeLine("views.workspace.decisionLine.decided", row.decidedAt ?? row.lastChangedAt)}
+              onOpen={() => onNavigateEntity?.(`decision/${row.decisionId}`)}
             />
           ))}
         </Section>
@@ -126,18 +157,21 @@ function RetiredDecisions({
   return (
     <Section title={t("views.workspace.decisionsRetired")} count={rows.length}>
       {visible.map((row) => (
-        <DenseRow
+        <DecisionEntry
           key={row.decisionId}
-          title={highlightText(row.title, needle)}
-          time={(row.lastChangedAt ?? row.decidedAt)?.slice(0, 10)}
-          onClick={() => onNavigateEntity?.(`decision/${row.decisionId}`)}
+          row={row}
+          needle={needle}
+          tag={<StatusTag tone={RETIRED_TONE[row.state] ?? "cancel"} label={decisionStateLabel(row.state)} />}
+          change={changeLine("views.workspace.decisionLine.changed", row.lastChangedAt ?? row.decidedAt)}
+          onOpen={() => onNavigateEntity?.(`decision/${row.decisionId}`)}
         />
       ))}
     </Section>
   );
 }
 
-/** 事实区:一行摘要 + 按任务分组全部铺开(标准 §1.8 v2,不折「更早 N 组」)+ 点行进抽屉看全文。 */
+/** 事实区:一行摘要 + 按任务分组全部铺开(标准 §1.8 v2,不折「更早 N 组」)+ 点行进抽屉看全文。
+ * 条目两行:第一行结论句;第二行弱色报置信度(或已替代/已归档)、记录日期与取证来源。 */
 function WorkFactDigest({
   facts,
   relations,
@@ -188,15 +222,17 @@ function WorkFactDigest({
           {group.facts.map((fact) => (
             <div key={fact.anchor} data-fact-row={fact.anchor}>
               <DenseRow
+                relaxed
                 title={highlightText(shortenShas(factConclusion(fact.text)), needle)}
-                reason={
+                reason={metaLine([
                   fact.invalidated
                     ? t("views.workspace.superseded")
                     : fact.archived
                       ? t("views.workspace.archived")
-                      : fact.confidence
-                }
-                time={fact.at ? fact.at.slice(0, 10) : undefined}
+                      : `${t("views.workspace.factConfidence")} ${fact.confidence}`,
+                  fact.at ? fact.at.slice(0, 10) : undefined,
+                  fact.source === undefined ? undefined : shortenShas(fact.source),
+                ])}
                 onClick={() => setDrawerAnchor(fact.anchor)}
               />
             </div>
@@ -356,11 +392,12 @@ function WorkDecisionReview({
       {decisions
         .filter((row) => decisionReviewSignal(row.review) === null)
         .map((row) => (
-          <DenseRow
+          <DecisionEntry
             key={row.decisionId}
-            title={row.title}
-            time={row.proposedAt?.slice(0, 10)}
-            onClick={() => onNavigateEntity?.(`decision/${row.decisionId}`)}
+            row={row}
+            needle=""
+            change={changeLine("views.workspace.decisionLine.proposed", row.proposedAt)}
+            onOpen={() => onNavigateEntity?.(`decision/${row.decisionId}`)}
           />
         ))}
     </section>

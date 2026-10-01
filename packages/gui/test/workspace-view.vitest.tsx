@@ -365,14 +365,81 @@ describe("overview narrative", () => {
       />,
     );
     expect(host.querySelectorAll("[data-day]")).toHaveLength(3);
-    // 任务页里,有执行者的行用宽松两行(§2.2 v2):第二行弱色报执行者。
+    // 任务页里每条都是宽松两行(§2.4):有执行者的第二行报执行者,没有的只报最近活动。
     await act(async () => host.querySelector<HTMLButtonElement>("#workspace-tab-tasks")!.click());
     const execRow = host.querySelector('[data-task-row="task_exec"] .grid')!;
     expect(execRow.className).toContain("min-h-14");
     expect(execRow.textContent).toContain("执行者 person_x");
     const soloRow = host.querySelector('[data-task-row="task_solo"] .grid')!;
-    expect(soloRow.className).toContain("min-h-10");
+    expect(soloRow.className).toContain("min-h-14");
+    expect(soloRow.textContent).toContain("前最后活动");
     expect(soloRow.textContent).not.toContain("执行者");
+  });
+
+  it("renders every task entry as two lines: status + pre-colon title, then executor · blocker · last activity · supplement", async () => {
+    const lines = (host: HTMLElement, taskId: string) => {
+      const grid = host.querySelector(`[data-task-row="${taskId}"] .grid`)!;
+      return {
+        grid,
+        first: grid.querySelector("span.block.truncate.text-text")!.textContent,
+        second: grid.querySelector("span.block.text-text-faint")!.textContent,
+      };
+    };
+    const host = await mount(
+      <WorkspaceView
+        scope={{ ...baseScope, memberTaskIds: [...baseScope.memberTaskIds, "task_await", "task_dep"] }}
+        projectName="Harness"
+        tasks={[
+          row("task_solo", {
+            title: "收口链路缺口：兄弟任务解决后第二条卡在 declare-executor",
+            leaseHolder: "person_x",
+          }),
+          row("task_await", {
+            blockers: [
+              {
+                relationId: "rel_1",
+                kind: "awaits",
+                sourceTaskId: "task_await",
+                personId: "zeyu",
+                askKind: "question",
+                question: "两行里放不放长描述",
+              },
+            ],
+          }),
+          row("task_dep", {
+            blockers: [
+              { relationId: "rel_2", kind: "depends-on", sourceTaskId: "task_dep", targetTaskId: "task_solo" },
+              { relationId: "rel_3", kind: "depends-on", sourceTaskId: "task_dep", targetTaskId: "task_await" },
+            ],
+          }),
+        ]}
+        onOpenTask={() => {}}
+      />,
+    );
+    await act(async () => tab(host, "tasks").click());
+    // 第一行只有状态与冒号前的标题;冒号后的长描述退到第二行末尾。
+    const solo = lines(host, "task_solo");
+    expect(solo.grid.className).toContain("min-h-14");
+    expect(solo.first).toBe("收口链路缺口");
+    expect(solo.second).toMatch(/^执行者 person_x · .+前最后活动 · 兄弟任务解决后第二条卡在 declare-executor$/u);
+    // 等待原因:awaits 边报等谁、问了什么;depends-on 边报被哪个任务卡住,其余条数带上。
+    expect(lines(host, "task_await").second).toContain("等 zeyu 答复：两行里放不放长描述");
+    expect(lines(host, "task_dep").second).toContain("被「收口链路缺口」卡住 等 1 项");
+  });
+
+  it("renders overview action entries as two lines with the reason on the faint second line", async () => {
+    const host = await mount(
+      <WorkspaceView
+        scope={baseScope}
+        projectName="Harness"
+        tasks={[row("task_solo", { title: "停滞任务标题：补充说明" })]}
+        onOpenTask={() => {}}
+      />,
+    );
+    const grid = host.querySelector('[data-testid="work-stalled"] [data-task-row="task_solo"] .grid')!;
+    expect(grid.className).toContain("min-h-14");
+    expect(grid.querySelector("span.block.truncate.text-text")!.textContent).toBe("停滞任务标题");
+    expect(grid.querySelector("span.block.text-text-faint")!.textContent).toMatch(/前最后活动 · 补充说明$/u);
   });
 
   it("keeps the rail with clickable status numbers and the subgroup tree", async () => {

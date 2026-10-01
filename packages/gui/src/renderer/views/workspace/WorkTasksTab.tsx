@@ -10,7 +10,7 @@ import { t, type MessageKey } from "../../i18n/index.tsx";
 /**
  * 任务页(原型 v2;§2.2/§1.8 v2 铺开):筛选按钮带计数、按子组或状态分组;有未完成的
  * 组默认展开,已完成/取消项沉到组内底部、在「已完成 N」分隔线之后照常显示;搜索命中
- * 切换到本页并高亮。
+ * 切换到本页并高亮。每条两行(§2.4):状态 + 冒号前标题;执行者 · 卡点 · 最近活动 · 标题补充。
  */
 
 export interface WorkLeafRow {
@@ -20,8 +20,10 @@ export interface WorkLeafRow {
   readonly pinned: boolean;
   readonly at: string;
   readonly groupKey: string;
-  /** 当前 lease 持有者(kernel lease/v1.actor);有执行者时行用宽松两行,第二行弱色报执行者。 */
+  /** 当前 lease 持有者(kernel lease/v1.actor);第二行弱色报执行者。 */
   readonly executor?: string;
+  /** 卡点或等待原因(读面的阻塞贡献:等谁答复、被哪个任务卡住);没有就不报。 */
+  readonly waiting?: string;
 }
 
 const STATUS_ORDER: readonly SnapshotStatus[] = [
@@ -153,13 +155,7 @@ export function WorkTasksTab({
           for (const { status } of rows) counts[status] = (counts[status] ?? 0) + 1;
           const renderRow = (leaf: (typeof rows)[number]) => (
             <div key={leaf.taskId} data-task-row={leaf.taskId}>
-              <WorkTaskRow
-                task={leaf}
-                title={highlightText(leaf.title, needle)}
-                status={leaf.status}
-                agoOf={agoOf}
-                onOpen={onOpenTask}
-              />
+              <WorkTaskRow task={leaf} needle={needle} status={leaf.status} agoOf={agoOf} onOpen={onOpenTask} />
             </div>
           );
           return (
@@ -214,21 +210,5 @@ export function WorkTasksTab({
       ) : null}
       <p className="mt-3 text-text-faint ui-meta">{t("views.workspace.tasks.footnote")}</p>
     </div>
-  );
-}
-
-/** 搜索命中片段的高亮:命不中都原样返回,不猜大小写。 */
-export function highlightText(text: string, needle: string): ReactNode {
-  if (needle === "") return text;
-  const index = text.toLowerCase().indexOf(needle.toLowerCase());
-  if (index < 0) return text;
-  return (
-    <>
-      {text.slice(0, index)}
-      <span data-search-hit className="rounded-[1px] bg-status-submitted/35">
-        {text.slice(index, index + needle.length)}
-      </span>
-      {text.slice(index + needle.length)}
-    </>
   );
 }

@@ -167,7 +167,7 @@ describe("work information architecture", () => {
     // 进度升序:唯一还有未完成叶子的 group-29(0/1)排在已全部完成的 done-group(1/1)之前。
     expect(rowIds()?.indexOf("group-29")).toBeLessThan(rowIds()?.indexOf("done-group") ?? -1);
     const doneGroupRow = host.querySelector('[data-testid="work-row"][data-work-id="done-group"]')!;
-    expect(doneGroupRow.textContent).toContain("1 / 1");
+    expect(doneGroupRow.textContent).toContain("1/1 done");
     act(() => doneGroupRow.querySelector<HTMLButtonElement>('[data-testid="work-row-toggle"]')!.click());
     act(() => doneGroupRow.querySelector<HTMLButtonElement>('[data-testid="work-open"]')!.click());
     expect(opened).toEqual(["done-group"]);
