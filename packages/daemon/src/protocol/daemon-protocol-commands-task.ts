@@ -81,7 +81,7 @@ function taskActionProtocolCommand(action: GeneratedTaskActionProtocolDeclaratio
           admission: {
             local: "direct" as const,
             "remote-proxy": "rejected" as const,
-            "remote-center": "rejected" as const,
+            "remote-center": "direct" as const,
             "remote-edge": "via-center-forward" as const,
           },
         })

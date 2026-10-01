@@ -52,7 +52,8 @@ export const repoReadCommandTopology = commandTopology("repo-read", "direct", "d
   centerForwardWriteCommandTopology = commandTopology("repo-write", "direct", "via-center-forward"),
   // Runtime-local execution belongs to the edge; the center only takes its publication by assignment.
   runtimeLocalWriteCommandTopology = commandTopology("repo-write", "via-assignment", "direct"),
-  localArbiterCommandTopology = commandTopology("arbiter", "rejected", "rejected"),
+  // Review adjudication is recorded by the node that owns the ledger: local, or the center.
+  localArbiterCommandTopology = commandTopology("arbiter", "direct", "rejected"),
   hostAdminCommandTopology = commandTopology("admin", "direct", "direct");
 const shape = (fields: RpcShape["fields"]): RpcShape => ({ fields }),
   repo = shape({ repoId: "string" });
