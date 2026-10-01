@@ -97,9 +97,11 @@ function derive(
   // The delivery falls to this output shape, never the completion gate set: a repository-diff task always
   // carries a public delivery commit, even with an empty (lightweight) gate list.
   outputShape: "repository-diff" | "task-package-artifact" = "repository-diff",
+  priorCommit?: string,
 ) {
   const snapshot = {
       executions: [
+        ...(priorCommit ? [{ executionId: "earlier-execution", submission: { commitSha: priorCommit } }] : []),
         {
           schema: "execution/v1",
           executionId: "execution-1",
@@ -768,8 +770,86 @@ test("one commit derives one manifest whatever start observation the execution f
     null, // legacy execution started before the baseline field froze
   ])
     assert.deepEqual(
-      derive(root, "Delivery complete.", undefined, ["ci"], undefined, deliveryBaseline, merged).deliverables,
+      derive(
+        root,
+        "Delivery complete.",
+        undefined,
+        ["ci"],
+        undefined,
+        deliveryBaseline,
+        merged,
+        "repository-diff",
+        git(root, "rev-parse", `${merged}^2`),
+      ).deliverables,
       ["src/delivery.ts"],
       `start observation ${JSON.stringify(deliveryBaseline)}`,
     );
+});
+
+test("a task without its own commit delivers accepted artifacts, not the baseline merge", (t) => {
+  const { root, merged } = movingMain(t),
+    worker = path.join(root, ".worktrees/task-1");
+  git(root, "worktree", "add", "-qb", "task-1", worker, merged);
+  const packet = derive(
+    root,
+    "Delivered artifact:artifacts/report.md@7.",
+    undefined,
+    ["ci"],
+    artifactStore().store as Parameters<typeof deriveCloseoutSubmission>[0]["store"],
+    { kind: "commit", commitSha: merged },
+  );
+  assert.deepEqual(packet.deliverables, []);
+  assert.deepEqual(packet.outputs, [`Artifact-Anchor: ${packagePath}/artifacts/report.md@7`]);
+  assert.equal(packet.artifacts?.length, 1);
+  assert.deepEqual(
+    derive(
+      root,
+      "Delivered artifact:artifacts/report.md@7.",
+      undefined,
+      ["ci"],
+      artifactStore().store as Parameters<typeof deriveCloseoutSubmission>[0]["store"],
+      null,
+    ).deliverables,
+    [],
+  );
+  assert.throws(
+    () => derive(root, "No delivery.", undefined, ["ci"], undefined, { kind: "commit", commitSha: merged }),
+    { code: "invalid_submission", message: /no changed paths/u },
+  );
+});
+
+test("a restarted task retains the first-parent diff for its earlier delivery ancestor", (t) => {
+  const { root, merged } = movingMain(t),
+    worker = path.join(root, ".worktrees/task-1"),
+    delivery = git(root, "rev-parse", `${merged}^2`);
+  git(root, "worktree", "add", "-qb", "task-1", worker, merged);
+  for (const prior of [delivery, git(root, "rev-parse", `${delivery}^1`)]) {
+    const packet = derive(
+      root,
+      "Re-delivered.",
+      undefined,
+      ["ci"],
+      undefined,
+      { kind: "commit", commitSha: merged },
+      undefined,
+      "repository-diff",
+      prior,
+    );
+    assert.deepEqual(packet.deliverables, ["src/delivery.ts"]);
+  }
+  assert.throws(
+    () =>
+      derive(
+        root,
+        "Foreign prior cut.",
+        undefined,
+        ["ci"],
+        undefined,
+        { kind: "commit", commitSha: merged },
+        undefined,
+        "repository-diff",
+        git(root, "rev-parse", "HEAD"),
+      ),
+    { code: "invalid_submission", message: /no changed paths/u },
+  );
 });
