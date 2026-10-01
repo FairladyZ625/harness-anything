@@ -160,6 +160,22 @@ test("runner watchdog fails and names a file whose process keeps an open handle"
   );
 });
 
+// A daemon started by a test is detached, so only the daemon itself can end with its test: it
+// stops once the process named in HARNESS_DAEMON_OWNER_PID is gone. The runner has to name each
+// test file's own process, replacing whatever owner the invoking shell happened to carry.
+test("runner names each test file process as the owner of the daemons it starts", () => {
+  const childEnv = { ...process.env, HARNESS_RUNNER_DAEMON_OWNER_FIXTURE: "1", HARNESS_DAEMON_OWNER_PID: "1" };
+  delete childEnv.NODE_TEST_CONTEXT;
+  const result = spawnSync(
+    process.execPath,
+    ["tools/run-node-tests.mjs", "--tier", "fast", "--prefix", "tools/test-fixtures/runner-daemon-owner"],
+    { cwd: repoRoot, encoding: "utf8", env: childEnv, timeout: 20_000 },
+  );
+  const output = `${result.stdout}\n${result.stderr}`;
+  assert.equal(result.error, undefined, output);
+  assert.equal(result.status, 0, output);
+});
+
 function runUnboundedFixture(extraEnv) {
   const childEnv = {
     ...process.env,

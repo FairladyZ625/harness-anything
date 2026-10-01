@@ -159,6 +159,7 @@ const stallReportUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-sta
 // Stall reports stay on for the bounded files of a run; only a run made solely of unbounded
 // stress files has nothing to report at 90% of a timeout.
 const stallReportMs = finiteTimeouts.length === 0 ? undefined : Math.max(1_000, Math.floor(fileTimeoutMs * 0.9));
+const daemonOwnerUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-daemon-owner.mjs")).href;
 const coveragePath = options.coverage === undefined ? undefined : resolve(options.coverage);
 if (coveragePath !== undefined) mkdirSync(dirname(coveragePath), { recursive: true });
 const childEnvironment = { ...process.env, HARNESS_TEST_TEMP_ROOT: testTemporaryRoot };
@@ -176,6 +177,7 @@ const child = spawn(
       ? [`--test-reporter=${observationReporterUrl}`, "--test-reporter-destination=stdout"]
       : []),
     `--import=${stallReportUrl}`,
+    `--import=${daemonOwnerUrl}`,
     ...(quarantinePattern ? [`--test-skip-pattern=${quarantinePattern}`] : []),
     ...concurrencyArgs,
     ...selection.files,
