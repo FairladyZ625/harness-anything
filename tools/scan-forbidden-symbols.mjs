@@ -6,26 +6,26 @@ const root = process.cwd();
 const scannedRoots = [path.join(root, "packages")];
 const sourceFile = /\.(?:ts|mts|js|mjs)$/;
 const allowlist = loadGateAllowlist("scan-forbidden-symbols", {
-  requiredSections: ["forbiddenSymbols"]
+  requiredSections: ["forbiddenSymbols"],
 });
 const forbidden = patternEntries(allowlist.forbiddenSymbols);
 const violations = [];
 
 async function walk(dir) {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch (error) {
-    if (error?.code === "ENOENT") return [];
-    throw error;
-  }
+  const entries = await readdir(dir, { withFileTypes: true });
 
   const files = [];
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "out" || entry.name === "build-resources") continue;
-      files.push(...await walk(full));
+      if (
+        entry.name === "node_modules" ||
+        entry.name === "dist" ||
+        entry.name === "out" ||
+        entry.name === "build-resources"
+      )
+        continue;
+      files.push(...(await walk(full)));
     } else if (sourceFile.test(entry.name)) {
       files.push(full);
     }
@@ -38,7 +38,9 @@ function relative(file) {
 }
 
 for (const sourceRoot of scannedRoots) {
-  for (const file of await walk(sourceRoot)) {
+  const files = await walk(sourceRoot);
+  if (files.length === 0) throw new Error("scan-forbidden-symbols: required scan root packages has no source files");
+  for (const file of files) {
     const text = await readFile(file, "utf8");
     const filePath = relative(file);
     for (const { label, pattern, includePathPattern } of forbidden) {
