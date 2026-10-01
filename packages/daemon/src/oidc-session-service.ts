@@ -19,7 +19,6 @@ interface PendingLogin {
 interface StoredSession {
   readonly schema: "harness-oidc-session/v1";
   readonly accessToken: string;
-  readonly refreshToken?: string;
   readonly subject: string;
   readonly personId: string;
   readonly expiresAt: number;
@@ -104,7 +103,6 @@ export class OidcSessionService {
       session: StoredSession = {
         schema: "harness-oidc-session/v1",
         accessToken,
-        ...(typeof tokens.refresh_token === "string" ? { refreshToken: tokens.refresh_token } : {}),
         subject,
         personId,
         expiresAt: this.#ports.now() + expiresIn * 1_000,
