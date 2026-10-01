@@ -109,6 +109,18 @@ function renderCliReceiptBase(
     const error = humanError(receipt);
     return { stream: "stderr", text: `error code=${error.code} hint=${error.hint}` };
   }
+  if (receipt.pending === true && typeof receipt.verificationUri === "string" && typeof receipt.userCode === "string")
+    return {
+      stream: "stdout",
+      text: `Open ${receipt.verificationUri}\nEnter code: ${receipt.userCode}\nExpires: ${new Date(Number(receipt.expiresAt)).toISOString()}\nWaiting for browser approval…`,
+    };
+  if (typeof receipt.authenticated === "boolean")
+    return {
+      stream: "stdout",
+      text: receipt.authenticated
+        ? `Signed in as ${String(receipt.personId)}\nSession expires: ${new Date(Number(receipt.expiresAt)).toISOString()}`
+        : "Signed out.",
+    };
   const commandRenderer = typeof receipt.command === "string" ? commandRenderers.get(receipt.command) : undefined;
   if (commandRenderer) return { stream: "stdout", text: commandRenderer(receipt) };
   if (Array.isArray(receipt.dispatches)) return { stream: "stdout", text: renderDispatches(receipt.dispatches) };

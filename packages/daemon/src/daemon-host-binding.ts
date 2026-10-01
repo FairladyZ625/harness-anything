@@ -161,11 +161,22 @@ async function nodeOwnerBinding(auth: DaemonAuthenticationContext): Promise<Repo
       "authentication_required",
       `Fleet ingress requires node ${assignment.nodeId} to have an owner registered at the center.`,
     );
+  if (auth.oidcPrincipal && auth.oidcPrincipal.personId !== owner.personId)
+    throw hostCodedError("human_confirmation_required", "The interactive session belongs to a different node owner.");
   return {
     actor: { principal: { personId: owner.personId }, executor: null },
     source: { kind: "assignment", nodeId: owner.nodeId, assignmentId: assignment.assignmentId },
     assignmentScope: { repoId: assignment.repoId, scope },
-    keycloakAuthorization: { center: await auth.keycloakCenter() },
+    keycloakAuthorization:
+      auth.oidcPrincipal?.personId === owner.personId
+        ? {
+            session: {
+              personId: owner.personId,
+              accessToken: auth.oidcPrincipal.accessToken,
+              ...auth.oidcPrincipal.authority,
+            },
+          }
+        : { center: await auth.keycloakCenter() },
     ...(auth.sessionEnvironment === undefined ? {} : { sessionEnvironment: auth.sessionEnvironment }),
     ...(auth.writerEpoch === undefined ? {} : { writerEpoch: auth.writerEpoch }),
     ...(auth.withWriterEpochFence ? { withWriterEpochFence: auth.withWriterEpochFence } : {}),

@@ -26,6 +26,11 @@ export type FleetMirrorBaseCut = FleetCut;
 export type FleetBlob = Readonly<{ sha256: string; size: number; mediaType: string }>;
 export type FleetDescriptor = FleetBlob & Readonly<{ ref: string }>;
 export type FleetTaskCommandKind = string;
+export interface FleetLoginAuthority {
+  readonly url: string;
+  readonly realm: string;
+  readonly clientId: string;
+}
 export type FleetTaskAction = Readonly<Record<string, unknown>> & { readonly kind: FleetTaskCommandKind };
 // Closed per-kind action surface: every field of a fleet task command must be
 // declared for its kind. The daemon re-binds principal authority server-side,
@@ -61,7 +66,16 @@ export interface FleetRuntimeDispatchContext {
 type Msg<S extends string, P extends object = object> = Readonly<{ schema: S; messageId: string }> & Readonly<P>;
 export type FleetFrameV1 =
   | Msg<"fleet.session.hello/v1", { protocolVersion: ContractVersion; nodeId: string; credential: string }>
-  | Msg<"fleet.session.ready/v1", { inReplyTo: string; sessionId: string; maxFrameBytes: number; chunkBytes: number }>
+  | Msg<
+      "fleet.session.ready/v1",
+      {
+        inReplyTo: string;
+        sessionId: string;
+        maxFrameBytes: number;
+        chunkBytes: number;
+        loginAuthority?: FleetLoginAuthority | null;
+      }
+    >
   | Msg<"fleet.assignment.get/v1", { assignmentId: string }>
   | Msg<
       "fleet.assignment.result/v1",
@@ -120,6 +134,7 @@ export type FleetFrameV1 =
         waitMs: number;
         docChanges: readonly FleetDocChange[] | null;
         mirrorBaseCut: FleetMirrorBaseCut | null;
+        accessToken?: string;
       }
     >
   | Msg<
@@ -695,12 +710,16 @@ const common = { schema: text, messageId: id } as const,
   reply = { ...common, inReplyTo: id } as const;
 const schemas: Readonly<Record<string, Check>> = {
   "fleet.session.hello/v1": shape({ ...common, protocolVersion: isContractVersion, nodeId: id, credential: text }),
-  "fleet.session.ready/v1": shape({
-    ...reply,
-    sessionId: id,
-    maxFrameBytes: one(FLEET_FRAME_BYTES),
-    chunkBytes: one(FLEET_CHUNK_BYTES),
-  }),
+  "fleet.session.ready/v1": optionalShape(
+    {
+      ...reply,
+      sessionId: id,
+      maxFrameBytes: one(FLEET_FRAME_BYTES),
+      chunkBytes: one(FLEET_CHUNK_BYTES),
+      loginAuthority: nullable(shape({ url: text, realm: text, clientId: text })),
+    },
+    ["schema", "messageId", "inReplyTo", "sessionId", "maxFrameBytes", "chunkBytes"],
+  ),
   "fleet.assignment.get/v1": shape({ ...common, assignmentId: id }),
   "fleet.assignment.result/v1": shape({
     ...reply,
@@ -738,18 +757,34 @@ const schemas: Readonly<Record<string, Check>> = {
     revision: nullable(uint),
     code: nullable(text),
   }),
-  "fleet.task.command/v1": shape({
-    ...common,
-    assignmentId: id,
-    writerEpoch: uint,
-    opId: id,
-    repoId: id,
-    taskId: nullable(id),
-    action: taskAction,
-    waitMs: uint,
-    docChanges: nullable(array(docChange, 128)),
-    mirrorBaseCut: nullable(mirrorBaseCutShape),
-  }),
+  "fleet.task.command/v1": optionalShape(
+    {
+      ...common,
+      assignmentId: id,
+      writerEpoch: uint,
+      opId: id,
+      repoId: id,
+      taskId: nullable(id),
+      action: taskAction,
+      waitMs: uint,
+      docChanges: nullable(array(docChange, 128)),
+      mirrorBaseCut: nullable(mirrorBaseCutShape),
+      accessToken: (value) => typeof value === "string" && value.length > 0 && Buffer.byteLength(value) <= 16 * 1024,
+    },
+    [
+      "schema",
+      "messageId",
+      "assignmentId",
+      "writerEpoch",
+      "opId",
+      "repoId",
+      "taskId",
+      "action",
+      "waitMs",
+      "docChanges",
+      "mirrorBaseCut",
+    ],
+  ),
   "fleet.task.result/v1": shape({
     ...reply,
     outcome: one("applied", "op_rejected", "wait_expired"),

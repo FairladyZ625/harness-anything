@@ -10,6 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { createServer, type Server } from "node:tls";
 import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
 import { readFileWindow, syncDirectory, syncFile } from "../durable-file.ts";
@@ -89,10 +90,26 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         nodePrincipal: { nodeId: assignment.nodeId, personId },
       };
     },
-    writerAuth = async (assignment: FleetAssignmentRecord) => {
+    writerAuth = async (assignment: FleetAssignmentRecord, accessToken?: string) => {
       const lease = ownedEpochFor(assignment.repoId);
+      const machine = await readerAuth(assignment);
+      if (accessToken && !options.verifyHuman)
+        throw new FleetFault("human_confirmation_required", "Human sessions are unavailable at this center.");
+      let principal: DaemonAuthenticationContext = machine;
+      if (accessToken) {
+        try {
+          principal = await options.verifyHuman!({ ...machine, humanAccessToken: accessToken });
+        } catch (error) {
+          if (typeof error === "object" && error !== null && "code" in error && typeof error.code === "string")
+            throw new FleetFault(
+              error.code,
+              error instanceof Error ? error.message : "Human authentication was rejected.",
+            );
+          throw error;
+        }
+      }
       return {
-        ...(await readerAuth(assignment)),
+        ...principal,
         writerEpoch: lease.epoch,
         withWriterEpochFence: <T>(operation: () => T) =>
           writerEpoch.withAppendFence(assignment.repoId, lease.epoch, lease.holderId, operation),

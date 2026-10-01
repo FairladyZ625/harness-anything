@@ -891,7 +891,11 @@ function AppShell() {
                   onNavigateEntity={navigateToEntity}
                 />
               ) : view === "identityAccess" ? (
-                <IdentityAccessView repos={systemQuery.data?.repos ?? []} />
+                <IdentityAccessView
+                  key={activeRepoId ?? "local"}
+                  repos={systemQuery.data?.repos ?? []}
+                  repoId={activeRepoId ?? undefined}
+                />
               ) : (
                 <SettingsView
                   repoId={activeRepoId}

@@ -17,12 +17,14 @@ type AccessTab = "service" | "groups" | "grants" | "receipts";
  */
 export function IdentityAccessView({
   repos = [],
+  repoId,
 }: {
+  readonly repoId?: string;
   readonly repos?: readonly { readonly repoId: string; readonly displayName: string }[];
 }) {
   const bridge = guiHostBridge(),
     auth = bridge?.auth && typeof bridge.auth.status === "function" ? bridge.auth : undefined,
-    access = bridge?.access,
+    access = bridge?.access?.forRepository(repoId),
     [tab, setTab] = useState<AccessTab>("service");
 
   if (!auth) return <p role="alert">{t("identityAccess.electronOnly")}</p>;
@@ -56,7 +58,7 @@ export function IdentityAccessView({
         className="@container flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4"
       >
         {tab === "service" || !access ? (
-          <AccessServiceTab auth={auth} access={access} />
+          <AccessServiceTab key={repoId ?? "local"} auth={auth} access={access} repoId={repoId} />
         ) : tab === "groups" ? (
           <PolicyGroupsTab access={access} />
         ) : tab === "grants" ? (

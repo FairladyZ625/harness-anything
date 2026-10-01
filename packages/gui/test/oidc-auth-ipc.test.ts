@@ -5,7 +5,96 @@ import {
   normalizeBindingStatusReply,
   requireSuccessfulAuthReply,
   systemBrowserLogin,
+  registerOidcAuthIpc,
 } from "../src/main/oidc-auth-ipc.ts";
+import type { IpcMainInvokeEvent } from "electron";
+import {
+  OIDC_LOGIN_CHANNEL,
+  OIDC_STATUS_CHANNEL,
+  OIDC_LOGOUT_CHANNEL,
+  OIDC_BOOTSTRAP_STATUS_CHANNEL,
+  OIDC_BOOTSTRAP_ADMIN_CHANNEL,
+} from "../src/api/oidc-auth-contract.ts";
+
+test("a local repository keeps the original socket bootstrap status and a targeted administrator mutation is refused", async () => {
+  const handlers = new Map<string, (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>>();
+  const event = { sender: { id: 7 }, senderFrame: { url: "file:///renderer/index.html" } } as IpcMainInvokeEvent;
+  let calls = 0;
+  registerOidcAuthIpc(
+    {
+      handle: (channel, handler) => {
+        handlers.set(channel, handler);
+      },
+    },
+    {
+      isTrustedWebContentsId: (id) => id === 7,
+      rendererUrl: { packagedRendererUrl: "file:///renderer/index.html" },
+    },
+    {
+      daemonRequest: async () => {
+        calls++;
+        return { ok: true, required: true };
+      },
+      openExternal: async () => undefined,
+    },
+  );
+  assert.deepEqual(await handlers.get(OIDC_BOOTSTRAP_STATUS_CHANNEL)!(event, { repoId: "local-repo" }), {
+    ok: true,
+    required: true,
+  });
+  await assert.rejects(
+    handlers.get(OIDC_BOOTSTRAP_ADMIN_CHANNEL)!(event, { repoId: "remote-repo" }),
+    /original local socket/u,
+  );
+  assert.equal(calls, 1, "a targeted bootstrap mutation never reaches either daemon");
+});
+
+test("auth IPC pins login completion to its initial repository and scopes status/logout", async () => {
+  const handlers = new Map<string, (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>>(),
+    calls: Record<string, unknown>[] = [];
+  const event = { sender: { id: 7 }, senderFrame: { url: "file:///renderer/index.html" } } as IpcMainInvokeEvent;
+  const target = { repoId: "server-a" };
+  registerOidcAuthIpc(
+    {
+      handle: (channel, handler) => {
+        handlers.set(channel, handler);
+      },
+    },
+    {
+      isTrustedWebContentsId: (id) => id === 7,
+      rendererUrl: { packagedRendererUrl: "file:///renderer/index.html" },
+    },
+    {
+      daemonRequest: async (params) => {
+        calls.push(params);
+        return params.operation === "login-begin"
+          ? { authorizationUrl: `${String(params.redirectUri)}?code=code&state=state` }
+          : { ok: true };
+      },
+      openExternal: async (url) => {
+        target.repoId = "server-b";
+        assert.equal((await fetch(url)).status, 200);
+      },
+    },
+  );
+  await handlers.get(OIDC_LOGIN_CHANNEL)!(event, target);
+  assert.deepEqual(
+    calls.map((call) => [call.operation, call.repoId]),
+    [
+      ["login-begin", "server-a"],
+      ["login-complete", "server-a"],
+    ],
+  );
+  await handlers.get(OIDC_STATUS_CHANNEL)!(event, { repoId: "server-b" });
+  await handlers.get(OIDC_LOGOUT_CHANNEL)!(event, { repoId: "server-a" });
+  assert.deepEqual(
+    calls.slice(2).map((call) => [call.operation, call.repoId]),
+    [
+      ["session", "server-b"],
+      ["logout", "server-a"],
+    ],
+  );
+});
 
 test("auth IPC rejects daemon failure receipts with their code and explanation", () => {
   assert.throws(

@@ -576,6 +576,7 @@ async function uploadFleetChange(
   return uploaded.descriptor;
 }
 export interface FleetTaskCommandClientOptions extends FleetPeerOptions {
+  readonly accessToken?: string;
   readonly opId: string;
   readonly repoId: string;
   readonly taskId: string | null;
@@ -623,6 +624,7 @@ export async function runFleetTaskCommandClient(
         waitMs: options.waitMs,
         docChanges: options.docChanges ?? null,
         mirrorBaseCut: options.mirrorBaseCut ?? null,
+        ...(options.accessToken ? { accessToken: options.accessToken } : {}),
       });
     } catch (error) {
       if (error instanceof FleetRemoteError && error.code === "writer_epoch_stale") {
@@ -779,10 +781,26 @@ async function openPeer(options: FleetPeerOptions) {
       credential: options.credential,
     });
     if (ready.schema !== "fleet.session.ready/v1") throw new Error("session ready expected");
-    return { messageId, next, send, request, close: peer.close };
+    return { messageId, next, send, request, loginAuthority: ready.loginAuthority, close: peer.close };
   } catch (error) {
     peer.close();
     throw error;
+  }
+}
+export async function readFleetLoginAuthorityClient(options: FleetPeerOptions) {
+  const peer = await openPeer(options);
+  try {
+    if (
+      !peer.loginAuthority ||
+      new URL(peer.loginAuthority.url).protocol !== "https:" ||
+      peer.loginAuthority.clientId !== `harness-node-${options.nodeId}`
+    )
+      throw Object.assign(new Error("The center has no external HTTPS Keycloak login authority for this node."), {
+        code: "oidc_listener_required",
+      });
+    return peer.loginAuthority;
+  } finally {
+    peer.close();
   }
 }
 function peerSocket(options: FleetPeerOptions): Promise<TLSSocket> {

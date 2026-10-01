@@ -4,6 +4,8 @@ import { type FleetLeaseBroker } from "../lease-broker.ts";
 import type { WriterEpochLease } from "../writer-epoch.ts";
 import { type FleetAssignmentBinding, type FleetBlob, type FleetDescriptor, type FleetFrameV1 } from "./contract.ts";
 import { type ReplicaDeliveryKey } from "./replica-ack-store.ts";
+import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
+import type { FleetLoginAuthority } from "./contract.ts";
 
 export interface FleetAssignmentRecord extends FleetAssignmentBinding {
   readonly viewId: string;
@@ -28,6 +30,8 @@ export interface FleetCenterOptions {
   readonly authenticate: (nodeId: string, credential: string) => boolean | Promise<boolean>;
   /** The person a node acts for, re-read for every frame so a re-registration applies to the next one. */
   readonly nodeOwner: (nodeId: string) => string | null | Promise<string | null>;
+  readonly loginAuthority?: (nodeId: string) => FleetLoginAuthority | null | Promise<FleetLoginAuthority | null>;
+  readonly verifyHuman?: (auth: DaemonAuthenticationContext) => Promise<DaemonAuthenticationContext>;
   readonly isNodeActive?: (nodeId: string) => boolean | Promise<boolean>;
   readonly resolveAssignment: (
     assignmentId: string,

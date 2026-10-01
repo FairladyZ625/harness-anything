@@ -114,6 +114,7 @@ export async function serve(
             sessionId: digestId(nodeId, String(Date.now())),
             maxFrameBytes: FLEET_FRAME_BYTES,
             chunkBytes: FLEET_CHUNK_BYTES,
+            loginAuthority: (await options.loginAuthority?.(nodeId)) ?? null,
           }),
         );
       }

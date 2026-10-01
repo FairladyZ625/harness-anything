@@ -20,12 +20,12 @@ export interface BootstrapAdminInput {
 }
 
 export interface OidcAuthApi {
-  readonly login: () => Promise<unknown>;
-  readonly logout: () => Promise<unknown>;
-  readonly status: () => Promise<unknown>;
-  readonly bindingStatus: () => Promise<unknown>;
-  readonly openConsole: () => Promise<unknown>;
-  readonly configure: (input: RbacBindingInput) => Promise<unknown>;
-  readonly bootstrapStatus: () => Promise<unknown>;
+  readonly login: (repoId?: string) => Promise<unknown>;
+  readonly logout: (repoId?: string) => Promise<unknown>;
+  readonly status: (repoId?: string) => Promise<unknown>;
+  readonly bindingStatus: (repoId?: string) => Promise<unknown>;
+  readonly openConsole: (repoId?: string) => Promise<unknown>;
+  readonly configure: (input: RbacBindingInput, repoId?: string) => Promise<unknown>;
+  readonly bootstrapStatus: (repoId?: string) => Promise<unknown>;
   readonly bootstrapAdmin: (input: BootstrapAdminInput) => Promise<unknown>;
 }

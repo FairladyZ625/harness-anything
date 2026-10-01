@@ -6,9 +6,12 @@ import { ACCESS_ADMIN_CHANNEL, type AccessAdminApi, type AccessAdminRequest } fr
  */
 export function accessAdminPreloadApi(
   invoke: (channel: string, request: AccessAdminRequest) => Promise<unknown>,
+  repoId?: string,
 ): AccessAdminApi {
-  const ask = (request: AccessAdminRequest) => invoke(ACCESS_ADMIN_CHANNEL, request) as Promise<never>;
+  const ask = (request: AccessAdminRequest) =>
+    invoke(ACCESS_ADMIN_CHANNEL, { ...request, ...(repoId ? { repoId } : {}) }) as Promise<never>;
   return {
+    forRepository: (repoId) => accessAdminPreloadApi(invoke, repoId),
     groups: () => ask({ operation: "group-list" }),
     createGroup: (input) => ask({ operation: "group-create", ...input }),
     updateGroup: (input) => ask({ operation: "group-update", ...input }),
