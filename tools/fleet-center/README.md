@@ -1,25 +1,49 @@
 # Fleet center user-space deployment
 
+[English](./README.md) | **简体中文**
+
 `centerctl.sh` is the W5-R production-cutover rehearsal deployment for
 `tencent-lighthouse-prod`. It installs the pinned Node 24 tarball under the
-login user's home, clones/builds Harness Anything, attaches an inner-ledger
-clone as `remote-center`, starts the managed authorization service, generates
-private TLS material and the assignment roster, and starts the daemon-owned TLS
-center. It never uses sudo, Docker, system GitLab/nginx configuration, or the
-host's default Harness daemon.
+login user's home, clones/builds Harness Anything, restores a ledger backup
+into `~/harness-center/repo` and attaches it as `remote-center`, starts the
+managed authorization service, generates private TLS material and the
+assignment roster, and starts the daemon-owned TLS center. It never uses sudo,
+Docker, system GitLab/nginx configuration, or the host's default Harness
+daemon.
 
-First start (the token is consumed from stdin and is not saved):
+## Producing the backup
+
+The center is bootstrapped from a consistent backup of the existing canonical
+repository; a Git clone of the private ledger alone is not enough, because the
+SQLite canonical store and its activation never enter Git. On the machine that
+owns the repository today, take the backup through its daemon (the writer queue
+makes the snapshot consistent) and move the directory to the center host over a
+channel you trust — it carries the full private ledger:
 
 ```bash
-TOKEN_FILE=/path/to/gitlab-token
-ssh tencent-lighthouse-prod \
-  'HARNESS_CENTER_APP_REF=<public-commit> \
-   HARNESS_CENTER_LEDGER_URL=http://127.0.0.1:8929/harness-center/rehearsal-20260823.git \
-   HARNESS_CENTER_GIT_TOKEN_STDIN=1 \
-   ~/harness-center/bin/centerctl.sh up' <"$TOKEN_FILE"
+ha backup /var/tmp/harness-center-backup   # absolute, must not exist yet
+rsync -a /var/tmp/harness-center-backup tencent-lighthouse-prod:~/harness-center-backup
 ```
 
-Subsequent lifecycle operations do not need the GitLab token:
+The backup is self-verifying: `up` refuses one whose manifest or payload
+digests do not check out, one that carries no SQLite canonical store, and one
+that belongs to a different repository id than `HARNESS_CENTER_REPO_ID`.
+
+First start:
+
+```bash
+ssh tencent-lighthouse-prod \
+  'HARNESS_CENTER_APP_REF=<public-commit> \
+   HARNESS_CENTER_BACKUP_DIR=$HOME/harness-center-backup \
+   ~/harness-center/bin/centerctl.sh up'
+```
+
+`up` restores the backup into `~/harness-center/repo` (it must not already
+exist), registers that root as `remote-center`, waits for the repository to
+attach, rebuilds the projection to the exact restored cut, and continues with
+the authorization service, TLS material, roster, and Fleet listener.
+
+Subsequent lifecycle operations do not need the backup directory:
 
 ```bash
 ssh tencent-lighthouse-prod '~/harness-center/bin/centerctl.sh status'
@@ -28,17 +52,15 @@ ssh tencent-lighthouse-prod '~/harness-center/bin/centerctl.sh up'
 ```
 
 `down` only stops this deployment's isolated daemon. It intentionally retains
-the repository, TLS material, roster, replica state, and the temporary
-bootstrap ledger for audit/recovery. After a host reboot, log in and run `up`;
-the daemon and Fleet listener are both process-owned and must be re-established.
+the repository, TLS material, roster, and replica state for audit/recovery.
+After a host reboot, log in and run `up`; the daemon and Fleet listener are
+both process-owned and must be re-established.
 
-The first `up` uses a temporary bootstrap ledger because the cloned production
-ledger's local Unix-socket credential is bound to its original machine. The
-script registers the wrapper root while the server bootstrap identity is valid,
-switches the registration to `remote-center`, stops the daemon, preserves that
-bootstrap ledger at `~/harness-center/bootstrap-harness`, and only then clones
-the real inner ledger. It does not edit the cloned `people.yaml` or admit local
-writes to the remote center.
+The restored ledger carries the source machine's local Unix-socket credential,
+which does not bind on the center host. The deployment does not edit
+`people.yaml` and does not admit local writes to the remote center: writes
+arrive from Fleet edges with node credentials, and a person signs in through
+the desktop app connected to this daemon.
 
 ## Roster and nodes
 
