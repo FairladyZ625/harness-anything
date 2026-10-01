@@ -5,7 +5,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { AppMotionConfig } from "../src/renderer/motion-config.tsx";
+import { AppMotionConfig, MOTION_PREFERENCE_STORAGE_KEY } from "../src/renderer/motion-config.tsx";
 import { PageEntryBoundary } from "../src/renderer/components/primitives/EntryBoundary.tsx";
 import { WorkspaceView } from "../src/renderer/views/WorkspaceView.tsx";
 import { combineWorkspaceScopePages } from "../src/renderer/workspace-scope-data.ts";
@@ -693,22 +693,28 @@ describe("page assembly", () => {
 describe("tab panel wiring (TabPanel 原语)", () => {
   it("pairs the panel with the Tabs ids and plays the shared entry motion on tab switch", async () => {
     motionProbe.animate.mockClear();
+    // 动效偏好「始终开启」:偏好现在由 AppMotionConfig 持有并写回 localStorage(照主题的做法)。
+    localStorage.setItem(MOTION_PREFERENCE_STORAGE_KEY, "on");
     const host = await mount(
-      <AppMotionConfig preference="on">
+      <AppMotionConfig>
         <PageEntryBoundary identity="work-page">
           <WorkspaceView scope={scope()} projectName="Harness" onOpenTask={() => {}} />
         </PageEntryBoundary>
       </AppMotionConfig>,
     );
-    // 与 Tabs 的 idPrefix 配对:id/aria 随页签走(与 TaskDetailView 同一接法)。
-    const panel = host.querySelector("#workspace-panel")!;
-    expect(panel.getAttribute("role")).toBe("tabpanel");
-    expect(panel.getAttribute("aria-labelledby")).toBe("workspace-tab-overview");
-    // 初次挂载不播;切页签播一次轻量入场(#3163 语义)。
-    expect(motionProbe.animate).not.toHaveBeenCalled();
-    await act(async () => tab(host, "tasks").click());
-    expect(panel.getAttribute("aria-labelledby")).toBe("workspace-tab-tasks");
-    expect(motionProbe.animate).toHaveBeenCalled();
+    try {
+      // 与 Tabs 的 idPrefix 配对:id/aria 随页签走(与 TaskDetailView 同一接法)。
+      const panel = host.querySelector("#workspace-panel")!;
+      expect(panel.getAttribute("role")).toBe("tabpanel");
+      expect(panel.getAttribute("aria-labelledby")).toBe("workspace-tab-overview");
+      // 初次挂载不播;切页签播一次轻量入场(#3163 语义)。
+      expect(motionProbe.animate).not.toHaveBeenCalled();
+      await act(async () => tab(host, "tasks").click());
+      expect(panel.getAttribute("aria-labelledby")).toBe("workspace-tab-tasks");
+      expect(motionProbe.animate).toHaveBeenCalled();
+    } finally {
+      localStorage.removeItem(MOTION_PREFERENCE_STORAGE_KEY);
+    }
   });
 });
 
