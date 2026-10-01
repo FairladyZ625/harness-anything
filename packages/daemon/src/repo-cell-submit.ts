@@ -73,7 +73,7 @@ export function deriveCloseoutSubmission(
     ),
     // The execution's first submission freezes the gate requirements; resumes and amendments keep them.
     prose = { ...parsed, completionContract: frozen?.completionContract ?? freezeCompletionContract(cell, snapshot) },
-    anchors = artifactAnchors(prose.completionClaim),
+    anchors = artifactAnchors(prose.completionClaim, document.packagePath),
     unparsed = unparsedArtifactAnchorText(prose.completionClaim);
   if (unparsed.length !== 0)
     throw cell.cellCodedError(
