@@ -14,9 +14,9 @@ import { TitleText } from "../components/primitives/TitleText.tsx";
 
 type Tab = "presets" | "verticals" | "templates";
 
-/** 有效性 → 状态色档(标准 §3):valid 绿、unavailable 琥珀、blocked 红。 */
+/** 有效性 → 状态色档:valid 是默认正常值,不上色;unavailable 琥珀、blocked 红。 */
 const VALIDITY_TONE: Record<CatalogPresetRow["validity"], StatusTone> = {
-  valid: "done",
+  valid: "neutral",
   unavailable: "wait",
   blocked: "bad",
 };
@@ -169,7 +169,7 @@ export function PresetsView({
               key={vertical.id}
               tag={
                 <StatusTag
-                  tone={vertical.valid ? "done" : "bad"}
+                  tone={vertical.valid ? "neutral" : "bad"}
                   label={vertical.valid ? t("views.presetsView.valid") : t("views.presetsView.invalid")}
                 />
               }

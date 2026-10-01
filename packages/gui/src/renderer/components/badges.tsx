@@ -33,60 +33,57 @@ import type { ReactNode } from "react";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import { formatTime } from "../model/time.ts";
 
-function localizedLabel(key: MessageKey): { readonly label: string } {
+/**
+ * 标签文案必须是读取时求值的 getter:spread 会把 getter 在模块导入那一刻固化成
+ * 当期 locale 的字符串,运行时切换语言后所有标签仍显示导入时的语言(F-D3DBB3FB)。
+ * 这里把 key 与静态字段合并成带活 getter 的条目,调用方不再自行 spread。
+ */
+function localizedLabel<T extends object>(key: MessageKey, rest: T): T & { readonly label: string } {
   return {
     get label() {
       return t(key);
     },
+    ...rest,
   };
 }
 
 export const STATUS_META: Record<SnapshotStatus, { label: string; color: string; icon: ReactNode }> = {
-  planned: {
-    ...localizedLabel("components.badges.planned"),
+  planned: localizedLabel("components.badges.planned", {
     color: "var(--color-status-planned)",
     icon: <Circle weight="duotone" />,
-  },
-  active: {
-    ...localizedLabel("components.badges.active"),
+  }),
+  active: localizedLabel("components.badges.active", {
     color: "var(--color-status-active)",
     icon: <CircleNotch weight="bold" />,
-  },
-  submitted: {
-    ...localizedLabel("components.badges.submitted"),
+  }),
+  submitted: localizedLabel("components.badges.submitted", {
     color: "var(--color-status-submitted)",
     icon: <PaperPlaneTilt weight="duotone" />,
-  },
-  blocked: {
-    ...localizedLabel("components.badges.blocked"),
+  }),
+  blocked: localizedLabel("components.badges.blocked", {
     color: "var(--color-status-blocked)",
     icon: <PauseCircle weight="duotone" />,
-  },
-  in_review: {
-    ...localizedLabel("components.badges.inReview"),
+  }),
+  in_review: localizedLabel("components.badges.inReview", {
     color: "var(--color-status-in-review)",
     icon: <CircleHalf weight="duotone" />,
-  },
-  done: {
-    ...localizedLabel("components.badges.done"),
+  }),
+  done: localizedLabel("components.badges.done", {
     color: "var(--color-status-done)",
     icon: <CheckCircle weight="duotone" />,
-  },
-  cancelled: {
-    ...localizedLabel("components.badges.cancelled"),
+  }),
+  cancelled: localizedLabel("components.badges.cancelled", {
     color: "var(--color-status-cancelled)",
     icon: <XCircle weight="duotone" />,
-  },
-  unknown: {
-    ...localizedLabel("components.badges.unknown"),
+  }),
+  unknown: localizedLabel("components.badges.unknown", {
     color: "var(--color-status-unknown)",
     icon: <Question weight="bold" />,
-  },
-  archived: {
-    ...localizedLabel("components.badges.archived"),
+  }),
+  archived: localizedLabel("components.badges.archived", {
     color: "var(--color-status-archived)",
     icon: <Archive weight="duotone" />,
-  },
+  }),
 };
 
 // 状态标签的渲染已收敛到 primitives/StatusTag(视觉基线 v1,dec_AF44708E CH2):
@@ -96,11 +93,11 @@ const CLOSEOUT_META: Record<
   Exclude<CloseoutReadiness, "not_required">,
   { label: string; icon: ReactNode; accent?: boolean; tone?: "danger" }
 > = {
-  missing: { ...localizedLabel("components.badges.materialMissing"), icon: <Seal weight="duotone" /> },
-  incomplete: { ...localizedLabel("components.badges.notFinished"), icon: <HourglassMedium weight="duotone" /> },
-  ready: { ...localizedLabel("components.badges.readyArchiving"), icon: <SealCheck weight="fill" />, accent: true },
-  passed: { ...localizedLabel("components.badges.passed"), icon: <SealCheck weight="duotone" /> },
-  failed: { ...localizedLabel("components.badges.failed"), icon: <SealWarning weight="duotone" />, tone: "danger" },
+  missing: localizedLabel("components.badges.materialMissing", { icon: <Seal weight="duotone" /> }),
+  incomplete: localizedLabel("components.badges.notFinished", { icon: <HourglassMedium weight="duotone" /> }),
+  ready: localizedLabel("components.badges.readyArchiving", { icon: <SealCheck weight="fill" />, accent: true }),
+  passed: localizedLabel("components.badges.passed", { icon: <SealCheck weight="duotone" /> }),
+  failed: localizedLabel("components.badges.failed", { icon: <SealWarning weight="duotone" />, tone: "danger" }),
 };
 
 export function CloseoutBadge({ value }: { value: CloseoutReadiness }) {
@@ -171,41 +168,34 @@ export function freshnessBorder(freshness: Freshness): string {
 // ============ 三元语 badges：decision / riskTier / urgency ============
 
 const DECISION_STATE_META: Record<DecisionState, { icon: ReactNode; cls: string; label: string }> = {
-  proposed: {
-    ...localizedLabel("components.badges.pendingDecisionApproval"),
+  proposed: localizedLabel("components.badges.pendingDecisionApproval", {
     icon: <ChatCircleDots weight="bold" />,
     cls: "bg-accent text-accent-fg",
-  },
-  rejected: {
-    ...localizedLabel("components.badges.rejected"),
+  }),
+  rejected: localizedLabel("components.badges.rejected", {
     icon: <XCircle weight="bold" />,
     cls: "bg-danger/20 text-danger",
-  },
-  deferred: {
-    ...localizedLabel("components.badges.suspended"),
+  }),
+  deferred: localizedLabel("components.badges.suspended", {
     icon: <PauseCircle weight="bold" />,
     cls: "bg-stale/20 text-stale",
-  },
-  superseded: {
-    ...localizedLabel("components.badges.superseded"),
+  }),
+  superseded: localizedLabel("components.badges.superseded", {
     icon: <ArrowArcRight weight="bold" />,
     cls: "bg-stale/20 text-stale",
-  },
-  in_effect: {
-    ...localizedLabel("components.badges.takingEffect"),
+  }),
+  in_effect: localizedLabel("components.badges.takingEffect", {
     icon: <SealCheck weight="bold" />,
     cls: "bg-success/15 text-success",
-  },
-  outcome_retired: {
-    ...localizedLabel("components.badges.retired"),
+  }),
+  outcome_retired: localizedLabel("components.badges.retired", {
     icon: <Archive weight="bold" />,
     cls: "bg-surface-raised text-text-faint",
-  },
-  unknown: {
-    ...localizedLabel("components.badges.unknown"),
+  }),
+  unknown: localizedLabel("components.badges.unknown", {
     icon: <Question weight="bold" />,
     cls: "bg-surface-raised text-text-faint",
-  },
+  }),
 };
 
 export function DecisionStateBadge({ state }: { state: DecisionState }) {
@@ -231,13 +221,13 @@ export function isDecisionState(value: string): value is DecisionState {
 }
 
 const RISK_META: Record<RiskTier, { label: string; cls: string }> = {
-  high: { ...localizedLabel("components.badges.highRisk"), cls: "text-danger" },
-  medium: { ...localizedLabel("components.badges.mediumRisk"), cls: "text-stale" },
-  low: { ...localizedLabel("components.badges.lowRisk"), cls: "text-text-muted" },
+  high: localizedLabel("components.badges.highRisk", { cls: "text-danger" }),
+  medium: localizedLabel("components.badges.mediumRisk", { cls: "text-stale" }),
+  low: localizedLabel("components.badges.lowRisk", { cls: "text-text-muted" }),
 };
 
 export function RiskTierBadge({ tier }: { tier?: RiskTier }) {
-  const m = tier ? RISK_META[tier] : { ...localizedLabel("components.badges.unknown"), cls: "text-text-faint" };
+  const m = tier ? RISK_META[tier] : localizedLabel("components.badges.unknown", { cls: "text-text-faint" });
   return (
     <span
       className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap font-mono ui-meta ${m.cls}`}
@@ -250,15 +240,13 @@ export function RiskTierBadge({ tier }: { tier?: RiskTier }) {
 }
 
 const URGENCY_META: Record<Urgency, { label: string; cls: string }> = {
-  high: { ...localizedLabel("components.badges.urgent"), cls: "text-danger" },
-  medium: { ...localizedLabel("components.badges.regular"), cls: "text-text-muted" },
-  low: { ...localizedLabel("components.badges.noRush"), cls: "text-text-faint" },
+  high: localizedLabel("components.badges.urgent", { cls: "text-danger" }),
+  medium: localizedLabel("components.badges.regular", { cls: "text-text-muted" }),
+  low: localizedLabel("components.badges.noRush", { cls: "text-text-faint" }),
 };
 
 export function UrgencyBadge({ urgency }: { urgency?: Urgency }) {
-  const m = urgency
-    ? URGENCY_META[urgency]
-    : { ...localizedLabel("components.badges.unknown"), cls: "text-text-faint" };
+  const m = urgency ? URGENCY_META[urgency] : localizedLabel("components.badges.unknown", { cls: "text-text-faint" });
   return (
     <span
       className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap font-mono ui-meta ${m.cls}`}

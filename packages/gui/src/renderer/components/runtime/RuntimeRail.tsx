@@ -84,8 +84,14 @@ export function ProviderRail({
       >
         {ordered.map(({ instance, auth, abnormal }) => {
           const live = liveByInstance.get(instance.instanceId) ?? 0,
-            // 已停用是人为关掉、不是出错:中性灰,不吃异常的红档。
-            tone = !instance.enabled ? "neutral" : auth.cap === "none" ? "bad" : auth.cap === "part" ? "wait" : "done",
+            // 已停用是人为关掉、不是出错:中性灰,不吃异常的红档;「可用」是正常值,同样中性。
+            tone = !instance.enabled
+              ? "neutral"
+              : auth.cap === "none"
+                ? "bad"
+                : auth.cap === "part"
+                  ? "wait"
+                  : "neutral",
             tail = live > 0 ? t("agentRuntime.liveCount", { count: live }) : instance.defaultModel;
           return (
             <button

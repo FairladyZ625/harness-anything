@@ -4,7 +4,8 @@ import { STATUS_META } from "../badges";
 
 /**
  * 视觉基线 v1 的状态呈现档(gui-visual-language-standard §3):
- * 完成=绿、在做=青、等人裁决/评审中=琥珀、待开工=灰蓝、取消=暗灰、阻塞/失败=红。
+ * 完成=绿、在做=青蓝、等人裁决/评审中=琥珀、待开工=灰蓝、取消=暗灰、阻塞/失败=红。
+ * 「默认就该如此」的正常值(可用、已附着、运行中等)用 neutral,不上状态色。
  * 颜色通道承载注意力类别,具体状态靠文字区分;同一状态在所有页面同一颜色。
  */
 export type StatusTone = "done" | "active" | "wait" | "plan" | "cancel" | "bad" | "neutral";
