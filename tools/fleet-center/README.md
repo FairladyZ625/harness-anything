@@ -3,9 +3,9 @@
 `centerctl.sh` is the W5-R production-cutover rehearsal deployment for
 `tencent-lighthouse-prod`. It installs the pinned Node 24 tarball under the
 login user's home, clones/builds Harness Anything, attaches an inner-ledger
-clone as `remote-center`, generates private TLS/roster material, and starts the
-daemon-owned TLS center. It never uses sudo, Docker, system GitLab/nginx
-configuration, or the host's default Harness daemon.
+clone as `remote-center`, generates private TLS material and the assignment
+roster, and starts the daemon-owned TLS center. It never uses sudo, Docker,
+system GitLab/nginx configuration, or the host's default Harness daemon.
 
 First start (the token is consumed from stdin and is not saved):
 
@@ -38,6 +38,26 @@ switches the registration to `remote-center`, stops the daemon, preserves that
 bootstrap ledger at `~/harness-center/bootstrap-harness`, and only then clones
 the real inner ledger. It does not edit the cloned `people.yaml` or admit local
 writes to the remote center.
+
+## Roster and nodes
+
+`up` writes `~/harness-center/fleet/roster.json` as `fleet-roster/v3`: one
+assignment row naming what the node may reach (`assignmentId`, `nodeId`,
+`repoId`, `viewId`, `expiresAt`, `scope`). The roster does not say who a node
+is. `centerctl.sh` creates no machine credential and registers no node.
+
+A node's machine credential and its owner live in the center's Keycloak node
+registry. Until the authorization service is running on this daemon and the
+node named by `HARNESS_CENTER_NODE_ID` is registered there with an owner who
+holds a grant on the repository, no edge sync can succeed against this center.
+`up` does none of that:
+
+- `ha bootstrap` installs and starts the managed Keycloak and PostgreSQL under
+  this deployment's user root. It needs no sign-in, and it downloads its
+  runtimes from `repo1.maven.org`, `api.adoptium.net`, and `github.com`.
+- Creating the first administrator and signing in need a person. This version
+  offers both only through the desktop app; there is no CLI entry for either.
+- Registering a node needs a signed-in administrator holding `access-admin`.
 
 If outbound GitHub access is unreliable, preseed `~/harness-center/app` with a
 clean Git checkout containing `HARNESS_CENTER_APP_REF`. `up` only fetches when
