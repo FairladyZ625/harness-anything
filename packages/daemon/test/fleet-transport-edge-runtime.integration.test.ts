@@ -6,7 +6,12 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, realpathSync, rmSync,
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { fleetHostWriterOptions, fleetLedgerRevision, waitForFleetPublication } from "./fleet-store.fixture.ts";
+import {
+  fleetHostWriterOptions,
+  fleetLedgerRevision,
+  fleetNodeOwners,
+  waitForFleetPublication,
+} from "./fleet-store.fixture.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import { connect, type TLSSocket } from "node:tls";
 import { makeTaskEventReader, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
@@ -113,7 +118,8 @@ test(
     applyFleetMirrorCut(viewRoot, fixture.assignment.repoId, edgeRoot, "pull");
     writeFileSync(
       rosterPath,
-      `${JSON.stringify({ schema: "fleet-roster/v1", nodes: [{ nodeId: fixture.assignment.nodeId, credential: "machine-secret" }], assignments: [{ assignmentId: fixture.assignment.assignmentId, nodeId: fixture.assignment.nodeId, repoId: fixture.assignment.repoId, taskId: fixture.assignment.taskId, executionId: fixture.assignment.executionId, viewId: fixture.assignment.viewId, personId: fixture.assignment.actor.principal.personId, executorId: fixture.assignment.actor.executor?.id, expiresAt: fixture.assignment.expiresAt, paths: fixture.assignment.paths }] })}\n`,
+      `${JSON.stringify({ schema: "fleet-roster/v3", assignments: [{ assignmentId: fixture.assignment.assignmentId, nodeId: fixture.assignment.nodeId, repoId: fixture.assignment.repoId, viewId: fixture.assignment.viewId, expiresAt: fixture.assignment.expiresAt, scope: { kind: "task", taskId: fixture.assignment.taskId, executionId: fixture.assignment.executionId, paths: fixture.assignment.paths } }] })}
+`,
     );
     registerDaemonRepo({
       canonicalRoot: edgeRoot,
@@ -171,6 +177,7 @@ test(
                     port: center.port,
                     caPath: fixture.certFile,
                     nodeId: fixture.assignment.nodeId,
+                    credential: "machine-secret",
                     rosterPath,
                     assignmentId: fixture.assignment.assignmentId,
                     repoId: fixture.assignment.repoId,
@@ -222,6 +229,7 @@ test(
         port: center.port,
         caPath: fixture.certFile,
         nodeId: fixture.assignment.nodeId,
+        credential: "machine-secret",
         rosterPath,
         assignmentId: fixture.assignment.assignmentId,
         repoId: fixture.assignment.repoId,
@@ -325,6 +333,7 @@ test(
           port: center.port,
           caPath: fixture.certFile,
           nodeId: fixture.assignment.nodeId,
+          credential: "machine-secret",
           rosterPath,
           assignmentId: fixture.assignment.assignmentId,
           repoId: fixture.assignment.repoId,
@@ -365,7 +374,7 @@ test(
         const rejected = await fixture.host.runtimeIngress(
           fixture.assignment.repoId,
           { kind: "event", type: event.type, payload: event.payload, opId: event.opId },
-          { transportKind: "fleet-tls", assignmentBinding: foreignAssignment },
+          fixture.owners.auth(foreignAssignment),
         );
         assert.equal(rejected.outcome, "op_rejected");
         assert.equal(rejected.code, "assignment_scope_mismatch");
@@ -481,7 +490,7 @@ test(
     assert.equal(existsSync(path.join(edgeRoot, "harness/agents/edge-worker.json")), true);
     writeFileSync(
       rosterPath,
-      `${JSON.stringify({ schema: "fleet-roster/v1", nodes: [{ nodeId: fixture.assignment.nodeId, credential: "machine-secret" }], assignments: [{ assignmentId: fixture.assignment.assignmentId, nodeId: fixture.assignment.nodeId, repoId, taskId, executionId: fixture.assignment.executionId, viewId: fixture.assignment.viewId, personId: fixture.assignment.actor.principal.personId, executorId: fixture.assignment.actor.executor?.id, expiresAt: fixture.assignment.expiresAt, paths: fixture.assignment.paths }] })}\n`,
+      `${JSON.stringify({ schema: "fleet-roster/v3", assignments: [{ assignmentId: fixture.assignment.assignmentId, nodeId: fixture.assignment.nodeId, repoId, viewId: fixture.assignment.viewId, expiresAt: fixture.assignment.expiresAt, scope: { kind: "task", taskId, executionId: fixture.assignment.executionId, paths: fixture.assignment.paths } }] })}\n`,
     );
     registerDaemonRepo({
       canonicalRoot: edgeRoot,
@@ -529,6 +538,7 @@ test(
         port: center.port,
         caPath: fixture.certFile,
         nodeId: fixture.assignment.nodeId,
+        credential: "machine-secret",
         rosterPath,
         assignmentId: fixture.assignment.assignmentId,
         repoId,
@@ -652,6 +662,7 @@ test("fleet runtime waits over five seconds for every configured overview page",
       cert: fixture.cert,
       replicaDiskQuotaBytes: replicaQuota,
       authenticate: (nodeId, credential) => nodeId === fixture.assignment.nodeId && credential === "machine-secret",
+      nodeOwner: fixture.owners.nodeOwner,
       resolveAssignment: (assignmentId) =>
         assignmentId === fixture.assignment.assignmentId ? fixture.assignment : null,
     }),
@@ -820,7 +831,8 @@ test(
     }
     writeFileSync(
       rosterPath,
-      `${JSON.stringify({ schema: "fleet-roster/v1", nodes: [{ nodeId: fixture.assignment.nodeId, credential: "machine-secret" }], assignments: [{ assignmentId: fixture.assignment.assignmentId, nodeId: fixture.assignment.nodeId, repoId: fixture.assignment.repoId, taskId: fixture.assignment.taskId, executionId: fixture.assignment.executionId, viewId: fixture.assignment.viewId, personId: fixture.assignment.actor.principal.personId, executorId: fixture.assignment.actor.executor?.id, expiresAt: fixture.assignment.expiresAt, paths: fixture.assignment.paths }] })}\n`,
+      `${JSON.stringify({ schema: "fleet-roster/v3", assignments: [{ assignmentId: fixture.assignment.assignmentId, nodeId: fixture.assignment.nodeId, repoId: fixture.assignment.repoId, viewId: fixture.assignment.viewId, expiresAt: fixture.assignment.expiresAt, scope: { kind: "task", taskId: fixture.assignment.taskId, executionId: fixture.assignment.executionId, paths: fixture.assignment.paths } }] })}
+`,
     );
     registerDaemonRepo({
       canonicalRoot: edgeRoot,
@@ -901,6 +913,7 @@ test(
         port: center.port,
         caPath: fixture.certFile,
         nodeId: fixture.assignment.nodeId,
+        credential: "machine-secret",
         rosterPath,
         assignmentId: fixture.assignment.assignmentId,
         repoId: fixture.assignment.repoId,
@@ -954,6 +967,7 @@ test(
         port: center.port,
         caPath: fixture.certFile,
         nodeId: fixture.assignment.nodeId,
+        credential: "machine-secret",
         rosterPath,
         assignmentId: fixture.assignment.assignmentId,
         repoId: fixture.assignment.repoId,
@@ -1132,7 +1146,7 @@ test(
               },
               dispatchContext: { role, taskId: assignment.taskId, executionId: assignment.executionId },
             },
-            { transportKind: "fleet-tls", assignmentBinding: assignment },
+            fixture.owners.auth(assignment),
           )
           .then(
             (receipt) => String(receipt.code ?? receipt.outcome),
@@ -1216,7 +1230,8 @@ test("edge terminal task settlement rejects a changed assignment holder", { time
   });
   assert.equal(launched.outcome, "applied", JSON.stringify(launched));
   assert.ok(terminal);
-  fixture.setExecutor("replacement-worker");
+  // The node moves to another owner mid-run: the lease its previous owner holds is not the new owner's to release.
+  fixture.setOwner("replacement-owner");
   terminal();
   const outcomes = () =>
     makeTaskEventReader({ repoId: fixture.assignment.repoId, rootDir: fixture.repo })
@@ -1250,7 +1265,6 @@ async function fleetFixture(
   let nodeActive = true,
     expiresAt = "2099-01-01T00:00:00.000Z",
     assignmentDelayMs = 0,
-    assignmentExecutor = "fleet-edge",
     taskReleaseBarrier: { readonly started: () => void; readonly wait: Promise<void> } | null = null;
   const runtimeArchiveReceipts: Readonly<Record<string, unknown>>[] = [];
   mkdirSync(path.join(repo, "harness"), { recursive: true });
@@ -1291,6 +1305,11 @@ async function fleetFixture(
       daemonId: "fleet-center",
       userRoot,
       ...(centerRuntimes.length ? { runtimeDiscover: () => [...centerRuntimes] } : {}),
+    }),
+    owners = await fleetNodeOwners({
+      userRoot,
+      owners: { "node-one": "person-owner", "node-two": "person-owner" },
+      repoIds: ["fleet-repo"],
     });
   t.after(async () => {
     try {
@@ -1299,6 +1318,7 @@ async function fleetFixture(
       try {
         await host.close();
       } finally {
+        await owners.close();
         rmSync(root, { recursive: true, force: true });
       }
     }
@@ -1313,14 +1333,13 @@ async function fleetFixture(
       paths,
       viewId: "node-one_task-fleet",
       expiresAt: "2099-01-01T00:00:00.000Z",
-      actor: { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "fleet-edge" } },
     },
     slowAssignment: FleetAssignmentRecord = {
       ...assignment,
       assignmentId: "assignment-slow",
       viewId: "node-one_task-fleet-slow",
     },
-    auth = { transportKind: "fleet-tls" as const, assignmentBinding: assignment };
+    auth = owners.auth(assignment);
   const created = await host.run(
     assignment.repoId,
     { kind: "task-create", taskId: assignment.taskId, title: "Fleet" },
@@ -1340,7 +1359,7 @@ async function fleetFixture(
     auth,
   );
   assert.equal(started.outcome, "applied", JSON.stringify(started));
-  await waitForReceiptCommit(host, assignment.repoId, started.opId, assignment);
+  await waitForReceiptCommit(host, assignment.repoId, started.opId, auth);
   return {
     root,
     repo,
@@ -1357,9 +1376,8 @@ async function fleetFixture(
     emptyPath,
     track: owned.track,
     hold: owned.hold,
-    setExecutor: (value: string) => {
-      assignmentExecutor = value;
-    },
+    owners,
+    setOwner: (personId: string) => owners.reassign(assignment.nodeId, personId),
     setActive: (value: boolean) => {
       nodeActive = value;
     },
@@ -1408,15 +1426,12 @@ async function fleetFixture(
           cert,
           replicaDiskQuotaBytes: replicaQuota,
           authenticate: (nodeId, credential) => nodeId === assignment.nodeId && credential === "machine-secret",
+          nodeOwner: owners.nodeOwner,
           isNodeActive: () => nodeActive,
           resolveAssignment: async (assignmentId) => {
             if (assignmentDelayMs) await new Promise((resolve) => setTimeout(resolve, assignmentDelayMs));
             return assignmentId === assignment.assignmentId
-              ? {
-                  ...assignment,
-                  expiresAt,
-                  actor: { ...assignment.actor, executor: { kind: "agent" as const, id: assignmentExecutor } },
-                }
+              ? { ...assignment, expiresAt }
               : assignmentId === slowAssignment.assignmentId
                 ? { ...slowAssignment, expiresAt }
                 : null;
@@ -1526,10 +1541,9 @@ async function waitForReceiptCommit(
   host: Awaited<ReturnType<typeof openDaemonHost>>,
   repoId: string,
   opId: string,
-  assignment: FleetAssignmentRecord,
+  binding: Parameters<Awaited<ReturnType<typeof openDaemonHost>>["run"]>[2],
 ): Promise<void> {
-  const deadline = performance.now() + 15_000,
-    binding = { transportKind: "fleet-tls" as const, assignmentBinding: assignment };
+  const deadline = performance.now() + 15_000;
   do {
     const receipt = await host.run(repoId, { kind: "receipt-show", opId }, binding);
     if (typeof receipt.commitSha === "string") return;

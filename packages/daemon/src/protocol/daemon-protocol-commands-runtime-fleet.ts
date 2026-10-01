@@ -260,9 +260,6 @@ export const runtimeFleetProtocolCommands = Object.freeze([
       cliInput("--credential", "single", false, {
         code: "invalid_field",
       }),
-      cliInput("--roster", "single", false, {
-        code: "invalid_field",
-      }),
       cliInput(
         "--assignment",
         "single",

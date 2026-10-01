@@ -1,6 +1,7 @@
 import { memo } from "react";
 import { t } from "../../i18n/index.tsx";
 import { observePercentile, type ObserveStats } from "../../daemon-observe-stats.ts";
+import { formatDuration } from "../../model/time.ts";
 
 /**
  * 慢操作排行榜:整体 P50/P95/Max 分位卡片 + Top 5 慢 RPC 列表(按单次最大耗时排序,
@@ -14,8 +15,7 @@ import { observePercentile, type ObserveStats } from "../../daemon-observe-stats
 export const OBSERVE_SLOW_OP_MS = 1_000,
   OBSERVE_SLOW_TOP = 5;
 
-const ms = (value: number | null): string => (value === null ? "—" : `${Math.round(value)}ms`),
-  toneFor = (value: number): string => (value > OBSERVE_SLOW_OP_MS ? "text-status-blocked" : "text-text-muted");
+const toneFor = (value: number): string => (value > OBSERVE_SLOW_OP_MS ? "text-status-blocked" : "text-text-muted");
 
 export const ObserveSlowOpsBoard = memo(function ObserveSlowOpsBoard({
   testId,
@@ -45,7 +45,7 @@ export const ObserveSlowOpsBoard = memo(function ObserveSlowOpsBoard({
         {cards.map(([label, value]) => (
           <span key={label} className="font-mono ui-micro text-text-muted">
             <span className="text-text-faint">{label} </span>
-            <span className={toneFor(value ?? 0)}>{ms(value)}</span>
+            <span className={toneFor(value ?? 0)}>{formatDuration(value)}</span>
           </span>
         ))}
       </div>
@@ -68,11 +68,11 @@ export const ObserveSlowOpsBoard = memo(function ObserveSlowOpsBoard({
               </span>
               <span className={`shrink-0 ${toneFor(op.maxMs)}`}>
                 <span className="text-text-faint">P50 </span>
-                {ms(observePercentile(op.durations, 0.5))}
+                {formatDuration(observePercentile(op.durations, 0.5))}
                 <span className="text-text-faint"> · P95 </span>
-                {ms(p95)}
+                {formatDuration(p95)}
                 <span className="text-text-faint"> · Max </span>
-                {ms(op.maxMs)}
+                {formatDuration(op.maxMs)}
               </span>
             </li>
           );

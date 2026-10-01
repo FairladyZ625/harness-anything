@@ -1,4 +1,4 @@
-/** @daemon-transport-authority Transport-derived actor and assignment binding. */
+/** @daemon-transport-authority Transport-derived actor binding for local sessions and fleet nodes. */
 import os from "node:os";
 import { actionDeclarations, projectDeclaredRoleBindings } from "@harness-anything/kernel";
 import { hostCodedError } from "./daemon-host-errors.ts";
@@ -125,12 +125,51 @@ function withSessionEnvironment(binding: RepoCellBinding, auth: DaemonAuthentica
       ? {}
       : {
           keycloakAuthorization: {
-            accessToken: auth.oidcPrincipal.accessToken,
-            url: auth.oidcPrincipal.authority.url,
-            realm: auth.oidcPrincipal.authority.realm,
-            clientId: auth.oidcPrincipal.authority.clientId,
+            session: {
+              personId: auth.oidcPrincipal.personId,
+              accessToken: auth.oidcPrincipal.accessToken,
+              url: auth.oidcPrincipal.authority.url,
+              realm: auth.oidcPrincipal.authority.realm,
+              clientId: auth.oidcPrincipal.authority.clientId,
+            },
           },
         }),
+  };
+}
+
+/**
+ * A fleet connection authenticates a machine only. The person it acts for is the node's registered
+ * owner, and that person answers to the same Keycloak grants as when signed in locally.
+ */
+async function nodeOwnerBinding(auth: DaemonAuthenticationContext): Promise<RepoCellBinding> {
+  const assignment = auth.assignmentBinding!,
+    owner = auth.nodePrincipal,
+    legacy = assignment as typeof assignment & {
+      readonly taskId?: string;
+      readonly executionId?: string;
+      readonly paths?: readonly string[];
+    },
+    scope =
+      assignment.scope ??
+      (legacy.taskId && legacy.executionId && legacy.paths
+        ? { kind: "task" as const, taskId: legacy.taskId, executionId: legacy.executionId, paths: legacy.paths }
+        : undefined);
+  if (!scope)
+    throw hostCodedError("assignment_scope_mismatch", "Assignment ingress requires a valid task or Schedule scope.");
+  if (!owner || owner.nodeId !== assignment.nodeId || !auth.keycloakCenter)
+    throw hostCodedError(
+      "authentication_required",
+      `Fleet ingress requires node ${assignment.nodeId} to have an owner registered at the center.`,
+    );
+  return {
+    actor: { principal: { personId: owner.personId }, executor: null },
+    source: { kind: "assignment", nodeId: owner.nodeId, assignmentId: assignment.assignmentId },
+    assignmentScope: { repoId: assignment.repoId, scope },
+    keycloakAuthorization: { center: await auth.keycloakCenter() },
+    ...(auth.sessionEnvironment === undefined ? {} : { sessionEnvironment: auth.sessionEnvironment }),
+    ...(auth.writerEpoch === undefined ? {} : { writerEpoch: auth.writerEpoch }),
+    ...(auth.withWriterEpochFence ? { withWriterEpochFence: auth.withWriterEpochFence } : {}),
+    ...(auth.writerEpochFence ? { writerEpochFence: auth.writerEpochFence } : {}),
   };
 }
 
@@ -139,38 +178,7 @@ export async function binding(
   auth: DaemonAuthenticationContext,
   executor: RepoCellBinding["actor"]["executor"] = null,
 ): Promise<RepoCellBinding> {
-  if (auth.assignmentBinding) {
-    const legacy = auth.assignmentBinding as typeof auth.assignmentBinding & {
-        readonly taskId?: string;
-        readonly executionId?: string;
-        readonly paths?: readonly string[];
-      },
-      scope =
-        auth.assignmentBinding.scope ??
-        (legacy.taskId && legacy.executionId && legacy.paths
-          ? { kind: "task" as const, taskId: legacy.taskId, executionId: legacy.executionId, paths: legacy.paths }
-          : undefined);
-    if (!scope)
-      throw hostCodedError("assignment_scope_mismatch", "Assignment ingress requires a valid task or Schedule scope.");
-    return withSessionEnvironment(
-      {
-        actor: auth.assignmentBinding.actor,
-        source: {
-          kind: "assignment",
-          nodeId: auth.assignmentBinding.nodeId,
-          assignmentId: auth.assignmentBinding.assignmentId,
-        },
-        assignmentScope: {
-          repoId: auth.assignmentBinding.repoId,
-          scope,
-        },
-        ...(auth.writerEpoch === undefined ? {} : { writerEpoch: auth.writerEpoch }),
-        ...(auth.withWriterEpochFence ? { withWriterEpochFence: auth.withWriterEpochFence } : {}),
-        ...(auth.writerEpochFence ? { writerEpochFence: auth.writerEpochFence } : {}),
-      },
-      auth,
-    );
-  }
+  if (auth.assignmentBinding) return nodeOwnerBinding(auth);
   if (auth.oidcPrincipal && auth.oidcPrincipal.expiresAt > Date.now()) return localDefaultBinding(auth, executor);
   const roster = loadPeopleRosterIfPresent({ rootDir });
   if (roster === null) return localDefaultBinding(auth, executor);

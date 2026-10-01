@@ -437,12 +437,14 @@ describe("SystemStatusPanel(侧栏左下角紧凑系统运行区)", () => {
     const detail = systemHealthDetail(healthy);
     expect(detail).toContain("台账服务");
     expect(detail).toContain("响应正常");
-    expect(detail).toContain("1h 0m 0s");
+    expect(detail).toContain("1h");
     expect(detail).toContain("attached");
     expect(detail).toContain("落后 0 revisions");
     expect(detail).toContain("最新台账变化");
     // 绝对时刻按显示时区格式化,这里只锁「相对年龄 + 绝对时刻」两段都在。
-    expect(detail).toMatch(/最新台账变化: 60 分钟前 · \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/u);
+    expect(detail).toMatch(
+      /最新台账变化: 1 小时前 · (?:(?:今天 )?\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})/u,
+    );
   });
 
   it("turns the lamp red and still names every degraded signal instead of hiding it", async () => {

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { ResultPagination } from "../../components/ResultPagination.tsx";
 import { eventTypeLabel } from "../../model/workspace-readable.ts";
-import { formatTime } from "../../model/time.ts";
+import { dayKeyOf, formatDayKeyLabel, formatTime } from "../../model/time.ts";
 import { t } from "../../i18n/index.tsx";
 
 /**
@@ -53,14 +53,14 @@ export function WorkInspectTab({ events, historyComplete, titles, onNavigateEnti
               const taskRef = event.taskId === null ? null : `task/${event.taskId}`,
                 // 标题在读面里就用标题,没有就如实退回原始 task id——不猜。
                 taskName = (taskRef === null ? undefined : titles.get(taskRef)) ?? event.taskId,
-                day = event.at ? formatTime(event.at, { style: "date" }) : null,
+                day = event.at ? dayKeyOf(event.at) : null,
                 previousAt = rows[index - 1]?.at,
-                previousDay = previousAt ? formatTime(previousAt, { style: "date" }) : null;
+                previousDay = previousAt ? dayKeyOf(previousAt) : null;
               return (
                 <li key={event.key} className="min-w-0">
                   {index === 0 || day !== previousDay ? (
                     <p className="border-b border-border py-2 font-semibold text-text-muted ui-meta">
-                      {day ?? t("views.workspace.timeMissing")}
+                      {day === null ? t("views.workspace.timeMissing") : formatDayKeyLabel(day)}
                     </p>
                   ) : null}
                   <div className="flex items-baseline gap-3 border-b border-border/50 py-1.5">

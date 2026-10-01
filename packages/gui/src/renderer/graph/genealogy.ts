@@ -1,5 +1,5 @@
 import type { DecisionRow, RelationEdge, RelationKind } from "../model/types";
-import { formatTime } from "../model/time.ts";
+import { dayKeyOf, formatDayKeyLabel } from "../model/time.ts";
 
 /**
  * 决策谱系「演化史」纯逻辑层(REQ-GUI-05)。
@@ -81,10 +81,10 @@ export function timeMsOf(decision: DecisionRow): number | null {
   return Number.isFinite(ms) ? ms : null;
 }
 
-export function dayKeyOf(decision: DecisionRow): string {
+export function decisionDayKeyOf(decision: DecisionRow): string {
   const raw = decision.decidedAt ?? decision.proposedAt;
   if (!raw) return "NO_TIME";
-  return formatTime(raw, { style: "date" }) ?? "NO_TIME";
+  return dayKeyOf(raw) ?? "NO_TIME";
 }
 
 /**
@@ -231,7 +231,7 @@ function collectRawNodes(
     .map(([id, depth]) => {
       const decision = byId.get(id);
       if (!decision) return null;
-      return { id, decision, depth, timeMs: timeMsOf(decision), dayKey: dayKeyOf(decision) };
+      return { id, decision, depth, timeMs: timeMsOf(decision), dayKey: decisionDayKeyOf(decision) };
     })
     .filter((n): n is RawLineageNode => n !== null);
 }
@@ -342,7 +342,7 @@ export function computeLayout(
     const label = rank === 0 ? "焦点" : rank === maxRank ? "后代" : `第 ${rank} 层`;
     const x = maxRank === 0 ? PAD_X + contentW / 2 : PAD_X + rank * colStep;
     const day = col[0]?.dayKey;
-    const dayLabel = day && day !== "NO_TIME" ? day.slice(5) : "";
+    const dayLabel = day && day !== "NO_TIME" ? formatDayKeyLabel(day) : "";
     return { x, label: dayLabel ? `${label} · ${dayLabel}` : label };
   });
 

@@ -10,7 +10,9 @@ import {
   stableStringify,
   DEFAULT_POLICY,
   verifyDelegatedExecutionToken,
+  type ActorIdentity,
   type AuthorizationDecision,
+  type AuthorizationResource,
   type DelegatedExecutionToken,
   type DelegatedExecutionTokenReasonCode,
   type EntityActionUnmetCriterionV1,
@@ -18,12 +20,11 @@ import {
   type WriteReceiptDraft,
   type EntityRef,
   type ReceiptDiagnostic,
-  type ReceiptJsonValue,
   type TaskProjection,
 } from "@harness-anything/kernel";
 import { declaredRoleBindingsFromRoster } from "./identity/declared-role-binding-projection.ts";
 import { authorizeAction } from "./authorization.ts";
-import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
+import { KeycloakPolicyAdapter, type KeycloakPermissionDecision } from "./keycloak-policy-adapter.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 const repositoryTarget: EntityRef = "settings/repository";
@@ -47,7 +48,7 @@ export async function evaluateRepoCellAction(input: {
       idempotencyKey: typeof input.action.idempotencyKey === "string" ? input.action.idempotencyKey : input.actionId,
     });
   const admitted = input.binding.authorizationDecision;
-  if (keycloakAllowsAction(admitted, input.action.kind)) {
+  if (keycloakAllowsAction(admitted, input.action.kind, envelope.actor)) {
     const token = input.binding.delegatedExecutionToken;
     return token
       ? {
@@ -69,27 +70,47 @@ export async function evaluateRepoCellAction(input: {
   }
   const credential = input.binding.keycloakAuthorization;
   if (!credential) return authorizeDurableRepoCellAction(input);
-  const adapter = new KeycloakPolicyAdapter(
-      {
-        url: credential.url,
-        realm: credential.realm,
-        resourceServerClientId: credential.clientId,
-      },
-      input.fetchPort,
-    ),
-    result = await adapter.authorize({
-      userAccessToken: credential.accessToken,
-      action: input.action.kind,
-      resource:
-        target === repositoryTarget
-          ? { kind: "repository", repoId: input.repoId }
-          : {
-              kind: "entity",
-              repoId: input.repoId,
-              entityRef: target,
-            },
-    });
+  const result = await evaluateKeycloakPerson({
+    credential,
+    personId: envelope.actor.principal.personId,
+    action: input.action.kind,
+    resource:
+      target === repositoryTarget
+        ? { kind: "repository", repoId: input.repoId }
+        : { kind: "entity", repoId: input.repoId, entityRef: target },
+    fetchPort: input.fetchPort,
+  });
   return keycloakDecision(envelope, `canonical:${input.revision}`, result.outcome, result.reasonCode);
+}
+
+/**
+ * One evaluation for every entry point: the acting person's Keycloak grants on one action and one
+ * resource. A signed-in person presents their own token; a node's owner or the issuer behind an
+ * execution token holds none here, so the center asks Keycloak about that person by id.
+ */
+export async function evaluateKeycloakPerson(input: {
+  readonly credential: NonNullable<RepoCellBinding["keycloakAuthorization"]>;
+  readonly personId: string;
+  readonly action: string;
+  readonly resource: AuthorizationResource;
+  readonly fetchPort?: typeof fetch;
+}): Promise<Pick<KeycloakPermissionDecision, "outcome" | "reasonCode">> {
+  const { session, center } = input.credential;
+  if (session?.personId === input.personId)
+    return new KeycloakPolicyAdapter(
+      { url: session.url, realm: session.realm, resourceServerClientId: session.clientId },
+      input.fetchPort,
+    ).authorize({ userAccessToken: session.accessToken, action: input.action, resource: input.resource });
+  if (!center) return { outcome: "denied", reasonCode: "keycloak_denied" };
+  return new KeycloakPolicyAdapter(
+    { url: center.url, realm: center.realm, resourceServerClientId: center.clientId },
+    input.fetchPort,
+  ).authorizePerson({
+    adminAccessToken: center.accessToken,
+    personId: input.personId,
+    action: input.action,
+    resource: input.resource,
+  });
 }
 
 export function authorizeRepoCellAction(input: {
@@ -109,19 +130,22 @@ export function authorizeRepoCellAction(input: {
       idempotencyKey: typeof input.action.idempotencyKey === "string" ? input.action.idempotencyKey : input.actionId,
     }),
     decision = input.binding.authorizationDecision;
-  if (keycloakAllowsAction(decision, input.action.kind)) return decision;
+  if (keycloakAllowsAction(decision, input.action.kind, envelope.actor)) return decision;
   if (input.binding.keycloakAuthorization)
     return keycloakDecision(envelope, `canonical:${input.revision}`, "denied", "keycloak_denied");
   return legacyBindingDecision(envelope, input.binding, target, input.now, `canonical:${input.revision}`);
 }
 
+/** An admitted decision speaks for the person it was evaluated for and for no one else. */
 function keycloakAllowsAction(
   decision: AuthorizationDecision | undefined,
   action: string,
+  actor: ActorIdentity,
 ): decision is AuthorizationDecision {
   return (
     decision?.policyRef === "keycloak-policy@1" &&
     decision.outcome === "allowed" &&
+    decision.actor.principal.personId === actor.principal.personId &&
     decision.bindingsUsed.some((binding) => binding.scope === action)
   );
 }
@@ -133,31 +157,19 @@ function legacyBindingDecision(
   now: string,
   evaluatedAtCut: string,
 ): AuthorizationDecision {
-  const assignment = binding.assignmentScope,
-    source = typeof binding.source === "object" ? binding.source : null,
-    decision = authorizeAction(
-      { ...action, authorizationRef: `${DEFAULT_POLICY.id}@${DEFAULT_POLICY.version}` },
-      {
-        roleBindings: binding.roleBindings,
-        roleBindingTargets: [target, repositoryTarget],
-        evaluatedAt: now,
-        delegatedExecutionToken: binding.delegatedExecutionToken,
-        ...(assignment && source?.kind === "assignment"
-          ? {
-              assignmentBinding: {
-                repoId: assignment.repoId,
-                nodeId: source.nodeId,
-                assignmentId: source.assignmentId,
-                scope: assignment.scope as unknown as Readonly<Record<string, ReceiptJsonValue>>,
-              },
-            }
-          : {}),
-        writeSource: binding.source,
-        target: {},
-        evaluatedAtCut,
-      },
-    );
-  return !binding.roleBindings?.length && !assignment && !binding.delegatedExecutionToken
+  const decision = authorizeAction(
+    { ...action, authorizationRef: `${DEFAULT_POLICY.id}@${DEFAULT_POLICY.version}` },
+    {
+      roleBindings: binding.roleBindings,
+      roleBindingTargets: [target, repositoryTarget],
+      evaluatedAt: now,
+      delegatedExecutionToken: binding.delegatedExecutionToken,
+      writeSource: binding.source,
+      target: {},
+      evaluatedAtCut,
+    },
+  );
+  return !binding.roleBindings?.length && !binding.delegatedExecutionToken
     ? { ...decision, reasonCodes: ["authentication_required"] }
     : decision;
 }
@@ -467,11 +479,6 @@ export function bindVerifiedExecutorClaim(input: {
 }): { readonly action: RepoTaskAction; readonly binding: RepoCellBinding } {
   if (!Object.hasOwn(input.action, "executor")) return { action: input.action, binding: input.binding };
   const { executor: raw, ...action } = input.action;
-  if (typeof input.binding.source === "object" && input.binding.source.kind === "assignment") {
-    if (raw !== undefined && raw !== null)
-      throw invalidExecutorBindingFor(input, raw, "Assignment ingress already carries its verified executor binding.");
-    return { action, binding: input.binding };
-  }
   if (raw === undefined || raw === null) return { action, binding: input.binding };
   if (!isExecutorDescriptorRecord(raw) || raw.kind !== "agent" || typeof raw.id !== "string")
     throw invalidExecutorBindingFor(input, raw, "Executor claims must identify one agent actor.");

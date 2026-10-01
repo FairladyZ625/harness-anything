@@ -13,6 +13,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { makeTaskEventReader, sha256Bytes } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
@@ -87,7 +88,12 @@ async function dualSyncFixture() {
   );
   const key = readFileSync(keyFile),
     cert = readFileSync(certFile),
-    host = await openDaemonHost({ daemonId: "dual-center", userRoot });
+    host = await openDaemonHost({ daemonId: "dual-center", userRoot }),
+    owners = await fleetNodeOwners({
+      userRoot,
+      owners: Object.fromEntries(nodes.map((nodeId) => [nodeId, `person-${nodeId}`])),
+      repoIds: ["dual-repo"],
+    });
   await host.attachmentsSettled();
   // Match daemon-fleet-center-start: local and edge ingress share the host lease.
   const writerEpochStateRoot = path.join(userRoot, "fleet"),
@@ -106,7 +112,6 @@ async function dualSyncFixture() {
     paths: ["tasks", "context/shared-notes.md", "context/other-notes.md"],
     viewId: `${nodeId}-view`,
     expiresAt: "2099-01-01T00:00:00.000Z",
-    actor: { principal: { personId: `person-${nodeId}` }, executor: { kind: "agent", id: `agent-${nodeId}` } },
   });
   const byId = new Map(nodes.map((nodeId) => [assignment(nodeId).assignmentId, assignment(nodeId)]));
   const center: FleetTlsCenter = await listenFleetTls({
@@ -121,6 +126,7 @@ async function dualSyncFixture() {
     cert,
     replicaDiskQuotaBytes: replicaQuota,
     authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
+    nodeOwner: owners.nodeOwner,
     resolveAssignment: (assignmentId) => byId.get(assignmentId) ?? null,
   });
   const edgeRoot = (nodeId: NodeId): string => path.join(root, `${nodeId}-edge`),
@@ -247,9 +253,11 @@ async function dualSyncFixture() {
     centerRun,
     waitPublished,
     git,
+    owners,
     close: async () => {
       await center.close();
       await host.close();
+      await owners.close();
       rmSync(root, { recursive: true, force: true });
     },
   };
@@ -437,21 +445,14 @@ test(
     // The per-path base guard itself: a bundle whose mirror cut is current but
     // whose declared per-path base no longer matches the projection is refused
     // with base_blob_changed and the transition never runs.
-    const auth = {
-      transportKind: "fleet-tls" as const,
-      assignmentBinding: {
-        nodeId: "node-one",
-        assignmentId: "assignment-node-one",
-        repoId: "dual-repo",
-        taskId: created.taskId,
-        executionId: "exe-seeded",
-        paths: ["tasks"],
-        actor: {
-          principal: { personId: "person-node-one" },
-          executor: { kind: "agent" as const, id: "agent-node-one" },
-        },
-      },
-    };
+    const auth = fixture.owners.auth({
+      nodeId: "node-one",
+      assignmentId: "assignment-node-one",
+      repoId: "dual-repo",
+      taskId: created.taskId,
+      executionId: "exe-seeded",
+      paths: ["tasks"],
+    } as never);
     const status = await fixture.host.run("dual-repo", { kind: "doc-status", paths: [planPath] }, auth);
     if (status.detail?.kind !== "doc_sync") throw new Error("doc status lacks a canonical cut");
     const current = status.detail.currentLedgerSha;

@@ -76,6 +76,11 @@ export function setActiveLocale(locale: Locale): void {
   activeLocale = locale;
 }
 
+/** 当前界面语言;非 React 侧(如 model/time.ts 的格式化)取语言用这个,不走 hook。 */
+export function currentLocale(): Locale {
+  return activeLocale;
+}
+
 export function messageFor(key: MessageKey): string {
   return catalogs[activeLocale][key] ?? catalogs["en-US"][key] ?? key;
 }

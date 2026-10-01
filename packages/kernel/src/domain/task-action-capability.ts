@@ -100,8 +100,7 @@ const taskCapabilityEvaluators = Object.freeze(
     ],
     [
       key("adjudicate", "repo-cell-proof/proofFor.AdjudicateSubmission"),
-      ({ snapshot, actor }) =>
-        snapshot.task !== null && isSamePerson(snapshot.task.createdBy, actor) ? "met" : "unmet",
+      ({ snapshot }) => (snapshot.task !== null ? "met" : "unmet"),
     ],
     [key("review", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("review", "task-lifecycle-review-transitions/review.validate"), reviewValidation],
@@ -128,10 +127,7 @@ const taskCapabilityEvaluators = Object.freeze(
     ],
     [
       key("complete", "task-lifecycle-review-transitions/complete.validate"),
-      ({ snapshot, actor }) =>
-        snapshot.task !== null && isSamePerson(snapshot.task.createdBy, actor) && snapshot.lease === null
-          ? "met"
-          : "unmet",
+      ({ snapshot }) => (snapshot.task !== null && snapshot.lease === null ? "met" : "unmet"),
     ],
     [key("release", "repo-cell-task-mutation/release"), releaseAvailability],
     [key("amend", "repo-cell-task-mutation/amend"), mutationInvocation],

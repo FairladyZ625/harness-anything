@@ -1,6 +1,6 @@
 import { ArrowClockwise, GearSix } from "@phosphor-icons/react";
 import { runtimeHealthWorst, type RuntimeHealth } from "../../model/runtime-health.ts";
-import { formatTime, formatUptimeMs } from "../../model/time.ts";
+import { formatDuration, formatRelative, formatTime } from "../../model/time.ts";
 import { t } from "../../i18n/index.tsx";
 
 const HEALTH_TONE = {
@@ -23,17 +23,10 @@ const CELL_LABEL: Record<string, string> = {
   unknown: "—",
 };
 
-function relativeSeconds(seconds: number): string {
-  if (seconds < 90) return t("components.appSidebar.ledgerSecondsAgo", { seconds: String(seconds) });
-  if (seconds < 5_400)
-    return t("components.appSidebar.ledgerMinutesAgo", { minutes: String(Math.round(seconds / 60)) });
-  return t("components.appSidebar.ledgerHoursAgo", { hours: String(Math.round(seconds / 3_600)) });
-}
-
+/** 观测/刷新年龄:秒龄换算成统一相对写法(刚刚 / N 分钟前 / …)。 */
 function ageText(seconds: number | null): string {
   if (seconds === null) return t("components.appSidebar.healthUnknown");
-  if (seconds < 5) return t("components.appSidebar.ledgerJustNow");
-  return relativeSeconds(seconds);
+  return formatRelative(Date.now() - seconds * 1_000);
 }
 
 function projectionText(health: RuntimeHealth): string {
@@ -53,7 +46,7 @@ export function systemHealthDetail(health: RuntimeHealth): string {
     `${t("components.appSidebar.healthDaemon")}: ${daemon}` +
       (health.daemon.uptimeMs === null
         ? ""
-        : ` · ${t("components.appSidebar.healthUptime")} ${formatUptimeMs(health.daemon.uptimeMs)}`),
+        : ` · ${t("components.appSidebar.healthUptime")} ${formatDuration(health.daemon.uptimeMs)}`),
     `${t("components.appSidebar.healthCell")}: ${CELL_LABEL[health.cell.state] ?? health.cell.state}` +
       (health.cell.queueDepth === null
         ? ""
@@ -83,11 +76,6 @@ export interface LedgerStatusBarInput {
   readonly error: string | null;
 }
 
-function relativeRefresh(seconds: number): string {
-  if (seconds < 5) return t("components.appSidebar.ledgerJustNow");
-  return relativeSeconds(seconds);
-}
-
 /**
  * 系统运行区第一行(原左上角实时状态栏,task_b2fb4bc7 的产物):
  * 事件水位 + 相对刷新时间 + 手动刷新 + 连接圆点。
@@ -111,7 +99,7 @@ export function LedgerStatusBar({
       : status.empty
         ? t("components.appSidebar.noTaskRowsFromLocalBridge")
         : t("components.appSidebar.ledgerEvents", {
-            count: status.revision === null ? "—" : status.revision.toLocaleString("en-US"),
+            count: status.revision === null ? "—" : new Intl.NumberFormat("en-US").format(status.revision),
           });
   return (
     <span
@@ -130,7 +118,7 @@ export function LedgerStatusBar({
         ·{" "}
         {status.refreshedAgoSec === null
           ? t("components.appSidebar.ledgerNeverRefreshed")
-          : t("components.appSidebar.ledgerRefreshedAgo", { ago: relativeRefresh(status.refreshedAgoSec) })}
+          : t("components.appSidebar.ledgerRefreshedAgo", { ago: ageText(status.refreshedAgoSec) })}
       </span>
       <button
         type="button"

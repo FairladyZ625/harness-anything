@@ -12,15 +12,9 @@ import { useTaskDocumentQuery } from "../task-data.ts";
 import { cadenceEventOf } from "../model/cadence.ts";
 import { workDecisionsOf, workspaceEvidenceOf } from "../model/workspace-evidence.ts";
 import { workspaceTitleIndex } from "../model/workspace-readable.ts";
-import {
-  noAgentRunning,
-  relativeAgo,
-  workDayGroups,
-  workspaceGoalLine,
-  workSubgroups,
-} from "../model/workspace-narrative.ts";
-import { formatTime } from "../model/time.ts";
-import { t, type MessageKey } from "../i18n/index.tsx";
+import { noAgentRunning, workDayGroups, workspaceGoalLine, workSubgroups } from "../model/workspace-narrative.ts";
+import { dayKeyOf, formatDayKeyLabel, formatRelative, formatTime } from "../model/time.ts";
+import { t } from "../i18n/index.tsx";
 import { WorkDayList, WorkOverview } from "./workspace/WorkOverview.tsx";
 import { WorkTasksTab, type WorkLeafRow } from "./workspace/WorkTasksTab.tsx";
 import { waitingReason } from "./workspace/entry-lines.tsx";
@@ -131,14 +125,8 @@ export function WorkspaceView({
   }, []);
 
   const nowIso = useMemo(() => new Date().toISOString(), []),
-    agoOf = useMemo(() => {
-      const agoKeyOf = (unit: "minute" | "hour" | "day"): MessageKey => `views.workspace.ago.${unit}` as MessageKey;
-      return (iso: string) => {
-        const { count, unit } = relativeAgo(iso, nowIso);
-        return t(agoKeyOf(unit), { count });
-      };
-    }, [nowIso]),
-    dateKeyOf = useMemo(() => (iso: string) => formatTime(iso, { style: "date" }), []),
+    agoOf = useMemo(() => (iso: string) => formatRelative(iso, { now: nowIso }), [nowIso]),
+    dateKeyOf = useMemo(() => (iso: string) => dayKeyOf(iso), []),
     todayKey = dateKeyOf(nowIso),
     yesterdayKey = dateKeyOf(new Date(Date.parse(nowIso) - 24 * 3_600_000).toISOString()),
     dayLabelOf = (dateKey: string) =>
@@ -146,7 +134,7 @@ export function WorkspaceView({
         ? t("views.workspace.progress.today")
         : dateKey === yesterdayKey
           ? t("views.workspace.progress.yesterday")
-          : dateKey.slice(5);
+          : formatDayKeyLabel(dateKey);
 
   const rootRow = tasks.find(({ taskId }) => taskId === scope.root.taskId);
   const members = useMemo(() => new Set(scope.memberTaskIds), [scope.memberTaskIds]),

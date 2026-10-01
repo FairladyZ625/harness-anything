@@ -30,7 +30,7 @@ import { partitionColdTerminalTasks, sortByRecentThenPinAndFavoritesFirst } from
 import { SegBar } from "../components/primitives/SegBar.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { TitleText } from "../components/primitives/TitleText.tsx";
-import { relativeTime } from "../sessions-model.ts";
+import { RowTime } from "../components/primitives/DenseRow.tsx";
 import { t } from "../i18n/index.tsx";
 import type { TaskWipRead } from "../../api/renderer-dto.ts";
 import { ListView } from "./ListView";
@@ -156,7 +156,7 @@ const Card = memo(function Card({
       </p>
       <div className="mt-1.5 flex items-baseline gap-1.5">
         {reason !== undefined && <span className="min-w-0 truncate ui-meta text-text-faint">{reason}</span>}
-        <span className="ml-auto shrink-0 font-mono ui-micro text-text-faint">{relativeTime(task.lastKnownAt)}</span>
+        <RowTime at={task.lastKnownAt} className="ml-auto shrink-0 font-mono ui-micro text-text-faint" />
       </div>
     </div>
   );

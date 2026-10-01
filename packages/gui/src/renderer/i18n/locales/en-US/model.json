@@ -2,5 +2,10 @@
   "model.actorName.claudeSession": "Claude session",
   "model.actorName.codexSession": "Codex session",
   "model.actorName.runtimeSession": "Runtime session",
-  "model.actorName.sessionKindSuffix": "{kind} session"
+  "model.actorName.sessionKindSuffix": "{kind} session",
+  "model.time.justNow": "Just now",
+  "model.time.minutesAgo": "{minutes} min ago",
+  "model.time.hoursAgo": "{hours} h ago",
+  "model.time.daysAgo": "{days} d ago",
+  "model.time.todayAt": "Today {time}"
 }

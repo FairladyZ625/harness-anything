@@ -29,16 +29,21 @@ const canonical = (
   catalogId: string | null,
   executionClass: ActionExecutionClass,
   receiptSettlement: ReceiptSettlementClass = "canonical-acceptance",
+  policyTier: ActionPolicyTier = policyTierFor(executionClass),
 ): ActionDeclaration =>
   Object.freeze({
     kind,
     catalogId,
     executionClass,
     policyAction: kind,
-    policyTier: policyTierFor(executionClass),
+    policyTier,
     residency: canonicalResidency,
     receiptSettlement,
   });
+
+/** Commanding a submitted cut and closing a task are lifecycle closure: the maintainer tier, never the creator. */
+const closure = (kind: string, catalogId: string): ActionDeclaration =>
+  canonical(kind, catalogId, "repo-write", "canonical-acceptance", "maintainer");
 
 const local = (
   kind: string,
@@ -192,7 +197,7 @@ export const actionDeclarations = Object.freeze([
   canonical("task-attest", null, "repo-write"),
   canonical("task-code-doc-reconcile", "task/reconcile", "repo-write"),
   canonical("task-code-doc-repoint", "task/repoint", "repo-write"),
-  canonical("task-complete", "task/complete", "repo-write"),
+  closure("task-complete", "task/complete"),
   canonical("task-contract-migrate", "task/contract-migrate", "repo-write"),
   canonical("task-create", "task/create", "repo-write"),
   canonical("task-declare-executor", null, "repo-write"),
@@ -203,8 +208,8 @@ export const actionDeclarations = Object.freeze([
   canonical("task-progress-append", null, "repo-write"),
   canonical("task-release", "task/release", "repo-write"),
   canonical("task-reopen", "task/reopen", "repo-write"),
-  canonical("task-adjudicate", "task/adjudicate", "repo-write"),
-  canonical("task-review-consent", "task/consent", "repo-write"),
+  closure("task-adjudicate", "task/adjudicate"),
+  closure("task-review-consent", "task/consent"),
   canonical("task-review-execution", "task/review", "arbiter"),
   canonical("task-settle", null, "repo-write"),
   canonical("task-start", "task/start", "repo-write"),

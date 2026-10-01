@@ -9,7 +9,7 @@ import { SegBar } from "../components/primitives/SegBar";
 import { StatusTag, type StatusTone } from "../components/primitives/StatusTag";
 import { t } from "../i18n/index.tsx";
 import { actorDisplayName } from "../model/actor-name.ts";
-import { formatTime } from "../model/time.ts";
+import { dayKeyOf, formatDayKeyLabel, formatRelative, formatTime } from "../model/time.ts";
 import type { CadenceFeedEvent } from "../model/cadence.ts";
 import type { WorkDayGroup } from "../model/workspace-narrative.ts";
 import { taskReviewRef } from "../navigation/entityRoutes.ts";
@@ -19,7 +19,6 @@ import type { RegionKey } from "./overview-layout.ts";
 import { DaySummary, STEP_META } from "./workspace/WorkOverview.tsx";
 import {
   ATTENTION_META,
-  ageOf,
   attentionEntries,
   idleInFlightCount,
   mainCiFailingJobs,
@@ -28,7 +27,6 @@ import {
   reviewCounts,
   reviewRows,
   runRows,
-  staleDaysOf,
   workRows,
   type AttentionEntry,
   type ReviewRow,
@@ -115,7 +113,7 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
     recentDays = recentDayGroups({
       events: deps.events,
       titles: deps.titles,
-      dateKeyOf: (iso) => formatTime(iso, { style: "date" }),
+      dateKeyOf: (iso) => dayKeyOf(iso),
     }),
     recentPaths = recentDays.flatMap((group) => group.paths.map((path) => ({ group, path }))),
     failingRows = mainCiFailingJobs(deps.ci);
@@ -135,7 +133,6 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
       const { item } = entry,
         meta = ATTENTION_META[item.kind],
         workTitle = item.workTaskId === null ? null : (workTitleOf.get(item.workTaskId) ?? null),
-        stale = item.kind === "blocked" || item.kind === "stalled",
         rank = region === "mine" ? entries.indexOf(entry) + 1 : undefined;
       return (
         <DenseRow
@@ -150,7 +147,7 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
                   t("components.awaitsAnswer.answeredBy", {
                     // 答复者是可读名字(与决策详情时间线同一套转换);完整身份串放悬停。
                     actor: actorDisplayName(entry.source.row.answeredBy).name,
-                    time: ageOf(entry.source.row.answeredAt, deps.now),
+                    time: formatRelative(entry.source.row.answeredAt, { now: deps.now }),
                   }),
                 ]
                   .filter(Boolean)
@@ -158,7 +155,7 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
               : workTitle
           }
           hoverTitle={entry.source?.kind === "answered" ? entry.source.row.answeredBy : undefined}
-          time={entry.since === null ? null : stale ? staleDaysOf(entry.since, deps.now) : ageOf(entry.since, deps.now)}
+          time={entry.since === null ? null : formatRelative(entry.since, { now: deps.now })}
           relaxed={relaxed}
           selected={selected}
           onClick={onSelect}
@@ -365,7 +362,9 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
                 </tr>
                 <tr className="border-b border-border">
                   <td className="py-1 pr-2 ui-meta text-text-muted">{t("views.overviewView.runObserved")}</td>
-                  <td className="py-1 text-right font-mono ui-meta text-text">{ageOf(run.lastObservedAt, deps.now)}</td>
+                  <td className="py-1 text-right font-mono ui-meta text-text">
+                    {formatTime(run.lastObservedAt, { style: "date-time", now: deps.now }) ?? "—"}
+                  </td>
                 </tr>
               </tbody>
             </table>
@@ -412,7 +411,7 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
               )
             }
             title={task.title}
-            time={task.updatedAt === null ? undefined : ageOf(task.updatedAt, deps.now)}
+            time={task.updatedAt === null ? undefined : formatRelative(task.updatedAt, { now: deps.now })}
             action={
               <UnpinIconButton
                 testId={`overview-unpin-${task.taskId}`}
@@ -439,7 +438,7 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
             <h3 className="text-text ui-title">{task.title}</h3>
             {task.updatedAt !== null && (
               <p className="ui-meta text-text-muted">
-                {t("views.overviewView.queueUpdatedAt", { age: ageOf(task.updatedAt, deps.now) })}
+                {t("views.overviewView.queueUpdatedAt", { age: formatRelative(task.updatedAt, { now: deps.now }) })}
               </p>
             )}
             <div className="flex flex-wrap gap-1.5">
@@ -544,7 +543,7 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
                 ? t("views.overviewView.worksMineReason", { count: work.mineCount })
                 : t("views.overviewView.worksProgress", { percent: String(Math.round(work.doneRatio * 100)) })
             }
-            time={ageOf(work.lastActivityAt, deps.now)}
+            time={formatRelative(work.lastActivityAt, { now: deps.now })}
             relaxed={relaxed}
             selected={selected}
             onClick={onSelect}
@@ -563,7 +562,9 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
             <SegBar counts={work.counts} />
             <p className="ui-meta text-text-muted">
               {t("views.overviewView.worksDoneOf", { done: String(done), total: String(total) })} ·{" "}
-              {t("views.overviewView.worksLastActivity", { age: ageOf(work.lastActivityAt, deps.now) })}
+              {t("views.overviewView.worksLastActivity", {
+                age: formatRelative(work.lastActivityAt, { now: deps.now }),
+              })}
             </p>
             <div className="flex flex-wrap gap-1.5">
               <OverviewActionButton primary onClick={() => deps.onOpenTask(work.taskId)}>
@@ -595,7 +596,7 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
             key={run.runId}
             tag={<StatusTag tone="bad" label={t("views.overviewView.ciFailed")} />}
             title={`${run.job} · ${run.sha.slice(0, 8)}`}
-            time={ageOf(run.occurredAt, deps.now)}
+            time={formatRelative(run.occurredAt, { now: deps.now })}
             relaxed={relaxed}
             selected={selected}
             onClick={onSelect}
@@ -617,7 +618,9 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
                 </tr>
                 <tr className="border-b border-border">
                   <td className="py-1 pr-2 ui-meta text-text-muted">{t("views.overviewView.ciAt")}</td>
-                  <td className="py-1 text-right font-mono ui-meta text-text">{ageOf(run.occurredAt, deps.now)}</td>
+                  <td className="py-1 text-right font-mono ui-meta text-text">
+                    {formatTime(run.occurredAt, { style: "date-time", now: deps.now }) ?? "—"}
+                  </td>
                 </tr>
                 <tr>
                   <td className="py-1 pr-2 ui-meta text-text-muted">{t("views.overviewView.ciWindowFailing")}</td>
@@ -677,7 +680,7 @@ function reviewRegion(reviews: readonly ReviewRow[], deps: OverviewRegionDeps): 
           key={row.id}
           tag={<StatusTag tone={group[2]} label={group[1]()} />}
           title={row.title}
-          time={ageOf(row.since, deps.now)}
+          time={formatRelative(row.since, { now: deps.now })}
           relaxed={relaxed}
           selected={selected}
           onClick={onSelect}
@@ -693,7 +696,7 @@ function reviewRegion(reviews: readonly ReviewRow[], deps: OverviewRegionDeps): 
           <StatusTag tone={group[2]} label={group[1]()} />
           <h3 className="text-text ui-title">{row.title}</h3>
           <p className="ui-meta text-text-muted">
-            {t("views.overviewView.reviewSince", { age: ageOf(row.since, deps.now) })}
+            {t("views.overviewView.reviewSince", { age: formatRelative(row.since, { now: deps.now }) })}
           </p>
           <div className="flex flex-wrap gap-1.5">
             {row.taskId !== null && (
@@ -776,9 +779,9 @@ function recentPathId(group: WorkDayGroup, taskId: string): string {
 
 /** 天标签与工作页同一口径:今天/昨天/日期。 */
 function recentDayLabel(dateKey: string, nowIso: string): string {
-  const today = formatTime(nowIso, { style: "date" });
+  const today = dayKeyOf(nowIso);
   if (dateKey === today) return t("views.workspace.progress.today");
-  const yesterday = formatTime(new Date(Date.parse(nowIso) - 24 * 3_600_000).toISOString(), { style: "date" });
+  const yesterday = dayKeyOf(new Date(Date.parse(nowIso) - 24 * 3_600_000).toISOString());
   if (dateKey === yesterday) return t("views.workspace.progress.yesterday");
-  return dateKey.slice(5);
+  return formatDayKeyLabel(dateKey);
 }

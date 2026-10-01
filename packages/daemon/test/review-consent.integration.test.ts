@@ -77,7 +77,9 @@ test("review-consent derives the recorded Review digests without a packet and re
   const repoId = workspaceId("consent-derived"),
     taskId = "task-derived",
     executionId = "execution-derived",
-    binding = withRoleBinding({ actor, source: "local" as const }, "repo-write");
+    binding = withRoleBinding({ actor, source: "local" as const }, "repo-write"),
+    // Closing a cut is the maintainer tier's: the same person holds it through a second role, not by having created the task.
+    closer = withRoleBinding(binding, "arbiter");
   const reviewBinding = withRoleBinding(
     {
       actor: {
@@ -104,7 +106,7 @@ test("review-consent derives the recorded Review digests without a packet and re
       (
         await cell.run(
           { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Owner forwards the cut." },
-          binding,
+          closer,
         )
       ).outcome,
       "applied",
@@ -124,25 +126,27 @@ test("review-consent derives the recorded Review digests without a packet and re
     const beforeTypo = store().readHead()?.revision,
       typo = (await cell.run(
         { kind: "task-review-consent", taskId, executionId, reviewId: "review-typo" },
-        binding,
+        closer,
       )) as unknown as Record<string, unknown>;
     assert.deepEqual({ outcome: typo.outcome, code: typo.code }, { outcome: "op_rejected", code: "invalid_command" });
     assert.equal(store().readHead()?.revision, beforeTypo);
 
-    const beforeOutsiderConsent = store().readHead()?.revision,
-      outsiderConsent = (await cell.run(
+    // Who may consent is a permission, not authorship: the task's creator without the maintainer tier is
+    // denied, and a principal who never touched the task consents once it holds that tier.
+    const beforeCreatorConsent = store().readHead()?.revision,
+      creatorConsent = (await cell.run(
         { kind: "task-review-consent", taskId },
-        withRoleBinding({ actor: outsider, source: "local" }, "owner"),
+        withRoleBinding({ actor: ownerFromAnotherAgent, source: "local" }, "repo-write"),
       )) as unknown as Record<string, unknown>;
     assert.deepEqual(
-      { outcome: outsiderConsent.outcome, code: outsiderConsent.code },
-      { outcome: "op_rejected", code: "actor_unauthorized" },
+      { outcome: creatorConsent.outcome, code: creatorConsent.code },
+      { outcome: "op_rejected", code: "authorization_denied" },
     );
-    assert.equal(store().readHead()?.revision, beforeOutsiderConsent);
+    assert.equal(store().readHead()?.revision, beforeCreatorConsent);
 
     const consented = (await cell.run(
       { kind: "task-review-consent", taskId },
-      withRoleBinding({ actor: ownerFromAnotherAgent, source: "local" }, "repo-write"),
+      withRoleBinding({ actor: outsider, source: "local" }, "arbiter"),
     )) as unknown as Record<string, unknown>;
     assert.equal(consented.outcome, "applied", JSON.stringify(consented));
     const consentEvent = store().readEvent(String(consented.opId));
@@ -166,10 +170,10 @@ test("review-consent derives the recorded Review digests without a packet and re
         {
           predicate: "hasRoleBinding",
           satisfied: true,
-          role: "repo-write",
+          role: "arbiter",
           matched: {
-            actor: { kind: "person", id: actor.principal.personId },
-            role: "repo-write",
+            actor: { kind: "person", id: outsider.principal.personId },
+            role: "arbiter",
             target: "settings/repository",
             source: "declared",
             expiresAt: null,
@@ -227,7 +231,7 @@ test("review-consent derives the recorded Review digests without a packet and re
             reviewId: "review-mismatch",
             ...retiredInput,
           },
-          binding,
+          closer,
         )) as unknown as Record<string, unknown>;
       assert.deepEqual(
         { outcome: mismatch.outcome, code: mismatch.code },
@@ -258,7 +262,7 @@ test("review-consent derives the recorded Review digests without a packet and re
     );
     const reviewless = (await cell.run(
       { kind: "task-review-consent", taskId: reviewlessTaskId },
-      binding,
+      closer,
     )) as unknown as Record<string, unknown>;
     assert.deepEqual(
       { outcome: reviewless.outcome, code: reviewless.code },
@@ -294,7 +298,7 @@ test("review-consent derives the recorded Review digests without a packet and re
             forward: true,
             reason: "Owner forwards the ambiguous-review fixture.",
           },
-          binding,
+          closer,
         )
       ).outcome,
       "applied",
@@ -319,7 +323,7 @@ test("review-consent derives the recorded Review digests without a packet and re
     }
     const ambiguous = (await cell.run(
       { kind: "task-review-consent", taskId: ambiguousTaskId },
-      binding,
+      closer,
     )) as unknown as Record<string, unknown>;
     assert.deepEqual(
       { outcome: ambiguous.outcome, code: ambiguous.code },

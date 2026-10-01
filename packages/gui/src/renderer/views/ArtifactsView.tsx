@@ -11,7 +11,7 @@ import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { Empty } from "../components/runtime/parts.tsx";
 import { t, type MessageKey } from "../i18n/index.tsx";
-import { formatTime } from "../model/time.ts";
+import { formatListTime, formatTime } from "../model/time.ts";
 import { useTaskDocumentQuery } from "../task-data.ts";
 import { useRepoRow } from "../system-data.ts";
 import { artifactsClient } from "../artifacts-client.ts";
@@ -260,8 +260,10 @@ function ArtifactRow({
           </span>
         }
         time={
-          <span title={`${displayTime(row.time)} · ${t(TIME_SOURCE_LABEL[row.timeSource])}`}>
-            {relativeTimeOf(row.time)}
+          <span
+            title={`${formatTime(row.time, { style: "date-time-seconds" }) ?? row.time} · ${t(TIME_SOURCE_LABEL[row.timeSource])}`}
+          >
+            {formatListTime(row.time)}
           </span>
         }
         selected={active}
@@ -496,17 +498,3 @@ const fileNameOf = (rowPath: string): string => rowPath.split("/").at(-1) ?? row
 
 const repoPathOf = (row: ArtifactGuiRowDto): string =>
   row.packagePath === null ? `tasks/<unmapped>/${row.path}` : `${row.packagePath}/${row.path}`;
-
-const displayTime = (iso: string): string => formatTime(iso, { style: "date-time" }) ?? iso;
-
-/** 相对时间:两分钟内“刚刚”，之后按分/时/天取整，超过 30 天回落到日期。 */
-function relativeTimeOf(iso: string): string {
-  const at = Date.parse(iso);
-  if (!Number.isFinite(at)) return displayTime(iso);
-  const seconds = Math.max(0, Math.round((Date.now() - at) / 1_000));
-  if (seconds < 120) return t("artifacts.list.justNow");
-  if (seconds < 7_200) return t("artifacts.list.minutesAgo", { minutes: String(Math.round(seconds / 60)) });
-  if (seconds < 172_800) return t("artifacts.list.hoursAgo", { hours: String(Math.round(seconds / 3_600)) });
-  if (seconds < 2_592_000) return t("artifacts.list.daysAgo", { days: String(Math.round(seconds / 86_400)) });
-  return displayTime(iso);
-}

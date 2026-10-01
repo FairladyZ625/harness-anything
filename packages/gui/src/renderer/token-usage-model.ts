@@ -1,3 +1,4 @@
+import { dayKeyOf, formatDayKeyLabel, formatTime } from "./model/time.ts";
 import type {
   AgentRuntimeTokenUsageMemberIdentity,
   AgentRuntimeTokenUsageOutcome,
@@ -36,12 +37,11 @@ export function tokenUsageMemberFromRef(ref: string | null | undefined): AgentRu
   return null;
 }
 
-/** 趋势桶的时间轴标签:小时桶标 HH:00,日桶标 MM-DD(与 daemon 本地日切桶一致)。 */
+/** 趋势桶的时间轴标签:小时桶标时刻,日桶标月-日(与 daemon 本地日切桶一致,按所选时区/格式)。 */
 export function bucketAxisLabel(bucketStart: string, bucketMs: number): string {
-  const at = new Date(bucketStart);
-  return bucketMs === 3_600_000
-    ? `${String(at.getHours()).padStart(2, "0")}:00`
-    : `${String(at.getMonth() + 1).padStart(2, "0")}-${String(at.getDate()).padStart(2, "0")}`;
+  if (bucketMs === 3_600_000) return formatTime(bucketStart, { style: "time" }) ?? bucketStart;
+  const key = dayKeyOf(bucketStart);
+  return key === null ? bucketStart : formatDayKeyLabel(key);
 }
 
 /** 行级「未上报」判定:一个也没有上报过、但存在已结算未上报派工 → 显示「未上报」而非 0。 */

@@ -5,10 +5,16 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { fleetHostWriterOptions, fleetLedgerRevision, waitForFleetPublication } from "./fleet-store.fixture.ts";
+import {
+  fleetHostWriterOptions,
+  fleetLedgerRevision,
+  fleetNodeOwners,
+  waitForFleetPublication,
+} from "./fleet-store.fixture.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import { connect, createServer, type TLSSocket } from "node:tls";
 import { sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
+import { AccessAdminService } from "../src/access-admin-service.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { digestId } from "../src/fleet/center-transport.ts";
@@ -19,6 +25,8 @@ import {
   type FleetReplicaPullClientOptions,
   type FleetWriteClientOptions,
 } from "../src/fleet/edge.ts";
+import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { signInAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import {
   FleetUtf8LineDecoder,
@@ -164,6 +172,165 @@ test(
       fixture.auth,
     );
     assert.equal(shown.evidence, secondBody);
+  },
+);
+// The center reads a node's owner again for every frame that acts for somebody, so unregistering a node
+// reaches a session that is already connected: the refusal does not wait for a reconnect.
+test("a node unregistered while it stays connected is refused on its next frame", { timeout: 30_000 }, async (t) => {
+  const fixture = await fleetFixture(t);
+  t.after(() => fixture.close());
+  const center = await fixture.center(),
+    { nodeId, assignmentId, repoId, taskId } = fixture.assignment,
+    peer = await rawPeer(fixture.track, center.port, fixture.cert, nodeId, "machine-secret"),
+    answer = (frame: FleetFrameV1) =>
+      frame.schema === "fleet.error/v1"
+        ? frame.code
+        : frame.schema === "fleet.task.result/v1"
+          ? frame.outcome
+          : frame.schema,
+    assigned = await peer.request({ schema: "fleet.assignment.get/v1", messageId: "assignment", assignmentId });
+  assert.equal(assigned.schema, "fleet.assignment.result/v1");
+  if (assigned.schema !== "fleet.assignment.result/v1") return;
+  const receipt = (messageId: string) =>
+      peer.request({ schema: "fleet.receipt.get/v1", messageId, assignmentId, opId: "op-unknown" }),
+    task = (opId: string, action: Record<string, unknown>) =>
+      peer.request({
+        schema: "fleet.task.command/v1",
+        messageId: opId,
+        assignmentId,
+        writerEpoch: assigned.writerEpoch,
+        opId,
+        repoId,
+        taskId,
+        action: { ...action, taskId },
+        waitMs: 1_000,
+        docChanges: null,
+        mirrorBaseCut: null,
+      } as FleetFrameV1),
+    progress = (opId: string) => task(opId, { kind: "task-progress-append", text: opId });
+  // While the node is registered the same three frames are answered.
+  assert.equal(answer(await receipt("receipt-while-registered")), "fleet.receipt.result/v1");
+  assert.equal(answer(await task("show-while-registered", { kind: "task-show" })), "applied");
+  assert.equal(answer(await progress("progress-while-registered")), "applied");
+  const before = fixture.eventCount();
+
+  signInAt(fixture.userRoot, "person-admin");
+  const admin = new AccessAdminService(new OidcSessionService(fixture.userRoot), fixture.userRoot),
+    listed = (await admin.run({ operation: "node-list" })).nodes as { nodeId: string; version: string }[],
+    removed = await admin.run({
+      operation: "node-unregister",
+      operationId: "unregister-connected-node",
+      nodeId,
+      expectedVersion: listed.find((node) => node.nodeId === nodeId)!.version,
+    });
+  assert.equal(removed.ok, true, JSON.stringify(removed));
+
+  // Same socket, no second hello: the frames that follow the unregistration are refused.
+  assert.equal(answer(await receipt("receipt-after-unregister")), "node_owner_unregistered");
+  assert.equal(answer(await task("show-after-unregister", { kind: "task-show" })), "node_owner_unregistered");
+  assert.equal(
+    answer(await peer.request({ schema: "fleet.replica.pull/v1", messageId: "pull-after-unregister", assignmentId })),
+    "node_owner_unregistered",
+  );
+  assert.equal(answer(await progress("progress-after-unregister")), "node_owner_unregistered");
+  assert.equal(fixture.eventCount(), before, "nothing was written for the unregistered node");
+});
+// Consent is a person's own confirmation. The connection authenticated a machine, so the owner the center
+// resolves for it can hold every permission on the repository and still cannot consent through the node.
+test(
+  "a node acting for its owner cannot consent, and the same person signed in at the center can",
+  { timeout: 30_000 },
+  async (t) => {
+    const fixture = await fleetFixture(t, undefined, "strict");
+    t.after(() => fixture.close());
+    const { nodeId, assignmentId, repoId, taskId, executionId } = fixture.assignment,
+      reviewId = "review-fleet",
+      packageDir = path.join(fixture.repo, "harness", fixture.packagePath),
+      delivery = git(fixture.repo, "rev-parse", "HEAD"),
+      applied = async (action: Parameters<typeof fixture.host.run>[1], auth = fixture.auth) => {
+        const receipt = await fixture.host.run(repoId, action, auth);
+        assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      };
+    // An approved, independently reviewed cut: consent is the one thing completion still lacks.
+    await applied({
+      kind: "fact-record",
+      taskId,
+      statement: "The fleet fixture delivery exists.",
+      evidenceSource: "harness/harness.yaml",
+      confidence: "high",
+      memoryClass: "episodic",
+      memoryTags: [],
+    });
+    writeFileSync(
+      path.join(packageDir, "closeout.md"),
+      `# Closeout\n\n## Summary\n\nDelivery ${delivery} is ready.\n\n` +
+        "## Verification\n\nThe consent source is exercised over TLS.\n\n" +
+        "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNone.\n",
+    );
+    await applied({ kind: "doc-submit", paths: [`${fixture.packagePath}/closeout.md`] }, localAuthFixture());
+    await applied({ kind: "task-submit", taskId, executionId, commitSha: delivery });
+    await applied({ kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Owner forwards the cut." });
+    mkdirSync(path.join(packageDir, "artifacts", "reports"), { recursive: true });
+    writeFileSync(
+      path.join(packageDir, "artifacts", "reports", "fleet.md"),
+      `# Review ${reviewId}\n\nIndependent review findings recorded.\n`,
+    );
+    writeFileSync(
+      path.join(fixture.repo, "review.json"),
+      JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] }),
+    );
+    await applied(
+      { kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" },
+      localAuthFixture(),
+    );
+    // The reviewer's report is accepted at the center, so completion finds no document left to carry.
+    await applied({ kind: "doc-submit", taskId }, localAuthFixture());
+
+    const center = await fixture.center(),
+      peer = await rawPeer(fixture.track, center.port, fixture.cert, nodeId, "machine-secret"),
+      assigned = await peer.request({ schema: "fleet.assignment.get/v1", messageId: "assignment", assignmentId });
+    assert.equal(assigned.schema, "fleet.assignment.result/v1");
+    if (assigned.schema !== "fleet.assignment.result/v1") return;
+    const fromNode = async (opId: string, action: Record<string, unknown>) => {
+        const result = await peer.request({
+          schema: "fleet.task.command/v1",
+          messageId: opId,
+          assignmentId,
+          writerEpoch: assigned.writerEpoch,
+          opId,
+          repoId,
+          taskId,
+          action: { ...action, taskId, executionId },
+          waitMs: 1_000,
+          docChanges: null,
+          mirrorBaseCut: null,
+        } as FleetFrameV1);
+        return result.schema === "fleet.task.result/v1"
+          ? { outcome: result.outcome, code: result.code }
+          : { outcome: result.schema, code: result.schema === "fleet.error/v1" ? result.code : null };
+      },
+      before = fixture.eventCount();
+    assert.deepEqual(await fromNode("consent-from-node", { kind: "task-review-consent", reviewId }), {
+      outcome: "op_rejected",
+      code: "human_confirmation_required",
+    });
+    assert.equal(fixture.eventCount(), before, "the node's consent wrote nothing");
+    assert.deepEqual(await fromNode("complete-without-consent", { kind: "task-complete" }), {
+      outcome: "op_rejected",
+      code: "consent_missing",
+    });
+    assert.equal(fixture.eventCount(), before, "the task stays open without a consent");
+
+    // The same person, signed in at the center: the consent is theirs, and the node may then complete.
+    signInAt(fixture.userRoot, "person-owner");
+    await applied(
+      { kind: "task-review-consent", taskId, executionId, reviewId },
+      await new OidcSessionService(fixture.userRoot).bind({ transportKind: "unix-socket" }),
+    );
+    assert.deepEqual(await fromNode("complete-after-consent", { kind: "task-complete" }), {
+      outcome: "applied",
+      code: null,
+    });
   },
 );
 test("replica pull rejects a snapshot that has not caught up to the ledger cut", async (t) => {
@@ -654,7 +821,7 @@ test(
       fixture.auth,
     );
     assert.equal(probe.outcome, "applied");
-    await waitForReceiptCommit(fixture.host, fixture.assignment.repoId, probe.opId, fixture.assignment);
+    await waitForReceiptCommit(fixture.host, fixture.assignment.repoId, probe.opId, fixture.auth);
     assert.equal((await status).outcome, "applied");
     assert.equal(
       center.status().replicas.find((row) => row.viewId === fixture.assignment.viewId)?.ackRevision,
@@ -737,7 +904,11 @@ test(
     );
   },
 );
-async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/task-fleet-fleet/notes.md"]) {
+async function fleetFixture(
+  t: TestContext,
+  paths: readonly string[] = ["tasks/task-fleet-fleet/notes.md"],
+  closeoutProfile: "standard" | "strict" = "standard",
+) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-one-")),
     repo = path.join(root, "repo"),
     userRoot = path.join(root, "user"),
@@ -756,7 +927,8 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
   initRepo(repo);
   writeFileSync(
     path.join(repo, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nname: fleet\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    "schema: harness-anything/v1\nname: fleet\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" +
+      `settings:\n  closeout:\n    profile: ${closeoutProfile}\n`,
   );
   writePeopleFixture(repo);
   git(repo, "add", "harness");
@@ -785,7 +957,8 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
   );
   const key = readFileSync(keyFile),
     cert = readFileSync(certFile),
-    host = await openDaemonHost({ daemonId: "fleet-center", userRoot });
+    host = await openDaemonHost({ daemonId: "fleet-center", userRoot }),
+    owners = await fleetNodeOwners({ userRoot, owners: { "node-one": "person-owner" }, repoIds: ["fleet-repo"] });
   t.after(async () => {
     try {
       await owned.reclaim();
@@ -793,6 +966,7 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
       try {
         await host.close();
       } finally {
+        await owners.close();
         rmSync(root, { recursive: true, force: true });
       }
     }
@@ -807,20 +981,19 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
       paths,
       viewId: "node-one_task-fleet",
       expiresAt: "2099-01-01T00:00:00.000Z",
-      actor: { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "fleet-edge" } },
     },
     slowAssignment: FleetAssignmentRecord = {
       ...assignment,
       assignmentId: "assignment-slow",
       viewId: "node-one_task-fleet-slow",
     },
-    auth = { transportKind: "fleet-tls" as const, assignmentBinding: assignment };
+    auth = owners.auth(assignment);
   const created = await host.run(
     assignment.repoId,
     { kind: "task-create", taskId: assignment.taskId, title: "Fleet" },
     auth,
   );
-  assert.equal(created.outcome, "applied");
+  assert.equal(created.outcome, "applied", JSON.stringify(created));
   await waitForFleetPublication(host, assignment.repoId, created.opId, auth);
   await realizeTaskPlanFixture(
     repo,
@@ -834,10 +1007,11 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
     auth,
   );
   assert.equal(started.outcome, "applied", JSON.stringify(started));
-  await waitForReceiptCommit(host, assignment.repoId, started.opId, assignment);
+  await waitForReceiptCommit(host, assignment.repoId, started.opId, auth);
   return {
     root,
     repo,
+    packagePath: String((created as Record<string, unknown>).packagePath),
     stateRoot,
     writerOptions: fleetHostWriterOptions(userRoot, ["fleet-repo"]),
     path: assignment.paths[0]!,
@@ -851,6 +1025,7 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
     emptyPath,
     track: owned.track,
     hold: owned.hold,
+    userRoot,
     setActive: (value: boolean) => {
       nodeActive = value;
     },
@@ -911,6 +1086,7 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
           cert,
           replicaDiskQuotaBytes: diskQuotaBytes,
           authenticate: (nodeId, credential) => nodeId === assignment.nodeId && credential === "machine-secret",
+          nodeOwner: owners.nodeOwner,
           isNodeActive: () => nodeActive,
           resolveAssignment: async (assignmentId) => {
             if (assignmentDelayMs) await new Promise((resolve) => setTimeout(resolve, assignmentDelayMs));
@@ -1017,10 +1193,9 @@ async function waitForReceiptCommit(
   host: Awaited<ReturnType<typeof openDaemonHost>>,
   repoId: string,
   opId: string,
-  assignment: FleetAssignmentRecord,
+  binding: Parameters<Awaited<ReturnType<typeof openDaemonHost>>["run"]>[2],
 ): Promise<void> {
-  const deadline = performance.now() + 15_000,
-    binding = { transportKind: "fleet-tls" as const, assignmentBinding: assignment };
+  const deadline = performance.now() + 15_000;
   do {
     const receipt = await host.run(repoId, { kind: "receipt-show", opId }, binding);
     if (typeof receipt.commitSha === "string") return;

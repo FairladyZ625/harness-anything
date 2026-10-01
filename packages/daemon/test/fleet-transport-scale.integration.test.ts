@@ -6,7 +6,7 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import test, { type TestContext } from "node:test";
-import { fleetHostWriterOptions, fleetLedgerRevision } from "./fleet-store.fixture.ts";
+import { fleetHostWriterOptions, fleetLedgerRevision, fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { openSqliteEventStore } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
@@ -85,7 +85,12 @@ test("production Fleet TLS entry sustains 3/10/32 Git-less edge processes across
     );
     await Promise.all(
       results.map((result, index) =>
-        waitForReceiptCommit(fixture.host, result.repoId, result.center.opId, clients[index]!.assignment),
+        waitForReceiptCommit(
+          fixture.host,
+          result.repoId,
+          result.center.opId,
+          fixture.owners.auth(clients[index]!.assignment),
+        ),
       ),
     );
     const repoCuts = fixture
@@ -122,7 +127,7 @@ test("production Fleet TLS entry sustains 3/10/32 Git-less edge processes across
         shown = await fixture.host.run(
           client.assignment.repoId,
           { kind: "doc-show", path: client.path },
-          { transportKind: "fleet-tls", assignmentBinding: client.assignment },
+          fixture.owners.auth(client.assignment),
         );
       readMs.push(performance.now() - started);
       assert.equal(shown.evidence, client.body);
@@ -240,7 +245,12 @@ async function scaleFixture(t: TestContext) {
   );
   const host = await openDaemonHost({ daemonId: "fleet-scale", userRoot, openCell: openRepoCell }),
     clients: ScaleClient[] = [],
-    assignments = new Map<string, FleetAssignmentRecord>();
+    assignments = new Map<string, FleetAssignmentRecord>(),
+    owners = await fleetNodeOwners({
+      userRoot,
+      owners: Object.fromEntries(Array.from({ length: 45 }, (_, index) => [`node-${index}`, "fleet-owner"])),
+      repoIds: repos.map((repo) => repo.repoId),
+    });
   t.after(async () => {
     try {
       await owned.reclaim();
@@ -248,6 +258,7 @@ async function scaleFixture(t: TestContext) {
       try {
         await host.close();
       } finally {
+        await owners.close();
         rmSync(root, { recursive: true, force: true });
       }
     }
@@ -265,7 +276,6 @@ async function scaleFixture(t: TestContext) {
           paths: [`tasks/${taskId}-${taskId}/notes.md`],
           viewId: `view-${index}`,
           expiresAt: "2099-01-01T00:00:00.000Z",
-          actor: { principal: { personId: "fleet-owner" }, executor: { kind: "agent", id: `edge-${index}` } },
         };
       return { index, repo, taskId, assignment };
     }),
@@ -274,7 +284,7 @@ async function scaleFixture(t: TestContext) {
   try {
     created = await Promise.all(
       drafts.map(async (draft) => {
-        const auth = { transportKind: "fleet-tls" as const, assignmentBinding: draft.assignment },
+        const auth = owners.auth(draft.assignment),
           receipt = await host.run(
             draft.repo.repoId,
             { kind: "task-create", taskId: draft.taskId, title: draft.taskId },
@@ -308,7 +318,7 @@ async function scaleFixture(t: TestContext) {
           (planPath) => host.run(repo.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
           taskId,
         );
-        const auth = { transportKind: "fleet-tls" as const, assignmentBinding: assignment },
+        const auth = owners.auth(assignment),
           started = await host.run(
             repo.repoId,
             { kind: "task-start", taskId, executionId: assignment.executionId },
@@ -346,7 +356,9 @@ async function scaleFixture(t: TestContext) {
     clients.push(value.client);
   }
   await Promise.all(
-    prepared.map((value) => waitForReceiptCommit(host, value.assignment.repoId, value.opId, value.assignment)),
+    prepared.map((value) =>
+      waitForReceiptCommit(host, value.assignment.repoId, value.opId, owners.auth(value.assignment)),
+    ),
   );
   const key = readFileSync(keyFile),
     cert = readFileSync(certFile);
@@ -356,6 +368,7 @@ async function scaleFixture(t: TestContext) {
     certFile,
     emptyPath,
     clients,
+    owners,
     track: owned.track,
     center: () =>
       owned.hold(
@@ -367,6 +380,7 @@ async function scaleFixture(t: TestContext) {
           cert,
           replicaDiskQuotaBytes: replicaQuota,
           authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
+          nodeOwner: owners.nodeOwner,
           resolveAssignment: (assignmentId) => assignments.get(assignmentId) ?? null,
         }),
       ),
@@ -490,10 +504,9 @@ async function waitForReceiptCommit(
   host: Awaited<ReturnType<typeof openDaemonHost>>,
   repoId: string,
   opId: string,
-  assignment: FleetAssignmentRecord,
+  binding: Parameters<Awaited<ReturnType<typeof openDaemonHost>>["run"]>[2],
 ): Promise<void> {
-  const deadline = performance.now() + 15_000,
-    binding = { transportKind: "fleet-tls" as const, assignmentBinding: assignment };
+  const deadline = performance.now() + 15_000;
   do {
     const receipt = await host.run(repoId, { kind: "receipt-show", opId }, binding);
     if (typeof receipt.commitSha === "string") return;

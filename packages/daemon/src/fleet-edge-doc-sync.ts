@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError, sha256Bytes } from "@harness-anything/kernel";
 import { runFleetReplicaPullClient, runFleetWriteClient } from "./fleet/edge.ts";
-import { fleetEdgeCredential, fleetEdgeScopePaths, FleetEdgeTaskError } from "./fleet-edge-task.ts";
+import { fleetEdgeScopePaths, FleetEdgeTaskError } from "./fleet-edge-task.ts";
 import {
   applyFleetMirrorCut,
   cacheFleetMirrorDirtyBases,
@@ -39,7 +39,7 @@ export interface FleetEdgeChannelPayload {
   readonly caPath: string;
   readonly servername?: string;
   readonly nodeId: string;
-  readonly credential?: string;
+  readonly credential: string;
   readonly rosterPath?: string;
   readonly assignmentId: string;
   readonly repoId: string;
@@ -64,7 +64,7 @@ export interface FleetEdgeConflictExitRequest {
 
 export async function runFleetEdgeDocSync(input: FleetEdgeDocSyncRequest): Promise<Record<string, unknown>> {
   const payload = input.payload,
-    credential = fleetEdgeCredential(payload.nodeId, payload.credential, payload.rosterPath);
+    credential = payload.credential;
   const peer = {
       hostname: payload.host,
       port: payload.port,
@@ -325,7 +325,7 @@ export async function runFleetEdgeConflictExit(input: FleetEdgeConflictExitReque
         paths: settled.paths.map((row) => row.path),
       };
     }
-    const credential = fleetEdgeCredential(payload.nodeId, payload.credential, payload.rosterPath);
+    const credential = payload.credential;
     const peer = {
       hostname: payload.host,
       port: payload.port,

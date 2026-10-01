@@ -1,6 +1,6 @@
 import { derivedTasks, supersedeChain } from "../../model/triadic.ts";
 import { actorDisplayName } from "../../model/actor-name.ts";
-import { formatTime } from "../../model/time.ts";
+import { dayKeyOf, formatDayKeyLabel, formatTime } from "../../model/time.ts";
 import type { DecisionRow, DecisionState, RelationEdge, TaskRow } from "../../model/types.ts";
 import { t } from "../../i18n/index.tsx";
 import { decisionStateLabel } from "../badges.tsx";
@@ -162,7 +162,7 @@ function decisionTimeline(decision: DecisionRow): TimelineEntry[] {
 function DecisionTimelineDigest({ entries }: { readonly entries: readonly TimelineEntry[] }) {
   const groups: { day: string; entries: TimelineEntry[] }[] = [];
   for (const entry of entries) {
-    const day = formatTime(entry.at, { style: "date" }) ?? entry.at.slice(0, 10);
+    const day = dayKeyOf(entry.at) ?? entry.at.slice(0, 10);
     const last = groups.at(-1);
     if (last !== undefined && last.day === day) last.entries.push(entry);
     else groups.push({ day, entries: [entry] });
@@ -172,8 +172,8 @@ function DecisionTimelineDigest({ entries }: { readonly entries: readonly Timeli
       {groups.map((group) => (
         <DayDigest
           key={group.day}
-          // 标签用「月-日」,与工作概况、任务详情的进展同一写法。
-          day={group.day.slice(5)}
+          // 标签不带年份,与工作概况、任务详情的进展同一写法。
+          day={formatDayKeyLabel(group.day)}
           defaultOpen
           summary={t("views.decisionDetailView.timelineDay", { count: group.entries.length })}
           paths={group.entries.map((entry) => ({

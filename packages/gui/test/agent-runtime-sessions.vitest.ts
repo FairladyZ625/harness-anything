@@ -10,11 +10,10 @@ import {
   sessionDecisionRefs,
   sessionOrphans,
   sessionRounds,
-  relativeTime,
   shortRef,
   type SessionGroup,
 } from "../src/renderer/sessions-model.ts";
-import { TIME_ZONE_STORAGE_KEY } from "../src/renderer/model/time.ts";
+import { formatRelative, TIME_DISPLAY_STORAGE_KEY } from "../src/renderer/model/time.ts";
 import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
 import type { RelationEdge } from "../src/renderer/model/types.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
@@ -538,7 +537,7 @@ describe("sessions page: single-session groups", () => {
 
   it("formats session rows and the old relative-time fallback in the configured time zone", () => {
     vi.stubGlobal("localStorage", {
-      getItem: (key: string) => (key === TIME_ZONE_STORAGE_KEY ? "Asia/Taipei" : null),
+      getItem: (key: string) => (key === TIME_DISPLAY_STORAGE_KEY ? JSON.stringify({ timeZone: "Asia/Taipei" }) : null),
       setItem: () => undefined,
       removeItem: () => undefined,
     });
@@ -546,7 +545,9 @@ describe("sessions page: single-session groups", () => {
     expect(markup).toContain(">10:00<");
     expect(markup).toContain(">11:00<");
     expect(markup).not.toContain(">02:00<");
-    expect(relativeTime("2026-07-01T02:44:00.000Z", Date.parse("2026-08-26T02:44:00.000Z"))).toBe("2026-07-01 10:44");
+    expect(formatRelative("2026-07-01T02:44:00.000Z", { now: Date.parse("2026-08-26T02:44:00.000Z") })).toBe(
+      "2026-07-01 10:44",
+    );
   });
 
   it("renders every status word of the group vocabulary without inventing states", () => {

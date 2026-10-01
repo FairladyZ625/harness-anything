@@ -4,7 +4,8 @@ import type {
   AgentRuntimeTokenUsageResult,
   AgentRuntimeTokenUsageSessionBin,
 } from "@harness-anything/daemon/protocol";
-import { preciseTokens, durationText, exactTokens, percentText } from "../../token-format.ts";
+import { preciseTokens, exactTokens, percentText } from "../../token-format.ts";
+import { formatDuration } from "../../model/time.ts";
 import {
   sessionBinLabel,
   successRate,
@@ -141,7 +142,7 @@ export function UsageSessions({
       <p className="px-3.5 pb-3 ui-meta text-text-faint">
         {t("agentRuntime.tokenUsageSessionBasis", {
           reported: String(stats.reportedSessions),
-          duration: durationText(stats.averageDurationMs),
+          duration: formatDuration(stats.averageDurationMs),
           tools: String(stats.averageToolCalls),
         })}
       </p>
@@ -186,7 +187,7 @@ export function UsageSessions({
                         {[
                           session.agentName ?? session.agentId,
                           session.model,
-                          durationText(session.durationMs),
+                          formatDuration(session.durationMs),
                           t("agentRuntime.tokenUsageSessionTools", { tools: String(session.toolCallCount) }),
                         ]
                           .filter((part) => part !== null && part !== "—")

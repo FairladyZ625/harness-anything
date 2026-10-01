@@ -1,14 +1,19 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { timestamp } from "@harness-anything/kernel";
-import type { DaemonHost } from "./daemon-host.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "./fleet/center.ts";
+import type { FleetCenterOptions } from "./fleet/center-types.ts";
+import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
+import type { KeycloakCenterAuthority } from "./transport/auth-context.ts";
 import { FleetRemoteError, runFleetReplicaPullClient } from "./fleet/edge.ts";
 import { applyFleetMirrorCut, withFleetMirrorLock } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 import type { WriterEpochLease } from "./writer-epoch.ts";
+/**
+ * The assignments a center serves. It names what each node may reach, never who a node is: machine
+ * credentials and node owners live in the center's Keycloak node registry.
+ */
 export interface FleetRoster {
-  readonly nodes: readonly { readonly nodeId: string; readonly credential: string }[];
   readonly assignments: readonly FleetAssignmentRecord[];
 }
 export class FleetRosterError extends Error {
@@ -23,9 +28,8 @@ const id = /^[A-Za-z0-9_-]{1,96}$/u,
   row = (value: unknown): Record<string, unknown> | null =>
     value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : null,
   shapeText =
-    '{ "schema": "fleet-roster/v2", "nodes": [{ "nodeId": string, "credential": string }],' +
-    ' "assignments": [{ "assignmentId": string, "nodeId": string, "repoId": string, "viewId": string,' +
-    ' "personId": string, "executorId"?: string, "expiresAt": ISO-8601-Z,' +
+    '{ "schema": "fleet-roster/v3", "assignments": [{ "assignmentId": string, "nodeId": string,' +
+    ' "repoId": string, "viewId": string, "expiresAt": ISO-8601-Z,' +
     ' "scope": { "kind": "task", "taskId": string, "executionId": string, "paths": string[] }' +
     ' | { "kind": "schedule", "scheduleId": string, "paths": string[] } }] }';
 export function readFleetRosterFile(file: string): FleetRoster {
@@ -43,84 +47,23 @@ export function parseFleetRoster(input: unknown): FleetRoster {
   const record = row(input),
     fail = (detail: string) =>
       new FleetRosterError("roster_invalid", `Fleet roster is invalid: ${detail}. Provide ${shapeText}.`);
-  if (record === null || !["fleet-roster/v1", "fleet-roster/v2"].includes(String(record.schema)))
-    throw fail("the top-level schema must be fleet-roster/v1 or fleet-roster/v2");
-  if (
-    record.schema === "fleet-roster/v2" &&
-    (Object.keys(record).length !== 3 ||
-      !["schema", "nodes", "assignments"].every((field) => Object.hasOwn(record, field)))
-  )
-    throw fail("fleet-roster/v2 has unknown or missing top-level fields");
-  const node = (value: unknown): { nodeId: string; credential: string } | null => {
-    const entry = row(value);
-    return entry &&
-      (record.schema === "fleet-roster/v1" ||
-        (Object.keys(entry).length === 2 && ["nodeId", "credential"].every((field) => Object.hasOwn(entry, field)))) &&
-      typeof entry.nodeId === "string" &&
-      id.test(entry.nodeId) &&
-      typeof entry.credential === "string" &&
-      entry.credential.length > 0
-      ? { nodeId: entry.nodeId, credential: entry.credential }
-      : null;
-  };
-  if (!Array.isArray(record.nodes) || record.nodes.length === 0 || record.nodes.some((value) => node(value) === null))
-    throw fail("nodes must be a non-empty array of { nodeId, credential } rows");
-  const nodes = record.nodes.map((value) => node(value)!),
-    known = new Set(nodes.map(({ nodeId }) => nodeId));
-  const assignment = record.schema === "fleet-roster/v1" ? parseFleetRosterV1Assignment : parseFleetRosterV2Assignment;
+  if (record === null || record.schema !== "fleet-roster/v3")
+    throw fail("the top-level schema must be fleet-roster/v3");
+  if (Object.keys(record).length !== 2 || !Object.hasOwn(record, "assignments"))
+    throw fail("fleet-roster/v3 has unknown or missing top-level fields");
   if (
     !Array.isArray(record.assignments) ||
     record.assignments.length === 0 ||
-    record.assignments.some((value) => assignment(value) === null)
+    record.assignments.some((value) => parseFleetRosterAssignment(value) === null)
   )
     throw fail("assignments must be a non-empty array of complete assignment rows");
-  const assignments = record.assignments.map((value) => assignment(value)!);
-  if (assignments.some(({ nodeId }) => !known.has(nodeId)))
-    throw fail("every assignment nodeId must also be declared in nodes");
-  return { nodes, assignments };
+  return { assignments: record.assignments.map((value) => parseFleetRosterAssignment(value)!) };
 }
 
-function parseFleetRosterV1Assignment(value: unknown): FleetAssignmentRecord | null {
-  const entry = row(value),
-    fields = ["assignmentId", "nodeId", "repoId", "taskId", "executionId", "viewId", "personId"];
-  return entry &&
-    fields.every((field) => typeof entry[field] === "string" && id.test(entry[field] as string)) &&
-    (entry.executorId === undefined || (typeof entry.executorId === "string" && id.test(entry.executorId))) &&
-    Array.isArray(entry.paths) &&
-    entry.paths.length > 0 &&
-    entry.paths.length <= 128 &&
-    entry.paths.every((item) => typeof item === "string" && item.length > 0) &&
-    timestamp(entry.expiresAt)
-    ? {
-        assignmentId: entry.assignmentId as string,
-        nodeId: entry.nodeId as string,
-        repoId: entry.repoId as string,
-        viewId: entry.viewId as string,
-        scope: {
-          kind: "task",
-          taskId: entry.taskId as string,
-          executionId: entry.executionId as string,
-          paths: entry.paths as string[],
-        },
-        expiresAt: entry.expiresAt as string,
-        actor: assignmentActor(entry),
-      }
-    : null;
-}
-
-function parseFleetRosterV2Assignment(value: unknown): FleetAssignmentRecord | null {
+function parseFleetRosterAssignment(value: unknown): FleetAssignmentRecord | null {
   const entry = row(value),
     scope = row(entry?.scope),
-    assignmentFields = [
-      "assignmentId",
-      "nodeId",
-      "repoId",
-      "viewId",
-      "personId",
-      "expiresAt",
-      "scope",
-      ...(entry?.executorId === undefined ? [] : ["executorId"]),
-    ],
+    assignmentFields = ["assignmentId", "nodeId", "repoId", "viewId", "expiresAt", "scope"],
     scopeFields =
       scope?.kind === "task"
         ? ["kind", "taskId", "executionId", "paths"]
@@ -132,12 +75,12 @@ function parseFleetRosterV2Assignment(value: unknown): FleetAssignmentRecord | n
     !entry ||
     Object.keys(entry).length !== assignmentFields.length ||
     !assignmentFields.every((field) => Object.hasOwn(entry, field)) ||
-    !["assignmentId", "nodeId", "repoId", "viewId", "personId"].every(
+    !["assignmentId", "nodeId", "repoId", "viewId"].every(
       (field) => typeof entry[field] === "string" && id.test(entry[field] as string),
     ) ||
-    (entry.executorId !== undefined && (typeof entry.executorId !== "string" || !id.test(entry.executorId))) ||
     !timestamp(entry.expiresAt) ||
     !scope ||
+    scopeFields.length === 0 ||
     Object.keys(scope).length !== scopeFields.length ||
     !scopeFields.every((field) => Object.hasOwn(scope, field)) ||
     !scopeFields
@@ -164,14 +107,6 @@ function parseFleetRosterV2Assignment(value: unknown): FleetAssignmentRecord | n
           }
         : { kind: "schedule", scheduleId: scope.scheduleId as string, paths: paths as string[] },
     expiresAt: entry.expiresAt as string,
-    actor: assignmentActor(entry),
-  };
-}
-
-function assignmentActor(entry: Record<string, unknown>): FleetAssignmentRecord["actor"] {
-  return {
-    principal: { personId: entry.personId as string },
-    executor: typeof entry.executorId === "string" ? { kind: "agent", id: entry.executorId } : null,
   };
 }
 
@@ -186,15 +121,34 @@ function validRosterPath(value: unknown): boolean {
     value.split("/").every((part) => part.length > 0 && part !== "." && part !== "..")
   );
 }
-export function fleetCredentialFromRoster(nodeId: string, rosterPath: string): string {
-  const node = readFleetRosterFile(rosterPath).nodes.find((entry) => entry.nodeId === nodeId);
-  if (!node)
-    throw new FleetRosterError("node_unknown", `Node ${nodeId} is not declared in the fleet roster at ${rosterPath}.`);
-  return node.credential;
+
+/** The center's node registry: Keycloak verifies the machine credential and names the node's owner. */
+export function keycloakNodeRegistry(
+  center: KeycloakCenterAuthority,
+  fetchPort?: typeof fetch,
+): Pick<FleetCenterOptions, "authenticate" | "nodeOwner"> {
+  const open = async () => {
+    const authority = await center();
+    return {
+      token: authority.accessToken,
+      adapter: new KeycloakPolicyAdapter(
+        { url: authority.url, realm: authority.realm, resourceServerClientId: authority.clientId },
+        fetchPort,
+      ),
+    };
+  };
+  return {
+    authenticate: async (nodeId, credential) => (await open()).adapter.authenticateNode(nodeId, credential),
+    nodeOwner: async (nodeId) => {
+      const { adapter, token } = await open();
+      return (await adapter.readNode(token, nodeId))?.personId || null;
+    },
+  };
 }
 export interface FleetCenterAdmissionRequest {
-  readonly host: Pick<DaemonHost, "replica" | "run" | "read" | "runtimeIngress" | "settleMaterialization" | "status">;
+  readonly host: FleetCenterOptions["host"];
   readonly userRoot: string;
+  readonly nodes: Pick<FleetCenterOptions, "authenticate" | "nodeOwner">;
   readonly writerEpochLease?: (repoId: string) => WriterEpochLease;
   readonly payload: {
     readonly port: number;
@@ -220,7 +174,6 @@ export async function startFleetCenterAdmission(
   input: FleetCenterAdmissionRequest,
 ): Promise<{ readonly center: FleetTlsCenter; readonly roster: FleetRoster; readonly stateRoot: string }> {
   const roster = readFleetRosterFile(input.payload.rosterPath),
-    credentialOf = new Map(roster.nodes.map((node) => [node.nodeId, node.credential])),
     assignmentOf = new Map(roster.assignments.map((entry) => [entry.assignmentId, entry])),
     stateRoot = input.payload.stateRoot ?? path.join(input.userRoot, "fleet");
   return {
@@ -234,7 +187,7 @@ export async function startFleetCenterAdmission(
       hostname: input.payload.bind,
       port: input.payload.port,
       replicaDiskQuotaBytes: input.payload.quotaBytes,
-      authenticate: (nodeId, credential) => credentialOf.get(nodeId) === credential,
+      ...input.nodes,
       resolveAssignment: (assignmentId) => assignmentOf.get(assignmentId) ?? null,
     }),
     roster,
@@ -248,8 +201,7 @@ export interface FleetEdgeSyncRequest {
     readonly caPath: string;
     readonly servername?: string;
     readonly nodeId: string;
-    readonly credential?: string;
-    readonly rosterPath?: string;
+    readonly credential: string;
     readonly assignmentId: string;
     readonly repoId: string;
     readonly viewRoot: string;
@@ -259,16 +211,6 @@ export interface FleetEdgeSyncRequest {
   };
 }
 export async function syncFleetEdgeMirror(input: FleetEdgeSyncRequest): Promise<Record<string, unknown>> {
-  const credential =
-    input.payload.credential ??
-    (input.payload.rosterPath
-      ? fleetCredentialFromRoster(input.payload.nodeId, input.payload.rosterPath)
-      : (() => {
-          throw new FleetRosterError(
-            "credential_required",
-            "Fleet edge sync requires exactly one machine credential source: --credential or --roster.",
-          );
-        })());
   return withFleetMirrorLock(input.payload.viewRoot, input.payload.repoId, async () => {
     const pulled = await runFleetReplicaPullClient({
       hostname: input.payload.host,
@@ -276,7 +218,7 @@ export async function syncFleetEdgeMirror(input: FleetEdgeSyncRequest): Promise<
       ca: material(input.payload.caPath, "--ca").toString("utf8"),
       servername: input.payload.servername,
       nodeId: input.payload.nodeId,
-      credential,
+      credential: input.payload.credential,
       assignmentId: input.payload.assignmentId,
       viewRoot: input.payload.viewRoot,
       diskQuotaBytes: input.payload.quotaBytes,
@@ -285,8 +227,12 @@ export async function syncFleetEdgeMirror(input: FleetEdgeSyncRequest): Promise<
       if (error instanceof FleetRemoteError)
         throw Object.assign(
           new Error(
-            `${error.message} Reissue the credential in the center roster` +
-              " or correct --node-id / credential source / --assignment, then retry the edge sync.",
+            // The machine was recognized and its owner lacks the action; no credential change fixes that.
+            error.code === "authorization_denied"
+              ? `${error.message} Ask a center administrator to grant the node's owner daemon-fleet-edge-sync` +
+                " on this repository, then retry the edge sync."
+              : `${error.message} Register the node at the center and use the credential it issued,` +
+                " or correct --node-id / --credential / --assignment, then retry the edge sync.",
           ),
           { code: error.code },
         );

@@ -8,6 +8,7 @@ import { openPersistentWriterEpoch } from "../../../packages/daemon/src/writer-e
 import { listenFleetTls } from "../../../packages/daemon/src/fleet/center.ts";
 import { runFleetReplicaPullClient, runFleetScheduleCommandClient } from "../../../packages/daemon/src/fleet/edge.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "../../../packages/daemon/test/repo-settings.fixture.ts";
+import { fleetNodeOwners } from "../../../packages/daemon/test/fleet-store.fixture.ts";
 
 const quotaBytes = 64 * 1024 * 1024;
 
@@ -34,10 +35,6 @@ export async function openFleetCampaignFixture(options = {}) {
           paths: ["agents", "schedules"],
         },
         expiresAt: "2099-01-01T00:00:00.000Z",
-        actor: {
-          principal: { personId: `operator-${index + 1}` },
-          executor: { kind: "agent", id: `edge-${index + 1}` },
-        },
       })),
     ),
     byId = new Map(assignments.map((assignment) => [assignment.assignmentId, assignment]));
@@ -45,6 +42,7 @@ export async function openFleetCampaignFixture(options = {}) {
     centerStarts = 0,
     activeEpochs = new Map(),
     takeoverAuthority = null,
+    owners = null,
     clock = options.now ?? "2026-09-06T00:00:00.000Z";
   const children = new Set();
   try {
@@ -59,6 +57,13 @@ export async function openFleetCampaignFixture(options = {}) {
       });
     }
     makeCertificate(keyFile, certFile);
+    owners = await fleetNodeOwners({
+      userRoot,
+      owners: Object.fromEntries(
+        Array.from({ length: 8 }, (_value, index) => [`edge-${index + 1}`, `operator-${index + 1}`]),
+      ),
+      repoIds: repos.map((repo) => repo.repoId),
+    });
     const installation = {
       installationId: "installation-stress-runtime",
       kindId: "codex",
@@ -98,7 +103,7 @@ export async function openFleetCampaignFixture(options = {}) {
             instance: "stress-runtime",
           },
         },
-        assignmentAuth(assignment),
+        owners.auth(assignment),
       );
       if (installed.outcome !== "applied") throw new Error(`agent install failed for ${repo.repoId}`);
     }
@@ -144,6 +149,7 @@ export async function openFleetCampaignFixture(options = {}) {
         replicaDiskQuotaBytes: quotaBytes,
         now: () => clock,
         authenticate: (nodeId, credential) => credential === `credential-${nodeId}`,
+        nodeOwner: owners.nodeOwner,
         resolveAssignment: (assignmentId) => byId.get(assignmentId) ?? null,
       });
       return center;
@@ -200,6 +206,7 @@ export async function openFleetCampaignFixture(options = {}) {
         await closeCenter();
         takeoverAuthority?.close();
         await host.close();
+        await owners.close();
         rmSync(root, { recursive: true, force: true });
       },
     };
@@ -207,6 +214,7 @@ export async function openFleetCampaignFixture(options = {}) {
     for (const child of children) child.kill("SIGKILL");
     await center?.close().catch(() => undefined);
     takeoverAuthority?.close();
+    await owners?.close();
     rmSync(root, { recursive: true, force: true });
     throw error;
   }
@@ -349,10 +357,6 @@ function makeCertificate(keyFile, certFile) {
     ],
     { stdio: "ignore" },
   );
-}
-
-function assignmentAuth(assignment) {
-  return { transportKind: "fleet-tls", assignmentBinding: assignment };
 }
 
 function git(cwd, ...args) {

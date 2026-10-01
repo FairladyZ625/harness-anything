@@ -9,6 +9,7 @@ import { requestDaemonJsonRpcAt } from "@harness-anything/daemon/internal/client
 import type { DaemonShutdownExchange } from "@harness-anything/daemon/internal/client/local-json-rpc-shutdown";
 import { terminateProcess } from "@harness-anything/daemon/internal/process-port";
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
+import { readFleetEdgeConfig } from "@harness-anything/daemon/internal/client/fleet-edge-config";
 import {
   clearDaemonStoppedMarker,
   runtimeDaemonStartRefusal,
@@ -224,10 +225,6 @@ async function fleetControl(
       "missing_field",
       `Add ${missing.join(" ")} to ${center ? "start the fleet TLS center" : "mirror the fleet center ledger"}.`,
     );
-  const credential = flag("--credential"),
-    roster = flag("--roster");
-  if (edge && (credential === undefined) === (roster === undefined))
-    return reject("invalid_field", "Use exactly one of --credential or --roster for edge sync.");
   if (!fleetNumber.port.test(flag("--port")!) || !fleetNumber.quota.test(flag("--quota-bytes")!))
     return reject(
       "invalid_field",
@@ -241,6 +238,18 @@ async function fleetControl(
         daemonId,
       })
     : null;
+  // The machine credential the center issued at node registration: named on the command line, or kept
+  // off it in the workspace's fleet-edge.json.
+  let credential = flag("--credential");
+  if (edge && credential === undefined) {
+    try {
+      credential = readFleetEdgeConfig(edgeTarget!.canonicalRoot)?.credential;
+    } catch (error) {
+      return reject("invalid_field", cliErrorMessage(error));
+    }
+    if (credential === undefined)
+      return reject("missing_field", "Add --credential, or set credential in the workspace fleet-edge.json.");
+  }
   const centerPayload = () => ({
     port: Number(flag("--port")),
     keyPath: path.resolve(flag("--key")!),
@@ -255,8 +264,7 @@ async function fleetControl(
     port: Number(flag("--port")),
     caPath: path.resolve(flag("--ca")!),
     nodeId: flag("--node-id"),
-    ...(credential ? { credential } : {}),
-    ...(roster ? { rosterPath: path.resolve(roster) } : {}),
+    credential,
     assignmentId: flag("--assignment"),
     repoId: edgeTarget!.repoId,
     viewRoot: path.resolve(flag("--view-root")!),

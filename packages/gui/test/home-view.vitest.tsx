@@ -507,7 +507,7 @@ it("renders the summary timestamp as relative activity with the full time on hov
   const time = container.querySelector<HTMLTimeElement>('[data-testid="home-entry-last-activity"]')!;
   expect(time.dateTime).toBe(at);
   expect(time.textContent).toBe("5 分钟前");
-  expect(time.title).toMatch(/^最近活动 · \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+  expect(time.title).toMatch(/^最近活动 · (?:(?:今天 )?\d{2}:\d{2}:\d{2}|\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})$/u);
   const empty = await mountHome([repo({ repoId: "empty" })], null, {
     empty: { summary: summary({}), runtime: sessions() },
   });

@@ -1,6 +1,3 @@
-import { t } from "../../i18n/index.tsx";
-import { formatTime } from "../../model/time.ts";
-
 /**
  * 四条流的共用骨架:紧凑行、就地状态切换、内部滚动、空态。
  * 「不静默截断」约定(2026-08-25 泽宇裁决升格):列表容器只做内部滚动;行集完整渲染,
@@ -70,8 +67,3 @@ export function StreamExitButton({ label, onClick, title }: { label: string; onC
     </button>
   );
 }
-
-export const streamTime = (iso: string | null | undefined) =>
-  iso
-    ? (formatTime(iso, { style: "month-day-time" }) ?? t("views.overviewView.streamCreatedUnknown"))
-    : t("views.overviewView.streamCreatedUnknown");

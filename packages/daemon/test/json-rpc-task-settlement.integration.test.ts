@@ -7,6 +7,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before } from "node:test";
+import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { fetchCiObservations, ingestCiObservations } from "../src/ci-observation-actions.ts";
@@ -67,7 +68,8 @@ async function waitForAcceptedReceipt(
   return shown;
 }
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "codex" } } as const;
-const repoWriteBinding = withRoleBinding({ actor, source: "local" as const }, "repo-write");
+// The fixture's lifecycle persona writes and closes: closing a task is the maintainer tier's, so it holds both roles.
+const repoWriteBinding = withRoleBinding(withRoleBinding({ actor, source: "local" as const }, "repo-write"), "arbiter");
 // prettier-ignore
 
 test("work-closeout uses the normal completion facade, review, and gates exactly once", async () => {
@@ -76,13 +78,13 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
     executionId = "execution-complete",
     packagePath = "tasks/task-complete-completion-facade",
     binding = repoWriteBinding,
-    ownerFromAnotherAgent = withRoleBinding({
+    ownerFromAnotherAgent = withRoleBinding(withRoleBinding({
       actor: {
         principal: actor.principal,
         executor: { kind: "agent" as const, id: "other-owner-agent" },
       },
       source: "local" as const,
-    }, "repo-write");
+    }, "repo-write"), "arbiter");
   try {
     initRepo(rootDir); mkdirSync(path.join(rootDir, "harness"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n  ci:\n    workflows: [rewrite-ci]\n  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n  closeout:\n    profile: strict\n"); /* The completion facade is a strict-profile closeout gate. */ cell = await openRepoCell({ repoId: workspaceId("completion-facade"), rootDir: canonicalRoot(rootDir), ownerId: "completion-daemon" }); const store = () => makeTaskEventReader({ repoId: "completion-facade", rootDir });
     const created = await cell.run({ kind: "task-create", taskId, title: "Completion facade", presetId: "work-closeout" }, binding); const createdVisible = await waitForAcceptedReceipt(cell, created, binding); assert.equal(createdVisible.wait?.state, "satisfied", JSON.stringify(createdVisible)); await realizeTaskPlanFixture(rootDir, String((created as Record<string, unknown>).packagePath), (planPath) => cell!.run({ kind: "doc-submit", paths: [planPath] }, binding)); await cell.run({ kind: "task-start", taskId, executionId }, binding);
@@ -200,10 +202,10 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
         {
           predicate: "hasRoleBinding",
           satisfied: true,
-          role: "repo-write",
+          role: "arbiter",
           matched: {
             actor: { kind: "person", id: actor.principal.personId },
-            role: "repo-write",
+            role: "arbiter",
             target: "settings/repository",
             source: "declared",
             expiresAt: null,
@@ -589,7 +591,10 @@ test("Policy rejects a principal without a durable-action RoleBinding", async ()
       "Role-bound delivery complete.",
     );
     assert.equal((await host.run("rbac", { kind: "task-submit", taskId: "task-rbac", executionId }, auth(ids.writer))).outcome, "applied");
-    assert.equal((await host.run("rbac", { kind: "task-adjudicate", taskId: "task-rbac", executionId, forward: true, reason: "Owner forwards the RBAC fixture." }, auth(ids.writer))).outcome, "applied");
+    // Having created the task grants no authority to command its cut: the creator holds the contributor tier only.
+    const creatorAdjudicates = await host.run("rbac", { kind: "task-adjudicate", taskId: "task-rbac", executionId, forward: true, reason: "The creator forwards its own cut." }, auth(ids.writer));
+    assert.deepEqual({ outcome: creatorAdjudicates.outcome, code: creatorAdjudicates.code }, { outcome: "op_rejected", code: "authorization_denied" });
+    assert.equal((await host.run("rbac", { kind: "task-adjudicate", taskId: "task-rbac", executionId, forward: true, reason: "A maintainer forwards the RBAC fixture." }, auth(ids.arbiter))).outcome, "applied");
     writeFileSync(path.join(root, "review.json"), JSON.stringify({ verdict: "approved", reason: "checked", evidenceChecked: [] }));
     const rbacReportDir = path.join(root, "harness", String((created as Record<string, unknown>).packagePath), "artifacts", "reports"); mkdirSync(rbacReportDir, { recursive: true }); writeFileSync(path.join(rbacReportDir, "rbac.md"), "# Review rbac\n\nPhysical review findings.\n");
     const review = await host.run("rbac", { kind: "task-review-execution", taskId: "task-rbac", executionId, reviewId: "review-rbac", fromFile: "review.json" }, auth(ids.arbiter)); assert.equal(review.outcome, "applied", JSON.stringify(review));
@@ -604,7 +609,7 @@ test("Policy rejects a principal without a durable-action RoleBinding", async ()
 test("runtime witness issuance binds the server principal without transport role authorization", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-witness-rbac-")), root = path.join(parent, "repo"), userRoot = path.join(parent, "user"), ids = { writer: 4201, admin: 4202, dualAdmin: 4203, dualArbiter: 4204 }; rbacRepo(root, ids); const auth = (ownerUid: number) => ({ transportKind: "unix-socket", unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" } } as const);
   const runtimeActor = { principal: { personId: "fixture" }, executor: null } as const, definition = { schema: "agent-definition-snapshot/v1", configVersion: 1, instanceId: "instance-runtime", installationId: "installation-runtime", kindId: "codex", providerId: "openai", model: "gpt-5.6-sol", reasoningEffort: "high", baseUrl: null, authMode: "subscription" } as const, store = makeTaskEventStore({ repoId: "runtime-witness", rootDir: root, activationPreflight: activateEmptyCanonicalGeneration }), events = [{ schema: "agent-runtime-event/v1", eventId: "runtime-installation", workspaceRevision: 1, opId: "runtime-installation", actor: runtimeActor, source: "local", occurredAt: "2026-08-13T00:00:00.000Z", type: "runtime_installation_observed", payload: { installationId: "installation-runtime", kindId: "codex", protocolFamily: "codex", hostRef: "host:local", version: "1.0.0", discoverySource: "wrapper", capabilities: ["structured_witness", "attach"] } }, { schema: "agent-runtime-event/v1", eventId: "runtime-dispatch", workspaceRevision: 2, opId: "runtime-dispatch", actor: runtimeActor, source: "local", occurredAt: "2026-08-13T00:00:01.000Z", type: "runtime_dispatch_requested", payload: { dispatchId: "dispatch-runtime", runtimeSessionId: "session-runtime", instanceId: definition.instanceId, installationId: definition.installationId, kindId: definition.kindId, idempotencyKey: "runtime-witness", definitionSnapshotRef: "artifact:runtime-definition/test", definitionSnapshot: definition } }, { schema: "agent-runtime-event/v1", eventId: "runtime-session", workspaceRevision: 3, opId: "runtime-session", actor: runtimeActor, source: "local", occurredAt: "2026-08-13T00:00:02.000Z", type: "runtime_session_started", payload: { runtimeSessionId: "session-runtime", instanceId: definition.instanceId, installationId: definition.installationId, kindId: definition.kindId, definitionSnapshotRef: "artifact:runtime-definition/test", launchGeneration: 1, attachable: true } }] as const satisfies readonly AgentRuntimeEventV1[]; for (const event of events) store.append({ event, plan: runtimeWritePlan(event), blobs: [] }); await store.drain();
-    const host = await openDaemonHost({ daemonId: "runtime-witness", userRoot }); try { await host.admin({ kind: "register", rootDir: root, repoId: "runtime-witness" }, auth(ids.admin)); const issued = await host.issueRuntimeWitness("runtime-witness", "session-runtime", auth(ids.writer)), bound = host.bindRuntimeWitness("runtime-witness", issued.token); assert.equal(bound.actor.principal.personId, "writer"); assert.deepEqual(bound.actor.executor, { kind: "agent", id: "runtime-session:session-runtime" }); assert.equal(host.publishRuntimeWitness("runtime-witness", issued.token, { type: "activity", activity: "tool" }).type, "activity"); assert.equal(host.publishRuntimeWitness("runtime-witness", issued.token, { type: "heartbeat", actor: "provider-supplied" } as never).type, "heartbeat"); const assignment = { transportKind: "unix-socket", assignmentBinding: { nodeId: "node-runtime", repoId: "runtime-witness", taskId: "task-runtime", executionId: "execution-runtime", assignmentId: "assignment-runtime", paths: [], actor: { principal: { personId: "worker" }, executor: null } } } as const, assignmentToken = await host.issueRuntimeWitness("runtime-witness", "session-runtime", assignment), assignmentBound = host.bindRuntimeWitness("runtime-witness", assignmentToken.token); assert.deepEqual(assignmentBound.source, { kind: "assignment", nodeId: "node-runtime", assignmentId: "assignment-runtime" }); assert.deepEqual(assignmentBound.actor.executor, { kind: "agent", id: "runtime-session:session-runtime" }); for (const [personId, ownerUid] of [["dualAdmin", ids.dualAdmin], ["dualArbiter", ids.dualArbiter]] as const) { const token = await host.issueRuntimeWitness("runtime-witness", "session-runtime", auth(ownerUid)); assert.equal(host.bindRuntimeWitness("runtime-witness", token.token).actor.principal.personId, personId); } } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
+    const host = await openDaemonHost({ daemonId: "runtime-witness", userRoot }); try { await host.admin({ kind: "register", rootDir: root, repoId: "runtime-witness" }, auth(ids.admin)); const issued = await host.issueRuntimeWitness("runtime-witness", "session-runtime", auth(ids.writer)), bound = host.bindRuntimeWitness("runtime-witness", issued.token); assert.equal(bound.actor.principal.personId, "writer"); assert.deepEqual(bound.actor.executor, { kind: "agent", id: "runtime-session:session-runtime" }); assert.equal(host.publishRuntimeWitness("runtime-witness", issued.token, { type: "activity", activity: "tool" }).type, "activity"); assert.equal(host.publishRuntimeWitness("runtime-witness", issued.token, { type: "heartbeat", actor: "provider-supplied" } as never).type, "heartbeat"); const owners = await fleetNodeOwners({ userRoot, owners: { "node-runtime": "worker" }, repoIds: ["runtime-witness"] }), assignment = { ...owners.auth({ nodeId: "node-runtime", repoId: "runtime-witness", taskId: "task-runtime", executionId: "execution-runtime", assignmentId: "assignment-runtime", paths: [] } as never), transportKind: "unix-socket" } as const, assignmentToken = await host.issueRuntimeWitness("runtime-witness", "session-runtime", assignment), assignmentBound = host.bindRuntimeWitness("runtime-witness", assignmentToken.token); assert.deepEqual(assignmentBound.source, { kind: "assignment", nodeId: "node-runtime", assignmentId: "assignment-runtime" }); assert.deepEqual(assignmentBound.actor.executor, { kind: "agent", id: "runtime-session:session-runtime" }); for (const [personId, ownerUid] of [["dualAdmin", ids.dualAdmin], ["dualArbiter", ids.dualArbiter]] as const) { const token = await host.issueRuntimeWitness("runtime-witness", "session-runtime", auth(ownerUid)); assert.equal(host.bindRuntimeWitness("runtime-witness", token.token).actor.principal.personId, personId); } } finally { await host.close(); rmSync(parent, { recursive: true, force: true }); }
 });
 test("task mutation rejections name the missing field and current execution status", async (context) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-rejection-diagnostics-")),

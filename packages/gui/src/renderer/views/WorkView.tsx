@@ -27,7 +27,7 @@ import {
 } from "../components/primitives/SummaryCard.tsx";
 import { splitTitleFocus, TitleText } from "../components/primitives/TitleText.tsx";
 import { entryTitle, metaLine, waitingReason } from "./workspace/entry-lines.tsx";
-import { relativeTime } from "../sessions-model.ts";
+import { formatListTime } from "../model/time.ts";
 import { formatTime } from "../model/time.ts";
 
 /** 注意力条目 kind → 状态色档:等你/阻塞红,裁决/评审/停滞琥珀,待跟进琥珀,可归档灰。 */
@@ -361,7 +361,7 @@ function WorkCard({
         data-testid="work-last-activity"
         title={group.activity ? `${group.activity.taskId} · ${group.activity.summary} · ${lastActivity}` : lastActivity}
       >
-        {relativeTime(group.lastChangeAt)}
+        {formatListTime(group.lastChangeAt)}
       </span>
     ),
     progress = (

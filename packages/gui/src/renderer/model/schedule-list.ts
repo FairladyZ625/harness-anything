@@ -1,6 +1,6 @@
 import type { ScheduleGuiListRowDto, ScheduleGuiRowDto } from "@harness-anything/daemon/protocol";
 import { t } from "../i18n/index.tsx";
-import { formatTime } from "./time.ts";
+import { dayKeyOf, formatTime } from "./time.ts";
 
 // 定时计划列表的分档、排序与时间写法。全部只读 daemon 给的行事实(状态、健康分类、
 // 错过次数、下次运行时间),不重算 cadence/nextRun,也不自己判健康。
@@ -102,8 +102,8 @@ export function scheduleVerdict(row: Pick<ScheduleGuiRowDto, "lastRun" | "health
 
 /** 本地日历日的序号(用户时区),两个时刻相减即相隔几天。 */
 function dayIndex(iso: string): number | null {
-  const date = formatTime(iso, { style: "date" });
-  return date === null ? null : Date.parse(`${date}T00:00:00Z`) / DAY_MS;
+  const key = dayKeyOf(iso);
+  return key === null ? null : Date.parse(`${key}T00:00:00Z`) / DAY_MS;
 }
 
 /**

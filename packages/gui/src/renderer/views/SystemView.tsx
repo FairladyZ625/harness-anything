@@ -4,7 +4,7 @@ import { controlSucceeded, useDaemonControl, useSystemStatusQuery } from "../sys
 import { DaemonTailPane, type ObserveLogKind } from "../components/observe/DaemonTailPane.tsx";
 import type { SystemRepoRow } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
-import { formatTime, formatUptimeMs } from "../model/time.ts";
+import { formatDuration, formatTime } from "../model/time.ts";
 import { RepoModeBadge } from "../components/RepoModeBadge.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { repoCellMeta, repoNeedsAttention } from "../model/repo-state.ts";
@@ -22,7 +22,7 @@ import { repoCellMeta, repoNeedsAttention } from "../model/repo-state.ts";
 
 const dash = () => t("views.settingsView.systemUnknownDash");
 const dateTime = (iso: string) => formatTime(iso, { style: "date-time-seconds" }) ?? dash();
-const uptime = (uptimeMs: number | undefined): string => formatUptimeMs(uptimeMs, dash());
+const uptime = (uptimeMs: number | undefined): string => formatDuration(uptimeMs, dash());
 
 function Field({ name, value, title }: { readonly name: string; readonly value: string; readonly title?: string }) {
   return (

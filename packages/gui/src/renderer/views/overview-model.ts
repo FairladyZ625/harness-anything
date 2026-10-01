@@ -96,20 +96,6 @@ export function attentionEntries(
     });
 }
 
-/** 原型 v4 `ago()`:分钟 → 小时 → 天;停滞/阻塞按天显示(入口在调用方)。 */
-export function ageOf(iso: string, now: string): string {
-  const hours = Math.max(0, (Date.parse(now) - Date.parse(iso)) / 3_600_000);
-  if (hours < 1) return `${Math.max(1, Math.round(hours * 60))} 分`;
-  if (hours < 48) return `${Math.round(hours)} 时`;
-  return `${Math.round(hours / 24)} 天`;
-}
-
-/** 停滞/阻塞的年龄按天(原型的 stuck 行口径);<1 天显示「<1 天」。 */
-export function staleDaysOf(iso: string, now: string): string {
-  const days = (Date.parse(now) - Date.parse(iso)) / 86_400_000;
-  return days < 1 ? "<1 天" : `${Math.round(days)} 天`;
-}
-
 export interface MainCiFailingJob {
   readonly runId: string;
   readonly job: string;

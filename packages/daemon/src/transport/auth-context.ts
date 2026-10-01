@@ -8,6 +8,17 @@ export interface DaemonFleetAssignmentBinding extends FleetAssignmentBinding {
   readonly assignmentId: FleetAssignmentBinding["assignmentId"];
 }
 
+/** The center's Keycloak location and one service-account token, as plain data a writer can receive. */
+export interface KeycloakCenterCredential {
+  readonly url: string;
+  readonly realm: string;
+  readonly clientId: string;
+  readonly accessToken: string;
+}
+
+/** Mints a fresh center credential; the host calls it once per request that needs one. */
+export type KeycloakCenterAuthority = () => Promise<KeycloakCenterCredential>;
+
 export interface UnixSocketOwnerBoundary {
   readonly ownerUid: number;
   readonly source: "unix-socket-filesystem-owner-boundary";
@@ -29,7 +40,11 @@ export interface DaemonAuthenticationContext {
     readonly accessToken: string;
     readonly authority: { readonly url: string; readonly realm: string; readonly clientId: string };
   };
+  /** Center service authority for evaluating a person who holds no token here; attached by the host only. */
+  readonly keycloakCenter?: KeycloakCenterAuthority;
   readonly assignmentBinding?: DaemonFleetAssignmentBinding;
+  /** The authenticated node and its owner from the center node registry; never accepted from a fleet frame. */
+  readonly nodePrincipal?: { readonly nodeId: string; readonly personId: string };
   /** Center-only admission context; never accepted from a client payload. */
   readonly writerEpoch?: number;
   readonly withWriterEpochFence?: <T>(operation: () => T) => T;

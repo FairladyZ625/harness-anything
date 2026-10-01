@@ -8,26 +8,17 @@ const policyActionDeclarations = actionDeclarations.filter(
 
 export const durablePolicyActions = Object.freeze(policyActionDeclarations.map(({ policyAction }) => policyAction));
 
-const roleRule = (
-  action: string,
-  role: string,
-  defaultBindingAllowed: boolean,
-  assignmentAllowed: boolean,
-): PolicyActionRule => ({
-  action,
+/** The roster role standing in for each policy tier until the roster stops granting authority. */
+const tierRole = Object.freeze({ contributor: "repo-write", maintainer: "arbiter", admin: "admin" } as const);
+
+const ruleForDeclaration = (declaration: (typeof policyActionDeclarations)[number]): PolicyActionRule => ({
+  action: declaration.policyAction,
   anyOf: [
-    { allOf: [{ predicate: "hasRoleBinding", role }] },
+    { allOf: [{ predicate: "hasRoleBinding", role: tierRole[declaration.policyTier] }] },
     { allOf: [{ predicate: "hasRoleBinding", role: "owner" }] },
-    ...(defaultBindingAllowed ? [{ allOf: [{ predicate: "hasDefaultBinding" as const }] }] : []),
-    ...(assignmentAllowed ? [{ allOf: [{ predicate: "hasAssignmentBinding" as const }] }] : []),
+    { allOf: [{ predicate: "hasDefaultBinding" }] },
   ],
 });
-
-const ruleForDeclaration = (declaration: (typeof policyActionDeclarations)[number]): PolicyActionRule => {
-  if (declaration.executionClass === "repo-write") return roleRule(declaration.policyAction, "repo-write", true, true);
-  if (declaration.executionClass === "arbiter") return roleRule(declaration.policyAction, "arbiter", true, false);
-  return roleRule(declaration.policyAction, "admin", true, false);
-};
 
 /** The single built-in policy package consumed by the kernel AuthorizationPort. */
 const defaultPolicyDeclaration = {
@@ -40,7 +31,6 @@ const defaultPolicyDeclaration = {
     { predicate: "hasRoleBinding", role: "admin" },
     { predicate: "hasRoleBinding", role: "owner" },
     { predicate: "hasDefaultBinding" },
-    { predicate: "hasAssignmentBinding" },
   ]),
   actions: durablePolicyActions,
   rules: Object.freeze(policyActionDeclarations.map(ruleForDeclaration)),

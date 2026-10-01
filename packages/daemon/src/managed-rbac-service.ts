@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import {
   appendFileSync,
   chmodSync,
+  closeSync,
   createReadStream,
   createWriteStream,
   existsSync,
@@ -732,6 +733,30 @@ export function managedRbacReceiptJournal(userRoot: string): {
     append: (line) => {
       mkdirSync(root, { recursive: true, mode: 0o700 });
       appendFileSync(file, `${line}\n`, { mode: 0o600 });
+    },
+  };
+}
+
+/**
+ * Reserves a new file only its owner can read, for a credential Keycloak returns once. A path that is
+ * already taken throws instead of being overwritten; `discard` removes a reservation nothing went into.
+ */
+export function reserveCredentialFile(file: string): {
+  readonly keep: (credential: string) => void;
+  readonly discard: () => void;
+} {
+  const descriptor = openSync(file, "wx", 0o600);
+  return {
+    keep: (credential) => {
+      try {
+        writeFileSync(descriptor, credential);
+      } finally {
+        closeSync(descriptor);
+      }
+    },
+    discard: () => {
+      closeSync(descriptor);
+      rmSync(file, { force: true });
     },
   };
 }
