@@ -386,6 +386,21 @@ html[data-theme="light"] ::selection {
 .doc-flow {
   container-type: inline-size;
 }
+
+/* 会话页双栏的窄容器退化(标准 §2.3/§5.1):内容区 <720px(= 列表最小 320px + 详情最小
+   可用 ~400px)时切单列——列表全宽、点行进详情(带返回),≥720px 恢复左列表右常驻详情。
+   data-detail-open 由点击行/返回驱动,宽容器下不参与(双栏常驻)。 */
+.sessions-split {
+  container-type: inline-size;
+}
+@container (max-width: 719px) {
+  .sessions-split[data-detail-open="false"] > [data-pane="detail"] {
+    display: none;
+  }
+  .sessions-split[data-detail-open="true"] > [data-pane="list"] {
+    display: none;
+  }
+}
 .prose-harness {
   width: 100%;
   max-width: none;
