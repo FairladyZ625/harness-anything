@@ -228,6 +228,25 @@ const click = async (element: Element | null | undefined) => {
 };
 
 describe("评审展示模型:只映射读面结果", () => {
+  it("概况时间线的身份串转可读名字,完整串放悬停(视觉基线 v2)", async () => {
+    const review = reviewState({
+      reviews: reviewState().reviews.map((entry, index) =>
+        index === 0
+          ? { ...entry, actor: { principal: { personId: "person_zeyu" }, executor: { id: "claude-session:0e69" } } }
+          : entry,
+      ),
+    });
+    const container = await mount(detail({ decisions: [decision(review)] }));
+    const tabs = [...container.querySelectorAll('[data-testid="decision-detail-tabs"] [role="tab"]')];
+    await click(tabs[1]);
+    const timeline = container.querySelector('[data-testid="decision-overview-timeline"]');
+    expect(timeline).not.toBeNull();
+    expect(timeline?.textContent).toContain("Claude 会话");
+    expect(timeline?.textContent).not.toContain("agent:claude-session:0e69");
+    // 完整身份串仍可达:记录行的 title 悬停。
+    expect(timeline?.querySelector('[title="agent:claude-session:0e69"]')).not.toBeNull();
+  });
+
   it("信号取自 readiness 与派工,不在前端重算 accept 判据", () => {
     expect(decisionReviewSignal(reviewState())).toBe("changesRequested");
     const ready = {

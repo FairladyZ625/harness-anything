@@ -523,7 +523,14 @@ function ScheduleOverviewTab({
   const agentTarget = row.target.kind === "agent" ? row.target : null,
     builtinTarget = row.target.kind === "builtin" ? row.target : null,
     failed = runs.filter((run) => run.outcome === "failed").length,
-    missed = runs.filter((run) => run.outcome === "missed").length;
+    missed = runs.filter((run) => run.outcome === "missed").length,
+    // 运行历史按计划时间倒序,第一条 failed 就是最近一次失败(与 daemon 健康度同窗)。
+    lastFailed = runs.find((run) => run.outcome === "failed") ?? null,
+    // 有人话失败原因(非 artifact 引用)就显示原因;引用换成「查看失败报告」入口。
+    lastFailureReason =
+      lastFailed === null || lastFailed.detail === null || lastFailed.detail.startsWith("artifact:")
+        ? null
+        : lastFailed.detail;
   return (
     // 区域板(标准 §2.1,与工作概况、任务详情同一个 RegionBoard):主区是需要处理、健康度、
     // 目的、定义、执行,运行历史固定在最右一列并区内滚动,它是这一页的主列表,两列时与主区各占一半;没有内容的区域整块消失。
@@ -574,7 +581,18 @@ function ScheduleOverviewTab({
                     <DenseRow
                       relaxed
                       title={t("schedules.detail.health.lastFailure")}
-                      reason={<Wrapped>{health.lastFailureDetail}</Wrapped>}
+                      reason={
+                        lastFailureReason !== null ? (
+                          <Wrapped>{lastFailureReason}</Wrapped>
+                        ) : lastFailed !== null ? (
+                          // 失败细节只是报告引用:入口替代三行哈希,点开内嵌的 run 详情看报告。
+                          t("schedules.detail.health.viewFailureReport")
+                        ) : (
+                          // 运行历史读不到该失败 occurrence 时退回 daemon 原始 detail(不删数据)。
+                          <Wrapped>{health.lastFailureDetail}</Wrapped>
+                        )
+                      }
+                      onClick={lastFailed !== null ? () => onOpenRun(lastFailed.occurrenceId) : undefined}
                     />
                   </div>
                 )}
@@ -690,6 +708,12 @@ function ScheduleOverviewTab({
   );
 }
 
+// 触发方式是人话主文字;occurrence 编号降为第二行弱色(视觉基线 v2:机器编号不当标题)。
+const RUN_KIND_KEY: Readonly<Record<NonNullable<ScheduleGuiRunRowDto["kind"]>, MessageKey>> = {
+  scheduled: "schedules.run.kind.scheduled",
+  manual: "schedules.run.kind.manual",
+};
+
 function RunRow({
   occurrence,
   onOpenRun,
@@ -704,7 +728,13 @@ function RunRow({
       <DenseRow
         relaxed
         tag={<StatusTag tone={OUTCOME_TONE[occurrence.outcome] ?? "neutral"} label={t(meta.key)} />}
-        title={aggregate ? t("schedules.runs.missedAggregate") : occurrence.occurrenceId}
+        title={
+          aggregate
+            ? t("schedules.runs.missedAggregate")
+            : occurrence.kind !== null
+              ? t(RUN_KIND_KEY[occurrence.kind])
+              : t("schedules.run.kind.fallback")
+        }
         reason={
           occurrence.outcome === "missed"
             ? [
@@ -714,8 +744,9 @@ function RunRow({
                 .filter((part) => part !== null)
                 .join(" · ")
             : [
-                occurrence.nodeId !== null ? `node ${occurrence.nodeId}` : null,
                 occurrence.outcome === "running" ? null : formatDurationMs(occurrence.durationMs),
+                occurrence.nodeId !== null ? `node ${occurrence.nodeId}` : null,
+                occurrence.occurrenceId !== "" ? occurrence.occurrenceId : null,
                 occurrence.reportRef !== null
                   ? t("schedules.runs.outputReport")
                   : occurrence.detail !== null

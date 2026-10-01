@@ -10,6 +10,7 @@ import {
   type FreshnessReason,
 } from "../model/freshness.ts";
 import { DenseRow } from "../components/primitives/DenseRow.tsx";
+import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { Section } from "../components/primitives/Section.tsx";
 import { StatusTag, type StatusTone } from "../components/primitives/StatusTag.tsx";
 import { TitleText } from "../components/primitives/TitleText.tsx";
@@ -274,11 +275,11 @@ export function FreshnessView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="freshness-view">
-      <header className="shrink-0 border-b border-border px-5 py-3.5 md:px-7">
-        <div className="flex flex-wrap items-baseline gap-2.5">
-          <h1 className="text-[19px] font-semibold text-text">{t("views.freshnessView.title")}</h1>
-          {candidates.length > 0 ? (
-            <span className="ui-meta text-text-muted" data-testid="freshness-counts">
+      <PageHeader
+        title={t("views.freshnessView.title")}
+        note={
+          candidates.length > 0 ? (
+            <span data-testid="freshness-counts">
               {t("views.freshnessView.headline", {
                 claims: candidates.length,
                 total: inScopeTotal,
@@ -286,15 +287,10 @@ export function FreshnessView({
                 first: firstUrgent?.decisionTitle ?? firstUrgent?.decisionId ?? "",
               })}
             </span>
-          ) : null}
-          {basis !== null && (
-            <span className="ml-auto shrink-0 font-mono ui-meta text-text-faint">
-              {t("views.freshnessView.basis", { value: basis })}
-            </span>
-          )}
-        </div>
-        <p className="mt-1 ui-meta text-text-muted">{t("views.freshnessView.tagline")}</p>
-      </header>
+          ) : undefined
+        }
+        meta={basis !== null ? t("views.freshnessView.basis", { value: basis }) : undefined}
+      />
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-10 pt-4 md:px-7">
         {relationState === "loading" ? (
           <StatusLine tone="plan" label={t("views.freshnessView.statusLoading")}>

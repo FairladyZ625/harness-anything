@@ -7,6 +7,7 @@ import { AwaitsAnswerPanel } from "../components/AwaitsAnswerPanel.tsx";
 import { DenseRow } from "../components/primitives/DenseRow.tsx";
 import { Drawer } from "../components/primitives/Drawer.tsx";
 import { FilterChips } from "../components/primitives/FilterChips.tsx";
+import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { StatusTag, type StatusTone } from "../components/primitives/StatusTag.tsx";
 import { TitleText } from "../components/primitives/TitleText.tsx";
 import {
@@ -16,6 +17,8 @@ import {
   type DecisionReviewGroup,
 } from "../model/decision-review.ts";
 import { taskReviewRef } from "../navigation/entityRoutes.ts";
+import { actorDisplayName } from "../model/actor-name.ts";
+import { relativeTime } from "../sessions-model.ts";
 import { ageOf } from "./overview-model.ts";
 import type { AgendaAwaitsRow } from "../../api/renderer-dto.ts";
 
@@ -108,7 +111,11 @@ function agendaRowsOf(agenda: AgendaSuccess): readonly AgendaRow[] {
     ...agenda.answeredForYou.map((row) => ({
       id: row.relationId,
       title: row.title,
-      hint: `${AWAITS_KIND_LABEL[row.askKind]()} · ${t("components.awaitsAnswer.answeredBy", { actor: row.answeredBy, time: row.answeredAt })} · ${t("views.agenda.hintAnswered", { answer: row.answer })}`,
+      // 答复者用可读名字(与总览、决策时间线同一套转换);完整身份串在答复面板里可见。
+      hint: `${AWAITS_KIND_LABEL[row.askKind]()} · ${t("components.awaitsAnswer.answeredBy", {
+        actor: actorDisplayName(row.answeredBy).name,
+        time: relativeTime(row.answeredAt),
+      })} · ${t("views.agenda.hintAnswered", { answer: row.answer })}`,
       group: "answered" as const,
       since: row.answeredAt,
       scoreRef: `relation/${row.relationId}`,
@@ -201,14 +208,19 @@ export function AgendaView({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto" data-testid="agenda-view">
-      <header className="flex flex-wrap items-baseline gap-3 px-5 pb-2 pt-4">
-        <h1 className="ui-title font-semibold">{t("views.agenda.title")}</h1>
-        <span className="ui-meta text-text-muted">{t("views.agenda.note")}</span>
-        <span className="font-mono ui-body text-text-faint" data-testid="agenda-count">
-          {visible.length}/{allRows.length}
-        </span>
-      </header>
+      <PageHeader
+        title={t("views.agenda.title")}
+        note={t("views.agenda.note")}
+        meta={
+          <span data-testid="agenda-count">
+            {visible.length}/{allRows.length}
+          </span>
+        }
+      />
       <div className="flex flex-wrap items-center gap-2 px-5 pb-3">
+        <span data-testid="agenda-filter-chips">
+          <FilterChips chips={chips} value={filter} onChange={setFilter} />
+        </span>
         <input
           type="search"
           aria-label={t("views.agenda.title")}
@@ -216,11 +228,8 @@ export function AgendaView({
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           data-testid="agenda-search"
-          className="min-w-[220px] flex-1 rounded-xs border border-border bg-surface-raised px-3 py-1.5 ui-meta text-text outline-none placeholder:text-text-faint focus:border-border-strong"
+          className="min-w-[200px] flex-1 rounded-xs border border-border bg-surface-raised px-3 py-1.5 ui-meta text-text outline-none placeholder:text-text-faint focus:border-border-strong"
         />
-        <span data-testid="agenda-filter-chips">
-          <FilterChips chips={chips} value={filter} onChange={setFilter} />
-        </span>
       </div>
       <div className="min-h-0 flex-1 px-5 pb-4">
         {agendaError ? (

@@ -1,4 +1,5 @@
 import { derivedTasks, supersedeChain } from "../../model/triadic.ts";
+import { actorDisplayName } from "../../model/actor-name.ts";
 import { formatTime } from "../../model/time.ts";
 import type { DecisionRow, DecisionState, RelationEdge, TaskRow } from "../../model/types.ts";
 import { t } from "../../i18n/index.tsx";
@@ -94,11 +95,10 @@ export function OverviewPanel({ decision }: { decision: DecisionRow }) {
 
 interface TimelineEntry {
   readonly at: string;
-  readonly name: string;
+  /** 谁:可读名字(人名或 agent 会话名),完整身份串放悬停(视觉基线 v2)。 */
+  readonly actor: { readonly name: string; readonly full: string } | null;
   readonly step: DayPathStep;
 }
-
-const actorLabel = (actor: DecisionRow["proposedBy"]) => (actor ? `${actor.kind}:${actor.id}` : "—");
 
 /**
  * 决策行上带时间的记录:提出、每次评审、每条意见回应、业主处置、裁决 consent,以及
@@ -111,13 +111,13 @@ function decisionTimeline(decision: DecisionRow): TimelineEntry[] {
   if (decision.proposedAt)
     entries.push({
       at: decision.proposedAt,
-      name: actorLabel(decision.proposedBy),
+      actor: decision.proposedBy ? actorDisplayName(decision.proposedBy) : null,
       step: { label: t("views.decisionDetailView.timelineProposed"), tone: "plan" },
     });
   for (const review of decision.review?.reviews ?? [])
     entries.push({
       at: review.reviewedAt,
-      name: actorText(review.actor),
+      actor: actorDisplayName(actorText(review.actor)),
       step:
         review.verdict === "approved"
           ? { label: t("views.decisionReview.verdictApproved"), tone: "done" }
@@ -126,7 +126,7 @@ function decisionTimeline(decision: DecisionRow): TimelineEntry[] {
   for (const response of decision.review?.responses ?? [])
     entries.push({
       at: response.respondedAt,
-      name: actorText(response.actor),
+      actor: actorDisplayName(actorText(response.actor)),
       step: {
         label: t(response.disposition === "adopt" ? "views.decisionReview.adopt" : "views.decisionReview.rebut"),
         tone: "active",
@@ -135,20 +135,24 @@ function decisionTimeline(decision: DecisionRow): TimelineEntry[] {
   for (const override of decision.review?.overrides ?? [])
     entries.push({
       at: override.overriddenAt,
-      name: actorText(override.actor),
+      actor: actorDisplayName(actorText(override.actor)),
       step: { label: t("views.decisionReview.overrideTitle"), tone: "wait" },
     });
   for (const consent of decision.judgmentConsents)
     entries.push({
       at: consent.consentedAt,
-      name: actorText(consent.actor),
+      actor: actorDisplayName(actorText(consent.actor)),
       step: { label: decisionStateLabel(consent.targetState), tone: STATE_TONE[consent.targetState] },
     });
   if (decision.decidedAt && !decision.judgmentConsents.some((consent) => consent.consentedAt === decision.decidedAt))
     entries.push({
       at: decision.decidedAt,
-      name:
-        decision.state === "superseded" || decision.state === "outcome_retired" ? "—" : actorLabel(decision.arbiter),
+      actor:
+        decision.state === "superseded" || decision.state === "outcome_retired"
+          ? null
+          : decision.arbiter
+            ? actorDisplayName(decision.arbiter)
+            : null,
       step: { label: decisionStateLabel(decision.state), tone: STATE_TONE[decision.state] },
     });
   return entries.sort((a, b) => b.at.localeCompare(a.at));
@@ -174,7 +178,8 @@ function DecisionTimelineDigest({ entries }: { readonly entries: readonly Timeli
           summary={t("views.decisionDetailView.timelineDay", { count: group.entries.length })}
           paths={group.entries.map((entry) => ({
             time: formatTime(entry.at, { style: "time" }) ?? undefined,
-            name: entry.name,
+            name: entry.actor?.name ?? "—",
+            title: entry.actor?.full,
             steps: [entry.step],
           }))}
         />

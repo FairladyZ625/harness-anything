@@ -1,5 +1,7 @@
 import type { TaskSnapshotProjectionRow } from "../api/renderer-dto.ts";
-import type { TaskRow } from "./model/types.ts";
+import { t } from "./i18n/index.tsx";
+import type { EventEntry, TaskRow } from "./model/types.ts";
+import { WORK_STEP_LABEL_KEY, type WorkStepKind } from "./model/workspace-narrative.ts";
 import { NO_WORKS, type WorkIndex } from "./model/work-collections.ts";
 
 /**
@@ -116,50 +118,57 @@ function leaseHolderLabel(
   return actor.executor === null ? actor.principal.personId : `${actor.principal.personId} · ${actor.executor.id}`;
 }
 
+// 快照记录 → 时间线事件种类。词表单源是 workspace-narrative 的 WorkStepKind
+// (与工作概况「最近进展」同一套),渲染层经 STEP_META 查标签与色调,这里不拼英文短语。
+const EXECUTION_CLOSED_KIND: Readonly<Record<string, WorkStepKind>> = {
+  accepted: "completed",
+  changes_requested: "returned",
+  abandoned: "abandoned",
+};
+const REVIEW_VERDICT_KIND: Readonly<Record<string, WorkStepKind>> = {
+  approved: "approved",
+  changes_requested: "rejected",
+  dismissed: "dismissed",
+};
+const GATE_RESULT_KIND: Readonly<Record<string, WorkStepKind>> = {
+  pass: "gatePass",
+  fail: "gateFail",
+  advisory: "gateCheck",
+  not_run: "gateCheck",
+};
+
 function lifecycleEvents(row: TaskSnapshotProjectionRow, projectId: string): TaskRow["events"] {
-  const taskId = row.taskId,
-    events = [
-      ...row.snapshot.executions.flatMap((execution) => [
-        { at: execution.claimedAt, projectId, taskId, summary: `Execution ${execution.executionId} started` },
-        ...(execution.submittedAt
-          ? [{ at: execution.submittedAt, projectId, taskId, summary: `Execution ${execution.executionId} submitted` }]
-          : []),
-        ...(execution.closedAt
-          ? [
-              {
-                at: execution.closedAt,
-                projectId,
-                taskId,
-                summary: `Execution ${execution.executionId} closed (${execution.state})`,
-              },
-            ]
-          : []),
-      ]),
-      ...row.snapshot.reviews.map((review) => ({
-        at: review.reviewedAt,
-        projectId,
-        taskId,
-        summary: `Review ${review.reviewId}: ${review.verdict}`,
-      })),
-      ...row.snapshot.consents.map((consent) => ({
-        at: consent.consentedAt,
-        projectId,
-        taskId,
-        summary: `Consent ${consent.consentId} recorded`,
-      })),
-      ...row.snapshot.codeDocWitnesses.map((witness) => ({
-        at: witness.schema === "code-doc-witness/v1" ? witness.reconciledAt : witness.repointedAt,
-        projectId,
-        taskId,
-        summary: `Code/doc witness ${witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId}`,
-      })),
-      ...row.snapshot.gateWitnesses.map((witness) => ({
-        at: witness.verifiedAt,
-        projectId,
-        taskId,
-        summary: `Gate ${witness.gateId}: ${witness.result}`,
-      })),
-    ];
+  const taskId = row.taskId;
+  const event = (at: string, kind: WorkStepKind, ref: string): EventEntry => ({
+    at,
+    projectId,
+    taskId,
+    kind,
+    ref,
+    summary: t(WORK_STEP_LABEL_KEY[kind]),
+  });
+  const events = [
+    ...row.snapshot.executions.flatMap((execution) => [
+      event(execution.claimedAt, "start", execution.executionId),
+      ...(execution.submittedAt ? [event(execution.submittedAt, "submit", execution.executionId)] : []),
+      // 未登记的终态按已完成收束(词表没有中性的「关闭」;编号行尾仍可达)。
+      ...(execution.closedAt
+        ? [event(execution.closedAt, EXECUTION_CLOSED_KIND[execution.state] ?? "completed", execution.executionId)]
+        : []),
+    ]),
+    ...row.snapshot.reviews.map((review) =>
+      event(review.reviewedAt, REVIEW_VERDICT_KIND[review.verdict] ?? "rejected", review.reviewId),
+    ),
+    ...row.snapshot.consents.map((consent) => event(consent.consentedAt, "consent", consent.consentId)),
+    ...row.snapshot.codeDocWitnesses.map((witness) =>
+      witness.schema === "code-doc-witness/v1"
+        ? event(witness.reconciledAt, "witness", witness.witnessId)
+        : event(witness.repointedAt, "witness", witness.recordId),
+    ),
+    ...row.snapshot.gateWitnesses.map((witness) =>
+      event(witness.verifiedAt, GATE_RESULT_KIND[witness.result] ?? "gateCheck", witness.witnessId),
+    ),
+  ];
   return events.sort((left, right) => right.at.localeCompare(left.at));
 }
 

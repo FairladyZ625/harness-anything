@@ -678,6 +678,28 @@ describe("runtime entry split (W6 IA)", () => {
     expect(inlineFailed?.getAttribute("aria-pressed")).toBe("true");
   });
 
+  it("keeps the page header and filter row on the unified layout (§2.3): bare header, search fills the row's tail", async () => {
+    await mountSessions("session/runtime-bound");
+    // 页头是裸行,不装进带边框的玻璃面板(评审第 7 条反例 08)。
+    const header = byTestId("sessions-view").querySelector("header") as HTMLElement;
+    expect(header.className).not.toContain("glass");
+    expect(header.className).not.toContain("border");
+    expect(header.className).not.toContain("bg-");
+    expect(header.querySelector("h1")?.className).toContain("text-xl");
+    // 分段控件(视图/范围切换)在筛选行,不在页头;页头右侧只剩视图开关。
+    const toolbar = byTestId("sessions-toolbar");
+    const segmentGroup = toolbar.querySelector('[aria-label="Sessions page segments"]');
+    expect(segmentGroup).toBeTruthy();
+    expect(segmentGroup!.textContent).toContain("Squad orchestration");
+    expect(header.querySelector('[aria-label="Sessions page segments"]')).toBeNull();
+    // 搜索在行尾并占满剩余宽度(ml-auto + flex-1,不再限宽 max-w)。
+    const search = byTestId("sessions-search");
+    expect(search.className).toContain("ml-auto");
+    expect(search.className).toContain("flex-1");
+    expect(search.className).not.toContain("max-w-");
+    expect(toolbar.lastElementChild).toBe(search);
+  });
+
   it("opens the narrow single-column detail from a row and returns to the list (C1)", async () => {
     await mountSessions(null);
     const split = document.querySelector(".catalog-split") as HTMLElement;
@@ -759,6 +781,13 @@ describe("runtime entry split (W6 IA)", () => {
     // §2.5: directory and detail state lead with a compact conclusion, before declaration fields.
     expect(byTestId("agent-squad-conclusion").textContent).toContain("All declarations available");
     expect(byTestId("agent-detail-conclusion").textContent).toContain("Available");
+
+    // §2.3 统一页头:结论行并入裸页头(不再是通栏灰底条),页头与结论同一行。
+    const header = byTestId("agent-squad-view").querySelector("header") as HTMLElement;
+    expect(header.className).not.toContain("bg-");
+    expect(header.className).not.toContain("border");
+    expect(header.querySelector("h1")?.className).toContain("text-xl");
+    expect(header.contains(byTestId("agent-squad-conclusion"))).toBe(true);
 
     // Rail squad row → addressable squad ref (same entry: squads are a facet of this page).
     await click("rail-squad-core-squad");

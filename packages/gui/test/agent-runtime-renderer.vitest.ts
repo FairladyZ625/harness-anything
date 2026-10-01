@@ -300,11 +300,14 @@ describe("agent runtime renderer", () => {
     const markup = detailView();
     expect(markup).toContain("unknown");
     expect(markup).toContain("person-owner");
-    expect(markup).toContain("held · 2026-08-13T01:00:00.000Z");
+    // 租约到期时间经 formatTime 本地化;原始 ISO 仍在悬停(title)可达。
+    expect(markup).toContain("held · ");
+    expect(markup).toContain('title="2026-08-13T01:00:00.000Z"');
     expect(markup).toContain("codex-review");
     expect(markup).toContain("gpt-5.6-sol");
-    expect(markup).toContain("last activity");
-    expect(markup).toContain("2026-08-13T00:00:00.000Z");
+    // 会话事实的键名是本地化标签;最近活动经 formatTime,原始 ISO 在悬停可达。
+    expect(markup).toContain("Last activity");
+    expect(markup).toContain('title="2026-08-13T00:00:00.000Z"');
     expect(markup).not.toContain("secret");
   });
   it("keeps a historical session visible when its definition snapshot was not persisted", () => {

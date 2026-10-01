@@ -231,6 +231,29 @@ describe("议程页(标准 §2.4 列表页)", () => {
     ]);
   });
 
+  it("页头与筛选行统一摆法(标准 §2.3):裸页头一行,筛选靠左、搜索在右占满剩余", () => {
+    const host = mount(
+      createElement(AgendaView, {
+        repoId: "repo",
+        agenda: seeded,
+        agendaError: null,
+        onNavigateEntity: () => {},
+      }),
+    );
+    // 页头是裸行:不带边框、面板底色或玻璃;页名与计数同行。
+    const header = host.querySelector('[data-testid="agenda-view"] > header') as HTMLElement;
+    expect(header.className).not.toContain("border");
+    expect(header.className).not.toContain("bg-");
+    expect(header.querySelector("h1")?.className).toContain("text-xl");
+    expect(header.querySelector('[data-testid="agenda-count"]')).toBeTruthy();
+    // 筛选行:筛选按钮在搜索框之前(DOM 序),搜索占满剩余宽度。
+    const filterRow = header.nextElementSibling as HTMLElement;
+    const chips = filterRow.querySelector('[data-testid="agenda-filter-chips"]')!;
+    const search = filterRow.querySelector('[data-testid="agenda-search"]')!;
+    expect(chips.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(search.className).toContain("flex-1");
+  });
+
   it("行是 DenseRow:状态用有底色 StatusTag、标题经 TitleText 拆分、原因与时长同行", () => {
     const host = mount(
       createElement(AgendaView, {
@@ -337,7 +360,8 @@ describe("议程页(标准 §2.4 列表页)", () => {
     const answeredRow0 = answered.querySelector('[data-testid="agenda-row-rel_ans_task"]')!;
     expect(answeredRow0.textContent).toContain("已答复 task/task_asked");
     expect(answeredRow0.textContent).toContain("待跟进");
-    expect(answeredRow0.textContent).toContain("答复者 person_owner");
+    // 答复者是可读名字(person id 去命名空间前缀),不再是原始身份串。
+    expect(answeredRow0.textContent).toContain("答复者 owner");
     expect(answeredRow0.textContent).toContain("答:不兼容，直接删");
     expect(answeredRow0.querySelector('[data-status-tone="wait"]')).not.toBeNull();
     for (const id of ["rel_ans_task", "rel_ans_dec"]) {

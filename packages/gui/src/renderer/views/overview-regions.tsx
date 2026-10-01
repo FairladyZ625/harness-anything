@@ -8,6 +8,7 @@ import { DenseRow } from "../components/primitives/DenseRow";
 import { SegBar } from "../components/primitives/SegBar";
 import { StatusTag, type StatusTone } from "../components/primitives/StatusTag";
 import { t } from "../i18n/index.tsx";
+import { actorDisplayName } from "../model/actor-name.ts";
 import { formatTime } from "../model/time.ts";
 import type { CadenceFeedEvent } from "../model/cadence.ts";
 import type { WorkDayGroup } from "../model/workspace-narrative.ts";
@@ -147,7 +148,8 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
               ? [
                   workTitle,
                   t("components.awaitsAnswer.answeredBy", {
-                    actor: entry.source.row.answeredBy,
+                    // 答复者是可读名字(与决策详情时间线同一套转换);完整身份串放悬停。
+                    actor: actorDisplayName(entry.source.row.answeredBy).name,
                     time: ageOf(entry.source.row.answeredAt, deps.now),
                   }),
                 ]
@@ -155,6 +157,7 @@ export function buildOverviewRegions(deps: OverviewRegionDeps): Partial<Record<R
                   .join(" · ")
               : workTitle
           }
+          hoverTitle={entry.source?.kind === "answered" ? entry.source.row.answeredBy : undefined}
           time={entry.since === null ? null : stale ? staleDaysOf(entry.since, deps.now) : ageOf(entry.since, deps.now)}
           relaxed={relaxed}
           selected={selected}
