@@ -113,7 +113,7 @@ export const actionDeclarations = Object.freeze([
   canonical("decision-claim-add", "decision/declare-claim", "repo-write"),
   canonical("decision-claim-fulfill", "decision/fulfill-claim", "repo-write"),
   canonical("decision-defer", "decision/defer", "repo-write"),
-  canonical("decision-dispatch-review", null, "repo-write", "none"),
+  canonical("decision-dispatch-review", null, "repo-write"),
   canonical("decision-propose", "decision/propose", "repo-write"),
   canonical("decision-reckon", "decision/reckon", "repo-write"),
   canonical("decision-reject", "decision/reject", "arbiter"),

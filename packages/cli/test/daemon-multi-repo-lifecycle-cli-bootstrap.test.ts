@@ -157,10 +157,20 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
       false,
     );
     // Fresh init also claims the people.yaml it created, so the owner is a canonical Person from the first event.
-    assert.equal(stream.revision, 3);
+    assert.equal(stream.revision, 4);
     assert.equal(stream.events[0]?.schema, "settings-event/v1");
     assert.equal(stream.events[1]?.schema, "vertical-declaration-event/v1");
     assert.equal(stream.events[2]?.schema, "people-event/v1");
+    // The scaffold init wrote under the authored root is published as ledger documents by one event.
+    assert.deepEqual(
+      stream.events[3]?.schema === "doc-event/v1"
+        ? stream.events[3].payload.changes.map((change) => change.path)
+        : null,
+      (initialized.created as string[])
+        .filter((target) => target.startsWith("harness/") && !/^harness\/(?:harness|people)\.yaml$/u.test(target))
+        .map((target) => target.slice("harness/".length))
+        .sort(),
+    );
     const settingsRead = run(fixture.repo, fixture.userRoot, ["settings", "read"]).settings;
     assert.equal(settingsRead.locale, "en-US");
     assert.deepEqual(

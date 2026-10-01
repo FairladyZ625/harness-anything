@@ -30,7 +30,7 @@ import { entryTitle, metaLine, waitingReason } from "./workspace/entry-lines.tsx
 import { relativeTime } from "../sessions-model.ts";
 import { formatTime } from "../model/time.ts";
 
-/** 注意力条目 kind → 状态色档:等你/阻塞红,裁决/评审/停滞琥珀,已答复在做青,可归档灰。 */
+/** 注意力条目 kind → 状态色档:等你/阻塞红,裁决/评审/停滞琥珀,待跟进琥珀,可归档灰。 */
 const ATTENTION_TONE: Record<string, StatusTone> = {
   "awaiting-you": "bad",
   blocked: "bad",
@@ -38,7 +38,7 @@ const ATTENTION_TONE: Record<string, StatusTone> = {
   adjudication: "wait",
   decision: "wait",
   stalled: "wait",
-  answered: "active",
+  answered: "wait",
   archive: "neutral",
 };
 

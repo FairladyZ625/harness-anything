@@ -12,11 +12,28 @@ import type {
 } from "@harness-anything/daemon/protocol";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
+import {
+  axisScale,
+  cacheHitRate,
+  periodChange,
+  rankBarShare,
+  rankLogFloor,
+  rankScaleFor,
+  sessionBinLabel,
+  successRate,
+  tokenComposition,
+  tokensPerSuccess,
+} from "../src/renderer/token-usage-model.ts";
+import { percentText, preciseTokens } from "../src/renderer/token-format.ts";
+
 /**
- * 系统 Tab「Token 消耗」页(task_7a1bd444 重做):daemon 聚合读(repo.agentRuntime.tokenUsage
- * / tokenUsageDetail)的渲染面 —— 指标条/趋势/排行可切表格,「未上报」与 0 分开,成员
- * 详情经 focusedEntityRef 推栈并能跳会话/任务。
+ * 系统 Tab「Token 消耗」分析页:daemon 聚合读(repo.agentRuntime.tokenUsage / tokenUsageDetail)
+ * 的渲染面。逐条对着页面要回答的问题断言:总量与环比、三类 token 构成与缓存命中率、趋势与悬停
+ * 明细、谁花的、花在什么事上、单个会话、值不值、未上报的 provider;「未上报」与 0 分开,
+ * 成员详情经 focusedEntityRef 推栈并能跳会话/任务。
  */
+
+const noOutcomes = { succeededSessions: 0, failedSessions: 0, abortedSessions: 0 };
 
 const usage: AgentRuntimeTokenUsageResult = {
   ok: true,
@@ -70,6 +87,9 @@ const usage: AgentRuntimeTokenUsageResult = {
       toolCallCount: 17,
       usageReportedDispatches: 1,
       usageUnavailableDispatches: 0,
+      succeededSessions: 1,
+      failedSessions: 1,
+      abortedSessions: 0,
     },
     {
       agentId: "sol",
@@ -82,6 +102,7 @@ const usage: AgentRuntimeTokenUsageResult = {
       toolCallCount: 3,
       usageReportedDispatches: 0,
       usageUnavailableDispatches: 2,
+      ...noOutcomes,
     },
   ],
   squads: [
@@ -96,7 +117,135 @@ const usage: AgentRuntimeTokenUsageResult = {
       toolCallCount: 40,
       usageReportedDispatches: 1,
       usageUnavailableDispatches: 1,
+      ...noOutcomes,
     },
+  ],
+  models: [
+    {
+      model: "opus-test",
+      sessionCount: 1,
+      inputTokens: 12_000,
+      cacheReadTokens: 0,
+      outputTokens: 900,
+      totalTokens: 12_900,
+      toolCallCount: 40,
+      usageReportedDispatches: 1,
+      usageUnavailableDispatches: 0,
+      succeededSessions: 1,
+      failedSessions: 0,
+      abortedSessions: 0,
+    },
+    {
+      model: "gpt-test",
+      sessionCount: 2,
+      inputTokens: 100,
+      cacheReadTokens: 0,
+      outputTokens: 20,
+      totalTokens: 120,
+      toolCallCount: 17,
+      usageReportedDispatches: 1,
+      usageUnavailableDispatches: 0,
+      succeededSessions: 1,
+      failedSessions: 1,
+      abortedSessions: 0,
+    },
+  ],
+  previous: {
+    since: "2026-09-17T00:00:00.000Z",
+    until: "2026-09-17T13:30:00.000Z",
+    totals: {
+      sessionCount: 2,
+      inputTokens: 9_000,
+      cacheReadTokens: 0,
+      outputTokens: 1_000,
+      totalTokens: 10_000,
+      toolCallCount: 20,
+      usageReportedDispatches: 2,
+      usageUnavailableDispatches: 0,
+    },
+  },
+  tasks: [
+    {
+      taskId: "task-big",
+      title: "Rework the read surface",
+      workId: "work-root",
+      workTitle: "Release line",
+      sessionCount: 1,
+      totalTokens: 12_900,
+    },
+    {
+      taskId: "task-small",
+      title: "Fix a typo",
+      workId: "task-small",
+      workTitle: "Fix a typo",
+      sessionCount: 2,
+      totalTokens: 2_100,
+    },
+  ],
+  works: [{ workId: "work-root", title: "Release line", taskCount: 1, sessionCount: 1, totalTokens: 12_900 }],
+  sessions: {
+    reportedSessions: 2,
+    averageTokens: 7_500,
+    medianTokens: 1_000,
+    p90Tokens: 12_900,
+    maxTokens: 12_900,
+    averageDurationMs: 300_000,
+    timedSessions: 2,
+    averageToolCalls: 19,
+    distribution: [
+      { ceiling: 10_000, sessionCount: 1, totalTokens: 2_100 },
+      { ceiling: 100_000, sessionCount: 1, totalTokens: 12_900 },
+      { ceiling: 1_000_000, sessionCount: 0, totalTokens: 0 },
+      { ceiling: 10_000_000, sessionCount: 0, totalTokens: 0 },
+      { ceiling: 100_000_000, sessionCount: 0, totalTokens: 0 },
+      { ceiling: null, sessionCount: 0, totalTokens: 0 },
+    ],
+    top: [
+      {
+        runtimeSessionId: "runtime-big",
+        agentId: "terra",
+        agentName: "Terra",
+        taskId: "task-big",
+        taskTitle: "Rework the read surface",
+        model: "opus-test",
+        startedAt: "2026-09-18T13:00:00.000Z",
+        durationMs: 540_000,
+        outcome: "succeeded",
+        totalTokens: 12_900,
+        toolCallCount: 40,
+      },
+      {
+        runtimeSessionId: "runtime-small",
+        agentId: null,
+        agentName: null,
+        taskId: null,
+        taskTitle: null,
+        model: null,
+        startedAt: "2026-09-18T12:00:00.000Z",
+        durationMs: null,
+        outcome: "failed",
+        totalTokens: 2_100,
+        toolCallCount: 17,
+      },
+    ],
+  },
+  outcomes: [
+    { outcome: "succeeded", sessionCount: 1, totalTokens: 12_900 },
+    { outcome: "failed", sessionCount: 1, totalTokens: 1_500 },
+    { outcome: "aborted", sessionCount: 1, totalTokens: 600 },
+    { outcome: "running", sessionCount: 0, totalTokens: 0 },
+    { outcome: "unknown", sessionCount: 0, totalTokens: 0 },
+  ],
+  trend: {
+    agents: [
+      { key: "terra", name: "Terra", totalTokens: [2_100, 12_000] },
+      { key: null, name: "", totalTokens: [0, 900] },
+    ],
+    models: [{ key: "opus-test", name: "opus-test", totalTokens: [2_100, 12_900] }],
+  },
+  unreported: [
+    { kindId: "zcode", instanceId: "zcode-main", dispatchCount: 2 },
+    { kindId: "claude", instanceId: "claude-main", dispatchCount: 1 },
   ],
   watermark: 3,
   sourceRevision: 3,
@@ -160,6 +309,8 @@ const detail: AgentRuntimeTokenUsageDetailResult = {
 
 let mounted: { readonly root: Root; readonly client: QueryClient }[] = [];
 let focusedMemberRef: string | null = null;
+const onSelectEntity = vi.fn(),
+  onOpenTask = vi.fn();
 
 beforeAll(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -171,6 +322,8 @@ afterEach(() => {
   for (const { root } of mounted) root.unmount();
   mounted = [];
   focusedMemberRef = null;
+  onSelectEntity.mockReset();
+  onOpenTask.mockReset();
 });
 
 async function renderView(): Promise<HTMLDivElement> {
@@ -190,8 +343,8 @@ async function renderView(): Promise<HTMLDivElement> {
           onFocusMember: (ref) => {
             focusedMemberRef = ref;
           },
-          onSelectEntity: vi.fn(),
-          onOpenTask: vi.fn(),
+          onSelectEntity,
+          onOpenTask,
         }),
       ),
     );
@@ -212,25 +365,48 @@ function findButton(container: HTMLElement, label: string): HTMLButtonElement {
   return button!;
 }
 
+const byTestId = (container: HTMLElement, testId: string): HTMLElement => {
+  const element = container.querySelector<HTMLElement>(`[data-testid="${testId}"]`);
+  expect(element, testId).toBeTruthy();
+  return element!;
+};
+
 describe("TokenUsageView", () => {
-  it("renders totals, trend and ranking from the range aggregate read", async () => {
+  it("leads with the total, the change against the previous period and the composition", async () => {
     const tokenUsage = vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(usage);
     const container = await renderView();
     expect(tokenUsage).toHaveBeenCalledWith("canonical", "today");
-    // 结论行(标准 §2.5 统计类):有未上报派工时明说总量是下界。
-    const conclusion = container.querySelector('[data-testid="token-usage-conclusion"]');
-    expect(conclusion?.textContent).toContain("15K");
-    expect(conclusion?.textContent).toContain("3");
-    // 指标条:总量紧凑展示。
-    expect(container.querySelector('[data-testid="token-usage-totals"]')?.textContent).toContain("15K");
-    expect(container.querySelector('[data-testid="token-usage-totals"]')?.textContent).toContain("3");
-    // 趋势 SVG:两个桶,数值进 title。
-    expect(container.querySelectorAll('[data-testid^="token-usage-trend-bar-"]').length).toBe(2);
-    // 排行行 + 紧凑值上屏。
-    const rankRow = container.querySelector('[data-testid="token-usage-rank-terra"]');
-    expect(rankRow).toBeTruthy();
-    expect(rankRow!.textContent).toContain("Terra");
-    expect(rankRow!.textContent).toContain("2.1K");
+    const totals = byTestId(container, "token-usage-totals");
+    expect(totals.textContent).toContain("15K");
+    // 环比:15,000 对上一周期的 10,000 = 多 50%,并说出参照周期与当时的量。
+    const change = byTestId(container, "token-usage-change");
+    expect(change.textContent).toContain("50%");
+    expect(change.textContent).toContain("more than the same hours yesterday (10K then)");
+    // 构成三段互不重叠,加起来等于总量:缓存 340 + 新输入 13,160 + 输出 1,160(旧版把输入与缓存叠加,柱超出刻度)。
+    const composition = byTestId(container, "token-usage-composition");
+    expect(composition.textContent).toContain("Cache read340");
+    expect(composition.textContent).toContain("Fresh input13.2K");
+    expect(composition.textContent).toContain("Output tokens1.16K");
+    // 有派工未上报时明说总量是下界。
+    expect(byTestId(container, "token-usage-conclusion").textContent).toContain("3 dispatches");
+    // 四个关键数字:会话、缓存命中率(340/13,500)、白花(2,100/15,000)、未上报。
+    const view = byTestId(container, "token-usage-view").textContent ?? "";
+    expect(view).toContain("Cache hit rate2.5%");
+    expect(view).toContain("Spent on failed or aborted14%");
+    expect(view).toContain("2 sessions, 2.1K tokens");
+    // 每一条文案的插值都被填上。
+    expect(view).not.toMatch(/\{[a-zA-Z]+\}/u);
+  });
+
+  it("says there is nothing to compare when the previous period is empty", async () => {
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue({
+      ...usage,
+      previous: { ...usage.previous, totals: { ...usage.previous.totals, totalTokens: 0 } },
+    });
+    const container = await renderView();
+    expect(byTestId(container, "token-usage-change").textContent).toBe(
+      "No consumption in the same hours yesterday to compare against",
+    );
   });
 
   it("switches the range and refetches with the selector", async () => {
@@ -243,55 +419,199 @@ describe("TokenUsageView", () => {
     expect(tokenUsage).toHaveBeenLastCalledWith("canonical", "7d");
   });
 
-  it("marks a provider that reported no usage as Not reported instead of zero", async () => {
+  it("draws one stacked bar per bucket, labels the peak and reads a bucket out on hover and arrow keys", async () => {
     vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(usage);
     const container = await renderView();
-    const solRow = container.querySelector('[data-testid="token-usage-rank-sol"]');
-    expect(solRow).toBeTruthy();
-    expect(solRow!.textContent).toContain("Not reported");
+    const bars = container.querySelectorAll('[data-testid^="token-usage-trend-bar-"]');
+    expect(bars.length).toBe(2);
+    const chart = byTestId(container, "token-usage-trend"),
+      svg = chart.querySelector("svg")!;
+    // 只有最高柱直接标值;纵轴最上一条刻度不低于峰值。
+    expect([...svg.querySelectorAll("text")].filter((text) => text.textContent === "12.9K").length).toBe(1);
+    expect([...svg.querySelectorAll("text")].some((text) => text.textContent === "15K")).toBe(true);
+    expect(container.querySelector('[data-testid="token-usage-trend-readout"]')).toBeNull();
+    // 悬停第一桶:明细列出每一层的数值与占比、派工数与缓存命中率。
+    const hit = bars[0]!.lastElementChild!;
+    act(() => {
+      hit.dispatchEvent(new Event("pointermove", { bubbles: true }));
+    });
+    const readout = byTestId(container, "token-usage-trend-readout").textContent ?? "";
+    expect(readout).toContain("2.1K");
+    expect(readout).toContain("Cache read340");
+    expect(readout).toContain("1 dispatches");
+    expect(readout).toContain("cache hit 23%");
+    // 键盘右键移到下一桶(峰值桶)。
+    act(() => {
+      svg.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }));
+    });
+    expect(byTestId(container, "token-usage-trend-readout").textContent).toContain("12.9K");
+  });
+
+  it("restacks the trend by worker or model with a legend naming every series", async () => {
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(usage);
+    const container = await renderView();
+    const legend = () => byTestId(container, "token-usage-trend-legend").textContent ?? "";
+    expect(legend()).toContain("Cache read");
+    act(() => findButton(container, "By worker").click());
+    expect(legend()).toContain("Terra14.1K");
+    expect(legend()).toContain("Everything else900");
+    act(() => findButton(container, "By model").click());
+    expect(legend()).toContain("opus-test15K");
+    // 表格等价视图跟着同一组层:每个系列一列。
+    act(() => findButton(byTestId(container, "token-usage-trend-card"), "Table").click());
+    const table = byTestId(container, "token-usage-trend-table");
+    expect([...table.querySelectorAll("th")].map((th) => th.textContent)).toEqual([
+      "Bucket",
+      "Dispatches",
+      "opus-test",
+      "Total tokens",
+    ]);
+  });
+
+  it("ranks workers, squads and models with value and share side by side", async () => {
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(usage);
+    const container = await renderView();
+    const rankRow = byTestId(container, "token-usage-rank-terra");
+    expect(rankRow.textContent).toContain("Terra");
+    expect(rankRow.textContent).toContain("2.1K");
+    expect(rankRow.textContent).toContain("14%");
+    expect(rankRow.textContent).toContain("2 sessions · 17 tool calls");
+    // 未上报成员显示徽标而不是 0。
+    expect(byTestId(container, "token-usage-rank-sol").textContent).toContain("Not reported");
+    // 模型排行:量级差 100 倍以上默认对数刻度,小的那条仍然看得出长度;模型行不可点。
+    act(() => findButton(container, "Model").click());
+    const small = byTestId(container, "token-usage-rank-gpt-test");
+    expect(small.tagName).toBe("DIV");
+    expect(findButton(container, "Log").getAttribute("aria-pressed")).toBe("true");
+    const barWidth = (row: HTMLElement): number =>
+      Number.parseFloat(row.querySelector<HTMLElement>("[style*='width']")!.style.width);
+    const logWidth = barWidth(small);
+    expect(logWidth).toBeGreaterThan(20);
+    act(() => findButton(container, "Linear").click());
+    expect(barWidth(byTestId(container, "token-usage-rank-gpt-test"))).toBeCloseTo((120 / 12_900) * 100, 3);
+    expect(byTestId(container, "token-usage-rank-gpt-test").textContent).toContain("0.8%");
   });
 
   it("opens the member detail by ref, with session/task jumps and back", async () => {
     vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(usage);
     const detailRead = vi.spyOn(agentRuntimeClient, "tokenUsageDetail").mockResolvedValue(detail);
     const container = await renderView();
-    act(() => container.querySelector<HTMLButtonElement>('[data-testid="token-usage-rank-terra"]')!.click());
+    act(() => byTestId(container, "token-usage-rank-terra").click());
     expect(focusedMemberRef).toBe("tokenAgent/terra");
     // focusedEntityRef 变化 = App 推栈后重渲;这里直接以新 ref 再渲一次。
     const rerendered = await renderView();
     expect(detailRead).toHaveBeenCalledWith("canonical", { kind: "agent", agentId: "terra" }, "today");
-    const sessionRow = rerendered.querySelector(
-      '[data-testid="token-usage-session-dispatch_00000000000000000000aa01"]',
-    );
-    expect(sessionRow).toBeTruthy();
-    // 每一条文案的插值都要被填上:locale 的占位名与调用方传的键不一致时,页面会把 `{name}` 原样显示出来。
+    const sessionRow = byTestId(rerendered, "token-usage-session-dispatch_00000000000000000000aa01");
     expect(rerendered.textContent).not.toMatch(/\{[a-zA-Z]+\}/u);
-    expect(sessionRow!.textContent).toContain("runtime-terra");
-    expect(sessionRow!.textContent).toContain("task-tokens");
-    const unreportedRow = rerendered.querySelector(
-      '[data-testid="token-usage-session-dispatch_00000000000000000000aa02"]',
-    );
+    expect(sessionRow.textContent).toContain("runtime-terra");
+    expect(sessionRow.textContent).toContain("task-tokens");
     // 未上报会话行的阴性对照:与 SessionsPanel 同一「provider 未上报」措辞,不是裸 0。
-    expect(unreportedRow!.textContent).toContain("Unavailable (provider reports no tokens)");
-    const back = rerendered.querySelector('[data-testid="token-usage-detail-back"]');
-    act(() => (back as HTMLButtonElement).click());
+    expect(byTestId(rerendered, "token-usage-session-dispatch_00000000000000000000aa02").textContent).toContain(
+      "Unavailable (provider reports no tokens)",
+    );
+    act(() => byTestId(rerendered, "token-usage-detail-back").click());
     expect(focusedMemberRef).toBeNull();
   });
 
-  it("switches trend and ranking to their table equivalents", async () => {
+  it("switches the ranking to its table equivalent with success rate and cost per success", async () => {
     vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(usage);
     const container = await renderView();
-    act(() => findButton(container, "Table").click());
-    expect(container.querySelector('[data-testid="token-usage-trend-table"]')).toBeTruthy();
-    const rankingTableButton = [...container.querySelectorAll('[data-testid="token-usage-ranking-card"] button')].find(
-      (candidate) => candidate.textContent === "Table",
-    );
-    expect(rankingTableButton).toBeTruthy();
-    act(() => rankingTableButton!.click());
-    expect(container.querySelector('[data-testid="token-usage-agents-table"]')).toBeTruthy();
+    act(() => findButton(byTestId(container, "token-usage-ranking-card"), "Table").click());
+    const table = byTestId(container, "token-usage-agents-table");
     // 表格视图保留完整行:terra 的精确值进 title。
-    const totalCell = container.querySelector('[data-testid="token-usage-agents-table"] td[title="2,100"]');
-    expect(totalCell?.textContent).toBe("2.1K");
+    expect(table.querySelector('td[title="2,100"]')?.textContent).toBe("2.1K");
+    const terra = byTestId(container, "token-usage-row-terra").textContent ?? "";
+    expect(terra).toContain("50%");
+    expect(terra).toContain("2.1K");
+    // 还没有会话结束的成员没有成功率,不写成 0%。
+    expect(byTestId(container, "token-usage-row-sol").textContent).toContain("—");
+  });
+
+  it("lists what the tokens were spent on by task title and opens the task", async () => {
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(usage);
+    const container = await renderView();
+    const task = byTestId(container, "token-usage-spend-task-big");
+    expect(task.textContent).toContain("Rework the read surface");
+    expect(task.textContent).toContain("12.9K");
+    expect(task.textContent).toContain("86%");
+    expect(task.textContent).toContain("Release line · 1 sessions");
+    // 自成一个工作的任务不重复写工作名。
+    expect(byTestId(container, "token-usage-spend-task-small").textContent).not.toContain("Fix a typo ·");
+    act(() => task.click());
+    expect(onOpenTask).toHaveBeenCalledWith("task-big");
+    act(() => findButton(container, "Works").click());
+    const work = byTestId(container, "token-usage-spend-work-root");
+    expect(work.textContent).toContain("1 tasks · 1 sessions");
+    act(() => work.click());
+    expect(onOpenTask).toHaveBeenLastCalledWith("work-root");
+  });
+
+  it("describes a single session: statistics, size distribution and the largest ones", async () => {
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(usage);
+    const container = await renderView();
+    const sessions = byTestId(container, "token-usage-sessions").textContent ?? "";
+    expect(sessions).toContain("Average7.5K");
+    expect(sessions).toContain("Median1K");
+    expect(sessions).toContain("Largest12.9K");
+    expect(sessions).toContain("average run 5m");
+    // 默认读出会话最多的一档(并列时取靠前的);聚焦另一档读出那一档。
+    const readout = () => byTestId(container, "token-usage-distribution-readout").textContent ?? "";
+    expect(readout()).toBe("<10K: 1 sessions (50%), 2.1K spent (14% of the total)");
+    act(() => byTestId(container, "token-usage-bin-1").focus());
+    expect(readout()).toBe("10K–100K: 1 sessions (50%), 12.9K spent (86% of the total)");
+    // 最大的会话:任务标题、离群标记(中位数 10 倍以上)、可跳会话页;没有任务的会话显示会话 id。
+    const top = byTestId(container, "token-usage-top-session-runtime-big");
+    expect(top.textContent).toContain("Rework the read surface");
+    expect(top.textContent).toContain("13× the median");
+    expect(top.textContent).toContain("Terra · opus-test · 9m · 40 tool calls");
+    const small = byTestId(container, "token-usage-top-session-runtime-small");
+    expect(small.textContent).toContain("runtime-small");
+    expect(small.textContent).not.toContain("the median");
+    expect(small.textContent).toContain("Failed");
+    act(() => top.click());
+    expect(onSelectEntity).toHaveBeenCalledWith("session/runtime-big");
+  });
+
+  it("shows what failed or aborted sessions cost and each worker's success rate", async () => {
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(usage);
+    const container = await renderView();
+    const worth = byTestId(container, "token-usage-worth").textContent ?? "";
+    expect(worth).toContain("14%");
+    expect(worth).toContain("2 sessions, 2.1K tokens");
+    // 结果图例只列出现过的结果。
+    const outcomes = byTestId(container, "token-usage-outcomes").textContent ?? "";
+    expect(outcomes).toContain("Succeeded112.9K");
+    expect(outcomes).toContain("Aborted1600");
+    expect(outcomes).not.toContain("Running");
+    const terra = byTestId(container, "token-usage-efficiency-terra").textContent ?? "";
+    expect(terra).toContain("50%");
+    expect(terra).toContain("1/2");
+    expect(terra).toContain("2.1K");
+    // 没有任何会话结束的 worker 不进效率表。
+    expect(container.querySelector('[data-testid="token-usage-efficiency-sol"]')).toBeNull();
+  });
+
+  it("names the providers behind unreported dispatches and what the count means", async () => {
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(usage);
+    const container = await renderView();
+    const unreported = byTestId(container, "token-usage-unreported").textContent ?? "";
+    expect(unreported).toContain("3 finished dispatches came back without token usage");
+    expect(unreported).toContain("zcode");
+    expect(unreported).toContain("zcode-main");
+    expect(unreported).toContain("claude-main");
+    // 阴性对照:全部上报时这一块整个不出现。
+    act(() => {
+      for (const { root } of mounted) root.unmount();
+    });
+    mounted = [];
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue({
+      ...usage,
+      totals: { ...usage.totals, usageUnavailableDispatches: 0 },
+      unreported: [],
+    });
+    const clean = await renderView();
+    expect(clean.querySelector('[data-testid="token-usage-unreported"]')).toBeNull();
+    expect(clean.querySelector('[data-testid="token-usage-conclusion"]')).toBeNull();
   });
 
   it("states honestly when nothing was consumed in the range", async () => {
@@ -301,14 +621,77 @@ describe("TokenUsageView", () => {
       buckets: usage.buckets.map((bucket) => ({ ...bucket, dispatchCount: 0 })),
       agents: [],
       squads: [],
+      models: [],
+      tasks: [],
+      works: [],
+      unreported: [],
     });
     const container = await renderView();
     expect(container.textContent).toContain("No attributed dispatch consumption in this range yet.");
+    expect(container.textContent).toContain("No dispatch in this range was bound to a task.");
   });
 
   it("surfaces a failed aggregate read as an alert", async () => {
     vi.spyOn(agentRuntimeClient, "tokenUsage").mockRejectedValue(new Error("bridge down"));
     const container = await renderView();
     expect(container.querySelector('[data-testid="runtime-read-error"]')?.textContent).toContain("bridge down");
+  });
+});
+
+describe("token usage display model", () => {
+  it("splits consumption into three non-overlapping parts that add up to the total", () => {
+    // daemon 的 inputTokens 含缓存读取,totalTokens = 输入 + 输出。
+    const parts = tokenComposition({ inputTokens: 1_000, cacheReadTokens: 700, outputTokens: 50 });
+    expect(parts).toEqual({ cacheRead: 700, freshInput: 300, output: 50 });
+    expect(parts.cacheRead + parts.freshInput + parts.output).toBe(1_050);
+    expect(cacheHitRate({ inputTokens: 1_000, cacheReadTokens: 700 })).toBe(0.7);
+    expect(cacheHitRate({ inputTokens: 0, cacheReadTokens: 0 })).toBeNull();
+  });
+
+  it("keeps the tallest bar under the top gridline with round ticks", () => {
+    expect(axisScale(646_000_000)).toEqual({
+      max: 800_000_000,
+      ticks: [0, 200_000_000, 400_000_000, 600_000_000, 800_000_000],
+    });
+    for (const peak of [1, 7, 99, 1_234, 50_000, 3_100_000_000]) {
+      const { max, ticks } = axisScale(peak);
+      expect(max).toBeGreaterThanOrEqual(peak);
+      expect(ticks.at(-1)).toBe(max);
+      expect(ticks.length).toBeLessThanOrEqual(6);
+    }
+    expect(axisScale(0)).toEqual({ max: 1, ticks: [0] });
+  });
+
+  it("gives magnitudes that differ a thousandfold visibly different bar lengths on the log scale", () => {
+    const values = [1_900_000_000, 237_000_000, 7_900_000, 853_000],
+      floor = rankLogFloor(values),
+      shares = values.map((value) => rankBarShare(value, values[0]!, floor, "log"));
+    expect(rankScaleFor(values)).toBe("log");
+    expect(shares[0]).toBe(1);
+    // 相邻两行的条长差得出来(旧版线性条把后几行都画成最小宽度)。
+    for (let index = 1; index < shares.length; index += 1)
+      expect(shares[index - 1]! - shares[index]!).toBeGreaterThan(0.05);
+    expect(shares.at(-1)).toBeGreaterThan(0.1);
+    expect(rankBarShare(0, values[0]!, floor, "log")).toBe(0);
+    expect(rankBarShare(237_000_000, 1_900_000_000, floor, "linear")).toBeCloseTo(0.1247, 3);
+    expect(rankScaleFor([900, 500, 100])).toBe("linear");
+  });
+
+  it("derives change, success rate and cost per success only when there is a base", () => {
+    expect(periodChange(150, 100)).toBe(0.5);
+    expect(periodChange(50, 100)).toBe(-0.5);
+    expect(periodChange(50, 0)).toBeNull();
+    expect(successRate({ succeededSessions: 3, failedSessions: 1, abortedSessions: 0 })).toBe(0.75);
+    expect(successRate(noOutcomes)).toBeNull();
+    expect(tokensPerSuccess({ totalTokens: 900, succeededSessions: 3 })).toBe(300);
+    expect(tokensPerSuccess({ totalTokens: 900, succeededSessions: 0 })).toBeNull();
+  });
+
+  it("formats shares, precise token counts and bin labels", () => {
+    expect([0, 0.0004, 0.003, 0.068, 0.5, 1].map(percentText)).toEqual(["0%", "<0.1%", "0.3%", "6.8%", "50%", "100%"]);
+    expect([1_960_000_000, 536_000_000, 7_560_000, 340].map(preciseTokens)).toEqual(["1.96B", "536M", "7.56M", "340"]);
+    expect(sessionBinLabel(10_000, 0, preciseTokens)).toBe("<10K");
+    expect(sessionBinLabel(1_000_000, 100_000, preciseTokens)).toBe("100K–1M");
+    expect(sessionBinLabel(null, 100_000_000, preciseTokens)).toBe("≥100M");
   });
 });

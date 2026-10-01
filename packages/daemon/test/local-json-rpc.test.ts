@@ -458,6 +458,13 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
     "projection-rebuild",
   ])
     assert.equal(actionDeclarations.find((candidate) => candidate.kind === kind)?.receiptSettlement, "none", kind);
+  // The GUI exit admits an applied receipt only with its committed acceptance or a settled no-write.
+  // A GUI write left at settlement "none" answers applied/unknown, which that exit rejects after the
+  // write already happened, so the click reports a closed connection.
+  for (const { method, actionKind } of daemonGuiActionMethods) {
+    const declaration = actionDeclarations.find((candidate) => candidate.kind === actionKind);
+    if (declaration) assert.equal(declaration.receiptSettlement, "canonical-acceptance", method);
+  }
 });
 
 test("protocol descriptors preserve topology metadata without authorizing actions", () => {
