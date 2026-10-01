@@ -5,6 +5,11 @@ import {
 } from "../domain/ci-run-observation-event.ts";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { readdirSync, readFileSync } from "node:fs";
+import {
+  inferLegacyGateRequirements,
+  validateFrozenCompletionContract,
+} from "../domain/completion-contract.ts";
 import {
   decisionContentPin,
   decisionMachineDigest,
@@ -33,7 +38,8 @@ import {
 import { isRelationEvent } from "../domain/relation-event.ts";
 import { isTaskBootstrapEvent } from "../domain/task-bootstrap-event.ts";
 import { isTaskEvent, serializePersistedCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
-import { validateTaskV2, type TaskV2 } from "../domain/task.ts";
+import { isEntityEvent, ownedContentForDeclarationEvent } from "../domain/entity-event.ts";
+import { retiredTaskClassRestatements, validateTaskV2, type TaskV2 } from "../domain/task.ts";
 import { normalizePersistedTimestamp } from "../domain/timestamp.ts";
 import { isRecord } from "../domain/write-chain.contract.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
@@ -51,8 +57,10 @@ import type { CanonicalContentBlob, CanonicalEventStore } from "./task-event-sto
 // active store. Conversion validates the complete plan before seeding an inactive destination.
 export type EventShapeMigrationName =
   | "task-v2-snapshots"
+  | "entity-owned-content-manifests"
   | "legacy-import-normalization"
   | "relation-events"
+  | "submission-completion-contract"
   | "review-submission-pins"
   | "decision-digests"
   | "schedule-definitions"
@@ -62,8 +70,10 @@ export type EventShapeMigrationName =
   | "ci-run-observation-v3";
 export type EventShapeMigrationKind =
   | "task-v2-snapshots-migrate"
+  | "entity-owned-content-manifests-migrate"
   | "legacy-import-normalization-migrate"
   | "relation-events-migrate"
+  | "submission-completion-contract-migrate"
   | "review-submission-pins-migrate"
   | "decision-digests-migrate"
   | "schedule-definitions-migrate"
@@ -131,8 +141,15 @@ const taskV2SnapshotsMigration: EventShapeMigrationSpec = {
   name: "task-v2-snapshots",
   // A non-empty carrier reads the relation aggregate at the pre-event cut. In particular,
   // task_relation_added becomes the canonical relation event before later snapshots drop the
-  // retired hosted field.
-  matches: (event) => (taskWithRetiredRelations(event)?.relations.length ?? 0) > 0,
+  // retired hosted field. Matches conservatively: a task that another migration normalizes into
+  // validity becomes cut-dependent only mid-fixed-point, so raw-shape gating would let it share
+  // a batch with the relation-creating event it depends on.
+  matches: (event) => {
+    const carrier = isTaskEvent(event) ? event : asTaskBootstrapEvent(event);
+    const relations = (carrier?.payload.task as (TaskV2 & { readonly relations?: unknown }) | undefined)
+      ?.relations;
+    return Array.isArray(relations) && relations.length > 0;
+  },
   rewrite: (event, cut) => {
     const legacy = taskWithRetiredRelations(event);
     if (legacy === null) return null;
@@ -192,6 +209,13 @@ function normalizeEmbeddedTaskToCurrentTaskV2(task: TaskV2): TaskV2 | null {
     schema: "task/v2",
     ...(Object.hasOwn(current, "pinned") ? {} : { pinned: false }),
   };
+  // Retired classes are restated with the same map `ha task contract migrate` applies, so
+  // historical snapshots read back under the current class vocabulary instead of failing strict.
+  if (
+    typeof normalized.taskClass === "string" &&
+    Object.hasOwn(retiredTaskClassRestatements, normalized.taskClass)
+  )
+    normalized = { ...normalized, taskClass: retiredTaskClassRestatements[normalized.taskClass]! };
   if (normalized.metadata !== undefined) {
     const { longRunning: _retiredLongRunning, ...metadata } = normalized.metadata as TaskV2["metadata"] & {
       readonly longRunning?: unknown;
@@ -293,6 +317,10 @@ const legacyImportNormalizationMigration: EventShapeMigrationSpec = {
     if (!isMigrationImportEvent(event)) return null;
     const entity = event.payload.entity,
       task = entity.kind === "task" ? normalizeEmbeddedTaskToCurrentTaskV2(entity.task) : null,
+      entityProvenance =
+        entity.kind === "task" && !Object.hasOwn(entity, "provenance")
+          ? ("imported_snapshot" as const)
+          : null,
       fact =
         entity.kind === "fact"
           ? {
@@ -314,8 +342,12 @@ const legacyImportNormalizationMigration: EventShapeMigrationSpec = {
           : null,
       occurredAt = event.occurredAt.endsWith("Z") ? null : normalizePersistedTimestamp(event.occurredAt);
     const normalizedEntity =
-      task !== null
-        ? { ...entity, task }
+      task !== null || entityProvenance !== null
+        ? {
+            ...entity,
+            ...(entityProvenance === null ? {} : { provenance: entityProvenance }),
+            ...(task === null ? {} : { task }),
+          }
         : fact !== null && entity.kind === "fact" && canonicalJson(fact) !== canonicalJson(entity.fact)
           ? { ...entity, fact }
           : decision !== null &&
@@ -685,10 +717,97 @@ export const ciRunObservationV3Migration = {
   },
 } satisfies EventShapeMigrationSpec;
 
+// Upserts accepted before owned-content manifests existed did not record one. The read side already
+// reconstructs that accepted shape (ownedContentForDeclarationEvent); the canonical ledger keeps the
+// same manifest so strict serialization replays the event unchanged.
+const entityOwnedContentMigration: EventShapeMigrationSpec = {
+  name: "entity-owned-content-manifests",
+  matches: () => false,
+  rewrite: (event) => {
+    if (
+      !isEntityEvent(event) ||
+      event.type !== "entity_upserted" ||
+      !isRecord(event.payload) ||
+      Object.hasOwn(event.payload, "ownedContent")
+    )
+      return null;
+    const ownedContent = ownedContentForDeclarationEvent(event);
+    return {
+      event: { ...event, payload: { ...event.payload, ownedContent } } as CanonicalEventV1,
+      category: "pre-manifest upsert owned-content manifest restored",
+      before: null,
+      after: ownedContent,
+    };
+  },
+};
+
+// Submissions accepted before the contract freeze carry no completionContract; the read side already
+// infers their effective requirements from the task's declared gates (inferLegacyGateRequirements).
+// Conversion mints that same frozen contract — ci resolves through the repository's
+// .github/workflows registry — so strict serialization replays the event unchanged. The migration
+// must run before review-submission-pins so pinned digests cover the frozen submission.
+let conversionRootDir: string | null = null;
+let conversionWorkflowRegistry: readonly string[] | null = null;
+function ciWorkflowRegistryForConversion(): readonly string[] {
+  if (conversionWorkflowRegistry !== null) return conversionWorkflowRegistry;
+  const workflows: string[] = [];
+  try {
+    const dir = path.join(conversionRootDir ?? "", ".github", "workflows");
+    for (const file of readdirSync(dir)) {
+      if (!/\.(ya?ml)$/i.test(file)) continue;
+      const match = readFileSync(path.join(dir, file), "utf8").match(/^name:\s*"?([^"\r\n]+?)"?\s*$/m);
+      workflows.push(match ? match[1]!.trim() : file.replace(/\.(ya?ml)$/i, ""));
+    }
+  } catch {
+    // No workflow directory: the ci gate infers nothing, matching the empty-registry read path.
+  }
+  conversionWorkflowRegistry = workflows;
+  return workflows;
+}
+const submissionCompletionContractMigration: EventShapeMigrationSpec = {
+  name: "submission-completion-contract",
+  matches: () => false,
+  rewrite: (event) => {
+    const payload = event.payload as Readonly<Record<string, unknown>> | undefined;
+    if (
+      !isRecord(payload) ||
+      !isRecord(payload.execution) ||
+      !isRecord(payload.execution.submission) ||
+      Object.hasOwn(payload.execution.submission, "completionContract")
+    )
+      return null;
+    if (!isRecord(payload.task) || !Array.isArray(payload.task.completionGateIds)) return null;
+    const gates = inferLegacyGateRequirements(
+        payload.task.completionGateIds as readonly string[],
+        ciWorkflowRegistryForConversion(),
+      ),
+      completionContract = { gates },
+      issues = validateFrozenCompletionContract(completionContract);
+    if (issues.length > 0)
+      throw new Error(
+        `legacy submission ${event.opId} cannot freeze a valid completion contract: ${issues
+          .map((issue) => issue.message)
+          .join("; ")}`,
+      );
+    const submission = { ...payload.execution.submission, completionContract };
+    return {
+      event: {
+        ...event,
+        payload: { ...payload, execution: { ...payload.execution, submission } },
+      } as CanonicalEventV1,
+      category: "pre-freeze submission completion contract synthesized",
+      before: payload.execution.submission,
+      after: submission,
+    };
+  },
+};
+
 export const eventShapeMigrations: Readonly<Record<EventShapeMigrationKind, EventShapeMigrationSpec>> = {
   "task-v2-snapshots-migrate": taskV2SnapshotsMigration,
+  "entity-owned-content-manifests-migrate": entityOwnedContentMigration,
   "legacy-import-normalization-migrate": legacyImportNormalizationMigration,
   "relation-events-migrate": relationEventsMigration,
+  "submission-completion-contract-migrate": submissionCompletionContractMigration,
   "review-submission-pins-migrate": reviewSubmissionPinsMigration,
   "decision-digests-migrate": decisionDigestsMigration,
   "schedule-definitions-migrate": scheduleDefinitionsMigration,
@@ -737,6 +856,8 @@ function replayRewrites(
   headRevision: number,
   head: ReturnType<CanonicalEventStore["readHead"]>,
 ): Pick<LegacyGenerationConversionPlan, "events" | "blobs" | "rewrites"> {
+  conversionRootDir = input.rootDir;
+  conversionWorkflowRegistry = null;
   const events: CanonicalEventV1[] = [],
     blobs = new Map<string, CanonicalContentBlob>(),
     rewrites: LegacyGenerationConversionPlan["rewrites"][number][] = [],
