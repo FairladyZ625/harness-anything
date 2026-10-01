@@ -101,12 +101,12 @@ describe("Settings 自描述文案 chokepoint(两个 locale 都要有,缺一项�
     expect(drifted, `英文设置文案与声明源不一致: ${drifted.join(", ")}`).toEqual([]);
   });
 
-  it("定时任务补跑时限归「定时任务与节点心跳」组", () => {
+  it("定时任务补跑时限归「定时任务」组", () => {
     expect(rows.find(({ field }) => field === "scheduleAdmissionWindowMs")).toMatchObject({
       widget: "number",
       group: "schedules-nodes",
     });
-    expect(zh["views.settingsView.settingsGroup.schedules-nodes.label"]).toBe("定时任务与节点心跳");
+    expect(zh["views.settingsView.settingsGroup.schedules-nodes.label"]).toBe("定时任务");
   });
 
   it("中文设置文案用全角标点:半角逗号、句号、冒号、分号、括号不与中文相邻", () => {

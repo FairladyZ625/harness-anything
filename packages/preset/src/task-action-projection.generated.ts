@@ -511,7 +511,7 @@ export const settingsFieldProtocolProjection = {
     { id: "ci-gates", title: "CI and completion gates" },
     { id: "capacity-agenda", title: "Capacity and agenda" },
     { id: "worktree", title: "Task worktree setup" },
-    { id: "schedules-nodes", title: "Schedules and node heartbeat" },
+    { id: "schedules-nodes", title: "Schedules" },
     { id: "storage-backup", title: "Backup", advanced: true },
     { id: "presentation", title: "Presentation" },
   ],

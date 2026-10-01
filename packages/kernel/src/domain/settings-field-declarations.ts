@@ -61,7 +61,7 @@ export const SETTINGS_FIELD_GROUPS = Object.freeze([
   },
   {
     id: "schedules-nodes",
-    title: "Schedules and node heartbeat",
+    title: "Schedules",
   },
   {
     id: "storage-backup",
