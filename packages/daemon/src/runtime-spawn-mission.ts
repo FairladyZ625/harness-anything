@@ -10,6 +10,7 @@ import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import type { RuntimeAgent, RuntimeDaemonRoute, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
+import { workerLedgerPath } from "./worktree-setup.ts";
 
 export function resolveRuntimeCwd(root: string, value: unknown): string {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -235,8 +236,10 @@ export function explicitPromptMission(taskId: string | null, causalContext: stri
   ].join("\n\n");
 }
 
+/** The package root is named as the worker reaches it from `cwd`, the root it runs in. */
 export function deriveTaskMission(
   rootDir: string,
+  cwd: string,
   projection: TaskProjection,
   taskId: string,
   transition: "runtime.run" | "squad.run",
@@ -253,7 +256,11 @@ export function deriveTaskMission(
       slot: "task.plan",
       transition,
     }),
-    packageRoot = path.resolve(resolveHarnessLayout(rootDir).authoredRoot, ...planDocument.packagePath.split("/")),
+    packageRoot = workerLedgerPath(
+      rootDir,
+      cwd,
+      path.resolve(resolveHarnessLayout(rootDir).authoredRoot, ...planDocument.packagePath.split("/")),
+    ),
     planPath = path.join(packageRoot, ...path.posix.relative(planDocument.packagePath, planDocument.path).split("/")),
     missionDocument = missionName
       ? readMissionDocument(projection, planDocument.packagePath, taskId, missionName)
@@ -321,7 +328,6 @@ function readMissionDocument(
 export function assembleTaskMission(input: {
   readonly mission: string;
   readonly repoId: string;
-  readonly canonicalRoot: string;
   readonly workerRoot: string;
   /** How the task worktree was checked out and prepared for this dispatch; null when it runs elsewhere. */
   readonly worktreeNote?: string | null;
@@ -334,7 +340,6 @@ export function assembleTaskMission(input: {
     "# Dispatch Preconditions",
     `Repository id: ${input.repoId}`,
     "Repository registration: enabled",
-    `Canonical repository root: ${input.canonicalRoot}`,
     `Worker repository root: ${input.workerRoot}`,
     ...(input.worktreeNote ? [input.worktreeNote] : []),
     `Canonical Task ID: ${input.taskId}`,
@@ -344,12 +349,7 @@ export function assembleTaskMission(input: {
       : []),
     `Daemon endpoint: ${input.daemonRoute.endpoint}`,
     `Runtime actor: ${input.runtimeActor}`,
-    [
-      "Use the worker repository root for public code and the canonical ",
-      "repository root for authored harness context. The daemon route, ",
-      "repository selection, and runtime actor are already injected into the ",
-      "process environment.",
-    ].join(""),
+    "The daemon route, repository selection, and runtime actor are already injected into the process environment.",
     "# Assigned Mission",
     input.mission,
   ].join("\n");
@@ -358,7 +358,6 @@ export function assembleTaskMission(input: {
 export function assembleScheduledMission(input: {
   readonly mission: string;
   readonly repoId: string;
-  readonly canonicalRoot: string;
   readonly workerRoot: string;
   readonly scheduleId: string;
   readonly mode: "detect" | "remediate";
@@ -370,7 +369,6 @@ export function assembleScheduledMission(input: {
     "# Dispatch Preconditions",
     `Repository id: ${input.repoId}`,
     "Repository registration: enabled",
-    `Canonical repository root: ${input.canonicalRoot}`,
     `Worker repository root: ${input.workerRoot}`,
     `Schedule id: ${input.scheduleId}`,
     `Schedule claim fence: ${input.claimFence}`,

@@ -130,7 +130,7 @@ export function makeSquadCoordinator(input: {
     let mission: string;
     await input.reacquireTaskLease(taskId, binding);
     try {
-      const taskMission = deriveTaskMission(input.rootDir, input.projection(), taskId, "squad.run");
+      const taskMission = deriveTaskMission(input.rootDir, cwd, input.projection(), taskId, "squad.run");
       mission = optionalText(action.prompt) ?? taskMission.mission;
     } catch (error) {
       throw cellCriterionError(

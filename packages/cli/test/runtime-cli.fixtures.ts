@@ -456,7 +456,6 @@ export function assertTaskMissionPrompt(
   expected: {
     readonly repoId: string;
     readonly taskId: string;
-    readonly canonicalRoot: string;
     readonly workerRoot: string;
     readonly taskPackageRoot: string;
     readonly daemonUserRoot: string;
@@ -467,7 +466,7 @@ export function assertTaskMissionPrompt(
 ): void {
   assert.ok(
     prompt.includes(
-      `# Dispatch Preconditions\nRepository id: ${expected.repoId}\nRepository registration: enabled\nCanonical repository root: ${expected.canonicalRoot}\nWorker repository root: ${expected.workerRoot}\nCanonical Task ID: ${expected.taskId}\nTask package root: ${expected.taskPackageRoot}\nDaemon user root: ${expected.daemonUserRoot}\nDaemon id: ${expected.daemonId}\nDaemon endpoint: `,
+      `# Dispatch Preconditions\nRepository id: ${expected.repoId}\nRepository registration: enabled\nWorker repository root: ${expected.workerRoot}\nCanonical Task ID: ${expected.taskId}\nTask package root: ${expected.taskPackageRoot}\nDaemon user root: ${expected.daemonUserRoot}\nDaemon id: ${expected.daemonId}\nDaemon endpoint: `,
     ),
     prompt,
   );
