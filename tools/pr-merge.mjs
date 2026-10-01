@@ -162,7 +162,15 @@ function deleteRemoteBranch(branch, root) {
   if (probe.status !== 0) {
     throw new Error(`Unable to inspect ${REMOTE}/${branch}: ${(probe.stderr || probe.stdout).trim()}`);
   }
-  run("git", ["push", REMOTE, "--delete", branch], { cwd: root });
+  const deletion = run("git", ["push", REMOTE, "--delete", branch], { cwd: root, allowFailure: true });
+  if (deletion.status !== 0) {
+    const detail = (deletion.stderr || deletion.stdout).trim();
+    if (detail.includes(`error: unable to delete '${branch}': remote ref does not exist`)) {
+      console.log(`Remote branch ${REMOTE}/${branch} is already absent.`);
+      return;
+    }
+    throw new Error(`git push ${REMOTE} --delete ${branch} failed${detail ? `: ${detail}` : ""}`);
+  }
   console.log(`Deleted remote branch ${REMOTE}/${branch}.`);
 }
 

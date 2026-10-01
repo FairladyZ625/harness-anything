@@ -218,3 +218,40 @@ test("git pull refuses when an incoming commit collides with an untracked file",
   assert.equal(readFileSync(path.join(setup.main, "colliding.txt"), "utf8"), "keep me\n");
   assert.notEqual(git(setup.main, "rev-parse", "HEAD"), collisionHead);
 });
+
+test("remote deletion races continue cleanup; other deletion failures stop", async (t) => {
+  for (const absent of [true, false]) {
+    await t.test(absent ? "branch disappears after probe" : "remote deletion fails", (t) => {
+      const setup = fixture(t);
+      const initialHead = git(setup.main, "rev-parse", "HEAD");
+      const receiver = path.join(path.dirname(setup.remote), "receive.mjs");
+      const receiveScript = absent
+        ? `const deletion = spawnSync("git", ["--git-dir", remote, "update-ref", "-d", "refs/heads/codex/pr-123"]);
+if (deletion.status !== 0) process.exit(deletion.status ?? 1);
+const result = spawnSync("git", ["receive-pack", remote], { stdio: "inherit" });
+process.exit(result.status ?? 1);`
+        : `process.stderr.write("remote deletion denied\\n");
+process.exit(1);`;
+      // Change the ref when receive-pack starts, after ls-remote has advertised it.
+      writeFileSync(
+        receiver,
+        `import { spawnSync } from "node:child_process";
+const remote = process.argv[2];
+${receiveScript}
+`,
+      );
+      git(setup.main, "config", "remote.origin.receivepack", `"${process.execPath}" "${receiver}"`);
+      const result = run(process.execPath, [helper, "123"], {
+        cwd: setup.main,
+        env: setup.env,
+        allowFailure: true,
+      });
+      assert.equal(result.status, absent ? 0 : 1, result.stderr);
+      assert.equal(existsSync(setup.prWorktree), !absent);
+      assert.equal(git(setup.main, "rev-parse", "HEAD"), absent ? setup.upstreamHead : initialHead);
+      assert.equal(git(setup.main, "branch", "--list", "codex/pr-123") === "", absent);
+      if (absent) assert.match(result.stdout, /Local main synchronized/u);
+      else assert.match(result.stderr, /remote deletion denied/u);
+    });
+  }
+});
