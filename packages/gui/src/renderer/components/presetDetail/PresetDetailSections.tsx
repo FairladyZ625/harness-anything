@@ -2,10 +2,13 @@ import { useState } from "react";
 import { DocReader } from "../DocReader.tsx";
 import type { CatalogPresetDocument, CatalogPresetRow, CatalogPresetSuccess } from "../../api-client.ts";
 import { t } from "../../i18n/index.tsx";
+import { DenseRow } from "../primitives/DenseRow.tsx";
+import { Region } from "../primitives/Region.tsx";
+import { BoardColumn, BoardMain, BoardRegion, BoardTimeline, RegionBoard } from "../primitives/RegionBoard.tsx";
 
 /**
- * G7 Preset 详情页分区:概况(元数据 + capability imports + completion gates +
- * provenance)与包内容侧栏/正文。数据全部来自 gui-catalog-preset/v1 读面
+ * G7 Preset 详情页分区:概况(区域板:元数据、completion gates、capability imports、
+ * provenance、模板)与包内容侧栏/正文。数据全部来自 gui-catalog-preset/v1 读面
  * (resolver 单一权威),GUI 不读文件系统。
  */
 
@@ -21,15 +24,6 @@ export function PresetBadge({ value, tone = "muted" }: { readonly value: string;
     >
       {value}
     </span>
-  );
-}
-
-export function PresetMetaField({ name, value }: { readonly name: string; readonly value: string }) {
-  return (
-    <div data-testid="preset-meta-field">
-      <dt className="font-mono ui-micro uppercase text-text-faint">{name}</dt>
-      <dd className="break-all text-text-muted">{value}</dd>
-    </div>
   );
 }
 
@@ -61,91 +55,37 @@ export function PresetShaField({ name, value }: { readonly name: string; readonl
   );
 }
 
-/** resolved.provenance(preset-snapshot/v1):4 个 sha256 逐字段 + resolverVersion + ancestry 列表。 */
-export function PresetProvenanceFields({ provenance }: { readonly provenance: Readonly<Record<string, unknown>> }) {
-  const shaFields: ReadonlyArray<{ readonly name: string; readonly label: string }> = [
-    { name: "manifestSha256", label: "provenance.manifestSha256" },
-    { name: "packageSha256", label: "provenance.packageSha256" },
-    { name: "verticalSha256", label: "provenance.verticalSha256" },
-    { name: "templateCatalogSha256", label: "provenance.templateCatalogSha256" },
-  ];
-  const ancestry = Array.isArray(provenance.ancestry)
-    ? provenance.ancestry.filter((item): item is string => typeof item === "string")
-    : [];
+/** 概况里的长哈希条目:键在第一行,全量值在第二行(放不下省略,悬停看全量),单击复制。 */
+function ShaRow({ name, value }: { readonly name: string; readonly value: string }) {
+  const [copied, setCopied] = useState(false);
   return (
-    <>
-      {shaFields.map(({ name, label }) => (
-        <PresetShaField
-          key={name}
-          name={label}
-          value={
-            typeof provenance[name] === "string"
-              ? (provenance[name] as string)
-              : t("views.presetsView.unknownNotProjected")
-          }
-        />
-      ))}
-      <PresetMetaField
-        name="provenance.resolverVersion"
-        value={
-          typeof provenance.resolverVersion === "string"
-            ? provenance.resolverVersion
-            : t("views.presetsView.unknownNotProjected")
-        }
-      />
-      <div>
-        <dt className="font-mono ui-micro uppercase text-text-faint">{t("views.presetsView.provenanceAncestry")}</dt>
-        <dd className="mt-0.5 flex flex-wrap gap-1" data-testid="preset-ancestry">
-          {ancestry.length > 0 ? (
-            ancestry.map((id) => (
-              <span key={id} className="rounded border border-border px-1.5 py-0.5 font-mono ui-micro text-text-muted">
-                {id}
-              </span>
-            ))
-          ) : (
-            <span className="text-text-faint">{t("views.presetsView.none")}</span>
-          )}
-        </dd>
-      </div>
-    </>
+    <DenseRow
+      relaxed
+      title={name}
+      reason={
+        <span title={value} className="font-mono">
+          {value}
+        </span>
+      }
+      time={copied ? <span className="text-status-done">{t("views.presetsView.copied")}</span> : undefined}
+      onClick={() => {
+        void navigator.clipboard?.writeText(value).then(() => setCopied(true));
+      }}
+    />
   );
 }
 
-function capabilityImportRow(value: unknown): string {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    const row = value as Record<string, unknown>,
-      id = typeof row.id === "string" ? row.id : "?",
-      kind = typeof row.kind === "string" ? row.kind : "?",
-      version = typeof row.version === "string" ? row.version : "?";
-    return `${id} · ${kind}@${version}`;
-  }
-  return JSON.stringify(value);
+const PROVENANCE_SHA_FIELDS = ["manifestSha256", "packageSha256", "verticalSha256", "templateCatalogSha256"] as const;
+
+function text(value: unknown, fallback: string): string {
+  return typeof value === "string" ? value : fallback;
 }
 
-function completionGateIds(profile: Readonly<Record<string, unknown>>): readonly string[] {
-  return Array.isArray(profile.completionGateIds)
-    ? profile.completionGateIds.filter((item): item is string => typeof item === "string")
-    : [];
-}
-
-function SectionHeading({
-  eyebrow,
-  title,
-  description,
-}: {
-  readonly eyebrow: string;
-  readonly title: string;
-  readonly description?: string;
-}) {
-  return (
-    <header>
-      <p className="font-mono ui-micro font-semibold uppercase tracking-[0.16em] text-text-faint">{eyebrow}</p>
-      <h2 className="mt-0.5 ui-prose font-semibold leading-5 text-text">{title}</h2>
-      {description ? <p className="mt-1 ui-meta leading-5 text-text-muted">{description}</p> : null}
-    </header>
-  );
-}
-
+/**
+ * 概况是区域板(标准 §2.1):两列主区(清单元数据 + 完成门 | 能力导入 + 来源链),条目最多的
+ * 「模板」在最右一列并区内滚动。Preset 没有事件可排,最右列放的是普通区域。键值字段与
+ * 名称列表都是 DenseRow;没有内容的区域不渲染。
+ */
 export function PresetOverviewTab({
   detail,
   row,
@@ -155,114 +95,116 @@ export function PresetOverviewTab({
   readonly row: CatalogPresetRow | null;
   readonly locale: string;
 }) {
-  const gates = completionGateIds(detail.resolved.profile),
+  const none = t("views.presetsView.none"),
+    unknown = t("views.presetsView.unknownNotProjected"),
+    profile = detail.resolved.profile,
+    gates = Array.isArray(profile.completionGateIds)
+      ? profile.completionGateIds.filter((item): item is string => typeof item === "string")
+      : [],
     imports = detail.preset.capabilityImports,
-    templates = detail.resolved.templates;
+    provenance = detail.resolved.provenance,
+    ancestry = Array.isArray(provenance.ancestry)
+      ? provenance.ancestry.filter((item): item is string => typeof item === "string")
+      : [],
+    templates = detail.resolved.templates,
+    entrypoints = detail.resolved.entrypoints.filter((item): item is string => typeof item === "string");
   return (
-    <div className="grid gap-8" data-testid="preset-overview-tab">
-      <section className="min-w-0">
-        <SectionHeading
-          eyebrow="MANIFEST"
-          title={t("views.presetDetailView.overviewManifest")}
-          description={row?.description ?? t("views.presetsView.unknownNotProjected")}
-        />
-        <dl className="mt-4 grid gap-3 ui-meta sm:grid-cols-2 xl:grid-cols-3" data-testid="preset-manifest-fields">
-          <PresetMetaField name="id" value={detail.preset.id} />
-          <PresetMetaField name={t("views.presetsView.vertical")} value={detail.preset.verticalId} />
-          <PresetMetaField name="extends" value={detail.preset.extends ?? t("views.presetsView.none")} />
-          <PresetMetaField
-            name={t("views.presetsView.version")}
-            value={detail.preset.version ?? t("views.presetsView.none")}
-          />
-          <PresetMetaField name={t("views.presetsView.locale")} value={locale} />
-          <PresetMetaField
-            name={t("views.presetsView.entrypoints")}
-            value={
-              detail.resolved.entrypoints.filter((item): item is string => typeof item === "string").join(", ") ||
-              t("views.presetsView.none")
-            }
-          />
-          {row?.kind ? <PresetMetaField name="kind" value={row.kind} /> : null}
-          {row?.defaultProfile ? (
-            <PresetMetaField name="defaultProfile" value={row.defaultProfile} />
-          ) : (
-            <PresetMetaField name="defaultProfile" value={t("views.presetsView.none")} />
-          )}
-          <PresetShaField name="digest" value={detail.resolved.digest} />
-        </dl>
-      </section>
-
-      <section className="min-w-0">
-        <SectionHeading
-          eyebrow="PROFILE"
-          title={t("views.presetDetailView.overviewProfile")}
-          description={t("views.presetDetailView.completionGatesDescription")}
-        />
-        <div className="mt-3 flex flex-wrap gap-1.5" data-testid="preset-completion-gates">
+    <RegionBoard data-testid="preset-overview-tab">
+      <BoardMain>
+        <BoardColumn>
+          <BoardRegion region="manifest">
+            <Region title={t("views.presetDetailView.overviewManifest")}>
+              {row?.description ? (
+                <p className="px-3.5 pb-2 ui-meta leading-5 text-text-muted">{row.description}</p>
+              ) : null}
+              <DenseRow title="id" time={detail.preset.id} />
+              <DenseRow title={t("views.presetsView.vertical")} time={detail.preset.verticalId} />
+              <DenseRow title="extends" time={detail.preset.extends ?? none} />
+              <DenseRow title={t("views.presetsView.version")} time={detail.preset.version ?? none} />
+              <DenseRow title={t("views.presetsView.locale")} time={locale} />
+              {entrypoints.length > 0 ? (
+                <DenseRow relaxed title={t("views.presetsView.entrypoints")} reason={entrypoints.join(", ")} />
+              ) : (
+                <DenseRow title={t("views.presetsView.entrypoints")} time={none} />
+              )}
+              {row?.kind ? <DenseRow title="kind" time={row.kind} /> : null}
+              <DenseRow title="defaultProfile" time={row?.defaultProfile ?? none} />
+              <ShaRow name="digest" value={detail.resolved.digest} />
+            </Region>
+          </BoardRegion>
           {gates.length > 0 ? (
-            gates.map((gate) => <PresetBadge key={gate} value={gate} tone="accent" />)
-          ) : (
-            <span className="ui-meta text-text-faint">{t("views.presetsView.none")}</span>
-          )}
-        </div>
-      </section>
-
-      <section className="min-w-0">
-        <SectionHeading
-          eyebrow="CAPABILITY IMPORTS"
-          title={t("views.presetsView.capabilityImports")}
-          description={t("views.presetDetailView.capabilityImportsDescription")}
-        />
-        <div className="mt-3 flex flex-wrap gap-1.5" data-testid="preset-capability-imports">
-          {imports.length > 0 ? (
-            imports.map((item, index) => <PresetBadge key={index} value={capabilityImportRow(item)} />)
-          ) : (
-            <span className="ui-meta text-text-faint">{t("views.presetsView.none")}</span>
-          )}
-        </div>
-      </section>
-
-      <section className="min-w-0">
-        <SectionHeading
-          eyebrow="PROVENANCE"
-          title={t("views.presetDetailView.overviewProvenance")}
-          description={t("views.presetDetailView.provenanceDescription")}
-        />
-        <dl className="mt-4 grid gap-3 ui-meta sm:grid-cols-2 xl:grid-cols-3" data-testid="preset-provenance-fields">
-          <PresetProvenanceFields provenance={detail.resolved.provenance} />
-        </dl>
-      </section>
-
-      <section className="min-w-0">
-        <SectionHeading
-          eyebrow="TEMPLATES"
-          title={t("views.presetsView.templatesTab")}
-          description={t("views.presetDetailView.templatesDescription", { count: String(templates.length) })}
-        />
-        <dl className="mt-4 grid gap-3 ui-meta sm:grid-cols-2 xl:grid-cols-3" data-testid="preset-template-fields">
-          {templates.map((template, index) => {
-            const record = template as Record<string, unknown>,
-              slot = typeof record.slot === "string" ? record.slot : `#${index + 1}`,
-              path = typeof record.path === "string" ? record.path : t("views.presetsView.unknownNotProjected"),
-              owner = typeof record.owner === "string" ? record.owner : t("views.presetsView.unknownNotProjected"),
-              templateLocale =
-                typeof record.locale === "string" ? record.locale : t("views.presetsView.unknownNotProjected");
-            return (
-              <div key={`${slot}:${index}`} className="rounded-lg border border-border bg-surface p-3">
-                <b className="font-mono ui-meta text-text">{slot}</b>
-                <p className="mt-1 break-all font-mono ui-micro text-text-muted">{path}</p>
-                <p className="mt-1 font-mono ui-micro text-text-faint">
-                  {owner} · {templateLocale}
-                </p>
-              </div>
-            );
-          })}
-          {templates.length === 0 ? (
-            <span className="ui-meta text-text-faint">{t("views.presetsView.none")}</span>
+            <BoardRegion region="gates">
+              <Region
+                title={t("views.presetDetailView.overviewProfile")}
+                footer={t("views.presetDetailView.completionGatesDescription")}
+              >
+                {gates.map((gate) => (
+                  <DenseRow key={gate} title={gate} />
+                ))}
+              </Region>
+            </BoardRegion>
           ) : null}
-        </dl>
-      </section>
-    </div>
+        </BoardColumn>
+        <BoardColumn>
+          {imports.length > 0 ? (
+            <BoardRegion region="imports">
+              <Region title={t("views.presetsView.capabilityImports")}>
+                {imports.map((item, index) => {
+                  if (item === null || typeof item !== "object" || Array.isArray(item))
+                    return <DenseRow key={index} title={JSON.stringify(item)} />;
+                  const record = item as Record<string, unknown>;
+                  return (
+                    <DenseRow
+                      key={index}
+                      relaxed
+                      title={text(record.id, "?")}
+                      reason={`${text(record.kind, "?")}@${text(record.version, "?")}`}
+                    />
+                  );
+                })}
+              </Region>
+            </BoardRegion>
+          ) : null}
+          <BoardRegion region="provenance">
+            <Region title={t("views.presetDetailView.overviewProvenance")}>
+              {PROVENANCE_SHA_FIELDS.map((name) => (
+                <ShaRow key={name} name={`provenance.${name}`} value={text(provenance[name], unknown)} />
+              ))}
+              <DenseRow title="provenance.resolverVersion" time={text(provenance.resolverVersion, unknown)} />
+              {ancestry.map((id, index) => (
+                <DenseRow
+                  key={id}
+                  relaxed
+                  title={id}
+                  reason={`${t("views.presetsView.provenanceAncestry")} ${index + 1}/${ancestry.length}`}
+                />
+              ))}
+            </Region>
+          </BoardRegion>
+        </BoardColumn>
+      </BoardMain>
+      {templates.length > 0 ? (
+        <BoardTimeline data-testid="preset-overview-templates">
+          <Region
+            title={t("views.presetsView.templatesTab")}
+            footer={t("views.presetDetailView.templatesDescription", { count: String(templates.length) })}
+          >
+            {templates.map((template, index) => {
+              const record = template as Record<string, unknown>;
+              return (
+                <DenseRow
+                  key={index}
+                  relaxed
+                  title={text(record.slot, `#${index + 1}`)}
+                  reason={text(record.path, unknown)}
+                  time={`${text(record.owner, unknown)} · ${text(record.locale, unknown)}`}
+                />
+              );
+            })}
+          </Region>
+        </BoardTimeline>
+      ) : null}
+    </RegionBoard>
   );
 }
 

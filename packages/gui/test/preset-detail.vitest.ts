@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 // G7 Preset 详情页:①列表紧凑行(名称/id/bundled-valid/vertical/版本/一句描述)点击进详情;
-// ②详情页元数据(manifest/profile/completion gates/capability imports/provenance)+ 包内文档正文
+// ②详情页概况是区域板(manifest/completion gates/capability imports/provenance/模板)+ 包内文档正文
 // (gui-catalog-preset/v1 读面的 resolved.documents,DocReader 渲染 markdown);
 // ③详情页宽屏铺满(复用 G1/G5 容器规则);④时间一律 formatTime。
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -17,6 +17,7 @@ import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 const REPO_ID = "g7-probe";
 const AT = "2026-08-26T08:09:10.000Z";
 const PRESET_ID = "preset-g7";
+const EMPTY_PRESET_ID = "preset-g7-empty";
 const DOC_MD = {
   slot: "task.plan",
   path: "task_plan.md",
@@ -112,6 +113,20 @@ function seedQueries(client: QueryClient): void {
       digest: `sha256:${"e".repeat(64)}`,
     },
   });
+  client.setQueryData(catalogQueryKeys.preset(REPO_ID, EMPTY_PRESET_ID, "zh-CN"), {
+    schema: "gui-catalog-preset/v1",
+    ok: true,
+    repoId: REPO_ID,
+    preset: { id: EMPTY_PRESET_ID, verticalId: "g7", version: null, extends: null, capabilityImports: [] },
+    resolved: {
+      profile: { id: "baseline", completionGateIds: [] },
+      templates: [],
+      documents: [],
+      entrypoints: [],
+      provenance: {},
+      digest: `sha256:${"f".repeat(64)}`,
+    },
+  });
 }
 
 async function mountView(element: ReturnType<typeof createElement>): Promise<HTMLElement> {
@@ -177,7 +192,7 @@ describe("G7 Preset 列表 → 详情", () => {
     expect(container.querySelector('[data-testid="preset-row"]')).toBeNull();
   });
 
-  it("详情页概况:manifest 字段、completion gates、capability imports、provenance 五 sha", async () => {
+  it("详情页概况是区域板:五块都在区域框里,标签串变成一行一条的条目,模板在最右一列", async () => {
     const container = await mountView(
       createElement(PresetDetailView, {
         repoId: REPO_ID,
@@ -190,17 +205,101 @@ describe("G7 Preset 列表 → 详情", () => {
         onBack: () => undefined,
       }),
     );
-    const overview = container.querySelector('[data-testid="preset-overview-tab"]');
-    expect(overview).toBeTruthy();
-    const gates = container.querySelector('[data-testid="preset-completion-gates"]');
-    expect(gates?.textContent).toContain("ci");
-    expect(gates?.textContent).toContain("code-doc-reconciliation");
-    expect(container.querySelector('[data-testid="preset-capability-imports"]')?.textContent).toContain(
-      "standard-task-check · checker@1",
+    // 面板自己是板的容器量尺(不含包内文档侧栏),并给板一个弹性列。
+    const panel = container.querySelector<HTMLElement>('[data-testid="preset-detail-panel-scroll"]')!;
+    expect(panel.className).toContain("@container flex flex-col");
+    const overview = container.querySelector<HTMLElement>('[data-testid="preset-overview-tab"]')!;
+    expect(overview.className).toContain("@[900px]:grid-cols-2");
+    const boxes = [...overview.querySelectorAll<HTMLElement>("[data-region]")];
+    expect(boxes.map((box) => box.dataset.region)).toEqual(["manifest", "gates", "imports", "provenance", "recent"]);
+    const rows = (region: string) =>
+      [...overview.querySelectorAll(`[data-region="${region}"] [data-dense-row]`)].map((row) => row.textContent);
+    for (const box of boxes) {
+      const section = box.querySelector(":scope > section.glass")!;
+      expect(section.querySelector("h2")).not.toBeNull();
+      expect(section.children[1]!.firstElementChild!.className).toContain("overflow-y-auto");
+    }
+    // 没有散排:标题和条目都在某个区域框里;没有自写 section、字段网格和会换行的标签串。
+    for (const element of overview.querySelectorAll("h2, [data-dense-row]"))
+      expect(element.closest("section.glass")).not.toBeNull();
+    expect(overview.querySelectorAll("section:not(.glass), dl, [class*='flex-wrap']").length).toBe(0);
+    expect(overview.querySelector('[data-testid="preset-badge"]')).toBeNull();
+
+    // 清单元数据:键值字段是条目,键在左、短值在右;digest 是长值,放第二行。
+    expect(rows("manifest")).toEqual([
+      `id${PRESET_ID}`,
+      "verticalg7",
+      "extends无",
+      "版本3.0.0",
+      "localezh-CN",
+      "入口无",
+      "defaultProfile无",
+      `digestsha256:${"e".repeat(64)}`,
+    ]);
+    // 原来的三串标签各自成条:完成门单行,能力导入第二行是 kind@version,ancestry 一行一个。
+    expect(rows("gates")).toEqual(["ci", "code-doc-reconciliation"]);
+    expect(rows("imports")).toEqual(["standard-task-checkchecker@1"]);
+    expect(rows("provenance")).toEqual([
+      `provenance.manifestSha256sha256:${"a".repeat(64)}`,
+      `provenance.packageSha256sha256:${"b".repeat(64)}`,
+      `provenance.verticalSha256sha256:${"c".repeat(64)}`,
+      `provenance.templateCatalogSha256sha256:${"d".repeat(64)}`,
+      "provenance.resolverVersion1",
+      "software-coding-baseprovenance.ancestry 1/2",
+      `${PRESET_ID}provenance.ancestry 2/2`,
+    ]);
+    // 模板是板上独立的最后一列(Preset 没有时间线,这一列放普通区域),不混在主区里。
+    const templates = container.querySelector<HTMLElement>('[data-testid="preset-overview-templates"]')!;
+    expect(templates.parentElement).toBe(overview);
+    expect(overview.lastElementChild).toBe(templates);
+    expect(rows("recent")).toEqual(["task.plantask_plan.mddoc-sync · zh-CN"]);
+    expect(templates.textContent).toContain("已解析模板槽位 1 个");
+    // 身份条里的 digest 仍是唯一的 dt/dd 形态。
+    expect(container.querySelectorAll('[data-testid="preset-sha-field"]').length).toBe(1);
+  });
+
+  it("概况里没有内容的区域整块不出现", async () => {
+    const container = await mountView(
+      createElement(PresetDetailView, {
+        repoId: REPO_ID,
+        presetId: EMPTY_PRESET_ID,
+        locale: "zh-CN",
+        row: null,
+        projectName: "G7 Probe",
+        fromViewLabel: "目录 / Preset",
+        onBack: () => undefined,
+      }),
     );
-    const shaFields = container.querySelectorAll('[data-testid="preset-sha-field"]');
-    expect(shaFields.length).toBe(6); // 概况:digest + 4 个 provenance sha;身份条:digest
-    expect(container.querySelector('[data-testid="preset-ancestry"]')?.textContent).toContain(PRESET_ID);
+    const overview = container.querySelector<HTMLElement>('[data-testid="preset-overview-tab"]')!;
+    expect([...overview.querySelectorAll<HTMLElement>("[data-region]")].map((box) => box.dataset.region)).toEqual([
+      "manifest",
+      "provenance",
+    ]);
+  });
+
+  it("概况里的长哈希条目单击复制全量值", async () => {
+    const written: string[] = [];
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: async (value: string) => void written.push(value) },
+    });
+    const container = await mountView(
+      createElement(PresetDetailView, {
+        repoId: REPO_ID,
+        presetId: PRESET_ID,
+        locale: "zh-CN",
+        row: null,
+        projectName: "G7 Probe",
+        fromViewLabel: "目录 / Preset",
+        onBack: () => undefined,
+      }),
+    );
+    const digest = container.querySelector<HTMLButtonElement>('[data-region="manifest"] button[data-dense-row]')!;
+    await act(async () => {
+      digest.click();
+    });
+    expect(written).toEqual([`sha256:${"e".repeat(64)}`]);
+    expect(digest.textContent).toContain("已复制");
   });
 
   it("详情页 digest 不把 dt/dd 嵌进 dd", async () => {

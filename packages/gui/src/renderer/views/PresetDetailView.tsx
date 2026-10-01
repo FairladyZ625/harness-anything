@@ -168,10 +168,14 @@ export function PresetDetailView({
           ].join(" ")}
         >
           <PresetDocumentSidebar documents={documents} activeDoc={activeDoc} onOpenDoc={openDocument} />
+          {/* 概况是一屏的区域板:面板自己是板的容器量尺(量面板内容宽,不含包内文档侧栏),
+              ≥900px 时板占满面板高度、区域在自己内部滚动;包内容页签随正文往下排。 */}
           <TabPanel
             idPrefix="preset"
             value={activeTab}
-            className="min-h-0 min-w-0 overflow-y-auto px-4 py-5 lg:px-6"
+            className={`min-h-0 min-w-0 overflow-y-auto px-4 py-5 lg:px-6 ${
+              activeTab === "overview" ? "@container flex flex-col" : ""
+            }`}
             data-testid="preset-detail-panel-scroll"
           >
             {detail.isPending ? (
