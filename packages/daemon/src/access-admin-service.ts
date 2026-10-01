@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import path from "node:path";
 import {
   actionDeclarations,
   decodeAuthorizationResource,
@@ -13,7 +14,7 @@ import {
   type KeycloakPolicyGroup,
 } from "./keycloak-policy-adapter.ts";
 import { readSessionLifetime, sessionLifetimeBounds, writeSessionLifetime } from "./keycloak-session-lifetime.ts";
-import { managedRbacReceiptJournal } from "./managed-rbac-service.ts";
+import { managedRbacReceiptJournal, reserveCredentialFile } from "./managed-rbac-service.ts";
 import type { OidcSessionService } from "./oidc-session-service.ts";
 
 export const accessAdminOperations = Object.freeze([
@@ -47,6 +48,8 @@ export interface AccessAdminRequest {
   readonly resource?: string;
   readonly sessionLifetimeSeconds?: number;
   readonly nodeId?: string;
+  /** Where a first node registration puts the machine credential instead of returning it. */
+  readonly credentialFile?: string;
 }
 
 export interface AccessAdminPorts {
@@ -467,11 +470,26 @@ export class AccessAdminService {
       next = { nodeId, personId };
     if ((request.expectedVersion ?? "") !== currentVersion)
       return { conflict: { nodeId, expectedVersion: request.expectedVersion ?? "", currentVersion } };
+    // Only creating the node mints a credential. Its file is reserved before the intent is recorded
+    // and before Keycloak is written, so a path that cannot take it refuses the whole registration.
+    const reserved =
+      currentVersion === "" && request.credentialFile !== undefined
+        ? credentialReservation(request.credentialFile)
+        : undefined;
     return {
       expect: { kind: "node", nodeId, version: nodeVersion(next) },
       apply: async () => {
-        const credential = await session.adapter.writeNode(session.token, next);
-        return credential === undefined ? undefined : { credential };
+        let credential: string | undefined;
+        try {
+          credential = await session.adapter.writeNode(session.token, next);
+        } catch (error) {
+          reserved?.discard();
+          throw error;
+        }
+        if (credential === undefined) return undefined;
+        if (!reserved) return { credential };
+        reserved.keep(credential);
+        return { credentialFile: reserved.file };
       },
     };
   }
@@ -570,6 +588,22 @@ function text(value: string | undefined, field: string): string {
   if (typeof value !== "string" || value.trim() === "")
     throw coded("access_request_invalid", `Access administration requires ${field}.`);
   return value;
+}
+
+function credentialReservation(file: string): ReturnType<typeof reserveCredentialFile> & { readonly file: string } {
+  if (!path.isAbsolute(file))
+    throw coded("credential_file_unavailable", `The credential file must be an absolute path; got ${file}.`);
+  try {
+    return { file, ...reserveCredentialFile(file) };
+  } catch (error) {
+    throw Object.assign(
+      coded(
+        "credential_file_unavailable",
+        `The credential file ${file} could not be created (${(error as NodeJS.ErrnoException).code}); an existing file is never overwritten. Nothing was registered.`,
+      ),
+      { cause: error },
+    );
+  }
 }
 
 function unsettled(operationId: string): Error {

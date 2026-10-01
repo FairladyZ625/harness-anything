@@ -14,6 +14,7 @@ import {
 import { setTimeout as delay } from "node:timers/promises";
 import { connect, createServer, type TLSSocket } from "node:tls";
 import { sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
+import { AccessAdminService } from "../src/access-admin-service.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { digestId } from "../src/fleet/center-transport.ts";
@@ -24,6 +25,8 @@ import {
   type FleetReplicaPullClientOptions,
   type FleetWriteClientOptions,
 } from "../src/fleet/edge.ts";
+import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { signInAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import {
   FleetUtf8LineDecoder,
@@ -171,6 +174,70 @@ test(
     assert.equal(shown.evidence, secondBody);
   },
 );
+// The center reads a node's owner again for every frame that acts for somebody, so unregistering a node
+// reaches a session that is already connected: the refusal does not wait for a reconnect.
+test("a node unregistered while it stays connected is refused on its next frame", { timeout: 30_000 }, async (t) => {
+  const fixture = await fleetFixture(t);
+  t.after(() => fixture.close());
+  const center = await fixture.center(),
+    { nodeId, assignmentId, repoId } = fixture.assignment,
+    taskId = fixture.assignment.scope.kind === "task" ? fixture.assignment.scope.taskId : "",
+    peer = await rawPeer(fixture.track, center.port, fixture.cert, nodeId, "machine-secret"),
+    answer = (frame: FleetFrameV1) =>
+      frame.schema === "fleet.error/v1"
+        ? frame.code
+        : frame.schema === "fleet.task.result/v1"
+          ? frame.outcome
+          : frame.schema,
+    assigned = await peer.request({ schema: "fleet.assignment.get/v1", messageId: "assignment", assignmentId });
+  assert.equal(assigned.schema, "fleet.assignment.result/v1");
+  if (assigned.schema !== "fleet.assignment.result/v1") return;
+  const receipt = (messageId: string) =>
+      peer.request({ schema: "fleet.receipt.get/v1", messageId, assignmentId, opId: "op-unknown" }),
+    task = (opId: string, action: Record<string, unknown>) =>
+      peer.request({
+        schema: "fleet.task.command/v1",
+        messageId: opId,
+        assignmentId,
+        writerEpoch: assigned.writerEpoch,
+        opId,
+        repoId,
+        taskId,
+        action: { ...action, taskId },
+        waitMs: 1_000,
+        docChanges: null,
+        mirrorBaseCut: null,
+      } as FleetFrameV1),
+    progress = (opId: string) => task(opId, { kind: "task-progress-append", text: opId });
+  // While the node is registered the same three frames are answered.
+  assert.equal(answer(await receipt("receipt-while-registered")), "fleet.receipt.result/v1");
+  assert.equal(answer(await task("show-while-registered", { kind: "task-show" })), "applied");
+  assert.equal(answer(await progress("progress-while-registered")), "applied");
+  await waitForEventCount(fixture, fixture.eventCount());
+  const before = fixture.eventCount();
+
+  signInAt(fixture.userRoot, "person-admin");
+  const admin = new AccessAdminService(new OidcSessionService(fixture.userRoot), fixture.userRoot),
+    listed = (await admin.run({ operation: "node-list" })).nodes as { nodeId: string; version: string }[],
+    removed = await admin.run({
+      operation: "node-unregister",
+      operationId: "unregister-connected-node",
+      nodeId,
+      expectedVersion: listed.find((node) => node.nodeId === nodeId)!.version,
+    });
+  assert.equal(removed.ok, true, JSON.stringify(removed));
+
+  // Same socket, no second hello: the frames that follow the unregistration are refused.
+  assert.equal(answer(await receipt("receipt-after-unregister")), "node_owner_unregistered");
+  assert.equal(answer(await task("show-after-unregister", { kind: "task-show" })), "node_owner_unregistered");
+  assert.equal(
+    answer(await peer.request({ schema: "fleet.replica.pull/v1", messageId: "pull-after-unregister", assignmentId })),
+    "node_owner_unregistered",
+  );
+  const written = await progress("progress-after-unregister");
+  assert.equal(answer(written), "op_rejected", JSON.stringify(written));
+  assert.equal(fixture.eventCount(), before, "nothing was written for the unregistered node");
+});
 test("replica pull rejects a snapshot that has not caught up to the ledger cut", async (t) => {
   const fixture = await fleetFixture(t);
   t.after(() => fixture.close());
@@ -857,6 +924,7 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
     emptyPath,
     track: owned.track,
     hold: owned.hold,
+    userRoot,
     setActive: (value: boolean) => {
       nodeActive = value;
     },

@@ -161,6 +161,7 @@ export const daemonProtocolMethods = Object.freeze([
       certificateFile: "string?",
       certificateKeyFile: "string?",
       nodeId: "string?",
+      credentialFile: "string?",
     }),
   },
   {

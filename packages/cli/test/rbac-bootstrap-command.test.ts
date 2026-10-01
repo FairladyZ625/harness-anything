@@ -1,5 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import path from "node:path";
 import test from "node:test";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 
@@ -116,10 +117,35 @@ test("ha bootstrap lists, registers, and unregisters fleet nodes through the sam
     return parsed.command.action;
   };
   assert.deepEqual(action(["--operation", "node-list"]), { kind: "rbac-bootstrap", operation: "node-list" });
-  assert.deepEqual(
-    action(["--operation", "node-register", "--node-id", "edge-one", "--person-id", "alice", "--operation-id", "r-1"]),
-    { kind: "rbac-bootstrap", operation: "node-register", operationId: "r-1", nodeId: "edge-one", personId: "alice" },
+  const register = ["--operation", "node-register", "--node-id", "edge-one", "--person-id", "alice"];
+  assert.deepEqual(action([...register, "--operation-id", "r-1", "--credential-file", "/secrets/edge-one"]), {
+    kind: "rbac-bootstrap",
+    operation: "node-register",
+    operationId: "r-1",
+    nodeId: "edge-one",
+    personId: "alice",
+    credentialFile: "/secrets/edge-one",
+  });
+  // A first registration mints the credential, so it is refused before anything is sent when there is
+  // no file to receive it. Moving an existing node to another person mints nothing and needs no file.
+  const fileless = parseThinCommand(["bootstrap", ...register], "/repo");
+  assert.equal(fileless.ok, false);
+  if (!fileless.ok) {
+    assert.equal(fileless.code, "missing_field");
+    assert.match(fileless.nextAction, /--credential-file/u);
+  }
+  // The daemon writes the file, so a relative path is resolved where the caller stands.
+  assert.equal(
+    action([...register, "--credential-file", "edge-one.credential"])?.credentialFile,
+    path.resolve("edge-one.credential"),
   );
+  assert.deepEqual(action([...register, "--expected-version", "version-1"]), {
+    kind: "rbac-bootstrap",
+    operation: "node-register",
+    expectedVersion: "version-1",
+    nodeId: "edge-one",
+    personId: "alice",
+  });
   assert.deepEqual(
     action([
       "--operation",

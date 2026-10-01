@@ -1,12 +1,21 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { createRequire } from "node:module";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { keycloakUserRoot, registerNode, spawnKeycloak } from "../../daemon/test/keycloak.fixtures.ts";
+import { signInAt, signOutAt, spawnKeycloak } from "../../daemon/test/keycloak.fixtures.ts";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
@@ -261,11 +270,9 @@ test(
   { timeout: 180_000 },
   async () => {
     const fixture = setup({ cleanEdge: true }),
-      realm = await spawnKeycloak(),
-      admin = keycloakUserRoot("person-admin");
+      realm = await spawnKeycloak();
     try {
       realm.bind(fixture.centerUser);
-      realm.bind(admin.root);
       assert.equal(existsSync(path.join(fixture.edgeRepo, "harness", "people.yaml")), false);
       assert.equal(run(fixture, "center", ["daemon", "start", "--service"]).ok, true);
       register(fixture);
@@ -344,17 +351,39 @@ test(
       // 2. Registration is written while the center keeps running, through the registry write path, and
       //    returns the machine credential once.
       await realm.control({ op: "account", personId: "edge-operator" });
-      const registered = await registerNode(admin.root, {
-        operationId: "register-edge-one",
-        nodeId: "edge-one",
-        personId: "edge-operator",
-      });
-      assert.equal(registered.ok, true, JSON.stringify(registered));
-      assert.ok(registered.credential);
+      const credentialFile = path.join(fixture.root, "edge-one.credential"),
+        registration = ["bootstrap", "--operation", "node-register", "--node-id", "edge-one"],
+        registerArgs = [...registration, "--person-id", "edge-operator", "--operation-id", "register-edge-one"],
+        nodes = () => run(fixture, "center", ["bootstrap", "--operation", "node-list"]).nodes;
+      signInAt(fixture.centerUser, "person-admin");
+      //    The credential is minted once, so a registration with no file to receive it is refused before
+      //    Keycloak is written, and so is one whose file is already somebody's.
+      const fileless = maybeRun(fixture, "center", registerArgs);
+      assert.equal(fileless.status, 2);
+      assert.equal(fileless.receipt.code, "missing_field", JSON.stringify(fileless.receipt));
+      assert.deepEqual(nodes(), []);
+      writeFileSync(credentialFile, "somebody else's credential");
+      const taken = maybeRun(fixture, "center", [...registerArgs, "--credential-file", credentialFile]);
+      assert.equal(taken.status, 1);
+      assert.equal(taken.receipt.code, "credential_file_unavailable", JSON.stringify(taken.receipt));
+      assert.equal(readFileSync(credentialFile, "utf8"), "somebody else's credential");
+      assert.deepEqual(nodes(), []);
+      rmSync(credentialFile);
+      //    The receipt names the file and nothing the CLI printed carries what is in it.
+      const registered = maybeRun(fixture, "center", [...registerArgs, "--credential-file", credentialFile]);
+      assert.equal(registered.status, 0, JSON.stringify(registered));
+      assert.equal(registered.receipt.credentialFile, credentialFile);
+      assert.equal("credential" in registered.receipt, false);
+      const credential = readFileSync(credentialFile, "utf8");
+      assert.ok(credential.length > 0);
+      assert.equal(statSync(credentialFile).mode & 0o777, 0o600);
+      assert.equal(JSON.stringify(registered).includes(credential), false);
+      assert.equal((nodes() as { nodeId: string }[])[0]?.nodeId, "edge-one");
+      signOutAt(fixture.centerUser);
 
       // 3. The right credential authenticates the machine; its owner holds no grant yet, so the center
       //    denies the action. Three different answers for three different conditions.
-      const ungranted = sync(registered.credential);
+      const ungranted = sync(credential);
       assert.equal(ungranted.status, 1);
       assert.equal(ungranted.receipt.code, "authorization_denied", JSON.stringify(ungranted.receipt));
       // What the operator is told to do differs with the cause: a grant, not another credential.
@@ -369,9 +398,9 @@ test(
         resource: "fleet-demo",
         actions: ["daemon-fleet-edge-sync"],
       });
-      let first = sync(registered.credential);
+      let first = sync(credential);
       for (let attempt = 0; attempt < 40 && first.receipt.code === "replica_pending"; attempt += 1)
-        first = sync(registered.credential);
+        first = sync(credential);
       assert.equal(first.status, 0, JSON.stringify(first.receipt));
       assert.equal(first.receipt.viewId, "edge-one-view");
       assert.equal(
@@ -381,17 +410,16 @@ test(
       );
 
       // 5. A wrong credential for the now-registered node is refused by the center with the credential code.
-      const wrong = sync(`${registered.credential}-wrong`);
+      const wrong = sync(`${credential}-wrong`);
       assert.equal(wrong.status, 1);
       assert.equal(wrong.receipt.code, "authentication_failed");
-      assert.equal(JSON.stringify(wrong).includes(registered.credential), false);
+      assert.equal(JSON.stringify(wrong).includes(credential), false);
       assert.deepEqual((await logins()).at(-1), { clientId: "harness-node-edge-one", ok: false });
     } finally {
       stop(fixture, "center");
       stop(fixture, "edge");
       realm.close();
       rmSync(fixture.root, { recursive: true, force: true });
-      rmSync(admin.root, { recursive: true, force: true });
     }
   },
 );

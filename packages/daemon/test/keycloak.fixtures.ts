@@ -4,9 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { AccessAdminService } from "../src/access-admin-service.ts";
 import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
 
 export const keycloakUrl = "http://127.0.0.1:8080",
   keycloakRealm = "harness";
@@ -310,6 +308,25 @@ export function fakeKeycloak() {
   };
 }
 
+/** Stores a signed-in session holding `roles` in a daemon user root that is bound to the fake realm. */
+export function signInAt(userRoot: string, personId: string, roles: readonly string[] = ["access-admin"]): void {
+  managedRbacSessionStore(userRoot).write(
+    JSON.stringify({
+      schema: "harness-oidc-session/v2",
+      accessToken: `token-${personId}`,
+      subject: personId,
+      personId,
+      expiresAt: Date.now() + 3_600_000,
+      roles,
+    }),
+  );
+}
+
+/** Ends the session `signInAt` stored, so the daemon at `userRoot` answers as nobody signed in. */
+export function signOutAt(userRoot: string): void {
+  managedRbacSessionStore(userRoot).delete();
+}
+
 /** A daemon user root bound to the fake realm, with one signed-in session holding `roles`. */
 export function keycloakUserRoot(
   personId = "person-admin",
@@ -319,17 +336,7 @@ export function keycloakUserRoot(
   readonly signIn: (personId: string, roles?: readonly string[]) => void;
 } {
   const root = mkdtempSync(path.join(tmpdir(), "ha-access-admin-")),
-    signIn = (who: string, held: readonly string[] = ["access-admin"]) =>
-      managedRbacSessionStore(root).write(
-        JSON.stringify({
-          schema: "harness-oidc-session/v2",
-          accessToken: `token-${who}`,
-          subject: who,
-          personId: who,
-          expiresAt: Date.now() + 3_600_000,
-          roles: held,
-        }),
-      );
+    signIn = (who: string, held?: readonly string[]) => signInAt(root, who, held);
   mkdirSync(path.join(root, "rbac"), { recursive: true });
   writeFileSync(path.join(root, "rbac", "config.json"), JSON.stringify({ url: keycloakUrl, realm: keycloakRealm }));
   writeFileSync(path.join(root, "rbac", "center-client-secret"), "fixture-secret");
@@ -452,16 +459,4 @@ export async function spawnKeycloak(): Promise<{
       child.kill();
     },
   };
-}
-
-/** Registers a node through the center's registry write path, as the administrator signed in at `userRoot`. */
-export async function registerNode(
-  userRoot: string,
-  request: { readonly operationId: string; readonly nodeId: string; readonly personId: string },
-): Promise<{ readonly ok: boolean; readonly credential?: string; readonly version?: string }> {
-  return new AccessAdminService(new OidcSessionService(userRoot), userRoot).run({
-    operation: "node-register",
-    expectedVersion: "",
-    ...request,
-  });
 }
