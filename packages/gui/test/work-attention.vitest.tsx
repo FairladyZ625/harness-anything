@@ -233,7 +233,7 @@ describe("工作页:卡上的概况与注意力排序", () => {
     view.unmount();
   });
 
-  it("大卡自上而下:标题与补充、原因、在跑的任务与执行者、构成条与数字、最近活动", () => {
+  it("大卡自上而下:标题与补充、原因、在跑的任务、构成条与数字、最近有动静的任务", () => {
     const rows: TaskRow[] = [
       task("w-two", { title: "PLT-Honest：系统说的每句话必须为真" }),
       member("t-done", "w-two", { canonicalStatus: "done" }),
@@ -241,7 +241,7 @@ describe("工作页:卡上的概况与注意力排序", () => {
         title: "S7 授权执行：细节",
         canonicalStatus: "active",
         activeExecutionId: "exec-1",
-        leaseHolder: "person_x",
+        leaseHolder: "person_x · runtime-session:runtime_1",
         events: [{ at: "2026-02-01", taskId: "t-run", projectId: "p", summary: "Execution exec-1 started" }],
       }),
       member("t-wait", "w-two", {
@@ -304,14 +304,49 @@ describe("工作页:卡上的概况与注意力排序", () => {
       "等你答复验收两行：看截图（另 1 件）",
       "有阻塞被「S7 授权执行」卡住",
     ]);
-    expect(card.querySelector('[data-testid="work-running"]')!.textContent).toBe(
-      "1 个 agent 在跑 · S7 授权执行 · person_x",
-    );
+    // 在跑行只报个数与第一个在跑任务的标题,不出现执行者的机器标识。
+    expect(card.querySelector('[data-testid="work-running"]')!.textContent).toBe("1 个 agent 在跑 · S7 授权执行");
+    // 大卡上的构成条加粗。
+    expect(card.querySelector('[data-testid="work-progress"] > div')!.className).toContain("h-[6px]!");
     expect(card.querySelector('[data-testid="work-progress"]')!.textContent).toBe("1/3");
     expect(card.querySelector('[data-testid="work-counts"]')!.textContent).toBe("完成 1执行 1阻塞 1");
-    expect(card.querySelector('[data-testid="work-recent"]')!.textContent).toBe("最近：Execution exec-1 started");
+    // 卡脚报最近有动静的任务的标题,不显示生命周期事件的机器摘要。
+    expect(card.querySelector('[data-testid="work-recent"]')!.textContent).toBe("最近：S7 授权执行");
+    expect(card.textContent).not.toContain("exec-1");
+    expect(card.textContent).not.toContain("person_x");
     click(card.querySelector("header button")!);
     expect(opened).toEqual(["w-two"]);
+    act(() => root.unmount());
+  });
+
+  it("最近有动静的任务不在本工作里(查不到标题)时,卡脚不出「最近」一行", () => {
+    const host = document.createElement("div"),
+      root = createRoot(host);
+    act(() =>
+      root.render(
+        <WorkView
+          tasks={[
+            task("w-gone"),
+            member("t-stuck", "w-gone", {
+              canonicalStatus: "blocked",
+              events: [{ at: "2026-02-01", taskId: "t-elsewhere", projectId: "p", summary: "Execution exec-9 closed" }],
+            }),
+          ]}
+          repoId="p"
+          ready
+          onOpenTask={() => {}}
+          catalog={undefined}
+          catalogError={null}
+          daemonState="responsive"
+          onRefreshLedger={() => {}}
+          agenda={AGENDA}
+        />,
+      ),
+    );
+    const card = host.querySelector('[data-testid="work-row"][data-work-id="w-gone"]')!;
+    expect(card.getAttribute("data-summary-card")).toBe("large");
+    expect(card.querySelector('[data-testid="work-recent"]')).toBeNull();
+    expect(card.textContent).not.toContain("exec-9");
     act(() => root.unmount());
   });
 

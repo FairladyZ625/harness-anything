@@ -143,7 +143,9 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     expect(card.querySelector('[data-testid="schedule-verdict-heartbeat-probe"]')?.textContent).toMatch(/^OKlast /u);
     expect(card.querySelectorAll('[data-testid="schedule-spark-heartbeat-probe"] [data-outcome]')).toHaveLength(1);
     expect(card.textContent).toContain("Last 1 runs");
-    expect(card.textContent).toContain("failed 0 · missed 2 (Scheduler unavailable)");
+    // 为 0 的计数不显示:没有失败就只报错过数。
+    expect(card.textContent).toContain("missed 2 (Scheduler unavailable)");
+    expect(card.textContent).not.toContain("failed 0");
     expect(card.textContent).toContain("Probe Agent");
     expect(card.textContent).toContain("gpt-5.6");
     expect(card.textContent).toContain("Scan the previous day of pull requests.");
@@ -310,10 +312,16 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         lastFailureDetail: "cwd /missing does not exist",
       },
     };
+    const olderFailure = {
+      ...degraded,
+      scheduleId: "degraded-artifact",
+      name: "Degraded artifact",
+      health: { ...degraded.health, lastFailureDetail: "artifact:runtime-result/old" },
+    };
     const container = await renderSurface(
       createElement(ScheduleWorkspace, {
         repoId: "repo-a",
-        data: dto({}, { schedules: [clean, degraded] }),
+        data: dto({}, { schedules: [clean, degraded, olderFailure] }),
         pending: false,
         focusedEntityRef: null,
         onSelectEntity: noop,
@@ -324,9 +332,21 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     const cards = [...container.querySelectorAll('[data-testid^="schedule-row-"]')].map((card) =>
       card.getAttribute("data-testid"),
     );
-    expect(cards).toEqual(["schedule-row-degraded-probe", "schedule-row-clean-probe"]);
+    expect(cards).toEqual([
+      "schedule-row-degraded-artifact",
+      "schedule-row-degraded-probe",
+      "schedule-row-clean-probe",
+    ]);
+    // 上次运行没有失败:详情属于更早的一次失败,卡上写明是「最近一次失败」的。
     expect(container.querySelector('[data-testid="schedule-verdict-degraded-probe"]')?.textContent).toMatch(
-      /^degraded1 of last 2 failed · last .*cwd \/missing does not exist$/u,
+      /^degraded1 of last 2 failed · last [^M]*Most recent failure: cwd \/missing does not exist$/u,
+    );
+    expect(container.querySelector('[data-testid="schedule-verdict-degraded-artifact"]')?.textContent).toMatch(
+      /^degraded1 of last 2 failed · last [^D]*Detail of the most recent failure is on the schedule page$/u,
+    );
+    expect(container.querySelector('[data-testid="schedule-row-degraded-probe"]')!.textContent).toContain("failed 1");
+    expect(container.querySelector('[data-testid="schedule-row-degraded-probe"]')!.textContent).not.toContain(
+      "missed 0",
     );
     expect(
       [...container.querySelectorAll('[data-testid="schedule-spark-degraded-probe"] [data-outcome]')].map((block) =>

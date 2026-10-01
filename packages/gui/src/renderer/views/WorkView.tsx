@@ -351,8 +351,11 @@ function WorkCard({
     lastActivity = formatTime(group.lastChangeAt, { style: "month-day-time" }) ?? group.lastChangeAt,
     { focus, supplement } = entryTitle(task.title),
     reasons = size === "large" ? workReasons(entry, titleOf, now) : [],
-    // 在跑的第一个任务与它的执行者:持有执行租约的成员。读不到持有者就只报在跑数。
-    runner = [task, ...group.members].find(({ leaseHolder }) => leaseHolder !== undefined && leaseHolder !== ""),
+    all = [task, ...group.members],
+    // 第一个在跑的任务:与 `group.live` 同一判据。执行者的名字本页读不到,不写机器标识。
+    runner = all.find(({ activeExecutionId }) => activeExecutionId !== undefined),
+    // 最近有动静的任务:只报它的标题,不显示生命周期事件的机器摘要。
+    recent = all.find(({ taskId }) => taskId === group.activity?.taskId),
     ago = (
       <span
         data-testid="work-last-activity"
@@ -393,7 +396,6 @@ function WorkCard({
             {metaLine([
               t("views.work.running", { count: group.live }),
               runner === undefined ? undefined : splitTitleFocus(runner.title).focus,
-              runner?.leaseHolder,
             ])}
           </span>
         </p>
@@ -407,7 +409,11 @@ function WorkCard({
       ) : ready ? (
         <>
           <div data-testid="work-progress" className="flex items-center gap-2.5">
-            <SegBar counts={counts as Partial<Record<SnapshotStatus, number>>} className="min-w-0 flex-1" />
+            <SegBar
+              counts={counts as Partial<Record<SnapshotStatus, number>>}
+              // 构成条在卡上加粗(SegBar 默认 h-1,根字号 14px 下是 3.5px):大卡 6px,小卡 4px。
+              className={`min-w-0 flex-1 ${size === "large" ? "h-[6px]!" : "h-[4px]!"}`}
+            />
             {progress}
           </div>
           {size === "large" ? (
@@ -436,9 +442,9 @@ function WorkCard({
           )}
         </>
       ) : null}
-      {size === "large" && group.activity ? (
+      {size === "large" && recent !== undefined ? (
         <p data-testid="work-recent" className="truncate text-text-faint ui-meta">
-          {t("views.work.recent", { summary: group.activity.summary })}
+          {t("views.work.recent", { title: splitTitleFocus(recent.title).focus })}
         </p>
       ) : null}
       {hits.length > 0 ? (

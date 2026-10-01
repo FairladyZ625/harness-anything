@@ -13,6 +13,7 @@ import {
   needsAttention,
   scheduleTiers,
   scheduleVerdict,
+  triggerLabel,
   untilLabel,
   upcomingRuns,
 } from "../model/schedule-list.ts";
@@ -73,7 +74,9 @@ export function ScheduleListPane({
     query.length === 0 ||
     (row.state === "invalid"
       ? `${row.scheduleId} ${row.invalidReason}`.toLocaleLowerCase().includes(query)
-      : `${row.name} ${row.scheduleId} ${row.trigger.summary}`.toLocaleLowerCase().includes(query));
+      : `${row.name} ${row.scheduleId} ${row.trigger.summary} ${triggerLabel(row.trigger)}`
+          .toLocaleLowerCase()
+          .includes(query));
   const matchesFilter = (row: ScheduleGuiListRowDto, key: ScheduleFilter) =>
     key === "all" ? true : key === "attn" ? needsAttention(row) : row.state === "paused";
   const visible = rows.filter((row) => matchesSearch(row) && matchesFilter(row, filter)),
@@ -227,7 +230,7 @@ export function ScheduleListPane({
                       size="tile"
                       testId={`schedule-row-${row.scheduleId}`}
                       title={row.name}
-                      subtitle={row.trigger.summary}
+                      subtitle={triggerLabel(row.trigger)}
                       onOpen={() => onOpen(row.scheduleId)}
                     />
                   ))}
@@ -277,7 +280,7 @@ function ScheduleCard({
         size="small"
         testId={`schedule-row-${row.scheduleId}`}
         title={row.name}
-        subtitle={row.trigger.summary}
+        subtitle={triggerLabel(row.trigger)}
         onOpen={() => onOpen(row.scheduleId)}
       >
         {history}
@@ -299,13 +302,19 @@ function ScheduleCard({
             .filter((part) => part !== null)
             .join(" · ")
         : (lastAt ?? undefined),
-    // 失败详情是人能读的文字就给出来;是 artifact 引用就不显示引用本身。
+    // `lastFailureDetail` 是最近一次失败的详情:上次运行就是失败时直接给,否则写明是「最近一次
+    // 失败」的。是人能读的文字就给出来;是 artifact 引用就不显示引用本身。
+    inDetail = health.lastFailureDetail?.startsWith("artifact:") === true,
     failureDetail =
       verdict === "ok" || verdict === "never" || health.lastFailureDetail === null
         ? null
-        : health.lastFailureDetail.startsWith("artifact:")
-          ? t("schedules.card.failureInDetail")
-          : health.lastFailureDetail,
+        : verdict === "failed"
+          ? inDetail
+            ? t("schedules.card.failureInDetail")
+            : health.lastFailureDetail
+          : inDetail
+            ? t("schedules.card.lastFailureInDetail")
+            : t("schedules.card.lastFailure", { detail: health.lastFailureDetail }),
     until = row.nextRunAt === null ? null : untilLabel(row.nextRunAt, now),
     { target } = row;
   return (
@@ -313,7 +322,7 @@ function ScheduleCard({
       size="large"
       testId={`schedule-row-${row.scheduleId}`}
       title={row.name}
-      subtitle={row.trigger.summary}
+      subtitle={triggerLabel(row.trigger)}
       // 竖线:上次失败红,健康降级、有错过或执行目标不可用琥珀,正常不加。
       tone={
         verdict === "failed"
@@ -352,10 +361,18 @@ function ScheduleCard({
           {history}
           {(health.failedCount > 0 || missed.count > 0) && (
             <p className="text-text-faint ui-meta">
-              {t("schedules.card.failedCount", { count: health.failedCount })} ·{" "}
-              {t("schedules.missedCount", { count: missed.count })}
-              {missed.lastMissedReason !== null &&
-                t("schedules.card.missedReason", { reason: missedReasonLabel(missed.lastMissedReason) })}
+              {/* 为 0 的计数不显示。 */}
+              {[
+                health.failedCount > 0 ? t("schedules.card.failedCount", { count: health.failedCount }) : null,
+                missed.count > 0
+                  ? t("schedules.missedCount", { count: missed.count }) +
+                    (missed.lastMissedReason === null
+                      ? ""
+                      : t("schedules.card.missedReason", { reason: missedReasonLabel(missed.lastMissedReason) }))
+                  : null,
+              ]
+                .filter((part) => part !== null)
+                .join(" · ")}
             </p>
           )}
         </div>

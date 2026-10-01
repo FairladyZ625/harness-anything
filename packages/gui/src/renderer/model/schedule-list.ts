@@ -64,6 +64,33 @@ export function upcomingRuns(
   return { next: armed.slice(0, limit), more: Math.max(0, armed.length - limit) };
 }
 
+const INTERVAL_UNITS = [
+  [DAY_MS, "schedules.trigger.everyDays"],
+  [3_600_000, "schedules.trigger.everyHours"],
+  [60_000, "schedules.trigger.everyMinutes"],
+] as const;
+
+/**
+ * 触发规则的人话写法,纯格式化:间隔取能整除的最大单位(「每 6 小时」);cron 只认「分、时
+ * 为数字,日/月/周都是 *」这一种(「每天 23:30(时区)」)。其余原样用 daemon 给的 `summary`;
+ * 英文文案就是 `{summary}`,所以英文环境始终显示 daemon 原文。
+ */
+export function triggerLabel(trigger: ScheduleGuiRowDto["trigger"]): string {
+  const { summary } = trigger;
+  if (trigger.kind === "interval") {
+    const unit = INTERVAL_UNITS.find(([ms]) => trigger.everyMs % ms === 0);
+    return unit === undefined ? summary : t(unit[1], { count: trigger.everyMs / unit[0], summary });
+  }
+  const daily = /^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+\*$/u.exec(trigger.expression.trim());
+  return daily === null
+    ? summary
+    : t("schedules.trigger.dailyAt", {
+        time: `${daily[2]!.padStart(2, "0")}:${daily[1]!.padStart(2, "0")}`,
+        timezone: trigger.timezone,
+        summary,
+      });
+}
+
 export type ScheduleVerdict = "failed" | "degraded" | "ok" | "never";
 
 /** 卡上的结论:上次失败 > 健康降级但上次没失败 > 从未运行 > 正常。 */

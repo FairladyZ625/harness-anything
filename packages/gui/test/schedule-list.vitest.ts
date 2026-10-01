@@ -6,6 +6,7 @@ import {
   needsAttention,
   scheduleTiers,
   scheduleVerdict,
+  triggerLabel,
   untilLabel,
   upcomingRuns,
 } from "../src/renderer/model/schedule-list.ts";
@@ -86,6 +87,40 @@ describe("「接下来」一行", () => {
     expect(ids(upcoming.next)).toEqual(["r6", "r5", "r4", "r3", "r2"]);
     expect(upcoming.more).toBe(2);
     expect(upcomingRuns([invalid, row("p", { state: "paused" })])).toEqual({ next: [], more: 0 });
+  });
+});
+
+describe("触发规则写法", () => {
+  const every = (everyMs: number, summary: string) =>
+    triggerLabel({ kind: "interval", everyMs, expression: null, timezone: null, summary });
+  const cron = (expression: string, summary: string) =>
+    triggerLabel({ kind: "cron", everyMs: null, expression, timezone: "Asia/Shanghai", summary });
+
+  it("间隔取能整除的最大单位,不是整分钟就原样用 daemon 的写法", () => {
+    expect(every(6 * 3_600_000, "every 6h")).toBe("每 6 小时");
+    expect(every(1_800_000, "every 30m")).toBe("每 30 分钟");
+    expect(every(2 * 86_400_000, "every 2d")).toBe("每 2 天");
+    expect(every(36 * 3_600_000, "every 36h")).toBe("每 36 小时");
+    expect(every(90 * 60_000, "every 90m")).toBe("每 90 分钟");
+    expect(every(90_000, "every 90s")).toBe("every 90s");
+  });
+
+  it("cron 只认「分、时为数字,日/月/周都是 *」,其余原样用 daemon 的写法", () => {
+    expect(cron("30 23 * * *", "at 23:30")).toBe("每天 23:30（Asia/Shanghai）");
+    expect(cron("5 2 * * *", "at 02:05")).toBe("每天 02:05（Asia/Shanghai）");
+    expect(cron("0 9 * * 1-5", "weekdays 09:00")).toBe("weekdays 09:00");
+    expect(cron("*/15 * * * *", "every 15 minutes")).toBe("every 15 minutes");
+    expect(cron("0 3 1 * *", "monthly")).toBe("monthly");
+  });
+
+  it("英文环境保持 daemon 的 summary 原样", () => {
+    setActiveLocale("en-US");
+    try {
+      expect(every(6 * 3_600_000, "every 6h")).toBe("every 6h");
+      expect(cron("30 23 * * *", "at 23:30 Asia/Shanghai")).toBe("at 23:30 Asia/Shanghai");
+    } finally {
+      setActiveLocale("zh-CN");
+    }
   });
 });
 
