@@ -1,5 +1,6 @@
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
+import { Region } from "../primitives/Region.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
 import {
   CADENCE_FRICTION_ALERT_THRESHOLD,
@@ -11,6 +12,7 @@ import {
 /**
  * 研发摩擦力与空转雷达:高摩擦任务(门禁失败/评审打回/提交退回/重开)、
  * 摩擦信号分类计数与停滞任务预警。全部读 cadence 纯聚合快照,只读视图。
+ * 外壳是 Region(标准 §2.1):信号总数是标题行的大数字,高摩擦口径说明在页脚。
  */
 
 const TASK_BUTTON = ["flex min-w-0 flex-1 flex-col items-start gap-0.5 text-left hover:text-accent"].join(" ");
@@ -35,18 +37,20 @@ export function FrictionRadar({
   const signalTotal = CADENCE_FRICTION_KINDS.reduce((sum, kind) => sum + friction.byKind[kind], 0),
     hasStalled = friction.stalled.length > 0;
   return (
-    <section
-      data-testid="cadence-friction"
-      className="flex shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-surface"
+    <Region
+      title={t("views.cadence.frictionTitle")}
+      big={signalTotal}
+      bigTone={signalTotal === 0 ? undefined : "bad"}
+      footer={
+        signalTotal === 0 && !hasStalled ? undefined : (
+          <span className="min-w-0 truncate">
+            {t("views.cadence.frictionLegend", { threshold: CADENCE_FRICTION_ALERT_THRESHOLD })}
+          </span>
+        )
+      }
     >
-      <header className="flex items-baseline justify-between gap-2 border-b border-border px-3 py-2">
-        <h2 className="ui-body font-semibold">{t("views.cadence.frictionTitle")}</h2>
-        <span className="font-mono ui-micro text-text-faint">
-          {t("views.cadence.frictionTotal", { count: signalTotal })}
-        </span>
-      </header>
       {signalTotal === 0 && !hasStalled ? (
-        <p data-testid="cadence-friction-empty" className="px-3 py-3 ui-meta text-text-faint">
+        <p data-testid="cadence-friction-empty" className="px-3.5 py-3 ui-meta text-text-faint">
           {t("views.cadence.frictionEmpty")}
         </p>
       ) : (
@@ -109,11 +113,8 @@ export function FrictionRadar({
               </ul>
             </div>
           ) : null}
-          <p className="border-t border-border px-3 py-1.5 ui-micro text-text-faint">
-            {t("views.cadence.frictionLegend", { threshold: CADENCE_FRICTION_ALERT_THRESHOLD })}
-          </p>
         </div>
       )}
-    </section>
+    </Region>
   );
 }

@@ -979,7 +979,6 @@
   "views.cadence.stalledBadge": "stalled",
   "views.cadence.frictionBadge": "friction {count}",
   "views.cadence.frictionTitle": "Friction & stall radar",
-  "views.cadence.frictionTotal": "{count} signals",
   "views.cadence.frictionEmpty": "No friction signals and no stalled tasks in window",
   "views.cadence.frictionGateFail": "gate fails",
   "views.cadence.frictionReviewChanges": "review rejections",
