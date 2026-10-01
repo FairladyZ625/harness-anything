@@ -1,3 +1,4 @@
+import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, PencilSimple, Play, Power, Stop, Trash } from "@phosphor-icons/react";
@@ -362,7 +363,7 @@ export function ScheduleDetailView({
       </div>
 
       {runOccurrence === null && (
-        <div className="px-5 pb-10 pt-4 md:px-7">
+        <TabPanel idPrefix="schedule" value={tab} className="px-5 pb-10 pt-4 md:px-7">
           {editing ? (
             <ScheduleForm
               options={options}
@@ -402,7 +403,7 @@ export function ScheduleDetailView({
               onDelete={onDelete}
             />
           )}
-        </div>
+        </TabPanel>
       )}
     </div>
   );

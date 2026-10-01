@@ -1,3 +1,5 @@
+import { PageEntryBoundary } from "./components/primitives/EntryBoundary.tsx";
+import { pageEntryIdentity } from "./components/primitives/page-entry-identity.ts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { TaskRow } from "./model/types.ts";
@@ -534,7 +536,11 @@ function AppShell() {
             </div>
           ) : null}
           <NavigationHistoryBar canBack={canBack} canForward={canForward} onBack={back} onForward={forward} />
-          <div key={projectId} className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden">
+          <PageEntryBoundary
+            key={projectId}
+            identity={pageEntryIdentity(projectId, location)}
+            className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden"
+          >
             <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
               {selected && selectedWorkRootId === null ? (
                 renderTaskDetail(selected, {
@@ -896,7 +902,7 @@ function AppShell() {
                 />
               )}
             </div>
-          </div>
+          </PageEntryBoundary>
         </main>
         {edgeSurfaceMounted &&
         !triadicQuery.graphAvailable &&

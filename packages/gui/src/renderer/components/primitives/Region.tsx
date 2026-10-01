@@ -33,6 +33,7 @@ export function Region({
 }) {
   return (
     <motion.section
+      data-entry-region
       layout
       layoutId={focusId}
       onClick={onOpen}
