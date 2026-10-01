@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,14 +13,20 @@ import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan
 
 type Cell = Awaited<ReturnType<typeof openRepoCell>>;
 
-const holderBinding: RepoCellBinding = {
-  actor: { principal: { personId: "person-holder" }, executor: null },
-  source: "local",
-};
-const peerBinding: RepoCellBinding = {
-  actor: { principal: { personId: "person-peer" }, executor: null },
-  source: "local",
-};
+const holderBinding: RepoCellBinding = withRoleBinding(
+  {
+    actor: { principal: { personId: "person-holder" }, executor: null },
+    source: "local",
+  },
+  "owner",
+);
+const peerBinding: RepoCellBinding = withRoleBinding(
+  {
+    actor: { principal: { personId: "person-peer" }, executor: null },
+    source: "local",
+  },
+  "owner",
+);
 
 test("an expired current-round lease is recoverable by any repo-write actor through ha task start", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-lease-dead-zone-"));

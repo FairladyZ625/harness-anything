@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   createScheduleV1,
+  makeTaskEventReader,
   readVerifiedLedgerBackup,
   type ScheduleV1,
   registerDaemonRepo,
@@ -491,3 +492,38 @@ test(
     }
   },
 );
+
+// CEO R7: internal Schedule authority must exist independently of any user's roster.
+test("a roster-free attach seeds builtins as the explicit daemon Schedule principal", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-schedule-system-principal-")),
+    repo = path.join(root, "repo"),
+    userRoot = path.join(root, "user"),
+    repoId = "builtin-system";
+  let host: Awaited<ReturnType<typeof openDaemonHost>> | undefined;
+  try {
+    initHarnessRepo(repo, repoId);
+    registerDaemonRepo({ canonicalRoot: repo, repoId, mode: "local", userRoot, createConvenienceLinks: false });
+    for (let attach = 0; attach < 2; attach++) {
+      host = await openDaemonHost({ daemonId: "builtin-system-test", userRoot });
+      await host.attachmentsSettled();
+      const reader = makeTaskEventReader({ repoId, rootDir: repo });
+      try {
+        const seeds = reader
+          .read()
+          .events.filter((event) => event.schema === "schedule-event/v1" && event.type === "schedule_created");
+        assert.equal(seeds.length, 2);
+        assert.deepEqual(
+          seeds.map((event) => event.actor.principal.personId),
+          ["system:daemon-scheduler", "system:daemon-scheduler"],
+        );
+      } finally {
+        await reader.drain();
+      }
+      await host.close();
+      host = undefined;
+    }
+  } finally {
+    await host?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});

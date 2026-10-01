@@ -427,13 +427,16 @@ export async function fixture(
       );
       return cell.run(
         { kind: "task-review-execution", taskId, executionId, reviewId, fromFile: `harness/${packet}` },
-        {
-          actor: {
-            principal: owner.actor.principal,
-            executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` },
+        withRoleBinding(
+          {
+            actor: {
+              principal: owner.actor.principal,
+              executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` },
+            },
+            source: "local",
           },
-          source: "local",
-        },
+          "owner",
+        ),
       );
     },
     reviewDispatchedArtifacts: async (runtimeSessionId: string, dispatchId: string) => {
@@ -460,13 +463,16 @@ export async function fixture(
           reviewId: `review-${dispatchId}`,
           fromFile: `harness/${packet}`,
         },
-        {
-          actor: {
-            principal: owner.actor.principal,
-            executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` },
+        withRoleBinding(
+          {
+            actor: {
+              principal: owner.actor.principal,
+              executor: { kind: "agent", id: `runtime-session:${runtimeSessionId}` },
+            },
+            source: "local",
           },
-          source: "local",
-        },
+          "owner",
+        ),
       );
     },
     harnessStatus: () => git(root, "status", "--porcelain", "--", "harness"),

@@ -1,6 +1,6 @@
 /** @daemon-transport-authority Transport-derived actor and assignment binding. */
 import os from "node:os";
-import { actionDeclarations } from "@harness-anything/kernel";
+import { actionDeclarations, projectDeclaredRoleBindings } from "@harness-anything/kernel";
 import { hostCodedError } from "./daemon-host-errors.ts";
 import { loadPeopleRosterIfPresent } from "./identity/people-roster.ts";
 import { makeTransportDerivedIdentityProvider } from "./identity/transport-derived-provider.ts";
@@ -36,6 +36,16 @@ export function localSystemBinding(
   return deriveLocalBinding(rootDir, actor, roster);
 }
 
+/** Internal Schedule writes run as the daemon, independently of the socket owner's roster. */
+export function localScheduleBinding(): RepoCellBinding {
+  const actor = { principal: { personId: "system:daemon-scheduler" }, executor: null };
+  return {
+    actor,
+    source: "local",
+    roleBindings: projectDeclaredRoleBindings({ actor, roleIds: ["repo-write"], target: "settings/repository" }),
+  };
+}
+
 /** Daemon socket-owner authority for actions whose declaration keeps all writes outside a repository cell. */
 export async function localSystemActionBinding(
   rootDir: string,
@@ -52,7 +62,7 @@ export async function localSystemActionBinding(
       auth.transportKind === "unix-socket" &&
       typeof ownerUid === "number" &&
       (typeof daemonUid === "number" ? ownerUid === daemonUid : process.platform === "win32" && ownerUid === 0);
-  return isDaemonSocketOwner ? localSystemBinding(rootDir) : principalBinding();
+  return isDaemonSocketOwner ? defaultLocalBinding(ownerUid!, null) : principalBinding();
 }
 
 export function withDaemonWriterEpochFence(
@@ -108,7 +118,20 @@ export function localDefaultBinding(
 }
 
 function withSessionEnvironment(binding: RepoCellBinding, auth: DaemonAuthenticationContext): RepoCellBinding {
-  return auth.sessionEnvironment === undefined ? binding : { ...binding, sessionEnvironment: auth.sessionEnvironment };
+  return {
+    ...binding,
+    ...(auth.sessionEnvironment === undefined ? {} : { sessionEnvironment: auth.sessionEnvironment }),
+    ...(auth.oidcPrincipal === undefined
+      ? {}
+      : {
+          keycloakAuthorization: {
+            accessToken: auth.oidcPrincipal.accessToken,
+            url: auth.oidcPrincipal.authority.url,
+            realm: auth.oidcPrincipal.authority.realm,
+            clientId: auth.oidcPrincipal.authority.clientId,
+          },
+        }),
+  };
 }
 
 export async function binding(
@@ -148,6 +171,7 @@ export async function binding(
       auth,
     );
   }
+  if (auth.oidcPrincipal && auth.oidcPrincipal.expiresAt > Date.now()) return localDefaultBinding(auth, executor);
   const roster = loadPeopleRosterIfPresent({ rootDir });
   if (roster === null) return localDefaultBinding(auth, executor);
   const resolved = await makeTransportDerivedIdentityProvider(roster).resolveActor({

@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -13,7 +14,7 @@ import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixtur
 test("explicit preset migration atomically freezes contract, gates and auditable snapshots", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-migration-")),
     repoId = workspaceId("preset-migration"),
-    binding = { actor, source: "local" as const },
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
     taskId = "task_preset_migration",
     action = { kind: "task-contract-migrate" as const, taskId, toPresetId: "docs-task", mode: "apply" },
     now = "2026-09-12T01:00:00.000Z";

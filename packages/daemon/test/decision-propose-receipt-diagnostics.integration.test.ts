@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -8,10 +9,13 @@ import test from "node:test";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
-const proposer = {
-    actor: { principal: { personId: "person-proposer" }, executor: { kind: "agent", id: "codex" } } as const,
-    source: "local" as const,
-  },
+const proposer = withRoleBinding(
+    {
+      actor: { principal: { personId: "person-proposer" }, executor: { kind: "agent", id: "codex" } } as const,
+      source: "local" as const,
+    },
+    "owner",
+  ),
   basePacket = {
     title: "Diagnostics",
     question: "Should the packet validate?",

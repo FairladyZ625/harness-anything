@@ -239,7 +239,10 @@ test("executor declaration and completion context refusals name projection rebui
     repoId = workspaceId("projection-exits"),
     taskId = "task-projection-exits",
     executionId = "exec-projection-exits",
-    owner = { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" as const },
+    owner = withRoleBinding(
+      { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" as const },
+      "owner",
+    ),
     declarer = binding("declared-executor"),
     cache = path.join(rootDir, ".harness/cache/task.sqlite");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -545,10 +548,13 @@ test("task reads against a task id the projection does not have answer task_not_
 });
 
 function binding(executorId: string) {
-  return {
-    actor: { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: executorId } },
-    source: "local" as const,
-  };
+  return withRoleBinding(
+    {
+      actor: { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: executorId } },
+      source: "local" as const,
+    },
+    "owner",
+  );
 }
 function mutate(cache: string, sql: string, ...values: readonly string[]): void {
   const database = new DatabaseSync(cache);

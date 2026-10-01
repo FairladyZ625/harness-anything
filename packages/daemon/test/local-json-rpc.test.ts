@@ -409,6 +409,7 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
       "executionClass",
       "kind",
       "policyAction",
+      "policyTier",
       "receiptSettlement",
       "residency",
     ]);
@@ -433,14 +434,10 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
     for (const action of getEntityKindContract(kind)?.actionCatalog?.actions ?? [])
       if (action.execution?.read === false) assert.notEqual(action.policy.action, null, `${kind}/${action.id}`);
 
-  const localResidency = Object.fromEntries(
-    actionDeclarations
-      .filter(({ policyAction }) => policyAction === null)
-      .map(({ kind, residency }) => [kind, residency.scope]),
+  assert.equal(
+    actionDeclarations.every(({ policyAction }) => typeof policyAction === "string"),
+    true,
   );
-  assert.deepEqual(localResidency, {
-    "agent-run": "runtime-local",
-  });
   for (const kind of ["ledger-backup", "ledger-restore-drill"]) {
     const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);
     assert.equal(declaration?.residency.scope, "host-local", kind);

@@ -1,7 +1,7 @@
 import { assertCurrentWriter, attachReceiptAcceptance, type WriteReceipt } from "@harness-anything/kernel";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
-import { authorizeRepoCellAction, bindVerifiedExecutorClaim } from "./repo-cell-authorization.ts";
+import { evaluateRepoCellAction, bindVerifiedExecutorClaim } from "./repo-cell-authorization.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { chainRepoCellWrite } from "./repo-cell.ts";
@@ -34,9 +34,10 @@ export function enqueueRuntimePublication(
         now: context.now(),
       }),
       revision = context.store.readHead()?.revision ?? 0,
-      authorizationDecision = authorizeRepoCellAction({
+      authorizationDecision = await evaluateRepoCellAction({
         ...claimed,
         actionId: context.operationId(claimed.action, claimed.binding, context.input.repoId, revision),
+        repoId: context.input.repoId,
         revision,
         now: context.now(),
       });

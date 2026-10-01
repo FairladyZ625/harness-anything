@@ -132,7 +132,7 @@ test("review-consent derives the recorded Review digests without a packet and re
     const beforeOutsiderConsent = store().readHead()?.revision,
       outsiderConsent = (await cell.run(
         { kind: "task-review-consent", taskId },
-        { actor: outsider, source: "local" },
+        withRoleBinding({ actor: outsider, source: "local" }, "owner"),
       )) as unknown as Record<string, unknown>;
     assert.deepEqual(
       { outcome: outsiderConsent.outcome, code: outsiderConsent.code },
@@ -691,10 +691,13 @@ test("review-execution and review-consent require a substantive physical report 
 });
 
 function binding(executorId: string) {
-  return {
-    actor: { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: executorId } },
-    source: "local" as const,
-  };
+  return withRoleBinding(
+    {
+      actor: { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: executorId } },
+      source: "local" as const,
+    },
+    "owner",
+  );
 }
 function workspace(name: string): string {
   const rootDir = mkdtempSync(path.join(tmpdir(), `ha-review-selection-${name}-`));

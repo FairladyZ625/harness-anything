@@ -1,16 +1,18 @@
 export type ActionExecutionClass = "repo-write" | "arbiter" | "admin";
+export type ActionPolicyTier = "contributor" | "maintainer" | "admin";
 export type ActionResidency =
   | { readonly scope: "canonical"; readonly writer: "center-repo-cell" }
   | { readonly scope: "runtime-local"; readonly writer: "runtime-host" }
   | { readonly scope: "host-local"; readonly writer: "daemon-host" };
 export type ReceiptSettlementClass = "canonical-acceptance" | "none";
 
-/** The six stable facets shared by policy, protocol, receipt settlement, and entity catalogs. */
+/** The authoritative facets shared by policy, protocol, receipt settlement, and entity catalogs. */
 export interface ActionDeclaration {
   readonly kind: string;
   readonly catalogId: string | null;
   readonly executionClass: ActionExecutionClass;
-  readonly policyAction: string | null;
+  readonly policyAction: string;
+  readonly policyTier: ActionPolicyTier;
   readonly residency: ActionResidency;
   readonly receiptSettlement: ReceiptSettlementClass;
 }
@@ -18,6 +20,9 @@ export interface ActionDeclaration {
 const canonicalResidency = Object.freeze({ scope: "canonical" as const, writer: "center-repo-cell" as const }),
   runtimeResidency = Object.freeze({ scope: "runtime-local" as const, writer: "runtime-host" as const }),
   hostResidency = Object.freeze({ scope: "host-local" as const, writer: "daemon-host" as const });
+
+const policyTierFor = (executionClass: ActionExecutionClass): ActionPolicyTier =>
+  executionClass === "repo-write" ? "contributor" : executionClass === "arbiter" ? "maintainer" : "admin";
 
 const canonical = (
   kind: string,
@@ -30,6 +35,7 @@ const canonical = (
     catalogId,
     executionClass,
     policyAction: kind,
+    policyTier: policyTierFor(executionClass),
     residency: canonicalResidency,
     receiptSettlement,
   });
@@ -39,7 +45,15 @@ const local = (
   executionClass: ActionExecutionClass,
   residency: Exclude<ActionResidency, { readonly scope: "canonical" }>,
 ): ActionDeclaration =>
-  Object.freeze({ kind, catalogId: null, executionClass, policyAction: null, residency, receiptSettlement: "none" });
+  Object.freeze({
+    kind,
+    catalogId: null,
+    executionClass,
+    policyAction: kind,
+    policyTier: policyTierFor(executionClass),
+    residency,
+    receiptSettlement: "none",
+  });
 
 const hostAdmin = (kind: string): ActionDeclaration =>
   Object.freeze({
@@ -47,6 +61,7 @@ const hostAdmin = (kind: string): ActionDeclaration =>
     catalogId: null,
     executionClass: "admin",
     policyAction: kind,
+    policyTier: "admin",
     residency: hostResidency,
     receiptSettlement: "none",
   });
@@ -57,6 +72,7 @@ const runtimeAdmin = (kind: string): ActionDeclaration =>
     catalogId: null,
     executionClass: "admin",
     policyAction: kind,
+    policyTier: "admin",
     residency: runtimeResidency,
     receiptSettlement: "none",
   });

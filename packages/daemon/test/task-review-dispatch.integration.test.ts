@@ -1,24 +1,30 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { realizedDecisionBody, realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
 
-const reviewerActor = (runtimeSessionId: string) => ({
-  actor: {
-    principal: owner.actor.principal,
-    executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
-  },
-  source: "local" as const,
-});
+const reviewerActor = (runtimeSessionId: string) =>
+  withRoleBinding(
+    {
+      actor: {
+        principal: owner.actor.principal,
+        executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
+      },
+      source: "local" as const,
+    },
+    "owner",
+  );
 
 test("decision dispatch-review passes spawn admission and launches once for the current digest", async () => {
   const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
+  const runDecision = (action: Parameters<typeof f.run>[0]) => f.cell().run(action, withRoleBinding(owner, "owner"));
   try {
     await f.install();
-    const proposed = await f.run({
+    const proposed = await runDecision({
       kind: "decision-propose",
       body: realizedDecisionBody("Independent dispatch review"),
       jsonInput: JSON.stringify({
@@ -38,9 +44,9 @@ test("decision dispatch-review passes spawn admission and launches once for the 
     });
     assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
     const decisionId = JSON.parse(String(proposed.evidence)).decisionId as string,
-      shown = await f.run({ kind: "decision-show", decisionId, includeBody: true }),
+      shown = await runDecision({ kind: "decision-show", decisionId, includeBody: true }),
       digest = JSON.parse(String(shown.evidence)).decision.currentReviewContentDigest as string,
-      receipt = await f.run({ kind: "decision-dispatch-review", decisionId, runtimeInstanceId: "review-first" });
+      receipt = await runDecision({ kind: "decision-dispatch-review", decisionId, runtimeInstanceId: "review-first" });
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     assert.equal(f.launches.length, 1);
     assert.match(f.launches[0]!.prompt, new RegExp(decisionId, "u"));
@@ -48,13 +54,13 @@ test("decision dispatch-review passes spawn admission and launches once for the 
     const requested = f.events().filter((event) => event.type === "runtime_dispatch_requested");
     assert.equal(requested.length, 1);
     assert.deepEqual(requested[0]!.payload.reviewTarget, { kind: "decision", decisionId, digest });
-    const retry = await f.run({ kind: "decision-dispatch-review", decisionId });
+    const retry = await runDecision({ kind: "decision-dispatch-review", decisionId });
     assert.equal(retry.outcome, "applied", JSON.stringify(retry));
     assert.equal(f.launches.length, 1);
     const first = requested[0]!.payload;
     f.failPending();
     await f.awaitOutcome(first.runtimeSessionId);
-    const redispatched = await f.run({ kind: "decision-dispatch-review", decisionId });
+    const redispatched = await runDecision({ kind: "decision-dispatch-review", decisionId });
     assert.equal(redispatched.outcome, "applied", JSON.stringify(redispatched));
     assert.equal(f.launches.length, 2, "an ended session without a review needs a new attempt");
     const second = f
@@ -77,9 +83,9 @@ test("decision dispatch-review passes spawn admission and launches once for the 
       evidenceChecked: [],
       reportRef,
     };
-    await expectCoded(f.run(review), "actor_unauthorized");
+    await expectCoded(runDecision(review), "actor_unauthorized");
     await expectCoded(
-      f.run({
+      runDecision({
         ...review,
         decisionId: "decision-unrelated",
         executor: { kind: "agent", id: `runtime-session:${second.runtimeSessionId}` },
@@ -87,7 +93,7 @@ test("decision dispatch-review passes spawn admission and launches once for the 
       "executor_binding_invalid",
     );
     await expectCoded(
-      f.run({
+      runDecision({
         ...review,
         reviewContentDigest: `sha256:${"0".repeat(64)}`,
         executor: { kind: "agent", id: `runtime-session:${second.runtimeSessionId}` },
@@ -98,7 +104,7 @@ test("decision dispatch-review passes spawn admission and launches once for the 
     const packetRef = `decisions/decision-${decisionId}/artifacts/reviews/${second.dispatchId}.json`;
     mkdirSync(path.dirname(path.join(f.root, "harness", packetRef)), { recursive: true });
     writeFileSync(path.join(f.root, "harness", packetRef), JSON.stringify(packet));
-    const reviewed = await f.run({
+    const reviewed = await runDecision({
       kind,
       decisionId: reviewedDecisionId,
       fromFile: `harness/${packetRef}`,
@@ -107,17 +113,23 @@ test("decision dispatch-review passes spawn admission and launches once for the 
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
     f.failPending();
     await f.awaitOutcome(second.runtimeSessionId);
-    const registeredRetry = await f.run({ kind: "decision-dispatch-review", decisionId });
+    const registeredRetry = await runDecision({ kind: "decision-dispatch-review", decisionId });
     assert.equal(registeredRetry.outcome, "applied", JSON.stringify(registeredRetry));
     assert.equal(f.launches.length, 2, "a registered review must keep its ended dispatch idempotent");
-    const accepted = await f.run({
-      kind: "decision-accept",
-      decisionId,
-      reviewId: review.reviewId,
-      expectedDigest: digest,
-      rationale: "Independent review approved this cut.",
-      judgmentOnlyRationale: "The reviewed decision needs no task.",
-    });
+    const accepted = await f.cell().run(
+      {
+        kind: "decision-accept",
+        decisionId,
+        reviewId: review.reviewId,
+        expectedDigest: digest,
+        rationale: "Independent review approved this cut.",
+        judgmentOnlyRationale: "The reviewed decision needs no task.",
+      },
+      withRoleBinding(
+        { actor: { principal: owner.actor.principal, executor: null }, source: "local" as const },
+        "owner",
+      ),
+    );
     assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
   } finally {
     await f.close();

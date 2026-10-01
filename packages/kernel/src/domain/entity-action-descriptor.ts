@@ -18,8 +18,7 @@ const bindActionDeclaration = (kind: string, action: EntityActionContract): Enti
   if (!declaration) return action;
   if (action.execution === null)
     throw new Error(`${kind}/${action.id} has no execution contract for its Action declaration.`);
-  if (action.execution.read || declaration.policyAction === null)
-    throw new Error(`${kind}/${action.id} cannot bind its write Action declaration.`);
+  if (action.execution.read) throw new Error(`${kind}/${action.id} cannot bind its write Action declaration.`);
   return Object.freeze({
     ...action,
     policy: Object.freeze({ ...action.policy, action: declaration.policyAction }),

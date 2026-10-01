@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -19,7 +20,10 @@ const runtimeSessionId = "runtime-ledger-ops",
   taskId = "task-delegated-batch-target",
   issuerPersonId = "person_zeyu",
   delegatedExecutor = { kind: "agent", id: `runtime-session:${runtimeSessionId}` } as const,
-  principalBinding = { actor: { principal: { personId: issuerPersonId }, executor: null }, source: "local" as const },
+  principalBinding = withRoleBinding(
+    { actor: { principal: { personId: issuerPersonId }, executor: null }, source: "local" as const },
+    "owner",
+  ),
   delegatedAction = () => ({
     kind: "task-amend",
     taskId,
@@ -60,10 +64,16 @@ test("a delegated RuntimeSession runs lifecycle Actions on a task it is not boun
       "applied",
     );
 
-    const delegated = await cell.run(delegatedAction(), {
-      actor: { principal: { personId: issuerPersonId }, executor: null },
-      source: "local",
-    });
+    const delegated = await cell.run(
+      delegatedAction(),
+      withRoleBinding(
+        {
+          actor: { principal: { personId: issuerPersonId }, executor: null },
+          source: "local",
+        },
+        "owner",
+      ),
+    );
     assert.equal(delegated.outcome, "applied", JSON.stringify(delegated));
     const decision = delegated.authorizationDecision as unknown as {
       readonly actor?: unknown;
@@ -95,10 +105,16 @@ test("a delegated RuntimeSession runs lifecycle Actions on a task it is not boun
       (await cell.run({ kind: "people-revoke-delegation", tokenId: "det_ledger_ops_1" }, principalBinding)).outcome,
       "applied",
     );
-    const revokedClaim = await cell.run(delegatedAction(), {
-      actor: { principal: { personId: issuerPersonId }, executor: null },
-      source: "local",
-    });
+    const revokedClaim = await cell.run(
+      delegatedAction(),
+      withRoleBinding(
+        {
+          actor: { principal: { personId: issuerPersonId }, executor: null },
+          source: "local",
+        },
+        "owner",
+      ),
+    );
     assert.equal(revokedClaim.outcome, "op_rejected", JSON.stringify(revokedClaim));
     assert.equal(revokedClaim.code, "executor_binding_invalid");
     assert.match(
@@ -108,7 +124,7 @@ test("a delegated RuntimeSession runs lifecycle Actions on a task it is not boun
 
     const otherSession = await cell.run(
       { ...delegatedAction(), executor: { kind: "agent", id: "runtime-session:unrelated-runtime" } },
-      { actor: { principal: { personId: issuerPersonId }, executor: null }, source: "local" },
+      withRoleBinding({ actor: { principal: { personId: issuerPersonId }, executor: null }, source: "local" }, "owner"),
     );
     assert.equal(otherSession.code, "executor_binding_invalid");
     assert.match(String(otherSession.rejectionExplanation), /not canonically bound/u);

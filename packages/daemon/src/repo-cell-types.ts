@@ -42,6 +42,13 @@ export interface RepoCellBinding {
   /** Authored roster projection closes default-open local policy; omitted local bindings use the default. */
   readonly authorizationBindingMode?: "default" | "declared";
   readonly sessionEnvironment?: Readonly<Record<string, string | undefined>>;
+  /** Daemon-established OIDC material for online Keycloak UMA evaluation; never accepted from action payloads. */
+  readonly keycloakAuthorization?: {
+    readonly accessToken: string;
+    readonly url: string;
+    readonly realm: string;
+    readonly clientId: string;
+  };
   readonly roleBindings?: readonly RoleBinding[];
   /**
    * Center-verified DelegatedExecutionToken covering the one Action currently executing; resolved from the

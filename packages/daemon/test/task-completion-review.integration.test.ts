@@ -5,16 +5,21 @@ import path from "node:path";
 import test from "node:test";
 import { executionId, fixture, owner, taskId } from "./task-completion-review.fixture.ts";
 
+import { withRoleBinding } from "./role-binding.fixtures.ts";
+
 type Receipt = Record<string, unknown>;
 
 function reviewerActor(runtimeSessionId: string) {
-  return {
-    actor: {
-      principal: owner.actor.principal,
-      executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
+  return withRoleBinding(
+    {
+      actor: {
+        principal: owner.actor.principal,
+        executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
+      },
+      source: "local" as const,
     },
-    source: "local" as const,
-  };
+    "owner",
+  );
 }
 
 function runtimeSessionId(receipt: unknown): string {

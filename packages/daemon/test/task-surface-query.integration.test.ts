@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -21,7 +22,7 @@ test("wide task reads keep byte-identical unparameterized results and serve narr
       ownerId: "task-query-real",
       now: () => "2026-08-16T00:00:00.000Z",
     });
-    const binding = { actor, source: "local" as const };
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
     for (const [index, title] of [
       ["Alpha", "Alpha"],
       ["Beta", "Beta"],
@@ -416,7 +417,7 @@ test("fact surface serves controlled types, GUI vocabulary, reclassify, and show
       ownerId: "fact-query-real",
       now: () => "2026-08-16T00:00:00.000Z",
     });
-    const binding = { actor, source: "local" as const };
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
     assert.equal(
       (
         await cell.run(
@@ -518,7 +519,7 @@ test("task read surfaces, dry-runs, idempotency, structured input, and supersede
       ownerId: "task-read-surface",
       now: () => "2026-08-15T03:00:00.000Z",
     });
-    const binding = { actor, source: "local" as const };
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
     await cell.run(
       {
         kind: "task-create",
@@ -789,20 +790,26 @@ test("a lapsed lease stays readable through task show and releasable through tas
       ownerId: "task-lease-exit",
       now: () => clock,
     });
-    const holder = {
-      actor: {
-        principal: { personId: "person-surface" },
-        executor: { kind: "agent" as const, id: "executor-departed" },
+    const holder = withRoleBinding(
+      {
+        actor: {
+          principal: { personId: "person-surface" },
+          executor: { kind: "agent" as const, id: "executor-departed" },
+        },
+        source: "local" as const,
       },
-      source: "local" as const,
-    };
-    const reclaimer = {
-      actor: {
-        principal: { personId: "person-surface" },
-        executor: { kind: "agent" as const, id: "executor-reclaimer" },
+      "owner",
+    );
+    const reclaimer = withRoleBinding(
+      {
+        actor: {
+          principal: { personId: "person-surface" },
+          executor: { kind: "agent" as const, id: "executor-reclaimer" },
+        },
+        source: "local" as const,
       },
-      source: "local" as const,
-    };
+      "owner",
+    );
     const created = await cell.run({ kind: "task-create", taskId: "task_lease", title: "Lease exit" }, holder);
     assert.equal(created.outcome, "applied");
     assert.equal(created.status, "accepted_durable");
@@ -869,13 +876,16 @@ test("a lapsed lease stays readable through task show and releasable through tas
     assert.equal(bite.outcome, "op_rejected", JSON.stringify(bite));
     assert.equal(bite.code, "progress_lease_required", JSON.stringify(bite));
     assert.deepEqual(bite.diagnostic, { kind: "failure", code: "progress_lease_required" });
-    const outsider = {
-      actor: {
-        principal: { personId: "person-outsider" },
-        executor: { kind: "agent" as const, id: "executor-outsider" },
+    const outsider = withRoleBinding(
+      {
+        actor: {
+          principal: { personId: "person-outsider" },
+          executor: { kind: "agent" as const, id: "executor-outsider" },
+        },
+        source: "local" as const,
       },
-      source: "local" as const,
-    };
+      "owner",
+    );
     const crossPrincipal = await cell.run(
       {
         kind: "task-release",
@@ -942,7 +952,7 @@ test("a released round is re-enterable by its own execution and still refuses a 
       ownerId: "task-round-reenter",
       now: () => "2026-08-15T02:00:00.000Z",
     });
-    const binding = { actor, source: "local" as const };
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
     const created = await cell.run(
       {
         kind: "task-create",
@@ -1065,7 +1075,7 @@ test("read commands report projection readiness instead of asserting canonical v
       ownerId: "task-readiness",
       now: () => "2026-08-15T02:00:00.000Z",
     });
-    const binding = { actor, source: "local" as const };
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
     assert.equal(
       (await cell.run({ kind: "task-create", taskId: "task_ready", title: "Readiness" }, binding)).outcome,
       "applied",

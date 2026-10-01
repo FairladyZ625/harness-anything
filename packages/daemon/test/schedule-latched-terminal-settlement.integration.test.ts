@@ -5,16 +5,20 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { withRoleBinding, writeOwnerRoster } from "./role-binding.fixtures.ts";
 import { makeTaskEventStore, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
 import { operationId } from "../src/repo-cell-proof.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 
-const settlementActor = {
-  actor: { principal: { personId: "schedule-settlement-operator" }, executor: null },
-  source: "local" as const,
-};
+const settlementActor = withRoleBinding(
+  {
+    actor: { principal: { personId: "schedule-settlement-operator" }, executor: null },
+    source: "local" as const,
+  },
+  "repo-write",
+);
 const settlementRuntimeDefinition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",
   configVersion: 1,
@@ -36,6 +40,7 @@ test("runtime attempt-terminal asynchronously settles the claimed Schedule occur
     exit: ((code: number | null) => void) | null = null;
   const prompts: string[] = [];
   try {
+    writeOwnerRoster(root, [settlementActor.actor.principal.personId]);
     git(root, "init", "-q");
     git(root, "config", "user.name", "Schedule Settlement Test");
     git(root, "config", "user.email", "schedule-settlement@example.invalid");
@@ -272,10 +277,13 @@ async function eventuallyAsync(check: () => Promise<boolean>): Promise<boolean> 
   return false;
 }
 
-const actor = {
-  actor: { principal: { personId: "latched-settlement-operator" }, executor: null },
-  source: "local" as const,
-};
+const actor = withRoleBinding(
+  {
+    actor: { principal: { personId: "latched-settlement-operator" }, executor: null },
+    source: "local" as const,
+  },
+  "repo-write",
+);
 const definition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",
   configVersion: 1,
@@ -296,6 +304,7 @@ test("runtime attempt-terminal settles the Schedule occurrence while the RepoCel
   let output: ((chunk: string) => void) | null = null,
     exit: ((code: number | null) => void) | null = null;
   try {
+    writeOwnerRoster(root, [actor.actor.principal.personId]);
     git(root, "init", "-q");
     git(root, "config", "user.name", "Latched Settlement Test");
     git(root, "config", "user.email", "latched-settlement@example.invalid");

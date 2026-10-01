@@ -10,13 +10,19 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
-const proposer = {
-    actor: { principal: { personId: "person-proposer" }, executor: { kind: "agent", id: "codex" } } as const,
-    source: "local" as const,
-  },
+const proposer = withRoleBinding(
+    {
+      actor: { principal: { personId: "person-proposer" }, executor: { kind: "agent", id: "codex" } } as const,
+      source: "local" as const,
+    },
+    "repo-write",
+  ),
   arbiter = withRoleBinding(
-    { actor: { principal: { personId: "person-arbiter" }, executor: null } as const, source: "local" as const },
-    "arbiter",
+    withRoleBinding(
+      { actor: { principal: { personId: "person-arbiter" }, executor: null } as const, source: "local" as const },
+      "arbiter",
+    ),
+    "repo-write",
   );
 
 test("Decision F06 surface preserves amend, transition, relation, repin, validation, distill, and cold rebuild semantics", async () => {

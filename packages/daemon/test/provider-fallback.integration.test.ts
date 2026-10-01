@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,10 +16,13 @@ import { makeRuntimeSpawner } from "../src/runtime-spawn.ts";
 import type { RuntimeBinding, RuntimeProcess } from "../src/runtime-spawn-types.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
-const binding = {
-  actor: { principal: { personId: "person-provider-fallback" }, executor: null },
-  source: "local" as const,
-};
+const binding = withRoleBinding(
+  {
+    actor: { principal: { personId: "person-provider-fallback" }, executor: null },
+    source: "local" as const,
+  },
+  "owner",
+);
 const installation: RuntimeInstallationWitness = {
   installationId: "installation-provider-fallback",
   kindId: "codex",

@@ -90,8 +90,8 @@ test("the default Policy covers the frozen durable inventory exactly once", () =
   // S2 classifies the five daemon registry mutations by their host-local declarations while preserving an
   // auditable admin policy decision for each socket-owner operation (dec_D60FAA451F24160E970323B6F3), +5;
   // task_f2f6f35cfb02adcf4df7fd1ad1 (CEO ruling on task_e971401b34093fe6efe4d412a5) deletes ha agent create
-  // and its agent-create Action whole-chain, -1. CEO confirmed 133 → 137.
-  assert.equal(durablePolicyActions.length, 137);
+  // and its agent-create Action whole-chain, -1; S2 adds daemon-repo-update, yielding 138 declarations.
+  assert.equal(durablePolicyActions.length, 138);
   for (const kind of ["entity-pin", "entity-unpin"] as const) {
     assert.equal(port.authorize(action(kind), roleContext("repo-write")).outcome, "allowed");
     assert.equal(port.authorize(action(kind), roleContext("repo-read")).outcome, "denied");

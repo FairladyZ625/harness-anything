@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -10,10 +11,13 @@ import { writePackage } from "../../preset/test/preset-resolver.fixtures.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 
-const binding = {
-    actor: { principal: { personId: "person-owner" }, executor: null },
-    source: "local" as const,
-  },
+const binding = withRoleBinding(
+    {
+      actor: { principal: { personId: "person-owner" }, executor: null },
+      source: "local" as const,
+    },
+    "owner",
+  ),
   taskId = "task_01KZXSYDTJ3K1YE88294X33QNX";
 
 /**

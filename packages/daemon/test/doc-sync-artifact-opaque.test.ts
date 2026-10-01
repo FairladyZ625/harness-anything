@@ -46,7 +46,7 @@ test("artifact add treats every artifacts/ path as opaque while preserving media
   initRepo(rootDir);
   const repoId = workspaceId("artifact-opaque"),
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-opaque" }),
-    binding = { actor, source: "local" as const };
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-opaque", title: "Opaque Artifacts" }, binding);
     assert.equal(created.outcome, "applied", JSON.stringify(created));
@@ -172,7 +172,7 @@ test("artifact add still rejects escapes, symlinked path segments, and undecodab
       rootDir: canonicalRoot(rootDir),
       ownerId: "artifact-guards",
     }),
-    binding = { actor, source: "local" as const };
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-guards", title: "Guards" }, binding);
     assert.equal(created.outcome, "applied", JSON.stringify(created));
@@ -232,7 +232,7 @@ test("a historical prose artifact is rewritten as opaque without a policy upgrad
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-policy-reclassify-"));
   initRepo(rootDir);
   const repoId = workspaceId("artifact-policy-reclassify"),
-    binding = { actor, source: "local" as const };
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   let cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-policy-reclassify" });
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-reclassify", title: "Reclassify" }, binding);
@@ -313,7 +313,7 @@ test("authored architecture C4 files travel from dry-run through opaque submit",
   initRepo(rootDir);
   const repoId = workspaceId("architecture-model"),
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "architecture-model" }),
-    binding = { actor, source: "local" as const },
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
     model = "context/architecture/model/views/write-path.c4",
     manifest = "context/architecture/architecture-manifest.json",
     modelBody = "views { view writePath { title 'Single Write Road' } }\n",
@@ -360,7 +360,7 @@ test("a historical opaque Markdown claim is restamped through the prose channel"
   mkdirSync(sourceRoot);
   initRepo(sourceRoot);
   const repoId = workspaceId("opaque-prose-restamp"),
-    binding = { actor, source: "local" as const },
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
     logical = "context/architecture/Architecture-SSoT.md",
     legacy = "# Architecture\n\nLegacy state.\n",
     store = makeTaskEventStore({ repoId, rootDir: sourceRoot }),
@@ -462,7 +462,7 @@ test("task_plan.md and closeout.md retain prose policy, proofs, and deletion pro
   initRepo(rootDir);
   const repoId = workspaceId("task-prose"),
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "task-prose" }),
-    binding = { actor, source: "local" as const };
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-prose", title: "Prose" }, binding);
     assert.equal(created.outcome, "applied", JSON.stringify(created));
@@ -507,7 +507,7 @@ test("an identifier-free lifecycle publishes dirty artifacts and completes on th
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-complete-"));
   initRepo(rootDir);
   const repoId = workspaceId("artifact-complete"),
-    binding = { actor, source: "local" as const };
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | null = await openRepoCell({
     repoId,
     rootDir: canonicalRoot(rootDir),
@@ -586,7 +586,7 @@ async function reachGreenInReview(
   taskId: string,
   packagePath: string,
 ): Promise<void> {
-  const binding = { actor, source: "local" as const };
+  const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   await realizeTaskPlanFixture(rootDir, packagePath, (planPath) =>
     cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
   );
@@ -676,7 +676,7 @@ test("raw task artifacts publish their original bytes, filename, and owner throu
   initRawBytesRepo(rootDir);
   const repoId = workspaceId("artifact-raw"),
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-raw" }),
-    binding = { actor, source: "local" as const };
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-raw", title: "Raw Bytes" }, binding);
     assert.equal(created.outcome, "applied", JSON.stringify(created));
@@ -768,7 +768,7 @@ test("two executions producing the same raw report basename keep both artifacts 
   initRawBytesRepo(rootDir);
   const repoId = workspaceId("artifact-raw-basename"),
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-raw-basename" }),
-    binding = { actor, source: "local" as const };
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-basename", title: "Basename" }, binding);
     assert.equal(created.outcome, "applied", JSON.stringify(created));
@@ -833,7 +833,7 @@ test("a raw publication that fails leaves no accepted artifact and no raw claim 
   initRawBytesRepo(rootDir);
   const repoId = workspaceId("artifact-raw-failure"),
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-raw-failure" }),
-    binding = { actor, source: "local" as const };
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   try {
     const created = await cell.run({ kind: "task-create", taskId: "task-fail", title: "Fail" }, binding);
     assert.equal(created.outcome, "applied", JSON.stringify(created));
@@ -915,7 +915,7 @@ test("doc status offers a new small JSON task artifact to doc sync like any text
   initRawBytesRepo(rootDir);
   const repoId = workspaceId("artifact-json-route"),
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-json-route" }),
-    binding = { actor, source: "local" as const };
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   try {
     const created = (await cell.run({ kind: "task-create", taskId: "task-json", title: "JSON Artifact" }, binding)) as {
       readonly outcome: string;
@@ -948,7 +948,7 @@ test("doc status uses the configured authored root and quotes artifact source pa
   );
   const repoId = workspaceId("artifact-configured-root"),
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-configured-root" }),
-    binding = { actor, source: "local" as const };
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   try {
     const created = (await cell.run(
       { kind: "task-create", taskId: "task-configured", title: "Configured Root" },
@@ -994,7 +994,7 @@ test("doc status routes oversized textual task artifacts through artifact add", 
   initRepo(rootDir);
   const repoId = workspaceId("artifact-oversized-text"),
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-oversized-text" }),
-    binding = { actor, source: "local" as const };
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   try {
     const created = (await cell.run(
         { kind: "task-create", taskId: "task-oversized-text", title: "Oversized Text" },
@@ -1037,7 +1037,7 @@ test("doc status nextAction round-trips when the authored root is its own nested
   git(ledgerRoot, "commit", "-qm", "ledger base");
   const repoId = workspaceId("artifact-nested-ledger"),
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "artifact-nested-ledger" }),
-    binding = { actor, source: "local" as const };
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   try {
     const created = (await cell.run(
       { kind: "task-create", taskId: "task-nested", title: "Nested Ledger" },

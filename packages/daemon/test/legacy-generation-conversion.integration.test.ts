@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -641,7 +642,7 @@ test("inactive generation conversion witnesses separated legacy relations at the
     repoId = "generation-witness",
     snapshotPath = path.join(root, "generation-0.snapshot.json"),
     databasePath = path.join(root, ".harness/store/generations/1/ledger.sqlite"),
-    binding = { actor, source: "local" as const };
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   let cell: Awaited<ReturnType<typeof openBootstrappedRepoCell>> | undefined;
   try {
     initRepo(sourceRoot);

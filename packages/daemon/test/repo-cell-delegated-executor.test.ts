@@ -100,10 +100,30 @@ function rosterBody(tokens: readonly DelegatedExecutionToken[] = [token()]): str
 }
 
 function bindingFor(principalPersonId = issuerPersonId): RepoCellBinding {
+  const actor = { principal: { personId: principalPersonId }, executor: null };
   return {
-    actor: { principal: { personId: principalPersonId }, executor: null },
+    actor,
     source: "local",
-    authorizationBindingMode: "default",
+    authorizationBindingMode: "declared",
+    roleBindings: [
+      {
+        actor: { kind: "person", id: principalPersonId },
+        role: "owner",
+        target: "settings/repository",
+        source: "declared",
+        expiresAt: null,
+      },
+    ],
+    authorizationDecision: {
+      policyRef: "keycloak-policy@1",
+      actor,
+      subject: `task/${targetTaskId}`,
+      bindingsUsed: [{ authority: "keycloak", scope: delegatedAction.kind }],
+      outcome: "allowed",
+      reasonCodes: ["keycloak_allowed"],
+      nextActions: [],
+      evaluatedAtCut: "fixture:keycloak",
+    },
   };
 }
 
@@ -129,7 +149,7 @@ test("a delegated executor claim crosses task bindings through a valid token", a
   );
 });
 
-test("the delegated claim authorizes as the issuer, not the transport principal", async () => {
+test("the delegated claim still requires the issuer's Keycloak permission", async () => {
   const ownerRoster = serializePeopleRosterDocument({
       schema: "harness-people/v1",
       people: [
@@ -145,8 +165,7 @@ test("the delegated claim authorizes as the issuer, not the transport principal"
     }),
     ownerContext = contextFor(() => ownerRoster),
     ownerBinding: RepoCellBinding = {
-      actor: { principal: { personId: "person_operator" }, executor: null },
-      source: "local",
+      ...bindingFor("person_operator"),
       authorizationBindingMode: "declared",
       roleBindings: [],
     },
@@ -168,7 +187,10 @@ test("the delegated claim authorizes as the issuer, not the transport principal"
       delegatedExecutionTokens: [token()],
     }),
     reviewerContext = contextFor(() => reviewerOnly),
-    denied = await createRepoCellApi(reviewerContext).run(delegatedAction, ownerBinding);
+    denied = await createRepoCellApi(reviewerContext).run(delegatedAction, {
+      ...ownerBinding,
+      authorizationDecision: undefined,
+    });
   assert.equal(denied.outcome, "op_rejected", JSON.stringify(denied));
   assert.equal(denied.code, "authorization_denied");
   assert.equal(reviewerContext.observedActor, null);

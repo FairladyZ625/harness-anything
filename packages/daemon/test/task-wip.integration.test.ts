@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -42,7 +43,7 @@ test("the execution WIP gate hard-rejects at the limit and never holds closeout 
       ownerId: "task-wip-deadlock",
       now: () => "2026-08-16T00:00:00.000Z",
     });
-    const binding = { actor, source: "local" as const };
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
     for (const [taskId, title] of [
       ["task_OCC_A", "Occupant A"],
       ["task_OCC_B", "Occupant B"],
@@ -173,7 +174,7 @@ test("the limit is configurable from settings.tasks.wipLimit and overridden by t
         now: () => "2026-08-16T00:00:00.000Z",
       });
     cell = await open();
-    const binding = { actor, source: "local" as const };
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
     assert.deepEqual(resolveTaskWipLimit({ tasks: { wipLimit: 1, rootThreshold: 3 } }), {
       limit: 1,
       label: "settings.tasks.wipLimit",
@@ -240,7 +241,7 @@ test("a standard task becomes a visible structure-derived root without rewriting
         now: () => "2026-08-20T00:00:00.000Z",
       });
     cell = await open();
-    const binding = { actor, source: "local" as const };
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
     for (const [taskId, title] of [
       ["task_ROOT_3", "Three children"],
       ["task_ROOT_2", "Two children"],
@@ -324,7 +325,7 @@ test("task list exposes active package metadata and excludes archived packages f
       ownerId: "task-wip-projection",
       now: () => "2026-08-16T00:00:00.000Z",
     });
-    const binding = { actor, source: "local" as const };
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
     await createReadyTask(cell, rootDir, "task_STD", "Standard work");
     await createReadyTask(cell, rootDir, "task_WORK", "Work container", { taskClass: "work" });
     await createReadyTask(cell, rootDir, "task_ARCHIVED", "Retired work");
@@ -390,7 +391,7 @@ test("a released active task returns to planned while held leases and stale writ
       ownerId: "task-return-planned",
       now: () => "2026-08-30T00:00:00.000Z",
     });
-    const binding = { actor, source: "local" as const },
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
       taskId = "task_RETURN_PLANNED";
     await createReadyTask(cell, rootDir, taskId, "Return released work to planning");
     assert.equal(
@@ -470,7 +471,7 @@ test("taskClass=long_running work never occupies the execution worktable, even m
       ownerId: "task-wip-long-running",
       now: () => "2026-08-16T00:00:00.000Z",
     });
-    const binding = { actor, source: "local" as const };
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
     await createReadyTask(cell, rootDir, "task_OCC", "Occupant");
     assert.equal(
       (await cell.run({ kind: "task-start", taskId: "task_OCC", executionId: "exe_occ" }, binding)).outcome,
@@ -533,7 +534,10 @@ test("taskClass=long_running work never occupies the execution worktable, even m
 });
 
 async function packagePathOf(cell: Cell, taskId: string): Promise<string> {
-  const shown = (await cell.run({ kind: "task-show", taskId }, { actor, source: "local" })) as {
+  const shown = (await cell.run(
+    { kind: "task-show", taskId },
+    withRoleBinding({ actor, source: "local" }, "owner"),
+  )) as {
     readonly evidence: string;
   };
   return String((JSON.parse(shown.evidence) as { readonly packagePath: string }).packagePath);
@@ -546,7 +550,7 @@ async function createReadyTask(
   title: string,
   options: { readonly taskClass?: "work" | "long_running"; readonly parentTaskId?: string } = {},
 ): Promise<void> {
-  const binding = { actor, source: "local" as const };
+  const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
   await createRealizedTaskPlanFixture(
     rootDir,
     async () => {
@@ -652,7 +656,7 @@ test("the served WIP snapshot passes the same protocol validator the GUI client 
       ownerId: "task-wip-contract",
       now: () => "2026-09-14T00:00:00.000Z",
     });
-    const binding = { actor, source: "local" as const };
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
     // Contrast 1 — no root: a leaf-only worktable serves a snapshot that validates.
     await createReadyTask(cell, rootDir, "task_LEAF", "Leaf work");
     assert.equal(

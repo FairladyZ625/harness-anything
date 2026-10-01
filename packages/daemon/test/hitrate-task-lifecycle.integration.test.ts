@@ -17,27 +17,36 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
     taskId = "task-hitrate-lifecycle",
     executionId = "execution-hitrate-lifecycle",
     repoId = workspaceId("hitrate-lifecycle"),
-    holder = {
+    holder = withRoleBinding(
+      {
+        actor: {
+          principal: { personId: "person-owner" },
+          executor: { kind: "agent" as const, id: "worker-owner" },
+        },
+        source: "local" as const,
+      },
+      "owner",
+    ),
+    foreign = withRoleBinding(
+      {
+        actor: {
+          principal: { personId: "person-other" },
+          executor: { kind: "agent" as const, id: "worker-other" },
+        },
+        source: "local" as const,
+      },
+      "owner",
+    );
+  const owner = withRoleBinding(
+    {
       actor: {
         principal: { personId: "person-owner" },
-        executor: { kind: "agent" as const, id: "worker-owner" },
+        executor: { kind: "agent" as const, id: "worker-ceo" },
       },
       source: "local" as const,
     },
-    foreign = {
-      actor: {
-        principal: { personId: "person-other" },
-        executor: { kind: "agent" as const, id: "worker-other" },
-      },
-      source: "local" as const,
-    };
-  const owner = {
-    actor: {
-      principal: { personId: "person-owner" },
-      executor: { kind: "agent" as const, id: "worker-ceo" },
-    },
-    source: "local" as const,
-  };
+    "owner",
+  );
   mkdirSync(rootDir, { recursive: true });
   initRepo(rootDir);
   writeFileSync(path.join(rootDir, "README.md"), "# Lifecycle fixture\n");

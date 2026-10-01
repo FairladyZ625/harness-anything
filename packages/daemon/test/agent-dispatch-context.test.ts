@@ -18,7 +18,7 @@ import { actor, evidence, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 
-const binding: RepoCellBinding = { actor, source: "local" as const },
+const binding: RepoCellBinding = withRoleBinding({ actor, source: "local" as const }, "repo-write"),
   definition: AgentDefinitionSnapshot = {
     schema: "agent-definition-snapshot/v1",
     configVersion: 1,

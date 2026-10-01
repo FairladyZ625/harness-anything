@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,7 +14,10 @@ import { canonicalRoot } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import type { ScheduleGuiRowDto, SchedulesListResult } from "../src/protocol/schedules-gui-contract.ts";
 
-const actor = { actor: { principal: { personId: "schedule-operator" }, executor: null }, source: "local" as const };
+const actor = withRoleBinding(
+  { actor: { principal: { personId: "schedule-operator" }, executor: null }, source: "local" as const },
+  "owner",
+);
 const definition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",
   configVersion: 1,

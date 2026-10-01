@@ -626,7 +626,7 @@ test("the authored walls manifest can be created and edited through doc sync", a
       rootDir: canonicalRoot(rootDir),
       ownerId: "governance-doc-daemon",
     }),
-    binding = { actor, source: "local" as const },
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
     logical = documentPath("governance/walls/walls.json");
   try {
     for (const walls of [[], [{ id: "retired-preset", expect: "exit==0" }]]) {

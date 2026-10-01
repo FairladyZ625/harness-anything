@@ -71,7 +71,7 @@ import type {
   RepoCellReadMethod,
   RepoTaskAction,
 } from "./repo-cell-types.ts";
-import { authorizeRepoCellAction, bindVerifiedExecutorClaim } from "./repo-cell-authorization.ts";
+import { evaluateRepoCellAction, bindVerifiedExecutorClaim } from "./repo-cell-authorization.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 import { makeTaskQueryReadModel } from "./task-query-read.ts";
 import { chainRepoCellWrite, repoCellTaskQueryJudgmentsFor } from "./repo-cell.ts";
@@ -201,9 +201,10 @@ export function createRepoCellApi(context: RepoCellApiContext): RepoCell & RepoC
     const command = commandDescriptorForAction(action.kind),
       authorizationDecision =
         action.kind === "preset-run-start"
-          ? authorizeRepoCellAction({
+          ? await evaluateRepoCellAction({
               action,
               binding,
+              repoId: context.input.repoId,
               actionId: context.operationId(
                 action,
                 binding,

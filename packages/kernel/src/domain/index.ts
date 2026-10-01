@@ -21,6 +21,8 @@ export { deriveActionReturnsContract } from "./entity-action-descriptor.ts";
 export type { ReceiptGuidanceArgument, ReceiptGuidanceContractEntry } from "./entity-action-descriptor.ts";
 export { evaluateTaskActionCapability, taskLifecycleNextActions } from "./task-action-capability.ts";
 export { actionDeclarations } from "./action-declaration.ts";
+export { assertAcyclicPolicyGroups, deriveBasePolicyGroups, encodeAuthorizationResource } from "./policy-groups.ts";
+export type { AuthorizationResource, PolicyGroup } from "./policy-groups.ts";
 export { DEFAULT_POLICY, durablePolicyActions } from "./default-policy.ts";
 export { REPLAY_TASK_GRAPH } from "./task-graph.ts";
 export { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle.contract.ts";

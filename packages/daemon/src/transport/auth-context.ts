@@ -26,6 +26,8 @@ export interface DaemonAuthenticationContext {
     readonly personId: string;
     readonly subject: string;
     readonly expiresAt: number;
+    readonly accessToken: string;
+    readonly authority: { readonly url: string; readonly realm: string; readonly clientId: string };
   };
   readonly assignmentBinding?: DaemonFleetAssignmentBinding;
   /** Center-only admission context; never accepted from a client payload. */

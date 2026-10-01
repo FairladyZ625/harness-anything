@@ -20,7 +20,12 @@ import {
   requireHostMode as requireHostModeImpl,
   settleControl as settleControlImpl,
 } from "./daemon-host-admission.ts";
-import { binding as deriveBinding, localSystemBinding, withDaemonWriterEpochFence } from "./daemon-host-binding.ts";
+import {
+  binding as deriveBinding,
+  localSystemBinding,
+  localScheduleBinding,
+  withDaemonWriterEpochFence,
+} from "./daemon-host-binding.ts";
 import { createDaemonHostControlApi } from "./daemon-host-control-api.ts";
 import {
   attachBudgetError,
@@ -239,7 +244,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       cells,
       now,
       localBinding: (repoId, rootDir, required) => {
-        const base = localSystemBinding(rootDir);
+        const base = localScheduleBinding();
         return required === "repo-read" ? base : daemonWriterBinding(repoId, base);
       },
       remoteEdgeAction: async (repoId, rootDir, action) => {
@@ -262,7 +267,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   // The system builtin schedules are seeded on local attach with the same writer binding the
   // scheduler fires occurrences through, so seeding and firing share one authority.
   const seedBuiltinSchedulesOnAttach = async (repoId: string, rootDir: string, cell: RepoCell): Promise<void> => {
-    await seedBuiltinSchedules({ cell, binding: daemonWriterBinding(repoId, localSystemBinding(rootDir)) });
+    await seedBuiltinSchedules({ cell, binding: daemonWriterBinding(repoId, localScheduleBinding()) });
   };
   let latestControl: DaemonControlReceipt | null = null;
   let fleetCenter: FleetTlsCenter | null = null;

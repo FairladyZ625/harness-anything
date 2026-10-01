@@ -341,9 +341,15 @@ test("F2: a crash after the atomic bundle commit replays both the transition and
     assert.ok(failed.acceptance, "the committed command must retain its acceptance interval");
     await cell.close();
     cell = await openRepoCell({ repoId: workspaceId("w3c-h-f2"), rootDir: canonicalRoot(root), ownerId: "f2-two" });
-    const shown = await cell.run({ kind: "task-show", taskId: "task-crash" }, { actor, source: "local" });
+    const shown = await cell.run(
+      { kind: "task-show", taskId: "task-crash" },
+      withRoleBinding({ actor, source: "local" }, "owner"),
+    );
     const evidence = JSON.parse(String(shown.evidence)) as { task?: { status?: string }; lease?: unknown };
-    const doc = await cell.run({ kind: "doc-show", path: logical }, { actor, source: "local" });
+    const doc = await cell.run(
+      { kind: "doc-show", path: logical },
+      withRoleBinding({ actor, source: "local" }, "owner"),
+    );
     assert.equal(
       evidence.task?.status,
       "active",

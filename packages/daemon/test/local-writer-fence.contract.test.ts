@@ -15,9 +15,8 @@ test("every production local binding is covered by a request or cell-default wri
   assert.deepEqual(
     [...counts].sort(([left], [right]) => left.localeCompare(right)),
     [
-      ["daemon-host-binding.ts", 3],
+      ["daemon-host-binding.ts", 4],
       ["host-action-authorization.ts", 1],
-      ["repo-cell-authorization.ts", 1],
       ["repo-cell-bootstrap-ledger.ts", 1],
     ],
     `unclassified production source:local use:\n${uses.map((use) => `${use.file}:${use.line}`).join("\n")}`,
@@ -38,6 +37,13 @@ test("every production local binding is covered by a request or cell-default wri
     source("daemon-host-open.ts"),
     /return writerRepoId \? daemonWriterBinding\(writerRepoId, base\) : base/u,
   );
+  // CEO R7: the explicit daemon Schedule principal is a new local binding construction;
+  // both seeding and occurrence writes must still enter the daemon writer fence.
+  assert.match(source("daemon-host-open.ts"), /binding: daemonWriterBinding\(repoId, localScheduleBinding\(\)\)/u);
+  assert.match(
+    source("daemon-host-open.ts"),
+    /const base = localScheduleBinding\(\);[\s\S]*?daemonWriterBinding\(repoId, base\)/u,
+  );
   assert.match(
     source("daemon-host-registry.ts"),
     /defaultWriterEpochFence: context\.writerEpochFence\(repo\.repoId\)/u,
@@ -48,12 +54,16 @@ test("every production local binding is covered by a request or cell-default wri
   );
   assert.match(source("writer-supervisor.ts"), /defaultWriterEpochFence: input\.defaultWriterEpochFence/u);
 
-  for (const authorizationFile of ["host-action-authorization.ts", "repo-cell-authorization.ts"])
-    assert.match(
-      source(authorizationFile),
-      /defaultBinding:\s*\{\s*principalPersonId:[\s\S]*?source: "local" as const/u,
-      `${authorizationFile} source:local must remain authorization context, not a write binding`,
-    );
+  assert.match(
+    source("host-action-authorization.ts"),
+    /defaultBinding:\s*\{\s*principalPersonId:[\s\S]*?source: "local" as const/u,
+    "socket owner binding remains a host authorization context, not a write binding",
+  );
+  assert.doesNotMatch(
+    source("repo-cell-authorization.ts"),
+    /defaultBinding:/u,
+    "repository writes require explicit RoleBinding, assignment or Keycloak identity",
+  );
 });
 
 function localSourceUses(): readonly { readonly file: string; readonly line: number }[] {

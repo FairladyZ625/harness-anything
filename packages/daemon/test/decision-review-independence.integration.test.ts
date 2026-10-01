@@ -56,7 +56,7 @@ test("an independent approved review lets the proposal owner accept the current 
     assert.equal(settingsUpdated.outcome, "applied", JSON.stringify(settingsUpdated));
     const proposed = await cell.run(decisionProposal(), proposer),
       decisionId = receiptJson(proposed).decisionId as string,
-      owner = withRoleBinding(proposer, "repo-write"),
+      owner = withRoleBinding({ ...proposer, actor: { ...proposer.actor, executor: null } }, "owner"),
       independentReviewer = withRoleBinding(
         {
           actor: {
@@ -65,7 +65,7 @@ test("an independent approved review lets the proposal owner accept the current 
           },
           source: "local" as const,
         },
-        "repo-write",
+        "owner",
       );
     const relatedDecisionIds: string[] = [];
     for (const suffix of ["relation-a", "relation-b"]) {
@@ -147,7 +147,7 @@ test("an independent approved review lets the proposal owner accept the current 
         },
         source: "local" as const,
       },
-      "repo-write",
+      "owner",
     );
     const samePrincipalReview = await cell.run(
       {
@@ -252,7 +252,7 @@ test("an independent approved review lets the proposal owner accept the current 
   }
 });
 
-test("Decision judgment and review disposition stay with the proposal owner or explicit human approval", async () => {
+test("Decision scope authorization and human approval govern judgment and review disposition", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-review-authority-"));
   initRepo(rootDir);
   const cell = await openRepoCell({
@@ -344,24 +344,24 @@ test("Decision judgment and review disposition stay with the proposal owner or e
       {
         kind: "decision-accept",
         decisionId,
-        rationale: "Consent cannot grant a principal arbiter qualification.",
-        judgmentOnlyRationale: "The principal has repo-write authority only.",
+        rationale: "Consent cannot grant a principal missing action authority.",
+        judgmentOnlyRationale: "The principal has no action authority.",
         consentBy: repoWriter.actor.principal.personId,
         consentAt: approval.consentAt,
         consentChannel: approval.consentChannel,
       },
-      repoWriter,
+      { ...repoWriter, roleBindings: [] },
     );
     assert.deepEqual(
       { outcome: unqualifiedApproval.outcome, code: unqualifiedApproval.code },
-      { outcome: "op_rejected", code: "actor_unauthorized" },
+      { outcome: "op_rejected", code: "authorization_denied" },
     );
     const reviewer = withRoleBinding(
       {
         actor: { principal: { personId: "person-reviewer" }, executor: null },
         source: "local" as const,
       },
-      "repo-write",
+      "owner",
     );
     const reportRef = `decisions/decision-${decisionId}/artifacts/reports/changes-requested.md`;
     writeReport(rootDir, reportRef);
@@ -746,7 +746,7 @@ test("a direct human can adjudicate without recording a separate approval", asyn
     }),
     human = withRoleBinding(
       { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" as const },
-      "arbiter",
+      "owner",
     );
   try {
     for (const [variant, action] of [
@@ -837,7 +837,7 @@ test("retry completes the awaits write after the review write response is interr
       digest = decisionReviewContentDigest({ ...current, relations: [] }, body.body),
       reviewer = withRoleBinding(
         { actor: { principal: { personId: "person-reviewer" }, executor: null }, source: "local" as const },
-        "repo-write",
+        "owner",
       ),
       action = {
         kind: "decision-review" as const,
@@ -982,7 +982,7 @@ test("the in-progress agenda row names each running reviewer and the findings it
       },
       withRoleBinding(
         { actor: { principal: { personId: "person-reviewer" }, executor: null }, source: "local" as const },
-        "repo-write",
+        "owner",
       ),
     );
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
@@ -1059,7 +1059,7 @@ test("a person's ask on the proposal owner survives the review changes being res
       },
       withRoleBinding(
         { actor: { principal: { personId: "person-reviewer" }, executor: null }, source: "local" as const },
-        "repo-write",
+        "owner",
       ),
     );
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));

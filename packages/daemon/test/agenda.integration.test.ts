@@ -30,7 +30,7 @@ after(() => {
 });
 
 const actor = { principal: { personId: "person-agenda" }, executor: { kind: "agent", id: "codex-sol" } } as const;
-const binding = { actor, source: "local" as const };
+const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
 
 function writeReviewReport(rootDir: string, packagePath: string, reviewId: string): void {
   const stem = reviewId.startsWith("review-") ? reviewId.slice("review-".length) : reviewId,
@@ -782,10 +782,13 @@ test("entity pins cover task, decision, and schedule with bounded rendering and 
   await withCell(
     "agenda-entity-pins",
     async (cell) => {
-      const settingsBinding = {
-          actor: { principal: { personId: "person-agenda" }, executor: null },
-          source: "local" as const,
-        },
+      const settingsBinding = withRoleBinding(
+          {
+            actor: { principal: { personId: "person-agenda" }, executor: null },
+            source: "local" as const,
+          },
+          "owner",
+        ),
         runCli = (argv: readonly string[]) => {
           const parsed = parseThinCommand(argv);
           assert.equal(parsed.ok, true, argv.join(" "));
@@ -1043,7 +1046,7 @@ test("an awaits relation lists in the reader's agenda, holds its task, and retir
     const other = await cell.read(
       "repo.agenda.read",
       { limit: 50 },
-      { actor: { principal: { personId: "person-other" }, executor: null }, source: "local" },
+      withRoleBinding({ actor: { principal: { personId: "person-other" }, executor: null }, source: "local" }, "owner"),
     );
     assert.deepEqual(other.awaitingYou, []);
 
@@ -1110,7 +1113,10 @@ test("an answered awaits lists for the source owner until the source is written 
       asked.awaitingYou.map(({ askedBy }) => askedBy),
       ["codex-sol", "codex-sol"],
     );
-    const answerer = { actor: { principal: { personId: "person-agenda" }, executor: null }, source: "local" as const };
+    const answerer = withRoleBinding(
+      { actor: { principal: { personId: "person-agenda" }, executor: null }, source: "local" as const },
+      "owner",
+    );
     for (const row of asked.awaitingYou) {
       const answered = await cell.run(
         {
@@ -1164,7 +1170,7 @@ test("an answered awaits lists for the source owner until the source is written 
     const other = await cell.read(
       "repo.agenda.read",
       { limit: 50 },
-      { actor: { principal: { personId: "person-other" }, executor: null }, source: "local" },
+      withRoleBinding({ actor: { principal: { personId: "person-other" }, executor: null }, source: "local" }, "owner"),
     );
     assert.deepEqual(other.answeredForYou, []);
 
@@ -1211,7 +1217,10 @@ test("an answered awaits is asked again by relating the same endpoints at its re
         targetRef: "person/person-agenda",
         relationType: "awaits",
       },
-      answerer = { actor: { principal: { personId: "person-agenda" }, executor: null }, source: "local" as const },
+      answerer = withRoleBinding(
+        { actor: { principal: { personId: "person-agenda" }, executor: null }, source: "local" as const },
+        "owner",
+      ),
       first = await cell.run({ ...ask, rationale: "acceptance: 第一轮验收", expectedVersion: 0 }, binding);
     assert.equal(first.outcome, "applied", JSON.stringify(first));
 

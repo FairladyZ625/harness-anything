@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import fs, { mkdtempSync, rmSync, statSync, utimesSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
@@ -21,7 +22,7 @@ import { actor, initRepo, rows, write } from "./doc-sync-slice-a.fixtures.ts";
 test("doc status reuses unchanged file inputs and observes accepted updates, drafts, conflicts and deletion", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-cache-")),
     repoId = workspaceId("doc-cache"),
-    binding = { actor, source: "local" as const },
+    binding = withRoleBinding({ actor, source: "local" as const }, "owner"),
     paths = Array.from({ length: 24 }, (_, i) => `context/cache/document-${String(i).padStart(2, "0")}.md`),
     corpus = new Set(paths.map((logical) => path.join(rootDir, "harness", logical)));
   initRepo(rootDir);
@@ -182,7 +183,10 @@ test("discovery preserves unknown files and owners and isolates repositories and
         "agents/unknown.json",
       ])
         write(rootDir, logical, "unknown bytes\n\0\n");
-      const result = await cell.run({ kind: "doc-status", paths: [] }, { actor, source: "local" });
+      const result = await cell.run(
+        { kind: "doc-status", paths: [] },
+        withRoleBinding({ actor, source: "local" }, "owner"),
+      );
       for (const logical of [
         "context/unknown.json",
         "context/unknown.pdf",

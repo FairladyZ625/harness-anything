@@ -1,10 +1,9 @@
 // harness-test-tier: integration
-// Regression (task_d437aea6d5e724195c5d65e6ec stage 2, CEO ruling: transition narrowed to
-// bookkeeping): decision accept/reject/defer are the only adjudication entries and CLI and GUI
-// share one domain qualification for them; decision transition compiles only superseded and
-// outcome_retired, so judgment targets are parameter errors at the CLI parser and at the kernel
-// compiler — never authorization verdicts — while the bookkeeping targets stay repo-write work.
+// dec_D60FAA451F24160E970323B6F3 CH4: adjudication authority is an action scope,
+// independent of proposal ownership; CLI and GUI must honor the same UMA decision.
 import assert from "node:assert/strict";
+import { createServer } from "node:http";
+import { once } from "node:events";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -26,7 +25,26 @@ const repoWriteJudgeId = "person_r2_repo_write",
     executor: { kind: "agent", id: "r2-proposer-agent" },
   };
 
-test("adjudication entries share one qualification and transition judgment targets are parameter errors", async () => {
+test("adjudication entries share one qualification and transition judgment targets are parameter errors", async (context) => {
+  const server = createServer(async (request, response) => {
+    let body = "";
+    for await (const chunk of request) body += String(chunk);
+    const scope = new URLSearchParams(body).get("permission")?.split("#").at(-1);
+    response.setHeader("content-type", "application/json");
+    response.end(
+      JSON.stringify({
+        result: scope !== "decision-accept" || request.headers.authorization === "Bearer fixture-judge",
+      }),
+    );
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  context.after(
+    () => new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))),
+  );
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  const authorityUrl = `http://127.0.0.1:${address.port}`;
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-entry-parity-"));
   initRepo(rootDir);
   writePeopleRoster(rootDir);
@@ -38,11 +56,10 @@ test("adjudication entries share one qualification and transition judgment targe
   const reader = makeTaskEventReader({ repoId: "decision-entry-parity", rootDir });
   try {
     const proposerBinding = declaredBinding(rootDir, proposerAgent),
-      repoWriteBinding = declaredBinding(rootDir, { principal: { personId: repoWriteJudgeId }, executor: null }),
-      arbiterBinding = declaredBinding(rootDir, { principal: { personId: arbiterJudgeId }, executor: null });
+      repoWriteBinding = scopedBinding(rootDir, repoWriteJudgeId, "fixture-contributor", authorityUrl),
+      arbiterBinding = scopedBinding(rootDir, arbiterJudgeId, "fixture-judge", authorityUrl);
 
-    // Accept/defer enter through repo-write because a proposal owner may perform either action;
-    // non-owner qualification is enforced against the same arbiter Policy rule as reject.
+    // Execution classes describe dispatch; authorization comes from the requested scope.
     assert.deepEqual(
       {
         accept: commandClassForAction("decision-accept"),
@@ -59,7 +76,7 @@ test("adjudication entries share one qualification and transition judgment targe
       d4 = await propose(cell, reader, proposerBinding, "parity gui accept under arbiter"),
       d5 = await propose(cell, reader, proposerBinding, "parity transition targets");
 
-    // 1. Same non-owner repo-write binding, both entries: one domain denial shape.
+    // 1. A group without decision-accept is denied at both entries, despite a roster role.
     const cliAccept = cliAction([
       "decision",
       "accept",
@@ -79,7 +96,7 @@ test("adjudication entries share one qualification and transition judgment targe
     assert.equal(guiAccept.kind, "decision-accept");
     assertUnqualifiedBeforeAcceptance("gui accept / repo-write", await cell.run(guiAccept, repoWriteBinding), reader);
 
-    // 2. Same arbiter binding, both entries: one acceptance shape, same event type.
+    // 2. A non-proposer with decision-accept is allowed at both entries.
     const arbiterCli = await cell.run(
       cliAction([
         "decision",
@@ -168,6 +185,13 @@ function declaredBinding(rootDir: string, actor: ActorIdentity) {
   };
 }
 
+function scopedBinding(rootDir: string, personId: string, accessToken: string, url: string) {
+  return {
+    ...declaredBinding(rootDir, { principal: { personId }, executor: null }),
+    keycloakAuthorization: { url, realm: "fixture", clientId: "fixture", accessToken },
+  };
+}
+
 function cliAction(argv: readonly string[]): Record<string, unknown> & { readonly kind: string } {
   const parsed = parseThinCommand(argv);
   assert.equal(parsed.ok, true, JSON.stringify(parsed));
@@ -223,11 +247,11 @@ function assertUnqualifiedBeforeAcceptance(
     },
     {
       outcome: "op_rejected",
-      code: "actor_unauthorized",
+      code: "authorization_denied",
       canonicalEvent: null,
       acceptance: null,
     },
-    `${label}: expected a domain qualification denial with no canonical acceptance`,
+    `${label}: expected a policy denial with no canonical acceptance`,
   );
 }
 

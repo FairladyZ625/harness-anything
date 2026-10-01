@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -20,7 +21,7 @@ test("People Action commands are the canonical write surface for people.yaml", a
       ownerId: "people-daemon",
       now: () => "2026-08-27T02:00:00.000Z",
     });
-    const binding = { actor, source: "local" as const };
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
     const added = await cell.run(
       {
         kind: "people-add",
@@ -35,7 +36,7 @@ test("People Action commands are the canonical write surface for people.yaml", a
       binding,
     );
     assert.equal(added.outcome, "applied");
-    await waitForFixturePublication(cell, added.opId, { actor, source: "local" });
+    await waitForFixturePublication(cell, added.opId, withRoleBinding({ actor, source: "local" }, "owner"));
     const bound = await cell.run(
       {
         kind: "people-bind",
@@ -46,7 +47,7 @@ test("People Action commands are the canonical write surface for people.yaml", a
       binding,
     );
     assert.equal(bound.outcome, "applied");
-    await waitForFixturePublication(cell, bound.opId, { actor, source: "local" });
+    await waitForFixturePublication(cell, bound.opId, withRoleBinding({ actor, source: "local" }, "owner"));
     const malformedBinding = await cell.run(
       {
         kind: "people-bind",
@@ -79,7 +80,7 @@ test("People Action commands are the canonical write surface for people.yaml", a
       binding,
     );
     assert.equal(roleChanged.outcome, "applied");
-    await waitForFixturePublication(cell, roleChanged.opId, { actor, source: "local" });
+    await waitForFixturePublication(cell, roleChanged.opId, withRoleBinding({ actor, source: "local" }, "owner"));
     const afterRole = parsePeopleRosterDocument(readFileSync(path.join(root, "harness/people.yaml"), "utf8"));
     assert.deepEqual(afterRole.people.find(({ personId }) => personId === "person_alice")?.roles, ["reviewer"]);
     assert.deepEqual(afterRole.bindings, [
@@ -93,7 +94,7 @@ test("People Action commands are the canonical write surface for people.yaml", a
     ]);
     const removed = await cell.run({ kind: "people-remove", personId: "person_alice" }, binding);
     assert.equal(removed.outcome, "applied");
-    await waitForFixturePublication(cell, removed.opId, { actor, source: "local" });
+    await waitForFixturePublication(cell, removed.opId, withRoleBinding({ actor, source: "local" }, "owner"));
     const finalRoster = parsePeopleRosterDocument(readFileSync(path.join(root, "harness/people.yaml"), "utf8"));
     assert.equal(
       finalRoster.people.some(({ personId }) => personId === "person_alice"),
@@ -122,7 +123,7 @@ test("People Action commands cannot rewrite or downgrade the bootstrap owner rol
       ownerId: "people-daemon",
       now: () => "2026-08-27T02:10:00.000Z",
     });
-    const binding = { actor, source: "local" as const };
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
     const addedAdmin = await cell.run(
       {
         kind: "people-add",
@@ -137,7 +138,7 @@ test("People Action commands cannot rewrite or downgrade the bootstrap owner rol
       binding,
     );
     assert.equal(addedAdmin.outcome, "applied");
-    await waitForFixturePublication(cell, addedAdmin.opId, { actor, source: "local" });
+    await waitForFixturePublication(cell, addedAdmin.opId, withRoleBinding({ actor, source: "local" }, "owner"));
     const ownerPolicyChanged = await cell.run(
       {
         kind: "people-set-role",
@@ -211,7 +212,7 @@ test("People Action commands cannot remove the last enabled admin", async () => 
     });
     const removed = await cell.run(
       { kind: "people-remove", personId: "person_alice" },
-      { actor, source: "local" as const },
+      withRoleBinding({ actor, source: "local" as const }, "owner"),
     );
     assert.equal(removed.outcome, "op_rejected");
     assert.equal(removed.code, "invalid_people_action");
@@ -249,10 +250,10 @@ test("People Action commands create people.yaml through the null roster transiti
         role: "owner",
         commandClass: ["admin"],
       },
-      { actor, source: "local" as const },
+      withRoleBinding({ actor, source: "local" as const }, "owner"),
     );
     assert.equal(created.outcome, "applied");
-    await waitForFixturePublication(cell, created.opId, { actor, source: "local" });
+    await waitForFixturePublication(cell, created.opId, withRoleBinding({ actor, source: "local" }, "owner"));
     const roster = parsePeopleRosterDocument(readFileSync(path.join(root, "harness/people.yaml"), "utf8"));
     assert.deepEqual(
       roster.people.map(({ personId }) => personId),
@@ -275,7 +276,7 @@ test("People Action commands hydrate closed file and inline packets", async () =
       ownerId: "people-daemon",
       now: () => "2026-08-27T02:30:00.000Z",
     });
-    const binding = { actor, source: "local" as const };
+    const binding = withRoleBinding({ actor, source: "local" as const }, "owner");
     writeFileSync(
       path.join(root, "people-add.json"),
       JSON.stringify({
@@ -339,7 +340,7 @@ test("People delegated tokens issue and revoke through the canonical people even
       now: () => now,
     });
     const delegatingActor = { ...actor, principal: { personId: "person_zeyu" } },
-      binding = { actor: delegatingActor, source: "local" as const },
+      binding = withRoleBinding({ actor: delegatingActor, source: "local" as const }, "owner"),
       issued = await cell.run(
         {
           kind: "people-delegate",
@@ -351,7 +352,7 @@ test("People delegated tokens issue and revoke through the canonical people even
         binding,
       );
     assert.equal(issued.outcome, "applied", JSON.stringify(issued));
-    await waitForFixturePublication(cell, issued.opId, { actor, source: "local" });
+    await waitForFixturePublication(cell, issued.opId, withRoleBinding({ actor, source: "local" }, "owner"));
     let roster = parsePeopleRosterDocument(readFileSync(path.join(root, "harness/people.yaml"), "utf8"));
     assert.deepEqual(roster.delegatedExecutionTokens, [
       {
@@ -370,7 +371,7 @@ test("People delegated tokens issue and revoke through the canonical people even
     now = "2026-08-27T02:30:00.000Z";
     const revoked = await cell.run({ kind: "people-revoke-delegation", tokenId: "det_owner_runtime_1" }, binding);
     assert.equal(revoked.outcome, "applied", JSON.stringify(revoked));
-    await waitForFixturePublication(cell, revoked.opId, { actor, source: "local" });
+    await waitForFixturePublication(cell, revoked.opId, withRoleBinding({ actor, source: "local" }, "owner"));
     roster = parsePeopleRosterDocument(readFileSync(path.join(root, "harness/people.yaml"), "utf8"));
     assert.equal(roster.delegatedExecutionTokens[0]?.revokedAt, now);
     assert.equal(

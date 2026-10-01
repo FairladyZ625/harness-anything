@@ -1,6 +1,5 @@
 import {
   currentActionEnvelopeVersion,
-  DEFAULT_POLICY,
   validateActionEnvelope,
   type ActionEnvelope,
   type ActorIdentity,
@@ -21,7 +20,7 @@ export function composeDurableActionEnvelope(input: {
     kind: input.kind,
     target: input.target,
     actor: input.actor,
-    authorizationRef: `${DEFAULT_POLICY.id}@${DEFAULT_POLICY.version}`,
+    authorizationRef: "keycloak-policy@1",
     idempotencyKey: input.idempotencyKey ?? input.actionId,
   };
   const errors = validateActionEnvelope(envelope);
