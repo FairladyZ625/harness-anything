@@ -53,12 +53,16 @@ test("completed commands persist receipts without copying them into coordination
       scope: { kind: "task", taskId: "task-one", executionId: "execution-one", paths: [] },
       viewId: "view-one",
       expiresAt: "2099-01-01T00:00:00.000Z",
-      actor: { principal: { personId: "person-one" }, executor: { kind: "agent", id: "agent-one" } },
     } as const,
     broker = openFleetLeaseBroker({
       stateRoot,
       host: { run: async () => ({ outcome: "applied", revision: 7, code: null }) as never },
       resolveAssignment: async () => assignment as never,
+      auth: async (binding) => ({
+        peer: { transport: "tls", nodeId: binding.nodeId },
+        assignmentBinding: binding,
+        nodePrincipal: { nodeId: binding.nodeId, personId: "person-one" },
+      }),
       now: () => "2026-09-13T00:00:00.000Z",
     });
   try {

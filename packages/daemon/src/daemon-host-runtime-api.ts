@@ -5,6 +5,7 @@ import {
 } from "@harness-anything/preset/internal/preset-command-contract";
 import type { DaemonHost } from "./daemon-host.ts";
 import {
+  keycloakNodeRegistry,
   startFleetCenterAdmission,
   syncFleetEdgeMirror,
   readFleetRosterFile,
@@ -15,7 +16,11 @@ import type { FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
 import { canonicalRoot, commandDescriptorForAction } from "./protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { DaemonHostApiContext } from "./daemon-host-context.ts";
-import { requireAuthorizedFleetAction, requireAuthorizedHostAction } from "./host-action-authorization.ts";
+import {
+  evaluateFleetAction,
+  requireAuthorizedFleetAction,
+  requireAuthorizedHostAction,
+} from "./host-action-authorization.ts";
 import {
   orchestrateRuntimeBatch,
   orchestrateRuntimeSessionsAwait,
@@ -34,6 +39,7 @@ export function createDaemonHostRuntimeApi(
   | "runtimeIngress"
   | "terminalAttach"
   | "terminalAction"
+  | "authorize"
   | "fleet"
   | "system"
   | "runtimeInstance"
@@ -156,6 +162,16 @@ export function createDaemonHostRuntimeApi(
       if (method === "repo.terminal.terminate") return frame(cell.terminal.terminate(payload, authorizedBinding));
       throw context.hostCodedError("unsupported_command", `Unsupported terminal or catalog method: ${method}.`);
     },
+    authorize: async (repoId, kind, auth) => {
+      const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
+      return evaluateFleetAction({
+        kind,
+        binding: await context.binding(cell.status().rootDir, auth),
+        actionId: `${kind}:${repoId}`,
+        evaluatedAtCut: `repository:${repoId}:current`,
+        repoId,
+      });
+    },
     fleet: {
       startCenter: async (payload, auth) => {
         const request = payload as unknown as FleetCenterAdmissionRequest["payload"],
@@ -190,6 +206,7 @@ export function createDaemonHostRuntimeApi(
           userRoot: context.input.userRoot,
           writerEpochLease: context.writerEpochLease,
           payload: request,
+          nodes: keycloakNodeRegistry(context.keycloakCenter),
         });
         context.fleetCenter = started.center;
         // Retained for read-side joins (Schedule GUI availability): the roster is the
@@ -205,7 +222,6 @@ export function createDaemonHostRuntimeApi(
           bind: request.bind ?? "127.0.0.1",
           stateRoot: started.stateRoot,
           quotaBytes: request.quotaBytes,
-          nodes: started.roster.nodes.length,
           assignments: started.roster.assignments.length,
           replicas: started.center.status().replicas,
           authorizationDecision: authorizationDecision as unknown as JsonObject,
@@ -226,18 +242,13 @@ export function createDaemonHostRuntimeApi(
             "repo_mode_read_only",
             "Fleet edge sync requires the matching enabled remote-edge registration.",
           );
-        const authorizationDecision = requireAuthorizedHostAction({
-          kind: "daemon-fleet-edge-sync",
-          binding: await context.binding(registered.canonicalRoot, auth),
-          actionId: `daemon-fleet-edge-sync:${request.repoId}:${request.assignmentId}`,
-          evaluatedAtCut: `fleet-edge:${request.repoId}:current`,
-          now: context.now(),
-        });
+        // The edge only relays its machine credential; the center decides whether the node's owner may sync.
+        context.localOnly(auth);
         const receipt = await syncFleetEdgeMirror({
           payload: request,
         });
         await context.scheduleScheduler.refresh();
-        return { ...receipt, authorizationDecision };
+        return receipt;
       },
       edgeRuntime: async (payload, auth) => {
         context.localOnly(auth);

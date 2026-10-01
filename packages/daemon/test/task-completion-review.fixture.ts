@@ -23,21 +23,28 @@ import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } f
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
+// The fixture's owner writes and closes: closing a task is the maintainer tier's, so it holds both roles.
 export const owner = withRoleBinding(
-  {
-    actor: { principal: { personId: "completion-owner" }, executor: { kind: "agent" as const, id: "implementer" } },
-    source: "local" as const,
-  },
-  "repo-write",
+  withRoleBinding(
+    {
+      actor: { principal: { personId: "completion-owner" }, executor: { kind: "agent" as const, id: "implementer" } },
+      source: "local" as const,
+    },
+    "repo-write",
+  ),
+  "arbiter",
 );
 // Settings writes are principal-gated: the executor actor above owns the task lifecycle while this
 // binding stands in for the dispatching principal applying repository-level settings changes.
 export const principal = withRoleBinding(
-  {
-    actor: { principal: owner.actor.principal, executor: null },
-    source: "local" as const,
-  },
-  "repo-write",
+  withRoleBinding(
+    {
+      actor: { principal: owner.actor.principal, executor: null },
+      source: "local" as const,
+    },
+    "repo-write",
+  ),
+  "arbiter",
 );
 export const taskId = "task-completion-review",
   executionId = "execution-completion-review";

@@ -188,7 +188,7 @@ function declaredBinding(rootDir: string, actor: ActorIdentity) {
 function scopedBinding(rootDir: string, personId: string, accessToken: string, url: string) {
   return {
     ...declaredBinding(rootDir, { principal: { personId }, executor: null }),
-    keycloakAuthorization: { url, realm: "fixture", clientId: "fixture", accessToken },
+    keycloakAuthorization: { session: { personId, url, realm: "fixture", clientId: "fixture", accessToken } },
   };
 }
 

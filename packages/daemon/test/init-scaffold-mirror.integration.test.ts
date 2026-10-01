@@ -23,6 +23,7 @@ import { runFleetEdgeDocSync } from "../src/fleet-edge-doc-sync.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls, type FleetAssignmentRecord } from "../src/fleet/center.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 
 // Idle WAL→Git materialization defaults to one hour; these tests wait for materialized commits.
 process.env.HARNESS_WAL_FLUSH_MS = "250";
@@ -93,8 +94,8 @@ async function initializedCenterWithEdge() {
     paths: ["tasks"],
     viewId: "node-one-view",
     expiresAt: "2099-01-01T00:00:00.000Z",
-    actor: { principal: { personId: "person-node-one" }, executor: { kind: "agent", id: "agent-node-one" } },
   };
+  const owners = await fleetNodeOwners({ userRoot, owners: { [nodeId]: "person-node-one" }, repoIds: [repoId] });
   const center = await listenFleetTls({
     host,
     stateRoot: path.join(root, "state"),
@@ -104,6 +105,7 @@ async function initializedCenterWithEdge() {
     cert: readFileSync(certFile),
     replicaDiskQuotaBytes: replicaQuota,
     authenticate: (candidate, credential) => candidate === nodeId && credential === "secret-node-one",
+    nodeOwner: owners.nodeOwner,
     resolveAssignment: (assignmentId) => (assignmentId === assignment.assignmentId ? assignment : null),
   });
   const edgeSync = (): Promise<Record<string, unknown>> =>
@@ -137,6 +139,7 @@ async function initializedCenterWithEdge() {
     close: async () => {
       await center.close();
       await host.close();
+      await owners.close();
       rmSync(root, { recursive: true, force: true });
     },
   };

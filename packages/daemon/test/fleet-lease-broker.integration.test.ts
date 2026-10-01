@@ -5,7 +5,12 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { fleetHostWriterOptions, fleetLedgerRevision, waitForFleetPublication } from "./fleet-store.fixture.ts";
+import {
+  fleetHostWriterOptions,
+  fleetLedgerRevision,
+  fleetNodeOwners,
+  waitForFleetPublication,
+} from "./fleet-store.fixture.ts";
 import { openDaemonHost, type DaemonHost } from "../src/daemon-host.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "../src/fleet/center.ts";
@@ -90,7 +95,12 @@ async function leaseFixture(t: TestContext, wrapRun?: (run: DaemonHost["run"]) =
   );
   const key = readFileSync(keyFile),
     cert = readFileSync(certFile);
-  const assignment = (nodeId: string, personId: string): FleetAssignmentRecord => ({
+  const owners = await fleetNodeOwners({
+    userRoot,
+    owners: { "node-one": "person-one", "node-two": "person-two" },
+    repoIds: ["lease-repo"],
+  });
+  const assignment = (nodeId: string): FleetAssignmentRecord => ({
     nodeId,
     assignmentId: `assignment-${nodeId}`,
     repoId: "lease-repo",
@@ -99,9 +109,8 @@ async function leaseFixture(t: TestContext, wrapRun?: (run: DaemonHost["run"]) =
     paths: ["tasks/task-seeded-x/notes.md"],
     viewId: `${nodeId}-view`,
     expiresAt: "2099-01-01T00:00:00.000Z",
-    actor: { principal: { personId }, executor: { kind: "agent", id: `agent-${nodeId}` } },
   });
-  const assignments = [assignment("node-one", "person-one"), assignment("node-two", "person-two")],
+  const assignments = [assignment("node-one"), assignment("node-two")],
     byId = new Map(assignments.map((value) => [value.assignmentId, value]));
   const hosts: DaemonHost[] = [],
     centers: FleetTlsCenter[] = [];
@@ -118,6 +127,7 @@ async function leaseFixture(t: TestContext, wrapRun?: (run: DaemonHost["run"]) =
         ...(port === undefined ? {} : { port }),
         replicaDiskQuotaBytes: replicaQuota,
         authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
+        nodeOwner: owners.nodeOwner,
         resolveAssignment: (assignmentId) => byId.get(assignmentId) ?? null,
       });
       centers.push(center);
@@ -143,6 +153,7 @@ async function leaseFixture(t: TestContext, wrapRun?: (run: DaemonHost["run"]) =
     const centerResults = await Promise.allSettled(centers.splice(0).map((target) => target.close())),
       hostResults = await Promise.allSettled(hosts.splice(0).map((target) => target.close())),
       results = [...centerResults, ...hostResults];
+    await owners.close();
     rmSync(root, { recursive: true, force: true });
     const unexpected = results
       .filter((result): result is PromiseRejectedResult => result.status === "rejected")
@@ -205,6 +216,7 @@ async function leaseFixture(t: TestContext, wrapRun?: (run: DaemonHost["run"]) =
     writerEpochStateRoot: path.join(userRoot, "fleet"),
     host,
     center,
+    owners,
     command,
     commandOn,
     openHost,
@@ -545,7 +557,7 @@ test(
     const direct = await fixture.host.run(
       "lease-repo",
       { kind: "task-start", taskId },
-      { transportKind: "fleet-tls", assignmentBinding: fixture.assignmentFor("node-one") },
+      fixture.owners.auth(fixture.assignmentFor("node-one")),
     );
     assert.equal(direct.outcome, "applied");
     assert.equal(fixture.center.status().leases.leases.length, 0, "precondition: the broker mirror is empty");

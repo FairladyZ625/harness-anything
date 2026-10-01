@@ -15,7 +15,7 @@ import {
   serializeFleetFrame,
   type FleetFrameV1,
 } from "../src/fleet/contract.ts";
-import { fleetHostWriterOptions } from "./fleet-store.fixture.ts";
+import { fleetHostWriterOptions, fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 
 const replicaQuota = 64 * 1024 * 1024;
@@ -118,7 +118,12 @@ async function admissionFixture(t: TestContext, initialState: "warming" | "unava
   );
   const key = readFileSync(keyFile),
     cert = readFileSync(certFile),
-    opened = await openDaemonHost({ daemonId: "fleet-admission", userRoot });
+    opened = await openDaemonHost({ daemonId: "fleet-admission", userRoot }),
+    owners = await fleetNodeOwners({
+      userRoot,
+      owners: { "node-one": "admission-owner" },
+      repoIds: ["admission-repo"],
+    });
   let repoState = initialState;
   const host = {
     ...opened,
@@ -133,6 +138,7 @@ async function admissionFixture(t: TestContext, initialState: "warming" | "unava
     try {
       await opened.close();
     } finally {
+      await owners.close();
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -146,7 +152,6 @@ async function admissionFixture(t: TestContext, initialState: "warming" | "unava
     paths: ["tasks/task-admission-admission/notes.md"],
     viewId: "node-one-view",
     expiresAt: "2099-01-01T00:00:00.000Z",
-    actor: { principal: { personId: "admission-owner" }, executor: { kind: "agent", id: "fleet-edge" } },
   };
   const center = await listenFleetTls({
     host,
@@ -156,6 +161,7 @@ async function admissionFixture(t: TestContext, initialState: "warming" | "unava
     cert,
     replicaDiskQuotaBytes: replicaQuota,
     authenticate: (nodeId, credential) => nodeId === "node-one" && credential === "machine-secret",
+    nodeOwner: owners.nodeOwner,
     resolveAssignment: (assignmentId) => (assignmentId === assignment.assignmentId ? assignment : null),
   });
   centers.push(center);

@@ -4,6 +4,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { makeTaskEventStore, resolveHarnessLayout } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
@@ -556,13 +557,10 @@ test(
         viewId: `schedule-view-${suffix}`,
         scope: { kind: "schedule", scheduleId, paths: ["agents", "schedules"] },
         expiresAt: "2099-01-01T00:00:00.000Z",
-        actor: {
-          principal: { personId: `operator-${suffix}` },
-          executor: { kind: "agent", id: `edge-${suffix}` },
-        },
       }));
     let center: Awaited<ReturnType<typeof listenFleetTls>> | null = null,
-      host: Awaited<ReturnType<typeof openDaemonHost>> | null = null;
+      host: Awaited<ReturnType<typeof openDaemonHost>> | null = null,
+      owners: Awaited<ReturnType<typeof fleetNodeOwners>> | null = null;
     const edgeRuntimes: ReturnType<typeof openFleetEdgeRuntime>[] = [];
     try {
       initHarnessRepo(repo, "schedule-center");
@@ -617,7 +615,13 @@ test(
         runtimeDiscover: () => [runtimeInstallation],
       });
       await host.attachmentsSettled();
-      const assignmentAuth = { transportKind: "fleet-tls" as const, assignmentBinding: assignments[0]! };
+      owners = await fleetNodeOwners({
+        userRoot,
+        owners: { "edge-one": "operator-one", "edge-two": "operator-two" },
+        repoIds: [repoId],
+      });
+      const nodeOwner = owners.nodeOwner,
+        assignmentAuth = owners.auth(assignments[0]!);
       assert.equal(
         (
           await host.run(
@@ -647,6 +651,7 @@ test(
         cert: certificate,
         replicaDiskQuotaBytes: 64 * 1024 * 1024,
         authenticate: (nodeId, credential) => credential === `credential-${nodeId}`,
+        nodeOwner,
         resolveAssignment: (assignmentId) => byId.get(assignmentId) ?? null,
       });
       const terminalCallbacks: Array<(() => void) | undefined> = [],
@@ -761,6 +766,19 @@ test(
         ).outcome,
         "applied",
       );
+      // A claim names the node its connection authenticated as. A command that says who it is has no field
+      // to say it in: the closed frame schema refuses it before any claim is evaluated.
+      await assert.rejects(
+        workspaces[1]!.runtime.run("repo.schedule.run", {
+          kind: "schedule-run-now",
+          scheduleId,
+          idempotencyKey: "self-reported-node",
+          nodeId: "edge-self-reported",
+          actor: { principal: { personId: "operator-self-reported" }, executor: null },
+        }),
+        /closed schema fleet\.schedule\.command\/v1/u,
+      );
+      assert.deepEqual(launches, [0, 0]);
       const raced = await Promise.all(
         workspaces.map((edge, index) =>
           edge.runtime.run("repo.schedule.run", {
@@ -790,6 +808,11 @@ test(
           localAuth,
         );
       assert.equal(centerLocal.outcome, "op_rejected");
+      const claimed = JSON.stringify(
+        await workspaces[winner]!.runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId }),
+      );
+      assert.match(claimed, new RegExp(`"nodeId":"${workspaces[winner]!.assignment.nodeId}"`, "u"), claimed);
+      assert.doesNotMatch(claimed, /self-reported/u);
       const winnerEdge = workspaces[winner]!,
         claim = raced[winner]!;
       const settled = await winnerEdge.runtime.run("repo.schedule.run", {
@@ -841,6 +864,7 @@ test(
       for (const runtime of edgeRuntimes) runtime.close();
       await center?.close();
       await host?.close();
+      await owners?.close();
       rmSync(root, { recursive: true, force: true });
     }
   },

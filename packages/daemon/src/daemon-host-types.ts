@@ -1,5 +1,9 @@
 import type { SquadControlResult } from "./squad-control-result.ts";
-import { type DaemonRepoMode, type WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
+import {
+  type AuthorizationDecision,
+  type DaemonRepoMode,
+  type WriteReceiptDraft as WriteReceipt,
+} from "@harness-anything/kernel";
 import type {
   AgentRuntimeAttachEvent,
   AgentRuntimeAttachSubscription,
@@ -68,6 +72,12 @@ export interface DaemonHost {
     action: RuntimeIngressAction,
     auth: DaemonAuthenticationContext,
   ) => Promise<JsonObject>;
+  /** Evaluates one repository action for the transport's principal without executing it. */
+  readonly authorize: (
+    repoId: string,
+    kind: string,
+    auth: DaemonAuthenticationContext,
+  ) => Promise<AuthorizationDecision>;
   readonly terminalAttach: (
     repoId: string,
     sessionId: string,

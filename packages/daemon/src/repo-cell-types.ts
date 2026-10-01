@@ -29,6 +29,7 @@ import {
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { type RepoBootstrapReceipt } from "./repo-bootstrap.ts";
 import { type TerminalHost, type TrustedTerminalLaunch } from "./terminal-host.ts";
+import type { KeycloakCenterCredential } from "./transport/auth-context.ts";
 import type { WriterEpochFenceDescriptor } from "./writer-epoch.ts";
 import { createLedgerBackup, type DaemonRegistryRepo } from "@harness-anything/kernel";
 
@@ -42,12 +43,20 @@ export interface RepoCellBinding {
   /** Authored roster projection closes default-open local policy; omitted local bindings use the default. */
   readonly authorizationBindingMode?: "default" | "declared";
   readonly sessionEnvironment?: Readonly<Record<string, string | undefined>>;
-  /** Daemon-established OIDC material for online Keycloak UMA evaluation; never accepted from action payloads. */
+  /**
+   * Daemon-established material for online Keycloak evaluation; never accepted from action payloads. A
+   * signed-in person is evaluated with their own token; any other acting person (a node's owner, the
+   * issuer behind an execution token) is evaluated by id through the center's service account.
+   */
   readonly keycloakAuthorization?: {
-    readonly accessToken: string;
-    readonly url: string;
-    readonly realm: string;
-    readonly clientId: string;
+    readonly session?: {
+      readonly personId: string;
+      readonly accessToken: string;
+      readonly url: string;
+      readonly realm: string;
+      readonly clientId: string;
+    };
+    readonly center?: KeycloakCenterCredential;
   };
   readonly roleBindings?: readonly RoleBinding[];
   /**

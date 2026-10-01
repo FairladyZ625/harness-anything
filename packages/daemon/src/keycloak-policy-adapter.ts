@@ -38,7 +38,18 @@ export interface KeycloakGrant {
   readonly userIds: readonly string[];
 }
 
+/** One fleet node: a confidential Keycloak client whose single owner attribute names the person it acts for. */
+export interface KeycloakNode {
+  readonly nodeId: string;
+  readonly personId: string;
+}
+
 type FetchPort = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+type NodeClient = {
+  readonly id: string;
+  readonly clientId: string;
+  readonly attributes?: Readonly<Record<string, string>>;
+};
 type KeycloakRole = {
   readonly id: string;
   readonly name: string;
@@ -55,6 +66,7 @@ type RoleRepresentation = KeycloakRole & {
 const grantUsersPrefix = "grant-users:",
   grantPermissionPrefix = "grant:",
   personAttribute = "harness_person_id",
+  nodeClientPrefix = "harness-node-",
   customGroupAttribute = "harness_policy_group",
   groupScopesAttribute = "harness_scopes";
 
@@ -313,6 +325,76 @@ export class KeycloakPolicyAdapter {
     return users.length === 1 && typeof users[0]!.id === "string" ? users[0]!.id : undefined;
   }
 
+  async readNodes(adminAccessToken: string): Promise<readonly KeycloakNode[]> {
+    const clients = await this.#pages<NodeClient>(
+      adminAccessToken,
+      "/clients",
+      `clientId=${encodeURIComponent(nodeClientPrefix)}&search=true`,
+    );
+    return Object.freeze(
+      clients
+        .filter((client) => client.clientId.startsWith(nodeClientPrefix))
+        .map(nodeOf)
+        .sort((left, right) => left.nodeId.localeCompare(right.nodeId)),
+    );
+  }
+
+  async readNode(adminAccessToken: string, nodeId: string): Promise<KeycloakNode | undefined> {
+    const client = await this.#nodeClient(adminAccessToken, nodeId);
+    return client && nodeOf(client);
+  }
+
+  /**
+   * Registers a node, or moves a registered node to another owner. Keycloak mints the machine credential
+   * when the client is created; only that first registration returns it.
+   */
+  async writeNode(adminAccessToken: string, node: KeycloakNode): Promise<string | undefined> {
+    const current = await this.#nodeClient(adminAccessToken, node.nodeId),
+      body = {
+        clientId: `${nodeClientPrefix}${node.nodeId}`,
+        enabled: true,
+        publicClient: false,
+        serviceAccountsEnabled: true,
+        standardFlowEnabled: false,
+        directAccessGrantsEnabled: false,
+        attributes: { [personAttribute]: node.personId },
+      };
+    if (current) {
+      await this.#request(adminAccessToken, `/clients/${current.id}`, { method: "PUT", body: JSON.stringify(body) });
+      return undefined;
+    }
+    await this.#request(adminAccessToken, "/clients", { method: "POST", body: JSON.stringify(body) });
+    const created = await this.#nodeClient(adminAccessToken, node.nodeId);
+    if (!created) throw new Error(`Keycloak did not return node ${node.nodeId} after creating it.`);
+    const secret = await this.#json<{ readonly value?: unknown }>(
+      adminAccessToken,
+      `/clients/${created.id}/client-secret`,
+    );
+    if (typeof secret.value !== "string" || !secret.value)
+      throw new Error(`Keycloak did not return a credential for node ${node.nodeId}.`);
+    return secret.value;
+  }
+
+  /** Deletes the node's client, so Keycloak refuses its machine credential from then on. */
+  async deleteNode(adminAccessToken: string, nodeId: string): Promise<void> {
+    const current = await this.#nodeClient(adminAccessToken, nodeId);
+    if (current) await this.#request(adminAccessToken, `/clients/${current.id}`, { method: "DELETE" });
+  }
+
+  /** The machine proves itself to Keycloak; the center never holds a copy of the credential. */
+  async authenticateNode(nodeId: string, credential: string): Promise<boolean> {
+    const response = await this.#fetch(this.#realmUrl("/protocol/openid-connect/token"), {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: `${nodeClientPrefix}${nodeId}`,
+        client_secret: credential,
+      }),
+    });
+    return response.ok;
+  }
+
   /** A repository grant covers the objects inside that repository; an EntityRef grant covers only its object. */
   async authorize(input: {
     readonly userAccessToken: string;
@@ -322,11 +404,7 @@ export class KeycloakPolicyAdapter {
     const resource = encodeAuthorizationResource(input.resource);
     if (!this.#knownScopes.has(input.action))
       return Object.freeze({ outcome: "denied", reasonCode: "unknown_scope", resource, scope: input.action });
-    const candidates =
-      input.resource.kind === "entity"
-        ? [encodeAuthorizationResource({ kind: "repository", repoId: input.resource.repoId }), resource]
-        : [resource];
-    for (const candidate of candidates) {
+    for (const candidate of coveringResources(input.resource)) {
       const response = await this.#fetch(this.#realmUrl("/protocol/openid-connect/token"), {
         method: "POST",
         headers: {
@@ -344,6 +422,60 @@ export class KeycloakPolicyAdapter {
         return Object.freeze({ outcome: "allowed", reasonCode: "keycloak_allowed", resource, scope: input.action });
     }
     return Object.freeze({ outcome: "denied", reasonCode: "keycloak_denied", resource, scope: input.action });
+  }
+
+  /**
+   * The same grants evaluated for a person who holds no token here (a node's owner, the issuer behind an
+   * execution token): the center asks Keycloak's own policy evaluation on that person's behalf.
+   */
+  async authorizePerson(input: {
+    readonly adminAccessToken: string;
+    readonly personId: string;
+    readonly action: string;
+    readonly resource: AuthorizationResource;
+  }): Promise<KeycloakPermissionDecision> {
+    const resource = encodeAuthorizationResource(input.resource),
+      denied = (reasonCode: KeycloakPermissionDecision["reasonCode"]) =>
+        Object.freeze({ outcome: "denied" as const, reasonCode, resource, scope: input.action });
+    if (!this.#knownScopes.has(input.action)) return denied("unknown_scope");
+    const userId = await this.findUserId(input.adminAccessToken, input.personId);
+    if (!userId) return denied("keycloak_denied");
+    const server = `/clients/${await this.#clientUuid(input.adminAccessToken)}/authz/resource-server`;
+    for (const candidate of coveringResources(input.resource)) {
+      const found = await this.#json<readonly { readonly _id: string; readonly name: string }[]>(
+          input.adminAccessToken,
+          `${server}/resource?name=${encodeURIComponent(candidate)}&exactName=true`,
+        ),
+        resourceId = found.find((item) => item.name === candidate)?._id;
+      // A resource nobody was ever granted on has no permission to evaluate.
+      if (!resourceId) continue;
+      const evaluation = (await (
+        await this.#request(input.adminAccessToken, `${server}/policy/evaluate`, {
+          method: "POST",
+          body: JSON.stringify({
+            userId,
+            roleIds: [],
+            entitlements: false,
+            context: { attributes: {} },
+            resources: [{ _id: resourceId, scopes: [{ name: input.action }] }],
+          }),
+        })
+      ).json()) as { readonly status?: unknown; readonly results?: readonly { readonly status?: unknown }[] };
+      if (
+        evaluation.status === "PERMIT" &&
+        Array.isArray(evaluation.results) &&
+        evaluation.results.length > 0 &&
+        evaluation.results.every((result) => result.status === "PERMIT")
+      )
+        return Object.freeze({ outcome: "allowed", reasonCode: "keycloak_allowed", resource, scope: input.action });
+    }
+    return denied("keycloak_denied");
+  }
+
+  async #nodeClient(token: string, nodeId: string): Promise<NodeClient | undefined> {
+    const clientId = `${nodeClientPrefix}${nodeId}`,
+      clients = await this.#json<readonly NodeClient[]>(token, `/clients?clientId=${encodeURIComponent(clientId)}`);
+    return clients.find((client) => client.clientId === clientId);
   }
 
   async #clientUuid(token: string): Promise<string> {
@@ -417,6 +549,20 @@ export class KeycloakPolicyAdapter {
   #realmUrl(path: string): string {
     return `${this.#config.url.replace(/\/$/u, "")}/realms/${encodeURIComponent(this.#config.realm)}${path}`;
   }
+}
+
+function coveringResources(resource: AuthorizationResource): readonly string[] {
+  const encoded = encodeAuthorizationResource(resource);
+  return resource.kind === "entity"
+    ? [encodeAuthorizationResource({ kind: "repository", repoId: resource.repoId }), encoded]
+    : [encoded];
+}
+
+function nodeOf(client: NodeClient): KeycloakNode {
+  return Object.freeze({
+    nodeId: client.clientId.slice(nodeClientPrefix.length),
+    personId: client.attributes?.[personAttribute] ?? "",
+  });
 }
 
 function requiredId(value: unknown, name: string, field = "id"): string {

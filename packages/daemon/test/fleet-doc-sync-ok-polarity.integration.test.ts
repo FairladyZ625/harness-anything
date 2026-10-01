@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSyn
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { registerDaemonRepo, sha256Bytes } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { runFleetEdgeDocSync } from "../src/fleet-edge-doc-sync.ts";
@@ -65,7 +66,12 @@ async function pushRejectionFixture() {
   );
   const key = readFileSync(keyFile);
   const cert = readFileSync(certFile);
-  const host = await openDaemonHost({ daemonId: "fleet-doc-sync-center", userRoot });
+  const host = await openDaemonHost({ daemonId: "fleet-doc-sync-center", userRoot }),
+    owners = await fleetNodeOwners({
+      userRoot,
+      owners: Object.fromEntries(nodes.map((nodeId) => [nodeId, `person-${nodeId}`])),
+      repoIds: ["fleet-doc-sync-repo"],
+    });
   await host.attachmentsSettled();
   const assignment = (nodeId: NodeId): FleetAssignmentRecord => ({
     nodeId,
@@ -76,7 +82,6 @@ async function pushRejectionFixture() {
     paths: ["context/shared-notes.md"],
     viewId: `${nodeId}-view`,
     expiresAt: "2099-01-01T00:00:00.000Z",
-    actor: { principal: { personId: `person-${nodeId}` }, executor: { kind: "agent", id: `agent-${nodeId}` } },
   });
   const assignments = new Map(nodes.map((nodeId) => [assignment(nodeId).assignmentId, assignment(nodeId)]));
   let center: FleetTlsCenter | null = null;
@@ -90,6 +95,7 @@ async function pushRejectionFixture() {
     runtimeIngress: (...args) => host.runtimeIngress(...args),
     settleMaterialization: (...args) => host.settleMaterialization(...args),
     status: () => host.status(),
+    authorize: (...args) => host.authorize(...args),
     run: async (repoId, action, auth) => {
       if (rejectCenterDocStatus && action.kind === "doc-status")
         throw new Error("fleet assignment must not scan document status");
@@ -103,6 +109,7 @@ async function pushRejectionFixture() {
     cert,
     replicaDiskQuotaBytes: replicaQuota,
     authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
+    nodeOwner: owners.nodeOwner,
     resolveAssignment: async (assignmentId) => {
       if (race !== null && assignmentId === "assignment-node-one") {
         raceAssignmentReads += 1;
@@ -190,6 +197,7 @@ async function pushRejectionFixture() {
     close: async () => {
       await center!.close();
       await host.close();
+      await owners.close();
       rmSync(root, { recursive: true, force: true });
     },
   };

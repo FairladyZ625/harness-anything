@@ -16,6 +16,7 @@ import { DatabaseSync } from "node:sqlite";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import {
   makeTaskEventReader,
   makeTaskEventStore,
@@ -747,20 +748,20 @@ test("repository modes close local, center-assignment, and edge command families
       createConvenienceLinks: false,
     });
   }
-  const host = await openDaemonHost({ daemonId: "host-modes", userRoot });
+  const host = await openDaemonHost({ daemonId: "host-modes", userRoot }),
+    owners = await fleetNodeOwners({ userRoot, owners: { "node-mode": "writer" }, repoIds: ["local", "center"] });
   await host.attachmentsSettled();
   const assignment = (repoId: string) =>
     ({
-      transportKind: "unix-socket",
-      assignmentBinding: {
+      ...owners.auth({
         nodeId: "node-mode",
         repoId,
         taskId: "task-mode",
         executionId: "execution-mode",
         assignmentId: `assignment-${repoId}`,
         paths: [],
-        actor: { principal: { personId: "writer" }, executor: null },
-      },
+      } as never),
+      transportKind: "unix-socket",
     }) as const;
   try {
     assert.deepEqual(
@@ -823,6 +824,7 @@ test("repository modes close local, center-assignment, and edge command families
     assert.equal((await host.run("edge", { kind: "projection-rebuild" }, auth)).code, "repo_mode_read_only");
   } finally {
     await host.close();
+    await owners.close();
     rmSync(parent, { recursive: true, force: true });
   }
 });

@@ -12,7 +12,6 @@ import {
   getTaskActionForTransition,
   isNativeExecution,
   isSameExecution,
-  isSamePerson,
   localGitObjectRefStore,
   makeTaskProjection,
   normalizeCommandEnvelope,
@@ -316,17 +315,7 @@ export async function proofFor(
   }
   if (command.type === "AdjudicateSubmission") {
     const authorizationDecision = requiredAuthorizationDecision(binding);
-    if (!snapshot.task || !isSamePerson(snapshot.task.createdBy, command.actor))
-      throw cellCodedError(
-        "actor_unauthorized",
-        snapshot.task
-          ? [
-              "Adjudication requires the task-owning principal (personId=",
-              `${snapshot.task.createdBy.principal.personId}`,
-              "); reviewers report verdicts, only the owner commands the cut.",
-            ].join("")
-          : "Adjudication requires an existing task owner.",
-      );
+    if (!snapshot.task) throw cellCodedError("task_not_found", "Adjudication requires an existing task.");
     // A task whose frozen profile lifted review (lightweight) promised no review: its cut completes
     // straight off submitted, so a forward order has no review to send it to.
     if (command.decision === "forward" && snapshot.task.closeoutOverrides?.review === false)
@@ -343,18 +332,16 @@ export async function proofFor(
     };
   }
   if (command.type === "RecordReviewConsent") {
-    const authorizationDecision = requiredAuthorizationDecision(binding);
-    if (!snapshot.task || !isSamePerson(snapshot.task.createdBy, command.actor))
+    // Consent is a person's own confirmation. A fleet assignment authenticates a machine: the owner the
+    // center resolves for it decides what the node may do, and confirmed nothing.
+    if (typeof command.source === "object" && command.source.kind === "assignment")
       throw cellCodedError(
-        "actor_unauthorized",
-        snapshot.task
-          ? [
-              "Review consent requires the Execution owner principal (personId=",
-              `${snapshot.task.createdBy.principal.personId}`,
-              ").",
-            ].join("")
-          : "Review consent requires an existing Execution owner.",
+        "human_confirmation_required",
+        `Consent on task ${command.taskId} is a person's own confirmation, and node ${command.source.nodeId} ` +
+          "authenticated as a machine. Confirming as a person from an edge node is not available yet; sign in at " +
+          `the center and run ha task review-consent ${command.taskId} --review-id ${command.reviewId} there.`,
       );
+    const authorizationDecision = requiredAuthorizationDecision(binding);
     return {
       actorBinding: command.actor,
       capability: "execution-consent@v1",
@@ -504,10 +491,10 @@ export function completeProof(
       COMPLETE_VALIDATION_CRITERION,
     );
   const authorizationDecision = requiredAuthorizationDecision(binding);
-  if (!snapshot.task || !isSamePerson(snapshot.task.createdBy, command.actor))
+  if (!snapshot.task)
     throw cellCriterionError(
-      "actor_unauthorized",
-      "Task completion owner proof was not satisfied.",
+      "task_not_found",
+      "Task completion requires an existing task.",
       "complete",
       COMPLETE_VALIDATION_CRITERION,
     );

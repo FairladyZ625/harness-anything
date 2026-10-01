@@ -152,7 +152,8 @@ export function openFleetLeaseBroker(options: {
   ) => FleetAssignmentRecord | null | Promise<FleetAssignmentRecord | null>;
   readonly now: () => string;
   readonly env?: NodeJS.ProcessEnv;
-  readonly auth?: (assignment: FleetAssignmentRecord) => DaemonAuthenticationContext;
+  /** Resolved for each center write: the node's current owner, never a value captured at admission. */
+  readonly auth: (assignment: FleetAssignmentRecord) => Promise<DaemonAuthenticationContext>;
 }): FleetLeaseBroker {
   const timers = fleetLeaseTimers(options.env),
     stateFile = path.join(options.stateRoot, "leases.json"),
@@ -173,9 +174,7 @@ export function openFleetLeaseBroker(options: {
     };
   const persist = (): void => writeDurableJson(stateFile, state),
     persistReceipts = (): void => writeDurableJson(receiptFile, { receipts }),
-    auth =
-      options.auth ??
-      ((assignment: FleetAssignmentRecord) => ({ transportKind: "fleet-tls" as const, assignmentBinding: assignment }));
+    auth = options.auth;
   const sourceJson = (assignment: FleetAssignmentRecord): string =>
     stableStringify({ kind: "assignment", nodeId: assignment.nodeId, assignmentId: assignment.assignmentId });
   const digestFor = (
@@ -201,7 +200,7 @@ export function openFleetLeaseBroker(options: {
   }
   async function domainLease(repoId: string, taskId: string, assignment: FleetAssignmentRecord): Promise<DomainProbe> {
     try {
-      const receipt = await options.host.run(repoId, { kind: "task-show", taskId }, auth(assignment));
+      const receipt = await options.host.run(repoId, { kind: "task-show", taskId }, await auth(assignment));
       if (receipt.outcome !== "applied") return { available: receipt.code === "task_not_found", lease: null };
       if (typeof receipt.evidence !== "string") return { available: false, lease: null };
       const snapshot = JSON.parse(receipt.evidence) as {
@@ -310,7 +309,7 @@ export function openFleetLeaseBroker(options: {
       receipt = await options.host.run(
         repoId,
         { kind: "task-release", taskId, reason: `Fleet lease orphan timeout; reaped by the center (${trigger}).` },
-        auth(row.assignment),
+        await auth(row.assignment),
       );
     } catch (error) {
       consumeKnownError(error);
@@ -447,7 +446,7 @@ export function openFleetLeaseBroker(options: {
       receipt = await options.host.run(
         assignment.repoId,
         bundle as Parameters<Pick<DaemonHost, "run">["run"]>[1],
-        auth(assignment),
+        await auth(assignment),
       );
     } catch (error) {
       consumeKnownError(error);
@@ -555,7 +554,7 @@ export function openFleetLeaseBroker(options: {
           ...failure("op_rejected", "assignment_scope_mismatch"),
           opId: frame.opId,
         };
-      const receipt = await options.host.run(assignment.repoId, action, auth(assignment));
+      const receipt = await options.host.run(assignment.repoId, action, await auth(assignment));
       const record = receipt as unknown as Record<string, unknown>;
       return {
         outcome: receipt.outcome === "applied" ? "applied" : "op_rejected",

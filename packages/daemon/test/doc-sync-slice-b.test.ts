@@ -760,9 +760,11 @@ async function waitForWorktree(
   return shown;
 }
 function assignmentBinding(repoId: string, paths: readonly string[]): RepoCellBinding {
+  // A node grants nothing by itself: the binding carries its person's own authority.
   return {
     actor,
     source: assignmentSource,
+    roleBindings: withRoleBinding({ actor }, "owner").roleBindings,
     assignmentScope: {
       repoId,
       scope: { kind: "task", taskId: "task-doc", executionId: "execution-doc", paths },

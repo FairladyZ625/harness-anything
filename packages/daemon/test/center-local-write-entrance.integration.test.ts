@@ -10,6 +10,7 @@ import { localScheduleBinding } from "../src/daemon-host-binding.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
+import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import {
   openBootstrappedRepoCell as openRepoCell,
   registerBootstrappedDaemonRepo as registerDaemonRepo,
@@ -42,19 +43,16 @@ const schedule = (scheduleId: string) => ({
   idempotencyKey: `seed-${scheduleId}`,
 });
 
-const edgeAuth = (repoId: string, nodeId: string) =>
-  ({
-    transportKind: "unix-socket",
-    assignmentBinding: {
-      nodeId,
-      repoId,
-      taskId: "task-entrance",
-      executionId: "execution-entrance",
-      assignmentId: `assignment-${nodeId}`,
-      paths: [],
-      actor: { principal: { personId: "writer" }, executor: null },
-    },
-  }) as const;
+const edgeAssignment = (repoId: string, nodeId: string) => ({
+  nodeId,
+  repoId,
+  taskId: "task-entrance",
+  executionId: "execution-entrance",
+  assignmentId: `assignment-${nodeId}`,
+  viewId: `${nodeId}_task-entrance`,
+  expiresAt: "2099-01-01T00:00:00.000Z",
+  paths: [],
+});
 
 async function openModes(prefix: string) {
   const parent = mkdtempSync(path.join(tmpdir(), prefix)),
@@ -242,12 +240,18 @@ test("the daemon Schedule principal and an operator write a remote-center cell",
 });
 
 test("a center-local write and an edge write race through one queue under expectedVersion", async () => {
-  const { parent, host } = await openModes("ha-center-entrance-race-");
+  const { parent, host } = await openModes("ha-center-entrance-race-"),
+    // The edge entrance speaks for the person its node is registered to at the center.
+    owners = await fleetNodeOwners({
+      userRoot: path.join(parent, "user"),
+      owners: { "edge-one": "writer" },
+      repoIds: ["center"],
+    });
   try {
     const local = (action: Readonly<Record<string, unknown>>) =>
         host.run("center", action as never, auth) as Promise<Receipt>,
       edge = (action: Readonly<Record<string, unknown>>) =>
-        host.run("center", action as never, edgeAuth("center", "edge-one")) as Promise<Receipt>;
+        host.run("center", action as never, owners.auth(edgeAssignment("center", "edge-one"))) as Promise<Receipt>;
     // Independent writes from both entrances serialize: each lands on its own revision.
     const [localCreate, edgeCreate] = await Promise.all([
       local({ kind: "task-create", taskId: "task-race-local", title: "Local" }),
@@ -315,6 +319,7 @@ test("a center-local write and an edge write race through one queue under expect
       await reader.drain();
     }
   } finally {
+    await owners.close();
     await host.close();
     rmSync(parent, { recursive: true, force: true });
   }

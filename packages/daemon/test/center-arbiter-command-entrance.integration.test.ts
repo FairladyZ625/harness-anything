@@ -11,6 +11,7 @@ import { openDaemonHost } from "../src/daemon-host.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
+import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import {
   openBootstrappedRepoCell as openRepoCell,
   registerBootstrappedDaemonRepo as registerDaemonRepo,
@@ -332,7 +333,14 @@ test("the center admits no unauthenticated arbiter and the edge admits no local 
       createConvenienceLinks: false,
     });
   }
-  const host = await openDaemonHost({ daemonId: "center-arbiter", userRoot });
+  const host = await openDaemonHost({ daemonId: "center-arbiter", userRoot }),
+    // The node is registered to a person who holds no grant on the center repository.
+    owners = await fleetNodeOwners({
+      userRoot,
+      owners: { "edge-one": "writer" },
+      repoIds: ["center"],
+      grantAll: false,
+    });
   try {
     await host.attachmentsSettled();
     const digest = `sha256:${"0".repeat(64)}`,
@@ -384,18 +392,20 @@ test("the center admits no unauthenticated arbiter and the edge admits no local 
         `${action.kind} ${JSON.stringify(unprivileged)}`,
       );
       // An assignment-bound source is evaluated the same way; the mode cell no longer answers for it.
-      const assigned = (await host.run("center", action as never, {
-        transportKind: "unix-socket",
-        assignmentBinding: {
+      const assigned = (await host.run(
+        "center",
+        action as never,
+        owners.auth({
           nodeId: "edge-one",
           repoId: "center",
           taskId: "task-negative",
           executionId: "exec-negative",
           assignmentId: "assignment-edge-one",
+          viewId: "edge-one_task-negative",
+          expiresAt: "2099-01-01T00:00:00.000Z",
           paths: [],
-          actor: { principal: { personId: "writer" }, executor: null },
-        },
-      })) as Receipt;
+        }),
+      )) as Receipt;
       assert.deepEqual(
         [assigned.outcome, assigned.code],
         ["op_rejected", "authorization_denied"],
@@ -403,6 +413,7 @@ test("the center admits no unauthenticated arbiter and the edge admits no local 
       );
     }
   } finally {
+    await owners.close();
     await host.close();
     rmSync(parent, { recursive: true, force: true });
   }

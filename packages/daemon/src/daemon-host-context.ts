@@ -136,6 +136,7 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
     repoId: string,
     mode?: DaemonRepoMode,
   ) => Promise<ReturnType<typeof registerDaemonRepo>>;
+  readonly keycloakCenter: import("./transport/auth-context.ts").KeycloakCenterAuthority;
   readonly localOnly: typeof import("./daemon-host-status.ts").localOnly;
   readonly settleWarming: (repoId: string) => void;
   readonly closeCell: (repoId: string) => Promise<void>;
