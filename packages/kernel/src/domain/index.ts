@@ -1,6 +1,5 @@
 export { currentActionEnvelopeVersion, validateActionEnvelope } from "./action-envelope.ts";
 export type { ActionEnvelope } from "./action-envelope.ts";
-export type { ReceiptJsonValue } from "./receipt-frame.ts";
 export type { AuthorizationDecision } from "./receipt-frame.ts";
 export {
   ENTITY_ACTION_EXPLANATION_SCHEMA,

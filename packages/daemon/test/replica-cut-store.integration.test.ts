@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import {
   decideDocWrite,
   DOC_POLICY_ID,
@@ -511,6 +512,7 @@ test("RepoCell returns writes before the active replica pump builds the next rep
     createConvenienceLinks: false,
   });
   const host = await openDaemonHost({ daemonId: "replica-test", userRoot }),
+    owners = await fleetNodeOwners({ userRoot, owners: { "node-one": "person-one" }, repoIds: ["replica-repo"] }),
     assignment: FleetAssignmentRecord = {
       nodeId: "node-one",
       assignmentId: "assignment-one",
@@ -520,15 +522,8 @@ test("RepoCell returns writes before the active replica pump builds the next rep
       paths: ["tasks/task-one-one/notes.md"],
       viewId: "view-one",
       expiresAt: "2099-01-01T00:00:00.000Z",
-      actor: {
-        principal: { personId: "person-one" },
-        executor: { kind: "agent", id: "edge-one" },
-      },
     },
-    auth = {
-      transportKind: "fleet-tls" as const,
-      assignmentBinding: assignment,
-    };
+    auth = owners.auth(assignment);
   await host.attachmentsSettled();
   try {
     const first = await host.run("replica-repo", { kind: "task-create", taskId: "task-one", title: "One" }, auth);
@@ -563,6 +558,7 @@ test("RepoCell returns writes before the active replica pump builds the next rep
     );
   } finally {
     await host.close();
+    await owners.close();
     rmSync(root, { recursive: true, force: true });
   }
 });

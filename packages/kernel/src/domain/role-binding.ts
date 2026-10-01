@@ -104,10 +104,9 @@ export function roleBindingApplies(
   );
 }
 
+/** Only a person holds a role; an executor acts under its principal and is never granted one itself. */
 export function roleBindingActorMatches(bindingActor: RoleBindingActor, actor: ActorIdentity): boolean {
-  return bindingActor.kind === "person"
-    ? bindingActor.id === actor.principal.personId
-    : actor.executor !== null && bindingActor.id === actor.executor.id;
+  return bindingActor.kind === "person" && bindingActor.id === actor.principal.personId;
 }
 
 export function roleBindingExpired(binding: RoleBinding, evaluatedAt?: string): boolean {

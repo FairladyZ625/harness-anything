@@ -1,7 +1,7 @@
 import { isNonEmptyString } from "./write-chain.contract.ts";
 import type { ExecutionV1 } from "./execution.ts";
 import type { TaskV2 } from "./task.ts";
-import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
+import { isSameExecution } from "./actor-domain-services.ts";
 import type { SubmissionForwardedEvent, SubmissionReturnedEvent } from "./task-lifecycle-event.ts";
 import type {
   AdjudicateSubmissionCommand,
@@ -16,9 +16,9 @@ import {
   revisionIssues,
 } from "./task-lifecycle-contract-support.ts";
 
-// The owner's adjudication transitions (owner ruling 2026-09-19): the double CEO gate between
-// the worker's submitted cut and the review phase. The reviewer records verdicts but commands
-// nothing; only the task-owning principal may forward a cut to the review gate or return it
+// The adjudication transitions (owner ruling 2026-09-19): the double gate between the worker's
+// submitted cut and the review phase. The reviewer records verdicts but commands nothing; a
+// principal authorized for task-adjudicate forwards a cut to the review gate or returns it
 // with a rework note. One command family, two decisions, two events.
 export const adjudicate: Transition = {
   actionId: "adjudicate",
@@ -87,12 +87,10 @@ export const adjudicate: Transition = {
       !proof.actorBinding ||
       !isSameExecution(command.actor, proof.actorBinding) ||
       proof.capability !== "task-adjudicate@v1" ||
-      !isNonEmptyString(proof.capabilityRef) ||
-      !task ||
-      !isSamePerson(task.createdBy, command.actor)
+      !isNonEmptyString(proof.capabilityRef)
     )
       issues.push(
-        lifecycleContractIssue("invalid_proof", "only the task-owning principal may adjudicate the submitted cut"),
+        lifecycleContractIssue("invalid_proof", "adjudication requires the authorized task-adjudicate capability"),
       );
     return issues;
   },

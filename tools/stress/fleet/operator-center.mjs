@@ -10,18 +10,12 @@ const controlRoot = path.resolve(process.argv[2] ?? "/tmp/harness-s4-operator-ce
   }),
   center = await fixture.startCenter("operator-center"),
   roster = {
-    schema: "fleet-roster/v2",
-    nodes: Array.from({ length: 8 }, (_value, index) => ({
-      nodeId: `edge-${index + 1}`,
-      credential: `credential-edge-${index + 1}`,
-    })),
+    schema: "fleet-roster/v3",
     assignments: fixture.assignments.map((assignment) => ({
       assignmentId: assignment.assignmentId,
       nodeId: assignment.nodeId,
       repoId: assignment.repoId,
       viewId: assignment.viewId,
-      personId: assignment.actor.principal.personId,
-      executorId: assignment.actor.executor.id,
       expiresAt: assignment.expiresAt,
       scope: assignment.scope,
     })),

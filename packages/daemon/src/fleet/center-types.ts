@@ -11,7 +11,10 @@ export interface FleetAssignmentRecord extends FleetAssignmentBinding {
 }
 
 export interface FleetCenterOptions {
-  readonly host: Pick<DaemonHost, "replica" | "run" | "read" | "runtimeIngress" | "settleMaterialization" | "status">;
+  readonly host: Pick<
+    DaemonHost,
+    "replica" | "run" | "read" | "runtimeIngress" | "settleMaterialization" | "status" | "authorize"
+  >;
   readonly stateRoot: string;
   readonly writerEpochStateRoot?: string;
   readonly writerEpochLease?: (repoId: string) => WriterEpochLease;
@@ -23,6 +26,8 @@ export interface FleetCenterOptions {
   readonly now?: () => string;
   readonly writerId?: string;
   readonly authenticate: (nodeId: string, credential: string) => boolean | Promise<boolean>;
+  /** The person a node acts for, re-read for every frame so a re-registration applies to the next one. */
+  readonly nodeOwner: (nodeId: string) => string | null | Promise<string | null>;
   readonly isNodeActive?: (nodeId: string) => boolean | Promise<boolean>;
   readonly resolveAssignment: (
     assignmentId: string,

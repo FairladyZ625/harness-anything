@@ -29,7 +29,6 @@ import {
   runFleetTaskCommandClient,
   type FleetPeerOptions,
 } from "./fleet/edge.ts";
-import { fleetEdgeCredential } from "./fleet-edge-task.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView } from "./fleet-edge-mirror.ts";
 import { transitionDocumentReadinessContract } from "./transition-document-access.ts";
 import { validateAgentRuntimeOverview, type AgentRuntimeOverviewResult } from "./agent-runtime-contract.ts";
@@ -48,8 +47,7 @@ export interface FleetEdgeRuntimeRequest {
     readonly caPath: string;
     readonly servername?: string;
     readonly nodeId: string;
-    readonly credential?: string;
-    readonly rosterPath?: string;
+    readonly credential: string;
     readonly assignmentId: string;
     readonly repoId: string;
     readonly viewRoot: string;
@@ -135,7 +133,7 @@ export function openFleetEdgeRuntime(input: {
   // polls the canonical session read below. Forwarding stream frames would create a second,
   // non-canonical synchronization surface with no consumer or settlement contract.
   const request = input.request,
-    credential = fleetEdgeCredential(request.nodeId, request.credential, request.rosterPath),
+    credential = request.credential,
     peer: FleetPeerOptions = {
       hostname: request.host,
       port: request.port,

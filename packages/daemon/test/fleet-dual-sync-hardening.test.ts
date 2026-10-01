@@ -38,6 +38,9 @@ const assignmentSource = {
   assignmentId: "assignment-hardening",
 } as const;
 const policyId = "markdown-body-replaceable/v1";
+// A node grants nothing by itself: each assignment-sourced binding carries its person's own authority.
+const ownerRole = (who: { readonly principal: { readonly personId: string }; readonly executor: unknown }) =>
+  withRoleBinding({ actor: who as typeof actor }, "owner").roleBindings;
 
 function git(root: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
@@ -173,6 +176,7 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
       heldAssignment = {
         actor,
         source: assignmentSource,
+        roleBindings: ownerRole(actor),
         assignmentScope: {
           repoId: "w3c-h-f1",
           scope: { kind: "task" as const, taskId: "task-direct", executionId: "exe-f1", paths: ["tasks"] },
@@ -204,6 +208,7 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
       {
         actor,
         source: assignmentSource,
+        roleBindings: ownerRole(actor),
         assignmentScope: {
           repoId: "w3c-h-f1",
           scope: { kind: "task", taskId: "some-other-task", executionId: "some-other-execution", paths: ["tasks"] },
@@ -228,6 +233,7 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
       {
         actor,
         source: assignmentSource,
+        roleBindings: ownerRole(actor),
         assignmentScope: {
           repoId: "w3c-h-f1",
           scope: { kind: "task", taskId: "some-other-task", executionId: "some-other-execution", paths: ["tasks"] },
@@ -279,6 +285,7 @@ test("F1: the fleet doc-submit channel cannot write task documents without the h
       {
         actor: other,
         source: assignmentSource,
+        roleBindings: ownerRole(other),
         assignmentScope: {
           repoId: "w3c-h-f1",
           scope: { kind: "task", taskId: "task-direct", executionId: "exe-f1", paths: ["tasks"] },
@@ -309,6 +316,7 @@ test("F2: a crash after the atomic bundle commit replays both the transition and
   const binding = {
     actor,
     source: assignmentSource,
+    roleBindings: ownerRole(actor),
     assignmentScope: {
       repoId: "w3c-h-f2",
       scope: { kind: "task" as const, taskId: "task-crash", executionId: "exe-crash", paths: ["tasks"] },
@@ -370,6 +378,7 @@ test("F8: the mirror gate fences on cut identity — same revision with a differ
   const binding = {
     actor,
     source: assignmentSource,
+    roleBindings: ownerRole(actor),
     assignmentScope: {
       repoId: "w3c-h-f8",
       scope: { kind: "task" as const, taskId: "task-fence", executionId: "exe-fence", paths: ["tasks"] },

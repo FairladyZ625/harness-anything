@@ -196,6 +196,50 @@ test("the delegated claim still requires the issuer's Keycloak permission", asyn
   assert.equal(reviewerContext.observedActor, null);
 });
 
+test("an agent holds exactly the issuer's permission intersected with the token allowlist", async () => {
+  const roster = (issuerRole: "owner" | "reviewer", allowedActions: readonly string[]): string =>
+      serializePeopleRosterDocument({
+        schema: "harness-people/v1",
+        people: [
+          { personId: issuerPersonId, displayName: "Issuing Principal", roles: [issuerRole], credentials: [] },
+          { personId: "person_operator", displayName: "Local Operator", roles: ["owner"], credentials: [] },
+        ],
+        roles: [
+          { roleId: "owner", commandClasses: ["admin", "repo-write", "repo-read", "arbiter"] },
+          { roleId: "reviewer", commandClasses: ["repo-read"] },
+        ],
+        bindings: [],
+        delegatedExecutionTokens: [token({ allowedActions: [...allowedActions] })],
+      }),
+    // The operator who relays the agent's command is admitted for every action; that must never widen the agent.
+    operatorBinding: RepoCellBinding = { ...bindingFor("person_operator"), roleBindings: [] },
+    cases = [
+      { issuerRole: "owner", allowedActions: ["task-amend"], outcome: "applied", code: undefined },
+      {
+        issuerRole: "owner",
+        allowedActions: ["task-annotate"],
+        outcome: "op_rejected",
+        code: "executor_binding_invalid",
+      },
+      { issuerRole: "reviewer", allowedActions: ["task-amend"], outcome: "op_rejected", code: "authorization_denied" },
+      {
+        issuerRole: "reviewer",
+        allowedActions: ["task-annotate"],
+        outcome: "op_rejected",
+        code: "executor_binding_invalid",
+      },
+    ] as const;
+
+  for (const entry of cases) {
+    const context = contextFor(() => roster(entry.issuerRole, entry.allowedActions)),
+      receipt = await createRepoCellApi(context).run(delegatedAction, operatorBinding),
+      label = `${entry.issuerRole} issuer, token allows ${entry.allowedActions.join(",")}`;
+    assert.equal(receipt.outcome, entry.outcome, `${label}: ${JSON.stringify(receipt)}`);
+    assert.equal(receipt.code, entry.code, label);
+    assert.deepEqual(context.observedActor, entry.outcome === "applied" ? delegatedActor : null, label);
+  }
+});
+
 test("a claim without any covering token keeps the executor binding rejection", async () => {
   const receipt = await createRepoCellApi(contextFor(() => rosterBody([]))).run(delegatedAction, bindingFor());
 

@@ -12,7 +12,6 @@ import {
   getTaskActionForTransition,
   isNativeExecution,
   isSameExecution,
-  isSamePerson,
   localGitObjectRefStore,
   makeTaskProjection,
   normalizeCommandEnvelope,
@@ -316,17 +315,7 @@ export async function proofFor(
   }
   if (command.type === "AdjudicateSubmission") {
     const authorizationDecision = requiredAuthorizationDecision(binding);
-    if (!snapshot.task || !isSamePerson(snapshot.task.createdBy, command.actor))
-      throw cellCodedError(
-        "actor_unauthorized",
-        snapshot.task
-          ? [
-              "Adjudication requires the task-owning principal (personId=",
-              `${snapshot.task.createdBy.principal.personId}`,
-              "); reviewers report verdicts, only the owner commands the cut.",
-            ].join("")
-          : "Adjudication requires an existing task owner.",
-      );
+    if (!snapshot.task) throw cellCodedError("task_not_found", "Adjudication requires an existing task.");
     // A task whose frozen profile lifted review (lightweight) promised no review: its cut completes
     // straight off submitted, so a forward order has no review to send it to.
     if (command.decision === "forward" && snapshot.task.closeoutOverrides?.review === false)
@@ -344,17 +333,6 @@ export async function proofFor(
   }
   if (command.type === "RecordReviewConsent") {
     const authorizationDecision = requiredAuthorizationDecision(binding);
-    if (!snapshot.task || !isSamePerson(snapshot.task.createdBy, command.actor))
-      throw cellCodedError(
-        "actor_unauthorized",
-        snapshot.task
-          ? [
-              "Review consent requires the Execution owner principal (personId=",
-              `${snapshot.task.createdBy.principal.personId}`,
-              ").",
-            ].join("")
-          : "Review consent requires an existing Execution owner.",
-      );
     return {
       actorBinding: command.actor,
       capability: "execution-consent@v1",
@@ -504,10 +482,10 @@ export function completeProof(
       COMPLETE_VALIDATION_CRITERION,
     );
   const authorizationDecision = requiredAuthorizationDecision(binding);
-  if (!snapshot.task || !isSamePerson(snapshot.task.createdBy, command.actor))
+  if (!snapshot.task)
     throw cellCriterionError(
-      "actor_unauthorized",
-      "Task completion owner proof was not satisfied.",
+      "task_not_found",
+      "Task completion requires an existing task.",
       "complete",
       COMPLETE_VALIDATION_CRITERION,
     );

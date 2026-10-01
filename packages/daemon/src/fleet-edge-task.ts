@@ -27,7 +27,7 @@ import {
   runFleetUploadClient,
 } from "./fleet/edge.ts";
 import type { FleetDescriptor } from "./fleet/contract.ts";
-import { fleetCredentialFromRoster, readFleetRosterFile } from "./fleet-center-admission.ts";
+import { readFleetRosterFile } from "./fleet-center-admission.ts";
 import { fleetLeaseTimers } from "./lease-broker.ts";
 import type { FleetTaskAction } from "./fleet/contract.ts";
 import {
@@ -50,7 +50,7 @@ export interface FleetEdgeTaskRequest {
     readonly caPath: string;
     readonly servername?: string;
     readonly nodeId: string;
-    readonly credential?: string;
+    readonly credential: string;
     readonly rosterPath?: string;
     readonly assignmentId: string;
     readonly repoId: string;
@@ -70,19 +70,7 @@ export class FleetEdgeTaskError extends Error {
   }
 }
 
-// Shared machine-credential resolution for every edge product round: the
-// credential is never duplicated into fleet-edge.json; it is resolved from the
-// center roster at run time.
-export function fleetEdgeCredential(
-  nodeId: string,
-  credential: string | undefined,
-  rosterPath: string | undefined,
-): string {
-  if (credential) return credential;
-  if (!rosterPath)
-    throw new FleetEdgeTaskError("credential_required", "Fleet edge routing needs a credential or roster path.");
-  return fleetCredentialFromRoster(nodeId, rosterPath);
-}
+// The edge's optional local copy of the center assignments names only which paths a round may carry.
 export function fleetEdgeScopePaths(assignmentId: string, rosterPath: string | undefined): readonly string[] | null {
   if (!rosterPath) return null;
   return (
@@ -128,7 +116,7 @@ export async function runFleetEdgeTask(input: FleetEdgeTaskRequest): Promise<Rec
     action = payload.action,
     timers = fleetLeaseTimers();
   const readOnly = action.kind === "task-show";
-  const credential = fleetEdgeCredential(payload.nodeId, payload.credential, payload.rosterPath);
+  const credential = payload.credential;
   const taskId = typeof action.taskId === "string" ? action.taskId : null;
   const waitMs =
     payload.waitTimeoutMs !== undefined && Number.isSafeInteger(payload.waitTimeoutMs) && payload.waitTimeoutMs > 0

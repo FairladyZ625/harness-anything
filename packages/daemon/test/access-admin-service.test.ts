@@ -40,10 +40,13 @@ async function fixture() {
             actor: { principal: { personId }, executor: null },
             source: "local",
             keycloakAuthorization: {
-              accessToken: `token-${personId}`,
-              url: keycloakUrl,
-              realm: keycloakRealm,
-              clientId: "harness-center",
+              session: {
+                personId,
+                accessToken: `token-${personId}`,
+                url: keycloakUrl,
+                realm: keycloakRealm,
+                clientId: "harness-center",
+              },
             },
           },
           actionId: randomUUID(),

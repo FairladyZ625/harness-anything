@@ -32,14 +32,6 @@ export interface AuthorizationTargetSnapshot {
   readonly runtimeBinding?: TaskBoundRuntimeBinding | null;
 }
 
-export interface AuthorizationAssignmentBinding {
-  readonly repoId: string;
-  readonly nodeId: string;
-  readonly assignmentId: string;
-  readonly scope: Readonly<Record<string, ReceiptJsonValue>>;
-  readonly writerEpoch?: number;
-}
-
 export interface AuthorizationDefaultBinding {
   readonly principalPersonId: string;
   readonly source: "local";
@@ -54,7 +46,6 @@ export interface AuthorizationContext {
   readonly roleBindingTargets?: readonly EntityRef[];
   readonly evaluatedAt?: string;
   readonly writeSource?: WriteSource;
-  readonly assignmentBinding?: AuthorizationAssignmentBinding;
   readonly target: AuthorizationTargetSnapshot;
   readonly evaluatedAtCut: string;
 }
@@ -184,34 +175,15 @@ function evaluatePredicate(
       }),
     };
   }
-  if (expression.predicate === "hasDefaultBinding") {
-    const binding = context.defaultBinding,
-      holds = binding?.source === "local" && binding.principalPersonId === actor.principal.personId;
-    return {
-      holds,
-      binding: Object.freeze({
-        predicate: expression.predicate,
-        satisfied: holds,
-        principal: holds ? { personId: actor.principal.personId } : null,
-        source: holds ? binding.source : null,
-      }),
-    };
-  }
-  const assignment = context.assignmentBinding;
+  const binding = context.defaultBinding,
+    holds = binding?.source === "local" && binding.principalPersonId === actor.principal.personId;
   return {
-    holds: assignment !== undefined,
+    holds,
     binding: Object.freeze({
       predicate: expression.predicate,
-      satisfied: assignment !== undefined,
-      assignment: assignment
-        ? {
-            repoId: assignment.repoId,
-            nodeId: assignment.nodeId,
-            assignmentId: assignment.assignmentId,
-            scope: assignment.scope,
-            writerEpoch: assignment.writerEpoch ?? null,
-          }
-        : null,
+      satisfied: holds,
+      principal: holds ? { personId: actor.principal.personId } : null,
+      source: holds ? binding.source : null,
     }),
   };
 }

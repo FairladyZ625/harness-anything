@@ -6,7 +6,12 @@ import {
   encodeAuthorizationResource,
   stableStringify,
 } from "@harness-anything/kernel";
-import { KeycloakPolicyAdapter, type KeycloakGrant, type KeycloakPolicyGroup } from "./keycloak-policy-adapter.ts";
+import {
+  KeycloakPolicyAdapter,
+  type KeycloakGrant,
+  type KeycloakNode,
+  type KeycloakPolicyGroup,
+} from "./keycloak-policy-adapter.ts";
 import { readSessionLifetime, sessionLifetimeBounds, writeSessionLifetime } from "./keycloak-session-lifetime.ts";
 import { managedRbacReceiptJournal } from "./managed-rbac-service.ts";
 import type { OidcSessionService } from "./oidc-session-service.ts";
@@ -21,6 +26,8 @@ export const accessAdminOperations = Object.freeze([
   "grant-list",
   "effective-permissions",
   "receipt-list",
+  "node-list",
+  "node-register",
   "receipt-reconcile",
   "session-lifetime",
   "session-lifetime-set",
@@ -38,6 +45,7 @@ export interface AccessAdminRequest {
   readonly personId?: string;
   readonly resource?: string;
   readonly sessionLifetimeSeconds?: number;
+  readonly nodeId?: string;
 }
 
 export interface AccessAdminPorts {
@@ -56,15 +64,20 @@ type Expectation =
       readonly personId: string;
       readonly held: boolean;
     }
+  | { readonly kind: "node"; readonly nodeId: string; readonly version: string }
   | { readonly kind: "session-lifetime"; readonly seconds: number };
 
 interface Plan {
   readonly expect: Expectation;
-  readonly apply: () => Promise<void>;
+  /** Whatever the write returns is handed to the caller once and never journaled. */
+  readonly apply: () => Promise<Readonly<Record<string, unknown>> | void>;
 }
 
 interface Conflict {
-  readonly conflict: { readonly groupId?: string; readonly expectedVersion: string; readonly currentVersion: string };
+  readonly conflict: Readonly<Record<"expectedVersion" | "currentVersion", string>> & {
+    readonly groupId?: string;
+    readonly nodeId?: string;
+  };
 }
 
 interface Session {
@@ -78,9 +91,9 @@ const resourceServerClientId = "harness-center",
   receiptListLimit = 200;
 
 /**
- * Typed administration of policy groups, `(group, resource)` grants, and the realm's session
- * lifetime. Keycloak holds the only state evaluation reads; the journal written here is an audit
- * trail that nothing evaluates.
+ * Typed administration of policy groups, `(group, resource)` grants, the fleet node registry, and
+ * the realm's session lifetime. Keycloak holds the only state evaluation reads; the journal written
+ * here is an audit trail that nothing evaluates.
  */
 export class AccessAdminService {
   readonly #oidc: OidcSessionService;
@@ -107,6 +120,10 @@ export class AccessAdminService {
         return this.#effectivePermissions(request);
       case "receipt-list":
         return { ok: true, receipts: this.#receipts().slice(0, receiptListLimit) };
+      case "node-list":
+        return this.#listNodes();
+      case "node-register":
+        return this.#mutate(request, actor, (session) => this.#planNodeRegistration(session, request));
       case "receipt-reconcile":
         return this.#oidc.serialize(() => this.#reconcile(text(request.operationId, "operationId"), actor));
       case "group-create":
@@ -166,6 +183,14 @@ export class AccessAdminService {
   async #sessionLifetime(): Promise<Record<string, unknown>> {
     const seconds = await readSessionLifetime((await this.#session()).realmAdmin, this.#ports.fetch);
     return { ok: true, seconds, version: String(seconds), ...sessionLifetimeBounds };
+  }
+
+  async #listNodes(): Promise<Record<string, unknown>> {
+    const session = await this.#session();
+    return {
+      ok: true,
+      nodes: (await session.adapter.readNodes(session.token)).map((node) => ({ ...node, version: nodeVersion(node) })),
+    };
   }
 
   /** Expands the person's grants on the resource (and its repository) down to each action's source group. */
@@ -261,8 +286,8 @@ export class AccessAdminService {
       this.#ports.journal.append(
         JSON.stringify({ ...base, phase: "intent", expect: planned.expect, recordedAt: this.#ports.now() }),
       );
-      await planned.apply();
-      return this.#settle({ ...base, expect: planned.expect }, "applied");
+      const issued = await planned.apply();
+      return { ...this.#settle({ ...base, expect: planned.expect }, "applied"), ...issued };
     });
   }
 
@@ -290,6 +315,8 @@ export class AccessAdminService {
             (await session.adapter.findUserId(session.token, expect.personId)) ?? "",
           ) === expect.held
         );
+      case "node":
+        return nodeVersion(await session.adapter.readNode(session.token, expect.nodeId)) === expect.version;
       case "session-lifetime":
         return (await readSessionLifetime(session.realmAdmin, this.#ports.fetch)) === expect.seconds;
     }
@@ -422,6 +449,30 @@ export class AccessAdminService {
     };
   }
 
+  /**
+   * One node answers to exactly one person. A first registration carries no version; changing the
+   * owner carries the version read, so two administrators registering one node cannot both apply.
+   */
+  async #planNodeRegistration(session: Session, request: AccessAdminRequest): Promise<Plan | Conflict> {
+    const nodeId = text(request.nodeId, "nodeId"),
+      personId = text(request.personId, "personId");
+    if (!/^[A-Za-z0-9_-]{1,96}$/u.test(nodeId))
+      throw coded("node_invalid", "A node id uses letters, digits, underscores, and hyphens.");
+    if (!(await session.adapter.findUserId(session.token, personId)))
+      throw coded("access_person_unknown", `No Keycloak account carries Harness person ${personId}.`);
+    const currentVersion = nodeVersion(await session.adapter.readNode(session.token, nodeId)),
+      next = { nodeId, personId };
+    if ((request.expectedVersion ?? "") !== currentVersion)
+      return { conflict: { nodeId, expectedVersion: request.expectedVersion ?? "", currentVersion } };
+    return {
+      expect: { kind: "node", nodeId, version: nodeVersion(next) },
+      apply: async () => {
+        const credential = await session.adapter.writeNode(session.token, next);
+        return credential === undefined ? undefined : { credential };
+      },
+    };
+  }
+
   async #grantHolders(session: Session, groupId: string, resource: string): Promise<readonly string[]> {
     const grants: readonly KeycloakGrant[] = await session.adapter.readGrants(session.token);
     return grants.find((grant) => grant.groupId === groupId && grant.resource === resource)?.userIds ?? [];
@@ -460,6 +511,15 @@ function groupVersion(group: KeycloakPolicyGroup): string {
       }),
     )
     .digest("hex");
+}
+
+/** An unregistered node has the empty version, which is what a first registration expects. */
+function nodeVersion(node: KeycloakNode | undefined): string {
+  return node
+    ? createHash("sha256")
+        .update(stableStringify({ nodeId: node.nodeId, personId: node.personId }))
+        .digest("hex")
+    : "";
 }
 
 function inheritedGroupIds(byId: ReadonlyMap<string, KeycloakPolicyGroup>, groupId: string): readonly string[] {

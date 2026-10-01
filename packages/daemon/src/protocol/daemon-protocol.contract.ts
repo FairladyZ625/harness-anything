@@ -126,6 +126,8 @@ export const daemonProtocolMethods = Object.freeze([
         "grant-list",
         "effective-permissions",
         "receipt-list",
+        "node-list",
+        "node-register",
         "receipt-reconcile",
         "session-lifetime",
         "session-lifetime-set",
@@ -157,6 +159,7 @@ export const daemonProtocolMethods = Object.freeze([
       port: "number?",
       certificateFile: "string?",
       certificateKeyFile: "string?",
+      nodeId: "string?",
     }),
   },
   {
@@ -307,8 +310,7 @@ export const fleetProtocolMethods = Object.freeze([
         port: "number",
         caPath: "string",
         nodeId: "string",
-        credential: "string?",
-        rosterPath: "string?",
+        credential: "string",
         assignmentId: "string",
         repoId: "string",
         viewRoot: "string",
@@ -330,7 +332,7 @@ export const fleetProtocolMethods = Object.freeze([
         port: "number",
         caPath: "string",
         nodeId: "string",
-        credential: "string?",
+        credential: "string",
         rosterPath: "string?",
         servername: "string?",
         assignmentId: "string",
@@ -354,7 +356,7 @@ export const fleetProtocolMethods = Object.freeze([
         port: "number",
         caPath: "string",
         nodeId: "string",
-        credential: "string?",
+        credential: "string",
         rosterPath: "string?",
         servername: "string?",
         assignmentId: "string",
@@ -379,7 +381,7 @@ export const fleetProtocolMethods = Object.freeze([
         port: "number",
         caPath: "string",
         nodeId: "string",
-        credential: "string?",
+        credential: "string",
         rosterPath: "string?",
         servername: "string?",
         assignmentId: "string",
@@ -456,7 +458,7 @@ type DaemonFleetChannelPayload = {
   readonly caPath: string;
   readonly servername?: string;
   readonly nodeId: string;
-  readonly credential?: string;
+  readonly credential: string;
   readonly rosterPath?: string;
   readonly assignmentId: string;
   readonly repoId: string;

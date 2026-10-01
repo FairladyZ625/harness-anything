@@ -81,7 +81,7 @@ import { type RepoModeAdmission } from "./repo-mode.ts";
 import type { RuntimeLauncher } from "./runtime-spawn.ts";
 import { makeScheduleScheduler } from "./schedule-scheduler.ts";
 import { seedBuiltinSchedules } from "./schedule-builtin-executor.ts";
-import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
+import type { DaemonAuthenticationContext, KeycloakCenterAuthority } from "./transport/auth-context.ts";
 import type { DaemonHostApiContext, DaemonHostRegistryContext } from "./daemon-host-context.ts";
 import { openRemoteProxyManager } from "./remote-proxy.ts";
 import {
@@ -218,8 +218,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       if (base.writerEpochFence) return base;
       return withDaemonWriterEpochFence(base, writerEpochFence(repoId));
     },
+    keycloakCenter: KeycloakCenterAuthority = async () => ({ ...(await oidc.center()), clientId: "harness-center" }),
     hostBinding: DaemonHostApiContext["binding"] = async (rootDir, auth, executor = null, writerRepoId) => {
-      const base = await deriveBinding(rootDir, await oidc.bind(auth), executor);
+      const base = await deriveBinding(rootDir, { ...(await oidc.bind(auth)), keycloakCenter }, executor);
       return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
     },
     closeDaemonWriterEpoch = () => {
@@ -535,6 +536,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     failedConfigureVerify,
     hostCodedError,
     binding: hostBinding,
+    keycloakCenter,
     writerEpochFence,
     writerEpochLease,
     writerEpochHighWatermark,

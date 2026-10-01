@@ -1,7 +1,12 @@
+import { fork } from "node:child_process";
+import { once } from "node:events";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { AccessAdminService } from "../src/access-admin-service.ts";
 import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
+import { OidcSessionService } from "../src/oidc-session-service.ts";
 
 export const keycloakUrl = "http://127.0.0.1:8080",
   keycloakRealm = "harness";
@@ -13,6 +18,7 @@ type Role = Named & {
   composites: Set<string>;
 };
 type Permission = Named & { resources: string[]; scopes: string[]; policies: string[] };
+type NodeClient = { id: string; clientId: string; attributes: Record<string, string>; secret: string };
 
 /**
  * In-memory Keycloak that answers the Admin REST and UMA calls the daemon makes. Decisions follow the
@@ -30,6 +36,8 @@ export function fakeKeycloak() {
     permissions = new Map<string, Permission>(),
     users = new Map<string, { id: string; username: string; attributes: Record<string, string[]> }>(),
     tokens = new Map<string, string>(),
+    nodeClients = new Map<string, NodeClient>(),
+    nodeLogins: { clientId: string; ok: boolean }[] = [],
     profile = { attributes: [{ name: "username" }, { name: "email" }] as { name: string }[] },
     // Keycloak's own defaults: a realm nobody configured idles out after half an hour.
     realm = { ssoSessionIdleTimeout: 1_800, ssoSessionMaxLifespan: 36_000 },
@@ -49,17 +57,19 @@ export function fakeKeycloak() {
       containerId: "client-1",
     });
 
+  const permits = (userId: string | undefined, resourceId: string, scope: string): boolean =>
+    [...permissions.values()].some(
+      (item) =>
+        (item.resources.length === 0 || item.resources.includes(resourceId)) &&
+        item.scopes.includes(scope) &&
+        item.policies.some((policyId) => userPolicies.get(policyId)?.users.includes(userId ?? "")),
+    );
+
   function decide(userId: string | undefined, permission: string): Response {
     const [resourceName, scope] = permission.split("#") as [string, string],
       resource = [...resources.values()].find((item) => item.name === resourceName);
     if (!resource) return json({ error: "invalid_resource" }, 400);
-    const allowed = [...permissions.values()].some(
-      (item) =>
-        (item.resources.length === 0 || item.resources.includes(resource._id)) &&
-        item.scopes.includes(scope) &&
-        item.policies.some((policyId) => userPolicies.get(policyId)?.users.includes(userId ?? "")),
-    );
-    return allowed ? json({ result: true }) : json({ error: "access_denied" }, 403);
+    return permits(userId, resource._id, scope) ? json({ result: true }) : json({ error: "access_denied" }, 403);
   }
 
   async function handle(input: string | URL | Request, init?: RequestInit): Promise<Response> {
@@ -71,7 +81,13 @@ export function fakeKeycloak() {
       bearer = new Headers(init?.headers).get("authorization")?.replace("Bearer ", "");
     if (url.pathname.endsWith("/protocol/openid-connect/token")) {
       const form = init?.body as URLSearchParams;
-      if (form.get("grant_type") === "client_credentials") return json({ access_token: "center-token" });
+      if (form.get("grant_type") === "client_credentials") {
+        const clientId = form.get("client_id") ?? "";
+        if (!clientId.startsWith("harness-node-")) return json({ access_token: "center-token" });
+        const ok = nodeClients.get(clientId)?.secret === form.get("client_secret");
+        nodeLogins.push({ clientId, ok });
+        return ok ? json({ access_token: `node-token-${clientId}` }) : json({ error: "unauthorized_client" }, 401);
+      }
       return decide(tokens.get(bearer ?? ""), form.get("permission") ?? "");
     }
     const route = url.pathname.replace(`/admin/realms/${keycloakRealm}`, ""),
@@ -82,7 +98,44 @@ export function fakeKeycloak() {
       if (method === "PUT") Object.assign(realm, body);
       return method === "GET" ? json({ realm: keycloakRealm, ...realm }) : new Response(null, { status: 204 });
     }
-    if (route === "/clients") return json([{ id: "client-1" }]);
+    if (route === "/clients" && method === "POST") {
+      const clientId = String(body!.clientId),
+        client = {
+          id: id("node-client"),
+          clientId,
+          attributes: { ...(body!.attributes as Record<string, string>) },
+          secret: id("node-secret"),
+        };
+      if (nodeClients.has(clientId)) return json({ errorMessage: "Client already exists" }, 409);
+      nodeClients.set(clientId, client);
+      return new Response(null, { status: 201 });
+    }
+    if (route === "/clients") {
+      const clientId = url.searchParams.get("clientId") ?? "";
+      if (!clientId.startsWith("harness-node-")) return json([{ id: "client-1", clientId: "harness-center" }]);
+      const found = [...nodeClients.values()].filter((client) =>
+        url.searchParams.get("search") === "true" ? client.clientId.startsWith(clientId) : client.clientId === clientId,
+      );
+      return page(
+        found.map(({ secret: _secret, ...client }) => client),
+        url,
+      );
+    }
+    const nodeClient = [...nodeClients.values()].find((client) => route.startsWith(`/clients/${client.id}`));
+    if (nodeClient) {
+      if (route.endsWith("/client-secret")) return json({ type: "secret", value: nodeClient.secret });
+      nodeClient.attributes = { ...(body!.attributes as Record<string, string>) };
+      return new Response(null, { status: 204 });
+    }
+    if (route === `${server}/policy/evaluate`) {
+      const request = body as { userId: string; resources: { _id: string; scopes: { name: string }[] }[] },
+        results = request.resources.map((resource) => ({
+          status: resource.scopes.every((scope) => permits(request.userId, resource._id, scope.name))
+            ? "PERMIT"
+            : "DENY",
+        }));
+      return json({ status: results.every((result) => result.status === "PERMIT") ? "PERMIT" : "DENY", results });
+    }
     if (route === "/users/profile") {
       if (method === "PUT") profile.attributes = (body as typeof profile).attributes;
       return json(profile);
@@ -198,6 +251,43 @@ export function fakeKeycloak() {
     realmRoles,
     profile,
     realm,
+    nodeClients,
+    /** Every machine-credential check Keycloak was asked to make, in order. */
+    nodeLogins,
+    /** Grants `personId` the named actions on one resource, the way a stored grant materializes. */
+    permit(personId: string, resourceName: string, actions: readonly string[]): void {
+      const user = [...users.values()].find((item) => item.attributes.harness_person_id?.[0] === personId);
+      if (!user) throw new Error(`fixture account ${personId} is not registered`);
+      const resource = [...resources.values()].find((item) => item.name === resourceName) ?? {
+          _id: id("resource"),
+          name: resourceName,
+          scopes: [],
+        },
+        policy = { id: id("policy"), name: `fixture-users:${personId}:${resourceName}:${sequence}`, users: [user.id] },
+        permission = {
+          id: id("permission"),
+          name: `fixture:${personId}:${resourceName}:${sequence}`,
+          resources: [resource._id],
+          scopes: [...actions],
+          policies: [policy.id],
+        };
+      resources.set(resource._id, resource);
+      userPolicies.set(policy.id, policy);
+      permissions.set(permission.id, permission);
+    },
+    /** Registers a node for `personId` the way the center registry would and returns its machine credential. */
+    node(nodeId: string, personId: string): string {
+      const clientId = `harness-node-${nodeId}`,
+        client = nodeClients.get(clientId) ?? {
+          id: id("node-client"),
+          clientId,
+          attributes: {},
+          secret: `secret-${nodeId}`,
+        };
+      client.attributes = { harness_person_id: personId };
+      nodeClients.set(clientId, client);
+      return client.secret;
+    },
     /** Registers an account the way an administrator would and returns its bearer token. */
     account(personId: string): string {
       const user = { id: id("user"), username: personId, attributes: { harness_person_id: [personId] } };
@@ -233,4 +323,133 @@ export function keycloakUserRoot(
   writeFileSync(path.join(root, "rbac", "center-client-secret"), "fixture-secret");
   signIn(personId, roles);
   return { root, signIn };
+}
+
+/**
+ * Serves the fake realm over loopback HTTP for daemon hosts, which reach Keycloak through global fetch.
+ * `bind` points a daemon user root at it; close the returned server when the test ends.
+ */
+export async function serveKeycloak(): Promise<{
+  readonly keycloak: ReturnType<typeof fakeKeycloak>;
+  readonly url: string;
+  readonly bind: (userRoot: string) => void;
+  readonly close: () => Promise<void>;
+}> {
+  const keycloak = fakeKeycloak(),
+    server = createServer((request, response) => {
+      void (async () => {
+        let raw = "";
+        for await (const chunk of request) raw += String(chunk);
+        const form = request.headers["content-type"]?.includes("x-www-form-urlencoded") ?? false,
+          answer = await keycloak.fetch(`http://127.0.0.1${request.url}`, {
+            method: request.method,
+            headers: request.headers as Record<string, string>,
+            ...(raw === "" ? {} : { body: form ? new URLSearchParams(raw) : raw }),
+          });
+        response.statusCode = answer.status;
+        response.setHeader("content-type", "application/json");
+        response.end(await answer.text());
+      })().catch((error: unknown) => {
+        response.statusCode = 500;
+        response.end(JSON.stringify({ error: String(error) }));
+      });
+    });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  // A fixture that fails before its teardown registers must not hold the test process open.
+  server.unref();
+  const address = server.address();
+  if (address === null || typeof address === "string") throw new Error("fixture Keycloak did not bind a port");
+  const url = `http://127.0.0.1:${address.port}`;
+  return {
+    keycloak,
+    url,
+    bind: (userRoot) => {
+      mkdirSync(path.join(userRoot, "rbac"), { recursive: true });
+      writeFileSync(path.join(userRoot, "rbac", "config.json"), JSON.stringify({ url, realm: keycloakRealm }));
+      writeFileSync(path.join(userRoot, "rbac", "center-client-secret"), "fixture-secret");
+    },
+    // Fixtures register their teardown more than once; closing an already closed server is not a failure.
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections();
+        server.close(() => resolve());
+      }),
+  };
+}
+
+type RealmControl =
+  | { readonly op: "account"; readonly personId: string }
+  | { readonly op: "permit"; readonly personId: string; readonly resource: string; readonly actions: readonly string[] }
+  | { readonly op: "node"; readonly nodeId: string; readonly personId: string }
+  | { readonly op: "nodeLogins" };
+
+/** Applies one control message to a served realm; the child entry and its parent share this vocabulary. */
+export function applyRealmControl(keycloak: ReturnType<typeof fakeKeycloak>, message: RealmControl): unknown {
+  if (message.op === "account") return keycloak.account(message.personId);
+  if (message.op === "permit") {
+    keycloak.permit(message.personId, message.resource, message.actions);
+    return null;
+  }
+  if (message.op === "node") return keycloak.node(message.nodeId, message.personId);
+  return keycloak.nodeLogins;
+}
+
+/**
+ * The fake realm in its own process, for tests that block their event loop on spawnSync while a daemon
+ * they started calls Keycloak. `control` drives the same fixture operations over the child's IPC channel.
+ */
+export async function spawnKeycloak(): Promise<{
+  readonly url: string;
+  readonly bind: (userRoot: string) => void;
+  readonly control: <T = unknown>(message: RealmControl) => Promise<T>;
+  readonly close: () => void;
+}> {
+  const child = fork(path.join(import.meta.dirname, "fixtures/keycloak-realm-child.ts"), [], {
+      stdio: ["ignore", "ignore", "inherit", "ipc"],
+    }),
+    // A child that dies before announcing itself must fail the test, not leave it waiting.
+    [ready] = (await Promise.race([
+      once(child, "message"),
+      once(child, "exit").then(() => {
+        throw new Error("fixture Keycloak process exited before it was ready");
+      }),
+    ])) as [{ readonly url: string }];
+  let chain: Promise<unknown> = Promise.resolve();
+  return {
+    url: ready.url,
+    bind: (userRoot) => {
+      mkdirSync(path.join(userRoot, "rbac"), { recursive: true });
+      writeFileSync(
+        path.join(userRoot, "rbac", "config.json"),
+        JSON.stringify({ url: ready.url, realm: keycloakRealm }),
+      );
+      writeFileSync(path.join(userRoot, "rbac", "center-client-secret"), "fixture-secret");
+    },
+    // One request at a time, so each reply answers the message before it.
+    control: <T>(message: RealmControl) => {
+      const reply = chain.then(async () => {
+        child.send(message);
+        const [answer] = (await once(child, "message")) as [{ readonly result: T }];
+        return answer.result;
+      });
+      chain = reply.catch(() => undefined);
+      return reply;
+    },
+    close: () => {
+      child.kill();
+    },
+  };
+}
+
+/** Registers a node through the center's registry write path, as the administrator signed in at `userRoot`. */
+export async function registerNode(
+  userRoot: string,
+  request: { readonly operationId: string; readonly nodeId: string; readonly personId: string },
+): Promise<{ readonly ok: boolean; readonly credential?: string; readonly version?: string }> {
+  return new AccessAdminService(new OidcSessionService(userRoot), userRoot).run({
+    operation: "node-register",
+    expectedVersion: "",
+    ...request,
+  });
 }

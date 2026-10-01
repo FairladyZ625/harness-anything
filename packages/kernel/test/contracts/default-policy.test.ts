@@ -15,7 +15,7 @@ test("the built-in v5 Policy registers only qualification predicates and all dur
         ),
       ),
     ],
-    ["hasRoleBinding", "hasDefaultBinding", "hasAssignmentBinding"],
+    ["hasRoleBinding", "hasDefaultBinding"],
   );
   // rules 对 durable inventory 的覆盖由 authorization-port 契约断言(那条测试就叫 "covers the
   // frozen durable inventory exactly once");这里只管 predicate 词表,不再抄一份长度快照。

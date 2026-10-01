@@ -166,9 +166,9 @@ function buildRecord(entry: DaemonRequestLogEntry, at: Date): DaemonRequestLogRe
     transport: entry.auth.transportKind,
     ownerUid: entry.auth.unixSocketOwnerBoundary?.ownerUid ?? null,
     // The daemon resolves the principal inside the write binding, which the protocol layer cannot
-    // observe. Fleet assignment ingress carries it on the auth context, so record it where it is
-    // genuinely known and leave it null rather than guessing.
-    principalId: entry.auth.assignmentBinding?.actor.principal.personId ?? null,
+    // observe. Fleet ingress carries the node's registered owner on the auth context, so record it
+    // where it is genuinely known and leave it null rather than guessing.
+    principalId: entry.auth.nodePrincipal?.personId ?? null,
     executor: entry.executor,
     method: entry.method,
     command: entry.command,

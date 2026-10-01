@@ -13,7 +13,8 @@ import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { removeTemporaryDirectory } from "../../../tools/temporary-directory-cleanup.mjs";
 
 const actor = { principal: { personId: "person-owner" }, executor: { kind: "agent" as const, id: "codex" } } as const,
-  binding = withRoleBinding({ actor, source: "local" as const }, "repo-write"),
+  // The lifecycle persona writes and closes; closing a task is the maintainer tier's, so it holds both roles.
+  binding = withRoleBinding(withRoleBinding({ actor, source: "local" as const }, "repo-write"), "arbiter"),
   reviewerBinding = withRoleBinding(
     {
       actor: { principal: { personId: "person-reviewer" }, executor: { kind: "agent" as const, id: "arbiter" } },
