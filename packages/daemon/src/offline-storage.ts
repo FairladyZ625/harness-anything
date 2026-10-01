@@ -31,8 +31,8 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
       emitReceipt({ ok: result.plan.ready, exitCode, schema: "generation-conversion-receipt/v1", ...result });
       return exitCode;
     }
-    if (argv[0] === "restore") {
-      const backupDir = positional(argv, 1, "restore requires a backup directory"),
+    if (argv[commandIndex] === "restore") {
+      const backupDir = positional(argv, commandIndex + 1, "restore requires a backup directory"),
         destinationRoot = option(argv, "--to");
       if (!destinationRoot) throw new Error("restore requires --to <absolute-directory>");
       const result = restoreLedgerBackup({ backupDir, destinationRoot }),
@@ -50,7 +50,7 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
       });
       return 0;
     }
-    if (argv[0] === "events" && argv[1] === "tail") {
+    if (argv[commandIndex] === "events" && argv[commandIndex + 1] === "tail") {
       const since = option(argv, "--since"),
         numeric = since === undefined ? undefined : Number(since),
         events = readOfflineLedgerEvents({
