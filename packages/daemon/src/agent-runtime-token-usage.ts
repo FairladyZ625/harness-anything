@@ -2,6 +2,38 @@ import type { TaskProjection } from "@harness-anything/kernel";
 import { agentRuntimeTokenUsageRangeWords } from "./protocol/daemon-protocol-schema-ids.ts";
 import { readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 import type { DispatchStreamHeader, DispatchStreamSummary } from "./dispatch-stream.ts";
+import {
+  sessionOutcomeFields,
+  tokenUsageInsightLimits,
+  tokenUsageInsights,
+  tokenUsageOutcomeWords,
+  validTokenUsageInsights,
+} from "./agent-runtime-token-usage-insights.ts";
+import type {
+  AgentRuntimeTokenUsageInsights,
+  AgentRuntimeTokenUsageOutcome,
+  AgentRuntimeTokenUsageSessionOutcomes,
+  TokenUsageDispatchFact,
+} from "./agent-runtime-token-usage-insights.ts";
+import { workRootWalk } from "./workspace-scope-read.ts";
+import type { WorkRuleTask } from "./workspace-scope-read.ts";
+
+export {
+  tokenUsageInsightLimits,
+  tokenUsageOutcomeWords,
+  tokenUsageSessionBinCeilings,
+} from "./agent-runtime-token-usage-insights.ts";
+export type {
+  AgentRuntimeTokenUsageOutcome,
+  AgentRuntimeTokenUsageOutcomeRow,
+  AgentRuntimeTokenUsageSessionBin,
+  AgentRuntimeTokenUsageSessionStats,
+  AgentRuntimeTokenUsageTaskRow,
+  AgentRuntimeTokenUsageTopSession,
+  AgentRuntimeTokenUsageTrendSeries,
+  AgentRuntimeTokenUsageUnreportedProvider,
+  AgentRuntimeTokenUsageWorkRow,
+} from "./agent-runtime-token-usage-insights.ts";
 
 /** One consumption counter set, summed over the dispatches each row aggregates. The field
  * names match `TaskDispatchRow.metrics` because both read the same `runtime_metrics` records. */
@@ -22,13 +54,23 @@ export interface AgentRuntimeTokenUsageReporting {
   readonly usageUnavailableDispatches: number;
 }
 export type AgentRuntimeTokenUsageTotals = AgentRuntimeTokenUsageCounters & AgentRuntimeTokenUsageReporting;
-export interface AgentRuntimeTokenUsageAgentRow extends AgentRuntimeTokenUsageTotals {
+export interface AgentRuntimeTokenUsageAgentRow
+  extends AgentRuntimeTokenUsageTotals,
+    AgentRuntimeTokenUsageSessionOutcomes {
   readonly agentId: string;
   readonly agentName: string;
 }
-export interface AgentRuntimeTokenUsageSquadRow extends AgentRuntimeTokenUsageTotals {
+export interface AgentRuntimeTokenUsageSquadRow
+  extends AgentRuntimeTokenUsageTotals,
+    AgentRuntimeTokenUsageSessionOutcomes {
   readonly squadId: string;
   readonly squadName: string;
+}
+/** Consumption per model as the dispatch declared it; at most `tokenUsageInsightLimits.models` rows. */
+export interface AgentRuntimeTokenUsageModelRow
+  extends AgentRuntimeTokenUsageTotals,
+    AgentRuntimeTokenUsageSessionOutcomes {
+  readonly model: string;
 }
 export type AgentRuntimeTokenUsageRange = (typeof agentRuntimeTokenUsageRangeWords)[number];
 export const agentRuntimeTokenUsageRanges: readonly AgentRuntimeTokenUsageRange[] = agentRuntimeTokenUsageRangeWords;
@@ -51,9 +93,24 @@ export type AgentRuntimeTokenUsageResult = {
   readonly since: string;
   readonly bucketMs: number;
   readonly totals: AgentRuntimeTokenUsageTotals;
+  /** The equally long span one window earlier: it starts as many local days before `since` as
+   * the window covers and ends that many days before the read's `now`, so a partial window is
+   * compared against the same elapsed part of the earlier one. */
+  readonly previous: {
+    readonly since: string;
+    readonly until: string;
+    readonly totals: AgentRuntimeTokenUsageTotals;
+  };
   readonly buckets: readonly AgentRuntimeTokenUsageBucket[];
   readonly agents: readonly AgentRuntimeTokenUsageAgentRow[];
   readonly squads: readonly AgentRuntimeTokenUsageSquadRow[];
+  readonly models: readonly AgentRuntimeTokenUsageModelRow[];
+  readonly tasks: AgentRuntimeTokenUsageInsights["tasks"];
+  readonly works: AgentRuntimeTokenUsageInsights["works"];
+  readonly sessions: AgentRuntimeTokenUsageInsights["sessions"];
+  readonly outcomes: AgentRuntimeTokenUsageInsights["outcomes"];
+  readonly trend: AgentRuntimeTokenUsageInsights["trend"];
+  readonly unreported: AgentRuntimeTokenUsageInsights["unreported"];
   readonly watermark: number;
   readonly sourceRevision: number;
 };
@@ -76,7 +133,7 @@ export interface AgentRuntimeTokenUsageSessionRow {
   readonly startedAt: string;
   readonly endedAt: string | null;
   readonly durationMs: number | null;
-  readonly outcome: "running" | "succeeded" | "failed" | "unknown";
+  readonly outcome: AgentRuntimeTokenUsageOutcome;
   readonly inputTokens: number;
   readonly cacheReadTokens: number;
   readonly outputTokens: number;
@@ -117,11 +174,21 @@ type UsageAccumulator = {
 function planWindow(
   now: Date,
   range: AgentRuntimeTokenUsageRange,
-): { readonly sinceMs: number; readonly bucketMs: number } {
-  const days = range === "today" ? 1 : range === "7d" ? 7 : 30;
+): {
+  readonly sinceMs: number;
+  readonly bucketMs: number;
+  readonly previousSinceMs: number;
+  readonly previousUntilMs: number;
+} {
+  const days = range === "today" ? 1 : range === "7d" ? 7 : 30,
+    previousUntil = new Date(now);
+  // Calendar arithmetic, not a fixed millisecond span: a daylight-saving day is not 24 hours.
+  previousUntil.setDate(now.getDate() - days);
   return {
     sinceMs: new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1)).getTime(),
     bucketMs: range === "today" ? 3_600_000 : 86_400_000,
+    previousSinceMs: new Date(now.getFullYear(), now.getMonth(), now.getDate() - (2 * days - 1)).getTime(),
+    previousUntilMs: previousUntil.getTime(),
   };
 }
 
@@ -180,23 +247,26 @@ function projectedHeader(
     ...(payload.agentId ? { agentId: payload.agentId } : {}),
     ...(payload.agentName ? { agentName: payload.agentName } : {}),
     ...(payload.squadId ? { squadId: payload.squadId } : {}),
+    kindId: payload.kindId,
     model: payload.definitionSnapshot.model,
   };
 }
 
 /**
- * The per-agent (and per-squad) consumption aggregate for the requested range, read-only. The
- * dispatch stream headers carry the attribution (agentId/agentName/squadId/startedAt) and each
- * stream summary carries the latest `runtime_metrics` record, so the renderer gets one
- * aggregate instead of pulling every dispatch row. Dispatches without agent or squad
- * attribution are not part of either view; the session count still includes dispatches whose
- * metrics have not been emitted yet.
+ * The consumption aggregate for the requested range, read-only. The dispatch stream headers
+ * carry the attribution (agentId/agentName/squadId/model/taskId/startedAt) and each stream
+ * summary carries the latest `runtime_metrics` record, so the renderer gets one aggregate —
+ * totals, the previous period, trend, member and model rows, and the analysis groups —
+ * instead of pulling every dispatch row. Dispatches without agent or squad attribution are not
+ * part of those two views; the session count still includes dispatches whose metrics have not
+ * been emitted yet.
  */
 export function readAgentRuntimeTokenUsage(input: {
   readonly rootDir: string;
   readonly now: string;
   readonly range: AgentRuntimeTokenUsageRange;
   readonly entityLabel: (squadId: string) => string | null;
+  readonly taskOf: (taskId: string) => WorkRuleTask | undefined;
   readonly projection: Pick<TaskProjection, "readRuntimeDispatchPage">;
   readonly cut: {
     readonly status: "ready" | "pending";
@@ -206,42 +276,75 @@ export function readAgentRuntimeTokenUsage(input: {
 }): AgentRuntimeTokenUsageResult {
   const now = new Date(input.now);
   if (!Number.isFinite(now.getTime())) throw new Error(`Agent runtime token usage now is invalid: ${input.now}.`);
-  const { sinceMs, bucketMs } = planWindow(now, input.range),
+  const { sinceMs, bucketMs, previousSinceMs, previousUntilMs } = planWindow(now, input.range),
     agents = new Map<string, UsageAccumulator>(),
     squads = new Map<string, UsageAccumulator>(),
+    models = new Map<string, UsageAccumulator>(),
     // The totals strip and the trend answer "how much / when" for the whole window — every
     // dispatch counts exactly once here, while the member rows below stay attribution views
     // (a dispatch carrying both agent and squad attribution appears in both rows).
-    fleet = new Map<string, UsageAccumulator>([
-      [
-        "",
-        {
-          name: "",
-          sessions: new Set<string>(),
-          counters: zero(),
-          usageReportedDispatches: 0,
-          usageUnavailableDispatches: 0,
-        },
-      ],
-    ]),
-    buckets = bucketLadder(sinceMs, now.getTime(), bucketMs);
-  for (const { header, summary } of windowDispatches(input.rootDir, input.projection, sinceMs, () => true)) {
+    fleet = new Map<string, UsageAccumulator>(),
+    previous = new Map<string, UsageAccumulator>(),
+    buckets = bucketLadder(sinceMs, now.getTime(), bucketMs),
+    facts: TokenUsageDispatchFact[] = [],
+    startedMs = (header: DispatchStreamHeader): number => Date.parse(header.startedAt);
+  // One walk covers both periods; the tail of the earlier window past `previousUntil` belongs
+  // to neither, so its streams are never opened.
+  for (const { header, summary } of windowDispatches(
+    input.rootDir,
+    input.projection,
+    previousSinceMs,
+    (candidate) => startedMs(candidate) < previousUntilMs || startedMs(candidate) >= sinceMs,
+  )) {
+    if (startedMs(header) < sinceMs) {
+      accumulate(previous, "", "", header, summary);
+      continue;
+    }
     accumulateBucket(buckets, header.startedAt, summary, sinceMs, bucketMs);
     accumulate(fleet, "", "", header, summary);
     if (header.agentId) accumulate(agents, header.agentId, header.agentName ?? header.agentId, header, summary);
     if (header.squadId)
       accumulate(squads, header.squadId, input.entityLabel(header.squadId) ?? header.squadId, header, summary);
+    if (header.model) accumulate(models, header.model, header.model, header, summary);
+    facts.push({
+      ...sessionRowOf(header, summary),
+      agentId: header.agentId ?? null,
+      agentName: header.agentName ?? null,
+      kindId: header.kindId ?? null,
+      instanceId: header.instanceId,
+      bucketIndex: bucketIndexOf(buckets.length, header.startedAt, sinceMs, bucketMs),
+    });
   }
+  const { sessionOutcome, ...insights } = tokenUsageInsights({
+      facts,
+      bucketCount: buckets.length,
+      taskOf: input.taskOf,
+      workOf: (taskId) => workRootWalk(taskId, input.taskOf),
+    }),
+    rowOf = (accumulator: UsageAccumulator) => ({
+      ...countersOf(accumulator),
+      ...sessionOutcomesOf(accumulator, sessionOutcome),
+    });
   return {
     ok: true,
     status: input.cut.status,
     range: input.range,
     since: new Date(sinceMs).toISOString(),
     bucketMs,
-    totals: countersOf(fleet.get("")!),
+    totals: countersOf(fleet.get("") ?? emptyAccumulator()),
+    previous: {
+      since: new Date(previousSinceMs).toISOString(),
+      until: new Date(previousUntilMs).toISOString(),
+      totals: countersOf(previous.get("") ?? emptyAccumulator()),
+    },
     buckets,
-    agents: [...agentRows(agents)].sort(compareRows),
-    squads: [...squadRows(squads)].sort(compareRows),
+    agents: [...agents].map(([agentId, row]) => ({ agentId, agentName: row.name, ...rowOf(row) })).sort(compareRows),
+    squads: [...squads].map(([squadId, row]) => ({ squadId, squadName: row.name, ...rowOf(row) })).sort(compareRows),
+    models: [...models]
+      .map(([model, row]) => ({ model, ...rowOf(row) }))
+      .sort(compareRows)
+      .slice(0, tokenUsageInsightLimits.models),
+    ...insights,
     watermark: input.cut.watermark,
     sourceRevision: input.cut.sourceRevision,
   };
@@ -315,7 +418,7 @@ export function readAgentRuntimeTokenUsageDetail(input: {
 export function agentRuntimeTokenUsageHandler(context: {
   readonly rootDir: string;
   readonly now: () => string;
-  readonly projection: Pick<TaskProjection, "readCut" | "getEntity" | "readRuntimeDispatchPage">;
+  readonly projection: Pick<TaskProjection, "readCut" | "getEntity" | "readRuntimeDispatchPage" | "readTaskIndex">;
   readonly range: AgentRuntimeTokenUsageRange;
 }): AgentRuntimeTokenUsageResult {
   const cut = context.projection.readCut();
@@ -324,6 +427,7 @@ export function agentRuntimeTokenUsageHandler(context: {
     now: context.now(),
     range: context.range,
     entityLabel: entityLabelOf(cut, context.projection),
+    taskOf: taskOf(cut, context.projection),
     cut,
     projection: context.projection,
   });
@@ -370,7 +474,7 @@ export function agentRuntimeTokenUsageMemberOf(
 export function agentRuntimeTokenUsageReadHandlers(context: {
   readonly rootDir: string;
   readonly now: () => string;
-  readonly projection: Pick<TaskProjection, "readCut" | "getEntity" | "readRuntimeDispatchPage">;
+  readonly projection: Pick<TaskProjection, "readCut" | "getEntity" | "readRuntimeDispatchPage" | "readTaskIndex">;
   readonly cellCodedError: (code: string, text: string) => Error;
 }): {
   readonly "repo.agentRuntime.tokenUsage": (payload: Readonly<Record<string, unknown>>) => AgentRuntimeTokenUsageResult;
@@ -410,6 +514,20 @@ function entityLabelOf(
   };
 }
 
+/** Task titles and parent links for the task and work rows: one task-index read per usage
+ * read, taken on the first lookup, under the same ready-cut guard as the squad label. */
+function taskOf(
+  cut: { readonly status: string },
+  projection: Pick<TaskProjection, "readTaskIndex">,
+): (taskId: string) => WorkRuleTask | undefined {
+  let tasks: ReadonlyMap<string, WorkRuleTask> | null = null;
+  return (taskId) => {
+    if (cut.status !== "ready") return undefined;
+    tasks ??= new Map(projection.readTaskIndex({}).rows.map((row) => [row.taskId, row]));
+    return tasks.get(taskId);
+  };
+}
+
 /** The accumulating form of a bucket; frozen into the readonly result shape once filled. */
 type MutableBucket = {
   bucketStart: string;
@@ -438,15 +556,11 @@ function bucketLadder(sinceMs: number, nowMs: number, bucketMs: number): Mutable
     });
   return buckets;
 }
-function bucketOf(
-  buckets: readonly MutableBucket[],
-  startedAt: string,
-  sinceMs: number,
-  bucketMs: number,
-): MutableBucket | null {
+/** The ladder position a dispatch falls in, or -1 outside the window. */
+function bucketIndexOf(bucketCount: number, startedAt: string, sinceMs: number, bucketMs: number): number {
   const at = Date.parse(startedAt),
     index = Number.isFinite(at) ? Math.floor((at - sinceMs) / bucketMs) : -1;
-  return index >= 0 && index < buckets.length ? (buckets[index] ?? null) : null;
+  return index >= 0 && index < bucketCount ? index : -1;
 }
 function accumulateBucket(
   buckets: readonly MutableBucket[],
@@ -456,8 +570,8 @@ function accumulateBucket(
   bucketMs: number,
 ): void {
   const metrics = summary?.runtimeMetrics,
-    bucket = bucketOf(buckets, startedAt, sinceMs, bucketMs);
-  if (bucket === null) return;
+    bucket = buckets[bucketIndexOf(buckets.length, startedAt, sinceMs, bucketMs)];
+  if (bucket === undefined) return;
   bucket.dispatchCount += 1;
   if (metrics) {
     bucket.inputTokens += metrics.inputTokens;
@@ -479,13 +593,7 @@ function accumulate(
   summary: DispatchStreamSummary | null,
 ): void {
   const metrics = summary?.runtimeMetrics;
-  const accumulator = map.get(key) ?? {
-    name,
-    sessions: new Set<string>(),
-    counters: zero(),
-    usageReportedDispatches: 0,
-    usageUnavailableDispatches: 0,
-  };
+  const accumulator = map.get(key) ?? { ...emptyAccumulator(), name };
   accumulator.sessions.add(header.runtimeSessionId);
   if (metrics) {
     accumulator.counters.inputTokens += metrics.inputTokens;
@@ -542,7 +650,7 @@ function dispatchOutcomeWord(summary: DispatchStreamSummary | null): AgentRuntim
   const classification = summary?.attemptOutcome?.classification;
   if (classification === "provider_fault" || classification === "provider_quota" || classification === "gate_red")
     return "failed";
-  return process.exitCode === 0 ? "succeeded" : process.exitCode === null ? "unknown" : "failed";
+  return process.exitCode === 0 ? "succeeded" : process.exitCode === null ? "aborted" : "failed";
 }
 function exitOccurredAt(summary: DispatchStreamSummary): string | null {
   let endedAt: string | null = null;
@@ -568,18 +676,6 @@ function sum<T>(values: readonly T[], pick: (value: T) => number): number {
   return values.reduce((total, value) => total + pick(value), 0);
 }
 
-function* agentRows(
-  agents: ReadonlyMap<string, UsageAccumulator>,
-): Generator<AgentRuntimeTokenUsageAgentRow, void, undefined> {
-  for (const [agentId, accumulator] of agents)
-    yield { agentId, agentName: accumulator.name, ...countersOf(accumulator) };
-}
-function* squadRows(
-  squads: ReadonlyMap<string, UsageAccumulator>,
-): Generator<AgentRuntimeTokenUsageSquadRow, void, undefined> {
-  for (const [squadId, accumulator] of squads)
-    yield { squadId, squadName: accumulator.name, ...countersOf(accumulator) };
-}
 function countersOf(accumulator: UsageAccumulator): AgentRuntimeTokenUsageTotals {
   return {
     sessionCount: accumulator.sessions.size,
@@ -588,17 +684,33 @@ function countersOf(accumulator: UsageAccumulator): AgentRuntimeTokenUsageTotals
     usageUnavailableDispatches: accumulator.usageUnavailableDispatches,
   };
 }
-function zero(): UsageAccumulator["counters"] {
-  return { inputTokens: 0, cacheReadTokens: 0, outputTokens: 0, totalTokens: 0, toolCallCount: 0 };
+function emptyAccumulator(): UsageAccumulator {
+  return {
+    name: "",
+    sessions: new Set<string>(),
+    counters: { inputTokens: 0, cacheReadTokens: 0, outputTokens: 0, totalTokens: 0, toolCallCount: 0 },
+    usageReportedDispatches: 0,
+    usageUnavailableDispatches: 0,
+  };
+}
+function sessionOutcomesOf(
+  accumulator: UsageAccumulator,
+  sessionOutcome: ReadonlyMap<string, AgentRuntimeTokenUsageOutcome>,
+): AgentRuntimeTokenUsageSessionOutcomes {
+  const ended = (outcome: AgentRuntimeTokenUsageOutcome): number =>
+    [...accumulator.sessions].filter((sessionId) => sessionOutcome.get(sessionId) === outcome).length;
+  return {
+    succeededSessions: ended("succeeded"),
+    failedSessions: ended("failed"),
+    abortedSessions: ended("aborted"),
+  };
 }
 
-function compareRows(
-  left: AgentRuntimeTokenUsageAgentRow | AgentRuntimeTokenUsageSquadRow,
-  right: AgentRuntimeTokenUsageAgentRow | AgentRuntimeTokenUsageSquadRow,
-): number {
-  const leftKey = "agentId" in left ? left.agentId : left.squadId,
-    rightKey = "agentId" in right ? right.agentId : right.squadId;
-  return right.totalTokens - left.totalTokens || leftKey.localeCompare(rightKey);
+type MemberRow = AgentRuntimeTokenUsageAgentRow | AgentRuntimeTokenUsageSquadRow | AgentRuntimeTokenUsageModelRow;
+function compareRows(left: MemberRow, right: MemberRow): number {
+  const keyOf = (row: MemberRow): string =>
+    "agentId" in row ? row.agentId : "squadId" in row ? row.squadId : row.model;
+  return right.totalTokens - left.totalTokens || keyOf(left).localeCompare(keyOf(right));
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -663,7 +775,7 @@ function validSessionRow(value: unknown): boolean {
     isoTimestamp(value.startedAt) &&
     nullableNonEmptyString(value.endedAt) &&
     (value.durationMs === null || nonNegativeInteger(value.durationMs)) &&
-    ["running", "succeeded", "failed", "unknown"].includes(String(value.outcome)) &&
+    tokenUsageOutcomeWords.includes(value.outcome as AgentRuntimeTokenUsageOutcome) &&
     ["inputTokens", "cacheReadTokens", "outputTokens", "totalTokens", "toolCallCount"].every((field) =>
       nonNegativeInteger(value[field]),
     ) &&
@@ -686,19 +798,28 @@ function sharedResultFields(value: Record<string, unknown>): boolean {
 }
 
 export function validateAgentRuntimeTokenUsage(value: unknown): readonly string[] {
-  const validRow = (row: unknown, idField: string, nameField: string): boolean =>
+  const validRow = (row: unknown, keys: number, ...labels: readonly string[]): boolean =>
     isRecord(row) &&
-    Object.keys(row).length === 10 &&
-    nonEmptyString(row[idField]) &&
-    nonEmptyString(row[nameField]) &&
-    hasTotalsFields(row);
+    Object.keys(row).length === keys &&
+    labels.every((label) => nonEmptyString(row[label])) &&
+    hasTotalsFields(row) &&
+    sessionOutcomeFields.every((field) => nonNegativeInteger(row[field]));
   return isRecord(value) &&
-    Object.keys(value).length === 11 &&
+    Object.keys(value).length === 19 &&
     sharedResultFields(value) &&
+    isRecord(value.previous) &&
+    Object.keys(value.previous).length === 3 &&
+    isoTimestamp(value.previous.since) &&
+    isoTimestamp(value.previous.until) &&
+    validTotals(value.previous.totals) &&
     Array.isArray(value.agents) &&
-    value.agents.every((row) => validRow(row, "agentId", "agentName")) &&
+    value.agents.every((row) => validRow(row, 13, "agentId", "agentName")) &&
     Array.isArray(value.squads) &&
-    value.squads.every((row) => validRow(row, "squadId", "squadName"))
+    value.squads.every((row) => validRow(row, 13, "squadId", "squadName")) &&
+    Array.isArray(value.models) &&
+    value.models.length <= tokenUsageInsightLimits.models &&
+    value.models.every((row) => validRow(row, 12, "model")) &&
+    validTokenUsageInsights(value, (value.buckets as readonly unknown[]).length)
     ? []
     : ["agent runtime token usage is invalid"];
 }

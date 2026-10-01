@@ -1,81 +1,122 @@
-import type { AgentRuntimeTokenUsageAgentRow, AgentRuntimeTokenUsageSquadRow } from "@harness-anything/daemon/protocol";
-import { compactTokens, exactTokens } from "../../token-format.ts";
+import type {
+  AgentRuntimeTokenUsageAgentRow,
+  AgentRuntimeTokenUsageModelRow,
+  AgentRuntimeTokenUsageSquadRow,
+} from "@harness-anything/daemon/protocol";
+import { preciseTokens, exactTokens, percentText } from "../../token-format.ts";
 import {
-  rankingMetricOf,
-  rankingMetrics,
-  rankingMetricKey,
+  rankBarShare,
+  rankLogFloor,
+  successRate,
+  tokenComposition,
+  tokenKindColor,
+  tokenKinds,
+  tokensPerSuccess,
   usageIsUnreported,
-  type RankingMetric,
+  type RankScale,
 } from "../../token-usage-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { Badge, Empty } from "../runtime/parts.tsx";
 
 /**
- * 成员排行(单 Worker / 小队):每行整行是 button —— 柱长(CSS 宽度比例)与数值并排,
- * 键盘可达、focus 可见;「未上报」成员不显示 0 而显示徽标。指标可四选一。
- * 同卡片可切完整表格等价视图。
+ * 「谁花的」排行(单 Worker / 小队 / 模型):每行名称完整一行,数值与占比并排在右,下面一根
+ * 条。条按三类 token 分段(与全页同色);条长可切对数刻度 —— 量级差上百倍时线性条会把小的
+ * 全压成一根线,对数条只表示量级,准确的数在右侧。Worker 与小队的行可点进成员详情;
+ * 模型没有详情读面,行不可点。「未上报」成员显示徽标而不是 0。
  */
 
-export type RankingRow = (AgentRuntimeTokenUsageAgentRow | AgentRuntimeTokenUsageSquadRow) & {
+export type RankingRow = (
+  | AgentRuntimeTokenUsageAgentRow
+  | AgentRuntimeTokenUsageSquadRow
+  | AgentRuntimeTokenUsageModelRow
+) & {
   readonly id: string;
   readonly name: string;
 };
 
 export function UsageRanking({
   rows,
-  metric,
+  total,
+  scale,
   onSelect,
 }: {
   readonly rows: readonly RankingRow[];
-  readonly metric: RankingMetric;
-  readonly onSelect: (row: RankingRow) => void;
+  /** 窗口总量:占比的分母(排行行是归因视图,各行之和不一定等于它)。 */
+  readonly total: number;
+  readonly scale: RankScale;
+  readonly onSelect?: (row: RankingRow) => void;
 }) {
   if (rows.length === 0) return <Empty>{t("agentRuntime.tokenUsageEmpty")}</Empty>;
-  const ordered = [...rows].sort(
-      (left, right) =>
-        rankingMetricOf(right, metric) - rankingMetricOf(left, metric) || left.id.localeCompare(right.id),
-    ),
-    peak = Math.max(...ordered.map((row) => rankingMetricOf(row, metric)), 1);
+  const peak = Math.max(...rows.map(({ totalTokens }) => totalTokens)),
+    floor = rankLogFloor(rows.map(({ totalTokens }) => totalTokens));
   return (
-    <ol data-testid="token-usage-ranking" className="flex flex-col gap-0.5" aria-label={t(rankingMetricKey[metric])}>
-      {ordered.map((row) => {
-        const value = rankingMetricOf(row, metric),
-          unreported = usageIsUnreported(row),
-          ratio = value / peak;
+    <ol data-testid="token-usage-ranking" className="max-h-[440px] overflow-y-auto">
+      {rows.map((row) => {
+        const unreported = usageIsUnreported(row),
+          parts = tokenComposition(row),
+          body = (
+            <>
+              <span className="flex items-baseline gap-2">
+                <span className="min-w-0 flex-1 truncate ui-body text-text" title={row.id}>
+                  {row.name}
+                </span>
+                {unreported ? (
+                  <Badge status="cancelled" tip={t("agentRuntime.tokenUsageUnreportedTip")}>
+                    {t("agentRuntime.tokenUsageUnreported")}
+                  </Badge>
+                ) : (
+                  <>
+                    <span className="font-mono tabular-nums ui-body text-text" title={exactTokens(row.totalTokens)}>
+                      {preciseTokens(row.totalTokens)}
+                    </span>
+                    <span className="w-11 text-right font-mono tabular-nums ui-meta text-text-faint">
+                      {percentText(total > 0 ? row.totalTokens / total : 0)}
+                    </span>
+                  </>
+                )}
+              </span>
+              <span className="mt-1.5 flex h-1.5 overflow-hidden rounded-full bg-text/8" aria-hidden="true">
+                <span
+                  className="flex h-full gap-px transition-[width] duration-200"
+                  style={{ width: `${rankBarShare(row.totalTokens, peak, floor, scale) * 100}%` }}
+                >
+                  {tokenKinds.map((kind) =>
+                    parts[kind] > 0 ? (
+                      <span
+                        key={kind}
+                        className="h-full first:rounded-l-full last:rounded-r-full"
+                        style={{ flexGrow: parts[kind], flexBasis: 0, background: tokenKindColor[kind] }}
+                      />
+                    ) : null,
+                  )}
+                </span>
+              </span>
+              <span className="mt-1 block truncate ui-meta text-text-faint">
+                {t("agentRuntime.tokenUsageRankMeta", {
+                  sessions: String(row.sessionCount),
+                  tools: String(row.toolCallCount),
+                })}
+              </span>
+            </>
+          ),
+          className = "block w-full border-t border-border px-3.5 py-2.5 text-left first:border-t-0";
         return (
           <li key={row.id}>
-            <button
-              type="button"
-              data-testid={`token-usage-rank-${row.id}`}
-              onClick={() => onSelect(row)}
-              title={t("agentRuntime.tokenUsageOpenDetail", { name: row.name })}
-              className="flex w-full items-center gap-2.5 rounded px-1.5 py-1 text-left hover:bg-surface-raised focus-visible:bg-surface-raised focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent"
-            >
-              <span className="w-[150px] shrink-0 truncate ui-micro" data-tip={row.id}>
-                <span className="font-[550]">{row.name}</span>
-                <span className="ml-1.5 font-mono text-text-faint">{row.id}</span>
-              </span>
-              <span className="h-3.5 min-w-0 flex-1 overflow-hidden rounded-sm bg-surface" aria-hidden>
-                <span
-                  className="block h-full rounded-sm transition-[width] duration-200 motion-reduce:transition-none"
-                  style={{
-                    width: `${Math.max(ratio * 100, value > 0 ? 2 : 0)}%`,
-                    background: unreported ? "var(--color-status-cancelled)" : "var(--color-accent)",
-                  }}
-                />
-              </span>
-              {unreported ? (
-                <Badge status="cancelled" tip={t("agentRuntime.tokenUsageUnreportedTip")}>
-                  {t("agentRuntime.tokenUsageUnreported")}
-                </Badge>
-              ) : null}
-              <span
-                className="w-[64px] shrink-0 text-right font-mono ui-micro tabular-nums"
-                title={metric === "sessionCount" || metric === "toolCallCount" ? String(value) : exactTokens(value)}
+            {onSelect === undefined ? (
+              <div data-testid={`token-usage-rank-${row.id}`} className={className}>
+                {body}
+              </div>
+            ) : (
+              <button
+                type="button"
+                data-testid={`token-usage-rank-${row.id}`}
+                onClick={() => onSelect(row)}
+                title={t("agentRuntime.tokenUsageOpenDetail", { name: row.name })}
+                className={`${className} cursor-pointer hover:bg-text/5 focus-visible:bg-text/5 focus-visible:outline focus-visible:outline-1 focus-visible:outline-accent`}
               >
-                {metric === "sessionCount" || metric === "toolCallCount" ? value : compactTokens(value)}
-              </span>
-            </button>
+                {body}
+              </button>
+            )}
           </li>
         );
       })}
@@ -83,80 +124,78 @@ export function UsageRanking({
   );
 }
 
-/** 排行的完整表格等价视图:与柱状图同一数据、同一排序,补齐全部计数列。 */
+/** 排行的表格等价视图:同一批行、同一排序,补齐全部计数列与成功率、单位产出。 */
 export function UsageRankingTable({
   rows,
   onSelect,
   testId,
 }: {
   readonly rows: readonly RankingRow[];
-  readonly onSelect: (row: RankingRow) => void;
+  readonly onSelect?: (row: RankingRow) => void;
   readonly testId: string;
 }) {
   if (rows.length === 0) return <Empty>{t("agentRuntime.tokenUsageEmpty")}</Empty>;
+  const head = "border-b border-border pb-1.5 pr-3 text-right font-normal",
+    cell = "border-b border-border py-1.5 pr-3 text-right font-mono tabular-nums ui-meta";
   return (
-    <table data-testid={testId} className="w-full border-separate border-spacing-0">
-      <thead>
-        <tr className="text-left font-mono ui-micro uppercase tracking-[0.06em] text-text-faint">
-          <th className="border-b border-border pb-1 pr-3">{t("agentRuntime.tokenUsageColName")}</th>
-          <th className="border-b border-border pb-1 pr-3 text-right">{t("agentRuntime.tokenUsageColSessions")}</th>
-          <th className="border-b border-border pb-1 pr-3 text-right">{t("agentRuntime.tokenUsageColInput")}</th>
-          <th className="border-b border-border pb-1 pr-3 text-right">{t("agentRuntime.tokenUsageColCacheRead")}</th>
-          <th className="border-b border-border pb-1 pr-3 text-right">{t("agentRuntime.tokenUsageColOutput")}</th>
-          <th className="border-b border-border pb-1 pr-3 text-right">{t("agentRuntime.tokenUsageColTotal")}</th>
-          <th className="border-b border-border pb-1 pr-3 text-right">{t("agentRuntime.tokenUsageColTools")}</th>
-          <th className="border-b border-border pb-1 text-right">{t("agentRuntime.tokenUsageColUsage")}</th>
-        </tr>
-      </thead>
-      <tbody>
-        {[...rows]
-          .sort((left, right) => right.totalTokens - left.totalTokens || left.id.localeCompare(right.id))
-          .map((row) => {
-            const unreported = usageIsUnreported(row);
+    <div className="max-h-[440px] overflow-auto px-3.5 pb-2">
+      <table data-testid={testId} className="w-full border-separate border-spacing-0">
+        <thead>
+          <tr className="text-left ui-meta text-text-faint">
+            <th className="border-b border-border pb-1.5 pr-3 font-normal">{t("agentRuntime.tokenUsageColName")}</th>
+            <th className={head}>{t("agentRuntime.tokenUsageColSessions")}</th>
+            <th className={head}>{t("agentRuntime.tokenUsageColInput")}</th>
+            <th className={head}>{t("agentRuntime.tokenUsageColCacheRead")}</th>
+            <th className={head}>{t("agentRuntime.tokenUsageColOutput")}</th>
+            <th className={head}>{t("agentRuntime.tokenUsageColTotal")}</th>
+            <th className={head}>{t("agentRuntime.tokenUsageColTools")}</th>
+            <th className={head}>{t("agentRuntime.tokenUsageColSuccessRate")}</th>
+            <th className={head}>{t("agentRuntime.tokenUsageColPerSuccess")}</th>
+            <th className="border-b border-border pb-1.5 text-right font-normal">
+              {t("agentRuntime.tokenUsageColUsage")}
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => {
+            const rate = successRate(row),
+              perSuccess = tokensPerSuccess(row);
             return (
               <tr
                 key={row.id}
                 data-testid={`token-usage-row-${row.id}`}
-                className="cursor-pointer hover:bg-surface-raised"
-                onClick={() => onSelect(row)}
+                className={onSelect === undefined ? "hover:bg-text/5" : "cursor-pointer hover:bg-text/5"}
+                onClick={onSelect === undefined ? undefined : () => onSelect(row)}
               >
-                <td className="border-b border-border py-1 pr-3 ui-micro">
-                  <span className="font-[550]">{row.name}</span>
-                  <span className="ml-1.5 font-mono text-text-faint">{row.id}</span>
+                <td className="border-b border-border py-1.5 pr-3 ui-meta">
+                  <span className="font-[550] text-text">{row.name}</span>
+                  {row.id === row.name ? null : <span className="ml-1.5 font-mono text-text-faint">{row.id}</span>}
                 </td>
-                <td className="border-b border-border py-1 pr-3 text-right font-mono ui-micro">{row.sessionCount}</td>
-                <td
-                  className="border-b border-border py-1 pr-3 text-right font-mono ui-micro"
-                  title={exactTokens(row.inputTokens)}
-                >
-                  {compactTokens(row.inputTokens)}
+                <td className={cell}>{row.sessionCount}</td>
+                <td className={cell} title={exactTokens(row.inputTokens)}>
+                  {preciseTokens(row.inputTokens)}
                 </td>
-                <td
-                  className="border-b border-border py-1 pr-3 text-right font-mono ui-micro"
-                  title={exactTokens(row.cacheReadTokens)}
-                >
-                  {compactTokens(row.cacheReadTokens)}
+                <td className={cell} title={exactTokens(row.cacheReadTokens)}>
+                  {preciseTokens(row.cacheReadTokens)}
                 </td>
-                <td
-                  className="border-b border-border py-1 pr-3 text-right font-mono ui-micro"
-                  title={exactTokens(row.outputTokens)}
-                >
-                  {compactTokens(row.outputTokens)}
+                <td className={cell} title={exactTokens(row.outputTokens)}>
+                  {preciseTokens(row.outputTokens)}
                 </td>
-                <td
-                  className="border-b border-border py-1 pr-3 text-right font-mono ui-micro font-semibold"
-                  title={exactTokens(row.totalTokens)}
-                >
-                  {compactTokens(row.totalTokens)}
+                <td className={`${cell} font-semibold text-text`} title={exactTokens(row.totalTokens)}>
+                  {preciseTokens(row.totalTokens)}
                 </td>
-                <td className="border-b border-border py-1 pr-3 text-right font-mono ui-micro">{row.toolCallCount}</td>
-                <td className="border-b border-border py-1 text-right">
-                  {unreported ? (
+                <td className={cell}>{row.toolCallCount}</td>
+                <td className={cell}>{rate === null ? "—" : percentText(rate)}</td>
+                <td className={cell} title={perSuccess === null ? undefined : exactTokens(perSuccess)}>
+                  {perSuccess === null ? "—" : preciseTokens(perSuccess)}
+                </td>
+                <td className="border-b border-border py-1.5 text-right">
+                  {usageIsUnreported(row) ? (
                     <Badge status="cancelled" tip={t("agentRuntime.tokenUsageUnreportedTip")}>
                       {t("agentRuntime.tokenUsageUnreported")}
                     </Badge>
                   ) : (
-                    <span className="font-mono ui-micro text-text-faint">
+                    <span className="font-mono ui-meta text-text-faint">
                       {t("agentRuntime.tokenUsageReportedCount", {
                         reported: String(row.usageReportedDispatches),
                         unavailable: String(row.usageUnavailableDispatches),
@@ -167,36 +206,8 @@ export function UsageRankingTable({
               </tr>
             );
           })}
-      </tbody>
-    </table>
-  );
-}
-
-export function RankingMetricControl({
-  metric,
-  onMetric,
-}: {
-  readonly metric: RankingMetric;
-  readonly onMetric: (metric: RankingMetric) => void;
-}) {
-  return (
-    <span role="group" aria-label={t("agentRuntime.tokenUsageMetricLabel")} className="inline-flex flex-wrap gap-1">
-      {rankingMetrics.map((item) => (
-        <button
-          key={item}
-          type="button"
-          data-testid={`token-usage-metric-${item}`}
-          aria-pressed={metric === item}
-          onClick={() => onMetric(item)}
-          className={`rounded border px-2 py-0.5 ui-micro ${
-            metric === item
-              ? "border-accent bg-accent/15 font-semibold text-accent"
-              : "border-border text-text-muted hover:border-border-strong hover:text-text"
-          }`}
-        >
-          {t(rankingMetricKey[item])}
-        </button>
-      ))}
-    </span>
+        </tbody>
+      </table>
+    </div>
   );
 }

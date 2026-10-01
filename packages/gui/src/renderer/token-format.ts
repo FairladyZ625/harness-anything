@@ -4,5 +4,28 @@
 export const compactTokens = (value: number): string =>
   new Intl.NumberFormat("en-US", { notation: "compact" }).format(value);
 
+/** 分析页的数字多保留一位有效数字(1.96B 而不是 2B):构成与占比要对得上,不能被进位吃掉。 */
+export const preciseTokens = (value: number): string =>
+  new Intl.NumberFormat("en-US", { notation: "compact", maximumSignificantDigits: 3 }).format(value);
+
 /** 精确值进 title / KV 行,千分位分隔。 */
 export const exactTokens = (value: number): string => new Intl.NumberFormat("en-US").format(value);
+
+/** 占比:不足 0.1% 的非零值写成 <0.1%,不四舍五入成 0%(小不等于没有)。 */
+export function percentText(ratio: number): string {
+  if (ratio > 0 && ratio < 0.001) return "<0.1%";
+  const percent = ratio * 100;
+  return `${percent >= 10 || Number.isInteger(percent) ? Math.round(percent) : percent.toFixed(1)}%`;
+}
+
+/** 时长:秒、分秒、时分三档,未结束为「—」。 */
+export function durationText(ms: number | null): string {
+  if (ms === null || !Number.isFinite(ms) || ms < 0) return "—";
+  const totalSeconds = Math.round(ms / 1000);
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const minutes = Math.floor(totalSeconds / 60),
+    seconds = totalSeconds % 60;
+  if (minutes < 60) return seconds === 0 ? `${minutes}m` : `${minutes}m${seconds}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h${minutes % 60}m`;
+}

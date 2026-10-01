@@ -71,6 +71,18 @@
   --color-axis-execution: oklch(0.72 0.13 250);
   --color-axis-assoc: oklch(0.62 0.01 285);
 
+  /* 统计图配色(Token 消耗页):三类 token 与分系列各一组定序分类色,相邻两色在色觉缺陷
+     模拟下可辨、对图面对比 ≥3:1;不与状态色共用。「其余」固定为中性灰。 */
+  --color-viz-cache: #3987e5;
+  --color-viz-input: #199e70;
+  --color-viz-output: #d95926;
+  --color-viz-series-1: #c98500;
+  --color-viz-series-2: #d55181;
+  --color-viz-series-3: #008300;
+  --color-viz-series-4: #9085e9;
+  --color-viz-series-5: #e66767;
+  --color-viz-rest: oklch(0.52 0.01 285);
+
   --color-success: oklch(0.78 0.13 150);
 
   /* S2 视觉基础(dec_B3D40712A6B050D83F1C2EF78D CH3):锐利圆角,token 全程 2-4px。
@@ -138,6 +150,16 @@ html[data-theme="light"] {
   --color-axis-evidence: oklch(0.56 0.14 150);
   --color-axis-execution: oklch(0.54 0.16 250);
   --color-axis-assoc: oklch(0.55 0.01 285);
+
+  --color-viz-cache: #2a78d6;
+  --color-viz-input: #1baf7a;
+  --color-viz-output: #eb6834;
+  --color-viz-series-1: #eda100;
+  --color-viz-series-2: #e87ba4;
+  --color-viz-series-3: #008300;
+  --color-viz-series-4: #4a3aa7;
+  --color-viz-series-5: #e34948;
+  --color-viz-rest: oklch(0.7 0.008 285);
 
   --color-success: oklch(0.56 0.14 150);
 
@@ -236,6 +258,19 @@ html[data-theme="light"] {
   background: var(--status-edge, transparent);
   box-shadow: 0 0 12px var(--status-edge, transparent);
   pointer-events: none;
+}
+
+/* 统计图的柱入场:挂载时从基线长出一次(标准 §6:≤180ms 缓出,不回弹不循环);数据刷新
+   不重挂元素,不重播。系统「减少动态效果」开启时由下面的全局规则关掉。 */
+.viz-grow {
+  transform-box: fill-box;
+  transform-origin: bottom;
+  animation: viz-grow 180ms var(--ease) both;
+}
+@keyframes viz-grow {
+  from {
+    transform: scaleY(0);
+  }
 }
 
 /* 减少动态效果:与 motion 的 reducedMotion="user"(motion-config.tsx)同向,
