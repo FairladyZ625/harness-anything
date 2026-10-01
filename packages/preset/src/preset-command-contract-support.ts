@@ -101,7 +101,6 @@ export interface GeneratedSettingsActionInputField {
 export interface GeneratedSettingsFieldGroup {
   readonly id: string;
   readonly title: string;
-  readonly description: string;
   readonly advanced?: boolean;
 }
 

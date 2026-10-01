@@ -5,7 +5,7 @@
 // ①分组按声明序渲染且每组有一句说明;②每个字段都有「改了会怎样」行;
 // ③高级组默认折叠、可展开,搜索时自动展开;④当前值 ≠ 默认值时出现「已修改」标记,
 // 恢复默认把草稿拨回默认值并随提交带出;⑤roles 按角色键粒度标记与恢复;
-// ⑥页内搜索按名称/说明/后果过滤;⑦「只有业主本人能保存」的提示常驻;
+// ⑥页内搜索按名称/说明/后果过滤;⑦「只有你本人能保存」的提示常驻;
 // ⑧枚举取值旁有人话解释;⑨门映射编辑面归 CI 与门组。
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act } from "react";
@@ -255,7 +255,7 @@ describe("设置页按用途分组并逐项解释", () => {
       container.querySelector<HTMLButtonElement>('[data-testid="settings-advanced-toggle"]')!.click();
     });
     expect(input(container, "settings-wal-flush-events").value).toBe("256");
-    expect(container.textContent).toContain("改了会怎样: 待写入事件积压到这个条数时");
+    expect(container.textContent).toContain("改了会怎样: 当前版本的存储引擎不读这个数值");
   });
 
   it("当前值 ≠ 默认值时出现「已修改」标记,恢复默认拨回默认值并随提交带出", async () => {
@@ -322,7 +322,7 @@ describe("设置页按用途分组并逐项解释", () => {
 
   it("「只有业主本人能保存」提示常驻,枚举取值带旁注人话,门映射编辑面在 CI 组", async () => {
     const container = await mountView();
-    expect(container.textContent).toContain("只有业主本人能保存修改");
+    expect(container.textContent).toContain("只有你本人能保存修改");
     const options = [
       ...container.querySelectorAll<HTMLSelectElement>('[data-testid="settings-reviewIndependence-select"] option'),
     ];

@@ -31,6 +31,10 @@ const CLOSEOUT_OVERRIDE_FIELDS: ReadonlySet<string> = new Set([
   "closeoutCodeDoc",
 ]);
 
+/** 「恢复默认」是低注意力的次要动作:无边框弱色文字,悬停才提亮,只在已修改时出现
+ * (视觉基线 §1.7 轻重决定大小——不能比设置值本身还抢眼)。 */
+const RESTORE_ACTION = "px-1 py-0.5 ui-meta text-text-faint underline-offset-2 hover:text-accent hover:underline";
+
 /** 仓库设置面板:字段面、分组与逐项解释全部由 settings 动作契约 + 声明元数据派生,
  * 本文件只承担渲染、目录联动与提交。 */
 export function RepositorySettingsPanel({
@@ -383,7 +387,7 @@ function SettingsFieldEntry({
               </span>
               <button
                 type="button"
-                className={`${BTN} px-2 py-0.5 ui-meta`}
+                className={RESTORE_ACTION}
                 data-testid={`settings-${row.field}-restore`}
                 onClick={onRestore}
               >
@@ -500,7 +504,7 @@ function renderFieldControl(
                       </span>
                       <button
                         type="button"
-                        className={`${BTN} px-2 py-0.5 ui-meta`}
+                        className={RESTORE_ACTION}
                         data-testid={`settings-roles-${key}-restore`}
                         onClick={() => updateDraft("roles", { ...roles, [key]: null })}
                       >

@@ -23,12 +23,13 @@ export interface SettingsFieldCliDeclaration {
   readonly projection?: "number" | "boolean" | "json-object";
 }
 
-/** Presentation group for a settings field, declared once here and derived by the GUI and CLI. */
+/** Presentation group for a settings field, declared once here and derived by the GUI and CLI.
+ * Group copy (label and the one-line description with product-term explanations) lives in the
+ * GUI locale catalogs keyed by group id; the CLI help renders only the title. */
 export interface SettingsFieldGroup {
   readonly id: string;
   /** English title; localized titles live in the GUI locale catalogs keyed by group id. */
   readonly title: string;
-  readonly description: string;
   /** Advanced groups render collapsed by default in the GUI (storage/backup tunables). */
   readonly advanced?: boolean;
 }
@@ -37,45 +38,35 @@ export const SETTINGS_FIELD_GROUPS = Object.freeze([
   {
     id: "new-task-defaults",
     title: "New task defaults",
-    description: "What every new task starts with: vertical, preset, profile, and the two scaffold documents.",
   },
   {
     id: "dispatch-roles",
     title: "Dispatch roles",
-    description: "Which agent declarations are preferred for worker, commander, and independent reviewer dispatches.",
   },
   {
     id: "review-closeout",
     title: "Review and closeout",
-    description:
-      "How independent a review must be, which decisions need a current review, and which gates closeout enforces.",
   },
   {
     id: "ci-gates",
     title: "CI and completion gates",
-    description: "Which workflow runs witness CI, and which adapter attests each declared completion gate.",
   },
   {
     id: "capacity-agenda",
     title: "Capacity and agenda",
-    description:
-      "How many tasks run at once, when a standard task counts as a work root, and how much the agenda pins.",
   },
   {
     id: "worktree",
     title: "Task worktree setup",
-    description: "Preparation steps every new task worktree runs on the node that materializes it.",
   },
   {
     id: "storage-backup",
     title: "Storage and backup",
-    description: "Durable-storage flush behavior and how many successful restore drills are kept.",
     advanced: true,
   },
   {
     id: "presentation",
     title: "Presentation",
-    description: "Locale for local presentation (this machine only; never enters the repository event stream).",
   },
 ] as const satisfies readonly SettingsFieldGroup[]);
 
@@ -163,6 +154,15 @@ const settingId = {
   repository = "repository" as const,
   local = "local" as const,
   singleSettingCli = (name: string): SettingsFieldCliDeclaration => ({ name, kind: "single" });
+
+// What each closeout gate actually checks, and what protection turning it off loses — the
+// override mechanics (true/false/unset) are identical, so only this sentence differs per gate.
+const CLOSEOUT_GATE_EFFECTS = {
+  review: "Requires an independent completion review to pass; off lets a task complete with no review.",
+  consent: "Requires the owner's explicit consent; off lets a task complete without your sign-off.",
+  factDisposition: "Requires every outstanding fact disposed of first; off lets undisposed facts ride along.",
+  codeDoc: "Requires code and documentation anchors to reconcile; off skips that verification.",
+} as const;
 
 export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
   defineSettingsField({
@@ -296,8 +296,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     defaultValue: DEFAULT_WAL_FLUSH_SETTINGS.adaptive,
     snapshotRequired: true,
     eventDefaultWhenMissing: true,
-    description: "Whether WAL flushing adapts to load.",
-    effect: "Adaptive mode widens the flush batch under heavy writes and narrows it when idle.",
+    description: "Reserved adaptive flush toggle; the current engine does not read it.",
+    effect: "Not read by the current storage engine; changing it has no effect today.",
     group: "storage-backup",
     action: { field: "walFlushAdaptive", type: "boolean" },
     cli: { name: "--wal-flush-adaptive", kind: "single", enum: ["true", "false"] },
@@ -311,8 +311,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     eventDefaultWhenMissing: true,
     minimum: 1,
     maximum: 1_000_000,
-    description: "Event-count WAL flush trigger.",
-    effect: "Durable writes materialize to git once this many events are pending.",
+    description: "Reserved event-count flush trigger; the current engine does not read it.",
+    effect: "Not read by the current storage engine; changing it has no effect today.",
     group: "storage-backup",
     action: { field: "walFlushEvents", type: "number" },
     cli: { name: "--wal-flush-events", kind: "single", regex: "^[1-9][0-9]*$" },
@@ -326,8 +326,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     eventDefaultWhenMissing: true,
     minimum: 1,
     maximum: 1_073_741_824,
-    description: "Byte-count WAL flush trigger.",
-    effect: "Durable writes materialize to git once this many pending bytes accumulate.",
+    description: "Reserved byte-count flush trigger; the current engine does not read it.",
+    effect: "Not read by the current storage engine; changing it has no effect today.",
     group: "storage-backup",
     action: { field: "walFlushBytes", type: "number" },
     cli: { name: "--wal-flush-bytes", kind: "single", regex: "^[1-9][0-9]*$" },
@@ -341,8 +341,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     eventDefaultWhenMissing: true,
     minimum: 1,
     maximum: 3_600_000,
-    description: "Idle-time WAL flush floor in milliseconds.",
-    effect: "A pending batch materializes after at most this much idle time, regardless of size.",
+    description: "Reserved idle-time flush floor in ms; the current engine does not read it.",
+    effect: "Not read by the current storage engine; changing it has no effect today.",
     group: "storage-backup",
     action: { field: "walFlushMilliseconds", type: "number" },
     cli: { name: "--wal-flush-milliseconds", kind: "single", regex: "^[1-9][0-9]*$" },
@@ -399,7 +399,7 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
       defaultValue: undefined,
       optional: true,
       description: `Optional ${gate} closeout gate override.`,
-      effect: "true forces this gate on regardless of profile; false forces it off; unset follows the profile.",
+      effect: CLOSEOUT_GATE_EFFECTS[gate],
       group: "review-closeout",
       action: {
         field: `closeout${suffix}`,
