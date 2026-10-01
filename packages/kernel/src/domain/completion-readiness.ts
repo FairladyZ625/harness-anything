@@ -278,10 +278,13 @@ function evaluateCompletion(
       reviewReturnCommand(task.taskId, changes.reviewId),
       `Review ${changes.reviewId} requested changes; the owner returns the cut with rework instructions in the note.`,
     );
+  // An empty manifest leaves the holder no path to reconcile: completion preparation writes that
+  // witness itself, so it is never the step to name.
+  const reconcilable = closeoutGates.codeDoc && execution.submission.deliverables.length > 0;
   const gate = assessment.gates.find(
     ({ gateId, status }) =>
       !gateSatisfied(status) &&
-      (gateId !== "code-doc-reconciliation" || closeoutGates.codeDoc) &&
+      (gateId !== "code-doc-reconciliation" || reconcilable) &&
       !context.preparedGateIds?.includes(gateId),
   );
   if (gate)
@@ -289,10 +292,8 @@ function evaluateCompletion(
       ? one(
           "code_doc_missing",
           gate.gateId,
-          execution.submission.deliverables.length
-            ? `ha task code-doc reconcile ${task.taskId}` +
-                execution.submission.deliverables.map((value) => ` --path '${value.replaceAll("'", "'\\''")}'`).join("")
-            : `Identify the delivery paths in harness/${context.closeoutPath} Summary for execution ${executionId}.`,
+          `ha task code-doc reconcile ${task.taskId}` +
+            execution.submission.deliverables.map((value) => ` --path '${value.replaceAll("'", "'\\''")}'`).join(""),
           "The submitted execution cut has no canonical code/doc witness.",
         )
       : one(
