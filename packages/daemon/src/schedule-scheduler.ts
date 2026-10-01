@@ -188,7 +188,7 @@ export function makeScheduleScheduler(input: {
     let pending = false;
     for (const [repoId, cell] of input.cells) {
       const { mode, state } = cell.status();
-      if (state !== "attached" || mode === "remote-center") continue;
+      if (state !== "attached") continue;
       const target = targetFor(repoId, cell);
       if (!target) continue;
       let schedules: readonly ScheduleListRow[], admissionWindowMs: number;
@@ -219,8 +219,10 @@ export function makeScheduleScheduler(input: {
       }
       for (const schedule of schedules) {
         // A builtin occurrence executes on the node holding the canonical cell; a remote-edge
-        // mirror must never claim one (the kernel also rejects assignment-sourced claims).
-        if (mode === "remote-edge" && schedule.state !== "invalid" && schedule.spec.target.kind === "builtin") continue;
+        // mirror must never claim one (the kernel also rejects assignment-sourced claims). Every
+        // other occurrence executes where its runtime lives, which is never a remote-center.
+        const builtin = schedule.state !== "invalid" && schedule.spec.target.kind === "builtin";
+        if (mode === "remote-edge" ? builtin : mode === "remote-center" && !builtin) continue;
         const evaluated = evaluateSchedule(target, schedule, observedAt, admissionWindowMs);
         if (evaluated.due) {
           const key = occurrenceKey(evaluated.due);
@@ -245,7 +247,7 @@ export function makeScheduleScheduler(input: {
 
   function targetFor(repoId: string, cell: RepoCell): ScheduleTarget | null {
     const { mode, rootDir } = cell.status();
-    if (mode === "local")
+    if (mode !== "remote-edge")
       return {
         repoId,
         execute: async (action) =>
@@ -254,7 +256,7 @@ export function makeScheduleScheduler(input: {
             await input.localBinding(repoId, rootDir, action.kind === "schedule-list" ? "repo-read" : "repo-write"),
           ) as unknown as Promise<Readonly<Record<string, unknown>>>,
       };
-    if (mode !== "remote-edge" || !input.remoteEdgeAction) return null;
+    if (!input.remoteEdgeAction) return null;
     return {
       repoId,
       execute: (action) => input.remoteEdgeAction!(repoId, rootDir, action as JsonObject),

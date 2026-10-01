@@ -33,6 +33,17 @@ export function entityActionCommandTopology(
   };
 }
 
+/**
+ * A builtin occurrence executes on the node holding the canonical cell, so on a center its
+ * trigger half is the center's own instead of an edge assignment's. Only the cell resolves this:
+ * host admission keeps the declared route, so the entrance serves the daemon's own scheduler and
+ * no transport source.
+ */
+export function builtinOccurrenceCommandTopology(command: CommandTopology, builtinTarget: boolean): CommandTopology {
+  if (!builtinTarget || command.admission["remote-center"] !== "via-assignment") return command;
+  return { ...command, admission: { ...command.admission, "remote-center": "direct" } };
+}
+
 export function admitRepoMode(
   mode: DaemonRepoMode,
   command: Pick<CommandTopology, "admission">,

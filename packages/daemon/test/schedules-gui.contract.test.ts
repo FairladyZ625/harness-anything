@@ -505,7 +505,7 @@ test("invalid Agent options and schedules with unavailable Agent targets degrade
 });
 
 test("availability distinguishes the four execution states from roster truth", () => {
-  const base = { repoId: "schedule-gui", scheduleId: "heartbeat-probe", now };
+  const base = { repoId: "schedule-gui", scheduleId: "heartbeat-probe", now, targetKind: "agent" as const };
   assert.equal(
     deriveScheduleExecutionAvailability({
       ...base,
@@ -566,6 +566,25 @@ test("availability distinguishes the four execution states from roster truth", (
     }),
     "claimed-elsewhere",
   );
+  // A builtin occurrence never rides the roster: the node holding the canonical cell executes it.
+  for (const [mode, viewerNodeId, expected] of [
+    ["local", "local", "local"],
+    ["remote-center", null, "local"],
+    ["remote-edge", "edge-one", "not-on-this-node"],
+  ] as const)
+    for (const activeNodeId of [null, "local"])
+      assert.equal(
+        deriveScheduleExecutionAvailability({
+          ...base,
+          targetKind: "builtin",
+          mode,
+          viewerNodeId,
+          roster: mode === "local" ? null : roster(["edge-one"], ["other-schedule"]),
+          activeNodeId,
+        }),
+        expected,
+        `${mode} ${String(activeNodeId)}`,
+      );
   // An expired roster assignment is not an owner: the schedule reads unassigned.
   const expired = roster(["edge-one"], ["heartbeat-probe"]);
   expired.assignments[0]!.expiresAt = "2020-01-01T00:00:00.000Z";

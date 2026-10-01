@@ -138,8 +138,9 @@ async function dispatchClaimedReceipt(
     active = schedule?.status.activeRun;
   if (claimed.outcome !== "applied" || !schedule || !active) return claimed;
   // A builtin occurrence executes in-process right here — no workspace, no spawn — and settles
-  // before the claim returns. This branch precedes the remote-center hand-off because an edge
-  // can never claim a builtin occurrence (the kernel rejects assignment-sourced claims).
+  // before the claim returns. This branch precedes the remote-center hand-off because the node
+  // holding the canonical cell executes it, a center included; an edge can never claim one (the
+  // kernel rejects assignment-sourced claims).
   if (schedule.spec.target.kind === "builtin")
     return executeBuiltinScheduleOccurrence({ cell, schedule, idempotencyKey, binding, runInternal });
   if (cell.mode === "remote-center") return claimed;

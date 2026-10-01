@@ -157,10 +157,12 @@ function scheduleAssignmentOf(
   );
 }
 
-/** Availability 是 daemon 侧判断,renderer 不复算:active claim 的 owner 优先;
- * 空闲时 local 恒可执行,edge/center 按 roster 分辨 unassigned 与 not-on-this-node。 */
+/** Availability 是 daemon 侧判断,renderer 不复算:builtin 不经 roster,恒由持有 canonical cell
+ * 的节点执行;其余 active claim 的 owner 优先,空闲时 local 恒可执行,edge/center 按 roster 分辨
+ * unassigned 与 not-on-this-node。 */
 export function deriveScheduleExecutionAvailability(input: {
   readonly mode: DaemonRepoMode;
+  readonly targetKind: ScheduleV1["spec"]["target"]["kind"];
   readonly viewerNodeId: string | null;
   readonly roster: FleetRoster | null;
   readonly repoId: string;
@@ -169,6 +171,7 @@ export function deriveScheduleExecutionAvailability(input: {
   readonly now: string;
 }): ScheduleExecutionAvailability {
   const { mode, viewerNodeId, roster, repoId, scheduleId, activeNodeId, now } = input;
+  if (input.targetKind === "builtin") return mode === "remote-edge" ? "not-on-this-node" : "local";
   if (activeNodeId !== null) return activeNodeId === viewerNodeId ? "local" : "claimed-elsewhere";
   if (mode === "local") return "local";
   if (!roster) throw new Error(`A ${mode} Schedule availability read requires a fleet roster.`);
@@ -300,6 +303,7 @@ export function readSchedulesGui(context: SchedulesGuiReadContext): SchedulesLis
         health = healthRollupOf(schedule.scheduleId),
         availability = deriveScheduleExecutionAvailability({
           mode,
+          targetKind: schedule.spec.target.kind,
           viewerNodeId,
           roster,
           repoId: context.input.repoId,

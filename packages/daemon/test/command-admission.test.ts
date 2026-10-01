@@ -4,7 +4,7 @@ import test from "node:test";
 import { daemonProtocolCommands, repoCellExecutionForAction } from "../src/protocol/daemon-protocol-commands.ts";
 import { observeTailReadMethod } from "../src/protocol/daemon-protocol-observe-tail-read.ts";
 import { daemonRepoModeWords } from "../src/protocol/daemon-protocol-vocabulary.ts";
-import { admitRepoMode, entityActionCommandTopology } from "../src/repo-mode.ts";
+import { admitRepoMode, builtinOccurrenceCommandTopology, entityActionCommandTopology } from "../src/repo-mode.ts";
 
 const localSource = "local" as const;
 const assignmentSource = { kind: "assignment", nodeId: "edge-one", assignmentId: "assignment-one" } as const;
@@ -125,6 +125,25 @@ test("the center admits its own local source on every ledger write an edge canno
     assert.equal(admitRepoMode("remote-proxy", command, localSource).ok, false, command.id);
   }
   assert.ok(ledgerWrites > 0);
+});
+
+test("a builtin occurrence resolves the center to its own executor and moves no other cell", () => {
+  let resolved = 0;
+  for (const command of daemonProtocolCommands) {
+    assert.equal(builtinOccurrenceCommandTopology(command, false), command, command.id);
+    const builtin = builtinOccurrenceCommandTopology(command, true);
+    if (command.admission["remote-center"] !== "via-assignment") {
+      assert.equal(builtin, command, command.id);
+      continue;
+    }
+    resolved += 1;
+    assert.deepEqual(builtin.admission, { ...command.admission, "remote-center": "direct" }, command.id);
+    assert.equal(admitRepoMode("remote-center", builtin, localSource).ok, true, command.id);
+    // The declared route is what host admission reads: a transport source on the center still
+    // needs assignment ingress, so only the daemon's own scheduler reaches the resolved route.
+    assert.equal(admitRepoMode("remote-center", command, localSource).ok, false, command.id);
+  }
+  assert.ok(resolved > 0);
 });
 
 test("the center admits review adjudication and no edge or proxy executes it locally", () => {
