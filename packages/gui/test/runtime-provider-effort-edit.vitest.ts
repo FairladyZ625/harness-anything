@@ -147,7 +147,7 @@ async function select(testId: string, value: string) {
 
 describe("provider edit dialog field controls", () => {
   it("edits the base URL of an API-mode provider in place and can clear it back", async () => {
-    const onUpdate = vi.fn();
+    const onUpdate = vi.fn(async () => ({ ok: true }));
     await mountProviderCard(onUpdate, apiCodexInstance, codexInstallations);
 
     await click("runtime-provider-edit");
@@ -169,7 +169,7 @@ describe("provider edit dialog field controls", () => {
   });
 
   it("keeps the base URL field disabled on a subscription provider", async () => {
-    const onUpdate = vi.fn();
+    const onUpdate = vi.fn(async () => ({ ok: true }));
     await mountProviderCard(onUpdate, codexInstance, codexInstallations);
     await click("runtime-provider-edit");
     expect((byTestId("runtime-provider-base-url") as HTMLInputElement).disabled).toBe(true);
@@ -178,7 +178,7 @@ describe("provider edit dialog field controls", () => {
   });
 
   it("edits codex reasoning effort as free text in place and can clear it back", async () => {
-    const onUpdate = vi.fn();
+    const onUpdate = vi.fn(async () => ({ ok: true }));
     await mountProviderCard(onUpdate, codexInstance, codexInstallations);
     await click("runtime-provider-edit");
     expect((byTestId("runtime-provider-effort") as HTMLInputElement).value).toBe("high");
@@ -196,7 +196,7 @@ describe("provider edit dialog field controls", () => {
   });
 
   it("edits agy effort from the plane enum and never offers launcher-rewritten values", async () => {
-    const onUpdate = vi.fn();
+    const onUpdate = vi.fn(async () => ({ ok: true }));
     await mountProviderCard(onUpdate, agyInstance, agyInstallations);
     await click("runtime-provider-edit");
     const effortSelect = byTestId("runtime-provider-effort") as HTMLSelectElement;

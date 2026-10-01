@@ -415,14 +415,14 @@ export const allDaemonProtocolMethods = Object.freeze([
 type DaemonRpcDescriptor = (typeof allDaemonProtocolMethods)[number];
 export type DaemonRpcMethod = DaemonRpcDescriptor["method"];
 
-type RpcOptionalRule = "string?" | "string-null?" | "json?" | "array?" | "boolean?" | "number?";
+type RpcOptionalRule = "string?" | "string-or-empty?" | "string-null?" | "json?" | "array?" | "boolean?" | "number?";
 type RpcOptionalKeys<Fields extends RpcShape["fields"]> = {
   readonly [Key in keyof Fields]-?: Fields[Key] extends RpcOptionalRule | { readonly optional: true } ? Key : never;
 }[keyof Fields];
 type RpcRequiredKeys<Fields extends RpcShape["fields"]> = Exclude<keyof Fields, RpcOptionalKeys<Fields>>;
 type RpcRuleValue<Rule> = Rule extends RpcShape
   ? RpcParamsFromShape<Rule>
-  : Rule extends "string" | "string?" | "string-null?"
+  : Rule extends "string" | "string?" | "string-or-empty?" | "string-null?"
     ? Rule extends "string-null?"
       ? string | null
       : string

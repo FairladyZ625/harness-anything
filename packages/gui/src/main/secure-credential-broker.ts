@@ -68,7 +68,8 @@ function unavailable(code: string, hint: string): Receipt {
     code,
     origin: "electron-main",
     evidence: `rejection:${code}`,
-    error: { code, hint },
+    error: { code },
+    rejectionExplanation: hint,
     nextAction: hint,
   };
 }

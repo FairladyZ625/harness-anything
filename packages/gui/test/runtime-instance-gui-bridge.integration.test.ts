@@ -12,6 +12,8 @@ import { createUnixSocketTransportServer } from "@harness-anything/daemon/client
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
 import { createLocalGuiServiceBridge } from "../src/main/local-composition-root.ts";
 import { addLocalMainControls } from "../src/main/local-main-controls.ts";
+import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
+import { buildRuntimeInstanceUpdatePayload, runtimeInstanceEditForm } from "../src/renderer/runtime-instance-form.ts";
 
 test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime instance", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-runtime-instance-")),
@@ -134,6 +136,34 @@ test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime
       ],
       JSON.stringify(relisted),
     );
+    const apiCreated = (await base.invoke("createRuntimeInstance", {
+      instanceId: "claude-api-gui",
+      name: "Claude API GUI",
+      kindId: "claude",
+      installationId: claudeInstallation.installationId,
+      providerId: "anthropic",
+      models: ["sonnet", "opus"],
+      defaultModel: "opus",
+      claude: { baseUrl: "https://example.test/" },
+      authMode: "api-key",
+      credentialRef: "credential:v1:fake-gui-model-save",
+    })) as RuntimeReceipt;
+    assert.equal(apiCreated.ok, true, JSON.stringify(apiCreated));
+    const apiBefore = apiCreated.instance as RuntimeInstanceSummary,
+      payload = buildRuntimeInstanceUpdatePayload(apiBefore.instanceId, {
+        ...runtimeInstanceEditForm(apiBefore),
+        models: ["fable", "sonnet", "opus"],
+      }),
+      apiUpdated = (await bridge.invoke("updateRuntimeInstance", payload)) as RuntimeReceipt;
+    assert.equal(apiUpdated.ok, true, JSON.stringify(apiUpdated));
+    assert.deepEqual(apiUpdated.instance?.models, ["fable", "sonnet", "opus"]);
+    assert.equal(apiUpdated.instance?.defaultModel, "opus");
+    const apiAfter = apiUpdated.instance as RuntimeInstanceSummary;
+    assert.equal(apiAfter.authMode, apiBefore.authMode);
+    assert.equal(apiAfter.providerId, apiBefore.providerId);
+    assert.deepEqual(apiAfter.configuration, apiBefore.configuration);
+    console.info(`GUI_API_MODEL_SAVE ${JSON.stringify({ payload, ok: apiUpdated.ok, models: apiAfter.models })}`);
+    await bridge.invoke("deleteRuntimeInstance", { instanceId: apiBefore.instanceId });
     // Claude effort end to end: the create payload stores it, the update write path
     // replaces it and an explicit empty value clears it, and both read back through
     // the same bridge the GUI renderer uses.
@@ -233,6 +263,7 @@ test("GUI registry bridge lists, creates, updates, deletes, and probes a runtime
 });
 
 interface RuntimeReceipt {
+  readonly ok?: boolean;
   readonly instances?: ReadonlyArray<{
     readonly instanceId: string;
     readonly name?: string;
