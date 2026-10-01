@@ -3,11 +3,12 @@ import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
-import { managedRbacSessionStore } from "./managed-rbac-service.ts";
+import { managedRbacListenerUrl, managedRbacSessionStore, type ManagedRbacListener } from "./managed-rbac-service.ts";
 
 interface RbacConfig {
   readonly url: string;
   readonly realm: string;
+  readonly listener?: ManagedRbacListener;
 }
 
 interface PendingLogin {
@@ -71,8 +72,9 @@ export class OidcSessionService {
       state = this.#ports.randomBytes(24).toString("base64url"),
       challenge = createHash("sha256").update(verifier).digest("base64url");
     this.#pending = { state, verifier, redirectUri: redirect.toString(), createdAt: this.#ports.now() };
+    // Under a listener Keycloak serves its login pages from the listener's hostname, so the browser starts there.
     const authorizationUrl = new URL(
-      `${config.url}/realms/${encodeURIComponent(config.realm)}/protocol/openid-connect/auth`,
+      `${config.listener ? managedRbacListenerUrl(config.listener) : config.url}/realms/${encodeURIComponent(config.realm)}/protocol/openid-connect/auth`,
     );
     authorizationUrl.search = new URLSearchParams({
       client_id: "harness-gui",
