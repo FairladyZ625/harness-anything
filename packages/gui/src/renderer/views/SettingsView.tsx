@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { CloudSlash } from "@phosphor-icons/react";
 import { useTheme, type ThemeMode, type UiScale } from "../theme";
+import { useMotionPreference, type MotionPreference } from "../motion-config.tsx";
 import { t, useI18n, type MessageKey } from "../i18n/index.tsx";
 import { STATUS_META } from "../components/badges";
 import { BTN, Section, Row, Segmented, Toggle, Kbd } from "../components/ui/widgets";
@@ -22,6 +23,12 @@ const SCALE_OPTIONS: { key: UiScale; labelKey: MessageKey }[] = [
   { key: "compact", labelKey: "views.settingsView.scaleCompact" },
   { key: "standard", labelKey: "views.settingsView.scaleStandard" },
   { key: "comfortable", labelKey: "views.settingsView.scaleComfortable" },
+];
+
+const MOTION_OPTIONS: { key: MotionPreference; labelKey: MessageKey }[] = [
+  { key: "system", labelKey: "views.settingsView.motionSystem" },
+  { key: "on", labelKey: "views.settingsView.motionOn" },
+  { key: "off", labelKey: "views.settingsView.motionOff" },
 ];
 
 // 已实现的快捷键(其余 ⌘K/⌘1..5/R/X 暂未实现,已从此清单移除以免假承诺)。
@@ -77,6 +84,7 @@ export function SettingsView({
   readonly onOpenProject: (repoId: string) => void;
 }) {
   const { mode, setMode, uiScale, setUiScale } = useTheme();
+  const { preference: motionPreference, setPreference: setMotionPreference } = useMotionPreference();
   const { locale, setLocale } = useI18n();
   const [activeTab, setActiveTab] = useState<SettingsTab>(repoId === null ? "repositories" : "repository");
   const [notifyOnReady, setNotifyOnReady] = useState(true);
@@ -96,6 +104,13 @@ export function SettingsView({
                 value={mode}
                 options={THEME_OPTIONS.map(({ key, labelKey }) => ({ key, label: t(labelKey) }))}
                 onChange={setMode}
+              />
+            </Row>
+            <Row label={t("views.settingsView.motionLabel")} desc={t("views.settingsView.motionDescription")}>
+              <Segmented
+                value={motionPreference}
+                options={MOTION_OPTIONS.map(({ key, labelKey }) => ({ key, label: t(labelKey) }))}
+                onChange={setMotionPreference}
               />
             </Row>
             <Row label={t("views.settingsView.uiScaleLabel")} desc={t("views.settingsView.uiScaleDescription")}>

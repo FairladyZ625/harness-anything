@@ -3,7 +3,12 @@
 import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { AppMotionConfig, type MotionPreference } from "../src/renderer/motion-config.tsx";
+import {
+  AppMotionConfig,
+  MOTION_PREFERENCE_STORAGE_KEY,
+  useMotionPreference,
+  type MotionPreference,
+} from "../src/renderer/motion-config.tsx";
 import { ENTRY_MOTION, PageEntryBoundary, TabPanel } from "../src/renderer/components/primitives/EntryBoundary.tsx";
 
 const probe = vi.hoisted(() => ({ animate: vi.fn(() => ({ complete: vi.fn() })), reduced: false }));
@@ -17,6 +22,7 @@ let host: HTMLDivElement;
 beforeEach(() => {
   probe.animate.mockClear();
   probe.reduced = false;
+  localStorage.removeItem(MOTION_PREFERENCE_STORAGE_KEY);
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -24,11 +30,28 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   host.remove();
+  localStorage.removeItem(MOTION_PREFERENCE_STORAGE_KEY);
 });
-function render(page: string, tab = "overview", revision = 0, preference: MotionPreference = "system", regions = 3) {
+/** 树内的偏好切换器:与设置页走同一个 useMotionPreference().setPreference,验证不重载立即生效。 */
+function PreferenceSwitcher() {
+  const { setPreference } = useMotionPreference();
+  return (
+    <>
+      {(["system", "on", "off"] as const).map((preference) => (
+        <button key={preference} data-testid={`pref-${preference}`} onClick={() => setPreference(preference)}>
+          {preference}
+        </button>
+      ))}
+    </>
+  );
+}
+function switchPreference(preference: MotionPreference) {
+  act(() => host.querySelector<HTMLButtonElement>(`[data-testid="pref-${preference}"]`)!.click());
+}
+function render(page: string, tab = "overview", revision = 0, regions = 3) {
   act(() =>
     root.render(
-      <AppMotionConfig preference={preference}>
+      <AppMotionConfig>
         <PageEntryBoundary identity={page}>
           <TabPanel idPrefix="example" value={tab}>
             {Array.from({ length: regions }, (_, i) => (
@@ -38,6 +61,7 @@ function render(page: string, tab = "overview", revision = 0, preference: Motion
             ))}
           </TabPanel>
         </PageEntryBoundary>
+        <PreferenceSwitcher />
       </AppMotionConfig>,
     ),
   );
@@ -58,8 +82,8 @@ it("plays only explicit identity changes, including simultaneous page and tab ch
   expect(probe.animate).not.toHaveBeenCalled();
 });
 it("does not replay when Pending is replaced by late data or subsequent refreshes", () => {
-  render("first", "overview", 0, "system", 0);
-  render("second", "overview", 0, "system", 0);
+  render("first", "overview", 0, 0);
+  render("second", "overview", 0, 0);
   expect(probe.animate).toHaveBeenCalledTimes(1);
   probe.animate.mockClear();
   render("second", "overview", 1);
@@ -67,15 +91,15 @@ it("does not replay when Pending is replaced by late data or subsequent refreshe
   expect(probe.animate).not.toHaveBeenCalled();
 });
 it("caps region staggering and animates a region-free panel only once", () => {
-  render("first", "overview", 0, "system", 12);
-  render("second", "overview", 0, "system", 12);
+  render("first", "overview", 0, 12);
+  render("second", "overview", 0, 12);
   const calls = probe.animate.mock.calls as unknown as [HTMLElement, object, { duration: number; delay: number }][];
   expect(calls[0]?.[1]).toEqual({ opacity: [0, 1], y: [7, 0] });
   expect(calls[1]?.[2].delay).toBe(0.025);
   expect(calls.at(-1)?.[2].delay).toBe(0.1);
   expect(ENTRY_MOTION.duration + ENTRY_MOTION.maxDelay).toBeLessThanOrEqual(0.28);
   probe.animate.mockClear();
-  render("third", "overview", 0, "system", 0);
+  render("third", "overview", 0, 0);
   expect(probe.animate).toHaveBeenCalledTimes(1);
 });
 it("follows reduced motion, supports always on, and disables entrance when off", () => {
@@ -87,10 +111,13 @@ it("follows reduced motion, supports always on, and disables entrance when off",
     { duration: 0.1, delay: 0, ease: "easeOut" },
   ]);
   probe.animate.mockClear();
-  render("third", "overview", 0, "on");
+  // 同一棵树内切到「始终开启」(设置页同一路径):系统减弱动态仍开,入场立即恢复位移。
+  switchPreference("on");
+  render("third");
   expect(probe.animate.mock.calls[0]?.[1]).toEqual({ opacity: [0, 1], y: [7, 0] });
   probe.animate.mockClear();
-  render("fourth", "overview", 0, "off");
+  switchPreference("off");
+  render("fourth");
   expect(probe.animate).not.toHaveBeenCalled();
 });
 
