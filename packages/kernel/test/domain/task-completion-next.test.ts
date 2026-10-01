@@ -182,11 +182,26 @@ const gatedAt = (gates: readonly (typeof ciRequirement | typeof codeDocRequireme
     .events.slice(0, count)
     .reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
 
-test("missing delivery paths identify the Summary instead of a JSON closeout recipe", () => {
-  const result = taskCompletionNext(gatedAt([codeDocRequirement], 6), context);
+test("an empty delivery cut skips code/doc reconciliation and still requires CI", () => {
+  const result = taskCompletionNext(gatedAt([codeDocRequirement, ciRequirement], 6), context);
+  assert.equal(result.blocker?.code, "ci_missing");
+  assert.doesNotMatch(result.next!.action, /Identify the delivery paths|code-doc reconcile/);
+});
+
+test("a nonempty delivery cut still requires a code/doc witness", () => {
+  const snapshot = gatedAt([codeDocRequirement], 6);
+  const result = taskCompletionNext(
+    {
+      ...snapshot,
+      executions: snapshot.executions.map((execution) => ({
+        ...execution,
+        submission: execution.submission ? { ...execution.submission, deliverables: ["src/delivery.ts"] } : null,
+      })),
+    },
+    context,
+  );
   assert.equal(result.blocker?.code, "code_doc_missing");
-  assert.match(result.next!.action, /Identify the delivery paths.*Summary/);
-  assert.doesNotMatch(result.next!.action, /packet.json|task closeout/);
+  assert.equal(result.next!.action, "ha task code-doc reconcile task-1 --path 'src/delivery.ts'");
 });
 
 test("missing facts guide an observable change while a recorded fact clears the blocker", () => {

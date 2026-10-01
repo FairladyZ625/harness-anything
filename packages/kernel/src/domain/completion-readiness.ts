@@ -289,10 +289,8 @@ function evaluateCompletion(
       ? one(
           "code_doc_missing",
           gate.gateId,
-          execution.submission.deliverables.length
-            ? `ha task code-doc reconcile ${task.taskId}` +
-                execution.submission.deliverables.map((value) => ` --path '${value.replaceAll("'", "'\\''")}'`).join("")
-            : `Identify the delivery paths in harness/${context.closeoutPath} Summary for execution ${executionId}.`,
+          `ha task code-doc reconcile ${task.taskId}` +
+            execution.submission.deliverables.map((value) => ` --path '${value.replaceAll("'", "'\\''")}'`).join(""),
           "The submitted execution cut has no canonical code/doc witness.",
         )
       : one(

@@ -11,7 +11,7 @@ import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-sett
 import { git, initRepo } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
-test("a real artifact-only task submits without claiming its baseline merge paths", async () => {
+async function submitBaselineTask(artifact: boolean) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-artifact-only-submit-")),
     ledger = path.join(rootDir, "harness"),
     taskId = "task-artifact-only",
@@ -63,11 +63,15 @@ test("a real artifact-only task submits without claiming its baseline merge path
     await waitForFixturePublication(cell, started.opId, holder);
     const worker = path.join(rootDir, ".worktrees", taskId);
     assert.equal(git(worker, "rev-parse", "HEAD"), baseline);
-    mkdirSync(path.join(ledger, packagePath, "artifacts"), { recursive: true });
-    writeFileSync(path.join(ledger, packagePath, "artifacts/report.md"), "# Accepted report\n");
+    if (artifact) {
+      mkdirSync(path.join(ledger, packagePath, "artifacts"), { recursive: true });
+      writeFileSync(path.join(ledger, packagePath, "artifacts/report.md"), "# Accepted report\n");
+    }
     writeFileSync(
       path.join(ledger, packagePath, "closeout.md"),
-      "## Summary\nDelivered artifact:artifacts/report.md.\n" +
+      (artifact
+        ? "## Summary\nDelivered artifact:artifacts/report.md.\n"
+        : "## Summary\nCompleted ledger coordination.\n") +
         "## Verification\nArtifact bytes accepted.\n" +
         "## Residual Risk\nNo public implementation delivered.\n" +
         "## Same Mechanism Elsewhere\nBaseline belongs to another task.\n",
@@ -87,9 +91,19 @@ test("a real artifact-only task submits without claiming its baseline merge path
       .events.find((entry) => isTaskEvent(entry) && entry.type === "execution_submitted" && entry.taskId === taskId);
     assert.ok(event && isTaskEvent(event) && event.type === "execution_submitted");
     assert.deepEqual(event.payload.execution.submission?.deliverables, []);
-    assert.deepEqual(event.payload.execution.submission?.outputs, [
-      `Artifact-Anchor: ${packagePath}/artifacts/report.md@${docs.revision}`,
-    ]);
+    assert.deepEqual(
+      event.payload.execution.submission?.outputs,
+      artifact ? [`Artifact-Anchor: ${packagePath}/artifacts/report.md@${docs.revision}`] : [],
+    );
+    if (!artifact) {
+      const completed = await cell.run({ kind: "task-complete", taskId, executionId }, holder);
+      assert.equal(completed.outcome, "op_rejected", JSON.stringify(completed));
+      assert.equal(completed.code, "fact_missing");
+      assert.doesNotMatch(JSON.stringify(completed), /code_doc_missing/);
+      assert.deepEqual(completed.gateChecks, [
+        { gate: "code-doc-reconciliation", status: "not_applicable", witnessRef: null },
+      ]);
+    }
     const execution = readFileSync(path.join(ledger, packagePath, "executions", `${executionId}.md`), "utf8"),
       section = execution.slice(execution.indexOf("## Deliverables"), execution.indexOf("## Outputs"));
     assert.match(section, /- none/u);
@@ -99,4 +113,9 @@ test("a real artifact-only task submits without claiming its baseline merge path
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
-});
+}
+
+test("a real artifact-only task submits without claiming its baseline merge paths", () => submitBaselineTask(true));
+
+test("a baseline closeout-only task completes past code/doc and still requires a Fact", () =>
+  submitBaselineTask(false));

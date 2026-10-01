@@ -72,12 +72,18 @@ export interface FrozenCompletionContract {
 /**
  * Which part of a submitted cut a requirement judges. `submission` applies to every cut;
  * `code` needs a delivery commit; `artifacts` needs at least one accepted artifact anchor.
+ * Code/doc reconciliation needs at least one frozen delivery path to reconcile.
  * A mixed commit+artifact delivery can carry both kinds at once.
  */
 export function gateAppliesToSubmission(
-  requirement: Pick<FrozenGateRequirement, "appliesTo">,
-  submission: { readonly commitSha: string | null; readonly artifacts?: readonly unknown[] },
+  requirement: Pick<FrozenGateRequirement, "gateId" | "appliesTo">,
+  submission: {
+    readonly commitSha: string | null;
+    readonly deliverables: readonly string[];
+    readonly artifacts?: readonly unknown[];
+  },
 ): boolean {
+  if (requirement.gateId === CODE_DOC_GATE_ID && submission.deliverables.length === 0) return false;
   if (requirement.appliesTo === "submission") return true;
   if (requirement.appliesTo === "code") return submission.commitSha !== null;
   return (submission.artifacts?.length ?? 0) > 0;
