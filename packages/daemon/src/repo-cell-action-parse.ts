@@ -190,21 +190,24 @@ function tryParseJsonObject(source: string): Record<string, unknown> | null {
   }
 }
 
+const decisionReviewPacketKinds = ["decision-review", "decision-respond-review", "decision-override-review"];
+
 export function resolveDecisionReviewAction(rootDir: string, action: RepoTaskAction): RepoTaskAction {
-  if (action.kind !== "decision-review") return action;
-  const fields = decisionLifecycleProtocolCommands
-    .find((command) => command.id === "decision-review")!
-    .inputs.find((field) => field.name === "--from-file")!.jsonFields!;
+  if (!decisionReviewPacketKinds.includes(action.kind)) return action;
+  const label = `Decision ${action.kind.slice("decision-".length).replace("-", " ")}`,
+    fields = decisionLifecycleProtocolCommands
+      .find((command) => command.id === action.kind)!
+      .inputs.find((field) => field.name === "--from-file")!.jsonFields!;
   return resolvePacketAction(rootDir, action, {
     allowed: fields,
     required: fields,
     invalid: (message) => cellCodedError("invalid_command", message),
     messages: {
-      unsupportedAction: (fields) => `Unsupported Decision review fields: ${fields.join(", ")}.`,
-      parse: "Decision review input must be valid JSON.",
-      object: "Decision review input must be one object.",
-      unsupportedInput: (fields) => `Unsupported Decision review input: ${fields.join(", ")}.`,
-      missingInput: (fields) => `Missing Decision review input: ${fields.join(", ")}.`,
+      unsupportedAction: (fields) => `Unsupported ${label} fields: ${fields.join(", ")}.`,
+      parse: `${label} input must be valid JSON.`,
+      object: `${label} input must be one object.`,
+      unsupportedInput: (fields) => `Unsupported ${label} input: ${fields.join(", ")}.`,
+      missingInput: (fields) => `Missing ${label} input: ${fields.join(", ")}.`,
     },
     merge: (action, packet) => ({ ...action, ...packet }),
   });
