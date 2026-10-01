@@ -96,10 +96,11 @@ export function attachActiveRuntime(
           context.input.schedule(() => context.captureErrorOutput(active, chunk), active.binding);
         }
       },
-      exit: (code: number | null) => {
+      exit: (code: number | null, lossReason?: string) => {
         if (context.processes.get(runtimeSessionId) === active)
           context.input.schedule(async () => {
             if (context.processes.get(runtimeSessionId) !== active) return;
+            if (lossReason) active.lossReason = lossReason;
             await context.consumeChunk(active, "", true);
             await context.publishExit(active, code);
           }, active.binding);

@@ -78,7 +78,7 @@ async function startRepoWriterWorker(): Promise<void> {
       if (!listeners) return;
       if (message.kind === "output") listeners.output?.(message.chunk ?? "", message.persisted);
       else if (message.kind === "error") listeners.error?.(message.chunk ?? "");
-      else listeners.exit?.(message.code ?? null);
+      else listeners.exit?.(message.code ?? null, message.lossReason);
       return;
     }
     if (isWriterRequest(message)) void handleRequest(message);
@@ -332,7 +332,7 @@ async function startRepoWriterWorker(): Promise<void> {
 type RuntimeProcessListeners = {
   output?: (chunk: string, persisted?: boolean) => void;
   error?: (chunk: string) => void;
-  exit?: (code: number | null) => void;
+  exit?: (code: number | null, lossReason?: string) => void;
 };
 
 function reviveBinding(

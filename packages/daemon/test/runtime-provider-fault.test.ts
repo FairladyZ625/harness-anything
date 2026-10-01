@@ -169,7 +169,7 @@ test("attempt-bound classification falls back only before tools or for recognize
   });
   assert.deepEqual(
     pick(classifyRuntimeExit(active({ lossReason: "runtime process disappeared", toolCallObserved: true }), null)),
-    { outcome: "unknown", classification: "worker_stop" },
+    { outcome: "failed", classification: "worker_stop" },
   );
   const recovered = active({ providerFault: { code: "rate_limited", reason: "transient 429" } });
   observeProviderFault(recovered, { toolCallObserved: true });
@@ -241,7 +241,7 @@ test("observed provider fault takes precedence over a later runtime loss", () =>
     null,
   );
 
-  assert.equal(result.outcome, "unknown");
+  assert.equal(result.outcome, "failed");
   assert.equal(result.classification, "provider_quota");
   assert.equal(result.faultClass, "quota_exhausted");
   assert.equal(result.resetAt, "2026-09-06T05:06:07.000Z");
