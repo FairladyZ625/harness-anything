@@ -138,8 +138,13 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
     const missingFact = row(explain(harness, ready, owner, "allowed", 0), "complete");
     assert.equal(missingFact.available, false);
     assert.equal(criterion(missingFact, "closeout-readiness/closeoutReadiness").status, "unmet");
-    assert.equal(reviewerComplete.available, false);
-    assert.equal(criterion(reviewerComplete, "task-lifecycle-review-transitions/complete.validate").status, "unmet");
+    // Who may complete is the authorization decision's answer, not the task creator's identity.
+    assert.equal(reviewerComplete.available, true);
+    assert.equal(criterion(reviewerComplete, "task-lifecycle-review-transitions/complete.validate").status, "met");
+    const reviewerDenied = row(explain(harness, ready, reviewer, "denied"), "complete");
+    assert.equal(reviewerDenied.available, false);
+    assert.deepEqual(reviewerDenied.unmetCriteria, []);
+    assert.deepEqual(reviewerDenied.authorizationDecision?.reasonCodes, ["role_binding_missing"]);
 
     await harness.complete("execution-1");
     const terminal = await snapshot(harness),
