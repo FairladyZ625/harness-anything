@@ -88,8 +88,10 @@ export function fakeKeycloak() {
       return json(profile);
     }
     if (route === "/users" && method === "GET") {
-      const [attribute, value] = (url.searchParams.get("q") ?? ":").split(":"),
+      const query = url.searchParams.get("q"),
+        [attribute, value] = (query ?? ":").split(":"),
         username = url.searchParams.get("username");
+      if (!query && !username) return page([...users.values()], url);
       return json(
         [...users.values()].filter((user) =>
           username ? user.username === username : user.attributes[attribute!]?.[0] === value,

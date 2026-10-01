@@ -8,6 +8,7 @@ import {
   type PreloadApiMethod,
 } from "./allowlist.ts";
 import { agentRuntimePreloadApi } from "./agent-runtime-preload.ts";
+import { accessAdminPreloadApi } from "./access-admin-preload.ts";
 import { daemonGuiActionMethods, daemonGuiStreamFacets } from "@harness-anything/daemon/protocol";
 import { FIRST_RUN_BOOTSTRAP_CHANNEL, FIRST_RUN_CHOOSE_CHANNEL, type FirstRunApi } from "../api/first-run-contract.ts";
 import { ARTIFACT_OPEN_EXTERNAL_CHANNEL, type ArtifactOpenApi } from "../api/artifact-open-contract.ts";
@@ -110,6 +111,8 @@ const exposedHarnessApi = {
   projects: {
     openDirectory: (input) => invoke(PROJECT_DIRECTORY_CHANNEL, input),
   } satisfies ProjectDirectoryApi,
+  // 账号与访问控制页:策略组、授权与回执,见 preload/access-admin-preload.ts。
+  access: accessAdminPreloadApi(invoke),
   capabilities: preloadApiCapabilities,
 };
 

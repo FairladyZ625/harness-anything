@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import test from "node:test";
+import { actionDeclarations } from "@harness-anything/kernel";
 import { AccessAdminService, type AccessAdminRequest } from "../src/access-admin-service.ts";
 import { requireAuthorizedFleetAction } from "../src/host-action-authorization.ts";
 import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
@@ -277,6 +278,70 @@ test("the journal holds receipts only, and a lost receipt is reconciled without 
     journal().some((record) => record.operation === "grant" && record.outcome === "applied"),
     true,
   );
+});
+
+test("the read side lists every action facet, every held grant by person, and the receipts behind an answer", async () => {
+  const { keycloak, admin, run, journal, root } = await fixture();
+  keycloak.account("alice");
+  keycloak.account("bob");
+  // An account without a Harness person id cannot be named by a grant, so it is not offered.
+  keycloak.users.set("service", { id: "service", username: "service-account", attributes: {} });
+
+  const catalog = (await admin.run({ operation: "group-list" })).actions as {
+    action: string;
+    executionClass: string;
+    policyTier: string;
+    residencyScope: string;
+  }[];
+  assert.deepEqual(
+    catalog.map((item) => item.action),
+    actionDeclarations.map((declaration) => declaration.policyAction),
+  );
+  assert.deepEqual(
+    catalog.find((item) => item.action === "task-create"),
+    { action: "task-create", executionClass: "repo-write", policyTier: "contributor", residencyScope: "canonical" },
+  );
+
+  await run({ operation: "group-create", groupId: "release", composites: ["contributor"] });
+  await run({ operation: "grant", personId: "alice", groupId: "release", resource: "repo-a" });
+  await run({ operation: "grant", personId: "bob", groupId: "viewer", resource: "repo-b:task/task_1" });
+  await run({ operation: "grant", personId: "alice", groupId: "maintainer", resource: "repo-b" });
+  const listed = await admin.run({ operation: "grant-list" });
+  assert.deepEqual(listed.people, [
+    { personId: "alice", username: "alice" },
+    { personId: "bob", username: "bob" },
+  ]);
+  assert.deepEqual(
+    (listed.grants as { personId: string; groupId: string; resource: string }[])
+      .map((grant) => `${grant.personId} ${grant.groupId} ${grant.resource}`)
+      .sort(),
+    ["alice maintainer repo-b", "alice release repo-a", "bob viewer repo-b:task/task_1"],
+  );
+
+  const operations = (receipts: unknown) =>
+      (receipts as { operation: string; expect: { groupId: string } }[]).map(
+        (receipt) => `${receipt.operation} ${receipt.expect.groupId}`,
+      ),
+    effective = await admin.run({ operation: "effective-permissions", personId: "alice", resource: "repo-a" });
+  // Newest first; the grant on repository B and the grant to bob are not part of alice's answer on repository A.
+  assert.deepEqual(operations(effective.receipts), ["grant release", "group-create release"]);
+  assert.deepEqual(operations((await admin.run({ operation: "receipt-list" })).receipts), [
+    "grant maintainer",
+    "grant viewer",
+    "grant release",
+    "group-create release",
+  ]);
+
+  // An operation that reached Keycloak without a settled receipt is listed as its intent, so it can be reconciled.
+  const settled = journal().filter((record) => record.phase === "settled").length;
+  managedRbacReceiptJournal(root).append(
+    JSON.stringify({ operationId: "lost", operation: "revoke", actor: "person-admin", phase: "intent" }),
+  );
+  const [newest] = (await admin.run({ operation: "receipt-list" })).receipts as {
+    operationId: string;
+    phase: string;
+  }[];
+  assert.deepEqual([newest!.operationId, newest!.phase, settled], ["lost", "intent", 4]);
 });
 
 test("access administration requires the access-admin role before anything reaches Keycloak", async () => {
