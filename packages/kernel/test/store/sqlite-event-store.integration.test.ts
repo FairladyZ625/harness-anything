@@ -860,9 +860,14 @@ test("reconciliation uses immutable source, import evidence, row digests, outcom
   assert.deepEqual(exact.expected, { events: 3, outcomes: 3, objects: 0 });
   const db = new DatabaseSync(databasePath);
   try {
+    // Conversion may rewrite legacy events, so restore the stored bytes rather than re-serializing
+    // the immutable source fixture.
+    const storedEventJson = (db.prepare("SELECT event_json FROM event WHERE revision=2").get() as {
+      event_json: string;
+    }).event_json;
     db.prepare("UPDATE event SET event_json=event_json || ? WHERE revision=2").run(" ");
     assert.equal(reconcile().rowDigestMatches, false);
-    db.prepare("UPDATE event SET event_json=? WHERE revision=2").run(serializePersistedCanonicalEvent(events[1]!));
+    db.prepare("UPDATE event SET event_json=? WHERE revision=2").run(storedEventJson);
     db.prepare("UPDATE command_outcome SET last_revision=3 WHERE first_revision=2").run();
     assert.equal(reconcile().outcomeMatches, false);
     db.prepare("UPDATE command_outcome SET last_revision=2 WHERE first_revision=2").run();
@@ -874,7 +879,7 @@ test("reconciliation uses immutable source, import evidence, row digests, outcom
   writeFileSync(markerPath, JSON.stringify({ schema: "generation-import-source/v1", sourceDigest: "wrong" }));
   assert.equal(reconcile().metadataMatches, false);
   writeFileSync(markerPath, markerBytes);
-  assert.equal(reconcile().matches, true);
+  assert.equal(reconcile().matches, true, JSON.stringify(reconcile()));
 });
 
 test("certified reopen retires stale legacy index entries without changing unrelated staged or worktree bytes", async () => {

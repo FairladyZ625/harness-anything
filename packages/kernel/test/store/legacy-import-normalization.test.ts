@@ -171,6 +171,7 @@ function task(pinned = true, metadata: Readonly<Record<string, unknown>> | undef
     createdBy: actor,
     completionGateIds: [],
     presetSnapshotDigest: snapshotDigest,
+    packageDisposition: "active",
     pinned,
     ...(metadata === undefined ? {} : { metadata }),
   } as TaskV2;

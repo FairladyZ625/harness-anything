@@ -861,7 +861,12 @@ test("Task/v2 snapshot migration preserves lifecycle and relation final state", 
         },
         {
           ...legacyLifecycle,
-          task: legacyLifecycle.task === null ? null : currentTaskForWrite(legacyLifecycle.task),
+          // Conversion materializes packageDisposition on pre-disposition task carriers; the legacy
+          // projection lacks the field, so the expectation adds the materialized default.
+          task:
+            legacyLifecycle.task === null
+              ? null
+              : { ...currentTaskForWrite(legacyLifecycle.task), packageDisposition: "active" as const },
         },
       );
       assert.deepEqual(
