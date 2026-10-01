@@ -13,7 +13,7 @@ import type { EventEntry, RelationEdge, TaskRow } from "../../model/types.ts";
 import { DayDigest } from "../primitives/DayDigest";
 import { DenseRow } from "../primitives/DenseRow";
 import { Region } from "../primitives/Region";
-import { BoardColumn, BoardMain, BoardRegion, BoardTimeline, RegionBoard } from "../primitives/RegionBoard";
+import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../primitives/RegionBoard";
 import { Section } from "../primitives/Section";
 import { StatusTag } from "../primitives/StatusTag";
 
@@ -133,11 +133,11 @@ export function TaskOverviewTab({
         </BoardColumn>
       </BoardMain>
       {events.length > 0 ? (
-        <BoardTimeline data-testid="task-progress-timeline">
+        <BoardSide region="progress" data-testid="task-progress-timeline">
           <Region title="进展时间线" big={events.length} padded footer="生命周期记录，按天归并">
             <TaskEventDigest events={events} />
           </Region>
-        </BoardTimeline>
+        </BoardSide>
       ) : null}
     </RegionBoard>
   );

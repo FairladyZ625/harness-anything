@@ -256,7 +256,7 @@ describe("schedule detail hub (M2)", () => {
       "purpose",
       "definition",
       "execution",
-      "recent",
+      "runs",
     ]);
     for (const box of board.querySelectorAll("[data-region]"))
       expect(box.querySelector(":scope > section[data-entry-region]")).not.toBeNull();

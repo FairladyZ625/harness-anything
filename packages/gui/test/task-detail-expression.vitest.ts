@@ -396,7 +396,7 @@ describe("Task detail expression", () => {
     expect(scrollPanel.className).toContain("@container");
     const overview = byTestId("task-overview-tab");
     const regions = [...overview.querySelectorAll<HTMLElement>("[data-region]")];
-    expect(regions.map((region) => region.dataset.region)).toEqual(["mine", "plan", "recent"]);
+    expect(regions.map((region) => region.dataset.region)).toEqual(["mine", "plan", "progress"]);
     for (const region of regions) {
       const section = region.querySelector(":scope > section.glass")!;
       expect(section.querySelector("h2")).not.toBeNull();

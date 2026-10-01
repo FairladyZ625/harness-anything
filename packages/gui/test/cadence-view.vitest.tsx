@@ -363,12 +363,12 @@ describe("CadenceView", () => {
       true,
     );
     expect(panel.querySelector("section.rounded-lg h2")).toBeNull();
-    // 列位置:主区按堵点、产出、摩擦排,任务节奏是板的最后一格(时间线列,最右)。
+    // 列位置:主区按堵点、产出、摩擦排,任务节奏是板的最后一格(右列)。
     expect([...board.querySelectorAll("[data-region]")].map((region) => region.getAttribute("data-region"))).toEqual([
       "blockers",
       "yield",
       "friction",
-      "recent",
+      "rhythm",
     ]);
     expect(board.lastElementChild).toBe(block("rhythm"));
     // 列切换只靠容器查询:页签面板自己是容器量尺且窄时由它滚动,板上没有视口断点。

@@ -564,7 +564,7 @@ describe("DecisionDetailView", () => {
       "question",
       "chosen",
       "rejected",
-      "recent",
+      "timeline",
     ]);
     // 每个区域外框里都是一个 Region;板上没有区域框之外的内容,也没有自写的边框块。
     for (const box of board.querySelectorAll("[data-region]"))
@@ -590,7 +590,7 @@ describe("DecisionDetailView", () => {
     expect(rejected[0]!.textContent).toBe("直读 Markdown绕开 canonical 投影RJ1");
 
     // 时间线:提出、评审、裁决 consent,以及与 consent 不同刻的 decidedAt,新的在上。
-    const timeline = region("recent");
+    const timeline = region("timeline");
     expect(timeline.querySelector("h2")?.nextElementSibling?.textContent).toBe("4");
     const entries = [...timeline.querySelectorAll("[data-day] > div > *")].map((row) => row.textContent);
     expect(entries).toHaveLength(4);
@@ -614,9 +614,9 @@ describe("DecisionDetailView", () => {
     expect([...board.querySelectorAll<HTMLElement>("[data-region]")].map((box) => box.dataset.region)).toEqual([
       "question",
       "rejected",
-      "recent",
+      "timeline",
     ]);
-    expect(board.querySelectorAll("[data-region='recent'] [data-day] > div > *")).toHaveLength(2);
+    expect(board.querySelectorAll("[data-region='timeline'] [data-day] > div > *")).toHaveLength(2);
   });
 });
 

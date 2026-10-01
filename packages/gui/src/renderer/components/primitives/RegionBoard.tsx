@@ -1,15 +1,17 @@
 import { createContext, useContext, useLayoutEffect, useRef, useState, type HTMLAttributes } from "react";
-import { regionMinimumHeight } from "./region-minimum.ts";
+import { proseMinimumHeight, regionMinimumHeight } from "./region-minimum.ts";
 
 /**
- * 区域板的列容器(标准 §2.1):「固定顺序 + 右侧时间线」这一类概览(工作概况、各实体页的
- * 概况页签)共用。主区一列或两列 + 最右一列时间线;列内区域按内容高度分配,放不下时各自
- * 缩到「至少露出三条」的实测下限,再放不下就列内滚动;每个区域的内容在 Region 内部滚动。
- * 断点量的是最近的 @container 祖先:≥900px 两列(主区 | 时间线),≥1400px 主区的每个
- * BoardColumn 自成一列,更窄时单列纵排、时间线排到最下、整页滚动(§1.9)。
+ * 区域板的列容器(标准 §2.1):「固定顺序 + 固定右列」这一类概览(工作概况、各实体页的
+ * 概况页签、研发态势)共用。主区一列或两列 + 最右一列(时间线、模板、任务节奏这类占满
+ * 列高的长列表);列内区域按内容高度分配,放不下时各自缩到实测下限(条目区至少露出三条,
+ * 正文区至少露出约三行),再放不下就列内滚动;每个区域的内容在 Region 内部滚动。
+ * 断点量的是最近的 @container 祖先:≥900px 两列(主区 3 份 | 右列 2 份;没有右列时主区
+ * 占满),≥1400px 主区的每个 BoardColumn 自成一列并与右列等宽,更窄时单列纵排、右列排到
+ * 最下、整页滚动(§1.9)。列宽比例是容器的固定行为,不按页调。
  *
  * 全局总览不用它:那一页按 daemon 权重把区域落进当前最矮的一列(overview-layout),保证
- * 不了时间线固定在右列。
+ * 不了某个区域固定在右列。
  *
  * 用法:板放在一个 ≥900px 时有确定高度的弹性列里。
  *   <RegionBoard>
@@ -17,7 +19,7 @@ import { regionMinimumHeight } from "./region-minimum.ts";
  *       <BoardColumn><BoardRegion region="mine"><Region …/></BoardRegion>…</BoardColumn>
  *       <BoardColumn>…</BoardColumn>
  *     </BoardMain>
- *     <BoardTimeline><Region …/></BoardTimeline>
+ *     <BoardSide region="recent"><Region …/></BoardSide>
  *   </RegionBoard>
  */
 
@@ -40,7 +42,8 @@ export function RegionBoard({ children, ...props }: HTMLAttributes<HTMLDivElemen
           height =
             section === null
               ? undefined
-              : regionMinimumHeight(section, (body) => [...body.querySelectorAll(REGION_ROWS)]);
+              : (regionMinimumHeight(section, (body) => [...body.querySelectorAll(REGION_ROWS)]) ??
+                proseMinimumHeight(section));
         if (height !== undefined) next[region.dataset.region!] = height;
       }
       setMinimum((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next));
@@ -60,7 +63,7 @@ export function RegionBoard({ children, ...props }: HTMLAttributes<HTMLDivElemen
       <div
         {...props}
         ref={boardRef}
-        className="grid grid-cols-1 gap-2 @[900px]:min-h-0 @[900px]:flex-1 @[900px]:grid-cols-2 @[900px]:grid-rows-[minmax(0,1fr)] @[1400px]:grid-flow-col @[1400px]:auto-cols-[minmax(0,1fr)] @[1400px]:grid-cols-none"
+        className="grid grid-cols-1 gap-2 @[900px]:min-h-0 @[900px]:flex-1 @[900px]:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] @[900px]:grid-rows-[minmax(0,1fr)] @[1400px]:grid-flow-col @[1400px]:auto-cols-[minmax(0,1fr)] @[1400px]:grid-cols-none"
       >
         {children}
       </div>
@@ -68,12 +71,12 @@ export function RegionBoard({ children, ...props }: HTMLAttributes<HTMLDivElemen
   );
 }
 
-/** 主区:两列时是时间线左边那一列并列内滚动;≥1400px 让位给它的 BoardColumn。 */
+/** 主区:两列时是右列左边那一列(没有右列时占满板宽)并列内滚动;≥1400px 让位给它的 BoardColumn。 */
 export function BoardMain({ children, ...props }: HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       {...props}
-      className="flex min-w-0 flex-col gap-2 @[900px]:min-h-0 @[900px]:overflow-y-auto @[1400px]:contents"
+      className="flex min-w-0 flex-col gap-2 @[900px]:min-h-0 @[900px]:overflow-y-auto @[900px]:only:col-span-full @[1400px]:contents"
     >
       {children}
     </div>
@@ -91,9 +94,10 @@ export function BoardColumn({ children }: Pick<HTMLAttributes<HTMLDivElement>, "
 
 /**
  * 列内一个区域的外框:单列时限高(一条长列表不把后面的区域推出屏幕),多列时按内容高度
- * 参与列内分配并可被压到实测下限。Region 原语被拉伸到这个盒子。
+ * 参与列内分配并可被压到实测下限(条目区:前三条;正文区:约三行)。Region 原语被拉伸到
+ * 这个盒子。
  *
- * fill 给整篇文档这类没有「条」的区域:占满列内其余区域按内容取完之后剩下的高度,文档在
+ * fill 给整篇文档这类该吃掉剩余高度的区域:占满列内其余区域按内容取完之后剩下的高度,文档在
  * 区域内滚动。16rem 的下限保的是「文档区至少露出十来行可读正文」——同列条目再多,也是
  * 整列滚动,不把文档区压成一条缝。
  */
@@ -118,12 +122,16 @@ export function BoardRegion({
   );
 }
 
-/** 时间线:板上最右一列(单列时排到最下),占满列高,内容在 Region 内部滚动。 */
-export function BoardTimeline({ children, ...props }: HTMLAttributes<HTMLDivElement>) {
+/** 板上最右一列(单列时排到最下):只放一个区域,占满列高,内容在 Region 内部滚动。 */
+export function BoardSide({
+  region,
+  children,
+  ...props
+}: HTMLAttributes<HTMLDivElement> & { readonly region: string }) {
   return (
     <div
       {...props}
-      data-region="recent"
+      data-region={region}
       className="grid max-h-[420px] min-w-0 grid-rows-[minmax(0,1fr)] @[900px]:max-h-none @[900px]:min-h-0"
     >
       {children}
