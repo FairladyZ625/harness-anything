@@ -184,7 +184,7 @@ export function PolicyGroupsTab({ access }: { readonly access: AccessAdminApi })
                   <div
                     role="alert"
                     data-testid="access-group-conflict"
-                    className="flex flex-wrap items-center gap-3 border-l-2 border-status-submitted bg-status-submitted/5 px-3 py-2 ui-meta"
+                    className="sticky top-0 z-10 flex flex-wrap items-center gap-3 border-l-2 border-status-submitted bg-surface px-3 py-2 ui-meta"
                   >
                     <span className="min-w-0 flex-1">
                       {t("accessControl.groups.conflict", {
@@ -202,7 +202,9 @@ export function PolicyGroupsTab({ access }: { readonly access: AccessAdminApi })
                     </button>
                   </div>
                 ) : refusal ? (
-                  <AccessNotice rejection={refusal} testId="access-group-refusal" />
+                  <div className="sticky top-0 z-10 bg-surface">
+                    <AccessNotice rejection={refusal} testId="access-group-refusal" />
+                  </div>
                 ) : null}
                 {readOnly && (
                   <p className="text-text-muted ui-meta" data-testid="access-group-base-rule">
