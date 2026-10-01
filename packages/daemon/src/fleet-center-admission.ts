@@ -5,6 +5,7 @@ import type { DaemonHost } from "./daemon-host.ts";
 import { listenFleetTls, type FleetAssignmentRecord, type FleetTlsCenter } from "./fleet/center.ts";
 import { FleetRemoteError, runFleetReplicaPullClient } from "./fleet/edge.ts";
 import { applyFleetMirrorCut, withFleetMirrorLock } from "./fleet-edge-mirror.ts";
+import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 import type { WriterEpochLease } from "./writer-epoch.ts";
 export interface FleetRoster {
   readonly nodes: readonly { readonly nodeId: string; readonly credential: string }[];
@@ -298,6 +299,7 @@ export async function syncFleetEdgeMirror(input: FleetEdgeSyncRequest): Promise<
       "pull",
       { viewId: pulled.replica.viewId },
     );
+    const worktrees = await reclaimEdgeTaskWorktrees(input.payload, materialized);
     const blocked = materialized.outcome === "pull_blocked";
     const blockedHint =
       materialized.conflicts.length === 0
@@ -318,6 +320,7 @@ export async function syncFleetEdgeMirror(input: FleetEdgeSyncRequest): Promise<
       mirrorOutcome: materialized.outcome,
       dirtyPaths: materialized.dirtyPaths,
       conflicts: materialized.conflicts,
+      ...(worktrees ? { worktrees } : {}),
     };
   });
 }
