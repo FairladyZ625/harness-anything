@@ -452,7 +452,10 @@ describe("CadenceView", () => {
     expect(textOf(container, "cadence-fleet")).toContain("codex · gpt-5.6-sol");
 
     // 切到 active 窗口: 没有活跃 session,显示空态与快捷按钮
-    const activeBtn = container.querySelector('[data-testid="cadence-fleet-window-active"]')!;
+    // (窗口切换是共享 SegCtl 分段控件,按可访问组内的按钮文案取,§2.3 统一控件。)
+    const activeBtn = [...container.querySelectorAll('[data-testid="cadence-fleet"] [role="group"] button')].find(
+      (button) => button.textContent === "活跃",
+    )!;
     await act(async () => activeBtn.dispatchEvent(new MouseEvent("click", { bubbles: true })));
     expect(textOf(container, "cadence-fleet")).toContain("当前没有活跃运行的 Worker");
 

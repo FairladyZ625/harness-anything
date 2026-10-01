@@ -18,7 +18,9 @@ import { DayDigest } from "../src/renderer/components/primitives/DayDigest";
 import { PillFlow } from "../src/renderer/components/primitives/PillFlow";
 import { Tabs } from "../src/renderer/components/primitives/Tabs";
 import { FilterChips } from "../src/renderer/components/primitives/FilterChips";
+import { PageHeader } from "../src/renderer/components/primitives/PageHeader";
 import { CloseoutBadge, STATUS_META } from "../src/renderer/components/badges";
+import { initialLocale, setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 /**
  * 视觉基线 v1 共享原语(gui-visual-language-standard §4,dec_AF44708E CH2)的行为面:
@@ -97,6 +99,24 @@ describe("StatusTag", () => {
     expect(tag?.getAttribute("data-status-tone")).toBe("bad");
     expect(tag?.getAttribute("style")).toContain("var(--color-status-blocked)");
     act(() => root.unmount());
+  });
+
+  it("切换语言后状态标签文字跟随当前 locale(标签读取时求值,不在模块导入时固化)", () => {
+    // F-D3DBB3FB:STATUS_META 曾用对象 spread 把 label getter 在导入时求值成当期
+    // locale 的字符串,切换语言后所有 StatusTag 仍显示导入时的语言。
+    const localeAtImport = initialLocale();
+    try {
+      setActiveLocale("zh-CN");
+      const zh = renderToStaticMarkup(createElement(StatusTag, { status: "active" }));
+      expect(zh).toContain("活跃");
+      setActiveLocale("en-US");
+      const en = renderToStaticMarkup(createElement(StatusTag, { status: "active" }));
+      expect(en).toContain("Active");
+      expect(en).not.toContain("活跃");
+    } finally {
+      // 本文件其余断言按导入时 locale 写;切换不能泄漏给后续用例。
+      setActiveLocale(localeAtImport);
+    }
   });
 
   it("状态词→tone 映射符合标准 §3:待人裁决/评审中=琥珀、阻塞=红、在做=青", () => {
@@ -585,6 +605,40 @@ describe("FilterChips", () => {
       chips[1]?.click();
     });
     expect(onChange).toHaveBeenCalledWith("submitted");
+    act(() => root.unmount());
+  });
+});
+
+describe("PageHeader", () => {
+  it("一行页头:页名 + 人话结论(弱色)+ 等宽计数,右侧动作靠右", () => {
+    const { container, root } = mount(
+      createElement(PageHeader, {
+        title: "议程",
+        note: "现在该你推进哪几件事",
+        meta: "4/9",
+        actions: createElement("button", { type: "button" }, "新建"),
+        testId: "page-header",
+      }),
+    );
+    const header = container.querySelector("header");
+    expect(header?.getAttribute("data-testid")).toBe("page-header");
+    expect(container.querySelector("h1")?.textContent).toBe("议程");
+    expect(container.querySelector("h1")?.className).toContain("text-xl");
+    const spans = [...container.querySelectorAll("header > span")];
+    expect(spans[0]?.className).toContain("text-text-muted");
+    expect(spans[1]?.className).toContain("font-mono");
+    const actions = container.querySelector("header > div");
+    expect(actions?.className).toContain("ml-auto");
+    expect(actions?.textContent).toBe("新建");
+    act(() => root.unmount());
+  });
+
+  it("页头是裸行:不带边框、面板底色或玻璃(评审第 7 条:08/11/12/15 各不相同)", () => {
+    const { container, root } = mount(createElement(PageHeader, { title: "会话" }));
+    const header = container.querySelector("header");
+    expect(header?.className).not.toContain("border");
+    expect(header?.className).not.toContain("bg-");
+    expect(header?.className).not.toContain("glass");
     act(() => root.unmount());
   });
 });

@@ -177,19 +177,14 @@ describe("sidebar scrolling structure (short-window overlap fix)", () => {
 
   it("keeps pinned work as its own fixed block between the head and the scrolling nav", () => {
     const markupText = markup();
+    // 本用例不喂置顶工作:整块不出现(空了就消失),只有头部与导航滚动区。
+    expect(markupText).not.toContain('data-testid="app-sidebar-pinned"');
     const headAt = markupText.indexOf('data-testid="app-sidebar-head"');
-    const pinnedAt = markupText.indexOf('data-testid="app-sidebar-pinned"');
     const scrollStart = markupText.indexOf('data-testid="app-sidebar-scroll"');
-    expect(pinnedAt).toBeGreaterThan(headAt);
-    expect(pinnedAt).toBeLessThan(scrollStart);
-    const pinned = markupText.match(/data-testid="app-sidebar-pinned"[^>]*/u)![0]!;
-    expect(pinned).toContain("shrink-0");
-    // 高度按侧栏比例封顶,不写死像素(视觉规范原则 9)。
-    expect(pinned).toContain("max-h-[30%]");
-    expect(markupText).not.toContain("max-h-[168px]");
-    // 置顶列表若渲染,只能在固定块里,不能在导航滚动区里。
-    const listAt = markupText.indexOf('data-testid="sidebar-pinned-list"');
-    if (listAt !== -1) expect(listAt).toBeLessThan(scrollStart);
+    expect(headAt).toBeGreaterThan(-1);
+    expect(headAt).toBeLessThan(scrollStart);
+    // 有置顶工作时的结构不变量(位置、限高、块内滚动)在 sidebar-pinned-work.vitest.tsx
+    // 用挂载用例锁:块在头部与滚动区之间、shrink-0、上限 = 5 × 整行高度。
     const scrollRegion = markupText.slice(scrollStart, markupText.lastIndexOf("</nav>"));
     expect(scrollRegion).not.toContain("sidebar-pinned");
   });

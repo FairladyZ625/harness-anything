@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { BookOpen, Plus } from "@phosphor-icons/react";
+import { Plus } from "@phosphor-icons/react";
 import { entityDocGroups, type EntityKindDoc } from "../entity-docs.ts";
 import type { ViewId } from "../navigation/viewHistory.ts";
 import { useEntityLiveCounts, type EntityLiveCount } from "../entities-data.ts";
@@ -16,6 +16,7 @@ import { t } from "../i18n/index.tsx";
 import type { EntityKindCatalog } from "../entity-kind-catalog-client.ts";
 import { GovernedEntityCatalogList } from "../components/entityDoc/GovernedEntityCatalogList.tsx";
 import type { GovernedEntityRow } from "../graph/governedEntities.ts";
+import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { Section } from "../components/primitives/Section.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { VerticalKindForm } from "../components/entityDoc/VerticalKindForm.tsx";
@@ -82,15 +83,16 @@ export function EntitiesView({
     );
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <header className="border-b border-border px-4 py-3" data-testid="entities-header">
-        <div className="flex flex-wrap items-center gap-2">
-          <BookOpen className="text-text-faint" />
-          <h1 className="ui-title font-semibold">{t("shell.nav.entities")}</h1>
-          <span className="font-mono ui-micro text-text-faint">{repoId}</span>
+      <PageHeader
+        testId="entities-header"
+        title={t("shell.nav.entities")}
+        note={t("views.entitiesView.tagline")}
+        meta={repoId}
+        actions={
           <button
             type="button"
             data-testid="new-vertical-kind"
-            className="ml-auto inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 ui-meta"
+            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 ui-meta"
             onClick={() => {
               setCreatingKind(true);
               setKindError(null);
@@ -100,15 +102,10 @@ export function EntitiesView({
             }}
           >
             <Plus weight="bold" />
-            新建种类
+            {t("views.entitiesView.newKind")}
           </button>
-        </div>
-        <p className="mt-1 max-w-3xl ui-meta leading-relaxed text-text-faint">
-          这套内核由三元语构成:task 做什么、decision 为什么、fact 看到了什么,relation 把它们连成语义网。
-          每个实体是什么、字段什么含义、彼此什么关系,都在这里说清楚;受控词表与合法写入动作也在这里可见——
-          这一页既是防止乱写的限制面,也是这个产品对外的自我介绍。
-        </p>
-      </header>
+        }
+      />
       {creatingKind && (
         <div className="px-4">
           <VerticalKindForm

@@ -1,7 +1,6 @@
-import { PinButton } from "./PinButton.tsx";
 import { TitleText } from "./primitives/TitleText.tsx";
-import { useEffect, useRef, useState } from "react";
-import { FolderSimple, CaretUpDown, CloudSlash } from "@phosphor-icons/react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { FolderSimple, CaretUpDown, CloudSlash, PushPinSlash } from "@phosphor-icons/react";
 import type { SystemRepoRow } from "../api-client.ts";
 import type { Project } from "../model/types.ts";
 import type { RuntimeHealth } from "../model/runtime-health.ts";
@@ -15,6 +14,8 @@ import { RepoModeBadge } from "./RepoModeBadge.tsx";
 import { t } from "../i18n/index.tsx";
 import { guiHostBridge } from "../gui-transport.ts";
 import { consumeKnownError } from "../../api/error-consumption.ts";
+import { useWorkIndexQuery } from "../task-data.ts";
+import { workIndexOf } from "../model/work-collections.ts";
 
 export interface AppSidebarProps {
   readonly project: Project;
@@ -30,10 +31,11 @@ export interface AppSidebarProps {
   readonly onOpenProject: (repoId: string) => void;
   readonly onOpenProjectManager: () => void;
   readonly onNavigate: (view: ViewId) => void;
+  /** 全部置顶任务(App 从议程读面取);侧栏只展示其中的工作根,其余在总览置顶区。 */
   readonly pinnedWork: readonly { readonly taskId: string; readonly title: string }[];
   /** 置顶项的打开位:App 按「根任务即工作」分流到工作页或任务详情。 */
   readonly onOpenPinned: (taskId: string) => void;
-  /** 解除置顶。这一段是唯一展示置顶集的地方,所以取消它的入口也只能在这里。 */
+  /** 解除置顶(pin 写通道)。侧栏置顶块与总览置顶区各自带取消入口。 */
   readonly onUnpinWork: (taskId: string) => void;
   readonly ledgerStatus: LedgerStatusBarInput;
   readonly onRefreshLedger: () => void;
@@ -106,6 +108,16 @@ export function AppSidebar({
     endpoint = activeRepo
       ? connections.find((connection) => connection.id === activeRepo.connectionId)?.endpoint
       : undefined;
+  // 置顶块只列工作根:App 传入的是全部置顶任务,这里按 daemon 工作索引
+  // (repo.works.index,与总览同一读面、同一 react-query 缓存)筛出「本身是一个工作」
+  // 的行;其余置顶任务的去处是总览的置顶区。索引未落地时一块不出现(判不了工作根
+  // 就不猜),落地后随台账切面换代一起刷新。
+  const worksQuery = useWorkIndexQuery(activeRepoId);
+  const workIndex = useMemo(() => workIndexOf(worksQuery.data), [worksQuery.data]);
+  const pinnedWorks = useMemo(
+    () => pinnedWork.filter((item) => workIndex.isWorkRoot(item.taskId)),
+    [pinnedWork, workIndex],
+  );
   return (
     <aside
       data-testid="app-sidebar"
@@ -167,9 +179,14 @@ export function AppSidebar({
         </div>
       </div>
 
-      {/* 置顶工作块:高度按侧栏比例封顶(不写死像素),块内滚动;不随导航滚动,也不把导航挤走。 */}
-      <div data-testid="app-sidebar-pinned" className="flex max-h-[30%] shrink-0 flex-col border-b border-border">
-        {pinnedWork.length ? (
+      {/* 置顶工作块:只列置顶的工作根(判据来自 daemon 工作索引,不在 GUI 沿父链推);
+          最多露 5 行、超出在块内滚动,滚动容器按整行高度取整,任何时候不裁半行
+          (2026-10-01 业主:只有工作能单独拎出来,限 5 个)。没有置顶的工作时整块不出现。 */}
+      {pinnedWorks.length ? (
+        <div
+          data-testid="app-sidebar-pinned"
+          className="flex shrink-0 flex-col border-b border-border [--pinned-row:2.25rem]"
+        >
           <div className="flex min-h-0 flex-col px-2 pb-2" data-testid="sidebar-pinned-work">
             <button
               type="button"
@@ -179,39 +196,52 @@ export function AppSidebar({
               className="flex w-full items-center gap-1 px-1 pb-1 text-left font-mono ui-meta uppercase tracking-wide text-text-faint hover:text-text-muted"
             >
               <span aria-hidden>{pinnedOpen ? "▾" : "▸"}</span>
-              <span>置顶工作</span>
-              <span className="ml-auto tabular-nums">{pinnedWork.length}</span>
+              <span>{t("components.appSidebar.pinnedWorkTitle")}</span>
+              <span className="ml-auto tabular-nums">{pinnedWorks.length}</span>
             </button>
-            {/* 块内滚动:置顶再多,这一块也不超过侧栏高度的三成。 */}
-            <div data-testid="sidebar-pinned-list" className={pinnedOpen ? "min-h-0 overflow-y-auto" : "hidden"}>
-              {pinnedWork.map((item) => (
+            {/* 限高 5 行 = 5 × 整行高度(同一处定义行高与上限,行高变了上限跟着变);
+                行高固定 + 上限取整 → 滚动容器任何静止时刻都露整行;snap 让滚动停在行界。 */}
+            <div
+              data-testid="sidebar-pinned-list"
+              className={
+                pinnedOpen ? "max-h-[calc(var(--pinned-row)*5)] snap-y snap-mandatory overflow-y-auto" : "hidden"
+              }
+            >
+              {pinnedWorks.map((item) => (
                 <div
                   key={item.taskId}
-                  className="group flex w-full items-center gap-1 rounded pr-1 text-text-muted hover:bg-surface-raised hover:text-text"
+                  className="group flex h-[var(--pinned-row)] w-full snap-start items-center gap-1 rounded pr-1 text-text-muted hover:bg-surface-raised hover:text-text"
                 >
                   <button
                     type="button"
                     onClick={() => onOpenPinned(item.taskId)}
-                    className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-sm"
+                    className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left ui-body"
                   >
                     <span aria-hidden>◆</span>
                     <span className="truncate">
                       <TitleText title={item.title} />
                     </span>
                   </button>
-                  <PinButton
-                    testId={`sidebar-unpin-${item.taskId}`}
+                  {/* 无边框小图标,只在该行悬停或键盘聚焦时出现,平时不占视觉
+                      (评审第 6 条:一列带边框的方块是全页最抢眼的重复图形)。 */}
+                  <button
+                    type="button"
+                    data-testid={`sidebar-unpin-${item.taskId}`}
                     onClick={() => onUnpinWork(item.taskId)}
-                    pinned
-                    compact
-                    label={`解除置顶:${item.title}`}
-                  />
+                    aria-label={t("components.appSidebar.unpinWorkLabel", { title: item.title })}
+                    title={t("components.appSidebar.unpinWorkLabel", { title: item.title })}
+                    className="grid size-6 shrink-0 place-items-center rounded text-text-faint opacity-0
+                      transition-opacity hover:bg-surface-raised hover:text-text
+                      group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
+                  >
+                    <PushPinSlash weight="bold" className="size-3.5" aria-hidden />
+                  </button>
                 </div>
               ))}
             </div>
           </div>
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       {/* 导航滚动区:侧栏唯一纵向滚动容器;窗口够高时不出现滚动条。 */}
       <div data-testid="app-sidebar-scroll" className="flex min-h-0 flex-1 flex-col overflow-y-auto">

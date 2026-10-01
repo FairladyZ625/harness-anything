@@ -208,7 +208,7 @@ export function SystemView({
         data-testid="system-conclusion"
         className="flex flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border px-4 py-2.5"
       >
-        <StatusTag tone="done" label={t("views.settingsView.systemRunning")} />
+        <StatusTag tone="neutral" label={t("views.settingsView.systemRunning")} />
         <span className="ui-meta text-text">
           {t("views.systemView.conclusionRepos", {
             attached: String(attached),

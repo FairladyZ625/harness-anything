@@ -55,7 +55,7 @@ function FacetSelect({
         aria-expanded={open}
         aria-haspopup="listbox"
         onClick={() => setOpen((value) => !value)}
-        className={`inline-flex h-7 items-center gap-1 rounded border px-2.5 ui-meta outline-none
+        className={`inline-flex h-7 items-center gap-1 rounded-xs border px-2.5 ui-meta outline-none
           hover:border-border-strong focus-visible:border-border-strong ${
             selected.length > 0
               ? "border-accent/60 bg-accent/10 text-accent"
@@ -70,7 +70,7 @@ function FacetSelect({
         <div
           role="listbox"
           aria-label={label}
-          className="absolute left-0 top-full z-30 mt-1 min-w-[140px] rounded-md border border-border-strong
+          className="absolute left-0 top-full z-30 mt-1 min-w-[140px] rounded border border-border-strong
             bg-surface-raised p-1 shadow-lg"
         >
           {options.map((option) => {
@@ -152,17 +152,66 @@ export function AgentSquadFilterBar({
   }, [fieldRef]);
 
   return (
-    <div data-testid="agent-squad-filter-bar" className="shrink-0 space-y-2 border-b border-border px-3 py-3">
+    // 筛选一行(标准 §2.3 统一摆法):筛选靠左(角色 FilterChips、多选下拉、开关),
+    // 搜索在右并占满剩余宽度。
+    <div
+      data-testid="agent-squad-filter-bar"
+      className="flex shrink-0 flex-wrap items-center gap-x-1.5 gap-y-2 border-b border-border px-3 py-3"
+    >
       {options.roles.length > 1 && (
-        <div role="group" aria-label={t("agentRuntime.filterRole")} data-testid="agent-squad-filter-role">
+        <span role="group" aria-label={t("agentRuntime.filterRole")} data-testid="agent-squad-filter-role">
           <FilterChips
             chips={roleChips}
             value={filters.roles.length === 1 ? filters.roles[0]! : "all"}
             onChange={(key) => patch({ roles: key === "all" ? [] : [key] })}
           />
-        </div>
+        </span>
       )}
-      <label className="flex h-8 items-center gap-1.5 rounded border border-border bg-surface-raised px-2 focus-within:border-border-strong">
+      {options.runtimeKinds.length > 0 && (
+        <FacetSelect
+          testId="agent-squad-filter-runtime"
+          label={t("agentRuntime.filterRuntime")}
+          options={options.runtimeKinds}
+          selected={filters.runtimeKinds}
+          onChange={(runtimeKinds) => patch({ runtimeKinds })}
+        />
+      )}
+      {options.layers.length > 0 && (
+        <FacetSelect
+          testId="agent-squad-filter-layer"
+          label={t("agentRuntime.filterLayer")}
+          options={options.layers}
+          selected={filters.layers}
+          onChange={(layers) => patch({ layers })}
+        />
+      )}
+      <button
+        type="button"
+        role="switch"
+        aria-checked={filters.inSquadOnly}
+        data-testid="agent-squad-filter-in-squad"
+        onClick={() => patch({ inSquadOnly: !filters.inSquadOnly })}
+        className={`h-7 rounded-xs border px-2.5 ui-meta transition-colors duration-100 ${
+          filters.inSquadOnly
+            ? "border-accent/60 bg-accent/10 text-accent"
+            : "border-border text-text-muted hover:bg-surface-raised"
+        }`}
+      >
+        {t("agentRuntime.filterInSquad")}
+      </button>
+      {active && (
+        <button
+          type="button"
+          data-testid="agent-squad-filter-clear"
+          onClick={() => onChange(DEFAULT_AGENT_SQUAD_FILTERS)}
+          className="inline-flex h-7 items-center gap-0.5 rounded-xs border border-border px-2.5 ui-meta
+            text-text-muted hover:bg-surface-raised hover:text-text"
+        >
+          <X weight="bold" aria-hidden />
+          {t("agentRuntime.filterClear")}
+        </button>
+      )}
+      <label className="ml-auto flex h-8 min-w-[120px] flex-1 items-center gap-1.5 rounded-xs border border-border bg-surface-raised px-2 focus-within:border-border-strong">
         <MagnifyingGlass weight="bold" aria-hidden className="shrink-0 text-text-faint" />
         <input
           ref={fieldRef}
@@ -191,52 +240,6 @@ export function AgentSquadFilterBar({
           </button>
         )}
       </label>
-      <div className="flex flex-wrap items-center gap-1.5">
-        {options.runtimeKinds.length > 0 && (
-          <FacetSelect
-            testId="agent-squad-filter-runtime"
-            label={t("agentRuntime.filterRuntime")}
-            options={options.runtimeKinds}
-            selected={filters.runtimeKinds}
-            onChange={(runtimeKinds) => patch({ runtimeKinds })}
-          />
-        )}
-        {options.layers.length > 0 && (
-          <FacetSelect
-            testId="agent-squad-filter-layer"
-            label={t("agentRuntime.filterLayer")}
-            options={options.layers}
-            selected={filters.layers}
-            onChange={(layers) => patch({ layers })}
-          />
-        )}
-        <button
-          type="button"
-          role="switch"
-          aria-checked={filters.inSquadOnly}
-          data-testid="agent-squad-filter-in-squad"
-          onClick={() => patch({ inSquadOnly: !filters.inSquadOnly })}
-          className={`h-7 rounded border px-2.5 ui-meta transition-colors duration-100 ${
-            filters.inSquadOnly
-              ? "border-accent/60 bg-accent/10 text-accent"
-              : "border-border text-text-muted hover:bg-surface-raised"
-          }`}
-        >
-          {t("agentRuntime.filterInSquad")}
-        </button>
-        {active && (
-          <button
-            type="button"
-            data-testid="agent-squad-filter-clear"
-            onClick={() => onChange(DEFAULT_AGENT_SQUAD_FILTERS)}
-            className="inline-flex h-7 items-center gap-0.5 rounded border border-border px-2.5 ui-meta
-              text-text-muted hover:bg-surface-raised hover:text-text"
-          >
-            <X weight="bold" aria-hidden />
-            {t("agentRuntime.filterClear")}
-          </button>
-        )}
-      </div>
     </div>
   );
 }
