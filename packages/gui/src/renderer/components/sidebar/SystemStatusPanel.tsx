@@ -184,7 +184,7 @@ export function SystemStatusPanel({
         onClick={onOpenSystem}
         title={systemHealthDetail(health)}
         aria-label={t("components.appSidebar.goSystemTitle")}
-        className="flex min-h-[40px] w-full items-center gap-1.5 rounded text-left hover:bg-surface-raised/60"
+        className="relative flex h-[20px] w-full items-center gap-1.5 rounded text-left hover:bg-surface-raised/60 after:absolute after:content-[''] after:inset-x-0 after:-top-[5px] after:-bottom-[16px]"
       >
         <span
           data-testid="sidebar-system-status-lamp"

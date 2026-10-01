@@ -74,7 +74,7 @@ const TaskListRow = memo(function TaskListRow({
           }}
           title={pinned ? t("views.listView.unpinTitle") : t("views.listView.pinTitle")}
           aria-pressed={pinned}
-          className={`inline-flex size-[40px] shrink-0 items-center justify-center rounded ui-body hover:bg-surface ${
+          className={`relative inline-flex shrink-0 items-center justify-center rounded p-0.5 ui-body hover:bg-surface after:absolute after:content-[''] after:-top-[11.5px] after:-bottom-[11.5px] after:-left-[2px] after:-right-[1.75px] ${
             pinned ? "text-accent" : "text-text-faint hover:text-text-muted"
           }`}
         >
@@ -98,7 +98,7 @@ const TaskListRow = memo(function TaskListRow({
           onToggleFavorite(task.taskId);
         }}
         title={isFavorite ? t("views.listView.cancelFavorites") : t("views.listView.favoritesPinned")}
-        className={`inline-flex size-[40px] shrink-0 items-center justify-center rounded ui-body hover:bg-surface ${
+        className={`relative inline-flex shrink-0 items-center justify-center rounded p-0.5 ui-body hover:bg-surface after:absolute after:content-[''] after:-top-[11.5px] after:-bottom-[11.5px] after:-left-[1.75px] after:-right-[5px] ${
           isFavorite ? "text-accent" : "text-text-faint hover:text-text-muted"
         }`}
       >

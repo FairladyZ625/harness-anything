@@ -21,9 +21,9 @@ export interface DayPath {
  * StatusTag 用箭头串起(收束,不堆叠——标准 §1)。
  */
 
-/** 选中行的高亮与 DenseRow.selected 同一语汇(左侧 2px 强调竖线 + 轻底)。行高按标准 §3/§1.9③ 不低于 40px。 */
+/** 选中行的高亮与 DenseRow.selected 同一语汇(左侧 2px 强调竖线 + 轻底)。 */
 function pathRowCls(selected: boolean | undefined): string {
-  return `flex items-baseline gap-2 py-[10px] ${
+  return `flex items-baseline gap-2 py-[3px] ${
     selected === true ? "bg-accent/10 shadow-[inset_2px_0_0_var(--color-accent)]" : ""
   }`;
 }
@@ -45,7 +45,7 @@ export function DayDigest({
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-baseline gap-3 py-[4px] text-left"
+        className="relative flex w-full items-baseline gap-3 text-left after:absolute after:content-[''] after:inset-x-0 after:-top-[2px] after:-bottom-[2px]"
       >
         <span className="w-11 flex-none font-mono font-semibold text-text-muted ui-meta">{day}</span>
         <span className="min-w-0 flex-1 ui-body">{summary}</span>
