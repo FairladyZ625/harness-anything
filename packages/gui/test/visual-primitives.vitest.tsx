@@ -19,6 +19,7 @@ import { PillFlow } from "../src/renderer/components/primitives/PillFlow";
 import { Tabs } from "../src/renderer/components/primitives/Tabs";
 import { FilterChips } from "../src/renderer/components/primitives/FilterChips";
 import { CloseoutBadge, STATUS_META } from "../src/renderer/components/badges";
+import { initialLocale, setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 /**
  * 视觉基线 v1 共享原语(gui-visual-language-standard §4,dec_AF44708E CH2)的行为面:
@@ -97,6 +98,24 @@ describe("StatusTag", () => {
     expect(tag?.getAttribute("data-status-tone")).toBe("bad");
     expect(tag?.getAttribute("style")).toContain("var(--color-status-blocked)");
     act(() => root.unmount());
+  });
+
+  it("切换语言后状态标签文字跟随当前 locale(标签读取时求值,不在模块导入时固化)", () => {
+    // F-D3DBB3FB:STATUS_META 曾用对象 spread 把 label getter 在导入时求值成当期
+    // locale 的字符串,切换语言后所有 StatusTag 仍显示导入时的语言。
+    const localeAtImport = initialLocale();
+    try {
+      setActiveLocale("zh-CN");
+      const zh = renderToStaticMarkup(createElement(StatusTag, { status: "active" }));
+      expect(zh).toContain("活跃");
+      setActiveLocale("en-US");
+      const en = renderToStaticMarkup(createElement(StatusTag, { status: "active" }));
+      expect(en).toContain("Active");
+      expect(en).not.toContain("活跃");
+    } finally {
+      // 本文件其余断言按导入时 locale 写;切换不能泄漏给后续用例。
+      setActiveLocale(localeAtImport);
+    }
   });
 
   it("状态词→tone 映射符合标准 §3:待人裁决/评审中=琥珀、阻塞=红、在做=青", () => {
