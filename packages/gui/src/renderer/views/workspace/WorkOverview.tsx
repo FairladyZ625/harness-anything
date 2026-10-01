@@ -1,11 +1,12 @@
-import type { ReactNode } from "react";
+import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { DayDigest, type DayPath } from "../../components/primitives/DayDigest";
 import { DenseRow } from "../../components/primitives/DenseRow";
-import { PillFlow } from "../../components/primitives/PillFlow";
+import { Region } from "../../components/primitives/Region";
 import { SegBar } from "../../components/primitives/SegBar";
-import { Section } from "../../components/primitives/Section";
 import { StatusTag, type StatusTone } from "../../components/primitives/StatusTag";
 import { entryTitle, metaLine } from "./entry-lines.tsx";
+import { regionMinimumHeight } from "../region-minimum.ts";
+import type { WorkLeafRow } from "./WorkTasksTab.tsx";
 import type { AttestationPoolLanes } from "../../model/attestation-pool.ts";
 import type { WorkDayGroup, WorkStepKind, WorkSubgroup } from "../../model/workspace-narrative.ts";
 import type { SnapshotStatus, TaskRow } from "../../model/types.ts";
@@ -13,12 +14,19 @@ import type { MessageKey } from "../../i18n/core.ts";
 import { t } from "../../i18n/index.tsx";
 
 /**
- * 概况页(原型 v2):主栏按叙事往下排——等你裁决(hero)、没有 agent 在跑(warn)、
- * 按天收束的进展、接下来的标签流;右栏是状态数字与子组树。块的高度由内容决定,
- * 没有内容的块整块消失(标准 §1/§2.2)。
+ * 概况页(标准 §2.1):与全局总览同一套区域板。左侧主区按固定顺序放「等你裁决 →
+ * 阻塞与异常 → 进行中 → 接下来 → 结构与统计」,右侧一列是「最近进展」时间线;每块信息
+ * 都在一个 Region 里,行用 DenseRow,内容超出在区域内滚动,没有内容的区域整块消失(§1.5)。
+ *
+ * 不走 overview-layout 的权重落列:那套算法把区域放进当前最矮的一列,保证不了时间线
+ * 固定在右列,而且工作概况没有 daemon 权重。这里用固定顺序 + 弹性布局:列内区域按内容
+ * 高度分配,放不下时各自缩到「至少露出三条」的实测下限(与总览同一个测量),再放不下
+ * 就列内滚动。容器 ≥900px 两列(主区 | 时间线),≥1400px 主区再分两列,更窄时单列纵排、
+ * 时间线排到最下、整页滚动(§1.9)。
  */
 
-const STEP_META: Readonly<Record<WorkStepKind, { readonly label: MessageKey; readonly tone: StatusTone }>> = {
+/** 步骤种类的呈现(标签/状态色);全局总览的「最近变化」共用。 */
+export const STEP_META: Readonly<Record<WorkStepKind, { readonly label: MessageKey; readonly tone: StatusTone }>> = {
   start: { label: "views.workspace.step.start", tone: "active" },
   dispatch: { label: "views.workspace.step.dispatch", tone: "active" },
   submit: { label: "views.workspace.step.submit", tone: "wait" },
@@ -33,7 +41,7 @@ const STEP_META: Readonly<Record<WorkStepKind, { readonly label: MessageKey; rea
 };
 
 /** 状态数字格:完成/待裁决/评审中/在做/待开工/阻塞/取消,只显示非零项。 */
-const RAIL_STATUS_ORDER: readonly SnapshotStatus[] = [
+const STATUS_ORDER: readonly SnapshotStatus[] = [
   "done",
   "submitted",
   "in_review",
@@ -43,7 +51,7 @@ const RAIL_STATUS_ORDER: readonly SnapshotStatus[] = [
   "cancelled",
 ];
 
-const RAIL_STATUS_LABEL: Readonly<Record<SnapshotStatus, MessageKey>> = {
+const STATUS_LABEL: Readonly<Record<SnapshotStatus, MessageKey>> = {
   planned: "components.badges.planned",
   active: "components.badges.active",
   submitted: "components.badges.submitted",
@@ -58,14 +66,14 @@ const RAIL_STATUS_LABEL: Readonly<Record<SnapshotStatus, MessageKey>> = {
 export interface WorkOverviewProps {
   readonly submitted: readonly TaskRow[];
   readonly stalled: readonly TaskRow[];
-  readonly planned: readonly TaskRow[];
+  /** 工作的全部叶子任务(任务页同一份行);阻塞、进行中、接下来三个区域从这里取。 */
+  readonly leaves: readonly WorkLeafRow[];
   readonly lanes: AttestationPoolLanes;
   readonly dayGroups: readonly WorkDayGroup[];
   readonly dayLabelOf: (dateKey: string) => string;
   readonly timeOf: (iso: string) => string;
   readonly subgroups: readonly WorkSubgroup[];
   readonly leafCounts: Readonly<Partial<Record<SnapshotStatus, number>>>;
-  readonly leafTotal: number;
   readonly agoOf: (iso: string) => string;
   readonly feedback?: (
     taskId: string,
@@ -81,17 +89,25 @@ export interface WorkOverviewProps {
 
 const actionButton = "h-6 rounded-xs border px-2.5 ui-meta disabled:opacity-60";
 
+/** 列内一个区域的外框:单列时限高(一条长列表不把后面的区域推出屏幕),多列时按内容
+ * 高度参与列内分配并可被压到实测下限。Region 原语被拉伸到这个盒子。 */
+const regionBox = "grid min-w-0 max-h-[420px] grid-rows-[minmax(0,1fr)] @[900px]:max-h-none @[900px]:flex-[1_1_auto]";
+/** 主区的一列:≥1400px 时自成一列并列内滚动,否则并入主区那一列。 */
+const mainColumn =
+  "contents @[1400px]:flex @[1400px]:min-h-0 @[1400px]:min-w-0 @[1400px]:flex-col @[1400px]:gap-2 @[1400px]:overflow-y-auto";
+/** 区域行体里算「一条」的元素:任务行、子组行、时间线的天摘要与路径行。 */
+const REGION_ROWS = "[data-task-row], [data-group-filter], [data-day] > button, [data-day] > div > *";
+
 export function WorkOverview({
   submitted,
   stalled,
-  planned,
+  leaves,
   lanes,
   dayGroups,
   dayLabelOf,
   timeOf,
   subgroups,
   leafCounts,
-  leafTotal,
   agoOf,
   feedback,
   onAdjudicate,
@@ -103,212 +119,288 @@ export function WorkOverview({
   onFilterGroup,
 }: WorkOverviewProps) {
   const heroCount = submitted.length + lanes.gates.length + lanes.breakGlass.length + lanes.consents.length,
-    // 「最久的等了 X」只对已提交的任务有意义;纯签发/同意的 hero 不带这句。
+    // 「最久的等了 X」只对已提交的任务有意义;纯签发/同意的区域不带这句。
     oldest = submitted
       .map(({ lastKnownAt }) => lastKnownAt)
       .sort()
-      .at(0);
-  const main = (
-    <div className="min-w-0">
+      .at(0),
+    stalledIds = new Set(stalled.map(({ taskId }) => taskId)),
+    recentFirst = (left: WorkLeafRow, right: WorkLeafRow) => right.at.localeCompare(left.at),
+    blocked = leaves.filter(({ status }) => status === "blocked").sort(recentFirst),
+    noAgent = leaves.filter(({ taskId }) => stalledIds.has(taskId)).sort(recentFirst),
+    running = leaves
+      .filter(({ taskId, status }) => (status === "active" || status === "in_review") && !stalledIds.has(taskId))
+      .sort(recentFirst),
+    planned = leaves
+      .filter(({ status }) => status === "planned")
+      .sort((left, right) => Number(right.pinned) - Number(left.pinned) || recentFirst(left, right)),
+    pathCount = dayGroups.reduce((sum, group) => sum + group.paths.length, 0);
+
+  const boardRef = useRef<HTMLDivElement | null>(null);
+  const [minimum, setMinimum] = useState<Readonly<Record<string, number>>>({});
+  useLayoutEffect(() => {
+    const board = boardRef.current;
+    if (board === null) return;
+    const measure = () => {
+      const next: Record<string, number> = {};
+      for (const region of board.querySelectorAll<HTMLElement>("[data-region]")) {
+        const section = region.querySelector("section"),
+          height =
+            section === null
+              ? undefined
+              : regionMinimumHeight(section, (body) => [...body.querySelectorAll(REGION_ROWS)]);
+        if (height !== undefined) next[region.dataset.region!] = height;
+      }
+      setMinimum((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next));
+    };
+    // 行体内容变高(展开某一天、字号或宽度变化)时重量。
+    const observer = new ResizeObserver(measure);
+    observer.observe(board);
+    for (const element of board.querySelectorAll("[data-region] section > div, [data-region] section > div > div > *"))
+      observer.observe(element);
+    measure();
+    return () => observer.disconnect();
+  }, [submitted, stalled, leaves, lanes, dayGroups, subgroups]);
+  const boxOf = (key: string) => ({
+    "data-region": key,
+    className: regionBox,
+    style: { minHeight: minimum[key] ?? 0 },
+  });
+  const taskRow = (leaf: WorkLeafRow, tag?: ReactNode) => (
+    <div key={leaf.taskId} data-task-row={leaf.taskId}>
+      <WorkTaskRow task={leaf} tag={tag} agoOf={agoOf} onOpen={onOpenTask} />
+    </div>
+  );
+
+  const attention = (
+    <>
       {heroCount > 0 ? (
-        <div data-testid="work-hero">
-          <Section
-            variant="hero"
+        <div {...boxOf("mine")} data-testid="work-hero">
+          <Region
             title={t("views.workspace.hero.title")}
-            count={heroCount}
-            note={oldest === undefined ? undefined : t("views.workspace.hero.note", { ago: agoOf(oldest) })}
+            big={heroCount}
+            bigTone="wait"
+            edge="wait"
+            footer={oldest === undefined ? undefined : t("views.workspace.hero.note", { ago: agoOf(oldest) })}
           >
-            <div>
-              {submitted.map((task) => (
-                <ActionRow
-                  key={task.taskId}
-                  taskId={task.taskId}
-                  title={task.title}
-                  reason={t("views.workspace.hero.waited", { ago: agoOf(task.lastKnownAt) })}
-                  onOpen={onOpenTask}
-                  state={feedback?.(task.taskId)}
+            {submitted.map((task) => (
+              <ActionRow
+                key={task.taskId}
+                taskId={task.taskId}
+                title={task.title}
+                reason={t("views.workspace.hero.waited", { ago: agoOf(task.lastKnownAt) })}
+                onOpen={onOpenTask}
+                state={feedback?.(task.taskId)}
+              >
+                <button
+                  type="button"
+                  data-testid={`work-hero-forward-${task.taskId}`}
+                  disabled={!onAdjudicate}
+                  onClick={() =>
+                    onAdjudicate?.(task, "forward", "Owner initial review accepted this cut for independent review.")
+                  }
+                  className={`${actionButton} border-status-submitted/45 bg-status-submitted/15 text-status-submitted`}
                 >
-                  <button
-                    type="button"
-                    data-testid={`work-hero-forward-${task.taskId}`}
-                    disabled={!onAdjudicate}
-                    onClick={() =>
-                      onAdjudicate?.(task, "forward", "Owner initial review accepted this cut for independent review.")
-                    }
-                    className={`${actionButton} border-status-submitted/45 bg-status-submitted/15 text-status-submitted`}
-                  >
-                    {t("views.workspace.hero.forward")}
-                  </button>
-                  <button
-                    type="button"
-                    data-testid={`work-hero-return-${task.taskId}`}
-                    disabled={!onAdjudicate}
-                    onClick={() => onAdjudicate?.(task, "return", "Owner initial review returned this cut for rework.")}
-                    className={`${actionButton} border-border bg-text/5 text-text-muted`}
-                  >
-                    {t("views.workspace.hero.return")}
-                  </button>
-                </ActionRow>
-              ))}
-              {[...lanes.gates, ...lanes.breakGlass].map((item) => (
+                  {t("views.workspace.hero.forward")}
+                </button>
+                <button
+                  type="button"
+                  data-testid={`work-hero-return-${task.taskId}`}
+                  disabled={!onAdjudicate}
+                  onClick={() => onAdjudicate?.(task, "return", "Owner initial review returned this cut for rework.")}
+                  className={`${actionButton} border-border bg-text/5 text-text-muted`}
+                >
+                  {t("views.workspace.hero.return")}
+                </button>
+              </ActionRow>
+            ))}
+            {[...lanes.gates, ...lanes.breakGlass].map((item) => (
+              <ActionRow
+                key={`${item.taskId}:${item.gateId}:${item.mode}`}
+                taskId={item.taskId}
+                title={item.taskTitle}
+                reason={`门禁 ${item.gateId} · ${item.gateStatus}`}
+                onOpen={onOpenTask}
+                state={feedback?.(item.taskId)}
+              >
+                <button
+                  type="button"
+                  disabled={!onAttest}
+                  onClick={() => onAttest?.({ taskId: item.taskId }, item.gateId, item.mode)}
+                  className={`${actionButton} border-status-submitted/45 bg-status-submitted/15 text-status-submitted`}
+                >
+                  {item.mode === "approve" ? t("views.workspace.hero.attest") : t("views.workspace.hero.override")}
+                </button>
+              </ActionRow>
+            ))}
+            {lanes.consents.map((item) => {
+              const task = submitted.find(({ taskId }) => taskId === item.taskId) ?? null,
+                approved = task?.reviews?.filter((review) => review.verdict === "approved").at(-1);
+              return (
                 <ActionRow
-                  key={`${item.taskId}:${item.gateId}:${item.mode}`}
+                  key={`${item.taskId}:consent`}
                   taskId={item.taskId}
                   title={item.taskTitle}
-                  reason={`门禁 ${item.gateId} · ${item.gateStatus}`}
+                  reason="待同意本轮交付"
                   onOpen={onOpenTask}
                   state={feedback?.(item.taskId)}
                 >
                   <button
                     type="button"
-                    disabled={!onAttest}
-                    onClick={() => onAttest?.({ taskId: item.taskId }, item.gateId, item.mode)}
+                    disabled={!task || !approved || !onConsent}
+                    onClick={() => task && approved && onConsent?.(task, approved.reviewId)}
                     className={`${actionButton} border-status-submitted/45 bg-status-submitted/15 text-status-submitted`}
                   >
-                    {item.mode === "approve" ? t("views.workspace.hero.attest") : t("views.workspace.hero.override")}
+                    {t("views.workspace.hero.consent")}
                   </button>
                 </ActionRow>
-              ))}
-              {lanes.consents.map((item) => {
-                const task = submitted.find(({ taskId }) => taskId === item.taskId) ?? null,
-                  approved = task?.reviews?.filter((review) => review.verdict === "approved").at(-1);
-                return (
-                  <ActionRow
-                    key={`${item.taskId}:consent`}
-                    taskId={item.taskId}
-                    title={item.taskTitle}
-                    reason="待同意本轮交付"
-                    onOpen={onOpenTask}
-                    state={feedback?.(item.taskId)}
-                  >
-                    <button
-                      type="button"
-                      disabled={!task || !approved || !onConsent}
-                      onClick={() => task && approved && onConsent?.(task, approved.reviewId)}
-                      className={`${actionButton} border-status-submitted/45 bg-status-submitted/15 text-status-submitted`}
-                    >
-                      {t("views.workspace.hero.consent")}
-                    </button>
-                  </ActionRow>
-                );
-              })}
-            </div>
-          </Section>
+              );
+            })}
+          </Region>
         </div>
       ) : null}
 
-      {stalled.length > 0 ? (
-        <div data-testid="work-stalled">
-          <Section
-            variant="warn"
-            title={t("views.workspace.stalled.title")}
-            count={stalled.length}
-            note={t("views.workspace.stalled.note")}
+      {blocked.length + noAgent.length > 0 ? (
+        <div {...boxOf("stuck")} data-testid="work-stuck">
+          <Region
+            title={t("views.workspace.stuck.title")}
+            tag={
+              <>
+                {blocked.length > 0 ? (
+                  <StatusTag tone="bad" label={t("views.overviewView.stuckBlocked", { count: blocked.length })} />
+                ) : null}
+                {noAgent.length > 0 ? (
+                  <StatusTag tone="wait" label={t("views.workspace.stuck.noAgentCount", { count: noAgent.length })} />
+                ) : null}
+              </>
+            }
+            big={blocked.length + noAgent.length}
+            bigTone={blocked.length > 0 ? "bad" : "wait"}
+            edge={blocked.length > 0 ? "bad" : "wait"}
+            footer={noAgent.length > 0 ? t("views.workspace.stuck.footer") : undefined}
           >
-            <div>
-              {stalled.map((task) => (
-                <ActionRow
-                  key={task.taskId}
-                  taskId={task.taskId}
-                  title={task.title}
-                  reason={t("views.workspace.stalled.lastActivity", { ago: agoOf(task.lastKnownAt) })}
-                  onOpen={onOpenTask}
-                />
-              ))}
-            </div>
-          </Section>
+            {blocked.map((leaf) => taskRow(leaf, <StatusTag status="blocked" />))}
+            {noAgent.map((leaf) => taskRow(leaf, <StatusTag tone="wait" label={t("views.workspace.stuck.noAgent")} />))}
+          </Region>
         </div>
       ) : null}
 
-      {dayGroups.length > 0 ? (
-        <Section
-          title={t("views.workspace.progress.title")}
-          note={t("views.workspace.progress.note")}
-          action={
-            <button type="button" className="text-accent ui-meta" onClick={onOpenProgress}>
-              {t("views.workspace.progress.all")}
-            </button>
-          }
-        >
-          {/* v2(标准 §1.8):全部天直接铺开(每天一条 DayDigest 摘要行),不截前两天;整块超出可视高度时随页面滚动。 */}
-          <WorkDayList dayGroups={dayGroups} dayLabelOf={dayLabelOf} timeOf={timeOf} onOpenTask={onOpenTask} />
-        </Section>
+      {running.length > 0 ? (
+        <div {...boxOf("run")} data-testid="work-running">
+          <Region title={t("views.workspace.running.title")} big={running.length} bigTone="active">
+            {running.map((leaf) => taskRow(leaf, <StatusTag status={leaf.status} />))}
+          </Region>
+        </div>
+      ) : null}
+    </>
+  );
+
+  const outlook = (
+    <>
+      {planned.length > 0 ? (
+        <div {...boxOf("next")} data-testid="work-next">
+          <Region title={t("views.workspace.next.title")} big={planned.length} footer={t("views.workspace.next.note")}>
+            {/* 全是待开工,状态标签每行都一样,不进行(§2.4 重复值不进行)。 */}
+            {planned.map((leaf) => taskRow(leaf))}
+          </Region>
+        </div>
       ) : null}
 
-      {planned.length > 0 ? (
-        <Section title={t("views.workspace.next.title")} count={planned.length} note={t("views.workspace.next.note")}>
-          <div data-testid="work-next">
-            <PillFlow
-              items={planned.map((task) => ({
-                label: task.title,
-                title: task.title,
-                pinned: task.pinned === true,
-                onClick: () => onOpenTask(task.taskId),
-              }))}
-            />
+      <div {...boxOf("structure")} data-testid="work-structure">
+        <Region
+          title={t("views.workspace.structure.title")}
+          big={leaves.length}
+          footer={t("views.workspace.structure.footer")}
+        >
+          <div className="grid grid-cols-[repeat(auto-fit,minmax(4.5rem,1fr))] gap-px border-t border-border bg-border">
+            {[...STATUS_ORDER.filter((status) => (leafCounts[status] ?? 0) > 0), null].map((status) => (
+              <button
+                key={status ?? "all"}
+                type="button"
+                data-status-filter={status ?? ""}
+                onClick={() => onFilterStatus(status ?? "")}
+                className="bg-surface px-3.5 py-2 text-left hover:bg-surface-raised"
+              >
+                <b className="block font-mono text-base font-semibold leading-tight tabular-nums text-text">
+                  {status === null ? leaves.length : leafCounts[status]}
+                </b>
+                <span className="text-text-faint ui-micro">
+                  {status === null ? t("views.workspace.rail.all") : t(STATUS_LABEL[status])}
+                </span>
+              </button>
+            ))}
           </div>
-        </Section>
+          {subgroups.map((group) => (
+            <div key={group.key} data-group-filter={group.key}>
+              <DenseRow
+                title={
+                  <span style={{ paddingLeft: `${group.depth * 14}px` }}>
+                    {group.loose ? t("views.workspace.tasks.loose") : (group.title ?? group.key)}
+                  </span>
+                }
+                reason={
+                  group.inFlight > 0 ? (
+                    <span className="text-status-submitted">
+                      {t("views.workspace.rail.inFlight", { count: group.inFlight })}
+                    </span>
+                  ) : undefined
+                }
+                time={
+                  <span className="flex items-center gap-2">
+                    <SegBar counts={group.counts} className="h-1 w-16" />
+                    {(group.counts.done ?? 0) + (group.counts.cancelled ?? 0)}/{group.memberTaskIds.length}
+                  </span>
+                }
+                onClick={() => onFilterGroup(group.key)}
+              />
+            </div>
+          ))}
+        </Region>
+      </div>
+    </>
+  );
+
+  return (
+    <div
+      ref={boardRef}
+      data-testid="work-overview-board"
+      className="grid grid-cols-1 gap-2 @[900px]:min-h-0 @[900px]:flex-1 @[900px]:grid-cols-2 @[900px]:grid-rows-[minmax(0,1fr)] @[1400px]:grid-flow-col @[1400px]:auto-cols-[minmax(0,1fr)] @[1400px]:grid-cols-none"
+    >
+      <div
+        data-testid="work-overview-main"
+        className="flex min-w-0 flex-col gap-2 @[900px]:min-h-0 @[900px]:overflow-y-auto @[1400px]:contents"
+      >
+        {heroCount + blocked.length + noAgent.length + running.length > 0 ? (
+          <div className={mainColumn}>{attention}</div>
+        ) : null}
+        <div className={mainColumn}>{outlook}</div>
+      </div>
+      {dayGroups.length > 0 ? (
+        <div
+          data-region="recent"
+          data-testid="work-timeline"
+          className="grid max-h-[420px] min-w-0 grid-rows-[minmax(0,1fr)] @[900px]:max-h-none @[900px]:min-h-0"
+        >
+          <Region
+            title={t("views.workspace.progress.title")}
+            big={pathCount}
+            footer={
+              <>
+                <span className="min-w-0 truncate">{t("views.workspace.progress.note")}</span>
+                <button type="button" className="ml-auto shrink-0 text-accent" onClick={onOpenProgress}>
+                  {t("views.workspace.progress.all")}
+                </button>
+              </>
+            }
+          >
+            {/* DayDigest 自己不带左右内边距:贴着区域框时「收起」会顶到右缘,这里留出与行同宽的边距。 */}
+            <div className="px-3.5">
+              <WorkDayList dayGroups={dayGroups} dayLabelOf={dayLabelOf} timeOf={timeOf} onOpenTask={onOpenTask} />
+            </div>
+          </Region>
+        </div>
       ) : null}
     </div>
-  );
-  const rail = (
-    <aside data-testid="workspace-rail" className="space-y-6 self-start lg:sticky lg:top-0">
-      <section>
-        <h3 className="font-semibold text-text-muted ui-meta">{t("views.workspace.rail.status")}</h3>
-        <div className="mt-2 grid grid-cols-3 gap-px overflow-hidden rounded-xs border border-border bg-border">
-          {[...RAIL_STATUS_ORDER.filter((status) => (leafCounts[status] ?? 0) > 0), null].map((status) => (
-            <button
-              key={status ?? "all"}
-              type="button"
-              data-status-filter={status ?? ""}
-              onClick={() => onFilterStatus(status ?? "")}
-              className="bg-surface px-2.5 py-[7px] text-left hover:bg-surface-raised"
-            >
-              <b className="block font-mono text-base font-semibold leading-tight tabular-nums text-text">
-                {status === null ? leafTotal : leafCounts[status]}
-              </b>
-              <span className="text-text-faint ui-micro">
-                {status === null ? t("views.workspace.rail.all") : t(RAIL_STATUS_LABEL[status])}
-              </span>
-            </button>
-          ))}
-        </div>
-      </section>
-      <section>
-        <h3 className="font-semibold text-text-muted ui-meta">{t("views.workspace.rail.structure")}</h3>
-        <div className="mt-2">
-          {subgroups.map((group) => (
-            <button
-              key={group.key}
-              type="button"
-              data-group-filter={group.key}
-              onClick={() => onFilterGroup(group.key)}
-              className="grid w-full grid-cols-[minmax(0,1fr)_70px_44px] items-center gap-2 rounded-xs py-1 pr-1.5 text-left hover:bg-text/5"
-              style={{ paddingLeft: `${6 + group.depth * 14}px` }}
-            >
-              <span className="min-w-0 truncate text-text ui-body">
-                {group.loose ? t("views.workspace.tasks.loose") : (group.title ?? group.key)}
-                {group.inFlight > 0 ? (
-                  <i className="ml-1 not-italic text-status-submitted ui-micro">
-                    {t("views.workspace.rail.inFlight", { count: group.inFlight })}
-                  </i>
-                ) : null}
-              </span>
-              <SegBar counts={group.counts} className="h-1" />
-              <span className="text-right font-mono tabular-nums text-text-muted ui-meta">
-                {(group.counts.done ?? 0) + (group.counts.cancelled ?? 0)}/{group.memberTaskIds.length}
-              </span>
-            </button>
-          ))}
-        </div>
-      </section>
-    </aside>
-  );
-  return (
-    <>
-      {main}
-      {rail}
-    </>
   );
 }
 
@@ -347,7 +439,8 @@ export function WorkDayList({
   );
 }
 
-function DaySummary({ group }: { readonly group: WorkDayGroup }) {
+/** 一天的摘要:完成/提交/打回/退回计数;全局总览的「最近变化」共用。 */
+export function DaySummary({ group }: { readonly group: WorkDayGroup }) {
   const parts: ReactNode[] = [];
   const push = (key: MessageKey, count: number) => {
     if (count > 0) parts.push(<span key={key}>{t(key, { count })}</span>);
@@ -414,12 +507,13 @@ function ActionRow({
   );
 }
 
-/** 任务页的状态行(DenseRow 两行形态 + 状态标签):第一行状态与冒号前的标题(可带搜索高亮);
- * 第二行弱色依次报执行者、卡点或等待原因、最近活动,标题冒号后的补充垫在末尾随行截断。 */
+/** 任务行(DenseRow 两行形态,任务页与概况的区域共用):第一行可选的状态标签与冒号前的标题
+ * (可带搜索高亮);第二行弱色依次报执行者、卡点或等待原因、最近活动,标题冒号后的补充垫在
+ * 末尾随行截断。整组状态相同时不传 tag(§2.4 重复值不进行)。 */
 export function WorkTaskRow({
   task,
   needle = "",
-  status,
+  tag,
   agoOf,
   onOpen,
 }: {
@@ -432,7 +526,7 @@ export function WorkTaskRow({
     readonly waiting?: string;
   };
   readonly needle?: string;
-  readonly status: SnapshotStatus;
+  readonly tag?: ReactNode;
   readonly agoOf: (iso: string) => string;
   readonly onOpen: (taskId: string) => void;
 }) {
@@ -440,7 +534,7 @@ export function WorkTaskRow({
   return (
     <DenseRow
       relaxed
-      tag={<StatusTag status={status} />}
+      tag={tag}
       title={
         task.pinned === true ? (
           <>

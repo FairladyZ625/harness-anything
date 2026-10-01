@@ -29,8 +29,8 @@ import { WorkInspectTab } from "./workspace/WorkInspectTab.tsx";
 
 /**
  * 工作详情页(原型 v2,dec_AF44708E8F70F04E59FF751F9C/CH1):顶部身份 + 一行目标 +
- * 状态分段进度 + 标签栏(概况/任务/进展/决策与事实/检修) + 页内搜索;主栏按叙事
- * 排列,右栏结构与统计;实体细节进右侧抽屉;原始事件流只在检修页。
+ * 状态分段进度 + 标签栏(概况/任务/进展/决策与事实/检修) + 页内搜索;概况是与全局
+ * 总览同一套的区域板(标准 §2.1),右列时间线;实体细节进右侧抽屉;原始事件流只在检修页。
  */
 
 type WorkspaceTab = "overview" | "tasks" | "progress" | "decisions" | "graph" | "inspect" | "root";
@@ -244,17 +244,6 @@ export function WorkspaceView({
         .sort((left, right) => right.lastKnownAt.localeCompare(left.lastKnownAt)),
     [scopedTasks, groupIds],
   );
-  const planned = useMemo(
-    () =>
-      scopedTasks
-        .filter(({ taskId, coordinationStatus }) => coordinationStatus === "planned" && !groupIds.has(taskId))
-        .sort(
-          (left, right) =>
-            Number(right.pinned === true) - Number(left.pinned === true) ||
-            right.lastKnownAt.localeCompare(left.lastKnownAt),
-        ),
-    [scopedTasks, groupIds],
-  );
 
   const events = useMemo(() => scope.eventSummaries.map(cadenceEventOf), [scope.eventSummaries]),
     evidence = useMemo(
@@ -360,21 +349,27 @@ export function WorkspaceView({
         </div>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="@container min-h-0 flex-1 overflow-y-auto">
         <div
           id="workspace-panel"
           role="tabpanel"
           aria-labelledby={`workspace-tab-${tab}`}
-          className="grid grid-cols-1 gap-9 px-5 pb-16 pt-4 md:px-7 lg:grid-cols-[minmax(0,1fr)_340px]"
+          // 概况是一屏的区域板:容器 ≥900px 时面板占满可视高度,区域在自己内部滚动;
+          // 更窄时退回内容高度、整页滚动。其余页签是随内容往下排的文档型版式。
+          className={
+            tab === "overview"
+              ? "flex flex-col gap-3 px-5 pb-3 pt-4 md:px-7 @[900px]:h-full"
+              : "grid grid-cols-1 gap-9 px-5 pb-16 pt-4 md:px-7"
+          }
         >
           {(scope.status === "pending" || scope.warnings.length > 0) && (
-            <div className="col-span-full rounded-xs border border-warning/50 bg-warning/10 p-3 text-text ui-body">
+            <div className="rounded-xs border border-warning/50 bg-warning/10 p-3 text-text ui-body">
               {t("views.workspace.pendingCut", { watermark: scope.watermark, sourceRevision: scope.sourceRevision })}
               {scope.warnings.length > 0 ? ` · ${scope.warnings.join("；")}` : ""}
             </div>
           )}
           {scope.incompleteParentRefs.length > 0 ? (
-            <div className="col-span-full rounded-xs border border-warning/50 bg-warning/10 p-3 text-text ui-body">
+            <div className="rounded-xs border border-warning/50 bg-warning/10 p-3 text-text ui-body">
               {t("views.workspace.incompleteParents", { refs: scope.incompleteParentRefs.join("、") })}
             </div>
           ) : null}
@@ -383,14 +378,13 @@ export function WorkspaceView({
             <WorkOverview
               submitted={submitted}
               stalled={stalled}
-              planned={planned}
+              leaves={leafRows}
               lanes={lanes}
               dayGroups={dayGroups}
               dayLabelOf={dayLabelOf}
               timeOf={(iso) => formatTime(iso, { style: "time" }) ?? "—"}
               subgroups={subgroups}
               leafCounts={leafCounts}
-              leafTotal={leafRows.length}
               agoOf={agoOf}
               feedback={feedback}
               onAdjudicate={
@@ -415,7 +409,7 @@ export function WorkspaceView({
             />
           ) : null}
           {tab === "tasks" ? (
-            <div className="col-span-full">
+            <div>
               <WorkTasksTab
                 leaves={leafRows}
                 subgroups={subgroups}
@@ -432,7 +426,7 @@ export function WorkspaceView({
             </div>
           ) : null}
           {tab === "progress" ? (
-            <div className="col-span-full max-w-[900px]">
+            <div className="max-w-[900px]">
               {dayGroups.length > 0 ? (
                 <WorkDayList
                   dayGroups={dayGroups}
@@ -449,7 +443,7 @@ export function WorkspaceView({
             </div>
           ) : null}
           {tab === "decisions" ? (
-            <div className="col-span-full">
+            <div>
               <WorkDecisionsTab
                 decisions={workDecisions}
                 facts={evidence.facts}
@@ -463,7 +457,7 @@ export function WorkspaceView({
             </div>
           ) : null}
           {tab === "inspect" ? (
-            <div className="col-span-full">
+            <div>
               <WorkInspectTab
                 events={evidence.events}
                 historyComplete={scope.eventWindowComplete}
@@ -473,7 +467,7 @@ export function WorkspaceView({
             </div>
           ) : null}
           {/* 关系图保持挂载:焦点与展开累积在页签切换间保留,active 只卸画布 DOM。 */}
-          <div className="col-span-full" hidden={tab !== "graph"}>
+          <div hidden={tab !== "graph"}>
             <WorkGraphTab
               memberTaskIds={[scope.root.taskId, ...scope.memberTaskIds]}
               tasks={tasks}
@@ -488,7 +482,7 @@ export function WorkspaceView({
           {tab === "root" && renderRootTask !== undefined ? (
             <section
               data-testid="workspace-root-task"
-              className="col-span-full h-[calc(100vh-260px)] min-h-[520px] overflow-hidden rounded-sm border border-border"
+              className="h-[calc(100vh-260px)] min-h-[520px] overflow-hidden rounded-sm border border-border"
             >
               {renderRootTask(() => setTab("overview"))}
             </section>

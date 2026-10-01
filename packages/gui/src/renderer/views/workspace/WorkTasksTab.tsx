@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { CompletedDivider } from "../../components/primitives/CompletedDivider.tsx";
 import { FilterChips } from "../../components/primitives/FilterChips";
 import { SegBar } from "../../components/primitives/SegBar";
+import { StatusTag } from "../../components/primitives/StatusTag";
 import { WorkTaskRow } from "./WorkOverview.tsx";
 import type { WorkSubgroup } from "../../model/workspace-narrative.ts";
 import type { SnapshotStatus } from "../../model/types.ts";
@@ -155,7 +156,13 @@ export function WorkTasksTab({
           for (const { status } of rows) counts[status] = (counts[status] ?? 0) + 1;
           const renderRow = (leaf: (typeof rows)[number]) => (
             <div key={leaf.taskId} data-task-row={leaf.taskId}>
-              <WorkTaskRow task={leaf} needle={needle} status={leaf.status} agoOf={agoOf} onOpen={onOpenTask} />
+              <WorkTaskRow
+                task={leaf}
+                needle={needle}
+                tag={<StatusTag status={leaf.status} />}
+                agoOf={agoOf}
+                onOpen={onOpenTask}
+              />
             </div>
           );
           return (

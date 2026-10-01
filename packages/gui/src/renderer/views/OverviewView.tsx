@@ -12,6 +12,7 @@ import { t } from "../i18n/index.tsx";
 import { mainCiFailingJobs } from "./overview-model.ts";
 import { buildOverviewRegions, type OverviewRegionSpec } from "./overview-regions.tsx";
 import { layoutRegions, regionNeed, regionNeedRelaxed, type RegionBox, type RegionKey } from "./overview-layout.ts";
+import { regionMinimumHeight } from "./region-minimum.ts";
 
 /**
  * 总览(S3,dec_B3D40712 CH1,原型 v4):一屏注意力加权的自适应区域板。区域大小由
@@ -134,25 +135,13 @@ export function OverviewView({
         const spec = regions[key];
         if (spec === undefined || spec.rowCount === 0) continue;
         const section = region.querySelector("section");
-        const header = section?.children[0];
-        const body = section?.children[1]?.firstElementChild;
-        const footer = section?.children[2];
-        if (header === undefined || body === null || body === undefined) continue;
-        const rows =
+        if (section === null) continue;
+        const height = regionMinimumHeight(section, (body) =>
           spec.renderList === undefined
             ? [...body.children].slice(spec.top === undefined ? 0 : 1)
-            : [...body.querySelectorAll("[data-day] > div > button, [data-day] > div > div")];
-        const last = rows[Math.min(rows.length, 3) - 1];
-        if (last === undefined) continue;
-        // offset geometry excludes motion's temporary scale transforms.
-        next[key] =
-          (header as HTMLElement).offsetHeight +
-          (last as HTMLElement).offsetTop +
-          (last as HTMLElement).offsetHeight -
-          (body as HTMLElement).offsetTop +
-          ((footer as HTMLElement | undefined)?.offsetHeight ?? 0) +
-          (section === null ? 0 : section.offsetHeight - section.clientHeight) +
-          1;
+            : [...body.querySelectorAll("[data-day] > div > button, [data-day] > div > div")],
+        );
+        if (height !== undefined) next[key] = height;
       }
       setMinimum((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next));
     };
