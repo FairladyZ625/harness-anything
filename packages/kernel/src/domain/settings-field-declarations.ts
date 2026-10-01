@@ -79,7 +79,6 @@ export interface SettingsFieldDeclaration<Value = unknown> {
   readonly defaultValue: Value;
   readonly optional?: boolean;
   readonly snapshotRequired?: boolean;
-  readonly eventDefaultWhenMissing?: boolean;
   readonly description: string;
   /** What changing this field does, in one concrete sentence; the description says what it governs. */
   readonly effect: string;
@@ -125,15 +124,6 @@ export const DEFAULT_RESTORE_DRILL_RETENTION = 3;
 export const DEFAULT_CI_WORKFLOWS = Object.freeze([] as const);
 export const worktreeSetupAdapters = ["node-modules"] as const;
 export const worktreeSetupStepPattern = `^(?:${worktreeSetupAdapters.join("|")}|run: \\S.*)$`;
-
-// Owner ruling (Zeyu, 2026-08-31): the idle timer is a floor, not the flush driver. The event and
-// byte triggers stay load-bounded while an hour of idle activity replaces the former ~2s cadence.
-export const DEFAULT_WAL_FLUSH_SETTINGS = Object.freeze({
-  adaptive: true,
-  events: 256,
-  bytes: 8 * 1024 * 1024,
-  milliseconds: 3_600_000,
-});
 
 export function defineSettingsField<const Declaration extends SettingsFieldDeclaration>(
   declaration: Declaration,
@@ -288,64 +278,6 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     group: "new-task-defaults",
     action: { field: "repositoryScaffold", type: "string" },
     cli: singleSettingCli("--repository-scaffold"),
-  }),
-  defineSettingsField({
-    path: ["walFlush", "adaptive"],
-    ownership: repository,
-    valueKind: "boolean",
-    defaultValue: DEFAULT_WAL_FLUSH_SETTINGS.adaptive,
-    snapshotRequired: true,
-    eventDefaultWhenMissing: true,
-    description: "Reserved adaptive flush toggle; the current engine does not read it.",
-    effect: "Not read by the current storage engine; changing it has no effect today.",
-    group: "storage-backup",
-    action: { field: "walFlushAdaptive", type: "boolean" },
-    cli: { name: "--wal-flush-adaptive", kind: "single", enum: ["true", "false"] },
-  }),
-  defineSettingsField({
-    path: ["walFlush", "events"],
-    ownership: repository,
-    valueKind: "integer",
-    defaultValue: DEFAULT_WAL_FLUSH_SETTINGS.events,
-    snapshotRequired: true,
-    eventDefaultWhenMissing: true,
-    minimum: 1,
-    maximum: 1_000_000,
-    description: "Reserved event-count flush trigger; the current engine does not read it.",
-    effect: "Not read by the current storage engine; changing it has no effect today.",
-    group: "storage-backup",
-    action: { field: "walFlushEvents", type: "number" },
-    cli: { name: "--wal-flush-events", kind: "single", regex: "^[1-9][0-9]*$" },
-  }),
-  defineSettingsField({
-    path: ["walFlush", "bytes"],
-    ownership: repository,
-    valueKind: "integer",
-    defaultValue: DEFAULT_WAL_FLUSH_SETTINGS.bytes,
-    snapshotRequired: true,
-    eventDefaultWhenMissing: true,
-    minimum: 1,
-    maximum: 1_073_741_824,
-    description: "Reserved byte-count flush trigger; the current engine does not read it.",
-    effect: "Not read by the current storage engine; changing it has no effect today.",
-    group: "storage-backup",
-    action: { field: "walFlushBytes", type: "number" },
-    cli: { name: "--wal-flush-bytes", kind: "single", regex: "^[1-9][0-9]*$" },
-  }),
-  defineSettingsField({
-    path: ["walFlush", "milliseconds"],
-    ownership: repository,
-    valueKind: "integer",
-    defaultValue: DEFAULT_WAL_FLUSH_SETTINGS.milliseconds,
-    snapshotRequired: true,
-    eventDefaultWhenMissing: true,
-    minimum: 1,
-    maximum: 3_600_000,
-    description: "Reserved idle-time flush floor in ms; the current engine does not read it.",
-    effect: "Not read by the current storage engine; changing it has no effect today.",
-    group: "storage-backup",
-    action: { field: "walFlushMilliseconds", type: "number" },
-    cli: { name: "--wal-flush-milliseconds", kind: "single", regex: "^[1-9][0-9]*$" },
   }),
   defineSettingsField({
     path: ["ci", "workflows"],
@@ -529,8 +461,6 @@ type UnionToIntersection<Union> = (Union extends unknown ? (value: Union) => voi
 export type DeclaredSettingsFields<Ownership extends SettingsFieldOwnership> = UnionToIntersection<
   DeclaredField<(typeof SETTINGS_FIELD_DECLARATIONS)[number], Ownership>
 >;
-
-export type WalFlushSettingsV1 = DeclaredSettingsFields<"repository">["walFlush"];
 
 export function settingsFieldLabel(actionField: string): string {
   const declaration = SETTINGS_FIELD_DECLARATIONS.find(({ action }) => action?.field === actionField);

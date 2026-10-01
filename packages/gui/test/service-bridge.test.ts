@@ -23,10 +23,6 @@ import {
 import { createLocalGuiServiceBridge } from "../src/index.ts";
 import { reportInvalidTaskSnapshotRows } from "../src/main/local-composition-root.ts";
 import { startGuiResidentDaemonFixture } from "../test-support/resident-daemon.mjs";
-
-// Idle WAL→Git materialization defaults to one hour (owner ruling 2026-08-31). This suite
-// waits for materialized commits, so pin the test-local idle timer to a fast interval.
-process.env.HARNESS_WAL_FLUSH_MS = "250";
 import { writeTriadicLedger } from "../test-support/triadic-ledger.mjs";
 import type { Failure } from "./service-bridge.fixtures.ts";
 import { restoreEnv } from "./service-bridge.fixtures.ts";
@@ -313,7 +309,6 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       restoreDrillRetention: 3,
       locale: "en-US",
       scaffolds: { task: "governance/task-scaffold.json", repository: "governance/repository-scaffold.json" },
-      walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 3_600_000 },
       ci: { workflows: [] },
       gates: [],
       closeout: { profile: "standard" },

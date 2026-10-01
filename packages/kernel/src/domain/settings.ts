@@ -11,7 +11,6 @@ import { validateEntityJsonSchema } from "./entity-json-schema.ts";
 import {
   DEFAULT_CI_WORKFLOWS,
   DEFAULT_RESTORE_DRILL_RETENTION,
-  DEFAULT_WAL_FLUSH_SETTINGS,
   AGENDA_PIN_LIMIT_SETTING,
   SETTINGS_FIELD_DECLARATIONS,
   SETTINGS_FIELD_GROUPS,
@@ -31,13 +30,11 @@ import {
   type SettingsCliInputField,
   type SettingsFieldDeclaration,
   type SettingsLocale,
-  type WalFlushSettingsV1,
 } from "./settings-field-declarations.ts";
 
 export {
   DEFAULT_CI_WORKFLOWS,
   DEFAULT_RESTORE_DRILL_RETENTION,
-  DEFAULT_WAL_FLUSH_SETTINGS,
   AGENDA_PIN_LIMIT_SETTING,
   SETTINGS_FIELD_DECLARATIONS,
   SETTINGS_FIELD_GROUPS,
@@ -55,7 +52,6 @@ export {
   type SettingsCliInputField,
   type SettingsFieldDeclaration,
   type SettingsLocale,
-  type WalFlushSettingsV1,
 };
 
 export const SETTINGS_ID = "repository";

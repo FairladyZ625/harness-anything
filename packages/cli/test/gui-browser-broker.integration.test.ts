@@ -207,7 +207,7 @@ test("browser writes preserve RepoCell idempotency, revision fences, and reposit
     broker = await startBrowserGuiBroker(path.resolve("packages/gui"), firstRoot);
     const url = new URL(broker.url),
       token = new URLSearchParams(url.hash.slice(1)).get("access_token")!;
-    const sameWrite = settingsWrite("browser-write-first", "same-key", undefined, 1024),
+    const sameWrite = settingsWrite("browser-write-first", "same-key", undefined, 4),
       [first, replay] = await Promise.all([browserRpc(url, token, sameWrite), browserRpc(url, token, sameWrite)]);
     assert.equal(first.status, 200, first.body);
     assert.equal(replay.status, 200, replay.body);
@@ -217,22 +217,18 @@ test("browser writes preserve RepoCell idempotency, revision fences, and reposit
     assert.equal(replayReceipt.opId, firstReceipt.opId);
     await settleBrowserWrite(url, token, "browser-write-first", firstReceipt.opId);
 
-    const stale = await browserRpc(
-      url,
-      token,
-      settingsWrite("browser-write-first", "stale-key", initialRevision, 2048),
-    );
+    const stale = await browserRpc(url, token, settingsWrite("browser-write-first", "stale-key", initialRevision, 5));
     assert.equal(stale.status, 200, stale.body);
     assert.equal((JSON.parse(stale.body) as { readonly code: string }).code, "revision_conflict");
 
-    const second = await browserRpc(url, token, settingsWrite("browser-write-second", "same-key", undefined, 4096));
+    const second = await browserRpc(url, token, settingsWrite("browser-write-second", "same-key", undefined, 6));
     assert.equal(second.status, 200, second.body);
     const secondReceipt = JSON.parse(second.body) as { readonly opId: string; readonly outcome: string };
     assert.equal(secondReceipt.outcome, "applied");
     assert.notEqual(secondReceipt.opId, firstReceipt.opId);
     await settleBrowserWrite(url, token, "browser-write-second", secondReceipt.opId);
-    assert.match(readFileSync(path.join(firstRoot, "harness/harness.yaml"), "utf8"), /events: 1024/u);
-    assert.match(readFileSync(path.join(secondRoot, "harness/harness.yaml"), "utf8"), /events: 4096/u);
+    assert.match(readFileSync(path.join(firstRoot, "harness/harness.yaml"), "utf8"), /reviewReturnBudget: 4/u);
+    assert.match(readFileSync(path.join(secondRoot, "harness/harness.yaml"), "utf8"), /reviewReturnBudget: 6/u);
   } finally {
     if (broker) await broker.close();
     runMaybe(firstRoot, userRoot, ["daemon", "stop"]);
@@ -248,13 +244,13 @@ function settingsWrite(
   repoId: string,
   idempotencyKey: string,
   expectedVersion: number | undefined,
-  walFlushEvents: number,
+  reviewReturnBudget: number,
 ) {
   return JSON.stringify({
     method: "repo.settings.update",
     params: {
       repo: { repoId },
-      payload: { idempotencyKey, ...(expectedVersion === undefined ? {} : { expectedVersion }), walFlushEvents },
+      payload: { idempotencyKey, ...(expectedVersion === undefined ? {} : { expectedVersion }), reviewReturnBudget },
     },
   });
 }
@@ -263,7 +259,7 @@ function initializeSettingsRepo(root: string): void {
   initialize(root);
   writeFileSync(
     path.join(root, "harness/harness.yaml"),
-    "layout:\n  authoredRoot: harness\nsettings:\n  walFlush:\n    events: 256\n",
+    "layout:\n  authoredRoot: harness\nsettings:\n  reviewReturnBudget: 3\n",
   );
   execFileSync("git", ["-C", root, "add", "harness/harness.yaml"]);
   execFileSync("git", ["-C", root, "commit", "--quiet", "-m", "settings fixture"]);

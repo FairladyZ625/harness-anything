@@ -31,7 +31,6 @@ test("daemon Settings reads use the exact canonical Settings shape", () => {
       task: "governance/task-scaffold.json",
       repository: "governance/repository-scaffold.json",
     },
-    walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 3_600_000 },
   };
   const valid = {
     schema: "daemon.settings-read/v1",
@@ -39,7 +38,7 @@ test("daemon Settings reads use the exact canonical Settings shape", () => {
     settings,
     values: {
       defaultVertical: settings.defaultVertical,
-      walFlushAdaptive: settings.walFlush.adaptive,
+      reviewIndependence: settings.reviewIndependence,
       ciWorkflows: [],
       closeoutProfile: "standard",
     },
@@ -54,6 +53,13 @@ test("daemon Settings reads use the exact canonical Settings shape", () => {
         ...settings,
         scaffolds: { ...settings.scaffolds, unknown: "rejected" },
       },
+    }),
+  );
+  // The retired walFlush group is no longer part of the Settings shape a read may carry.
+  assert.throws(() =>
+    parseDaemonGuiReadResult("repo.settings.read", {
+      ...valid,
+      settings: { ...settings, walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 3_600_000 } },
     }),
   );
 });

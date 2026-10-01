@@ -679,11 +679,7 @@ function receiptSetup(): { readonly root: string; readonly repo: string; readonl
       "layout:",
       "  authoredRoot: harness",
       "settings:",
-      "  walFlush:",
-      "    adaptive: false",
-      "    events: 256",
-      "    bytes: 8388608",
-      "    milliseconds: 1",
+      "  defaultPreset: standard-task",
       "",
     ].join("\n"),
   );

@@ -98,6 +98,13 @@ test("bootstrap resolves zero-argument identity at the daemon boundary", () => {
     const people = resolved.machineDocuments.find(({ path: target }) => target === "harness/people.yaml");
     const roster = JSON.parse(people?.body ?? "{}").people as Array<{ displayName: string }>;
     assert.equal(roster[0]?.displayName, "Fixture Owner");
+    // The initial settings document carries the declared defaults and none of the retired walFlush group.
+    const harness = resolved.machineDocuments.find(({ path: target }) => target === "harness/harness.yaml")?.body;
+    assert.match(
+      harness ?? "",
+      /\n  defaultProfile: baseline\n  tasks:\n    wipLimit: \d+\n  agenda:\n    pinLimit: 30\n/u,
+    );
+    assert.doesNotMatch(harness ?? "", /walFlush|adaptive|milliseconds/u);
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }

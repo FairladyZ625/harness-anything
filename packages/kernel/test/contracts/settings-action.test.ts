@@ -397,7 +397,7 @@ test("Settings update applies flags on top of a diverged-but-equal authored docu
 
 test("Settings update ignores an authored document whose settings diverge from the result", () => {
   const authoredBody = documentBody.replace("  defaultPreset: standard-task", "  defaultPreset: docs-task"),
-    draft = compile({ authoredDocumentBody: authoredBody, walFlushEvents: 512 });
+    draft = compile({ authoredDocumentBody: authoredBody, reviewReturnBudget: 5 });
   assert.equal(draft.kind, "settings");
   if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
   assert.equal(draft.result.bundle.event.payload.baseDocumentSha256, sha256Text(documentBody));
@@ -405,7 +405,7 @@ test("Settings update ignores an authored document whose settings diverge from t
 });
 
 test("Settings update falls back to the committed document when the authored one does not parse", () => {
-  const draft = compile({ authoredDocumentBody: "settings:\n  gates: [", walFlushEvents: 512 });
+  const draft = compile({ authoredDocumentBody: "settings:\n  gates: [", reviewReturnBudget: 5 });
   assert.equal(draft.kind, "settings");
   if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");
   assert.equal(draft.result.bundle.event.payload.baseDocumentSha256, sha256Text(documentBody));
@@ -452,7 +452,7 @@ test("Settings update rejects malformed CI workflow name lists", () => {
 
 test("Settings expectedVersion rejects a stale edge update with a typed error", () => {
   assert.throws(
-    () => compile({ walFlushEvents: 512, expectedVersion: 6 }),
+    () => compile({ reviewReturnBudget: 5, expectedVersion: 6 }),
     (error: unknown) => error instanceof SettingsActionError && error.code === "revision_conflict",
   );
   assert.throws(

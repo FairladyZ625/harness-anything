@@ -471,9 +471,6 @@ const FIELD_TEST_IDS: Readonly<Record<string, string>> = {
   taskScaffold: "settings-task-scaffold-select",
   repositoryScaffold: "settings-repository-scaffold-select",
   ciWorkflows: "settings-ciWorkflows",
-  walFlushEvents: "settings-wal-flush-events",
-  walFlushBytes: "settings-wal-flush-bytes",
-  walFlushMilliseconds: "settings-wal-flush-milliseconds",
 };
 
 /** 单字段的控件:widget 由契约类型派生;目录选择器/多选是 GUI 特有联动。 */

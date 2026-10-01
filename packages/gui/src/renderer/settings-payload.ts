@@ -28,11 +28,6 @@ export function isSettingsSuccess(value: unknown): value is SettingsRead {
     isRendererRecord(settings.scaffolds) &&
     [settings.scaffolds.task, settings.scaffolds.repository].every(
       (field) => typeof field === "string" && field.length > 0,
-    ) &&
-    isRendererRecord(settings.walFlush) &&
-    typeof settings.walFlush.adaptive === "boolean" &&
-    [settings.walFlush.events, settings.walFlush.bytes, settings.walFlush.milliseconds].every(
-      (field) => Number.isSafeInteger(field) && Number(field) > 0,
     )
   );
 }
