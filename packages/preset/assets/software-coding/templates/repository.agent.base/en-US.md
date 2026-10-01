@@ -5,7 +5,7 @@ This document defines repository operating rules and the system ontology. In thi
 ## Context Loading
 
 - Load context on demand; avoid preloading the entire codebase or knowledge tree.
-- Read `harness/harness.yaml` as the repository governance baseline upon startup.
+- Run `ha settings read` for the repository governance baseline upon startup.
 - When assigned a task, read only `task_plan.md` and the code/context files explicitly referenced, keeping context concise and focused.
 
 ## Worktree Discipline

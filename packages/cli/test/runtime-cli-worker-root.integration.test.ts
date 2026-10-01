@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
@@ -73,6 +73,18 @@ test("a task-worktree dispatch hands the worker only paths under its own root, l
     [],
     "outside its own root the worker is never told where the canonical checkout is",
   );
+  // The entry files `ha init` seeded are checked out with the worktree, and no ledger path they name is one the
+  // worker would have to leave its root to read.
+  const named = ["AGENTS.md", "CLAUDE.md"]
+    .flatMap((entry) => [...readFileSync(path.join(worktree, entry), "utf8").matchAll(/`(harness\/[^`]*)`/gu)])
+    .map((match) => match[1]!)
+    .filter((ledgerPath) => existsSync(path.join(root, ledgerPath)));
+  assert.ok(named.includes("harness/tasks/"), "the entry files name ledger paths");
+  assert.deepEqual(
+    named.filter((ledgerPath) => !existsSync(path.join(worktree, ledgerPath))),
+    [],
+    "every ledger path the entry files name resolves under the worker root",
+  );
   // The link is invisible to git in the worktree, and nothing was written into the canonical checkout's source.
   assert.equal(git(worktree, "status", "--short"), "");
   assert.equal(git(root, "diff", "--name-only"), "");
@@ -86,7 +98,7 @@ function gitRepository(root: string): void {
   git(root, "config", "user.email", "worktree@example.invalid");
   writeFileSync(ignore, `${readFileSync(ignore, "utf8")}node_modules/\n`);
   writeFileSync(path.join(root, "README.md"), "demo\n");
-  git(root, "add", ".gitignore", "README.md");
+  git(root, "add", ".gitignore", "README.md", "AGENTS.md", "CLAUDE.md");
   git(root, "commit", "-qm", "base");
   git(root, "branch", "-M", "main");
   git(root, "remote", "add", "origin", remote);

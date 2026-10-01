@@ -5,7 +5,7 @@
 ## Context Loading
 
 - 运行时按需加载，不盲目预载整个代码库或知识树。
-- 启动时读取 `harness/harness.yaml` 作为治理基准。
+- 启动时用 `ha settings read` 读取治理基准。
 - 承接任务时，只读取当前 `task_plan.md` 及其明确引用的代码与上下文文件，保持上下文轻量精准。
 
 ## Worktree Discipline

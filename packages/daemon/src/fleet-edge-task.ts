@@ -39,6 +39,7 @@ import {
   type FleetMirrorView,
   type FleetStagedConflict,
 } from "./fleet-edge-mirror.ts";
+import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 
 const BACKOFF_MIN_MS = 250,
   BACKOFF_MAX_MS = 30_000;
@@ -242,10 +243,15 @@ export async function runFleetEdgeTask(input: FleetEdgeTaskRequest): Promise<Rec
                 },
               );
         staged.push(...(settle?.conflicts ?? []));
+        const worktrees =
+          workspaceRoot !== null && settle !== null
+            ? await reclaimEdgeTaskWorktrees({ ...payload, workspaceRoot }, settle)
+            : null;
         mirror = {
           outcome: settle !== null && settle.outcome === "pull_blocked" ? "pull_blocked" : "applied",
           cut: pulled.current.cut,
           ...(settle !== null && settle.outcome !== "no_view" ? { dirtyPaths: settle.dirtyPaths } : {}),
+          ...(worktrees ? { worktrees } : {}),
         };
       } catch (error) {
         consumeKnownError(error);

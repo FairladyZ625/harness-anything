@@ -718,7 +718,8 @@ function fleetMirrorCutEntries(viewDir: string, revision: number): ReadonlyMap<s
   );
   return manifest === null ? null : new Map(manifest.entries.map((entry) => [entry.path, entry.blob]));
 }
-function fleetMirrorCutFile(viewDir: string, revision: number, logical: string): Buffer | null {
+/** One path's bytes as the center cut them: what the center said, whatever the registered harness holds now. */
+export function fleetMirrorCutFile(viewDir: string, revision: number, logical: string): Buffer | null {
   const file = path.join(viewDir, "cuts", String(revision), "files", ...logical.split("/"));
   if (existsSync(file) && statSync(file).isFile()) return readFileSync(file);
   const blob = fleetMirrorCutEntries(viewDir, revision)?.get(logical);
