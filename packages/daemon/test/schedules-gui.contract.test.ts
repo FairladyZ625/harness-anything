@@ -505,7 +505,7 @@ test("invalid Agent options and schedules with unavailable Agent targets degrade
 });
 
 test("availability distinguishes the four execution states from roster truth", () => {
-  const base = { repoId: "schedule-gui", scheduleId: "heartbeat-probe", now };
+  const base = { repoId: "schedule-gui", scheduleId: "heartbeat-probe", now, targetKind: "agent" as const };
   assert.equal(
     deriveScheduleExecutionAvailability({
       ...base,
@@ -566,6 +566,25 @@ test("availability distinguishes the four execution states from roster truth", (
     }),
     "claimed-elsewhere",
   );
+  // A builtin occurrence never rides the roster: the node holding the canonical cell executes it.
+  for (const [mode, viewerNodeId, expected] of [
+    ["local", "local", "local"],
+    ["remote-center", null, "local"],
+    ["remote-edge", "edge-one", "not-on-this-node"],
+  ] as const)
+    for (const activeNodeId of [null, "local"])
+      assert.equal(
+        deriveScheduleExecutionAvailability({
+          ...base,
+          targetKind: "builtin",
+          mode,
+          viewerNodeId,
+          roster: mode === "local" ? null : roster(["edge-one"], ["other-schedule"]),
+          activeNodeId,
+        }),
+        expected,
+        `${mode} ${String(activeNodeId)}`,
+      );
   // An expired roster assignment is not an owner: the schedule reads unassigned.
   const expired = roster(["edge-one"], ["heartbeat-probe"]);
   expired.assignments[0]!.expiresAt = "2020-01-01T00:00:00.000Z";
@@ -641,12 +660,12 @@ test("a remote-center read keeps the catalog blockers instead of faking an execu
   const row = result.schedules[0]!;
   assert.equal(row.executionAvailability, "not-on-this-node");
   assert.deepEqual(row.claim, { nodeId: "edge-one", assignmentId: "assignment-edge-one-heartbeat-probe" });
-  // The catalog routes every schedule write on a center through assignment ingress, so
-  // the run-now facet carries that exact blocker — the center never fakes an executor.
+  // The center edits the Schedule definition it owns, but execution stays with the assigned
+  // node: the run-now facet carries the assignment-ingress blocker — the center never fakes an executor.
   assert.equal(row.actions.runNow.available, false);
   assert.equal(row.actions.runNow.code, "repo_mode_requires_center_ingress");
-  for (const facet of [row.actions.enable, row.actions.disable])
-    assert.equal(facet.code, "repo_mode_requires_center_ingress");
+  assert.equal(row.actions.enable.code, "no_changes");
+  assert.deepEqual(row.actions.disable, { available: true, code: null, nextAction: null });
   assert.throws(() => readSchedulesGui(guiContext({ mode: "remote-center" })), /requires an admitted fleet roster/u);
 });
 

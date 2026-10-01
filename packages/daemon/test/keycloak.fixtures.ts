@@ -31,6 +31,8 @@ export function fakeKeycloak() {
     users = new Map<string, { id: string; username: string; attributes: Record<string, string[]> }>(),
     tokens = new Map<string, string>(),
     profile = { attributes: [{ name: "username" }, { name: "email" }] as { name: string }[] },
+    // Keycloak's own defaults: a realm nobody configured idles out after half an hour.
+    realm = { ssoSessionIdleTimeout: 1_800, ssoSessionMaxLifespan: 36_000 },
     writes: string[] = [];
 
   const json = (value: unknown, status = 200) => Response.json(value, { status }),
@@ -76,6 +78,10 @@ export function fakeKeycloak() {
       server = "/clients/client-1/authz/resource-server",
       tail = decodeURIComponent(route.split("/").at(-1)!);
     if (method !== "GET") writes.push(`${method} ${route}`);
+    if (route === "") {
+      if (method === "PUT") Object.assign(realm, body);
+      return method === "GET" ? json({ realm: keycloakRealm, ...realm }) : new Response(null, { status: 204 });
+    }
     if (route === "/clients") return json([{ id: "client-1" }]);
     if (route === "/users/profile") {
       if (method === "PUT") profile.attributes = (body as typeof profile).attributes;
@@ -189,6 +195,7 @@ export function fakeKeycloak() {
     users,
     realmRoles,
     profile,
+    realm,
     /** Registers an account the way an administrator would and returns its bearer token. */
     account(personId: string): string {
       const user = { id: id("user"), username: personId, attributes: { harness_person_id: [personId] } };
@@ -211,7 +218,7 @@ export function keycloakUserRoot(
     signIn = (who: string, held: readonly string[] = ["access-admin"]) =>
       managedRbacSessionStore(root).write(
         JSON.stringify({
-          schema: "harness-oidc-session/v1",
+          schema: "harness-oidc-session/v2",
           accessToken: `token-${who}`,
           subject: who,
           personId: who,

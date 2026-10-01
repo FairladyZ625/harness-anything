@@ -471,10 +471,15 @@ test(
       assert.equal(admission.nodes, 1);
       assert.equal(admission.assignments, 1);
       const rosterJoined = await list();
-      const joined = rosterJoined.schedules[0] as ScheduleGuiRowDto;
+      const rowOf = (scheduleId: string) =>
+          rosterJoined.schedules.find((row) => row.scheduleId === scheduleId) as ScheduleGuiRowDto,
+        joined = rowOf("heartbeat-probe");
       assert.deepEqual(joined.claim, { nodeId: "edge-one", assignmentId: "assignment-edge-one" });
       // The viewer is the center, never the executing node: ownership stays remote.
       assert.equal(joined.executionAvailability, "not-on-this-node");
+      // The seeded builtin Schedule needs no assignment: the center holding the canonical cell runs it.
+      assert.equal(rowOf("builtin-ledger-backup").executionAvailability, "local");
+      assert.equal(rowOf("builtin-ledger-backup").actions.runNow.code, "repo_mode_requires_center_ingress");
       const rejected = (await host.run(
         "schedules-gui-center",
         { kind: "schedule-run-now", scheduleId: "heartbeat-probe", idempotencyKey: "center-gui-1" },

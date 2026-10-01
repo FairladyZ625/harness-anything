@@ -6,6 +6,7 @@ import {
   stableStringify,
 } from "@harness-anything/kernel";
 import { KeycloakPolicyAdapter, type KeycloakGrant, type KeycloakPolicyGroup } from "./keycloak-policy-adapter.ts";
+import { readSessionLifetime, sessionLifetimeBounds, writeSessionLifetime } from "./keycloak-session-lifetime.ts";
 import { managedRbacReceiptJournal } from "./managed-rbac-service.ts";
 import type { OidcSessionService } from "./oidc-session-service.ts";
 
@@ -18,6 +19,8 @@ export const accessAdminOperations = Object.freeze([
   "revoke",
   "effective-permissions",
   "receipt-reconcile",
+  "session-lifetime",
+  "session-lifetime-set",
 ] as const);
 export type AccessAdminOperation = (typeof accessAdminOperations)[number];
 
@@ -31,6 +34,7 @@ export interface AccessAdminRequest {
   readonly expectedVersion?: string;
   readonly personId?: string;
   readonly resource?: string;
+  readonly sessionLifetimeSeconds?: number;
 }
 
 export interface AccessAdminPorts {
@@ -48,7 +52,8 @@ type Expectation =
       readonly resource: string;
       readonly personId: string;
       readonly held: boolean;
-    };
+    }
+  | { readonly kind: "session-lifetime"; readonly seconds: number };
 
 interface Plan {
   readonly expect: Expectation;
@@ -56,20 +61,22 @@ interface Plan {
 }
 
 interface Conflict {
-  readonly conflict: { readonly groupId: string; readonly expectedVersion: string; readonly currentVersion: string };
+  readonly conflict: { readonly groupId?: string; readonly expectedVersion: string; readonly currentVersion: string };
 }
 
 interface Session {
   readonly adapter: KeycloakPolicyAdapter;
   readonly token: string;
   readonly authority: { readonly url: string; readonly realm: string; readonly clientId: string };
+  readonly realmAdmin: { readonly url: string; readonly realm: string; readonly accessToken: string };
 }
 
 const resourceServerClientId = "harness-center";
 
 /**
- * Typed administration of policy groups and `(group, resource)` grants. Keycloak holds the only
- * state evaluation reads; the journal written here is an audit trail that nothing evaluates.
+ * Typed administration of policy groups, `(group, resource)` grants, and the realm's session
+ * lifetime. Keycloak holds the only state evaluation reads; the journal written here is an audit
+ * trail that nothing evaluates.
  */
 export class AccessAdminService {
   readonly #oidc: OidcSessionService;
@@ -86,7 +93,7 @@ export class AccessAdminService {
   }
 
   async run(request: AccessAdminRequest): Promise<Record<string, unknown>> {
-    const actor = this.#oidc.requireRole("access-admin").personId;
+    const actor = (await this.#oidc.requireRole("access-admin")).personId;
     switch (request.operation as AccessAdminOperation) {
       case "group-list":
         return this.#listGroups();
@@ -102,6 +109,10 @@ export class AccessAdminService {
       case "grant":
       case "revoke":
         return this.#mutate(request, actor, (session) => this.#planGrant(session, request));
+      case "session-lifetime":
+        return this.#sessionLifetime();
+      case "session-lifetime-set":
+        return this.#mutate(request, actor, (session) => this.#planSessionLifetime(session, request));
       default:
         throw coded("access_operation_unknown", `Unknown access administration operation ${request.operation}.`);
     }
@@ -118,6 +129,11 @@ export class AccessAdminService {
         version: groupVersion(group),
       })),
     };
+  }
+
+  async #sessionLifetime(): Promise<Record<string, unknown>> {
+    const seconds = await readSessionLifetime((await this.#session()).realmAdmin, this.#ports.fetch);
+    return { ok: true, seconds, version: String(seconds), ...sessionLifetimeBounds };
   }
 
   /** Expands the person's grants on the resource (and its repository) down to each action's source group. */
@@ -206,17 +222,27 @@ export class AccessAdminService {
       intent = recorded.find((record) => record.phase === "intent");
     if (settled) return { ok: settled.outcome === "applied", ...settled };
     if (!intent) throw coded("access_operation_unknown", `No access operation ${operationId} is recorded.`);
-    const session = await this.#session(),
-      expect = intent.expect as Expectation,
-      observed =
-        expect.kind === "group"
-          ? ((await session.adapter.readPolicyGroups(session.token))
-              .filter((group) => group.id === expect.groupId)
-              .map(groupVersion)[0] ?? null) === expect.version
-          : (await this.#grantHolders(session, expect.groupId, expect.resource)).includes(
-              (await session.adapter.findUserId(session.token, expect.personId)) ?? "",
-            ) === expect.held;
+    const observed = await this.#observed(await this.#session(), intent.expect as Expectation);
     return this.#settle({ ...intent, reconciledBy: actor }, observed ? "applied" : "failed");
+  }
+
+  async #observed(session: Session, expect: Expectation): Promise<boolean> {
+    switch (expect.kind) {
+      case "group":
+        return (
+          ((await session.adapter.readPolicyGroups(session.token))
+            .filter((group) => group.id === expect.groupId)
+            .map(groupVersion)[0] ?? null) === expect.version
+        );
+      case "grant":
+        return (
+          (await this.#grantHolders(session, expect.groupId, expect.resource)).includes(
+            (await session.adapter.findUserId(session.token, expect.personId)) ?? "",
+          ) === expect.held
+        );
+      case "session-lifetime":
+        return (await readSessionLifetime(session.realmAdmin, this.#ports.fetch)) === expect.seconds;
+    }
   }
 
   #settle(record: Readonly<Record<string, unknown>>, outcome: "applied" | "failed"): Record<string, unknown> {
@@ -328,6 +354,24 @@ export class AccessAdminService {
     };
   }
 
+  /** The lifetime is one number, so the value an administrator read is the version their change is made against. */
+  async #planSessionLifetime(session: Session, request: AccessAdminRequest): Promise<Plan | Conflict> {
+    const seconds = request.sessionLifetimeSeconds,
+      { minimumSeconds, maximumSeconds } = sessionLifetimeBounds;
+    if (!Number.isInteger(seconds) || seconds! < minimumSeconds || seconds! > maximumSeconds)
+      throw coded(
+        "session_lifetime_invalid",
+        `The session lifetime is a whole number of seconds from ${minimumSeconds} to ${maximumSeconds}.`,
+      );
+    const expectedVersion = text(request.expectedVersion, "expectedVersion"),
+      currentVersion = String(await readSessionLifetime(session.realmAdmin, this.#ports.fetch));
+    if (currentVersion !== expectedVersion) return { conflict: { expectedVersion, currentVersion } };
+    return {
+      expect: { kind: "session-lifetime", seconds: seconds! },
+      apply: () => writeSessionLifetime(session.realmAdmin, seconds!, this.#ports.fetch),
+    };
+  }
+
   async #grantHolders(session: Session, groupId: string, resource: string): Promise<readonly string[]> {
     const grants: readonly KeycloakGrant[] = await session.adapter.readGrants(session.token);
     return grants.find((grant) => grant.groupId === groupId && grant.resource === resource)?.userIds ?? [];
@@ -338,6 +382,7 @@ export class AccessAdminService {
       authority = { url: center.url, realm: center.realm, clientId: resourceServerClientId };
     return {
       authority,
+      realmAdmin: center,
       token: center.accessToken,
       adapter: new KeycloakPolicyAdapter(
         { url: center.url, realm: center.realm, resourceServerClientId },

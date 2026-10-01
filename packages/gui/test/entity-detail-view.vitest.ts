@@ -1,11 +1,12 @@
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 import { beforeAll, afterEach, describe, expect, it, vi } from "vitest";
-import { act, createElement } from "react";
+import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FactDetailView } from "../src/renderer/views/EntityDetailView.tsx";
 import { DecisionDetailView } from "../src/renderer/components/decisionDetail/DecisionDetailView.tsx";
+import { decisionStateLabel } from "../src/renderer/components/badges.tsx";
 import { splitMarkdownBlocks } from "../src/renderer/components/decisionDetail/DecisionBodyPanel.tsx";
 import type { TaskRow, DecisionRow, FactRef, RelationEdge } from "../src/renderer/model/types.ts";
 import { decisionProjectionFields } from "./decision-projection-fields.ts";
@@ -319,6 +320,15 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
+/** 概况页签里的 Region 是 motion 布局节点,挂载时要在 window 上挂 resize 监听。 */
+function stubOverviewWindow() {
+  vi.stubGlobal("window", {
+    harness: { showDecision: vi.fn(async () => showReceipt(PROSE)) },
+    addEventListener: () => undefined,
+    removeEventListener: () => undefined,
+  });
+}
+
 async function mountDecisionView(decision: DecisionRow | null, props: Record<string, unknown> = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const container = document.createElement("div"),
@@ -356,6 +366,63 @@ async function mountDecisionView(decision: DecisionRow | null, props: Record<str
 }
 
 describe("DecisionDetailView", () => {
+  it("八个页签两两切换时保留点击落点,并响应外部评审路由与决策变化", async () => {
+    stubOverviewWindow();
+    let navigate!: (tab: "review" | "respond" | "report" | "judge" | null, id?: string) => void;
+    function RoutedDetail() {
+      const [location, setLocation] = useState<{ tab: "review" | "respond" | "report" | "judge" | null; id: string }>({
+        tab: "judge",
+        id: "dec_1",
+      });
+      navigate = (tab, id = "dec_1") => setLocation({ tab, id });
+      return createElement(DecisionDetailView, {
+        repoId: "repo-a",
+        decisionId: location.id,
+        decisions: [{ ...decisionRow(), decisionId: location.id }],
+        loading: false,
+        projectName: "Harness",
+        onBack: () => undefined,
+        onNavigateDecision: () => undefined,
+        onNavigateEntity: () => undefined,
+        reviewLocation: { tab: location.tab, reviewId: null },
+        onLocate: (ref) =>
+          navigate(
+            ref.startsWith("decisionreview/") ? (ref.split("/")[2] as "review" | "respond" | "report" | "judge") : null,
+            location.id,
+          ),
+      });
+    }
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const container = document.createElement("div"),
+      root = createRoot(container);
+    document.body.append(container);
+    queryMounted.push({ root, client });
+    await act(async () => root.render(createElement(QueryClientProvider, { client }, createElement(RoutedDetail))));
+    const keys = ["body", "overview", "claims", "relations", "review", "respond", "report", "judge"];
+    const selected = (key: string) =>
+      expect(container.querySelector(`#decision-tab-${key}`)?.getAttribute("aria-selected")).toBe("true");
+    const click = async (key: string) => {
+      await act(async () => (container.querySelector(`#decision-tab-${key}`) as HTMLButtonElement).click());
+      selected(key);
+    };
+    selected("judge");
+    // 首个回归路径:裁决 → 概况;随后覆盖全部 56 个不同页签有向组合。
+    await click("overview");
+    for (const source of keys)
+      for (const target of keys) {
+        if (source === target) continue;
+        await click(source);
+        await click(target);
+      }
+    for (const tab of ["review", "respond", "report", "judge"] as const) {
+      await act(async () => navigate(tab));
+      selected(tab);
+    }
+    await click("claims");
+    await act(async () => navigate(null, "dec_2"));
+    selected("body");
+  });
+
   it("选中决策后能读到 Markdown 正文(正向不变量)", async () => {
     const showDecision = vi.fn(async () => showReceipt(PROSE));
     vi.stubGlobal("window", { harness: { showDecision } });
@@ -461,7 +528,7 @@ describe("DecisionDetailView", () => {
   });
 
   it("概况/承重与裁决/关系分页签渲染决策结构信息", async () => {
-    vi.stubGlobal("window", { harness: { showDecision: vi.fn(async () => showReceipt(PROSE)) } });
+    stubOverviewWindow();
     const div = await mountDecisionView(decisionRow());
 
     const clickTab = async (label: string) => {
@@ -482,6 +549,131 @@ describe("DecisionDetailView", () => {
     const relationsText = div.querySelector("[data-testid='decision-panel-relations']")?.textContent ?? "";
     expect(relationsText).toContain("task/task_a");
     expect(relationsText).toContain("fact/F-001");
+  });
+
+  it("页签栏是 Tabs 原语,与持久的 TabPanel 配对;页签仍按 id 可达", async () => {
+    stubOverviewWindow();
+    const onLocate = vi.fn();
+    const div = await mountDecisionView(decisionRow(), { onLocate });
+
+    const tablist = div.querySelector('[role="tablist"]')!;
+    // 下划线式共享标签栏(标准 §4):不再有本页自写的 nav。
+    expect(tablist.className).toContain("gap-[18px]");
+    expect(tablist.getAttribute("aria-label")).toBe("Decision 详情分区");
+    const panel = div.querySelector('[role="tabpanel"]')!;
+    expect(panel.id).toBe("decision-panel");
+    for (const tab of tablist.querySelectorAll('[role="tab"]'))
+      expect(tab.getAttribute("aria-controls")).toBe("decision-panel");
+    expect(div.querySelector("#decision-tab-body")?.getAttribute("aria-selected")).toBe("true");
+    expect(panel.getAttribute("aria-labelledby")).toBe("decision-tab-body");
+
+    await act(async () => {
+      div.querySelector<HTMLElement>("#decision-tab-overview")!.click();
+    });
+    expect(div.querySelector("#decision-tab-overview")?.getAttribute("aria-selected")).toBe("true");
+    // 同一个面板跨页签持久(入场动效挂在它上面),只换 aria-labelledby 与内容。
+    expect(div.querySelector('[role="tabpanel"]')).toBe(panel);
+    expect(panel.getAttribute("aria-labelledby")).toBe("decision-tab-overview");
+    expect(onLocate).toHaveBeenLastCalledWith("decision/dec_1");
+    await act(async () => {
+      div.querySelector<HTMLElement>("#decision-tab-judge")!.click();
+    });
+    expect(onLocate).toHaveBeenLastCalledWith("decisionreview/dec_1/judge");
+  });
+
+  it("概况是区域板:问题/已选/已否在区域框里,选项是两行条目,时间线在板的最后一列", async () => {
+    stubOverviewWindow();
+    const div = await mountDecisionView(
+      decisionRow({
+        chosen: [{ id: "CH1", text: "复用集合投影", rationale: "读径只有一条", evidence: [] }],
+        review: {
+          reviews: [
+            {
+              reviewId: "rev_1",
+              reviewContentDigest: "sha256:aa",
+              verdict: "changes_requested",
+              reason: "缺证据",
+              findings: [],
+              evidenceChecked: [],
+              reportRef: null,
+              actor: { principal: { personId: "person-ceo" }, executor: { kind: "agent", id: "reviewer-1" } },
+              reviewedAt: "2026-08-01T06:00:00.000Z",
+            },
+          ],
+          responses: [],
+          overrides: [],
+          currentDigest: null,
+          readiness: null,
+          dispatches: null,
+        } as DecisionRow["review"],
+      }),
+    );
+    await act(async () => {
+      div.querySelector<HTMLElement>("#decision-tab-overview")!.click();
+    });
+    const panel = div.querySelector("[data-testid='decision-panel-overview']")!;
+    // 面板是板的容器量尺,并在宽时给板确定高度(RegionBoard 的宿主约定)。
+    expect(panel.className).toContain("@container");
+    expect(panel.className).toContain("flex-col");
+    const board = panel.querySelector("[data-testid='decision-overview-board']")!;
+    expect(board.parentElement).toBe(panel);
+    expect([...board.querySelectorAll<HTMLElement>("[data-region]")].map((box) => box.dataset.region)).toEqual([
+      "question",
+      "chosen",
+      "rejected",
+      "recent",
+    ]);
+    // 每个区域外框里都是一个 Region;板上没有区域框之外的内容,也没有自写的边框块。
+    for (const box of board.querySelectorAll("[data-region]"))
+      expect(box.firstElementChild?.matches("section[data-entry-region]")).toBe(true);
+    expect(panel.querySelector(".rounded-md")).toBeNull();
+    expect(board.lastElementChild).toBe(panel.querySelector("[data-testid='decision-overview-timeline']"));
+
+    const region = (key: string) => board.querySelector(`[data-region='${key}']`)!;
+    expect([...board.querySelectorAll("h2")].map((title) => title.textContent)).toEqual([
+      "问题",
+      "已选",
+      "已否",
+      "时间线",
+    ]);
+    expect(region("question").querySelector("[data-dense-row]")?.textContent).toBe("走哪条读径?");
+    // 选项是 DenseRow 宽松两行:标题 = 选项,第二行 = 理由;编号在右侧。
+    const chosen = region("chosen").querySelectorAll("[data-dense-row]");
+    expect(chosen).toHaveLength(1);
+    expect(chosen[0]!.className).toContain("min-h-14");
+    expect(chosen[0]!.textContent).toBe("复用集合投影读径只有一条CH1");
+    const rejected = region("rejected").querySelectorAll("[data-dense-row]");
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]!.textContent).toBe("直读 Markdown绕开 canonical 投影RJ1");
+
+    // 时间线:提出、评审、裁决 consent,以及与 consent 不同刻的 decidedAt,新的在上。
+    const timeline = region("recent");
+    expect(timeline.querySelector("h2")?.nextElementSibling?.textContent).toBe("4");
+    const entries = [...timeline.querySelectorAll("[data-day] > div > *")].map((row) => row.textContent);
+    expect(entries).toHaveLength(4);
+    expect(entries[0]).toContain("human:person-ceo");
+    // 状态词与页头徽章同源(decisionStateLabel),不在这里另写一份词表。
+    expect(entries[0]).toContain(decisionStateLabel("in_effect"));
+    expect(entries[1]).toContain("agent:reviewer-1");
+    expect(entries[1]).toContain("请求修改");
+    expect(entries.slice(2).join("|")).toContain("提出");
+  });
+
+  it("概况的时间线不重复列与 consent 同刻的 decidedAt;空区域整块不出现", async () => {
+    stubOverviewWindow();
+    const div = await mountDecisionView(
+      decisionRow({ chosen: [], proposedAt: "2026-07-30T00:00:00.000Z", decidedAt: "2026-08-01T00:00:00.000Z" }),
+    );
+    await act(async () => {
+      div.querySelector<HTMLElement>("#decision-tab-overview")!.click();
+    });
+    const board = div.querySelector("[data-testid='decision-overview-board']")!;
+    expect([...board.querySelectorAll<HTMLElement>("[data-region]")].map((box) => box.dataset.region)).toEqual([
+      "question",
+      "rejected",
+      "recent",
+    ]);
+    expect(board.querySelectorAll("[data-region='recent'] [data-day] > div > *")).toHaveLength(2);
   });
 });
 

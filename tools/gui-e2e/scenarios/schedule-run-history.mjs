@@ -64,8 +64,7 @@ export default {
     assert.match(healthText, /1 failed|失败 1/u, "the failed occurrence must show up in the health rollup");
 
     // 4. 打开失败 occurrence 的内嵌详情(run-now 的 occurrence 是 manual_ 前缀)。
-    //    标签栏是 Tabs 原语:按钮带 id 而非 data-testid。
-    await page.locator("#schedule-tab-runs").click();
+    //    运行历史是概况页签的右列区域,没有单独的页签。
     const row = page
       .locator('[data-testid^="schedule-run-row-occurrence_"], [data-testid^="schedule-run-row-manual_"]')
       .first();

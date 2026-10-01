@@ -32,7 +32,8 @@ export type DaemonLifecycleEvent =
   | "runtime_exit"
   | "materializer_effect_denied"
   | "materializer_candidate_blocked"
-  | "materializer_inventory_failed";
+  | "materializer_inventory_failed"
+  | "rbac_resume_failed";
 export interface DaemonLifecycleEntry {
   readonly event: DaemonLifecycleEvent;
   readonly repoId?: string;

@@ -125,6 +125,8 @@ export const daemonProtocolMethods = Object.freeze([
         "revoke",
         "effective-permissions",
         "receipt-reconcile",
+        "session-lifetime",
+        "session-lifetime-set",
       ] as const),
       mode: optionalEnum(["managed", "external"] as const),
       url: "string?",
@@ -145,6 +147,7 @@ export const daemonProtocolMethods = Object.freeze([
       composites: "array?",
       expectedVersion: "string?",
       resource: "string?",
+      sessionLifetimeSeconds: "number?",
     }),
   },
   {

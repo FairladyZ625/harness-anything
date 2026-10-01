@@ -182,7 +182,6 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
   assertTaskMissionPrompt(cancelledReport.slice("live:".length), {
     repoId: "runtime-cli",
     taskId,
-    canonicalRoot: realpathSync(root),
     workerRoot: realpathSync(workerRoot),
     taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
     daemonUserRoot: userRoot,
@@ -256,7 +255,6 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
   assertTaskMissionPrompt(resumedText.slice("resumed:provider-cli-session:".length), {
     repoId: "runtime-cli",
     taskId,
-    canonicalRoot: realpathSync(root),
     workerRoot: realpathSync(workerRoot),
     taskPackageRoot: path.join(realpathSync(root), "harness", packagePath),
     daemonUserRoot: userRoot,

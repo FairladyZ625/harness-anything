@@ -3,7 +3,8 @@
 // 到达 GUI；这里锁定两件事:GUI 行不会另建字段或文案登记表,以及每个渲染中的字段
 // 在两个 locale 都有「名称 + 它管什么 + 改了会怎样」三件文案、每个分组有组名与
 // 组说明、每个枚举取值有人话解释——缺一项当场红,不裸露字段名或枚举原值
-// (自描述 chokepoint:task_f5723d879ed2f91ca727d5714d 的分组版)。
+// (自描述 chokepoint:task_f5723d879ed2f91ca727d5714d 的分组版)。另锁两条文案纪律:
+// 英文的「它管什么 / 改了会怎样」与 `ha settings update --help` 逐字同源;中文文案用全角标点。
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import {
@@ -89,13 +90,32 @@ describe("Settings 自描述文案 chokepoint(两个 locale 都要有,缺一项�
     expect(missing, `${locale} 缺枚举旁注: ${missing.join(", ")}`).toEqual([]);
   });
 
-  it("定时任务补跑时限:设置页与 `ha settings update --help` 是同一份解释,且归「定时任务与节点心跳」组", () => {
-    const row = rows.find(({ field }) => field === "scheduleAdmissionWindowMs");
-    expect(row).toMatchObject({ widget: "number", group: "schedules-nodes" });
-    // CLI 帮助渲染的就是声明源的 description 与 effect;设置页英文文案与它逐字相同。
-    expect(en["views.settingsView.scheduleAdmissionWindowMsDescription"]).toBe(row!.description);
-    expect(en["views.settingsView.scheduleAdmissionWindowMsEffect"]).toBe(row!.effect);
-    expect(zh["views.settingsView.settingsGroup.schedules-nodes.label"]).toBe("定时任务与节点心跳");
+  it("每个渲染字段:设置页英文说明与 `ha settings update --help` 是同一份解释", () => {
+    // CLI 帮助渲染的就是声明源的 description 与 effect;设置页英文文案与它逐字相同,
+    // 改说明只有声明源一个入口,两处不会各说各话。
+    const drifted: string[] = [];
+    for (const row of rows) {
+      if (en[`views.settingsView.${row.field}Description`] !== row.description) drifted.push(`${row.field}Description`);
+      if (en[`views.settingsView.${row.field}Effect`] !== row.effect) drifted.push(`${row.field}Effect`);
+    }
+    expect(drifted, `英文设置文案与声明源不一致: ${drifted.join(", ")}`).toEqual([]);
+  });
+
+  it("定时任务补跑时限归「定时任务」组", () => {
+    expect(rows.find(({ field }) => field === "scheduleAdmissionWindowMs")).toMatchObject({
+      widget: "number",
+      group: "schedules-nodes",
+    });
+    expect(zh["views.settingsView.settingsGroup.schedules-nodes.label"]).toBe("定时任务");
+  });
+
+  it("中文设置文案用全角标点:半角逗号、句号、冒号、分号、括号不与中文相邻", () => {
+    const cjk = "[\\u4e00-\\u9fff]",
+      halfWidth = new RegExp(`[,.;:!?()]${cjk}|${cjk}[,;:!?()]|${cjk}\\.(?!\\w)`, "u"),
+      offenders = Object.entries(zh)
+        .filter(([key, value]) => key.startsWith("views.settingsView.") && halfWidth.test(value))
+        .map(([key]) => key.slice("views.settingsView.".length));
+    expect(offenders, `中文设置文案里有半角标点: ${offenders.join(", ")}`).toEqual([]);
   });
 
   it("分组面与呈现元数据都从 kernel 单源投影(不另建登记表)", () => {

@@ -459,16 +459,16 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
       "governance/task-scaffold-strict.json",
       "governance/task-scaffold.json",
     ]);
-    expect(optionLabels(taskScaffold).at(-1)).toBe("governance/task-scaffold.json · 目录中不存在");
+    expect(optionLabels(taskScaffold).at(-1)).toBe("governance/task-scaffold.json · 已不在可选项里");
     expect(optionValues(repositoryScaffold)).toEqual(["governance/repository-scaffold.json"]);
-    expect(optionLabels(repositoryScaffold)).toEqual(["governance/repository-scaffold.json · 目录中不存在"]);
+    expect(optionLabels(repositoryScaffold)).toEqual(["governance/repository-scaffold.json · 已不在可选项里"]);
     expect(preset.value).toBe("standard-task");
     expect(optionValues(preset)).toEqual(["docs-task", "review-task", "standard-task"]);
-    expect(optionLabels(preset).at(-1)).toBe("standard-task · 目录中不存在");
+    expect(optionLabels(preset).at(-1)).toBe("standard-task · 已不在可选项里");
     // 验收人当前值不在面里:并入选项、照实选中、可提交。
     expect(reviewer.value).toBe("ghost-reviewer");
     expect(optionValues(reviewer)).toEqual(["", "arch-reviewer", "closeout-reviewer", "ghost-reviewer"]);
-    expect(optionLabels(reviewer).at(-1)).toBe("ghost-reviewer · 目录中不存在");
+    expect(optionLabels(reviewer).at(-1)).toBe("ghost-reviewer · 已不在可选项里");
     // ciWorkflows 当前值含已消失的工作流:照实列出并保持勾选。
     const ciBoxes = checkboxValues(container);
     expect(ciBoxes.map(({ value, checked }) => [value, checked])).toEqual([
@@ -477,7 +477,7 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
       ["pr-body", false],
       ["gone-flow", true],
     ]);
-    expect(ciBoxes.at(-1)!.label).toBe("gone-flow · 目录中不存在");
+    expect(ciBoxes.at(-1)!.label).toBe("gone-flow · 已不在可选项里");
     await act(async () => {
       saveButton(container).click();
     });
@@ -556,7 +556,7 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
     const reviewer = select(container, "settings-defaultReviewer-select");
     expect(reviewer.disabled).toBe(true);
     expect(container.querySelector('[data-testid="settings-defaultReviewer-input"]')).toBeNull();
-    await vi.waitFor(() => expect(container.textContent).toContain("取值目录不可用"));
+    await vi.waitFor(() => expect(container.textContent).toContain("可选项暂时读不到"));
     // 其它目录选择器不因 agent 目录失败而停用。
     expect(select(container, "settings-vertical-select").disabled).toBe(false);
     expect(select(container, "settings-task-scaffold-select").disabled).toBe(false);
@@ -602,7 +602,7 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
         throw new Error("catalog bridge down");
       },
     });
-    await vi.waitFor(() => expect(container.textContent).toContain("取值目录不可用"));
+    await vi.waitFor(() => expect(container.textContent).toContain("可选项暂时读不到"));
     // 字段面来自目录快照:目录读不到就没有可派生的字段,选择器一律不存在,
     // 也不出现任何冒充这些字段的自由文本输入。
     for (const testId of [

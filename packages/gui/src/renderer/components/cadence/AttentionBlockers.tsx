@@ -2,13 +2,15 @@ import { t } from "../../i18n/index.tsx";
 import type { AgendaDecisionRow, AgendaExecutionRow } from "../../../api/renderer-dto.ts";
 import type { AttestationPoolLanes } from "../../model/attestation-pool.ts";
 import { DenseRow } from "../primitives/DenseRow.tsx";
+import { Region } from "../primitives/Region.tsx";
 import { StatusTag, type StatusTone } from "../primitives/StatusTag.tsx";
 
 /**
  * 注意力堵点直达:集中呈现需要人类处理的事项——待裁 decision(repo.agenda.read)、
  * 待派审/评审中的 submitted execution、人工门禁签发与特批放行(deriveAttestationLanes
  * 的 gates/breakGlass lane)、待签署 Consent(consents lane)。跳转复用实体导航与
- * 待办签发总池,本卡片零写操作。空态收成一条细横条(标准 §1「空了就消失」)。
+ * 待办签发总池,本区域零写操作。空态收成一条细横条(标准 §1「空了就消失」)。
+ * 外壳是 Region(标准 §2.1):总数是标题行的大数字,去总池的出口在页脚右侧。
  */
 
 /** 各组的注意力档:待裁/裁决类琥珀(等人),签发类红(阻塞流水)。 */
@@ -101,24 +103,29 @@ export function AttentionBlockers({
       },
     ],
     visibleGroups = groups.filter((group) => group.items.length > 0),
-    total = visibleGroups.reduce((sum, group) => sum + group.items.length, 0);
+    total = visibleGroups.reduce((sum, group) => sum + group.items.length, 0),
+    tone = visibleGroups.some((group) => GROUP_TONE[group.key] === "bad") ? "bad" : "wait";
   return (
-    <section
-      data-testid="cadence-blockers"
-      className="flex shrink-0 flex-col overflow-hidden rounded-lg border border-border bg-surface"
-    >
-      <header className="flex items-baseline justify-between gap-2 border-b border-border px-3 py-2">
-        <h2 className="ui-body font-semibold">{t("views.cadence.blockersTitle")}</h2>
-        <button type="button" className="font-mono ui-micro text-accent hover:underline" onClick={onOpenPool}>
+    <Region
+      title={t("views.cadence.blockersTitle")}
+      big={awaiting === null || total === 0 ? undefined : total}
+      bigTone={tone}
+      edge={total === 0 ? undefined : tone}
+      footer={
+        <button type="button" className="ml-auto shrink-0 text-accent" onClick={onOpenPool}>
           {t("views.cadence.blockersPool")}
         </button>
-      </header>
+      }
+    >
       {awaiting === null ? (
-        <p data-testid="cadence-blockers-pending" className="px-3 py-3 ui-meta text-text-faint">
+        <p data-testid="cadence-blockers-pending" className="px-3.5 py-3 ui-meta text-text-faint">
           {t("views.cadence.blockersPending")}
         </p>
       ) : total === 0 ? (
-        <p data-testid="cadence-blockers-empty" className="flex items-center gap-2 px-3 py-2.5 ui-meta text-text-faint">
+        <p
+          data-testid="cadence-blockers-empty"
+          className="flex items-center gap-2 px-3.5 py-2.5 ui-meta text-text-faint"
+        >
           <span aria-hidden className="size-1.5 rounded-full bg-status-done" />
           {t("views.cadence.blockersEmpty")}
         </p>
@@ -126,11 +133,11 @@ export function AttentionBlockers({
         <div data-testid="cadence-blockers-groups" className="flex flex-col">
           {visibleGroups.map((group) => (
             <div key={group.key}>
-              <div className="flex items-center gap-2 border-t border-border px-3 pb-1 pt-2 first:border-t-0">
+              <div className="flex items-center gap-2 border-t border-border px-3.5 pb-1 pt-2 first:border-t-0">
                 <StatusTag tone={GROUP_TONE[group.key]} label={group.title()} />
                 <span className="font-mono tabular-nums ui-micro text-text-faint"> {group.items.length}</span>
               </div>
-              {/* v2(标准 §1.8):整组铺开不截前 5 条;区块随内容长高,超出由右列滚动。 */}
+              {/* v2(标准 §1.8):整组铺开不截前 5 条;放不下时在区域内滚动。 */}
               {group.items.map((item) => (
                 <DenseRow
                   key={item.id}
@@ -143,6 +150,6 @@ export function AttentionBlockers({
           ))}
         </div>
       )}
-    </section>
+    </Region>
   );
 }

@@ -1,5 +1,16 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  realpathSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
+import { resolveHarnessLayout } from "@harness-anything/kernel";
 import { posixShellFallback, runProcessExitAsync, runProcessTextAsync, startDetachedProcess } from "./process-port.ts";
 import { nodeModulesSetupAdapter } from "./worktree-setup-node-modules.ts";
 
@@ -43,8 +54,12 @@ export type WorktreeSetupResult =
       readonly detail: string;
     };
 
-/** Runs every declared step that has not succeeded in this worktree yet; stops at the first that fails. */
+/**
+ * Links the ledger into the worktree, then runs every declared step that has not succeeded in this worktree yet;
+ * stops at the first that fails.
+ */
 export async function runWorktreeSetup(input: WorktreeSetupInput): Promise<WorktreeSetupResult> {
+  linkWorktreeLedger(input.rootDir, input.cwd);
   if (input.steps.length === 0) return { ok: true, ran: [] };
   const directory = await setupDirectory(input.cwd),
     succeeded = readSucceeded(directory),
@@ -188,4 +203,58 @@ function setupDirectory(cwd: string): Promise<string> {
 function readSucceeded(directory: string): string[] {
   const file = path.join(directory, "succeeded.json");
   return existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as string[]) : [];
+}
+
+// The project repository ignores its ledger, so a worktree checks none out, and a worker handed ledger paths that
+// resolve only under the canonical checkout takes that checkout for its repository root (F-3AC0AFF0). Every managed
+// worktree therefore holds, at the ledger's own repository-relative path, a directory of links to the ledger's
+// directories: each path a worker is given resolves under its own root. The directory is a real one, so the ignore
+// rule bootstrap wrote covers it and git reaches no path through a link; one link for the whole ledger would be a
+// file to git, outside that rule. Only directories are linked: a junction needs no privilege on Windows, a file
+// link does. The ledger's own git directory stays out.
+
+function ledgerMirror(rootDir: string, cwd: string): { readonly authoredRoot: string; readonly mirror: string } {
+  const layout = resolveHarnessLayout(rootDir);
+  return {
+    authoredRoot: layout.authoredRoot,
+    mirror: path.join(cwd, path.relative(layout.rootDir, layout.authoredRoot)),
+  };
+}
+
+/** The links a worktree holds; null when its ledger directory is a copy the repository tracks, not ours to touch. */
+function mirrorLinks(mirror: string): readonly string[] | null {
+  const entries = existsSync(mirror) ? readdirSync(mirror, { withFileTypes: true }) : [];
+  return entries.every((entry) => entry.isSymbolicLink()) ? entries.map((entry) => entry.name) : null;
+}
+
+/** Links every ledger directory the worktree does not reach yet. A root without a ledger has nothing to link. */
+function linkWorktreeLedger(rootDir: string, cwd: string): void {
+  const { authoredRoot, mirror } = ledgerMirror(rootDir, cwd),
+    linked = existsSync(authoredRoot) ? mirrorLinks(mirror) : null;
+  if (linked === null) return;
+  mkdirSync(mirror, { recursive: true });
+  for (const entry of readdirSync(authoredRoot, { withFileTypes: true }))
+    if (entry.isDirectory() && entry.name !== ".git" && !linked.includes(entry.name))
+      symlinkSync(path.join(authoredRoot, entry.name), path.join(mirror, entry.name), "junction");
+}
+
+/** Removes the links themselves before a worktree is reclaimed, so no removal ever walks into the ledger. */
+export function unlinkWorktreeLedger(rootDir: string, cwd: string): void {
+  const { mirror } = ledgerMirror(rootDir, cwd);
+  for (const name of mirrorLinks(mirror) ?? []) unlinkSync(path.join(mirror, name));
+}
+
+/**
+ * A ledger path as the worker reaches it: under its own root when the same file is there. A worker in the canonical
+ * checkout, a cwd that does not reach this ledger (an explicitly requested directory, a checkout of a repository
+ * that tracks its own copy) and a path outside the ledger keep the path as it is.
+ */
+export function workerLedgerPath(rootDir: string, cwd: string, target: string): string {
+  const { authoredRoot, mirror } = ledgerMirror(rootDir, cwd);
+  if (mirror === authoredRoot || !existsSync(authoredRoot) || !existsSync(target)) return target;
+  const real = realpathSync(target),
+    relative = path.relative(realpathSync(authoredRoot), real);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return target;
+  const reached = path.join(mirror, relative);
+  return existsSync(reached) && realpathSync(reached) === real ? reached : target;
 }

@@ -353,7 +353,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     );
     const detail = container.querySelector('[data-testid="schedule-detail"]')!;
     expect(detail.querySelector("#schedule-tab-edit")).toBeNull();
-    for (const tabId of ["schedule-tab-overview", "schedule-tab-runs", "schedule-tab-danger"]) {
+    for (const tabId of ["schedule-tab-overview", "schedule-tab-danger"]) {
       await click(container, tabId);
       expect(detail.querySelector('[data-testid="schedule-form"]'), tabId).toBeNull();
       expect(detail.querySelectorAll("input, textarea, select").length, tabId).toBe(0);
@@ -446,26 +446,10 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
             executionAvailability: "not-on-this-node",
             claim: { nodeId: "edge-one", assignmentId: "assignment-edge-one" },
             actions: {
-              edit: {
-                available: false,
-                code: "repo_mode_requires_center_ingress",
-                nextAction: "Send write commands through the authenticated Fleet assignment ingress.",
-              },
-              delete: {
-                available: false,
-                code: "repo_mode_requires_center_ingress",
-                nextAction: "Send write commands through the authenticated Fleet assignment ingress.",
-              },
-              enable: {
-                available: false,
-                code: "repo_mode_requires_center_ingress",
-                nextAction: "Send write commands through the authenticated Fleet assignment ingress.",
-              },
-              disable: {
-                available: false,
-                code: "repo_mode_requires_center_ingress",
-                nextAction: "Send write commands through the authenticated Fleet assignment ingress.",
-              },
+              edit: { available: true, code: null, nextAction: null },
+              delete: { available: true, code: null, nextAction: null },
+              enable: { available: false, code: "no_changes", nextAction: null },
+              disable: { available: true, code: null, nextAction: null },
               runNow: {
                 available: false,
                 code: "repo_mode_requires_center_ingress",
@@ -486,11 +470,13 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     expect(text).toContain("Runs elsewhere");
     expect(text).toContain("edge-one");
     expect(text).toContain("Scan the previous day of pull requests.");
-    for (const kind of ["enable", "disable", "runNow"]) {
-      const button = container.querySelector<HTMLButtonElement>(`[data-testid="schedule-action-${kind}"]`);
-      expect(button?.disabled, `${kind} must be disabled on a center`).toBe(true);
-      expect(button?.getAttribute("data-tip")).toContain("Fleet assignment ingress");
-    }
+    const runNow = container.querySelector<HTMLButtonElement>('[data-testid="schedule-action-runNow"]');
+    expect(runNow?.disabled).toBe(true);
+    expect(runNow?.getAttribute("data-tip")).toContain("Fleet assignment ingress");
+    const disable = container.querySelector<HTMLButtonElement>('[data-testid="schedule-action-disable"]');
+    expect(disable).not.toBeNull();
+    expect(disable?.disabled).toBe(false);
+    expect(disable?.getAttribute("data-tip")).toBeNull();
   });
 
   it("runs enable/disable/run-now through the bridge and surfaces the receipt", async () => {

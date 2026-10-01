@@ -1,5 +1,4 @@
 import {
-  defineCenterRepairWriteCommand,
   cliInput,
   defineHostAdminCommand,
   defineLedgerWriteCommand,
@@ -68,7 +67,7 @@ export const runtimeConfigProtocolCommands = Object.freeze([
     method: "daemon.repo.restoreDrill",
     inputs: [cliInput("--shadow-parent", "single", false, { code: "invalid_field" })],
   }),
-  defineCenterRepairWriteCommand({
+  defineLedgerWriteCommand({
     id: "daemon-projection-rebuild",
     phase: "B2-S1",
     path: ["daemon", "projection", "rebuild"],

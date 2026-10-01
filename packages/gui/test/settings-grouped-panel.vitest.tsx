@@ -232,22 +232,42 @@ describe("设置页按用途分组并逐项解释", () => {
       "CI 与完成门",
       "容量与议程",
       "任务工作区",
-      "定时任务与节点心跳",
-      "存储与备份",
-      "归属",
+      "定时任务",
+      "备份",
     ]);
+    // 页面只有设置分组:没有只显示内部标识的「归属」区块。
+    expect(container.textContent).not.toContain("settings/repository");
     // 组说明:每组标题下有一句弱色说明。
-    expect(container.textContent).toContain("新任务从哪里开始");
+    expect(container.textContent).toContain("新建任务时默认用什么");
     // 每个可见字段都有后果行:抽两个代表(普通组 + 展开后的高级组)。
-    expect(container.textContent).toContain("改了会怎样: 新任务会套用这个预设的计划与收口模板。");
-    expect(container.textContent).toContain("改了会怎样: 派工会优先选用指定的 agent 声明");
-    // 「定时任务与节点心跳」组:补跑时限带名称、说明与后果三件文案。
-    expect(container.textContent).toContain("定时任务补跑时限(毫秒)");
-    expect(container.textContent).toContain("定时任务到点时如果没有机器醒着,晚多久之内还补跑这一次");
-    expect(container.textContent).toContain("改了会怎样: 调大,机器睡眠或后台服务重启后醒来,仍会补跑刚错过的那一次");
+    expect(container.textContent).toContain("改了会怎样：新任务会套用这个预设的计划模板");
+    expect(container.textContent).toContain("改了会怎样：派工会先选这里指定的 Agent");
+    // 「定时任务」组:补跑时限带名称、说明与后果三件文案。
+    expect(container.textContent).toContain("定时任务补跑时限（毫秒）");
+    expect(container.textContent).toContain("定时任务到点时如果没有机器醒着，晚多久之内还补跑这一次");
+    expect(container.textContent).toContain("改了会怎样：调大：机器睡眠或后台服务重启后醒来，仍会补跑刚错过的那一次");
   });
 
-  it("高级组(存储与备份)默认折叠,展开后字段与后果行可见", async () => {
+  it("没改过的项也直接显示默认值:数值、枚举、开关、空集合与未设置各有写法", async () => {
+    const container = await mountView();
+    const note = (testId: string) => container.querySelector(`[data-testid="${testId}"]`)?.textContent;
+    expect(container.querySelector('[data-testid="settings-reviewReturnBudget-modified"]')).toBeNull();
+    expect(note("settings-reviewReturnBudget-default")).toBe("默认值：3");
+    expect(note("settings-reviewIndependence-default")).toBe("默认值：execution");
+    expect(note("settings-closeoutReview-default")).toBe("默认值：关闭");
+    expect(note("settings-ciWorkflows-default")).toBe("默认值：无");
+    expect(note("settings-roles-defaultWorker-default")).toBe("默认值：未设置");
+  });
+
+  it("怎么填这类机制细节收在可展开的帮助里,说明句只讲它管什么", async () => {
+    const container = await mountView();
+    const help = container.querySelector<HTMLDetailsElement>('[data-testid="settings-worktreeSetup-help"]')!;
+    expect(help.open).toBe(false);
+    expect(help.querySelector("summary")!.textContent).toBe("怎么填");
+    expect(help.textContent).toContain("run: <命令>");
+  });
+
+  it("高级组(备份)默认折叠,展开后字段与后果行可见", async () => {
     const container = await mountView();
     expect(container.querySelector('[data-testid="settings-restoreDrillRetention-input"]')).toBeNull();
     expect(container.querySelector('[data-testid="settings-restoreDrillRetention-modified"]')).toBeNull();
@@ -255,7 +275,7 @@ describe("设置页按用途分组并逐项解释", () => {
       container.querySelector<HTMLButtonElement>('[data-testid="settings-advanced-toggle"]')!.click();
     });
     expect(input(container, "settings-restoreDrillRetention-input").value).toBe("3");
-    expect(container.textContent).toContain("改了会怎样: 只保留这么多次成功的恢复演练");
+    expect(container.textContent).toContain("改了会怎样：只保留最近这么多次成功的演练");
   });
 
   it("已退役的四项存储刷新设置不再渲染:高级组展开后只有恢复演练保留数", async () => {
@@ -347,8 +367,8 @@ describe("设置页按用途分组并逐项解释", () => {
       ...container.querySelectorAll<HTMLSelectElement>('[data-testid="settings-reviewIndependence-select"] option'),
     ];
     expect(options.map((option) => option.textContent)).toEqual([
-      "execution · 换个执行会话即可,同一个人的另一个会话也能评",
-      "principal · 必须换人,只有另一个人名下的 agent 才能评",
+      "execution · 换一个会话即可，同一个人的另一个会话也能评审",
+      "principal · 必须换人，只有另一个人名下的 Agent 才能评审",
     ]);
     expect(options.map((option) => option.value)).toEqual(["execution", "principal"]);
     expect(container.querySelector('[data-testid="settings-gates-import"]')).toBeTruthy();

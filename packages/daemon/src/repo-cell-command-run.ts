@@ -18,7 +18,7 @@ import {
 import { cellErrorCode } from "./repo-cell-errors.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { chainRepoCellWrite } from "./repo-cell.ts";
-import { admitRepoMode, entityActionCommandTopology } from "./repo-mode.ts";
+import { admitRepoMode, builtinOccurrenceCommandTopology, entityActionCommandTopology } from "./repo-mode.ts";
 import { commandDescriptorForAction } from "./protocol/daemon-protocol.contract.ts";
 import { recoveryCommandPolicy } from "./recovery-state.ts";
 import {
@@ -30,6 +30,15 @@ import {
 import { deriveActionResult } from "./entity-action-catalog-executor.ts";
 import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./vertical-script-actions.ts";
 import { readBeforeWriteQueue } from "./write-queue-external-reads.ts";
+import { inspectScheduleProjection } from "./schedule-projection.ts";
+
+function targetsBuiltinSchedule(context: RepoCellApiContext, action: RepoTaskAction): boolean {
+  if (context.state !== "attached" || getExecutableEntityAction(action.kind)?.target.kind !== "schedule") return false;
+  const row =
+      typeof action.scheduleId === "string" ? context.projection.getEntity("schedule", action.scheduleId) : null,
+    inspected = row ? inspectScheduleProjection(row) : null;
+  return inspected?.valid === true && inspected.schedule.spec.target.kind === "builtin";
+}
 
 /** The RepoCell command pipeline: recovery admission, the executor claim, and the queued
  * publication interval that authorizes, executes, and settles one command at the writer cut. */
@@ -79,7 +88,10 @@ export function makeRepoCellCommandRunner(context: RepoCellApiContext) {
       const claimRejected = await bindExecutorClaim();
       if (claimRejected) return claimRejected;
     }
-    const command = entityActionCommandTopology(commandDescriptorForAction(action.kind), action),
+    const command = builtinOccurrenceCommandTopology(
+        entityActionCommandTopology(commandDescriptorForAction(action.kind), action),
+        targetsBuiltinSchedule(context, action),
+      ),
       authorizeAtCurrentCut = (): Promise<AuthorizationDecision> | null => {
         const revision = context.store.readHead()?.revision ?? 0,
           actionId = context.operationId(action, binding, context.input.repoId, revision);

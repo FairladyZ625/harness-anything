@@ -7,6 +7,13 @@ import { CADENCE_EVENT_LIMIT, deriveCadenceSnapshot, type CadenceInput } from ".
 import { useCadenceFeed } from "../cadence-feed.ts";
 import { deriveAttestationLanes } from "../model/attestation-pool.ts";
 import { Tabs } from "../components/primitives/Tabs.tsx";
+import {
+  BoardColumn,
+  BoardMain,
+  BoardRegion,
+  BoardTimeline,
+  RegionBoard,
+} from "../components/primitives/RegionBoard.tsx";
 import { CadenceHud } from "../components/cadence/CadenceHud.tsx";
 import { TaskRhythmTrack } from "../components/cadence/TaskRhythmTrack.tsx";
 import { FrictionRadar } from "../components/cadence/FrictionRadar.tsx";
@@ -139,7 +146,15 @@ export function CadenceView({
           ]}
         />
       </div>
-      <TabPanel idPrefix="cadence" value={tab} className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden p-4">
+      {/* 任务页签是一屏的区域板:面板自己是板的容器量尺,≥900px 时板占满剩余高度、区域在自己
+          内部滚动;更窄时单列纵排、面板滚动(标准 §2.3)。舰队页签自己管滚动。 */}
+      <TabPanel
+        idPrefix="cadence"
+        value={tab}
+        className={`flex min-h-0 flex-1 flex-col gap-3 p-4 ${
+          tab === "tasks" ? "@container overflow-y-auto" : "overflow-hidden"
+        }`}
+      >
         {tab === "fleet" ? (
           <FleetPulsePane
             snapshot={fleet}
@@ -150,21 +165,38 @@ export function CadenceView({
         ) : (
           <>
             <CadenceHud hud={snapshot.hud} awaitingDetail={awaitingDetail} />
-            <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[1.5fr_1fr]">
-              <div className="flex min-h-[320px] flex-col lg:min-h-0">
+            {/* 区域板(标准 §2.1,与工作概况同一个 RegionBoard):堵点、产出、摩擦在主区,按时间排的
+                任务节奏固定在最右一列;每块都在 Region 里并区内滚动。摩擦的行还是自写的(板量不到
+                「三条」),有内容时用 fill 占满列内剩余高度并保底 16rem,否则会被同列区域压没。 */}
+            <RegionBoard data-testid="cadence-board">
+              <BoardMain>
+                <BoardColumn>
+                  <BoardRegion region="blockers" data-testid="cadence-blockers">
+                    <AttentionBlockers
+                      awaiting={awaiting}
+                      lanes={lanes}
+                      onNavigateEntity={onNavigateEntity}
+                      onOpenPool={onOpenPool}
+                    />
+                  </BoardRegion>
+                  <BoardRegion region="yield" data-testid="cadence-yield">
+                    <YieldSummary snapshot={snapshot.yield} onNavigateEntity={onNavigateEntity} />
+                  </BoardRegion>
+                </BoardColumn>
+                <BoardColumn>
+                  <BoardRegion
+                    region="friction"
+                    fill={snapshot.friction.tasks.length > 0 || snapshot.friction.stalled.length > 0}
+                    data-testid="cadence-friction"
+                  >
+                    <FrictionRadar friction={snapshot.friction} onOpenTask={openTask} />
+                  </BoardRegion>
+                </BoardColumn>
+              </BoardMain>
+              <BoardTimeline data-testid="cadence-rhythm">
                 <TaskRhythmTrack entries={snapshot.rhythm} onNavigateEntity={onNavigateEntity} />
-              </div>
-              <div className="flex min-h-0 flex-col gap-3 overflow-y-auto">
-                <AttentionBlockers
-                  awaiting={awaiting}
-                  lanes={lanes}
-                  onNavigateEntity={onNavigateEntity}
-                  onOpenPool={onOpenPool}
-                />
-                <FrictionRadar friction={snapshot.friction} onOpenTask={openTask} />
-                <YieldSummary snapshot={snapshot.yield} onNavigateEntity={onNavigateEntity} />
-              </div>
-            </div>
+              </BoardTimeline>
+            </RegionBoard>
           </>
         )}
         <p className="shrink-0 ui-micro text-text-faint">

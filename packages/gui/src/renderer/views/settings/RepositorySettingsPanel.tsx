@@ -249,6 +249,19 @@ export function RepositorySettingsPanel({
             onChange={(event) => setQuery(event.currentTarget.value)}
           />
         </div>
+        {catalogQuery.error ? (
+          <div className="px-3 py-2 ui-meta text-danger">
+            {t("views.settingsView.catalogUnavailableHint", { error: String(catalogQuery.error) })}
+          </div>
+        ) : null}
+        {agentsQuery.error ? (
+          <div className="px-3 py-2 ui-meta text-danger">
+            {t("views.settingsView.catalogUnavailableHint", { error: String(agentsQuery.error) })}
+          </div>
+        ) : null}
+        {settingsMutation.error ? (
+          <div className="px-3 py-2 ui-meta text-danger">{String(settingsMutation.error)}</div>
+        ) : null}
       </Section>
       {groups.length === 0 ? (
         <Section title={t("views.settingsView.sectionRepository")}>
@@ -322,6 +335,7 @@ export function RepositorySettingsPanel({
                       key={row.field}
                       row={row}
                       modified={fieldModified(row)}
+                      defaultText={row.field === "roles" ? undefined : defaultValueText(fieldDefault(row))}
                       onRestore={() => updateDraft(row.field, fieldDefault(row))}
                     >
                       {renderFieldControl(row, fieldControlProps)}
@@ -333,50 +347,54 @@ export function RepositorySettingsPanel({
           );
         })
       )}
-      <Section title={t("views.settingsView.ownershipLabel")}>
-        <Row label={t("views.settingsView.ownershipLabel")} desc={t("views.settingsView.ownershipDescription")}>
-          <span className="font-mono ui-meta text-text-muted">
-            settings/{settingsQuery.data.settings.settingsId} · {settingsQuery.data.settings.schema}
-          </span>
-        </Row>
-        {catalogQuery.error ? (
-          <div className="px-3 py-2 ui-meta text-danger">
-            {t("views.settingsView.catalogUnavailableHint", { error: String(catalogQuery.error) })}
-          </div>
-        ) : null}
-        {agentsQuery.error ? (
-          <div className="px-3 py-2 ui-meta text-danger">
-            {t("views.settingsView.catalogUnavailableHint", { error: String(agentsQuery.error) })}
-          </div>
-        ) : null}
-        {settingsMutation.error ? (
-          <div className="px-3 py-2 ui-meta text-danger">{String(settingsMutation.error)}</div>
-        ) : null}
-      </Section>
     </div>
   );
 }
 
-/** 单个设置项:名称 + 已修改标记/恢复默认 + 控件 + 「它管什么 / 改了会怎样」两行说明。 */
+/** 默认值的写法:开关读作开启/关闭,空集合与未设置各有其词,其余照值显示。 */
+function defaultValueText(value: SettingsFieldValue | undefined): string {
+  if (value === undefined) return t("views.settingsView.defaultReviewerUnsetOption");
+  if (typeof value === "boolean") return t(value ? "views.settingsView.toggleOn" : "views.settingsView.toggleOff");
+  if (Array.isArray(value)) return value.length ? value.join(", ") : t("views.settingsView.defaultValueEmpty");
+  return String(value);
+}
+
+/** 默认值常显在名称旁:没改过的项不必靠「没有已修改标记」反推。 */
+function DefaultValueNote({ testId, text }: { readonly testId: string; readonly text: string }) {
+  return (
+    <span data-testid={testId} className="ui-meta font-normal text-text-faint">
+      {t("views.settingsView.defaultValue", { value: text })}
+    </span>
+  );
+}
+
+/** 单个设置项:名称 + 默认值 + 已修改标记/恢复默认 + 控件 + 「它管什么 / 改了会怎样」两行说明;
+ * 怎么填这类机制细节收在可展开的帮助里。 */
 function SettingsFieldEntry({
   row,
   modified,
+  defaultText,
   onRestore,
   children,
 }: {
   readonly row: SettingsFieldRow;
   readonly modified: boolean;
+  readonly defaultText: string | undefined;
   readonly onRestore: () => void;
   readonly children: ReactNode;
 }) {
   const label = translatedFieldCopy(row.field, "Label") ?? humanizeField(row.field),
     description = translatedFieldCopy(row.field, "Description") ?? row.description ?? undefined,
-    effect = translatedFieldCopy(row.field, "Effect") ?? row.effect ?? undefined;
+    effect = translatedFieldCopy(row.field, "Effect") ?? row.effect ?? undefined,
+    help = translatedFieldCopy(row.field, "Help");
   return (
     <Row
       label={
         <span className="flex flex-wrap items-center gap-2">
           <span>{label}</span>
+          {defaultText !== undefined ? (
+            <DefaultValueNote testId={`settings-${row.field}-default`} text={defaultText} />
+          ) : null}
           {modified ? (
             <>
               <span
@@ -402,8 +420,15 @@ function SettingsFieldEntry({
           {description ? <div>{description}</div> : null}
           {effect ? (
             <div className="mt-0.5">
-              <span className="text-text-faint">{t("views.settingsView.effectPrefix")}</span> {effect}
+              <span className="text-text-faint">{t("views.settingsView.effectPrefix")}</span>
+              {effect}
             </div>
+          ) : null}
+          {help ? (
+            <details className="mt-0.5" data-testid={`settings-${row.field}-help`}>
+              <summary className="cursor-pointer hover:text-text">{t("views.settingsView.helpSummary")}</summary>
+              <div className="mt-0.5">{help}</div>
+            </details>
           ) : null}
         </>
       }
@@ -428,7 +453,7 @@ function groupDescription(groupId: string): string | undefined {
   return groupCopy(groupId, "description");
 }
 
-function translatedFieldCopy(field: string, suffix: "Label" | "Description" | "Effect"): string | undefined {
+function translatedFieldCopy(field: string, suffix: "Label" | "Description" | "Effect" | "Help"): string | undefined {
   const key = `views.settingsView.${field}${suffix}` as MessageKey,
     translated = t(key);
   return translated === key ? undefined : translated;
@@ -491,6 +516,7 @@ function renderFieldControl(
               <div key={key}>
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="ui-meta font-medium text-text-muted">{t(`views.settingsView.${key}Label`)}</span>
+                  <DefaultValueNote testId={`settings-roles-${key}-default`} text={defaultValueText(undefined)} />
                   {modified ? (
                     <>
                       <span

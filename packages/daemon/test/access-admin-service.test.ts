@@ -5,6 +5,7 @@ import test from "node:test";
 import { AccessAdminService, type AccessAdminRequest } from "../src/access-admin-service.ts";
 import { requireAuthorizedFleetAction } from "../src/host-action-authorization.ts";
 import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
+import { alignSessionLifetime, sessionLifetimeBounds } from "../src/keycloak-session-lifetime.ts";
 import { managedRbacReceiptJournal } from "../src/managed-rbac-service.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
@@ -282,13 +283,88 @@ test("access administration requires the access-admin role before anything reach
   const { keycloak, run, signIn } = await fixture();
   keycloak.account("alice");
   signIn("person-member", ["offline_access"]);
-  for (const operation of ["group-list", "grant", "group-create", "effective-permissions", "receipt-reconcile"])
+  for (const operation of [
+    "group-list",
+    "grant",
+    "group-create",
+    "effective-permissions",
+    "receipt-reconcile",
+    "session-lifetime",
+    "session-lifetime-set",
+  ])
     await assert.rejects(
-      run({ operation, personId: "alice", groupId: "contributor", resource: "repo-a" }),
+      run({
+        operation,
+        personId: "alice",
+        groupId: "contributor",
+        resource: "repo-a",
+        sessionLifetimeSeconds: 600,
+        expectedVersion: "1800",
+      }),
       { code: "authorization_denied" },
       operation,
     );
   assert.deepEqual(keycloak.writes, []);
+  assert.equal(keycloak.realm.ssoSessionIdleTimeout, 1_800);
+});
+
+test("the session lifetime is read from and written to the realm, within bounds, against the value read", async () => {
+  const { keycloak, admin, run, journal } = await fixture(),
+    realmAdmin = { url: keycloakUrl, realm: keycloakRealm, accessToken: "center-token" };
+  // A realm that predates the session lifetime runs Keycloak's defaults until the daemon aligns it.
+  await alignSessionLifetime(realmAdmin, keycloak.fetch);
+  assert.deepEqual(keycloak.realm, {
+    ssoSessionIdleTimeout: 6 * 60 * 60,
+    ssoSessionMaxLifespan: sessionLifetimeBounds.maximumSeconds,
+  });
+  assert.deepEqual(await admin.run({ operation: "session-lifetime" }), {
+    ok: true,
+    seconds: 21_600,
+    version: "21600",
+    defaultSeconds: 21_600,
+    minimumSeconds: 300,
+    maximumSeconds: 31_536_000,
+  });
+
+  const changed = await run({
+    operation: "session-lifetime-set",
+    sessionLifetimeSeconds: 7_200,
+    expectedVersion: "21600",
+  });
+  assert.deepEqual(
+    [changed.ok, changed.outcome, changed.actor, changed.expect],
+    [true, "applied", "person-admin", { kind: "session-lifetime", seconds: 7_200 }],
+  );
+  assert.equal(keycloak.realm.ssoSessionIdleTimeout, 7_200);
+  assert.equal((await admin.run({ operation: "session-lifetime" })).seconds, 7_200);
+  // Aligning again leaves a lifetime an administrator set alone.
+  await alignSessionLifetime(realmAdmin, keycloak.fetch);
+  assert.equal(keycloak.realm.ssoSessionIdleTimeout, 7_200);
+
+  // A second administrator still holding the old value is told so instead of overwriting the first.
+  const stale = await run({ operation: "session-lifetime-set", sessionLifetimeSeconds: 900, expectedVersion: "21600" });
+  assert.deepEqual(
+    [stale.ok, stale.outcome, stale.expectedVersion, stale.currentVersion],
+    [false, "version_conflict", "21600", "7200"],
+  );
+  for (const sessionLifetimeSeconds of [299, 31_536_001, 600.5, undefined])
+    await assert.rejects(
+      run({ operation: "session-lifetime-set", sessionLifetimeSeconds, expectedVersion: "7200" }),
+      { code: "session_lifetime_invalid" },
+      String(sessionLifetimeSeconds),
+    );
+  await assert.rejects(run({ operation: "session-lifetime-set", sessionLifetimeSeconds: 900 }), {
+    code: "access_request_invalid",
+  });
+  assert.equal(keycloak.realm.ssoSessionIdleTimeout, 7_200);
+  assert.deepEqual(
+    journal().map((record) => [record.operation, record.phase, record.outcome ?? null]),
+    [
+      ["session-lifetime-set", "intent", null],
+      ["session-lifetime-set", "settled", "applied"],
+      ["session-lifetime-set", "settled", "version_conflict"],
+    ],
+  );
 });
 
 test("first-administrator bootstrap with two different usernames creates exactly one administrator", async () => {

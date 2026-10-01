@@ -67,6 +67,8 @@ export function createJsonRpcProtocolServer(options: {
   readonly build: DaemonBuildStamp;
   readonly buildObserver?: DaemonBuildObserver;
   readonly authContext: DaemonAuthenticationContext;
+  /** The daemon's signed-in OIDC principal as of now; read on every request, not once per connection. */
+  readonly sessionPrincipal?: () => Promise<DaemonAuthenticationContext["oidcPrincipal"]>;
   readonly emit: (method: string, params: JsonObject) => Promise<void>;
   readonly connectionId?: string;
   readonly recordRequest?: (entry: DaemonRequestLogEntry) => void;
@@ -165,6 +167,14 @@ export function createJsonRpcProtocolServer(options: {
       });
     }
     if (!handshaken) return reply(method, daemonProtocolError(method, "hello_required", "Call protocol.hello first."));
+    if (options.sessionPrincipal) {
+      // A connection outlives access tokens: each request carries the session as it is now, renewed or ended.
+      try {
+        Object.assign(options.authContext, { oidcPrincipal: await options.sessionPrincipal() });
+      } catch (error) {
+        return reply(method, protocolFailure(method, error));
+      }
+    }
     const stoppingRefusal = daemonStoppingRefusal(method, options.stopping?.() === true);
     if (stoppingRefusal) return reply(method, stoppingRefusal);
     const remoteProxy = options.host.remoteProxy;

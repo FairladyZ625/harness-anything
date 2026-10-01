@@ -158,12 +158,12 @@ export async function startDaemon(input: {
     if (entry.event === "runtime_exit" || entry.event === "attachments_settled") requestDrainCheck();
   };
   try {
-    host = await openDaemonHost({ ...input, endpoint, recordLifecycle });
+    const oidc = new OidcSessionService(input.userRoot);
+    host = await openDaemonHost({ ...input, endpoint, recordLifecycle, oidc });
     // One sink for the daemon; the protocol server is created per connection and reports into it.
     requestLog = openDaemonRequestLog({
       resolveRootDir: (repoId) => host!.status().repos.find((repo) => repo.repoId === repoId)?.rootDir,
     });
-    const oidc = new OidcSessionService(input.userRoot);
     transport = createUnixSocketTransportServer({
       daemonId: input.daemonId,
       socketPath: endpoint,
@@ -172,7 +172,8 @@ export async function startDaemon(input: {
           host: host!,
           build,
           buildObserver,
-          authContext: { ...oidc.bind(authContext), connectionSignal: signal },
+          authContext: { ...authContext, connectionSignal: signal },
+          sessionPrincipal: async () => (await oidc.bind({ transportKind: authContext.transportKind })).oidcPrincipal,
           emit,
           connectionId: connLog.connectionOpened(connectionId, authContext.transportKind),
           recordRequest: requestLog!.record,

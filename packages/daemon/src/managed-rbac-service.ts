@@ -17,9 +17,15 @@ import { pipeline } from "node:stream/promises";
 import { createServer } from "node:net";
 import path from "node:path";
 import { spawn, type ChildProcess } from "node:child_process";
+import { consumeKnownError } from "@harness-anything/kernel";
 import { runProcessText } from "./process-port.ts";
 import type { AccessAdminOperation, AccessAdminRequest } from "./access-admin-service.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
+import {
+  alignSessionLifetime,
+  sessionLifetimeBounds,
+  sessionLifetimeRealmSettings,
+} from "./keycloak-session-lifetime.ts";
 
 export const managedRbacVersions = Object.freeze({
   keycloak: "26.7.3",
@@ -73,6 +79,8 @@ interface ManagedRbacConfig {
   readonly installedAt?: string;
   readonly postgresPort?: number;
   readonly managementPort?: number;
+  /** An operator stopped the managed services; a daemon start leaves them down until they are started again. */
+  readonly stopped?: boolean;
 }
 
 interface Artifact {
@@ -105,24 +113,46 @@ export class ManagedRbacService {
   readonly #ports: ManagedRbacPorts;
   readonly #children = new Map<"postgres" | "keycloak", ChildProcess>();
   readonly #readiness = new Map<"postgres" | "keycloak", Promise<void>>();
+  #lifecycle: Promise<unknown> = Promise.resolve();
 
   constructor(userRoot: string, ports: Partial<ManagedRbacPorts> = {}) {
     this.#root = path.join(userRoot, "rbac");
     this.#ports = { ...defaultPorts, ...ports };
   }
 
-  async run(request: ManagedRbacRequest): Promise<Record<string, unknown>> {
+  /** Lifecycle operations run one at a time: a start asked for while the daemon is still resuming waits for it. */
+  run(request: ManagedRbacRequest): Promise<Record<string, unknown>> {
+    if (request.mode !== "external" && request.operation === "health") return this.health();
+    const run = this.#lifecycle.then(() => this.#run(request));
+    this.#lifecycle = run.catch(consumeKnownError);
+    return run;
+  }
+
+  /**
+   * The authorization server is part of the center, so a daemon start brings the managed one back.
+   * Keycloak keeps its sessions in PostgreSQL: people who were signed in stay signed in.
+   */
+  async resume(): Promise<void> {
+    const config = this.#readConfigIfPresent();
+    if (config?.mode !== "managed" || config.stopped) return;
+    await this.run({ operation: "start" });
+  }
+
+  async #run(request: ManagedRbacRequest): Promise<Record<string, unknown>> {
     const operation = request.operation ?? "bootstrap";
     if (request.mode === "external") return this.#configureExternal(request);
-    if (operation === "health") return this.health();
-    if (operation === "stop") return this.stop();
+    if (operation === "stop") {
+      const config = this.#readConfigIfPresent();
+      if (config?.mode === "managed") this.#writeConfig({ ...config, stopped: true });
+      return this.stop();
+    }
     if (operation === "backup") return this.#backup(request);
     if (operation === "restore") return this.#restore(request);
     const started = Date.now();
     if (operation === "bootstrap" || operation === "upgrade") await this.#install();
     await this.start();
     const health = await this.#waitUntilReady();
-    await this.#syncBasePolicy();
+    await this.#syncRealm();
     return {
       ok: true,
       command: `rbac-${operation}`,
@@ -138,6 +168,7 @@ export class ManagedRbacService {
     if (config.mode === "external") return;
     if (!existsSync(path.join(this.#root, "runtime", "postgres", "bin", "postgres")))
       throw managedRbacError("rbac_not_installed", "Run ha bootstrap before starting managed RBAC services.");
+    if (config.stopped) this.#writeConfig({ ...config, stopped: false });
     await this.#startPostgres();
     await this.#startKeycloak();
   }
@@ -256,6 +287,7 @@ export class ManagedRbacService {
     const realm = {
       realm: "harness",
       enabled: true,
+      ...sessionLifetimeRealmSettings(sessionLifetimeBounds.defaultSeconds),
       registrationAllowed: false,
       loginWithEmailAllowed: true,
       clients: [
@@ -433,8 +465,11 @@ export class ManagedRbacService {
     throw managedRbacError("rbac_health_failed", `Keycloak realm health returned HTTP ${String(result.status)}.`);
   }
 
-  /** Runs as the center's own service account: the one-time bootstrap password is gone once an administrator exists. */
-  async #syncBasePolicy(): Promise<void> {
+  /**
+   * Brings a realm that already exists up to this build's Base policy and session lifetime contract.
+   * Runs as the center's own service account: the one-time bootstrap password is gone once an administrator exists.
+   */
+  async #syncRealm(): Promise<void> {
     const config = this.#readManagedConfig(),
       tokenResponse = await this.#ports.fetch(
         `${config.url}/realms/${encodeURIComponent(config.realm)}/protocol/openid-connect/token`,
@@ -457,6 +492,10 @@ export class ManagedRbacService {
       { url: config.url, realm: config.realm, resourceServerClientId: config.clientId },
       this.#ports.fetch,
     ).syncBasePolicy(payload.access_token);
+    await alignSessionLifetime(
+      { url: config.url, realm: config.realm, accessToken: payload.access_token },
+      this.#ports.fetch,
+    );
   }
 
   async #configureExternal(request: ManagedRbacRequest): Promise<Record<string, unknown>> {

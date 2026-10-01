@@ -4,7 +4,7 @@ import test from "node:test";
 import { daemonProtocolCommands, repoCellExecutionForAction } from "../src/protocol/daemon-protocol-commands.ts";
 import { observeTailReadMethod } from "../src/protocol/daemon-protocol-observe-tail-read.ts";
 import { daemonRepoModeWords } from "../src/protocol/daemon-protocol-vocabulary.ts";
-import { admitRepoMode, entityActionCommandTopology } from "../src/repo-mode.ts";
+import { admitRepoMode, builtinOccurrenceCommandTopology, entityActionCommandTopology } from "../src/repo-mode.ts";
 
 const localSource = "local" as const;
 const assignmentSource = { kind: "assignment", nodeId: "edge-one", assignmentId: "assignment-one" } as const;
@@ -89,7 +89,7 @@ test("Schedule descriptors derive all three mode routes without a CLI mode branc
     assert.deepEqual(byId.get(id)?.admission, {
       local: "direct",
       "remote-proxy": "rejected",
-      "remote-center": "via-assignment",
+      "remote-center": "direct",
       "remote-edge": "via-center-forward",
     });
   for (const id of ["schedule-list", "schedule-runs", "schedule-show"])
@@ -107,6 +107,67 @@ test("Schedule descriptors derive all three mode routes without a CLI mode branc
   });
   assert.equal(admitRepoMode("remote-center", byId.get("schedule-run-now")!, localSource).ok, false);
   assert.equal(admitRepoMode("remote-center", byId.get("schedule-run-now")!, assignmentSource).ok, true);
+});
+
+test("the center admits its own local source on every ledger write an edge cannot run itself", () => {
+  let ledgerWrites = 0;
+  for (const command of daemonProtocolCommands) {
+    if (command.commandClass !== "repo-write") continue;
+    const runsOnEdge = command.admission["remote-edge"] === "direct";
+    // Only runtime-local execution keeps the center on assignment ingress; a ledger write that an
+    // edge cannot execute itself must have a center entrance, or nobody in the topology can run it.
+    assert.equal(command.admission["remote-center"], runsOnEdge ? "via-assignment" : "direct", command.id);
+    if (runsOnEdge) continue;
+    ledgerWrites += 1;
+    assert.equal(admitRepoMode("remote-center", command, localSource).ok, true, command.id);
+    assert.equal(admitRepoMode("remote-center", command, assignmentSource).ok, true, command.id);
+    assert.equal(admitRepoMode("remote-edge", command, localSource).ok, false, command.id);
+    assert.equal(admitRepoMode("remote-proxy", command, localSource).ok, false, command.id);
+  }
+  assert.ok(ledgerWrites > 0);
+});
+
+test("a builtin occurrence resolves the center to its own executor and moves no other cell", () => {
+  let resolved = 0;
+  for (const command of daemonProtocolCommands) {
+    assert.equal(builtinOccurrenceCommandTopology(command, false), command, command.id);
+    const builtin = builtinOccurrenceCommandTopology(command, true);
+    if (command.admission["remote-center"] !== "via-assignment") {
+      assert.equal(builtin, command, command.id);
+      continue;
+    }
+    resolved += 1;
+    assert.deepEqual(builtin.admission, { ...command.admission, "remote-center": "direct" }, command.id);
+    assert.equal(admitRepoMode("remote-center", builtin, localSource).ok, true, command.id);
+    // The declared route is what host admission reads: a transport source on the center still
+    // needs assignment ingress, so only the daemon's own scheduler reaches the resolved route.
+    assert.equal(admitRepoMode("remote-center", command, localSource).ok, false, command.id);
+  }
+  assert.ok(resolved > 0);
+});
+
+test("the center admits review adjudication and no edge or proxy executes it locally", () => {
+  const arbiterCommands = daemonProtocolCommands.filter((command) => command.commandClass === "arbiter");
+  assert.deepEqual(arbiterCommands.map(({ id }) => id).sort(), [
+    "decision-override-review",
+    "decision-reject",
+    "decision-review",
+    "task-review-execution",
+  ]);
+  for (const command of arbiterCommands) {
+    assert.equal(command.admission["remote-center"], "direct", command.id);
+    assert.equal(admitRepoMode("remote-center", command, localSource).ok, true, command.id);
+    assert.equal(admitRepoMode("remote-edge", command, localSource).ok, false, command.id);
+    assert.equal(admitRepoMode("remote-edge", command, assignmentSource).ok, false, command.id);
+    assert.equal(admitRepoMode("remote-proxy", command, localSource).ok, false, command.id);
+  }
+  // Only the Task review declares an edge forward; Decision adjudication has no edge route at all.
+  assert.deepEqual(arbiterCommands.map(({ id, admission }) => [id, admission["remote-edge"]]).sort(), [
+    ["decision-override-review", "rejected"],
+    ["decision-reject", "rejected"],
+    ["decision-review", "rejected"],
+    ["task-review-execution", "via-center-forward"],
+  ]);
 });
 
 test("Settings CLI read uses the common read topology while update forwards from edge", () => {
@@ -132,7 +193,7 @@ test("Artifact import forwards edge observations into the center single-writer q
   assert.deepEqual(command?.admission, {
     local: "direct",
     "remote-proxy": "rejected",
-    "remote-center": "via-assignment",
+    "remote-center": "direct",
     "remote-edge": "via-center-forward",
   });
   assert.equal(command?.commandClass, "repo-write");
