@@ -9,6 +9,7 @@ import { entryTitle, metaLine } from "./entry-lines.tsx";
 import type { WorkLeafRow } from "./WorkTasksTab.tsx";
 import type { AttestationPoolLanes } from "../../model/attestation-pool.ts";
 import type { WorkDayGroup, WorkStepKind, WorkSubgroup } from "../../model/workspace-narrative.ts";
+import { WORK_STEP_LABEL_KEY } from "../../model/workspace-narrative.ts";
 import type { SnapshotStatus, TaskRow } from "../../model/types.ts";
 import type { MessageKey } from "../../i18n/core.ts";
 import { t } from "../../i18n/index.tsx";
@@ -23,19 +24,24 @@ import { t } from "../../i18n/index.tsx";
  * 右侧时间线,断点与列内分配见该原语)。
  */
 
-/** 步骤种类的呈现(标签/状态色);全局总览的「最近变化」共用。 */
+/** 步骤种类的呈现(标签/状态色);文案键单源在 WORK_STEP_LABEL_KEY,这里只补色调。 */
 export const STEP_META: Readonly<Record<WorkStepKind, { readonly label: MessageKey; readonly tone: StatusTone }>> = {
-  start: { label: "views.workspace.step.start", tone: "active" },
-  dispatch: { label: "views.workspace.step.dispatch", tone: "active" },
-  submit: { label: "views.workspace.step.submit", tone: "wait" },
-  approved: { label: "views.workspace.step.approved", tone: "done" },
-  rejected: { label: "views.workspace.step.rejected", tone: "bad" },
-  returned: { label: "views.workspace.step.returned", tone: "bad" },
-  completed: { label: "views.workspace.step.completed", tone: "done" },
-  reopened: { label: "views.workspace.step.reopened", tone: "active" },
-  fact: { label: "views.workspace.step.fact", tone: "plan" },
-  gatePass: { label: "views.workspace.step.gatePass", tone: "done" },
-  gateFail: { label: "views.workspace.step.gateFail", tone: "bad" },
+  start: { label: WORK_STEP_LABEL_KEY.start, tone: "active" },
+  dispatch: { label: WORK_STEP_LABEL_KEY.dispatch, tone: "active" },
+  submit: { label: WORK_STEP_LABEL_KEY.submit, tone: "wait" },
+  approved: { label: WORK_STEP_LABEL_KEY.approved, tone: "done" },
+  rejected: { label: WORK_STEP_LABEL_KEY.rejected, tone: "bad" },
+  returned: { label: WORK_STEP_LABEL_KEY.returned, tone: "bad" },
+  completed: { label: WORK_STEP_LABEL_KEY.completed, tone: "done" },
+  reopened: { label: WORK_STEP_LABEL_KEY.reopened, tone: "active" },
+  fact: { label: WORK_STEP_LABEL_KEY.fact, tone: "plan" },
+  gatePass: { label: WORK_STEP_LABEL_KEY.gatePass, tone: "done" },
+  gateFail: { label: WORK_STEP_LABEL_KEY.gateFail, tone: "bad" },
+  gateCheck: { label: WORK_STEP_LABEL_KEY.gateCheck, tone: "plan" },
+  consent: { label: WORK_STEP_LABEL_KEY.consent, tone: "done" },
+  witness: { label: WORK_STEP_LABEL_KEY.witness, tone: "plan" },
+  dismissed: { label: WORK_STEP_LABEL_KEY.dismissed, tone: "neutral" },
+  abandoned: { label: WORK_STEP_LABEL_KEY.abandoned, tone: "cancel" },
 };
 
 /** 状态数字格:完成/待裁决/评审中/在做/待开工/阻塞/取消,只显示非零项。 */

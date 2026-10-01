@@ -17,6 +17,8 @@ import {
   type DecisionReviewGroup,
 } from "../model/decision-review.ts";
 import { taskReviewRef } from "../navigation/entityRoutes.ts";
+import { actorDisplayName } from "../model/actor-name.ts";
+import { relativeTime } from "../sessions-model.ts";
 import { ageOf } from "./overview-model.ts";
 import type { AgendaAwaitsRow } from "../../api/renderer-dto.ts";
 
@@ -109,7 +111,11 @@ function agendaRowsOf(agenda: AgendaSuccess): readonly AgendaRow[] {
     ...agenda.answeredForYou.map((row) => ({
       id: row.relationId,
       title: row.title,
-      hint: `${AWAITS_KIND_LABEL[row.askKind]()} · ${t("components.awaitsAnswer.answeredBy", { actor: row.answeredBy, time: row.answeredAt })} · ${t("views.agenda.hintAnswered", { answer: row.answer })}`,
+      // 答复者用可读名字(与总览、决策时间线同一套转换);完整身份串在答复面板里可见。
+      hint: `${AWAITS_KIND_LABEL[row.askKind]()} · ${t("components.awaitsAnswer.answeredBy", {
+        actor: actorDisplayName(row.answeredBy).name,
+        time: relativeTime(row.answeredAt),
+      })} · ${t("views.agenda.hintAnswered", { answer: row.answer })}`,
       group: "answered" as const,
       since: row.answeredAt,
       scoreRef: `relation/${row.relationId}`,

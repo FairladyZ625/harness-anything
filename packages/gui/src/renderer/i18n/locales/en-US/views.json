@@ -1402,7 +1402,7 @@
   "views.workspace.day.activeOnly": "{count} tasks active",
   "views.workspace.step.start": "Started",
   "views.workspace.step.dispatch": "Dispatched",
-  "views.workspace.step.submit": "Submitted",
+  "views.workspace.step.submit": "Submitted for review",
   "views.workspace.step.approved": "Review approved",
   "views.workspace.step.rejected": "Rejected",
   "views.workspace.step.returned": "Returned",
@@ -1602,5 +1602,14 @@
   "schedules.clock.yesterday": "yesterday {time}",
   "schedules.until.minutes": "in {minutes} min",
   "schedules.until.hours": "in {hours} h",
-  "schedules.until.days": "in {days} d"
+  "schedules.until.days": "in {days} d",
+  "schedules.run.kind.scheduled": "Scheduled run",
+  "schedules.run.kind.manual": "Manual run",
+  "schedules.run.kind.fallback": "Run",
+  "schedules.detail.health.viewFailureReport": "View failure report →",
+  "views.workspace.step.consent": "Owner consent",
+  "views.workspace.step.witness": "Code/doc witness",
+  "views.workspace.step.dismissed": "Review dismissed",
+  "views.workspace.step.abandoned": "Abandoned",
+  "views.workspace.step.gateCheck": "Gate check"
 }

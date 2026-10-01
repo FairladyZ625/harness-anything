@@ -6,6 +6,8 @@ import { agentEntityClient, isAvailableSquadEntityRow } from "../agent-entity-cl
 import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts";
 import { harnessClient } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
+import { workspaceTitleIndex } from "../model/workspace-readable.ts";
+import { useTasksQuery } from "../task-data.ts";
 import { Btn, Empty, SegCtl } from "../components/runtime/parts.tsx";
 import { CatalogBackButton, CatalogSplit, useCatalogDetailPane } from "../components/primitives/CatalogSplit.tsx";
 import { PageHeader } from "../components/primitives/PageHeader.tsx";
@@ -355,6 +357,22 @@ export function SessionsView({
     [squads.data],
   );
 
+  // `task/<id>` → 标题索引(与 App 同一常驻任务列表投影、同一 helper,缓存键共享不加读面):
+  // 详情「任务」框的主文字用任务标题,查不到才显示 id(视觉基线 v2)。
+  const tasksQuery = useTasksQuery(repoId);
+  const taskTitles = useMemo(
+    () =>
+      workspaceTitleIndex({
+        tasks: (tasksQuery.data?.rows ?? []).map(({ taskId, snapshot }) => ({
+          taskId,
+          title: snapshot.task?.title ?? "",
+        })),
+        facts: [],
+        decisions: [],
+      }),
+    [tasksQuery.data],
+  );
+
   // 组列表的行回调用 useCallback 稳定:App 层台账探针每 ~2s 推进一次 cut 都会让本页
   // 重渲染,行级 memo(SessionGroupList 的 GroupSection)靠这些稳定引用跳过未变组。
   const groupDecisionRefsFor = useCallback((taskId: string) => sessionDecisionRefs(relations, taskId), [relations]);
@@ -606,6 +624,7 @@ export function SessionsView({
                   }
                   row={selectedRow}
                   squadNames={squadNames}
+                  taskTitles={taskTitles}
                   decisionRefs={selectedTaskId === null ? [] : sessionDecisionRefs(relations, selectedTaskId)}
                   busy={workspace.busy}
                   onCancel={(runtimeSessionId) => void workspace.cancelSession(runtimeSessionId)}

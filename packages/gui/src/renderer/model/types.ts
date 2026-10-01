@@ -6,6 +6,7 @@ import type {
   RelationType,
   TaskSnapshotProjectionRow,
 } from "../../api/renderer-dto.ts";
+import type { WorkStepKind } from "./workspace-narrative.ts";
 
 export type CanonicalStatus = "planned" | "active" | "submitted" | "blocked" | "in_review" | "done" | "cancelled";
 
@@ -402,6 +403,11 @@ export interface EventEntry {
   readonly at: string;
   readonly projectId: string;
   readonly taskId: string;
+  /** 事件种类(与工作概况「最近进展」同一 WorkStepKind 词表;标签/色调经 STEP_META 查)。 */
+  readonly kind: WorkStepKind;
+  /** 事件编号(executionId / reviewId / …):行尾弱色可达,不做主文字。 */
+  readonly ref: string;
+  /** 人话摘要(由 kind 查表):悬停与无富渲染的场合用,如工作列表的最近活动提示。 */
   readonly summary: string;
 }
 
