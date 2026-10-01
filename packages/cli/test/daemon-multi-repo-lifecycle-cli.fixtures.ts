@@ -8,15 +8,8 @@ import { openPersistentWriterEpoch } from "@harness-anything/daemon/internal/wri
 import { HARNESS_LEDGER_WRITER_ENV } from "@harness-anything/kernel";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 
-const canonicalRoot = (() => {
-  const cwd = process.cwd();
-  const marker = `${path.sep}.worktrees${path.sep}`;
-  const idx = cwd.indexOf(marker);
-  return idx !== -1 ? cwd.slice(0, idx) : cwd;
-})();
-
-export const cli = path.resolve(canonicalRoot, "packages/cli/src/index.ts");
-export const builtCli = path.resolve(canonicalRoot, "packages/cli/dist/cli/src/index.js");
+export const cli = path.resolve("packages/cli/src/index.ts");
+export const builtCli = path.resolve("packages/cli/dist/cli/src/index.js");
 
 export function setup(): {
   root: string;
