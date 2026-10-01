@@ -7,13 +7,7 @@ import { CADENCE_EVENT_LIMIT, deriveCadenceSnapshot, type CadenceInput } from ".
 import { useCadenceFeed } from "../cadence-feed.ts";
 import { deriveAttestationLanes } from "../model/attestation-pool.ts";
 import { Tabs } from "../components/primitives/Tabs.tsx";
-import {
-  BoardColumn,
-  BoardMain,
-  BoardRegion,
-  BoardTimeline,
-  RegionBoard,
-} from "../components/primitives/RegionBoard.tsx";
+import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../components/primitives/RegionBoard.tsx";
 import { CadenceHud } from "../components/cadence/CadenceHud.tsx";
 import { TaskRhythmTrack } from "../components/cadence/TaskRhythmTrack.tsx";
 import { FrictionRadar } from "../components/cadence/FrictionRadar.tsx";
@@ -166,9 +160,9 @@ export function CadenceView({
           <>
             <CadenceHud hud={snapshot.hud} awaitingDetail={awaitingDetail} />
             {/* 区域板(标准 §2.1,与工作概况同一个 RegionBoard):堵点、产出、摩擦在主区,按时间排的
-                任务节奏固定在最右一列;每块都在 Region 里并区内滚动。摩擦的行还是自写的(板量不到
-                「三条」),有内容时用 fill 占满列内剩余高度并保底 16rem,否则会被同列区域压没。 */}
-            <RegionBoard data-testid="cadence-board">
+                任务节奏固定在最右一列,它是这一页的主列表,两列时与主区各占一半;每块都在 Region 里并区内滚动。摩擦的行还是自写的(板量不到
+                「三条」),有内容时用 fill 占满列内剩余高度并保底 16rem。 */}
+            <RegionBoard side="primary" data-testid="cadence-board">
               <BoardMain>
                 <BoardColumn>
                   <BoardRegion region="blockers" data-testid="cadence-blockers">
@@ -193,9 +187,9 @@ export function CadenceView({
                   </BoardRegion>
                 </BoardColumn>
               </BoardMain>
-              <BoardTimeline data-testid="cadence-rhythm">
+              <BoardSide region="rhythm" data-testid="cadence-rhythm">
                 <TaskRhythmTrack entries={snapshot.rhythm} onNavigateEntity={onNavigateEntity} />
-              </BoardTimeline>
+              </BoardSide>
             </RegionBoard>
           </>
         )}

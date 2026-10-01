@@ -8,7 +8,7 @@ import { EntityRefLink } from "../EntityRefLink.tsx";
 import { DayDigest, type DayPathStep } from "../primitives/DayDigest";
 import { DenseRow } from "../primitives/DenseRow";
 import { Region } from "../primitives/Region";
-import { BoardColumn, BoardMain, BoardRegion, BoardTimeline, RegionBoard } from "../primitives/RegionBoard";
+import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../primitives/RegionBoard";
 import type { StatusTone } from "../primitives/StatusTag";
 
 /** 决策状态 → 状态色(标准 §3):时间线上的裁决结果与状态迁移用它上色。 */
@@ -82,11 +82,11 @@ export function OverviewPanel({ decision }: { decision: DecisionRow }) {
         </BoardColumn>
       </BoardMain>
       {timeline.length > 0 && (
-        <BoardTimeline data-testid="decision-overview-timeline">
+        <BoardSide region="timeline" data-testid="decision-overview-timeline">
           <Region title={t("views.decisionDetailView.timeline")} big={timeline.length} padded>
             <DecisionTimelineDigest entries={timeline} />
           </Region>
-        </BoardTimeline>
+        </BoardSide>
       )}
     </RegionBoard>
   );

@@ -354,6 +354,8 @@ describe("CadenceView", () => {
     const panel = container.querySelector("#cadence-panel")!,
       board = panel.querySelector('[data-testid="cadence-board"]')!,
       block = (name: string) => panel.querySelector(`[data-testid="cadence-${name}"]`)!;
+    // 任务节奏是这一页的主列表:两列时与主区各占一半,不用默认的 3:2。
+    expect(board.className).toContain("@[900px]:grid-cols-2");
     // 四块都是 Region 区域框(标题在框里);页签里没有框外的标题,也没有自写的圆角外框。
     for (const name of ["blockers", "yield", "friction", "rhythm"]) {
       expect(block(name).querySelector(":scope > section[data-entry-region] h2"), name).not.toBeNull();
@@ -363,12 +365,12 @@ describe("CadenceView", () => {
       true,
     );
     expect(panel.querySelector("section.rounded-lg h2")).toBeNull();
-    // 列位置:主区按堵点、产出、摩擦排,任务节奏是板的最后一格(时间线列,最右)。
+    // 列位置:主区按堵点、产出、摩擦排,任务节奏是板的最后一格(右列)。
     expect([...board.querySelectorAll("[data-region]")].map((region) => region.getAttribute("data-region"))).toEqual([
       "blockers",
       "yield",
       "friction",
-      "recent",
+      "rhythm",
     ]);
     expect(board.lastElementChild).toBe(block("rhythm"));
     // 列切换只靠容器查询:页签面板自己是容器量尺且窄时由它滚动,板上没有视口断点。
