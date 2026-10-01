@@ -146,6 +146,30 @@ test("a builtin occurrence resolves the center to its own executor and moves no 
   assert.ok(resolved > 0);
 });
 
+test("the center admits review adjudication and no edge or proxy executes it locally", () => {
+  const arbiterCommands = daemonProtocolCommands.filter((command) => command.commandClass === "arbiter");
+  assert.deepEqual(arbiterCommands.map(({ id }) => id).sort(), [
+    "decision-override-review",
+    "decision-reject",
+    "decision-review",
+    "task-review-execution",
+  ]);
+  for (const command of arbiterCommands) {
+    assert.equal(command.admission["remote-center"], "direct", command.id);
+    assert.equal(admitRepoMode("remote-center", command, localSource).ok, true, command.id);
+    assert.equal(admitRepoMode("remote-edge", command, localSource).ok, false, command.id);
+    assert.equal(admitRepoMode("remote-edge", command, assignmentSource).ok, false, command.id);
+    assert.equal(admitRepoMode("remote-proxy", command, localSource).ok, false, command.id);
+  }
+  // Only the Task review declares an edge forward; Decision adjudication has no edge route at all.
+  assert.deepEqual(arbiterCommands.map(({ id, admission }) => [id, admission["remote-edge"]]).sort(), [
+    ["decision-override-review", "rejected"],
+    ["decision-reject", "rejected"],
+    ["decision-review", "rejected"],
+    ["task-review-execution", "via-center-forward"],
+  ]);
+});
+
 test("Settings CLI read uses the common read topology while update forwards from edge", () => {
   const byId = new Map(daemonProtocolCommands.map((command) => [command.id, command]));
   assert.deepEqual(byId.get("settings-read")?.admission, {
