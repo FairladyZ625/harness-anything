@@ -1,3 +1,4 @@
+import type { AgendaSuccess } from "../api-client.ts";
 import type { StatusTone } from "../components/primitives/StatusTag.tsx";
 import type { MessageKey } from "../i18n/index.tsx";
 
@@ -36,14 +37,16 @@ export interface ProjectRepo {
 }
 
 /**
- * 一个项目「现在怎么样」的读取结果。数字全部来自两条有界读面:工作区摘要
+ * 一个项目「现在怎么样」的读取结果。数字来自有界读面:议程第一页、工作区摘要
  * (repo.workspace.summary.read,投影里的普查计数)与 runtime 概览(只含未退出的会话)。
- *   - awaitingYou = 已提交待派审的任务 + 待裁的决定,即下一步只能由人做的两个队列;
+ *   - awaitingYou = 已提交待派审的任务 + 待裁的决定,加上议程第一页等待当前人答复的条数;
+ *   - awaitingReply.more = 第一页仍有游标，显示 N+，不冒充总数;
  *   - unread = 这个项目没有读(未挂载、远端代理、已停用),页面按 mode 与状态解释原因。
  */
 export type ProjectActivityRead =
   | {
       readonly state: "ready";
+      readonly awaitingReply?: { readonly count: number; readonly more: boolean };
       readonly active: number;
       readonly awaitingYou: number;
       readonly inReview: number;
@@ -72,6 +75,7 @@ export function projectActivityRead(
     readonly data?: { readonly sessions: ReadonlyArray<{ readonly liveness: string }> };
     readonly error: unknown;
   },
+  agenda?: AgendaSuccess,
 ): ProjectActivityRead {
   if (summary.data === undefined)
     return summary.error === null || summary.error === undefined
@@ -83,7 +87,10 @@ export function projectActivityRead(
   return {
     state: "ready",
     active: byStatus.active,
-    awaitingYou: byStatus.submitted + summary.data.decisions.inboxCount,
+    awaitingYou: byStatus.submitted + summary.data.decisions.inboxCount + (agenda?.awaitingYou.length ?? 0),
+    ...(agenda === undefined
+      ? {}
+      : { awaitingReply: { count: agenda.awaitingYou.length, more: agenda.page.nextCursor !== null } }),
     inReview: byStatus.in_review,
     blocked: byStatus.blocked,
     liveAgents:

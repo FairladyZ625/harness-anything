@@ -366,7 +366,7 @@ function AppShell() {
     });
   };
 
-  const openProject = async (repoId: string) => {
+  const openProject = async (repoId: string, targetView: ViewId = "overview") => {
     if (repoId !== activeRepoId) {
       // 终端页(若挂载)随 goto("overview") 卸载,卸载清理自会停流并 detach 全部附件。
       if (activeRepoId) await queryClient.cancelQueries({ predicate: (query) => query.queryKey[1] === activeRepoId });
@@ -376,7 +376,7 @@ function AppShell() {
       setActiveRepoId(repoId);
     }
     setProjectSwitcherOpen(false);
-    goto("overview");
+    goto(targetView);
   };
 
   // 实体导航出口(可寻址路由 + 最近访问)集中在此 hook;跨仓跳转先切仓再续导航。
@@ -553,8 +553,8 @@ function AppShell() {
                 <HomeView
                   repos={systemQuery.data?.repos ?? []}
                   currentRepoId={activeRepoId}
-                  onOpenProject={(repoId) => {
-                    void openProject(repoId);
+                  onOpenProject={(repoId, targetView) => {
+                    void openProject(repoId, targetView);
                   }}
                 />
               ) : view === "overview" ? (

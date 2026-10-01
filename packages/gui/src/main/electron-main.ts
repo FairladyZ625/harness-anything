@@ -1,3 +1,4 @@
+import { registerProjectDirectoryIpc } from "./project-directory-ipc.ts";
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, type MenuItemConstructorOptions } from "electron";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -212,6 +213,17 @@ export async function startGuiApp(): Promise<void> {
       },
     };
   registerHarnessIpcHandlers(ipcMain, controlled, trustPolicy);
+  registerProjectDirectoryIpc(
+    ipcMain,
+    {
+      registeredRoot: (repoId) => {
+        const repo = readDaemonRegistry({ userRoot: daemonUserRoot() }).repos.find((row) => row.repoId === repoId);
+        return repo?.mode === "remote-proxy" ? null : (repo?.canonicalRoot ?? null);
+      },
+      openPath: (root) => shell.openPath(root),
+    },
+    trustPolicy,
+  );
   registerOidcAuthIpc(ipcMain, trustPolicy, {
     daemonRequest: (params) => requestDaemonAdminRpc("daemon.rbac.manage", params),
     openExternal: (url) => shell.openExternal(url),

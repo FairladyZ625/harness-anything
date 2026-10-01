@@ -51,7 +51,7 @@ export async function readAgenda(repoId: string, previous?: AgendaSuccess): Prom
   return joinAgendaCut(undefined, await readAgendaPage(repoId, {}));
 }
 
-async function readAgendaPage(repoId: string, facets: { readonly cursor?: string }): Promise<AgendaSuccess> {
+export async function readAgendaPage(repoId: string, facets: { readonly cursor?: string }): Promise<AgendaSuccess> {
   return harnessClient.getAgenda({ repoId, limit: AGENDA_PAGE_LIMIT, ...facets });
 }
 

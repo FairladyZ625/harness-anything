@@ -27,7 +27,7 @@ export function HomeView({
 }: {
   readonly repos: ReadonlyArray<SystemRepoRow>;
   readonly currentRepoId: string | null;
-  readonly onOpenProject: (repoId: string) => void;
+  readonly onOpenProject: (repoId: string, targetView?: "agenda" | "work") => void;
 }) {
   const readOf = useProjectActivity(repos),
     groups = groupProjects(repos, currentRepoId, readOf),
