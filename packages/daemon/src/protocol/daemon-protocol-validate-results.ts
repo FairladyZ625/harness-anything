@@ -451,6 +451,9 @@ export const writeReceiptFields = generatedWriteReceiptFields,
     // relation-unrelate returns its relation id on the CLI channel; repo.relation.unrelate (answering
     // an awaits ask) is a named ingress onto that same write.
     "relationId",
+    // decision-dispatch-review names the dispatch it launched (or the one already running for this
+    // content cut) on the CLI channel; repo.decision.dispatchReview is a named ingress onto that write.
+    "dispatches",
   ];
 
 export function writeReceipt(value: JsonObject): string[] {
