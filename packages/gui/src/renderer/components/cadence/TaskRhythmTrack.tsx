@@ -3,6 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { formatDurationMs } from "../scheduleRun/runMeta.ts";
+import { Region } from "../primitives/Region.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
 import {
   CADENCE_MICRO_EVENTS,
@@ -20,6 +21,10 @@ import { Segmented } from "../ui/widgets.tsx";
  * 只随视口走——千级任务窗口下不整列表挂载;行高由 measureElement 实测收敛(展开行
  * 是深度分析面板,远高于估算)。点击行原地展开(漏斗 + 微型事件链),不直接路由;
  * 展开头部提供独立「进入详情」外链;行内实体 ID 一律走 EntityRefLink(G10)。
+ *
+ * 外壳是 Region(标准 §2.1)。筛选条固定在行体顶部(Region 标题行不放动作),列表在它下面
+ * 自己的滚动容器里滚——窗口化认的滚动元素仍是本组件持有的这个 div,不是 Region 的行体;
+ * 它占满行体剩下的高度,所以 Region 的行体自己不会出现第二条滚动条。
  */
 
 export const RHYTHM_ROW_ESTIMATE_PX = 64,
@@ -85,48 +90,46 @@ export function TaskRhythmTrack({
       });
     };
   return (
-    <section
-      data-testid="cadence-rhythm"
-      className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-surface"
-    >
-      <header className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
-        <h2 className="ui-body font-semibold">{t("views.cadence.rhythmTitle")}</h2>
-        <Segmented
-          value={filter}
-          options={FILTERS.map(({ key, label }) => ({ key, label: label() }))}
-          onChange={setFilter}
-        />
-      </header>
-      {visible.length === 0 ? (
-        <p data-testid="cadence-rhythm-empty" className="px-3 py-3 ui-meta text-text-faint">
-          {t("views.cadence.rhythmEmpty")}
-        </p>
-      ) : (
-        <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
-          <ol
-            data-testid="cadence-rhythm-rows"
-            className="relative shrink-0"
-            style={{ height: virtualizer.getTotalSize() }}
-          >
-            {virtualizer.getVirtualItems().map((item) => {
-              const entry = visible[item.index]!;
-              return (
-                <RhythmRow
-                  key={item.key}
-                  index={item.index}
-                  measureRef={virtualizer.measureElement}
-                  entry={entry}
-                  expanded={expandedIds.has(entry.taskId)}
-                  onToggle={toggleExpanded}
-                  onNavigateEntity={onNavigateEntity}
-                  style={{ transform: `translateY(${item.start}px)` }}
-                />
-              );
-            })}
-          </ol>
+    <Region title={t("views.cadence.rhythmTitle")} big={visible.length}>
+      <div className="flex h-full flex-col">
+        <div className="flex-none border-b border-border px-3 pb-2">
+          <Segmented
+            value={filter}
+            options={FILTERS.map(({ key, label }) => ({ key, label: label() }))}
+            onChange={setFilter}
+          />
         </div>
-      )}
-    </section>
+        {visible.length === 0 ? (
+          <p data-testid="cadence-rhythm-empty" className="px-3 py-3 ui-meta text-text-faint">
+            {t("views.cadence.rhythmEmpty")}
+          </p>
+        ) : (
+          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
+            <ol
+              data-testid="cadence-rhythm-rows"
+              className="relative shrink-0"
+              style={{ height: virtualizer.getTotalSize() }}
+            >
+              {virtualizer.getVirtualItems().map((item) => {
+                const entry = visible[item.index]!;
+                return (
+                  <RhythmRow
+                    key={item.key}
+                    index={item.index}
+                    measureRef={virtualizer.measureElement}
+                    entry={entry}
+                    expanded={expandedIds.has(entry.taskId)}
+                    onToggle={toggleExpanded}
+                    onNavigateEntity={onNavigateEntity}
+                    style={{ transform: `translateY(${item.start}px)` }}
+                  />
+                );
+              })}
+            </ol>
+          </div>
+        )}
+      </div>
+    </Region>
   );
 }
 

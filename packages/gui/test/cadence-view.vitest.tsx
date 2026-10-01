@@ -15,7 +15,9 @@ import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
 /**
  * 研发态势视图的装配判据(happy-dom):
  *  - observe.tail events 页(history 方向,单页 done)进入 HUD/音轨/摩擦/产出;
- *  - 音轨外行节拍指标(历时徽章、首轮直通/返工)与右栏内联滚动(max-h + overflow);
+ *  - 音轨外行节拍指标(历时徽章、首轮直通/返工);
+ *  - 外壳是区域板(标准 §2.1):堵点、产出、摩擦、任务节奏四块都是 Region,任务节奏在最右一列,
+ *    窗口化列表的滚动元素仍是音轨自己的那个 div;
  *  - 音轨点击原地展开:阶段耗时漏斗(瓶颈占比) + 微型事件链(fact statement 原地可读),
  *    「进入详情」外链与实体跳转走 onNavigateEntity(task/<id>、decision/<id>);
  *  - `unavailable`(远端 edge 无事件流)显式横幅,不冒充空驾驶舱;
@@ -322,7 +324,6 @@ describe("CadenceView", () => {
     expect(doneRow?.textContent).toContain("历时 1h");
     expect(liveRow?.textContent).toContain("2 次返工/打回");
     expect(doneRow?.textContent).toContain("首轮直通");
-    // 右栏卡片高度随内容呈现,由右栏外层统一提供滚动条,避免卡片内部定高截断或覆盖。
     const frictionTasks = container.querySelector('[data-testid="cadence-friction-tasks"]');
     expect(frictionTasks).not.toBeNull();
     const yieldBody = container.querySelector('[data-testid="cadence-yield-body"]');
@@ -330,10 +331,72 @@ describe("CadenceView", () => {
     // 摩擦雷达:门禁失败 1 · 评审打回 1;产出:今日 Fact 1。
     expect(textOf(container, "cadence-friction")).toContain("门禁失败 1");
     expect(textOf(container, "cadence-yield-facts")).toContain("1");
-    // 堵点卡片:待裁决策与待裁决执行两组都在,卡片高度随内容展开不截断。
+    // 堵点:待裁决策与待裁决执行两组都在,整组铺开不截断。
     const blockers = container.querySelector('[data-testid="cadence-blockers-groups"]');
     expect(blockers?.textContent).toContain("探针决策:切换读取形态");
     expect(blockers?.textContent).toContain("待裁决执行 1");
+  });
+
+  it("frames all four blocks as Regions on the shared board, task rhythm in the rightmost column", async () => {
+    const { container } = await mountCadence({
+      page: historyPage([
+        eventItem({ id: "e1", type: "task_created", revision: 1, taskId: "task_live", at: "2026-09-20T01:00:00.000Z" }),
+        eventItem({
+          id: "e2",
+          type: "completion_gate_verified",
+          revision: 2,
+          taskId: "task_live",
+          payload: { witness: { gateId: "ci", result: "fail" } },
+        }),
+      ]),
+      agenda: AGENDA,
+    });
+    const panel = container.querySelector("#cadence-panel")!,
+      board = panel.querySelector('[data-testid="cadence-board"]')!,
+      block = (name: string) => panel.querySelector(`[data-testid="cadence-${name}"]`)!;
+    // 四块都是 Region 区域框(标题在框里);页签里没有框外的标题,也没有自写的圆角外框。
+    for (const name of ["blockers", "yield", "friction", "rhythm"]) {
+      expect(block(name).querySelector(":scope > section[data-entry-region] h2"), name).not.toBeNull();
+    }
+    expect(panel.querySelectorAll("section[data-entry-region]").length).toBe(4);
+    expect([...panel.querySelectorAll("h2")].every((h2) => h2.closest("section[data-entry-region]") !== null)).toBe(
+      true,
+    );
+    expect(panel.querySelector("section.rounded-lg h2")).toBeNull();
+    // 列位置:主区按堵点、产出、摩擦排,任务节奏是板的最后一格(时间线列,最右)。
+    expect([...board.querySelectorAll("[data-region]")].map((region) => region.getAttribute("data-region"))).toEqual([
+      "blockers",
+      "yield",
+      "friction",
+      "recent",
+    ]);
+    expect(board.lastElementChild).toBe(block("rhythm"));
+    // 列切换只靠容器查询:页签面板自己是容器量尺且窄时由它滚动,板上没有视口断点。
+    expect(panel.className).toContain("@container");
+    expect(panel.className).toContain("overflow-y-auto");
+    expect(board.outerHTML).not.toMatch(/\b(?:sm|md|lg|xl):grid-cols/u);
+    // 窗口化认的滚动元素是音轨自己的 div:它是行列表的父元素,占满 Region 行体(行体自己不滚)。
+    const scroller = block("rhythm").querySelector('[data-testid="cadence-rhythm-rows"]')!.parentElement!,
+      regionBody = block("rhythm").querySelector(":scope > section > div:nth-child(2) > div")!;
+    expect(scroller.className).toContain("overflow-y-auto");
+    expect(scroller.className).toContain("flex-1");
+    expect(scroller.parentElement!.className).toContain("h-full");
+    expect(scroller.parentElement!.parentElement).toBe(regionBody);
+    // 产出的条目是 DenseRow(板据此量「至少露出三条」);摩擦的行是自写的,有内容时用 fill 保底。
+    expect(block("yield").querySelectorAll("[data-dense-row]").length).toBeGreaterThanOrEqual(3);
+    expect(block("friction").className).toContain("flex-[1_1_100%]");
+    // 区域级去向在页脚:去总池的按钮不在标题行。
+    const pool = [...block("blockers").querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("去待办签发总池"),
+    )!;
+    expect(pool.closest("section")!.lastElementChild!.contains(pool)).toBe(true);
+  });
+
+  it("does not stretch the friction region when it has nothing to show", async () => {
+    const { container } = await mountCadence({ page: historyPage([]), agenda: AGENDA, tasks: [] });
+    const friction = container.querySelector('[data-testid="cadence-friction"]')!;
+    expect(friction.querySelector('[data-testid="cadence-friction-empty"]')).not.toBeNull();
+    expect(friction.className).not.toContain("flex-[1_1_100%]");
   });
 
   it("renders every blocker item — no silent slice(0,5) cap (v2 §1.8)", async () => {

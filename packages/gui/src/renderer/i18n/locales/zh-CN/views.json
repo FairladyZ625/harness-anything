@@ -982,7 +982,6 @@
   "views.cadence.stalledBadge": "停滞",
   "views.cadence.frictionBadge": "摩擦 {count}",
   "views.cadence.frictionTitle": "摩擦与空转雷达",
-  "views.cadence.frictionTotal": "信号 {count}",
   "views.cadence.frictionEmpty": "窗口内无摩擦信号,也无停滞任务",
   "views.cadence.frictionGateFail": "门禁失败",
   "views.cadence.frictionReviewChanges": "评审打回",
