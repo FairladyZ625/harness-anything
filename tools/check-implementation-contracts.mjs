@@ -182,6 +182,9 @@ const retiredPortableStoreTest = "packages/kernel/test/store/portable-path-colli
 if (existsSync(path.join(root, retiredPortableStoreTest)))
   record(`${retiredPortableStoreTest}: W3-retired journal/store test must not return`);
 
+if (!files.some((file) => relative(file).startsWith("packages/gui/src/")))
+  record("required scan root packages/gui/src has no source files");
+
 const hasGuiImplementation = files.some((file) =>
   /packages\/gui\/src\/(?:main|preload|renderer|api|terminal|doc-renderer)\//.test(relative(file)),
 );

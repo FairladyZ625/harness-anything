@@ -1,7 +1,16 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { globSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  globSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -111,6 +120,13 @@ test("renderer rule blocks credential token shapes and private paths but passes 
         ),
         `expected renderer rule to flag ${name}\n${blocked.stderr}`,
       );
+    }
+    renameSync(path.join(fixture, "packages/gui/src"), path.join(fixture, "escaped-gui-src"));
+    for (const empty of [false, true]) {
+      if (empty) mkdirSync(path.join(fixture, "packages/gui/src"));
+      const missing = runGate();
+      assert.notEqual(missing.status, 0, "GUI disappearance must not deactivate its contract");
+      assert.match(missing.stderr, /packages\/gui\/src/u);
     }
   } finally {
     rmSync(fixture, { recursive: true, force: true });

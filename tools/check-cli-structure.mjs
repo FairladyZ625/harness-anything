@@ -168,10 +168,6 @@ function checkDaemonTransportImportGraph() {
     "packages/preset/src/task-action-projection.generated.ts",
     "packages/preset/src/task-create-projection.generated.ts",
   ]);
-  // Reduced fixture trees (tools/gates/test/cli-structure.test.mjs) may not carry the daemon
-  // package's line client at all; absent means not under test, not a violation — a real tree
-  // always has it, and renaming it breaks typecheck before this check could say anything useful.
-  if (!existsSync(path.join(root, "packages/daemon/src/client/local-json-rpc-client.ts"))) return;
   const pending = ["packages/daemon/src/client/local-json-rpc-client.ts"],
     visited = new Set();
   while (pending.length > 0) {

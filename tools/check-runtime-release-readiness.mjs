@@ -276,7 +276,6 @@ function unquoteYamlScalar(value) {
 
 function collectReleaseOverclaims() {
   for (const docPath of ["README.md", ...listMarkdown("docs-release")]) {
-    if (!existsSync(path.join(root, docPath))) continue;
     const content = read(docPath).replace(/\n\s*/gu, " ");
     for (const sentence of content.split(/(?<=[.!?])\s+/u)) {
       for (const clause of sentence.split(/\s*(?:;|\bbut\b|\bhowever\b)\s*/iu)) {

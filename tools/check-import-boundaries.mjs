@@ -286,6 +286,8 @@ async function checkOrphanPackageModules(packageFiles, importEdges) {
 }
 
 const packageSourceFiles = (await Promise.all(sourceRoots.map((sourceRoot) => walk(sourceRoot)))).flat();
+if (packageSourceFiles.length === 0)
+  throw new Error("check-import-boundaries: required scan root packages has no source files");
 const toolSourceFiles = await walk(path.join(root, "tools"));
 const knownImportFiles = new Set([...packageSourceFiles, ...toolSourceFiles].map(relative));
 const importEdges = await collectImportEdges([...packageSourceFiles, ...toolSourceFiles], knownImportFiles);

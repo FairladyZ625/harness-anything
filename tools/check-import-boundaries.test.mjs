@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -629,5 +629,20 @@ function runChecker(cwd, options = {}) {
       ...process.env,
       ...(options.env ?? {}),
     },
+  });
+}
+
+for (const empty of [false, true]) {
+  test(`import boundary rejects ${empty ? "empty" : "missing"} packages discovery`, () => {
+    const root = makeFixtureRoot();
+    try {
+      renameSync(path.join(root, "packages"), path.join(root, "escaped-packages"));
+      if (empty) mkdirSync(path.join(root, "packages"));
+      const result = runChecker(root);
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /packages/u);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 }
