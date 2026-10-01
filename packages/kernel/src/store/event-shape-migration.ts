@@ -5,7 +5,6 @@ import {
 } from "../domain/ci-run-observation-event.ts";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { readdirSync, readFileSync } from "node:fs";
 import {
   inferLegacyGateRequirements,
   validateFrozenCompletionContract,
@@ -39,7 +38,9 @@ import { validateTaskV2, type TaskV2 } from "../domain/task.ts";
 import { normalizePersistedTimestamp } from "../domain/timestamp.ts";
 import { isRecord } from "../domain/write-chain.contract.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
-import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
+import { localEventFileSystem, localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
+import { resolveHarnessLayout } from "../layout/index.ts";
+import { readSettingsFacet } from "../domain/settings.ts";
 import { makeTaskProjection } from "../projection/rebuildable-task-projection-factory.ts";
 import { canonicalJson } from "../projection/rebuildable-task-projection-sql.ts";
 import type { TaskProjection } from "../projection/task-projection-port.ts";
@@ -202,6 +203,9 @@ function normalizeEmbeddedTaskToCurrentTaskV2(task: TaskV2): TaskV2 | null {
     ...current,
     schema: "task/v2",
     ...(Object.hasOwn(current, "pinned") ? {} : { pinned: false }),
+    // Pre-disposition task entities materialize the default so the strict package-disposition
+    // read edge (requiredPackageDisposition) sees the current contract shape after rebuild.
+    ...(current.packageDisposition === undefined ? { packageDisposition: "active" as const } : {}),
   };
   if (normalized.metadata !== undefined) {
     const { longRunning: _retiredLongRunning, ...metadata } = normalized.metadata as TaskV2["metadata"] & {
@@ -729,26 +733,24 @@ const entityOwnedContentMigration: EventShapeMigrationSpec = {
 
 // Submissions accepted before the contract freeze carry no completionContract; the read side already
 // infers their effective requirements from the task's declared gates (inferLegacyGateRequirements).
-// Conversion mints that same frozen contract — ci resolves through the repository's
-// .github/workflows registry — so strict serialization replays the event unchanged. The migration
-// must run before review-submission-pins so pinned digests cover the frozen submission.
+// Conversion mints that same frozen contract — ci resolves through the repository's declared
+// settings facet (settings.ci.workflows), the same registry cell.settings.read() consults — so
+// strict serialization replays the event unchanged. The migration must run before
+// review-submission-pins so pinned digests cover the frozen submission.
 let conversionRootDir: string | null = null;
 let conversionWorkflowRegistry: readonly string[] | null = null;
 function ciWorkflowRegistryForConversion(): readonly string[] {
   if (conversionWorkflowRegistry !== null) return conversionWorkflowRegistry;
-  const workflows: string[] = [];
-  try {
-    const dir = path.join(conversionRootDir ?? "", ".github", "workflows");
-    for (const file of readdirSync(dir)) {
-      if (!/\.(ya?ml)$/i.test(file)) continue;
-      const match = readFileSync(path.join(dir, file), "utf8").match(/^name:\s*"?([^"\r\n]+?)"?\s*$/m);
-      workflows.push(match ? match[1]!.trim() : file.replace(/\.(ya?ml)$/i, ""));
-    }
-  } catch {
-    // No workflow directory: the ci gate infers nothing, matching the empty-registry read path.
-  }
-  conversionWorkflowRegistry = workflows;
-  return workflows;
+  const configPath =
+      conversionRootDir === null ? undefined : resolveHarnessLayout(conversionRootDir).configPath,
+    body =
+      configPath !== undefined && localEventFileSystem.exists(configPath)
+        ? localEventFileSystem.readText(configPath)
+        : null;
+  // A repository without a settings facet has no declared CI workflows, matching the daemon's
+  // empty-registry read path for such ledgers.
+  conversionWorkflowRegistry = body === null ? [] : (readSettingsFacet(body).ci.workflows ?? []);
+  return conversionWorkflowRegistry;
 }
 const submissionCompletionContractMigration: EventShapeMigrationSpec = {
   name: "submission-completion-contract",

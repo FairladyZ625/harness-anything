@@ -6,6 +6,7 @@ import { resolveHarnessLayout, type HarnessLayoutInput } from "../layout/index.t
 import { localEventFileSystem, localEvidenceFileSystem } from "../local/local-layout-file-system.ts";
 import { ledgerGitPath, resolveLedgerGitLayout } from "./ledger-git-layout.ts";
 import { localGitObjectRefStore } from "./local-version-control-system.ts";
+import { contentClaims } from "./task-event-store-claims-layout.ts";
 import { CANONICAL_EVENT_REF, TaskEventStoreError } from "./task-event-store-types.ts";
 
 export interface StoppedLegacySourceEvidenceV1 {
@@ -70,6 +71,14 @@ export function readStoppedLegacyGeneration(input: { readonly rootInput: Harness
       walLastOffset: wal.lastOffset,
       ...(invalidContentObjects.length > 0 ? { invalidContentObjects } : {}),
     };
+  // An invalid object that an event actually claims keeps the historical hard failure — only
+  // unreferenced corruption is demoted to sourceEvidence.
+  const claimedSha256 = new Set(
+    merged.flatMap((entry) => contentClaims(entry.event).map((claim) => claim.sha256)),
+  );
+  for (const invalid of invalidContentObjects)
+    if (invalid.declaredSha256 !== null && claimedSha256.has(invalid.declaredSha256))
+      throw new TaskEventStoreError("invalid_store", `legacy content object ${invalid.path} is invalid`);
   assertLegacySequence(merged, gitHead?.revision ?? 0, wal.revision);
   assertWalPrefixAnchor(gitEvents, wal);
   if (

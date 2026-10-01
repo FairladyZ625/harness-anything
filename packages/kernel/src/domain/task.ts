@@ -260,15 +260,11 @@ function metadataIssue(value: unknown, allowUnknownFields: boolean): ContractVal
 }
 
 export function currentTaskForWrite(task: TaskV2): TaskV2 {
-  const { relations: _legacyRelations, ...withoutHostedRelations } = task as TaskV2 & { readonly relations?: unknown },
-    settled =
-      withoutHostedRelations.packageDisposition === undefined
-        ? { ...withoutHostedRelations, packageDisposition: "active" as const }
-        : withoutHostedRelations;
-  if (task.metadata === undefined || !Object.hasOwn(task.metadata, "longRunning")) return settled;
+  const { relations: _legacyRelations, ...withoutHostedRelations } = task as TaskV2 & { readonly relations?: unknown };
+  if (task.metadata === undefined || !Object.hasOwn(task.metadata, "longRunning")) return withoutHostedRelations;
   const { longRunning, ...metadata } = task.metadata as TaskMetadataV1 & { readonly longRunning: unknown };
   void longRunning;
-  return { ...settled, metadata };
+  return { ...withoutHostedRelations, metadata };
 }
 
 const taskNodeIdsForValidation = ["implementation", "review"] as const;
