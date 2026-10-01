@@ -15,7 +15,7 @@
 ## Repository Scaffolds
 
 Repository Harness layout and responsibilities:
-- `harness/harness.yaml`: Repository governance configuration baseline.
+- Settings (read with `ha settings read`): Repository governance configuration baseline.
 - `harness/tasks/`: Task packages collection. Each package manages its own `task_plan.md`, `closeout.md`, and artifacts.
 - `harness/decisions/`: Architectural and design decision ledger (recording context, choices, rejected alternatives, and evidence).
 - `harness/facts/`: Objective evidence ledger (immutable records of ground-truth measurements).

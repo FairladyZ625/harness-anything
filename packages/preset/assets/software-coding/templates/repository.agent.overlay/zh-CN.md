@@ -15,7 +15,7 @@
 ## Repository Scaffolds
 
 本项目 Harness 目录结构与职责划分：
-- `harness/harness.yaml`：仓库治理配置基准与全局设置。
+- 设置（用 `ha settings read` 读取）：仓库治理配置基准与全局设置。
 - `harness/tasks/`：任务包集合。每个任务包独立管理其 `task_plan.md`、`closeout.md` 与工件产物。
 - `harness/decisions/`：架构与设计决策台账（记录背景、选型、被否决项及支撑证据）。
 - `harness/facts/`：客观证据台账（不可篡改的实测与验证记录）。
