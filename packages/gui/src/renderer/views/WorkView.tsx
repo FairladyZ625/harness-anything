@@ -3,8 +3,9 @@ import { Plus } from "@phosphor-icons/react";
 import type { SnapshotStatus, TaskRow } from "../model/types.ts";
 import type { CatalogSnapshotSuccess } from "../api-client-catalog.ts";
 import type { AgendaSuccess } from "../api-client.ts";
+import type { AgendaAttentionItem } from "../../api/renderer-dto.ts";
 import { StartWorkDialog } from "../components/StartWorkDialog.tsx";
-import { t } from "../i18n/index.tsx";
+import { t, type MessageKey } from "../i18n/index.tsx";
 import {
   attentionByWork,
   collectWork,
@@ -16,7 +17,8 @@ import { FilterChips } from "../components/primitives/FilterChips.tsx";
 import { SegBar } from "../components/primitives/SegBar.tsx";
 import { StatusTag, type StatusTone } from "../components/primitives/StatusTag.tsx";
 import { DenseRow } from "../components/primitives/DenseRow.tsx";
-import { TitleText } from "../components/primitives/TitleText.tsx";
+import { splitTitleFocus, TitleText } from "../components/primitives/TitleText.tsx";
+import { entryTitle, metaLine, waitingReason } from "./workspace/entry-lines.tsx";
 import { relativeTime } from "../sessions-model.ts";
 import { formatTime } from "../model/time.ts";
 
@@ -38,12 +40,16 @@ type WorkSort = "attn" | "activity" | "progress";
 interface WorkEntry {
   readonly group: WorkGroup;
   readonly health: WorkHealth;
+  /** 议程读面里本工作的阻塞/停滞条目;第二行报卡在哪个任务上。 */
+  readonly stuck: readonly AgendaAttentionItem[];
 }
 
 /**
  * 工作页(S4,dec_B3D40712A6B050D83F1C2EF78D CH1 的「工作」区域放大成整页;交互样张是
- * overview-prototype-v1.html 的「工作」tab):每个工作一行健康摘要——状态分段进度条、
- * 执行/待审/阻塞/计划数、有几件等你、在跑 agent、最后活动、停滞标记。默认只看
+ * overview-prototype-v1.html 的「工作」tab):每个工作一条两行健康摘要(标准 §2.4)——
+ * 第一行最要紧的一个状态、冒号前的标题、最后活动;第二行弱色报进度(完成/总数)、
+ * 在跑 agent 数、在等谁或卡在哪,标题冒号后的补充垫在末尾;执行/待审/阻塞/计划数在
+ * 展开体里。默认只看
  * 「需要关注」,其余折叠成一行;搜索同时匹配工作标题与其下任务标题,命中任务显示在
  * 所属工作下;排序默认用 daemon 议程读面的注意力分(与总览同一序)。数据全部来自
  * App 已挂载的任务切面与议程读面,本页不另发请求。顶部仍是「开始一项工作」的唯一
@@ -83,6 +89,7 @@ export function WorkView({
   const entries: WorkEntry[] = collections.groups.map((group) => ({
     group,
     health: workHealth(group, attention.get(group.task.taskId), now),
+    stuck: attention.get(group.task.taskId)?.stuck ?? [],
   }));
   const query = search.trim().toLocaleLowerCase();
   const matchesText = (task: TaskRow) => `${task.title} ${task.taskId}`.toLocaleLowerCase().includes(query);
@@ -208,11 +215,13 @@ export function WorkView({
           {t("views.work.reading")}
         </p>
       ) : null}
-      <section className="space-y-1.5">
+      {/* 行间用 DenseRow 自带的 1px 分隔线,不再另加间隙(标准 §3:二者择一)。 */}
+      <section className="border-b border-border">
         {rows.map((entry) => (
           <WorkRow
             key={entry.group.task.taskId}
             entry={entry}
+            titleOf={(taskId) => tasks.find((task) => task.taskId === taskId)?.title}
             hits={searchHits(entry)}
             open={expanded.has(entry.group.task.taskId) || searchHits(entry).length > 0}
             ready={ready}
@@ -232,6 +241,7 @@ export function WorkView({
 
 function WorkRow({
   entry,
+  titleOf,
   hits,
   open,
   ready,
@@ -239,6 +249,8 @@ function WorkRow({
   onOpen,
 }: {
   readonly entry: WorkEntry;
+  /** 卡住本工作的任务可能在工作之外,标题从全仓任务切面查。 */
+  readonly titleOf: (taskId: string) => string | undefined;
   /** 搜索命中的后代任务,显示在所属工作的标题下(样张 v1 的「↳ 命中行」)。 */
   readonly hits: readonly TaskRow[];
   readonly open: boolean;
@@ -246,27 +258,117 @@ function WorkRow({
   readonly onToggle: () => void;
   readonly onOpen: () => void;
 }) {
-  const { group, health } = entry,
+  const { group, health, stuck } = entry,
     { task, counts } = group,
     effective = group.leaves - (counts.cancelled ?? 0),
     lastActivity = formatTime(group.lastChangeAt, { style: "month-day-time" }) ?? group.lastChangeAt;
+  // 第一行只放一个状态:等你 > 阻塞 > 停滞 > 可收尾 > 在跑 > 工作根自己的状态;其余进第二行。
+  const flag =
+    health.mine.length > 0
+      ? "mine"
+      : health.blocked
+        ? "blocked"
+        : health.stale
+          ? "stale"
+          : health.finished
+            ? "finished"
+            : group.live > 0
+              ? "agents"
+              : null;
+  const tag =
+    flag === "mine" ? (
+      <StatusTag tone="bad" label={t("views.work.flag.mine", { count: health.mine.length })} />
+    ) : flag === "blocked" ? (
+      <StatusTag tone="bad" label={t("views.work.flag.blocked")} />
+    ) : flag === "stale" ? (
+      <StatusTag tone="wait" label={t("views.work.flag.stale")} />
+    ) : flag === "finished" ? (
+      <StatusTag tone="neutral" label={t("views.work.flag.finished")} />
+    ) : flag === "agents" ? (
+      <StatusTag tone="active" label={t("views.work.flag.agents", { count: group.live })} />
+    ) : (
+      <StatusTag status={task.coordinationStatus} />
+    );
+  // 在等谁:第一件等你处理的事。卡在哪:第一个带阻塞贡献的任务;读不到贡献就报议程里的阻塞
+  // 条目,再不然报第一个处于阻塞状态的任务。已经报了「等你」时不再重复同一条 awaits 边或同一个任务。
+  const mine = health.mine[0],
+    blockersOf = ({ blockers }: TaskRow) =>
+      (blockers ?? []).filter(({ kind }) => mine === undefined || kind === "depends-on"),
+    blockedTask = [task, ...group.members].find((row) => blockersOf(row).length > 0),
+    blockedItem = stuck.find(({ kind, title }) => kind === "blocked" && title !== mine?.title),
+    blockedMember = group.members.find(
+      ({ canonicalStatus, title }) => canonicalStatus === "blocked" && title !== mine?.title,
+    ),
+    reasonText = (kind: string, title: string) =>
+      t("views.work.line.attention", {
+        kind: t(`views.work.attention.${kind}` as MessageKey),
+        title: splitTitleFocus(title).focus,
+      }),
+    { focus, supplement } = entryTitle(task.title);
   return (
-    <article
-      data-testid="work-row"
-      data-work-id={task.taskId}
-      className="rounded-sm border border-border bg-surface-raised"
-    >
+    <article data-testid="work-row" data-work-id={task.taskId}>
       <button
         type="button"
         data-testid="work-row-toggle"
         aria-expanded={open}
         onClick={onToggle}
-        className={`flex w-full flex-wrap gap-x-3 gap-y-1.5 px-3 py-2 text-left hover:border-accent/60 ${hits.length > 0 ? "items-start" : "items-center"}`}
+        className="w-full text-left hover:bg-text/5"
       >
-        <span className="flex min-w-[220px] flex-1 flex-col gap-1">
-          <span className="truncate text-sm font-semibold text-text" title={task.title}>
-            <TitleText title={task.title} />
-          </span>
+        <DenseRow
+          relaxed
+          index={open ? "▾" : "▸"}
+          tag={
+            // 标签列定宽:各行标题左缘对齐,不随标签文字长短错位。
+            <span data-testid="work-flags" className="inline-block w-20">
+              {tag}
+            </span>
+          }
+          title={<span className="font-semibold">{focus}</span>}
+          reason={metaLine([
+            ready ? (
+              <span data-testid="work-progress">
+                <SegBar
+                  counts={counts as Partial<Record<SnapshotStatus, number>>}
+                  className="mr-1.5 inline-flex w-16 align-middle"
+                />
+                <span className="font-mono tabular-nums">
+                  {t("views.work.line.progress", { done: counts.done ?? 0, total: effective })}
+                </span>
+              </span>
+            ) : undefined,
+            group.live > 0 && flag !== "agents" ? t("views.work.flag.agents", { count: group.live }) : undefined,
+            mine === undefined
+              ? undefined
+              : health.mine.length > 1
+                ? t("views.workspace.wait.more", {
+                    reason: reasonText(mine.kind, mine.title),
+                    count: health.mine.length - 1,
+                  })
+                : reasonText(mine.kind, mine.title),
+            blockedTask !== undefined
+              ? waitingReason(blockersOf(blockedTask), titleOf)
+              : blockedItem !== undefined
+                ? reasonText("blocked", blockedItem.title)
+                : blockedMember !== undefined
+                  ? reasonText("blocked", blockedMember.title)
+                  : undefined,
+            health.stale && flag !== "stale" ? t("views.work.flag.stale") : undefined,
+            supplement,
+          ])}
+          time={
+            <span
+              data-testid="work-last-activity"
+              title={
+                group.activity ? `${group.activity.taskId} · ${group.activity.summary} · ${lastActivity}` : lastActivity
+              }
+            >
+              {relativeTime(group.lastChangeAt)}
+            </span>
+          }
+        />
+      </button>
+      {hits.length > 0 ? (
+        <div className="space-y-1 px-3.5 pb-2 pl-10">
           {hits.map((hit) => (
             <span key={hit.taskId} data-testid="work-hit" className="flex min-w-0 items-center gap-1.5">
               <span aria-hidden className="text-text-faint">
@@ -278,38 +380,10 @@ function WorkRow({
               <StatusTag status={(hit.canonicalStatus ?? "unknown") as SnapshotStatus} />
             </span>
           ))}
-        </span>
-        {ready ? (
-          <span data-testid="work-progress" className="flex w-40 shrink-0 flex-col gap-1">
-            <SegBar counts={counts as Partial<Record<SnapshotStatus, number>>} />
-            <span className="font-mono tabular-nums text-text-muted ui-meta">
-              {counts.done ?? 0} / {effective}
-            </span>
-          </span>
-        ) : null}
-        <span data-testid="work-flags" className="flex w-60 shrink-0 flex-wrap items-center gap-1">
-          {health.mine.length > 0 ? (
-            <StatusTag tone="bad" label={t("views.work.flag.mine", { count: health.mine.length })} />
-          ) : null}
-          {health.blocked ? <StatusTag tone="bad" label={t("views.work.flag.blocked")} /> : null}
-          {health.stale ? <StatusTag tone="wait" label={t("views.work.flag.stale")} /> : null}
-          {group.live > 0 ? (
-            <StatusTag tone="active" label={t("views.work.flag.agents", { count: group.live })} />
-          ) : null}
-          {health.finished ? <StatusTag tone="neutral" label={t("views.work.flag.finished")} /> : null}
-        </span>
-        <span
-          data-testid="work-last-activity"
-          title={
-            group.activity ? `${group.activity.taskId} · ${group.activity.summary} · ${lastActivity}` : lastActivity
-          }
-          className="w-24 shrink-0 text-right font-mono tabular-nums text-text-muted ui-meta"
-        >
-          {relativeTime(group.lastChangeAt)}
-        </span>
-      </button>
+        </div>
+      ) : null}
       {open ? (
-        <div data-testid="work-row-body" className="space-y-2 border-t border-border px-3 py-2.5">
+        <div data-testid="work-row-body" className="space-y-2 px-3.5 pb-3 pl-10">
           {ready ? (
             <p className="flex flex-wrap gap-x-3 gap-y-1 ui-meta text-text-muted">
               <span>

@@ -171,7 +171,8 @@ describe("S4 工作页:一行健康摘要与注意力排序", () => {
     const rowOf = (id: string) => view.host.querySelector(`[data-testid="work-row"][data-work-id="${id}"]`)!;
     expect(rowIds(view.host)).toEqual(["w-urgent", "w-stale", "w-running"]);
     expect(rowOf("w-urgent").textContent).toContain("1 件等你");
-    expect(rowOf("w-urgent").textContent).toContain("有阻塞");
+    // 阻塞不再是第二个徽章:第二行直接点名卡住的任务。
+    expect(rowOf("w-urgent").textContent).toContain("阻塞：t-blocked");
     expect(rowOf("w-running").textContent).toContain("1 个 agent");
     expect(rowOf("w-stale").textContent).toContain("停滞");
     for (const id of ["w-urgent", "w-stale", "w-running"]) {
@@ -182,6 +183,63 @@ describe("S4 工作页:一行健康摘要与注意力排序", () => {
     click(chip(view.host, "可收尾"));
     expect(rowOf("w-finished").textContent).toContain("可收尾");
     view.unmount();
+  });
+
+  it("每条工作两行:第一行一个状态 + 冒号前标题 + 最后活动;第二行弱色报进度、在跑数、在等谁或卡在哪", () => {
+    const rows: TaskRow[] = [
+      task("w-two", { title: "PLT-Honest：系统说的每句话必须为真" }),
+      member("t-done", "w-two", { canonicalStatus: "done" }),
+      member("t-run", "w-two", { canonicalStatus: "active", activeExecutionId: "exec-1", leaseHolder: "person_x" }),
+      member("t-wait", "w-two", {
+        canonicalStatus: "blocked",
+        blockers: [
+          // 已经报了「等你」:同一条 awaits 边不在第二行重复一遍。
+          {
+            relationId: "rel_0",
+            kind: "awaits",
+            sourceTaskId: "t-wait",
+            personId: "zeyu",
+            askKind: "acceptance",
+            question: "看截图",
+          },
+          { relationId: "rel_1", kind: "depends-on", sourceTaskId: "t-wait", targetTaskId: "t-run" },
+        ],
+      }),
+    ];
+    const host = document.createElement("div"),
+      root = createRoot(host);
+    act(() =>
+      root.render(
+        <WorkView
+          tasks={rows}
+          repoId="p"
+          ready
+          onOpenTask={() => {}}
+          catalog={undefined}
+          catalogError={null}
+          daemonState="responsive"
+          onRefreshLedger={() => {}}
+          agenda={
+            {
+              ...AGENDA,
+              attentionItems: [attention("relation/r1", "awaiting-you", "mine", "w-two", 130, "验收两行：看截图")],
+            } as unknown as AgendaSuccess
+          }
+        />,
+      ),
+    );
+    const grid = host.querySelector('[data-testid="work-row"][data-work-id="w-two"] .grid')!;
+    expect(grid.className).toContain("min-h-14");
+    // 第一行:只有一个状态标签,标题止于冒号前。
+    expect(grid.querySelectorAll('[data-testid="work-flags"] [data-status-tone]')).toHaveLength(1);
+    expect(grid.querySelector('[data-testid="work-flags"]')!.textContent).toBe("1 件等你");
+    expect(grid.querySelector("span.block.truncate.text-text")!.textContent).toBe("PLT-Honest");
+    expect(grid.querySelector('[data-testid="work-last-activity"]')).toBeTruthy();
+    // 第二行:进度(完成/总数)· 在跑 agent 数 · 在等谁 · 卡在哪 · 标题补充。
+    expect(grid.querySelector("span.block.text-text-faint")!.textContent).toBe(
+      "1/3 完成 · 1 个 agent · 等你答复：验收两行 · 被「t-run」卡住 · 系统说的每句话必须为真",
+    );
+    act(() => root.unmount());
   });
 
   it("展开一行看到执行/待审/阻塞/计划数、注意列表与「打开工作」", () => {

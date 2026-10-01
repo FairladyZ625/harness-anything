@@ -319,7 +319,7 @@ describe("workspace readability under real ledger shapes", () => {
               })),
             ]}
             decisions={[
-              decision("dec_effect", "in_effect", "生效中的决策"),
+              decision("dec_effect", "in_effect", "生效中的决策：补充口径"),
               decision("dec_old", "superseded", "已取代的决策"),
               decision("dec_old2", "rejected", "已否决的决策"),
             ]}
@@ -334,6 +334,20 @@ describe("workspace readability under real ledger shapes", () => {
     expect(host.textContent).toContain("生效中的决策");
     expect(host.textContent).toContain("已取代的决策");
     expect(host.querySelector('[data-testid="work-decisions-retired-toggle"]')).toBeNull();
+    // 条目两行(§2.4):第一行冒号前的标题;第二行弱色报最近变化与标题补充。
+    const entry = (text: string) =>
+      [...host.querySelectorAll("#workspace-panel button.grid")].find((grid) => grid.textContent?.includes(text))!;
+    const lineOf = (grid: Element, selector: string) => grid.querySelector(selector)!.textContent;
+    expect(entry("生效中的决策").className).toContain("min-h-14");
+    expect(lineOf(entry("生效中的决策"), "span.block.truncate.text-text")).toBe("生效中的决策");
+    expect(lineOf(entry("生效中的决策"), "span.block.text-text-faint")).toBe("2026-09-29 裁决生效 · 补充口径");
+    // 生效中分区里状态都一样,不进行;已退场分区混着取代/否决,才带状态标签。
+    expect(entry("生效中的决策").querySelector("[data-status-tone]")).toBeNull();
+    expect(entry("已否决的决策").querySelector('[data-status-tone="bad"]')).not.toBeNull();
+    expect(lineOf(entry("已取代的决策"), "span.block.text-text-faint")).toBe("2026-09-29 最近变化");
+    const factGrid = host.querySelector('[data-fact-row="fact/F-7E08BD10"] .grid')!;
+    expect(factGrid.className).toContain("min-h-14");
+    expect(lineOf(factGrid, "span.block.text-text-faint")).toContain("置信度");
     // 页内搜索停在决策与事实页,命中事实原文(不只结论句)。
     const search = host.querySelector<HTMLInputElement>('[data-testid="workspace-search"]')!;
     act(() => {

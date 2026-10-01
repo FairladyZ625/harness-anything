@@ -5,7 +5,7 @@ import { PillFlow } from "../../components/primitives/PillFlow";
 import { SegBar } from "../../components/primitives/SegBar";
 import { Section } from "../../components/primitives/Section";
 import { StatusTag, type StatusTone } from "../../components/primitives/StatusTag";
-import { TitleText } from "../../components/primitives/TitleText.tsx";
+import { entryTitle, metaLine } from "./entry-lines.tsx";
 import type { AttestationPoolLanes } from "../../model/attestation-pool.ts";
 import type { WorkDayGroup, WorkStepKind, WorkSubgroup } from "../../model/workspace-narrative.ts";
 import type { SnapshotStatus, TaskRow } from "../../model/types.ts";
@@ -118,13 +118,13 @@ export function WorkOverview({
             count={heroCount}
             note={oldest === undefined ? undefined : t("views.workspace.hero.note", { ago: agoOf(oldest) })}
           >
-            <div className="space-y-0.5">
+            <div>
               {submitted.map((task) => (
                 <ActionRow
                   key={task.taskId}
                   taskId={task.taskId}
                   title={task.title}
-                  time={agoOf(task.lastKnownAt)}
+                  reason={t("views.workspace.hero.waited", { ago: agoOf(task.lastKnownAt) })}
                   onOpen={onOpenTask}
                   state={feedback?.(task.taskId)}
                 >
@@ -156,7 +156,6 @@ export function WorkOverview({
                   taskId={item.taskId}
                   title={item.taskTitle}
                   reason={`门禁 ${item.gateId} · ${item.gateStatus}`}
-                  time={null}
                   onOpen={onOpenTask}
                   state={feedback?.(item.taskId)}
                 >
@@ -179,7 +178,6 @@ export function WorkOverview({
                     taskId={item.taskId}
                     title={item.taskTitle}
                     reason="待同意本轮交付"
-                    time={null}
                     onOpen={onOpenTask}
                     state={feedback?.(item.taskId)}
                   >
@@ -207,14 +205,13 @@ export function WorkOverview({
             count={stalled.length}
             note={t("views.workspace.stalled.note")}
           >
-            <div className="space-y-0.5">
+            <div>
               {stalled.map((task) => (
                 <ActionRow
                   key={task.taskId}
                   taskId={task.taskId}
                   title={task.title}
                   reason={t("views.workspace.stalled.lastActivity", { ago: agoOf(task.lastKnownAt) })}
-                  time={null}
                   onOpen={onOpenTask}
                 />
               ))}
@@ -373,13 +370,12 @@ function DaySummary({ group }: { readonly group: WorkDayGroup }) {
   );
 }
 
-/** 带就地动作的行:整行点开抽屉,右侧等宽时间与动作按钮(标准 §5);动作拦下冒泡。
- * 行高不低于 40px(标准 §3 v2 单行条目底线),与 DenseRow 同一档。 */
+/** 带就地动作的行(DenseRow 两行形态,§2.4):第一行标题与右侧动作,第二行弱色报原因、
+ * 动作回执与标题补充。整行点开抽屉;动作区拦下冒泡。行高只由 DenseRow 定。 */
 function ActionRow({
   taskId,
   title,
   reason,
-  time,
   onOpen,
   state,
   children,
@@ -387,80 +383,80 @@ function ActionRow({
   readonly taskId: string;
   readonly title: string;
   readonly reason?: string;
-  readonly time: string | null;
   readonly onOpen: (taskId: string) => void;
   readonly state?: { readonly state: string; readonly hint?: string; readonly code?: string };
   readonly children?: ReactNode;
 }) {
+  const { focus, supplement } = entryTitle(title);
   return (
-    <div
-      data-task-row={taskId}
-      onClick={() => onOpen(taskId)}
-      className="grid min-h-10 cursor-pointer grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 rounded-xs px-2.5 py-2 hover:bg-text/5"
-    >
-      <span className="min-w-0 truncate text-text ui-body">
-        <TitleText title={title} />
-        {reason ? <span className="ml-2 text-text-faint ui-meta">{reason}</span> : null}
-        {state ? (
-          <span className="ml-2 text-text-faint ui-micro">
-            {state.state}
-            {state.code ? ` · ${state.code}` : state.hint ? ` · ${state.hint}` : ""}
-          </span>
-        ) : null}
-      </span>
-      <div
-        className="flex items-center gap-2"
-        onClick={(event) => {
-          // 动作区不冒泡到整行:点按钮是动作,不是开抽屉。
-          if (children !== undefined) event.stopPropagation();
-        }}
-      >
-        {time === null ? null : (
-          <span className="whitespace-nowrap font-mono tabular-nums text-text-muted ui-meta">{time}</span>
-        )}
-        {children}
-      </div>
+    <div data-task-row={taskId} onClick={() => onOpen(taskId)} className="cursor-pointer hover:bg-text/5">
+      <DenseRow
+        relaxed
+        title={focus}
+        reason={metaLine([
+          reason,
+          state ? `${state.state}${state.code ? ` · ${state.code}` : state.hint ? ` · ${state.hint}` : ""}` : undefined,
+          supplement,
+        ])}
+        time={
+          children === undefined ? undefined : (
+            <span
+              className="flex items-center gap-2 font-sans"
+              // 动作区不冒泡到整行:点按钮是动作,不是开抽屉。
+              onClick={(event) => event.stopPropagation()}
+            >
+              {children}
+            </span>
+          )
+        }
+      />
     </div>
   );
 }
 
-/** 任务页与检修页共用的状态行(DenseRow 原语 + 状态标签);标题由调用方给,可带搜索高亮。
- * 有执行者时用宽松两行(§2.2 v2):第二行弱色报执行者,其余信息留在一行/详情。 */
+/** 任务页的状态行(DenseRow 两行形态 + 状态标签):第一行状态与冒号前的标题(可带搜索高亮);
+ * 第二行弱色依次报执行者、卡点或等待原因、最近活动,标题冒号后的补充垫在末尾随行截断。 */
 export function WorkTaskRow({
   task,
-  title,
+  needle = "",
   status,
   agoOf,
   onOpen,
 }: {
   readonly task: {
     readonly taskId: string;
+    readonly title: string;
     readonly pinned?: boolean;
     readonly at: string;
     readonly executor?: string;
+    readonly waiting?: string;
   };
-  readonly title: ReactNode;
+  readonly needle?: string;
   readonly status: SnapshotStatus;
   readonly agoOf: (iso: string) => string;
   readonly onOpen: (taskId: string) => void;
 }) {
-  const executor = task.executor ? `${t("views.workspace.tasks.executor")} ${task.executor}` : undefined;
+  const { focus, supplement } = entryTitle(task.title, needle);
   return (
     <DenseRow
+      relaxed
       tag={<StatusTag status={status} />}
       title={
         task.pinned === true ? (
           <>
             <span className="text-status-planned">● </span>
-            {title}
+            {focus}
           </>
         ) : (
-          title
+          focus
         )
       }
-      relaxed={executor !== undefined}
-      reason={executor}
-      time={agoOf(task.at)}
+      reason={metaLine([
+        task.executor ? `${t("views.workspace.tasks.executor")} ${task.executor}` : undefined,
+        task.waiting,
+        t("views.workspace.stalled.lastActivity", { ago: agoOf(task.at) }),
+        supplement,
+      ])}
       onClick={() => onOpen(task.taskId)}
     />
   );

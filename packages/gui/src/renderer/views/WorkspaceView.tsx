@@ -22,6 +22,7 @@ import { formatTime } from "../model/time.ts";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import { WorkDayList, WorkOverview } from "./workspace/WorkOverview.tsx";
 import { WorkTasksTab, type WorkLeafRow } from "./workspace/WorkTasksTab.tsx";
+import { waitingReason } from "./workspace/entry-lines.tsx";
 import { WorkDecisionsTab } from "./workspace/WorkDecisionsTab.tsx";
 import { WorkGraphTab } from "./workspace/WorkGraphTab.tsx";
 import { WorkInspectTab } from "./workspace/WorkInspectTab.tsx";
@@ -192,6 +193,9 @@ export function WorkspaceView({
     const groupKeyByTask = new Map(
       groups.flatMap((group) => group.memberTaskIds.map((taskId) => [taskId, group.key] as const)),
     );
+    // 卡住本任务的任务可能在工作之外:标题先查成员行,再查全仓任务切面。
+    const blockerTitleOf = (taskId: string) =>
+      memberRows.get(taskId)?.title ?? tasks.find((task) => task.taskId === taskId)?.title;
     return {
       subgroups: groups,
       leafRows: leaves.map<WorkLeafRow>((leaf) => ({
@@ -202,9 +206,10 @@ export function WorkspaceView({
         at: leaf.at,
         groupKey: groupKeyByTask.get(leaf.taskId) ?? "_loose",
         executor: leaf.row?.leaseHolder ?? undefined,
+        waiting: waitingReason(leaf.row?.blockers, blockerTitleOf),
       })),
     };
-  }, [memberRows, groupIds, scope.root.taskId, scope.groups]);
+  }, [memberRows, groupIds, scope.root.taskId, scope.groups, tasks]);
 
   const leafCounts = useMemo(() => {
     const counts: Partial<Record<SnapshotStatus, number>> = {};
