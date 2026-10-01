@@ -147,6 +147,7 @@ export interface RuntimeProcessEventV1 {
   readonly schema: "harness-repo-writer-runtime-process-event/v1";
   readonly processId: string;
   readonly kind: "output" | "error" | "exit";
+  readonly lossReason?: string;
   readonly chunk?: string;
   readonly persisted?: boolean;
   readonly code?: number | null;

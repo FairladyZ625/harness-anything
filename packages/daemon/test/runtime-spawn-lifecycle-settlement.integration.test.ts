@@ -1027,7 +1027,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
       },
       {
         status: "lost",
-        outcome: "unknown",
+        outcome: "failed",
         exitCode: null,
         resultRef: lostSession.resultRef,
         liveness: "exited",
@@ -1047,6 +1047,175 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
     rmSync(parent, { recursive: true, force: true });
   }
 });
+
+test(
+  "a native worker-host lost without process_exit settles and wakes the runtime wait",
+  {
+    skip: process.platform === "win32" ? "requires POSIX SIGKILL kill point semantics" : false,
+  },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-re-adopt-")),
+      root = path.join(parent, "repo"),
+      release = path.join(parent, "release"),
+      pidFile = path.join(parent, "provider.pid"),
+      repoId = "runtime-re-adopt",
+      executablePath = writeProviderExecutable(
+        path.join(parent, "re-adopt-provider.mjs"),
+        `import fs from "node:fs";\nconst prompt = fs.readFileSync(0, "utf8");\nfs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));\nconsole.log(JSON.stringify({ type: "thread.started", thread_id: "provider-re-adopt-session" }));\nif (prompt.includes("result-before-loss")) console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })); const timer = setInterval(() => { if (!fs.existsSync(${JSON.stringify(release)})) return; clearInterval(timer); console.log(JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", changes: [{ path: "result.txt", kind: "add" }], status: "completed" } })); console.log(JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "survived daemon restart" } })); console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })); }, 10);\n`,
+      ),
+      installation = installationFixture("codex", executablePath),
+      definition = {
+        instanceId: "codex-re-adopt",
+        name: "Codex Re-adopt",
+        kindId: "codex" as const,
+        installationId: installation.installationId,
+        providerId: "openai",
+        models: ["codex-model"],
+        defaultModel: "codex-model",
+        enabled: true,
+        permissionMode: "workspace-write" as const,
+        codex: {},
+        authMode: "subscription" as const,
+        authState: "configured" as const,
+        authReadiness: { status: "ready" as const, code: null, hint: null },
+        isolationState: "enforced" as const,
+        schemaVersion: 2 as const,
+      },
+      preparedDefinition: AgentDefinitionSnapshot = {
+        schema: "agent-definition-snapshot/v1",
+        configVersion: 1,
+        instanceId: definition.instanceId,
+        installationId: installation.installationId,
+        kindId: "codex",
+        providerId: "openai",
+        model: "codex-model",
+        reasoningEffort: null,
+        baseUrl: null,
+        authMode: "subscription",
+      };
+    let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
+      providerPid = 0,
+      oldAuthority: ReturnType<typeof openPersistentWriterEpoch> | undefined;
+    try {
+      initIngressRepo(root, 4309);
+      const writerEpochStateRoot = path.join(parent, "writer-epochs");
+      const oldAuthorityInstance = openPersistentWriterEpoch({
+        stateRoot: writerEpochStateRoot,
+        holderId: "daemon-old",
+      });
+      oldAuthority = oldAuthorityInstance;
+      const oldLease = oldAuthorityInstance.acquire(repoId, readLedgerWriterEpoch(repoId, root)),
+        oldFence: WriterEpochFenceDescriptor = {
+          schema: "harness-writer-epoch-fence/v1",
+          stateRoot: writerEpochStateRoot,
+          repoId,
+          holderId: oldLease.holderId,
+          epoch: oldLease.epoch,
+        },
+        actor = { principal: { personId: "person-re-adopt" }, executor: null },
+        oldBinding = withRoleBinding(
+          {
+            actor,
+            source: "local" as const,
+            writerEpoch: oldLease.epoch,
+            writerEpochFence: oldFence,
+            withWriterEpochFence: <T>(operation: () => T) =>
+              oldAuthority!.withAppendFence(repoId, oldLease.epoch, oldLease.holderId, operation),
+          },
+          "owner",
+        ),
+        open = (ownerId: string, defaultWriterEpochFence: WriterEpochFenceDescriptor) =>
+          openRepoCell({
+            repoId: workspaceId(repoId),
+            rootDir: canonicalRoot(root),
+            ownerId,
+            defaultWriterEpochFence,
+            runtimeDaemonRoute: {
+              userRoot: path.join(parent, "daemon-user"),
+              daemonId: "runtime-re-adopt-test",
+              endpoint: path.join(parent, "daemon.sock"),
+            },
+            runtimeInstances: () => [definition],
+            prepareRuntimeLaunch: async (_instanceId, request) => ({
+              definition: preparedDefinition,
+              installation,
+              executablePath,
+              args: ["exec", "--json", "--model", "codex-model", "-"],
+              env: process.env,
+              cwd: request.cwd,
+              prompt: request.prompt,
+            }),
+          });
+      assert.equal(oldLease.epoch, 1);
+      cell = await open("re-adopt-before", oldFence);
+
+      for (const [afterResult, adopted] of [
+        [false, false],
+        [true, false],
+        [false, true],
+        [true, true],
+      ]) {
+        const receipt = await cell.spawnRuntime(
+          {
+            runtimeInstanceId: definition.instanceId,
+            cwd: { scope: "repo-root" },
+            prompt: afterResult ? "result-before-loss" : "loss-before-result",
+            taskId: null,
+            idempotencyKey: `host-loss-${afterResult}-${adopted}`,
+          },
+          oldBinding,
+        );
+        const dispatchId = String(receipt.dispatchId);
+        await eventually(() => dispatchText(root, dispatchId).includes("provider-re-adopt-session"));
+        providerPid = Number(readFileSync(pidFile, "utf8"));
+        if (afterResult) await eventually(() => dispatchText(root, dispatchId).includes("turn.completed"));
+        const hostPid = readDispatchStream(root, dispatchId)!.process!.pid;
+        assert.equal(readDispatchStream(root, dispatchId)!.process!.exited, false);
+        if (adopted) {
+          await cell.close();
+          cell = await open(`loss-observer-${afterResult}`, oldFence);
+        }
+        let waitReturned = false;
+        const wait = cell.awaitRuntimeOutcome(String(receipt.runtimeSessionId)).then(() => {
+          waitReturned = true;
+        });
+        process.kill(hostPid, "SIGKILL");
+        await eventually(() => waitReturned);
+        await wait;
+        const projection = makeTaskProjection({
+          rootDir: root,
+          eventStore: makeTaskEventReader({ repoId, rootDir: root }),
+        });
+        projection.catchUp();
+        const session = projection.readRuntimeSession(String(receipt.runtimeSessionId))!;
+        projection.close();
+        assert.deepEqual(
+          { liveness: session.liveness, outcome: session.outcome, exitCode: session.exitCode },
+          { liveness: "exited", outcome: "failed", exitCode: null },
+        );
+        const stream = readDispatchStream(root, dispatchId)!;
+        assert.equal(
+          stream.records.some((record) => record.kind === "process_exit"),
+          false,
+        );
+        assert.ok(stream.records.some((record) => record.kind === "process_lost"));
+        assert.match(JSON.stringify(stream.records), /no longer alive/u);
+        process.kill(providerPid, "SIGKILL");
+        providerPid = 0;
+      }
+    } finally {
+      await cell?.close();
+      oldAuthority?.close();
+      if (providerPid > 0)
+        try {
+          process.kill(providerPid, "SIGKILL");
+        } catch (error) {
+          consumeKnownError(error);
+        }
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
 
 test("runtime exit notification records a bounded timeout", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-exit-notification-")),

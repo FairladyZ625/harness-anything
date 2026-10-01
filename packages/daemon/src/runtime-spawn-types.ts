@@ -39,7 +39,7 @@ export interface RuntimeProcess {
   readonly onOutput: (listener: (chunk: string, persisted?: boolean) => void) => void;
   readonly onErrorOutput: (listener: (chunk: string) => void) => void;
   /** Fires only after onOutput delivered every provider line; exit settlement does not re-read the stream. */
-  readonly onExit: (listener: (code: number | null) => void) => void;
+  readonly onExit: (listener: (code: number | null, lossReason?: string) => void) => void;
   readonly terminate: () => void;
   readonly terminateTree?: () => Promise<void>;
   readonly release?: () => void;
@@ -232,14 +232,14 @@ export type ProviderFrame = {
 export type ResumeProcessEvent =
   | { readonly kind: "output"; readonly chunk: string; readonly persisted: boolean }
   | { readonly kind: "error"; readonly chunk: string }
-  | { readonly kind: "exit"; readonly code: number | null };
+  | { readonly kind: "exit"; readonly code: number | null; readonly lossReason?: string };
 
 export type ResumeProcessObservation = {
   readonly ready: Promise<void>;
   readonly activate: (handlers: {
     readonly output: (chunk: string, persisted?: boolean) => void;
     readonly error: (chunk: string) => void;
-    readonly exit: (code: number | null) => void;
+    readonly exit: (code: number | null, lossReason?: string) => void;
   }) => void;
 };
 

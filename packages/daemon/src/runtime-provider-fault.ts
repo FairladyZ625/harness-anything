@@ -131,7 +131,7 @@ function runtimeExitOutcome(
   providerFault: RuntimeProviderFault | null,
 ): RuntimeExitOutcome {
   if (active.cancelRequested) return "cancelled";
-  if (active.providerOutcome === "failed") return "failed";
+  if (active.lossReason || active.providerOutcome === "failed") return "failed";
   if (exitCode === null) return "unknown";
   if (exitCode !== 0) return "failed";
   if (providerFault?.code === "pre_tool_exit") return "failed";

@@ -701,3 +701,89 @@ test("Read-only dispatch contracts and closed batch and wire payloads are enforc
   );
   assert.equal(unknownRead.code, "invalid_command");
 });
+
+for (const afterResult of [false, true])
+  test(
+    `runtime status --wait settles a killed native host (result=${afterResult})`,
+    {
+      skip: process.platform === "win32" ? "requires POSIX SIGKILL kill point semantics" : false,
+    },
+    async (context) => {
+      const { parent, root, env, version } = createRuntimeFixture(context);
+      installIdentities(parent, root, env);
+      const pidPath = path.join(parent, "lost-provider.pid");
+      writeProviderExecutable(
+        path.join(parent, "bin", "codex"),
+        `
+      const fs = require("node:fs");
+      if (process.argv[2] === "--version") { console.log("codex ${version}"); process.exit(0); }
+      if (process.argv[2] === "login") process.exit(0);
+      fs.readFileSync(0, "utf8");
+      fs.writeFileSync(${JSON.stringify(pidPath)}, String(process.pid));
+      console.log(JSON.stringify({ type: "thread.started", thread_id: "lost-provider-session" }));
+      if (${afterResult}) console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }));
+      setInterval(() => {}, 1000);
+    `,
+      );
+      const { taskId } = seedTask(root, env, `host-loss-${afterResult}`);
+      const spawned = run(root, env, ["agent", "run", "terra", "--prompt", "host loss", "--task", taskId, "--detach"]);
+      const sessionId = String(spawned.runtimeSessionId),
+        dispatchId = String(spawned.dispatchId);
+      await eventuallyFile(pidPath);
+      await eventuallyRuntimeStatus(root, env, sessionId, "live");
+      if (afterResult) {
+        let observed = false;
+        for (let attempt = 0; attempt < 500 && !observed; attempt += 1) {
+          observed = readDispatchRecords(root, dispatchId).some(
+            (record) =>
+              record.kind === "provider_event" && (record.event as Record<string, unknown>).type === "turn.completed",
+          );
+          if (!observed) await new Promise((resolve) => setTimeout(resolve, 10));
+        }
+        assert.ok(observed, "provider result must be durable before killing the host");
+      }
+      const hostPid = Number(
+        readDispatchRecords(root, dispatchId).find((record) => record.kind === "process_started")!.pid,
+      );
+      let timer: NodeJS.Timeout | undefined;
+      try {
+        const wait = runAsync(root, env, ["runtime", "status", sessionId, "--wait", "--no-stream"]);
+        process.kill(hostPid, "SIGKILL");
+        const result = await Promise.race([
+          wait,
+          new Promise<never>((_resolve, reject) => {
+            timer = setTimeout(() => reject(new Error("runtime status --wait did not settle after host loss")), 15_000);
+          }),
+        ]);
+        context.diagnostic(`native host loss invocation: ${JSON.stringify(result)}`);
+        assert.equal(result.receipt.outcome, "failed", JSON.stringify(result));
+        assert.equal(result.status, 1, JSON.stringify(result));
+        assert.equal(typeof result.receipt.nextAction, "string", JSON.stringify(result));
+        assert.ok(String(result.receipt.nextAction).includes(taskId));
+        const dispatches = runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Record<
+          string,
+          unknown
+        >[];
+        const row = dispatches.find((candidate) => candidate.dispatchId === dispatchId)!;
+        assert.deepEqual({ status: row.status, outcome: row.outcome }, { status: "lost", outcome: "failed" });
+        assert.match(JSON.stringify(result.receipt), /no longer alive/u);
+        const records = readDispatchRecords(root, dispatchId);
+        assert.ok(records.some((record) => record.kind === "process_lost"));
+        assert.equal(
+          records.some((record) => record.kind === "process_exit"),
+          false,
+        );
+        if (afterResult)
+          assert.ok(
+            records.some(
+              (record) =>
+                record.kind === "provider_event" && (record.event as Record<string, unknown>).type === "turn.completed",
+            ),
+          );
+        context.diagnostic(`native host loss: ${JSON.stringify(result.receipt)}`);
+      } finally {
+        if (timer) clearTimeout(timer);
+        process.kill(Number(readFileSync(pidPath, "utf8")), "SIGKILL");
+      }
+    },
+  );

@@ -148,8 +148,8 @@ export function observeResumeProcess(
     stderr += chunk;
     if (Buffer.byteLength(stderr) > providerErrorLimit) stderr = "";
   });
-  process.onExit((code) => {
-    emit({ kind: "exit", code });
+  process.onExit((code, lossReason) => {
+    emit({ kind: "exit", code, ...(lossReason ? { lossReason } : {}) });
     if (!settled) {
       const diagnostic = failureText ?? stderr.trim(),
         detail = diagnostic
@@ -164,7 +164,7 @@ export function observeResumeProcess(
       sink = (event) => {
         if (event.kind === "output") handlers.output(event.chunk, event.persisted);
         else if (event.kind === "error") handlers.error(event.chunk);
-        else handlers.exit(event.code);
+        else handlers.exit(event.code, event.lossReason);
       };
       const pending = events;
       events = [];
@@ -521,8 +521,9 @@ function observeDispatchProcess(
   let buffer = "";
   let outputListener: ((chunk: string, persisted?: boolean) => void) | null = null;
   let errorListener: ((chunk: string) => void) | null = null;
-  let exitListener: ((code: number | null) => void) | null = null;
+  let exitListener: ((code: number | null, lossReason?: string) => void) | null = null;
   let exitCode: number | null = null;
+  let lossReason: string | undefined;
   let exited = false;
   let released = false;
   const emitOutput = (chunk: string): void => {
@@ -533,20 +534,37 @@ function observeDispatchProcess(
     if (errorListener) errorListener(chunk);
     else errors.push(chunk);
   };
-  const emitExit = (code: number | null): void => {
+  const emitExit = (code: number | null, reason?: string): void => {
     if (exited) return;
     exited = true;
     exitCode = code;
-    // process_exit follows the host's last provider line. Stop here, not in release(), which settlement
+    lossReason = reason;
+    // Exit or process loss follows the last persisted provider line. Stop here, not in release(), which settlement
     // skips on its early return, on a throw, and behind the writer-thread proxy.
     clearInterval(timer);
-    if (exitListener) exitListener(code);
+    if (exitListener) exitListener(code, lossReason);
   };
   const drain = (): void => {
-    if (released) return;
+    if (released || exited) return;
     try {
+      // Probe before reading: a dead host cannot append a final process_exit after this read.
+      const alive = runtimePidIsAlive(pid);
       const bytes = readRuntimeWorkerChunk(stream, offset);
-      if (bytes.length === 0) return;
+      if (bytes.length === 0) {
+        if (!alive) {
+          const reason = `runtime process ${String(pid)} is no longer alive without process_exit`;
+          appendRuntimeWorkerRecord(rootDir, dispatchId, {
+            kind: "process_lost",
+            occurredAt: new Date().toISOString(),
+            reason,
+            exitCode: null,
+            signal: null,
+          });
+          removeRuntimeCallbackRelay(rootDir, dispatchId);
+          emitExit(null, reason);
+        }
+        return;
+      }
       offset += bytes.length;
       buffer += decoder.write(bytes);
       const lines = buffer.split(/\r?\n/u);
@@ -560,7 +578,10 @@ function observeDispatchProcess(
           if (skippedOutputRecords < skipPersistedOutputRecords) skippedOutputRecords += 1;
           else emitOutput(`${String(record.output)}\n`);
         } else if (record?.kind === "provider_stderr") emitError(String(record.chunk));
-        else if (record?.kind === "process_exit") {
+        else if (record?.kind === "process_lost") {
+          emitExit(null, String(record.reason));
+          return;
+        } else if (record?.kind === "process_exit") {
           emitExit(Number.isInteger(record.exitCode) ? Number(record.exitCode) : null);
           return;
         }
@@ -584,7 +605,7 @@ function observeDispatchProcess(
     },
     onExit: (listener) => {
       exitListener = listener;
-      if (exited) queueMicrotask(() => listener(exitCode));
+      if (exited) queueMicrotask(() => listener(exitCode, lossReason));
     },
     terminate: () => {
       terminateRuntimePid(pid);

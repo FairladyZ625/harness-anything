@@ -344,8 +344,8 @@ export async function openWriterSupervisor(
           activePost({ processId: payload.processId, kind: "output", chunk, persisted }),
         );
         launched.onErrorOutput((chunk) => activePost({ processId: payload.processId, kind: "error", chunk }));
-        launched.onExit((code) => {
-          activePost({ processId: payload.processId, kind: "exit", code });
+        launched.onExit((code, lossReason) => {
+          activePost({ processId: payload.processId, kind: "exit", code, ...(lossReason ? { lossReason } : {}) });
           runtimeProcesses.delete(payload.processId);
         });
         return { pid: launched.pid, terminateTree: launched.terminateTree !== undefined };
