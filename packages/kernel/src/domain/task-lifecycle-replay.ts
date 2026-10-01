@@ -793,6 +793,9 @@ function acceptedCompletionWitnesses(
   return completionGateIds(snapshot.task.completionGateIds, current.submission).every((gateId) => {
     if (gateId === "code-doc-reconciliation") {
       const witness = currentCodeDocWitness(snapshot.codeDocWitnesses, executionId);
+      // Completions recorded before the closeoutGates record (and thus before code-doc
+      // witnesses were emitted) keep their accepted gap, like review and consent do.
+      if (witness === undefined && closeoutGates === undefined) return true;
       return (
         witness?.iteration === current.iteration &&
         (witness.schema === "code-doc-witness-repoint/v1" || witness.commitSha === current.submission!.commitSha)

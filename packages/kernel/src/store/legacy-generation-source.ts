@@ -16,6 +16,18 @@ export interface StoppedLegacySourceEvidenceV1 {
   readonly walRevision: number;
   readonly walHeadDigest: string | null;
   readonly walLastOffset: number;
+  /**
+   * Content objects whose stored bytes do not verify against their content-addressed name.
+   * Recorded as evidence instead of aborting the snapshot: an unreferenced corrupt object is
+   * dead weight, while an event that claims one still fails the claim check downstream.
+   * Present only when at least one invalid object was found.
+   */
+  readonly invalidContentObjects?: readonly {
+    readonly path: string;
+    readonly declaredSha256: string | null;
+    readonly actualSha256: string;
+    readonly size: number;
+  }[];
 }
 export type LegacyEventEntry = { readonly bytes: string; readonly event: CanonicalEventV1 };
 
@@ -47,7 +59,7 @@ export function readStoppedLegacyGeneration(input: { readonly rootInput: Harness
       .sort((left, right) => left.event.workspaceRevision - right.event.workspaceRevision),
     wal = readStoppedWal(layout.rootDir),
     merged = mergeStoppedEvents(gitEvents, wal.events),
-    objects = readStoppedObjects(ledger, commit, layout.rootDir),
+    { objects, invalidContentObjects } = readStoppedObjects(ledger, commit, layout.rootDir),
     sourceEvidence: StoppedLegacySourceEvidenceV1 = {
       schema: "stopped-legacy-source-evidence/v1",
       gitCommit: commit,
@@ -56,6 +68,7 @@ export function readStoppedLegacyGeneration(input: { readonly rootInput: Harness
       walRevision: wal.revision,
       walHeadDigest: wal.headDigest,
       walLastOffset: wal.lastOffset,
+      ...(invalidContentObjects.length > 0 ? { invalidContentObjects } : {}),
     };
   assertLegacySequence(merged, gitHead?.revision ?? 0, wal.revision);
   assertWalPrefixAnchor(gitEvents, wal);
@@ -229,36 +242,61 @@ function assertLegacySequence(events: readonly LegacyEventEntry[], gitRevision: 
     throw new TaskEventStoreError("invalid_store", "legacy source heads do not reach the merged history");
 }
 
+type InvalidContentObject = NonNullable<StoppedLegacySourceEvidenceV1["invalidContentObjects"]>[number];
+
 function readStoppedObjects(
   ledger: ReturnType<typeof resolveLedgerGitLayout>,
   commit: string,
   rootDir: string,
-): readonly { readonly sha256: string; readonly size: number; readonly bytes: Uint8Array }[] {
+): {
+  readonly objects: readonly { readonly sha256: string; readonly size: number; readonly bytes: Uint8Array }[];
+  readonly invalidContentObjects: readonly InvalidContentObject[];
+} {
   const objects = new Map<string, Buffer>(),
+    invalidContentObjects: InvalidContentObject[] = [],
     prefix = ledgerGitPath(ledger, "objects/sha256"),
     objectTree = localGitObjectRefStore.listTree(ledger.rootDir, commit, [prefix]),
     objectBytes = localGitObjectRefStore.readPaths(ledger.rootDir, commit, objectTree);
   for (const { mode, target } of objectTree) {
+    if (mode !== "100644")
+      throw new TaskEventStoreError("invalid_store", `legacy Git content object ${target} is invalid`);
     const sha256 = target.slice(prefix.length + 1).replace("/", ""),
       bytes = objectBytes.get(target)!;
-    if (mode !== "100644" || !/^[0-9a-f]{64}$/u.test(sha256) || sha256Bytes(bytes) !== sha256)
-      throw new TaskEventStoreError("invalid_store", `legacy Git content object ${target} is invalid`);
+    if (!/^[0-9a-f]{64}$/u.test(sha256) || sha256Bytes(bytes) !== sha256) {
+      invalidContentObjects.push({
+        path: target,
+        declaredSha256: /^[0-9a-f]{64}$/u.test(sha256) ? sha256 : null,
+        actualSha256: sha256Bytes(bytes),
+        size: bytes.byteLength,
+      });
+      continue;
+    }
     objects.set(sha256, bytes);
   }
   const walObjects = path.join(rootDir, ".harness", "wal", "objects");
   if (localEventFileSystem.exists(walObjects))
     for (const name of localEventFileSystem.readNames(walObjects)) {
       const bytes = Buffer.from(localEvidenceFileSystem.readBytes(path.join(walObjects, name)));
-      if (!/^[0-9a-f]{64}$/u.test(name) || sha256Bytes(bytes) !== name)
-        throw new TaskEventStoreError("invalid_store", `legacy WAL content object ${name} is invalid`);
+      if (!/^[0-9a-f]{64}$/u.test(name) || sha256Bytes(bytes) !== name) {
+        invalidContentObjects.push({
+          path: `.harness/wal/objects/${name}`,
+          declaredSha256: /^[0-9a-f]{64}$/u.test(name) ? name : null,
+          actualSha256: sha256Bytes(bytes),
+          size: bytes.byteLength,
+        });
+        continue;
+      }
       const prior = objects.get(name);
       if (prior && !prior.equals(bytes))
         throw new TaskEventStoreError("invalid_store", `legacy object ${name} differs`);
       objects.set(name, bytes);
     }
-  return [...objects]
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([sha256, bytes]) => ({ sha256, size: bytes.byteLength, bytes }));
+  return {
+    objects: [...objects]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([sha256, bytes]) => ({ sha256, size: bytes.byteLength, bytes })),
+    invalidContentObjects,
+  };
 }
 
 function readOptionalText(inputPath: string): string | null {
