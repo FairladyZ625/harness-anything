@@ -12,6 +12,8 @@ import {
   readAgentRuntimeTokenUsageDetail,
   serializeAgentRuntimeTokenUsage,
   serializeAgentRuntimeTokenUsageDetail,
+  tokenUsageInsightLimits,
+  tokenUsageSessionBinCeilings,
   validateAgentRuntimeTokenUsage,
   validateAgentRuntimeTokenUsageDetail,
 } from "../src/agent-runtime-token-usage.ts";
@@ -21,6 +23,18 @@ import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.
 const NOW = "2026-09-14T12:00:00.000Z",
   CUT = { status: "ready" as const, watermark: 7, sourceRevision: 7 },
   EMPTY_PROJECTION = { readRuntimeDispatchPage: () => ({ rows: [], nextCursor: null, done: true }) };
+
+/** 任务索引夹具:task-a/task-b 属于声明的工作 work-root,task-solo 自成一个工作,task-tokens 不在索引里。 */
+const TASKS = new Map(
+  (
+    [
+      ["work-root", "发布线", "work", null],
+      ["task-a", "接入读面", "task", "work-root"],
+      ["task-b", "补回归测试", "task", "work-root"],
+      ["task-solo", "独立小改", "task", null],
+    ] as const
+  ).map(([taskId, title, taskClass, parentTaskId]) => [taskId, { taskId, title, taskClass, parentTaskId }]),
+);
 
 function metrics(input: number, cache: number, output: number, tools: number, usageUnavailable = false) {
   return {
@@ -118,6 +132,7 @@ function read(rootDir: string, now = NOW, range: (typeof agentRuntimeTokenUsageR
     now,
     range,
     entityLabel: (squadId) => (squadId === "core-squad" ? "Core" : null),
+    taskOf: (taskId) => TASKS.get(taskId),
     cut: CUT,
     projection: EMPTY_PROJECTION,
   });
@@ -169,7 +184,15 @@ test("archived settlements retain usage without a projected outcome", () => {
       outcome: null,
     }));
     const projection = { readRuntimeDispatchPage: () => ({ rows, done: true, nextCursor: null }) };
-    const input = { rootDir, now: NOW, range: "today" as const, entityLabel: () => null, cut: CUT, projection };
+    const input = {
+      rootDir,
+      now: NOW,
+      range: "today" as const,
+      entityLabel: () => null,
+      taskOf: () => undefined,
+      cut: CUT,
+      projection,
+    };
     const aggregate = readAgentRuntimeTokenUsage(input);
     assert.equal(aggregate.totals.totalTokens, 225);
     assert.equal(aggregate.totals.usageUnavailableDispatches, 1);
@@ -251,6 +274,9 @@ test("readAgentRuntimeTokenUsage aggregates today per agent and squad from dispa
         toolCallCount: 5,
         usageReportedDispatches: 2,
         usageUnavailableDispatches: 0,
+        succeededSessions: 0,
+        failedSessions: 0,
+        abortedSessions: 0,
       },
       {
         agentId: "luna",
@@ -263,6 +289,9 @@ test("readAgentRuntimeTokenUsage aggregates today per agent and squad from dispa
         toolCallCount: 0,
         usageReportedDispatches: 0,
         usageUnavailableDispatches: 0,
+        succeededSessions: 0,
+        failedSessions: 0,
+        abortedSessions: 0,
       },
       {
         agentId: "sol",
@@ -275,6 +304,9 @@ test("readAgentRuntimeTokenUsage aggregates today per agent and squad from dispa
         toolCallCount: 2,
         usageUnavailableDispatches: 1,
         usageReportedDispatches: 0,
+        succeededSessions: 0,
+        failedSessions: 0,
+        abortedSessions: 0,
       },
     ]);
     assert.deepEqual(result.squads, [
@@ -289,6 +321,9 @@ test("readAgentRuntimeTokenUsage aggregates today per agent and squad from dispa
         toolCallCount: 5,
         usageReportedDispatches: 2,
         usageUnavailableDispatches: 0,
+        succeededSessions: 0,
+        failedSessions: 0,
+        abortedSessions: 0,
       },
     ]);
     assert.equal(result.status, "ready");
@@ -364,6 +399,7 @@ test("token history pagination stops on reader done, not cursor presence", () =>
       now: NOW,
       range: "30d",
       entityLabel: () => null,
+      taskOf: () => undefined,
       cut: CUT,
       projection: {
         readRuntimeDispatchPage: () => {
@@ -590,6 +626,461 @@ test("repo.agentRuntime.tokenUsage and tokenUsageDetail are registered through t
       }),
     );
     assert.equal(parsedDetail.ok, true);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+/** 一条带完整生命周期的派工:归因、用量、进程退出与归类都在流里,和 production 写入同构。 */
+function seedDispatch(
+  rootDir: string,
+  index: number,
+  options: {
+    readonly startedAt?: string;
+    readonly session?: string;
+    readonly agentId?: string;
+    readonly agentName?: string;
+    readonly model?: string;
+    readonly taskId?: string | null;
+    readonly kindId?: string;
+    readonly instanceId?: string;
+    readonly tokens?: readonly [input: number, output: number, tools: number];
+    readonly usageUnavailable?: boolean;
+    readonly exit?: { readonly code: number | null; readonly afterMs: number };
+    readonly classification?: "provider_fault" | "provider_quota" | "worker_stop" | "gate_red";
+  },
+): void {
+  const dispatchId = `dispatch_${(0xc000 + index).toString(16).padStart(24, "0")}`,
+    startedAt = options.startedAt ?? NOW;
+  openDispatchStream(rootDir, {
+    dispatchId,
+    taskId: options.taskId === undefined ? "task-a" : options.taskId,
+    executionId: null,
+    runtimeSessionId: options.session ?? `runtime-${index}`,
+    instanceId: options.instanceId ?? "instance-codex",
+    startedAt,
+    ...(options.agentId ? { agentId: options.agentId, agentName: options.agentName ?? options.agentId } : {}),
+    ...(options.model ? { model: options.model } : {}),
+    ...(options.kindId ? { kindId: options.kindId } : {}),
+  });
+  if (options.exit) {
+    appendRuntimeWorkerRecord(rootDir, dispatchId, { kind: "process_started", pid: 100 + index });
+    if (options.classification)
+      appendRuntimeWorkerRecord(rootDir, dispatchId, {
+        kind: "attempt_outcome",
+        classification: options.classification,
+        reason: "fixture",
+        provider: { instance: options.instanceId ?? "instance-codex", kind: options.kindId ?? "codex" },
+        attemptGroupId: dispatchId,
+        attemptIndex: 0,
+      });
+    appendRuntimeWorkerRecord(rootDir, dispatchId, {
+      kind: "process_exit",
+      occurredAt: new Date(Date.parse(startedAt) + options.exit.afterMs).toISOString(),
+      exitCode: options.exit.code,
+      signal: options.exit.code === null ? "SIGTERM" : null,
+    });
+  }
+  if (options.tokens) {
+    const [input, output, tools] = options.tokens;
+    appendRuntimeWorkerRecord(rootDir, dispatchId, {
+      kind: "runtime_metrics",
+      inputTokens: input,
+      cacheReadTokens: 0,
+      outputTokens: output,
+      totalTokens: input + output,
+      toolCallCount: tools,
+      compacted: false,
+      raw: {},
+      ...(options.usageUnavailable ? { usageUnavailable: true } : {}),
+    });
+  }
+}
+
+/** 本地日历上往前 `days` 天的同一时刻:与读面的窗口规划同一种算法(不是固定毫秒数)。 */
+function daysBefore(now: string, days: number, hours = 0): string {
+  const at = new Date(now);
+  at.setDate(at.getDate() - days);
+  at.setHours(at.getHours() + hours);
+  return at.toISOString();
+}
+
+function seedAnalysis(rootDir: string): void {
+  // terra:两个成功会话(其中一个会话跨两次派工:第一次 provider 出错,续跑成功),一个因额度失败的会话。
+  seedDispatch(rootDir, 1, {
+    session: "s-terra-1",
+    agentId: "terra",
+    agentName: "Terra",
+    model: "gpt-test",
+    taskId: "task-a",
+    tokens: [5_000, 1_000, 4],
+    exit: { code: 1, afterMs: 60_000 },
+    classification: "provider_fault",
+  });
+  seedDispatch(rootDir, 2, {
+    session: "s-terra-1",
+    startedAt: new Date(Date.parse(NOW) + 1_000).toISOString(),
+    agentId: "terra",
+    agentName: "Terra",
+    model: "gpt-test",
+    taskId: "task-a",
+    tokens: [2_000, 2_000, 2],
+    exit: { code: 0, afterMs: 120_000 },
+  });
+  seedDispatch(rootDir, 3, {
+    session: "s-terra-2",
+    agentId: "terra",
+    agentName: "Terra",
+    model: "gpt-test",
+    taskId: "task-b",
+    tokens: [400_000, 100_000, 30],
+    exit: { code: 0, afterMs: 600_000 },
+  });
+  seedDispatch(rootDir, 4, {
+    session: "s-terra-3",
+    agentId: "terra",
+    agentName: "Terra",
+    model: "gpt-test",
+    taskId: "task-b",
+    tokens: [50_000, 0, 1],
+    exit: { code: 1, afterMs: 30_000 },
+    classification: "provider_quota",
+  });
+  // sol:一个被信号终止的会话(有用量),一个 provider 不上报用量的成功会话。
+  seedDispatch(rootDir, 5, {
+    session: "s-sol-1",
+    agentId: "sol",
+    agentName: "Sol",
+    model: "opus-test",
+    taskId: "task-solo",
+    tokens: [20_000_000, 5_000_000, 90],
+    exit: { code: null, afterMs: 3_600_000 },
+  });
+  seedDispatch(rootDir, 6, {
+    session: "s-sol-2",
+    agentId: "sol",
+    agentName: "Sol",
+    model: "opus-test",
+    taskId: "task-solo",
+    kindId: "claude",
+    instanceId: "claude-main",
+    tokens: [0, 0, 3],
+    usageUnavailable: true,
+    exit: { code: 0, afterMs: 10_000 },
+  });
+  // 无 agent、无任务、仍在跑的派工:进总量与会话统计,不进任务与成员视图。
+  seedDispatch(rootDir, 7, { session: "s-direct", taskId: null, tokens: [300, 0, 0] });
+  // 上一个同长周期(昨天零点到昨天的此刻)里的一条,和落在昨天此刻之后、两个周期都不算的一条。
+  seedDispatch(rootDir, 8, { session: "s-prev", startedAt: daysBefore(NOW, 1, -1), tokens: [700, 300, 5] });
+  seedDispatch(rootDir, 9, { session: "s-gap", startedAt: daysBefore(NOW, 1, 1), tokens: [9_000_000, 0, 0] });
+}
+
+test("the aggregate answers who spent, on what, how sessions ended and what the last period cost", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-token-usage-analysis-"));
+  try {
+    seedAnalysis(rootDir);
+    const result = read(rootDir);
+    assert.deepEqual(validateAgentRuntimeTokenUsage(result), []);
+    assert.equal(result.totals.totalTokens, 25_560_300);
+    assert.equal(result.totals.sessionCount, 6);
+    // 上一周期:只有昨天零点到昨天此刻之间的那一条。
+    assert.equal(result.previous.totals.totalTokens, 1_000);
+    assert.equal(result.previous.totals.sessionCount, 1);
+    assert.equal(result.previous.until, daysBefore(NOW, 1));
+    assert.equal(Date.parse(result.since) - Date.parse(result.previous.since), 86_400_000);
+    // 按模型:同一组计数加会话结果。
+    assert.deepEqual(
+      result.models.map(({ model, totalTokens, sessionCount, succeededSessions, failedSessions, abortedSessions }) => [
+        model,
+        totalTokens,
+        sessionCount,
+        succeededSessions,
+        failedSessions,
+        abortedSessions,
+      ]),
+      [
+        ["opus-test", 25_000_000, 2, 1, 0, 1],
+        ["gpt-test", 560_000, 3, 2, 1, 0],
+      ],
+    );
+    // 每个 worker 的成功/失败/中止会话数:跨两次派工的会话只算一个,结果取最后一次派工。
+    const terra = result.agents.find(({ agentId }) => agentId === "terra")!,
+      sol = result.agents.find(({ agentId }) => agentId === "sol")!;
+    assert.deepEqual(
+      [terra.sessionCount, terra.succeededSessions, terra.failedSessions, terra.abortedSessions],
+      [3, 2, 1, 0],
+    );
+    assert.deepEqual([sol.sessionCount, sol.succeededSessions, sol.failedSessions, sol.abortedSessions], [2, 1, 0, 1]);
+    // 花在什么事上:任务带标题与所属工作;不在索引里的任务不会出现在工作行。
+    assert.deepEqual(result.tasks, [
+      {
+        taskId: "task-solo",
+        title: "独立小改",
+        workId: "task-solo",
+        workTitle: "独立小改",
+        sessionCount: 2,
+        totalTokens: 25_000_000,
+      },
+      {
+        taskId: "task-b",
+        title: "补回归测试",
+        workId: "work-root",
+        workTitle: "发布线",
+        sessionCount: 2,
+        totalTokens: 550_000,
+      },
+      {
+        taskId: "task-a",
+        title: "接入读面",
+        workId: "work-root",
+        workTitle: "发布线",
+        sessionCount: 1,
+        totalTokens: 10_000,
+      },
+    ]);
+    assert.deepEqual(result.works, [
+      { workId: "task-solo", title: "独立小改", taskCount: 1, sessionCount: 2, totalTokens: 25_000_000 },
+      { workId: "work-root", title: "发布线", taskCount: 2, sessionCount: 3, totalTokens: 560_000 },
+    ]);
+    // 按结果分的用量:失败与中止的会话花掉的就是「白花」的部分。
+    assert.deepEqual(result.outcomes, [
+      { outcome: "succeeded", sessionCount: 3, totalTokens: 510_000 },
+      { outcome: "failed", sessionCount: 1, totalTokens: 50_000 },
+      { outcome: "aborted", sessionCount: 1, totalTokens: 25_000_000 },
+      { outcome: "running", sessionCount: 0, totalTokens: 0 },
+      { outcome: "unknown", sessionCount: 1, totalTokens: 300 },
+    ]);
+    // 会话级统计只看上报了用量的 5 个会话:300 / 10K / 50K / 500K / 25M。
+    const stats = result.sessions;
+    assert.deepEqual(
+      [stats.reportedSessions, stats.averageTokens, stats.medianTokens, stats.p90Tokens, stats.maxTokens],
+      [5, 5_112_060, 50_000, 25_000_000, 25_000_000],
+    );
+    // 已结束的 5 个会话:180s(60+120)、600s、30s、3600s、10s。
+    assert.deepEqual([stats.timedSessions, stats.averageDurationMs], [5, 884_000]);
+    assert.equal(stats.averageToolCalls, Math.round(130 / 6));
+    assert.deepEqual(
+      stats.distribution.map(({ ceiling, sessionCount, totalTokens }) => [ceiling, sessionCount, totalTokens]),
+      [
+        [10_000, 1, 300],
+        [100_000, 2, 60_000],
+        [1_000_000, 1, 500_000],
+        [10_000_000, 0, 0],
+        [100_000_000, 1, 25_000_000],
+        [null, 0, 0],
+      ],
+    );
+    assert.deepEqual(
+      stats.distribution.map(({ ceiling }) => ceiling),
+      tokenUsageSessionBinCeilings,
+    );
+    assert.deepEqual(stats.top[0], {
+      runtimeSessionId: "s-sol-1",
+      agentId: "sol",
+      agentName: "Sol",
+      taskId: "task-solo",
+      taskTitle: "独立小改",
+      model: "opus-test",
+      startedAt: NOW,
+      durationMs: 3_600_000,
+      outcome: "aborted",
+      totalTokens: 25_000_000,
+      toolCallCount: 90,
+    });
+    assert.deepEqual(
+      stats.top.map(({ runtimeSessionId }) => runtimeSessionId),
+      ["s-sol-1", "s-terra-2", "s-terra-3", "s-terra-1", "s-direct"],
+      "sessions without consumption are not listed as the largest",
+    );
+    // 趋势分系列:每个系列与桶一一对齐,各系列之和等于桶的总量。
+    for (const series of [result.trend.agents, result.trend.models]) {
+      assert.ok(series.every(({ totalTokens }) => totalTokens.length === result.buckets.length));
+      result.buckets.forEach((bucket, index) =>
+        assert.equal(
+          series.reduce((total, row) => total + row.totalTokens[index]!, 0),
+          bucket.totalTokens,
+        ),
+      );
+    }
+    assert.deepEqual(
+      result.trend.agents.map(({ key, name }) => [key, name]),
+      [
+        ["sol", "Sol"],
+        ["terra", "Terra"],
+        [null, ""],
+      ],
+      "dispatches without an agent fold into the unnamed series",
+    );
+    // 未上报用量的派工按 provider 归类。
+    assert.deepEqual(result.unreported, [{ kindId: "claude", instanceId: "claude-main", dispatchCount: 1 }]);
+    assert.equal(result.totals.usageUnavailableDispatches, 1);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("every analysis group is capped and the trend folds the tail into one series", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-token-usage-caps-"));
+  try {
+    const count = 14;
+    for (let index = 0; index < count; index += 1)
+      seedDispatch(rootDir, index, {
+        agentId: `agent-${String(index).padStart(2, "0")}`,
+        model: `model-${String(index).padStart(2, "0")}`,
+        taskId: `task-${String(index).padStart(2, "0")}`,
+        tokens: [1_000 * (index + 1), 0, 0],
+      });
+    for (let index = 0; index < count; index += 1)
+      seedDispatch(rootDir, 100 + index, {
+        kindId: "zcode",
+        instanceId: `instance-${String(index).padStart(2, "0")}`,
+        taskId: null,
+        tokens: [0, 0, 0],
+        usageUnavailable: true,
+        exit: { code: 0, afterMs: 1_000 },
+      });
+    const result = readAgentRuntimeTokenUsage({
+      rootDir,
+      now: NOW,
+      range: "today",
+      entityLabel: () => null,
+      // 每个任务自成一个工作:工作行也超过上限。
+      taskOf: (taskId) => ({ taskId, title: `T ${taskId}`, taskClass: "task", parentTaskId: null }),
+      cut: CUT,
+      projection: EMPTY_PROJECTION,
+    });
+    assert.deepEqual(validateAgentRuntimeTokenUsage(result), []);
+    assert.equal(result.agents.length, count, "member rows stay complete: the ranking pages them itself");
+    assert.equal(result.models.length, tokenUsageInsightLimits.models);
+    assert.equal(result.models[0]?.model, "model-13", "the cap keeps the largest rows");
+    assert.equal(result.tasks.length, tokenUsageInsightLimits.tasks);
+    assert.equal(result.tasks[0]?.taskId, "task-13");
+    assert.equal(result.works.length, tokenUsageInsightLimits.works);
+    assert.equal(result.sessions.top.length, tokenUsageInsightLimits.topSessions);
+    assert.equal(result.unreported.length, tokenUsageInsightLimits.unreportedProviders);
+    assert.equal(result.totals.usageUnavailableDispatches, count, "the total still counts every provider");
+    // 具名系列到上限为止,再加 1 个合并系列;合并系列装下其后的全部。
+    assert.equal(result.trend.agents.length, tokenUsageInsightLimits.trendSeries + 1);
+    const rest = result.trend.agents.at(-1)!;
+    assert.equal(rest.key, null);
+    assert.equal(
+      rest.totalTokens.reduce((total, value) => total + value, 0),
+      Array.from({ length: count - tokenUsageInsightLimits.trendSeries }, (_, rank) => (rank + 1) * 1_000).reduce(
+        (total, value) => total + value,
+        0,
+      ),
+    );
+    assert.equal(
+      result.trend.agents.reduce((total, row) => total + row.totalTokens.reduce((sum, value) => sum + value, 0), 0),
+      result.totals.totalTokens,
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("an empty window yields zeroed, valid analysis groups", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-token-usage-empty-"));
+  try {
+    const result = read(rootDir);
+    assert.deepEqual(validateAgentRuntimeTokenUsage(result), []);
+    assert.equal(result.totals.totalTokens, 0);
+    assert.equal(result.previous.totals.totalTokens, 0);
+    assert.deepEqual(
+      [result.models, result.tasks, result.works, result.unreported, result.trend.agents, result.trend.models],
+      [[], [], [], [], [], []],
+    );
+    assert.deepEqual(result.sessions, {
+      reportedSessions: 0,
+      averageTokens: 0,
+      medianTokens: 0,
+      p90Tokens: 0,
+      maxTokens: 0,
+      averageDurationMs: null,
+      timedSessions: 0,
+      averageToolCalls: 0,
+      distribution: tokenUsageSessionBinCeilings.map((ceiling) => ({ ceiling, sessionCount: 0, totalTokens: 0 })),
+      top: [],
+    });
+    assert.ok(result.outcomes.every(({ sessionCount, totalTokens }) => sessionCount === 0 && totalTokens === 0));
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("validateAgentRuntimeTokenUsage rejects analysis groups outside their shape or bounds", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-token-usage-validate-analysis-"));
+  try {
+    seedAnalysis(rootDir);
+    const result = read(rootDir),
+      invalid = ["agent runtime token usage is invalid"],
+      corrupted: readonly [string, Record<string, unknown>][] = [
+        ["a missing previous period", { previous: undefined }],
+        ["a previous period without its end", { previous: { since: result.previous.since, totals: result.totals } }],
+        ["a model row without session outcomes", { models: [{ model: "m", ...result.totals }] }],
+        [
+          "more model rows than the cap",
+          { models: Array.from({ length: tokenUsageInsightLimits.models + 1 }, () => result.models[0]) },
+        ],
+        [
+          "more task rows than the cap",
+          { tasks: Array.from({ length: tokenUsageInsightLimits.tasks + 1 }, () => result.tasks[0]) },
+        ],
+        ["a task row without a title", { tasks: [{ ...result.tasks[0]!, title: "" }] }],
+        ["a work row with a negative count", { works: [{ ...result.works[0]!, taskCount: -1 }] }],
+        ["outcome rows out of the declared order", { outcomes: [...result.outcomes].reverse() }],
+        ["an unknown outcome word", { outcomes: result.outcomes.map((row) => ({ ...row, outcome: "cancelled" })) }],
+        [
+          "a distribution with a missing bin",
+          { sessions: { ...result.sessions, distribution: result.sessions.distribution.slice(1) } },
+        ],
+        ["a fractional average", { sessions: { ...result.sessions, averageTokens: 1.5 } }],
+        [
+          "a top session with an unknown outcome",
+          { sessions: { ...result.sessions, top: [{ ...result.sessions.top[0]!, outcome: "done" }] } },
+        ],
+        [
+          "a trend series shorter than the bucket ladder",
+          { trend: { ...result.trend, agents: [{ key: "terra", name: "Terra", totalTokens: [1] }] } },
+        ],
+        [
+          "a named trend series without a name",
+          {
+            trend: {
+              ...result.trend,
+              models: [{ key: "gpt-test", name: "", totalTokens: result.buckets.map(() => 0) }],
+            },
+          },
+        ],
+        ["an unreported provider without an instance", { unreported: [{ kindId: "claude", dispatchCount: 1 }] }],
+      ];
+    for (const [label, patch] of corrupted)
+      assert.deepEqual(validateAgentRuntimeTokenUsage({ ...result, ...patch }), invalid, label);
+    assert.deepEqual(
+      parseDaemonGuiReadResult("repo.agentRuntime.tokenUsage", result).ok,
+      true,
+      "the unmodified aggregate passes the GUI read result gate",
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("a signal-terminated dispatch is reported as aborted in the member detail", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-token-usage-aborted-"));
+  try {
+    seedAnalysis(rootDir);
+    const detail = readAgentRuntimeTokenUsageDetail({
+      rootDir,
+      now: NOW,
+      range: "today",
+      member: { kind: "agent", agentId: "sol" },
+      entityLabel: () => null,
+      cut: CUT,
+      projection: EMPTY_PROJECTION,
+    });
+    assert.deepEqual(validateAgentRuntimeTokenUsageDetail(detail), []);
+    assert.deepEqual(detail.sessions.map(({ outcome }) => outcome).sort(), ["aborted", "succeeded"]);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
