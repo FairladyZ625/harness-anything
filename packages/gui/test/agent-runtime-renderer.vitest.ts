@@ -538,9 +538,9 @@ describe("agent runtime renderer", () => {
     expect(at("unreachable-one")).toBeLessThan(at("codex-review"));
     expect(at("codex-review")).toBeLessThan(at("claude-disabled"));
     const rowOf = (id: string) => markup.slice(at(id), at(id) + 2000);
-    // 状态档:不可达红、可用绿、已停用中性灰(人为关掉,不是出错)。
+    // 状态档:不可达红;「可用」与已停用都是正常值,中性灰(绿色只留给完成且结果好)。
     expect(rowOf("unreachable-one")).toContain('data-status-tone="bad"');
-    expect(rowOf("codex-review")).toContain('data-status-tone="done"');
+    expect(rowOf("codex-review")).toContain('data-status-tone="neutral"');
     expect(rowOf("claude-disabled")).toContain('data-status-tone="neutral"');
     // 红竖线只给异常:已停用行不注入 --status-edge,不可达行注入。
     expect(rowOf("claude-disabled")).not.toContain("--status-edge");

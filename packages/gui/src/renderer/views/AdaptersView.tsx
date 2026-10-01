@@ -59,7 +59,7 @@ export function AdaptersView({ repoId, tasks = [] }: { readonly repoId: string; 
               <DenseRow
                 tag={
                   <StatusTag
-                    tone={blocked ? "bad" : "done"}
+                    tone={blocked ? "bad" : "neutral"}
                     label={blocked ? adapter.unavailableReason : t("views.adaptersView.registeredAvailable")}
                   />
                 }

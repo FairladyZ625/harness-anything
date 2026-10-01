@@ -44,7 +44,8 @@ export function NavButton({
     <button
       onClick={onClick}
       title={label}
-      className={`flex min-w-0 items-center gap-2 rounded-md px-2.5 py-1.5 text-left ui-prose leading-snug transition-colors duration-100 ${
+      // 导航字号与内容区正文同档(评审第 6 条:导航文字曾比正文还大,与右侧页面不成比例)。
+      className={`flex min-w-0 items-center gap-2 rounded-md px-2.5 py-1.5 text-left ui-body leading-snug transition-colors duration-100 ${
         active
           ? "bg-surface-raised font-medium text-text"
           : "text-text-muted hover:bg-surface-raised/60 hover:text-text"
