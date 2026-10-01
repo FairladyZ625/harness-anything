@@ -212,6 +212,29 @@ describe("Task detail expression", () => {
     ]);
   });
 
+  it("头部按内容换行,不靠写死的行宽与最小宽(原则 9②,C4)", async () => {
+    installBridge();
+    setDetailOpenTerminal(() => undefined);
+    try {
+      await mount();
+      const header = byTestId("task-detail-header");
+      // 面包屑行允许换行:窄屏下动作钮折到面包屑下一行,不再整行挤出视口。
+      const strip = header.firstElementChild as HTMLElement;
+      expect(strip.className).toContain("flex-wrap");
+      // 动作钮组可收缩、逐钮换行,不再整组 shrink-0。
+      const cluster = header.querySelector('[data-testid="task-detail-open-terminal"]')!.parentElement!;
+      expect(cluster.className).toContain("flex-wrap");
+      expect(cluster.className).toContain("min-w-0");
+      expect(cluster.className).not.toContain("shrink-0");
+      // 阶段步进条的最小宽由内容决定,不再写死 240px。
+      const phase = header.querySelector('[data-testid="task-detail-phase"]')!;
+      expect(phase.className).toContain("min-w-0");
+      expect(phase.className).not.toMatch(/min-w-\[\d+px\]/u);
+    } finally {
+      setDetailOpenTerminal(undefined);
+    }
+  });
+
   it("overview answers 要做什么/进展到哪/卡在哪: hero for awaiting owner, warn rows for stuck causes, both vanish when empty", async () => {
     installBridge();
     // in_review ⇒ 需要人动手的 hero 块;无真正的阻塞 ⇒ 卡在哪整块不渲染(空了就消失)。

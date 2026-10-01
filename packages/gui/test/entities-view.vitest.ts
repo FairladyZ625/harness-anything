@@ -233,6 +233,23 @@ describe("declared entity detail two-column layout", () => {
     expect(container.querySelector('[data-testid="entity-doc-renderer"]')).toBeNull();
   });
 
+  it("degrades to a single scrolling column below the 1100px container query (原则 9②,C6)", async () => {
+    stubBridge([], { kinds: [declaredAdrKindRow()], rows: [] });
+    const container = await renderSurface(view(`entitydoc/${ADR_KIND}`));
+    await settle();
+    const left = container.querySelector<HTMLElement>('[data-testid="entity-doc-detail-left"]')!;
+    const right = container.querySelector<HTMLElement>('[data-testid="entity-doc-detail-right"]')!;
+    const columns = left.parentElement!;
+    // 栏式切换走容器查询(与 TaskDetailView 同一断带),不引入视口断点常数。
+    expect(columns.className).toContain("@container");
+    expect(columns.className).toContain("@min-[1100px]:flex-row");
+    // 左列 400px 只在 ≥1100px 生效;更窄吃满内容宽,右栏不再被固定宽挤出视口。
+    expect(left.className).toContain("@min-[1100px]:w-[400px]");
+    expect(left.className).not.toMatch(/(?<!@min-\[1100px\]:)w-\[\d+px\]/u);
+    expect(left.className).not.toMatch(/(?<!@min-\[1100px\]:)shrink-0/u);
+    expect(right.className).toContain("@min-[1100px]:flex-1");
+  });
+
   it("renders the selected entity's document in the right pane via its locator", async () => {
     stubBridge([], {
       kinds: [declaredAdrKindRow()],
