@@ -407,6 +407,13 @@ export interface EventEntry {
   readonly kind: WorkStepKind;
   /** 事件编号(executionId / reviewId / …):行尾弱色可达,不做主文字。 */
   readonly ref: string;
+  /**
+   * 引用对象的结构化身份(`execution/<id>` / `review/<id>` / `consent/<id>` /
+   * `witness/<id>`),在事件源头(task-adapter lifecycleEvents)随记录种类拼好,
+   * 不从 ref 文本猜;落点是所属任务详情收口页签的对应记录行。无引用对象的
+   * 事件(手写记录等)缺省,行尾保持纯文本。
+   */
+  readonly recordRef?: string;
   /** 人话摘要(由 kind 查表):悬停与无富渲染的场合用,如工作列表的最近活动提示。 */
   readonly summary: string;
 }

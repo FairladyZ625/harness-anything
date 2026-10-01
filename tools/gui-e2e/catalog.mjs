@@ -1,6 +1,7 @@
 import shellNavigation from "./scenarios/shell-navigation.mjs";
 import overview from "./scenarios/overview-first-usable.mjs";
 import board from "./scenarios/board-preview-detail.mjs";
+import taskTimelineRecordNavigation from "./scenarios/task-timeline-record-navigation.mjs";
 import taskTerminal from "./scenarios/task-detail-open-terminal.mjs";
 import terminalBasics from "./scenarios/terminal-basics.mjs";
 import terminalPanes from "./scenarios/terminal-panes.mjs";
@@ -40,6 +41,7 @@ export const catalog = [
   scheduleRunHistory,
   daemonStartupWait,
   cadenceView,
+  taskTimelineRecordNavigation,
 ];
 
 export function selectScenarios({ lane, ids }) {

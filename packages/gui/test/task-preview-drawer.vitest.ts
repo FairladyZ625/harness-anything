@@ -176,6 +176,62 @@ describe("task preview drawer §4 内容契约", () => {
   });
 });
 
+describe("task preview 关键记录:引用对象可导航(task 详情同一机制)", () => {
+  it("带 recordRef 的编号是原生按钮,点击带出 (taskId, recordRef);整行打开详情不受影响", async () => {
+    const onOpenRecord = vi.fn(),
+      onOpenDetail = vi.fn();
+    const task = makeTask({
+      events: [
+        {
+          projectId: "p",
+          taskId: "task-a",
+          at: "2026-08-23T09:00:00.000Z",
+          kind: "start",
+          ref: "execution-w3",
+          recordRef: "execution/execution-w3",
+          summary: "开始执行",
+        },
+      ],
+    });
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () =>
+        root.render(
+          createElement(
+            QueryClientProvider,
+            { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
+            createElement(TaskPreviewDrawer, {
+              task,
+              tasks: [task],
+              relations: [],
+              onClose: noop,
+              onOpenDetail,
+              onPreviewTask: noop,
+              onOpenRecord,
+            }),
+          ),
+        ),
+      );
+      const refButton = [...container.querySelectorAll<HTMLButtonElement>("button")].find(
+        (button) => button.textContent === "execution-w3",
+      );
+      expect(refButton, "关键记录的 execution 编号应渲染为可激活按钮").toBeTruthy();
+      await act(async () => {
+        refButton!.click();
+      });
+      expect(onOpenRecord).toHaveBeenCalledTimes(1);
+      expect(onOpenRecord).toHaveBeenCalledWith("task-a", "execution/execution-w3");
+      // 不给 onOpenRecord 时不造死链接(接线是 App 的职责)。
+      expect(onOpenDetail).not.toHaveBeenCalled();
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
+  });
+});
+
 describe("task preview dismissal", () => {
   it("closes on an outside press, lets the dimmed board keep its clicks, and keeps pin independent", async () => {
     const onClose = vi.fn(),

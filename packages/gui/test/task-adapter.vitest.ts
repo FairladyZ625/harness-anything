@@ -150,6 +150,62 @@ describe("lifecycleEvents（任务详情进展时间线的事件源）", () => {
     // 摘要与渲染标签同一词表(WORK_STEP_LABEL_KEY),不再拼英文机器短语。
     expect(task.events?.every(({ summary }) => summary !== "" && !/[A-Za-z]{2,}\s/.test(summary))).toBe(true);
   });
+
+  it("事件随结构化 recordRef 一起投影(kind 来自记录源头,不从 ref 文本猜)", () => {
+    const snapshot = row().snapshot;
+    const [task] = adaptProjectionRows(
+      [
+        row({
+          snapshot: {
+            ...snapshot,
+            executions: [
+              {
+                schema: "execution/v1",
+                executionId: "exe_230d",
+                taskId: "task-x",
+                nodeId: "implementation",
+                iteration: 1,
+                state: "accepted",
+                actor: { principal: { personId: "person-owner" }, executor: null },
+                claimedAt: "2026-09-01T01:00:00.000Z",
+                submittedAt: "2026-09-01T02:00:00.000Z",
+                closedAt: "2026-09-01T03:00:00.000Z",
+                submission: null,
+              },
+            ],
+            reviews: [
+              {
+                reviewId: "rev_1",
+                reviewedAt: "2026-09-01T02:30:00.000Z",
+                verdict: "changes_requested",
+              },
+            ],
+            consents: [{ consentId: "consent-e0c8", consentedAt: "2026-09-01T03:30:00.000Z" }],
+            gateWitnesses: [
+              { witnessId: "gw_1", gateId: "ci", result: "pass", verifiedAt: "2026-09-01T03:10:00.000Z" },
+            ],
+            codeDocWitnesses: [
+              { schema: "code-doc-witness/v1", witnessId: "w_1", reconciledAt: "2026-09-01T03:40:00.000Z" },
+              { schema: "legacy-repoint/v1", recordId: "rec_9", repointedAt: "2026-09-01T03:50:00.000Z" },
+            ],
+          } as unknown as TaskSnapshotProjectionRow["snapshot"],
+        }),
+      ],
+      "repo-test",
+    );
+    // 每个事件的引用对象按记录种类拼 canonical recordRef:execution/review/consent/witness
+    // 四类,与收口页签的记录分组一一对应;同 execution 的 start/submit/close 共用同一引用。
+    expect(task.events?.map(({ kind, recordRef }) => `${kind}:${recordRef}`)).toEqual([
+      "witness:witness/rec_9",
+      "witness:witness/w_1",
+      "consent:consent/consent-e0c8",
+      "gatePass:witness/gw_1",
+      "completed:execution/exe_230d",
+      "rejected:review/rev_1",
+      "submit:execution/exe_230d",
+      "start:execution/exe_230d",
+    ]);
+  });
 });
 
 describe("adaptProjectionRows", () => {

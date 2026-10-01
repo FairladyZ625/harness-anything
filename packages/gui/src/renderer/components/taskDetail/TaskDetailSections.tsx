@@ -59,10 +59,13 @@ const STUCK_COPY: StuckRowCopy = {
 export function TaskOverviewTab({
   task,
   onOpenCloseout,
+  onOpenRecord,
 }: {
   readonly task: TaskRow;
   /** 「等你裁决」区域只有一个去向:去收口页签处理,放在区域页脚;缺省不渲染按钮。 */
   readonly onOpenCloseout?: () => void;
+  /** 时间线引用对象(execution/review/…)的打开出口:落收口页签对应记录行。 */
+  readonly onOpenRecord?: (recordRef: string) => void;
 }) {
   const plan = useTaskDocumentQuery(task.projectId, task.taskId, "task_plan.md");
   const events = task.events ?? [];
@@ -135,7 +138,7 @@ export function TaskOverviewTab({
       {events.length > 0 ? (
         <BoardSide region="progress" data-testid="task-progress-timeline">
           <Region title="进展时间线" big={events.length} padded footer="生命周期记录，按天归并">
-            <TaskEventDigest events={events} />
+            <TaskEventDigest events={events} onOpenRecord={onOpenRecord} />
           </Region>
         </BoardSide>
       ) : null}
@@ -145,7 +148,13 @@ export function TaskOverviewTab({
 
 /** 生命周期事件按天收束(§1.4 收束,不堆叠):天摘要 + 每事件一行,全部渲染不分批。
  * 行主文字是事件的人话种类(与工作概况「最近进展」同一 STEP_META 词表),编号弱色行尾。 */
-function TaskEventDigest({ events }: { readonly events: readonly EventEntry[] }) {
+function TaskEventDigest({
+  events,
+  onOpenRecord,
+}: {
+  readonly events: readonly EventEntry[];
+  readonly onOpenRecord?: (recordRef: string) => void;
+}) {
   const groups: { day: string; events: EventEntry[] }[] = [];
   for (const event of [...events].sort((a, b) => b.at.localeCompare(a.at))) {
     const day = dayKeyOf(event.at) ?? event.at.slice(0, 10);
@@ -167,6 +176,11 @@ function TaskEventDigest({ events }: { readonly events: readonly EventEntry[] })
             name: event.summary,
             steps: [],
             ref: event.ref,
+            // 事件源拼好的结构化引用才可点,落到引用对象在收口页签的记录行;
+            // 无引用对象(手写记录)保持纯文本编号,不误导航。
+            ...(event.recordRef !== undefined && onOpenRecord !== undefined
+              ? { recordRef: event.recordRef, onOpenRecord }
+              : {}),
           }))}
         />
       ))}

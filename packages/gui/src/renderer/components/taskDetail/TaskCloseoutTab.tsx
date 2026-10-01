@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import type { TaskCompletionRead } from "../../../api/renderer-dto.ts";
 import type { TaskMutationFeedback } from "../../task-actions.ts";
 import { useTaskCompletionQuery } from "../../task-data.ts";
@@ -19,6 +19,11 @@ import { TaskGateAttestCard } from "./TaskGateAttestCard.tsx";
 import { ReadError, Timestamp } from "./TaskDetailSections.tsx";
 
 const asideClass = "grid content-start gap-7 border-t border-border pt-6 xl:border-t-0 xl:border-l xl:pt-0 xl:pl-6";
+
+/** recordRef(execution/<id> 等)→ 收口记录行的 DOM 锚点:斜杠转连字符,getElementById 直取。 */
+export function closeoutRecordDomId(recordRef: string): string {
+  return `closeout-record-${recordRef.replaceAll("/", "-")}`;
+}
 
 export interface TaskActionProps {
   readonly mutationFeedback?: TaskMutationFeedback;
@@ -44,6 +49,7 @@ export interface TaskActionProps {
 
 export function TaskCloseoutTab({
   task,
+  focusedRecordRef = null,
   mutationFeedback,
   onProgress,
   onSubmit,
@@ -51,7 +57,7 @@ export function TaskCloseoutTab({
   onAdjudicate,
   onConsentReview,
   onAttest,
-}: { readonly task: TaskRow } & TaskActionProps) {
+}: { readonly task: TaskRow; readonly focusedRecordRef?: string | null } & TaskActionProps) {
   const completion = useTaskCompletionQuery(task.projectId, task.taskId),
     completionNext = completion.data?.completionNext,
     reviews = task.reviews ?? [],
@@ -79,6 +85,21 @@ export function TaskCloseoutTab({
           }),
     [task],
   );
+  // 引用对象的聚焦落点:时间线/预览抽屉点开的记录行滚入视野,同一引用只滚一次
+  // (与决策池聚焦同一模式);行本体带选中高亮,落点可见。
+  const handledFocusRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (focusedRecordRef === null) {
+      handledFocusRef.current = null;
+      return;
+    }
+    if (handledFocusRef.current === focusedRecordRef) return;
+    handledFocusRef.current = focusedRecordRef;
+    const frame = requestAnimationFrame(() => {
+      document.getElementById(closeoutRecordDomId(focusedRecordRef))?.scrollIntoView({ block: "center" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusedRecordRef]);
   return (
     <section data-testid="task-closeout-tab">
       <Section title="收口与门" note="后端 closeoutAssessment、snapshot witness 与 execution 输出回执的原样展示">
@@ -116,6 +137,8 @@ export function TaskCloseoutTab({
                   state={review.verdict}
                   summary={review.reason}
                   at={review.reviewedAt}
+                  recordRef={`review/${review.reviewId}`}
+                  focused={focusedRecordRef === `review/${review.reviewId}`}
                 />
               ))}
             </AuditGroup>
@@ -127,6 +150,8 @@ export function TaskCloseoutTab({
                   state="recorded"
                   summary={`review ${consent.reviewId}`}
                   at={consent.consentedAt}
+                  recordRef={`consent/${consent.consentId}`}
+                  focused={focusedRecordRef === `consent/${consent.consentId}`}
                 />
               ))}
             </AuditGroup>
@@ -142,6 +167,11 @@ export function TaskCloseoutTab({
                   }
                   summary={witness.paths.join(", ")}
                   at={witness.schema === "code-doc-witness/v1" ? witness.reconciledAt : witness.repointedAt}
+                  recordRef={`witness/${witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId}`}
+                  focused={
+                    focusedRecordRef ===
+                    `witness/${witness.schema === "code-doc-witness/v1" ? witness.witnessId : witness.recordId}`
+                  }
                 />
               ))}
             </AuditGroup>
@@ -153,10 +183,12 @@ export function TaskCloseoutTab({
                   state={witness.result}
                   summary={`${witness.checkerId} · ${witness.receiptId}`}
                   at={witness.verifiedAt}
+                  recordRef={`witness/${witness.witnessId}`}
+                  focused={focusedRecordRef === `witness/${witness.witnessId}`}
                 />
               ))}
             </AuditGroup>
-            <ExecutionOutputsGroup executions={executions} />
+            <ExecutionOutputsGroup executions={executions} focusedRecordRef={focusedRecordRef} />
           </div>
 
           <aside className={asideClass}>
@@ -303,66 +335,80 @@ function AuditGroup({
   );
 }
 
-function ExecutionOutputsGroup({ executions }: { readonly executions: readonly ExecutionEvidenceRow[] }) {
+function ExecutionOutputsGroup({
+  executions,
+  focusedRecordRef,
+}: {
+  readonly executions: readonly ExecutionEvidenceRow[];
+  readonly focusedRecordRef?: string | null;
+}) {
   return (
     <AuditGroup title="Execution 输出" count={executions.length}>
-      {executions.map((execution) => (
-        <article
-          key={execution.executionId}
-          data-testid={`task-execution-${execution.executionId}`}
-          className="grid gap-3 py-3"
-        >
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono ui-micro">
-            <span className="font-semibold text-text">{execution.executionId}</span>
-            <span className="rounded border border-border px-1.5 py-0.5 text-text-muted">{field(execution.state)}</span>
-            {execution.origin && (
-              <span className="rounded border border-border px-1.5 py-0.5 text-text-faint">{execution.origin}</span>
-            )}
-            <span className="text-text-faint">
-              iteration {field(execution.iteration)} · commit{" "}
-              {field(execution.commitSha && execution.commitSha.slice(0, 10))}
-            </span>
-            <span className="ml-auto text-text-faint">
-              {execution.outputs.length} outputs ·{" "}
-              {execution.outputs.filter(({ isPassingReceipt }) => isPassingReceipt).length} passing
-            </span>
-          </div>
-          {execution.outputs.length === 0 ? (
-            <p className="ui-meta text-text-faint">该 execution 没有输出记录。</p>
-          ) : (
-            <div className="grid gap-1">
-              {execution.outputs.map((output, index) => (
-                <div
-                  key={`${output.evidenceId ?? "unknown"}-${index}`}
-                  className={
-                    "flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-border/70 " +
-                    "bg-surface-raised/35 px-2 py-1.5 font-mono ui-micro"
-                  }
-                >
-                  <span className="min-w-0 truncate text-text">{field(output.evidenceId)}</span>
-                  <span className="min-w-0 truncate text-text-muted">
-                    {field(output.substrate)} · {field(output.locator)}
-                  </span>
-                  <span
+      {executions.map((execution) => {
+        const recordRef = `execution/${execution.executionId}`;
+        return (
+          <article
+            key={execution.executionId}
+            id={closeoutRecordDomId(recordRef)}
+            data-testid={`task-execution-${execution.executionId}`}
+            className={`grid gap-3 py-3 ${
+              focusedRecordRef === recordRef ? "bg-accent/10 shadow-[inset_2px_0_0_var(--color-accent)]" : ""
+            }`}
+          >
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono ui-micro">
+              <span className="font-semibold text-text">{execution.executionId}</span>
+              <span className="rounded border border-border px-1.5 py-0.5 text-text-muted">
+                {field(execution.state)}
+              </span>
+              {execution.origin && (
+                <span className="rounded border border-border px-1.5 py-0.5 text-text-faint">{execution.origin}</span>
+              )}
+              <span className="text-text-faint">
+                iteration {field(execution.iteration)} · commit{" "}
+                {field(execution.commitSha && execution.commitSha.slice(0, 10))}
+              </span>
+              <span className="ml-auto text-text-faint">
+                {execution.outputs.length} outputs ·{" "}
+                {execution.outputs.filter(({ isPassingReceipt }) => isPassingReceipt).length} passing
+              </span>
+            </div>
+            {execution.outputs.length === 0 ? (
+              <p className="ui-meta text-text-faint">该 execution 没有输出记录。</p>
+            ) : (
+              <div className="grid gap-1">
+                {execution.outputs.map((output, index) => (
+                  <div
+                    key={`${output.evidenceId ?? "unknown"}-${index}`}
                     className={
-                      output.isPassingReceipt
-                        ? "text-status-done"
-                        : output.checkerReceiptRef === null
-                          ? "text-stale"
-                          : "text-status-unknown"
+                      "flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-border/70 " +
+                      "bg-surface-raised/35 px-2 py-1.5 font-mono ui-micro"
                     }
                   >
-                    {receiptField(output.checkerReceiptRef)} · {checkerResultField(output.checkerResult)}
-                  </span>
-                  <span className="ml-auto">
-                    <CopyContextButton compact buildText={() => buildExecutionEvidenceContext(execution, output)} />
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </article>
-      ))}
+                    <span className="min-w-0 truncate text-text">{field(output.evidenceId)}</span>
+                    <span className="min-w-0 truncate text-text-muted">
+                      {field(output.substrate)} · {field(output.locator)}
+                    </span>
+                    <span
+                      className={
+                        output.isPassingReceipt
+                          ? "text-status-done"
+                          : output.checkerReceiptRef === null
+                            ? "text-stale"
+                            : "text-status-unknown"
+                      }
+                    >
+                      {receiptField(output.checkerReceiptRef)} · {checkerResultField(output.checkerResult)}
+                    </span>
+                    <span className="ml-auto">
+                      <CopyContextButton compact buildText={() => buildExecutionEvidenceContext(execution, output)} />
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </article>
+        );
+      })}
     </AuditGroup>
   );
 }
@@ -372,14 +418,24 @@ function AuditRow({
   state,
   summary,
   at,
+  recordRef,
+  focused = false,
 }: {
   readonly id: string;
   readonly state: string;
   readonly summary: string;
   readonly at: string;
+  /** 该行的结构化引用(execution/<id> 等事件的引用对象):时间线聚焦的锚点。 */
+  readonly recordRef?: string;
+  readonly focused?: boolean;
 }) {
   return (
-    <div className="grid gap-2 py-3 sm:grid-cols-[11rem_minmax(0,1fr)_9rem]">
+    <div
+      id={recordRef === undefined ? undefined : closeoutRecordDomId(recordRef)}
+      className={`grid gap-2 py-3 sm:grid-cols-[11rem_minmax(0,1fr)_9rem] ${
+        focused ? "bg-accent/10 shadow-[inset_2px_0_0_var(--color-accent)]" : ""
+      }`}
+    >
       <div>
         <p className="font-mono ui-micro text-text-muted">{id}</p>
         <p className="mt-0.5 font-mono ui-micro text-text-faint">{state}</p>

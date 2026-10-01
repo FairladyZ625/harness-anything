@@ -139,34 +139,44 @@ const GATE_RESULT_KIND: Readonly<Record<string, WorkStepKind>> = {
 
 function lifecycleEvents(row: TaskSnapshotProjectionRow, projectId: string): TaskRow["events"] {
   const taskId = row.taskId;
-  const event = (at: string, kind: WorkStepKind, ref: string): EventEntry => ({
+  // 引用对象的 recordRef 在记录源头按种类拼好(execution/review/consent/witness),
+  // 渲染层不从 ref 文本猜类型;同 execution 的多条事件共用同一引用。
+  const event = (at: string, kind: WorkStepKind, ref: string, recordKind: string): EventEntry => ({
     at,
     projectId,
     taskId,
     kind,
     ref,
+    recordRef: `${recordKind}/${ref}`,
     summary: t(WORK_STEP_LABEL_KEY[kind]),
   });
   const events = [
     ...row.snapshot.executions.flatMap((execution) => [
-      event(execution.claimedAt, "start", execution.executionId),
-      ...(execution.submittedAt ? [event(execution.submittedAt, "submit", execution.executionId)] : []),
+      event(execution.claimedAt, "start", execution.executionId, "execution"),
+      ...(execution.submittedAt ? [event(execution.submittedAt, "submit", execution.executionId, "execution")] : []),
       // 未登记的终态按已完成收束(词表没有中性的「关闭」;编号行尾仍可达)。
       ...(execution.closedAt
-        ? [event(execution.closedAt, EXECUTION_CLOSED_KIND[execution.state] ?? "completed", execution.executionId)]
+        ? [
+            event(
+              execution.closedAt,
+              EXECUTION_CLOSED_KIND[execution.state] ?? "completed",
+              execution.executionId,
+              "execution",
+            ),
+          ]
         : []),
     ]),
     ...row.snapshot.reviews.map((review) =>
-      event(review.reviewedAt, REVIEW_VERDICT_KIND[review.verdict] ?? "rejected", review.reviewId),
+      event(review.reviewedAt, REVIEW_VERDICT_KIND[review.verdict] ?? "rejected", review.reviewId, "review"),
     ),
-    ...row.snapshot.consents.map((consent) => event(consent.consentedAt, "consent", consent.consentId)),
+    ...row.snapshot.consents.map((consent) => event(consent.consentedAt, "consent", consent.consentId, "consent")),
     ...row.snapshot.codeDocWitnesses.map((witness) =>
       witness.schema === "code-doc-witness/v1"
-        ? event(witness.reconciledAt, "witness", witness.witnessId)
-        : event(witness.repointedAt, "witness", witness.recordId),
+        ? event(witness.reconciledAt, "witness", witness.witnessId, "witness")
+        : event(witness.repointedAt, "witness", witness.recordId, "witness"),
     ),
     ...row.snapshot.gateWitnesses.map((witness) =>
-      event(witness.verifiedAt, GATE_RESULT_KIND[witness.result] ?? "gateCheck", witness.witnessId),
+      event(witness.verifiedAt, GATE_RESULT_KIND[witness.result] ?? "gateCheck", witness.witnessId, "witness"),
     ),
   ];
   return events.sort((left, right) => right.at.localeCompare(left.at));

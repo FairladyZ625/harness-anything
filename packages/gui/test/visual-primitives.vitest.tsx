@@ -528,6 +528,73 @@ describe("DayDigest", () => {
     expect(names[1]!.className).toContain("max-w-[48%]");
     act(() => root.unmount());
   });
+
+  it("带结构化 recordRef 的行尾编号是实体链接(原生 button),点击带出 canonical 引用;缺省仍是纯文本", () => {
+    const onOpenRecord = vi.fn();
+    const { container, root } = mount(
+      createElement(DayDigest, {
+        day: "今天",
+        summary: "2 条记录",
+        defaultOpen: true,
+        paths: [
+          {
+            time: "10:00",
+            name: "开始执行",
+            steps: [],
+            ref: "execution-w3",
+            recordRef: "execution/execution-w3",
+            onOpenRecord,
+          },
+          { time: "10:20", name: "手写关键记录", steps: [], ref: "legacy-note" },
+        ],
+      }),
+    );
+    const tails = [...container.querySelectorAll<HTMLElement>("[data-day] span, [data-day] button")].filter(
+      (node) => node.textContent === "execution-w3" || node.textContent === "legacy-note",
+    );
+    expect(tails.map((tail) => tail.tagName)).toEqual(["BUTTON", "SPAN"]);
+    act(() => {
+      (tails[0] as HTMLButtonElement).click();
+    });
+    expect(onOpenRecord).toHaveBeenCalledTimes(1);
+    expect(onOpenRecord).toHaveBeenCalledWith("execution/execution-w3");
+    act(() => root.unmount());
+  });
+
+  it("行可点且行尾也是实体链接时,不产生嵌套 button:两个动作各自是原生按钮", () => {
+    const onOpenRecord = vi.fn();
+    const onClick = vi.fn();
+    const { container, root } = mount(
+      createElement(DayDigest, {
+        day: "今天",
+        summary: "1 条记录",
+        defaultOpen: true,
+        paths: [
+          {
+            time: "10:00",
+            name: "开始执行",
+            steps: [],
+            ref: "execution-w3",
+            recordRef: "execution/execution-w3",
+            onOpenRecord,
+            onClick,
+          },
+        ],
+      }),
+    );
+    // 行本身不再是 button(嵌套 button 是非法 HTML);主文字与行尾编号各自可点。
+    // 圈定在路径容器([data-day] 的内层 div)里,天切换钮不在其中。
+    const rowButtons = [...container.querySelectorAll<HTMLButtonElement>("[data-day] > div button")];
+    expect(rowButtons).toHaveLength(2);
+    expect(rowButtons.every((button) => button.closest("button") === button)).toBe(true);
+    act(() => {
+      rowButtons[0]!.click();
+      rowButtons[1]!.click();
+    });
+    expect(onClick).toHaveBeenCalledTimes(1);
+    expect(onOpenRecord).toHaveBeenCalledWith("execution/execution-w3");
+    act(() => root.unmount());
+  });
 });
 
 describe("PillFlow", () => {
