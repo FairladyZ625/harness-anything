@@ -298,7 +298,7 @@ describe("议程页(标准 §2.4 列表页)", () => {
     );
     clickRow(host, "rel_task");
     let dialog = host.querySelector('[role="dialog"]');
-    expect(dialog?.textContent).toMatch(/已等待\s*\d+\s*(分|时|天)/u);
+    expect(dialog?.textContent).toMatch(/\d+ (分钟|小时|天)前开始等待/u);
     expect(dialog?.textContent).toContain("提案 task/task_x");
     expect(dialog?.textContent).toContain("has review changes to resolve.");
     click(host, "agenda-drawer-answer");

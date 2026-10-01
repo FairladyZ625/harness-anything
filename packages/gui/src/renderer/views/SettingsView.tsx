@@ -5,7 +5,17 @@ import { useMotionPreference, type MotionPreference } from "../motion-config.tsx
 import { t, useI18n, type MessageKey } from "../i18n/index.tsx";
 import { STATUS_META } from "../components/badges";
 import { BTN, Section, Row, Segmented, Toggle, Kbd } from "../components/ui/widgets";
-import { readTimeZoneOverride, supportedTimeZones, systemTimeZone, writeTimeZoneOverride } from "../model/time.ts";
+import {
+  formatDuration,
+  formatRelative,
+  formatTime,
+  readTimeDisplayPrefs,
+  supportedTimeZones,
+  systemTimeZone,
+  writeTimeDisplayPrefs,
+  type DateFormatPref,
+  type TimeDisplayPrefs,
+} from "../model/time.ts";
 import { useSettingsMutation } from "../settings-data.ts";
 import type { SystemRepoRow } from "../api-client.ts";
 import { RepositoriesAndConnectionsView } from "./settings/RepositoriesAndConnectionsView.tsx";
@@ -31,6 +41,11 @@ const MOTION_OPTIONS: { key: MotionPreference; labelKey: MessageKey }[] = [
   { key: "off", labelKey: "views.settingsView.motionOff" },
 ];
 
+// 时间显示的预览样张:固定在过去(避开「今天」省略日期的收束),相对样张取 3 小时前。
+const DATE_FORMAT_OPTIONS: readonly DateFormatPref[] = ["iso", "month-day", "long"];
+const DATE_FORMAT_SAMPLE = "2026-09-18T11:02:00.000Z";
+const RELATIVE_SAMPLE = Date.now() - 3 * 3_600_000;
+
 // 已实现的快捷键(其余 ⌘K/⌘1..5/R/X 暂未实现,已从此清单移除以免假承诺)。
 const SHORTCUTS: { keys: string[]; descKey: MessageKey }[] = [
   { keys: ["Esc"], descKey: "views.settingsView.shortcutClosePreviewDrawer" },
@@ -41,6 +56,7 @@ type SettingsTab =
   | "repositories"
   | "repository"
   | "appearance"
+  | "timeDisplay"
   | "language"
   | "shortcuts"
   | "notifications"
@@ -55,6 +71,11 @@ const SETTINGS_TABS: { id: SettingsTab; labelKey: MessageKey; descKey: MessageKe
   },
   { id: "repository", labelKey: "views.settingsView.tabRepository", descKey: "views.settingsView.tabRepositoryDesc" },
   { id: "appearance", labelKey: "views.settingsView.tabAppearance", descKey: "views.settingsView.tabAppearanceDesc" },
+  {
+    id: "timeDisplay",
+    labelKey: "views.settingsView.tabTimeDisplay",
+    descKey: "views.settingsView.tabTimeDisplayDesc",
+  },
   { id: "language", labelKey: "views.settingsView.tabLanguage", descKey: "views.settingsView.tabLanguageDesc" },
   { id: "shortcuts", labelKey: "views.settingsView.tabShortcuts", descKey: "views.settingsView.tabShortcutsDesc" },
   {
@@ -88,7 +109,12 @@ export function SettingsView({
   const { locale, setLocale } = useI18n();
   const [activeTab, setActiveTab] = useState<SettingsTab>(repoId === null ? "repositories" : "repository");
   const [notifyOnReady, setNotifyOnReady] = useState(true);
-  const [timeZoneOverride, setTimeZoneOverride] = useState(() => readTimeZoneOverride() ?? "");
+  const [timePrefs, setTimePrefs] = useState<TimeDisplayPrefs>(() => readTimeDisplayPrefs());
+  const updateTimePrefs = (partial: Partial<TimeDisplayPrefs>) => {
+    const next = { ...timePrefs, ...partial };
+    writeTimeDisplayPrefs(next);
+    setTimePrefs(next);
+  };
   const settingsMutation = useSettingsMutation(repoId);
   const renderActivePanel = () => {
     switch (activeTab) {
@@ -121,28 +147,6 @@ export function SettingsView({
               />
             </Row>
             <Row
-              label={t("views.settingsView.timeZoneLabel")}
-              desc={t("views.settingsView.timeZoneDescription", { system: systemTimeZone() })}
-            >
-              <select
-                aria-label={t("views.settingsView.timeZoneLabel")}
-                className="rounded border border-border bg-surface-raised px-2 py-1 font-mono ui-meta text-text"
-                value={timeZoneOverride}
-                onChange={(event) => {
-                  const next = event.currentTarget.value;
-                  writeTimeZoneOverride(next || null);
-                  setTimeZoneOverride(next);
-                }}
-              >
-                <option value="">{t("views.settingsView.timeZoneFollowSystem")}</option>
-                {supportedTimeZones().map((timeZone) => (
-                  <option key={timeZone} value={timeZone}>
-                    {timeZone}
-                  </option>
-                ))}
-              </select>
-            </Row>
-            <Row
               label={t("views.settingsView.statusColorsLabel")}
               desc={t("views.settingsView.statusColorsDescription")}
             >
@@ -154,6 +158,88 @@ export function SettingsView({
                   </span>
                 ))}
               </div>
+            </Row>
+          </Section>
+        );
+      case "timeDisplay":
+        return (
+          <Section title={t("views.settingsView.sectionTimeDisplay")}>
+            <Row
+              label={t("views.settingsView.timeZoneLabel")}
+              desc={t("views.settingsView.timeZoneDescription", { system: systemTimeZone() })}
+            >
+              <select
+                aria-label={t("views.settingsView.timeZoneLabel")}
+                className="rounded border border-border bg-surface-raised px-2 py-1 font-mono ui-meta text-text"
+                value={timePrefs.timeZone ?? ""}
+                onChange={(event) => updateTimePrefs({ timeZone: event.currentTarget.value || null })}
+              >
+                <option value="">{t("views.settingsView.timeZoneFollowSystem")}</option>
+                {supportedTimeZones().map((timeZone) => (
+                  <option key={timeZone} value={timeZone}>
+                    {timeZone}
+                  </option>
+                ))}
+              </select>
+            </Row>
+            <Row label={t("views.settingsView.dateFormatLabel")} desc={t("views.settingsView.dateFormatDescription")}>
+              <Segmented
+                value={timePrefs.dateFormat}
+                options={DATE_FORMAT_OPTIONS.map((dateFormat) => ({
+                  key: dateFormat,
+                  // 选项标签即实时预览:固定样张在当前时区与小时制下的实际写法。
+                  label:
+                    formatTime(DATE_FORMAT_SAMPLE, { style: "date-time", prefs: { ...timePrefs, dateFormat } }) ??
+                    dateFormat,
+                }))}
+                onChange={(dateFormat) => updateTimePrefs({ dateFormat })}
+              />
+            </Row>
+            <Row label={t("views.settingsView.hourCycleLabel")}>
+              <Segmented
+                value={timePrefs.hour12 ? "h12" : "h23"}
+                options={[
+                  {
+                    key: "h23" as const,
+                    label:
+                      formatTime(DATE_FORMAT_SAMPLE, { style: "time", prefs: { ...timePrefs, hour12: false } }) ??
+                      t("views.settingsView.hourCycle24"),
+                  },
+                  {
+                    key: "h12" as const,
+                    label:
+                      formatTime(DATE_FORMAT_SAMPLE, { style: "time", prefs: { ...timePrefs, hour12: true } }) ??
+                      t("views.settingsView.hourCycle12"),
+                  },
+                ]}
+                onChange={(next) => updateTimePrefs({ hour12: next === "h12" })}
+              />
+            </Row>
+            <Row label={t("views.settingsView.listStyleLabel")} desc={t("views.settingsView.listStyleDescription")}>
+              <Segmented
+                value={timePrefs.listStyle}
+                options={[
+                  {
+                    key: "relative" as const,
+                    label: formatRelative(RELATIVE_SAMPLE, { prefs: timePrefs }),
+                  },
+                  {
+                    key: "absolute" as const,
+                    label:
+                      formatTime(new Date(RELATIVE_SAMPLE).toISOString(), {
+                        style: "date-time",
+                        prefs: timePrefs,
+                      }) ?? t("views.settingsView.listStyleAbsolute"),
+                  },
+                ]}
+                onChange={(listStyle) => updateTimePrefs({ listStyle })}
+              />
+            </Row>
+            <Row label={t("views.settingsView.timePreviewLabel")}>
+              <span className="font-mono ui-meta text-text-muted">
+                {formatRelative(RELATIVE_SAMPLE)} · {formatTime(DATE_FORMAT_SAMPLE, { style: "date-time-seconds" })} ·{" "}
+                {formatDuration(4 * 60_000 + 45_000)}
+              </span>
             </Row>
           </Section>
         );

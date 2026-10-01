@@ -36,15 +36,3 @@ export const missedReasonLabel = (reason: string | null): string =>
 
 export const time = (iso: string | null): string =>
   iso === null ? "—" : (formatTime(iso, { style: "date-time" }) ?? iso);
-
-export function formatDurationMs(ms: number | null): string {
-  if (ms === null || !Number.isFinite(ms) || ms < 0) return "—";
-  const totalSeconds = Math.round(ms / 1000);
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60),
-    seconds = totalSeconds % 60;
-  if (minutes < 60) return seconds === 0 ? `${minutes}m` : `${minutes}m${seconds}s`;
-  const hours = Math.floor(minutes / 60),
-    rest = minutes % 60;
-  return rest === 0 ? `${hours}h` : `${hours}h${rest}m`;
-}

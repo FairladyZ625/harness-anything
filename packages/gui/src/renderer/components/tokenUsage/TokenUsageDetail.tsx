@@ -7,7 +7,8 @@ import type {
   AgentRuntimeTokenUsageSessionRow,
 } from "@harness-anything/daemon/protocol";
 import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
-import { compactTokens, durationText, exactTokens } from "../../token-format.ts";
+import { compactTokens, exactTokens } from "../../token-format.ts";
+import { formatDuration, formatTime } from "../../model/time.ts";
 import { usageIsUnreported, usageOutcomeKey, usageStateKey } from "../../token-usage-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { QUERY_PACING_MS } from "../../query-pacing.ts";
@@ -104,7 +105,9 @@ export function TokenUsageDetail({
                 ) : null}
               </div>
               <p className="font-mono ui-micro text-text-faint">
-                {t("agentRuntime.tokenUsageSince", { since: new Date(data.since ?? 0).toLocaleString() })}
+                {t("agentRuntime.tokenUsageSince", {
+                  since: formatTime(new Date(data.since ?? 0).toISOString(), { style: "date-time" }) ?? "—",
+                })}
               </p>
             </div>
           </div>
@@ -231,10 +234,10 @@ export function TokenUsageDetail({
                               )}
                             </td>
                             <td className="border-b border-border py-1 pr-3 font-mono ui-micro">
-                              {session.startedAt.slice(5, 16).replace("T", " ")}
+                              {formatTime(session.startedAt, { style: "month-day-time" }) ?? session.startedAt}
                             </td>
                             <td className="border-b border-border py-1 pr-3 text-right font-mono ui-micro">
-                              {durationText(session.durationMs)}
+                              {formatDuration(session.durationMs)}
                             </td>
                             <td className="border-b border-border py-1 pr-3">
                               <Badge status={OUTCOME_TONE[session.outcome]}>

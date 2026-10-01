@@ -1,4 +1,5 @@
 import type { AccessAction, AccessPolicyGroup, AccessReceipt, AccessRejection } from "../api/access-admin-contract.ts";
+import { formatDuration } from "./model/time.ts";
 import { t, type MessageKey } from "./i18n/index.tsx";
 
 /** The declaration facets the action picker can group by. */
@@ -110,8 +111,7 @@ export function receiptTitle(receipt: AccessReceipt): string {
     expect = receipt.expect;
   if (expect?.kind === "grant")
     return `${operation}: ${expect.groupId} · ${expect.personId} · ${resourceLabel(expect.resource)}`;
-  if (expect?.kind === "session-lifetime")
-    return `${operation}: ${t("accessControl.lifetime.minutes", { minutes: Math.round(expect.seconds / 60) })}`;
+  if (expect?.kind === "session-lifetime") return `${operation}: ${formatDuration(expect.seconds * 1_000)}`;
   const groupId = expect?.groupId ?? receipt.groupId;
   return groupId ? `${operation}: ${groupId}` : operation;
 }

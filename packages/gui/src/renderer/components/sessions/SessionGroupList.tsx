@@ -3,7 +3,6 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { AgentRuntimeUnattributedGroupKey } from "@harness-anything/daemon/protocol";
 import { agentRuntimeSearchMatches } from "@harness-anything/daemon/protocol";
 import {
-  relativeTime,
   sessionStatusKey,
   sessionUnattributedKey,
   shortRef,
@@ -13,7 +12,7 @@ import {
   type SessionStatus,
 } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
-import { formatTime } from "../../model/time.ts";
+import { formatListTime, formatTime } from "../../model/time.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { catalogRailClass } from "../primitives/CatalogSplit.tsx";
 import { DENSE_ROW_RELAXED_PX, DenseRow } from "../primitives/DenseRow.tsx";
@@ -208,7 +207,7 @@ const GroupSection = memo(function GroupSection({
         group.sessionCount > group.roundCount
           ? t("agentRuntime.sessionsSessionCount", { count: group.sessionCount })
           : undefined,
-        relativeTime(group.latestActivityAt),
+        formatListTime(group.latestActivityAt),
       ]
         .filter(Boolean)
         .join(" · ")}

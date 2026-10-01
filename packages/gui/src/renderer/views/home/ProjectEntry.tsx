@@ -11,7 +11,7 @@ import { useRepoAdminMutations } from "../../connection-data.ts";
 import { t } from "../../i18n/index.tsx";
 import { guiHostBridge } from "../../gui-transport.ts";
 import { projectStatusMeta, repoNeedsAttention, type ProjectActivityRead } from "../../model/repo-state.ts";
-import { relativeTime } from "../../sessions-model.ts";
+import { formatListTime } from "../../model/time.ts";
 import { formatTime } from "../../model/time.ts";
 
 type RepoAdmin = ReturnType<typeof useRepoAdminMutations>;
@@ -128,7 +128,7 @@ export function ProjectEntry({
                   })}
                   data-testid="home-entry-last-activity"
                 >
-                  {relativeTime(read.lastChangedAt)}
+                  {formatListTime(read.lastChangedAt)}
                 </time>
               ) : undefined
             }

@@ -17,15 +17,3 @@ export function percentText(ratio: number): string {
   const percent = ratio * 100;
   return `${percent >= 10 || Number.isInteger(percent) ? Math.round(percent) : percent.toFixed(1)}%`;
 }
-
-/** 时长:秒、分秒、时分三档,未结束为「—」。 */
-export function durationText(ms: number | null): string {
-  if (ms === null || !Number.isFinite(ms) || ms < 0) return "—";
-  const totalSeconds = Math.round(ms / 1000);
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60),
-    seconds = totalSeconds % 60;
-  if (minutes < 60) return seconds === 0 ? `${minutes}m` : `${minutes}m${seconds}s`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h${minutes % 60}m`;
-}

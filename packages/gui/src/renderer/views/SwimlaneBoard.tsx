@@ -17,7 +17,7 @@ import { Drawer } from "../components/primitives/Drawer.tsx";
 import { SegBar } from "../components/primitives/SegBar.tsx";
 import { StatusTag, STATUS_TONE } from "../components/primitives/StatusTag.tsx";
 import { TitleText } from "../components/primitives/TitleText.tsx";
-import { relativeTime } from "../sessions-model.ts";
+import { RowTime } from "../components/primitives/DenseRow.tsx";
 import { sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
 
 /** 泳道分组维度;"root" = 按工作分组(一个根 task 加它的 parentTaskId 子树)。 */
@@ -187,7 +187,7 @@ const LaneCard = memo(function LaneCard({
       </p>
       <div className="mt-1.5 flex items-baseline justify-between gap-1.5">
         <span className="min-w-0 truncate font-mono ui-micro text-text-faint">{task.taskId}</span>
-        <span className="shrink-0 font-mono ui-micro text-text-faint">{relativeTime(task.lastKnownAt)}</span>
+        <RowTime at={task.lastKnownAt} className="shrink-0 font-mono ui-micro text-text-faint" />
       </div>
     </div>
   );

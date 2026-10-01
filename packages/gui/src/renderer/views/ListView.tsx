@@ -4,11 +4,10 @@ import { Lock, PushPin, Star } from "@phosphor-icons/react";
 import type { TaskRow } from "../model/types";
 import { isExternal, isTerminal } from "../model/types";
 import { StatusTag } from "../components/primitives/StatusTag";
-import { DenseRow } from "../components/primitives/DenseRow";
+import { DenseRow, RowTime } from "../components/primitives/DenseRow";
 import { CompletedDivider } from "../components/primitives/CompletedDivider.tsx";
 import { sortByRecentThenPinAndFavoritesFirst } from "../model/taskFilters";
 import { t } from "../i18n/index.tsx";
-import { relativeTime } from "../sessions-model";
 
 /** 列表行 windowing:单行 40px + 分隔线(标准 §3 v2);实测由 measureElement 收敛。 */
 const ROW_ESTIMATE_PX = 41;
@@ -61,7 +60,7 @@ const TaskListRow = memo(function TaskListRow({
           tag={<StatusTag status={task.canonicalStatus ?? task.coordinationStatus} />}
           title={task.title}
           reason={task.taskId}
-          time={relativeTime(task.lastKnownAt)}
+          time={<RowTime at={task.lastKnownAt} />}
         />
       </div>
       {onSetPin ? (

@@ -6,7 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { createElement } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ScheduleDetailView, deriveScheduleRunRows } from "../src/renderer/views/ScheduleDetailView.tsx";
-import { formatDurationMs } from "../src/renderer/components/scheduleRun/runMeta.ts";
+import { formatDuration } from "../src/renderer/model/time.ts";
 import {
   scheduleReportIsJsonReceipt,
   ScheduleRunDetail,
@@ -597,11 +597,11 @@ describe("run-row derivation helpers", () => {
   });
 
   it("formats durations for the timeline", () => {
-    expect(formatDurationMs(null)).toBe("—");
-    expect(formatDurationMs(45_000)).toBe("45s");
-    expect(formatDurationMs(252_000)).toBe("4m12s");
-    expect(formatDurationMs(360_000)).toBe("6m");
-    expect(formatDurationMs(7_200_000)).toBe("2h");
-    expect(formatDurationMs(9_000_000)).toBe("2h30m");
+    expect(formatDuration(null)).toBe("—");
+    expect(formatDuration(45_000)).toBe("45s");
+    expect(formatDuration(252_000)).toBe("4m 12s");
+    expect(formatDuration(360_000)).toBe("6m");
+    expect(formatDuration(7_200_000)).toBe("2h");
+    expect(formatDuration(9_000_000)).toBe("2h 30m");
   });
 });

@@ -3,9 +3,10 @@ import {
   type SquadRunListRowDto,
   type SquadRunSummaryDto,
 } from "@harness-anything/daemon/protocol";
-import { relativeTime, shortRef } from "../../sessions-model.ts";
+import { shortRef } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { catalogRailClass } from "../primitives/CatalogSplit.tsx";
+import { RowTime } from "../primitives/DenseRow.tsx";
 import { Badge, LiveDot } from "../runtime/parts.tsx";
 
 /**
@@ -144,9 +145,7 @@ function RunSection({
             <span className="font-mono ui-micro text-text-muted">{shortRef(run.taskId, 14)}</span>
             <span>· {t("agentRuntime.squadRunLeaderTurns", { count: run.leaderTurnCount })}</span>
             <span>· {t("agentRuntime.squadRunWorkerAttempts", { count: run.workerAttemptCount })}</span>
-            <span className="ml-auto shrink-0 font-mono ui-micro text-text-faint">
-              {relativeTime(run.latestActivityAt)}
-            </span>
+            <RowTime at={run.latestActivityAt} className="ml-auto shrink-0 font-mono ui-micro text-text-faint" />
           </span>
           <p className="max-w-full truncate ui-micro text-text-muted" title={run.mission}>
             {run.mission}

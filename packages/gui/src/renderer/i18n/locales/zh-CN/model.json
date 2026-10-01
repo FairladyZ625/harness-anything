@@ -2,5 +2,10 @@
   "model.actorName.claudeSession": "Claude 会话",
   "model.actorName.codexSession": "Codex 会话",
   "model.actorName.runtimeSession": "运行时会话",
-  "model.actorName.sessionKindSuffix": "{kind} 会话"
+  "model.actorName.sessionKindSuffix": "{kind} 会话",
+  "model.time.justNow": "刚刚",
+  "model.time.minutesAgo": "{minutes} 分钟前",
+  "model.time.hoursAgo": "{hours} 小时前",
+  "model.time.daysAgo": "{days} 天前",
+  "model.time.todayAt": "今天 {time}"
 }

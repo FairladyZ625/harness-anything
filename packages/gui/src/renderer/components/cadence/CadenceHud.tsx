@@ -1,5 +1,5 @@
 import { t } from "../../i18n/index.tsx";
-import { formatUptimeMs } from "../../model/time.ts";
+import { formatDuration } from "../../model/time.ts";
 import type { CadenceHudSnapshot } from "../../model/cadence.ts";
 import { KpiCard } from "../overview/parts.tsx";
 
@@ -25,7 +25,7 @@ export function CadenceHud({
       />
       <KpiCard
         label={t("views.cadence.hudDelivery")}
-        value={hud.avgDeliveryMs === null ? "—" : formatUptimeMs(hud.avgDeliveryMs)}
+        value={hud.avgDeliveryMs === null ? "—" : formatDuration(hud.avgDeliveryMs)}
         detail={
           hud.completedInWindow === 0
             ? t("views.cadence.hudDeliveryUnknown")

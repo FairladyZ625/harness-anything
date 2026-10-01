@@ -6,13 +6,8 @@ import type { ScheduleGuiOptionsDto, ScheduleGuiRowDto } from "@harness-anything
 import { Badge, Btn, Chip, Empty } from "../components/runtime/parts.tsx";
 import { ScheduleForm } from "../components/ScheduleFormDialog.tsx";
 import { ScheduleRunDetail } from "../components/scheduleRun/ScheduleRunDetail.tsx";
-import {
-  RUN_OUTCOME_META,
-  SPARK_COLOR,
-  formatDurationMs,
-  missedReasonLabel,
-  time,
-} from "../components/scheduleRun/runMeta.ts";
+import { RUN_OUTCOME_META, SPARK_COLOR, missedReasonLabel, time } from "../components/scheduleRun/runMeta.ts";
+import { formatDuration } from "../model/time.ts";
 import { DenseRow } from "../components/primitives/DenseRow.tsx";
 import { Region } from "../components/primitives/Region.tsx";
 import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../components/primitives/RegionBoard.tsx";
@@ -744,7 +739,7 @@ function RunRow({
                 .filter((part) => part !== null)
                 .join(" · ")
             : [
-                occurrence.outcome === "running" ? null : formatDurationMs(occurrence.durationMs),
+                occurrence.outcome === "running" ? null : formatDuration(occurrence.durationMs),
                 occurrence.nodeId !== null ? `node ${occurrence.nodeId}` : null,
                 occurrence.occurrenceId !== "" ? occurrence.occurrenceId : null,
                 occurrence.reportRef !== null

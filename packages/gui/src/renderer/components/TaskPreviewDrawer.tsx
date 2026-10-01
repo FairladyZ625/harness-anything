@@ -13,7 +13,7 @@ import { TitleText } from "./primitives/TitleText";
 import { PhaseSteps } from "./taskDetail/PhaseSteps.tsx";
 import { t } from "../i18n/index.tsx";
 import { EntityRefLink } from "./EntityRefLink.tsx";
-import { formatTime } from "../model/time.ts";
+import { dayKeyOf, formatDayKeyLabel, formatTime } from "../model/time.ts";
 import { workspaceGoalLine } from "../model/workspace-narrative.ts";
 import { useTaskDocumentQuery } from "../task-data.ts";
 import { taskStuckItems } from "../model/task-stuck.ts";
@@ -257,7 +257,7 @@ function TaskPreviewBody({
           {dayGroups.map((group) => (
             <DayDigest
               key={group.day}
-              day={group.day}
+              day={formatDayKeyLabel(group.day)}
               defaultOpen
               summary={t("components.taskPreviewDrawer.dayRecords", { count: group.events.length })}
               paths={group.events.map((event) => ({
@@ -317,7 +317,7 @@ interface EventDayGroup {
 function groupByDay(events: readonly EventEntry[]): EventDayGroup[] {
   const groups: { day: string; events: EventEntry[] }[] = [];
   for (const event of events) {
-    const day = formatTime(event.at, { style: "date" }) ?? event.at.slice(0, 10);
+    const day = dayKeyOf(event.at) ?? event.at.slice(0, 10);
     const last = groups.at(-1);
     if (last !== undefined && last.day === day) last.events.push(event);
     else groups.push({ day, events: [event] });

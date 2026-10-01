@@ -726,7 +726,7 @@ describe("G6-B observe 观察现代化:HUD / 慢操作 / 异常聚类 / 双栏�
     expect(container.querySelector('[data-testid="observe-hud-repo-log-anomalies"]')?.textContent).toContain("3");
     const board = container.querySelector('[data-testid="observe-slowops-repo-log"]');
     expect(board?.textContent).toContain("task.adjudicate");
-    expect(board?.textContent).toContain("4859ms");
+    expect(board?.textContent).toContain("4.9s");
     expect(board?.textContent).toContain("P50");
     expect(board?.textContent).toContain("P95");
   });

@@ -2,10 +2,10 @@ import { Badge, Chip, Empty, Hint, KV, KVRow } from "../runtime/parts.tsx";
 import { SessionTranscript } from "../sessions/SessionTranscript.tsx";
 import { DocReader } from "../DocReader.tsx";
 import { t } from "../../i18n/index.tsx";
-import { formatTime } from "../../model/time.ts";
 import type { ScheduleGuiRowDto } from "@harness-anything/daemon/protocol";
 import type { ScheduleGuiRunRowDto, ScheduleRunOutcomeWord } from "../../schedules-client.ts";
-import { formatDurationMs, RUN_OUTCOME_META } from "./runMeta.ts";
+import { RUN_OUTCOME_META, time } from "./runMeta.ts";
+import { formatDuration } from "../../model/time.ts";
 
 // 单次 occurrence 的内嵌详情(M4):失败原因、内嵌会话(全轮次)、报告正文(与产物页
 // 同一个 DocReader)、产出互链全部在这一页。没有的数据就是真实空态,不渲染模板句。
@@ -19,8 +19,6 @@ const RUN_TONE: Record<ScheduleRunOutcomeWord, string> = {
   cancelled: "cancelled",
   unknown: "unknown",
 };
-
-const time = (iso: string | null): string => (iso === null ? "—" : (formatTime(iso, { style: "date-time" }) ?? iso));
 
 /** JSON 回执(如 e2e 探针的 journey 结果)按折叠代码块原样展示,不截断。 */
 export function scheduleReportIsJsonReceipt(text: string): boolean {
@@ -60,7 +58,7 @@ export function ScheduleRunDetail({
         <span className="flex-1" />
         <Hint>
           node {occurrence.nodeId ?? "—"} · {t("schedules.fields.nextRun")} {time(occurrence.scheduledFor)} ·{" "}
-          {time(occurrence.endedAt)} · {formatDurationMs(occurrence.durationMs)}
+          {time(occurrence.endedAt)} · {formatDuration(occurrence.durationMs)}
         </Hint>
       </div>
       <div className="mt-3 grid gap-3 lg:grid-cols-[5fr_7fr]">

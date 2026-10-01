@@ -148,7 +148,7 @@ function visibleText(html: string): string {
 
 describe("workspace readability under real ledger shapes", () => {
   it("groups dates in the same selected time zone as event times", () => {
-    localStorage.setItem("harness:gui:time-zone", "Asia/Taipei");
+    localStorage.setItem("harness:gui:time-display", JSON.stringify({ timeZone: "Asia/Taipei" }));
     try {
       FEED_EVENTS.length = 0;
       FEED_EVENTS.push(
@@ -158,10 +158,10 @@ describe("workspace readability under real ledger shapes", () => {
       render("inspect", (host) => {
         const days = host.querySelectorAll('section[aria-labelledby="workspace-history"] li > p');
         expect(days).toHaveLength(1);
-        expect(days[0]!.textContent).toBe("2026-09-21");
+        expect(days[0]!.textContent).toBe("09-21");
       });
     } finally {
-      localStorage.removeItem("harness:gui:time-zone");
+      localStorage.removeItem("harness:gui:time-display");
     }
   });
 

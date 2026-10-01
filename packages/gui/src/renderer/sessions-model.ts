@@ -9,8 +9,6 @@ import {
 } from "@harness-anything/daemon/protocol";
 import type { TaskDispatchProjectionRow } from "../api/renderer-dto.ts";
 import type { RelationEdge } from "./model/types.ts";
-import { t } from "./i18n/index.tsx";
-import { formatTime } from "./model/time.ts";
 
 /**
  * 会话页的纯数据模型(设计稿 §2–§5):组、轮次行、孤儿会话行全部是 daemon 读面的
@@ -179,16 +177,4 @@ export function sessionDecisionRefs(relations: readonly RelationEdge[], taskId: 
 /** 短码展示:`task_1994…`。title 上已有完整 id 的场合(链接)不必再用。 */
 export function shortRef(id: string, keep = 12): string {
   return id.length > keep ? `${id.slice(0, keep)}…` : id;
-}
-
-/** 相对时间:刚刚 / N 分钟前 / N 小时前 / N 天前,更早回落日期。 */
-export function relativeTime(iso: string, now = Date.now()): string {
-  const at = Date.parse(iso);
-  if (!Number.isFinite(at)) return iso;
-  const seconds = Math.max(0, Math.round((now - at) / 1000));
-  if (seconds < 60) return t("agentRuntime.sessionsJustNow");
-  if (seconds < 3600) return t("agentRuntime.sessionsMinutesAgo", { minutes: Math.floor(seconds / 60) });
-  if (seconds < 86_400) return t("agentRuntime.sessionsHoursAgo", { hours: Math.floor(seconds / 3600) });
-  if (seconds < 30 * 86_400) return t("agentRuntime.sessionsDaysAgo", { days: Math.floor(seconds / 86_400) });
-  return formatTime(iso, { style: "date-time" }) ?? iso;
 }

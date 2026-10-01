@@ -220,7 +220,7 @@
       "packages/gui/src/renderer/graph-territory-preferences.ts#writeGraphTerritoryShowArchived",
       "packages/gui/src/renderer/i18n/index.tsx#I18nProvider",
       "packages/gui/src/renderer/local-doc/markdown-links.ts#fileUrlToPathString",
-      "packages/gui/src/renderer/model/time.ts#readTimeZoneOverride",
+      "packages/gui/src/renderer/model/time.ts#readTimeDisplayPrefs",
       "packages/gui/src/renderer/model/time.ts#validTimeZone",
       "packages/gui/src/renderer/navigation/useLocationRestore.ts#useLocationRestore",
       "packages/gui/src/renderer/navigation/viewHistoryStorage.ts#writeViewHistory",

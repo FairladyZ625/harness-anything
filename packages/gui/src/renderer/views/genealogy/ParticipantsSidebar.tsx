@@ -4,7 +4,7 @@ import type { DecisionRow } from "../../model/types";
 import { DecisionStateBadge } from "../../components/badges";
 import { DenseRow } from "../../components/primitives/DenseRow";
 import { StatusTag } from "../../components/primitives/StatusTag";
-import { dayKeyOf } from "../../graph/genealogy";
+import { decisionDayKeyOf } from "../../graph/genealogy";
 
 /**
  * 谱系参与者侧栏(REQ-GUI-05):列焦点谱系内所有 decision,可搜索换焦点。
@@ -49,7 +49,7 @@ export function ParticipantsSidebar({
         tag={<DecisionStateBadge state={d.state} />}
         title={d.title}
         reason={size > 0 ? `±${size}` : undefined}
-        time={dayKeyOf(d)}
+        time={decisionDayKeyOf(d)}
         selected={d.decisionId === focusId}
         onClick={() => onFocus(d.decisionId)}
       />

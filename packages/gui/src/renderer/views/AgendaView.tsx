@@ -18,8 +18,7 @@ import {
 } from "../model/decision-review.ts";
 import { taskReviewRef } from "../navigation/entityRoutes.ts";
 import { actorDisplayName } from "../model/actor-name.ts";
-import { relativeTime } from "../sessions-model.ts";
-import { ageOf } from "./overview-model.ts";
+import { formatListTime, formatRelative } from "../model/time.ts";
 import type { AgendaAwaitsRow } from "../../api/renderer-dto.ts";
 
 /**
@@ -114,7 +113,7 @@ function agendaRowsOf(agenda: AgendaSuccess): readonly AgendaRow[] {
       // 答复者用可读名字(与总览、决策时间线同一套转换);完整身份串在答复面板里可见。
       hint: `${AWAITS_KIND_LABEL[row.askKind]()} · ${t("components.awaitsAnswer.answeredBy", {
         actor: actorDisplayName(row.answeredBy).name,
-        time: relativeTime(row.answeredAt),
+        time: formatListTime(row.answeredAt),
       })} · ${t("views.agenda.hintAnswered", { answer: row.answer })}`,
       group: "answered" as const,
       since: row.answeredAt,
@@ -255,7 +254,7 @@ export function AgendaView({
                       tag={<StatusTag tone={GROUP_TONE[row.group]} label={t(GROUP_LABEL[row.group])} />}
                       title={row.title}
                       reason={row.hint}
-                      time={row.since === null ? undefined : ageOf(row.since, now)}
+                      time={row.since === null ? undefined : formatListTime(row.since, { now })}
                       onClick={() => setDetail(row)}
                     />
                   </div>
@@ -318,7 +317,7 @@ function AgendaDetail({
       <p className="ui-meta text-text-muted">{detail.hint}</p>
       {detail.since !== null ? (
         <p className="font-mono ui-meta text-text-faint">
-          {t("views.agenda.waitingSince")} {ageOf(detail.since, now)}
+          {t("views.agenda.waitingSince", { age: formatRelative(detail.since, { now }) })}
         </p>
       ) : null}
       <div className="mt-1 flex flex-wrap gap-1.5">

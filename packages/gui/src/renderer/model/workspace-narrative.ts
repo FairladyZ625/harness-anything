@@ -269,14 +269,3 @@ export function workspaceGoalLine(planBody: string): string | null {
   }
   return collected.length > 0 ? collected.join("\n\n") : null;
 }
-
-/** 人读相对时长:一小时内按分钟、两天内按小时、更久按天;措辞由呈现层接。 */
-export function relativeAgo(
-  iso: string,
-  nowIso: string,
-): { readonly count: number; readonly unit: "minute" | "hour" | "day" } {
-  const hours = (Date.parse(nowIso) - Date.parse(iso)) / 3_600_000;
-  if (hours < 1) return { count: Math.max(1, Math.round(hours * 60)), unit: "minute" };
-  if (hours < 48) return { count: Math.round(hours), unit: "hour" };
-  return { count: Math.round(hours / 24), unit: "day" };
-}

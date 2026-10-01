@@ -11,7 +11,7 @@ import {
   upcomingRuns,
 } from "../src/renderer/model/schedule-list.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
-import { TIME_ZONE_STORAGE_KEY } from "../src/renderer/model/time.ts";
+import { TIME_DISPLAY_STORAGE_KEY } from "../src/renderer/model/time.ts";
 
 // 定时计划列表的分档、「接下来」一行与时间写法:纯函数,只读 daemon 行事实。
 
@@ -19,7 +19,7 @@ beforeAll(() => {
   setActiveLocale("zh-CN");
   // 时间写法按用户时区算日历日;测试固定为 UTC,不随机器时区变。
   vi.stubGlobal("localStorage", {
-    getItem: (key: string) => (key === TIME_ZONE_STORAGE_KEY ? "UTC" : null),
+    getItem: (key: string) => (key === TIME_DISPLAY_STORAGE_KEY ? JSON.stringify({ timeZone: "UTC" }) : null),
     setItem: () => {},
     removeItem: () => {},
   });

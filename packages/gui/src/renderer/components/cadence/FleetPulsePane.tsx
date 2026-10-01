@@ -1,4 +1,5 @@
 import { t } from "../../i18n/index.tsx";
+import { formatDuration } from "../../model/time.ts";
 import { formatTime } from "../../model/time.ts";
 import { SegCtl } from "../runtime/parts.tsx";
 import {
@@ -33,8 +34,7 @@ function formatTokens(count: number): string {
 
 function duration(value: number | null): string {
   if (value === null) return t("views.cadence.fleetTurnaroundUnknown");
-  const minutes = Math.round(value / 60_000);
-  return minutes < 60 ? `${minutes}m` : `${Math.round(minutes / 6) / 10}h`;
+  return formatDuration(value);
 }
 
 function Panel({ title, children }: { readonly title: React.ReactNode; readonly children: React.ReactNode }) {
