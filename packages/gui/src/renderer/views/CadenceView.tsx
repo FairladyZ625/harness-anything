@@ -6,6 +6,7 @@ import type { ObserveTailMode } from "../daemon-observe-model.ts";
 import { CADENCE_EVENT_LIMIT, deriveCadenceSnapshot, type CadenceInput } from "../model/cadence.ts";
 import { useCadenceFeed } from "../cadence-feed.ts";
 import { deriveAttestationLanes } from "../model/attestation-pool.ts";
+import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { Tabs } from "../components/primitives/Tabs.tsx";
 import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../components/primitives/RegionBoard.tsx";
 import { CadenceHud } from "../components/cadence/CadenceHud.tsx";
@@ -98,20 +99,17 @@ export function CadenceView({
     };
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-wrap items-baseline gap-3 px-5 py-3">
-        <h1 className="text-xl font-semibold text-text">{t("views.cadence.title")}</h1>
-        <span className="min-w-0 truncate text-sm text-text-muted">
-          {projectName} · {t("views.cadence.tagline")}
-        </span>
-        <span
-          data-testid="cadence-stream"
-          className="ml-auto flex flex-wrap items-baseline gap-2 font-mono ui-micro text-text-faint"
-        >
-          {feed.mode === null ? null : <span>{MODE_LABEL[feed.mode]()}</span>}
-          <span>{t("views.cadence.streamScanned", { count: feed.events.length })}</span>
-          <span>{t(feed.historyComplete ? "views.cadence.windowComplete" : "views.cadence.windowPartial")}</span>
-        </span>
-      </header>
+      <PageHeader
+        title={t("views.cadence.title")}
+        note={`${projectName} · ${t("views.cadence.tagline")}`}
+        meta={
+          <span data-testid="cadence-stream" className="flex flex-wrap items-baseline gap-2">
+            {feed.mode === null ? null : <span>{MODE_LABEL[feed.mode]()}</span>}
+            <span>{t("views.cadence.streamScanned", { count: feed.events.length })}</span>
+            <span>{t(feed.historyComplete ? "views.cadence.windowComplete" : "views.cadence.windowPartial")}</span>
+          </span>
+        }
+      />
       {feed.status === "unavailable" ? (
         <p
           data-testid="cadence-unavailable"

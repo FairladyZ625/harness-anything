@@ -4,9 +4,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { AccessAdminService } from "../src/access-admin-service.ts";
 import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
-import { OidcSessionService } from "../src/oidc-session-service.ts";
 
 export const keycloakUrl = "http://127.0.0.1:8080",
   keycloakRealm = "harness";
@@ -44,6 +42,11 @@ export function fakeKeycloak() {
     writes: string[] = [];
 
   const json = (value: unknown, status = 200) => Response.json(value, { status }),
+    // Keycloak 26.7.3 adds attributes of its own to every client and keeps them across updates.
+    serverClientAttributes = (): Record<string, string> => ({
+      realm_client: "false",
+      "client.secret.creation.time": "1790000000",
+    }),
     page = (items: readonly unknown[], url: URL) => {
       const first = Number(url.searchParams.get("first") ?? 0);
       return json(items.slice(first, first + Number(url.searchParams.get("max") ?? items.length)));
@@ -84,9 +87,12 @@ export function fakeKeycloak() {
       if (form.get("grant_type") === "client_credentials") {
         const clientId = form.get("client_id") ?? "";
         if (!clientId.startsWith("harness-node-")) return json({ access_token: "center-token" });
-        const ok = nodeClients.get(clientId)?.secret === form.get("client_secret");
+        const client = nodeClients.get(clientId),
+          ok = client?.secret === form.get("client_secret");
         nodeLogins.push({ clientId, ok });
-        return ok ? json({ access_token: `node-token-${clientId}` }) : json({ error: "unauthorized_client" }, 401);
+        if (ok) return json({ access_token: `node-token-${clientId}` });
+        // Keycloak 26.7.3 names the two refusals differently; both are HTTP 401.
+        return json({ error: client ? "unauthorized_client" : "invalid_client" }, 401);
       }
       return decide(tokens.get(bearer ?? ""), form.get("permission") ?? "");
     }
@@ -103,12 +109,12 @@ export function fakeKeycloak() {
         client = {
           id: id("node-client"),
           clientId,
-          attributes: { ...(body!.attributes as Record<string, string>) },
+          attributes: { ...serverClientAttributes(), ...(body!.attributes as Record<string, string>) },
           secret: id("node-secret"),
         };
-      if (nodeClients.has(clientId)) return json({ errorMessage: "Client already exists" }, 409);
+      if (nodeClients.has(clientId)) return json({ errorMessage: `Client ${clientId} already exists` }, 409);
       nodeClients.set(clientId, client);
-      return new Response(null, { status: 201 });
+      return new Response(null, { status: 201, headers: { location: `${keycloakUrl}/clients/${client.id}` } });
     }
     if (route === "/clients") {
       const clientId = url.searchParams.get("clientId") ?? "";
@@ -124,7 +130,11 @@ export function fakeKeycloak() {
     const nodeClient = [...nodeClients.values()].find((client) => route.startsWith(`/clients/${client.id}`));
     if (nodeClient) {
       if (route.endsWith("/client-secret")) return json({ type: "secret", value: nodeClient.secret });
-      nodeClient.attributes = { ...(body!.attributes as Record<string, string>) };
+      if (method === "DELETE") {
+        nodeClients.delete(nodeClient.clientId);
+        return new Response(null, { status: 204 });
+      }
+      nodeClient.attributes = { ...nodeClient.attributes, ...(body!.attributes as Record<string, string>) };
       return new Response(null, { status: 204 });
     }
     if (route === `${server}/policy/evaluate`) {
@@ -281,10 +291,10 @@ export function fakeKeycloak() {
         client = nodeClients.get(clientId) ?? {
           id: id("node-client"),
           clientId,
-          attributes: {},
+          attributes: serverClientAttributes(),
           secret: `secret-${nodeId}`,
         };
-      client.attributes = { harness_person_id: personId };
+      client.attributes = { ...client.attributes, harness_person_id: personId };
       nodeClients.set(clientId, client);
       return client.secret;
     },
@@ -298,6 +308,25 @@ export function fakeKeycloak() {
   };
 }
 
+/** Stores a signed-in session holding `roles` in a daemon user root that is bound to the fake realm. */
+export function signInAt(userRoot: string, personId: string, roles: readonly string[] = ["access-admin"]): void {
+  managedRbacSessionStore(userRoot).write(
+    JSON.stringify({
+      schema: "harness-oidc-session/v2",
+      accessToken: `token-${personId}`,
+      subject: personId,
+      personId,
+      expiresAt: Date.now() + 3_600_000,
+      roles,
+    }),
+  );
+}
+
+/** Ends the session `signInAt` stored, so the daemon at `userRoot` answers as nobody signed in. */
+export function signOutAt(userRoot: string): void {
+  managedRbacSessionStore(userRoot).delete();
+}
+
 /** A daemon user root bound to the fake realm, with one signed-in session holding `roles`. */
 export function keycloakUserRoot(
   personId = "person-admin",
@@ -307,17 +336,7 @@ export function keycloakUserRoot(
   readonly signIn: (personId: string, roles?: readonly string[]) => void;
 } {
   const root = mkdtempSync(path.join(tmpdir(), "ha-access-admin-")),
-    signIn = (who: string, held: readonly string[] = ["access-admin"]) =>
-      managedRbacSessionStore(root).write(
-        JSON.stringify({
-          schema: "harness-oidc-session/v2",
-          accessToken: `token-${who}`,
-          subject: who,
-          personId: who,
-          expiresAt: Date.now() + 3_600_000,
-          roles: held,
-        }),
-      );
+    signIn = (who: string, held?: readonly string[]) => signInAt(root, who, held);
   mkdirSync(path.join(root, "rbac"), { recursive: true });
   writeFileSync(path.join(root, "rbac", "config.json"), JSON.stringify({ url: keycloakUrl, realm: keycloakRealm }));
   writeFileSync(path.join(root, "rbac", "center-client-secret"), "fixture-secret");
@@ -440,16 +459,4 @@ export async function spawnKeycloak(): Promise<{
       child.kill();
     },
   };
-}
-
-/** Registers a node through the center's registry write path, as the administrator signed in at `userRoot`. */
-export async function registerNode(
-  userRoot: string,
-  request: { readonly operationId: string; readonly nodeId: string; readonly personId: string },
-): Promise<{ readonly ok: boolean; readonly credential?: string; readonly version?: string }> {
-  return new AccessAdminService(new OidcSessionService(userRoot), userRoot).run({
-    operation: "node-register",
-    expectedVersion: "",
-    ...request,
-  });
 }

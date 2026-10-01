@@ -1,35 +1,40 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
+import type { AgentRuntimeTokenUsageResult } from "@harness-anything/daemon/protocol";
 import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts";
 import { t } from "../i18n/index.tsx";
-import { Badge, Card, CardBody, CardHead, CardTitle, Empty, Right, SegCtl } from "../components/runtime/parts.tsx";
+import { Badge, Empty, SegCtl } from "../components/runtime/parts.tsx";
+import { Region } from "../components/primitives/Region.tsx";
 import { QUERY_PACING_MS } from "../query-pacing.ts";
-import { compactTokens, exactTokens } from "../token-format.ts";
 import {
+  rankScaleFor,
   tokenUsageMemberFromRef,
   tokenUsageRanges,
   tokenUsageRangeKey,
-  usageIsUnreported,
-  type RankingMetric,
+  type RankScale,
   type TokenUsageRange,
 } from "../token-usage-model.ts";
-import { UsageTrendChart, UsageTrendTable } from "../components/tokenUsage/UsageTrendChart.tsx";
 import {
-  RankingMetricControl,
-  UsageRanking,
-  UsageRankingTable,
-  type RankingRow,
-} from "../components/tokenUsage/UsageRanking.tsx";
+  seriesLayers,
+  tokenKindLayers,
+  UsageTrendChart,
+  UsageTrendTable,
+} from "../components/tokenUsage/UsageTrendChart.tsx";
+import { UsageRanking, UsageRankingTable, type RankingRow } from "../components/tokenUsage/UsageRanking.tsx";
+import { UsageHeadline } from "../components/tokenUsage/UsageHeadline.tsx";
+import { UsageSessions, UsageSpend, UsageUnreported, UsageWorth } from "../components/tokenUsage/UsageBreakdowns.tsx";
 import { TokenUsageDetail } from "../components/tokenUsage/TokenUsageDetail.tsx";
 
 /**
- * 系统 Tab 的「Token 消耗」页(task_7a1bd444 重做):所选时间范围(今天/7 天/30 天)内
- * 的总量与构成、时间趋势、成员排行与可下钻的成员详情。数据全部来自 daemon 侧两条
- * 聚合读(repo.agentRuntime.tokenUsage / tokenUsageDetail),renderer 只做展示投影;
- * 「未上报用量」与「用量为 0」分开展示(zcode/claude 类 provider 当前不上报 token)。
- * 成员详情走 focusedEntityRef(tokenAgent/<id> · tokenSquad/<id>)推栈,前进后退原路返回。
+ * 系统 Tab 的「Token 消耗」页:所选时间范围(今天 / 7 天 / 30 天)内的消耗分析。按问题顺序
+ * 排:一共花了多少、比上一段多还是少 → 花在哪类 token 上 → 随时间怎么变、高峰是谁造成的 →
+ * 谁花的 → 花在什么事上 → 单个会话的情况 → 值不值 → 哪些派工没上报用量。
+ * 数据全部来自 daemon 的一次聚合读(repo.agentRuntime.tokenUsage),renderer 只做展示;成员
+ * 详情另走 tokenUsageDetail,经 focusedEntityRef(tokenAgent/<id> · tokenSquad/<id>)推栈。
+ * 区域用 Region 框,栏数只看内容区自己的宽度(容器查询):宽时两栏,窄时单列。
  */
-type Segment = "agents" | "squads";
+type Segment = "agents" | "squads" | "models";
+type Stack = "kinds" | "agents" | "models";
 type Presentation = "chart" | "table";
 
 const REPO_ID = /^[a-z][a-z0-9-]{0,62}$/u;
@@ -49,10 +54,6 @@ export function TokenUsageView({
   readonly onOpenTask: (taskId: string) => void;
 }) {
   const [range, setRange] = useState<TokenUsageRange>("today"),
-    [segment, setSegment] = useState<Segment>("agents"),
-    [metric, setMetric] = useState<RankingMetric>("totalTokens"),
-    [trendAsTable, setTrendAsTable] = useState<Presentation>("chart"),
-    [rankingAsTable, setRankingAsTable] = useState<Presentation>("chart"),
     member = tokenUsageMemberFromRef(focusedEntityRef),
     usage = useQuery({
       queryKey: runtimeQueryKeys.tokenUsage(repoId, range),
@@ -62,14 +63,6 @@ export function TokenUsageView({
       refetchInterval: QUERY_PACING_MS.tokenUsage,
     }),
     data = usage.data;
-  const rows: readonly RankingRow[] =
-    data === undefined
-      ? []
-      : segment === "agents"
-        ? data.agents.map((row) => ({ ...row, id: row.agentId, name: row.agentName }))
-        : data.squads.map((row) => ({ ...row, id: row.squadId, name: row.squadName }));
-  const openMember = (row: RankingRow) =>
-    onFocusMember(segment === "agents" ? `tokenAgent/${row.id}` : `tokenSquad/${row.id}`);
   return (
     <section data-testid="token-usage-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
       <header className="flex min-h-[42px] shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-surface-raised px-3.5">
@@ -81,7 +74,6 @@ export function TokenUsageView({
           options={tokenUsageRanges.map((value) => ({ value, label: t(tokenUsageRangeKey[value]) }))}
         />
         <span className="flex-1" />
-        <Badge tip={data?.since}>{t(tokenUsageRangeKey[range])}</Badge>
         {data?.status === "pending" ? (
           <Badge status="planned">{t("agentRuntime.tokenUsageProjectionPending")}</Badge>
         ) : null}
@@ -108,92 +100,16 @@ export function TokenUsageView({
           onExit={() => onFocusMember(null)}
         />
       ) : (
-        <main className="min-h-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6">
+        <main className="@container min-h-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6">
           {usage.isPending || data === undefined ? (
             <Empty>{t("agentRuntime.loading")}</Empty>
           ) : (
-            <>
-              {/* 结论行(标准 §2.5 统计类):一句话先说总量与可信度,关键数字条与图表在下。 */}
-              <p data-testid="token-usage-conclusion" className="pb-2 ui-body text-text">
-                {usageIsUnreported(data.totals)
-                  ? t("agentRuntime.tokenUsageConclusionFloor", {
-                      tokens: compactTokens(data.totals.totalTokens),
-                      count: String(data.totals.usageUnavailableDispatches),
-                    })
-                  : t("agentRuntime.tokenUsageConclusion", {
-                      tokens: compactTokens(data.totals.totalTokens),
-                      sessions: String(data.totals.sessionCount),
-                      tools: String(data.totals.toolCallCount),
-                    })}
-              </p>
-              <TotalsStrip totals={data.totals} testId="token-usage-totals" />
-              {/* 网格项默认 min-width 是内容的 min-content:趋势图的定宽 SVG(桶数×34px)会把
-                  卡片与整页撑出横向滚动。min-w-0 让卡片收进内容宽,图表在卡内自滚。 */}
-              <div className="mt-3 grid min-w-0 gap-3 [&>*]:min-w-0">
-                <Card testId="token-usage-trend-card">
-                  <CardHead>
-                    <CardTitle>{t("agentRuntime.tokenUsageTrendTitle")}</CardTitle>
-                    <Right>
-                      <SegCtl
-                        label={t("agentRuntime.tokenUsageViewLabel")}
-                        value={trendAsTable}
-                        onChange={(value) => setTrendAsTable(value)}
-                        options={[
-                          { value: "chart", label: t("agentRuntime.tokenUsageViewChart") },
-                          { value: "table", label: t("agentRuntime.tokenUsageViewTable") },
-                        ]}
-                      />
-                    </Right>
-                  </CardHead>
-                  <CardBody>
-                    {trendAsTable === "table" ? (
-                      <UsageTrendTable buckets={data.buckets} bucketMs={data.bucketMs} />
-                    ) : (
-                      <UsageTrendChart buckets={data.buckets} bucketMs={data.bucketMs} />
-                    )}
-                  </CardBody>
-                </Card>
-                <Card testId="token-usage-ranking-card">
-                  <CardHead>
-                    <CardTitle>{t("agentRuntime.tokenUsageRankingTitle")}</CardTitle>
-                    <Right>
-                      <div className="flex flex-wrap items-center gap-2">
-                        <SegCtl
-                          label={t("agentRuntime.tokenUsageSegmentLabel")}
-                          value={segment}
-                          onChange={(value) => setSegment(value)}
-                          options={[
-                            { value: "agents", label: t("agentRuntime.tokenUsageSegmentAgents") },
-                            { value: "squads", label: t("agentRuntime.tokenUsageSegmentSquads") },
-                          ]}
-                        />
-                        <RankingMetricControl metric={metric} onMetric={setMetric} />
-                        <SegCtl
-                          label={t("agentRuntime.tokenUsageViewLabel")}
-                          value={rankingAsTable}
-                          onChange={(value) => setRankingAsTable(value)}
-                          options={[
-                            { value: "chart", label: t("agentRuntime.tokenUsageViewChart") },
-                            { value: "table", label: t("agentRuntime.tokenUsageViewTable") },
-                          ]}
-                        />
-                      </div>
-                    </Right>
-                  </CardHead>
-                  <CardBody>
-                    {rankingAsTable === "table" ? (
-                      <UsageRankingTable
-                        rows={rows}
-                        onSelect={openMember}
-                        testId={segment === "agents" ? "token-usage-agents-table" : "token-usage-squads-table"}
-                      />
-                    ) : (
-                      <UsageRanking rows={rows} metric={metric} onSelect={openMember} />
-                    )}
-                  </CardBody>
-                </Card>
-              </div>
-            </>
+            <UsageAnalysis
+              data={data}
+              onFocusMember={onFocusMember}
+              onSelectEntity={onSelectEntity}
+              onOpenTask={onOpenTask}
+            />
           )}
         </main>
       )}
@@ -201,64 +117,157 @@ export function TokenUsageView({
   );
 }
 
-/** 窗口指标条:总量与构成、会话、工具调用、未上报派工数(数据可信度直接可见)。 */
-function TotalsStrip({
-  totals,
-  testId,
+function UsageAnalysis({
+  data,
+  onFocusMember,
+  onSelectEntity,
+  onOpenTask,
 }: {
-  readonly totals: {
-    readonly sessionCount: number;
-    readonly inputTokens: number;
-    readonly cacheReadTokens: number;
-    readonly outputTokens: number;
-    readonly totalTokens: number;
-    readonly toolCallCount: number;
-    readonly usageReportedDispatches: number;
-    readonly usageUnavailableDispatches: number;
-  };
-  readonly testId: string;
+  readonly data: AgentRuntimeTokenUsageResult;
+  readonly onFocusMember: (ref: string | null) => void;
+  readonly onSelectEntity: (ref: string) => void;
+  readonly onOpenTask: (taskId: string) => void;
 }) {
-  const unreported = usageIsUnreported(totals);
+  const [stack, setStack] = useState<Stack>("kinds"),
+    [trendAs, setTrendAs] = useState<Presentation>("chart"),
+    [segment, setSegment] = useState<Segment>("agents"),
+    [rankingAs, setRankingAs] = useState<Presentation>("chart"),
+    // 条长刻度默认跟数据走(量级悬殊用对数),用户点过之后以用户的选择为准。
+    [chosenScale, setChosenScale] = useState<RankScale | null>(null),
+    [spendScope, setSpendScope] = useState<"tasks" | "works">("tasks");
+  const rows: readonly RankingRow[] =
+      segment === "agents"
+        ? data.agents.map((row) => ({ ...row, id: row.agentId, name: row.agentName }))
+        : segment === "squads"
+          ? data.squads.map((row) => ({ ...row, id: row.squadId, name: row.squadName }))
+          : data.models.map((row) => ({ ...row, id: row.model, name: row.model })),
+    scale = chosenScale ?? rankScaleFor(rows.map(({ totalTokens }) => totalTokens)),
+    openMember =
+      segment === "models"
+        ? undefined
+        : (row: RankingRow) => onFocusMember(segment === "agents" ? `tokenAgent/${row.id}` : `tokenSquad/${row.id}`),
+    layers =
+      stack === "kinds"
+        ? tokenKindLayers(data.buckets)
+        : seriesLayers(stack === "agents" ? data.trend.agents : data.trend.models),
+    viewOptions = [
+      { value: "chart" as const, label: t("agentRuntime.tokenUsageViewChart") },
+      { value: "table" as const, label: t("agentRuntime.tokenUsageViewTable") },
+    ];
   return (
-    <div data-testid={testId} className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-      <div className="rounded border border-border bg-surface px-3 py-2">
-        <p className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">
-          {t("agentRuntime.tokenUsageTotalsTokens")}
-        </p>
-        <p className="mt-0.5 font-mono text-[15px] font-semibold tabular-nums" title={exactTokens(totals.totalTokens)}>
-          {compactTokens(totals.totalTokens)}
-        </p>
-        <p className="mt-0.5 font-mono ui-micro text-text-faint">
-          {t("agentRuntime.tokenUsageColInput")} {compactTokens(totals.inputTokens)} ·{" "}
-          {t("agentRuntime.tokenUsageColCacheRead")} {compactTokens(totals.cacheReadTokens)} ·{" "}
-          {t("agentRuntime.tokenUsageColOutput")} {compactTokens(totals.outputTokens)}
-        </p>
+    // 网格项默认 min-width 是内容的 min-content,宽表格会把整页撑出横向滚动:每格 min-w-0,
+    // 宽内容在格内自滚。两栏断点量的是内容区(@container),不是窗口。
+    <div className="grid grid-cols-1 gap-3 @[900px]:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] [&>*]:min-w-0">
+      <div className="@container col-span-full">
+        <UsageHeadline data={data} />
       </div>
-      <div className="rounded border border-border bg-surface px-3 py-2">
-        <p className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">
-          {t("agentRuntime.tokenUsageTotalsSessions")}
-        </p>
-        <p className="mt-0.5 font-mono text-[15px] font-semibold tabular-nums">{totals.sessionCount}</p>
+      <div className="col-span-full" data-testid="token-usage-trend-card">
+        <Region title={t("agentRuntime.tokenUsageTrendTitle")}>
+          <Controls>
+            <SegCtl
+              label={t("agentRuntime.tokenUsageStackLabel")}
+              value={stack}
+              onChange={setStack}
+              options={[
+                { value: "kinds", label: t("agentRuntime.tokenUsageStackKinds") },
+                { value: "agents", label: t("agentRuntime.tokenUsageStackAgents") },
+                { value: "models", label: t("agentRuntime.tokenUsageStackModels") },
+              ]}
+            />
+            <SegCtl
+              label={t("agentRuntime.tokenUsageViewLabel")}
+              value={trendAs}
+              onChange={setTrendAs}
+              options={viewOptions}
+            />
+          </Controls>
+          <div className="px-3.5 pb-3">
+            {trendAs === "table" ? (
+              <UsageTrendTable buckets={data.buckets} bucketMs={data.bucketMs} layers={layers} />
+            ) : (
+              <UsageTrendChart buckets={data.buckets} bucketMs={data.bucketMs} layers={layers} />
+            )}
+          </div>
+        </Region>
       </div>
-      <div className="rounded border border-border bg-surface px-3 py-2">
-        <p className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">
-          {t("agentRuntime.tokenUsageTotalsTools")}
-        </p>
-        <p className="mt-0.5 font-mono text-[15px] font-semibold tabular-nums">{totals.toolCallCount}</p>
+      <div data-testid="token-usage-ranking-card">
+        <Region title={t("agentRuntime.tokenUsageRankingTitle")}>
+          <Controls>
+            <SegCtl
+              label={t("agentRuntime.tokenUsageSegmentLabel")}
+              value={segment}
+              onChange={setSegment}
+              options={[
+                { value: "agents", label: t("agentRuntime.tokenUsageSegmentAgents") },
+                { value: "squads", label: t("agentRuntime.tokenUsageSegmentSquads") },
+                { value: "models", label: t("agentRuntime.tokenUsageSegmentModels") },
+              ]}
+            />
+            {rankingAs === "chart" ? (
+              <SegCtl
+                label={t("agentRuntime.tokenUsageScaleLabel")}
+                value={scale}
+                onChange={setChosenScale}
+                options={[
+                  {
+                    value: "log",
+                    label: t("agentRuntime.tokenUsageScaleLog"),
+                    tip: t("agentRuntime.tokenUsageScaleLogTip"),
+                  },
+                  { value: "linear", label: t("agentRuntime.tokenUsageScaleLinear") },
+                ]}
+              />
+            ) : null}
+            <SegCtl
+              label={t("agentRuntime.tokenUsageViewLabel")}
+              value={rankingAs}
+              onChange={setRankingAs}
+              options={viewOptions}
+            />
+          </Controls>
+          {rankingAs === "table" ? (
+            <UsageRankingTable rows={rows} onSelect={openMember} testId={`token-usage-${segment}-table`} />
+          ) : (
+            <UsageRanking rows={rows} total={data.totals.totalTokens} scale={scale} onSelect={openMember} />
+          )}
+        </Region>
       </div>
-      <div className="rounded border border-border bg-surface px-3 py-2">
-        <p className="font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">
-          {t("agentRuntime.tokenUsageTotalsUnreported")}
-        </p>
-        <p
-          className={`mt-0.5 font-mono text-[15px] font-semibold tabular-nums ${totals.usageUnavailableDispatches > 0 ? "text-status-cancelled" : ""}`}
-        >
-          {totals.usageUnavailableDispatches}
-        </p>
-        {unreported ? (
-          <p className="mt-0.5 ui-micro text-status-cancelled">{t("agentRuntime.tokenUsageUnreported")}</p>
+      <div>
+        <Region title={t("agentRuntime.tokenUsageSpendTitle")}>
+          <Controls>
+            <SegCtl
+              label={t("agentRuntime.tokenUsageSpendScopeLabel")}
+              value={spendScope}
+              onChange={setSpendScope}
+              options={[
+                { value: "tasks", label: t("agentRuntime.tokenUsageSpendTasks") },
+                { value: "works", label: t("agentRuntime.tokenUsageSpendWorks") },
+              ]}
+            />
+          </Controls>
+          <UsageSpend data={data} scope={spendScope} onOpenTask={onOpenTask} />
+        </Region>
+      </div>
+      <div className="@container">
+        <Region title={t("agentRuntime.tokenUsageSessionsRegionTitle")}>
+          <UsageSessions data={data} onSelectEntity={onSelectEntity} />
+        </Region>
+      </div>
+      <div className="flex flex-col gap-3">
+        <Region title={t("agentRuntime.tokenUsageWorthTitle")}>
+          <UsageWorth data={data} />
+        </Region>
+        {data.totals.usageUnavailableDispatches > 0 ? (
+          <Region title={t("agentRuntime.tokenUsageTotalsUnreported")} edge="wait">
+            <UsageUnreported data={data} />
+          </Region>
         ) : null}
       </div>
     </div>
   );
+}
+
+/** 区域内的控件行:Region 的标题行不放动作,切换控件放在行体第一行,靠右、放不下时折行。 */
+function Controls({ children }: { readonly children: ReactNode }) {
+  return <div className="flex flex-wrap items-center justify-end gap-2 px-3.5 pb-2.5">{children}</div>;
 }

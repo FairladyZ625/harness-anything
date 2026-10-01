@@ -7,8 +7,8 @@ import type {
   AgentRuntimeTokenUsageSessionRow,
 } from "@harness-anything/daemon/protocol";
 import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
-import { compactTokens, exactTokens } from "../../token-format.ts";
-import { usageIsUnreported, usageStateKey } from "../../token-usage-model.ts";
+import { compactTokens, durationText, exactTokens } from "../../token-format.ts";
+import { usageIsUnreported, usageOutcomeKey, usageStateKey } from "../../token-usage-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { QUERY_PACING_MS } from "../../query-pacing.ts";
 import {
@@ -24,11 +24,12 @@ import {
   Right,
   SegCtl,
 } from "../runtime/parts.tsx";
-import { UsageTrendChart, UsageTrendTable } from "./UsageTrendChart.tsx";
+import { tokenKindLayers, UsageTrendChart, UsageTrendTable } from "./UsageTrendChart.tsx";
 
 const OUTCOME_TONE: Readonly<Record<AgentRuntimeTokenUsageSessionRow["outcome"], string>> = {
   succeeded: "done",
   failed: "blocked",
+  aborted: "cancelled",
   running: "active",
   unknown: "unknown",
 };
@@ -151,9 +152,17 @@ export function TokenUsageDetail({
                 </CardHead>
                 <CardBody>
                   {trendAsTable ? (
-                    <UsageTrendTable buckets={data.buckets ?? []} bucketMs={data.bucketMs ?? 86_400_000} />
+                    <UsageTrendTable
+                      buckets={data.buckets}
+                      bucketMs={data.bucketMs}
+                      layers={tokenKindLayers(data.buckets)}
+                    />
                   ) : (
-                    <UsageTrendChart buckets={data.buckets ?? []} bucketMs={data.bucketMs ?? 86_400_000} />
+                    <UsageTrendChart
+                      buckets={data.buckets}
+                      bucketMs={data.bucketMs}
+                      layers={tokenKindLayers(data.buckets)}
+                    />
                   )}
                 </CardBody>
               </Card>
@@ -225,11 +234,11 @@ export function TokenUsageDetail({
                               {session.startedAt.slice(5, 16).replace("T", " ")}
                             </td>
                             <td className="border-b border-border py-1 pr-3 text-right font-mono ui-micro">
-                              {formatDuration(session.durationMs)}
+                              {durationText(session.durationMs)}
                             </td>
                             <td className="border-b border-border py-1 pr-3">
                               <Badge status={OUTCOME_TONE[session.outcome]}>
-                                {sessionOutcomeLabel(session.outcome)}
+                                {t(usageOutcomeKey[session.outcome])}
                               </Badge>
                             </td>
                             <td
@@ -261,25 +270,4 @@ export function TokenUsageDetail({
       )}
     </div>
   );
-}
-
-function sessionOutcomeLabel(outcome: AgentRuntimeTokenUsageSessionRow["outcome"]): string {
-  return outcome === "running"
-    ? t("agentRuntime.sessionStatusRunning")
-    : outcome === "succeeded"
-      ? t("agentRuntime.sessionStatusSucceeded")
-      : outcome === "failed"
-        ? t("agentRuntime.sessionStatusFailed")
-        : t("agentRuntime.sessionStatusUnknown");
-}
-
-function formatDuration(ms: number | null): string {
-  if (ms === null || !Number.isFinite(ms) || ms < 0) return "—";
-  const totalSeconds = Math.round(ms / 1000);
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60),
-    seconds = totalSeconds % 60;
-  if (minutes < 60) return seconds === 0 ? `${minutes}m` : `${minutes}m${seconds}s`;
-  const hours = Math.floor(minutes / 60);
-  return `${hours}h${minutes % 60}m`;
 }

@@ -255,9 +255,56 @@ export function workRows(works: WorkIndexRead | undefined, agenda: AgendaSuccess
     );
 }
 
-/** 置顶待派:可派且置顶的承诺(原型 QUEUE;行显示读面给的 pinned 标记)。 */
-export function pinnedDispatchable(agenda: AgendaSuccess | undefined): readonly AgendaTaskRow[] {
-  return (agenda?.dispatchable ?? []).filter((row) => row.pinned);
+/** 置顶区(原型 QUEUE 的扩面,2026-10-01):置顶的非工作任务,可派的承诺在前。 */
+export interface PinnedTaskRow {
+  readonly taskId: string;
+  readonly title: string;
+  /** daemon 任务状态词 → 状态标签;认不出的词不猜,落 unknown 档。 */
+  readonly status: SnapshotStatus;
+  /** 可派的承诺(读面 dispatchable 里置顶的行):排在前面,行上保留「承诺未开工」档。 */
+  readonly dispatchable: boolean;
+  /** 可派行的更新时间(行右侧年龄);非可派行没有比状态更关键的量,不显示时间。 */
+  readonly updatedAt: string | null;
+}
+
+const PINNED_STATUS: Readonly<Record<string, SnapshotStatus>> = {
+  planned: "planned",
+  active: "active",
+  submitted: "submitted",
+  blocked: "blocked",
+  in_review: "in_review",
+  done: "done",
+  cancelled: "cancelled",
+};
+
+/**
+ * 总览置顶区的行:议程读面的 pinnedEntities(kind=task)去掉工作根——工作根住侧栏的
+ * 置顶块,总览不重复列;判据用 daemon 工作索引(repo.works.index),不在 GUI 里沿父链推。
+ * 可派的在前(组内保持读面序),行可取消置顶。数据只来自已挂载切面,不新增请求。
+ */
+export function pinnedTaskRows(
+  agenda: AgendaSuccess | undefined,
+  works: WorkIndexRead | undefined,
+): readonly PinnedTaskRow[] {
+  if (agenda === undefined) return [];
+  const workRoots = new Set((works?.works ?? []).map((work) => work.taskId));
+  const dispatchable = new Map(
+    agenda.dispatchable.filter((row) => row.pinned).map((row) => [row.taskId, row] as const),
+  );
+  return agenda.pinnedEntities
+    .filter((entity) => entity.kind === "task" && !workRoots.has(entity.ref.replace(/^task\//u, "")))
+    .map((entity): PinnedTaskRow => {
+      const taskId = entity.ref.replace(/^task\//u, ""),
+        dispatch = dispatchable.get(taskId);
+      return {
+        taskId,
+        title: entity.title,
+        status: PINNED_STATUS[entity.status] ?? "unknown",
+        dispatchable: dispatch !== undefined,
+        updatedAt: dispatch?.updatedAt ?? null,
+      };
+    })
+    .sort((left, right) => Number(right.dispatchable) - Number(left.dispatchable));
 }
 
 /** 最近变化:与工作页 DayDigest 同一派生(model/workspace-narrative.ts 的 workDayGroups)

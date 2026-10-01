@@ -11,6 +11,8 @@ export const DENSE_ROW_RELAXED_PX = 56;
  * 富余足够时与放大层列表都用它展示原因。高度、字号、间距只在这里定,调用点不压缩。
  * 字符串标题经 TitleText 拆成重点与弱色补充;调用方传节点(如搜索高亮)时原样渲染。
  * data-dense-row 是 RegionBoard 量「至少露出三条」时认的行标记。
+ * action 是行右侧的就地动作(标准 §4:行的动作放在该行右侧):主点击面变成包住
+ * 内容列的内层 button,动作在它右边,避免按钮嵌套。
  */
 export function DenseRow({
   index,
@@ -18,6 +20,7 @@ export function DenseRow({
   title,
   reason,
   time,
+  action,
   relaxed = false,
   selected = false,
   onClick,
@@ -27,6 +30,7 @@ export function DenseRow({
   readonly title: ReactNode;
   readonly reason?: ReactNode;
   readonly time?: ReactNode;
+  readonly action?: ReactNode;
   readonly relaxed?: boolean;
   readonly selected?: boolean;
   readonly onClick?: () => void;
@@ -45,9 +49,7 @@ export function DenseRow({
     : onClick === undefined
       ? ""
       : "hover:bg-text/5";
-  const rowCls = `grid w-full items-center gap-2.5 border-t border-border px-3.5 ui-body ${cols} ${
-    relaxed ? "min-h-14 py-2" : "min-h-10 py-2.5"
-  } ${stateCls}`;
+  const sizeCls = relaxed ? "min-h-14 py-2" : "min-h-10 py-2.5";
   const content = (
     <>
       {index !== undefined && <span className="font-mono text-text-faint ui-meta">{index}</span>}
@@ -68,6 +70,28 @@ export function DenseRow({
       )}
     </>
   );
+  if (action !== undefined) {
+    const Surface = onClick === undefined ? "div" : "button";
+    return (
+      <div
+        data-dense-row
+        data-selected={selected || undefined}
+        className={`flex w-full items-center gap-2.5 border-t border-border px-3.5 ui-body ${sizeCls} ${stateCls}`}
+      >
+        {/* 主点击面只包内容列:行右侧动作不落在它里面,选中/悬停态仍整行生效。 */}
+        <Surface
+          {...(onClick === undefined ? {} : { type: "button" as const, onClick })}
+          className={`grid min-w-0 flex-1 items-center gap-2.5 text-left ${cols} ${
+            onClick === undefined ? "" : "cursor-pointer"
+          }`}
+        >
+          {content}
+        </Surface>
+        <span className="flex shrink-0 items-center">{action}</span>
+      </div>
+    );
+  }
+  const rowCls = `grid w-full items-center gap-2.5 border-t border-border px-3.5 ui-body ${cols} ${sizeCls} ${stateCls}`;
   if (onClick === undefined) {
     return (
       <div data-dense-row data-selected={selected || undefined} className={rowCls}>

@@ -8,15 +8,16 @@ import { formatTime } from "../model/time.ts";
 import { PresetDetailView } from "./PresetDetailView.tsx";
 import { t } from "../i18n/index.tsx";
 import { DenseRow } from "../components/primitives/DenseRow.tsx";
+import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { StatusTag, TONE_COLOR, type StatusTone } from "../components/primitives/StatusTag.tsx";
 import { Tabs } from "../components/primitives/Tabs.tsx";
 import { TitleText } from "../components/primitives/TitleText.tsx";
 
 type Tab = "presets" | "verticals" | "templates";
 
-/** 有效性 → 状态色档(标准 §3):valid 绿、unavailable 琥珀、blocked 红。 */
+/** 有效性 → 状态色档:valid 是默认正常值,不上色;unavailable 琥珀、blocked 红。 */
 const VALIDITY_TONE: Record<CatalogPresetRow["validity"], StatusTone> = {
-  valid: "done",
+  valid: "neutral",
   unavailable: "wait",
   blocked: "bad",
 };
@@ -72,45 +73,41 @@ export function PresetsView({
     blocked = data.presets.filter((preset) => preset.validity === "blocked").length;
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-      <header className="border-b border-border px-4 py-3">
-        <div className="flex flex-wrap items-baseline gap-2">
-          <h1 className="ui-title font-semibold">{t("views.presetsView.catalogPreset")}</h1>
-          <span className="font-mono ui-micro text-text-faint">
+      <PageHeader
+        title={t("views.presetsView.catalogPreset")}
+        note={t("views.presetsView.activationDescription")}
+        meta={
+          <>
+            {blocked > 0 ? (
+              <StatusTag tone="bad" label={t("views.presetsView.blockedCount", { count: blocked })} />
+            ) : null}
             {repoId} · {data.status}
-          </span>
-          {blocked > 0 ? (
-            <StatusTag tone="bad" label={t("views.presetsView.blockedCount", { count: blocked })} />
-          ) : null}
+            {data.observedAt
+              ? ` · ${t("views.presetsView.observedAt")} ${
+                  formatTime(data.observedAt, { style: "date-time-seconds" }) ??
+                  t("views.presetsView.unknownNotProjected")
+                }`
+              : ""}
+          </>
+        }
+        actions={
           <button
             disabled={reread.isPending}
             onClick={() => reread.mutate()}
-            className="ml-auto inline-flex items-center gap-1 rounded-xs border border-border px-2 py-1 ui-meta text-text-muted hover:border-border-strong disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-xs border border-border px-2 py-1 ui-meta text-text-muted hover:border-border-strong disabled:opacity-50"
           >
             <ArrowClockwise />
             {t("views.presetsView.reread")}
           </button>
-        </div>
-        <p className="mt-1 ui-meta text-text-faint">
-          {t("views.presetsView.activationDescription")} <span className="font-mono text-text-muted">{locale}</span>
-          {data.observedAt ? (
-            <>
-              {" · "}
-              {t("views.presetsView.observedAt")}{" "}
-              <span className="font-mono text-text-muted">
-                {formatTime(data.observedAt, { style: "date-time-seconds" }) ??
-                  t("views.presetsView.unknownNotProjected")}
-              </span>
-            </>
-          ) : null}
+        }
+      />
+      {reread.data && (
+        <p className={`px-5 font-mono ui-micro ${reread.data.ok ? "text-status-done" : "text-status-blocked"}`}>
+          {t("views.presetsView.operationId")} {reread.data.operationId} · {reread.data.outcome} ·{" "}
+          {formatTime(reread.data.observedAt, { style: "date-time-seconds" }) ?? reread.data.observedAt}
+          {reread.data.error ? ` · ${reread.data.error.code}: ${reread.data.error.hint}` : ""}
         </p>
-        {reread.data && (
-          <p className={`mt-1 font-mono ui-micro ${reread.data.ok ? "text-status-done" : "text-status-blocked"}`}>
-            {t("views.presetsView.operationId")} {reread.data.operationId} · {reread.data.outcome} ·{" "}
-            {formatTime(reread.data.observedAt, { style: "date-time-seconds" }) ?? reread.data.observedAt}
-            {reread.data.error ? ` · ${reread.data.error.code}: ${reread.data.error.hint}` : ""}
-          </p>
-        )}
-      </header>
+      )}
       <Tabs
         ariaLabel={t("views.presetsView.catalogPreset")}
         idPrefix="presets"
@@ -169,7 +166,7 @@ export function PresetsView({
               key={vertical.id}
               tag={
                 <StatusTag
-                  tone={vertical.valid ? "done" : "bad"}
+                  tone={vertical.valid ? "neutral" : "bad"}
                   label={vertical.valid ? t("views.presetsView.valid") : t("views.presetsView.invalid")}
                 />
               }

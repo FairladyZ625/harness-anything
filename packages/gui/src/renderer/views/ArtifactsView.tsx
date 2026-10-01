@@ -7,6 +7,7 @@ import { DocReader } from "../components/DocReader.tsx";
 import { HtmlArtifactPreview } from "../components/HtmlArtifactPreview.tsx";
 import { DenseRow } from "../components/primitives/DenseRow.tsx";
 import { FilterChips } from "../components/primitives/FilterChips.tsx";
+import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { Empty } from "../components/runtime/parts.tsx";
 import { t, type MessageKey } from "../i18n/index.tsx";
@@ -59,19 +60,21 @@ export function ArtifactsView({
   });
   return (
     <section data-testid="artifacts-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="flex flex-wrap items-baseline gap-3 px-5 py-3">
-        <h1 className="text-xl font-semibold text-text">{t("artifacts.title")}</h1>
-        <span className="min-w-0 truncate text-sm text-text-muted">{t("artifacts.subtitle")}</span>
-        {query.data && (
-          <span data-testid="artifacts-counts" className="ml-auto whitespace-nowrap font-mono ui-micro text-text-faint">
-            {t("artifacts.counts", {
-              html: String(query.data.counts.html),
-              md: String(query.data.counts.md),
-              raw: String(query.data.counts.raw),
-            })}
-          </span>
-        )}
-      </header>
+      <PageHeader
+        title={t("artifacts.title")}
+        note={t("artifacts.subtitle")}
+        meta={
+          query.data ? (
+            <span data-testid="artifacts-counts" className="whitespace-nowrap">
+              {t("artifacts.counts", {
+                html: String(query.data.counts.html),
+                md: String(query.data.counts.md),
+                raw: String(query.data.counts.raw),
+              })}
+            </span>
+          ) : undefined
+        }
+      />
       {query.isError && (
         <p role="alert" data-testid="artifacts-read-error" className={READ_ERROR_ROW_CLASS}>
           {t("artifacts.readFailed", {

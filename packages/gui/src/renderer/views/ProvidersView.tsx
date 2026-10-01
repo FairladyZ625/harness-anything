@@ -8,6 +8,7 @@ import { orderProviderRows, ProviderRail } from "../components/runtime/RuntimeRa
 import { ProviderInspector } from "../components/runtime/RuntimeInspector.tsx";
 import { RuntimeCard } from "../components/runtime/RuntimeCard.tsx";
 import { CatalogBackButton, CatalogSplit, useCatalogDetailPane } from "../components/primitives/CatalogSplit.tsx";
+import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { runtimeAuthPresentation } from "../runtime-auth-presentation.ts";
 import { runtimeSelectionFromRef, useProviderWorkspace } from "../components/runtime/useRuntimeWorkspace.ts";
@@ -48,28 +49,37 @@ export function ProvidersView({
     workspace.overview.data?.sessions.filter((session) => session.instanceId === selectedId) ?? [];
   return (
     <section data-testid="providers-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="flex min-h-[42px] shrink-0 flex-wrap items-center gap-x-3 gap-y-1.5 border-b border-border bg-surface-raised px-3.5">
-        <b className="ui-body tracking-[0.02em]">{t("agentRuntime.providersTitle")}</b>
-        <span className="truncate font-mono ui-micro text-text-faint">{t("agentRuntime.providersSubtitle")}</span>
-        <span className="flex-1" />
-        <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1 ui-micro text-text-muted">
-          <span className="flex items-center gap-1 whitespace-nowrap">
-            <CapDot size={10} state="full" tip={t("agentRuntime.legendReadyTip")} />
-            {t("agentRuntime.legendReady")}
-          </span>
-          <span className="flex items-center gap-1 whitespace-nowrap">
-            <CapDot size={10} state="part" tip={t("agentRuntime.legendPartialTip")} />
-            {t("agentRuntime.legendPartial")}
-          </span>
-          <span className="flex items-center gap-1 whitespace-nowrap">
-            <CapDot size={10} state="none" tip={t("agentRuntime.legendBlockedTip")} />
-            {t("agentRuntime.legendBlocked")}
-          </span>
-        </span>
-        <Btn size="sm" variant="ghost" onClick={() => setInspector(!inspector)} tip={t("agentRuntime.toggleInspector")}>
-          ▐
-        </Btn>
-      </header>
+      <PageHeader
+        title={t("agentRuntime.providersTitle")}
+        note={t("agentRuntime.providersSubtitle")}
+        actions={
+          <>
+            {/* 图例解释左列状态点的含义,随视图开关放页头右侧。 */}
+            <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1 ui-micro text-text-muted">
+              <span className="flex items-center gap-1 whitespace-nowrap">
+                <CapDot size={10} state="full" tip={t("agentRuntime.legendReadyTip")} />
+                {t("agentRuntime.legendReady")}
+              </span>
+              <span className="flex items-center gap-1 whitespace-nowrap">
+                <CapDot size={10} state="part" tip={t("agentRuntime.legendPartialTip")} />
+                {t("agentRuntime.legendPartial")}
+              </span>
+              <span className="flex items-center gap-1 whitespace-nowrap">
+                <CapDot size={10} state="none" tip={t("agentRuntime.legendBlockedTip")} />
+                {t("agentRuntime.legendBlocked")}
+              </span>
+            </span>
+            <Btn
+              size="sm"
+              variant="ghost"
+              onClick={() => setInspector(!inspector)}
+              tip={t("agentRuntime.toggleInspector")}
+            >
+              ▐
+            </Btn>
+          </>
+        }
+      />
       {workspace.machine.error && (
         <p
           role="alert"
@@ -215,7 +225,7 @@ function ProviderConclusion({
       style={unreachable ? ({ "--status-edge": "var(--color-status-blocked)" } as CSSProperties) : undefined}
     >
       <StatusTag
-        tone={disabled ? "neutral" : unreachable ? "bad" : auth.cap === "part" ? "wait" : "done"}
+        tone={disabled ? "neutral" : unreachable ? "bad" : auth.cap === "part" ? "wait" : "neutral"}
         label={t(
           !instance.enabled
             ? "agentRuntime.providerDisabledTag"

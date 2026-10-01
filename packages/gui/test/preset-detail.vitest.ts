@@ -169,6 +169,8 @@ describe("G7 Preset 列表 → 详情", () => {
     expect(row!.textContent).toContain(PRESET_ID);
     expect(row!.textContent).toContain("bundled");
     expect(row!.textContent).toContain("valid");
+    // valid 是默认正常值:中性档,绿色只留给完成且结果好。
+    expect(row!.querySelector("[data-status-tone]")?.getAttribute("data-status-tone")).toBe("neutral");
     expect(row!.textContent).toContain("g7");
     expect(row!.textContent).toContain("3.0.0");
     expect(row!.textContent).toContain("fixture 预设描述");

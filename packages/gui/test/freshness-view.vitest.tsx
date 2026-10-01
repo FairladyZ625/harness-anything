@@ -107,6 +107,18 @@ describe("FreshnessView:按决策分组收束(标准 §1.4 收束不堆叠)", ()
     expect(headline).toContain("先处理「决策 dec-refuted」");
   });
 
+  it("页头统一摆法(标准 §2.3):裸页头一行,结论行在页头里,不带边框或底色", async () => {
+    const container = await mountFreshness(GROUPED_DECISIONS, GROUPED_ROWS);
+    const header = container.querySelector('[data-testid="freshness-view"] > header') as HTMLElement;
+    expect(header).toBeTruthy();
+    expect(header.className).not.toContain("border");
+    expect(header.className).not.toContain("bg-");
+    expect(header.querySelector("h1")?.className).toContain("text-xl");
+    // 结论行紧跟页名(同一行),不再单独铺一条 tagline 段落。
+    expect(header.querySelector('[data-testid="freshness-counts"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="freshness-view"] > header > p')).toBeNull();
+  });
+
   it("档内按决策分组:一组一行(标题 + 断言数),缺证最多的组排最前", async () => {
     const container = await mountFreshness(GROUPED_DECISIONS, GROUPED_ROWS);
     const section = [...container.querySelectorAll("section")].find((node) =>

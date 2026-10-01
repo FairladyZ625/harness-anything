@@ -42,6 +42,18 @@ function parseRbacBootstrap(
 ): ThinParseResult {
   const f = readFlags("rbac-bootstrap", args.slice(1), inputs);
   if (!f.ok) return rejected(f.code, f.nextAction, json);
+  // Registering without a version read creates the node, and Keycloak mints its credential then and
+  // only then. Refusing here keeps a credential from being minted with nowhere to put it.
+  if (
+    f.one.get("--operation") === "node-register" &&
+    !f.one.get("--expected-version") &&
+    !f.one.get("--credential-file")
+  )
+    return rejected(
+      "missing_field",
+      "A first node registration returns the node's machine credential once. Add --credential-file <path> to receive it in a new file only you can read; nothing was registered.",
+      json,
+    );
   return accepted(
     rootDir,
     undefined,
@@ -62,6 +74,10 @@ function parseRbacBootstrap(
       ...(f.one.get("--port") ? { port: Number(f.one.get("--port")) } : {}),
       ...(f.one.get("--certificate-file") ? { certificateFile: f.one.get("--certificate-file") } : {}),
       ...(f.one.get("--certificate-key-file") ? { certificateKeyFile: f.one.get("--certificate-key-file") } : {}),
+      ...(f.one.get("--node-id") ? { nodeId: f.one.get("--node-id") } : {}),
+      ...(f.one.get("--person-id") ? { personId: f.one.get("--person-id") } : {}),
+      // The daemon writes the file, so it is told where the caller's relative path points.
+      ...(f.one.get("--credential-file") ? { credentialFile: path.resolve(f.one.get("--credential-file")!) } : {}),
     },
     "daemon.rbac.manage",
   );

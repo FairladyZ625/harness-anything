@@ -144,6 +144,21 @@ There is no compatibility path for a v1 registry.
 view-only display. See [Fleet center deployment](../tools/fleet-center/README.md)
 for its deployment and operating instructions.
 
+An edge mirror holds the documents the center's ledger has accepted, nothing
+else. `ha init` publishes the scaffold documents it writes under
+`harness/governance/` and `harness/context/` as ledger documents, so a new
+center's edges receive them. A center initialized by an earlier version has
+those files on disk only. Publish them once, at the center:
+
+```sh
+ha doc sync --submit --path governance/standards/README.md --path context/README.md
+```
+
+Repeat `--path` for every file. `--path` takes files, not directories: a
+directory is reported as `inapplicable` and nothing is published. The same
+step applies to any standard or context document written by hand at the center.
+An edge sees a published document on its next sync.
+
 ## Local socket boundary
 
 The local daemon socket is the access boundary. Its directory is created with

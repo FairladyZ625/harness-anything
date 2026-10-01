@@ -3,6 +3,9 @@
 // for is center state in Keycloak, written through the access-admin queue and read for every frame.
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { AccessAdminService, type AccessAdminRequest } from "../src/access-admin-service.ts";
 import { binding as deriveBinding } from "../src/daemon-host-binding.ts";
@@ -108,6 +111,61 @@ test("registering a node issues its machine credential once and records who it a
   assert.equal(await registry.nodeOwner("edge-a"), "alice");
 });
 
+// Whoever runs the registration is often an agent whose output is kept, so the credential goes into a
+// file the caller names and the receipt only says where.
+test("a first registration puts the credential in the caller's file and keeps it out of the receipt", async (t) => {
+  const { keycloak, run, nodes, journal, registry, root } = await fixture(),
+    directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
+    file = path.join(directory, "edge-a.credential"),
+    register = { operation: "node-register", nodeId: "edge-a", personId: "alice" };
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  keycloak.account("alice");
+  keycloak.account("bob");
+  // A path that is taken, or that the center cannot place, refuses the registration before the intent
+  // is recorded and before Keycloak is written.
+  writeFileSync(file, "somebody else's credential");
+  await assert.rejects(run({ ...register, credentialFile: file }), { code: "credential_file_unavailable" });
+  await assert.rejects(run({ ...register, credentialFile: "edge-a.credential" }), {
+    code: "credential_file_unavailable",
+  });
+  assert.equal(readFileSync(file, "utf8"), "somebody else's credential");
+  assert.deepEqual([keycloak.writes, journal(), await nodes()], [[], [], []]);
+  rmSync(file);
+  // Keycloak refusing the write leaves no empty file where a credential was expected.
+  const refusing = new AccessAdminService(new OidcSessionService(root, { fetch: keycloak.fetch }), root, {
+    fetch: ((input, init) =>
+      init?.method === "POST" && String(input).endsWith("/clients")
+        ? Promise.resolve(new Response("{}", { status: 500 }))
+        : keycloak.fetch(input, init)) as typeof fetch,
+  });
+  await assert.rejects(refusing.run({ ...register, operationId: randomUUID(), credentialFile: file }));
+  assert.equal(existsSync(file), false);
+
+  const registered = await run({ ...register, credentialFile: file });
+  assert.deepEqual(
+    [registered.ok, registered.outcome, registered.credentialFile, "credential" in registered],
+    [true, "applied", file, false],
+  );
+  const credential = readFileSync(file, "utf8");
+  assert.equal(statSync(file).mode & 0o777, 0o600);
+  assert.equal(await registry.authenticate("edge-a", credential), true);
+  assert.equal(JSON.stringify(registered).includes(credential), false);
+  assert.equal(journal().join("\n").includes(credential), false);
+  // Without a file the credential is still returned once, as before.
+  assert.equal(typeof (await run({ ...register, nodeId: "edge-b" })).credential, "string");
+  // Neither moving the node nor a refused registration mints a credential, so neither leaves a file.
+  const unused = path.join(directory, "edge-a-again.credential"),
+    version = (await nodes()).find(({ nodeId }) => nodeId === "edge-a")!.version,
+    conflict = await run({ ...register, credentialFile: unused }),
+    moved = await run({ ...register, personId: "bob", expectedVersion: version, credentialFile: unused });
+  assert.deepEqual(
+    [conflict.code, moved.ok, "credential" in moved, "credentialFile" in moved],
+    ["version_conflict", true, false, false],
+  );
+  assert.equal(existsSync(unused), false);
+  assert.equal(readFileSync(file, "utf8"), credential);
+});
+
 test("moving a node to another person applies to the next read and issues no second credential", async () => {
   const { keycloak, run, nodes, registry } = await fixture();
   keycloak.account("alice");
@@ -162,6 +220,62 @@ test("two registrations of one node from the same version: one applied, one vers
   assert.equal((await nodes())[0]!.personId, "bob");
 });
 
+test("unregistering a node removes it from Keycloak, so its credential and its owner are gone", async () => {
+  const { keycloak, run, nodes, journal, registry } = await fixture();
+  keycloak.account("alice");
+  const credential = String(
+    (await run({ operation: "node-register", nodeId: "edge-a", personId: "alice" })).credential,
+  );
+  await run({ operation: "node-register", nodeId: "edge-b", personId: "alice" });
+  const version = (await nodes())[0]!.version;
+  assert.equal(await registry.authenticate("edge-a", credential), true);
+  // A version nobody read is refused before Keycloak changes.
+  const stale = await run({ operation: "node-unregister", nodeId: "edge-a", expectedVersion: "stale" });
+  assert.deepEqual(
+    [stale.ok, stale.code, stale.nodeId, stale.expectedVersion, stale.currentVersion],
+    [false, "version_conflict", "edge-a", "stale", version],
+  );
+  assert.equal(keycloak.writes.filter((write) => write.startsWith("DELETE")).length, 0);
+  await assert.rejects(run({ operation: "node-unregister", nodeId: "edge-a" }), { code: "access_request_invalid" });
+  // Two administrators remove the node from the same version: one applies, the other is told it is gone.
+  const results = await Promise.all([
+    run({ operation: "node-unregister", nodeId: "edge-a", expectedVersion: version }),
+    run({ operation: "node-unregister", nodeId: "edge-a", expectedVersion: version }),
+  ]);
+  assert.deepEqual(
+    results.map((result) => [result.ok, result.outcome, result.actor]),
+    [
+      [true, "applied", "person-admin"],
+      [false, "version_conflict", "person-admin"],
+    ],
+  );
+  assert.deepEqual([results[1]!.expectedVersion, results[1]!.currentVersion], [version, ""]);
+  assert.equal(keycloak.writes.filter((write) => write.startsWith("DELETE /clients/")).length, 1);
+  assert.deepEqual(
+    (await nodes()).map(({ nodeId }) => nodeId),
+    ["edge-b"],
+    "only the named node is removed",
+  );
+  assert.equal(await registry.authenticate("edge-a", credential), false);
+  assert.equal(await registry.nodeOwner("edge-a"), null);
+  // The removal is audited like every other registry write.
+  const removal = journal()
+    .map((line) => JSON.parse(line) as { operation: string; phase: string; outcome?: string })
+    .filter((record) => record.operation === "node-unregister")
+    .map(({ phase, outcome }) => [phase, outcome]);
+  assert.deepEqual(removal, [
+    ["settled", "version_conflict"],
+    ["intent", undefined],
+    ["settled", "applied"],
+    ["settled", "version_conflict"],
+  ]);
+  // Registering the node again mints a new credential; the removed one stays refused.
+  const again = await run({ operation: "node-register", nodeId: "edge-a", personId: "alice" });
+  assert.notEqual(again.credential, credential);
+  assert.equal(await registry.authenticate("edge-a", credential), false);
+  assert.equal(await registry.authenticate("edge-a", String(again.credential)), true);
+});
+
 test("node registration needs an administrator, a known person, and a well-formed node id", async () => {
   const { keycloak, run, signIn } = await fixture();
   keycloak.account("alice");
@@ -172,9 +286,9 @@ test("node registration needs an administrator, a known person, and a well-forme
     code: "node_invalid",
   });
   signIn("person-member", ["offline_access"]);
-  for (const operation of ["node-list", "node-register"])
+  for (const operation of ["node-list", "node-register", "node-unregister"])
     await assert.rejects(
-      run({ operation, nodeId: "edge-a", personId: "alice" }),
+      run({ operation, nodeId: "edge-a", personId: "alice", expectedVersion: "any" }),
       { code: "authorization_denied" },
       operation,
     );

@@ -39,6 +39,16 @@ export const hasActiveTaskFilters = (filters: TaskFilters) =>
   filters.favoritesOnly ||
   filters.expandColdTerminal;
 
+/** 偏离默认的筛选维度数(0 = 无筛选):收起的「筛选」入口用它显形「生效 N」。 */
+export const activeTaskFilterCount = (filters: TaskFilters): number =>
+  Number(filters.query.trim() !== "") +
+  Number(filters.engine !== "all") +
+  Number(filters.status.length > 0) +
+  Number(filters.closeout !== "all") +
+  Number(filters.freshness !== "all") +
+  Number(filters.favoritesOnly) +
+  Number(filters.expandColdTerminal);
+
 /**
  * 看板降噪判定(唯一实现,不第二份):投影的 `visibility.noise`(kernel
  * `taskVisibility`:package disposition 非 active,或已取消)。看板筛选不再用
