@@ -299,6 +299,17 @@ describe("AttestationPoolView", () => {
     expect(byTestId("pool-gate-row-task-failed-ci-gate")).toBeTruthy();
   });
 
+  it("uses the unified page header (§2.3): bare one-line header, tabs under it", async () => {
+    await mountPool("taskCloseout");
+    const view = byTestId("attestation-pool-view");
+    const header = view.querySelector(":scope > header") as HTMLElement;
+    expect(header).toBeTruthy();
+    expect(header.className).not.toContain("border");
+    expect(header.className).not.toContain("bg-");
+    expect(header.querySelector("h1")?.className).toContain("text-xl");
+    expect(header.contains(byTestId("attestation-pool-total"))).toBe(true);
+  });
+
   it("keeps every displayed count equal to its rendered list rows", async () => {
     // 决策域:域计数 == 默认 proposed 组渲染的决策行数(计数与列表同源同判据)。
     await mountPool("decisions");

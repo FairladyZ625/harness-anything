@@ -10,7 +10,7 @@ import { workspaceTitleIndex } from "../model/workspace-readable.ts";
 import { useTasksQuery } from "../task-data.ts";
 import { Btn, Empty, SegCtl } from "../components/runtime/parts.tsx";
 import { CatalogBackButton, CatalogSplit, useCatalogDetailPane } from "../components/primitives/CatalogSplit.tsx";
-import { StatusTag } from "../components/primitives/StatusTag.tsx";
+import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import {
   runtimeSelectionFromRef,
   useSessionsWorkspace,
@@ -420,10 +420,47 @@ export function SessionsView({
   const visibleReadError = visibleRead.error instanceof Error ? visibleRead.error.message : String(visibleRead.error);
   return (
     <section data-testid="sessions-view" className="flex min-h-0 flex-1 flex-col overflow-hidden">
-      <header className="glass mx-2 mt-2 flex min-h-[52px] shrink-0 items-center gap-3 rounded-sm border border-border px-4">
-        <div className="min-w-0">
-          <b className="block ui-heading font-semibold">{t("agentRuntime.sessionsTitle")}</b>
-        </div>
+      <PageHeader
+        title={t("agentRuntime.sessionsTitle")}
+        note={
+          <span data-testid="sessions-counts" className="truncate">
+            {segment === "sessions"
+              ? t("agentRuntime.sessionsCounts", {
+                  range: rangeLabel[range],
+                  groups: totals.groups,
+                  sessions: totals.sessions,
+                }) +
+                // 计数是 daemon 按过滤后的集合算的,所以筛选生效时把它说出来——
+                // 否则用户读到的是「会话消失了」而不是「这是筛后的数」。
+                (status.length === 0
+                  ? ""
+                  : t("agentRuntime.sessionsStatusFilterNote", {
+                      statuses: status.map((word) => t(sessionStatusKey[word] as never)).join(" / "),
+                    })) +
+                " · " +
+                t("agentRuntime.liveSessions", { count: liveCount })
+              : t("agentRuntime.squadRunsCounts", { range: rangeLabel[range], runs: runTotals.runs }) +
+                " · " +
+                t("agentRuntime.squadRunsActive", { count: activeRunCount })}
+          </span>
+        }
+        actions={
+          segment === "sessions" && selectedSessionId !== null ? (
+            <Btn
+              size="sm"
+              variant="ghost"
+              onClick={() => setInspector(!inspector)}
+              tip={t("agentRuntime.toggleInspector")}
+            >
+              ▐
+            </Btn>
+          ) : undefined
+        }
+      />
+      <div
+        data-testid="sessions-toolbar"
+        className="flex min-h-12 shrink-0 flex-wrap items-center gap-2.5 px-5 py-2 @container [&>span[role=group]]:shrink-0 [&_button]:whitespace-nowrap"
+      >
         <SegCtl
           label={t("agentRuntime.sessionsSegmentLabel")}
           value={segment}
@@ -436,48 +473,6 @@ export function SessionsView({
             { value: "squads", label: t("agentRuntime.sessionsSegmentSquad") },
           ]}
         />
-        <span data-testid="sessions-counts" className="ml-auto truncate font-mono ui-meta text-text-faint">
-          {segment === "sessions"
-            ? t("agentRuntime.sessionsCounts", {
-                range: rangeLabel[range],
-                groups: totals.groups,
-                sessions: totals.sessions,
-              }) +
-              // 计数是 daemon 按过滤后的集合算的,所以筛选生效时把它说出来——
-              // 否则用户读到的是「会话消失了」而不是「这是筛后的数」。
-              (status.length === 0
-                ? ""
-                : t("agentRuntime.sessionsStatusFilterNote", {
-                    statuses: status.map((word) => t(sessionStatusKey[word] as never)).join(" / "),
-                  }))
-            : t("agentRuntime.squadRunsCounts", { range: rangeLabel[range], runs: runTotals.runs })}
-        </span>
-        {segment === "sessions" ? (
-          <StatusTag
-            tone={liveCount > 0 ? "active" : "plan"}
-            label={t("agentRuntime.liveSessions", { count: liveCount })}
-          />
-        ) : (
-          <StatusTag
-            tone={activeRunCount > 0 ? "active" : "plan"}
-            label={t("agentRuntime.squadRunsActive", { count: activeRunCount })}
-          />
-        )}
-        {segment === "sessions" && selectedSessionId !== null && (
-          <Btn
-            size="sm"
-            variant="ghost"
-            onClick={() => setInspector(!inspector)}
-            tip={t("agentRuntime.toggleInspector")}
-          >
-            ▐
-          </Btn>
-        )}
-      </header>
-      <div
-        data-testid="sessions-toolbar"
-        className="glass mx-2 mb-4 flex min-h-12 shrink-0 flex-wrap items-center gap-2.5 border-b border-border px-2.5 @container [&>span[role=group]]:shrink-0 [&_button]:whitespace-nowrap"
-      >
         {segment === "sessions" && (
           <SegCtl
             label={t("agentRuntime.sessionsGroupByLabel")}
@@ -499,14 +494,13 @@ export function SessionsView({
         />
         {segment === "sessions" && (
           <>
-            {/* 状态词表实测 ~795px:容器 ≥1100px 时平铺(桌面现状,放不下时条内自滚);
+            {/* 状态词表实测 ~795px:容器 ≥1100px 时平铺(放不下时换行,不横向滚动);
                 更窄时平铺 + 检索放不进一行,收纳进下拉让工具条一行放下(标准 §1.9②)。 */}
             <span
               role="group"
               aria-label={t("agentRuntime.sessionsStatusLabel")}
               data-testid="sessions-status-filter"
-              className="hidden min-w-24 gap-1 py-1 @min-[1100px]:inline-flex @min-[1100px]:flex-1 @min-[1100px]:overflow-x-auto [&>button]:shrink-0"
-              style={{ flexShrink: 1 }}
+              className="hidden min-w-24 gap-1 py-1 @min-[1100px]:inline-flex [&>button]:shrink-0"
             >
               {sessionStatusFilterWords.map((word) => (
                 <StatusFilterButton
@@ -559,8 +553,8 @@ export function SessionsView({
           value={search}
           onChange={(event) => setSearch(event.target.value)}
           className={
-            "min-w-36 max-w-56 flex-1 rounded-xs border border-border-strong bg-surface px-2.5 py-1 ui-meta text-text " +
-            "outline-none focus-visible:border-accent"
+            "ml-auto min-w-36 flex-1 rounded-xs border border-border bg-surface-raised px-3 py-1.5 ui-meta text-text " +
+            "outline-none placeholder:text-text-faint focus:border-border-strong"
           }
         />
       </div>
