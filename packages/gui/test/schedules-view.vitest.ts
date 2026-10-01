@@ -353,7 +353,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     );
     const detail = container.querySelector('[data-testid="schedule-detail"]')!;
     expect(detail.querySelector("#schedule-tab-edit")).toBeNull();
-    for (const tabId of ["schedule-tab-overview", "schedule-tab-runs", "schedule-tab-danger"]) {
+    for (const tabId of ["schedule-tab-overview", "schedule-tab-danger"]) {
       await click(container, tabId);
       expect(detail.querySelector('[data-testid="schedule-form"]'), tabId).toBeNull();
       expect(detail.querySelectorAll("input, textarea, select").length, tabId).toBe(0);

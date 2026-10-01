@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, PencilSimple, Play, Power, Stop, Trash } from "@phosphor-icons/react";
 import type { ScheduleGuiOptionsDto, ScheduleGuiRowDto } from "@harness-anything/daemon/protocol";
-import { Badge, Btn, Chip, Empty, KV, KVRow } from "../components/runtime/parts.tsx";
+import { Badge, Btn, Chip, Empty } from "../components/runtime/parts.tsx";
 import { ScheduleForm } from "../components/ScheduleFormDialog.tsx";
 import { ScheduleRunDetail } from "../components/scheduleRun/ScheduleRunDetail.tsx";
 import {
@@ -14,8 +14,14 @@ import {
   time,
 } from "../components/scheduleRun/runMeta.ts";
 import { DenseRow } from "../components/primitives/DenseRow.tsx";
-import { CompletedDivider } from "../components/primitives/CompletedDivider.tsx";
-import { Section } from "../components/primitives/Section.tsx";
+import { Region } from "../components/primitives/Region.tsx";
+import {
+  BoardColumn,
+  BoardMain,
+  BoardRegion,
+  BoardTimeline,
+  RegionBoard,
+} from "../components/primitives/RegionBoard.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { Tabs } from "../components/primitives/Tabs.tsx";
 import { TitleText } from "../components/primitives/TitleText.tsx";
@@ -142,7 +148,7 @@ export function deriveScheduleRunRows(row: ScheduleGuiRowDto): readonly Schedule
   return rows;
 }
 
-type Tab = "overview" | "runs" | "danger";
+type Tab = "overview" | "danger";
 
 export function ScheduleDetailView({
   repoId,
@@ -177,7 +183,7 @@ export function ScheduleDetailView({
   readonly onSelectEntity: (ref: string) => void;
   /** 统一「在关系图中查看」入口(task_89d324b5);缺省不渲染。 */
   readonly onFocusGraph?: (ref: string) => void;
-  /** Leave the embedded run detail back to the hub's Runs tab (location patch, no push). */
+  /** Leave the embedded run detail back to the hub (location patch, no push). */
   readonly onExitRun: () => void;
   /** Back to the schedules list. */
   readonly onExit: () => void;
@@ -196,7 +202,6 @@ export function ScheduleDetailView({
   // One daemon projection paints the timeline; the renderer never recomputes
   // cadence/nextRun/health and never invents occurrences the daemon did not emit.
   const occurrenceRows = runsQuery.data?.runs ?? deriveScheduleRunRows(row);
-  const runsReadFailed = runsQuery.isError;
   const occurrence =
     runOccurrence === null
       ? null
@@ -206,25 +211,19 @@ export function ScheduleDetailView({
     health = scheduleRowHealth(row);
   const tabs = [
     { key: "overview" as const, label: t("schedules.detail.tab.overview") },
-    { key: "runs" as const, label: t("schedules.detail.tab.runs", { count: String(occurrenceRows.length) }) },
     { key: "danger" as const, label: t("schedules.detail.tab.danger") },
   ];
 
   return (
-    <div data-testid="schedule-detail" className="min-h-0 flex-1 overflow-y-auto">
-      <div className="px-5 pt-3.5 md:px-7">
+    // 根是概况区域板的容器量尺(§1.9⑤):≥900px 时页签面板占满页头以下的高度、区域在自己
+    // 内部滚动;更窄或其它页签时面板随内容往下排,由这一层滚动。
+    <div data-testid="schedule-detail" className="@container flex min-h-0 flex-1 flex-col overflow-y-auto">
+      <div className="flex-none px-5 pt-3.5 md:px-7">
         <button
           type="button"
           data-testid="schedule-detail-back"
-          onClick={() => {
-            if (runOccurrence === null) {
-              onExit();
-              return;
-            }
-            // Returning from an embedded run lands back on the Runs tab.
-            setTab("runs");
-            onExitRun();
-          }}
+          // Returning from an embedded run lands back on the hub (run history is on Overview).
+          onClick={runOccurrence === null ? onExit : onExitRun}
           className="inline-flex items-center gap-1 ui-meta text-text-faint hover:text-accent"
         >
           <ArrowLeft />
@@ -363,7 +362,15 @@ export function ScheduleDetailView({
       </div>
 
       {runOccurrence === null && (
-        <TabPanel idPrefix="schedule" value={tab} className="px-5 pb-10 pt-4 md:px-7">
+        <TabPanel
+          idPrefix="schedule"
+          value={tab}
+          className={
+            tab === "overview" && !editing
+              ? "flex flex-col px-5 pb-4 pt-3 md:px-7 @[900px]:min-h-0 @[900px]:flex-1"
+              : "px-5 pb-10 pt-4 md:px-7"
+          }
+        >
           {editing ? (
             <ScheduleForm
               options={options}
@@ -383,14 +390,10 @@ export function ScheduleDetailView({
               row={row}
               mode={mode}
               health={health}
+              runs={occurrenceRows}
+              runsReadFailed={runsQuery.isError}
+              runsError={runsQuery.error instanceof Error ? runsQuery.error.message : null}
               onSelectEntity={onSelectEntity}
-              onOpenRun={(occurrenceId) => onSelectEntity(scheduleRunRef(row.scheduleId, occurrenceId))}
-            />
-          ) : tab === "runs" ? (
-            <ScheduleRunsTab
-              rows={occurrenceRows}
-              readFailed={runsReadFailed}
-              error={runsQuery.error instanceof Error ? runsQuery.error.message : null}
               onOpenRun={(occurrenceId) => onSelectEntity(scheduleRunRef(row.scheduleId, occurrenceId))}
             />
           ) : (
@@ -475,245 +478,220 @@ function HealthSpark({ outcomes }: { readonly outcomes: readonly ScheduleRunOutc
   );
 }
 
+/** 行内长文(说明句、路径、失败原因)折行显示:DenseRow 的标题与第二行默认单行省略。 */
+function Wrapped({ children }: { readonly children: React.ReactNode }) {
+  return <span className="whitespace-pre-wrap break-words">{children}</span>;
+}
+
+/**
+ * 键值字段(标准 §4):键在标题位,短值在右侧;长值(路径)用宽松模式放第二行。
+ * 没有值的字段整行不出现(§1.5),不留「—」占一行。
+ */
+function Field({
+  name,
+  value,
+  long = false,
+  onClick,
+}: {
+  readonly name: string;
+  readonly value: string | null | undefined;
+  readonly long?: boolean;
+  readonly onClick?: () => void;
+}) {
+  if (value === null || value === undefined) return null;
+  return long ? (
+    <DenseRow relaxed title={name} reason={<Wrapped>{value}</Wrapped>} onClick={onClick} />
+  ) : (
+    <DenseRow title={name} time={value} onClick={onClick} />
+  );
+}
+
 function ScheduleOverviewTab({
   row,
   mode,
   health,
+  runs,
+  runsReadFailed,
+  runsError,
   onSelectEntity,
   onOpenRun,
 }: {
   readonly row: ScheduleGuiRowDto;
   readonly mode: "detect" | "remediate";
   readonly health: ReturnType<typeof scheduleRowHealth>;
+  readonly runs: readonly ScheduleGuiRunRowDto[];
+  readonly runsReadFailed: boolean;
+  readonly runsError: string | null;
   readonly onSelectEntity: (ref: string) => void;
   readonly onOpenRun: (occurrenceId: string) => void;
 }) {
   const agentTarget = row.target.kind === "agent" ? row.target : null,
-    builtinTarget = row.target.kind === "builtin" ? row.target : null;
+    builtinTarget = row.target.kind === "builtin" ? row.target : null,
+    failed = runs.filter((run) => run.outcome === "failed").length,
+    missed = runs.filter((run) => run.outcome === "missed").length;
   return (
-    <div className="grid grid-cols-1 gap-x-8 gap-y-6 lg:grid-cols-[minmax(0,1fr)_340px]">
-      <div className="min-w-0">
-        {(row.target.kind === "agent-unconfigured" || row.targetState !== undefined) && (
-          <div data-testid="schedule-target-unconfigured-block">
-            <Section variant="warn" title={t("schedules.detail.attention.title")}>
-              {row.target.kind === "agent-unconfigured" && (
-                <p className="ui-meta text-text">{t("schedules.detail.targetUnconfigured")}</p>
-              )}
-              {row.targetState !== undefined && row.targetError !== undefined && (
-                <p className="ui-meta text-text">
-                  {t(TARGET_STATE_KEY[row.targetState])} — {row.targetError.hint}
-                </p>
-              )}
-            </Section>
-          </div>
-        )}
-        <Section title={t("schedules.detail.purpose.title")}>
-          <p className="whitespace-pre-wrap ui-meta leading-relaxed text-text">{row.mission}</p>
-          <div className="mt-2 flex flex-wrap items-center gap-2 ui-micro text-text-muted">
-            <ModeBadge mode={mode} />
-            <span>{t("schedules.detail.purpose.modeLine")}</span>
-          </div>
-          <div className="mt-1.5 flex flex-wrap items-center gap-2 ui-micro text-text-muted">
-            <span className="font-mono uppercase tracking-[0.06em] text-text-faint">
-              {t("schedules.detail.routing.title")}
-            </span>
-            <span>{t("schedules.detail.routing.ternary")}</span>
-          </div>
-        </Section>
-        <div data-testid="schedule-overview-health">
-          <Section
-            title={t("schedules.detail.health.title")}
-            variant={health.bucket === "degraded" ? "warn" : undefined}
-          >
-            {health.recent.length === 0 ? (
-              <Empty>{t("schedules.runs.empty")}</Empty>
-            ) : (
-              <div className="flex flex-wrap items-center gap-3">
-                <HealthSpark outcomes={health.recent} />
-                <span className="ui-micro text-text-faint">
-                  {t("schedules.detail.health.legend", { count: String(health.recent.length) })}
-                </span>
-                {health.failedCount > 0 && (
-                  <span className="ui-micro text-status-blocked">
-                    {t("schedules.detail.health.failedCount", { count: String(health.failedCount) })}
-                  </span>
+    // 区域板(标准 §2.1,与工作概况、任务详情同一个 RegionBoard):主区是需要处理、健康度、
+    // 目的、定义、执行,运行历史固定在最右一列并区内滚动;没有内容的区域整块消失。
+    <RegionBoard data-testid="schedule-overview-tab">
+      <BoardMain>
+        <BoardColumn>
+          {(row.target.kind === "agent-unconfigured" || row.targetState !== undefined) && (
+            <BoardRegion region="attention" data-testid="schedule-target-unconfigured-block">
+              <Region title={t("schedules.detail.attention.title")} edge="bad">
+                {row.target.kind === "agent-unconfigured" && (
+                  <DenseRow relaxed title={<Wrapped>{t("schedules.detail.targetUnconfigured")}</Wrapped>} />
                 )}
-                <StatusTag
-                  tone={health.bucket === "degraded" ? "bad" : "done"}
-                  label={t(health.bucket === "degraded" ? "schedules.health.degraded" : "schedules.health.clean")}
+                {row.targetState !== undefined && row.targetError !== undefined && (
+                  <DenseRow
+                    relaxed
+                    title={t(TARGET_STATE_KEY[row.targetState])}
+                    reason={<Wrapped>{row.targetError.hint}</Wrapped>}
+                  />
+                )}
+              </Region>
+            </BoardRegion>
+          )}
+          {(health.recent.length > 0 || health.lastFailureDetail !== null) && (
+            <BoardRegion region="health" data-testid="schedule-overview-health">
+              <Region
+                title={t("schedules.detail.health.title")}
+                edge={health.bucket === "degraded" ? "bad" : undefined}
+                tag={
+                  <StatusTag
+                    tone={health.bucket === "degraded" ? "bad" : "done"}
+                    label={t(health.bucket === "degraded" ? "schedules.health.degraded" : "schedules.health.clean")}
+                  />
+                }
+              >
+                {health.recent.length > 0 && (
+                  <DenseRow
+                    tag={<HealthSpark outcomes={health.recent} />}
+                    title={t("schedules.detail.health.legend", { count: String(health.recent.length) })}
+                    time={
+                      health.failedCount > 0
+                        ? t("schedules.detail.health.failedCount", { count: String(health.failedCount) })
+                        : undefined
+                    }
+                  />
+                )}
+                {health.lastFailureDetail !== null && (
+                  <div data-testid="schedule-health-last-failure">
+                    <DenseRow
+                      relaxed
+                      title={t("schedules.detail.health.lastFailure")}
+                      reason={<Wrapped>{health.lastFailureDetail}</Wrapped>}
+                    />
+                  </div>
+                )}
+              </Region>
+            </BoardRegion>
+          )}
+          <BoardRegion region="purpose" data-testid="schedule-overview-purpose">
+            {/* 正文不是「条」,板不给它量下限:同列放不下时这一块先让出高度、正文区内滚动,
+                字段与健康度保持至少三条。 */}
+            <Region title={t("schedules.detail.purpose.title")} padded>
+              <p className="whitespace-pre-wrap ui-body text-text">{row.mission}</p>
+              <p className="mt-2 flex flex-wrap items-center gap-2 ui-meta text-text-muted">
+                <ModeBadge mode={mode} />
+                <span>{t("schedules.detail.purpose.modeLine")}</span>
+              </p>
+              <p className="mt-1.5 ui-meta text-text-muted">
+                <span className="text-text-faint">{t("schedules.detail.routing.title")}</span>{" "}
+                {t("schedules.detail.routing.ternary")}
+              </p>
+            </Region>
+          </BoardRegion>
+        </BoardColumn>
+        <BoardColumn>
+          <BoardRegion region="definition" data-testid="schedule-overview-definition">
+            <Region title={t("schedules.definition")}>
+              <Field name={t("schedules.fields.trigger")} value={row.trigger.summary} />
+              <Field name={t("schedules.fields.timezone")} value={row.trigger.timezone} />
+              <Field name={t("schedules.fields.definitionRevision")} value={String(row.definitionRevision)} />
+              <Field name={t("schedules.fields.updatedAt")} value={time(row.updatedAt)} />
+              <Field name={t("schedules.fields.model")} value={agentTarget?.model} />
+              <Field name={t("schedules.fields.cwd")} value={agentTarget?.cwd} long />
+              {builtinTarget !== null && (
+                <>
+                  <Field name={t("schedules.fields.keepDays")} value={String(builtinTarget.keepDays)} />
+                  <Field
+                    name={t("schedules.fields.keepMonthly")}
+                    value={builtinTarget.keepMonthly ? t("schedules.form.keepMonthly") : "—"}
+                  />
+                </>
+              )}
+              {/* G10: displayed entity ids are paths — the agent and runtime-instance
+                  ids stay activatable rows. Run sessions are the exception by design:
+                  they render embedded in this hub, never as a jump to the global list. */}
+              {agentTarget && (
+                <>
+                  <div data-testid={`schedule-agent-link-${agentTarget.agentId}`}>
+                    <Field
+                      name={t("schedules.fields.agent")}
+                      value={agentTarget.agentId}
+                      onClick={() => onSelectEntity(`agent/${agentTarget.agentId}`)}
+                    />
+                  </div>
+                  <div data-testid={`schedule-instance-link-${agentTarget.runtimeInstanceId}`}>
+                    <Field
+                      name={t("schedules.fields.instance")}
+                      value={agentTarget.runtimeInstanceId}
+                      onClick={() => onSelectEntity(`provider/${agentTarget.runtimeInstanceId}`)}
+                    />
+                  </div>
+                </>
+              )}
+            </Region>
+          </BoardRegion>
+          <BoardRegion region="execution" data-testid="schedule-overview-execution">
+            <Region title={t("schedules.execution")}>
+              <Field
+                name={t("schedules.fields.availability")}
+                value={t(AVAILABILITY_META[row.executionAvailability])}
+              />
+              <Field name={t("schedules.fields.claimNode")} value={row.claim.nodeId} />
+              <Field name={t("schedules.fields.assignment")} value={row.claim.assignmentId} />
+              <Field name={t("schedules.fields.nextRun")} value={time(row.nextRunAt)} />
+              <Field name={t("schedules.fields.evaluatedThrough")} value={time(row.automaticEvaluatedThrough)} />
+            </Region>
+          </BoardRegion>
+        </BoardColumn>
+      </BoardMain>
+      {/* 运行历史:daemon 投影顺序(按计划时间倒序),一条 occurrence 一行,点开是内嵌的 run 详情。 */}
+      {(runs.length > 0 || runsReadFailed) && (
+        <BoardTimeline data-testid="schedule-runs">
+          <Region
+            title={t("schedules.detail.runs.title")}
+            big={runs.length}
+            tag={
+              <>
+                {failed > 0 && (
+                  <StatusTag tone="bad" label={t("schedules.runs.failedCount", { count: String(failed) })} />
+                )}
+                {missed > 0 && (
+                  <StatusTag tone="bad" label={t("schedules.runs.missedCount", { count: String(missed) })} />
+                )}
+              </>
+            }
+          >
+            {runsReadFailed && (
+              <div role="alert" data-testid="schedule-runs-read-error">
+                <DenseRow
+                  relaxed
+                  title={<Wrapped>{t("schedules.runs.readFailed")}</Wrapped>}
+                  reason={runsError === null ? undefined : <Wrapped>{runsError}</Wrapped>}
                 />
               </div>
             )}
-            {health.lastFailureDetail !== null && (
-              <p
-                data-testid="schedule-health-last-failure"
-                className="mt-2 break-all rounded-xs border border-danger/40 bg-status-blocked/10 px-2.5 py-1.5 font-mono ui-micro text-text"
-              >
-                {t("schedules.detail.health.lastFailure")}: {health.lastFailureDetail}
-              </p>
-            )}
-          </Section>
-        </div>
-        <Section title={t("schedules.activeRunTitle")}>
-          {row.activeRun === null && row.lastRun === null && row.missed.count === 0 ? (
-            <p className="ui-meta text-text-faint">{t("schedules.noActiveRun")}</p>
-          ) : (
-            <div className="border-t border-border">
-              {row.activeRun !== null && (
-                <div data-testid={`schedule-run-row-${row.activeRun.occurrenceId}`}>
-                  <DenseRow
-                    tag={<StatusTag tone="active" label={t("schedules.outcome.running")} />}
-                    title={row.activeRun.occurrenceId}
-                    reason={`node ${row.activeRun.nodeId}`}
-                    time={time(row.activeRun.claimedAt)}
-                    onClick={() => onOpenRun(row.activeRun?.occurrenceId ?? "")}
-                  />
-                </div>
-              )}
-              {row.lastRun !== null && row.lastRun.occurrenceId !== row.activeRun?.occurrenceId && (
-                <div data-testid={`schedule-run-row-${row.lastRun.occurrenceId}`}>
-                  <DenseRow
-                    tag={
-                      <StatusTag
-                        tone={OUTCOME_TONE[row.lastRun.outcome] ?? "neutral"}
-                        label={t(outcomeLabel(row.lastRun.outcome))}
-                      />
-                    }
-                    title={row.lastRun.occurrenceId}
-                    reason={`node ${row.lastRun.nodeId}`}
-                    time={time(row.lastRun.endedAt)}
-                    onClick={() => onOpenRun(row.lastRun?.occurrenceId ?? "")}
-                  />
-                </div>
-              )}
-              {row.missed.count > 0 && (
-                <div data-testid="schedule-run-row-aggregate">
-                  <DenseRow
-                    tag={<StatusTag tone="bad" label={t("schedules.outcome.missed")} />}
-                    title={t("schedules.runs.missedAggregate")}
-                    reason={missedReasonLabel(row.missed.lastMissedReason)}
-                    time={time(row.missed.lastMissedAt)}
-                  />
-                </div>
-              )}
-            </div>
-          )}
-        </Section>
-      </div>
-      <aside className="min-w-0 self-start lg:sticky lg:top-2">
-        <div data-testid="schedule-overview-definition">
-          <Section title={t("schedules.definition")}>
-            <KV>
-              <KVRow name={t("schedules.fields.trigger")}>{row.trigger.summary}</KVRow>
-              <KVRow name={t("schedules.fields.timezone")}>{row.trigger.timezone ?? "—"}</KVRow>
-              <KVRow name={t("schedules.fields.definitionRevision")}>{String(row.definitionRevision)}</KVRow>
-              <KVRow name={t("schedules.fields.updatedAt")}>{time(row.updatedAt)}</KVRow>
-              <KVRow name={t("schedules.fields.model")}>
-                {builtinTarget === null ? (agentTarget?.model ?? "—") : "—"}
-              </KVRow>
-              <KVRow name={t("schedules.fields.cwd")}>{builtinTarget === null ? (agentTarget?.cwd ?? "—") : "—"}</KVRow>
-              {builtinTarget !== null && (
-                <>
-                  <KVRow name={t("schedules.fields.keepDays")}>{String(builtinTarget.keepDays)}</KVRow>
-                  <KVRow name={t("schedules.fields.keepMonthly")}>
-                    {builtinTarget.keepMonthly ? t("schedules.form.keepMonthly") : "—"}
-                  </KVRow>
-                </>
-              )}
-            </KV>
-            {/* G10: displayed entity ids are paths — the agent and runtime-instance
-                ids stay activatable links. Run sessions are the exception by design:
-                they render embedded in this hub, never as a jump to the global list. */}
-            {agentTarget && (
-              <div className="mt-2 flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  data-testid={`schedule-agent-link-${agentTarget.agentId}`}
-                  onClick={() => onSelectEntity(`agent/${agentTarget.agentId}`)}
-                  className="font-mono ui-micro text-accent hover:underline"
-                >
-                  {t("schedules.fields.agent")}: {agentTarget.agentId}
-                </button>
-                <button
-                  type="button"
-                  data-testid={`schedule-instance-link-${agentTarget.runtimeInstanceId}`}
-                  onClick={() => onSelectEntity(`provider/${agentTarget.runtimeInstanceId}`)}
-                  className="font-mono ui-micro text-accent hover:underline"
-                >
-                  {t("schedules.fields.instance")}: {agentTarget.runtimeInstanceId}
-                </button>
-              </div>
-            )}
-          </Section>
-        </div>
-        <Section title={t("schedules.execution")}>
-          <KV>
-            <KVRow name={t("schedules.fields.availability")}>{t(AVAILABILITY_META[row.executionAvailability])}</KVRow>
-            <KVRow name={t("schedules.fields.claimNode")}>{row.claim.nodeId ?? "—"}</KVRow>
-            <KVRow name={t("schedules.fields.assignment")}>{row.claim.assignmentId ?? "—"}</KVRow>
-            <KVRow name={t("schedules.fields.nextRun")}>{time(row.nextRunAt)}</KVRow>
-            <KVRow name={t("schedules.fields.evaluatedThrough")}>{time(row.automaticEvaluatedThrough)}</KVRow>
-          </KV>
-        </Section>
-      </aside>
-    </div>
-  );
-}
-
-function ScheduleRunsTab({
-  rows,
-  readFailed,
-  error,
-  onOpenRun,
-}: {
-  readonly rows: readonly ScheduleGuiRunRowDto[];
-  readonly readFailed: boolean;
-  readonly error: string | null;
-  readonly onOpenRun: (occurrenceId: string) => void;
-}) {
-  // 终态沉底(标准 §1.4/§2.4 v2):成功/取消的 occurrence 沉到「已收口 N」分隔线
-  // 之后照常显示,不折叠;running/failed/missed 留在注意力区,保持 daemon 投影顺序。
-  const inFlight = rows.filter((row) => row.outcome !== "succeeded" && row.outcome !== "cancelled"),
-    settled = rows.filter((row) => row.outcome === "succeeded" || row.outcome === "cancelled"),
-    missed = rows.filter((row) => row.outcome === "missed").length,
-    failed = rows.filter((row) => row.outcome === "failed").length;
-  return (
-    <div data-testid="schedule-runs">
-      <div className="mb-2 flex flex-wrap items-center gap-2">
-        <span className="ui-micro text-text-muted">{t("schedules.runs.count", { count: String(rows.length) })}</span>
-        {failed > 0 && <StatusTag tone="bad" label={t("schedules.runs.failedCount", { count: String(failed) })} />}
-        {missed > 0 && <StatusTag tone="bad" label={t("schedules.runs.missedCount", { count: String(missed) })} />}
-      </div>
-      {readFailed && (
-        <div
-          role="alert"
-          data-testid="schedule-runs-read-error"
-          className="mb-2 rounded-xs border border-danger/40 bg-status-blocked/10 px-2.5 py-2 font-mono ui-micro text-status-blocked"
-        >
-          {t("schedules.runs.readFailed")}
-          {error !== null ? ` · ${error}` : ""}
-        </div>
+            <ol data-testid="schedule-runs-timeline" className="flex flex-col">
+              {runs.map((occurrence) => (
+                <RunRow key={occurrence.occurrenceId || "aggregate"} occurrence={occurrence} onOpenRun={onOpenRun} />
+              ))}
+            </ol>
+          </Region>
+        </BoardTimeline>
       )}
-      {rows.length === 0 ? (
-        <Empty>{t("schedules.runs.empty")}</Empty>
-      ) : (
-        <ol data-testid="schedule-runs-timeline" className="flex flex-col">
-          {inFlight.map((occurrence) => (
-            <RunRow key={occurrence.occurrenceId || "aggregate"} occurrence={occurrence} onOpenRun={onOpenRun} />
-          ))}
-          {settled.length > 0 && (
-            <li data-testid="schedule-runs-settled" className="border-t border-border">
-              <CompletedDivider>
-                {t("schedules.runs.settledDivider", { count: String(settled.length) })}
-              </CompletedDivider>
-            </li>
-          )}
-          {settled.map((occurrence) => (
-            <RunRow key={occurrence.occurrenceId} occurrence={occurrence} onOpenRun={onOpenRun} />
-          ))}
-        </ol>
-      )}
-    </div>
+    </RegionBoard>
   );
 }
 
@@ -729,6 +707,7 @@ function RunRow({
   return (
     <li data-testid={`schedule-run-row-${occurrence.occurrenceId || "aggregate"}`}>
       <DenseRow
+        relaxed
         tag={<StatusTag tone={OUTCOME_TONE[occurrence.outcome] ?? "neutral"} label={t(meta.key)} />}
         title={aggregate ? t("schedules.runs.missedAggregate") : occurrence.occurrenceId}
         reason={
