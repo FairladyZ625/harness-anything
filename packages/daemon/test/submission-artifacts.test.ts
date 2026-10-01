@@ -115,11 +115,11 @@ test("Summary may pair one commit with artifact anchors but never omits both", (
     `artifact:${path}@-1`,
   ])
     assert.throws(() => derive(summary), { code: "invalid_submission" });
-  assert.deepEqual(artifactAnchors(`artifact:${path}@7 artifact:${path}.other@9`), [
+  assert.deepEqual(artifactAnchors(`artifact:${path}@7 artifact:${path}.other@9`, packagePath), [
     { path, revision: 7 },
     { path: `${path}.other`, revision: 9 },
   ]);
-  assert.deepEqual(artifactAnchors(`artifact:${path}`), [{ path }]);
+  assert.deepEqual(artifactAnchors(`artifact:${path}`, packagePath), [{ path }]);
 });
 
 test("artifact anchors leave trailing prose punctuation outside the path", () => {
@@ -129,7 +129,7 @@ test("artifact anchors leave trailing prose punctuation outside the path", () =>
     "(artifact:artifacts/report.md)",
     "已交付 artifact:artifacts/report.md。",
   ])
-    assert.deepEqual(artifactAnchors(summary), [{ path: "artifacts/report.md" }]);
+    assert.deepEqual(artifactAnchors(summary, packagePath), [{ path: "artifacts/report.md" }]);
   for (const summary of [
     "Delivered artifact:artifacts/report.md.",
     "Delivered artifact:artifacts/report.md, with the receipt.",
@@ -140,19 +140,22 @@ test("artifact anchors leave trailing prose punctuation outside the path", () =>
       derive(summary).artifacts?.map((anchor) => anchor.path),
       [path],
     );
-  assert.deepEqual(artifactAnchors("artifact:artifacts/x.other/report.md"), [{ path: "artifacts/x.other/report.md" }]);
-  assert.deepEqual(artifactAnchors("artifact:artifacts/report.md@7.2"), []);
+  assert.deepEqual(artifactAnchors("artifact:artifacts/x.other/report.md", packagePath), [
+    { path: "artifacts/x.other/report.md" },
+  ]);
+  assert.deepEqual(artifactAnchors("artifact:artifacts/report.md@7.2", packagePath), []);
 });
 
 test("anchors break before any CJK or fullwidth punctuation", () => {
   for (const trailing of ["、", "；", "：", "）", "。", "，"])
-    assert.deepEqual(artifactAnchors(`已交付 artifact:artifacts/report.md${trailing}回执留档。`), [
+    assert.deepEqual(artifactAnchors(`已交付 artifact:artifacts/report.md${trailing}回执留档。`, packagePath), [
       { path: "artifacts/report.md" },
     ]);
   // The original mis-parsed closeout: the lazy path used to swallow 「、」 and the next anchor.
   assert.deepEqual(
     artifactAnchors(
       "artifact:artifacts/design.md、artifact:artifacts/report.md 与 artifact:artifacts/prototype/index.html。",
+      packagePath,
     ),
     [{ path: "artifacts/design.md" }, { path: "artifacts/report.md" }, { path: "artifacts/prototype/index.html" }],
   );
@@ -164,19 +167,23 @@ test("anchors break before any CJK or fullwidth punctuation", () => {
 });
 
 test("non-ASCII letters and % stay path characters, so CJK filenames still anchor", () => {
-  assert.deepEqual(artifactAnchors("已交付 artifact:artifacts/实测报告.md。"), [{ path: "artifacts/实测报告.md" }]);
-  assert.deepEqual(artifactAnchors("artifact:artifacts/a2-修复报告.md、回执另存。"), [
+  assert.deepEqual(artifactAnchors("已交付 artifact:artifacts/实测报告.md。", packagePath), [
+    { path: "artifacts/实测报告.md" },
+  ]);
+  assert.deepEqual(artifactAnchors("artifact:artifacts/a2-修复报告.md、回执另存。", packagePath), [
     { path: "artifacts/a2-修复报告.md" },
   ]);
-  assert.deepEqual(artifactAnchors("artifact:artifacts/b5v7-cpu-%p.cpuprofile"), [
+  assert.deepEqual(artifactAnchors("artifact:artifacts/b5v7-cpu-%p.cpuprofile", packagePath), [
     { path: "artifacts/b5v7-cpu-%p.cpuprofile" },
   ]);
-  assert.deepEqual(artifactAnchors("artifact:artifacts/实测报告.md@7。"), [
+  assert.deepEqual(artifactAnchors("artifact:artifacts/实测报告.md@7。", packagePath), [
     { path: "artifacts/实测报告.md", revision: 7 },
   ]);
   // CJK prose directly after an ASCII filename glues onto the path instead of breaking it; the
   // resulting anchor then names a path the center never accepted, which resolution rejects.
-  assert.deepEqual(artifactAnchors("artifact:artifacts/report.md的回执。"), [{ path: "artifacts/report.md的回执" }]);
+  assert.deepEqual(artifactAnchors("artifact:artifacts/report.md的回执。", packagePath), [
+    { path: "artifacts/report.md的回执" },
+  ]);
   const submitted = derive("已交付 artifact:artifacts/实测报告.md。");
   assert.deepEqual(
     submitted.artifacts?.map((anchor) => [anchor.path, anchor.revision]),
@@ -272,6 +279,24 @@ test("a prose label ending in 'artifact:' is not counted as a second anchor", ()
   // A label without an anchor names nothing, and a malformed anchor attempt still fails.
   assert.throws(() => derive("Delivery artifact: artifacts/report.md"), { code: "invalid_submission" });
   assert.throws(() => derive(`artifact:${path}@sha256:${"a".repeat(64)}`), { code: "invalid_submission" });
+});
+
+test("prose that merely shows an artifact:-shaped reference names no deliverable", () => {
+  // 2026-10-01 false rejection (task_435dc27714e8cca3fa17e3602b): the Summary quoted replaced UI
+  // text in backticks; `artifact:runtime-result/sha256/…` parsed as a directory deliverable outside
+  // the task's artifacts namespace and rejected the submit with "contains no files".
+  const incident = "「最近失败」下显示的 `artifact:runtime-result/sha256/…` 引用改成了一个入口";
+  assert.deepEqual(artifactAnchors(incident, packagePath), []);
+  // A runtime-result reference is another namespace's sigil, whole or truncated.
+  assert.deepEqual(artifactAnchors(`回执 artifact:runtime-result/sha256/${"a".repeat(64)} 已失效。`, packagePath), []);
+  // Mention text rides along a real anchor without diluting or blocking it.
+  const submitted = derive("交付锚：`artifact:artifacts/report.md`。" + incident);
+  assert.deepEqual(submitted.deliverables, [path]);
+  // Mention-only prose no longer dies on artifact resolution: the fixture's absent ledger and
+  // worktree stop it with the ordinary no-deliverables guidance instead.
+  assert.throws(() => derive(incident), /No accepted task artifacts were found/u);
+  // An anchor naming another task's artifacts is mention text for this task, not a rejection.
+  assert.deepEqual(artifactAnchors("artifact:tasks/task-other/artifacts/report.md", packagePath), []);
 });
 
 test("invalid artifact anchors explain the copyable form and revision source", () => {
