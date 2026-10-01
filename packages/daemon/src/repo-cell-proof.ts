@@ -332,6 +332,15 @@ export async function proofFor(
     };
   }
   if (command.type === "RecordReviewConsent") {
+    // Consent is a person's own confirmation. A fleet assignment authenticates a machine: the owner the
+    // center resolves for it decides what the node may do, and confirmed nothing.
+    if (typeof command.source === "object" && command.source.kind === "assignment")
+      throw cellCodedError(
+        "human_confirmation_required",
+        `Consent on task ${command.taskId} is a person's own confirmation, and node ${command.source.nodeId} ` +
+          "authenticated as a machine. Confirming as a person from an edge node is not available yet; sign in at " +
+          `the center and run ha task review-consent ${command.taskId} --review-id ${command.reviewId} there.`,
+      );
     const authorizationDecision = requiredAuthorizationDecision(binding);
     return {
       actorBinding: command.actor,

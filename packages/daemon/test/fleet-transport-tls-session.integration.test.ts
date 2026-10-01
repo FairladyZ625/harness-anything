@@ -235,6 +235,104 @@ test("a node unregistered while it stays connected is refused on its next frame"
   assert.equal(answer(await progress("progress-after-unregister")), "node_owner_unregistered");
   assert.equal(fixture.eventCount(), before, "nothing was written for the unregistered node");
 });
+// Consent is a person's own confirmation. The connection authenticated a machine, so the owner the center
+// resolves for it can hold every permission on the repository and still cannot consent through the node.
+test(
+  "a node acting for its owner cannot consent, and the same person signed in at the center can",
+  { timeout: 30_000 },
+  async (t) => {
+    const fixture = await fleetFixture(t, undefined, "strict");
+    t.after(() => fixture.close());
+    const { nodeId, assignmentId, repoId, taskId, executionId } = fixture.assignment,
+      reviewId = "review-fleet",
+      packageDir = path.join(fixture.repo, "harness", fixture.packagePath),
+      delivery = git(fixture.repo, "rev-parse", "HEAD"),
+      applied = async (action: Parameters<typeof fixture.host.run>[1], auth = fixture.auth) => {
+        const receipt = await fixture.host.run(repoId, action, auth);
+        assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      };
+    // An approved, independently reviewed cut: consent is the one thing completion still lacks.
+    await applied({
+      kind: "fact-record",
+      taskId,
+      statement: "The fleet fixture delivery exists.",
+      evidenceSource: "harness/harness.yaml",
+      confidence: "high",
+      memoryClass: "episodic",
+      memoryTags: [],
+    });
+    writeFileSync(
+      path.join(packageDir, "closeout.md"),
+      `# Closeout\n\n## Summary\n\nDelivery ${delivery} is ready.\n\n` +
+        "## Verification\n\nThe consent source is exercised over TLS.\n\n" +
+        "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNone.\n",
+    );
+    await applied({ kind: "doc-submit", paths: [`${fixture.packagePath}/closeout.md`] }, localAuthFixture());
+    await applied({ kind: "task-submit", taskId, executionId, commitSha: delivery });
+    await applied({ kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Owner forwards the cut." });
+    mkdirSync(path.join(packageDir, "artifacts", "reports"), { recursive: true });
+    writeFileSync(
+      path.join(packageDir, "artifacts", "reports", "fleet.md"),
+      `# Review ${reviewId}\n\nIndependent review findings recorded.\n`,
+    );
+    writeFileSync(
+      path.join(fixture.repo, "review.json"),
+      JSON.stringify({ verdict: "approved", reason: "Independent review passed.", evidenceChecked: ["tests"] }),
+    );
+    await applied(
+      { kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" },
+      localAuthFixture(),
+    );
+    // The reviewer's report is accepted at the center, so completion finds no document left to carry.
+    await applied({ kind: "doc-submit", taskId }, localAuthFixture());
+
+    const center = await fixture.center(),
+      peer = await rawPeer(fixture.track, center.port, fixture.cert, nodeId, "machine-secret"),
+      assigned = await peer.request({ schema: "fleet.assignment.get/v1", messageId: "assignment", assignmentId });
+    assert.equal(assigned.schema, "fleet.assignment.result/v1");
+    if (assigned.schema !== "fleet.assignment.result/v1") return;
+    const fromNode = async (opId: string, action: Record<string, unknown>) => {
+        const result = await peer.request({
+          schema: "fleet.task.command/v1",
+          messageId: opId,
+          assignmentId,
+          writerEpoch: assigned.writerEpoch,
+          opId,
+          repoId,
+          taskId,
+          action: { ...action, taskId, executionId },
+          waitMs: 1_000,
+          docChanges: null,
+          mirrorBaseCut: null,
+        } as FleetFrameV1);
+        return result.schema === "fleet.task.result/v1"
+          ? { outcome: result.outcome, code: result.code }
+          : { outcome: result.schema, code: result.schema === "fleet.error/v1" ? result.code : null };
+      },
+      before = fixture.eventCount();
+    assert.deepEqual(await fromNode("consent-from-node", { kind: "task-review-consent", reviewId }), {
+      outcome: "op_rejected",
+      code: "human_confirmation_required",
+    });
+    assert.equal(fixture.eventCount(), before, "the node's consent wrote nothing");
+    assert.deepEqual(await fromNode("complete-without-consent", { kind: "task-complete" }), {
+      outcome: "op_rejected",
+      code: "consent_missing",
+    });
+    assert.equal(fixture.eventCount(), before, "the task stays open without a consent");
+
+    // The same person, signed in at the center: the consent is theirs, and the node may then complete.
+    signInAt(fixture.userRoot, "person-owner");
+    await applied(
+      { kind: "task-review-consent", taskId, executionId, reviewId },
+      await new OidcSessionService(fixture.userRoot).bind({ transportKind: "unix-socket" }),
+    );
+    assert.deepEqual(await fromNode("complete-after-consent", { kind: "task-complete" }), {
+      outcome: "applied",
+      code: null,
+    });
+  },
+);
 test("replica pull rejects a snapshot that has not caught up to the ledger cut", async (t) => {
   const fixture = await fleetFixture(t);
   t.after(() => fixture.close());
@@ -806,7 +904,11 @@ test(
     );
   },
 );
-async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/task-fleet-fleet/notes.md"]) {
+async function fleetFixture(
+  t: TestContext,
+  paths: readonly string[] = ["tasks/task-fleet-fleet/notes.md"],
+  closeoutProfile: "standard" | "strict" = "standard",
+) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-one-")),
     repo = path.join(root, "repo"),
     userRoot = path.join(root, "user"),
@@ -825,7 +927,8 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
   initRepo(repo);
   writeFileSync(
     path.join(repo, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nname: fleet\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    "schema: harness-anything/v1\nname: fleet\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" +
+      `settings:\n  closeout:\n    profile: ${closeoutProfile}\n`,
   );
   writePeopleFixture(repo);
   git(repo, "add", "harness");
@@ -908,6 +1011,7 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
   return {
     root,
     repo,
+    packagePath: String((created as Record<string, unknown>).packagePath),
     stateRoot,
     writerOptions: fleetHostWriterOptions(userRoot, ["fleet-repo"]),
     path: assignment.paths[0]!,
