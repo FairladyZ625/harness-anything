@@ -10,6 +10,7 @@ export const DENSE_ROW_RELAXED_PX = 56;
  * relaxed 为宽松两行:标题一行、原因换行成弱色第二行——目录页(§2.5)、仪表盘区域
  * 富余足够时与放大层列表都用它展示原因。高度、字号、间距只在这里定,调用点不压缩。
  * 字符串标题经 TitleText 拆成重点与弱色补充;调用方传节点(如搜索高亮)时原样渲染。
+ * data-dense-row 是 RegionBoard 量「至少露出三条」时认的行标记。
  */
 export function DenseRow({
   index,
@@ -69,7 +70,7 @@ export function DenseRow({
   );
   if (onClick === undefined) {
     return (
-      <div data-selected={selected || undefined} className={rowCls}>
+      <div data-dense-row data-selected={selected || undefined} className={rowCls}>
         {content}
       </div>
     );
@@ -78,6 +79,7 @@ export function DenseRow({
     <button
       type="button"
       onClick={onClick}
+      data-dense-row
       data-selected={selected || undefined}
       className={`w-full cursor-pointer text-left ${rowCls}`}
     >

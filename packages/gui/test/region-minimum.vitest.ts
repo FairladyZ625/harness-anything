@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import { describe, expect, it } from "vitest";
-import { regionMinimumHeight } from "../src/renderer/views/region-minimum.ts";
+import { regionMinimumHeight } from "../src/renderer/components/primitives/region-minimum.ts";
 
 /**
  * 区域最小可用高度(标准 §2.1):标题行 + 行体里前三条完整行 + 页脚,量内容的自然位置。

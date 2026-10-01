@@ -393,10 +393,14 @@ export function TaskDetailView({
             onActiveDocChange={setActiveDoc}
             onOpenDoc={openDocument}
           />
+          {/* 概况是一屏的区域板:面板自己是板的容器量尺(量面板内容宽,不含文件树),
+              ≥900px 时板占满面板高度、区域在自己内部滚动;其余页签随内容往下排。 */}
           <TabPanel
             idPrefix="task"
             value={activeTab}
-            className="min-h-0 min-w-0 overflow-y-auto px-4 py-4 lg:px-6"
+            className={`min-h-0 min-w-0 overflow-y-auto px-4 py-4 lg:px-6 ${
+              activeTab === "overview" ? "@container flex flex-col" : ""
+            }`}
             data-testid="task-detail-panel-scroll"
           >
             {activeTab === "overview" ? (

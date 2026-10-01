@@ -1,11 +1,17 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { DayDigest, type DayPath } from "../../components/primitives/DayDigest";
 import { DenseRow } from "../../components/primitives/DenseRow";
 import { Region } from "../../components/primitives/Region";
+import {
+  BoardColumn,
+  BoardMain,
+  BoardRegion,
+  BoardTimeline,
+  RegionBoard,
+} from "../../components/primitives/RegionBoard";
 import { SegBar } from "../../components/primitives/SegBar";
 import { StatusTag, type StatusTone } from "../../components/primitives/StatusTag";
 import { entryTitle, metaLine } from "./entry-lines.tsx";
-import { regionMinimumHeight } from "../region-minimum.ts";
 import type { WorkLeafRow } from "./WorkTasksTab.tsx";
 import type { AttestationPoolLanes } from "../../model/attestation-pool.ts";
 import type { WorkDayGroup, WorkStepKind, WorkSubgroup } from "../../model/workspace-narrative.ts";
@@ -19,10 +25,8 @@ import { t } from "../../i18n/index.tsx";
  * 都在一个 Region 里,行用 DenseRow,内容超出在区域内滚动,没有内容的区域整块消失(§1.5)。
  *
  * 不走 overview-layout 的权重落列:那套算法把区域放进当前最矮的一列,保证不了时间线
- * 固定在右列,而且工作概况没有 daemon 权重。这里用固定顺序 + 弹性布局:列内区域按内容
- * 高度分配,放不下时各自缩到「至少露出三条」的实测下限(与总览同一个测量),再放不下
- * 就列内滚动。容器 ≥900px 两列(主区 | 时间线),≥1400px 主区再分两列,更窄时单列纵排、
- * 时间线排到最下、整页滚动(§1.9)。
+ * 固定在右列,而且工作概况没有 daemon 权重。列容器是共享的 RegionBoard(固定顺序 +
+ * 右侧时间线,断点与列内分配见该原语)。
  */
 
 /** 步骤种类的呈现(标签/状态色);全局总览的「最近变化」共用。 */
@@ -89,15 +93,6 @@ export interface WorkOverviewProps {
 
 const actionButton = "h-6 rounded-xs border px-2.5 ui-meta disabled:opacity-60";
 
-/** 列内一个区域的外框:单列时限高(一条长列表不把后面的区域推出屏幕),多列时按内容
- * 高度参与列内分配并可被压到实测下限。Region 原语被拉伸到这个盒子。 */
-const regionBox = "grid min-w-0 max-h-[420px] grid-rows-[minmax(0,1fr)] @[900px]:max-h-none @[900px]:flex-[1_1_auto]";
-/** 主区的一列:≥1400px 时自成一列并列内滚动,否则并入主区那一列。 */
-const mainColumn =
-  "contents @[1400px]:flex @[1400px]:min-h-0 @[1400px]:min-w-0 @[1400px]:flex-col @[1400px]:gap-2 @[1400px]:overflow-y-auto";
-/** 区域行体里算「一条」的元素:任务行、子组行、时间线的天摘要与路径行。 */
-const REGION_ROWS = "[data-task-row], [data-group-filter], [data-day] > button, [data-day] > div > *";
-
 export function WorkOverview({
   submitted,
   stalled,
@@ -136,36 +131,6 @@ export function WorkOverview({
       .sort((left, right) => Number(right.pinned) - Number(left.pinned) || recentFirst(left, right)),
     pathCount = dayGroups.reduce((sum, group) => sum + group.paths.length, 0);
 
-  const boardRef = useRef<HTMLDivElement | null>(null);
-  const [minimum, setMinimum] = useState<Readonly<Record<string, number>>>({});
-  useLayoutEffect(() => {
-    const board = boardRef.current;
-    if (board === null) return;
-    const measure = () => {
-      const next: Record<string, number> = {};
-      for (const region of board.querySelectorAll<HTMLElement>("[data-region]")) {
-        const section = region.querySelector("section"),
-          height =
-            section === null
-              ? undefined
-              : regionMinimumHeight(section, (body) => [...body.querySelectorAll(REGION_ROWS)]);
-        if (height !== undefined) next[region.dataset.region!] = height;
-      }
-      setMinimum((current) => (JSON.stringify(current) === JSON.stringify(next) ? current : next));
-    };
-    // 行体内容变高(展开某一天、字号或宽度变化)时重量。
-    const observer = new ResizeObserver(measure);
-    observer.observe(board);
-    for (const element of board.querySelectorAll("[data-region] section > div, [data-region] section > div > div > *"))
-      observer.observe(element);
-    measure();
-    return () => observer.disconnect();
-  }, [submitted, stalled, leaves, lanes, dayGroups, subgroups]);
-  const boxOf = (key: string) => ({
-    "data-region": key,
-    className: regionBox,
-    style: { minHeight: minimum[key] ?? 0 },
-  });
   const taskRow = (leaf: WorkLeafRow, tag?: ReactNode) => (
     <div key={leaf.taskId} data-task-row={leaf.taskId}>
       <WorkTaskRow task={leaf} tag={tag} agoOf={agoOf} onOpen={onOpenTask} />
@@ -175,7 +140,7 @@ export function WorkOverview({
   const attention = (
     <>
       {heroCount > 0 ? (
-        <div {...boxOf("mine")} data-testid="work-hero">
+        <BoardRegion region="mine" data-testid="work-hero">
           <Region
             title={t("views.workspace.hero.title")}
             big={heroCount}
@@ -257,11 +222,11 @@ export function WorkOverview({
               );
             })}
           </Region>
-        </div>
+        </BoardRegion>
       ) : null}
 
       {blocked.length + noAgent.length > 0 ? (
-        <div {...boxOf("stuck")} data-testid="work-stuck">
+        <BoardRegion region="stuck" data-testid="work-stuck">
           <Region
             title={t("views.workspace.stuck.title")}
             tag={
@@ -282,15 +247,15 @@ export function WorkOverview({
             {blocked.map((leaf) => taskRow(leaf, <StatusTag status="blocked" />))}
             {noAgent.map((leaf) => taskRow(leaf, <StatusTag tone="wait" label={t("views.workspace.stuck.noAgent")} />))}
           </Region>
-        </div>
+        </BoardRegion>
       ) : null}
 
       {running.length > 0 ? (
-        <div {...boxOf("run")} data-testid="work-running">
+        <BoardRegion region="run" data-testid="work-running">
           <Region title={t("views.workspace.running.title")} big={running.length} bigTone="active">
             {running.map((leaf) => taskRow(leaf, <StatusTag status={leaf.status} />))}
           </Region>
-        </div>
+        </BoardRegion>
       ) : null}
     </>
   );
@@ -298,15 +263,15 @@ export function WorkOverview({
   const outlook = (
     <>
       {planned.length > 0 ? (
-        <div {...boxOf("next")} data-testid="work-next">
+        <BoardRegion region="next" data-testid="work-next">
           <Region title={t("views.workspace.next.title")} big={planned.length} footer={t("views.workspace.next.note")}>
             {/* 全是待开工,状态标签每行都一样,不进行(§2.4 重复值不进行)。 */}
             {planned.map((leaf) => taskRow(leaf))}
           </Region>
-        </div>
+        </BoardRegion>
       ) : null}
 
-      <div {...boxOf("structure")} data-testid="work-structure">
+      <BoardRegion region="structure" data-testid="work-structure">
         <Region
           title={t("views.workspace.structure.title")}
           big={leaves.length}
@@ -356,34 +321,24 @@ export function WorkOverview({
             </div>
           ))}
         </Region>
-      </div>
+      </BoardRegion>
     </>
   );
 
   return (
-    <div
-      ref={boardRef}
-      data-testid="work-overview-board"
-      className="grid grid-cols-1 gap-2 @[900px]:min-h-0 @[900px]:flex-1 @[900px]:grid-cols-2 @[900px]:grid-rows-[minmax(0,1fr)] @[1400px]:grid-flow-col @[1400px]:auto-cols-[minmax(0,1fr)] @[1400px]:grid-cols-none"
-    >
-      <div
-        data-testid="work-overview-main"
-        className="flex min-w-0 flex-col gap-2 @[900px]:min-h-0 @[900px]:overflow-y-auto @[1400px]:contents"
-      >
+    <RegionBoard data-testid="work-overview-board">
+      <BoardMain data-testid="work-overview-main">
         {heroCount + blocked.length + noAgent.length + running.length > 0 ? (
-          <div className={mainColumn}>{attention}</div>
+          <BoardColumn>{attention}</BoardColumn>
         ) : null}
-        <div className={mainColumn}>{outlook}</div>
-      </div>
+        <BoardColumn>{outlook}</BoardColumn>
+      </BoardMain>
       {dayGroups.length > 0 ? (
-        <div
-          data-region="recent"
-          data-testid="work-timeline"
-          className="grid max-h-[420px] min-w-0 grid-rows-[minmax(0,1fr)] @[900px]:max-h-none @[900px]:min-h-0"
-        >
+        <BoardTimeline data-testid="work-timeline">
           <Region
             title={t("views.workspace.progress.title")}
             big={pathCount}
+            padded
             footer={
               <>
                 <span className="min-w-0 truncate">{t("views.workspace.progress.note")}</span>
@@ -393,14 +348,11 @@ export function WorkOverview({
               </>
             }
           >
-            {/* DayDigest 自己不带左右内边距:贴着区域框时「收起」会顶到右缘,这里留出与行同宽的边距。 */}
-            <div className="px-3.5">
-              <WorkDayList dayGroups={dayGroups} dayLabelOf={dayLabelOf} timeOf={timeOf} onOpenTask={onOpenTask} />
-            </div>
+            <WorkDayList dayGroups={dayGroups} dayLabelOf={dayLabelOf} timeOf={timeOf} onOpenTask={onOpenTask} />
           </Region>
-        </div>
+        </BoardTimeline>
       ) : null}
-    </div>
+    </RegionBoard>
   );
 }
 

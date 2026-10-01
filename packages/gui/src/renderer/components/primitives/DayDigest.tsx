@@ -47,7 +47,9 @@ export function DayDigest({
         onClick={() => setOpen((value) => !value)}
         className="relative flex w-full items-baseline gap-3 text-left after:absolute after:content-[''] after:inset-x-0 after:-top-[2px] after:-bottom-[2px]"
       >
-        <span className="w-11 flex-none font-mono font-semibold text-text-muted ui-meta">{day}</span>
+        <span className="min-w-11 flex-none whitespace-nowrap font-mono font-semibold text-text-muted ui-meta">
+          {day}
+        </span>
         <span className="min-w-0 flex-1 ui-body">{summary}</span>
         <span className="flex-none text-text-faint ui-meta">
           {open ? t("components.primitives.collapse") : t("components.primitives.expand")}
@@ -61,7 +63,12 @@ export function DayDigest({
                 {path.time !== undefined && (
                   <span className="w-9 flex-none font-mono text-text-faint ui-micro">{path.time}</span>
                 )}
-                <span className="max-w-[48%] min-w-0 flex-none truncate ui-body group-hover:text-accent">
+                {/* 没有步骤的路径(如任务的生命周期记录)名字占满整行,不给空的步骤列留一半宽度。 */}
+                <span
+                  className={`min-w-0 truncate ui-body group-hover:text-accent ${
+                    path.steps.length === 0 ? "flex-1" : "max-w-[48%] flex-none"
+                  }`}
+                >
                   {path.name}
                 </span>
                 <span className="flex min-w-0 flex-wrap items-center gap-1">

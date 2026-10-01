@@ -6,6 +6,11 @@ import { TONE_COLOR, type StatusTone } from "./StatusTag";
  * 仪表盘区域(标准 §4):玻璃面板 + 状态竖线 + 标题行(标题、状态标签、大数字);
  * 行体铺满剩余高度,内容溢出时在区域内部滚动;可进入放大层。
  *
+ * 行体两种形态:默认贴框,给自带左右边距的 DenseRow;padded 带与行同宽的边距,给正文
+ * 段落、整篇文档、按天进展这类自己不带边距的内容——调用点不再各包一层。
+ * 标题行不设动作位:右侧是大数字(本身是入口),整块又可点开放大层;行的动作放在该行
+ * 右侧,区域级的去向放在页脚右侧。
+ *
  * 放大层联动:给 focusId 后本区域成为 motion 共享布局的一员,FocusLayer 用同一
  * layoutId 从原位长到中央(标准 §6:布局动画用 motion,不手写 FLIP)。区域重排
  * (权重变化)由 layout 属性平滑过渡。
@@ -19,6 +24,7 @@ export function Region({
   footer,
   focusId,
   onOpen,
+  padded = false,
   children,
 }: {
   readonly title: ReactNode;
@@ -29,6 +35,7 @@ export function Region({
   readonly footer?: ReactNode;
   readonly focusId?: string;
   readonly onOpen?: () => void;
+  readonly padded?: boolean;
   readonly children: ReactNode;
 }) {
   return (
@@ -55,7 +62,7 @@ export function Region({
         )}
       </div>
       <div className="relative min-h-0 flex-1">
-        <div className="h-full overflow-y-auto">{children}</div>
+        <div className={`h-full overflow-y-auto ${padded ? "px-3.5 pb-3" : ""}`}>{children}</div>
       </div>
       {footer !== undefined && (
         <div className="flex flex-none items-center gap-1.5 px-3 pb-[7px] pt-1 text-text-faint ui-meta">{footer}</div>

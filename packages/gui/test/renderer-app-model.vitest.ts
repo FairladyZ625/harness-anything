@@ -276,7 +276,12 @@ describe("renderer app model", () => {
       watermark: 7,
       sourceRevision: 7,
     }));
-    vi.stubGlobal("window", { harness: { getTaskDocument } });
+    // 概况的 Region 是 motion 布局节点,挂载时在 window 上听 resize(与 task-detail.fixtures 同样的桩)。
+    vi.stubGlobal("window", {
+      harness: { getTaskDocument },
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    });
     const queryClient = new QueryClient();
     try {
       await queryClient.fetchQuery(taskDocumentQuery("project-1", "task-1", "task_plan.md"));
