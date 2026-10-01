@@ -504,6 +504,51 @@ export const taskActionDescriptorProjection = {
   ],
 } as const satisfies GeneratedTaskActionProtocolProjection;
 export const settingsFieldProtocolProjection = {
+  groups: [
+    {
+      id: "new-task-defaults",
+      title: "New task defaults",
+      description: "What every new task starts with: vertical, preset, profile, and the two scaffold documents.",
+    },
+    {
+      id: "dispatch-roles",
+      title: "Dispatch roles",
+      description: "Which agent declarations are preferred for worker, commander, and independent reviewer dispatches.",
+    },
+    {
+      id: "review-closeout",
+      title: "Review and closeout",
+      description:
+        "How independent a review must be, which decisions need a current review, and which gates closeout enforces.",
+    },
+    {
+      id: "ci-gates",
+      title: "CI and completion gates",
+      description: "Which workflow runs witness CI, and which adapter attests each declared completion gate.",
+    },
+    {
+      id: "capacity-agenda",
+      title: "Capacity and agenda",
+      description:
+        "How many tasks run at once, when a standard task counts as a work root, and how much the agenda pins.",
+    },
+    {
+      id: "worktree",
+      title: "Task worktree setup",
+      description: "Preparation steps every new task worktree runs on the node that materializes it.",
+    },
+    {
+      id: "storage-backup",
+      title: "Storage and backup",
+      description: "Durable-storage flush behavior and how many successful restore drills are kept.",
+      advanced: true,
+    },
+    {
+      id: "presentation",
+      title: "Presentation",
+      description: "Locale for local presentation (this machine only; never enters the repository event stream).",
+    },
+  ],
   actionInputs: [
     {
       field: "defaultVertical",
@@ -653,6 +698,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "defaultVertical",
       description: "Default vertical selected for new work.",
+      group: "new-task-defaults",
+      effect: "New tasks start from this vertical's presets and templates instead of the built-in default.",
       name: "--default-vertical",
       kind: "single",
       regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$",
@@ -660,6 +707,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "defaultPreset",
       description: "Default task preset.",
+      group: "new-task-defaults",
+      effect: "New tasks pick up this preset's plan and closeout templates.",
       name: "--default-preset",
       kind: "single",
       regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$",
@@ -667,6 +716,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "defaultProfile",
       description: "Default profile inside the selected preset.",
+      group: "new-task-defaults",
+      effect: "Tasks launched with the default preset start on this profile's options.",
       name: "--default-profile",
       kind: "single",
       regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$",
@@ -674,6 +725,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "roles",
       description: "Preferred defaultWorker agent declaration.",
+      group: "dispatch-roles",
+      effect: "Dispatches prefer this agent for the role; unset falls back to the bundled default.",
       name: "--roles",
       kind: "single",
       projection: "json-object",
@@ -681,6 +734,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "reviewIndependence",
       description: "Identity axis on which an independent review is required.",
+      group: "review-closeout",
+      effect: "execution accepts another execution session; principal requires another person's agents.",
       name: "--review-independence",
       kind: "single",
       enum: ["execution", "principal"],
@@ -688,6 +743,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "decisionReviewRequirement",
       description: "Decision risk tiers that require a current approved review before acceptance.",
+      group: "review-closeout",
+      effect: "Decisions in the selected risk tiers are refused at accept until a current approved review exists.",
       name: "--decision-review-requirement",
       kind: "single",
       enum: ["off", "high", "medium_and_high", "all"],
@@ -695,6 +752,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "reviewReturnBudget",
       description: "Maximum task review return count before escalation.",
+      group: "review-closeout",
+      effect: "A task returned more times than this escalates to a person instead of returning to review again.",
       name: "--review-return-budget",
       kind: "single",
       regex: "^[1-9][0-9]*$",
@@ -703,6 +762,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "locale",
       description: "Local presentation locale.",
+      group: "presentation",
+      effect: "The GUI and CLI render in this locale on this machine only.",
       name: "--locale",
       kind: "single",
       enum: ["en-US", "zh-CN"],
@@ -710,6 +771,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "taskScaffold",
       description: "Repository-relative task scaffold path.",
+      group: "new-task-defaults",
+      effect: "New task packages are generated from this scaffold document.",
       name: "--task-scaffold",
       kind: "single",
       regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$",
@@ -717,6 +780,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "repositoryScaffold",
       description: "Repository-relative repository scaffold path.",
+      group: "new-task-defaults",
+      effect: "New repository-level scaffolds are generated from this document.",
       name: "--repository-scaffold",
       kind: "single",
       regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$",
@@ -724,6 +789,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "walFlushAdaptive",
       description: "Whether WAL flushing adapts to load.",
+      group: "storage-backup",
+      effect: "Adaptive mode widens the flush batch under heavy writes and narrows it when idle.",
       name: "--wal-flush-adaptive",
       kind: "single",
       enum: ["true", "false"],
@@ -732,6 +799,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "walFlushEvents",
       description: "Event-count WAL flush trigger.",
+      group: "storage-backup",
+      effect: "Durable writes materialize to git once this many events are pending.",
       name: "--wal-flush-events",
       kind: "single",
       regex: "^[1-9][0-9]*$",
@@ -740,6 +809,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "walFlushBytes",
       description: "Byte-count WAL flush trigger.",
+      group: "storage-backup",
+      effect: "Durable writes materialize to git once this many pending bytes accumulate.",
       name: "--wal-flush-bytes",
       kind: "single",
       regex: "^[1-9][0-9]*$",
@@ -748,6 +819,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "walFlushMilliseconds",
       description: "Idle-time WAL flush floor in milliseconds.",
+      group: "storage-backup",
+      effect: "A pending batch materializes after at most this much idle time, regardless of size.",
       name: "--wal-flush-milliseconds",
       kind: "single",
       regex: "^[1-9][0-9]*$",
@@ -756,6 +829,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "ciWorkflows",
       description: "Workflow names accepted as repository CI witnesses.",
+      group: "ci-gates",
+      effect: "These workflow runs count as CI completion evidence; an empty list opts out of CI witnessing.",
       name: "--ci-workflows",
       kind: "repeated",
       regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$",
@@ -764,6 +839,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "closeoutProfile",
       description: "Repository closeout strictness profile.",
+      group: "review-closeout",
+      effect: "standard keeps the closeout gates optional; strict turns all four on for every task.",
       name: "--closeout-profile",
       kind: "single",
       enum: ["standard", "strict"],
@@ -771,6 +848,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "closeoutReview",
       description: "Optional review closeout gate override.",
+      group: "review-closeout",
+      effect: "true forces this gate on regardless of profile; false forces it off; unset follows the profile.",
       name: "--closeout-review",
       kind: "single",
       enum: ["true", "false"],
@@ -779,6 +858,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "closeoutConsent",
       description: "Optional consent closeout gate override.",
+      group: "review-closeout",
+      effect: "true forces this gate on regardless of profile; false forces it off; unset follows the profile.",
       name: "--closeout-consent",
       kind: "single",
       enum: ["true", "false"],
@@ -787,6 +868,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "closeoutFactDisposition",
       description: "Optional factDisposition closeout gate override.",
+      group: "review-closeout",
+      effect: "true forces this gate on regardless of profile; false forces it off; unset follows the profile.",
       name: "--closeout-fact-disposition",
       kind: "single",
       enum: ["true", "false"],
@@ -795,6 +878,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "closeoutCodeDoc",
       description: "Optional codeDoc closeout gate override.",
+      group: "review-closeout",
+      effect: "true forces this gate on regardless of profile; false forces it off; unset follows the profile.",
       name: "--closeout-code-doc",
       kind: "single",
       enum: ["true", "false"],
@@ -803,6 +888,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "agendaPinLimit",
       description: "Maximum number of entities pinned to the repository agenda.",
+      group: "capacity-agenda",
+      effect: "Pinning beyond this limit drops the oldest pins off the agenda.",
       name: "--agenda-pin-limit",
       kind: "single",
       regex: "^[1-9][0-9]*$",
@@ -811,6 +898,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "wipLimit",
       description: "Maximum number of tasks admitted to the execution worktable.",
+      group: "capacity-agenda",
+      effect: "Admitting a task beyond this in-progress count is refused until something completes.",
       name: "--wip-limit",
       kind: "single",
       regex: "^[1-9][0-9]*$",
@@ -819,6 +908,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "rootThreshold",
       description: "Direct-child count at which a standard task is treated as a work root.",
+      group: "capacity-agenda",
+      effect: "A standard task with this many direct children is grouped and treated as a work root.",
       name: "--root-threshold",
       kind: "single",
       regex: "^[1-9][0-9]*$",
@@ -827,6 +918,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "worktreeSetup",
       description: "Ordered preparation steps run in every new task worktree.",
+      group: "worktree",
+      effect: "Every new task worktree runs these steps in order before work starts; empty means no preparation.",
       name: "--worktree-setup",
       kind: "repeated",
       regex: "^(?:none|(?:node-modules|run: \\S.*))$",
@@ -835,6 +928,8 @@ export const settingsFieldProtocolProjection = {
     {
       field: "restoreDrillRetention",
       description: "Number of successful restore drills retained.",
+      group: "storage-backup",
+      effect: "Only this many successful restore drills are kept; older drill artifacts are dropped.",
       name: "--restore-drill-retention",
       kind: "single",
       regex: "^[1-9][0-9]*$",

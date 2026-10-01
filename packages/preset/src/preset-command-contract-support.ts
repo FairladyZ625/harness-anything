@@ -3,6 +3,11 @@ import type { EntityActionContract, EntityActionInputField } from "@harness-anyt
 export interface CliInputError {
   readonly code: string;
 }
+/** Help-section metadata: inputs whose `group` matches `id` render under `title`. */
+export interface CliInputGroup {
+  readonly id: string;
+  readonly title: string;
+}
 export type CommandAdmissionRoute = "direct" | "via-assignment" | "via-center-forward" | "rejected";
 export type CommandAdmission = Readonly<
   Record<"local" | "remote-proxy" | "remote-center" | "remote-edge", CommandAdmissionRoute>
@@ -15,6 +20,10 @@ export interface CommandTopology {
 export interface CliInputFacet {
   readonly name: string;
   readonly description?: string;
+  /** One concrete sentence on what changing this input does (settings fields carry it from declarations). */
+  readonly effect?: string;
+  /** Presentation group id; rendered as a header block in command help when inputGroups is supplied. */
+  readonly group?: string;
   readonly kind: "single" | "repeated" | "boolean";
   readonly required: boolean;
   readonly enum?: readonly string[];
@@ -89,9 +98,18 @@ export interface GeneratedSettingsActionInputField {
   readonly enum?: readonly string[];
 }
 
+export interface GeneratedSettingsFieldGroup {
+  readonly id: string;
+  readonly title: string;
+  readonly description: string;
+  readonly advanced?: boolean;
+}
+
 export interface GeneratedSettingsCliInputField {
   readonly field: string;
   readonly description: string;
+  readonly group: string;
+  readonly effect: string;
   readonly name: string;
   readonly kind: "single" | "repeated" | "boolean";
   readonly regex?: string;
@@ -101,6 +119,7 @@ export interface GeneratedSettingsCliInputField {
 }
 
 export interface GeneratedSettingsFieldProtocolProjection {
+  readonly groups: readonly GeneratedSettingsFieldGroup[];
   readonly actionInputs: readonly GeneratedSettingsActionInputField[];
   readonly cliInputs: readonly GeneratedSettingsCliInputField[];
 }

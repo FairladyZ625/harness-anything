@@ -86,6 +86,7 @@ function seedQueries(client: QueryClient): void {
       required,
       ...(values ? { enum: [...values] } : {}),
     })),
+    settingsGroups: [],
     defaults: { verticalId: "g5", presetId: "preset-g5", profileId: null, locale: "zh-CN" },
     presets: [
       {

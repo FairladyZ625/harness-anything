@@ -5,6 +5,7 @@ import {
   generatedSettingsFieldProtocolProjection,
   presetCommands,
   presetMethods,
+  type CliInputGroup,
 } from "@harness-anything/preset/internal/preset-command-contract";
 import type { EntityActionContract } from "@harness-anything/kernel";
 import { agentProtocolCommands } from "./daemon-protocol-commands-agent.ts";
@@ -41,6 +42,8 @@ const settingsWriteTopology = {
       { code: "invalid_field" },
       {
         description: input.description,
+        effect: input.effect,
+        group: input.group,
         ...(input.regex ? { regex: input.regex } : {}),
         ...(input.enum ? { enum: input.enum } : {}),
         ...(input.format ? { format: input.format } : {}),
@@ -48,6 +51,9 @@ const settingsWriteTopology = {
       },
     ),
   ),
+  // Annotated locally so the emitted command type references the named import instead of the
+  // generator's literal tuple (which declaration emit cannot name portably).
+  settingsInputGroups = generatedSettingsFieldProtocolProjection.groups as readonly CliInputGroup[],
   settingsProtocolCommands = Object.freeze([
     defineRepoReadCommand({
       id: "settings-read",
@@ -83,6 +89,9 @@ const settingsWriteTopology = {
           { code: "invalid_field" },
           {
             format: "import the settings.gates block declared in harness.yaml",
+            // One-shot gates import: it shares the gates presentation group rather than trailing
+            // with the mechanical --expected-version/--idempotency-key inputs.
+            group: "ci-gates",
           },
         ),
         cliInput(
@@ -98,6 +107,7 @@ const settingsWriteTopology = {
           code: "invalid_field",
         }),
       ],
+      inputGroups: settingsInputGroups,
       ...settingsWriteTopology,
     }),
   ]);

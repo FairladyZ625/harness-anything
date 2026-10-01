@@ -1,5 +1,6 @@
 import type {
   CliInputError,
+  CliInputGroup,
   CliInputFacet,
   CommandAdmission,
   CommandAdmissionRoute,
@@ -14,6 +15,7 @@ import { taskCreateDescriptorProjection } from "./task-create-projection.generat
 
 export type {
   CliInputError,
+  CliInputGroup,
   CliInputFacet,
   CommandAdmission,
   CommandAdmissionRoute,
@@ -93,6 +95,7 @@ export function cliInputHelp(input: CliInputFacet): string {
     input.required ? "required" : input.requiredWhen ? "conditionally required" : "optional",
     input.kind === "repeated" ? "repeatable" : input.kind === "boolean" ? "flag" : "value",
   ];
+  if (input.effect) facts.push(`changing it: ${input.effect}`);
   if (input.enum) facts.push(`values: ${input.enum.join(", ")}`);
   if (input.jsonFields) facts.push(`JSON required fields: ${input.jsonFields.join(", ") || "none"}`);
   if (input.jsonAllowedFields) facts.push(`JSON accepted fields: ${input.jsonAllowedFields.join(", ")}`);
@@ -123,8 +126,28 @@ export function cliInputHelp(input: CliInputFacet): string {
   return `${input.name} — ${facts.join("; ")}`;
 }
 
-export function cliCommandHelp(inputs: readonly CliInputFacet[]): string {
-  return inputs.map((input) => `    ${cliInputHelp(input)}`).join("\n");
+/** Grouped help rendering: inputs carrying a known group id render under that group's header,
+ * in the caller's group order; inputs without a group render after the grouped blocks. */
+export function cliCommandHelp(inputs: readonly CliInputFacet[], groups?: readonly CliInputGroup[]): string {
+  if (!groups?.length) return inputs.map((input) => `    ${cliInputHelp(input)}`).join("\n");
+  const members = new Map<string, readonly CliInputFacet[]>(),
+    ungrouped: CliInputFacet[] = [];
+  for (const input of inputs) {
+    if (!input.group || !groups.some((group) => group.id === input.group)) {
+      ungrouped.push(input);
+      continue;
+    }
+    const bucket = [...(members.get(input.group) ?? []), input];
+    members.set(input.group, bucket);
+  }
+  const lines = [
+    ...groups.flatMap((group) => {
+      const inputs_ = members.get(group.id);
+      return inputs_ ? [`    ${group.title}:`, ...inputs_.map((input) => `      ${cliInputHelp(input)}`)] : [];
+    }),
+    ...ungrouped.map((input) => `    ${cliInputHelp(input)}`),
+  ];
+  return lines.join("\n");
 }
 
 export function defineCliCommand<
@@ -132,6 +155,7 @@ export function defineCliCommand<
     readonly path: readonly string[];
     readonly syntaxPath?: readonly string[];
     readonly inputs: readonly CliInputFacet[];
+    readonly inputGroups?: readonly CliInputGroup[];
     readonly commandClass: CommandTopology["commandClass"];
     readonly admission: CommandAdmission;
   },
@@ -149,11 +173,14 @@ export function defineCliCommand<
       return input.kind === "repeated" && !input.required ? `${rendered}...` : rendered;
     }),
     usage = ["ha", ...syntaxPath, ...usageInputs].join(" "),
-    help = cliCommandHelp(inputs);
+    // Normalized to the named type so the emitted command type stays portable instead of
+    // dragging the caller's literal group tuple through declaration files.
+    inputGroups = Object.freeze([...(declaration.inputGroups ?? [])]) as readonly CliInputGroup[],
+    help = cliCommandHelp(inputs, inputGroups);
   // Re-applying defineCliCommand to its own prior output (a daemon-effective rebuild spreading an
   // already-built command) must stay idempotent: syntaxPath, not the already-truncated routing path,
   // is the source of truth, so a positional like <task-id> survives every rebuild automatically.
-  return Object.freeze({ ...declaration, path, syntaxPath, inputs, flags: inputs, usage, help });
+  return Object.freeze({ ...declaration, path, syntaxPath, inputs, flags: inputs, usage, help, inputGroups });
 }
 
 type CliCommandDeclaration = {

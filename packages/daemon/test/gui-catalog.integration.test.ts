@@ -4,7 +4,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { INITIAL_SETTINGS_V1, settingsUpdateInputFields } from "@harness-anything/kernel";
+import {
+  INITIAL_SETTINGS_V1,
+  SETTINGS_FIELD_GROUPS,
+  SETTINGS_FIELD_PRESENTATION,
+  settingsUpdateInputFields,
+} from "@harness-anything/kernel";
 import { openGuiCatalog } from "../src/gui-catalog.ts";
 import { validateCatalogPreset, validateCatalogRereadReceipt, validateCatalogSnapshot } from "../src/gui-s3-control.ts";
 
@@ -38,7 +43,8 @@ test("GUI catalog projection uses canonical inventory without source paths or pl
 test("GUI catalog carries the settings field contract derived from the kernel single source", async () => {
   const snapshot = await openCatalog().snapshot();
   assert.deepEqual(validateCatalogSnapshot(snapshot), []);
-  // 与 kernel 动作目录同一单源:GUI 设置表单的派生面不是 daemon 手抄清单。
+  // 与 kernel 动作目录同一单源:GUI 设置表单的派生面不是 daemon 手抄清单;分组与逐项
+  // 解释(group/effect/defaultValue)同样从声明源投影,GUI 不另写一份分组表。
   assert.deepEqual(
     snapshot.settingsFields,
     settingsUpdateInputFields.map(({ field, description, type, required, enum: values }) => ({
@@ -47,6 +53,15 @@ test("GUI catalog carries the settings field contract derived from the kernel si
       type,
       required,
       ...(values ? { enum: [...values] } : {}),
+      ...SETTINGS_FIELD_PRESENTATION.find((row) => row.field === field),
+    })),
+  );
+  // 有序分组面:声明源的组序,advanced 仅在为真时携带。
+  assert.deepEqual(
+    snapshot.settingsGroups,
+    SETTINGS_FIELD_GROUPS.map((group) => ({
+      id: group.id,
+      ...("advanced" in group && group.advanced ? { advanced: true } : {}),
     })),
   );
   // 修复前的漂移四字段必须在契约面里。

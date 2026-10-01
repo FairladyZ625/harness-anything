@@ -17,8 +17,8 @@ import {
   gateMappingAdapterFields,
   governableWitnessAdapterIds,
   mappedWitnessAdapterIds,
-  settingsUpdateInputFields,
 } from "@harness-anything/kernel";
+import { settingsFieldsFace, settingsGroupsFace } from "./settings-catalog-snapshot.ts";
 
 const REPO_ID = "settings-gates-probe";
 const GATES = [
@@ -54,12 +54,9 @@ const SNAPSHOT = {
   observedAt: "2026-08-27T00:00:00.000Z",
   catalogDigest: "settings-gates-digest--------------------",
   defaults: { verticalId: "software/coding", presetId: "standard-task", profileId: "baseline", locale: "zh-CN" },
-  settingsFields: settingsUpdateInputFields.map(({ field, type, required, enum: values }) => ({
-    field,
-    type,
-    required,
-    ...(values ? { enum: [...values] } : {}),
-  })),
+  // settingsFields/settingsGroups 与 daemon gui-catalog 同一映射(契约字段 + 呈现元数据)。
+  settingsFields: settingsFieldsFace(),
+  settingsGroups: settingsGroupsFace(),
   presets: [],
   verticals: [],
   templates: [],
