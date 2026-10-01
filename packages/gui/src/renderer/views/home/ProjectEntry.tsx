@@ -123,10 +123,12 @@ export function ProjectEntry({
               enabled && read.state === "ready" && read.lastChangedAt !== null ? (
                 <time
                   dateTime={read.lastChangedAt}
-                  title={formatTime(read.lastChangedAt, { style: "date-time-seconds" }) ?? read.lastChangedAt}
+                  title={t("views.homeView.lastActivity", {
+                    time: formatTime(read.lastChangedAt, { style: "date-time-seconds" }) ?? read.lastChangedAt,
+                  })}
                   data-testid="home-entry-last-activity"
                 >
-                  {t("views.homeView.lastActivity", { time: relativeTime(read.lastChangedAt) })}
+                  {relativeTime(read.lastChangedAt)}
                 </time>
               ) : undefined
             }
