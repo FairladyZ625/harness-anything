@@ -5,6 +5,7 @@ import type { ScheduleGuiListRowDto, ScheduleGuiRowDto, SchedulesListResult } fr
 import { Empty } from "../components/runtime/parts.tsx";
 import { ScheduleFormDialog } from "../components/ScheduleFormDialog.tsx";
 import { DenseRow } from "../components/primitives/DenseRow.tsx";
+import { CompletedDivider } from "../components/primitives/CompletedDivider.tsx";
 import { FilterChips } from "../components/primitives/FilterChips.tsx";
 import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { t, type MessageKey } from "../i18n/index.tsx";
@@ -285,7 +286,6 @@ function ScheduleListPane({
 }) {
   const [filter, setFilter] = useState<ScheduleFilter>("attn");
   const [search, setSearch] = useState("");
-  const [pausedOpen, setPausedOpen] = useState(false);
   const query = search.trim().toLocaleLowerCase();
   const matchesSearch = (row: ScheduleGuiListRowDto) =>
     query.length === 0 ||
@@ -296,7 +296,8 @@ function ScheduleListPane({
     key === "all" ? true : key === "attn" ? needsAttention(row) : row.state === "paused";
   const nextRunAtOf = (row: ScheduleGuiListRowDto) => (row.state === "invalid" ? "" : (row.nextRunAt ?? ""));
   const visible = rows.filter((row) => matchesSearch(row) && matchesFilter(row, filter)),
-    // 终态沉底(标准 §2.4):暂停的计划不需要注意力,默认折叠成一行,「全部」视图里也在底部。
+    // 终态沉底(标准 §2.4/§1.4 v2):暂停的计划不需要注意力,沉到「已暂停 N」分隔线
+    // 之后照常显示,不折叠;要看纯暂停态走顶部「已暂停」筛选。
     activeRows = visible
       .filter((row) => row.state !== "paused")
       .sort(
@@ -323,7 +324,7 @@ function ScheduleListPane({
           placeholder={t("schedules.list.searchPlaceholder")}
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          className="h-[26px] min-w-[200px] flex-1 rounded-xs border border-border bg-bg/30 px-2.5 text-text ui-meta"
+          className="min-w-[200px] flex-1 rounded-xs border border-border bg-surface-raised px-3 py-1.5 text-text ui-meta outline-none placeholder:text-text-faint focus:border-border-strong"
         />
         <button
           type="button"
@@ -353,19 +354,14 @@ function ScheduleListPane({
             {activeRows.map((row) => (
               <ScheduleRow key={row.scheduleId} row={row} onOpen={onOpen} />
             ))}
-            {pausedRows.length > 0 &&
-              (filter === "paused" || pausedOpen ? (
-                pausedRows.map((row) => <ScheduleRow key={row.scheduleId} row={row} onOpen={onOpen} />)
-              ) : (
-                <button
-                  type="button"
-                  data-testid="schedules-paused-fold"
-                  onClick={() => setPausedOpen(true)}
-                  className="mt-1 w-full rounded-xs border border-border bg-surface/40 px-3 py-2 text-left ui-meta text-text-muted hover:text-text"
-                >
-                  ▸ {t("schedules.list.foldPaused", { count: pausedRows.length })}
-                </button>
-              ))}
+            {pausedRows.length > 0 ? (
+              <>
+                <CompletedDivider>{t("schedules.list.pausedDivider", { count: pausedRows.length })}</CompletedDivider>
+                {pausedRows.map((row) => (
+                  <ScheduleRow key={row.scheduleId} row={row} onOpen={onOpen} />
+                ))}
+              </>
+            ) : null}
           </>
         )}
       </div>

@@ -20,13 +20,14 @@ import { t } from "../i18n/index.tsx";
  * 决策失真预警视图(原 O-08 风化视图):回答「哪些记录已经和现实对不上、先处理哪条」。
  * 候选按严重度分三档——被事实反驳(必须处置,warn 区)、缺少事实支撑(建议补证)、从未
  * 声明验证方式(自然老化);档内按决策分组收束(标准 §1.4 收束不堆叠,业主 2026-09-30
- * 截图验收):一组一行(决策标题 + 缺证断言数),默认只展开缺证最多的前几组,其余收成
- * 一行「还有 N 组 · 展开」;组内断言行用宽松两行形态(约 44px)——第一行断言结论,
- * 第二行决策 id · 断言 id · 反驳事实,不再把两行内容叠进 25px 单行。数据只来自
- * canonical coverageRows,判据见 model/freshness.ts。组间排序按缺证断言数降序(读面
- * 不提供失证时刻,组行不显示时间);行带 content-visibility:auto,离屏行由渲染器
- * 跳过布局与绘制。计数范围只含 decision.state ∈ {in_effect, proposed}(2026-08-29
- * 泽宇裁决):生命周期终态不算未覆盖债,分子分母同一口径,见 inDebtScopeCoverageRows。
+ * 截图验收):一组一行(决策标题 + 缺证断言数),组默认展开、可点组头收起(结构导航);
+ * 组内断言行用宽松两行 DenseRow(56px)——第一行断言结论,第二行决策 id · 断言 id ·
+ * 反驳事实。全部组直接铺开(标准 §1.8 v2:有空间就上信息,不用「还有 N 组 · 展开」),
+ * 内容超出时页面内容区滚动。数据只来自 canonical coverageRows,判据见
+ * model/freshness.ts。组间排序按缺证断言数降序(读面不提供失证时刻,组行不显示时间);
+ * 行带 content-visibility:auto,离屏行由渲染器跳过布局与绘制。计数范围只含
+ * decision.state ∈ {in_effect, proposed}(2026-08-29 泽宇裁决):生命周期终态不算
+ * 未覆盖债,分子分母同一口径,见 inDebtScopeCoverageRows。
  */
 
 /** 分档展示顺序与 model/freshness.ts 的 REASON_RANK 一致:最危险的排最前。 */
@@ -38,9 +39,6 @@ const REASON_TONE: Record<FreshnessReason, StatusTone> = {
   "no-live-evidence": "wait",
   "fulfillment-undeclared": "plan",
 };
-
-/** 每档默认展开的组数(缺证最多的前几组);其余组收进「还有 N 组 · 展开」。 */
-const DEFAULT_OPEN_GROUPS = 3;
 
 function ReasonTag({ reason }: { reason: FreshnessReason }) {
   return (
@@ -78,7 +76,7 @@ function groupByDecision(candidates: readonly FreshnessCandidate[]): DecisionGro
 }
 
 /**
- * 组内一条断言:宽松两行 DenseRow(约 44px)——第一行断言结论,第二行
+ * 组内一条断言:宽松两行 DenseRow(56px,标准 §3 v2)——第一行断言结论,第二行
  * 决策 id · 断言 id · 反驳事实(可点直达);id 一律经 EntityRefLink(G10)。
  */
 function FreshnessRow({
@@ -182,8 +180,8 @@ function GroupHeader({
 }
 
 /**
- * 一档:组按缺证数降序,默认展开前 {@link DEFAULT_OPEN_GROUPS} 组,其余收成
- * 「还有 N 组 · 展开」一行(与工作页「已完成 N 个 · 展开」同一折叠语言)。
+ * 一档:组按缺证数降序全部铺开(标准 §1.8 v2:不藏组、不用「展开」),组头可点收起
+ * (结构导航,用户选择优先于默认展开态)。
  */
 function FreshnessSection({
   reason,
@@ -194,11 +192,8 @@ function FreshnessSection({
   groups: readonly DecisionGroup[];
   onNavigateEntity: (ref: string) => void;
 }) {
-  // 用户点过哪组就按用户来(open 覆盖默认的前几组展开);未点过的组按位次定默认。
+  // 用户点过哪组就按用户来;未点过的组默认展开(缺证债都是待处理项,没有可收起的理由)。
   const [userOpen, setUserOpen] = useState<Record<string, boolean>>({});
-  const [revealed, setRevealed] = useState(false);
-  const visible = revealed ? groups : groups.slice(0, DEFAULT_OPEN_GROUPS);
-  const hidden = groups.length - visible.length;
   return (
     <Section
       variant={reason === "refuted" ? "warn" : undefined}
@@ -206,9 +201,9 @@ function FreshnessSection({
       count={groups.reduce((total, group) => total + group.candidates.length, 0)}
       note={t(`views.freshnessView.section.${reason}.description`)}
     >
-      {visible.map((group, index) => {
+      {groups.map((group) => {
         const key = `${reason}/${group.decisionId}`,
-          open = userOpen[key] ?? index < DEFAULT_OPEN_GROUPS;
+          open = userOpen[key] ?? true;
         return (
           <div key={key}>
             <GroupHeader
@@ -229,17 +224,6 @@ function FreshnessSection({
           </div>
         );
       })}
-      {hidden > 0 ? (
-        <button
-          type="button"
-          data-testid={`freshness-more-${reason}`}
-          onClick={() => setRevealed(true)}
-          className="grid w-full grid-cols-[minmax(3rem,auto)_minmax(0,1fr)_auto] items-center gap-[7px] border-t border-border px-3 text-left text-text-faint ui-meta h-[25px]"
-        >
-          <span />
-          <span className="truncate">{t("views.freshnessView.moreGroups", { count: hidden })}</span>
-        </button>
-      ) : null}
     </Section>
   );
 }

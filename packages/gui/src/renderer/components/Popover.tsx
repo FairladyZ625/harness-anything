@@ -100,7 +100,7 @@ export function Popover({
             className={[
               "fixed z-50 max-h-[70vh] max-w-[calc(100vw-1rem)] overflow-y-auto rounded border border-border-strong",
               "bg-surface-raised",
-              "p-2 text-[12px] shadow-2xl",
+              "p-2 ui-meta shadow-2xl",
               panelClassName,
             ].join(" ")}
           >

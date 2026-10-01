@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from "react";
+import { CompletedDivider } from "../../components/primitives/CompletedDivider.tsx";
 import { FilterChips } from "../../components/primitives/FilterChips";
 import { SegBar } from "../../components/primitives/SegBar";
 import { WorkTaskRow } from "./WorkOverview.tsx";
@@ -7,8 +8,9 @@ import type { SnapshotStatus } from "../../model/types.ts";
 import { t, type MessageKey } from "../../i18n/index.tsx";
 
 /**
- * 任务页(原型 v2):筛选按钮带计数、按子组或状态分组;有未完成的组默认展开且
- * 只列未完成项,已完成收成一行;搜索命中切换到本页并高亮(标准 §2.2)。
+ * 任务页(原型 v2;§2.2/§1.8 v2 铺开):筛选按钮带计数、按子组或状态分组;有未完成的
+ * 组默认展开,已完成/取消项沉到组内底部、在「已完成 N」分隔线之后照常显示;搜索命中
+ * 切换到本页并高亮。
  */
 
 export interface WorkLeafRow {
@@ -18,6 +20,8 @@ export interface WorkLeafRow {
   readonly pinned: boolean;
   readonly at: string;
   readonly groupKey: string;
+  /** 当前 lease 持有者(kernel lease/v1.actor);有执行者时行用宽松两行,第二行弱色报执行者。 */
+  readonly executor?: string;
 }
 
 const STATUS_ORDER: readonly SnapshotStatus[] = [
@@ -64,8 +68,7 @@ export function WorkTasksTab({
   loadingMore = false,
 }: WorkTasksTabProps) {
   const [groupBy, setGroupBy] = useState<"subgroup" | "status">("subgroup"),
-    [forcedOpen, setForcedOpen] = useState<Record<string, boolean>>({}),
-    [expandedDone, setExpandedDone] = useState<ReadonlySet<string>>(new Set());
+    [forcedOpen, setForcedOpen] = useState<Record<string, boolean>>({});
   const needle = query.trim().toLowerCase(),
     statusMatch = statusFilter === "" ? null : (statusFilter as SnapshotStatus),
     scoped = leaves.filter(
@@ -144,11 +147,21 @@ export function WorkTasksTab({
                 right.at.localeCompare(left.at),
             ),
             live = rows.filter(({ status }) => status !== "done" && status !== "cancelled"),
-            finished = rows.length - live.length,
-            open = forcedOpen[key] ?? (live.length > 0 || filtered || groupKeys.length === 1),
-            counts: Partial<Record<SnapshotStatus, number>> = {};
+            finished = rows.filter(({ status }) => status === "done" || status === "cancelled"),
+            open = forcedOpen[key] ?? (live.length > 0 || filtered || groupKeys.length === 1);
+          const counts: Partial<Record<SnapshotStatus, number>> = {};
           for (const { status } of rows) counts[status] = (counts[status] ?? 0) + 1;
-          const visible = filtered || expandedDone.has(key) ? rows : live;
+          const renderRow = (leaf: (typeof rows)[number]) => (
+            <div key={leaf.taskId} data-task-row={leaf.taskId}>
+              <WorkTaskRow
+                task={leaf}
+                title={highlightText(leaf.title, needle)}
+                status={leaf.status}
+                agoOf={agoOf}
+                onOpen={onOpenTask}
+              />
+            </div>
+          );
           return (
             <section key={key} data-group={key} className="border-t border-border">
               <button
@@ -172,27 +185,15 @@ export function WorkTasksTab({
               </button>
               {open ? (
                 <div className="pb-2">
-                  {visible.map((leaf) => (
-                    <div key={leaf.taskId} data-task-row={leaf.taskId}>
-                      <WorkTaskRow
-                        task={leaf}
-                        title={highlightText(leaf.title, needle)}
-                        status={leaf.status}
-                        agoOf={agoOf}
-                        onOpen={onOpenTask}
-                      />
-                    </div>
-                  ))}
-                  {!filtered && !expandedDone.has(key) && finished > 0 && live.length > 0 ? (
-                    <button
-                      type="button"
-                      data-group-done-toggle={key}
-                      onClick={() => setExpandedDone((current) => new Set(current).add(key))}
-                      className="grid w-full grid-cols-[minmax(3rem,auto)_minmax(0,1fr)_auto] items-center gap-[7px] border-t border-border px-3 text-left text-text-faint ui-meta h-[25px]"
-                    >
-                      <span />
-                      <span className="truncate">{t("views.workspace.tasks.doneCollapsed", { count: finished })}</span>
-                    </button>
+                  {live.map(renderRow)}
+                  {finished.length > 0 ? (
+                    /* 终态沉底(标准 §1.4 v2):「已完成 N」分隔线之后照常显示,不折叠。 */
+                    <>
+                      <CompletedDivider>
+                        {t("views.workspace.tasks.doneDivider", { count: finished.length })}
+                      </CompletedDivider>
+                      {finished.map(renderRow)}
+                    </>
                   ) : null}
                 </div>
               ) : null}

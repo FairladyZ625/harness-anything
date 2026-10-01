@@ -258,9 +258,13 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
     await act(async () => pausedChip!.click());
     expect(container.querySelector('[data-testid="schedule-row-heartbeat-probe"]')).toBeNull();
     expect(container.querySelector('[data-testid="schedule-row-paused-sweep"]')).not.toBeNull();
-    // 切换回「全部」
+    // 切换回「全部」:暂停的计划沉到「已暂停 N」分隔线之后照常显示(v2 §1.4,不再折叠成「展开」)。
     await act(async () => allChip!.click());
     expect(container.querySelector('[data-testid="schedule-row-heartbeat-probe"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="schedule-row-paused-sweep"]')).not.toBeNull();
+    const divider = container.querySelector('[data-testid="completed-divider"]');
+    expect(divider?.textContent).toMatch(/已暂停 1|Paused 1/u);
+    expect(container.textContent).not.toContain("个 · 展开");
   });
 
   it("lights the mode/health facets and the spark when the daemon projects the rollup fields", async () => {

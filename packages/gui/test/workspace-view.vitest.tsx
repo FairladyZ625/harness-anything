@@ -339,6 +339,42 @@ describe("overview narrative", () => {
     expect(pills.textContent).toContain("T task_next");
   });
 
+  it("lays out every progress day on the overview (no first-2-days cap) and shows the executor on a second line", async () => {
+    // v2(标准 §1.8):概况的按天进展全部天直接铺开,不截前两天。
+    const day = (index: number) => [
+      {
+        eventId: `d${index}-1`,
+        schema: "task-event/v1",
+        type: "execution_started",
+        occurredAt: `2026-09-2${index}T02:00:00.000Z`,
+        workspaceRevision: index * 2,
+        taskId: "task_solo",
+        payload: {},
+      },
+    ];
+    const host = await mount(
+      <WorkspaceView
+        scope={{
+          ...baseScope,
+          memberTaskIds: [...baseScope.memberTaskIds, "task_exec"],
+          eventSummaries: [...day(6), ...day(7), ...day(8)],
+        }}
+        projectName="Harness"
+        tasks={[row("task_solo"), row("task_exec", { leaseHolder: "person_x" })]}
+        onOpenTask={() => {}}
+      />,
+    );
+    expect(host.querySelectorAll("[data-day]")).toHaveLength(3);
+    // 任务页里,有执行者的行用宽松两行(§2.2 v2):第二行弱色报执行者。
+    await act(async () => host.querySelector<HTMLButtonElement>("#workspace-tab-tasks")!.click());
+    const execRow = host.querySelector('[data-task-row="task_exec"] .grid')!;
+    expect(execRow.className).toContain("min-h-14");
+    expect(execRow.textContent).toContain("执行者 person_x");
+    const soloRow = host.querySelector('[data-task-row="task_solo"] .grid')!;
+    expect(soloRow.className).toContain("min-h-10");
+    expect(soloRow.textContent).not.toContain("执行者");
+  });
+
   it("keeps the rail with clickable status numbers and the subgroup tree", async () => {
     const host = await mount(
       <WorkspaceView
@@ -422,18 +458,19 @@ describe("tasks tab", () => {
     return host;
   }
 
-  it("shows filter chips with counts and groups by subgroup, collapsing finished work", async () => {
+  it("shows filter chips with counts and groups by subgroup; done work sinks behind a divider", async () => {
     const host = await openTasks();
     // FilterChips 的计数:全部 4,活跃 1,计划中 1,已完成 2。
     const chipTexts = [...host.querySelectorAll("button[aria-pressed]")].map((chip) => chip.textContent);
     expect(chipTexts.join("|")).toContain("全部4");
     expect(chipTexts.join("|")).toContain("活跃1");
     expect(chipTexts.join("|")).toContain("已完成2");
-    // 有未完成的组默认展开且只列未完成项;已完成收成一行。
+    // v2(标准 §1.4):有未完成的组默认展开;已完成项沉到「已完成 N」分隔线之后照常显示。
     const group = host.querySelector('[data-group="task_group"]')!;
     expect(group.textContent).toContain("T task_live");
-    expect(group.querySelector('[data-task-row="task_d1"]')).toBeNull();
-    expect(group.textContent).toContain("已完成 / 取消 2 个 · 展开");
+    expect(group.querySelector('[data-task-row="task_d1"]')).not.toBeNull();
+    expect(group.textContent).toContain("已完成 / 取消 2 个");
+    expect(group.querySelector('[data-testid="completed-divider"]')).not.toBeNull();
     // 零散任务组同样在列。
     expect(host.querySelector('[data-group="_loose"]')!.textContent).toContain("T task_p");
     // 每行的相对时间来自行的 at 字段,不能是 NaN。
@@ -442,10 +479,9 @@ describe("tasks tab", () => {
     expect(row.textContent).toMatch(/\d+ (分钟|小时|天)/u);
   });
 
-  it("expands a finished group on demand and exposes the next page", async () => {
+  it("exposes the next page after the full task list", async () => {
     let loaded = 0;
     const host = await openTasks({ onLoadMore: () => loaded++ });
-    await act(async () => host.querySelector<HTMLButtonElement>('[data-group-done-toggle="task_group"]')!.click());
     expect(host.querySelector('[data-group="task_group"]')!.querySelector('[data-task-row="task_d1"]')).not.toBeNull();
     await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="workspace-load-more"]')!.click());
     expect(loaded).toBe(1);

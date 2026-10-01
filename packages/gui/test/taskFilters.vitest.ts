@@ -263,7 +263,7 @@ describe("cold terminal collapse (W8)", () => {
     expect(DEFAULT_TASK_FILTERS.expandColdTerminal).toBe(false);
     expect(hasActiveTaskFilters({ ...DEFAULT_TASK_FILTERS })).toBe(false);
     expect(hasActiveTaskFilters({ ...DEFAULT_TASK_FILTERS, expandColdTerminal: true })).toBe(true);
-    expect(taskFilterSummary({ ...DEFAULT_TASK_FILTERS, expandColdTerminal: true })).toContain("已展开冷终态");
+    expect(taskFilterSummary({ ...DEFAULT_TASK_FILTERS, expandColdTerminal: true })).toContain("已显示冷终态");
   });
 });
 

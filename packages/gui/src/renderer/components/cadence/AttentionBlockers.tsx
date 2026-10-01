@@ -130,7 +130,8 @@ export function AttentionBlockers({
                 <StatusTag tone={GROUP_TONE[group.key]} label={group.title()} />
                 <span className="font-mono tabular-nums ui-micro text-text-faint"> {group.items.length}</span>
               </div>
-              {group.items.slice(0, 5).map((item) => (
+              {/* v2(标准 §1.8):整组铺开不截前 5 条;区块随内容长高,超出由右列滚动。 */}
+              {group.items.map((item) => (
                 <DenseRow
                   key={item.id}
                   title={item.label}

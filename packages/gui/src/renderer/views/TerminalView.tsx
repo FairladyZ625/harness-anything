@@ -608,13 +608,13 @@ export function TerminalView({
               />
             </TerminalPaneContext.Provider>
           ) : (
-            <div className="grid h-full place-items-center px-4 text-center text-[12px] text-text-faint">
+            <div className="grid h-full place-items-center px-4 text-center ui-meta text-text-faint">
               {t("terminal.view.startHint")}
             </div>
           )}
         </div>
         {error && (
-          <p role="alert" className="border-t border-status-blocked/30 px-3 py-1 text-[11px] text-status-blocked">
+          <p role="alert" className="border-t border-status-blocked/30 px-3 py-1 ui-meta text-status-blocked">
             {error}
           </p>
         )}
