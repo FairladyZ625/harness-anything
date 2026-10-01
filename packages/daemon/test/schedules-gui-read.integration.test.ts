@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { hostname } from "node:os";
 import { registerDaemonRepo, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
@@ -350,7 +351,8 @@ test(
   { timeout: 30_000 },
   async () => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-schedules-gui-center-"));
-    let host: Awaited<ReturnType<typeof openDaemonHost>> | null = null;
+    let host: Awaited<ReturnType<typeof openDaemonHost>> | null = null,
+      owners: Awaited<ReturnType<typeof fleetNodeOwners>> | null = null;
     const repo = path.join(root, "center-repo"),
       userRoot = path.join(root, "center-user");
     try {
@@ -368,17 +370,19 @@ test(
       });
       host = await openDaemonHost({ daemonId: "schedules-gui-center", userRoot });
       await host.attachmentsSettled();
-      const assignmentAuth = {
-        transportKind: "fleet-tls" as const,
-        assignmentBinding: {
-          nodeId: "edge-one",
-          assignmentId: "assignment-edge-one",
-          repoId: "schedules-gui-center",
-          scope: { kind: "schedule" as const, scheduleId: "heartbeat-probe", paths: ["schedules"] },
-          expiresAt: "2099-01-01T00:00:00.000Z",
-          actor: { principal: { personId: "operator" }, executor: { kind: "agent" as const, id: "edge-one" } },
-        },
-      };
+      owners = await fleetNodeOwners({
+        userRoot,
+        owners: { "edge-one": "operator" },
+        repoIds: ["schedules-gui-center"],
+      });
+      const assignmentAuth = owners.auth({
+        nodeId: "edge-one",
+        assignmentId: "assignment-edge-one",
+        repoId: "schedules-gui-center",
+        viewId: "view-edge-one",
+        scope: { kind: "schedule" as const, scheduleId: "heartbeat-probe", paths: ["schedules"] },
+        expiresAt: "2099-01-01T00:00:00.000Z",
+      });
       assert.equal(
         (
           await host.run(
@@ -442,15 +446,13 @@ test(
       writeFileSync(
         rosterFile,
         JSON.stringify({
-          schema: "fleet-roster/v2",
-          nodes: [{ nodeId: "edge-one", credential: "credential-edge-one" }],
+          schema: "fleet-roster/v3",
           assignments: [
             {
               assignmentId: "assignment-edge-one",
               nodeId: "edge-one",
               repoId: "schedules-gui-center",
               viewId: "view-edge-one",
-              personId: "operator",
               expiresAt: "2099-01-01T00:00:00.000Z",
               scope: { kind: "schedule", scheduleId: "heartbeat-probe", paths: ["schedules"] },
             },
@@ -466,9 +468,8 @@ test(
           quotaBytes: 64 * 1024 * 1024,
         },
         localAuth,
-      )) as unknown as { readonly ok: boolean; readonly nodes: number; readonly assignments: number };
+      )) as unknown as { readonly ok: boolean; readonly assignments: number };
       assert.equal(admission.ok, true);
-      assert.equal(admission.nodes, 1);
       assert.equal(admission.assignments, 1);
       const rosterJoined = await list();
       const rowOf = (scheduleId: string) =>
@@ -488,6 +489,7 @@ test(
       assert.equal(rejected.outcome, "op_rejected");
     } finally {
       await host?.close();
+      await owners?.close();
       rmSync(root, { recursive: true, force: true });
     }
   },

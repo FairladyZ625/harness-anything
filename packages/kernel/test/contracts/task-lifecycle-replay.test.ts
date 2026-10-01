@@ -118,14 +118,19 @@ test("the owner may return a consented cut for a fresh iteration", () => {
       workspaceRevision: snapshot.revision + 1,
       occurredAt: "2026-08-11T00:07:00.000Z",
     };
+  // Who may adjudicate is the authorization layer's answer; the transition only demands its proof.
   assert.throws(
-    () =>
-      applyTransition(snapshot, nonOwnerCommand, {
-        actorBinding: nonOwner,
-        capability: "task-adjudicate@v1",
-        capabilityRef: "cap-adjudicate",
-      }),
-    /task-owning principal/u,
+    () => applyTransition(snapshot, nonOwnerCommand, { actorBinding: nonOwner, capability: "task-adjudicate@v1" }),
+    /authorized task-adjudicate capability/u,
+  );
+  assert.equal(
+    applyTransition(snapshot, nonOwnerCommand, {
+      actorBinding: nonOwner,
+      capability: "task-adjudicate@v1",
+      capabilityRef: "cap-adjudicate",
+    }).event.type,
+    "submission_returned",
+    "a principal other than the creator adjudicates once it holds the capability",
   );
   const returned = applyTransition(snapshot, command, {
     actorBinding: implementer,

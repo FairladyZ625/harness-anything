@@ -4,8 +4,9 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { before, after } from "node:test";
-import { makeTaskEventReader } from "@harness-anything/kernel";
+import { actionDeclarations, makeTaskEventReader } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { keycloakRealm, serveKeycloak } from "./keycloak.fixtures.ts";
 import { withRoleBinding } from "./role-binding.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
@@ -55,6 +56,7 @@ const owner = withRoleBinding(
     },
     "arbiter",
   ),
+  // The owning person with the maintainer tier too: it may close its task, and still may not review it.
   selfReviewer = withRoleBinding(owner, "arbiter");
 
 test("Task execution rejects with the exact Action criterion and performs no rejected mutation", async (context) => {
@@ -208,7 +210,7 @@ test("Task execution rejects with the exact Action criterion and performs no rej
     await assertRejectedWithoutMutation(
       rootDir,
       repoId,
-      () => cell!.run({ kind: "task-complete", taskId, executionId }, owner),
+      () => cell!.run({ kind: "task-complete", taskId, executionId }, selfReviewer),
       ["closeout-readiness/closeoutReadiness"],
     );
 
@@ -229,6 +231,164 @@ test("Task execution rejects with the exact Action criterion and performs no rej
     assert.ok(denied.authorizationDecision.nextActions.length > 0);
   } finally {
     await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+// dec_D60FAA451F24160E970323B6F3 CH4: creator-only guards are gone and Keycloak decides who may act, but
+// three checks are not Keycloak's to switch off. Both people here hold every declared action on the
+// repository; each refusal below is reached with the policy decision already "allowed".
+test("holding every action in Keycloak does not lift self-review, lease, or human-consent checks", async (context) => {
+  const served = await serveKeycloak(),
+    rootDir = workspace("bottom-lines"),
+    repoId = workspaceId("action-failure-bottom-lines"),
+    taskId = "task-bottom-lines",
+    executionId = "execution-bottom-lines",
+    everyAction = actionDeclarations.map((declaration) => declaration.kind),
+    authorized = (personId: string, executorId: string) => {
+      served.keycloak.account(personId);
+      served.keycloak.permit(personId, repoId, everyAction);
+      return {
+        actor: { principal: { personId }, executor: { kind: "agent" as const, id: executorId } },
+        source: "local" as const,
+        keycloakAuthorization: {
+          session: {
+            personId,
+            accessToken: `token-${personId}`,
+            url: served.url,
+            realm: keycloakRealm,
+            clientId: "harness-center",
+          },
+        },
+      };
+    },
+    alice = authorized("person-bottom-alice", "alice-agent"),
+    bob = authorized("person-bottom-bob", "bob-agent"),
+    allowedByKeycloak = (receipt: { readonly authorizationDecision?: unknown }, label: string) =>
+      assert.deepEqual(
+        [
+          (receipt.authorizationDecision as { policyRef?: string } | undefined)?.policyRef,
+          (receipt.authorizationDecision as { outcome?: string } | undefined)?.outcome,
+        ],
+        ["keycloak-policy@1", "allowed"],
+        `${label}: ${JSON.stringify(receipt)}`,
+      );
+  // The strict closeout profile is the one that requires review and human consent before completion.
+  mkdirSync(path.join(rootDir, "harness"), { recursive: true });
+  writeFileSync(
+    path.join(rootDir, "harness", "harness.yaml"),
+    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" +
+      "settings:\n  defaultVertical: software/coding\n  defaultPreset: standard-task\n  defaultProfile: baseline\n" +
+      "  closeout:\n    profile: strict\n",
+  );
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "action-failure-bottom-lines" });
+    const created = await cell.run({ kind: "task-create", taskId, title: "Bottom lines" }, alice);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    allowedByKeycloak(created, "create");
+    await waitForFixturePublication(cell, created.opId, alice);
+    const packagePath = String((created as Record<string, unknown>).packagePath);
+    await realizeTaskPlanFixture(rootDir, packagePath, (planPath) =>
+      cell!.run({ kind: "doc-submit", paths: [planPath] }, alice),
+    );
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, alice)).outcome, "applied");
+    const fact = await cell.run(
+      {
+        kind: "fact-record",
+        taskId,
+        statement: "README contains the bottom-line delivery.",
+        evidenceSource: "README.md",
+        confidence: "high",
+        memoryClass: "episodic",
+        memoryTags: [],
+      },
+      alice,
+    );
+    assert.equal(fact.outcome, "applied", JSON.stringify(fact));
+
+    // 1. Writing a task takes its lease. Bob may submit tasks; this execution's lease is Alice's.
+    const withoutLease = await assertRejectedWithoutMutation(
+      rootDir,
+      repoId,
+      () => cell!.run({ kind: "task-submit", taskId, executionId }, bob),
+      ["repo-cell-proof/proofFor.SubmitExecution"],
+    );
+    allowedByKeycloak(withoutLease, "submit without the lease");
+    assert.equal(withoutLease.diagnostic?.kind === "validation" && withoutLease.diagnostic.field, "lease");
+    const progressWithoutLease = await cell.run(
+      { kind: "task-progress-append", taskId, text: "Bob writes into a task he holds no lease on." },
+      bob,
+    );
+    assert.equal(progressWithoutLease.outcome, "op_rejected", JSON.stringify(progressWithoutLease));
+    assert.notEqual(progressWithoutLease.code, "authorization_denied");
+    context.diagnostic(`progress without lease code=${progressWithoutLease.code}`);
+
+    writeFileSync(path.join(rootDir, "README.md"), "# Bottom line delivery\n");
+    git(rootDir, "add", "README.md");
+    git(rootDir, "commit", "-qm", "test: bottom line delivery");
+    writeFileSync(
+      path.join(rootDir, "harness", packagePath, "closeout.md"),
+      `## Summary\nReady at ${git(rootDir, "rev-parse", "HEAD")}.\n` +
+        "## Verification\nBottom-line integration assertions.\n## Residual Risk\nNone.\n" +
+        "## Same Mechanism Elsewhere\nShared action refusal contracts.\n",
+    );
+    assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, alice)).outcome, "applied");
+    // Commanding the cut is a permission now: Alice holds it, and having created the task is not what grants it.
+    const forwarded = await cell.run(
+      { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward for independent review." },
+      alice,
+    );
+    assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
+
+    // 2. Nobody reviews their own execution, whatever they are permitted to do.
+    const report = (name: string) => {
+      const file = path.join(rootDir, "harness", packagePath, "artifacts", "reports", `${name}.md`);
+      mkdirSync(path.dirname(file), { recursive: true });
+      writeFileSync(file, `# Review ${name}\n\nPhysical review findings.\n`);
+    };
+    writeFileSync(
+      path.join(rootDir, "review.json"),
+      JSON.stringify({ verdict: "approved", reason: "Checked.", evidenceChecked: ["integration"] }),
+    );
+    report("self");
+    const selfReview = await assertRejectedWithoutMutation(
+      rootDir,
+      repoId,
+      () =>
+        cell!.run(
+          { kind: "task-review-execution", taskId, executionId, reviewId: "review-self", fromFile: "review.json" },
+          alice,
+        ),
+      ["repo-cell-proof/proofFor.RecordReview"],
+    );
+    allowedByKeycloak(selfReview, "self review");
+    report("bob");
+    const reviewed = await cell.run(
+      { kind: "task-review-execution", taskId, executionId, reviewId: "review-bob", fromFile: "review.json" },
+      bob,
+    );
+    assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
+
+    // 3. An approved review is not consent. Completion waits for the recorded human consent.
+    //    (Completion first publishes the review artifacts, so this refusal is checked on the task, not the ledger.)
+    const withoutConsent = await cell.run({ kind: "task-complete", taskId, executionId }, alice);
+    assert.equal(withoutConsent.outcome, "op_rejected", JSON.stringify(withoutConsent));
+    assert.deepEqual(withoutConsent.transition, { from: "in_review/review", to: "in_review/review" });
+    allowedByKeycloak(withoutConsent, "complete without consent");
+    assert.equal(withoutConsent.code, "consent_missing", JSON.stringify(withoutConsent));
+    // Positive control: the same person passes that check once the consent is on record.
+    const consented = await cell.run(
+      { kind: "task-review-consent", taskId, executionId, reviewId: "review-bob" },
+      alice,
+    );
+    assert.equal(consented.outcome, "applied", JSON.stringify(consented));
+    const afterConsent = await cell.run({ kind: "task-complete", taskId, executionId }, alice);
+    assert.notEqual(afterConsent.code, "consent_missing", JSON.stringify(afterConsent));
+    context.diagnostic(`complete after consent outcome=${afterConsent.outcome} code=${afterConsent.code ?? ""}`);
+  } finally {
+    await cell?.close();
+    await served.close();
     rmSync(rootDir, { recursive: true, force: true });
   }
 });

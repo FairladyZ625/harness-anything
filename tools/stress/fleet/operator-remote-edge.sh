@@ -39,7 +39,7 @@ while [ "$seed" -le 3 ]; do
       --ca "$CA_FILE" \
       --servername localhost \
       --node-id "$node_id" \
-      --roster "$workspace/fleet-roster.json" \
+      --credential "credential-$node_id" \
       --assignment "$assignment" \
       --view-root "$view" \
       --quota-bytes "$QUOTA_BYTES"

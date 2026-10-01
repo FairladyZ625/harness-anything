@@ -110,6 +110,7 @@ test("local CLI initializes and accepts the native generation-2 SQLite ledger", 
       cert: readFileSync(certFile),
       writerId: "takeover-center",
       authenticate: () => false,
+      nodeOwner: () => null,
       resolveAssignment: () => null,
     });
     try {

@@ -6,6 +6,7 @@ import { createRequire } from "node:module";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { keycloakUserRoot, registerNode, spawnKeycloak } from "../../daemon/test/keycloak.fixtures.ts";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
@@ -19,8 +20,24 @@ test(
   "fleet center start and edge sync mirror the authoritative ledger through the CLI",
   { timeout: 180_000 },
   async () => {
-    const fixture = setup();
+    const fixture = setup(),
+      realm = await spawnKeycloak();
     try {
+      // The center's node registry lives in Keycloak: the node is registered to a person who holds the
+      // sync action on this repository, and Keycloak mints the machine credential.
+      realm.bind(fixture.centerUser);
+      await realm.control({ op: "account", personId: "edge-operator" });
+      await realm.control({
+        op: "permit",
+        personId: "edge-operator",
+        resource: "fleet-demo",
+        actions: ["daemon-fleet-edge-sync"],
+      });
+      const machineCredential = await realm.control<string>({
+        op: "node",
+        nodeId: "edge-one",
+        personId: "edge-operator",
+      });
       const capabilities = JSON.parse(
         spawnSync(process.execPath, [cli, "capabilities", "--json"], { encoding: "utf8" }).stdout,
       ) as Record<string, string[]>;
@@ -83,7 +100,6 @@ test(
       assert.equal(center.ok, true);
       assert.equal(center.bind, "127.0.0.1");
       assert.equal(center.stateRoot, path.join(fixture.centerUser, "fleet"));
-      assert.equal(center.nodes, 1);
       assert.equal(center.assignments, 1);
       const port = center.port as number;
       writeFileSync(
@@ -95,7 +111,7 @@ test(
           port,
           caPath: fixture.ca,
           nodeId: "edge-one",
-          rosterPath: fixture.roster,
+          credential: machineCredential,
           assignmentId: "assignment-edge-one",
           viewRoot: fixture.viewRoot,
           quotaBytes,
@@ -129,8 +145,6 @@ test(
         fixture.ca,
         "--node-id",
         "edge-one",
-        "--roster",
-        fixture.roster,
         "--assignment",
         "assignment-edge-one",
         "--view-root",
@@ -141,7 +155,7 @@ test(
       const edgeGitHead = readFileSync(path.join(fixture.edgeRepo, ".git", "HEAD"), "utf8");
       const observed = await spawnedRun(fixture, "edge", syncArgs),
         exposed = JSON.stringify({ argv: observed.argv, stdout: observed.stdout, stderr: observed.stderr });
-      assert.doesNotMatch(exposed, /edge-one-machine-secret/u, exposed);
+      assert.equal(exposed.includes(machineCredential), false, "the machine credential stays off argv and output");
       assert.equal(observed.status, 0, observed.stderr);
       const first = JSON.parse(observed.stdout) as Record<string, unknown>,
         sync = (extra: readonly string[] = []) => run(fixture, "edge", [...syncArgs, ...extra]);
@@ -210,7 +224,7 @@ test(
       ]);
       assert.equal(refused.status, 1);
       assert.equal(refused.receipt.code, "authentication_failed");
-      assert.doesNotMatch(JSON.stringify(refused), /edge-one-machine-secret/u);
+      assert.equal(JSON.stringify(refused).includes(machineCredential), false);
       const deltaBody = "# Fleet mirror note\n\nsecond cut\n";
       writeFileSync(path.join(fixture.repo, "harness", docPath), deltaBody);
       assert.equal(run(fixture, "center", ["doc", "sync", "--submit", "--task", "task-fleet"]).outcome, "applied");
@@ -233,7 +247,147 @@ test(
     } finally {
       stop(fixture, "center");
       stop(fixture, "edge");
+      realm.close();
       rmSync(fixture.root, { recursive: true, force: true });
+    }
+  },
+);
+
+// dec_D60FAA451F24160E970323B6F3 CH1: the center, not the edge, decides who a machine acts for. The edge
+// here holds no people document and no roster copy; its node owner has no entry in the center's people
+// document either, so nothing about the local uid can explain the outcome.
+test(
+  "a clean edge node completes its first sync on the machine credential the center issued",
+  { timeout: 180_000 },
+  async () => {
+    const fixture = setup({ cleanEdge: true }),
+      realm = await spawnKeycloak(),
+      admin = keycloakUserRoot("person-admin");
+    try {
+      realm.bind(fixture.centerUser);
+      realm.bind(admin.root);
+      assert.equal(existsSync(path.join(fixture.edgeRepo, "harness", "people.yaml")), false);
+      assert.equal(run(fixture, "center", ["daemon", "start", "--service"]).ok, true);
+      register(fixture);
+      const created = run(fixture, "center", ["task", "create", "--id", "task-fleet", "--admin", "--title", "Fleet"]);
+      published(fixture, "center", created);
+      const planPath = `${String(created.packagePath)}/task_plan.md`;
+      writeFileSync(path.join(fixture.repo, "harness", planPath), realizedTaskPlan("Fleet"));
+      assert.equal(run(fixture, "center", ["doc", "sync", "--submit", "--path", planPath]).outcome, "applied");
+      const center = run(fixture, "center", [
+          "daemon",
+          "fleet",
+          "center",
+          "start",
+          "--port",
+          "0",
+          "--key",
+          fixture.key,
+          "--cert",
+          fixture.cert,
+          "--roster",
+          fixture.roster,
+          "--quota-bytes",
+          String(quotaBytes),
+        ]),
+        port = center.port as number;
+      assert.equal(run(fixture, "edge", ["daemon", "start", "--service"]).ok, true);
+      assert.equal(
+        run(fixture, "edge", [
+          "daemon",
+          "repo",
+          "register",
+          "--repo-id",
+          "fleet-demo",
+          "--root",
+          fixture.edgeRepo,
+          "--mode",
+          "remote-edge",
+        ]).ok,
+        true,
+      );
+      const sync = (credential: string) =>
+          maybeRun(fixture, "edge", [
+            "daemon",
+            "fleet",
+            "edge",
+            "sync",
+            "--host",
+            "127.0.0.1",
+            "--port",
+            String(port),
+            "--ca",
+            fixture.ca,
+            "--node-id",
+            "edge-one",
+            "--credential",
+            credential,
+            "--assignment",
+            "assignment-edge-one",
+            "--view-root",
+            fixture.viewRoot,
+            "--quota-bytes",
+            String(quotaBytes),
+          ]),
+        logins = () => realm.control<{ clientId: string; ok: boolean }[]>({ op: "nodeLogins" });
+
+      // 1. Before the node is registered, the request still reaches the center and the center refuses the
+      //    credential. The edge did not answer for it: nobody is signed in there, yet the code is not the
+      //    not-signed-in one.
+      const unregistered = sync("any-credential");
+      assert.equal(unregistered.status, 1);
+      assert.equal(unregistered.receipt.code, "authentication_failed");
+      assert.notEqual(unregistered.receipt.code, "authentication_required");
+      assert.deepEqual(await logins(), [{ clientId: "harness-node-edge-one", ok: false }]);
+
+      // 2. Registration is written while the center keeps running, through the registry write path, and
+      //    returns the machine credential once.
+      await realm.control({ op: "account", personId: "edge-operator" });
+      const registered = await registerNode(admin.root, {
+        operationId: "register-edge-one",
+        nodeId: "edge-one",
+        personId: "edge-operator",
+      });
+      assert.equal(registered.ok, true, JSON.stringify(registered));
+      assert.ok(registered.credential);
+
+      // 3. The right credential authenticates the machine; its owner holds no grant yet, so the center
+      //    denies the action. Three different answers for three different conditions.
+      const ungranted = sync(registered.credential);
+      assert.equal(ungranted.status, 1);
+      assert.equal(ungranted.receipt.code, "authorization_denied", JSON.stringify(ungranted.receipt));
+      assert.equal(existsSync(path.join(fixture.edgeRepo, "harness", planPath)), false, "nothing was mirrored");
+
+      // 4. With the grant in place the same command completes the first sync, no center restart in between.
+      await realm.control({
+        op: "permit",
+        personId: "edge-operator",
+        resource: "fleet-demo",
+        actions: ["daemon-fleet-edge-sync"],
+      });
+      let first = sync(registered.credential);
+      for (let attempt = 0; attempt < 40 && first.receipt.code === "replica_pending"; attempt += 1)
+        first = sync(registered.credential);
+      assert.equal(first.status, 0, JSON.stringify(first.receipt));
+      assert.equal(first.receipt.viewId, "edge-one-view");
+      assert.equal(
+        readFileSync(path.join(fixture.edgeRepo, "harness", planPath), "utf8"),
+        readFileSync(path.join(fixture.repo, "harness", planPath), "utf8"),
+        "the first sync materializes the center ledger in the clean workspace",
+      );
+
+      // 5. A wrong credential for the now-registered node is refused by the center with the credential code.
+      const wrong = sync(`${registered.credential}-wrong`);
+      assert.equal(wrong.status, 1);
+      assert.equal(wrong.receipt.code, "authentication_failed");
+      assert.equal(JSON.stringify(wrong).includes(registered.credential), false);
+      assert.deepEqual((await logins()).at(-1), { clientId: "harness-node-edge-one", ok: false });
+    } finally {
+      stop(fixture, "center");
+      stop(fixture, "edge");
+      realm.close();
+      rmSync(fixture.root, { recursive: true, force: true });
+      rmSync(admin.root, { recursive: true, force: true });
     }
   },
 );
@@ -260,7 +414,7 @@ function readCutFile(viewRoot: string, revision: number, logical: string): strin
     "utf8",
   );
 }
-function setup(): {
+function setup(options: { readonly cleanEdge?: boolean } = {}): {
   root: string;
   repo: string;
   edgeRepo: string;
@@ -292,7 +446,11 @@ function setup(): {
     `schema: harness-people/v1\npeople:\n  - personId: owner\n    displayName: Fleet Owner\n    primaryEmail: owner@example.test\n    roles: [owner]\n    credentials:\n      - kind: unix-socket-owner-boundary\n        issuer: host:${hostname()}\n        subject: ${process.getuid?.() ?? 0}\nroles:\n  - roleId: owner\n    commandClasses: [admin, repo-write, repo-read, arbiter]\n`,
     "utf8",
   );
-  writeFileSync(path.join(edgeRepo, "harness", "people.yaml"), readFileSync(path.join(repo, "harness", "people.yaml")));
+  if (!options.cleanEdge)
+    writeFileSync(
+      path.join(edgeRepo, "harness", "people.yaml"),
+      readFileSync(path.join(repo, "harness", "people.yaml")),
+    );
   git(repo, "init", "--quiet");
   git(repo, "config", "user.name", "Fleet CLI Test");
   git(repo, "config", "user.email", "fleet-cli@example.test");
@@ -364,27 +522,27 @@ function setup(): {
   writeFileSync(
     roster,
     JSON.stringify({
-      schema: "fleet-roster/v1",
-      nodes: [{ nodeId: "edge-one", credential: "edge-one-machine-secret" }],
+      schema: "fleet-roster/v3",
       assignments: [
         {
           assignmentId: "assignment-edge-one",
           nodeId: "edge-one",
           repoId: "fleet-demo",
-          taskId: "task-fleet",
-          executionId: "exec-fleet",
           viewId: "edge-one-view",
-          personId: "owner",
-          executorId: "fleet-edge-agent",
           expiresAt: "2099-01-01T00:00:00.000Z",
-          paths: ["tasks/task-fleet-fleet/notes.md"],
+          scope: {
+            kind: "task",
+            taskId: "task-fleet",
+            executionId: "exec-fleet",
+            paths: ["tasks/task-fleet-fleet/notes.md"],
+          },
         },
       ],
     }),
     "utf8",
   );
   const badRoster = path.join(root, "bad-roster.json");
-  writeFileSync(badRoster, JSON.stringify({ schema: "fleet-roster/v1", nodes: [], assignments: [] }), "utf8");
+  writeFileSync(badRoster, JSON.stringify({ schema: "fleet-roster/v3", assignments: [] }), "utf8");
   return {
     root,
     repo,

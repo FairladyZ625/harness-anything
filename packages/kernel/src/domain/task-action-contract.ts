@@ -531,7 +531,7 @@ export const declarations: readonly Declaration[] = Object.freeze([
       criterion(
         "repo-cell-proof/proofFor.AdjudicateSubmission",
         "actor_unauthorized",
-        "Only the task-owning principal may forward or return a submitted cut; reviewers report, owners command.",
+        "A principal authorized for task-adjudicate forwards or returns a submitted cut; reviewers only report.",
       ),
     ]),
     concurrency: taskConcurrency(

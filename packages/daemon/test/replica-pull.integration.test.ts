@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { fleetHostWriterOptions, waitForFleetPublication } from "./fleet-store.fixture.ts";
+import { fleetHostWriterOptions, fleetNodeOwners, waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { sha256Bytes } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetAssignmentRecord } from "../src/fleet/center.ts";
@@ -243,11 +243,13 @@ async function replicaFixture(t: TestContext) {
     ],
     { stdio: "ignore" },
   );
-  const host = await openDaemonHost({ daemonId: "replica-r2", userRoot });
+  const host = await openDaemonHost({ daemonId: "replica-r2", userRoot }),
+    owners = await fleetNodeOwners({ userRoot, owners: { "node-one": "person-one" }, repoIds: ["replica-r2"] });
   t.after(async () => {
     try {
       await host.close();
     } finally {
+      await owners.close();
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -261,20 +263,13 @@ async function replicaFixture(t: TestContext) {
       paths: ["tasks/task-r2-r2/notes.md"],
       viewId: "view-one",
       expiresAt: "2099-01-01T00:00:00.000Z",
-      actor: {
-        principal: { personId: "person-one" },
-        executor: { kind: "agent", id: "edge-one" },
-      },
     },
     otherAssignment: FleetAssignmentRecord = {
       ...assignment,
       assignmentId: "assignment-other",
       viewId: "view-other",
     },
-    auth = {
-      transportKind: "fleet-tls" as const,
-      assignmentBinding: assignment,
-    },
+    auth = owners.auth(assignment),
     created = await host.run(
       assignment.repoId,
       { kind: "task-create", taskId: assignment.taskId, title: "Replica R2" },
@@ -323,6 +318,7 @@ async function replicaFixture(t: TestContext) {
         cert,
         replicaDiskQuotaBytes,
         authenticate: (nodeId, credential) => nodeId === assignment.nodeId && credential === "machine-secret",
+        nodeOwner: owners.nodeOwner,
         resolveAssignment: (assignmentId) => assignments.get(assignmentId) ?? null,
       }),
     close: async () => {

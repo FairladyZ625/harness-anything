@@ -47,13 +47,10 @@ export interface FleetAssignmentScope {
   readonly repoId: string;
   readonly scope: FleetAssignmentKindScope;
 }
+/** What a node may reach. Who acts is the node's registered owner, resolved by the center per request. */
 export interface FleetAssignmentBinding extends FleetAssignmentScope {
   readonly nodeId: string;
   readonly assignmentId: string;
-  readonly actor: {
-    readonly principal: { readonly personId: string };
-    readonly executor: { readonly kind: "agent"; readonly id: string } | null;
-  };
 }
 /** Transient center admission context; it is validated but never copied into the canonical event. */
 export interface FleetRuntimeDispatchContext {

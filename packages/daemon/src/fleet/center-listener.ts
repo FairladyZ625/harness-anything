@@ -77,15 +77,22 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       return lease;
     },
     currentEpochFor = (repoId: string) => writerEpoch.current(repoId) ?? ownedEpochFor(repoId),
-    readerAuth = (assignment: FleetAssignmentRecord) => ({
-      transportKind: "fleet-tls" as const,
-      assignmentBinding: assignment,
-    }),
-    writerAuth = (assignment: FleetAssignmentRecord) => {
-      const lease = ownedEpochFor(assignment.repoId);
+    // The owner is read from the registry for each use, so re-registering a node changes who its next
+    // frame acts for; nothing a frame carries can name the person.
+    readerAuth = async (assignment: FleetAssignmentRecord) => {
+      const personId = await options.nodeOwner(assignment.nodeId);
+      if (!personId)
+        throw new FleetFault("node_owner_unregistered", `Node ${assignment.nodeId} has no registered owner.`);
       return {
         transportKind: "fleet-tls" as const,
         assignmentBinding: assignment,
+        nodePrincipal: { nodeId: assignment.nodeId, personId },
+      };
+    },
+    writerAuth = async (assignment: FleetAssignmentRecord) => {
+      const lease = ownedEpochFor(assignment.repoId);
+      return {
+        ...(await readerAuth(assignment)),
         writerEpoch: lease.epoch,
         withWriterEpochFence: <T>(operation: () => T) =>
           writerEpoch.withAppendFence(assignment.repoId, lease.epoch, lease.holderId, operation),
@@ -219,7 +226,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.receipt.get/v1") {
       const a = await assignment(nodeId, frame.assignmentId),
-        receipt = await options.host.run(a.repoId, { kind: "receipt-show", opId: frame.opId }, readerAuth(a));
+        receipt = await options.host.run(a.repoId, { kind: "receipt-show", opId: frame.opId }, await readerAuth(a));
       return immediate({
         schema: "fleet.receipt.result/v1",
         messageId: mid(frame.messageId, "receipt"),
@@ -358,7 +365,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       // The submit names its execution channel itself: shared-surface prose
       // rides the repository channel (null) while task-context pushes name the
       // leased execution — decideDocWrite then arbitrates the holder against
-      // the re-bound assignment actor, never against a client claim.
+      // the node's registered owner, never against a client claim.
       const receipt = await options.host.run(
         a.repoId,
         {
@@ -367,7 +374,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           baseLedgerSha: frame.baseLedgerSha,
           changes: frame.changes,
         },
-        auth(a),
+        await auth(a),
       );
       if (isSquadControlResult(receipt))
         throw new FleetFault(
@@ -392,7 +399,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (!Number.isSafeInteger(options.replicaDiskQuotaBytes) || options.replicaDiskQuotaBytes! <= 0)
         throw new FleetFault("replica_quota_required", "Replica admission requires an explicit persistent disk quota.");
       const a = await assignment(nodeId, frame.assignmentId),
-        replica = options.host.replica(a.repoId);
+        replica = options.host.replica(a.repoId),
+        decision = await options.host.authorize(a.repoId, "daemon-fleet-edge-sync", await readerAuth(a));
+      if (decision.outcome !== "allowed")
+        throw new FleetFault("authorization_denied", "The node owner may not mirror this repository.");
       replica.activate();
       const ledgerCut = replica.ledgerCut();
       if (!ledgerCut || ledgerCut.revision === 0)
@@ -477,7 +487,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           "Schedule command repository and Schedule id must match the authenticated assignment.",
         );
       assertFrameEpoch(a.repoId, frame.writerEpoch);
-      const ingressAuth = auth(a),
+      const ingressAuth = await auth(a),
         baseReceipt = await options.host.run(a.repoId, { ...frame.action, idempotencyKey: frame.opId }, ingressAuth),
         receipt = await attachTrustedScheduleAgent(options.host, a.repoId, frame.action.kind, baseReceipt, ingressAuth);
       if (isSquadControlResult(receipt))
@@ -533,7 +543,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             ...(resultBody === undefined ? {} : { resultBody }),
             ...(frame.dispatchContext === null ? {} : { dispatchContext: frame.dispatchContext }),
           },
-          auth(a),
+          await auth(a),
         );
       } catch (error) {
         const code = runtimeErrorCode(error);
@@ -568,7 +578,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           kind: "archive",
           archive: frame.archive as unknown as import("../doc-sync-actions.ts").RuntimeDispatchArchive,
         },
-        auth(a),
+        await auth(a),
       );
       return immediate({
         schema: "fleet.runtime.archive.result/v1",
@@ -584,7 +594,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           "assignment_scope_mismatch",
           "Runtime read repository must match the authenticated assignment.",
         );
-      const result = await options.host.read(a.repoId, frame.method, frame.payload, auth(a));
+      const result = await options.host.read(a.repoId, frame.method, frame.payload, await auth(a));
       return immediate({
         schema: "fleet.runtime.read.result/v1",
         messageId: mid(frame.messageId, "runtime-read"),

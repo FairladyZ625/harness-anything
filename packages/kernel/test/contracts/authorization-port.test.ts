@@ -100,7 +100,7 @@ test("the default Policy covers the frozen durable inventory exactly once", () =
     assert.equal(port.authorize(action(kind), roleContext("repo-write")).outcome, "allowed");
     assert.equal(port.authorize(action(kind), roleContext("repo-read")).outcome, "denied");
   }
-  for (const kind of ["fact-archive", "fact-unarchive", "task-adjudicate"] as const) {
+  for (const kind of ["fact-archive", "fact-unarchive"] as const) {
     assert.equal(port.authorize(action(kind), roleContext("repo-write")).outcome, "allowed");
     assert.equal(port.authorize(action(kind), roleContext("repo-read")).outcome, "denied");
   }
@@ -126,28 +126,32 @@ test("RoleBinding qualification is actor, target, and role scoped", () => {
   assert.equal(port.authorize(action("decision-accept"), roleContext("arbiter")).outcome, "denied");
 });
 
-test("Assignment is one auditable qualification binding for repository writes only", () => {
+test("arriving through a node qualifies nobody: only the person's own binding does", () => {
   const context: AuthorizationContext = {
-    assignmentBinding: {
-      repoId: "repo-1",
-      nodeId: "node-a",
-      assignmentId: "assignment-a",
-      scope: { kind: "repository", ref: "repo-1" },
-      writerEpoch: 7,
-    },
+    writeSource: { kind: "assignment", nodeId: "node-a", assignmentId: "assignment-a" },
     target: {},
     evaluatedAtCut: "canonical:22",
   };
   const decision = port.authorize(action("task-submit"), context);
-  assert.equal(decision.outcome, "allowed");
-  assert.deepEqual(decision.bindingsUsed.find((binding) => binding.predicate === "hasAssignmentBinding")?.assignment, {
-    repoId: "repo-1",
-    nodeId: "node-a",
-    assignmentId: "assignment-a",
-    scope: { kind: "repository", ref: "repo-1" },
-    writerEpoch: 7,
-  });
-  assert.equal(port.authorize(action("task-review-execution"), context).outcome, "denied");
+  assert.equal(decision.outcome, "denied");
+  assert.equal(
+    decision.bindingsUsed.some((binding) => binding.satisfied),
+    false,
+  );
+  assert.equal(
+    port.authorize(action("task-submit"), { ...context, ...roleContext("repo-write") }).outcome,
+    "allowed",
+    "the same node carries the write once its person holds the role",
+  );
+});
+
+test("closing a task answers to the maintainer tier, not to who created it", () => {
+  for (const kind of ["task-adjudicate", "task-review-consent", "task-complete"] as const) {
+    assert.equal(port.authorize(action(kind), roleContext("repo-write")).outcome, "denied", kind);
+    assert.equal(port.authorize(action(kind, outsider), roleContext("arbiter")).outcome, "denied", kind);
+    assert.equal(port.authorize(action(kind), roleContext("arbiter")).outcome, "allowed", kind);
+    assert.equal(port.authorize(action(kind), roleContext("owner")).outcome, "allowed", kind);
+  }
 });
 
 test("the local default binding preserves unconfigured actors without bypassing explicit RBAC", () => {

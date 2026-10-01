@@ -42,15 +42,12 @@ import type { FleetRoster } from "../src/fleet-center-admission.ts";
 const now = "2026-08-27T08:00:00.000Z";
 const actor = { principal: { personId: "schedule-gui" }, executor: null } as const;
 const roster = (nodeIds: readonly string[], scheduleIds: readonly string[]): FleetRoster => ({
-  nodes: nodeIds.map((nodeId) => ({ nodeId, credential: `credential-${nodeId}` })),
   assignments: nodeIds.flatMap((nodeId, index) =>
     scheduleIds.map((scheduleId) => ({
       assignmentId: `assignment-${nodeId}-${scheduleId}`,
       nodeId,
       repoId: "schedule-gui",
       viewId: `view-${index}`,
-      personId: "operator",
-      executorId: undefined,
       expiresAt: "2099-01-01T00:00:00.000Z",
       scope: { kind: "schedule" as const, scheduleId, paths: ["schedules"] },
     })),
@@ -607,15 +604,13 @@ test("a remote-edge read resolves viewer node and roster from the repo root", ()
     writeFileSync(
       rosterFile,
       JSON.stringify({
-        schema: "fleet-roster/v2",
-        nodes: [{ nodeId: "edge-one", credential: "credential-edge-one" }],
+        schema: "fleet-roster/v3",
         assignments: [
           {
             assignmentId: "assignment-edge-one",
             nodeId: "edge-one",
             repoId: "schedule-gui",
             viewId: "view-edge-one",
-            personId: "operator",
             expiresAt: "2099-01-01T00:00:00.000Z",
             scope: { kind: "schedule", scheduleId: "heartbeat-probe", paths: ["schedules"] },
           },
@@ -631,6 +626,7 @@ test("a remote-edge read resolves viewer node and roster from the repo root", ()
         port: 1,
         caPath: "/tmp/ca.pem",
         nodeId: "edge-one",
+        credential: "credential-edge-one",
         rosterPath: rosterFile,
         assignmentId: "assignment-edge-one",
         viewRoot: path.join(root, "view"),
@@ -685,6 +681,7 @@ test("remote-edge reads propagate edge config and roster failures", () => {
         port: 1,
         caPath: "/tmp/ca.pem",
         nodeId: "edge-one",
+        credential: "credential-edge-one",
         rosterPath,
         assignmentId: "assignment-edge-one",
         viewRoot: path.join(root, "view"),

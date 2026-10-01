@@ -5,7 +5,12 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "nod
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { fleetHostWriterOptions, fleetLedgerRevision, waitForFleetPublication } from "./fleet-store.fixture.ts";
+import {
+  fleetHostWriterOptions,
+  fleetLedgerRevision,
+  fleetNodeOwners,
+  waitForFleetPublication,
+} from "./fleet-store.fixture.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import { sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
@@ -290,7 +295,8 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
   );
   const key = readFileSync(keyFile),
     cert = readFileSync(certFile),
-    host = await openDaemonHost({ daemonId: "fleet-center", userRoot });
+    host = await openDaemonHost({ daemonId: "fleet-center", userRoot }),
+    owners = await fleetNodeOwners({ userRoot, owners: { "node-one": "person-owner" }, repoIds: ["fleet-repo"] });
   t.after(async () => {
     try {
       await owned.reclaim();
@@ -298,6 +304,7 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
       try {
         await host.close();
       } finally {
+        await owners.close();
         rmSync(root, { recursive: true, force: true });
       }
     }
@@ -312,14 +319,13 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
       paths,
       viewId: "node-one_task-fleet",
       expiresAt: "2099-01-01T00:00:00.000Z",
-      actor: { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "fleet-edge" } },
     },
     slowAssignment: FleetAssignmentRecord = {
       ...assignment,
       assignmentId: "assignment-slow",
       viewId: "node-one_task-fleet-slow",
     },
-    auth = { transportKind: "fleet-tls" as const, assignmentBinding: assignment };
+    auth = owners.auth(assignment);
   const created = await host.run(
     assignment.repoId,
     { kind: "task-create", taskId: assignment.taskId, title: "Fleet" },
@@ -339,7 +345,7 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
     auth,
   );
   assert.equal(started.outcome, "applied", JSON.stringify(started));
-  await waitForReceiptCommit(host, assignment.repoId, started.opId, assignment);
+  await waitForReceiptCommit(host, assignment.repoId, started.opId, auth);
   return {
     root,
     repo,
@@ -404,6 +410,7 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
           cert,
           replicaDiskQuotaBytes: replicaQuota,
           authenticate: (nodeId, credential) => nodeId === assignment.nodeId && credential === "machine-secret",
+          nodeOwner: owners.nodeOwner,
           isNodeActive: () => nodeActive,
           resolveAssignment: async (assignmentId) => {
             if (assignmentDelayMs) await new Promise((resolve) => setTimeout(resolve, assignmentDelayMs));
@@ -490,6 +497,11 @@ async function crossRepoFixture(t: TestContext) {
     { stdio: "ignore" },
   );
   const host = await openDaemonHost({ daemonId: "fleet-cross-repo", userRoot }),
+    owners = await fleetNodeOwners({
+      userRoot,
+      owners: { "node-shared": "person-owner" },
+      repoIds: repos.map(({ repoId }) => repoId),
+    }),
     assignments: FleetAssignmentRecord[] = repos.map((repo, index) => ({
       nodeId: "node-shared",
       assignmentId: `assignment-${index}`,
@@ -499,7 +511,6 @@ async function crossRepoFixture(t: TestContext) {
       paths: [pathValue],
       viewId: "view-shared",
       expiresAt: "2099-01-01T00:00:00.000Z",
-      actor: { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "fleet-edge" } },
     }));
   t.after(async () => {
     try {
@@ -508,13 +519,14 @@ async function crossRepoFixture(t: TestContext) {
       try {
         await host.close();
       } finally {
+        await owners.close();
         rmSync(root, { recursive: true, force: true });
       }
     }
   });
   await host.attachmentsSettled();
   for (const assignment of assignments) {
-    const auth = { transportKind: "fleet-tls" as const, assignmentBinding: assignment },
+    const auth = owners.auth(assignment),
       taskRepo = repos.find((repo) => repo.repoId === assignment.repoId)!;
     const created = await host.run(
       assignment.repoId,
@@ -563,6 +575,7 @@ async function crossRepoFixture(t: TestContext) {
           cert,
           replicaDiskQuotaBytes: replicaQuota,
           authenticate: (nodeId, credential) => nodeId === "node-shared" && credential === "machine-secret",
+          nodeOwner: owners.nodeOwner,
           resolveAssignment: (assignmentId) => byId.get(assignmentId) ?? null,
         }),
       ),
@@ -577,10 +590,9 @@ async function waitForReceiptCommit(
   host: Awaited<ReturnType<typeof openDaemonHost>>,
   repoId: string,
   opId: string,
-  assignment: FleetAssignmentRecord,
+  binding: Parameters<Awaited<ReturnType<typeof openDaemonHost>>["run"]>[2],
 ): Promise<void> {
-  const deadline = performance.now() + 15_000,
-    binding = { transportKind: "fleet-tls" as const, assignmentBinding: assignment };
+  const deadline = performance.now() + 15_000;
   do {
     const receipt = await host.run(repoId, { kind: "receipt-show", opId }, binding);
     if (typeof receipt.commitSha === "string") return;

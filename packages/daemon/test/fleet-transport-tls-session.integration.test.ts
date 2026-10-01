@@ -5,7 +5,12 @@ import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
-import { fleetHostWriterOptions, fleetLedgerRevision, waitForFleetPublication } from "./fleet-store.fixture.ts";
+import {
+  fleetHostWriterOptions,
+  fleetLedgerRevision,
+  fleetNodeOwners,
+  waitForFleetPublication,
+} from "./fleet-store.fixture.ts";
 import { setTimeout as delay } from "node:timers/promises";
 import { connect, createServer, type TLSSocket } from "node:tls";
 import { sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
@@ -654,7 +659,7 @@ test(
       fixture.auth,
     );
     assert.equal(probe.outcome, "applied");
-    await waitForReceiptCommit(fixture.host, fixture.assignment.repoId, probe.opId, fixture.assignment);
+    await waitForReceiptCommit(fixture.host, fixture.assignment.repoId, probe.opId, fixture.auth);
     assert.equal((await status).outcome, "applied");
     assert.equal(
       center.status().replicas.find((row) => row.viewId === fixture.assignment.viewId)?.ackRevision,
@@ -785,7 +790,8 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
   );
   const key = readFileSync(keyFile),
     cert = readFileSync(certFile),
-    host = await openDaemonHost({ daemonId: "fleet-center", userRoot });
+    host = await openDaemonHost({ daemonId: "fleet-center", userRoot }),
+    owners = await fleetNodeOwners({ userRoot, owners: { "node-one": "person-owner" }, repoIds: ["fleet-repo"] });
   t.after(async () => {
     try {
       await owned.reclaim();
@@ -793,6 +799,7 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
       try {
         await host.close();
       } finally {
+        await owners.close();
         rmSync(root, { recursive: true, force: true });
       }
     }
@@ -807,20 +814,19 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
       paths,
       viewId: "node-one_task-fleet",
       expiresAt: "2099-01-01T00:00:00.000Z",
-      actor: { principal: { personId: "person-owner" }, executor: { kind: "agent", id: "fleet-edge" } },
     },
     slowAssignment: FleetAssignmentRecord = {
       ...assignment,
       assignmentId: "assignment-slow",
       viewId: "node-one_task-fleet-slow",
     },
-    auth = { transportKind: "fleet-tls" as const, assignmentBinding: assignment };
+    auth = owners.auth(assignment);
   const created = await host.run(
     assignment.repoId,
     { kind: "task-create", taskId: assignment.taskId, title: "Fleet" },
     auth,
   );
-  assert.equal(created.outcome, "applied");
+  assert.equal(created.outcome, "applied", JSON.stringify(created));
   await waitForFleetPublication(host, assignment.repoId, created.opId, auth);
   await realizeTaskPlanFixture(
     repo,
@@ -834,7 +840,7 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
     auth,
   );
   assert.equal(started.outcome, "applied", JSON.stringify(started));
-  await waitForReceiptCommit(host, assignment.repoId, started.opId, assignment);
+  await waitForReceiptCommit(host, assignment.repoId, started.opId, auth);
   return {
     root,
     repo,
@@ -911,6 +917,7 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
           cert,
           replicaDiskQuotaBytes: diskQuotaBytes,
           authenticate: (nodeId, credential) => nodeId === assignment.nodeId && credential === "machine-secret",
+          nodeOwner: owners.nodeOwner,
           isNodeActive: () => nodeActive,
           resolveAssignment: async (assignmentId) => {
             if (assignmentDelayMs) await new Promise((resolve) => setTimeout(resolve, assignmentDelayMs));
@@ -1017,10 +1024,9 @@ async function waitForReceiptCommit(
   host: Awaited<ReturnType<typeof openDaemonHost>>,
   repoId: string,
   opId: string,
-  assignment: FleetAssignmentRecord,
+  binding: Parameters<Awaited<ReturnType<typeof openDaemonHost>>["run"]>[2],
 ): Promise<void> {
-  const deadline = performance.now() + 15_000,
-    binding = { transportKind: "fleet-tls" as const, assignmentBinding: assignment };
+  const deadline = performance.now() + 15_000;
   do {
     const receipt = await host.run(repoId, { kind: "receipt-show", opId }, binding);
     if (typeof receipt.commitSha === "string") return;

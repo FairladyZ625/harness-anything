@@ -1,7 +1,7 @@
 // Marks a workspace root as a remote-edge mirror and names the fleet channel
-// its write commands must take. Present in `<root>/fleet-edge.json`; the
-// machine credential is deliberately NOT duplicated here — the daemon resolves
-// it from the center roster at run time via rosterPath + nodeId.
+// its write commands must take. Present in `<root>/fleet-edge.json`; it carries
+// the machine credential the center issued when the node was registered. The
+// optional rosterPath names a local copy of the center assignments.
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 export interface FleetEdgeConfig {
@@ -12,7 +12,7 @@ export interface FleetEdgeConfig {
   readonly servername?: string;
   readonly nodeId: string;
   readonly rosterPath?: string;
-  readonly credential?: string;
+  readonly credential: string;
   readonly assignmentId: string;
   readonly viewRoot: string;
   readonly quotaBytes: number;
@@ -49,7 +49,7 @@ export function readFleetEdgeConfig(rootDir: string): FleetEdgeConfig | null {
   if (row.schema !== "fleet-edge-config/v1") fail("the top-level schema must be fleet-edge-config/v1");
   const text = (field: string): string | undefined =>
     typeof row[field] === "string" && (row[field] as string).length > 0 ? (row[field] as string) : undefined;
-  for (const field of ["repoId", "host", "caPath", "nodeId", "assignmentId", "viewRoot"])
+  for (const field of ["repoId", "host", "caPath", "nodeId", "credential", "assignmentId", "viewRoot"])
     if (!text(field)) fail(`${field} must be a non-empty string`);
   const port = Number(row.port),
     quotaBytes = Number(row.quotaBytes);
@@ -58,9 +58,7 @@ export function readFleetEdgeConfig(rootDir: string): FleetEdgeConfig | null {
   const waitTimeoutMs = row.waitTimeoutMs === undefined ? undefined : Number(row.waitTimeoutMs);
   if (waitTimeoutMs !== undefined && (!Number.isSafeInteger(waitTimeoutMs) || waitTimeoutMs <= 0))
     fail("waitTimeoutMs must be a positive integer when present");
-  const credential = text("credential"),
-    rosterPath = text("rosterPath");
-  if (!credential && !rosterPath) fail("either credential or rosterPath must name the machine credential source");
+  const rosterPath = text("rosterPath");
   return {
     repoId: text("repoId")!,
     host: text("host")!,
@@ -69,7 +67,7 @@ export function readFleetEdgeConfig(rootDir: string): FleetEdgeConfig | null {
     ...(text("servername") ? { servername: text("servername") } : {}),
     nodeId: text("nodeId")!,
     ...(rosterPath ? { rosterPath } : {}),
-    ...(credential ? { credential } : {}),
+    credential: text("credential")!,
     assignmentId: text("assignmentId")!,
     viewRoot: text("viewRoot")!,
     quotaBytes,

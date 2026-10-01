@@ -127,10 +127,13 @@ test("RepoCell online evaluation uses the authenticated token and asks for the r
       actor: { principal: { personId: "person-a" }, executor: null },
       source: "local" as const,
       keycloakAuthorization: {
-        accessToken: "user-token",
-        url: config.url,
-        realm: config.realm,
-        clientId: config.resourceServerClientId,
+        session: {
+          personId: "person-a",
+          accessToken: "user-token",
+          url: config.url,
+          realm: config.realm,
+          clientId: config.resourceServerClientId,
+        },
       },
     },
     fetchPort = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
@@ -175,7 +178,7 @@ test("RepoCell online evaluation uses the authenticated token and asks for the r
   assert.deepEqual(missing.reasonCodes, ["authentication_required"]);
 });
 
-test("RepoCell keeps existing RoleBinding and assignment authorization until their owning slices retire them", async () => {
+test("RepoCell keeps RoleBinding authorization until its owning slice retires it; a node qualifies nobody", async () => {
   const actor = { principal: { personId: "person-legacy" }, executor: null },
     common = {
       actor,
@@ -201,7 +204,7 @@ test("RepoCell keeps existing RoleBinding and assignment authorization until the
       revision: 7,
       now: "2026-09-30T00:00:03.000Z",
     }),
-    assignmentAllowed = await evaluateRepoCellAction({
+    throughNodeOnly = await evaluateRepoCellAction({
       action: { kind: "task-create" },
       binding: {
         ...common,
@@ -225,7 +228,8 @@ test("RepoCell keeps existing RoleBinding and assignment authorization until the
       now: "2026-09-30T00:00:05.000Z",
     });
   assert.equal(roleAllowed.outcome, "allowed");
-  assert.equal(assignmentAllowed.outcome, "allowed");
+  // Arriving through a node is where a write came from, not a reason to allow it.
+  assert.equal(throughNodeOnly.outcome, "denied");
   assert.equal(noImplicitDefault.outcome, "denied");
 });
 
@@ -237,10 +241,13 @@ test("synchronous RepoCell authorization does not fall back to roster for a mism
         actor: { principal: { personId: "person-keycloak" }, executor: null },
         source: "local",
         keycloakAuthorization: {
-          accessToken: "user-token",
-          url: config.url,
-          realm: config.realm,
-          clientId: config.resourceServerClientId,
+          session: {
+            personId: "person-keycloak",
+            accessToken: "user-token",
+            url: config.url,
+            realm: config.realm,
+            clientId: config.resourceServerClientId,
+          },
         },
         authorizationDecision: {
           policyRef: "keycloak-policy@1",
