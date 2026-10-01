@@ -58,7 +58,7 @@ test("the systemd user unit restarts only on failure and signals only the daemon
   });
 });
 
-test("the launchd agent restarts only on failure and leaves the daemon's process group alone", () => {
+test("the launchd agent starts at load and restarts only on failure", () => {
   const unit = daemonServiceUnit(target, "darwin", "/Users/edge");
   assert.deepEqual(unit, {
     manager: "launchd",
@@ -89,7 +89,6 @@ test("the launchd agent restarts only on failure and leaves the daemon's process
       `  <key>StandardErrorPath</key><string>${output}</string>`,
       "  <key>RunAtLoad</key><true/>",
       "  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>",
-      "  <key>AbandonProcessGroup</key><true/>",
       "</dict>",
       "</plist>",
       "",

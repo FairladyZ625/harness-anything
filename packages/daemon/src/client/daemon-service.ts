@@ -45,11 +45,10 @@ export function installedDaemonServiceUnit(target: {
 }
 
 // Three lines of each unit carry an existing invariant and are not style:
-// - KillMode=process / AbandonProcessGroup: runtime workers outlive a daemon restart and are
-//   re-adopted by pid, so the service manager must only ever signal the daemon itself. systemd
-//   would otherwise kill the unit's whole control group, workers included. launchd would otherwise
-//   kill what is left of the daemon's process group, which holds no worker only because they are
-//   spawned detached.
+// - KillMode=process: runtime workers outlive a daemon restart and are re-adopted by pid, and
+//   systemd would otherwise kill the unit's whole control group, workers included. launchd needs
+//   no counterpart: it only cleans up the daemon's own process group, and workers are spawned
+//   detached into groups of their own.
 // - --supervised: a daemon leaving for a newer build exits non-zero instead of starting its own
 //   successor, so the service manager is the only one that ever starts a daemon.
 // - Restart=on-failure / KeepAlive.SuccessfulExit=false: an operator stop exits zero and stays stopped.
@@ -108,7 +107,6 @@ export function daemonServiceUnitContent(
     `  <key>StandardErrorPath</key>${string(output)}`,
     "  <key>RunAtLoad</key><true/>",
     "  <key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>",
-    "  <key>AbandonProcessGroup</key><true/>",
     "</dict>",
     "</plist>",
     "",
