@@ -155,8 +155,7 @@ function validLegacySnapshotShape(value: Readonly<Record<string, unknown>>): boo
       const entry = current[segment],
         leaf = index === declaration.path.length - 1;
       if (entry === undefined) {
-        const wholeDefaultableGroup = index === 0 && declaration.path.length > 1 && declaration.eventDefaultWhenMissing;
-        if (declaration.snapshotRequired && !wholeDefaultableGroup) return false;
+        if (declaration.snapshotRequired) return false;
         break;
       }
       if (leaf) break;

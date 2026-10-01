@@ -11,3 +11,10 @@ export function normalizeHistoricalSettingsRoles(value: unknown): unknown {
     roles: { defaultReviewer, ...(settings.roles ?? {}) },
   };
 }
+
+/** `walFlush` left the declarations once its last reader was gone; stored snapshots still carry it. */
+export function dropRetiredSettingsWalFlush(value: unknown): unknown {
+  if (!isRecord(value) || !Object.hasOwn(value, "walFlush")) return value;
+  const { walFlush: _retired, ...settings } = value;
+  return settings;
+}

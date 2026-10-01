@@ -38,7 +38,6 @@ const SETTINGS = {
   closeout: { profile: "standard" as const },
   locale: "zh-CN" as const,
   scaffolds: { task: "governance/task-scaffold.json", repository: "governance/repository-scaffold.json" },
-  walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 3_600_000 },
 };
 /** daemon settings read 的 values 面:默认值态(没有「已修改」标记)。 */
 const SETTINGS_VALUES = {
@@ -50,10 +49,6 @@ const SETTINGS_VALUES = {
   reviewReturnBudget: 3,
   taskScaffold: "governance/task-scaffold.json",
   repositoryScaffold: "governance/repository-scaffold.json",
-  walFlushAdaptive: true,
-  walFlushEvents: 256,
-  walFlushBytes: 8_388_608,
-  walFlushMilliseconds: 3_600_000,
   ciWorkflows: [],
   closeoutProfile: "standard",
   closeoutReview: false,
@@ -249,30 +244,50 @@ describe("设置页按用途分组并逐项解释", () => {
 
   it("高级组(存储与备份)默认折叠,展开后字段与后果行可见", async () => {
     const container = await mountView();
-    expect(container.querySelector('[data-testid="settings-wal-flush-events"]')).toBeNull();
-    expect(container.querySelector('[data-testid="settings-wal-flush-events-modified"]')).toBeNull();
+    expect(container.querySelector('[data-testid="settings-restoreDrillRetention-input"]')).toBeNull();
+    expect(container.querySelector('[data-testid="settings-restoreDrillRetention-modified"]')).toBeNull();
     await act(async () => {
       container.querySelector<HTMLButtonElement>('[data-testid="settings-advanced-toggle"]')!.click();
     });
-    expect(input(container, "settings-wal-flush-events").value).toBe("256");
-    expect(container.textContent).toContain("改了会怎样: 当前版本的存储引擎不读这个数值");
+    expect(input(container, "settings-restoreDrillRetention-input").value).toBe("3");
+    expect(container.textContent).toContain("改了会怎样: 只保留这么多次成功的恢复演练");
+  });
+
+  it("已退役的四项存储刷新设置不再渲染:高级组展开后只有恢复演练保留数", async () => {
+    const container = await mountView();
+    await act(async () => {
+      container.querySelector<HTMLButtonElement>('[data-testid="settings-advanced-toggle"]')!.click();
+    });
+    for (const testId of [
+      "settings-walFlushAdaptive-input",
+      "settings-wal-flush-events",
+      "settings-wal-flush-bytes",
+      "settings-wal-flush-milliseconds",
+    ])
+      expect(container.querySelector(`[data-testid="${testId}"]`), testId).toBeNull();
+    expect(container.textContent).not.toMatch(/WAL|存储引擎/u);
+    const fields = settingsFieldsFace();
+    expect(fields.filter(({ field }) => field.startsWith("walFlush"))).toEqual([]);
+    expect(fields.filter((row) => row.group === "storage-backup").map(({ field }) => field)).toEqual([
+      "restoreDrillRetention",
+    ]);
   });
 
   it("当前值 ≠ 默认值时出现「已修改」标记,恢复默认拨回默认值并随提交带出", async () => {
-    const container = await mountView({ walFlushEvents: 512, reviewReturnBudget: 3 });
+    const container = await mountView({ restoreDrillRetention: 5, reviewReturnBudget: 3 });
     await act(async () => {
       container.querySelector<HTMLButtonElement>('[data-testid="settings-advanced-toggle"]')!.click();
     });
-    expect(container.querySelector('[data-testid="settings-walFlushEvents-modified"]')).toBeTruthy();
+    expect(container.querySelector('[data-testid="settings-restoreDrillRetention-modified"]')).toBeTruthy();
     expect(container.querySelector('[data-testid="settings-reviewReturnBudget-modified"]')).toBeNull();
     await act(async () => {
-      container.querySelector<HTMLButtonElement>('[data-testid="settings-walFlushEvents-restore"]')!.click();
+      container.querySelector<HTMLButtonElement>('[data-testid="settings-restoreDrillRetention-restore"]')!.click();
     });
-    expect(input(container, "settings-wal-flush-events").value).toBe("256");
+    expect(input(container, "settings-restoreDrillRetention-input").value).toBe("3");
     await act(async () => {
       saveButton(container).click();
     });
-    expect(lastUpdatePayload()).toMatchObject({ walFlushEvents: 256 });
+    expect(lastUpdatePayload()).toMatchObject({ restoreDrillRetention: 3 });
   });
 
   it("closeout 覆写的默认值随 profile 走:standard 下显式 true 标记已修改,恢复回落 false", async () => {
@@ -310,7 +325,7 @@ describe("设置页按用途分组并逐项解释", () => {
     // 命中「评审与收口」组;新任务默认值组整组隐藏;高级组虽展开但无命中行,整组隐藏。
     expect(container.querySelector('[data-testid="settings-reviewIndependence-select"]')).toBeTruthy();
     expect(container.querySelector('[data-testid="settings-vertical-select"]')).toBeNull();
-    expect(container.querySelector('[data-testid="settings-wal-flush-events"]')).toBeNull();
+    expect(container.querySelector('[data-testid="settings-restoreDrillRetention-input"]')).toBeNull();
     expect(sectionTitles(container)).not.toContain("新任务默认值");
     // 命中后果文案也能搜到该字段(「恢复演练」在高级组)。
     await act(async () => {

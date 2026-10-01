@@ -42,7 +42,6 @@ const SETTINGS = {
   defaultProfile: "baseline",
   closeout: { profile: "standard", overrides: {} },
   scaffolds: { task: "governance/task-scaffold.json", repository: "governance/repository-scaffold.json" },
-  walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 2_000 },
   ci: { workflows: ["ci"] },
   gates: GATES,
 };

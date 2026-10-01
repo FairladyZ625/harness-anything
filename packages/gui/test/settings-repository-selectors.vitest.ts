@@ -39,7 +39,6 @@ const SETTINGS = {
   closeout: { profile: "standard" as const },
   locale: "zh-CN" as const,
   scaffolds: { task: "governance/task-scaffold.json", repository: "governance/repository-scaffold.json" },
-  walFlush: { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 3_600_000 },
 };
 /** daemon settings read 的 values 面:kernel repositorySettingsActionValues 的扁平映射。 */
 const SETTINGS_VALUES = {
@@ -50,10 +49,6 @@ const SETTINGS_VALUES = {
   reviewReturnBudget: 3,
   taskScaffold: "governance/task-scaffold.json",
   repositoryScaffold: "governance/repository-scaffold.json",
-  walFlushAdaptive: true,
-  walFlushEvents: 256,
-  walFlushBytes: 8_388_608,
-  walFlushMilliseconds: 3_600_000,
   ciWorkflows: [],
   closeoutProfile: "standard",
   closeoutReview: false,
@@ -331,7 +326,7 @@ function lastUpdatePayload(): Record<string, unknown> {
 
 describe("Settings 仓库字段是目录喂的选择器", () => {
   it("目录字段全部是点选控件,选项来自目录快照与 agent 目录,且没有自由文本输入", async () => {
-    // walFlush 归「存储与备份」高级组,默认折叠:先展开再断言其控件。
+    // 恢复演练保留数归「存储与备份」高级组,默认折叠:先展开再断言其控件。
     const container = await mountView();
     await act(async () => {
       container.querySelector<HTMLButtonElement>('[data-testid="settings-advanced-toggle"]')!.click();
@@ -376,9 +371,9 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
     expect(ciBoxes.every(({ checked }) => checked === false)).toBe(true);
     expect(container.querySelector('[data-testid="settings-ciWorkflows-input"]')).toBeNull();
     expect(container.querySelector('[data-testid="settings-defaultReviewer-input"]')).toBeNull();
-    expect((container.querySelector('[data-testid="settings-wal-flush-events"]') as HTMLInputElement).value).toBe(
-      "256",
-    );
+    expect(
+      (container.querySelector('[data-testid="settings-restoreDrillRetention-input"]') as HTMLInputElement).value,
+    ).toBe("3");
   });
 
   it("字段面从契约派生:历史缺失的四个字段全部出现且类型正确,提交时进 payload", async () => {
@@ -491,10 +486,6 @@ describe("Settings 仓库字段是目录喂的选择器", () => {
       ciWorkflows: ["gui-release", "gone-flow"],
       taskScaffold: "governance/task-scaffold.json",
       repositoryScaffold: "governance/repository-scaffold.json",
-      walFlushAdaptive: true,
-      walFlushEvents: 256,
-      walFlushBytes: 8_388_608,
-      walFlushMilliseconds: 3_600_000,
     });
   });
 

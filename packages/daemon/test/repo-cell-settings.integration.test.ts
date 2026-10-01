@@ -80,7 +80,7 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
         cell.run(
           {
             kind: "settings-update",
-            walFlushEvents: 1024,
+            reviewReturnBudget: 9,
             expectedVersion: initialRevision,
             idempotencyKey: "stale-settings-update",
           },
@@ -152,48 +152,50 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
         },
         binding,
       ),
-      flushApplied = await cell.run(
+      budgetApplied = await cell.run(
         {
           kind: "settings-update",
-          walFlushAdaptive: false,
-          walFlushEvents: 4096,
-          walFlushBytes: 16_777_216,
-          walFlushMilliseconds: 30_000,
+          reviewReturnBudget: 5,
+          agendaPinLimit: 12,
           expectedVersion: currentRevision,
-          idempotencyKey: "wal-flush-settings",
+          idempotencyKey: "budget-settings",
         },
         binding,
       );
     assert.equal(unchanged.outcome, "no_changes", JSON.stringify(unchanged));
     assert.equal(unchanged.code, "no_changes");
     assert.equal(unchanged.origin, "daemon");
-    assert.equal(flushApplied.outcome, "applied", JSON.stringify(flushApplied));
+    assert.equal(budgetApplied.outcome, "applied", JSON.stringify(budgetApplied));
     const settings = (await cell.read("repo.settings.read")) as {
-      readonly settings: { readonly walFlush: unknown };
+      readonly settings: Readonly<Record<string, unknown>>;
       readonly values: Readonly<Record<string, unknown>>;
     };
-    assert.deepEqual(settings.settings.walFlush, {
-      adaptive: false,
-      events: 4096,
-      bytes: 16_777_216,
-      milliseconds: 30_000,
-    });
+    assert.equal(settings.settings.reviewReturnBudget, 5);
+    // The fixture document still carries the retired walFlush block; it is not a setting anymore.
+    assert.equal(Object.hasOwn(settings.settings, "walFlush"), false);
     // settings read 附带 kernel 拍平的 action 值面:键 = 动作契约字段,GUI 设置表单据此回填。
-    assert.equal(settings.values.walFlushAdaptive, false);
-    assert.equal(settings.values.walFlushMilliseconds, 30_000);
+    assert.equal(settings.values.reviewReturnBudget, 5);
+    assert.equal(settings.values.agendaPinLimit, 12);
+    assert.equal(Object.hasOwn(settings.values, "walFlushEvents"), false);
     assert.equal(typeof settings.values.defaultVertical, "string");
     const flushed = await cell.run(
-      { kind: "receipt-show", opId: flushApplied.opId, waitFor: ["worktree_visible"], timeoutMs: 5000 },
+      { kind: "receipt-show", opId: budgetApplied.opId, waitFor: ["worktree_visible"], timeoutMs: 5000 },
       binding,
     );
     assert.equal(flushed.wait?.state, "satisfied", JSON.stringify(flushed));
-    assert.match(readFileSync(configPath, "utf8"), /walFlush:[\s\S]*adaptive: false[\s\S]*events: 4096/u);
+    const written = readFileSync(configPath, "utf8");
+    assert.match(written, /reviewReturnBudget: 5/u);
+    // A save leaves the retired block's lines exactly where the older repository had them.
+    assert.match(
+      written,
+      /  walFlush:\n    adaptive: true\n    events: 256\n    bytes: 8388608\n    milliseconds: 2000\n/u,
+    );
 
     const ciApplied = await cell.run(
       {
         kind: "settings-update",
         ciWorkflows: ["ci", "nightly"],
-        expectedVersion: flushApplied.revision,
+        expectedVersion: budgetApplied.revision,
         idempotencyKey: "ci-workflows-settings",
       },
       binding,
@@ -537,6 +539,7 @@ function initRepo(root: string): void {
       "  defaultVertical: software/coding",
       "  defaultPreset: standard-task",
       "  defaultProfile: baseline",
+      // What init wrote before walFlush was retired; older repositories still carry these lines.
       "  walFlush:",
       "    adaptive: true",
       "    events: 256",

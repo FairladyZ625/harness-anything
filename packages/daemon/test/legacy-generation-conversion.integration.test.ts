@@ -162,7 +162,7 @@ test("stopped legacy Git plus accepted WAL suffix converts with a certified cold
     const store = openSqliteEventStore({ repoId, databasePath });
     const events = store.events();
     assert.equal(Object.hasOwn(events[0]!.payload.relation, "strength"), false);
-    assert.equal(Object.hasOwn(events[1]!.payload.settings, "walFlush"), true);
+    assert.equal(Object.hasOwn(events[1]!.payload.settings, "walFlush"), false);
     const destinationObject = store.contentObjectDigests().find((digest) => digest === second.blobs[0]!.sha256)!,
       destinationObjectPath = sqliteContentObjectPath(root, destinationObject),
       destinationBytes = store.readContentObject(destinationObject)!;
@@ -378,7 +378,7 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
     const sqlite = openSqliteEventStore({ repoId, databasePath }),
       converted = sqlite.events(),
       convertedSource = arrayStore(converted, (sha256) => sqlite.readContentObject(sha256));
-    assert.equal(Object.hasOwn(converted[0]!.payload.settings, "walFlush"), true);
+    assert.equal(Object.hasOwn(converted[0]!.payload.settings, "walFlush"), false);
     const rows = sqlite.eventRows(),
       last = rows.at(-1)!,
       gitReadback = {
@@ -938,6 +938,9 @@ function migrationFamily(
   return plan.migrationFamilies.find((family) => family.name === name)!;
 }
 
+// The snapshot shape generation-0 ledgers stored before walFlush left the declarations.
+const retiredWalFlush = { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 3_600_000 };
+
 function seedLegacySettings(root: string, legacy = true) {
   const body = readFileSync(path.join(root, "harness/harness.yaml"), "utf8"),
     compiled = compileSettingsChangedEvent({
@@ -952,7 +955,7 @@ function seedLegacySettings(root: string, legacy = true) {
       occurredAt: "2026-09-06T00:00:00.000Z",
     }),
     event = structuredClone(compiled.event);
-  if (legacy) delete event.payload.settings.walFlush;
+  if (legacy) Object.assign(event.payload.settings, { walFlush: retiredWalFlush });
   const blobs = new Map(compiled.blobs.map((blob) => [blob.sha256, Buffer.from(blob.body)]));
   return {
     eventBytes: JSON.stringify(event),
@@ -975,7 +978,7 @@ function physicalLegacySettings(root: string, revision: number) {
       occurredAt: `2026-09-06T00:00:0${revision}.000Z`,
     }),
     event = structuredClone(compiled.event);
-  delete event.payload.settings.walFlush;
+  Object.assign(event.payload.settings, { walFlush: retiredWalFlush });
   return {
     event,
     blobs: compiled.blobs,

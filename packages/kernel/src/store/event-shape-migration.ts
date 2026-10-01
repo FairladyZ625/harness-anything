@@ -14,16 +14,11 @@ import type { DecisionEventV1 } from "../domain/decision-event-types.ts";
 import type { CanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import { submissionDigest, type SubmissionV1 } from "../domain/execution.ts";
 import { reviewDigest, type ReviewConsentV1, type ReviewV1 } from "../domain/review.ts";
-import { normalizeHistoricalSettingsRoles } from "../domain/settings-history.ts";
+import { dropRetiredSettingsWalFlush, normalizeHistoricalSettingsRoles } from "../domain/settings-history.ts";
 import { isSettingsEvent } from "../domain/settings-event.ts";
-import { SETTINGS_REPOSITORY_V1_SCHEMA, type WalFlushSettingsV1 } from "../domain/settings.ts";
 import { canonicalMigrationProvenance, isMigrationImportEvent } from "../domain/migration-import-event.ts";
 import { normalizeLegacyRelationState } from "../domain/entity-relation.ts";
-import {
-  serializeEntityJsonSchema,
-  validateEntityJsonSchema,
-  type EntityJsonObjectSchema,
-} from "../domain/entity-json-schema.ts";
+import { serializeEntityJsonSchema, type EntityJsonObjectSchema } from "../domain/entity-json-schema.ts";
 import {
   SCHEDULE_DEFINITION_V1_SCHEMA,
   scheduleDefinition,
@@ -489,27 +484,6 @@ const decisionDigestsMigration: EventShapeMigrationSpec = {
   },
 };
 
-const SETTINGS_WAL_FLUSH_MIGRATION_VALUE: WalFlushSettingsV1 = Object.freeze({
-  adaptive: true,
-  events: 256,
-  bytes: 8_388_608,
-  milliseconds: 3_600_000,
-});
-
-function validateHistoricalWalFlush(value: unknown, opId: string): void {
-  const schema = SETTINGS_REPOSITORY_V1_SCHEMA.properties.walFlush as EntityJsonObjectSchema,
-    errors = validateEntityJsonSchema(
-      {
-        $schema: "https://json-schema.org/draft/2020-12/schema",
-        $id: "SettingsWalFlushMigration/v1",
-        ...schema,
-      },
-      value,
-      `settings event ${opId} walFlush`,
-    );
-  if (errors.length > 0) throw new Error(errors.join("; "));
-}
-
 export const settingsRolesMigration: EventShapeMigrationSpec = {
   name: "settings-roles",
   matches: () => false,
@@ -533,26 +507,14 @@ export const settingsWalFlushMigration: EventShapeMigrationSpec = {
   matches: () => false,
   rewrite: (event) => {
     if (!isSettingsEvent(event) || event.type !== "settings_changed") return null;
-    const settings = event.payload.settings as unknown;
-    if (settings === null || typeof settings !== "object" || Array.isArray(settings))
-      throw new Error(`settings event ${event.opId} settings must be a JSON object`);
-    const historical = settings as Readonly<Record<string, unknown>>;
-    if (Object.hasOwn(historical, "walFlush")) {
-      validateHistoricalWalFlush(historical.walFlush, event.opId);
-      return null;
-    }
-    const migrated = { ...historical, walFlush: SETTINGS_WAL_FLUSH_MIGRATION_VALUE };
+    const before = event.payload.settings,
+      after = dropRetiredSettingsWalFlush(before);
+    if (after === before) return null;
     return {
-      event: { ...event, payload: { ...event.payload, settings: migrated } } as CanonicalEventV1,
-      category: "walFlush filled from declared/default settings",
-      before: {
-        walFlushPresent: false,
-        harnessDocumentClaim: event.payload.harnessDocumentClaim,
-      },
-      after: {
-        walFlush: SETTINGS_WAL_FLUSH_MIGRATION_VALUE,
-        harnessDocumentClaim: event.payload.harnessDocumentClaim,
-      },
+      event: { ...event, payload: { ...event.payload, settings: after } } as CanonicalEventV1,
+      category: "retired walFlush dropped",
+      before,
+      after,
     };
   },
 };

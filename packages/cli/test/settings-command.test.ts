@@ -33,8 +33,6 @@ test("Settings CLI projects read and owned update flags to the closed daemon act
     "zh-CN",
     "--task-scaffold",
     "governance/task-scaffold.json",
-    "--wal-flush-adaptive",
-    "false",
     "--closeout-review",
     "true",
     "--agenda-pin-limit",
@@ -58,7 +56,6 @@ test("Settings CLI projects read and owned update flags to the closed daemon act
       reviewIndependence: "principal",
       locale: "zh-CN",
       taskScaffold: "governance/task-scaffold.json",
-      walFlushAdaptive: false,
       closeoutReview: true,
       agendaPinLimit: 40,
       wipLimit: 12,
@@ -76,6 +73,23 @@ test("Settings CLI rejects unknown and unsupported locale fields", () => {
   const shown = parseThinCommand(["settings", "show", "--locale", "en-US"]);
   assert.equal(shown.ok, false);
   if (!shown.ok) assert.equal(shown.code, "unknown_field");
+});
+
+test("Settings CLI no longer accepts the retired storage flush options", () => {
+  for (const [option, value] of [
+    ["--wal-flush-adaptive", "false"],
+    ["--wal-flush-events", "512"],
+    ["--wal-flush-bytes", "1048576"],
+    ["--wal-flush-milliseconds", "1000"],
+  ] as const) {
+    const parsed = parseThinCommand(["settings", "update", option, value]);
+    assert.equal(parsed.ok, false, option);
+    if (!parsed.ok) assert.equal(parsed.code, "unknown_field", option);
+  }
+  // Negative control: a neighbouring storage option still parses.
+  const kept = parseThinCommand(["settings", "update", "--restore-drill-retention", "5"]);
+  assert.equal(kept.ok, true);
+  if (kept.ok) assert.deepEqual(kept.command.action, { kind: "settings-update", restoreDrillRetention: 5 });
 });
 
 test("Settings CLI forwards CI workflow names and the none opt-out to the settings action", () => {

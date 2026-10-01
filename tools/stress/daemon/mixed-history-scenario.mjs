@@ -40,7 +40,7 @@ export async function runMixedHistoryScenario(root) {
     assert.fail("strict cold rebuild accepted the mixed historical shapes");
   } catch (error) {
     strictMessage = error instanceof Error ? error.message : String(error);
-    assert.match(strictMessage, /Relation facet fields|does not match the event definition|walFlush/u);
+    assert.match(strictMessage, /Relation facet fields|does not match the event definition/u);
   }
   createImmutableLegacyGenerationSnapshot({ repoId, source, snapshotPath });
   const killed = spawnSync(process.execPath, [fixture, root, snapshotPath, databasePath], {
@@ -87,7 +87,7 @@ export async function runMixedHistoryScenario(root) {
     }),
     [],
   );
-  assert.equal(Object.hasOwn(settings.payload.settings, "walFlush"), true);
+  assert.equal(Object.hasOwn(settings.payload.settings, "walFlush"), false);
   return {
     redControl: {
       id: "F10/strict-reducer-rejects-mixed-history",
@@ -172,7 +172,7 @@ function seedMixedHistory(root) {
     sha256: definitionSha,
     size: Buffer.byteLength(definitionBody),
   };
-  delete legacySettings.payload.settings.walFlush;
+  legacySettings.payload.settings.walFlush = { adaptive: true, events: 256, bytes: 8_388_608, milliseconds: 3_600_000 };
   const blobs = [...scheduleCompiled.blobs, ...settingsCompiled.blobs],
     objects = new Map(blobs.map((blob) => [blob.sha256, Buffer.from(blob.body)]));
   objects.set(definitionSha, Buffer.from(definitionBody));

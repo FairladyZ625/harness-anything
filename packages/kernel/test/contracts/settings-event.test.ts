@@ -5,6 +5,7 @@ import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { compileSettingsChangedEvent, validateSettingsEvent } from "../../src/domain/settings-event.ts";
 import { requireEntityKindContract } from "../../src/domain/entity-kind-registry.ts";
 import { interpretEntityValue } from "../../src/domain/entity-kind-projection.ts";
+import { dropRetiredSettingsWalFlush } from "../../src/domain/settings-history.ts";
 import {
   SETTINGS_FIELD_OWNERSHIP,
   SETTINGS_REPOSITORY_V1_SCHEMA,
@@ -62,11 +63,15 @@ test("a repository Settings declaration recorded before reviewIndependence exist
     scaffolds: { task: "governance/task-scaffold.json", repository: "governance/repository-scaffold.json" },
     walFlush: { adaptive: true, events: 256, bytes: 8388608, milliseconds: 2000 },
   };
-  assert.deepEqual(validateRepositorySettings(legacy), []);
+  // walFlush has since left the declarations; replay reads the stored snapshot without it.
+  assert.match(validateRepositorySettings(legacy).join("; "), /walFlush/u);
+  const replayed = dropRetiredSettingsWalFlush(legacy);
+  assert.deepEqual(validateRepositorySettings(replayed), []);
   assert.equal(SETTINGS_REPOSITORY_V1_SCHEMA.required.includes("reviewIndependence"), false);
   assert.equal(SETTINGS_V1_SCHEMA.required.includes("reviewIndependence"), false);
-  const interpreted = interpretEntityValue(requireEntityKindContract("settings"), legacy);
+  const interpreted = interpretEntityValue(requireEntityKindContract("settings"), replayed);
   assert.equal(interpreted.id, "repository");
+  assert.equal(Object.hasOwn(interpreted.value, "walFlush"), false);
   assert.equal(repositorySettings(legacy as never).reviewIndependence, "execution");
 });
 
@@ -91,18 +96,19 @@ test("Settings facet codec changes owned fields and preserves every unowned byte
   assert.equal(candidate.replace("strict-task", "standard-task"), original.replace("  locale: en-US\n", ""));
 });
 
-test("Settings facet persists all adaptive WAL flush controls", () => {
-  const settings: SettingsV1 = {
-      ...readSettingsFacet(original),
-      walFlush: { adaptive: false, events: 4096, bytes: 16_777_216, milliseconds: 30_000 },
-    },
-    candidate = writeRepositorySettingsFacet(original, settings);
-  assert.deepEqual(readSettingsFacet(candidate).walFlush, settings.walFlush);
-  assert.match(
-    candidate,
-    /  walFlush:\n    adaptive: false\n    events: 4096\n    bytes: 16777216\n    milliseconds: 30000/u,
-  );
-  assert.equal(candidate.includes("    wipLimit: 60"), true);
+test("a harness.yaml still carrying the retired walFlush block reads without it and keeps the block on write", () => {
+  const authored = original.replace(
+      "  tasks:\n",
+      "  walFlush:\n    adaptive: true\n    events: 256\n    bytes: 8388608\n    milliseconds: 3600000\n  tasks:\n",
+    ),
+    read = readSettingsFacet(authored);
+  assert.notEqual(authored, original);
+  assert.equal(Object.hasOwn(read, "walFlush"), false);
+  // Negative control: the declared fields read exactly as they do without the retired block.
+  assert.deepEqual(read, readSettingsFacet(original));
+  const candidate = writeRepositorySettingsFacet(authored, { ...read, reviewReturnBudget: 5 });
+  assert.equal(readSettingsFacet(candidate).reviewReturnBudget, 5);
+  assert.equal(candidate.replace("  reviewReturnBudget: 5\n", ""), authored.replace("  locale: en-US\n", ""));
 });
 
 test("settings_changed carries the singleton snapshot, parent CAS, YAML claim, and exact write plan", () => {
