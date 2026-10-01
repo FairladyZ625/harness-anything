@@ -10,6 +10,7 @@ import {
   isMigrationImportEvent,
   isRelationEvent,
   normalizePersistedCanonicalEvent,
+  normalizePersistedEventValue,
   serializePersistedCanonicalEvent,
   type CanonicalEventV1,
   type DocumentState,
@@ -424,7 +425,13 @@ export function applyEvent(
     } catch {
       throw new Error(`people.yaml blob ${claim.sha256} is not UTF-8`);
     }
-    if (canonicalJson(parsePeopleRosterDocument(body)) !== canonicalJson(event.payload.roster))
+    // Replay hands this branch a timestamp-normalized event while the blob keeps its authored
+    // spelling (`--expires-at` text may omit milliseconds); compare both facets normalized so
+    // precision is not mistaken for roster content.
+    if (
+      canonicalJson(normalizePersistedEventValue(parsePeopleRosterDocument(body))) !==
+      canonicalJson(normalizePersistedEventValue(event.payload.roster))
+    )
       throw new Error(`people.yaml blob ${claim.sha256} does not match the event roster snapshot`);
     const document: DocumentState = {
       path: claim.path as DocumentState["path"],

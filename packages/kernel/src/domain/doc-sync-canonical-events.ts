@@ -183,6 +183,12 @@ export function normalizePersistedCanonicalEvent<Event extends PersistedCanonica
   return normalizePersistedValue(event) as Event;
 }
 
+/** Bring a payload facet to the timestamp spelling a replayed persisted event carries, so a
+ * blob-parsed facet and an event facet compare equal regardless of millisecond precision. */
+export function normalizePersistedEventValue<T>(value: T): T {
+  return normalizePersistedValue(value) as T;
+}
+
 function normalizePersistedValue(value: unknown, field = ""): unknown {
   if (Array.isArray(value)) return value.map((entry) => normalizePersistedValue(entry));
   if (!isRecord(value)) {
