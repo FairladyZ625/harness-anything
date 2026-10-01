@@ -98,8 +98,11 @@ export function DecisionDetailView({
     routeReviewId = reviewLocation?.reviewId ?? null;
   const [activeTab, setActiveTab] = useState<DecisionDetailTab>(routeTab ?? "body");
   useEffect(() => {
-    setActiveTab(routeTab ?? "body");
-    // 路由页签只在决策或评审落点变化时生效;同一落点内的页签切换由 selectTab 负责。
+    setActiveTab("body");
+  }, [decisionId]);
+  useEffect(() => {
+    // 退出评审路由时保留 selectTab 的本地落点;新决策先重置,评审深链再选中。
+    if (routeTab) setActiveTab(routeTab);
   }, [decisionId, routeTab, routeReviewId]);
   const reviewActions = useDecisionReviewActions(repoId, decisionId ?? "");
   const selectTab = (tab: DecisionDetailTab) => {

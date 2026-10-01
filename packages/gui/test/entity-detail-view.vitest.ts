@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 import { beforeAll, afterEach, describe, expect, it, vi } from "vitest";
-import { act, createElement } from "react";
+import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { FactDetailView } from "../src/renderer/views/EntityDetailView.tsx";
@@ -366,6 +366,63 @@ async function mountDecisionView(decision: DecisionRow | null, props: Record<str
 }
 
 describe("DecisionDetailView", () => {
+  it("八个页签两两切换时保留点击落点,并响应外部评审路由与决策变化", async () => {
+    stubOverviewWindow();
+    let navigate!: (tab: "review" | "respond" | "report" | "judge" | null, id?: string) => void;
+    function RoutedDetail() {
+      const [location, setLocation] = useState<{ tab: "review" | "respond" | "report" | "judge" | null; id: string }>({
+        tab: "judge",
+        id: "dec_1",
+      });
+      navigate = (tab, id = "dec_1") => setLocation({ tab, id });
+      return createElement(DecisionDetailView, {
+        repoId: "repo-a",
+        decisionId: location.id,
+        decisions: [{ ...decisionRow(), decisionId: location.id }],
+        loading: false,
+        projectName: "Harness",
+        onBack: () => undefined,
+        onNavigateDecision: () => undefined,
+        onNavigateEntity: () => undefined,
+        reviewLocation: { tab: location.tab, reviewId: null },
+        onLocate: (ref) =>
+          navigate(
+            ref.startsWith("decisionreview/") ? (ref.split("/")[2] as "review" | "respond" | "report" | "judge") : null,
+            location.id,
+          ),
+      });
+    }
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const container = document.createElement("div"),
+      root = createRoot(container);
+    document.body.append(container);
+    queryMounted.push({ root, client });
+    await act(async () => root.render(createElement(QueryClientProvider, { client }, createElement(RoutedDetail))));
+    const keys = ["body", "overview", "claims", "relations", "review", "respond", "report", "judge"];
+    const selected = (key: string) =>
+      expect(container.querySelector(`#decision-tab-${key}`)?.getAttribute("aria-selected")).toBe("true");
+    const click = async (key: string) => {
+      await act(async () => (container.querySelector(`#decision-tab-${key}`) as HTMLButtonElement).click());
+      selected(key);
+    };
+    selected("judge");
+    // 首个回归路径:裁决 → 概况;随后覆盖全部 56 个不同页签有向组合。
+    await click("overview");
+    for (const source of keys)
+      for (const target of keys) {
+        if (source === target) continue;
+        await click(source);
+        await click(target);
+      }
+    for (const tab of ["review", "respond", "report", "judge"] as const) {
+      await act(async () => navigate(tab));
+      selected(tab);
+    }
+    await click("claims");
+    await act(async () => navigate(null, "dec_2"));
+    selected("body");
+  });
+
   it("选中决策后能读到 Markdown 正文(正向不变量)", async () => {
     const showDecision = vi.fn(async () => showReceipt(PROSE));
     vi.stubGlobal("window", { harness: { showDecision } });
