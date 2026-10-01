@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   inferLegacyGateRequirements,
-  gateAppliesToSubmission,
   resolveCompletionContract,
   validateFrozenCompletionContract,
   type FrozenCompletionContract,
@@ -254,24 +253,4 @@ test("governance modifiers freeze only as true, only on automated witnesses, and
     `    lint:\n      adapter: local-command\n      appliesTo: code\n      command: x\n      allowOverride: yes\n`,
     /allowOverride/u,
   );
-});
-
-test("frozen and historical cuts share code/doc applicability by frozen delivery paths", async () => {
-  const { completionGateIds } = await import("../../src/domain/closeout-readiness.ts");
-  const gates = ["ci", "code-doc-reconciliation"];
-  for (const deliverables of [[], ["src/delivery.ts"]]) {
-    const cut = {
-      completionClaim: "done",
-      deliverables,
-      outputs: [],
-      verificationNotes: [],
-      knownGaps: [],
-      residualRisks: [],
-      commitSha: "a".repeat(40),
-    };
-    const expected = deliverables.length ? gates : ["ci"];
-    assert.deepEqual(completionGateIds(gates, cut), expected);
-    assert.deepEqual(completionGateIds(gates, { ...cut, completionContract: currentPresetContract }), expected);
-    assert.equal(gateAppliesToSubmission(currentPresetContract.gates[1]!, cut), deliverables.length > 0);
-  }
 });

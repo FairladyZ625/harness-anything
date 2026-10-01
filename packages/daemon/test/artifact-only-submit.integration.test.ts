@@ -100,9 +100,10 @@ async function submitBaselineTask(artifact: boolean) {
       assert.equal(completed.outcome, "op_rejected", JSON.stringify(completed));
       assert.equal(completed.code, "fact_missing");
       assert.doesNotMatch(JSON.stringify(completed), /code_doc_missing/);
-      assert.deepEqual(completed.gateChecks, [
-        { gate: "code-doc-reconciliation", status: "not_applicable", witnessRef: null },
-      ]);
+      // Completion preparation reconciles the empty manifest itself; the holder has no path to supply.
+      const [codeDoc] = completed.gateChecks as readonly { gate: string; status: string; witnessRef: string }[];
+      assert.deepEqual([codeDoc?.gate, codeDoc?.status], ["code-doc-reconciliation", "pass"]);
+      assert.match(String(codeDoc?.witnessRef), /^event:code-doc-/u);
     }
     const execution = readFileSync(path.join(ledger, packagePath, "executions", `${executionId}.md`), "utf8"),
       section = execution.slice(execution.indexOf("## Deliverables"), execution.indexOf("## Outputs"));
@@ -117,5 +118,5 @@ async function submitBaselineTask(artifact: boolean) {
 
 test("a real artifact-only task submits without claiming its baseline merge paths", () => submitBaselineTask(true));
 
-test("a baseline closeout-only task completes past code/doc and still requires a Fact", () =>
+test("a baseline closeout-only task reconciles its empty manifest at completion and still requires a Fact", () =>
   submitBaselineTask(false));

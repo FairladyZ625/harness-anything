@@ -278,10 +278,13 @@ function evaluateCompletion(
       reviewReturnCommand(task.taskId, changes.reviewId),
       `Review ${changes.reviewId} requested changes; the owner returns the cut with rework instructions in the note.`,
     );
+  // An empty manifest leaves the holder no path to reconcile: completion preparation writes that
+  // witness itself, so it is never the step to name.
+  const reconcilable = closeoutGates.codeDoc && execution.submission.deliverables.length > 0;
   const gate = assessment.gates.find(
     ({ gateId, status }) =>
       !gateSatisfied(status) &&
-      (gateId !== "code-doc-reconciliation" || closeoutGates.codeDoc) &&
+      (gateId !== "code-doc-reconciliation" || reconcilable) &&
       !context.preparedGateIds?.includes(gateId),
   );
   if (gate)
