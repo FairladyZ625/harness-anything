@@ -103,6 +103,25 @@ test("PKCE login validates state, keeps tokens daemon-side, and binds the Keyclo
   assert.equal(statSync(path.join(root, "rbac", "oidc-session.json")).mode & 0o777, 0o600);
 });
 
+test("under a listener the browser signs in at its hostname while the daemon keeps to loopback", async () => {
+  const { service, requests, root } = fixture();
+  writeFileSync(
+    path.join(root, "rbac", "config.json"),
+    JSON.stringify({
+      url: "http://127.0.0.1:8080",
+      realm: "harness",
+      listener: { hostname: "center.example.test", port: 8443 },
+    }),
+  );
+  const begun = service.begin("http://127.0.0.1:43123/callback"),
+    authorizationUrl = new URL(String(begun.authorizationUrl));
+  assert.equal(authorizationUrl.origin, "https://center.example.test:8443");
+  assert.equal(authorizationUrl.pathname, "/realms/harness/protocol/openid-connect/auth");
+  assert.equal(authorizationUrl.searchParams.get("redirect_uri"), "http://127.0.0.1:43123/callback");
+  await service.complete("authorization-code", String(begun.state));
+  assert.deepEqual([...new Set(requests.map((request) => new URL(request.url).origin))], ["http://127.0.0.1:8080"]);
+});
+
 test("a session in use outlives its access token without signing in again", async () => {
   const active = fixture();
   await signIn(active);

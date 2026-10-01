@@ -430,7 +430,7 @@ export const agentProtocolCommands = Object.freeze([
     phase: "W3",
     path: ["bootstrap"],
     summary:
-      "Install, configure, and start the managed Keycloak and PostgreSQL authorization service; read or set its session lifetime.",
+      "Install, configure, and start the managed Keycloak and PostgreSQL authorization service; read or set its session lifetime and the HTTPS listener edge nodes sign in through.",
     method: "daemon.rbac.manage",
     inputs: [
       cliInput(
@@ -449,6 +449,8 @@ export const agentProtocolCommands = Object.freeze([
             "upgrade",
             "session-lifetime",
             "session-lifetime-set",
+            "listener",
+            "listener-set",
           ],
         },
       ),
@@ -466,6 +468,11 @@ export const agentProtocolCommands = Object.freeze([
       ),
       cliInput("--expected-version", "single", false, { code: "invalid_field" }, { field: "expectedVersion" }),
       cliInput("--operation-id", "single", false, { code: "invalid_field" }, { field: "operationId" }),
+      cliInput("--listen-address", "single", false, { code: "invalid_field" }, { field: "listenAddress" }),
+      cliInput("--hostname", "single", false, { code: "invalid_field" }),
+      cliInput("--port", "single", false, { code: "invalid_field" }, { regex: "^[1-9][0-9]*$", projection: "number" }),
+      cliInput("--certificate-file", "single", false, { code: "invalid_field" }, { field: "certificateFile" }),
+      cliInput("--certificate-key-file", "single", false, { code: "invalid_field" }, { field: "certificateKeyFile" }),
     ],
   }),
   defineHostAdminCommand({
