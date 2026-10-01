@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { daemonOwnerEnvironment, ownDaemonFixture } from "./daemon-cleanup.fixture.ts";
+import { ownDaemonFixture } from "./daemon-cleanup.fixture.ts";
 
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 
@@ -81,13 +81,13 @@ function cliEnv(root: string, userRoot: string, actor?: string): NodeJS.ProcessE
     HARNESS_DAEMON_ID: _daemonId,
     ...base
   } = process.env;
-  return daemonOwnerEnvironment({
+  return {
     ...base,
     HOME: path.join(root, ".home"),
     GIT_CONFIG_GLOBAL: "/dev/null",
     HARNESS_DAEMON_USER_ROOT: userRoot,
     ...(actor ? { HARNESS_ACTOR: actor } : {}),
-  });
+  };
 }
 
 function setup(): { parent: string; root: string; userRoot: string } {
@@ -165,8 +165,8 @@ async function waitForFileContent(target: string): Promise<string> {
   }
 }
 
-async function waitForProcessExit(pid: number): Promise<void> {
-  const deadline = Date.now() + 2_000;
+async function waitForProcessExit(pid: number, budgetMs = 2_000): Promise<void> {
+  const deadline = Date.now() + budgetMs;
   while (processAlive(pid)) {
     if (Date.now() >= deadline) throw new Error(`timed out waiting for process ${pid} to exit`);
     await new Promise((resolve) => setTimeout(resolve, 10));
