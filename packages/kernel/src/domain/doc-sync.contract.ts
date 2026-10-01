@@ -15,6 +15,7 @@ export {
   isDocEvent,
   isTaskEvent,
   normalizePersistedCanonicalEvent,
+  normalizePersistedEventValue,
   parseCanonicalEvent,
   serializeCanonicalEvent,
   serializePersistedCanonicalEvent,
