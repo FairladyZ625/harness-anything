@@ -73,6 +73,17 @@ test("GUI task writes settle from their own durable receipt without a follow-up 
     assert.equal(unknown.outcome, "op_rejected", JSON.stringify(unknown));
     assert.equal(unknown.code, "operation_not_published", JSON.stringify(unknown));
     assert.equal(settleTaskReceipt(unknown as never).state, "op_rejected");
+
+    // Switching the language writes this machine's preference file and nothing to the ledger, so
+    // its receipt has no acceptance to carry: it must cross the wire as a definite no-write.
+    const localized = (await harnessClient.updateSettings({
+      ...scope,
+      locale: "zh-CN",
+      idempotencyKey: "gui-locale-switch",
+    })) as unknown as Receipt;
+    assert.equal(localized.outcome, "applied", JSON.stringify(localized));
+    assert.equal(localized.status, "settled_no_write", JSON.stringify(localized));
+    assert.equal((await harnessClient.getSettings(scope)).settings.locale, "zh-CN");
   } finally {
     restoreWindow();
     for (const [key, value] of Object.entries({
