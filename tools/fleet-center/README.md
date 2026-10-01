@@ -3,9 +3,10 @@
 `centerctl.sh` is the W5-R production-cutover rehearsal deployment for
 `tencent-lighthouse-prod`. It installs the pinned Node 24 tarball under the
 login user's home, clones/builds Harness Anything, attaches an inner-ledger
-clone as `remote-center`, generates private TLS material and the assignment
-roster, and starts the daemon-owned TLS center. It never uses sudo, Docker,
-system GitLab/nginx configuration, or the host's default Harness daemon.
+clone as `remote-center`, starts the managed authorization service, generates
+private TLS material and the assignment roster, and starts the daemon-owned TLS
+center. It never uses sudo, Docker, system GitLab/nginx configuration, or the
+host's default Harness daemon.
 
 First start (the token is consumed from stdin and is not saved):
 
@@ -44,20 +45,77 @@ writes to the remote center.
 `up` writes `~/harness-center/fleet/roster.json` as `fleet-roster/v3`: one
 assignment row naming what the node may reach (`assignmentId`, `nodeId`,
 `repoId`, `viewId`, `expiresAt`, `scope`). The roster does not say who a node
-is. `centerctl.sh` creates no machine credential and registers no node.
+is. A node's machine credential and its owner live in the center's Keycloak
+node registry, and `centerctl.sh` creates no credential and registers no node.
 
-A node's machine credential and its owner live in the center's Keycloak node
-registry. Until the authorization service is running on this daemon and the
-node named by `HARNESS_CENTER_NODE_ID` is registered there with an owner who
-holds a grant on the repository, no edge sync can succeed against this center.
-`up` does none of that:
+Before it starts the Fleet listener, `up` runs `ha bootstrap`, which installs
+and starts the managed Keycloak and PostgreSQL under this deployment's user
+root. That step needs no sign-in. It downloads its runtimes from
+`repo1.maven.org`, `api.adoptium.net`, and `github.com`, and its receipt is
+kept at `~/harness-center/rbac-bootstrap.json`.
 
-- `ha bootstrap` installs and starts the managed Keycloak and PostgreSQL under
-  this deployment's user root. It needs no sign-in, and it downloads its
-  runtimes from `repo1.maven.org`, `api.adoptium.net`, and `github.com`.
-- Creating the first administrator and signing in need a person. This version
-  offers both only through the desktop app; there is no CLI entry for either.
-- Registering a node needs a signed-in administrator holding `access-admin`.
+Everything after that needs a person and is not run by the script:
+
+1. Create the first administrator and sign in. This version offers both only
+   through the desktop app connected to this daemon; a server without one has
+   no entry for either (tracked as `task_8352efd2f05ab2eda87b724761`).
+2. Give the node's owner an account and grant that person
+   `daemon-fleet-edge-sync` on the repository.
+3. Register the node, signed in as an administrator holding `access-admin`.
+
+Keep that order: start the listener with `up` first, then sign in. Once an
+administrator is signed in on this daemon, `ha daemon fleet center start` is
+refused with `authorization_denied`, so a later `up` that has to start the
+listener again fails at that step. This is a known limit of this version.
+
+### Registering a node
+
+Run these on the center, against this deployment's daemon
+(`HARNESS_DAEMON_USER_ROOT=~/harness-center/user-root`,
+`HARNESS_DAEMON_ID=center-rehearsal`):
+
+```bash
+mkdir -p ~/harness-center/fleet/nodes/<node-id>
+ha bootstrap --operation node-register --node-id <node-id> --person-id <person-id> \
+  --credential-file "$HOME/harness-center/fleet/nodes/<node-id>/credential"
+ha bootstrap --operation node-list
+```
+
+The first registration of a node mints its machine credential once and writes
+it to `--credential-file`, a new file readable only by its owner (`0600`). The
+receipt names the file and never carries the credential. The command is
+refused without `--credential-file`, and refused with
+`credential_file_unavailable` when the file already exists; in both cases
+nothing is registered. Use one directory per node and never share a credential
+between nodes. `<node-id>` must be the `nodeId` of the roster assignment.
+
+Move the file to the edge machine over a channel you trust and delete the
+center's copy. On the edge the credential goes in the workspace's
+`fleet-edge.json` (`credential`), or on the command line as
+`ha daemon fleet edge sync --credential`; prefer the file, which keeps it out
+of the process list and shell history.
+
+To change a node's owner, read its `version` from `node-list` and repeat
+`node-register` with `--person-id <new-person> --expected-version <version>`.
+No credential is minted and `--credential-file` is not needed.
+
+To remove a node:
+
+```bash
+ha bootstrap --operation node-unregister --node-id <node-id> --expected-version <version>
+```
+
+A stale version answers `version_conflict`. After removal the credential is
+rejected on new connections. A connection that was already open may still get
+answers to some frames (tracked as `task_957ec2cdea3f65a73487641bdb`), and
+leases the node holds are reclaimed by their existing timeout, not revoked.
+
+### When a first sync is refused
+
+| Code | Meaning |
+| --- | --- |
+| `authentication_failed` | The node is not registered, or the credential is wrong. The two are deliberately indistinguishable. |
+| `authorization_denied` | The node is registered, but its owner holds no grant for `daemon-fleet-edge-sync` on the repository. |
 
 If outbound GitHub access is unreliable, preseed `~/harness-center/app` with a
 clean Git checkout containing `HARNESS_CENTER_APP_REF`. `up` only fetches when

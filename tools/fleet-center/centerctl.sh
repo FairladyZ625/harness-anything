@@ -176,6 +176,19 @@ rebuild_projection() {
   note "projection rebuilt to the exact canonical cut"
 }
 
+# Installs and starts the managed Keycloak and PostgreSQL the center verifies
+# node credentials against. It needs no sign-in; the first administrator, the
+# sign-in, and node registration are an operator's steps and are not run here.
+start_authorization_service() {
+  local receipt="$center_root/rbac-bootstrap.json"
+  ha bootstrap >"$receipt" || fail "the authorization service did not start; inspect $receipt"
+  "$node_bin" -e '
+    const fs = require("node:fs"), receipt = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+    if (receipt.ok !== true || receipt.ready !== true) process.exit(1);
+  ' "$receipt" || fail "the authorization service is not ready; inspect $receipt"
+  note "authorization service ready"
+}
+
 ensure_tls_and_roster() {
   mkdir -p "$fleet_root" "$state_root"
   chmod 700 "$fleet_root" "$state_root"
@@ -269,6 +282,7 @@ ensure_app
 bootstrap_registry_and_clone
 start_daemon_and_wait
 rebuild_projection
+start_authorization_service
 ensure_tls_and_roster
 start_center
 print_status
