@@ -33,6 +33,7 @@ export function TaskPreviewDrawer({
   onOpenDetail,
   onPreviewTask,
   onSetPin,
+  onOpenRecord,
 }: {
   task: TaskRow | null;
   tasks: readonly TaskRow[];
@@ -41,6 +42,8 @@ export function TaskPreviewDrawer({
   onOpenDetail: (id: string) => void;
   onPreviewTask: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
+  /** 关键记录引用对象(execution/review/…)的打开出口:开所属任务详情并聚焦对应记录行。 */
+  onOpenRecord?: (taskId: string, recordRef: string) => void;
 }) {
   // 关闭时保留最后一张卡渲染退出动画;换卡时(taskId 变)同步到最新数据。
   const [shown, setShown] = useState<TaskRow | null>(task);
@@ -62,6 +65,7 @@ export function TaskPreviewDrawer({
           onOpenDetail={onOpenDetail}
           onPreviewTask={onPreviewTask}
           onSetPin={onSetPin}
+          onOpenRecord={onOpenRecord}
         />
       )}
     </Drawer>
@@ -76,6 +80,7 @@ function TaskPreviewBody({
   onOpenDetail,
   onPreviewTask,
   onSetPin,
+  onOpenRecord,
 }: {
   task: TaskRow;
   tasks: readonly TaskRow[];
@@ -84,6 +89,8 @@ function TaskPreviewBody({
   onOpenDetail: (id: string) => void;
   onPreviewTask: (id: string) => void;
   onSetPin?: (task: TaskRow, pinned: boolean) => void;
+  /** 关键记录引用对象的打开出口;缺省时编号保持纯文本,不造死链接。 */
+  onOpenRecord?: (taskId: string, recordRef: string) => void;
 }) {
   const related = relations
     .filter(
@@ -266,6 +273,14 @@ function TaskPreviewBody({
                 steps: [],
                 ref: event.ref,
                 onClick: () => onOpenDetail(task.taskId),
+                // 引用对象的结构化编号与任务详情时间线同一机制:有 recordRef 且接了
+                // 出口才渲染成实体链接(任务详情外打开 = 去详情页聚焦该记录行)。
+                ...(event.recordRef !== undefined && onOpenRecord !== undefined
+                  ? {
+                      recordRef: event.recordRef,
+                      onOpenRecord: (recordRef: string) => onOpenRecord(task.taskId, recordRef),
+                    }
+                  : {}),
               }))}
             />
           ))}

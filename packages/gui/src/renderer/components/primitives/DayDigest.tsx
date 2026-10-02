@@ -1,5 +1,6 @@
 import { Fragment, useState, type ReactNode } from "react";
 import { t } from "../../i18n/index.tsx";
+import { EntityRefLink } from "../EntityRefLink.tsx";
 import { StatusTag, type StatusTone } from "./StatusTag";
 
 export interface DayPathStep {
@@ -16,6 +17,12 @@ export interface DayPath {
   readonly selected?: boolean;
   /** 行尾弱色编号(机器 id):主文字是人话,编号从这可达(视觉基线 v2)。 */
   readonly ref?: string;
+  /**
+   * 行尾编号的结构化落点(execution/<id> 等事件源拼好的 recordRef):给出它与
+   * onOpenRecord,编号经 EntityRefLink 渲染成可激活路径;缺省仍是纯文本编号。
+   */
+  readonly recordRef?: string;
+  readonly onOpenRecord?: (recordRef: string) => void;
   /** 行悬停全文:主文字被收束(可读名、人话步骤)时,原始串放这里。 */
   readonly title?: string;
 }
@@ -62,7 +69,9 @@ export function DayDigest({
       {open && (
         <div className="my-1 ml-14">
           {paths.map((path, index) => {
-            const content = (
+            const openRecord =
+              path.recordRef !== undefined && path.onOpenRecord !== undefined ? path.onOpenRecord : undefined;
+            const main = (
               <>
                 {path.time !== undefined && (
                   <span className="w-9 flex-none font-mono text-text-faint ui-micro">{path.time}</span>
@@ -87,16 +96,47 @@ export function DayDigest({
                     </Fragment>
                   ))}
                 </span>
-                {path.ref !== undefined && (
-                  <span
-                    className="min-w-0 flex-1 truncate text-right font-mono text-text-faint ui-micro"
-                    title={path.title ?? path.ref}
-                  >
-                    {path.ref}
-                  </span>
-                )}
               </>
             );
+            const refTail =
+              path.ref === undefined ? null : openRecord !== undefined ? (
+                <EntityRefLink
+                  entityRef={path.recordRef!}
+                  onNavigate={openRecord}
+                  title={path.title ?? path.ref}
+                  className="min-w-0 flex-1 truncate text-right font-mono ui-micro text-accent hover:underline"
+                >
+                  {path.ref}
+                </EntityRefLink>
+              ) : (
+                <span
+                  className="min-w-0 flex-1 truncate text-right font-mono text-text-faint ui-micro"
+                  title={path.title ?? path.ref}
+                >
+                  {path.ref}
+                </span>
+              );
+            // 行链与行尾实体链接并存时,行退化为纯行,两个动作各是原生 button——
+            // button 里嵌 button 是非法 HTML,会破坏两个动作的可达性。
+            if (openRecord !== undefined && path.onClick !== undefined) {
+              return (
+                <div
+                  key={index}
+                  data-selected={path.selected || undefined}
+                  className={`group ${pathRowCls(path.selected)}`}
+                >
+                  <button
+                    type="button"
+                    onClick={path.onClick}
+                    title={path.title}
+                    className="flex min-w-0 flex-1 cursor-pointer items-baseline gap-2 text-left"
+                  >
+                    {main}
+                  </button>
+                  {refTail}
+                </div>
+              );
+            }
             if (path.onClick === undefined) {
               return (
                 <div
@@ -105,7 +145,8 @@ export function DayDigest({
                   title={path.title}
                   className={pathRowCls(path.selected)}
                 >
-                  {content}
+                  {main}
+                  {refTail}
                 </div>
               );
             }
@@ -118,7 +159,8 @@ export function DayDigest({
                 title={path.title}
                 className={`group w-full cursor-pointer text-left ${pathRowCls(path.selected)}`}
               >
-                {content}
+                {main}
+                {refTail}
               </button>
             );
           })}

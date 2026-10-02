@@ -11,6 +11,10 @@ import type { ReactNode } from "react";
  * 消费方接线:视图层从 App 拿 navigateToEntity / navigateToTask /
  * selectRuntimeEntity 等回调并下钻;自引用(实体详情页显示自己的 ID)导航为
  * no-op(导航栈对等价位置不推栈),可安全使用。
+ *
+ * 任务内记录引用(execution/<id>、review/<id>、consent/<id>、witness/<id>)也走
+ * 本组件,但它们的「路」不是 entityRoutes 的全局实体页,而是所属任务详情收口
+ * 页签的对应记录行——onNavigate 接该聚焦回调(如 Task 详情的 openCloseoutRecord)。
  */
 export function EntityRefLink({
   entityRef,
@@ -19,7 +23,7 @@ export function EntityRefLink({
   title,
   className,
 }: {
-  /** canonical 实体引用;kind 见 navigation/entityRoutes.ts 的可寻址七类。 */
+  /** canonical 实体引用;全局 kind 见 navigation/entityRoutes.ts 的可寻址七类,任务内记录引用见上。 */
   entityRef: string;
   /** 点击后的导航出口;必填,不提供回调就没有路径。 */
   onNavigate: (ref: string) => void;

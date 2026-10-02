@@ -238,6 +238,12 @@ function AppShell() {
   const projectTasks = useMemo(() => tasks.filter((t) => t.projectId === projectId), [tasks, projectId]);
   /** task 详情「打开终端」→ 终端页进页即建绑定会话;requestId 让同一请求只消费一次。 */
   const [terminalLaunch, setTerminalLaunch] = useState<TerminalLaunchTask | null>(null);
+  // 预览抽屉点开的收口记录(execution/review/…):一次性聚焦意图,随任务详情
+  // 消费;离开该任务的详情位即清空,不滞留成下次打开的隐性初始页签。
+  const [recordFocus, setRecordFocus] = useState<{ taskId: string; recordRef: string } | null>(null);
+  useEffect(() => {
+    if (recordFocus !== null && selectedId !== recordFocus.taskId) setRecordFocus(null);
+  }, [recordFocus, selectedId]);
   const selected = useMemo(() => tasks.find((t) => t.taskId === selectedId) ?? null, [tasks, selectedId]);
   // 根任务即工作:选中位落在工作根(跨仓深链、历史恢复时任务行尚未到)就原地换成工作页。
   const selectedWorkRootId = selected !== null && works.isWorkRoot(selected.taskId) ? selected.taskId : null;
@@ -444,6 +450,11 @@ function AppShell() {
         }}
         onFocusGraph={focusEntityInGraph}
         initialTab={!framing.embedded && focusedEntityRef === taskReviewRef(task.taskId) ? "closeout" : undefined}
+        initialRecordFocus={
+          !framing.embedded && recordFocus !== null && recordFocus.taskId === task.taskId
+            ? recordFocus.recordRef
+            : undefined
+        }
       />
     );
   };
@@ -920,6 +931,10 @@ function AppShell() {
           onOpenDetail={openTaskDetail}
           onPreviewTask={openTaskPreview}
           onSetPin={handleSetPin}
+          onOpenRecord={(taskId, recordRef) => {
+            setRecordFocus({ taskId, recordRef });
+            openTaskDetail(taskId);
+          }}
         />
         <CommandPalette
           open={paletteOpen}

@@ -59,6 +59,7 @@ export function TaskDetailView({
   onSetPin,
   onFocusGraph,
   initialTab,
+  initialRecordFocus,
 }: {
   /** 当前仓;给出时详情头下列出挂在本任务上、等你答复 / 已答复的 awaits(同一答复面板)。 */
   repoId?: string;
@@ -102,18 +103,24 @@ export function TaskDetailView({
   onFocusGraph?: (ref: string) => void;
   /** 打开时停在的页签;议程评审类落点(taskreview/<id>)传 closeout。缺省为概况。 */
   initialTab?: TaskDetailTab;
+  /** 打开时聚焦的收口记录(execution/<id> 等);给出时停在收口页签对应记录行(预览抽屉的反向入口)。 */
+  initialRecordFocus?: string;
 }) {
-  const [activeTab, setActiveTab] = useState<TaskDetailTab>(initialTab ?? "overview");
+  // 记录聚焦蕴含收口页签:详情落点在收口记录行里(显式 initialTab 优先)。
+  const initialTabOf = initialTab ?? (initialRecordFocus !== undefined ? "closeout" : "overview");
+  const [activeTab, setActiveTab] = useState<TaskDetailTab>(initialTabOf);
   const [activeDoc, setActiveDoc] = useState("task_plan.md");
   const [focusedSessionId, setFocusedSessionId] = useState<string | null>(null);
+  const [focusedRecordRef, setFocusedRecordRef] = useState<string | null>(initialRecordFocus ?? null);
   const external = isExternal(task);
   const pinned = task.pinned === true;
 
   useEffect(() => {
-    setActiveTab(initialTab ?? "overview");
+    setActiveTab(initialTabOf);
     setActiveDoc("task_plan.md");
     setFocusedSessionId(null);
-  }, [task.taskId, initialTab]);
+    setFocusedRecordRef(initialRecordFocus ?? null);
+  }, [task.taskId, initialTabOf, initialRecordFocus]);
 
   const selectTab = (tab: TaskDetailTab) => {
     setActiveTab(tab);
@@ -122,6 +129,13 @@ export function TaskDetailView({
   const openSession = (runtimeSessionId: string) => {
     setFocusedSessionId(runtimeSessionId);
     setActiveTab("dispatch");
+  };
+  // 时间线引用对象(execution/review/…)的详情落点:这些记录没有独立详情页,
+  // 它们的详情就是收口页签里的对应记录行——聚焦导航发生在任务详情内部,
+  // 任务上下文与返回栈不受影响(与 openSession 同一模式)。
+  const openCloseoutRecord = (recordRef: string) => {
+    setFocusedRecordRef(recordRef);
+    selectTab("closeout");
   };
   const openDocument = useCallback((path: string) => {
     setActiveDoc(path);
@@ -404,7 +418,11 @@ export function TaskDetailView({
             data-testid="task-detail-panel-scroll"
           >
             {activeTab === "overview" ? (
-              <TaskOverviewTab task={task} onOpenCloseout={() => selectTab("closeout")} />
+              <TaskOverviewTab
+                task={task}
+                onOpenCloseout={() => selectTab("closeout")}
+                onOpenRecord={openCloseoutRecord}
+              />
             ) : activeTab === "dispatch" ? (
               <TaskDispatchTab task={task} focusedSessionId={focusedSessionId} onNavigateEntity={onNavigateEntity} />
             ) : activeTab === "evidence" ? (
@@ -422,6 +440,7 @@ export function TaskDetailView({
             ) : activeTab === "closeout" ? (
               <TaskCloseoutTab
                 task={task}
+                focusedRecordRef={focusedRecordRef}
                 mutationFeedback={mutationFeedback}
                 onProgress={onProgress}
                 onSubmit={onSubmit}
