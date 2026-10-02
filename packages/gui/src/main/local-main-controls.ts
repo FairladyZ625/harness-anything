@@ -1,6 +1,4 @@
 import type { GuiServiceBridge } from "../api/service-bridge.ts";
-import { createRuntimeInstanceCredentialController } from "./secure-credential-broker.ts";
-import type { CredentialPort } from "@harness-anything/daemon/client";
 
 type Target = {
   readonly repoId: string;
@@ -11,18 +9,10 @@ type Target = {
 export function addLocalMainControls(input: {
   readonly bridge: GuiServiceBridge;
   readonly target: (repoId?: string) => Promise<Target>;
-  readonly credentialPort?: CredentialPort;
 }): GuiServiceBridge {
-  // API-key creation remains main-process-bound so the daemon receives only an opaque
-  // credential reference; the resulting create call returns to the registry-derived bridge.
-  const credentialController = createRuntimeInstanceCredentialController({
-    ...(input.credentialPort ? { port: input.credentialPort } : {}),
-    create: async (payload) => asRecord(await input.bridge.invoke("createRuntimeInstance", payload)),
-  });
   return {
     stream: input.bridge.stream,
     invoke: async (method, payload) => {
-      if (method === "createRuntimeInstance") return credentialController.create(asRecord(payload) as never);
       const result = asRecord(await input.bridge.invoke(method, payload));
       return method === "getSystemStatus" ? overlayLocalUserRoot(result) : result;
     },

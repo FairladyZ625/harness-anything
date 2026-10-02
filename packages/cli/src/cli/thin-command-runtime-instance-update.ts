@@ -17,6 +17,8 @@ export function parseRuntimeInstanceUpdate(
     models = flags.many.get("--model") ?? [];
   if (enable && disable) return rejectInput(inputs, route.id, "--enable", json);
   if (
+    !flags.booleans.has("--api-key-stdin") &&
+    !flags.one.has("--api-key-file") &&
     !flags.one.has("--name") &&
     !flags.one.has("--installation") &&
     models.length === 0 &&
@@ -32,7 +34,7 @@ export function parseRuntimeInstanceUpdate(
     return rejected(
       "invalid_field",
       "Runtime instance update requires --name, --installation, --model, --default-model, " +
-        "--base-url, --effort, --permission-mode, --isolation, --fast, --enable, or --disable.",
+        "--base-url, --effort, --permission-mode, --isolation, --fast, --enable, --disable, --api-key-stdin, or --api-key-file.",
       json,
     );
   return accepted(
@@ -42,6 +44,8 @@ export function parseRuntimeInstanceUpdate(
     {
       kind: route.id,
       instanceId,
+      ...(flags.booleans.has("--api-key-stdin") ? { apiKeyStdin: true } : {}),
+      ...(flags.one.has("--api-key-file") ? { apiKeyFile: flags.one.get("--api-key-file") } : {}),
       ...(flags.one.get("--name") ? { name: flags.one.get("--name") } : {}),
       ...(flags.one.get("--installation") ? { installationId: flags.one.get("--installation") } : {}),
       ...(models.length ? { models } : {}),

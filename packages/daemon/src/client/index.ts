@@ -8,6 +8,7 @@ export { readDaemonPid, startDaemon } from "../runtime.ts";
 export type { RunningDaemon } from "../runtime.ts";
 export type { WriterEpochFenceDescriptor } from "../writer-epoch.ts";
 export {
+  assertRuntimeCredentialEndpoint,
   daemonIdFromEnv,
   daemonUserRoot,
   localUserDaemonEndpoint,

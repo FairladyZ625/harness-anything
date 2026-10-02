@@ -34,9 +34,10 @@ export function runtimeAuthPresentationText(
   presentation: RuntimeAuthPresentation,
 ): string {
   if (presentation.state === "not-started") return t("agentRuntime.authNotChecked");
-  if (presentation.state === "probing") return t("agentRuntime.authProbing");
+  if (presentation.state === "probing")
+    return t(instance.authMode === "api-key" ? "agentRuntime.apiKeyProbing" : "agentRuntime.authProbing");
   if (presentation.state === "failed") return t("agentRuntime.authProbeFailed", { error: presentation.error ?? "" });
   return instance.authReadiness.status === "ready"
-    ? t("agentRuntime.authVerified")
+    ? t(instance.authMode === "api-key" ? "agentRuntime.apiKeyReady" : "agentRuntime.authVerified")
     : `${instance.authReadiness.code}: ${instance.authReadiness.hint}`;
 }

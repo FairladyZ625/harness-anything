@@ -10,7 +10,7 @@
   "agentRuntime.thesisSummary": "ⓘ Design thesis",
   "agentRuntime.thesisBody": "Dispatch = Agent × Runtime × Task → Session. The carrier is not the identity (ADR-0028).",
   "agentRuntime.legendReady": "Ready",
-  "agentRuntime.legendReadyTip": "Authentication verified; the instance can take dispatches.",
+  "agentRuntime.legendReadyTip": "Ready for dispatch. API-key readiness confirms configuration availability, not provider authentication.",
   "agentRuntime.legendPartial": "Not checked",
   "agentRuntime.legendPartialTip": "Authentication has not been checked yet; the background probe is non-blocking.",
   "agentRuntime.legendBlocked": "Unavailable",
@@ -40,7 +40,7 @@
   "agentRuntime.providerDefault": "provider default",
   "agentRuntime.editProvider": "Edit provider",
   "agentRuntime.saveProvider": "Save provider",
-  "agentRuntime.providerEditHint": "Credentials and call-path configuration stay unchanged.",
+  "agentRuntime.providerEditHint": "The instance keeps its identity and authentication mode.",
   "agentRuntime.installation": "Installation",
   "agentRuntime.installationMissing": "Installation missing",
   "agentRuntime.defaultModel": "Default model",
@@ -255,7 +255,7 @@
   "agentRuntime.baseUrlHint": "Point at a third-party endpoint here; leave empty for the official one.",
   "agentRuntime.apiKey": "API key",
   "agentRuntime.apiKeyPlaceholder": "typed once",
-  "agentRuntime.apiKeyHint": "Typed once at creation, stored in the OS keychain; the daemon only ever sees an opaque reference.",
+  "agentRuntime.apiKeyHint": "Stored in the selected server’s OS credential vault; existing keys are never shown.",
   "agentRuntime.effort": "Effort",
   "agentRuntime.fast": "Fast mode",
   "agentRuntime.fastHint": "Use Codex's faster service tier by default.",
@@ -637,5 +637,9 @@
   "agentRuntime.facts.lease": "Lease",
   "agentRuntime.facts.dispatch": "Dispatch",
   "agentRuntime.facts.delegation": "Delegation",
-  "agentRuntime.facts.lastActivity": "Last activity"
+  "agentRuntime.facts.lastActivity": "Last activity",
+  "agentRuntime.replaceApiKey": "Replace API key",
+  "agentRuntime.replaceApiKeyHint": "Leave replacement off to keep the current key. A new key applies to the next launch; authentication is not checked.",
+  "agentRuntime.apiKeyReady": "API key configured; provider authentication not checked",
+  "agentRuntime.apiKeyProbing": "Checking API key availability"
 }

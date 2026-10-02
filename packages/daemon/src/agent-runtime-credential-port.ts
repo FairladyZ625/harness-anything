@@ -22,6 +22,7 @@ export interface CredentialPort {
   readonly issue: () => string;
   readonly store: (reference: string, secret: string) => Promise<void>;
   readonly resolve: (reference: string) => Promise<string>;
+  readonly remove: (reference: string) => Promise<void>;
 }
 // Runtime spawns resolve credentials inside the repository write queue, so a vault that waits on a
 // person (a locked keychain's unlock dialog) must fail the lookup rather than hold every write. A
@@ -31,7 +32,7 @@ const credentialLookupTimeoutMs = 10_000;
 const namespace = "com.harness-anything.runtime-instance",
   neutralPattern = /^credential:v1:([a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)$/u,
   legacyPattern = /^keychain:([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+)$/u;
-const windowsCredentialApi = `using System;using System.Runtime.InteropServices;public class HarnessCredential { [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] public struct CREDENTIAL { public int Flags; public int Type; public string TargetName; public string Comment; public long LastWritten; public int CredentialBlobSize; public IntPtr CredentialBlob; public int Persist; public int AttributeCount; public IntPtr Attributes; public string TargetAlias; public string UserName; } [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern bool CredWriteW(ref CREDENTIAL credential, uint flags); [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern bool CredReadW(string target, uint type, uint reserved, out IntPtr credential); [DllImport("advapi32.dll")] public static extern void CredFree(IntPtr credential); }`;
+const windowsCredentialApi = `using System;using System.Runtime.InteropServices;public class HarnessCredential { [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] public struct CREDENTIAL { public int Flags; public int Type; public string TargetName; public string Comment; public long LastWritten; public int CredentialBlobSize; public IntPtr CredentialBlob; public int Persist; public int AttributeCount; public IntPtr Attributes; public string TargetAlias; public string UserName; } [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern bool CredWriteW(ref CREDENTIAL credential, uint flags); [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern bool CredReadW(string target, uint type, uint reserved, out IntPtr credential); [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern bool CredDeleteW(string target, uint type, uint flags); [DllImport("advapi32.dll")] public static extern void CredFree(IntPtr credential); }`;
 
 export function isCredentialReferenceText(text: string): boolean {
   return neutralPattern.test(text) || legacyPattern.test(text);
@@ -55,6 +56,9 @@ export function credentialPort(
         (await attempt(backend.hint, () => run(command, lookupTimeoutMs))) || throwCredentialUnavailable(backend.hint)
       );
     },
+    remove: async (reference) => {
+      await attempt(backend.hint, () => run(backend.remove(reference), lookupTimeoutMs));
+    },
   };
 }
 export async function runCredentialCommand(command: CredentialCommand, timeoutMs?: number): Promise<string> {
@@ -76,6 +80,7 @@ async function attempt(hint: string, work: () => Promise<string>): Promise<strin
 interface CredentialBackend {
   readonly store: (id: string, secret: string) => CredentialCommand;
   readonly resolve: (reference: string) => CredentialCommand;
+  readonly remove: (reference: string) => CredentialCommand;
   readonly hint: string;
 }
 function credentialBackend(platform: NodeJS.Platform): CredentialBackend {
@@ -100,6 +105,13 @@ function credentialBackend(platform: NodeJS.Platform): CredentialBackend {
           ],
         };
       },
+      remove: (reference) => {
+        const legacy = legacyPattern.exec(reference);
+        return {
+          file: "/usr/bin/security",
+          args: ["delete-generic-password", "-s", legacy?.[1] ?? namespace, "-a", legacy?.[2] ?? requiredId(reference)],
+        };
+      },
       hint: "macOS keychain access failed for the configured runtime credential.",
     };
   if (platform === "linux")
@@ -113,7 +125,11 @@ function credentialBackend(platform: NodeJS.Platform): CredentialBackend {
         if (legacyPattern.test(reference)) throw credentialUnavailable(legacyHint);
         return { file: "secret-tool", args: ["lookup", "service", namespace, "account", requiredId(reference)] };
       },
-      hint: "Linux secret service lookup failed; install libsecret-tools (secret-tool) and keep a Secret Service provider such as gnome-keyring running and unlocked.",
+      remove: (reference) => ({
+        file: "secret-tool",
+        args: ["clear", "service", namespace, "account", requiredId(reference)],
+      }),
+      hint: "Linux Secret Service is unavailable. Install libsecret-tools and gnome-keyring; run the daemon in the same user D-Bus session as an unlocked keyring (headless setup: docs-release/provider-credentials.md).",
     };
   if (platform === "win32")
     return {
@@ -122,18 +138,24 @@ function credentialBackend(platform: NodeJS.Platform): CredentialBackend {
         if (legacyPattern.test(reference)) throw credentialUnavailable(legacyHint);
         return windowsCommand(windowsReadScript(requiredId(reference)));
       },
+      remove: (reference) =>
+        windowsCommand(
+          `$ErrorActionPreference = 'Stop'\nAdd-Type -TypeDefinition '${windowsCredentialApi}'\nif (-not [HarnessCredential]::CredDeleteW('${namespace}/${requiredId(reference)}', 1, 0) -and [Runtime.InteropServices.Marshal]::GetLastWin32Error() -ne 1168) { exit 5 }\nexit 0\n`,
+        ),
       hint: "Windows Credential Manager access failed for the configured runtime credential.",
     };
   throw credentialUnavailable(
     `Native credential storage has no implementation for ${platform}; supported platforms are darwin, linux, and win32.`,
   );
 }
+
 const legacyHint = "Legacy keychain references resolve only on macOS.";
 function requiredId(reference: string): string {
   const id = neutralPattern.exec(reference)?.[1];
   if (!id) throw credentialUnavailable("Credential references must use the credential:v1:<id> grammar.");
   return id;
 }
+
 function credentialUnavailable(hint: string): Error {
   return Object.assign(new Error(hint), { code: "runtime_credential_unavailable" });
 }

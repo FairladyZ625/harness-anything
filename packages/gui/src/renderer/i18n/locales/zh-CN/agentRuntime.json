@@ -10,7 +10,7 @@
   "agentRuntime.thesisSummary": "ⓘ 设计主张",
   "agentRuntime.thesisBody": "派活 = Agent × Runtime × Task → Session。载体 ≠ 身份(ADR-0028)。",
   "agentRuntime.legendReady": "已就绪",
-  "agentRuntime.legendReadyTip": "认证已校验,实例可派活。",
+  "agentRuntime.legendReadyTip": "可以派遣。API Key 就绪仅表示配置可用,不表示已验证 Provider 认证。",
   "agentRuntime.legendPartial": "未探测",
   "agentRuntime.legendPartialTip": "认证尚未探测;后台探测不会阻塞列表首屏。",
   "agentRuntime.legendBlocked": "不可用",
@@ -40,7 +40,7 @@
   "agentRuntime.providerDefault": "provider 默认",
   "agentRuntime.editProvider": "编辑 Provider",
   "agentRuntime.saveProvider": "保存 Provider",
-  "agentRuntime.providerEditHint": "凭证与调用方式配置保持不变。",
+  "agentRuntime.providerEditHint": "实例身份与认证方式保持不变。",
   "agentRuntime.installation": "安装",
   "agentRuntime.installationMissing": "安装见证已缺失",
   "agentRuntime.defaultModel": "默认模型",
@@ -255,7 +255,7 @@
   "agentRuntime.baseUrlHint": "第三方端点填这里;留空走官方端点。",
   "agentRuntime.apiKey": "API Key",
   "agentRuntime.apiKeyPlaceholder": "只输入一次",
-  "agentRuntime.apiKeyHint": "只在创建时输入一次,存进系统钥匙串,daemon 只拿到不透明引用。",
+  "agentRuntime.apiKeyHint": "存入所选服务器的系统凭据库；不会回显已有密钥。",
   "agentRuntime.effort": "Effort",
   "agentRuntime.fast": "快速模式",
   "agentRuntime.fastHint": "默认使用 Codex 的快速服务层级。",
@@ -637,5 +637,9 @@
   "agentRuntime.facts.lease": "租约",
   "agentRuntime.facts.dispatch": "派工",
   "agentRuntime.facts.delegation": "委派",
-  "agentRuntime.facts.lastActivity": "最近活动"
+  "agentRuntime.facts.lastActivity": "最近活动",
+  "agentRuntime.replaceApiKey": "更换 API Key",
+  "agentRuntime.replaceApiKeyHint": "不开启更换则保留原密钥。新密钥用于下次启动；保存不代表已验证认证。",
+  "agentRuntime.apiKeyReady": "密钥已配置;尚未验证 Provider 认证",
+  "agentRuntime.apiKeyProbing": "正在检查密钥是否可用"
 }

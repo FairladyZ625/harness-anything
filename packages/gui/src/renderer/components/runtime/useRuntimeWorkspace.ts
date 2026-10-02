@@ -265,7 +265,7 @@ export function useAgentSquadWorkspace(repoId: string) {
     queryFn: () => agentEntityClient.listSquads(repoId),
     staleTime: 4_000,
   });
-  const machine = useQuery(runtimeInstanceCatalogQuery());
+  const machine = useQuery(runtimeInstanceCatalogQuery(repoId));
   const channel = useRuntimeChannel(repoId, async () => {
     await Promise.all([
       client.invalidateQueries({
@@ -462,7 +462,7 @@ export function useRelatedDispatches(
 // 数据面),与 Agent 入口共享缓存键。
 export function useProviderWorkspace(repoId: string, requestedInstanceId: string | null = null) {
   const client = useQueryClient();
-  const machine = useQuery(runtimeInstanceCatalogQuery());
+  const machine = useQuery(runtimeInstanceCatalogQuery(repoId));
   const agents = useQuery({
     queryKey: ["agents", repoId],
     queryFn: () => agentEntityClient.listAgents(repoId),
@@ -476,8 +476,8 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
     queries: listedInstances.map((instance) => {
       const needsProbe = instance.authReadiness.code === "runtime_auth_not_checked";
       return {
-        queryKey: ["runtime-instance-auth", instance.instanceId, machine.dataUpdatedAt],
-        queryFn: () => runtimeInstanceClient.probe(instance.instanceId),
+        queryKey: ["runtime-instance-auth", repoId, instance.instanceId, machine.dataUpdatedAt],
+        queryFn: () => runtimeInstanceClient.probe(instance.instanceId, repoId),
         // Provider auth commands may invoke the provider executable. Probe the visible carrier;
         // probing every catalog row at once created a second daemon request storm on cold entry.
         enabled: needsProbe && instance.instanceId === autoProbeInstanceId,
@@ -559,14 +559,14 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
     createInstance: async (input: RuntimeInstanceCreateInput) => {
       const created = await channel.run(
         t("agentRuntime.opInstanceCreated"),
-        () => runtimeInstanceClient.create(input),
+        () => runtimeInstanceClient.create(input, repoId),
         false,
       );
       if (!created) return null;
       if (input.authMode === "subscription") {
         const probed = await channel.run(
           t("agentRuntime.opAuthChecked"),
-          () => runtimeInstanceClient.probe(input.instanceId),
+          () => runtimeInstanceClient.probe(input.instanceId, repoId),
           false,
         );
         if (subscriptionCreationNeedsLogin(input, probed))
@@ -581,17 +581,17 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
       return created;
     },
     updateInstance: (input: RuntimeInstanceUpdateInput) =>
-      channel.run(t("agentRuntime.opInstanceUpdated"), () => runtimeInstanceClient.update(input)),
+      channel.run(t("agentRuntime.opInstanceUpdated"), () => runtimeInstanceClient.update(input, repoId)),
     // 与 updateInstance 同一条 await + invalidate 通道:布尔开关回显等一次目录重读,
     // 不做乐观写回滚(评审 #5 第 8 条:无实测延迟收益,删除优先)。
     setInstanceEnabled: (instanceId: string, enabled: boolean) =>
       channel.run(t(enabled ? "agentRuntime.opInstanceEnabled" : "agentRuntime.opInstanceDisabled"), () =>
-        runtimeInstanceClient.setEnabled(instanceId, enabled),
+        runtimeInstanceClient.setEnabled(instanceId, enabled, repoId),
       ),
     deleteInstance: (instanceId: string) =>
-      channel.run(t("agentRuntime.opInstanceDeleted"), () => runtimeInstanceClient.delete(instanceId)),
+      channel.run(t("agentRuntime.opInstanceDeleted"), () => runtimeInstanceClient.delete(instanceId, repoId)),
     validateInstance: (instanceId: string) =>
-      channel.run(t("agentRuntime.opAuthChecked"), () => runtimeInstanceClient.probe(instanceId)),
+      channel.run(t("agentRuntime.opAuthChecked"), () => runtimeInstanceClient.probe(instanceId, repoId)),
     authInstance: (instanceId: string, action: "login" | "logout") =>
       channel.run(
         t(action === "logout" ? "agentRuntime.opSignOut" : "agentRuntime.opSignIn"),

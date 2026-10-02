@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { createHash } from "node:crypto";
 import { existsSync, lstatSync } from "node:fs";
 import os from "node:os";
@@ -179,5 +180,18 @@ export function defaultUnixSocketPath(daemonId: string, uid = process.getuid?.()
     "/tmp",
     `harness-anything-${uid}`,
     `daemon-${uid}-${daemonId.replace(/[^A-Za-z0-9_.-]/gu, "-")}.sock`,
+  );
+}
+
+/** Remote secrets use the existing user-managed loopback tunnel, never a bare remote TCP host. */
+export function assertRuntimeCredentialEndpoint(endpoint: string): void {
+  if (!endpoint.startsWith("tcp://")) return;
+  const hostname = new URL(endpoint).hostname.replace(/^\[|\]$/gu, "");
+  if (hostname === "localhost" || hostname === "::1" || (isIP(hostname) === 4 && hostname.startsWith("127."))) return;
+  throw Object.assign(
+    new Error(
+      "New API keys require a local socket or a protected loopback endpoint. Configure the existing SSH tunnel to the selected server socket first.",
+    ),
+    { code: "runtime_credential_transport_unsafe" },
   );
 }

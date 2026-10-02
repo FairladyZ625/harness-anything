@@ -84,6 +84,8 @@ import { seedBuiltinSchedules } from "./schedule-builtin-executor.ts";
 import type { DaemonAuthenticationContext, KeycloakCenterAuthority } from "./transport/auth-context.ts";
 import type { DaemonHostApiContext, DaemonHostRegistryContext } from "./daemon-host-context.ts";
 import { openRemoteProxyManager } from "./remote-proxy.ts";
+import { credentialPort, type CredentialPort } from "./agent-runtime-credential-port.ts";
+import { runtimeInstanceCredentialService } from "./runtime-instance-credentials.ts";
 import {
   openPersistentWriterEpoch,
   readLedgerWriterEpoch,
@@ -105,6 +107,7 @@ export interface DaemonHostOpenInput {
     | readonly RuntimeInstallationWitness[]
     | Promise<readonly RuntimeInstallationWitness[]>;
   readonly runtimeEnv?: NodeJS.ProcessEnv;
+  readonly runtimeCredentialPort?: CredentialPort;
   readonly runtimeFile?: string;
   readonly shutdownRequested?: () => boolean;
   readonly recordLifecycle?: DaemonLifecycleRecorder;
@@ -153,12 +156,15 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       return active;
     },
     discover = () => discoveredInstallations,
-    instances = openRuntimeInstanceStore({
+    vault = input.runtimeCredentialPort ?? credentialPort(),
+    instanceStore = openRuntimeInstanceStore({
       userRoot: input.userRoot,
       discover,
       refreshDiscovery,
       env: input.runtimeEnv,
+      resolveCredential: vault.resolve,
     }),
+    instances = { ...instanceStore, ...runtimeInstanceCredentialService(instanceStore, vault) },
     runtimePorts = {
       runtimeInstances: instances.listPublic,
       prepareRuntimeLaunch: instances.prepareLaunch,

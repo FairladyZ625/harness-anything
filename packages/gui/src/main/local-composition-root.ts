@@ -84,11 +84,18 @@ export async function bootstrapLocalRepository(input: FirstRunBootstrapInput): P
 async function request(rootDir: string, route: ShippedGuiRoute, payload: unknown): Promise<JsonObject> {
   try {
     const daemon = await loadClient(),
-      scoped = route.requiresRepo ? repoPayload(payload) : null;
+      scoped =
+        route.requiresRepo ||
+        (route.rpcMethod.startsWith("daemon.runtimeInstance.") &&
+          payload !== null &&
+          typeof payload === "object" &&
+          "repoId" in payload)
+          ? repoPayload(payload)
+          : null;
     const target = scoped ? repoTarget(daemon, rootDir, scoped.repoId) : globalTarget();
     const daemonPayload = scoped?.payload ?? ((payload ?? {}) as JsonObject);
     const body: JsonObject = route.inputSchemaId === "gui.empty/v1" ? {} : { payload: daemonPayload },
-      params: JsonObject = route.requiresRepo ? { repo: { repoId: scoped!.repoId }, ...body } : body;
+      params: JsonObject = scoped ? { repo: { repoId: scoped.repoId }, ...body } : body;
     const parse = (result: JsonObject) => {
       const parsed = (isDaemonGuiActionMethod(route.rpcMethod)
         ? parseDaemonGuiActionResponse(route.rpcMethod, result)
@@ -165,6 +172,11 @@ export function reportInvalidTaskSnapshotRows(
 }
 // The registry has no transport timeouts; keep the existing provider-tooling deadlines here.
 function requestTimeoutMs(route: ShippedGuiRoute, payload: JsonObject): number {
+  if (
+    ["createRuntimeInstance", "updateRuntimeInstance"].includes(route.guiBridgeMethod) &&
+    payload.apiKey !== undefined
+  )
+    return 75_000;
   // Repository writes publish through the coordinator and may include SQLite/WAL plus authored-file
   // materialization. Timing them out at the short read deadline leaves an ambiguous durable write.
   if (route.commandClass === "repo-write") return 20_000;

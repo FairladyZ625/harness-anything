@@ -376,7 +376,7 @@ test("Codex sidecar launch materializes the complete non-secret provider config 
   }
 });
 
-test("same-instance API-key launches keep the previous bearer during the next credential lookup", async () => {
+test("same-instance API-key launches retain the previous bearer during lookup and publish the current bearer after lookup", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-api-key-fanout-"));
   let credentialLookups = 0;
   try {
@@ -418,8 +418,8 @@ test("same-instance API-key launches keep the previous bearer during the next cr
 
     assert.match(readFileSync(configPath, "utf8"), /experimental_bearer_token = "instance-secret"/u);
     await workerLaunch;
-    assert.match(readFileSync(configPath, "utf8"), /experimental_bearer_token = "instance-secret"/u);
-    assert.doesNotMatch(readFileSync(configPath, "utf8"), /experimental_bearer_token = "worker-secret"/u);
+    assert.match(readFileSync(configPath, "utf8"), /experimental_bearer_token = "worker-secret"/u);
+    assert.doesNotMatch(readFileSync(configPath, "utf8"), /experimental_bearer_token = "instance-secret"/u);
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }

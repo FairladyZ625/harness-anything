@@ -440,10 +440,7 @@ test("Agent and Squad writes stay on the daemon allowlist and reject secret-shap
   );
 });
 
-// The only tolerated secret payload is the user-typed create-form key, and only
-// on createRuntimeInstance in api-key mode: nowhere else, never nested, never on
-// a subscription create.
-test("the create-form API key carve-out is a single method and a single field", () => {
+test("only newly typed top-level create/update API keys cross preload", () => {
   const create = (overrides: Record<string, unknown>): Record<string, unknown> => ({
     instanceId: "codex-sidecar",
     name: "Codex sidecar",
@@ -457,6 +454,24 @@ test("the create-form API key carve-out is a single method and a single field", 
     ...overrides,
   });
   assert.equal(assertPreloadPayload("createRuntimeInstance", create()), true);
+  assert.equal(assertPreloadPayload("createRuntimeInstance", create({ repoId: "server-a" })), true);
+  assert.equal(
+    assertPreloadPayload("updateRuntimeInstance", {
+      repoId: "server-b",
+      instanceId: "codex-sidecar",
+      apiKey: "new-key",
+    }),
+    true,
+  );
+  assert.equal(assertPreloadPayload("listRuntimeInstances", { repoId: "server-b", all: true }), true);
+  assert.throws(
+    () => assertPreloadPayload("updateRuntimeInstance", { repoId: "", instanceId: "codex-sidecar", apiKey: "new-key" }),
+    /repoId/u,
+  );
+  assert.throws(
+    () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "codex-sidecar", nested: { apiKey: "nested" } }),
+    /secret-like/u,
+  );
   assert.throws(() => assertPreloadPayload("createRuntimeInstance", create({ authMode: "subscription" })), /invalid/u);
   assert.throws(() => assertPreloadPayload("createRuntimeInstance", create({ apiKey: "  " })), /invalid/u);
   assert.throws(
@@ -620,6 +635,7 @@ test("runtime update accepts exactly the fields the registry declares", () => {
   };
   const declared = Object.keys(entry.params.fields.payload.fields);
   assert.deepEqual([...declared].sort(), [
+    "apiKey",
     "baseUrl",
     "defaultModel",
     "effort",
@@ -668,8 +684,8 @@ test("runtime update still rejects empty values, empty model lists, and secret-l
   );
   assert.throws(() => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a" }), /invalid/u);
   assert.throws(
-    () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", apiKey: "secret" }),
-    /secret-like/u,
+    () => assertPreloadPayload("updateRuntimeInstance", { instanceId: "instance-a", apiKey: "  " }),
+    /invalid/u,
   );
   // No usage payload crosses the preload boundary, so string-valued token keys stay rejected
   // under every spelling — the value-type line from the dispatch scrubber has no traffic here.
