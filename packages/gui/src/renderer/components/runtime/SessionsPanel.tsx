@@ -9,20 +9,8 @@ import { formatTime } from "../../model/time.ts";
 import { exactTokens } from "../../token-format.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { SessionTranscript } from "../sessions/SessionTranscript.tsx";
-import {
-  Avatar,
-  Card,
-  CardBody,
-  CardHead,
-  CardTitle,
-  Crumbs,
-  CrumbSep,
-  Hint,
-  KV,
-  KVRow,
-  LiveDot,
-  Right,
-} from "./parts.tsx";
+import { Avatar, Card, CardBody, CardHead, CardTitle, Crumbs, CrumbSep, Hint, LiveDot, Right } from "./parts.tsx";
+import { KV, KVRow } from "../primitives/Fields.tsx";
 import { Empty } from "../primitives/Empty.tsx";
 import { Button } from "../primitives/Button.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";

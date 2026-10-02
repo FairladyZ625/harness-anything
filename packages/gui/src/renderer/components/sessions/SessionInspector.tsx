@@ -8,7 +8,8 @@ import {
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
-import { KV, KVRow, LiveDot } from "../runtime/parts.tsx";
+import { LiveDot } from "../runtime/parts.tsx";
+import { KV, KVRow } from "../primitives/Fields.tsx";
 import { Empty } from "../primitives/Empty.tsx";
 
 /**

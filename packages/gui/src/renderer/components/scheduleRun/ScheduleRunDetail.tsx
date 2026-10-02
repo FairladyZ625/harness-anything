@@ -1,4 +1,5 @@
-import { Chip, Hint, KV, KVRow } from "../runtime/parts.tsx";
+import { Chip, Hint } from "../runtime/parts.tsx";
+import { KV, KVRow } from "../primitives/Fields.tsx";
 import { Empty } from "../primitives/Empty.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
 import { SessionTranscript } from "../sessions/SessionTranscript.tsx";

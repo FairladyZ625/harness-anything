@@ -96,53 +96,8 @@ export function Sect({
   );
 }
 
-export function FieldGrid({ children }: { readonly children: ReactNode }) {
-  return <dl className="grid grid-cols-[repeat(auto-fill,minmax(215px,1fr))] gap-x-[18px] gap-y-2">{children}</dl>;
-}
-export function Field({
-  label,
-  value,
-  mono = true,
-  faint = false,
-}: {
-  readonly label: string;
-  readonly value: string;
-  readonly mono?: boolean;
-  readonly faint?: boolean;
-}) {
-  return (
-    <div className="min-w-0">
-      <dt className="mb-0.5 font-mono ui-micro uppercase tracking-[0.08em] text-text-faint">{label}</dt>
-      <dd
-        className={`[overflow-wrap:anywhere] ${mono ? "font-mono ui-micro" : "ui-meta"} ${faint ? "text-text-faint" : "text-text"}`}
-      >
-        {value}
-      </dd>
-    </div>
-  );
-}
-export function KV({ children }: { readonly children: ReactNode }) {
-  return <dl className="grid grid-cols-[auto_1fr] gap-x-2.5 gap-y-[3px] ui-micro">{children}</dl>;
-}
-export function KVRow({
-  name,
-  title,
-  children,
-}: {
-  readonly name: ReactNode;
-  /** 值被收束/截断时,原始串放悬停(视觉基线 v2:机器编号不当主文字)。 */
-  readonly title?: string;
-  readonly children: ReactNode;
-}) {
-  return (
-    <>
-      <dt className="whitespace-nowrap font-mono ui-micro text-text-faint">{name}</dt>
-      <dd title={title} className="[overflow-wrap:anywhere] text-text">
-        {children}
-      </dd>
-    </>
-  );
-}
+// 只读字段/键值(FieldGrid/Field/KV/KVRow)已迁入 primitives/Fields.tsx(C9):
+// 详情字段是跨域共享契约,不随 runtime 第二库生长。
 
 export function Chip({
   tip,

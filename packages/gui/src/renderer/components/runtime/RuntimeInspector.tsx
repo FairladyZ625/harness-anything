@@ -10,7 +10,8 @@ import {
   runtimeAuthPresentationText,
   type RuntimeAuthProbeState,
 } from "../../runtime-auth-presentation.ts";
-import { Avatar, CapDot, KindDot, KV, KVRow, LiveDot } from "./parts.tsx";
+import { Avatar, CapDot, KindDot, LiveDot } from "./parts.tsx";
+import { KV, KVRow } from "../primitives/Fields.tsx";
 import { Empty } from "../primitives/Empty.tsx";
 import type { RuntimeDockRow, RuntimeSelection } from "./useRuntimeWorkspace.ts";
 

@@ -43,14 +43,11 @@ import {
   CfgRow,
   Crumbs,
   CrumbSep,
-  Field,
-  FieldGrid,
   Hint,
   KindDot,
-  KV,
-  KVRow,
   Right,
 } from "./parts.tsx";
+import { Field, FieldGrid, KV, KVRow } from "../primitives/Fields.tsx";
 import { TextInput } from "../primitives/TextInput.tsx";
 import { Empty } from "../primitives/Empty.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
