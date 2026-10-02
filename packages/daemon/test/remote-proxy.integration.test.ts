@@ -187,6 +187,25 @@ test(
         payload: { taskId: "task_proxy_round_trip", path: "INDEX.md" },
       });
       assert.match(String(document.worktreeBody), /Proxy round trip/u);
+      const png = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aS1sAAAAASUVORK5CYII=",
+        "base64",
+      );
+      const artifactRoot = path.join(repoRoot, "harness", String(created.packagePath), "artifacts");
+      mkdirSync(artifactRoot, { recursive: true });
+      writeFileSync(path.join(artifactRoot, "remote-preview.png"), png);
+      const binary = await rpcA("repo.tasks.document.read", {
+        repo: { repoId },
+        payload: { taskId: "task_proxy_round_trip", path: "artifacts/remote-preview.png" },
+      });
+      assert.equal(binary.contentKind, "binary");
+      assert.equal(binary.mediaType, "image/png");
+      assert.deepEqual(
+        Buffer.from(String(binary.bytes), "base64"),
+        png,
+        "remote GUI read must preserve server-only image bytes across A to B",
+      );
+
       assert.equal((await rpcA("repo.artifacts.list", { repo: { repoId }, payload: {} })).ok, true);
       assert.equal((await rpcA("daemon.connection.probe", { endpoint: tcpB.endpoint })).ok, true);
     });
