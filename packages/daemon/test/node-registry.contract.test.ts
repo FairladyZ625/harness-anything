@@ -276,6 +276,40 @@ test("unregistering a node removes it from Keycloak, so its credential and its o
   assert.equal(await registry.authenticate("edge-a", String(again.credential)), true);
 });
 
+// Wherever a node removal settles applied — the mutating run or a reconcile of an unsettled
+// receipt — the composition root is told which node went, so the center can cut its sessions.
+// Nothing else reports: registrations, moves, and refused removals leave the live sessions alone.
+test("a removal that settles applied reports the removed node, and nothing else does", async () => {
+  const keycloak = fakeKeycloak(),
+    user = keycloakUserRoot(),
+    removed: string[] = [],
+    admin = new AccessAdminService(new OidcSessionService(user.root, { fetch: keycloak.fetch }), user.root, {
+      fetch: keycloak.fetch,
+      onNodeRemoved: (nodeId) => removed.push(nodeId),
+    }),
+    run = (request: AccessAdminRequest) => admin.run({ operationId: randomUUID(), ...request });
+  keycloak.account("alice");
+  keycloak.account("bob");
+  await run({ operation: "node-register", nodeId: "edge-a", personId: "alice" });
+  await run({ operation: "node-register", nodeId: "edge-b", personId: "alice" });
+  assert.deepEqual(removed, [], "a registration is not a removal");
+  const move = (await run({ operation: "node-list" })).nodes as { nodeId: string; version: string }[];
+  await run({
+    operation: "node-register",
+    nodeId: "edge-b",
+    personId: "bob",
+    expectedVersion: move.find((node) => node.nodeId === "edge-b")!.version,
+  });
+  assert.deepEqual(removed, [], "moving a node to another owner is not a removal");
+  const version = move.find((node) => node.nodeId === "edge-a")!.version,
+    stale = await run({ operation: "node-unregister", nodeId: "edge-a", expectedVersion: "stale" });
+  assert.equal(stale.ok, false);
+  assert.deepEqual(removed, [], "a refused removal reports nothing");
+  const applied = await run({ operation: "node-unregister", nodeId: "edge-a", expectedVersion: version });
+  assert.equal(applied.ok, true);
+  assert.deepEqual(removed, ["edge-a"]);
+});
+
 test("node registration needs an administrator, a known person, and a well-formed node id", async () => {
   const { keycloak, run, signIn } = await fixture();
   keycloak.account("alice");

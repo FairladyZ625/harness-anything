@@ -256,8 +256,7 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
     certFile = path.join(root, "tls.crt"),
     emptyPath = path.join(root, "empty-path"),
     owned = reclaimer();
-  let nodeActive = true,
-    expiresAt = "2099-01-01T00:00:00.000Z",
+  let expiresAt = "2099-01-01T00:00:00.000Z",
     assignmentDelayMs = 0,
     taskReleaseBarrier: { readonly started: () => void; readonly wait: Promise<void> } | null = null;
   const runtimeArchiveReceipts: Readonly<Record<string, unknown>>[] = [];
@@ -362,9 +361,6 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
     emptyPath,
     track: owned.track,
     hold: owned.hold,
-    setActive: (value: boolean) => {
-      nodeActive = value;
-    },
     setExpiry: (value: string) => {
       expiresAt = value;
     },
@@ -411,7 +407,6 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
           replicaDiskQuotaBytes: replicaQuota,
           authenticate: (nodeId, credential) => nodeId === assignment.nodeId && credential === "machine-secret",
           nodeOwner: owners.nodeOwner,
-          isNodeActive: () => nodeActive,
           resolveAssignment: async (assignmentId) => {
             if (assignmentDelayMs) await new Promise((resolve) => setTimeout(resolve, assignmentDelayMs));
             return assignmentId === assignment.assignmentId

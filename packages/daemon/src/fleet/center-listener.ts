@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import path from "node:path";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
-import { createServer, type Server } from "node:tls";
+import { createServer, type Server, type TLSSocket } from "node:tls";
 import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
 import { readFileWindow, syncDirectory, syncFile } from "../durable-file.ts";
 import { openFleetLeaseBroker } from "../lease-broker.ts";
@@ -641,8 +641,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     throw new FleetFault("unexpected_direction", `Frame ${frame.schema} is not accepted by the center.`);
   };
+  // One row per node for every TLS session it holds, from the moment its hello is dispatched.
+  // Unregistration settles in the access-admin queue; this table is how that cut reaches sockets.
+  const sessions = new Map<string, Set<TLSSocket>>();
   const server: Server = createServer({ key: options.key, cert: options.cert }, (socket) =>
-    serve(socket, options, handle),
+    serve(socket, options, handle, sessions),
   );
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -656,6 +659,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   let closed = false;
   return {
     port: address.port,
+    disconnectNode: (nodeId: string) => {
+      const live = sessions.get(nodeId);
+      if (!live) return;
+      sessions.delete(nodeId);
+      for (const socket of live) socket.destroy();
+    },
     close: async () => {
       if (closed) return;
       closed = true;

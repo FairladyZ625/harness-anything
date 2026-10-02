@@ -614,7 +614,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     startedAt,
   };
   const managedRbac = new ManagedRbacService(input.userRoot),
-    accessAdmin = new AccessAdminService(oidc, input.userRoot),
+    // A node removal settles in the access-admin queue; the fleet center owns that node's
+    // live TLS sessions, so the settled cut is handed from one to the other here.
+    accessAdmin = new AccessAdminService(oidc, input.userRoot, {
+      onNodeRemoved: (nodeId) => hostContext.fleetCenter?.disconnectNode(nodeId),
+    }),
     lifecycle = createDaemonHostLifecycleApi(hostContext);
   void managedRbac.resume().catch((error: unknown) =>
     input.recordLifecycle?.({
