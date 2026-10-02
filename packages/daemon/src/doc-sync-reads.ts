@@ -204,7 +204,7 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
       };
 }
 
-/** Raw bytes this read carries inline, the same ceiling as repo.entity.content.read. Above it the
+/** Raw bytes this document preview read carries inline. Above it the
  * read still answers with true metadata and the repository path the bytes materialize at. */
 // Viewer payloads are still bounded per request, but common PDF/DOCX files may be larger than the
 // old 2 MiB text-oriented ceiling. The source remains the authorized content object or task package.
@@ -238,10 +238,13 @@ export function readProjectedDocument(
       document === null ? classifyRawArtifactPath(logical) !== null : document.policyId === RAW_ARTIFACT_POLICY_ID,
     packageRoot = taskPackageWorktreeRoot(rootDir, packagePath),
     worktree = readWorktreeDocument(packageRoot, requested, binary),
-    canonicalBytes = binary && document !== null ? context.store.readContentBlob(document.blobSha256) : null,
+    canonicalBytes =
+      binary && document !== null && Number(document.size) <= TASK_DOCUMENT_INLINE_BYTES_MAX
+        ? context.store.readContentBlob(document.blobSha256)
+        : null,
     inline =
       canonicalBytes !== null && canonicalBytes.byteLength <= TASK_DOCUMENT_INLINE_BYTES_MAX ? canonicalBytes : null,
-    worktreeBytes = binary && worktree !== null ? readWorktreeBytes(packageRoot, requested) : null,
+    worktreeBytes = binary ? (worktree?.bytes ?? null) : null,
     selectedBytes =
       worktree !== null && worktree.blobSha256 !== (document?.blobSha256 ?? null) ? worktreeBytes : inline;
   return {
@@ -363,6 +366,7 @@ function readWorktreeDocument(
   binary: boolean,
 ): {
   readonly body: string | null;
+  readonly bytes: Buffer;
   readonly blobSha256: string;
   readonly size: number;
   readonly mediaType: string | null;
@@ -374,18 +378,11 @@ function readWorktreeDocument(
   const bytes = readFileSync(target);
   return {
     body: binary ? null : bytes.toString("utf8"),
+    bytes,
     blobSha256: sha256Bytes(bytes),
     size: bytes.byteLength,
     mediaType: binary ? RAW_ARTIFACT_MEDIA_TYPE : worktreeDocumentMediaType(relative),
   };
-}
-
-function readWorktreeBytes(packageRoot: string | null, relative: string): Buffer | null {
-  const target = resolveWorktreeDocumentPath(packageRoot, relative);
-  if (target === null) return null;
-  const stat = statFileSync(target);
-  if (stat === null || !stat.isFile() || stat.size > TASK_DOCUMENT_INLINE_BYTES_MAX) return null;
-  return readFileSync(target);
 }
 
 function mediaTypeForBinaryPath(relative: string, fallback: string | null): string | null {
