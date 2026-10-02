@@ -307,7 +307,7 @@ export type {
   PersonProfile,
   RolePolicy,
 } from "./people-roster.ts";
-export { compilePeopleRosterActionEvent, isPeopleEvent, type CompiledPeopleRosterAction } from "./people-event.ts";
+export { compilePeopleRosterActionEvent, isPeopleEvent } from "./people-event.ts";
 export {
   evaluatePersonActionCapability,
   personActionCriterionRef,
@@ -390,3 +390,9 @@ export type {
 } from "./artifact-entity.ts";
 export type { CiRunObservationEventV2, CiRunObservationEventV3 } from "./ci-run-observation-event.ts";
 export { ciRunObservationWritePlan, validateCurrentCiRunObservationEvent } from "./ci-run-observation-event.ts";
+
+export { type ExecutionDelegationRecord } from "./execution-delegation.ts";
+
+export { parseDelegatedExecutionToken } from "./delegated-execution-token.ts";
+
+export { type ExecutionDelegationEventV1 } from "./execution-delegation-event.ts";

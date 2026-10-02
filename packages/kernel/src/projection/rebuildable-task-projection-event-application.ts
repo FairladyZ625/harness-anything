@@ -725,6 +725,7 @@ export function applyEvent(
     }
     return;
   }
+  if (event.schema === "execution-delegation-event/v1") return;
   applyTaskEvent(db, event, eventJson, readBlob);
 }
 

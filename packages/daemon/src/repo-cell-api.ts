@@ -101,6 +101,7 @@ export interface RepoCellApiContext {
   readonly fleetRoster: FleetRoster | null;
   readonly input: {
     readonly repoId: string;
+    readonly runtimeDaemonRoute?: import("./runtime-spawn.ts").RuntimeDaemonRoute;
     readonly killpoint?: (point: EventPublicationKillpoint) => void;
     readonly runtimeInstances?: RepoCellOperationalContext["input"]["runtimeInstances"];
   };

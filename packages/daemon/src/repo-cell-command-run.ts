@@ -1,5 +1,7 @@
+import { executionDelegationPath, readExecutionDelegations } from "./execution-delegation-store.ts";
 import {
   assertCurrentWriter,
+  stableStringify,
   durablePolicyActions,
   getExecutableEntityAction,
   readAcceptedCommandOutcome,
@@ -59,6 +61,21 @@ export function makeRepoCellCommandRunner(context: RepoCellApiContext) {
         try {
           ({ action, binding } = bindVerifiedExecutorClaim({
             ...requested,
+            executionDelegations: context.input.runtimeDaemonRoute
+              ? readExecutionDelegations(
+                  executionDelegationPath(context.input.runtimeDaemonRoute, context.input.repoId),
+                  context.input.repoId,
+                ).records.filter((record) => {
+                  const issue = context.store.readEvent(record.issuedByOperationId);
+                  return (
+                    issue?.schema === "execution-delegation-event/v1" &&
+                    issue.payload.operation === "issue" &&
+                    issue.payload.tokenId === record.token.tokenId &&
+                    issue.actor.principal.personId === record.token.issuer.personId &&
+                    stableStringify(issue.source) === stableStringify(record.source)
+                  );
+                })
+              : [],
             projection: context.projection,
             now: context.now(),
           }));

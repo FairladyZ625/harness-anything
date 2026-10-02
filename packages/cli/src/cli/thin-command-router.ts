@@ -380,10 +380,8 @@ function parseLedgerReconcileRouted(
 }
 
 const peopleRequiredInputs: Readonly<Record<string, readonly string[]>> = Object.freeze({
-  "people-add": ["--person-id", "--display-name", "--role", "--command-class"],
   "people-delegate": ["--token-id", "--runtime-session-id", "--action", "--expires-at"],
   "people-revoke-delegation": ["--token-id"],
-  "people-remove": ["--person-id"],
 });
 
 function parseEntityRouted(
@@ -467,15 +465,7 @@ function parsePeople(
     const field = input.slice(2).replace(/-([a-z])/gu, (_, letter: string) => letter.toUpperCase());
     if (!Object.hasOwn(action, field)) return rejectInput(inputs, route.id, input, json);
   }
-  if (route.id !== "people-add") return projected;
-  const credentials = [action.credentialKind, action.credentialIssuer, action.credentialSubject];
-  return credentials.some((value) => value !== undefined) && credentials.some((value) => value === undefined)
-    ? rejected(
-        "invalid_field",
-        "Credential kind, issuer, and subject must be supplied together, or all three must be omitted.",
-        json,
-      )
-    : projected;
+  return projected;
 }
 
 function parseRelationRouted(

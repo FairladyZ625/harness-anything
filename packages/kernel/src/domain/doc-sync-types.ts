@@ -1,3 +1,4 @@
+import type { ExecutionDelegationEventV1 } from "./execution-delegation-event.ts";
 import type { PortableDocumentPath } from "../layout/portable-path.ts";
 import type { EntityEventV1, LegacyAgentEntityEventV1 } from "./entity-event.ts";
 import type { EntityPinEventV1 } from "./entity-pin-event.ts";
@@ -187,6 +188,7 @@ export type CanonicalEventV1 =
   | ScheduleEventV1
   | SettingsEventV1
   | VerticalDeclarationEventV1
+  | ExecutionDelegationEventV1
   | PeopleEventV1
   | EntityEventV1
   | TaskBootstrapEventV1

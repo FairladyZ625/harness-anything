@@ -120,6 +120,7 @@ export interface RepoCellActionContext extends TaskQueryCell {
   readonly store: CanonicalEventStore;
   readonly input: {
     readonly repoId: string;
+    readonly runtimeDaemonRoute?: import("./runtime-spawn.ts").RuntimeDaemonRoute;
     readonly killpoint?: (point: EventPublicationKillpoint) => void;
     readonly shouldStop?: () => boolean;
     readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
@@ -221,6 +222,7 @@ export interface RepoCellOperationalContext extends RepoCellRuntimeContext {
 export function createRepoCellActionContext(bindings: {
   readonly input: {
     readonly repoId: string;
+    readonly runtimeDaemonRoute?: import("./runtime-spawn.ts").RuntimeDaemonRoute;
     readonly killpoint?: (point: EventPublicationKillpoint) => void;
     readonly shouldStop?: () => boolean;
     readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];

@@ -3,30 +3,14 @@ import type {
   EntityActionInputContract,
   EntityActionInputField,
 } from "./entity-kind-registry.ts";
-import { sha256Text } from "../integrity/stable-hash.ts";
-import {
-  attributeEntityActionCriterion,
-  type EntityActionCompileHook,
-  type EntityActionCompileInput,
-} from "./entity-action-execution.ts";
+import { type EntityActionCompileHook } from "./entity-action-execution.ts";
 import type { EntityActionCriterionStatus } from "./entity-action-explanation.ts";
-import { compilePeopleRosterActionEvent, type CompiledPeopleRosterAction } from "./people-event.ts";
-import {
-  applyPeopleRosterAction,
-  credentialKinds,
-  peopleCommandClasses,
-  type CredentialKind,
-  type PeopleCommandClass,
-  type PeopleRosterAction,
-  type PeopleRosterDocumentV1,
-} from "./people-roster.ts";
+import { compileExecutionDelegation, type ExecutionDelegationDraft } from "./execution-delegation.ts";
 
-export const personActionIds = Object.freeze(["add", "delegate", "revoke-delegation", "remove"] as const);
+export const personActionIds = Object.freeze(["delegate", "revoke-delegation"] as const);
 export type PersonActionId = (typeof personActionIds)[number];
 
-export interface PersonActionDraft {
-  readonly compiled: CompiledPeopleRosterAction;
-}
+export type PersonActionDraft = ExecutionDelegationDraft;
 
 export interface PersonActionCapabilityEvaluation {
   readonly criterionRef: string;
@@ -38,7 +22,7 @@ const noLease = Object.freeze({ authority: "not-applicable" }),
   noOccurrence = Object.freeze({ authority: "not-applicable" }),
   personConcurrency: EntityActionContract["concurrency"] = Object.freeze({
     expectedVersion: Object.freeze({
-      authority: "people-event/v1 roster cut",
+      authority: "repository-private execution record",
       required: false,
       default: "center-bound-current-revision",
       arbitration: "center-single-write-queue",
@@ -50,12 +34,11 @@ const noLease = Object.freeze({ authority: "not-applicable" }),
       authority: "operation-id",
       input: "idempotencyKey",
       scope: "person/{id}/{action}",
-      retry: "canonical-event-replay",
+      retry: "private-operation-replay",
     }),
     artifactOwnership: Object.freeze({
       owner: "person/{id}",
-      repositoryDocument: "people.yaml",
-      event: "people-event/v1",
+      record: "execution-delegations/v1",
       arbitration: "center-single-write-queue",
     }),
   });
@@ -91,25 +74,8 @@ const input = (
     }),
   fromFile = cli("fromFile", "--from-file", "single"),
   idempotencyKey = cli("idempotencyKey", "--idempotency-key", "single"),
-  personId = cli("personId", "--person-id", "single"),
-  role = cli("role", "--role", "single"),
   tokenId = cli("tokenId", "--token-id", "single"),
   actionInputs: Readonly<Record<PersonActionId, EntityActionInputContract>> = Object.freeze({
-    add: input(
-      [
-        fromFile,
-        personId,
-        cli("displayName", "--display-name", "single"),
-        cli("primaryEmail", "--primary-email", "single"),
-        role,
-        cli("commandClass", "--command-class", "repeated", "string-array", peopleCommandClasses),
-        cli("credentialKind", "--credential-kind", "single", "string", credentialKinds),
-        cli("credentialIssuer", "--credential-issuer", "single"),
-        cli("credentialSubject", "--credential-subject", "single"),
-        idempotencyKey,
-      ],
-      [["fromFile", "personId"]],
-    ),
     delegate: input(
       [
         fromFile,
@@ -122,23 +88,18 @@ const input = (
       [["fromFile", "tokenId"]],
     ),
     "revoke-delegation": input([fromFile, tokenId, idempotencyKey], [["fromFile", "tokenId"]]),
-    remove: input([fromFile, personId, idempotencyKey], [["fromFile", "personId"]]),
   }),
   actionExplain: Readonly<Record<PersonActionId, string>> = Object.freeze({
-    add: "Add one Person and its initial role policy through people-event/v1.",
     delegate: "Issue one closed DelegatedExecutionToken from the authenticated Person to a RuntimeSession.",
     "revoke-delegation": "Revoke a DelegatedExecutionToken owned by the authenticated issuing Person.",
-    remove: "Remove one non-owner Person while retaining an enabled administrator.",
   }),
   invariantExplain: Readonly<Record<PersonActionId, string>> = Object.freeze({
-    add: "The Person identity is new and the resulting roster preserves owner and administrator authority.",
-    delegate: "The issuer is enabled and the DelegatedExecutionToken is valid, unique, and unexpired at issue time.",
+    delegate: "The canonical runtime belongs to the issuer and the delegation is valid, unique, and unexpired.",
     "revoke-delegation": "The DelegatedExecutionToken exists and is owned by the authenticated issuing Person.",
-    remove: "The Person exists, is not the bootstrap owner, and removal retains an enabled administrator.",
   });
 
 export function personActionCriterionRef(id: PersonActionId, criterion: "input" | "invariants"): string {
-  return `people-roster/${id}.${criterion}`;
+  return `execution-delegation/${id}.${criterion}`;
 }
 
 export function createPersonActionCatalog(
@@ -166,7 +127,7 @@ export function createPersonActionCatalog(
             }),
           ]),
           concurrency: personConcurrency,
-          effects: Object.freeze([{ ref: "people-event/people_changed", projection: "PersonProjection" }]),
+          effects: Object.freeze([{ ref: "execution-delegation/changed", projection: "repository-private" }]),
           returns: actionResultContract,
           explain: actionExplain[id],
           execution: Object.freeze({
@@ -201,253 +162,20 @@ function renderPersonActionUsage(verb: string, fields: readonly EntityActionInpu
 
 export function evaluatePersonActionCapability(input: {
   readonly action: EntityActionContract;
-  readonly roster: PeopleRosterDocumentV1;
   readonly personId: string;
   readonly actorPersonId: string;
   readonly evaluatedAt: string;
-  readonly invocation?: Readonly<Record<string, unknown>>;
 }): readonly PersonActionCapabilityEvaluation[] {
-  const id = personActionId(input.action),
-    usage = personActionUsage(input.action, input.personId),
-    invocation = input.invocation ?? defaultObjectInvocation(id, input.personId),
-    parsed = invocation ? parseEvaluation(id, invocation, input.actorPersonId, input.evaluatedAt, usage) : null,
-    inputEvaluation: PersonActionCapabilityEvaluation = parsed
-      ? parsed.ok
-        ? personCriterionEvaluation(personActionCriterionRef(id, "input"), "met")
-        : personCriterionEvaluation(personActionCriterionRef(id, "input"), "unmet", parsed.nextActions)
-      : personCriterionEvaluation(personActionCriterionRef(id, "input"), "invocation-required", [`Run ${usage}.`]),
-    invariantEvaluation =
-      parsed?.ok === true
-        ? evaluateInvariant(id, input.roster, parsed.action, usage)
-        : parsed?.ok === false
-          ? personCriterionEvaluation(personActionCriterionRef(id, "invariants"), "invocation-required", [])
-          : evaluateObjectInvariant(id, input.roster, input.personId, input.actorPersonId, usage);
-  return Object.freeze([inputEvaluation, invariantEvaluation]);
-}
-
-function personActionCompiler(id: PersonActionId): EntityActionCompileHook {
-  return (input) => ({ kind: "person", result: compilePersonAction(id, input) });
-}
-
-function compilePersonAction(id: PersonActionId, input: EntityActionCompileInput): PersonActionDraft {
-  const usage = personActionUsageFromInput(id, input.action),
-    parsed = parseEvaluation(id, input.action, input.actor.principal.personId, input.occurredAt, usage);
-  if (!parsed.ok)
-    throw attributeEntityActionCriterion(
-      new PersonActionInputError(parsed.message),
-      id,
-      personActionCriterionRef(id, "input"),
-      parsed.nextActions,
-    );
-  try {
-    return {
-      compiled: compilePeopleRosterActionEvent({
-        currentBody: input.currentDocumentBody ?? null,
-        action: parsed.action,
-        eventId: `event-${sha256Text(input.opId)}`,
-        opId: input.opId,
-        workspaceRevision: input.workspaceRevision,
-        actor: input.actor,
-        source: input.source,
-        occurredAt: input.occurredAt,
-      }),
-    };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    throw attributeEntityActionCriterion(
-      error instanceof Error ? error : new Error(message),
-      id,
-      personActionCriterionRef(id, "invariants"),
-      invariantNextActions(message, usage),
-    );
-  }
-}
-
-function evaluateInvariant(
-  id: PersonActionId,
-  roster: PeopleRosterDocumentV1,
-  action: PeopleRosterAction,
-  usage: string,
-): PersonActionCapabilityEvaluation {
-  try {
-    applyPeopleRosterAction(JSON.stringify(roster), action);
-    return personCriterionEvaluation(personActionCriterionRef(id, "invariants"), "met");
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return personCriterionEvaluation(
-      personActionCriterionRef(id, "invariants"),
-      "unmet",
-      invariantNextActions(message, usage),
-    );
-  }
-}
-
-function evaluateObjectInvariant(
-  id: PersonActionId,
-  roster: PeopleRosterDocumentV1,
-  targetPersonId: string,
-  actorPersonId: string,
-  usage: string,
-): PersonActionCapabilityEvaluation {
-  const person = roster.people.find(({ personId: candidate }) => candidate === targetPersonId);
-  if (id === "add")
-    return personCriterionEvaluation(personActionCriterionRef(id, "invariants"), "unmet", [
-      `Person ${targetPersonId} already exists; choose a new Person identity before running ${usage}.`,
-    ]);
-  if (!person)
-    return personCriterionEvaluation(personActionCriterionRef(id, "invariants"), "unmet", [
-      `Person ${targetPersonId} does not exist; choose an existing Person ref.`,
-    ]);
-  if ((id === "delegate" || id === "revoke-delegation") && actorPersonId !== targetPersonId)
-    return personCriterionEvaluation(personActionCriterionRef(id, "invariants"), "unmet", [
-      `Authenticate as Person ${targetPersonId} to ${id === "delegate" ? "issue" : "revoke"} that Person's delegation.`,
-    ]);
-  if (id === "remove") return evaluateInvariant(id, roster, { kind: "people-remove", personId: targetPersonId }, usage);
-  if (id === "delegate" && person.disabled)
-    return personCriterionEvaluation(personActionCriterionRef(id, "invariants"), "unmet", [
-      `Person ${targetPersonId} is disabled and cannot issue a DelegatedExecutionToken.`,
-    ]);
-  return personCriterionEvaluation(personActionCriterionRef(id, "invariants"), "invocation-required", [
-    `Run ${usage}.`,
-  ]);
-}
-
-function parseEvaluation(
-  id: PersonActionId,
-  invocation: Readonly<Record<string, unknown>>,
-  actorPersonId: string,
-  occurredAt: string,
-  usage: string,
-):
-  | { readonly ok: true; readonly action: PeopleRosterAction }
-  | {
-      readonly ok: false;
-      readonly message: string;
-      readonly nextActions: readonly string[];
-    } {
-  try {
-    return { ok: true, action: parsePersonAction(id, invocation, actorPersonId, occurredAt) };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return { ok: false, message, nextActions: Object.freeze([`${message} Then retry ${usage}.`]) };
-  }
-}
-
-function parsePersonAction(
-  id: PersonActionId,
-  action: Readonly<Record<string, unknown>>,
-  issuerPersonId: string,
-  occurredAt: string,
-): PeopleRosterAction {
-  if (id === "delegate")
-    return {
-      kind: "people-delegate",
-      token: {
-        schema: "delegated-execution-token/v1",
-        tokenId: personRequiredText(action.tokenId, "token-id"),
-        issuer: { personId: issuerPersonId },
-        delegate: { runtimeSessionId: personRequiredText(action.runtimeSessionId, "runtime-session-id") },
-        allowedActions: personStringArray(action.action, "action"),
-        issuedAt: occurredAt,
-        expiresAt: personRequiredText(action.expiresAt, "expires-at"),
-        revokedAt: null,
-      },
-    };
-  if (id === "revoke-delegation")
-    return {
-      kind: "people-revoke-delegation",
-      tokenId: personRequiredText(action.tokenId, "token-id"),
-      issuerPersonId,
-      revokedAt: occurredAt,
-    };
-  const targetPersonId = personRequiredText(action.personId, "person-id");
-  if (id === "remove") return { kind: "people-remove", personId: targetPersonId };
-  const roleId = personRequiredText(action.role, "role"),
-    commandClasses = commandClassArray(action.commandClass),
-    rolePolicy = { roleId, commandClasses };
-  const displayName = personRequiredText(action.displayName, "display-name"),
-    primaryEmail = personText(action.primaryEmail),
-    credentialKind = personText(action.credentialKind),
-    credentialIssuer = personText(action.credentialIssuer),
-    credentialSubject = personText(action.credentialSubject),
-    credentialFields = [credentialKind, credentialIssuer, credentialSubject];
-  if (credentialFields.some(Boolean) && !credentialFields.every(Boolean))
-    throw new PersonActionInputError(
-      "credential-kind, credential-issuer, and credential-subject must be supplied together",
-    );
-  if (credentialKind && !(credentialKinds as readonly string[]).includes(credentialKind))
-    throw new PersonActionInputError(`Unknown credential kind: ${credentialKind}`);
-  return {
-    kind: "people-add",
-    person: {
-      personId: targetPersonId,
-      displayName,
-      ...(primaryEmail ? { primaryEmail } : {}),
-      roles: [roleId],
-      credentials:
-        credentialKind && credentialIssuer && credentialSubject
-          ? [{ kind: credentialKind as CredentialKind, issuer: credentialIssuer, subject: credentialSubject }]
-          : [],
-    },
-    rolePolicy,
-  };
-}
-
-function defaultObjectInvocation(id: PersonActionId, personId: string): Readonly<Record<string, unknown>> | null {
-  return id === "remove" ? { personId } : null;
-}
-
-function personActionId(action: EntityActionContract): PersonActionId {
-  if ((personActionIds as readonly string[]).includes(action.id)) return action.id as PersonActionId;
-  throw new Error(`Unknown Person Action ${action.id}.`);
+  return input.action.criteria.map((criterion) => ({
+    criterionRef: criterion.ref,
+    status: "invocation-required" as const,
+    nextActions: [`Run ${personActionUsage(input.action, input.personId)}.`],
+  }));
 }
 
 function personActionIngress(id: PersonActionId): string {
   return `people-${id}`;
 }
-
-function personActionUsageFromInput(id: PersonActionId, action: Readonly<Record<string, unknown>>): string {
-  const target = personText(action.personId) ?? "<person-id>";
-  return renderPersonActionUsage(id, actionInputs[id].fields, target);
-}
-
-function invariantNextActions(message: string, usage: string): readonly string[] {
-  return Object.freeze([`${message} Then retry ${usage}.`]);
-}
-
-function personCriterionEvaluation(
-  criterionRef: string,
-  status: PersonActionCapabilityEvaluation["status"],
-  nextActions: readonly string[] = [],
-): PersonActionCapabilityEvaluation {
-  return Object.freeze({ criterionRef, status, nextActions: Object.freeze([...nextActions]) });
-}
-
-function commandClassArray(value: unknown): readonly PeopleCommandClass[] {
-  const values = personStringArray(value, "command-class");
-  for (const candidate of values)
-    if (!(peopleCommandClasses as readonly string[]).includes(candidate))
-      throw new PersonActionInputError(`Unknown command class: ${candidate}`);
-  return values as readonly PeopleCommandClass[];
-}
-
-function personStringArray(value: unknown, field: string): readonly string[] {
-  const values = (Array.isArray(value) ? value : [value]).map(personText).filter((entry): entry is string => !!entry);
-  if (values.length === 0) throw new PersonActionInputError(`At least one --${field} is required`);
-  if (new Set(values).size !== values.length) throw new PersonActionInputError(`--${field} values must be unique`);
-  return values;
-}
-
-function personRequiredText(value: unknown, field: string): string {
-  const valueText = personText(value);
-  if (!valueText) throw new PersonActionInputError(`--${field} is required`);
-  return valueText;
-}
-
-function personText(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-class PersonActionInputError extends Error {
-  readonly code = "invalid_command";
+function personActionCompiler(id: PersonActionId): EntityActionCompileHook {
+  return (input) => ({ kind: "person", result: compileExecutionDelegation(id, input) });
 }

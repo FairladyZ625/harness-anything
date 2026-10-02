@@ -118,7 +118,6 @@ function personObjectRow(
   const evaluated = new Map(
       evaluatePersonActionCapability({
         action,
-        roster: input.roster,
         personId: input.entity.id,
         actorPersonId: dependencies.actor.principal.personId,
         evaluatedAt: input.evaluatedAt,

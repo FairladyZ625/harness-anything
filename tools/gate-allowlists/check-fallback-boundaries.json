@@ -391,7 +391,6 @@
       "packages/gui/src/renderer/session-transcript-model.ts#contentOf",
       "packages/kernel/src/domain/contract-version.ts#parseContractVersion",
       "packages/kernel/src/domain/people-roster.ts#rosterShapeError",
-      "packages/kernel/src/domain/person-action-contract.ts#evaluateInvariant",
       "packages/kernel/src/markdown/flow-frontmatter.ts#unquote",
       "packages/kernel/src/projection/relation-flow-frontmatter.ts#parseRelationFlowValue",
       "packages/kernel/src/store/entity-store.ts#contractForKind",

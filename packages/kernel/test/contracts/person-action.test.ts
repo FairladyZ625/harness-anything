@@ -1,99 +1,93 @@
 // harness-test-tier: contract
+import { compileExecutionDelegation } from "../../src/domain/execution-delegation.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  entityActionCriterionFailure,
-  evaluatePersonActionCapability,
-  getExecutableEntityAction,
-  parsePeopleRosterDocument,
-  personActionUsage,
-} from "../../src/index.ts";
+import { getExecutableEntityAction, personActionUsage } from "../../src/index.ts";
 import { explainEntityKind } from "../../src/domain/entity-kind-registry.ts";
+import { validateExecutionDelegationEvent } from "../../src/domain/execution-delegation-event.ts";
 
-const roster = parsePeopleRosterDocument(
-  `${JSON.stringify(
-    {
-      schema: "harness-people/v1",
-      people: [
-        {
-          personId: "person_owner",
-          displayName: "Owner",
-          roles: ["owner"],
-          credentials: [],
-        },
-      ],
-      roles: [{ roleId: "owner", commandClasses: ["admin"] }],
+const now = "2026-09-19T10:00:00.000Z",
+  issuer = { principal: { personId: "person_owner" }, executor: null },
+  input = {
+    action: {
+      tokenId: "det_contract",
+      runtimeSessionId: "runtime-contract",
+      action: ["task-amend"],
+      expiresAt: "2026-09-19T11:00:00.000Z",
     },
-    null,
-    2,
-  )}\n`,
-);
+    actor: issuer,
+    source: "local" as const,
+    session: { kind: "unavailable" as const, reason: "contract" },
+    opId: "contract-issue",
+    occurredAt: now,
+    workspaceRevision: 1,
+    currentEntity: { repoId: "contract", records: [] },
+  };
 
-test("Person declares all four executable People Action contracts", () => {
-  const explanation = explainEntityKind("person"),
-    delegate = getExecutableEntityAction("people-delegate"),
-    revoke = getExecutableEntityAction("people-revoke-delegation");
-  assert.deepEqual(explanation.transitions.available, ["add", "delegate", "revoke-delegation", "remove"]);
-  assert.equal(delegate?.execution?.implementation, "catalog-runtime");
-  assert.equal(revoke?.execution?.implementation, "catalog-runtime");
-  assert.equal(delegate?.concurrency.expectedVersion.arbitration, "center-single-write-queue");
-  assert.equal(delegate?.concurrency.artifactOwnership.repositoryDocument, "people.yaml");
-  assert.match(personActionUsage(delegate!), /^ha people delegate /u);
+test("Person exposes center private delegation and retires roster mutations", () => {
+  assert.deepEqual(explainEntityKind("person").transitions.available, ["delegate", "revoke-delegation"]);
+  assert.equal(getExecutableEntityAction("people-add"), undefined);
+  assert.equal(getExecutableEntityAction("people-remove"), undefined);
+  const delegate = getExecutableEntityAction("people-delegate");
+  assert.ok(delegate);
+  assert.equal(delegate.concurrency.expectedVersion.arbitration, "center-single-write-queue");
+  assert.equal(delegate.concurrency.artifactOwnership.record, "execution-delegations/v1");
+  assert.match(personActionUsage(delegate), /^ha people delegate /u);
 });
 
-test("Person capability evaluation preserves exact criterion identities", () => {
-  const add = getExecutableEntityAction("people-add"),
-    remove = getExecutableEntityAction("people-remove");
-  assert.ok(add && remove);
-  const addEvaluation = evaluatePersonActionCapability({
-      action: add,
-      roster,
-      personId: "person_owner",
-      actorPersonId: "person_owner",
-      evaluatedAt: "2026-09-01T00:00:00.000Z",
-    }),
-    removeEvaluation = evaluatePersonActionCapability({
-      action: remove,
-      roster,
-      personId: "person_owner",
-      actorPersonId: "person_owner",
-      evaluatedAt: "2026-09-01T00:00:00.000Z",
-    });
-  assert.deepEqual(
-    addEvaluation.map(({ criterionRef, status }) => ({ criterionRef, status })),
-    [
-      { criterionRef: "people-roster/add.input", status: "invocation-required" },
-      { criterionRef: "people-roster/add.invariants", status: "unmet" },
-    ],
+test("delegation compiler binds issuer, source, runtime and expiry and rejects reuse", () => {
+  const issued = compileExecutionDelegation("delegate", input),
+    state = { repoId: "contract", records: [issued.record] };
+  assert.equal(issued.record.token.issuer.personId, "person_owner");
+  assert.equal(issued.record.token.delegate.runtimeSessionId, "runtime-contract");
+  assert.throws(() => compileExecutionDelegation("delegate", { ...input, currentEntity: state }), /already exists/u);
+  assert.throws(
+    () => compileExecutionDelegation("delegate", { ...input, action: { ...input.action, expiresAt: now } }),
+    /later than/u,
   );
-  assert.equal(removeEvaluation[0]?.status, "met");
-  assert.equal(removeEvaluation[1]?.criterionRef, "people-roster/remove.invariants");
-  assert.equal(removeEvaluation[1]?.status, "unmet");
-  assert.match(removeEvaluation[1]?.nextActions[0] ?? "", /bootstrap creator/u);
-});
-
-test("Person compiler attributes an invariant rejection without failure-code lookup", () => {
-  const compile = getExecutableEntityAction("people-remove")?.execution?.compile;
-  assert.ok(compile);
+  const revoke = { ...input, action: { tokenId: "det_contract" }, currentEntity: state };
   assert.throws(
     () =>
-      compile({
-        action: { personId: "person_owner" },
-        actor: { principal: { personId: "person_owner" }, executor: null },
-        source: "local",
-        session: { kind: "unavailable", reason: "contract-test" },
-        opId: "person-remove-contract",
-        occurredAt: "2026-09-01T00:00:00.000Z",
-        workspaceRevision: 2,
-        currentDocumentBody: JSON.stringify(roster),
+      compileExecutionDelegation("revoke-delegation", {
+        ...revoke,
+        actor: { principal: { personId: "other" }, executor: null },
       }),
-    (error: unknown) => {
-      const failure = entityActionCriterionFailure(error);
-      assert.equal(failure?.actionId, "remove");
-      assert.equal(failure?.criterionRef, "people-roster/remove.invariants");
-      assert.match(failure?.nextActions[0] ?? "", /bootstrap creator person_owner.*ha people remove/u);
-      assert.match(failure?.nextActions[0] ?? "", /--person-id person_owner/u);
-      return true;
-    },
+    /issuing principal/u,
+  );
+  assert.throws(
+    () =>
+      compileExecutionDelegation("revoke-delegation", {
+        ...revoke,
+        source: { kind: "assignment", nodeId: "node", assignmentId: "assignment" },
+      }),
+    /source/u,
+  );
+  const revoked = compileExecutionDelegation("revoke-delegation", revoke);
+  assert.equal(revoked.record.token.revokedAt, now);
+  assert.equal(
+    compileExecutionDelegation("revoke-delegation", {
+      ...revoke,
+      currentEntity: { ...state, records: [revoked.record] },
+    }).changed,
+    false,
+  );
+});
+
+test("audit event rejects capability data so the ledger cannot become an authorization store", () => {
+  const event = {
+    schema: "execution-delegation-event/v1",
+    type: "execution_delegation_changed",
+    eventId: "event-contract",
+    opId: "contract",
+    workspaceRevision: 1,
+    actor: issuer,
+    source: "local",
+    occurredAt: now,
+    payload: { tokenId: "det_contract", operation: "issue" },
+  };
+  assert.deepEqual(validateExecutionDelegationEvent(event), []);
+  assert.ok(
+    validateExecutionDelegationEvent({ ...event, payload: { ...event.payload, allowedActions: ["task-amend"] } })
+      .length,
   );
 });

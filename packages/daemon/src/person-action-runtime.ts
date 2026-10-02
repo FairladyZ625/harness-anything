@@ -1,154 +1,138 @@
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
+import {
+  executionDelegationPath,
+  readExecutionDelegations,
+  writeExecutionDelegation,
+} from "./execution-delegation-store.ts";
 import {
   attributeEntityActionCriterion,
-  isPeopleEvent,
+  actionDeclarations,
+  canonicalEventWritePlan,
+  sha256Text,
+  type ExecutionDelegationEventV1,
+  stableStringify,
   personActionCriterionRef,
   personActionIds,
   personActionUsage,
-  resolveHarnessLayout,
-  type CompiledPeopleRosterAction,
   type EntityActionCompileInput,
   type PersonActionId,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import {
-  peopleAddJsonAllowedFields,
-  peopleAddJsonFields,
   peopleDelegateJsonAllowedFields,
   peopleDelegateJsonFields,
-  peopleRemoveJsonAllowedFields,
-  peopleRemoveJsonFields,
   peopleRevokeDelegationJsonAllowedFields,
   peopleRevokeDelegationJsonFields,
 } from "./protocol/daemon-protocol-commands-people.ts";
 import type { RepoCellRuntimeContext } from "./repo-cell-action-context.ts";
 import { resolvePacketAction, type PacketActionContract } from "./repo-cell-action-parse.ts";
 import type { EntityActionCatalogRunner } from "./entity-action-catalog-executor.ts";
-import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import type { RepoTaskAction } from "./repo-cell-types.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
-
-const peopleEffect = "people-event/people_changed";
 
 export function makePersonActionRuntime(cell: RepoCellRuntimeContext): EntityActionCatalogRunner {
   return async (contract, rawAction, binding, catalogOpId): Promise<WriteReceipt> => {
-    const action = resolvePersonAction(cell.rootDir, contract, rawAction),
-      revision = cell.store.readHead()?.revision ?? 0,
-      opId = personOperationId(cell, action, binding, revision, catalogOpId),
-      existing = cell.store.readEvent(opId);
+    const action = resolvePersonAction(cell.rootDir, contract, rawAction);
     if (binding.authorizationDecision?.outcome !== "allowed")
-      throw cell.cellCodedError("actor_unauthorized", "Person Action execution requires AuthorizationPort approval.");
-    if (existing) {
-      if (!isPeopleEvent(existing))
-        throw cell.cellCodedError("revision_conflict", `Operation ${opId} belongs to a non-People event.`);
-      return personReplayReceipt(cell.receiptForOperation(opId, binding), existing.payload.targetPersonId);
+      throw cell.cellCodedError("actor_unauthorized", "Execution delegation requires Keycloak approval.");
+    const route = cell.input.runtimeDaemonRoute;
+    if (!route)
+      throw cell.cellCodedError(
+        "delegation_store_unavailable",
+        "Execution delegation requires a center private store.",
+      );
+    const file = executionDelegationPath(route, cell.input.repoId),
+      state = readExecutionDelegations(file, cell.input.repoId),
+      revision = cell.store.readHead()?.revision ?? 0,
+      opId =
+        typeof action.idempotencyKey === "string"
+          ? `op_delegation_${sha256Text(stableStringify({ repoId: cell.input.repoId, kind: action.kind, actor: binding.actor, source: binding.source, idempotencyKey: action.idempotencyKey }))}`
+          : catalogOpId,
+      fingerprint = stableStringify({ action, actor: binding.actor, source: binding.source }),
+      prior = state.operations[opId];
+    if (prior && prior.fingerprint !== fingerprint)
+      throw cell.cellCodedError("revision_conflict", "Delegation operation is already owned by another request.");
+    const accepted = cell.store.readEvent(opId);
+    if (!prior) {
+      const compile = contract.execution.compile;
+      if (!compile) throw cell.cellCodedError("invalid_command", "Missing execution delegation compiler.");
+      if (action.kind === "people-delegate") {
+        const session =
+            typeof action.runtimeSessionId === "string"
+              ? cell.projection.readRuntimeSession(action.runtimeSessionId)
+              : null,
+          dispatch =
+            typeof action.runtimeSessionId === "string"
+              ? cell.projection.readRuntimeDispatch(action.runtimeSessionId)
+              : null;
+        if (
+          !session ||
+          !dispatch ||
+          dispatch.actor.principal.personId !== binding.actor.principal.personId ||
+          stableStringify(dispatch.source) !== stableStringify(binding.source)
+        )
+          throw cell.cellCodedError(
+            "executor_binding_invalid",
+            "Delegation requires the issuer's canonical RuntimeSession and source.",
+          );
+      }
+      const compiled = compile({
+        action,
+        actor: binding.actor,
+        source: binding.source,
+        session: resolveWriteSessionIdentity(binding, cell.projection),
+        opId,
+        occurredAt: cell.now(),
+        workspaceRevision: revision + 1,
+        currentEntity: { repoId: cell.input.repoId, records: state.records },
+      } satisfies EntityActionCompileInput);
+      if (compiled.kind !== "person") throw cell.cellCodedError("invalid_store", "Invalid delegation draft.");
+      for (const kind of compiled.result.record.token.allowedActions)
+        if (!actionDeclarations.some((declaration) => declaration.kind === kind))
+          throw cell.cellCodedError("invalid_command", `Unknown delegated Action ${kind}.`);
+      writeExecutionDelegation({ file, state, record: compiled.result.record, opId, fingerprint });
     }
-    const document = cell.projection.readDocument("people.yaml");
-    if (document.watermark !== document.sourceRevision)
-      throw cell.cellCodedError("content_not_ready", "People document projection is pending.");
-    const peoplePath = path.join(resolveHarnessLayout(cell.rootDir).authoredRoot, "people.yaml"),
-      // The authored seed is used only before the first canonical People document exists.
-      currentBody = document.document?.body ?? (existsSync(peoplePath) ? readFileSync(peoplePath, "utf8") : null),
-      compile = contract.execution.compile;
-    if (!compile) throw cell.cellCodedError("invalid_command", `${action.kind} has no Person event compiler.`);
-    const compiled = compile({
-      action,
-      actor: binding.actor,
-      source: binding.source,
-      session: resolveWriteSessionIdentity(binding, cell.projection),
-      opId,
-      occurredAt: cell.now(),
-      workspaceRevision: revision + 1,
-      entityRevision: revision,
-      ...(currentBody === null ? {} : { currentDocumentBody: currentBody }),
-    } satisfies EntityActionCompileInput);
-    if (compiled.kind !== "person")
-      throw cell.cellCodedError("invalid_store", `${action.kind} compiled a non-Person action draft.`);
-    return publishPersonDraft(cell, opId, compiled.result.compiled);
+    if (!accepted) {
+      const event: ExecutionDelegationEventV1 = {
+          schema: "execution-delegation-event/v1",
+          type: "execution_delegation_changed",
+          eventId: `event-${sha256Text(opId)}`,
+          opId,
+          workspaceRevision: revision + 1,
+          actor: binding.actor,
+          source: binding.source,
+          occurredAt: cell.now(),
+          payload: {
+            tokenId: String(action.tokenId),
+            operation: action.kind === "people-delegate" ? "issue" : "revoke",
+          },
+        },
+        plan = canonicalEventWritePlan(event, "execution-delegation-audit", opId);
+      try {
+        cell.store.append({ event, plan, blobs: [] });
+        cell.projection.apply(event, plan);
+      } catch (error) {
+        throw Object.assign(
+          cell.cellCodedError(
+            "publication_indeterminate",
+            "Delegation private write is durable but its audit did not settle.",
+          ),
+          { opId, cause: error },
+        );
+      }
+    }
+    return {
+      ...cell.receiptForOperation(opId, binding),
+      personId: binding.actor.principal.personId,
+      effects: ["execution-delegation/changed"],
+      updatedProjection: null,
+      summary: `${prior ? "Replayed" : "Accepted"} ${action.kind} for ${action.tokenId}.`,
+    } as WriteReceipt;
   };
 }
 
-function publishPersonDraft(
-  cell: RepoCellRuntimeContext,
-  opId: string,
-  compiled: CompiledPeopleRosterAction,
-): WriteReceipt {
-  if (compiled.bundle === null) {
-    const revision = cell.store.readHead()?.revision ?? 0;
-    return {
-      outcome: "no_changes",
-      opId,
-      revision,
-      evidence: JSON.stringify({ schema: "person-action/v1", action: compiled.action, roster: compiled.roster }),
-      visibility: "center",
-      code: "no_changes",
-      origin: "daemon",
-
-      proof: {
-        committedRevision: revision,
-        appliedCut: revision,
-        durable: true,
-        canonicalVisible: true,
-        worktreeVisible: true,
-      },
-      personId: compiled.targetPersonId,
-      effects: [],
-      updatedProjection: null,
-      summary: compiled.summary,
-    } as WriteReceipt;
-  }
-  const appended = cell.store.append(compiled.bundle),
-    publication = cell.publicPublication(appended);
-  cell.projection.apply(compiled.bundle.event, compiled.bundle.plan);
-  const applied = cell.projection.readOperation(compiled.bundle.event.opId),
-    canonicalVisible = applied !== null && applied.watermark >= appended.revision,
-    personId = compiled.targetPersonId,
-    receipt = {
-      opId: compiled.bundle.event.opId,
-      revision: appended.revision,
-      evidence: JSON.stringify({
-        schema: "person-action/v1",
-        action: compiled.action,
-        roster: compiled.roster,
-      }),
-      visibility: "center" as const,
-      proof: {
-        committedRevision: appended.revision,
-        appliedCut: applied?.watermark ?? 0,
-        durable: true,
-        canonicalVisible,
-        worktreeVisible: true,
-      },
-      ...publication,
-      personId,
-      effects: [peopleEffect],
-      updatedProjection:
-        personId === null ? null : { kind: "person", ref: `person/${personId}`, revision: appended.revision },
-      summary: compiled.summary,
-    };
-  return canonicalVisible
-    ? ({ outcome: "applied", ...receipt } as WriteReceipt)
-    : ({
-        outcome: "pending",
-        ...receipt,
-      } as WriteReceipt);
-}
-
-function personReplayReceipt(receipt: WriteReceipt, personId: string | null): WriteReceipt {
-  return {
-    ...receipt,
-    personId,
-    effects: [peopleEffect],
-    updatedProjection:
-      personId === null ? null : { kind: "person", ref: `person/${personId}`, revision: receipt.revision ?? null },
-  } as WriteReceipt;
-}
-
 const peoplePacketContracts: Readonly<Record<string, PacketActionContract>> = Object.freeze({
-  "people-add": peopleContract(peopleAddJsonFields, peopleAddJsonAllowedFields),
   "people-delegate": peopleContract(peopleDelegateJsonFields, peopleDelegateJsonAllowedFields),
   "people-revoke-delegation": peopleContract(peopleRevokeDelegationJsonFields, peopleRevokeDelegationJsonAllowedFields),
-  "people-remove": peopleContract(peopleRemoveJsonFields, peopleRemoveJsonAllowedFields),
 });
 
 function resolvePersonAction(
@@ -174,7 +158,7 @@ function resolvePersonAction(
 
 function peoplePacketValidation(packet: Record<string, unknown>): void {
   for (const [field, value] of Object.entries(packet)) {
-    if (field === "commandClass" || field === "action") {
+    if (field === "action") {
       if (!Array.isArray(value) || value.some((entry) => typeof entry !== "string" || !entry.trim()))
         throw invalidPersonCommand(`${field} must be a non-empty array of non-empty strings`);
     } else if (field === "expiresAt" && value === null) continue;
@@ -197,18 +181,6 @@ function peopleContract(required: readonly string[], allowed: readonly string[])
     },
     validate: peoplePacketValidation,
   };
-}
-
-function personOperationId(
-  cell: RepoCellRuntimeContext,
-  action: RepoTaskAction,
-  binding: RepoCellBinding,
-  revision: number,
-  catalogOpId: string,
-): string {
-  if (typeof action.idempotencyKey === "string" && action.idempotencyKey.trim())
-    return cell.operationId(action, binding, cell.input.repoId, 0);
-  return Number.isSafeInteger(revision) ? cell.operationId(action, binding, cell.input.repoId, revision) : catalogOpId;
 }
 
 function personActionId(value: string): PersonActionId {

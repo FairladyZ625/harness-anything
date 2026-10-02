@@ -1,3 +1,4 @@
+import { validateExecutionDelegationEvent } from "./execution-delegation-event.ts";
 import { validateCurrentEntityEvent, validateEntityEvent } from "./entity-event.ts";
 import { validateCurrentEntityPinEvent, validateEntityPinEvent } from "./entity-pin-event.ts";
 import {
@@ -38,6 +39,11 @@ interface CanonicalEventSchemaRegistration {
 }
 
 export const canonicalEventSchemas: readonly CanonicalEventSchemaRegistration[] = Object.freeze([
+  {
+    schema: "execution-delegation-event/v1",
+    validate: validateExecutionDelegationEvent,
+    validateCurrent: validateExecutionDelegationEvent,
+  },
   { schema: "entity-pin-event/v1", validate: validateEntityPinEvent, validateCurrent: validateCurrentEntityPinEvent },
   {
     schema: "ci-run-observation/v2",
