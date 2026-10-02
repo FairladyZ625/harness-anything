@@ -13,8 +13,8 @@ import {
   mergeCadenceEvents,
   type CadenceFeedEvent,
 } from "../src/renderer/model/cadence.ts";
-import { deriveFleetPulse } from "../src/renderer/model/cadence-fleet.ts";
-import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
+import { deriveFleetExecution, fleetTaskClaimOf } from "../src/renderer/model/cadence-fleet.ts";
+import type { AgentRuntimeSessionGroupDto, AgentRuntimeSessionGroupStatus } from "@harness-anything/daemon/protocol";
 
 /**
  * 研发态势纯聚合引擎的判据(输入是 observe.tail events item 的结构子集):
@@ -151,175 +151,215 @@ describe("cadenceEventOf", () => {
   });
 });
 
-describe("deriveFleetPulse", () => {
-  it("separates flow states and detects multiple active leases on one task", () => {
-    const session = (id: string, taskId: string, liveness: "live" | "exited"): AgentRuntimeSessionDto =>
-      ({
-        runtimeSessionId: id,
-        instanceId: id,
-        kindId: "codex",
-        liveness,
-        definitionSnapshot: null,
-        associations: [{ taskId, executionId: `exe_${id}`, holder: null, lease: { phase: "held", expiresAt: NOW } }],
-        activity: { lastObservedAt: NOW, outcome: null, exitCode: null, resultRef: null, missingEvidence: null },
-      }) as AgentRuntimeSessionDto;
-    const snapshot = deriveFleetPulse({
-      sessions: [session("runtime_a", "task_flight", "live"), session("runtime_b", "task_flight", "live")],
-      tasks: [
-        cadenceTask({ taskId: "task_claimed", title: "待认领任务" }),
-        cadenceTask({ taskId: "task_flight", title: "在飞任务" }),
-        cadenceTask({ taskId: "task_settled", title: "已收口任务", coordinationStatus: "done" }),
+describe("deriveFleetExecution", () => {
+  function group(
+    overrides: Partial<AgentRuntimeSessionGroupDto> & {
+      readonly key: string;
+      readonly label?: string;
+      readonly taskId?: string;
+      readonly decisionId?: string;
+    },
+  ): AgentRuntimeSessionGroupDto {
+    const kind =
+      overrides.kind ??
+      (overrides.decisionId !== undefined ? "decision" : overrides.taskId !== undefined ? "task" : "unattributed");
+    return {
+      key: overrides.key,
+      kind,
+      label: overrides.label ?? overrides.key,
+      ...(overrides.taskId !== undefined ? { taskId: overrides.taskId } : {}),
+      ...(overrides.decisionId !== undefined ? { decisionId: overrides.decisionId } : {}),
+      latestStatus: "succeeded",
+      latestActivityAt: NOW,
+      runningCount: 0,
+      sessionCount: 1,
+      roundCount: 1,
+      latestRound: null,
+      ...overrides,
+    };
+  }
+
+  function round(overrides: Partial<NonNullable<AgentRuntimeSessionGroupDto["latestRound"]>>) {
+    return {
+      runtimeSessionId: "runtime_probe",
+      dispatchId: null,
+      agentName: null,
+      instanceId: "zcode-probe",
+      status: "succeeded" as AgentRuntimeSessionGroupStatus,
+      classification: null,
+      reason: null,
+      startedAt: NOW,
+      ...overrides,
+    };
+  }
+
+  it("splits one sessionGroups read into executing, anomalies and results", () => {
+    const snapshot = deriveFleetExecution({
+      groups: [
+        group({
+          key: "task_running",
+          label: "在跑任务",
+          taskId: "task_running",
+          latestStatus: "running",
+          runningCount: 1,
+          latestRound: round({ status: "running", agentName: "GLM-5.3 · 通用实现 Worker" }),
+        }),
+        group({
+          key: "task_failed",
+          label: "失败任务",
+          taskId: "task_failed",
+          latestStatus: "failed",
+          latestRound: round({ status: "failed", agentName: "Closeout · 独立评审 Reviewer" }),
+        }),
+        group({
+          key: "task_succeeded",
+          label: "成功任务",
+          taskId: "task_succeeded",
+          latestStatus: "succeeded",
+          latestRound: round({ status: "succeeded" }),
+        }),
       ],
-      events: feed([]),
+      tasks: [cadenceTask({ taskId: "task_running" })],
+      totals: { groups: 3, sessions: 5 },
+      truncated: false,
     });
-    expect(snapshot.flow).toEqual({ claimed: 1, inFlight: 1, settled: 1 });
-    // 冲突与 worker 关联任务都用 tasks 投影行的标题;查不到的退回 taskId 本身。
-    expect(snapshot.collisions).toEqual([{ taskId: "task_flight", title: "在飞任务", workerCount: 2 }]);
-    expect(snapshot.workers[0]!.tasks).toEqual([{ taskId: "task_flight", title: "在飞任务" }]);
-    expect(snapshot.activeCount).toBe(2);
+    expect(snapshot.executing.map((row) => row.key)).toEqual(["task_running"]);
+    // 异常行同时是结果行:异常区给注意力,结果区给完整记录,不各自另算一套。
+    expect(snapshot.anomalies.map((row) => row.key)).toEqual(["task_failed"]);
+    expect(snapshot.results.map((row) => row.key)).toEqual(["task_failed", "task_succeeded"]);
+    expect(snapshot.totals).toEqual({ groups: 3, sessions: 5 });
+    expect(snapshot.loadedGroups).toBe(3);
+    expect(snapshot.truncated).toBe(false);
+    const running = snapshot.executing[0]!;
+    expect(running.currentExecutor).toBe(true);
+    expect(running.agentName).toBe("GLM-5.3 · 通用实现 Worker");
+    expect(running.taskClaim).toBeNull();
   });
 
-  it("filters workers by time window and computes active count accurately", () => {
-    const makeSession = (
-      id: string,
-      liveness: "live" | "exited",
-      observedAt: string,
-      outcome: "succeeded" | "failed" | null = null,
-      tokens?: { input: number; output: number; tools: number },
-    ): AgentRuntimeSessionDto =>
-      ({
-        runtimeSessionId: id,
-        instanceId: id,
-        kindId: "codex",
-        liveness,
-        definitionSnapshot: { kindId: "codex", model: "claude-3-5-sonnet" },
-        associations: [{ taskId: "t1", executionId: `exe_${id}`, holder: null, lease: null }],
-        activity: {
-          lastObservedAt: observedAt,
-          outcome,
-          exitCode: outcome === "failed" ? 1 : 0,
-          resultRef: null,
-          missingEvidence: null,
-        },
-        ...(tokens
-          ? {
-              metrics: {
-                inputTokens: tokens.input,
-                cacheReadTokens: 0,
-                outputTokens: tokens.output,
-                totalTokens: tokens.input + tokens.output,
-                toolCallCount: tokens.tools,
-                compacted: false,
-                usageUnavailable: false,
-              },
-            }
-          : {}),
-      }) as AgentRuntimeSessionDto;
-
-    const baseNow = "2026-09-20T12:00:00.000Z";
-    const halfHourAgo = "2026-09-20T11:30:00.000Z";
-    const fiveHoursAgo = "2026-09-20T07:00:00.000Z";
-    const twoDaysAgo = "2026-09-18T12:00:00.000Z";
-    const eightDaysAgo = "2026-09-12T12:00:00.000Z";
-
-    const sessions = [
-      makeSession("live_1", "live", halfHourAgo),
-      makeSession("exited_1h", "exited", halfHourAgo, "succeeded", { input: 1000, output: 200, tools: 5 }),
-      makeSession("exited_5h", "exited", fiveHoursAgo, "failed"),
-      makeSession("exited_2d", "exited", twoDaysAgo, "succeeded"),
-      makeSession("exited_8d", "exited", eightDaysAgo, "cancelled"),
-    ];
-
-    const activeSnap = deriveFleetPulse({
-      sessions,
-      tasks: [],
-      events: [],
-      window: "active",
-      now: baseNow,
+  it("keeps a done task's failed last session as a record, not a to-do (CEO negative case)", () => {
+    const snapshot = deriveFleetExecution({
+      groups: [
+        group({
+          key: "task_done_failed",
+          label: "已收口但末轮失败",
+          taskId: "task_done_failed",
+          latestStatus: "failed",
+          latestRound: round({ status: "failed" }),
+        }),
+      ],
+      tasks: [cadenceTask({ taskId: "task_done_failed", canonicalStatus: "done" })],
+      totals: { groups: 1, sessions: 1 },
+      truncated: false,
     });
-    expect(activeSnap.activeCount).toBe(1);
-    expect(activeSnap.workers.map((w) => w.runtimeSessionId)).toEqual(["live_1"]);
-
-    const snap1h = deriveFleetPulse({
-      sessions,
-      tasks: [],
-      events: [],
-      window: "1h",
-      now: baseNow,
-    });
-    expect(snap1h.workers.map((w) => w.runtimeSessionId)).toEqual(["live_1", "exited_1h"]);
-    expect(snap1h.workers[1]!.metrics?.totalTokens).toBe(1200);
-    expect(snap1h.workers[1]!.metrics?.toolCalls).toBe(5);
-    expect(snap1h.workers[1]!.outcome).toBe("succeeded");
-
-    const snap24h = deriveFleetPulse({
-      sessions,
-      tasks: [],
-      events: [],
-      window: "24h",
-      now: baseNow,
-    });
-    expect(snap24h.workers.map((w) => w.runtimeSessionId)).toEqual(["live_1", "exited_1h", "exited_5h"]);
-
-    const snap7d = deriveFleetPulse({
-      sessions,
-      tasks: [],
-      events: [],
-      window: "7d",
-      now: baseNow,
-    });
-    expect(snap7d.workers.map((w) => w.runtimeSessionId)).toEqual(["live_1", "exited_1h", "exited_5h", "exited_2d"]);
-
-    const snapAll = deriveFleetPulse({
-      sessions,
-      tasks: [],
-      events: [],
-      window: "all",
-      now: baseNow,
-    });
-    expect(snapAll.workers).toHaveLength(5);
-    // 关联任务不在 tasks 投影里时,标题退回 taskId 本身,不静默丢行。
-    expect(snapAll.workers[0]!.tasks).toEqual([{ taskId: "t1", title: "t1" }]);
+    expect(snapshot.anomalies).toHaveLength(1);
+    // 行上带「任务已完成」声明:异常区是记录,不因旧会话失败叫人处理。
+    expect(snapshot.anomalies[0]!.taskClaim).toBe("done");
   });
 
-  it("sorts workers by status priority (live > idle > exited) and descending lastActiveAt", () => {
-    const makeSession = (
-      id: string,
-      liveness: "live" | "stale" | "exited",
-      observedAt: string,
-    ): AgentRuntimeSessionDto =>
-      ({
-        runtimeSessionId: id,
-        instanceId: id,
-        kindId: "codex",
-        liveness: liveness === "stale" ? "stale" : liveness,
-        definitionSnapshot: null,
-        associations: [],
-        activity: { lastObservedAt: observedAt, outcome: null, exitCode: null, resultRef: null, missingEvidence: null },
-      }) as AgentRuntimeSessionDto;
-
-    const baseNow = "2026-09-20T12:00:00.000Z";
-    const sessions = [
-      makeSession("exited_recent", "exited", "2026-09-20T11:50:00.000Z"),
-      makeSession("live_older", "live", "2026-09-20T10:00:00.000Z"),
-      makeSession("live_newer", "live", "2026-09-20T11:55:00.000Z"),
-      makeSession("exited_older", "exited", "2026-09-20T08:00:00.000Z"),
-    ];
-
-    const snapshot = deriveFleetPulse({
-      sessions,
-      tasks: [],
-      events: [],
-      window: "24h",
-      now: baseNow,
+  it("drops a group from anomalies once a newer rerun succeeded (member-level filtering trap)", () => {
+    const snapshot = deriveFleetExecution({
+      groups: [
+        // 旧轮 failed、最新轮 succeeded:组现状由未筛选 latestStatus 判定,不进异常区。
+        group({
+          key: "task_retried",
+          label: "重跑成功任务",
+          taskId: "task_retried",
+          latestStatus: "succeeded",
+          latestRound: round({ status: "succeeded" }),
+        }),
+      ],
+      tasks: [cadenceTask({ taskId: "task_retried" })],
+      totals: { groups: 1, sessions: 2 },
+      truncated: false,
     });
+    expect(snapshot.anomalies).toHaveLength(0);
+    expect(snapshot.results[0]!.latestStatus).toBe("succeeded");
+    expect(snapshot.results[0]!.taskClaim).toBeNull();
+  });
 
-    expect(snapshot.workers.map((w) => w.runtimeSessionId)).toEqual([
-      "live_newer",
-      "live_older",
-      "exited_recent",
-      "exited_older",
-    ]);
+  it("does not name an executor when the latest round already ended but sessions still run", () => {
+    const snapshot = deriveFleetExecution({
+      groups: [
+        group({
+          key: "task_mixed",
+          label: "混合任务",
+          taskId: "task_mixed",
+          latestStatus: "failed",
+          runningCount: 1,
+          // runningCount>0 但最新一轮(按 startedAt)已结束:不把已结束者指为当前执行人。
+          latestRound: round({ status: "failed", agentName: "旧执行人", startedAt: "2026-09-20T11:00:00.000Z" }),
+        }),
+      ],
+      tasks: [],
+      totals: { groups: 1, sessions: 2 },
+      truncated: false,
+    });
+    expect(snapshot.executing).toHaveLength(1);
+    expect(snapshot.executing[0]!.currentExecutor).toBe(false);
+    expect(snapshot.executing[0]!.runningCount).toBe(1);
+  });
+
+  it("maps task projection states to claims: awaiting only for submitted/in_review, unknown when missing", () => {
+    const claims: [string, ReturnType<typeof fleetTaskClaimOf>][] = [
+      ["task_submitted", "awaiting"],
+      ["task_review", "awaiting"],
+      ["task_done", "done"],
+      ["task_cancelled", "cancelled"],
+      ["task_archived", "archived"],
+      ["task_active", null],
+      ["task_missing", "unknown"],
+    ];
+    const snapshot = deriveFleetExecution({
+      groups: claims.map(([taskId]) => group({ key: taskId, taskId, label: taskId })),
+      tasks: [
+        cadenceTask({ taskId: "task_submitted", canonicalStatus: "submitted" }),
+        cadenceTask({ taskId: "task_review", canonicalStatus: "in_review" }),
+        cadenceTask({ taskId: "task_done", canonicalStatus: "done" }),
+        cadenceTask({ taskId: "task_cancelled", canonicalStatus: "cancelled" }),
+        cadenceTask({ taskId: "task_archived", packageDisposition: "archived" }),
+        cadenceTask({ taskId: "task_active" }),
+      ],
+      totals: { groups: claims.length, sessions: claims.length },
+      truncated: false,
+    });
+    const byClaim = new Map(snapshot.results.map((row) => [row.key, row.taskClaim] as const));
+    for (const [taskId, expected] of claims) expect(byClaim.get(taskId), taskId).toBe(expected);
+  });
+
+  it("names decision groups by the decision projection title and keeps unattributed buckets addressable", () => {
+    const snapshot = deriveFleetExecution({
+      groups: [
+        group({ key: "dec_probe", label: "dec_probe", decisionId: "dec_probe", latestStatus: "failed" }),
+        group({ key: "unattributed:no-task", label: "No task binding", latestStatus: "succeeded" }),
+      ],
+      decisions: [{ decisionId: "dec_probe", title: "探针决策:切换读取形态" }],
+      tasks: [],
+      totals: { groups: 2, sessions: 2 },
+      truncated: false,
+    });
+    const decision = snapshot.anomalies[0]!;
+    expect(decision.kind).toBe("decision");
+    expect(decision.title).toBe("探针决策:切换读取形态");
+    expect(decision.taskId).toBeNull();
+    const unattributed = snapshot.results.find((row) => row.unattributedKey !== null)!;
+    expect(unattributed.kind).toBe("other");
+    expect(unattributed.unattributedKey).toBe("unattributed:no-task");
+  });
+
+  it("sorts rows by activity instant, not ISO string order (mixed millisecond precision)", () => {
+    const snapshot = deriveFleetExecution({
+      groups: [
+        // 秒精度 "…:00Z" 与毫秒精度 "…:00.500Z" 共存:字典序里 "."(0x2E) < "Z"(0x5A),
+        // 按 String 排序会把 11:00:00.500(更晚)排到 11:00:00(更早)之前——判反。
+        group({ key: "a_seconds", label: "a", latestActivityAt: "2026-09-20T11:00:00Z" }),
+        group({ key: "b_millis_later", label: "b", latestActivityAt: "2026-09-20T11:00:00.500Z" }),
+        group({ key: "c_latest", label: "c", latestActivityAt: "2026-09-20T11:30:00Z" }),
+      ],
+      tasks: [],
+      totals: { groups: 3, sessions: 3 },
+      truncated: false,
+    });
+    expect(snapshot.results.map((row) => row.key)).toEqual(["c_latest", "b_millis_later", "a_seconds"]);
   });
 });
 

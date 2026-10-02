@@ -1,5 +1,6 @@
 import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
 import { useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import type { AgendaSuccess } from "../api-client.ts";
 import { t } from "../i18n/index.tsx";
 import type { ObserveTailMode } from "../daemon-observe-model.ts";
@@ -15,14 +16,20 @@ import { FrictionRadar } from "../components/cadence/FrictionRadar.tsx";
 import { YieldSummary } from "../components/cadence/YieldSummary.tsx";
 import { AttentionBlockers } from "../components/cadence/AttentionBlockers.tsx";
 import { FleetPulsePane } from "../components/cadence/FleetPulsePane.tsx";
-import { deriveFleetPulse, type FleetTimeWindow } from "../model/cadence-fleet.ts";
-import type { AgentRuntimeSessionDto } from "@harness-anything/daemon/protocol";
+import {
+  deriveFleetExecution,
+  FLEET_GROUPS_LIMIT,
+  FLEET_HISTORY_RANGE_MS,
+  type FleetHistoryRange,
+} from "../model/cadence-fleet.ts";
+import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts";
 
 /**
  * 研发态势(Cadence & Pulse)一级视图:治理域下项目研发心跳的驾驶舱。
  * 数据全部来自既有只读 RPC——`observe.tail`(events 窗口,本视图自带**有界**历史
  * 回看:CADENCE_HISTORY_PAGE_BUDGET 页 × 64 事件,超出显式标注「仅最近窗口」)、
- * `repo.tasks.list` 投影行、`repo.agenda.read` 议程与 `repo.decisions.list` 摘要;
+ * `repo.tasks.list` 投影行、`repo.agenda.read` 议程、`repo.decisions.list` 摘要,
+ * 以及执行概况页签的 `runtime-session-groups` 有界组读面;
  * GUI 不读文件、不发起任何写操作;跳转复用实体导航与待办签发总池。
  */
 
@@ -41,20 +48,33 @@ export function CadenceView({
   decisions,
   onNavigateEntity,
   onOpenPool,
-  activeSessions = [],
 }: {
   readonly repoId: string;
   readonly projectName: string;
   readonly tasks: CadenceInput["tasks"];
   readonly agenda: AgendaSuccess | undefined;
-  readonly decisions: CadenceInput["decisions"];
+  /** 决策摘要行:任务页签只读 state 计数,执行概况页签另取 title 命名 decision 组。 */
+  readonly decisions: readonly { readonly decisionId: string; readonly title: string; readonly state: string }[];
   readonly onNavigateEntity: (ref: string) => void;
   readonly onOpenPool: () => void;
-  readonly activeSessions?: readonly AgentRuntimeSessionDto[];
 }) {
   const [tab, setTab] = useState<"tasks" | "fleet">("tasks"),
-    [fleetWindow, setFleetWindow] = useState<FleetTimeWindow>("24h"),
+    [fleetRange, setFleetRange] = useState<FleetHistoryRange>("24h"),
     feed = useCadenceFeed(repoId),
+    // 执行概况的一条有界读面(groupBy=task,无成员级 status 筛选):query key 并入
+    // sessionGroupsAll 家族,与会话页共享缓存与台账 cut 的失效扇出,不另建轮询。
+    // daemon 保证 live 会话不被 since 切掉,「正在执行」区天然不受历史窗口影响。
+    fleetGroups = useQuery({
+      queryKey: [...runtimeQueryKeys.sessionGroupsAll(repoId), "cadence", "task", fleetRange],
+      queryFn: () =>
+        agentRuntimeClient.sessionGroups(repoId, {
+          groupBy: "task",
+          since: new Date(Date.now() - FLEET_HISTORY_RANGE_MS[fleetRange]).toISOString(),
+          limit: FLEET_GROUPS_LIMIT,
+        }),
+      enabled: tab === "fleet",
+      staleTime: 4_000,
+    }),
     // 议程未读完(pending)时 awaiting 为 null:HUD 与堵点卡片如实显示读取中,不冒充。
     // 堵点卡片的「执行」组按旧口径收待派审与评审中两类(下一步动作不同,卡片合并呈现)。
     awaiting = useMemo(() => {
@@ -85,14 +105,14 @@ export function CadenceView({
     ),
     fleet = useMemo(
       () =>
-        deriveFleetPulse({
-          sessions: activeSessions,
+        deriveFleetExecution({
+          groups: fleetGroups.data?.groups ?? [],
           tasks,
-          events: feed.events,
-          window: fleetWindow,
-          now: feed.now,
+          decisions,
+          totals: fleetGroups.data?.totals ?? { groups: 0, sessions: 0 },
+          truncated: fleetGroups.data?.truncated ?? false,
         }),
-      [activeSessions, tasks, feed.events, fleetWindow, feed.now],
+      [fleetGroups.data, tasks, decisions],
     ),
     openTask = (taskId: string): void => {
       onNavigateEntity(`task/${taskId}`);
@@ -139,7 +159,7 @@ export function CadenceView({
         />
       </div>
       {/* 任务页签是一屏的区域板:面板自己是板的容器量尺,≥900px 时板占满剩余高度、区域在自己
-          内部滚动;更窄时单列纵排、面板滚动(标准 §2.3)。舰队页签自己管滚动。 */}
+          内部滚动;更窄时单列纵排、面板滚动(标准 §2.3)。执行概况页签自己管滚动。 */}
       <TabPanel
         idPrefix="cadence"
         value={tab}
@@ -150,8 +170,16 @@ export function CadenceView({
         {tab === "fleet" ? (
           <FleetPulsePane
             snapshot={fleet}
-            selectedWindow={fleetWindow}
-            onSelectWindow={setFleetWindow}
+            pending={fleetGroups.isPending || fleetGroups.data?.status === "pending"}
+            error={
+              fleetGroups.isError
+                ? fleetGroups.error instanceof Error
+                  ? fleetGroups.error.message
+                  : String(fleetGroups.error)
+                : null
+            }
+            selectedRange={fleetRange}
+            onSelectRange={setFleetRange}
             onNavigateEntity={onNavigateEntity}
           />
         ) : (
