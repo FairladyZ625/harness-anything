@@ -723,6 +723,8 @@ async function attachTrustedScheduleAgent(
       }
     ).schedule,
     agentId = schedule?.spec?.target?.agentId;
+  const receiptTrustedAgent = (receipt as { readonly trustedAgent?: unknown }).trustedAgent;
+  if (receiptTrustedAgent !== undefined) return receipt;
   if (typeof agentId !== "string")
     throw new FleetFault("schedule_claim_invalid", "Applied Schedule claim omitted its Agent target.");
   const inspected = await host.run(repoId, { kind: "agent-inspect", agentId }, auth);
