@@ -206,7 +206,11 @@ export function createDaemonHostRuntimeApi(
           userRoot: context.input.userRoot,
           writerEpochLease: context.writerEpochLease,
           payload: request,
-          nodes: keycloakNodeRegistry(context.keycloakCenter),
+          nodes: {
+            ...keycloakNodeRegistry(context.keycloakCenter),
+            loginAuthority: (nodeId) => context.oidc.discovery(nodeId),
+            verifyHuman: (auth) => context.oidc.bind(auth),
+          },
         });
         context.fleetCenter = started.center;
         // Retained for read-side joins (Schedule GUI availability): the roster is the

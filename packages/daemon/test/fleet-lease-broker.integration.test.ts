@@ -26,7 +26,11 @@ const replicaQuota = 64 * 1024 * 1024;
 // Same fixture discipline as fleet-transport.integration: every OS resource is
 // owned by the fixture and reclaimed through t.after, because a `node --test`
 // timeout suspends the body and never runs try/finally teardown.
-async function leaseFixture(t: TestContext, wrapRun?: (run: DaemonHost["run"]) => DaemonHost["run"]) {
+async function leaseFixture(
+  t: TestContext,
+  wrapRun?: (run: DaemonHost["run"]) => DaemonHost["run"],
+  verifyHuman?: Parameters<typeof listenFleetTls>[0]["verifyHuman"],
+) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-lease-")),
     repo = path.join(root, "repo"),
     userRoot = path.join(root, "user"),
@@ -128,6 +132,7 @@ async function leaseFixture(t: TestContext, wrapRun?: (run: DaemonHost["run"]) =
         replicaDiskQuotaBytes: replicaQuota,
         authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
         nodeOwner: owners.nodeOwner,
+        ...(verifyHuman ? { verifyHuman } : {}),
         resolveAssignment: (assignmentId) => byId.get(assignmentId) ?? null,
       });
       centers.push(center);
@@ -169,6 +174,7 @@ async function leaseFixture(t: TestContext, wrapRun?: (run: DaemonHost["run"]) =
     action: Record<string, unknown>,
     waitMs = 5_000,
     taskId: string | null = typeof action.taskId === "string" ? action.taskId : null,
+    accessToken?: string,
   ) => {
     const result = await runFleetTaskCommandClient({
       port: center.port,
@@ -182,6 +188,7 @@ async function leaseFixture(t: TestContext, wrapRun?: (run: DaemonHost["run"]) =
       taskId,
       action: action as never,
       waitMs,
+      ...(accessToken ? { accessToken } : {}),
     });
     if (action.kind === "task-create" && result.outcome === "applied") {
       await waitForFleetPublication(host, "lease-repo", String(result.receipt?.opId), localAuthFixture());
@@ -914,6 +921,81 @@ test("an in-flight opId is deduplicated and the wait default is thirty minutes",
   const codes = [first, second].map((result) => `${result.outcome}:${result.code}`).sort();
   assert.deepEqual(codes, ["applied:null", "op_rejected:op_in_flight"]);
 });
+
+test(
+  "queued human commands revalidate at execution, never persist credentials, and bind replay to the person",
+  { timeout: 30_000 },
+  async (t) => {
+    let active = true,
+      validations = 0;
+    const fixture = await leaseFixture(t, undefined, async (auth) => {
+      validations++;
+      if (!active || auth.humanAccessToken !== "token-person-two")
+        throw Object.assign(new Error("The fixture interactive token was revoked."), {
+          code: "human_confirmation_required",
+        });
+      return {
+        ...auth,
+        // This trusted verifier fixture consumes request metadata before handing the verified principal to the host.
+        humanAccessToken: undefined,
+        oidcPrincipal: {
+          personId: "person-two",
+          subject: "human-two",
+          expiresAt: Date.now() + 60_000,
+          accessToken: auth.humanAccessToken,
+          authority: { url: authorityUrl, realm: "harness", clientId: "harness-center" },
+        },
+      };
+    });
+    const authorityUrl: string = fixture.owners.url;
+    t.after(() => fixture.close());
+    const created = await fixture.command("node-one", { kind: "task-create", title: "Queued interactive session" }),
+      taskId = String(created.receipt?.taskId);
+    assert.equal((await fixture.command("node-one", { kind: "task-start", taskId })).outcome, "applied");
+    const waiting = fixture.command("node-two", { kind: "task-start", taskId }, 10_000, taskId, "token-person-two");
+    await waitUntil(
+      () => fixture.center.status().leases.queue.length === 1,
+      "the human command must park behind the holder",
+    );
+    const durableQueue = readFileSync(path.join(fixture.stateRoot, "leases.json"), "utf8");
+    const queuedItems = Object.values(JSON.parse(durableQueue).queue).flat() as Array<{ humanPersonId?: string }>;
+    assert.equal(queuedItems[0]?.humanPersonId, "person-two");
+    assert.equal(durableQueue.includes("token-person-two"), false);
+    active = false;
+    assert.equal((await fixture.command("node-one", { kind: "task-release", taskId })).outcome, "applied");
+    const rejected = await waiting;
+    assert.equal(rejected.outcome, "op_rejected");
+    assert.equal(rejected.code, "task_execute_failed");
+    assert.ok(validations >= 2, "the token is checked on arrival and again when the parked action executes");
+    active = true;
+    const started = await fixture.command(
+      "node-two",
+      { kind: "task-start", taskId },
+      5_000,
+      taskId,
+      "token-person-two",
+    );
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+    const replay = await runFleetTaskCommandClient({
+      port: fixture.center.port,
+      ca: readFileSync(path.join(fixture.root, "tls.crt")),
+      servername: "localhost",
+      nodeId: "node-two",
+      credential: "secret-node-two",
+      assignmentId: "assignment-node-two",
+      opId: started.opId,
+      repoId: "lease-repo",
+      taskId,
+      action: { kind: "task-start", taskId },
+      waitMs: 1_000,
+    });
+    assert.equal(replay.code, "op_conflict", "a machine cannot reuse a human-authenticated opId receipt");
+    assert.equal(
+      readFileSync(path.join(fixture.stateRoot, "lease-receipts.json"), "utf8").includes("token-person-two"),
+      false,
+    );
+  },
+);
 
 async function waitUntil(predicate: () => boolean, message: string, attempts = 50): Promise<void> {
   for (let attempt = 0; attempt < attempts; attempt += 1) {

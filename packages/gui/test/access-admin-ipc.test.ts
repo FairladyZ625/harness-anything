@@ -55,6 +55,7 @@ test("every preload method reaches the daemon as one operation the protocol cont
   await api.reconcile({ operationId: "operation-1" });
   await api.sessionLifetime();
   await api.setSessionLifetime({ sessionLifetimeSeconds: 3_600, expectedVersion: "21600" });
+  await api.forRepository("server-b").groups();
   assert.deepEqual(sent, [
     { operation: "group-list" },
     { operation: "group-create", ...group, operationId: "operation-1" },
@@ -73,6 +74,7 @@ test("every preload method reaches the daemon as one operation the protocol cont
       expectedVersion: "21600",
       operationId: "operation-6",
     },
+    { operation: "group-list", repoId: "server-b" },
   ]);
   assert.equal(Object.keys(api).length, sent.length, "the test covers every method the page can call");
 

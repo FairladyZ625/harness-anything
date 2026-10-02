@@ -23,6 +23,7 @@ import { consumeKnownError } from "@harness-anything/kernel";
 import { runProcessText } from "./process-port.ts";
 import type { AccessAdminOperation, AccessAdminRequest } from "./access-admin-service.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
+import { keycloakLoginAttributes, keycloakLoginMappers } from "./keycloak-login-client.ts";
 import {
   alignSessionLifetime,
   sessionLifetimeBounds,
@@ -48,6 +49,8 @@ type ManagedRbacOperation =
   | "listener-set"
   | "login-begin"
   | "login-complete"
+  | "login"
+  | "login-poll"
   | "session"
   | "logout"
   | "bootstrap-status"
@@ -56,6 +59,8 @@ type ManagedRbacOperation =
   | AccessAdminOperation;
 
 export interface ManagedRbacRequest extends AccessAdminRequest {
+  readonly repoId?: string;
+  readonly rootDir?: string;
   readonly operation?: ManagedRbacOperation;
   readonly mode?: "managed" | "external";
   readonly url?: string;
@@ -272,6 +277,7 @@ export class ManagedRbacService {
       ready: response.ok,
       mode: config.mode,
       url: config.url,
+      browserUrl: config.listener ? managedRbacListenerUrl(config.listener) : config.url,
       realm: config.realm,
       clientId: config.clientId,
       status: response.status,
@@ -377,20 +383,8 @@ export class ManagedRbacService {
           publicClient: true,
           standardFlowEnabled: true,
           redirectUris: ["http://127.0.0.1/*"],
-          attributes: { "pkce.code.challenge.method": "S256" },
-          protocolMappers: [
-            {
-              name: "harness-person-id",
-              protocol: "openid-connect",
-              protocolMapper: "oidc-usermodel-attribute-mapper",
-              config: {
-                "user.attribute": "harness_person_id",
-                "claim.name": "harness_person_id",
-                "jsonType.label": "String",
-                "userinfo.token.claim": "true",
-              },
-            },
-          ],
+          attributes: keycloakLoginAttributes,
+          protocolMappers: keycloakLoginMappers("harness-center"),
         },
       ],
       users: [
@@ -586,10 +580,12 @@ export class ManagedRbacService {
     const payload = (await tokenResponse.json()) as { readonly access_token?: unknown };
     if (typeof payload.access_token !== "string" || !payload.access_token)
       throw managedRbacError("rbac_policy_sync_failed", "Keycloak center token response omitted access_token.");
-    await new KeycloakPolicyAdapter(
+    const adapter = new KeycloakPolicyAdapter(
       { url: config.url, realm: config.realm, resourceServerClientId: config.clientId },
       this.#ports.fetch,
-    ).syncBasePolicy(payload.access_token);
+    );
+    await adapter.syncBasePolicy(payload.access_token);
+    await adapter.syncLoginClients(payload.access_token);
     await alignSessionLifetime(
       { url: config.url, realm: config.realm, accessToken: payload.access_token },
       this.#ports.fetch,

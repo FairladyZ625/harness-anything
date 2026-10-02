@@ -430,7 +430,7 @@ export const agentProtocolCommands = Object.freeze([
     phase: "W3",
     path: ["bootstrap"],
     summary:
-      "Install, configure, and start the managed Keycloak and PostgreSQL authorization service; read or set its session lifetime and the HTTPS listener edge nodes sign in through; list, register, or unregister fleet nodes (a new node's machine credential is written to --credential-file, never printed).",
+      "Sign in without a local browser (--operation login), inspect session, or logout; install/configure Keycloak, manage its HTTPS listener, session lifetime and fleet node registrations. Login credentials remain in the daemon; a new machine credential goes to --credential-file.",
     method: "daemon.rbac.manage",
     inputs: [
       cliInput(
@@ -447,6 +447,9 @@ export const agentProtocolCommands = Object.freeze([
             "backup",
             "restore",
             "upgrade",
+            "login",
+            "session",
+            "logout",
             "session-lifetime",
             "session-lifetime-set",
             "listener",

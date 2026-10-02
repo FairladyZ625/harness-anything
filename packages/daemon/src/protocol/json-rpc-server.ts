@@ -187,9 +187,37 @@ export function createJsonRpcProtocolServer(options: {
           "This repository has no local workspace; bootstrap is unavailable in remote-proxy mode.",
         ),
       );
-    const remoteRepoId = repoIdFromParams(params);
+    const remoteRepoId =
+      method === "daemon.rbac.manage" && typeof params.repoId === "string" ? params.repoId : repoIdFromParams(params);
     if (remoteRepoId && remoteProxy?.route(remoteRepoId)) {
       try {
+        if (method === "daemon.rbac.manage") {
+          const { accessAdminOperations } = await import("../access-admin-service.ts");
+          const permitted = [
+            "login",
+            "login-poll",
+            "login-begin",
+            "login-complete",
+            "session",
+            "logout",
+            "health",
+            "bootstrap-status",
+            "invite",
+            ...accessAdminOperations,
+          ];
+          if (!permitted.includes(String(params.operation)))
+            throw Object.assign(new Error("This RBAC operation requires the center's original local socket."), {
+              code: "local_transport_required",
+            });
+          const { repoId: _target, rootDir: _root, ...remoteParams } = params;
+          const result = await remoteProxy.request(remoteRepoId, method, remoteParams);
+          return reply(
+            method,
+            (params.operation === "bootstrap-status" && result.ok !== false
+              ? { ...result, required: false }
+              : result) as DaemonRpcResult<typeof method>,
+          );
+        }
         if (isDaemonStreamCall(call)) {
           const subscription = await remoteProxy.stream(remoteRepoId, call.method, call.params.payload);
           subscriptions.add(subscription);
@@ -401,13 +429,16 @@ export function createJsonRpcProtocolServer(options: {
         const { runFleetEdgeTask } = await import("../fleet-edge-task.ts");
         return reply(
           method,
-          await runFleetEdgeTask({
-            payload: {
-              ...params.payload,
-              // The two non-task discriminants return above; the remainder is FleetTaskAction.
-              action: fleetAction as DaemonFleetTaskAction,
+          await runFleetEdgeTask(
+            {
+              payload: {
+                ...params.payload,
+                // The two non-task discriminants return above; the remainder is FleetTaskAction.
+                action: fleetAction as DaemonFleetTaskAction,
+              },
             },
-          }),
+            async () => (await options.sessionPrincipal?.())?.accessToken,
+          ),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));

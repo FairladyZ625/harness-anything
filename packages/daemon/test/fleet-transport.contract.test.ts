@@ -15,6 +15,28 @@ import {
 const cut = { revision: 7, headDigest: `sha256:${"b".repeat(64)}` } as const;
 const ledgerCut = { repoId: "repo", ...cut } as const;
 const blob = { sha256: "c".repeat(64), size: 3, mediaType: "text/markdown" } as const;
+test("fleet authentication metadata admits a standard JWT and remains separate from closed action fields", () => {
+  const frame = {
+    schema: "fleet.task.command/v1",
+    messageId: "human",
+    assignmentId: "assignment",
+    writerEpoch: 1,
+    opId: "human-op",
+    repoId: "repo",
+    taskId: "task",
+    action: { kind: "task-review-consent", taskId: "task", reviewId: "review" },
+    waitMs: 1_000,
+    docChanges: null,
+    mirrorBaseCut: null,
+    accessToken: "a".repeat(2_048),
+  };
+  assert.deepEqual(parseFleetFrame(frame), frame);
+  assert.throws(() => parseFleetFrame({ ...frame, accessToken: "a".repeat(16 * 1024 + 1) }), FleetContractError);
+  assert.throws(
+    () => parseFleetFrame({ ...frame, action: { ...frame.action, accessToken: frame.accessToken } }),
+    FleetContractError,
+  );
+});
 test("runtime dispatch frames carry typed center admission context without mirrored budget state", () => {
   const frame = {
     schema: "fleet.runtime.event/v1",

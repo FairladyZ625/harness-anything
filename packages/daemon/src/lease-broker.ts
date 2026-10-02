@@ -91,6 +91,7 @@ export type WaitItem = {
   readonly assignment: FleetAssignmentRecord;
   readonly action: FleetTaskAction;
   readonly docs: FleetTaskDocs | null;
+  readonly humanPersonId?: string | null;
   readonly enqueuedAt: string;
   readonly deadlineAt: string;
 };
@@ -153,13 +154,14 @@ export function openFleetLeaseBroker(options: {
   readonly now: () => string;
   readonly env?: NodeJS.ProcessEnv;
   /** Resolved for each center write: the node's current owner, never a value captured at admission. */
-  readonly auth: (assignment: FleetAssignmentRecord) => Promise<DaemonAuthenticationContext>;
+  readonly auth: (assignment: FleetAssignmentRecord, accessToken?: string) => Promise<DaemonAuthenticationContext>;
 }): FleetLeaseBroker {
   const timers = fleetLeaseTimers(options.env),
     stateFile = path.join(options.stateRoot, "leases.json"),
     receiptFile = path.join(options.stateRoot, "lease-receipts.json"),
     state = loadBrokerState(stateFile),
     receipts = loadBrokerReceipts(receiptFile);
+  const credentials = new Map<string, { readonly accessToken: string; readonly personId: string }>();
   const parks = new Map<string, ParkRegistration>(),
     queuedByOpId = new Map<string, { readonly key: string; readonly item: WaitItem }>(),
     inFlight = new Set<string>(),
@@ -181,7 +183,8 @@ export function openFleetLeaseBroker(options: {
     assignment: FleetAssignmentRecord,
     action: FleetTaskAction,
     docs: FleetTaskDocs | null = null,
-  ): string => sha256Text(stableStringify({ assignmentId: assignment.assignmentId, action, docs }));
+    humanPersonId: string | null = null,
+  ): string => sha256Text(stableStringify({ assignmentId: assignment.assignmentId, action, docs, humanPersonId }));
   async function withTaskLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
     const previous = taskLocks.get(key) ?? Promise.resolve();
     let release!: () => void;
@@ -352,7 +355,15 @@ export function openFleetLeaseBroker(options: {
           inFlight.add(head.opId);
           let result: FleetTaskResultFields;
           try {
-            result = await execute(head.assignment, head.action, head.opId, key, coordination === "reserve", head.docs);
+            result = await execute(
+              head.assignment,
+              head.action,
+              head.opId,
+              key,
+              coordination === "reserve",
+              head.docs,
+              head.humanPersonId ?? null,
+            );
           } catch (error) {
             consumeKnownError(error);
             result = {
@@ -408,6 +419,24 @@ export function openFleetLeaseBroker(options: {
       queuePosition: null,
     };
   }
+  async function executionAuth(
+    assignment: FleetAssignmentRecord,
+    opId: string,
+    personId: string | null,
+  ): Promise<DaemonAuthenticationContext> {
+    if (!personId) return auth(assignment);
+    const credential = credentials.get(opId);
+    if (!credential || credential.personId !== personId)
+      throw Object.assign(new Error("Queued human confirmation requires a fresh interactive credential."), {
+        code: "human_confirmation_required",
+      });
+    const verified = await auth(assignment, credential.accessToken);
+    if (verified.oidcPrincipal?.personId !== personId)
+      throw Object.assign(new Error("The command's interactive person changed."), {
+        code: "human_confirmation_required",
+      });
+    return verified;
+  }
   async function execute(
     assignment: FleetAssignmentRecord,
     action: FleetTaskAction,
@@ -415,8 +444,9 @@ export function openFleetLeaseBroker(options: {
     key: string | null,
     preReserved = false,
     docs: FleetTaskDocs | null = null,
+    humanPersonId: string | null = null,
   ): Promise<FleetTaskResultFields> {
-    const digest = digestFor(assignment, action, docs),
+    const digest = digestFor(assignment, action, docs, humanPersonId),
       coordination = lifecycleCoordination(action);
     const effective: FleetTaskAction =
       coordination === "reserve" && !Number.isSafeInteger(action.ttlMs)
@@ -446,7 +476,7 @@ export function openFleetLeaseBroker(options: {
       receipt = await options.host.run(
         assignment.repoId,
         bundle as Parameters<Pick<DaemonHost, "run">["run"]>[1],
-        await auth(assignment),
+        await executionAuth(assignment, opId, humanPersonId),
       );
     } catch (error) {
       consumeKnownError(error);
@@ -519,6 +549,7 @@ export function openFleetLeaseBroker(options: {
     nodeId: string,
     frame: FleetTaskCommandFrame,
     clientGone: () => boolean,
+    humanPersonId: string | null,
   ): Promise<FleetTaskResultFields> {
     const assignment = normalizeTaskAssignment(await options.resolveAssignment(frame.assignmentId));
     const nowMs = Date.parse(options.now());
@@ -570,7 +601,7 @@ export function openFleetLeaseBroker(options: {
       frame.docChanges !== null || frame.mirrorBaseCut !== null
         ? { docChanges: frame.docChanges, mirrorBaseCut: frame.mirrorBaseCut }
         : null;
-    const digest = digestFor(assignment, action, docs);
+    const digest = digestFor(assignment, action, docs, humanPersonId);
     const replay = receipts[frame.opId];
     if (replay)
       return replay.digest === digest
@@ -595,7 +626,7 @@ export function openFleetLeaseBroker(options: {
     if (kind === "task-create") {
       inFlight.add(frame.opId);
       try {
-        return await execute(assignment, action, frame.opId, null);
+        return await execute(assignment, action, frame.opId, null, false, null, humanPersonId);
       } finally {
         inFlight.delete(frame.opId);
       }
@@ -612,7 +643,12 @@ export function openFleetLeaseBroker(options: {
       if (queuedElsewhere) {
         if (
           queuedElsewhere.queuedKey !== key ||
-          digestFor(queuedElsewhere.item.assignment, queuedElsewhere.item.action, queuedElsewhere.item.docs) !== digest
+          digestFor(
+            queuedElsewhere.item.assignment,
+            queuedElsewhere.item.action,
+            queuedElsewhere.item.docs,
+            queuedElsewhere.item.humanPersonId ?? null,
+          ) !== digest
         )
           return {
             result: {
@@ -693,15 +729,25 @@ export function openFleetLeaseBroker(options: {
         const queueAhead = (state.queue[key] ?? []).length > 0;
         if (!heldBySelf && (heldByOther || queueAhead))
           return {
-            parked: enqueue(key, assignment, action, frame.opId, nowMs, waitCap(frame.waitMs), clientGone, docs),
+            parked: enqueue(
+              key,
+              assignment,
+              action,
+              frame.opId,
+              nowMs,
+              waitCap(frame.waitMs),
+              clientGone,
+              docs,
+              humanPersonId,
+            ),
           };
         if (row === null && coordination === "reserve") {
           const effectiveTtl = Number.isSafeInteger(action.ttlMs) ? Number(action.ttlMs) : timers.orphanTimeoutMs;
           reserveProvisional(key, assignment, effectiveTtl);
           persist();
-          return { result: await execute(assignment, action, frame.opId, key, true, docs) };
+          return { result: await execute(assignment, action, frame.opId, key, true, docs, humanPersonId) };
         }
-        return { result: await execute(assignment, action, frame.opId, key, false, docs) };
+        return { result: await execute(assignment, action, frame.opId, key, false, docs, humanPersonId) };
       } finally {
         inFlight.delete(frame.opId);
       }
@@ -719,6 +765,7 @@ export function openFleetLeaseBroker(options: {
     waitMs: number,
     clientGone: () => boolean,
     docs: FleetTaskDocs | null = null,
+    humanPersonId: string | null = null,
   ): Promise<FleetTaskResultFields> {
     const items = state.queue[key] ?? [];
     if (items.length >= timers.maxQueuePerTask)
@@ -732,6 +779,7 @@ export function openFleetLeaseBroker(options: {
       assignment,
       action,
       docs,
+      humanPersonId,
       enqueuedAt: options.now(),
       deadlineAt: new Date(nowMs + waitMs).toISOString(),
     };
@@ -826,7 +874,30 @@ export function openFleetLeaseBroker(options: {
   }, timers.reapIntervalMs);
   reaper.unref?.();
   return {
-    handleTaskCommand,
+    handleTaskCommand: async (nodeId, frame, clientGone) => {
+      let held: { readonly accessToken: string; readonly personId: string } | undefined;
+      try {
+        if (frame.accessToken) {
+          const assignment = await options.resolveAssignment(frame.assignmentId);
+          if (!assignment || assignment.nodeId !== nodeId)
+            return { ...failure("op_rejected", "assignment_rejected"), opId: frame.opId };
+          const verified = await auth(assignment, frame.accessToken),
+            personId = verified.oidcPrincipal?.personId;
+          if (!personId) return { ...failure("op_rejected", "human_confirmation_required"), opId: frame.opId };
+          const previous = credentials.get(frame.opId);
+          if (previous && previous.personId !== personId)
+            return { ...failure("op_rejected", "op_conflict"), opId: frame.opId };
+          if (!previous || parks.get(frame.opId)?.clientGone()) {
+            held = { accessToken: frame.accessToken, personId };
+            credentials.set(frame.opId, held);
+          }
+          return await handleTaskCommand(nodeId, frame, clientGone, personId);
+        }
+        return await handleTaskCommand(nodeId, frame, clientGone, null);
+      } finally {
+        if (held && credentials.get(frame.opId) === held) credentials.delete(frame.opId);
+      }
+    },
     reapOnce: sweep,
     status: () => ({
       leases: Object.entries(state.leases).map(([key, row]) => ({

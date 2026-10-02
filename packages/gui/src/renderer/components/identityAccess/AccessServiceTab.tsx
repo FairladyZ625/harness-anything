@@ -27,8 +27,10 @@ function message(error: unknown): string {
 export function AccessServiceTab({
   auth,
   access,
+  repoId,
 }: {
   readonly auth: OidcAuthApi;
+  readonly repoId?: string;
   readonly access: AccessAdminApi | undefined;
 }) {
   const [session, setSession] = useState<RecordValue | null>(null),
@@ -38,9 +40,9 @@ export function AccessServiceTab({
     [feedback, setFeedback] = useState("");
 
   const refresh = async () => {
-    const nextSession = await auth.status();
+    const nextSession = await auth.status(repoId);
     setSession(nextSession as RecordValue);
-    const nextBinding = (await auth.bindingStatus()) as RecordValue;
+    const nextBinding = (await auth.bindingStatus(repoId)) as RecordValue;
     if (nextBinding.configured === false) {
       setBinding(null);
       setBootstrapRequired(false);
@@ -48,7 +50,7 @@ export function AccessServiceTab({
     }
     setBinding(nextBinding);
     if (nextBinding.mode === "managed") {
-      const bootstrap = (await auth.bootstrapStatus()) as RecordValue;
+      const bootstrap = (await auth.bootstrapStatus(repoId)) as RecordValue;
       setBootstrapRequired(bootstrap.required === true);
     } else {
       setBootstrapRequired(false);
@@ -108,7 +110,7 @@ export function AccessServiceTab({
                     className={`${BTN} ml-auto flex-none`}
                     disabled={busy || !ready}
                     data-testid="access-open-console"
-                    onClick={() => void run(auth.openConsole)}
+                    onClick={() => void run(() => auth.openConsole(repoId))}
                   >
                     {t("identityAccess.openConsole")}
                   </button>
@@ -128,7 +130,7 @@ export function AccessServiceTab({
                       className={SMALL_BTN}
                       disabled={busy || (!authenticated && !ready)}
                       title={!authenticated && !ready ? t("identityAccess.signInDisabled") : undefined}
-                      onClick={() => void run(authenticated ? auth.logout : auth.login)}
+                      onClick={() => void run(() => (authenticated ? auth.logout(repoId) : auth.login(repoId)))}
                     >
                       {authenticated ? t("identityAccess.signOut") : t("identityAccess.signIn")}
                     </button>
@@ -181,13 +183,13 @@ export function AccessServiceTab({
             <button
               disabled={busy || binding?.mode === "managed"}
               className={`${BTN} ml-auto`}
-              onClick={() => void run(() => auth.configure({ mode: "managed" }))}
+              onClick={() => void run(() => auth.configure({ mode: "managed" }, repoId))}
             >
               {t("identityAccess.useManaged")}
             </button>
           }
         >
-          <ExternalBindingForm busy={busy} submit={(input) => run(() => auth.configure(input))} />
+          <ExternalBindingForm busy={busy} submit={(input) => run(() => auth.configure(input, repoId))} />
         </Region>
       </BoardSide>
     </RegionBoard>

@@ -25,6 +25,7 @@ import { openDaemonStatusReader } from "./status-reader.ts";
 import { withAutostart } from "./with-autostart.ts";
 import { assertCanonicalCliEntry, cliEntryNotCanonicalCode } from "./cli-entry-guard.ts";
 import { isRepoAdminMethod, runRepoAdminCommand } from "./repo-admin-route.ts";
+import { awaitDeviceLogin } from "./device-login.ts";
 export {
   daemonIdFromEnv,
   daemonUserRoot,
@@ -150,24 +151,31 @@ export async function runCommandThroughDaemon(
       daemonId = daemonIdFromEnv(env),
       { kind: _kind, ...params } = command.action,
       socketPath = repoScopedDaemonEndpoint(env, command, userRoot, daemonId);
-    return withAutostart(
-      () =>
-        requestLocalDaemonJsonRpcForTarget(
-          {
-            repoId: workspaceId("bootstrap"),
-            canonicalRoot: canonicalRoot(command.rootDir, true),
-            userRoot,
-            daemonId,
-            socketPath,
-          },
-          command.action.kind === "rbac-bootstrap" ? "daemon.rbac.manage" : "daemon.repo.bootstrap",
-          command.action.kind === "rbac-bootstrap" ? (params as JsonObject) : { rootDir: command.rootDir, ...params },
-          75,
-        ),
-      () => cliDaemonServeLaunch(userRoot, daemonId),
-      socketPath,
-      daemonAutostartOptions(command, autostart, env, userRoot, daemonId, "operation"),
-    );
+    const request = (paramsOverride?: JsonObject) =>
+      withAutostart(
+        () =>
+          requestLocalDaemonJsonRpcForTarget(
+            {
+              repoId: workspaceId("bootstrap"),
+              canonicalRoot: canonicalRoot(command.rootDir, true),
+              userRoot,
+              daemonId,
+              socketPath,
+            },
+            command.action.kind === "rbac-bootstrap" ? "daemon.rbac.manage" : "daemon.repo.bootstrap",
+            command.action.kind === "rbac-bootstrap"
+              ? (paramsOverride ?? (params as JsonObject))
+              : { rootDir: command.rootDir, ...params },
+            75,
+          ),
+        () => cliDaemonServeLaunch(userRoot, daemonId),
+        socketPath,
+        daemonAutostartOptions(command, autostart, env, userRoot, daemonId, "operation"),
+      );
+    const receipt = await request();
+    if (command.action.kind !== "rbac-bootstrap" || params.operation !== "login" || receipt.ok === false)
+      return receipt;
+    return awaitDeviceLogin(receipt, request, onPhase);
   }
   if (command.method.startsWith("daemon.runtimeInstance.")) {
     const userRoot = daemonUserRoot(env),

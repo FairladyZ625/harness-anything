@@ -68,9 +68,16 @@ export function accessAdminParams(input: unknown, operationId: () => string): Js
     operation = String(request.operation),
     fields = Object.hasOwn(operationFields, operation) ? operationFields[operation] : undefined;
   if (!fields) throw new Error(`Access administration does not offer ${operation}.`);
-  const unknown = Object.keys(request).filter((key) => key !== "operation" && !Object.hasOwn(fields, key));
+  const unknown = Object.keys(request).filter(
+    (key) => key !== "operation" && key !== "repoId" && !Object.hasOwn(fields, key),
+  );
   if (unknown.length > 0) throw new Error(`Access administration ${operation} does not take ${unknown.join(", ")}.`);
   const params: Record<string, string | number | readonly string[]> = { operation };
+  if (request.repoId !== undefined) {
+    if (typeof request.repoId !== "string" || !/^[a-z][a-z0-9-]{0,62}$/u.test(request.repoId))
+      throw new Error("Select a valid access administration target.");
+    params.repoId = request.repoId;
+  }
   for (const [name, field] of Object.entries(fields)) {
     const value = request[name],
       valid =

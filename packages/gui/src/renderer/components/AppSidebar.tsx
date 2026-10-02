@@ -76,6 +76,8 @@ export function AppSidebar({
   onOpenSystem,
 }: AppSidebarProps) {
   const projectSwitcherAnchor = useRef<HTMLButtonElement>(null);
+  const identityTarget = useRef(activeRepoId);
+  identityTarget.current = activeRepoId;
   const [pinnedOpen, setPinnedOpen] = useState(true);
   const [identity, setIdentity] = useState<{ readonly authenticated: boolean; readonly personId?: string }>({
       authenticated: false,
@@ -85,7 +87,8 @@ export function AppSidebar({
     auth = authCandidate && typeof authCandidate.status === "function" ? authCandidate : undefined;
   const refreshIdentity = () => {
     if (!auth) return;
-    void auth.status().then((value) => {
+    void auth.status(activeRepoId ?? undefined).then((value) => {
+      if (identityTarget.current !== activeRepoId) return;
       const status = value as { readonly authenticated?: boolean; readonly personId?: string };
       setIdentity({
         authenticated: status.authenticated === true,
@@ -93,14 +96,23 @@ export function AppSidebar({
       });
     }, consumeKnownError);
   };
-  useEffect(refreshIdentity, []);
+  useEffect(() => {
+    setIdentity({ authenticated: false });
+    refreshIdentity();
+  }, [activeRepoId]);
   useEffect(() => {
     if (!auth) return;
-    void auth.bindingStatus().then(
-      (value) => setBindingReady((value as { readonly ready?: boolean }).ready === true),
-      () => setBindingReady(false),
+    setBindingReady(false);
+    void auth.bindingStatus(activeRepoId ?? undefined).then(
+      (value) => {
+        if (identityTarget.current === activeRepoId)
+          setBindingReady((value as { readonly ready?: boolean }).ready === true);
+      },
+      () => {
+        if (identityTarget.current === activeRepoId) setBindingReady(false);
+      },
     );
-  }, []);
+  }, [activeRepoId]);
   // 当前仓的模式徽标与端点(PLT-EdgeGUI-W3,设计稿 §3.4):端点来自连接表,
   // local 仓挂在隐含本机连接下、无端点,不显示端点行。
   const activeRepo = repos.find((repo) => repo.repoId === activeRepoId) ?? null,
@@ -288,7 +300,9 @@ export function AppSidebar({
           }
           onClick={() => {
             if (!auth) return;
-            void (identity.authenticated ? auth.logout() : auth.login()).then(refreshIdentity, consumeKnownError);
+            void (
+              identity.authenticated ? auth.logout(activeRepoId ?? undefined) : auth.login(activeRepoId ?? undefined)
+            ).then(refreshIdentity, consumeKnownError);
           }}
           className="flex w-full items-center gap-2 text-left disabled:cursor-not-allowed disabled:opacity-70"
         >

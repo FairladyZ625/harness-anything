@@ -111,7 +111,10 @@ function fleetExactTaskPackagePath(view: FleetMirrorView, workspaceRoot: string,
   return paths.size === 1 ? [...paths][0]! : null;
 }
 
-export async function runFleetEdgeTask(input: FleetEdgeTaskRequest): Promise<Record<string, unknown>> {
+export async function runFleetEdgeTask(
+  input: FleetEdgeTaskRequest,
+  readAccessToken?: () => Promise<string | undefined>,
+): Promise<Record<string, unknown>> {
   const payload = input.payload,
     action = payload.action,
     timers = fleetLeaseTimers();
@@ -177,6 +180,7 @@ export async function runFleetEdgeTask(input: FleetEdgeTaskRequest): Promise<Rec
       try {
         const next = await runFleetTaskCommandClient({
           ...peer,
+          accessToken: await readAccessToken?.(),
           opId,
           repoId: payload.repoId,
           taskId,

@@ -148,7 +148,7 @@ export function keycloakNodeRegistry(
 export interface FleetCenterAdmissionRequest {
   readonly host: FleetCenterOptions["host"];
   readonly userRoot: string;
-  readonly nodes: Pick<FleetCenterOptions, "authenticate" | "nodeOwner">;
+  readonly nodes: Pick<FleetCenterOptions, "authenticate" | "nodeOwner" | "loginAuthority" | "verifyHuman">;
   readonly writerEpochLease?: (repoId: string) => WriterEpochLease;
   readonly payload: {
     readonly port: number;

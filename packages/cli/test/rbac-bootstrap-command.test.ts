@@ -3,6 +3,57 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
+import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
+import { awaitDeviceLogin } from "../src/daemon/device-login.ts";
+
+test("device polling follows pending replies and ends at the device deadline", async () => {
+  let polls = 0;
+  const request = async () =>
+    ++polls === 1 ? { ok: true, pending: true, interval: 0.001 } : { ok: true, authenticated: true, personId: "alice" };
+  const signed = await awaitDeviceLogin(
+    { ok: true, pending: true, interval: 0.001, expiresAt: Date.now() + 1_000 },
+    request,
+    () => undefined,
+  );
+  assert.equal(signed.personId, "alice");
+  assert.equal(polls, 2);
+  const expired = await awaitDeviceLogin(
+    { ok: true, pending: true, interval: 600, expiresAt: Date.now() - 1 },
+    request,
+    () => undefined,
+  );
+  assert.equal(expired.code, "oidc_device_expired");
+  assert.equal(polls, 2, "an expired device code never starts a token request");
+});
+
+test("device login prints the browser entry, code and expiry while session receipts show only identity", () => {
+  const pending = renderCliReceipt({
+    ok: true,
+    pending: true,
+    verificationUri: "https://center.test/device",
+    userCode: "TEST-CODE",
+    expiresAt: 60_000,
+  });
+  assert.match(pending.text, /https:\/\/center.test\/device/u);
+  assert.match(pending.text, /TEST-CODE/u);
+  assert.match(pending.text, /1970-01-01T00:01:00.000Z/u);
+  assert.match(
+    renderCliReceipt({ ok: true, authenticated: true, personId: "alice", expiresAt: 60_000 }).text,
+    /Signed in as alice/u,
+  );
+  assert.equal(renderCliReceipt({ ok: true, authenticated: false }).text, "Signed out.");
+});
+
+test("ha bootstrap login/session/logout share the daemon entry without credentials on argv", () => {
+  for (const operation of ["login", "session", "logout"]) {
+    const parsed = parseThinCommand(["bootstrap", "--operation", operation], "/repo");
+    assert.equal(parsed.ok, true, operation);
+    if (!parsed.ok) continue;
+    assert.equal(parsed.command.method, "daemon.rbac.manage");
+    assert.deepEqual(parsed.command.action, { kind: "rbac-bootstrap", operation, rootDir: "/repo" });
+  }
+  assert.equal(parseThinCommand(["bootstrap", "--operation", "login", "--access-token", "secret"], "/repo").ok, false);
+});
 
 test("ha bootstrap routes managed lifecycle options to the daemon", () => {
   const parsed = parseThinCommand(["bootstrap", "--operation", "backup", "--backup-dir", "/tmp/rbac-backup"], "/repo");

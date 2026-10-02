@@ -45,6 +45,8 @@ export interface DaemonAuthenticationContext {
   readonly assignmentBinding?: DaemonFleetAssignmentBinding;
   /** The authenticated node and its owner from the center node registry; never accepted from a fleet frame. */
   readonly nodePrincipal?: { readonly nodeId: string; readonly personId: string };
+  /** Transient fleet credential, consumed by the center's online introspection, never action data. */
+  readonly humanAccessToken?: string;
   /** Center-only admission context; never accepted from a client payload. */
   readonly writerEpoch?: number;
   readonly withWriterEpochFence?: <T>(operation: () => T) => T;

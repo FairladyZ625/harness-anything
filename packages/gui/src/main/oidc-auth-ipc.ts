@@ -33,30 +33,33 @@ export function registerOidcAuthIpc(
   },
 ): void {
   const daemonRequest = async (params: JsonObject) => requireSuccessfulAuthReply(await ports.daemonRequest(params));
-  registrar.handle(OIDC_STATUS_CHANNEL, async (event) => {
+  registrar.handle(OIDC_STATUS_CHANNEL, async (event, input) => {
     assertTrustedIpcSender(event, trustPolicy);
-    return daemonRequest({ operation: "session" });
+    return daemonRequest({ operation: "session", ...authTarget(input) });
   });
-  registrar.handle(OIDC_LOGOUT_CHANNEL, async (event) => {
+  registrar.handle(OIDC_LOGOUT_CHANNEL, async (event, input) => {
     assertTrustedIpcSender(event, trustPolicy);
-    return daemonRequest({ operation: "logout" });
+    return daemonRequest({ operation: "logout", ...authTarget(input) });
   });
-  registrar.handle(OIDC_LOGIN_CHANNEL, async (event) => {
+  registrar.handle(OIDC_LOGIN_CHANNEL, async (event, input) => {
     assertTrustedIpcSender(event, trustPolicy);
-    return systemBrowserLogin({ ...ports, daemonRequest });
+    const target = authTarget(input);
+    return systemBrowserLogin({ ...ports, daemonRequest: (params) => daemonRequest({ ...params, ...target }) });
   });
-  registrar.handle(OIDC_BINDING_STATUS_CHANNEL, async (event) => {
+  registrar.handle(OIDC_BINDING_STATUS_CHANNEL, async (event, input) => {
     assertTrustedIpcSender(event, trustPolicy);
-    const reply = await ports.daemonRequest({ operation: "health" });
+    const reply = await ports.daemonRequest({ operation: "health", ...authTarget(input) });
     return normalizeBindingStatusReply(reply);
   });
-  registrar.handle(OIDC_BOOTSTRAP_STATUS_CHANNEL, async (event) => {
+  registrar.handle(OIDC_BOOTSTRAP_STATUS_CHANNEL, async (event, input) => {
     assertTrustedIpcSender(event, trustPolicy);
-    return daemonRequest({ operation: "bootstrap-status" });
+    return daemonRequest({ operation: "bootstrap-status", ...authTarget(input) });
   });
   registrar.handle(OIDC_BOOTSTRAP_ADMIN_CHANNEL, async (event, rawInput) => {
     assertTrustedIpcSender(event, trustPolicy);
     const input = rawInput as BootstrapAdminInput;
+    if (authTarget(rawInput).repoId)
+      throw new Error("First-administrator bootstrap requires the center's original local socket.");
     return daemonRequest({
       operation: "bootstrap-admin",
       username: input.username,
@@ -69,19 +72,35 @@ export function registerOidcAuthIpc(
   registrar.handle(OIDC_CONFIGURE_CHANNEL, async (event, rawInput) => {
     assertTrustedIpcSender(event, trustPolicy);
     const input = rawInput as RbacBindingInput;
-    if (input?.mode === "managed") return daemonRequest({ operation: "bootstrap", mode: "managed" });
+    if (input?.mode === "managed")
+      return daemonRequest({ operation: "bootstrap", mode: "managed", ...authTarget(rawInput) });
     if (input?.mode !== "external") throw new Error("Keycloak mode must be managed or external.");
-    return daemonRequest({ mode: input.mode, url: input.url, realm: input.realm, clientId: input.clientId });
+    return daemonRequest({
+      mode: input.mode,
+      url: input.url,
+      realm: input.realm,
+      clientId: input.clientId,
+      ...authTarget(rawInput),
+    });
   });
-  registrar.handle(OIDC_OPEN_CONSOLE_CHANNEL, async (event) => {
+  registrar.handle(OIDC_OPEN_CONSOLE_CHANNEL, async (event, input) => {
     assertTrustedIpcSender(event, trustPolicy);
-    const binding = await daemonRequest({ operation: "health" });
+    const binding = await daemonRequest({ operation: "health", ...authTarget(input) });
     if (typeof binding.url !== "string" || typeof binding.realm !== "string")
       throw new Error("Daemon did not return a Keycloak binding.");
-    const consoleUrl = `${binding.url.replace(/\/$/u, "")}/admin/${encodeURIComponent(binding.realm)}/console/`;
+    const url = typeof binding.browserUrl === "string" ? binding.browserUrl : binding.url;
+    const consoleUrl = `${url.replace(/\/$/u, "")}/admin/${encodeURIComponent(binding.realm)}/console/`;
     await ports.openExternal(consoleUrl);
     return { ok: true };
   });
+}
+
+function authTarget(input: unknown): JsonObject {
+  const repoId = input && typeof input === "object" ? (input as Record<string, unknown>).repoId : undefined;
+  if (repoId === undefined) return {};
+  if (typeof repoId !== "string" || !/^[a-z][a-z0-9-]{0,62}$/u.test(repoId))
+    throw new Error("Select a valid repository login target.");
+  return { repoId };
 }
 
 export function requireSuccessfulAuthReply(reply: JsonObject): JsonObject {

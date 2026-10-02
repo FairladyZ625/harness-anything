@@ -65,7 +65,7 @@ function fixture(start = 1_000) {
 }
 
 async function signIn(active: ReturnType<typeof fixture>): Promise<Record<string, unknown>> {
-  const begun = active.service.begin("http://127.0.0.1:43123/callback");
+  const begun = await active.service.begin("http://127.0.0.1:43123/callback");
   return active.service.complete("authorization-code", String(begun.state));
 }
 
@@ -75,7 +75,7 @@ const serialOf = (accessToken: string | undefined): unknown =>
 test("PKCE login validates state, keeps tokens daemon-side, and binds the Keycloak person", async () => {
   const { service, requests, root } = fixture(),
     redirectUri = "http://127.0.0.1:43123/callback",
-    begun = service.begin(redirectUri),
+    begun = await service.begin(redirectUri),
     authorizationUrl = new URL(String(begun.authorizationUrl));
   assert.equal(authorizationUrl.searchParams.get("code_challenge_method"), "S256");
   assert.equal(authorizationUrl.searchParams.get("redirect_uri"), redirectUri);
@@ -113,7 +113,7 @@ test("under a listener the browser signs in at its hostname while the daemon kee
       listener: { hostname: "center.example.test", port: 8443 },
     }),
   );
-  const begun = service.begin("http://127.0.0.1:43123/callback"),
+  const begun = await service.begin("http://127.0.0.1:43123/callback"),
     authorizationUrl = new URL(String(begun.authorizationUrl));
   assert.equal(authorizationUrl.origin, "https://center.example.test:8443");
   assert.equal(authorizationUrl.pathname, "/realms/harness/protocol/openid-connect/auth");
@@ -249,7 +249,7 @@ test("a connection that outlives the access token carries the session as it is o
 
 test("mismatched callback state is rejected and logout ends the session", async () => {
   const active = fixture();
-  active.service.begin("http://localhost:1234/callback");
+  await active.service.begin("http://localhost:1234/callback");
   await assert.rejects(active.service.complete("code", "wrong-state"), { code: "oidc_state_invalid" });
 
   const signedIn = fixture(100_000);
@@ -259,9 +259,9 @@ test("mismatched callback state is rejected and logout ends the session", async 
   assert.equal((await signedIn.service.bind({ transportKind: "unix-socket" })).oidcPrincipal, undefined);
 });
 
-test("login rejects non-loopback callbacks", () => {
+test("login rejects non-loopback callbacks", async () => {
   const { service } = fixture();
-  assert.throws(() => service.begin("https://example.com/callback"), { code: "oidc_redirect_invalid" });
+  await assert.rejects(() => service.begin("https://example.com/callback"), { code: "oidc_redirect_invalid" });
 });
 
 test("repository actions fail closed without a live OIDC principal", () => {
@@ -328,7 +328,7 @@ test("first administrator closes after one success and access-admin can invite",
   };
   assert.deepEqual(await service.bootstrapAdmin(admin), { ok: true, created: true, personId: "person-owner" });
   await assert.rejects(service.bootstrapAdmin(admin), { code: "bootstrap_admin_closed" });
-  const login = service.begin("http://127.0.0.1:1234/callback");
+  const login = await service.begin("http://127.0.0.1:1234/callback");
   await service.complete("code", String(login.state));
   assert.deepEqual(
     await service.invite({

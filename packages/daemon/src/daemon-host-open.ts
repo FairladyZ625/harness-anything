@@ -537,6 +537,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     hostCodedError,
     binding: hostBinding,
     keycloakCenter,
+    oidc,
     writerEpochFence,
     writerEpochLease,
     writerEpochHighWatermark,
@@ -623,9 +624,19 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     ...lifecycle,
     manageRbac: (request, auth) => {
       localOnly(auth);
+      const loginTarget =
+        request.rootDir ??
+        (request.repoId
+          ? (readDaemonRegistry({ userRoot: input.userRoot }).repos.find((repo) => repo.repoId === request.repoId)
+              ?.canonicalRoot ?? undefined)
+          : undefined);
+      if (request.repoId && !loginTarget)
+        throw hostCodedError("repo_namespace_unknown", "Select a registered repository for login.");
+      if (request.operation === "login") return oidc.beginDevice(loginTarget);
+      if (request.operation === "login-poll") return oidc.pollDevice();
       if (request.operation === "login-begin") {
         if (!request.redirectUri) throw hostCodedError("oidc_redirect_required", "Login requires redirectUri.");
-        return Promise.resolve(oidc.begin(request.redirectUri));
+        return oidc.begin(request.redirectUri, loginTarget);
       }
       if (request.operation === "login-complete") {
         if (!request.code || !request.state)

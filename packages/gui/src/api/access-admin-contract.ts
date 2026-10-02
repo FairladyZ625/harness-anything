@@ -97,7 +97,7 @@ export interface AccessGroupWrite {
 }
 
 /** What the renderer may ask of access administration; the main process adds the operation id of each write. */
-export type AccessAdminRequest =
+export type AccessAdminRequest = { readonly repoId?: string } & (
   | { readonly operation: "group-list" | "grant-list" | "receipt-list" | "session-lifetime" }
   | ({ readonly operation: "group-create" } & AccessGroupWrite)
   | ({ readonly operation: "group-update"; readonly expectedVersion: string } & AccessGroupWrite)
@@ -109,9 +109,11 @@ export type AccessAdminRequest =
       readonly operation: "session-lifetime-set";
       readonly sessionLifetimeSeconds: number;
       readonly expectedVersion: string;
-    };
+    }
+);
 
 export interface AccessAdminApi {
+  readonly forRepository: (repoId?: string) => AccessAdminApi;
   readonly groups: () => Reply<AccessGroupsReply>;
   readonly createGroup: (input: AccessGroupWrite) => Reply<AccessReceipt>;
   readonly updateGroup: (input: AccessGroupWrite & { readonly expectedVersion: string }) => Reply<AccessReceipt>;

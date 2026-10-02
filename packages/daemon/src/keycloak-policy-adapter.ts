@@ -8,6 +8,7 @@ import {
   type AuthorizationResource,
   type PolicyGroup,
 } from "@harness-anything/kernel";
+import { keycloakLoginAttributes, keycloakLoginMappers } from "./keycloak-login-client.ts";
 
 export interface KeycloakPolicyAdapterConfig {
   readonly url: string;
@@ -138,6 +139,25 @@ export class KeycloakPolicyAdapter {
     for (const group of groups)
       for (const scope of group.scopes)
         if (!this.#knownScopes.has(scope)) throw new Error(`Unknown Keycloak action scope ${scope}.`);
+  }
+
+  /** Align existing managed login clients as part of the same realm synchronization. */
+  async syncLoginClients(adminAccessToken: string): Promise<void> {
+    for (const client of await this.#pages<NodeClient>(adminAccessToken, "/clients", "")) {
+      if (client.clientId !== "harness-gui" && !client.clientId.startsWith(nodeClientPrefix)) continue;
+      const current = await this.#json<Record<string, unknown>>(adminAccessToken, `/clients/${client.id}`);
+      await this.#request(adminAccessToken, `/clients/${client.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          ...current,
+          standardFlowEnabled: true,
+          directAccessGrantsEnabled: false,
+          redirectUris: ["http://127.0.0.1/*"],
+          attributes: { ...client.attributes, ...keycloakLoginAttributes },
+          protocolMappers: keycloakLoginMappers(this.#config.resourceServerClientId),
+        }),
+      });
+    }
   }
 
   /** Base groups come from ActionDeclaration; custom groups are the client roles carrying the group marker. */
@@ -355,9 +375,11 @@ export class KeycloakPolicyAdapter {
         enabled: true,
         publicClient: false,
         serviceAccountsEnabled: true,
-        standardFlowEnabled: false,
+        standardFlowEnabled: true,
         directAccessGrantsEnabled: false,
-        attributes: { [personAttribute]: node.personId },
+        redirectUris: ["http://127.0.0.1/*"],
+        attributes: { [personAttribute]: node.personId, ...keycloakLoginAttributes },
+        protocolMappers: keycloakLoginMappers(this.#config.resourceServerClientId),
       };
     if (current) {
       await this.#request(adminAccessToken, `/clients/${current.id}`, { method: "PUT", body: JSON.stringify(body) });
