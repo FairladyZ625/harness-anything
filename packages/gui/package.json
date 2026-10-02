@@ -68,12 +68,19 @@
     "@xyflow/react": "^12.11.2",
     "dockview": "8.2.0",
     "dockview-react": "8.2.0",
+    "docx-preview": "^0.4.1",
     "electron": "42.11.9",
+    "katex": "^0.16.25",
+    "mermaid": "^11.12.2",
     "motion": "^13.4.5",
+    "pdfjs-dist": "^6.3.289",
     "react": "19.2.7",
     "react-dom": "19.2.7",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "word-extractor": "^1.0.4"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.2",

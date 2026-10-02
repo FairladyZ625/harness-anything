@@ -34,12 +34,14 @@
 
 ## Document format matrix
 
-| Format | In-app path | Boundary |
-| --- | --- | --- |
-| Markdown, HTML, text, JSON, CSV | `MarkdownDocument` / `DocReader` | GFM tables and fenced code scroll inside the bounded frame; HTML is treated as markdown/text and is not executed. |
-| PNG, JPEG, GIF, WebP, AVIF, BMP, ICO, SVG | `BinaryDocumentPreview` | Decoded from authorized base64 bytes; SVG is displayed as an image and never inserted as markup. |
-| PDF | `BinaryDocumentPreview` | Authorized bytes are loaded in the browser PDF viewer inside the bounded frame. |
-| DOCX, DOC | `BinaryDocumentPreview` | Authorized bytes are surfaced with an explicit no-page-layout message; system viewer remains the fidelity path. DOC is not labelled as DOCX. |
+| Format                                    | In-app path                      | Boundary                                                                                                                                                                                                                               |
+| ----------------------------------------- | -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Markdown, HTML, text, JSON, CSV           | `MarkdownDocument` / `DocReader` | GFM tables, fenced code, math (`remark-math` + KaTeX), and Mermaid diagrams scroll inside the bounded frame; HTML is treated as markdown/text and is not executed. Mermaid runs in strict mode and keeps source text on parse failure. |
+| PNG, JPEG, GIF, WebP, AVIF, BMP, ICO, SVG | `BinaryDocumentPreview`          | Decoded from authorized base64 bytes; SVG is displayed as an image and never inserted as markup.                                                                                                                                       |
+| PDF                                       | `BinaryDocumentPreview`          | PDF.js renders every authorized page to canvases inside the bounded frame; malformed bytes show a typed error and preserve the external-open action.                                                                                   |
+| DOCX                                      | `BinaryDocumentPreview`          | `docx-preview` renders authorized bytes, including page breaks, headers, footers, footnotes, endnotes, tables, and images. The renderer is lazy-loaded.                                                                                |
+| DOC                                       | `BinaryDocumentPreview`          | `word-extractor` supplies an explicitly labelled Unicode text preview (body, headers, footnotes); original bytes remain available, but original page layout/images are not claimed.                                                    |
+
 - **Modal**:共享弹层使用原生dialog承担焦点限制、Escape关闭及返回原触发器；遮罩、标题/关闭、滚动正文和固定页脚由原语承担；领域表单只提供
   `children` 与 `footer`,不从 runtime 私有 parts 取弹层布局。
 - **Section**:区块三档——默认文档区块、hero/warn 注意力左粗边、panel 设置面板档(吸收原

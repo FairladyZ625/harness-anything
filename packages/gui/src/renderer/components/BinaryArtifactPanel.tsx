@@ -30,6 +30,8 @@ export function BinaryArtifactPanel({
   const image =
     read.bytes !== null && /^image\/(?:png|jpeg|gif|webp|avif|svg\+xml|bmp|x-icon)$/u.test(read.mediaType ?? "");
   if (image) return <BinaryDocumentPreview path={path} mediaType={read.mediaType} bytes={read.bytes} />;
+  if (read.bytes !== null && (read.mediaType === "application/pdf" || read.mediaType?.includes("word")))
+    return <BinaryDocumentPreview path={path} mediaType={read.mediaType} bytes={read.bytes} />;
   return (
     <div data-testid="task-document-binary" className="border border-border-strong">
       <div className="flex flex-wrap items-center gap-2 border-b border-border bg-surface-raised px-3 py-2">

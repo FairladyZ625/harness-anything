@@ -37,6 +37,8 @@ export interface LocalDocReadSuccess {
   readonly contentKind: "text" | "binary";
   readonly mediaType: string;
   readonly bytes: string | null;
+  /** Text-only preview for legacy .doc files; the original bytes remain available separately. */
+  readonly previewText?: string | null;
 }
 
 export interface LocalDocReadFailure {

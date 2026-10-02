@@ -1,4 +1,5 @@
 import { readFile, realpath, stat, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import path from "node:path";
 import {
@@ -202,6 +203,7 @@ export async function readLocalDocument(
       message: "Local document does not decode as text.",
     };
   const binary = mediaType !== null && looksBinary(content);
+  const previewText = mediaType === "application/msword" ? await extractLegacyWordText(bytes) : null;
   return {
     ok: true,
     path: realPath,
@@ -210,7 +212,28 @@ export async function readLocalDocument(
     contentKind: binary ? "binary" : "text",
     mediaType: mediaType ?? "text/plain",
     bytes: binary ? bytes.toString("base64") : null,
+    ...(previewText === null ? {} : { previewText }),
   };
+}
+
+async function extractLegacyWordText(bytes: Buffer): Promise<string | null> {
+  const WordExtractor = createRequire(import.meta.url)("word-extractor") as new () => {
+    extract: (
+      source: Buffer,
+    ) => Promise<{ getBody: () => string; getFootnotes?: () => string; getHeaders?: () => string }>;
+  };
+  return new WordExtractor()
+    .extract(bytes)
+    .then((document) => {
+      const sections = [document.getBody(), document.getHeaders?.(), document.getFootnotes?.()].filter(
+        (value): value is string => typeof value === "string" && value.trim().length > 0,
+      );
+      return sections.length === 0 ? null : sections.join("\n\n");
+    })
+    .catch((cause) => {
+      console.error("Legacy Word text extraction failed:", cause);
+      return null;
+    });
 }
 
 function mediaTypeForPath(filePath: string): string | null {

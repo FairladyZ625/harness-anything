@@ -130,13 +130,8 @@ function LocalDocOverlay({
               path={query.data.path}
               mediaType={query.data.mediaType}
               bytes={query.data.bytes}
-              message={
-                query.data.mediaType === "application/pdf"
-                  ? "PDF 已读取。请使用系统查看器查看分页内容。"
-                  : query.data.mediaType.includes("word") || query.data.mediaType === "application/msword"
-                    ? "Word 文件已读取。当前内嵌面提供真实字节，页式排版请使用系统查看器。"
-                    : undefined
-              }
+              previewText={query.data.previewText}
+              message="此文件已读取，但当前查看器无法渲染其内容。请使用系统查看器打开原始文件。"
             />
           ) : isMarkdownPath(path) ? (
             <DocReader content={query.data.content} />

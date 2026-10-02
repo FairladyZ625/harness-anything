@@ -50,6 +50,7 @@ export async function requestLocalDocument(path: string): Promise<LocalDocReadRe
           contentKind: value.contentKind === "binary" ? "binary" : "text",
           mediaType: typeof value.mediaType === "string" ? value.mediaType : "text/plain",
           bytes: typeof value.bytes === "string" ? value.bytes : null,
+          previewText: typeof value.previewText === "string" ? value.previewText : null,
         };
       if (
         value.ok === false &&

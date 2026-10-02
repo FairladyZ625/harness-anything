@@ -113,6 +113,9 @@ test("reads a readable text file and reports the real absolute path", async () =
     path: file,
     content: "# 标题\n\n正文一行。\n",
     sizeBytes: Buffer.byteLength("# 标题\n\n正文一行。\n", "utf8"),
+    contentKind: "text",
+    mediaType: "text/plain",
+    bytes: null,
   });
 });
 
