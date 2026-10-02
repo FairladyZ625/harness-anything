@@ -152,13 +152,13 @@ export default {
 
     // Fault injection is confined to this isolated renderer profile, not the user's storage.
     await page.evaluate(() => {
-      const original = Storage.prototype.setItem;
+      const original = globalThis.Storage.prototype.setItem;
       globalThis.__restorePanelStorage = () => {
-        Storage.prototype.setItem = original;
+        globalThis.Storage.prototype.setItem = original;
       };
-      Storage.prototype.setItem = function (key, value) {
+      globalThis.Storage.prototype.setItem = function (key, value) {
         if (key.startsWith("harness:gui:panel-workspace:"))
-          throw new DOMException("Test quota exhausted", "QuotaExceededError");
+          throw new globalThis.DOMException("Test quota exhausted", "QuotaExceededError");
         return original.call(this, key, value);
       };
     });
@@ -168,7 +168,9 @@ export default {
       assert.equal(
         await page.getByTestId("floating-panel-persist-status").evaluate((element) => {
           const rect = element.getBoundingClientRect();
-          return element.contains(document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2));
+          return element.contains(
+            globalThis.document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2),
+          );
         }),
         true,
         "save error must not be covered by floating panels",
@@ -220,7 +222,7 @@ export default {
     await shot("panel-workspace-graph-focus");
     await graph.locator("[data-testid='ego-chip'][data-entity='fact']").dblclick();
     await page.waitForFunction(() =>
-      document.querySelector('[data-testid="focus-history-bar"]')?.textContent?.includes("fact"),
+      globalThis.document.querySelector('[data-testid="focus-history-bar"]')?.textContent?.includes("fact"),
     );
     await graph.locator("[data-testid='ego-card'][data-entity='fact']").waitFor();
     await shot("panel-workspace-graph-refocus");
