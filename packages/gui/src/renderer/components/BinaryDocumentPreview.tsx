@@ -125,6 +125,7 @@ function DocxDocumentPreview({ path, bytes }: { readonly path: string; readonly 
       if (cancelled) return;
       const rendered = document.createElement("div");
       await renderAsync(data, rendered, undefined, {
+        useBase64URL: true,
         breakPages: true,
         inWrapper: true,
         renderHeaders: true,
