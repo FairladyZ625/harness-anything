@@ -354,24 +354,22 @@ export function openFleetEdgeRuntime(input: {
         scheduled,
         terminal.resultRef ?? terminal.reason,
       );
-      schedule(async () => {
-        const response = await runFleetScheduleCommandClient({
-          ...peer,
-          repoId: request.repoId,
+      const response = await runFleetScheduleCommandClient({
+        ...peer,
+        repoId: request.repoId,
+        scheduleId: scheduled.scheduleId,
+        opId: `${terminal.runtimeSessionId}-schedule-attempt-terminal`,
+        action: {
+          kind: "schedule-settle",
           scheduleId: scheduled.scheduleId,
-          opId: `${terminal.runtimeSessionId}-schedule-attempt-terminal`,
-          action: {
-            kind: "schedule-settle",
-            scheduleId: scheduled.scheduleId,
-            claimFence: scheduled.claimFence,
-            outcome: terminal.outcome,
-            endedAt: terminal.endedAt,
-            ...(detail ? { detail } : {}),
-          },
-        });
-        if (response.outcome !== "applied")
-          throw edgeRuntimeError("schedule_settlement_pending", `Center Schedule settlement was ${response.outcome}.`);
+          claimFence: scheduled.claimFence,
+          outcome: terminal.outcome,
+          endedAt: terminal.endedAt,
+          ...(detail ? { detail } : {}),
+        },
       });
+      if (response.outcome !== "applied")
+        throw edgeRuntimeError("schedule_settlement_pending", `Center Schedule settlement was ${response.outcome}.`);
     },
     ...(input.launch ? { launch: input.launch } : {}),
     schedule,
