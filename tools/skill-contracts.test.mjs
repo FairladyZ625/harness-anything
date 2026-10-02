@@ -31,6 +31,7 @@ test("repository skills are discoverable with agent metadata", () => {
     "harness-ceo",
     "harness-contributing",
     "harness-download",
+    "harness-gui",
     "harness-install",
     "harness-migration",
     "harness-reckoning",
@@ -41,6 +42,7 @@ test("repository skills are discoverable with agent metadata", () => {
   for (const skillName of [
     "harness-ceo",
     "harness-download",
+    "harness-gui",
     "harness-install",
     "harness-migration",
     "harness-reckoning",
