@@ -64,10 +64,10 @@ export default {
     );
     await shot("spreadsheet-wide-tall");
 
-    // 工作表切换:SegCtl 分段钮切到第二张表,明细值出现、汇总值让位。
-    const sheetButtons = panel.locator('[role="group"][aria-label="工作表"] button');
-    assert.deepEqual(await sheetButtons.allInnerTexts(), ["汇总", "明细"]);
-    await sheetButtons.nth(1).click();
+    // 工作表切换:紧凑选择器切到第二张表,明细值出现、汇总值让位。
+    const selector = panel.getByRole("combobox", { name: "工作表" });
+    assert.deepEqual(await selector.locator("option").allInnerTexts(), ["汇总", "明细"]);
+    await selector.selectOption("1");
     await page.getByTestId("spreadsheet-grid").getByText("乙").waitFor();
     const detailText = await panel.innerText();
     assert.match(detailText, /明细/u);

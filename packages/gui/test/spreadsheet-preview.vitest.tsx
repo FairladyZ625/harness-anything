@@ -183,11 +183,12 @@ it.each(["xlsx", "xlsm", "biff8", "ods"] as const)(
 it("switches to a second worksheet through the sheet selector", async () => {
   await showSpreadsheet(XLSX_MEDIA, sampleWorkbookBase64("xlsx"));
   expect(cellTexts()).toContain("华东渠道");
-  const detail = host.querySelectorAll(
-    '[data-testid="document-spreadsheet-preview"] [role="group"][aria-label="工作表"] button',
-  );
-  expect([...detail].map((button) => button.textContent)).toEqual(["汇总", "明细"]);
-  await act(async () => detail[1]!.click());
+  const selector = host.querySelector<HTMLSelectElement>('select[aria-label="工作表"]')!;
+  expect([...selector.options].map((option) => option.textContent)).toEqual(["汇总", "明细"]);
+  await act(async () => {
+    selector.value = "1";
+    selector.dispatchEvent(new Event("change", { bubbles: true }));
+  });
   expect(cellTexts()).toContain("甲");
   expect(cellTexts()).toContain("5");
   expect(cellTexts()).not.toContain("华东渠道");

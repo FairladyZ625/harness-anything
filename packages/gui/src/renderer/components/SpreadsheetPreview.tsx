@@ -3,7 +3,6 @@ import { Table as TableIcon } from "@phosphor-icons/react";
 import type { CellObject, WorkBook } from "xlsx";
 import { DocumentFrame, PreviewFailure } from "./DocumentFrame";
 import { Button } from "./primitives/Button.tsx";
-import { SegCtl } from "./primitives/SegCtl.tsx";
 
 /**
  * 表格文件只读预览:对已授权字节在内存里解析 XLSX/XLSM/XLS/ODS,显示真实单元格值、
@@ -184,20 +183,22 @@ export function SpreadsheetPreview({
           </span>
           <span className="shrink-0 text-text-faint">· {format}</span>
           {workbook !== null && workbook.sheets.length > 1 && (
-            <SegCtl
-              label="工作表"
+            <select
+              aria-label="工作表"
+              className="control min-w-0 max-w-full"
               value={String(sheetIndex)}
-              options={workbook.sheets.map((candidate, index) => ({
-                value: String(index),
-                label: candidate.name,
-                tip: candidate.name,
-              }))}
-              onChange={(value) => {
-                setSheetIndex(Number(value));
+              onChange={(event) => {
+                setSheetIndex(Number(event.target.value));
                 setRowPage(0);
                 setColPage(0);
               }}
-            />
+            >
+              {workbook.sheets.map((candidate, index) => (
+                <option key={index} value={String(index)}>
+                  {candidate.name}
+                </option>
+              ))}
+            </select>
           )}
           {rowPageCount > 1 && (
             <>
