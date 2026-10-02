@@ -87,6 +87,7 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
         { id: "decision-conformance", validity: "valid", errorCode: undefined },
         { id: "docs-task", validity: "valid", errorCode: undefined },
         { id: "github-issue-repair", validity: "valid", errorCode: undefined },
+        { id: "gui-development", validity: "valid", errorCode: undefined },
         { id: "legacy-migration", validity: "valid", errorCode: undefined },
         {
           id: "lifecycle-blackbox-acceptance",
