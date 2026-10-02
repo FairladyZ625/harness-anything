@@ -6,7 +6,8 @@ import type { SystemRepoRow } from "../../api-client.ts";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import { t } from "../../i18n/index.tsx";
 import { useConnectionMutations, useRepoAdminMutations } from "../../connection-data.ts";
-import { Row, Section } from "../../components/ui/widgets.tsx";
+import { Row } from "../../components/ui/widgets.tsx";
+import { Section } from "../../components/primitives/Section.tsx";
 import { Button } from "../../components/primitives/Button.tsx";
 
 /**
@@ -132,6 +133,7 @@ export function ConnectionDetailPanel({
   return (
     <div className="flex flex-col gap-3">
       <Section
+        variant="panel"
         title={
           mode === "add" ? t("views.repositories.addConnectionTitle") : t("views.repositories.editConnectionTitle")
         }
@@ -218,6 +220,7 @@ export function ConnectionDetailPanel({
       </Section>
 
       <Section
+        variant="panel"
         title={t("views.repositories.probeTitle")}
         action={
           <Button
@@ -292,7 +295,7 @@ export function ConnectionDetailPanel({
       </Section>
 
       {mode === "edit" ? (
-        <Section title={t("views.repositories.connectionReposTitle")}>
+        <Section variant="panel" title={t("views.repositories.connectionReposTitle")}>
           {repos.length === 0 ? (
             <p className="px-3 py-2 ui-meta text-text-faint">{t("views.repositories.connectionReposEmpty")}</p>
           ) : (

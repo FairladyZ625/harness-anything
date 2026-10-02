@@ -7,7 +7,8 @@ import type { SystemRepoRow } from "../../api-client.ts";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import { t } from "../../i18n/index.tsx";
 import { useRepoAdminMutations } from "../../connection-data.ts";
-import { Row, Section } from "../../components/ui/widgets.tsx";
+import { Row } from "../../components/ui/widgets.tsx";
+import { Section } from "../../components/primitives/Section.tsx";
 import { Button } from "../../components/primitives/Button.tsx";
 import { RepoModeBadge, repoModeLabel } from "../../components/RepoModeBadge.tsx";
 import { centerConnectionAvailable, isRemoteProxy } from "./connectionTree.ts";
@@ -63,6 +64,7 @@ export function RepoDetailPanel({
   return (
     <div className="flex flex-col gap-3">
       <Section
+        variant="panel"
         title={t("views.repositories.repoTitle")}
         action={
           <span className="inline-flex items-center gap-1.5">

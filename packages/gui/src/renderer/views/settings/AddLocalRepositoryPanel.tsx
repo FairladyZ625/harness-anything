@@ -6,7 +6,8 @@ import { consumeKnownError } from "../../../api/error-consumption.ts";
 import { t } from "../../i18n/index.tsx";
 import { inspectWorkspace } from "../../connection-admin-client.ts";
 import { useRepoAdminMutations } from "../../connection-data.ts";
-import { Row, Section } from "../../components/ui/widgets.tsx";
+import { Row } from "../../components/ui/widgets.tsx";
+import { Section } from "../../components/primitives/Section.tsx";
 import { Button } from "../../components/primitives/Button.tsx";
 import { RepoModeBadge } from "../../components/RepoModeBadge.tsx";
 import { guiHostBridge } from "../../gui-transport.ts";
@@ -109,7 +110,7 @@ export function AddLocalRepositoryPanel({
         </div>
       ) : null}
 
-      <Section title={t("views.repositories.localReposTitle")}>
+      <Section variant="panel" title={t("views.repositories.localReposTitle")}>
         {repos.length === 0 ? (
           <p className="px-3 py-2 ui-meta text-text-faint">{t("views.repositories.localReposEmpty")}</p>
         ) : (
@@ -125,6 +126,7 @@ export function AddLocalRepositoryPanel({
       </Section>
 
       <Section
+        variant="panel"
         title={t("views.repositories.addLocalTitle")}
         action={
           <Button testId="add-local-choose" onClick={() => void chooseFolder()}>

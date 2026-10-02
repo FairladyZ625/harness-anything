@@ -1,16 +1,6 @@
 import type { ReactNode } from "react";
 
-export function Section({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
-  return (
-    <section className="rounded-lg border border-border bg-surface">
-      <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
-        <span className="font-mono ui-meta uppercase tracking-wide text-text-faint">{title}</span>
-        {action}
-      </div>
-      <div>{children}</div>
-    </section>
-  );
-}
+// 区块(Section)已收敛到 primitives/Section 的 panel 档(C5):本文件不再有第二套区块形状。
 
 /**
  * 设置表单行(标准 §2.5):标签在上、控件在下占满行宽、说明小字垫底——三段竖排,

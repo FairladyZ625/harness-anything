@@ -7,7 +7,8 @@ import { useTheme, type ThemeMode, type UiScale } from "../theme";
 import { useMotionPreference, type MotionPreference } from "../motion-config.tsx";
 import { t, useI18n, type MessageKey } from "../i18n/index.tsx";
 import { STATUS_META } from "../components/badges";
-import { Section, Row, Kbd } from "../components/ui/widgets";
+import { Row, Kbd } from "../components/ui/widgets";
+import { Section } from "../components/primitives/Section.tsx";
 import {
   formatDuration,
   formatRelative,
@@ -127,7 +128,7 @@ export function SettingsView({
         return <RepositorySettingsPanel repoId={repoId} onLocaleLoaded={setLocale} />;
       case "appearance":
         return (
-          <Section title={t("views.settingsView.sectionAppearance")}>
+          <Section variant="panel" title={t("views.settingsView.sectionAppearance")}>
             <Row label={t("views.settingsView.themeLabel")} desc={t("views.settingsView.themeDescription")}>
               <SegCtl
                 value={mode}
@@ -166,7 +167,7 @@ export function SettingsView({
         );
       case "timeDisplay":
         return (
-          <Section title={t("views.settingsView.sectionTimeDisplay")}>
+          <Section variant="panel" title={t("views.settingsView.sectionTimeDisplay")}>
             <Row
               label={t("views.settingsView.timeZoneLabel")}
               desc={t("views.settingsView.timeZoneDescription", { system: systemTimeZone() })}
@@ -248,7 +249,7 @@ export function SettingsView({
         );
       case "language":
         return (
-          <Section title={t("views.settingsView.sectionLanguage")}>
+          <Section variant="panel" title={t("views.settingsView.sectionLanguage")}>
             <Row label={t("settings.language")} desc={t("views.settingsView.languageDescription")}>
               <select
                 aria-label={t("views.settingsView.tabLanguage")}
@@ -272,6 +273,7 @@ export function SettingsView({
       case "shortcuts":
         return (
           <Section
+            variant="panel"
             title={t("views.settingsView.sectionShortcuts")}
             action={
               <Button disabled tip={t("views.settingsView.notSupportedYet")}>
@@ -299,7 +301,7 @@ export function SettingsView({
         );
       case "notifications":
         return (
-          <Section title={t("views.settingsView.sectionNotifications")}>
+          <Section variant="panel" title={t("views.settingsView.sectionNotifications")}>
             <Row
               label={t("views.settingsView.notifyCloseoutReadyLabel")}
               desc={t("views.settingsView.notifyCloseoutReadyDescription")}
@@ -315,7 +317,7 @@ export function SettingsView({
         );
       case "data":
         return (
-          <Section title={t("views.settingsView.sectionData")}>
+          <Section variant="panel" title={t("views.settingsView.sectionData")}>
             <Row
               label={t("views.settingsView.cacheDirectoryLabel")}
               desc={t("views.settingsView.cacheDirectoryDescription")}
@@ -336,7 +338,7 @@ export function SettingsView({
         );
       case "privacy":
         return (
-          <Section title={t("views.settingsView.sectionPrivacy")}>
+          <Section variant="panel" title={t("views.settingsView.sectionPrivacy")}>
             <Row label={t("views.settingsView.telemetryLabel")} desc={t("views.settingsView.telemetryDescription")}>
               <Toggle label={t("views.settingsView.telemetryLabel")} checked={false} disabled />
             </Row>
@@ -344,7 +346,7 @@ export function SettingsView({
         );
       case "sync":
         return (
-          <Section title={t("views.settingsView.sectionSync")}>
+          <Section variant="panel" title={t("views.settingsView.sectionSync")}>
             <div className="flex items-center gap-3 border-b border-border px-3 py-2.5">
               <CloudSlash weight="duotone" className="shrink-0 text-xl text-text-faint" />
               <p className="ui-meta min-w-0 flex-1 text-text-muted">

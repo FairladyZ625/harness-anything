@@ -3,7 +3,8 @@ import { Button } from "../../components/primitives/Button.tsx";
 import { useEffect, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { t, type MessageKey } from "../../i18n/index.tsx";
-import { Section, Row, SettingSelect, type SelectorOption } from "../../components/ui/widgets";
+import { Row, SettingSelect, type SelectorOption } from "../../components/ui/widgets";
+import { Section } from "../../components/primitives/Section.tsx";
 import { useSettingsMutation, useSettingsQuery } from "../../settings-data.ts";
 import { useCatalogSnapshot } from "../../catalog-data.ts";
 import { agentEntityClient, isAvailableAgentEntityRow, type AgentEntityRow } from "../../agent-entity-client.ts";
@@ -200,25 +201,26 @@ export function RepositorySettingsPanel({
 
   if (repoId === null)
     return (
-      <Section title={t("views.settingsView.sectionRepository")}>
+      <Section variant="panel" title={t("views.settingsView.sectionRepository")}>
         <div className="p-4 ui-meta text-text-faint">{t("views.settingsView.repositoryTabNeedsRepo")}</div>
       </Section>
     );
   if (settingsQuery.error)
     return (
-      <Section title={t("views.settingsView.sectionRepository")}>
+      <Section variant="panel" title={t("views.settingsView.sectionRepository")}>
         <div className="p-4 text-danger">{String(settingsQuery.error)}</div>
       </Section>
     );
   if (settingsQuery.isPending)
     return (
-      <Section title={t("views.settingsView.sectionRepository")}>
+      <Section variant="panel" title={t("views.settingsView.sectionRepository")}>
         <div className="p-4 ui-meta text-text-faint">{t("views.settingsView.readingSettings")}</div>
       </Section>
     );
   return (
     <div className="flex flex-col gap-4">
       <Section
+        variant="panel"
         title={t("views.settingsView.sectionRepository")}
         action={
           <Button
@@ -265,7 +267,7 @@ export function RepositorySettingsPanel({
         ) : null}
       </Section>
       {groups.length === 0 ? (
-        <Section title={t("views.settingsView.sectionRepository")}>
+        <Section variant="panel" title={t("views.settingsView.sectionRepository")}>
           <div className="p-4 ui-meta text-text-faint">{t("views.settingsView.readingSettings")}</div>
         </Section>
       ) : (
@@ -276,6 +278,7 @@ export function RepositorySettingsPanel({
             expanded = !group.advanced || advancedOpen || searching;
           return (
             <Section
+              variant="panel"
               key={group.id || "ungrouped"}
               title={groupTitle(group.id)}
               action={
